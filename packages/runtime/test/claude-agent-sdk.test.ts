@@ -4744,3 +4744,75 @@ test("Claude SDK resolved output ceiling overrides inherited 32K in process and 
     else process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = inherited;
   }
 });
+
+test("Claude session context windows override inherited settings without mutating the host", async () => {
+  const inherited = process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS;
+  process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = "200000";
+  const captured: Record<string, unknown>[] = [];
+  try {
+    const driver = new ClaudeAgentSdkDriver({
+      apiKey: "local-test",
+      baseUrl: "http://127.0.0.1:36037",
+      loadSdk: async () => ({
+        query: ({ options }) => {
+          captured.push(options);
+          return {
+            close() {},
+            async *[Symbol.asyncIterator]() {
+              yield { type: "result", subtype: "success", num_turns: 1, session_id: crypto.randomUUID() };
+            },
+          };
+        },
+      }),
+    });
+    await Promise.all(
+      [262_144, 524_288].map(async (contextWindow) => {
+        const planner = routes[0];
+        if (!planner) throw new Error("Missing planner test route.");
+        for await (const _event of driver.runAsk({
+          threadId: `thr_context_${contextWindow}`,
+          prompt: "Check context window",
+          workspacePath: "/tmp",
+          worktreePath: "/tmp",
+          routes: [{ ...planner, primary: { ...planner.primary, contextWindow } }],
+          signal: new AbortController().signal,
+        })) {
+          // Consume both concurrent sessions.
+        }
+      }),
+    );
+    expect(captured).toHaveLength(2);
+    expect(
+      captured
+        .map((options) => (options.env as Record<string, string>).CLAUDE_CODE_MAX_CONTEXT_TOKENS)
+        .sort(),
+    ).toEqual(["262144", "524288"]);
+    expect(
+      captured
+        .map(
+          (options) =>
+            (options.settings as { env: Record<string, string> }).env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,
+        )
+        .sort(),
+    ).toEqual(["262144", "524288"]);
+    expect(process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("200000");
+    const settings: Record<string, unknown> = {
+      settings: { env: { CLAUDE_CODE_MAX_CONTEXT_TOKENS: "200000" } },
+    };
+    applyEcoSdkSettings(settings, "router", "http://127.0.0.1", { contextWindow: 262_144 });
+    expect((settings.settings as { env: Record<string, string> }).env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe(
+      "262144",
+    );
+    for (const contextWindow of [NaN, Infinity, 0, -1, 1.5]) {
+      expect(() =>
+        buildSdkProcessEnv({ apiKey: "router", baseUrl: "http://127.0.0.1", contextWindow }),
+      ).toThrow("valid resolved context window");
+      expect(() => applyEcoSdkSettings({}, "router", "http://127.0.0.1", { contextWindow })).toThrow(
+        "valid resolved context window",
+      );
+    }
+  } finally {
+    if (inherited === undefined) delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS;
+    else process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = inherited;
+  }
+});

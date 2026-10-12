@@ -1276,6 +1276,9 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       env: buildSdkProcessEnv({
         apiKey: this.options.apiKey,
         baseUrl: this.options.baseUrl,
+        ...(plannerRoute.primary.contextWindow !== undefined && {
+          contextWindow: plannerRoute.primary.contextWindow,
+        }),
         ...(sdkMaxOutputTokens !== undefined && { maxOutputTokens: sdkMaxOutputTokens }),
         ...(this.options.anthropicAuthMode ? { anthropicAuthMode: this.options.anthropicAuthMode } : {}),
         ...(plannerRoute.thinkingEffort ? { thinkingEffort: plannerRoute.thinkingEffort } : {}),
@@ -1297,7 +1300,10 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
     applyEcoSdkSettings(queryOptions, this.options.apiKey, this.options.baseUrl, {
       ...(allowedSdkBuiltinAgentKeys ? { allowedSdkBuiltinAgentKeys } : {}),
       ...(plannerRoute.primary.contextWindow !== undefined
-        ? { autoCompactWindow: plannerRoute.primary.contextWindow }
+        ? {
+            contextWindow: plannerRoute.primary.contextWindow,
+            autoCompactWindow: plannerRoute.primary.contextWindow,
+          }
         : {}),
       ...(this.options.anthropicAuthMode ? { anthropicAuthMode: this.options.anthropicAuthMode } : {}),
       ...(sdkMaxOutputTokens !== undefined && { maxOutputTokens: sdkMaxOutputTokens }),
@@ -2097,6 +2103,7 @@ export interface BuildSdkProcessEnvOptions {
   baseUrl: string;
   thinkingEffort?: ThinkingEffort;
   anthropicAuthMode?: "api-key" | "bearer";
+  contextWindow?: number;
   maxOutputTokens?: number;
 }
 
@@ -2110,6 +2117,9 @@ export function buildSdkProcessEnv(options: BuildSdkProcessEnvOptions): Record<s
   }
   env.ANTHROPIC_BASE_URL = options.baseUrl.replace(/\/+$/, "");
   env.CLAUDE_AGENT_SDK_CLIENT_APP = "eco-coding";
+  if (options.contextWindow !== undefined) {
+    env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = serializeSdkContextWindow(options.contextWindow);
+  }
   if (options.maxOutputTokens !== undefined) {
     if (!Number.isSafeInteger(options.maxOutputTokens) || options.maxOutputTokens < 1) {
       throw new Error("Claude SDK requires a valid resolved max output token ceiling.");
@@ -2132,6 +2142,13 @@ export function buildSdkProcessEnv(options: BuildSdkProcessEnvOptions): Record<s
 
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
   return env;
+}
+
+function serializeSdkContextWindow(contextWindow: number): string {
+  if (!Number.isSafeInteger(contextWindow) || contextWindow < 2) {
+    throw new Error("Claude SDK requires a valid resolved context window.");
+  }
+  return String(contextWindow);
 }
 
 export function getDefaultAllowedTools(): string[] {
@@ -2204,6 +2221,7 @@ export function applyEcoSdkSettings(
     allowedSdkBuiltinAgentKeys?: readonly string[];
     autoCompactWindow?: number;
     anthropicAuthMode?: "api-key" | "bearer";
+    contextWindow?: number;
     maxOutputTokens?: number;
   } = {},
 ): void {
@@ -2229,6 +2247,11 @@ export function applyEcoSdkSettings(
       ...existingEnv,
       ANTHROPIC_BASE_URL: baseUrl.replace(/\/+$/, ""),
       CLAUDE_CODE_ATTRIBUTION_HEADER: "0",
+      ...(options.contextWindow !== undefined
+        ? {
+            CLAUDE_CODE_MAX_CONTEXT_TOKENS: serializeSdkContextWindow(options.contextWindow),
+          }
+        : {}),
       ...(options.maxOutputTokens !== undefined
         ? {
             CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(options.maxOutputTokens),
