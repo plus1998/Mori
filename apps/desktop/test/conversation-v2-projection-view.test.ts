@@ -421,6 +421,82 @@ test("ephemeral thinkingDisplayMode presents raw thinking like summary tips", ()
   expect(blocks).not.toContain("thinking");
 });
 
+test("retry startup cannot resurrect a reasoning tip from a terminal attempt", () => {
+  const oldTip = item({
+    id: "old-tip",
+    eventType: "thinking.final",
+    role: "thinking",
+    runAttemptId: "old-run",
+    streamKey: "old-tip",
+    text: "旧运行提示",
+    metadata: { reasoningDisplay: "raw" },
+  });
+  const newTip = item({
+    ...oldTip,
+    id: "new-tip",
+    runAttemptId: "retry-run",
+    streamKey: "new-tip",
+    text: "重试提示",
+    sequence: 2,
+  });
+  for (const status of ["completed", "failed", "cancelled"] as const) {
+    const snapshot = projection({
+      timeline: [oldTip],
+      attempts: [
+        { attemptId: "old-run", phase: "main", retryIndex: 0, status, startedAt: oldTip.at },
+        { attemptId: "retry-run", phase: "main", retryIndex: 1, status: "running", startedAt: newTip.at },
+      ],
+    });
+    expect(buildThreadRunProjectionViewModel(snapshot, undefined, { thinkingDisplayMode: "ephemeral" }).mainItemIds)
+      .toEqual([]);
+    expect(buildThreadRunProjectionViewModel({ ...snapshot, timeline: [oldTip, newTip] }, undefined, {
+      thinkingDisplayMode: "ephemeral",
+    }).mainItemIds).toEqual(["new-tip"]);
+    // Expiry applies to temporary tips; the raw history remains inspectable.
+    for (const thinkingDisplayMode of ["collapsed", "expanded"] as const) {
+      expect(buildThreadRunProjectionViewModel(snapshot, undefined, { thinkingDisplayMode }).mainItemIds)
+        .toEqual(["old-tip"]);
+    }
+  }
+});
+
+test("subagent cards clear stopped tips and their copied latestActivity while the parent runs", () => {
+  const tip = item({
+    id: "child-tip",
+    eventType: "thinking.final",
+    scope: "agent",
+    agentId: "child",
+    role: "thinking",
+    text: "子代理临时提示",
+    metadata: { reasoningDisplay: "raw" },
+  });
+  for (const status of ["stopped", "abandoned", "active", "launching"] as const) {
+    const model = buildThreadRunProjectionViewModel(projection({
+      agents: [agent({ agentId: "child", status, timeline: [tip], latestActivity: tip.text })],
+    }), undefined, { thinkingDisplayMode: "ephemeral" });
+    const card = requireValue(model.subagentCards[0], "child card");
+    if (status === "active" || status === "launching") {
+      expect(card.timelineIds).toEqual(["child-tip"]);
+      expect(card.statusText).toContain(tip.text);
+    } else {
+      expect(card.timelineIds).toEqual([]);
+      expect(card.statusText).toBeUndefined();
+      expect(card.agent.latestActivity).toBeUndefined();
+    }
+  }
+});
+
+test("a stopped conversation clears tips even when a subagent registry row is still active", () => {
+  const tip = item({ id: "child-tip", eventType: "thinking.final", text: "临时提示" });
+  const model = buildThreadRunProjectionViewModel(projection({
+    thread: { threadId: "thread", status: "idle", generatedAt: tip.at },
+    agents: [agent({ agentId: "child", status: "active", timeline: [tip], latestActivity: tip.text })],
+  }), undefined, { thinkingDisplayMode: "ephemeral" });
+  const card = requireValue(model.subagentCards[0], "child card");
+  expect(card.timelineIds).toEqual([]);
+  expect(card.statusText).toBeUndefined();
+});
+
 test("buildThreadRunProjectionViewModel reuses a running tool slot for the latest reasoning summary", () => {
   const beforeTool = buildThreadRunProjectionViewModel(
     projection({

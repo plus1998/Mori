@@ -410,6 +410,7 @@ List<ActivityFeedEntry> buildActivityFeed({
   bool groupTurns = true,
   bool groupActions = true,
   ThinkingDisplayMode thinkingDisplayMode = defaultThinkingDisplayMode,
+  bool? conversationLive,
 }) {
   if (!isProjectionFeedReady(runProjection)) {
     return const [];
@@ -422,6 +423,7 @@ List<ActivityFeedEntry> buildActivityFeed({
     subagentSessions: subagentSessions,
     l10n: strings,
     thinkingDisplayMode: thinkingDisplayMode,
+    conversationLive: conversationLive,
   );
   final groupedActions = groupActions
       ? groupActivityFeedActionEntries(projected, l10n: strings)

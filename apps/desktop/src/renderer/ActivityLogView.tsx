@@ -157,6 +157,7 @@ import {
   isProjectionRequestActive,
   isProjectionSubagentPromptItem,
   isProjectionUserPromptItem,
+  isThreadConversationStopped,
   projectionItemToDetailBlock,
   readProjectionAgentDelegation,
   readProjectionToolMetadata,
@@ -489,13 +490,7 @@ function useComposerAgentSilenceEffect(
 }
 
 function isThreadStoppedForFinalSummary(status: string): boolean {
-  return (
-    status === "completed" ||
-    status === "failed" ||
-    status === "blocked" ||
-    status === "cancelled" ||
-    status === "idle"
-  );
+  return isThreadConversationStopped(status);
 }
 
 /**
@@ -1267,6 +1262,7 @@ export function subagentCardVisibleRows(
     options.requestSpansById as never,
     true,
     options.thinkingDisplayMode,
+    agent.status === "active" || agent.status === "launching",
   ).filter((item) => !shouldSuppressSubagentCardTimelineItem(item, missionDisplay));
   return collapseConsecutiveThinkingTimelineItems(collapsed);
 }
@@ -4178,9 +4174,10 @@ export const ProjectionSubagentDetailFeed = memo(function ProjectionSubagentDeta
       requestSpansById,
       true,
       resolvedThinkingDisplayMode,
+      running,
     ).filter((item) => !shouldSuppressSubagentCardTimelineItem(item, missionDisplay));
     return collapseConsecutiveThinkingTimelineItems(collapsed);
-  }, [agent.timeline, missionDisplay, requestSpansById, resolvedThinkingDisplayMode]);
+  }, [agent.timeline, missionDisplay, requestSpansById, resolvedThinkingDisplayMode, running]);
   const detailFeedEntries = useStableSubagentDetailFeedEntries(agent.agentId, visibleTimeline);
   const turns = useMemo(() => buildSubagentDetailTurns(detailFeedEntries, agent), [agent, detailFeedEntries]);
   const latestTimelineItem = visibleTimeline.at(-1);

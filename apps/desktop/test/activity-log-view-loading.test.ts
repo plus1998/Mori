@@ -1590,6 +1590,68 @@ test("ActivityLogView renders reasoning-stage as ephemeral tip status", () => {
   expect(completedHtml).toContain("运行了命令");
 });
 
+test("ActivityLogView stops playing the ephemeral reasoning tip once the conversation is no longer live", () => {
+  // 阅后即焚 tip has no durable form. A run that ended without a superseding hard
+  // event (crash / lost runtime — nothing lands after the tip) must not leave the
+  // tip parked on the Feed still cycling its stages.
+  for (const status of ["failed", "cancelled", "blocked", "completed", "idle"]) {
+    const html = renderToStaticMarkup(
+      createElement(ProjectionActivityLogView, {
+        projection: projection({
+          status,
+          timeline: [
+            item({
+              id: `stage-${status}`,
+              eventType: "thinking.final",
+              role: "thinking",
+              sequence: 1,
+              streamKey: "rs_stage_stopped",
+              text: "定位入口\n检查测试",
+              metadata: { reasoningDisplay: "summary" },
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(html).not.toContain("定位入口");
+    expect(html).not.toContain("run-log-thinking streaming empty");
+    expect(html).not.toContain("run-log-shimmer-text");
+    expect(html).not.toContain("run-log-thinking-carousel");
+  }
+
+  // The shape the dev store actually holds after an interrupted run: the tip is the last
+  // content row, and the only thing after it is a lifecycle row, which is not one of the
+  // superseding event types.
+  const interruptedHtml = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "idle",
+        timeline: [
+          item({
+            id: "stage-interrupted",
+            eventType: "thinking.final",
+            role: "thinking",
+            sequence: 1,
+            streamKey: "rs_interrupted",
+            text: "检查测试",
+            metadata: { reasoningDisplay: "summary" },
+          }),
+          item({
+            id: "agent-interrupted",
+            eventType: "agent.interrupted",
+            role: "planner",
+            sequence: 2,
+            text: "",
+          }),
+        ],
+      }),
+    }),
+  );
+  expect(interruptedHtml).not.toContain("检查测试");
+  expect(interruptedHtml).not.toContain("run-log-thinking streaming empty");
+  expect(interruptedHtml).not.toContain("run-log-thinking-carousel");
+});
+
 test("ActivityLogView keeps empty waiting and reasoning summary mutually exclusive in one active-tail", () => {
   const html = renderToStaticMarkup(
     createElement(ProjectionActivityLogView, {

@@ -1681,7 +1681,7 @@ void main() {
   });
 
   test(
-    'buildActivityFeed presents raw thinking as ephemeral tips by default',
+    'buildActivityFeed presents raw thinking as ephemeral tips while running',
     () {
       ActivityFeedEntry buildThinking(ThreadRunProjectionTimelineItem item) {
         return _flattenFeed(
@@ -1691,7 +1691,7 @@ void main() {
             groupTurns: false,
             runProjection: ThreadRunProjectionSnapshot(
               threadId: 't1',
-              status: 'completed',
+              status: 'running',
               generatedAt: item.at,
               sourceEventCount: 1,
               agents: const [],

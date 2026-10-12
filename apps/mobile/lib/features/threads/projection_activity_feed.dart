@@ -11,6 +11,7 @@ import '../../core/utils/agent_mission.dart';
 import '../../core/utils/reasoning_summary.dart';
 import '../../core/utils/stream_text.dart';
 import '../../core/utils/subagent_projection_feed.dart';
+import '../../core/utils/thread_status.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'activity_feed.dart';
 
@@ -348,9 +349,18 @@ List<ActivityFeedEntry> buildProjectionActivityFeed({
   List<ThreadSubagentSessionTiming> subagentSessions = const [],
   required AppLocalizations l10n,
   ThinkingDisplayMode thinkingDisplayMode = defaultThinkingDisplayMode,
+  bool? conversationLive,
 }) {
   final requestSpansById = {
     for (final span in projection.requestSpans) span.requestId: span,
+  };
+  // The session supplies its joined lifecycle/V2 clock when run coverage is absent.
+  // Missing run rows alone do not establish that a conversation is live.
+  final feedLive =
+      conversationLive ?? !isThreadStoppedForMessageMeta(projection.status);
+  final terminalAttemptIds = {
+    for (final attempt in projection.attempts)
+      if (!attempt.isRunning) attempt.attemptId,
   };
   final sessionsByAgentId = indexSubagentSessionsByAgentId(subagentSessions);
   final slots = <_ProjectionFeedSlot>[];
@@ -419,7 +429,18 @@ List<ActivityFeedEntry> buildProjectionActivityFeed({
           agent.timeline,
           requestSpansById,
           thinkingDisplayMode: thinkingDisplayMode,
+          conversationLive: feedLive && agent.isRunning,
+          terminalAttemptIds: terminalAttemptIds,
         );
+        final hiddenThinkingActivity =
+            agent.latestActivity != null &&
+            agent.timeline.any(
+              (item) =>
+                  (item.eventType == 'thinking.delta' ||
+                      item.eventType == 'thinking.final') &&
+                  item.text.trim() == agent.latestActivity!.trim() &&
+                  !displayTimeline.any((visible) => visible.id == item.id),
+            );
         final displayAgent = ThreadRunProjectionAgent(
           agentId: agent.agentId,
           role: agent.role,
@@ -436,7 +457,7 @@ List<ActivityFeedEntry> buildProjectionActivityFeed({
           nickname: agent.nickname,
           parentAgentId: agent.parentAgentId,
           parentToolUseId: agent.parentToolUseId,
-          latestActivity: agent.latestActivity,
+          latestActivity: hiddenThinkingActivity ? null : agent.latestActivity,
           endedAt: agent.endedAt,
           runAttemptId: agent.runAttemptId,
         );
@@ -459,6 +480,8 @@ List<ActivityFeedEntry> buildProjectionActivityFeed({
       rawMainTimeline,
       requestSpansById,
       thinkingDisplayMode: thinkingDisplayMode,
+      conversationLive: feedLive,
+      terminalAttemptIds: terminalAttemptIds,
     ),
     subagentCards,
     requestSpansById,
@@ -732,11 +755,15 @@ List<ThreadRunProjectionTimelineItem> _filterMainTimelineForFeed(
   List<ThreadRunProjectionTimelineItem> timeline,
   Map<String, ThreadRunProjectionRequestSpan> requestSpansById, {
   ThinkingDisplayMode thinkingDisplayMode = defaultThinkingDisplayMode,
+  bool conversationLive = true,
+  Set<String> terminalAttemptIds = const {},
 }) {
   final displayTimeline = _filterProjectionTimelineForDetailFeed(
     timeline,
     requestSpansById,
     thinkingDisplayMode: thinkingDisplayMode,
+    conversationLive: conversationLive,
+    terminalAttemptIds: terminalAttemptIds,
   );
   final filtered = displayTimeline
       .where(
@@ -835,6 +862,8 @@ List<ThreadRunProjectionTimelineItem> _filterProjectionTimelineForDetailFeed(
   List<ThreadRunProjectionTimelineItem> timeline,
   Map<String, ThreadRunProjectionRequestSpan> requestSpansById, {
   ThinkingDisplayMode thinkingDisplayMode = defaultThinkingDisplayMode,
+  bool conversationLive = true,
+  Set<String> terminalAttemptIds = const {},
 }) {
   final built = _buildProjectionDisplayTimelineItems(
     timeline,
@@ -846,6 +875,8 @@ List<ThreadRunProjectionTimelineItem> _filterProjectionTimelineForDetailFeed(
       : built;
   final displayTimeline = collapseEphemeralReasoningSummaryTimeline(
     forCollapse,
+    conversationLive: conversationLive,
+    terminalAttemptIds: terminalAttemptIds,
   );
   final failedTools = displayTimeline
       .where((item) => item.eventType == 'tool.failed')

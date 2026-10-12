@@ -1723,6 +1723,7 @@ class _ActivityFeedView extends ConsumerWidget {
           conversationV2.projectionExtras?.subagentTimings ?? const [],
       l10n: context.l10n,
       thinkingDisplayMode: thinkingDisplayMode,
+      conversationLive: isRunning,
     );
     final displayFeedEntries = resolveThreadSessionDisplayFeedEntries(
       feedEntries: feedEntries,

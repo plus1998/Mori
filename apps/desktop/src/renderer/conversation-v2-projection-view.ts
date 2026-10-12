@@ -157,17 +157,37 @@ export function buildThreadRunProjectionViewModel(
   const thinkingDisplayMode = options.thinkingDisplayMode;
   const hasProjectedUserPrompt = projection.timeline.some(isProjectionUserPromptItem);
   const showThreadPrompt = Boolean(thread?.prompt.trim() && !hasProjectedUserPrompt);
+  const conversationLive = !isThreadConversationStopped(projection.thread.status);
+  const terminalAttemptIds = new Set(
+    projection.attempts.filter((attempt) => attempt.status !== "running").map((attempt) => attempt.attemptId),
+  );
   const requestSpansById = buildDisplayRequestSpansById(projection);
   const subagentCards = projection.agents
     .filter((agent) => agent.kind === "subagent")
     .map((agent) => {
+      const running = agent.status === "active" || agent.status === "launching";
       const displayTimeline = filterProjectionTimelineForDetailFeed(
         agent.timeline,
         requestSpansById,
         includePromptCacheTips,
         thinkingDisplayMode,
+        conversationLive && running,
+        terminalAttemptIds,
       );
       const displayAgent: ThreadRunProjectionAgent = { ...agent, timeline: displayTimeline };
+      // V2's latestActivity is copied from the raw timeline; it must not echo a tip
+      // that the display lifecycle has already removed.
+      if (
+        agent.latestActivity &&
+        agent.timeline.some(
+          (item) =>
+            (item.eventType === "thinking.delta" || item.eventType === "thinking.final") &&
+            item.text.trim() === agent.latestActivity?.trim() &&
+            !displayTimeline.some((visible) => visible.id === item.id),
+        )
+      ) {
+        delete displayAgent.latestActivity;
+      }
       const statusText = resolveProjectionAgentStatusText(displayAgent);
       const missionText = resolveSubagentCardMissionText(agent, {
         mainTimeline: projection.timeline,
@@ -176,7 +196,7 @@ export function buildThreadRunProjectionViewModel(
         key: agent.agentId,
         agent: displayAgent,
         timelineIds: displayTimeline.map((item) => item.id),
-        running: agent.status === "active" || agent.status === "launching",
+        running,
         missionText,
         openable: !isAcpSubagentAgentId(agent.agentId),
         promptImages: resolveSubagentPromptImages(agent, projection.timeline),
@@ -189,6 +209,8 @@ export function buildThreadRunProjectionViewModel(
     requestSpansById,
     includePromptCacheTips,
     thinkingDisplayMode,
+    conversationLive,
+    terminalAttemptIds,
   );
   return {
     showThreadPrompt,
@@ -272,9 +294,18 @@ function buildProjectionMainFeedEntries(
   requestSpansById: ReadonlyMap<string, ThreadRunProjectionSnapshot["requestSpans"][number]>,
   includePromptCacheTips = true,
   thinkingDisplayMode: ThinkingDisplayMode = "collapsed",
+  conversationLive = true,
+  terminalAttemptIds?: ReadonlySet<string>,
 ): ThreadRunProjectionMainFeedEntry[] {
   const displayMainTimeline = filterAbsorbedSubagentDelegations(
-    filterMainTimelineForFeed(mainTimeline, requestSpansById, includePromptCacheTips, thinkingDisplayMode),
+    filterMainTimelineForFeed(
+      mainTimeline,
+      requestSpansById,
+      includePromptCacheTips,
+      thinkingDisplayMode,
+      conversationLive,
+      terminalAttemptIds,
+    ),
     subagentCards,
     requestSpansById,
   );
@@ -554,12 +585,16 @@ function filterMainTimelineForFeed(
   requestSpansById: ReadonlyMap<string, ThreadRunProjectionSnapshot["requestSpans"][number]>,
   includePromptCacheTips = true,
   thinkingDisplayMode: ThinkingDisplayMode = "collapsed",
+  conversationLive = true,
+  terminalAttemptIds?: ReadonlySet<string>,
 ): ThreadRunProjectionTimelineItem[] {
   const displayTimeline = filterProjectionTimelineForDetailFeed(
     timeline,
     requestSpansById,
     includePromptCacheTips,
     thinkingDisplayMode,
+    conversationLive,
+    terminalAttemptIds,
   );
   const requestFiltered = displayTimeline.filter(
     (item) => item.scope !== "agent" && !isMainTimelineNoiseItem(item, displayTimeline),
@@ -706,6 +741,8 @@ export function filterProjectionTimelineForDetailFeed(
   requestSpansById: ReadonlyMap<string, ThreadRunProjectionSnapshot["requestSpans"][number]>,
   includePromptCacheTips = true,
   thinkingDisplayMode: ThinkingDisplayMode = "collapsed",
+  conversationLive = true,
+  terminalAttemptIds?: ReadonlySet<string>,
 ): ThreadRunProjectionTimelineItem[] {
   const built = buildProjectionDisplayTimelineItems(
     withContextCompactionTimings(timeline),
@@ -724,6 +761,8 @@ export function filterProjectionTimelineForDetailFeed(
     : built;
   const displayTimeline = collapseEphemeralReasoningSummaryTimeline(
     collapsePromptCacheTimelineItems(forCollapse),
+    conversationLive,
+    terminalAttemptIds,
   );
   const requestsWithStreamRows = new Set(
     displayTimeline
@@ -1038,9 +1077,32 @@ export function collapseLiveReasoningSummaryTimeline(
   return collapseEphemeralReasoningSummaryTimeline(timeline);
 }
 
+/**
+ * Statuses where the conversation has left its live statuses. Kept next to the tip
+ * lifecycle so the Feed's「正在思考」gate and the tip's own expiry cannot drift apart.
+ */
+export function isThreadConversationStopped(status: string): boolean {
+  return (
+    status === "completed" ||
+    status === "failed" ||
+    status === "blocked" ||
+    status === "cancelled" ||
+    status === "idle"
+  );
+}
+
 export function collapseEphemeralReasoningSummaryTimeline(
   timeline: readonly ThreadRunProjectionTimelineItem[],
+  conversationLive = true,
+  terminalAttemptIds?: ReadonlySet<string>,
 ): ThreadRunProjectionTimelineItem[] {
+  if (!conversationLive) {
+    // Supersede-by-event only works while the run keeps producing. A conversation that
+    // stopped without landing a hard event after the tip (crash, lost runtime, restart
+    // recovery) would otherwise park the tip as a durable Feed row — still shimmering and
+    // cycling its stages long after the run ended. 阅后即焚 has no durable form.
+    return timeline.filter((item) => !isReasoningSummaryItem(item));
+  }
   let lastSupersedingIndex = -1;
   let tipSummaryIndex = -1;
   const slotKeyBySummaryIndex = new Map<number, string>();
@@ -1068,7 +1130,11 @@ export function collapseEphemeralReasoningSummaryTimeline(
       if (!isReasoningSummaryItem(item)) {
         return item;
       }
-      if (index <= lastSupersedingIndex || index !== tipSummaryIndex) {
+      if (
+        index <= lastSupersedingIndex ||
+        index !== tipSummaryIndex ||
+        (item.runAttemptId && terminalAttemptIds?.has(item.runAttemptId))
+      ) {
         return undefined;
       }
       const slotKey = slotKeyBySummaryIndex.get(index);
