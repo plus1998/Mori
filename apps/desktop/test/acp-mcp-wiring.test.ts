@@ -60,3 +60,13 @@ test("ACP running threads can still change bashReviewMode via the shared busy-ru
     /coreKind === "acp"[\s\S]{0,180}status === "running"[\s\S]{0,180}请等待当前运行结束后再修改配置/,
   );
 });
+
+test("runtime-config updates that only touch mid-run-safe fields keep the locked snapshot", () => {
+  const start = indexSource.indexOf("IPC_CHANNELS.threadUpdateRuntimeConfig");
+  const slice = indexSource.slice(start, start + 5200);
+  // bashReviewMode + auxiliary / approval / vision selections are re-read per request,
+  // so they patch the stored config instead of rematerializing the session snapshot.
+  expect(slice).toContain("isBusyMutableOnlyRuntimeConfigUpdate(existing, incoming)");
+  expect(slice).toContain("applyBusyMutableRuntimeConfigFields(existing, incoming)");
+  expect(slice).toContain("isBusyMutableOnlyRuntimeConfigUpdate(existing, runtimeConfig)");
+});

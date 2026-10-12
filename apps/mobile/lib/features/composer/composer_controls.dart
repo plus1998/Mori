@@ -2591,6 +2591,7 @@ class ComposerRouteSummary extends ConsumerWidget {
     this.coreKind,
     this.onCoreKindChanged,
     this.hostUiFeatures = AcpHostUiFeatures.showAll,
+    this.canEditStatelessModels,
   });
 
   final ThreadRuntimeConfigInput runtimeConfig;
@@ -2604,6 +2605,10 @@ class ComposerRouteSummary extends ConsumerWidget {
   final String? coreKind;
   final ValueChanged<String>? onCoreKindChanged;
   final AcpHostUiFeatures hostUiFeatures;
+
+  /// Auxiliary / approval / vision requests are stateless, so those pickers stay
+  /// editable during a run. Defaults to [canEdit].
+  final bool? canEditStatelessModels;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -2650,6 +2655,7 @@ class ComposerRouteSummary extends ConsumerWidget {
               runtimeConfig: runtimeConfig,
               threadId: threadId,
               canEdit: canEdit,
+              canEditStatelessModels: canEditStatelessModels ?? canEdit,
               onChanged: onChanged,
               coreKind: coreKind,
               onCoreKindChanged: onCoreKindChanged,
@@ -2661,6 +2667,7 @@ class ComposerRouteSummary extends ConsumerWidget {
               runtimeConfig: runtimeConfig,
               threadId: threadId,
               canEdit: canEdit,
+              canEditStatelessModels: canEditStatelessModels ?? canEdit,
               onChanged: onChanged,
               provider: modelProvider,
               templateModel: snapshot.mainAgent.modelRef,
@@ -2707,6 +2714,7 @@ class ComposerAcpModelControl extends ConsumerStatefulWidget {
     required this.onChanged,
     this.coreKind,
     this.onCoreKindChanged,
+    this.canEditStatelessModels,
   });
 
   final ThreadRuntimeConfigInput runtimeConfig;
@@ -2716,6 +2724,10 @@ class ComposerAcpModelControl extends ConsumerStatefulWidget {
   final String? coreKind;
   final ValueChanged<String>? onCoreKindChanged;
 
+  /// Auxiliary / approval / vision requests are stateless, so those pickers stay
+  /// editable during a run. Defaults to [canEdit].
+  final bool? canEditStatelessModels;
+
   @override
   ConsumerState<ComposerAcpModelControl> createState() =>
       _ComposerAcpModelControlState();
@@ -2724,6 +2736,9 @@ class ComposerAcpModelControl extends ConsumerStatefulWidget {
 class _ComposerAcpModelControlState
     extends ConsumerState<ComposerAcpModelControl> {
   final GlobalKey _anchorKey = GlobalKey();
+
+  bool get _canEditStatelessModels =>
+      widget.canEditStatelessModels ?? widget.canEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -2762,7 +2777,7 @@ class _ComposerAcpModelControlState
       ),
     );
 
-    final interactive = widget.canEdit
+    final interactive = widget.canEdit || _canEditStatelessModels
         ? EcoPressable(
             borderRadius: BorderRadius.circular(8),
             scale: 0.96,
@@ -2779,6 +2794,8 @@ class _ComposerAcpModelControlState
                   onChanged: widget.onChanged,
                   coreKind: widget.coreKind,
                   onCoreKindChanged: widget.onCoreKindChanged,
+                  canEdit: widget.canEdit,
+                  canEditStatelessModels: _canEditStatelessModels,
                 ),
               );
             },
@@ -2787,7 +2804,7 @@ class _ComposerAcpModelControlState
         : label;
 
     return Semantics(
-      button: widget.canEdit,
+      button: widget.canEdit || _canEditStatelessModels,
       label: modelName,
       child: fullModelName.isEmpty
           ? interactive
@@ -2809,6 +2826,8 @@ Future<void> showComposerAcpModelPickerSheet(
   required ValueChanged<ThreadRuntimeConfigInput> onChanged,
   String? coreKind,
   ValueChanged<String>? onCoreKindChanged,
+  bool canEdit = true,
+  bool canEditStatelessModels = true,
 }) {
   return showComposerModelEffortSheet(
     context,
@@ -2821,6 +2840,8 @@ Future<void> showComposerAcpModelPickerSheet(
     templateModel: null,
     coreKind: coreKind,
     onCoreKindChanged: onCoreKindChanged,
+    canEdit: canEdit,
+    canEditStatelessModels: canEditStatelessModels,
   );
 }
 
@@ -2836,6 +2857,7 @@ class ComposerModelEffortControl extends ConsumerStatefulWidget {
     this.workspacePath = '',
     this.coreKind,
     this.onCoreKindChanged,
+    this.canEditStatelessModels,
   });
 
   final ThreadRuntimeConfigInput runtimeConfig;
@@ -2848,6 +2870,10 @@ class ComposerModelEffortControl extends ConsumerStatefulWidget {
   final String? coreKind;
   final ValueChanged<String>? onCoreKindChanged;
 
+  /// Auxiliary / approval / vision requests are stateless, so those pickers stay
+  /// editable during a run. Defaults to [canEdit].
+  final bool? canEditStatelessModels;
+
   @override
   ConsumerState<ComposerModelEffortControl> createState() =>
       _ComposerModelEffortControlState();
@@ -2856,6 +2882,9 @@ class ComposerModelEffortControl extends ConsumerStatefulWidget {
 class _ComposerModelEffortControlState
     extends ConsumerState<ComposerModelEffortControl> {
   final GlobalKey _anchorKey = GlobalKey();
+
+  bool get _canEditStatelessModels =>
+      widget.canEditStatelessModels ?? widget.canEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -2920,7 +2949,7 @@ class _ComposerModelEffortControlState
       ),
     );
 
-    final interactive = widget.canEdit
+    final interactive = widget.canEdit || _canEditStatelessModels
         ? EcoPressable(
             borderRadius: BorderRadius.circular(8),
             scale: 0.96,
@@ -2939,6 +2968,8 @@ class _ComposerModelEffortControlState
                   workspacePath: widget.workspacePath,
                   coreKind: widget.coreKind,
                   onCoreKindChanged: widget.onCoreKindChanged,
+                  canEdit: widget.canEdit,
+                  canEditStatelessModels: _canEditStatelessModels,
                 ),
               );
             },
@@ -2947,7 +2978,7 @@ class _ComposerModelEffortControlState
         : label;
 
     return Semantics(
-      button: widget.canEdit,
+      button: widget.canEdit || _canEditStatelessModels,
       label: '$modelName $effort',
       child: fullModelName.isEmpty
           ? interactive

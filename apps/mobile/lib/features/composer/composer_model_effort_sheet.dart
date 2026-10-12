@@ -52,6 +52,8 @@ Future<void> showComposerModelEffortSheet(
   String workspacePath = '',
   String? coreKind,
   ValueChanged<String>? onCoreKindChanged,
+  bool canEdit = true,
+  bool canEditStatelessModels = true,
 }) {
   final box = anchorKey.currentContext?.findRenderObject() as RenderBox?;
   if (box == null || !box.hasSize) return Future<void>.value();
@@ -81,6 +83,8 @@ Future<void> showComposerModelEffortSheet(
         workspacePath: workspacePath,
         coreKind: coreKind,
         onCoreKindChanged: onCoreKindChanged,
+        canEdit: canEdit,
+        canEditStatelessModels: canEditStatelessModels,
         onDismiss: dismiss,
       );
     },
@@ -103,6 +107,8 @@ class _ComposerCascadeOverlay extends ConsumerStatefulWidget {
     this.workspacePath = '',
     this.coreKind,
     this.onCoreKindChanged,
+    this.canEdit = true,
+    this.canEditStatelessModels = true,
   });
 
   final Rect anchorRect;
@@ -115,6 +121,12 @@ class _ComposerCascadeOverlay extends ConsumerStatefulWidget {
   final String workspacePath;
   final String? coreKind;
   final ValueChanged<String>? onCoreKindChanged;
+  /// Session-bound rows: main model / effort / core kind / orchestration.
+  final bool canEdit;
+
+  /// Auxiliary / approval / vision requests are stateless single-shot calls, so those
+  /// three pickers stay editable while a run is active.
+  final bool canEditStatelessModels;
   final VoidCallback onDismiss;
 
   @override
@@ -195,6 +207,7 @@ class _ComposerCascadeOverlayState
   }
 
   void _persist(MainAgentModelOverride? nextOverride, {bool dismiss = false}) {
+    if (!widget.canEdit) return;
     final next = nextOverride == null
         ? _config.copyWith(clearMainAgentModelOverride: true)
         : _config.copyWith(mainAgentModelOverride: nextOverride);
@@ -209,6 +222,7 @@ class _ComposerCascadeOverlayState
   }
 
   void _selectCoreKind(String value) {
+    if (!widget.canEdit) return;
     if (_coreKind == value) return;
     setState(() => _coreKind = value);
     widget.onCoreKindChanged?.call(value);
@@ -216,6 +230,7 @@ class _ComposerCascadeOverlayState
   }
 
   void _selectCursorModel(String? modelId) {
+    if (!widget.canEdit) return;
     final next = modelId == null
         ? _config.copyWith(clearCursorModelId: true)
         : _config.copyWith(cursorModelId: modelId);
@@ -382,6 +397,7 @@ class _ComposerCascadeOverlayState
     MainAgentPromptSelection? mainPrompt,
     SubagentSelection? subagents,
   }) {
+    if (!widget.canEdit) return;
     final nextConfig = applyOrchestrationSelectionPatch(
       settings: settings,
       runtimeConfig: _config,
@@ -407,6 +423,7 @@ class _ComposerCascadeOverlayState
   }
 
   void _selectAuxiliary(CommitModelOptionView? option) {
+    if (!widget.canEditStatelessModels) return;
     final selection = option == null
         ? null
         : AuxiliaryModelSelection(
@@ -425,6 +442,7 @@ class _ComposerCascadeOverlayState
   }
 
   void _selectApproval(CommitModelOptionView? option) {
+    if (!widget.canEditStatelessModels) return;
     final selection = option == null
         ? null
         : ApprovalModelSelection(
@@ -449,6 +467,7 @@ class _ComposerCascadeOverlayState
   }
 
   void _selectVision(CommitModelOptionView? option) {
+    if (!widget.canEditStatelessModels) return;
     final selection = option == null
         ? null
         : VisionModelSelection(
@@ -918,8 +937,13 @@ class _ComposerCascadeOverlayState
   }) {
     final mainAgentConfigId =
         _config.orchestrationSelection?.mainAgentConfigId.trim() ?? '';
-    final canPickAuxVision = mainAgentConfigId.isNotEmpty || isAcp;
-    final orchestrationEnabled = canPickOrchestration && !settingsLoading;
+    // Auxiliary / approval / vision requests are stateless single-shot calls, so those
+    // three pickers stay switchable while a run locks the session-bound rows.
+    final canPickAuxVision =
+        (mainAgentConfigId.isNotEmpty || isAcp) && widget.canEditStatelessModels;
+    final canEditSession = widget.canEdit;
+    final orchestrationEnabled =
+        canPickOrchestration && !settingsLoading && canEditSession;
     final coreKindDisplay = _coreKindDisplay(l10n);
 
     if (isAcp) {
@@ -932,6 +956,7 @@ class _ComposerCascadeOverlayState
               label: l10n.composerModel,
               value: cursorModelName,
               selected: _branch == _CascadeBranch.cursorModel,
+              enabled: canEditSession,
               onTap: () {
                 HapticFeedback.selectionClick();
                 _setBranch(_CascadeBranch.cursorModel);
@@ -943,6 +968,7 @@ class _ComposerCascadeOverlayState
               value: coreKindDisplay.label,
               valueBadge: coreKindDisplay.badge,
               selected: _branch == _CascadeBranch.agent,
+              enabled: canEditSession,
               onTap: () {
                 HapticFeedback.selectionClick();
                 _setBranch(_CascadeBranch.agent);
@@ -967,6 +993,7 @@ class _ComposerCascadeOverlayState
                   ? l10n.composerNone
                   : composerModelDisplayName(_config.approvalModel!.modelId),
               selected: _branch == _CascadeBranch.approval,
+              enabled: widget.canEditStatelessModels,
               onTap: () {
                 HapticFeedback.selectionClick();
                 _setBranch(_CascadeBranch.approval);
@@ -1010,6 +1037,7 @@ class _ComposerCascadeOverlayState
             label: l10n.composerModel,
             value: modelName,
             selected: _branch == _CascadeBranch.model,
+            enabled: canEditSession,
             onTap: () {
               HapticFeedback.selectionClick();
               _setBranch(_CascadeBranch.model);
@@ -1020,6 +1048,7 @@ class _ComposerCascadeOverlayState
             label: l10n.composerReasoningIntensity,
             value: effortLabel,
             selected: _branch == _CascadeBranch.effort,
+            enabled: canEditSession,
             onTap: () {
               HapticFeedback.selectionClick();
               _setBranch(_CascadeBranch.effort);
@@ -1070,7 +1099,7 @@ class _ComposerCascadeOverlayState
               value: coreKindDisplay.label,
               valueBadge: coreKindDisplay.badge,
               selected: _branch == _CascadeBranch.agent,
-              enabled: _coreKind != null,
+              enabled: _coreKind != null && canEditSession,
               onTap: () {
                 if (_coreKind == null) return;
                 HapticFeedback.selectionClick();
@@ -1120,6 +1149,7 @@ class _ComposerCascadeOverlayState
                   ? l10n.composerNone
                   : composerModelDisplayName(_config.approvalModel!.modelId),
               selected: _branch == _CascadeBranch.approval,
+              enabled: widget.canEditStatelessModels,
               onTap: () {
                 HapticFeedback.selectionClick();
                 _setBranch(_CascadeBranch.approval);

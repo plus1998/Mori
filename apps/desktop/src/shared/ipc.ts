@@ -1493,12 +1493,14 @@ export type {
   VisionModelSelection,
 } from "./thread-runtime-config";
 export {
+  applyBusyMutableRuntimeConfigFields,
   buildAcpThreadRuntimeConfig,
   buildThreadRuntimeConfigFromDefaults,
   deriveSubagentEnabledFromSnapshot,
   hasCompleteOrchestrationSelection,
   isAskSessionMode,
   isBashReviewModeOnlyRuntimeConfigUpdate,
+  isBusyMutableOnlyRuntimeConfigUpdate,
   isThreadRuntimeConfig,
   lockThreadRuntimeConfigSnapshotOnContinue,
   materializeThreadOrchestrationSnapshot,

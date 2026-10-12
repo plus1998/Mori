@@ -242,6 +242,7 @@ import {
   type AgentRole,
   type AgentTemplate,
   type AgentTemplateExportRequest,
+  applyBusyMutableRuntimeConfigFields,
   type BashApprovalRequest,
   type BashApprovalResolvePayload,
   type CandidateModelInput,
@@ -265,7 +266,7 @@ import {
   isBackgroundTerminalOpenRequest,
   isBackgroundTerminalStartRequest,
   isBackgroundTerminalStopRequest,
-  isBashReviewModeOnlyRuntimeConfigUpdate,
+  isBusyMutableOnlyRuntimeConfigUpdate,
   isGitCommitRequest,
   isGitFetchRequest,
   isGitGenerateCommitMessageRequest,
@@ -5478,13 +5479,12 @@ function registerIpcHandlers(): void {
             runtimeConfig = normalizeThreadRuntimeConfig(incoming);
           } else if (
             existing &&
-            isBashReviewModeOnlyRuntimeConfigUpdate(existing, incoming) &&
+            isBusyMutableOnlyRuntimeConfigUpdate(existing, incoming) &&
             existing.resolvedOrchestrationSnapshot
           ) {
-            runtimeConfig = {
-              ...existing,
-              bashReviewMode: incoming.bashReviewMode,
-            };
+            // Only mid-run-safe fields changed (bash review + auxiliary / approval / vision
+            // role selections): keep the locked session snapshot, patch those fields.
+            runtimeConfig = applyBusyMutableRuntimeConfigFields(existing, incoming);
           } else {
             runtimeConfig = materializeThreadRuntimeConfig(settings, incoming);
           }
@@ -5525,7 +5525,7 @@ function registerIpcHandlers(): void {
             JSON.stringify(normalizeThreadRuntimeConfig(existing)) !==
               JSON.stringify(normalizeThreadRuntimeConfig(runtimeConfig));
           conversationStore.saveThreadRuntimeConfig(threadId, runtimeConfig);
-          if (!existing || !isBashReviewModeOnlyRuntimeConfigUpdate(existing, runtimeConfig)) {
+          if (!existing || !isBusyMutableOnlyRuntimeConfigUpdate(existing, runtimeConfig)) {
             noteSdkSessionRouteChange(threadId, roleRoutes);
           }
           const updatedThread = ensureThreadRuntimeConfig(conversationStore.getThread(threadId) ?? thread);

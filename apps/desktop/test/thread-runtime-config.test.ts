@@ -11,6 +11,7 @@ import {
   hasCompleteOrchestrationSelection,
   isAutonomousThreadRuntime,
   isBashReviewModeOnlyRuntimeConfigUpdate,
+  isBusyMutableOnlyRuntimeConfigUpdate,
   isThreadRuntimeConfig,
   lockThreadRuntimeConfigSnapshotOnContinue,
   materializeThreadOrchestrationSnapshot,
@@ -353,7 +354,7 @@ test("bashReviewMode-only update tolerates mobile snapshot round-trip drift", ()
   });
 });
 
-test("busy runtime-config updates allow bashReviewMode only, including ACP", () => {
+test("busy runtime-config updates allow bashReviewMode and stateless role models, including ACP", () => {
   const base = buildAcpThreadRuntimeConfig({
     cursorModelId: "default[]",
   });
@@ -372,6 +373,128 @@ test("busy runtime-config updates allow bashReviewMode only, including ACP", () 
       incoming: { ...base, cursorModelId: "other[]" },
     }),
   ).toEqual({ kind: "blocked" });
+});
+
+test("busy runtime-config updates allow auxiliary / approval / vision switches", () => {
+  const base = buildThreadRuntimeConfigFromDefaults({
+    settings,
+    workflowDefaults: {
+      sessionMode: "agent",
+      defaultOrchestrationSelection: presetBundle.selection,
+    },
+  });
+  const auxiliaryModel = { providerId: "p1", modelId: "m1", candidateModelId: "cand-aux" };
+  const approvalModel = { providerId: "p1", modelId: "m2", candidateModelId: "cand-appr" };
+  const visionModel = { providerId: "p1", modelId: "m3", candidateModelId: "cand-vis" };
+  const incoming = { ...base, auxiliaryModel, approvalModel, visionModel };
+  expect(isBusyMutableOnlyRuntimeConfigUpdate(base, incoming)).toBe(true);
+  expect(
+    resolveBusyThreadRuntimeConfigUpdate({
+      existing: base,
+      incoming,
+    }),
+  ).toEqual({
+    kind: "apply",
+    runtimeConfig: { ...base, auxiliaryModel, approvalModel, visionModel },
+  });
+});
+
+test("busy runtime-config updates can clear a stateless role selection", () => {
+  const base = buildThreadRuntimeConfigFromDefaults({
+    settings,
+    workflowDefaults: {
+      sessionMode: "agent",
+      defaultOrchestrationSelection: presetBundle.selection,
+      defaultAuxiliaryModel: { providerId: "p1", modelId: "m1", candidateModelId: "cand-aux" },
+      defaultVisionModel: { providerId: "p1", modelId: "m3", candidateModelId: "cand-vis" },
+    },
+  });
+  expect(base.auxiliaryModel).toBeDefined();
+  const result = resolveBusyThreadRuntimeConfigUpdate({
+    existing: base,
+    incoming: { ...base, auxiliaryModel: undefined, visionModel: undefined },
+  });
+  expect(result.kind).toBe("apply");
+  if (result.kind !== "apply") {
+    return;
+  }
+  expect(result.runtimeConfig.auxiliaryModel).toBeUndefined();
+  expect(result.runtimeConfig.visionModel).toBeUndefined();
+});
+
+test("busy runtime-config updates reject session-bound fields even next to a role switch", () => {
+  const base = buildThreadRuntimeConfigFromDefaults({
+    settings,
+    workflowDefaults: {
+      sessionMode: "agent",
+      defaultOrchestrationSelection: presetBundle.selection,
+    },
+  });
+  const visionModel = { providerId: "p1", modelId: "m3", candidateModelId: "cand-vis" };
+  const blocked: Array<{ label: string; incoming: typeof base }> = [
+    { label: "sessionMode", incoming: { ...base, sessionMode: "plan" } },
+    { label: "bashReviewMode+vision+sessionMode", incoming: { ...base, visionModel, sessionMode: "plan" } },
+    {
+      label: "mainAgentModelOverride",
+      incoming: { ...base, visionModel, mainAgentModelOverride: { providerId: "p1", modelId: "m9" } },
+    },
+    {
+      label: "mcpServersEnabled",
+      incoming: { ...base, visionModel, mcpServersEnabled: { eco_browser: true } },
+    },
+    { label: "skillsEnabled", incoming: { ...base, visionModel, skillsEnabled: { "a/SKILL.md": true } } },
+    {
+      label: "orchestrationSelection",
+      incoming: {
+        ...base,
+        visionModel,
+        orchestrationSelection: {
+          ...presetBundle.selection,
+          mainAgentConfigId: "user.other.main",
+        },
+      },
+    },
+  ];
+  for (const { label, incoming } of blocked) {
+    expect(resolveBusyThreadRuntimeConfigUpdate({ existing: base, incoming }), label).toEqual({
+      kind: "blocked",
+    });
+  }
+});
+
+test("busy vision switch tolerates mobile snapshot round-trip drift", () => {
+  const base = buildThreadRuntimeConfigFromDefaults({
+    settings,
+    workflowDefaults: {
+      sessionMode: "agent",
+      defaultOrchestrationSelection: presetBundle.selection,
+    },
+  });
+  const withPreset = normalizeThreadRuntimeConfig({
+    ...base,
+    mainAgentSystemPromptPresetOverride: "custom_append",
+  });
+  const visionModel = { providerId: "p1", modelId: "m3", candidateModelId: "cand-vis" };
+  // Mobile drops host-only snapshot / preset fields when it round-trips the config.
+  const lossyMobileIncoming = normalizeThreadRuntimeConfig({
+    ...withPreset,
+    mainAgentSystemPromptPresetOverride: undefined,
+    resolvedOrchestrationSnapshot: undefined,
+    visionModel,
+  });
+  const result = resolveBusyThreadRuntimeConfigUpdate({
+    existing: withPreset,
+    incoming: lossyMobileIncoming,
+  });
+  expect(result.kind).toBe("apply");
+  if (result.kind !== "apply") {
+    return;
+  }
+  expect(result.runtimeConfig.visionModel).toEqual(visionModel);
+  expect(result.runtimeConfig.resolvedOrchestrationSnapshot).toEqual(
+    withPreset.resolvedOrchestrationSnapshot,
+  );
+  expect(result.runtimeConfig.mainAgentSystemPromptPresetOverride).toBe("custom_append");
 });
 
 test("withAgentSessionMode updates session mode", () => {

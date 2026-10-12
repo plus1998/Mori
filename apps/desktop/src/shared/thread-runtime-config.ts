@@ -52,8 +52,8 @@ import {
 } from "./vision-model";
 
 export type {
-  AuxiliaryModelSelection,
   ApprovalModelSelection,
+  AuxiliaryModelSelection,
   BashReviewMode,
   IntegrationsEnabledSettings,
   McpServersEnabledSettings,
@@ -630,22 +630,65 @@ export function isBashReviewModeOnlyRuntimeConfigUpdate(
 }
 
 /**
- * Host-side execution confirmation can change mid-run (Claude/Pi/Codex/ACP).
- * Other runtime-config fields still require the run to finish.
+ * Fields that may change while a run is active:
+ * - `bashReviewMode`: host-side execution confirmation is re-read per tool call.
+ * - `auxiliaryModel` / `approvalModel` / `visionModel`: every auxiliary, approval and
+ *   vision request is a stateless single-shot call; the host re-reads the thread
+ *   selection when the request is made, so a switch only affects the next request.
+ * Everything else (main agent route, orchestration, session mode, MCP / skills /
+ * integrations) is bound to the running session and still requires the run to finish.
+ *
+ * Serialized view of every session-bound field; those busy-mutable fields are neutralized.
  */
+function busyImmutableThreadRuntimeConfigView(config: ThreadRuntimeConfig): string {
+  const {
+    auxiliaryModel: _a,
+    approvalModel: _p,
+    visionModel: _v,
+    ...rest
+  } = threadRuntimeConfigForBashReviewModeCompare(normalizeThreadRuntimeConfig(config));
+  return serializeThreadRuntimeConfigForCompare({ ...rest, bashReviewMode: "auto" });
+}
+
+/** True when `after` differs from `before` only by fields that are safe mid-run. */
+export function isBusyMutableOnlyRuntimeConfigUpdate(
+  before: ThreadRuntimeConfig,
+  after: ThreadRuntimeConfig,
+): boolean {
+  return busyImmutableThreadRuntimeConfigView(before) === busyImmutableThreadRuntimeConfigView(after);
+}
+
+export function applyBusyMutableRuntimeConfigFields(
+  existing: ThreadRuntimeConfig,
+  incoming: ThreadRuntimeConfig,
+): ThreadRuntimeConfig {
+  const { auxiliaryModel, approvalModel, visionModel, bashReviewMode } = incoming;
+  const base = { ...existing };
+  delete base.auxiliaryModel;
+  delete base.approvalModel;
+  delete base.visionModel;
+  return {
+    ...base,
+    bashReviewMode,
+    ...(auxiliaryModel ? { auxiliaryModel } : {}),
+    ...(approvalModel ? { approvalModel } : {}),
+    ...(visionModel ? { visionModel } : {}),
+  };
+}
+
 export function resolveBusyThreadRuntimeConfigUpdate(input: {
   existing: ThreadRuntimeConfig | undefined;
   incoming: ThreadRuntimeConfig;
 }): { kind: "apply"; runtimeConfig: ThreadRuntimeConfig } | { kind: "blocked" } {
-  if (!input.existing || !isBashReviewModeOnlyRuntimeConfigUpdate(input.existing, input.incoming)) {
+  if (!input.existing || !isBusyMutableOnlyRuntimeConfigUpdate(input.existing, input.incoming)) {
     return { kind: "blocked" };
   }
   return {
     kind: "apply",
-    runtimeConfig: {
-      ...input.existing,
-      bashReviewMode: input.incoming.bashReviewMode,
-    },
+    runtimeConfig: applyBusyMutableRuntimeConfigFields(
+      normalizeThreadRuntimeConfig(input.existing),
+      normalizeThreadRuntimeConfig(input.incoming),
+    ),
   };
 }
 

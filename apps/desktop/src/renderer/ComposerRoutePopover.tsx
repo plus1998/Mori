@@ -12,8 +12,8 @@ import {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type {
-  AuxiliaryModelSelection,
   ApprovalModelSelection,
+  AuxiliaryModelSelection,
   CommitModelOptionView,
   MainAgentPromptSelection,
   ModelSettingsSnapshot,
@@ -85,6 +85,11 @@ interface ComposerRoutePopoverProps extends CompositionControlHandlers {
   runtimeConfig?: ThreadRuntimeConfig | undefined;
   busy?: boolean | undefined;
   canEdit?: boolean | undefined;
+  /**
+   * Auxiliary / approval / vision requests are stateless single-shot calls, so those
+   * three selectors stay editable while a run is active. Defaults to `canEdit`.
+   */
+  canEditStatelessModels?: boolean | undefined;
   showOrchestration?: boolean | undefined;
   invalidFields?: readonly OrchestrationFieldKey[] | undefined;
   orchestrationIssues?: readonly OrchestrationFieldIssue[] | undefined;
@@ -100,6 +105,7 @@ interface ComposerRouteCardBodyProps extends CompositionControlHandlers {
   runtimeConfig?: ThreadRuntimeConfig | undefined;
   busy?: boolean | undefined;
   canEdit?: boolean | undefined;
+  canEditStatelessModels?: boolean | undefined;
   showOrchestration?: boolean | undefined;
   invalidFields?: readonly OrchestrationFieldKey[] | undefined;
   orchestrationIssues?: readonly OrchestrationFieldIssue[] | undefined;
@@ -113,6 +119,7 @@ export function ComposerRoutePopover({
   runtimeConfig,
   busy,
   canEdit = true,
+  canEditStatelessModels = canEdit,
   showOrchestration = true,
   invalidFields,
   orchestrationIssues,
@@ -240,6 +247,7 @@ export function ComposerRoutePopover({
         settings={settings}
         runtimeConfig={runtimeConfig}
         disabled={busy || !canEdit}
+        statelessModelsDisabled={busy || !canEditStatelessModels}
         showOrchestration={showOrchestration}
         invalidFields={invalidFields}
         orchestrationIssues={orchestrationIssues}
@@ -261,6 +269,7 @@ export function ComposerRouteCardBody({
   runtimeConfig,
   busy,
   canEdit = false,
+  canEditStatelessModels = canEdit,
   showOrchestration = true,
   invalidFields,
   orchestrationIssues,
@@ -281,6 +290,7 @@ export function ComposerRouteCardBody({
         settings={settings}
         runtimeConfig={runtimeConfig}
         disabled={busy || !canEdit}
+        statelessModelsDisabled={busy || !canEditStatelessModels}
         showOrchestration={showOrchestration}
         invalidFields={invalidFields}
         orchestrationIssues={orchestrationIssues}
@@ -313,6 +323,7 @@ function ComposerRouteCompositionControls({
   settings,
   runtimeConfig,
   disabled,
+  statelessModelsDisabled,
   showOrchestration = true,
   invalidFields,
   orchestrationIssues,
@@ -327,6 +338,7 @@ function ComposerRouteCompositionControls({
   settings: ModelSettingsSnapshot;
   runtimeConfig?: ThreadRuntimeConfig | undefined;
   disabled?: boolean | undefined;
+  statelessModelsDisabled?: boolean | undefined;
   showOrchestration?: boolean | undefined;
   invalidFields?: readonly OrchestrationFieldKey[] | undefined;
   orchestrationIssues?: readonly OrchestrationFieldIssue[] | undefined;
@@ -509,7 +521,7 @@ function ComposerRouteCompositionControls({
           options={auxiliaryModelCascadeOptions}
           loading={auxiliaryModelsLoading}
           error={auxiliaryModelsError}
-          disabled={disabled}
+          disabled={statelessModelsDisabled ?? disabled}
           hint={auxiliaryHint}
           placeholder={t("composer.route.auxiliaryModel")}
           renderExtra={auxiliaryModelPricingExtra}
@@ -528,7 +540,7 @@ function ComposerRouteCompositionControls({
           options={approvalModelCascadeOptions}
           loading={approvalModelsLoading}
           error={approvalModelsError}
-          disabled={disabled}
+          disabled={statelessModelsDisabled ?? disabled}
           hint={t("composer.route.approvalModelHint")}
           placeholder={t("composer.route.approvalModel")}
           renderExtra={approvalModelPricingExtra}
@@ -547,7 +559,7 @@ function ComposerRouteCompositionControls({
           options={auxiliaryModelCascadeOptions}
           loading={auxiliaryModelsLoading}
           error={auxiliaryModelsError}
-          disabled={disabled}
+          disabled={statelessModelsDisabled ?? disabled}
           hint={visionHint}
           placeholder={t("composer.route.visionModel")}
           renderExtra={auxiliaryModelPricingExtra}

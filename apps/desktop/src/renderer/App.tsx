@@ -6322,6 +6322,10 @@ function App() {
   const canEditBashReviewMode = Boolean(composerRuntimeConfig);
   // Route settings remain viewable for every thread state, including an active run;
   // canEditComposerConfig continues to gate every route mutation handler/control.
+  // Auxiliary / approval / vision requests are stateless single-shot calls: the host
+  // re-reads their selection for each request, so they stay switchable mid-run and
+  // take effect on the next auxiliary / approval / vision request.
+  const canEditStatelessModelConfig = !isSavingSettings;
   // Open permission only collapses while settings are saving.
   const canOpenComposerRoute = !isSavingSettings;
   const resetComposerToGlobalSettings = useCallback(async () => {
@@ -8983,7 +8987,7 @@ function App() {
   }
 
   async function selectComposerAuxiliaryModel(selection: AuxiliaryModelSelection) {
-    if (!canEditComposerConfig || !window.eco?.saveWorkflowSettings) {
+    if (!canEditStatelessModelConfig || !window.eco?.saveWorkflowSettings) {
       return;
     }
     const base =
@@ -9002,7 +9006,7 @@ function App() {
     if (!base) {
       return;
     }
-    await persistComposerRuntimeConfig({ ...base, auxiliaryModel: selection });
+    await persistComposerRuntimeConfig({ ...base, auxiliaryModel: selection }, { persistWhileRunning: true });
     try {
       const saved = await window.eco.saveWorkflowSettings({
         ...workflowSettings,
@@ -9015,7 +9019,7 @@ function App() {
   }
 
   async function selectComposerApprovalModel(selection: ApprovalModelSelection) {
-    if (!canEditComposerConfig || !window.eco?.saveWorkflowSettings) {
+    if (!canEditStatelessModelConfig || !window.eco?.saveWorkflowSettings) {
       return;
     }
     const base =
@@ -9034,7 +9038,7 @@ function App() {
     if (!base) {
       return;
     }
-    await persistComposerRuntimeConfig({ ...base, approvalModel: selection });
+    await persistComposerRuntimeConfig({ ...base, approvalModel: selection }, { persistWhileRunning: true });
     try {
       const saved = await window.eco.saveWorkflowSettings({
         ...workflowSettings,
@@ -9047,7 +9051,7 @@ function App() {
   }
 
   async function selectComposerVisionModel(selection: VisionModelSelection) {
-    if (!canEditComposerConfig || !window.eco?.saveWorkflowSettings) {
+    if (!canEditStatelessModelConfig || !window.eco?.saveWorkflowSettings) {
       return;
     }
     const base =
@@ -9069,7 +9073,7 @@ function App() {
     if (!base) {
       return;
     }
-    await persistComposerRuntimeConfig({ ...base, visionModel: selection });
+    await persistComposerRuntimeConfig({ ...base, visionModel: selection }, { persistWhileRunning: true });
     try {
       const saved = await window.eco.saveWorkflowSettings({
         ...workflowSettings,
@@ -10856,6 +10860,7 @@ function App() {
       settings={settings}
       busy={isSavingSettings}
       canEdit={canEditComposerConfig}
+      canEditStatelessModels={canEditStatelessModelConfig}
       showOrchestration={composerNeedsOrchestration}
       invalidFields={invalidOrchestrationFields}
       orchestrationIssues={orchestrationIssues}

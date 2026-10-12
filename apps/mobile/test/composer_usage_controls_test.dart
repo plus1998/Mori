@@ -853,6 +853,8 @@ void main() {
       WidgetTester tester, {
       required Size surface,
       String? coreKind,
+      bool canEdit = true,
+      bool canEditStatelessModels = true,
     }) async {
       // The overlay lays out from MediaQuery.size, which follows the view's
       // physical size / dpr — `setSurfaceSize` only moves the coordinate
@@ -875,7 +877,8 @@ void main() {
                 ? acpRuntimeConfig
                 : modelRuntimeConfig,
             threadId: 'thread-1',
-            canEdit: true,
+            canEdit: canEdit,
+            canEditStatelessModels: canEditStatelessModels,
             coreKind: coreKind,
             onChanged: (_) {},
           ),
@@ -956,6 +959,32 @@ void main() {
         }
       }
     });
+
+    testWidgets(
+      'running sessions lock session rows but still switch aux / approval / vision',
+      (tester) async {
+        // Auxiliary / approval / vision requests are stateless single-shot calls, so
+        // switching them mid-run is allowed; the session-bound rows stay locked.
+        await openSheet(
+          tester,
+          surface: const Size(800, 900),
+          coreKind: 'acp',
+          canEdit: false,
+          canEditStatelessModels: true,
+        );
+
+        // Locked: the Cursor model row cannot open its catalogue.
+        await tester.tap(find.text('Model'));
+        await tester.pumpAndSettle();
+        expect(find.byType(EcoModelCascadeList), findsNothing);
+
+        // Live: the auxiliary row still opens the catalogue.
+        await tester.tap(find.text('Aux'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.byType(EcoModelCascadeList), findsOneWidget);
+      },
+    );
   });
 }
 
