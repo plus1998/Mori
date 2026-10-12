@@ -43,6 +43,8 @@
       "tokens": {"type": "int"}
     }
   },
+  "settingsMaxOutputDynamic": "动态计算",
+  "settingsMaxOutputDynamicCaption": "每次请求按实际窗口 − 本次完整输入 tokens − 1 计算，且不超过模型输出上限。输入计数遵循提供商设置；本地估算并非精确值。",
   "settingsMaxOutput": "最大输出",
   "settingsMaxOutputCaption": "硬顶：实际请求的 max_tokens 为 min(模型配置, 该上限)，未配置时用此默认值，且不超过上下文减 1",
   "settingsMaxOutputTokens": "{tokens} tokens",

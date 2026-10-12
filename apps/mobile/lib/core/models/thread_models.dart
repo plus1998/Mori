@@ -471,9 +471,15 @@ const contextWindowLimitMin = 32768;
 const contextWindowLimitMax = 1048576;
 const contextWindowLimitPresets = <int>[131072, 262144, 524288, 1048576];
 
-const defaultMaxOutputLimitTokens = 32768;
+const defaultMaxOutputLimitTokens = 'dynamic';
 const maxOutputLimitMin = 8192;
 const maxOutputLimitMax = 262144;
+Object normalizeMaxOutputLimitTokens(Object? value) =>
+    value == defaultMaxOutputLimitTokens
+    ? defaultMaxOutputLimitTokens
+    : (_optionalLimitInRange(value, maxOutputLimitMin, maxOutputLimitMax) ??
+          defaultMaxOutputLimitTokens);
+
 const maxOutputLimitPresets = <int>[8192, 16384, 32768, 65536, 131072, 262144];
 
 int? _optionalLimitInRange(Object? value, int min, int max) =>
@@ -576,13 +582,9 @@ class WorkflowSettingsSnapshot {
             contextWindowLimitMax,
           ) ??
           defaultContextWindowLimitTokens,
-      maxOutputLimitTokens:
-          _optionalLimitInRange(
-            json['maxOutputLimitTokens'],
-            maxOutputLimitMin,
-            maxOutputLimitMax,
-          ) ??
-          defaultMaxOutputLimitTokens,
+      maxOutputLimitTokens: normalizeMaxOutputLimitTokens(
+        json['maxOutputLimitTokens'],
+      ),
       defaultOrchestrationSelection: defaultOrchestrationSelection,
       defaultAuxiliaryModel: defaultAuxiliaryModel,
       defaultApprovalModel: defaultApprovalModel,
@@ -620,7 +622,8 @@ class WorkflowSettingsSnapshot {
   final bool showBilling;
   final String defaultBashReviewMode;
   final int contextWindowLimitTokens;
-  final int maxOutputLimitTokens;
+  // Either a fixed token count or the dynamic mode persisted by desktop.
+  final Object maxOutputLimitTokens;
   final OrchestrationSelection? defaultOrchestrationSelection;
   final AuxiliaryModelSelection? defaultAuxiliaryModel;
   final ApprovalModelSelection? defaultApprovalModel;

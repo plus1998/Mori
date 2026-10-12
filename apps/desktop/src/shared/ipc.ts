@@ -967,7 +967,7 @@ export interface WorkflowSettingsSnapshot {
   /** Default execution approval mode for new sessions. Absent → `"always"`. */
   defaultBashReviewMode?: import("../../../../packages/bash-policy/src").BashReviewMode;
   contextWindowLimitTokens: number;
-  maxOutputLimitTokens: number;
+  maxOutputLimitTokens: import("@eco/runtime/models-dev-limits").GlobalMaxOutputTokens;
   /**
    * When a thread is running: `steer` prefers mid-turn inject (streamInput / turn/steer);
    * `queue` only enqueues for post-turn drain. Escalated / "handle now" still tries mid-turn first.

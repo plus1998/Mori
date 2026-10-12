@@ -345,10 +345,10 @@ test("runtimeRouteToProxyRoute defaults missing model max output to global 32K",
   expect(route.maxOutputTokens).toBe(32_768);
 });
 
-test("applyRouteMaxOutputTokens overrides Anthropic max_tokens when configured", () => {
+test("applyRouteMaxOutputTokens preserves a smaller SDK budget", () => {
   const body: Record<string, unknown> = { max_tokens: 16_000, model: "claude-sonnet-4-6" };
   applyRouteMaxOutputTokens(body, 64_000);
-  expect(body.max_tokens).toBe(64_000);
+  expect(body.max_tokens).toBe(16_000);
 });
 
 test("applyRouteMaxOutputTokens is a no-op without configured cap", () => {

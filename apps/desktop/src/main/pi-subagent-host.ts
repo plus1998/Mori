@@ -146,6 +146,10 @@ export function createPiSubagentSpawnHandler(
           ? { contextWindow: bindingRoute.contextTokens }
           : {}),
       globalContextWindowLimit: armed.globalContextWindowLimit,
+      ...(bindingRoute.maxOutputTokens !== undefined && {
+        maxOutputTokens: bindingRoute.maxOutputTokens,
+        globalMaxOutputTokens: bindingRoute.maxOutputTokens,
+      }),
       headers,
     });
     const thinkingLevel = mapEcoThinkingEffortToPiThinkingLevel(route.thinkingEffort);

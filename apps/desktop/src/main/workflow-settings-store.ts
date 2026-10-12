@@ -4,7 +4,8 @@ import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import {
   type CoreKind,
   DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT,
-  DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
+  DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT,
+  type GlobalMaxOutputTokens,
   type EcoOrchestrationMode,
   isCoreKind,
   isGlobalContextWindowLimit,
@@ -75,7 +76,7 @@ export interface WorkflowSettingsSnapshot {
    */
   defaultBashReviewMode?: BashReviewMode;
   contextWindowLimitTokens: number;
-  maxOutputLimitTokens: number;
+  maxOutputLimitTokens: GlobalMaxOutputTokens;
   followUpDeliveryMode: FollowUpDeliveryMode;
   defaultOrchestrationSelection?: OrchestrationSelection;
   defaultAuxiliaryModel?: AuxiliaryModelSelection;
@@ -92,7 +93,7 @@ export function defaultWorkflowSettings(): WorkflowSettingsSnapshot {
     showBilling: true,
     defaultBashReviewMode: "always",
     contextWindowLimitTokens: DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT,
-    maxOutputLimitTokens: DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
+    maxOutputLimitTokens: DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT,
     followUpDeliveryMode: DEFAULT_FOLLOW_UP_DELIVERY_MODE,
   };
 }
@@ -578,17 +579,17 @@ export class WorkflowSettingsStore {
     }
   }
 
-  private readMaxOutputLimitTokens(): number {
+  private readMaxOutputLimitTokens(): GlobalMaxOutputTokens {
     const row = this.db
       .prepare(`SELECT value_json FROM workflow_settings WHERE key = ?`)
       .get("max_output_limit_tokens") as { value_json: string } | undefined;
     if (!row?.value_json?.trim()) {
-      return DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS;
+      return DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT;
     }
     try {
       return normalizeGlobalMaxOutputTokens(JSON.parse(row.value_json) as unknown);
     } catch {
-      return DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS;
+      return DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT;
     }
   }
 

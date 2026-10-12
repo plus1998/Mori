@@ -21,6 +21,7 @@ import {
   resolveAnthropicStreamUsage,
   trackAnthropicStreamUsage,
 } from "../anthropic-stream-usage.js";
+import { applyModelOutputLimit, withDynamicOutputBudget } from "../model-output-limit.js";
 import {
   applyGatewayResponsesPromptCacheHints,
   buildResolveProviderRouteOptions,
@@ -155,6 +156,8 @@ export async function handlePostMessages(
     `POST /v1/messages provider=${route.provider.id} kind=${route.upstreamKind} model=${route.upstreamModelId} downstreamStream=${stream}`,
   );
 
+  applyModelOutputLimit(body, route, "max_tokens");
+  fetchImpl = withDynamicOutputBudget(fetchImpl, route, config, request.signal, onLog);
   const lifecycle = buildRequestLifecycleContext(route, "messages", onLog, onRequestLifecycle);
 
   let response: Response;

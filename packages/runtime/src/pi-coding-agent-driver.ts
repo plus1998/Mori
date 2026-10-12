@@ -327,6 +327,7 @@ export interface PiBridgeModelResolution {
   headers?: Record<string, string>;
   contextWindow?: number;
   maxOutputTokens?: number;
+  globalMaxOutputTokens?: import("./models-dev-limits").GlobalMaxOutputTokens;
   runAttemptId?: string;
   globalContextWindowLimit?: number;
 }
@@ -505,6 +506,9 @@ export class PiCodingAgentDriver implements AgentRuntimeDriver {
       apiCompat,
       ...(bridge.contextWindow !== undefined && { contextWindow: bridge.contextWindow }),
       ...(bridge.maxOutputTokens !== undefined && { maxOutputTokens: bridge.maxOutputTokens }),
+      ...(bridge.globalMaxOutputTokens !== undefined && {
+        globalMaxOutputTokens: bridge.globalMaxOutputTokens,
+      }),
       ...(bridge.globalContextWindowLimit !== undefined && {
         globalContextWindowLimit: bridge.globalContextWindowLimit,
       }),

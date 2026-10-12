@@ -121,7 +121,9 @@ export async function forwardOpenAIChat(
     Number.isFinite(requestedMaxOutputTokens) &&
     requestedMaxOutputTokens > 0
   ) {
-    const appliedMaxTokens = Math.min(Math.floor(requestedMaxOutputTokens), MAX_CHAT_OUTPUT_TOKENS);
+    const appliedMaxTokens = route.provider.modelContextTokens
+      ? Math.floor(requestedMaxOutputTokens)
+      : Math.min(Math.floor(requestedMaxOutputTokens), MAX_CHAT_OUTPUT_TOKENS);
     chatBody.max_tokens = appliedMaxTokens;
     delete chatBody.max_completion_tokens;
     onLog(

@@ -469,6 +469,7 @@ export {
   DEFAULT_CONTEXT_LIMIT,
   DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT,
   DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
+  DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT,
   effectiveContextLimit,
   extractLimitsFromModelEntry,
   formatContextLimit,
@@ -491,6 +492,7 @@ export {
   normalizeGlobalMaxOutputTokens,
   occupancyPercent,
   resolveAppliedMaxOutputTokens,
+  resolveDynamicMaxOutputTokens,
   resolveEffectiveContextLimit,
 } from "./models-dev-limits";
 export {

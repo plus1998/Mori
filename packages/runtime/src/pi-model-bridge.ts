@@ -3,6 +3,7 @@ import {
   DEFAULT_CONTEXT_LIMIT,
   DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT,
   DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
+  type GlobalMaxOutputTokens,
   resolveAppliedMaxOutputTokens,
   resolveEffectiveContextLimit,
 } from "./models-dev-limits.js";
@@ -91,6 +92,7 @@ export interface BuildEcoPiModelInput {
   apiCompat?: EcoApiCompat;
   contextWindow?: number;
   maxOutputTokens?: number;
+  globalMaxOutputTokens?: GlobalMaxOutputTokens;
   /** Eco global context cap; PI compaction uses min(model, this). */
   globalContextWindowLimit?: number;
   /** Request headers for binding id / provider / attempt attribution. */
@@ -168,7 +170,7 @@ export function buildEcoPiModel(input: BuildEcoPiModelInput): EcoPiModelSpec {
   );
   const maxTokens = resolveAppliedMaxOutputTokens({
     ...(input.maxOutputTokens !== undefined && { modelMaxOutputTokens: input.maxOutputTokens }),
-    globalMaxOutputTokens: DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
+    globalMaxOutputTokens: input.globalMaxOutputTokens ?? DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
     contextTokens: contextWindow,
   });
 

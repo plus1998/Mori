@@ -133,6 +133,13 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get settingsMaxOutputDynamic => 'Dynamic';
+
+  @override
+  String get settingsMaxOutputDynamicCaption =>
+      'Each request uses the effective window − current full input tokens − 1, capped by the model output limit. Input counting follows provider settings; local estimates are not exact.';
+
+  @override
   String get settingsMaxOutput => 'Max output';
 
   @override

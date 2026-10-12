@@ -1,5 +1,6 @@
 import {
   type EcoGatewayServer,
+  type GatewayConfig,
   type GatewayProvider,
   type GatewayRequestLifecycleObserver,
   type GatewayToolWriteObserver,
@@ -10,11 +11,13 @@ import {
 import {
   type CodexTurnRouteRegistry,
   DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
+  type GlobalMaxOutputTokens,
   resolveAppliedMaxOutputTokens,
   resolveEcoGatewayPort,
 } from "@eco/runtime";
 import type { UpstreamApiCompat } from "../shared/api-compat";
 import type { UpstreamAgentCore } from "../shared/ipc";
+import { normalizeProviderTokenCountMode, type ProviderTokenCountMode } from "../shared/provider-token-count";
 import {
   type BridgeRouteResolution,
   type EcoSdkBridgeOptions,
@@ -39,12 +42,14 @@ export interface EcoProviderForGateway {
   /** Per-provider upstream proxy; empty/missing = global proxy setting. */
   upstreamProxyUrl?: string;
   apiCompat: UpstreamApiCompat;
+  tokenCountMode?: ProviderTokenCountMode;
   defaultModel: string;
   /** Extra model ids that Codex may send (candidates / route models). */
   modelIds?: readonly string[];
   models?: readonly {
     modelId: string;
     maxOutputTokens?: number;
+    contextTokens?: number;
   }[];
 }
 
@@ -62,11 +67,13 @@ export interface GatewayProviderPayload {
   upstreamModelId: string;
   models: string[];
   modelMaxOutputTokens?: Record<string, number>;
+  modelContextTokens?: Record<string, number>;
+  tokenCountMode?: ProviderTokenCountMode;
 }
 
 export interface EcoGatewayLifecycleOptions {
   ecoDataDir: string;
-  listProviders: () => readonly EcoProviderForGateway[];
+  listProviders: () => readonly EcoProviderForGateway[] | Promise<readonly EcoProviderForGateway[]>;
   /** Global Proxy Bridge User-Agent override; undefined = passthrough / Eco default. */
   getUpstreamUserAgent?: () => string | undefined;
   /** Per agent core (codex/claude/pi) User-Agent overrides; empty = SDK UA. */
@@ -89,8 +96,9 @@ export interface EcoGatewayLifecycleOptions {
         errorCode?: string;
       }) => void | Promise<void>)
     | undefined;
-  /** Hard ceiling for gateway modelMaxOutputTokens (default 32K). */
-  getGlobalMaxOutputTokens?: () => number;
+  /** Fixed ceiling or per-request remaining-window budget. */
+  getGlobalMaxOutputTokens?: () => GlobalMaxOutputTokens;
+  countInputTokens?: GatewayConfig["countInputTokens"];
   gatewayPort?: number;
   onStderr?: (chunk: string) => void;
   onUsage?: GatewayUsageObserver;
@@ -164,7 +172,7 @@ export class EcoGatewayLifecycle {
   private async ensureRunningImpl(): Promise<GatewayProviderPayload[]> {
     const globalMaxOutputTokens =
       this.options.getGlobalMaxOutputTokens?.() ?? DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS;
-    const built = buildGatewayProvidersFromEcoProviders(this.options.listProviders(), {
+    const built = buildGatewayProvidersFromEcoProviders(await this.options.listProviders(), {
       globalMaxOutputTokens,
     });
     this.lastIncompleteProviderIds = built.incompleteProviderIds;
@@ -196,6 +204,12 @@ export class EcoGatewayLifecycle {
           host: "127.0.0.1",
           port: this.port,
           providers: gatewayProviders,
+          countInputTokens:
+            this.options.countInputTokens ??
+            (async (input) => {
+              const { countGatewayInputTokens } = await import("./provider-token-counter");
+              return countGatewayInputTokens(input);
+            }),
           ...(upstreamUserAgent ? { upstreamUserAgent } : {}),
           ...(upstreamUserAgents && Object.keys(upstreamUserAgents).length > 0 ? { upstreamUserAgents } : {}),
           ...(userAgentDefault ? { userAgentDefault } : {}),
@@ -428,7 +442,7 @@ export interface BuildGatewayProvidersResult {
  */
 export function buildGatewayProvidersFromEcoProviders(
   providers: readonly EcoProviderForGateway[],
-  options?: { globalMaxOutputTokens?: number },
+  options?: { globalMaxOutputTokens?: GlobalMaxOutputTokens },
 ): BuildGatewayProvidersResult {
   const globalMaxOutputTokens = options?.globalMaxOutputTokens ?? DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS;
   const enabled = providers.filter((provider) => provider.enabled);
@@ -478,6 +492,21 @@ export function buildGatewayProvidersFromEcoProviders(
       upstreamModelId: defaultModel,
       models,
       ...(modelMaxOutputTokens ? { modelMaxOutputTokens } : {}),
+      ...(globalMaxOutputTokens === "dynamic"
+        ? {
+            modelContextTokens: Object.fromEntries(
+              (provider.models ?? []).map((model) => {
+                if (model.contextTokens === undefined) {
+                  throw new Error(
+                    `Dynamic max output requires a resolved context window for ${model.modelId}.`,
+                  );
+                }
+                return [model.modelId.trim(), model.contextTokens];
+              }),
+            ),
+            tokenCountMode: normalizeProviderTokenCountMode(provider.tokenCountMode),
+          }
+        : {}),
     });
   }
 
@@ -493,7 +522,7 @@ export function buildGatewayProvidersFromEcoProviders(
 function collectModelMaxOutputTokens(
   models: EcoProviderForGateway["models"],
   upstreamModelIds: readonly string[],
-  globalMaxOutputTokens: number,
+  globalMaxOutputTokens: GlobalMaxOutputTokens,
 ): Record<string, number> | undefined {
   const limits: Record<string, number> = {};
   const modelById = new Map(
@@ -508,6 +537,7 @@ function collectModelMaxOutputTokens(
         modelMaxOutputTokens: model.maxOutputTokens,
       }),
       globalMaxOutputTokens,
+      ...(model?.contextTokens !== undefined && { contextTokens: model.contextTokens }),
     });
   }
   return Object.keys(limits).length > 0 ? limits : undefined;

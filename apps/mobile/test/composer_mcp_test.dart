@@ -4,6 +4,7 @@ import 'package:eco_mobile/core/models/composer_mcp.dart';
 import 'package:eco_mobile/core/models/mcp_models.dart';
 import 'package:eco_mobile/core/models/thread_models.dart';
 import 'package:eco_mobile/core/models/thread_runtime_config.dart';
+import 'package:eco_mobile/features/settings/settings_workflow_persistence.dart';
 
 const _servers = [
   McpServerConfigView(
@@ -156,7 +157,7 @@ void main() {
       expect(planJson['sessionMode'], 'plan');
       expect(planJson['planModelEnabled'], true);
       expect(planJson['contextWindowLimitTokens'], 262144);
-      expect(planJson['maxOutputLimitTokens'], 32768);
+      expect(planJson['maxOutputLimitTokens'], 'dynamic');
       expect(planJson['showBilling'], true);
       expect(planJson['mcpServersEnabled'], {'mongo': true});
 
@@ -168,7 +169,7 @@ void main() {
       expect(agentJson['sessionMode'], 'agent');
       expect(agentJson['planModelEnabled'], false);
       expect(agentJson['contextWindowLimitTokens'], 262144);
-      expect(agentJson['maxOutputLimitTokens'], 32768);
+      expect(agentJson['maxOutputLimitTokens'], 'dynamic');
       expect(agentJson['showBilling'], true);
       expect(agentJson['mcpServersEnabled'], {'mongo': true});
 
@@ -177,7 +178,7 @@ void main() {
       expect(noMcpJson['sessionMode'], 'ask');
       expect(noMcpJson['planModelEnabled'], false);
       expect(noMcpJson['contextWindowLimitTokens'], 262144);
-      expect(noMcpJson['maxOutputLimitTokens'], 32768);
+      expect(noMcpJson['maxOutputLimitTokens'], 'dynamic');
       final hidden = WorkflowSettingsSnapshot.fromJson(const {
         'sessionMode': 'agent',
         'showBilling': false,
@@ -213,7 +214,17 @@ void main() {
     });
 
     expect(snapshot.maxOutputLimitTokens, 131072);
-    expect(invalid.maxOutputLimitTokens, 32768);
+    expect(invalid.maxOutputLimitTokens, 'dynamic');
+  });
+
+  test('dynamic output survives a mobile workflow copy and serialization', () {
+    final workflow = WorkflowSettingsSnapshot.fromJson({
+      'sessionMode': 'agent',
+      'maxOutputLimitTokens': 'dynamic',
+    });
+    final copied = workflowSettingsWith(workflow: workflow, showBilling: false);
+    expect(copied.maxOutputLimitTokens, 'dynamic');
+    expect(copied.toJson()['maxOutputLimitTokens'], 'dynamic');
   });
 
   test('ModelSettingsSnapshot parses embedded mcpSettings', () {

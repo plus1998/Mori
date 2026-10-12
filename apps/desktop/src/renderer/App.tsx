@@ -1478,7 +1478,7 @@ function App() {
     showBilling: true,
     defaultBashReviewMode: "always",
     contextWindowLimitTokens: 262_144,
-    maxOutputLimitTokens: 32_768,
+    maxOutputLimitTokens: "dynamic",
     followUpDeliveryMode: "steer",
   });
   const [centerServerSettings, setCenterServerSettings] =
@@ -8469,7 +8469,7 @@ function App() {
     }
   }
 
-  async function saveMaxOutputLimit(maxOutputLimitTokens: number) {
+  async function saveMaxOutputLimit(maxOutputLimitTokens: WorkflowSettingsSnapshot["maxOutputLimitTokens"]) {
     if (!window.eco?.saveWorkflowSettings) {
       return;
     }

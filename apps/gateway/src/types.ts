@@ -31,6 +31,9 @@ export interface GatewayProvider {
   models: string[];
   /** Per-upstream-model output limits used when Codex omits max_output_tokens. */
   modelMaxOutputTokens?: Record<string, number>;
+  /** Present only in dynamic mode; effective min(model window, global window). */
+  modelContextTokens?: Record<string, number>;
+  tokenCountMode?: "local_heuristic" | "anthropic_messages" | "openai_responses" | "llama_tokenize";
 }
 
 export interface ResolvedProviderRoute {
@@ -54,6 +57,14 @@ export interface GatewayConfig {
   host: string;
   port: number;
   providers: GatewayProvider[];
+  /** Count the final upstream payload, after every protocol/content transformation. */
+  countInputTokens?: (input: {
+    route: ResolvedProviderRoute;
+    body: Record<string, unknown>;
+    headers: Headers;
+    fetcher: typeof fetch;
+    signal?: AbortSignal;
+  }) => Promise<{ tokens: number; precision: "provider_exact" | "tokenizer_exact" | "heuristic"; source: string }>;
   /** Resolves a short-lived upstream bearer token without exposing it to callers. */
   resolveCredential?: (input: {
     provider: GatewayProvider;

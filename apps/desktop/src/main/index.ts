@@ -60,6 +60,7 @@ import {
   resolveAcpHostUiFeatures,
   resolveCodexHomeDir,
   resolveCursorAgentExecutable,
+  resolveEffectiveContextLimit,
   SDK_GENERAL_PURPOSE_AGENT_KEY,
   SDK_PLAN_AGENT_KEY,
   type SdkAskUserQuestionRequest,
@@ -2500,7 +2501,7 @@ app
     setDefaultUpstreamUserAgent(defaultUpstreamUserAgent);
     configureEcoGatewayLifecycle({
       ecoDataDir: app.getPath("userData"),
-      listProviders: () => {
+      listProviders: async () => {
         // The built-in ChatGPT provider may have been persisted by an older
         // version. Migrate it before every Gateway sync so stale auth metadata
         // cannot bypass the subscription Responses contract.
@@ -2513,33 +2514,60 @@ app
             routeModels.set(route.providerId, models);
           }
         }
-        return providerStore
-          .listProvidersWithSecrets()
-          .filter((provider) => provider.apiCompat !== "system_one")
-          .map((provider) => {
-            const candidates = providerStore.listCandidateModels(provider.id);
-            return {
-              id: provider.id,
-              name: provider.name,
-              enabled: provider.enabled,
-              baseUrl: provider.baseUrl,
-              requestPath: provider.requestPath,
-              version: provider.version,
-              apiKey: provider.apiKey,
-              ...(provider.authMethod ? { authMethod: provider.authMethod } : {}),
-              ...(provider.credentialPoolId ? { credentialPoolId: provider.credentialPoolId } : {}),
-              ...(provider.upstreamProxyUrl ? { upstreamProxyUrl: provider.upstreamProxyUrl } : {}),
-              apiCompat: resolveUpstreamApiCompat(undefined, provider.apiCompat),
-              defaultModel: provider.defaultModel,
-              models: candidates.map((model) => ({
-                modelId: model.modelId,
-                ...(model.manualSpec?.maxOutputTokens !== undefined
-                  ? { maxOutputTokens: model.manualSpec.maxOutputTokens }
-                  : {}),
-              })),
-              modelIds: routeModels.get(provider.id) ?? [],
-            };
-          });
+        return Promise.all(
+          providerStore
+            .listProvidersWithSecrets()
+            .filter((provider) => provider.apiCompat !== "system_one")
+            .map(async (provider) => {
+              const candidates = providerStore.listCandidateModels(provider.id);
+              const modelIds = [
+                ...new Set([
+                  provider.defaultModel,
+                  ...candidates.map((model) => model.modelId),
+                  ...(routeModels.get(provider.id) ?? []),
+                ]),
+              ].filter(Boolean);
+              const models = await Promise.all(
+                modelIds.map(async (modelId) => {
+                  const candidate = candidates.find((model) => model.modelId === modelId);
+                  const resolved = await pricingCache.resolveContextLimit(
+                    provider.baseUrl,
+                    modelId,
+                    candidate?.modelsDevMapping,
+                    candidate?.manualSpec?.contextTokens,
+                    candidate?.manualSpec?.maxOutputTokens,
+                  );
+                  return {
+                    modelId,
+                    contextTokens: resolveEffectiveContextLimit(
+                      resolved.limit,
+                      workflowSettingsStore.get().contextWindowLimitTokens,
+                    ),
+                    ...(resolved.maxOutputTokens !== undefined && {
+                      maxOutputTokens: resolved.maxOutputTokens,
+                    }),
+                  };
+                }),
+              );
+              return {
+                id: provider.id,
+                name: provider.name,
+                enabled: provider.enabled,
+                baseUrl: provider.baseUrl,
+                requestPath: provider.requestPath,
+                version: provider.version,
+                apiKey: provider.apiKey,
+                ...(provider.authMethod ? { authMethod: provider.authMethod } : {}),
+                ...(provider.credentialPoolId ? { credentialPoolId: provider.credentialPoolId } : {}),
+                ...(provider.upstreamProxyUrl ? { upstreamProxyUrl: provider.upstreamProxyUrl } : {}),
+                apiCompat: resolveUpstreamApiCompat(undefined, provider.apiCompat),
+                ...(provider.tokenCountMode && { tokenCountMode: provider.tokenCountMode }),
+                defaultModel: provider.defaultModel,
+                models,
+                modelIds: routeModels.get(provider.id) ?? [],
+              };
+            }),
+        );
       },
       getUpstreamUserAgent: () => resolveUpstreamUserAgentOverride(proxyBridgeSettingsStore.get()),
       getUpstreamUserAgents: () => resolveUpstreamUserAgentOverrides(proxyBridgeSettingsStore.get()),
@@ -6979,7 +7007,10 @@ function registerIpcHandlers(): void {
     if (saved.contextWindowLimitTokens !== previous.contextWindowLimitTokens) {
       scheduleCodexGlobalRuntimeRefresh();
     }
-    if (saved.maxOutputLimitTokens !== previous.maxOutputLimitTokens) {
+    if (
+      saved.maxOutputLimitTokens !== previous.maxOutputLimitTokens ||
+      saved.contextWindowLimitTokens !== previous.contextWindowLimitTokens
+    ) {
       void ensureGlobalEcoGateway().catch((error) => {
         process.stderr.write(
           `[eco] eco-gateway refresh after max output change failed: ${error instanceof Error ? error.message : String(error)}\n`,
@@ -9385,6 +9416,36 @@ function emitThreadTitleFailure(threadId: string, reason?: string): void {
   });
 }
 
+async function resolveSelectedModelOutputOptions(
+  selection: { providerId: string; candidateModelId: string } | undefined,
+) {
+  const workflow = workflowSettingsStore.get();
+  const baseOptions = {
+    globalMaxOutputTokens: workflow.maxOutputLimitTokens,
+    globalContextWindowLimit: workflow.contextWindowLimitTokens,
+  };
+  if (!selection) return baseOptions;
+  const provider = providerStore
+    .listProvidersWithSecrets()
+    .find((entry) => entry.id === selection.providerId);
+  const candidate = providerStore
+    .listCandidateModels(selection.providerId)
+    .find((entry) => entry.id === selection.candidateModelId);
+  if (!provider || !candidate || provider.apiCompat === "system_one") return baseOptions;
+  const resolved = await pricingCache.resolveContextLimit(
+    provider.baseUrl,
+    candidate.modelId,
+    candidate.modelsDevMapping,
+    candidate.manualSpec?.contextTokens,
+    candidate.manualSpec?.maxOutputTokens,
+  );
+  return {
+    ...baseOptions,
+    contextTokens: resolveEffectiveContextLimit(resolved.limit, workflow.contextWindowLimitTokens),
+    ...(resolved.maxOutputTokens !== undefined && { catalogMaxOutputTokens: resolved.maxOutputTokens }),
+  };
+}
+
 function scheduleThreadTitleSummary(threadId: string): boolean {
   const thread = conversationStore.getThread(threadId);
   if (
@@ -9406,24 +9467,16 @@ function scheduleThreadTitleSummary(threadId: string): boolean {
     });
     return true;
   }
-  let titleRoute;
-  try {
-    titleRoute = resolveAuxiliaryModelRoute(thread.runtimeConfig?.auxiliaryModel, providerStore, {
-      globalMaxOutputTokens: workflowSettingsStore.get().maxOutputLimitTokens,
-    });
-  } catch (error) {
-    const reason = errorMessage(error);
-    process.stderr.write(`[eco] title auxiliary model unavailable: ${reason}\n`);
-    emitThreadTitleFailure(threadId, reason);
-    titleGeneratingThreadIds.delete(threadId);
-    emitThreadEvent(threadId, "thread.title_generating", "", "system", false, {
-      titleGenerating: false,
-    });
-    return true;
-  }
-  // Never expose unvalidated model output as a title. Keep the placeholder visible
-  // until the complete generated title has passed JSON parsing and sanitization.
-  void summarizeThreadTitle([titleRoute], prompt, fetch)
+  // Keep the placeholder until the generated title passes parsing and sanitization.
+  void (async () => {
+    const outputOptions = await resolveSelectedModelOutputOptions(thread.runtimeConfig?.auxiliaryModel);
+    const titleRoute = resolveAuxiliaryModelRoute(
+      thread.runtimeConfig?.auxiliaryModel,
+      providerStore,
+      outputOptions,
+    );
+    return summarizeThreadTitle([titleRoute], prompt, fetch);
+  })()
     .then((title) => {
       if (title) {
         applyThreadTitleSummary(threadId, title);
@@ -19656,9 +19709,11 @@ async function reviewThreadToolApproval(
   }
   let route;
   try {
-    route = resolveApprovalModelRoute(thread.runtimeConfig?.approvalModel, providerStore, {
-      globalMaxOutputTokens: workflowSettingsStore.get().maxOutputLimitTokens,
-    });
+    route = resolveApprovalModelRoute(
+      thread.runtimeConfig?.approvalModel,
+      providerStore,
+      await resolveSelectedModelOutputOptions(thread.runtimeConfig?.approvalModel),
+    );
   } catch (error) {
     logUpstream("eco-approval-review-skipped", {
       threadId,
@@ -20067,13 +20122,23 @@ function startRuntimeProxy(
       }),
     };
     return startAnthropicModelProxy(
-      routes.map((route): AnthropicProxyRoute => {
-        const contextTokens = contextByRole[route.role];
-        return runtimeRouteToProxyRoute(route, {
-          globalMaxOutputTokens: workflowSettingsStore.get().maxOutputLimitTokens,
-          ...(contextTokens !== undefined && { contextTokens }),
-        });
-      }),
+      await Promise.all(
+        routes.map(async (route): Promise<AnthropicProxyRoute> => {
+          const contextTokens = contextByRole[route.role];
+          const catalog = await pricingCache.lookupLimitsForRoute({
+            baseUrl: route.provider.baseUrl,
+            modelId: route.modelId,
+            ...(route.modelsDevMapping && { mapping: route.modelsDevMapping }),
+          });
+          return runtimeRouteToProxyRoute(route, {
+            globalMaxOutputTokens: workflowSettingsStore.get().maxOutputLimitTokens,
+            ...(contextTokens !== undefined && { contextTokens }),
+            ...(catalog?.limits.maxOutputTokens !== undefined && {
+              catalogMaxOutputTokens: catalog.limits.maxOutputTokens,
+            }),
+          });
+        }),
+      ),
       options,
     );
   })();

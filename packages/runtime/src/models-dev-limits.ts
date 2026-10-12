@@ -53,6 +53,7 @@ export function resolveEffectiveContextLimit(
 
 /** Aligns with Claude Code default for unknown / gateway model ids. */
 export const DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS = 32_768;
+export const DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT = "dynamic";
 export const GLOBAL_MAX_OUTPUT_TOKEN_MIN = 8_192;
 export const GLOBAL_MAX_OUTPUT_TOKEN_MAX = 262_144;
 export const GLOBAL_MAX_OUTPUT_TOKEN_STEP = 256;
@@ -65,20 +66,22 @@ export const GLOBAL_MAX_OUTPUT_TOKEN_PRESETS = [
   262_144,
 ] as const;
 
-export type GlobalMaxOutputTokens = number;
+export type GlobalMaxOutputTokens = number | typeof DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT;
 
-export function isGlobalMaxOutputTokens(value: unknown): value is number {
+export function isGlobalMaxOutputTokens(value: unknown): value is GlobalMaxOutputTokens {
   return (
-    typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= GLOBAL_MAX_OUTPUT_TOKEN_MIN &&
-    value <= GLOBAL_MAX_OUTPUT_TOKEN_MAX
+    value === "dynamic" ||
+    (typeof value === "number" &&
+      Number.isSafeInteger(value) &&
+      value >= GLOBAL_MAX_OUTPUT_TOKEN_MIN &&
+      value <= GLOBAL_MAX_OUTPUT_TOKEN_MAX)
   );
 }
 
-export function normalizeGlobalMaxOutputTokens(value: unknown): number {
+export function normalizeGlobalMaxOutputTokens(value: unknown): GlobalMaxOutputTokens {
+  if (value === "dynamic") return value;
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    return DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS;
+    return DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT;
   }
   const snapped = Math.round(value / GLOBAL_MAX_OUTPUT_TOKEN_STEP) * GLOBAL_MAX_OUTPUT_TOKEN_STEP;
   return Math.min(GLOBAL_MAX_OUTPUT_TOKEN_MAX, Math.max(GLOBAL_MAX_OUTPUT_TOKEN_MIN, snapped));
@@ -86,15 +89,20 @@ export function normalizeGlobalMaxOutputTokens(value: unknown): number {
 
 /**
  * Hard ceiling for request `max_tokens` / gateway max output.
- * applied = min(model manual|catalog, global); missing model value uses global default;
+ * applied = min(model manual|catalog, global). Before a prompt exists, dynamic
+ * advertises the window's output ceiling to SDKs; Gateway subtracts the final
+ * request input at dispatch time.
  * also min(applied, contextTokens - 1) when context is known.
  */
 export function resolveAppliedMaxOutputTokens(input: {
   modelMaxOutputTokens?: number;
-  globalMaxOutputTokens?: number;
+  globalMaxOutputTokens?: GlobalMaxOutputTokens;
   contextTokens?: number;
 }): number {
-  const globalCap = normalizeGlobalMaxOutputTokens(input.globalMaxOutputTokens);
+  const setting = normalizeGlobalMaxOutputTokens(
+    input.globalMaxOutputTokens ?? DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
+  );
+  const globalCap = setting === "dynamic" ? resolveDynamicMaxOutputTokens(input.contextTokens, 0) : setting;
   const modelConfigured =
     input.modelMaxOutputTokens !== undefined &&
     Number.isFinite(input.modelMaxOutputTokens) &&
@@ -111,6 +119,26 @@ export function resolveAppliedMaxOutputTokens(input: {
 export const DEFAULT_AUTOCOMPACT_BUFFER = 33_000;
 
 const MAX_OUTPUT_RESERVE_CAP = 20_000;
+
+/** Per-request remaining window. Never send an overflowing prompt with a fabricated one-token output. */
+export function resolveDynamicMaxOutputTokens(
+  contextTokens: number | undefined,
+  inputTokens: number,
+): number {
+  if (contextTokens === undefined || !Number.isSafeInteger(contextTokens) || contextTokens < 2) {
+    throw new Error("Dynamic max output requires a resolved context window.");
+  }
+  if (!Number.isSafeInteger(inputTokens) || inputTokens < 0) {
+    throw new Error("Dynamic max output requires a valid current input token count.");
+  }
+  const remaining = contextTokens - inputTokens - 1;
+  if (remaining < 1) {
+    throw new Error(
+      `Context window exhausted: window=${contextTokens}, input=${inputTokens}, reserve=1. Compact the input before retrying.`,
+    );
+  }
+  return remaining;
+}
 
 /**
  * Effective context window for autocompact threshold (Claude Code style).

@@ -19,6 +19,7 @@ import {
   normalizeGlobalMaxOutputTokens,
   occupancyPercent,
   resolveAppliedMaxOutputTokens,
+  resolveDynamicMaxOutputTokens,
   resolveEffectiveContextLimit,
 } from "../src/models-dev-limits";
 import { parseModelsDevCatalog } from "../src/models-dev-pricing";
@@ -290,4 +291,50 @@ test("normalizeGlobalContextWindowLimit clamps and snaps to step", () => {
   expect(isGlobalContextWindowLimit(150_000)).toBe(true);
   expect(isGlobalContextWindowLimit(2_000_000)).toBe(false);
   expect(isGlobalContextWindowLimit(4_000)).toBe(false);
+});
+
+test("dynamic output follows the effective window and model output limit", () => {
+  expect(normalizeGlobalMaxOutputTokens(undefined)).toBe("dynamic");
+  expect(isGlobalMaxOutputTokens("dynamic")).toBe(true);
+  expect(isGlobalMaxOutputTokens("auto")).toBe(false);
+  for (const [contextTokens, expected] of [
+    [32_768, 32_767],
+    [65_536, 65_535],
+    [200_000, 199_999],
+    [1_048_576, 1_048_575],
+  ]) {
+    expect(resolveAppliedMaxOutputTokens({ globalMaxOutputTokens: "dynamic", contextTokens })).toBe(expected);
+  }
+  expect(
+    resolveAppliedMaxOutputTokens({
+      globalMaxOutputTokens: "dynamic",
+      contextTokens: 200_000,
+      modelMaxOutputTokens: 4_096,
+    }),
+  ).toBe(4_096);
+  expect(
+    resolveAppliedMaxOutputTokens({
+      globalMaxOutputTokens: "dynamic",
+      contextTokens: resolveEffectiveContextLimit(1_000_000, 32_768),
+    }),
+  ).toBe(32_767);
+  expect(() => resolveAppliedMaxOutputTokens({ globalMaxOutputTokens: "dynamic" })).toThrow(
+    "resolved context window",
+  );
+});
+
+test("dynamic output subtracts this request input and rejects exhausted windows", () => {
+  for (const window of [8_000, 32_768, 40_000, 65_536, 200_000, 1_048_576]) {
+    for (const input of [0, 100, Math.floor(window / 2), window - 2]) {
+      const output = resolveDynamicMaxOutputTokens(window, input);
+      expect(output).toBe(window - input - 1);
+      expect(input + output).toBeLessThan(window);
+    }
+    for (const input of [window - 1, window, window + 1]) {
+      expect(() => resolveDynamicMaxOutputTokens(window, input)).toThrow("Context window exhausted");
+    }
+  }
+  for (const input of [-1, NaN, Infinity, 0.5]) {
+    expect(() => resolveDynamicMaxOutputTokens(32_768, input)).toThrow("current input token count");
+  }
 });

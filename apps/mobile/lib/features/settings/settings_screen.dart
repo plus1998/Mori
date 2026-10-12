@@ -71,7 +71,9 @@ class SettingsScreen extends ConsumerWidget {
     final contextValue = contextWindowLimitLabel(contextLimit);
     final maxOutputLimit =
         workflow?.maxOutputLimitTokens ?? defaultMaxOutputLimitTokens;
-    final maxOutputValue = maxOutputLimitLabel(maxOutputLimit);
+    final maxOutputValue = maxOutputLimit == defaultMaxOutputLimitTokens
+        ? l10n.settingsMaxOutputDynamic
+        : maxOutputLimitLabel(maxOutputLimit as int);
 
     final selection = workflow?.defaultOrchestrationSelection;
     final mainAgentId = selection?.mainAgentConfigId.trim() ?? '';

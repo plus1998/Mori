@@ -16,7 +16,7 @@ WorkflowSettingsSnapshot workflowSettingsWith({
   String? defaultBashReviewMode,
   bool clearDefaultCoreKind = false,
   int? contextWindowLimitTokens,
-  int? maxOutputLimitTokens,
+  Object? maxOutputLimitTokens,
   OrchestrationSelection? defaultOrchestrationSelection,
   bool clearDefaultOrchestrationSelection = false,
   AuxiliaryModelSelection? defaultAuxiliaryModel,
@@ -169,10 +169,10 @@ Future<void> saveSettingsContextWindowLimit(
 Future<void> saveSettingsMaxOutputLimit(
   WidgetRef ref, {
   required BuildContext context,
-  required int nextLimit,
-  required int previousLimit,
-  required ValueChanged<int> onOptimistic,
-  required ValueChanged<int> onRevert,
+  required Object nextLimit,
+  required Object previousLimit,
+  required ValueChanged<Object> onOptimistic,
+  required ValueChanged<Object> onRevert,
 }) async {
   if (nextLimit == previousLimit) return;
   onOptimistic(nextLimit);

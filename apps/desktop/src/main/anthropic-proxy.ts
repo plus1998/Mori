@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { mapApiCompatToUpstreamKind, type UpstreamKind } from "@eco/gateway";
-import { applyThinkingToMessagesBody, type ParsedUsage, resolveAppliedMaxOutputTokens } from "@eco/runtime";
+import {
+  applyThinkingToMessagesBody,
+  type GlobalMaxOutputTokens,
+  type ParsedUsage,
+  resolveAppliedMaxOutputTokens,
+} from "@eco/runtime";
 import {
   assertApiCompatCompatibleWithProviderPath,
   IncompatibleApiCompatError,
@@ -90,7 +95,7 @@ export function resolveRouteMaxOutputTokens(manualSpec?: RouteManualSpec): numbe
 }
 
 export interface RuntimeRouteToProxyOptions {
-  globalMaxOutputTokens?: number;
+  globalMaxOutputTokens?: GlobalMaxOutputTokens;
   contextTokens?: number;
   catalogMaxOutputTokens?: number;
 }
@@ -128,7 +133,11 @@ export function applyRouteMaxOutputTokens(body: Record<string, unknown>, maxOutp
   if (maxOutputTokens === undefined || maxOutputTokens <= 0) {
     return;
   }
-  body.max_tokens = maxOutputTokens;
+  const requested = body.max_tokens;
+  body.max_tokens =
+    typeof requested === "number" && Number.isFinite(requested) && requested > 0
+      ? Math.min(requested, maxOutputTokens)
+      : maxOutputTokens;
 }
 
 export interface AnthropicProxyMessagesRequestInfo {

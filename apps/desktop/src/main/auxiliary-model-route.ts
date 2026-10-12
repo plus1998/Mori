@@ -1,3 +1,8 @@
+import {
+  DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT,
+  type GlobalMaxOutputTokens,
+  resolveEffectiveContextLimit,
+} from "@eco/runtime";
 import type { AuxiliaryModelSelection } from "../shared/auxiliary-model";
 import { type AnthropicProxyRoute, runtimeRouteToProxyRoute } from "./anthropic-proxy";
 import type { ProviderStore } from "./provider-store";
@@ -5,7 +10,12 @@ import type { ProviderStore } from "./provider-store";
 export function resolveAuxiliaryModelRoute(
   selection: AuxiliaryModelSelection | undefined,
   providerStore: ProviderStore,
-  options?: { globalMaxOutputTokens?: number },
+  options?: {
+    globalMaxOutputTokens?: GlobalMaxOutputTokens;
+    contextTokens?: number;
+    catalogMaxOutputTokens?: number;
+    globalContextWindowLimit?: number;
+  },
 ): AnthropicProxyRoute {
   if (!selection) {
     throw new Error("未配置辅助模型。请在 Composer 的运行配置中选择辅助模型。");
@@ -27,6 +37,7 @@ export function resolveAuxiliaryModelRoute(
       `辅助模型配置已发生变化：预期 ${selection.modelId}，当前 ${candidate.modelId}。请重新选择。`,
     );
   }
+  const contextTokens = options?.contextTokens ?? candidate.manualSpec?.contextTokens;
   return runtimeRouteToProxyRoute(
     {
       role: "auxiliary",
@@ -39,8 +50,14 @@ export function resolveAuxiliaryModelRoute(
       ...(options?.globalMaxOutputTokens !== undefined && {
         globalMaxOutputTokens: options.globalMaxOutputTokens,
       }),
-      ...(candidate.manualSpec?.contextTokens !== undefined && {
-        contextTokens: candidate.manualSpec.contextTokens,
+      ...(contextTokens !== undefined && {
+        contextTokens: resolveEffectiveContextLimit(
+          contextTokens,
+          options?.globalContextWindowLimit ?? DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT,
+        ),
+      }),
+      ...(options?.catalogMaxOutputTokens !== undefined && {
+        catalogMaxOutputTokens: options.catalogMaxOutputTokens,
       }),
     },
   );

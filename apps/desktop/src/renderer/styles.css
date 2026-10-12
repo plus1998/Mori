@@ -11220,13 +11220,44 @@ button.default-agent-option:focus-visible {
   white-space: nowrap;
 }
 
+.token-output-mode {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.token-output-mode button {
+  padding: 7px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.token-output-mode button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.token-output-mode button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .token-slider {
   padding-top: 6px;
 }
 
 .token-slider-track {
   position: relative;
-  height: 22px; /* generous hit target */
+  height: 32px;
   cursor: pointer;
   touch-action: none;
   user-select: none;
@@ -11257,10 +11288,12 @@ button.default-agent-option:focus-visible {
   position: absolute;
   top: 50%;
   left: 0;
+  width: 100%;
   height: 6px;
   border-radius: 999px;
   background: var(--accent);
   transform: translateY(-50%);
+  transform-origin: left center;
   pointer-events: none;
 }
 

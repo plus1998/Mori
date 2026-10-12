@@ -365,3 +365,20 @@ test.skipIf(!sqliteAvailable)("get migrates legacy cursor_core_enabled / cursor_
     defaultAcpAgentId: "cursor",
   });
 });
+
+test.skipIf(!sqliteAvailable)(
+  "dynamic output defaults, persists, and preserves legacy fixed limits",
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-output-mode-"));
+    const dbPath = path.join(dir, "settings.db");
+    const store = await createWorkflowSettingsStore(dbPath);
+    expect(store.get().maxOutputLimitTokens).toBe("dynamic");
+    expect(isWorkflowSettingsSnapshot({ sessionMode: "agent", maxOutputLimitTokens: "dynamic" })).toBe(true);
+    expect(isWorkflowSettingsSnapshot({ sessionMode: "agent", maxOutputLimitTokens: "auto" })).toBe(false);
+    store.save({ sessionMode: "agent", maxOutputLimitTokens: 65_536 });
+    expect((await createWorkflowSettingsStore(dbPath)).get().maxOutputLimitTokens).toBe(65_536);
+    store.save({ sessionMode: "agent", maxOutputLimitTokens: "dynamic" });
+    expect((await createWorkflowSettingsStore(dbPath)).get().maxOutputLimitTokens).toBe("dynamic");
+    await fs.rm(dir, { recursive: true, force: true });
+  },
+);

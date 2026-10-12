@@ -126,6 +126,13 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get settingsMaxOutputDynamic => '动态计算';
+
+  @override
+  String get settingsMaxOutputDynamicCaption =>
+      '每次请求按实际窗口 − 本次完整输入 tokens − 1 计算，且不超过模型输出上限。输入计数遵循提供商设置；本地估算并非精确值。';
+
+  @override
   String get settingsMaxOutput => '最大输出';
 
   @override

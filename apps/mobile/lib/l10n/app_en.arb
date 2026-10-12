@@ -43,6 +43,8 @@
       "tokens": {"type": "int"}
     }
   },
+  "settingsMaxOutputDynamic": "Dynamic",
+  "settingsMaxOutputDynamicCaption": "Each request uses the effective window − current full input tokens − 1, capped by the model output limit. Input counting follows provider settings; local estimates are not exact.",
   "settingsMaxOutput": "Max output",
   "settingsMaxOutputCaption": "Hard ceiling: request max_tokens is min(model config, this limit). Unset models use this default, never above context − 1",
   "settingsMaxOutputTokens": "{tokens} tokens",

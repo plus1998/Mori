@@ -3,6 +3,7 @@
  * Native openai-chat passthrough only — never disguise as Anthropic/Responses.
  */
 import type { ChatCompletionsRequest } from "@eco/openai-anthropic-bridge";
+import { applyModelOutputLimit, withDynamicOutputBudget } from "../model-output-limit.js";
 import {
   buildResolveProviderRouteOptions,
   IncompatibleUpstreamKindError,
@@ -75,6 +76,16 @@ export async function handlePostChatCompletions(
     return credentialResolutionErrorResponse(error);
   }
 
+  const outputBody = body as unknown as Record<string, unknown>;
+  fetchImpl = withDynamicOutputBudget(fetchImpl, route, config, request.signal, onLog);
+  applyModelOutputLimit(
+    outputBody,
+    route,
+    body.max_completion_tokens !== undefined ? "max_completion_tokens" : "max_tokens",
+  );
+  if (body.max_completion_tokens !== undefined && body.max_tokens !== undefined) {
+    applyModelOutputLimit(outputBody, route, "max_tokens");
+  }
   const lifecycle = buildRequestLifecycleContext(route, "chat_completions", onLog, onRequestLifecycle);
 
   onLog(

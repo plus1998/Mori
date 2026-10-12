@@ -19,16 +19,17 @@ import {
 import type { WorktreePlan } from "@eco/workspace";
 import { resolveUpstreamApiCompat } from "../shared/api-compat";
 import type {
+  IntegratedWebSearchSettingsSnapshot,
   PromptImageAttachment,
   RouteManualSpec,
   RuntimeRoleRouteConfig,
   ThreadSummary,
   WorkspaceInfo,
-  IntegratedWebSearchSettingsSnapshot,
 } from "../shared/ipc";
 import type { ActiveRunRuntimeStateInput } from "./active-run-runtime-state";
 import type { AgentLifecycleService } from "./agent-lifecycle-service.js";
 import type { RuntimeRoute } from "./billing-resolver";
+import type { PreparedConversationCommandDispatch } from "./conversation-command-dispatch";
 import type { ConversationStore } from "./conversation-store.js";
 import { buildPiGatewayRequestHeaders, type StartedGatewayRouteBinding } from "./gateway-route-binding";
 import { createPiSubagentSpawnHandler } from "./pi-subagent-host.js";
@@ -36,7 +37,6 @@ import type { RequestAttemptResult } from "./request-retry";
 import type { SubagentMetricsRegistry } from "./subagent-metrics-registry.js";
 import type { RunAttemptContext } from "./thread-run-attempt";
 import { buildDriverRoutes } from "./thread-runtime-routes";
-import type { PreparedConversationCommandDispatch } from "./conversation-command-dispatch";
 
 export interface PiThreadStartRunInput {
   thread: ThreadSummary;
@@ -277,6 +277,10 @@ export function getPiCodingAgentDriver(ecoDataDir: string): PiCodingAgentDriver 
           bindingId: armed.binding.bindingId,
           providerId: bindingRoute.provider.id,
           headers,
+          ...(bindingRoute.maxOutputTokens !== undefined && {
+            maxOutputTokens: bindingRoute.maxOutputTokens,
+            globalMaxOutputTokens: bindingRoute.maxOutputTokens,
+          }),
           ...(driverRoute?.primary.contextWindow !== undefined
             ? { contextWindow: driverRoute.primary.contextWindow }
             : bindingRoute.contextTokens !== undefined

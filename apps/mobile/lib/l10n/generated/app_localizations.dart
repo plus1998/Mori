@@ -326,6 +326,18 @@ abstract class AppLocalizations {
   /// **'{tokens} tokens'**
   String settingsContextWindowTokens(int tokens);
 
+  /// No description provided for @settingsMaxOutputDynamic.
+  ///
+  /// In en, this message translates to:
+  /// **'Dynamic'**
+  String get settingsMaxOutputDynamic;
+
+  /// No description provided for @settingsMaxOutputDynamicCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Each request uses the effective window − current full input tokens − 1, capped by the model output limit. Input counting follows provider settings; local estimates are not exact.'**
+  String get settingsMaxOutputDynamicCaption;
+
   /// No description provided for @settingsMaxOutput.
   ///
   /// In en, this message translates to:

@@ -1,3 +1,4 @@
+import type { GlobalMaxOutputTokens } from "@eco/runtime";
 import type { ApprovalModelSelection } from "../shared/approval-model";
 import type { AnthropicProxyRoute } from "./anthropic-proxy";
 import { resolveAuxiliaryModelRoute } from "./auxiliary-model-route";
@@ -13,7 +14,12 @@ export type ApprovalModelRoute = AnthropicProxyRoute | SystemOneApprovalRoute;
 export function resolveApprovalModelRoute(
   selection: ApprovalModelSelection | undefined,
   providerStore: ProviderStore,
-  options?: { globalMaxOutputTokens?: number },
+  options?: {
+    globalMaxOutputTokens?: GlobalMaxOutputTokens;
+    contextTokens?: number;
+    catalogMaxOutputTokens?: number;
+    globalContextWindowLimit?: number;
+  },
 ): ApprovalModelRoute {
   if (!selection) throw new Error("未配置审批模型。请在运行配置中选择审批模型。");
   const provider = providerStore

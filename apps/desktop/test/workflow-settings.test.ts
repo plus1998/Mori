@@ -28,7 +28,7 @@ const defaultWorkflowSettingsExpectation = {
   defaultCoreKind: "claude",
   showBilling: true,
   contextWindowLimitTokens: 262_144,
-  maxOutputLimitTokens: 32_768,
+  maxOutputLimitTokens: "dynamic",
   followUpDeliveryMode: "steer",
   defaultBashReviewMode: "always",
 } as const;
@@ -115,7 +115,9 @@ test("normalizeWorkflowSettingsSnapshot keeps valid sessionMode", () => {
     ...defaultWorkflowSettingsExpectation,
     sessionMode: "plan",
   });
-  expect(normalizeWorkflowSettingsSnapshot({ sessionMode: "agent" })).toEqual(defaultWorkflowSettingsExpectation);
+  expect(normalizeWorkflowSettingsSnapshot({ sessionMode: "agent" })).toEqual(
+    defaultWorkflowSettingsExpectation,
+  );
   expect(normalizeWorkflowSettingsSnapshot({ sessionMode: "ask" })).toEqual({
     ...defaultWorkflowSettingsExpectation,
     sessionMode: "ask",

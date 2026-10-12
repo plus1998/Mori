@@ -10,6 +10,7 @@ import {
   parseCodexTurnMetadataHeader,
 } from "../codex-turn-metadata.js";
 import { resolveEcoMcpHubNamespace } from "../eco-mcp-hub-fixup.js";
+import { applyModelOutputLimit, withDynamicOutputBudget } from "../model-output-limit.js";
 import {
   buildResolveProviderRouteOptions,
   buildUpstreamCompactUrl,
@@ -129,6 +130,8 @@ export async function handlePostResponses(
     onLog(`credential resolution failed provider=${route.provider.id}: ${message}`);
     return credentialResolutionErrorResponse(error);
   }
+  applyModelOutputLimit(body as unknown as Record<string, unknown>, route, "max_output_tokens");
+  fetchImpl = withDynamicOutputBudget(fetchImpl, route, config, request.signal, onLog);
   // The ChatGPT subscription Responses preview rejects max_output_tokens.
   // Pi/Codex send native Responses requests with this field, so remove it
   // after routing (where authMethod is known) before applying the preview

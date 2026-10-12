@@ -355,6 +355,11 @@ export const i18nCatalogs = {
         "所有 Claude、Codex 与 PI 会话使用该上限；模型窗口更小时仍以模型自身窗口为准。Core 自动压缩按 min(模型窗口, 该上限) 触发。",
       "settings.contextWindow.tokens": "{{tokens}} tokens",
       "settings.maxOutput.limit": "全局最大输出",
+      "settings.maxOutput.mode": "最大输出模式",
+      "settings.maxOutput.dynamic": "动态计算",
+      "settings.maxOutput.fixed": "固定上限",
+      "settings.maxOutput.dynamicSubtitle":
+        "每次请求按 min(模型窗口, 全局上下文上限) − 本次完整输入 tokens − 1 计算，且不超过模型输出上限。输入计数遵循提供商的计数设置；本地估算并非精确值。",
       "settings.maxOutput.subtitle":
         "硬顶：实际请求的 max_tokens 为 min(模型配置, 该上限)，未配置时用此默认值，且不超过上下文减 1。",
       "settings.maxOutput.tokens": "{{tokens}} tokens",
@@ -2848,6 +2853,11 @@ export const i18nCatalogs = {
         "Applies to every Claude, Codex, and PI session. Models with smaller windows keep their own limit. Core auto-compaction uses min(model window, this cap).",
       "settings.contextWindow.tokens": "{{tokens}} tokens",
       "settings.maxOutput.limit": "Global max output",
+      "settings.maxOutput.mode": "Max output mode",
+      "settings.maxOutput.dynamic": "Dynamic",
+      "settings.maxOutput.fixed": "Fixed limit",
+      "settings.maxOutput.dynamicSubtitle":
+        "Each request uses min(model window, global context limit) − current full input tokens − 1, capped by the model output limit. Input counting follows provider settings; local estimates are not exact.",
       "settings.maxOutput.subtitle":
         "Hard ceiling: request max_tokens is min(model config, this limit). Unset models use this default, never above context − 1.",
       "settings.maxOutput.tokens": "{{tokens}} tokens",

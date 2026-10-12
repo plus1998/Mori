@@ -1945,7 +1945,10 @@ test("a failed codemode script keeps its nested-call details", () => {
       toolName: "codemode",
       result: {
         content: [
-          { type: "text", text: "Script failed\nWall time 0.40 seconds\nOutput:\n\nScript error: Error: boom" },
+          {
+            type: "text",
+            text: "Script failed\nWall time 0.40 seconds\nOutput:\n\nScript error: Error: boom",
+          },
         ],
         details: { calls: [{ id: "code_2/1", name: "read", args: "{}", status: "error", error: "boom" }] },
       },
@@ -2004,4 +2007,22 @@ test("a tool result with unrelated details carries no codemode details", () => {
   );
   const payload = end[0]?.payload;
   expect(isRecord(payload) ? payload.codemodeDetails : undefined).toBeUndefined();
+});
+
+test("PI model receives dynamic output budget and preserves explicitly larger fixed budgets", () => {
+  const dynamic = buildEcoPiModel({
+    bridgeBaseUrl: "http://127.0.0.1:18765",
+    bridgeModelId: "small",
+    contextWindow: 32_768,
+    globalMaxOutputTokens: "dynamic",
+  });
+  expect(dynamic.maxTokens).toBe(32_767);
+  const resolved = buildEcoPiModel({
+    bridgeBaseUrl: "http://127.0.0.1:18765",
+    bridgeModelId: "large",
+    contextWindow: 200_000,
+    maxOutputTokens: 64_000,
+    globalMaxOutputTokens: 64_000,
+  });
+  expect(resolved.maxTokens).toBe(64_000);
 });

@@ -17,6 +17,7 @@ import {
   resolveAnthropicStreamUsage,
   trackAnthropicStreamUsage,
 } from "../anthropic-stream-usage.js";
+import { applyModelOutputLimit } from "../model-output-limit.js";
 import { buildUpstreamUrl } from "../provider-router.js";
 import {
   type RequestLifecycleContext,
@@ -127,6 +128,7 @@ export async function fetchWithThinkingRectifiers(
   lifecycle?: RequestLifecycleContext,
 ): Promise<Response> {
   const upstreamBodyRecord = cloneAnthropicBody(anthropicBody);
+  applyModelOutputLimit(upstreamBodyRecord, route, "max_tokens");
   if (
     isDeepSeekAnthropicUpstream({
       baseUrl: route.provider.baseUrl,
@@ -241,6 +243,7 @@ export async function fetchWithThinkingRectifiers(
   if (shouldRectifyThinkingBudget(errorMessage)) {
     const rectified = cloneAnthropicBody(bodyForUpstream);
     const result = rectifyThinkingBudget(rectified);
+    applyModelOutputLimit(rectified, route, "max_tokens");
     if (result.applied) {
       onLog(
         `[eco-gateway] [RECT-010] thinking budget rectifier applied, before=${JSON.stringify(result.before)}, after=${JSON.stringify(result.after)}`,
