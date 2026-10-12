@@ -1,4 +1,3 @@
-import { shortenModelId } from "@eco/runtime/usage";
 import { Users } from "lucide-react";
 import {
   type CSSProperties,
@@ -12,6 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { SubagentEnabledSettings, SubagentRole } from "../shared/ipc";
+import { formatModelDisplayName } from "../shared/model-id";
 import { ComposerHoverTooltip } from "./ComposerHoverTooltip";
 import type { ComposerAgentModelLabel } from "./composer-agent-model-labels";
 import { composerFloatingStyleForAnchor } from "./composer-floating";
@@ -80,7 +80,7 @@ function SubagentSwitchRows({
         const enabled = subagentRole && subagentSettings ? subagentSettings[subagentRole] : true;
         const clickable = Boolean(canEditSubagents && subagentRole && subagentSettings && onToggleSubagent);
         const hasSwitch = Boolean(subagentRole);
-        const modelShort = modelId?.trim() ? shortenModelId(modelId.trim()) : t("common.notConfigured");
+        const modelShort = modelId?.trim() ? formatModelDisplayName(modelId) : t("common.notConfigured");
 
         return (
           <div key={role} className="composer-mcp-row">
@@ -132,7 +132,7 @@ function AgentModelRows({
         const subagent = !main;
         const enabled = subagentRole && subagentSettings ? subagentSettings[subagentRole] : true;
         const clickable = Boolean(canEditSubagents && subagentRole && subagentSettings && onToggleSubagent);
-        const modelShort = modelId?.trim() ? shortenModelId(modelId.trim()) : t("common.notConfigured");
+        const modelShort = modelId?.trim() ? formatModelDisplayName(modelId) : t("common.notConfigured");
         const className = rowClassName({ subagent, enabled, planner: main });
         const switchControl = subagentRole ? (
           <label

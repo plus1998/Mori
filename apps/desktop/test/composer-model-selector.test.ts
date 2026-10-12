@@ -14,6 +14,8 @@ describe("ComposerModelSelector labels", () => {
     await i18n.changeLanguage("zh-CN");
     expect(formatComposerModelName("gpt-5.6-sol")).toBe("5.6 Sol");
     expect(formatComposerModelName("openai/gpt-5.6-sol")).toBe("5.6 Sol");
+    expect(formatComposerModelName("qwen3.8-flash-next")).toBe("Qwen3.8 Flash Next");
+    expect(formatComposerModelName("claude-opus-5_5")).toBe("Opus 5.5");
     expect(`${formatComposerModelName("gpt-5.6-sol")} ${formatComposerThinkingEffortLabel("high")}`).toBe(
       "5.6 Sol 高",
     );
@@ -26,8 +28,8 @@ describe("ComposerModelSelector labels", () => {
     );
   });
 
-  test("does not humanize unrelated model families", () => {
-    expect(formatComposerModelName("anthropic/claude-sonnet-4-6")).toBe("claude-sonnet-4-6");
+  test("humanizes other vendors by dropping the well-known prefix", () => {
+    expect(formatComposerModelName("anthropic/claude-sonnet-4-6")).toBe("Sonnet 4.6");
   });
 
   test("localizes thinking effort labels", async () => {

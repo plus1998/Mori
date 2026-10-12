@@ -148,30 +148,7 @@ String _thinkingEffortLabel(String? effort, AppLocalizations l10n) {
 String composerThinkingEffortLabel(String? effort, AppLocalizations l10n) =>
     _thinkingEffortLabel(effort, l10n);
 
-String composerModelDisplayName(String modelId) {
-  final normalized = modelId.trim().split('/').last;
-  final match = RegExp(
-    r'^gpt-(\d+(?:\.\d+)*)(?:-([a-z0-9]+(?:-[a-z0-9]+)*))?$',
-    caseSensitive: false,
-  ).firstMatch(normalized);
-  if (match != null) {
-    final version = match.group(1);
-    final suffix = match.group(2);
-    if (version != null && suffix != null) {
-      final formattedSuffix = suffix
-          .split('-')
-          .map(
-            (part) => part.isEmpty
-                ? part
-                : '${part.substring(0, 1).toUpperCase()}${part.substring(1).toLowerCase()}',
-          )
-          .join(' ');
-      return '$version $formattedSuffix';
-    }
-    if (version != null) return version;
-  }
-  return shortenModelId(normalized);
-}
+String composerModelDisplayName(String modelId) => shortenModelId(formatModelDisplayName(modelId));
 
 MainAgentModelOverride? buildComposerTemporaryModelOverride({
   required ComposerTemporaryModelOption model,
