@@ -3,6 +3,7 @@
  * Native openai-chat passthrough only — never disguise as Anthropic/Responses.
  */
 import type { ChatCompletionsRequest } from "@eco/openai-anthropic-bridge";
+import { rejectDisabledModelImageInput } from "../image-input-policy.js";
 import { applyModelOutputLimit, withDynamicOutputBudget } from "../model-output-limit.js";
 import {
   buildResolveProviderRouteOptions,
@@ -69,6 +70,8 @@ export async function handlePostChatCompletions(
     throw error;
   }
 
+  const imageRejection = rejectDisabledModelImageInput(route, body);
+  if (imageRejection) return imageRejection;
   try {
     route = await resolveRouteCredential(route, config, request);
   } catch (error) {

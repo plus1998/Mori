@@ -2539,6 +2539,9 @@ app
                   );
                   return {
                     modelId,
+                    ...(candidate?.manualSpec?.supportsImageInput !== undefined && {
+                      supportsImageInput: candidate.manualSpec.supportsImageInput,
+                    }),
                     contextTokens: resolveEffectiveContextLimit(
                       resolved.limit,
                       workflowSettingsStore.get().contextWindowLimitTokens,
@@ -14986,6 +14989,18 @@ function createSdkDriver(
     hookContext: {
       ...createThreadHookContext(threadId),
       ...buildSdkHookContextExtras(threadId, runPhase, hookContextExtras),
+      resolveSupportsImageInput: ({ agentId, agentType }) => {
+        const actorRole =
+          agentId && agentId !== agentLifecycle.usagePlannerAgentId(threadId)
+            ? (subagentMetricsRegistry.roleForAgentId(threadId, agentId) ??
+              normalizeSdkSubagentType(agentType ?? ""))
+            : "planner";
+        if (!actorRole) throw new Error("无法确认 Agent 的模型视觉配置，已禁止直接读图。");
+        const routes = resolveRoleRoutesForThread(threadId);
+        const route = routes.find((entry) => entry.role === actorRole);
+        if (!route) throw new Error("无法确认 Agent 的模型视觉配置，已禁止直接读图。");
+        return route.manualSpec?.supportsImageInput;
+      },
       resolveBashReviewMode: () => {
         const current = conversationStore.getThread(threadId);
         if (!current) {

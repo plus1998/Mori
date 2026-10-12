@@ -17,6 +17,7 @@ import {
   createEcoPiFinalizePlanExtensionFactory,
   PI_FINALIZE_PLAN_EXTENSION_NAME,
 } from "./pi-finalize-plan.js";
+import { assertPiImageInputAllowed, createEcoPiImageInputExtensionFactory } from "./pi-image-input-policy.js";
 import { canonicalizePiMcpFingerprint, fingerprintPiMcpServers, PI_MCP_HUB_TOOL_NAMES } from "./pi-mcp.js";
 import { createPiMcpExtensionFactory } from "./pi-mcp-extension-factory.js";
 import {
@@ -327,6 +328,7 @@ export interface PiBridgeModelResolution {
   headers?: Record<string, string>;
   contextWindow?: number;
   maxOutputTokens?: number;
+  supportsImageInput?: boolean;
   globalMaxOutputTokens?: import("./models-dev-limits").GlobalMaxOutputTokens;
   runAttemptId?: string;
   globalContextWindowLimit?: number;
@@ -506,6 +508,7 @@ export class PiCodingAgentDriver implements AgentRuntimeDriver {
       apiCompat,
       ...(bridge.contextWindow !== undefined && { contextWindow: bridge.contextWindow }),
       ...(bridge.maxOutputTokens !== undefined && { maxOutputTokens: bridge.maxOutputTokens }),
+      ...(bridge.supportsImageInput !== undefined && { supportsImageInput: bridge.supportsImageInput }),
       ...(bridge.globalMaxOutputTokens !== undefined && {
         globalMaxOutputTokens: bridge.globalMaxOutputTokens,
       }),
@@ -882,6 +885,10 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
   const systemPromptText = input.systemPromptOverride?.trim();
 
   const extensionFactories: Array<{ name: string; factory: (pi: unknown) => void | Promise<void> }> = [];
+  extensionFactories.push({
+    name: "eco-pi-image-input",
+    factory: createEcoPiImageInputExtensionFactory(pi.createReadToolDefinition(input.cwd)) as never,
+  });
   if (mcpFactory) {
     extensionFactories.push({
       name: "eco-pi-mcp",
@@ -1034,6 +1041,9 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
   session.agent.streamFunction = (model, context, options) => {
     if (disposed) throw new Error("PI session has been disposed");
     if (mcpStartupError) throw new Error(`PI MCP startup failed: ${mcpStartupError}`);
+    // Validate before PI's provider adapter can silently omit unsupported images,
+    // including persisted tool results when a session switches to a text model.
+    assertPiImageInputAllowed(model, context.messages);
     return nativeStream(model, context, options);
   };
   session.setActiveToolsByName([...session.getActiveToolNames(), ...toolsAllowlist]);

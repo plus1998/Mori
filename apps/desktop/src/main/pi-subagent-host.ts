@@ -140,6 +140,9 @@ export function createPiSubagentSpawnHandler(
       bridgeModelId: bindingRoute.aliasModelId,
       route,
       apiCompat,
+      ...(bindingRoute.supportsImageInput !== undefined && {
+        supportsImageInput: bindingRoute.supportsImageInput,
+      }),
       ...(route.primary.contextWindow !== undefined
         ? { contextWindow: route.primary.contextWindow }
         : bindingRoute.contextTokens !== undefined

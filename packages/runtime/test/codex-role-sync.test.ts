@@ -310,6 +310,21 @@ test("official OpenAI subagents retain native image viewing beside custom provid
   expect(result.roleThreadConfigs.researcher?.features?.view_image).toBe(false);
 });
 
+test("disabled model vision hides Codex native image tools for main and subagent roles", async () => {
+  const config = { features: { multi_agent: true, hooks: true }, mcp_servers: {} };
+  expect(withCodexNativeImageView(config, "openai", false).features?.view_image).toBe(false);
+  const ecoDataDir = await makeTempEcoDataDir();
+  const result = await syncOrchestrationAgentsToCodexRoles({
+    codexHomeDir: resolveCodexHomeDir(ecoDataDir),
+    orchestration: buildOrchestration({ agents: [exploreAgent({ providerId: "openai", modelId: "gpt-5" })] }),
+    templates: [],
+    resolveSupportsImageInput: () => false,
+  });
+  const roleToml = await fs.readFile(path.join(result.agentsDir, "explore.toml"), "utf8");
+  expect(roleToml).toContain("[features]\nview_image = false");
+  expect(result.roleThreadConfigs.explore?.features?.view_image).toBe(false);
+});
+
 test("role TOML carries an explicit apiCompat override in the V1 gateway alias", async () => {
   const ecoDataDir = await makeTempEcoDataDir();
   const codexHomeDir = resolveCodexHomeDir(ecoDataDir);

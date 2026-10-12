@@ -93,6 +93,7 @@ export {
   isEcoJsonRpcRequest,
   isEcoJsonRpcResponse,
 } from "./event-rpc";
+export { containsImageInput } from "./image-input";
 export type { EcoRealtimeRpcEnvelope } from "./realtime-envelope";
 export {
   ECO_REALTIME_BROADCAST_EVENT,
@@ -131,7 +132,6 @@ export type { EventStore, SecretStore, ThreadRecord } from "./store";
 export { InMemoryEventStore, InMemorySecretStore, redactSecrets } from "./store";
 export * from "./tool-write-target";
 export * from "./tool-write-target-tracker";
-
 export type {
   PasswordWrappedVaultKey,
   VaultClaimKeyPair,

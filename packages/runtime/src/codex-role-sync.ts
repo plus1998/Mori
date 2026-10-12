@@ -62,6 +62,7 @@ export interface SyncOrchestrationAgentsToCodexRolesInput {
    * Web Search MCP is armed). Main-thread `web_search` is applied separately via thread config.
    */
   webSearchOverride?: CodexWebSearchMode;
+  resolveSupportsImageInput?: (ref: { providerId: string; modelId: string }) => boolean | undefined;
 }
 
 export interface CodexMcpServerVisibilityOverride {
@@ -103,13 +104,17 @@ export function withCodexSkillConfig(
 export function withCodexNativeImageView(
   config: CodexThreadConfigOverrides,
   providerId: string,
+  supportsImageInput?: boolean,
 ): CodexThreadConfigOverrides {
   if (!config.features) {
     throw new Error("Codex thread features are required to scope native image viewing.");
   }
   return {
     ...config,
-    features: { ...config.features, view_image: providerId.trim() === "openai" },
+    features: {
+      ...config.features,
+      view_image: providerId.trim() === "openai" && supportsImageInput !== false,
+    },
   };
 }
 
@@ -227,6 +232,7 @@ export async function syncOrchestrationAgentsToCodexRoles(
         input.mcpServers ?? [],
         isV4aTeachingEnabled(exploreAgent),
         exploreToolPolicy,
+        input.resolveSupportsImageInput?.(exploreAgent!.modelRef),
       ),
     });
   }
@@ -270,6 +276,7 @@ export async function syncOrchestrationAgentsToCodexRoles(
         mcpVisibility,
         input.mcpServers ?? [],
         toolPolicy,
+        input.resolveSupportsImageInput?.(agent.modelRef),
       ),
     });
   }
@@ -312,6 +319,7 @@ export async function syncOrchestrationAgentsToCodexRoles(
           mcp_servers: cloneMcpVisibility(draft.mcpVisibility),
         },
         draft.providerId,
+        input.resolveSupportsImageInput?.(draft),
       ),
     ]),
   );
@@ -612,13 +620,16 @@ export function buildCodexRoleToml(input: {
   providerId: string;
   apiCompat?: CodexGatewayApiCompat;
   reasoningEffort?: string;
+  supportsImageInput?: boolean;
   toolPolicy: EcoToolPolicy;
   mcpVisibility?: Readonly<Record<string, CodexMcpServerVisibilityOverride>>;
   mcpServers?: readonly CodexMcpServerForConfigSync[];
 }): string {
   const permission = ecoToolPolicyToRoleTomlFields(input.toolPolicy);
   const isBuiltInOpenAi = input.providerId === CODEX_BUILT_IN_OPENAI_PROVIDER_ID;
-  const modelValue = isBuiltInOpenAi ? input.modelId : buildCodexGatewayModelAlias(input.providerId, input.modelId, input.apiCompat);
+  const modelValue = isBuiltInOpenAi
+    ? input.modelId
+    : buildCodexGatewayModelAlias(input.providerId, input.modelId, input.apiCompat);
   // Role configs inherit config.toml's global `model_provider = "eco_*"` default, so the
   // built-in OpenAI route must be pinned to Codex's own provider here too — otherwise the
   // role's official-subscription model would be sent to eco-gateway as a route miss (404).
@@ -641,7 +652,11 @@ export function buildCodexRoleToml(input: {
   if (input.reasoningEffort) {
     lines.push(`model_reasoning_effort = ${tomlString(input.reasoningEffort)}`);
   }
-  lines.push("", "[features]", `view_image = ${isBuiltInOpenAi ? "true" : "false"}`);
+  lines.push(
+    "",
+    "[features]",
+    `view_image = ${isBuiltInOpenAi && input.supportsImageInput !== false ? "true" : "false"}`,
+  );
   if (permission.sandbox_workspace_write) {
     lines.push(
       "",
@@ -704,6 +719,7 @@ function buildCodexRole(
   mcpVisibility: Readonly<Record<string, CodexMcpServerVisibilityOverride>>,
   mcpServers: readonly CodexMcpServerForConfigSync[],
   toolPolicy: EcoToolPolicy,
+  supportsImageInput?: boolean,
 ): BuiltCodexRole {
   const description = redactKnownSecrets(buildRoleDescription(agent, template), secretsToRedact);
   const developerInstructions = redactKnownSecrets(
@@ -727,6 +743,7 @@ function buildCodexRole(
       modelId: redactKnownSecrets(modelId, secretsToRedact),
       providerId: redactKnownSecrets(providerId, secretsToRedact),
       ...(apiCompat && { apiCompat }),
+      ...(supportsImageInput !== undefined && { supportsImageInput }),
       ...withCodexReasoningEffort(agent.modelRef.thinkingEffort),
       toolPolicy,
       mcpVisibility,
@@ -742,6 +759,7 @@ function buildExploreCodexRole(
   mcpServers: readonly CodexMcpServerForConfigSync[],
   v4aTeachingEnabled = false,
   toolPolicy: EcoToolPolicy = BUILTIN_EXPLORE_TOOL_POLICY,
+  supportsImageInput?: boolean,
 ): BuiltCodexRole {
   const modelId = requireModelId(modelRef.modelId, CODEX_EXPLORE_ROLE_ID);
   const providerId = requireProviderId(modelRef.providerId, CODEX_EXPLORE_ROLE_ID);
@@ -766,6 +784,7 @@ function buildExploreCodexRole(
       providerId: redactKnownSecrets(providerId, secretsToRedact),
       ...(apiCompat && { apiCompat }),
       ...withCodexReasoningEffort(modelRef.thinkingEffort),
+      ...(supportsImageInput !== undefined && { supportsImageInput }),
       toolPolicy,
       mcpVisibility,
       mcpServers,

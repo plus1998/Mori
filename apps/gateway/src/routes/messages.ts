@@ -21,6 +21,7 @@ import {
   resolveAnthropicStreamUsage,
   trackAnthropicStreamUsage,
 } from "../anthropic-stream-usage.js";
+import { rejectDisabledModelImageInput } from "../image-input-policy.js";
 import { applyModelOutputLimit, withDynamicOutputBudget } from "../model-output-limit.js";
 import {
   applyGatewayResponsesPromptCacheHints,
@@ -142,6 +143,8 @@ export async function handlePostMessages(
     throw error;
   }
 
+  const imageRejection = rejectDisabledModelImageInput(route, body);
+  if (imageRejection) return imageRejection;
   try {
     route = await resolveRouteCredential(route, config, request);
   } catch (error) {
@@ -261,6 +264,8 @@ export async function handlePostMessagesCountTokens(
     throw error;
   }
 
+  const imageRejection = rejectDisabledModelImageInput(route, body);
+  if (imageRejection) return imageRejection;
   if (route.upstreamKind !== "anthropic-messages") {
     onLog(`count_tokens unsupported for kind=${route.upstreamKind}; missing exact token count`);
     return Response.json(

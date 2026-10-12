@@ -277,6 +277,9 @@ export function getPiCodingAgentDriver(ecoDataDir: string): PiCodingAgentDriver 
           bindingId: armed.binding.bindingId,
           providerId: bindingRoute.provider.id,
           headers,
+          ...(bindingRoute.supportsImageInput !== undefined && {
+            supportsImageInput: bindingRoute.supportsImageInput,
+          }),
           ...(bindingRoute.maxOutputTokens !== undefined && {
             maxOutputTokens: bindingRoute.maxOutputTokens,
             globalMaxOutputTokens: bindingRoute.maxOutputTokens,

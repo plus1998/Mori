@@ -10,6 +10,7 @@ import {
   parseCodexTurnMetadataHeader,
 } from "../codex-turn-metadata.js";
 import { resolveEcoMcpHubNamespace } from "../eco-mcp-hub-fixup.js";
+import { rejectDisabledModelImageInput } from "../image-input-policy.js";
 import { applyModelOutputLimit, withDynamicOutputBudget } from "../model-output-limit.js";
 import {
   buildResolveProviderRouteOptions,
@@ -122,6 +123,8 @@ export async function handlePostResponses(
     }
     throw error;
   }
+  const imageRejection = rejectDisabledModelImageInput(route, body);
+  if (imageRejection) return imageRejection;
   route = enrichResolvedRouteWithCodexTurnIdentity(route, codexTurnMetadata);
   try {
     route = await resolveRouteCredential(route, config, request);
@@ -277,6 +280,8 @@ export async function handlePostResponsesCompact(
     }
     throw error;
   }
+  const imageRejection = rejectDisabledModelImageInput(route, body);
+  if (imageRejection) return imageRejection;
   route = enrichResolvedRouteWithCodexTurnIdentity(route, codexTurnMetadata);
   try {
     route = await resolveRouteCredential(route, config, request);

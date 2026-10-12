@@ -50,6 +50,7 @@ export interface EcoProviderForGateway {
     modelId: string;
     maxOutputTokens?: number;
     contextTokens?: number;
+    supportsImageInput?: boolean;
   }[];
 }
 
@@ -68,6 +69,7 @@ export interface GatewayProviderPayload {
   models: string[];
   modelMaxOutputTokens?: Record<string, number>;
   modelContextTokens?: Record<string, number>;
+  modelSupportsImageInput?: Record<string, boolean>;
   tokenCountMode?: ProviderTokenCountMode;
 }
 
@@ -495,6 +497,13 @@ export function buildGatewayProvidersFromEcoProviders(
       ...(provider.upstreamProxyUrl?.trim() ? { upstreamProxyUrl: provider.upstreamProxyUrl.trim() } : {}),
       upstreamModelId: defaultModel,
       models,
+      modelSupportsImageInput: Object.fromEntries(
+        (provider.models ?? []).flatMap((model) =>
+          model.supportsImageInput === undefined
+            ? []
+            : [[model.modelId.trim(), model.supportsImageInput] as const],
+        ),
+      ),
       ...(modelMaxOutputTokens ? { modelMaxOutputTokens } : {}),
       ...(globalMaxOutputTokens === "dynamic"
         ? {

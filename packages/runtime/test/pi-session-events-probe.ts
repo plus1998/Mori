@@ -37,6 +37,7 @@ export interface ProbeSessionOptions {
   mcpStartupWaitMs?: number;
   /** Explicit, scripted tool allowlist for the session. */
   toolsAllowlist?: string[];
+  supportsImageInput?: boolean;
   toolPermissionHandler?: SdkToolPermissionHandler;
   /**
    * Stream a tool call's arguments as N delayed `input_json_delta` fragments instead of
@@ -210,6 +211,7 @@ export async function runScriptedPiSession(options: ProbeSessionOptions): Promis
         apiCompat: "anthropic" as const,
         bindingId: "probe-binding",
         providerId: "eco-probe",
+        ...(options.supportsImageInput !== undefined && { supportsImageInput: options.supportsImageInput }),
       }),
     },
     registry,

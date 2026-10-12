@@ -2,6 +2,27 @@ import { describe, expect, test } from "bun:test";
 import { buildGatewayProvidersFromEcoProviders } from "../src/main/eco-gateway-lifecycle";
 
 describe("eco gateway provider model limits", () => {
+  test("syncs each candidate model's explicit vision setting to the global gateway", () => {
+    const result = buildGatewayProvidersFromEcoProviders([
+      {
+        id: "local",
+        name: "Local",
+        enabled: true,
+        baseUrl: "http://localhost:8080",
+        apiKey: "test",
+        defaultModel: "text-model",
+        models: [
+          { modelId: "text-model", supportsImageInput: false },
+          { modelId: "vision-model", supportsImageInput: true },
+          { modelId: "unknown-model" },
+        ],
+      },
+    ]);
+    expect(result.providers[0]?.modelSupportsImageInput).toEqual({
+      "text-model": false,
+      "vision-model": true,
+    });
+  });
   test("clamps candidate max output tokens by global hard ceiling", () => {
     const result = buildGatewayProvidersFromEcoProviders([
       {
@@ -146,6 +167,10 @@ test("gateway calculates each model output from its resolved window", () => {
     { globalMaxOutputTokens: "dynamic" },
   );
   expect(result.providers[0]?.modelMaxOutputTokens).toEqual({ small: 32_767, large: 64_000, limited: 4_096 });
-  expect(result.providers[0]?.modelContextTokens).toEqual({ small: 32_768, large: 262_144, limited: 200_000 });
+  expect(result.providers[0]?.modelContextTokens).toEqual({
+    small: 32_768,
+    large: 262_144,
+    limited: 200_000,
+  });
   expect(result.providers[0]?.tokenCountMode).toBe("local_heuristic");
 });

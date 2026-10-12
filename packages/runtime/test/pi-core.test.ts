@@ -652,6 +652,14 @@ test("buildEcoPiModel keeps a model window smaller than the global cap", () => {
   ).toBe(128_000);
 });
 
+test("buildEcoPiModel honors disabled vision for every API face", () => {
+  for (const apiCompat of ["anthropic", "openai_responses", "openai_chat_completions"] as const) {
+    const input = { bridgeBaseUrl: "http://127.0.0.1:18765", bridgeModelId: "alias", apiCompat };
+    expect(buildEcoPiModel({ ...input, supportsImageInput: false }).input).toEqual(["text"]);
+    expect(buildEcoPiModel({ ...input, supportsImageInput: true }).input).toEqual(["text", "image"]);
+  }
+});
+
 test("buildEcoPiModel maps apiCompat to Pi api / auth provider", () => {
   const anthropic = buildEcoPiModel({
     bridgeBaseUrl: "http://127.0.0.1:18765",

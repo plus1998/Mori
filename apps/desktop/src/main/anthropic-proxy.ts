@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { mapApiCompatToUpstreamKind, type ResolvedProviderRoute, type UpstreamKind } from "@eco/gateway";
+import { containsImageInput } from "@eco/shared";
 import {
   applyThinkingToMessagesBody,
   type GlobalMaxOutputTokens,
@@ -78,6 +79,7 @@ export interface AnthropicProxyRoute {
   maxOutputTokens?: number;
   /** Resolved catalog/manual context window; drives SDK `[1m]` alias suffix when >= 1M. */
   contextTokens?: number;
+  supportsImageInput?: boolean;
 }
 
 export interface RuntimeRouteProxySource {
@@ -87,6 +89,26 @@ export interface RuntimeRouteProxySource {
   apiCompat?: UpstreamApiCompat;
   thinkingEffort?: ThinkingEffort;
   manualSpec?: RouteManualSpec;
+}
+
+function rejectDisabledImageInput(
+  route: AnthropicProxyRoute,
+  body: Record<string, unknown>,
+  hasPendingImages = false,
+): Response | undefined {
+  if (route.supportsImageInput !== false || (!hasPendingImages && !containsImageInput(body))) {
+    return undefined;
+  }
+  return Response.json(
+    {
+      error: {
+        type: "invalid_request_error",
+        code: "image_input_disabled",
+        message: `模型 ${route.modelId} 已关闭视觉，禁止直接读取图片。请在提供商的模型设置中启用视觉，或选择支持图片的视觉模型。`,
+      },
+    },
+    { status: 400 },
+  );
 }
 
 export function resolveRouteMaxOutputTokens(manualSpec?: RouteManualSpec): number | undefined {
@@ -124,6 +146,9 @@ export function runtimeRouteToProxyRoute(
     ...(route.apiCompat && { apiCompat: route.apiCompat }),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
     maxOutputTokens,
+    ...(route.manualSpec?.supportsImageInput !== undefined && {
+      supportsImageInput: route.manualSpec.supportsImageInput,
+    }),
     ...(options?.contextTokens !== undefined && { contextTokens: options.contextTokens }),
   };
 }
@@ -251,6 +276,7 @@ export async function startAnthropicModelProxy(
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
     ...(route.maxOutputTokens !== undefined && { maxOutputTokens: route.maxOutputTokens }),
     ...(route.contextTokens !== undefined && { contextTokens: route.contextTokens }),
+    ...(route.supportsImageInput !== undefined && { supportsImageInput: route.supportsImageInput }),
   }));
 
   const bindingRoutes: ClaudeBridgeBindingRoute[] = resolvedRoutes.map((route) => ({
@@ -262,6 +288,7 @@ export async function startAnthropicModelProxy(
     ...(route.thinkingEffort ? { thinkingEffort: route.thinkingEffort } : {}),
     ...(route.maxOutputTokens !== undefined ? { maxOutputTokens: route.maxOutputTokens } : {}),
     ...(route.contextTokens !== undefined ? { contextTokens: route.contextTokens } : {}),
+    ...(route.supportsImageInput !== undefined ? { supportsImageInput: route.supportsImageInput } : {}),
   }));
 
   const binding = globalClaudeBridgeBindingRegistry.create({
@@ -471,6 +498,12 @@ export async function prepareGatewayBindingForwardRequest(input: {
       };
     }
 
+    const imageRejection = rejectDisabledImageInput(route, input.body);
+    if (imageRejection) {
+      releaseLease();
+      return { kind: "response", response: imageRejection };
+    }
+
     // Responses is the conversion hub: the gateway can convert Responses IR to
     // openai_responses, openai_chat_completions, or anthropic upstream wire formats.
     // Chat Completions is passthrough-only and must match openai_chat_completions.
@@ -574,6 +607,16 @@ async function prepareAgainstBinding(
 
   const body = input.body;
   const countTokens = input.path.includes("count_tokens");
+
+  const imageRejection = rejectDisabledImageInput(
+    route,
+    body,
+    binding.pendingImages.length > 0 && !binding.imagesInjected,
+  );
+  if (imageRejection) {
+    releaseLease();
+    return { kind: "response", response: imageRejection };
+  }
 
   if (binding.pendingImages.length > 0 && !binding.imagesInjected) {
     // count_tokens may run before the real messages call — inject a view of the

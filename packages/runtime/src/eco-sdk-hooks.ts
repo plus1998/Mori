@@ -16,6 +16,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { truncateToolOutputForHistory } from "./codex-output-truncation.js";
 import { buildForcedPlanDelegationContract } from "./forced-plan-delegation.js";
+import { IMAGE_READ_DISABLED_REASON, isNativeImageFile } from "./native-image-read.js";
 import {
   readPlanFileContent,
   readPlanFromPhaseTranscript,
@@ -317,6 +318,8 @@ export interface EcoHookContext {
   allowedAgentKeys?: string[];
   allowedSdkBuiltinAgentKeys?: string[];
   toolPermissions?: EcoRuntimeToolPermissionPolicy;
+  /** Actor's actual model capability. Applied in PreToolUse even under bypassPermissions. */
+  resolveSupportsImageInput?: (input: { agentId?: string; agentType?: string }) => boolean | undefined;
   /** @deprecated 持久化字段名；语义为执行确认档位 */
   bashReviewMode?: ExecutionConfirmationMode;
   resolveBashReviewMode?: () => ExecutionConfirmationMode;
@@ -854,6 +857,45 @@ export function createWorkflowDenyPreToolHook(): HookCallback {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
         permissionDecisionReason: "SDK Dynamic Workflows are disabled in Eco.",
+      },
+    };
+  };
+}
+
+export function createImageReadPreToolHook(
+  resolveSupportsImageInput: EcoHookContext["resolveSupportsImageInput"],
+): HookCallback | undefined {
+  if (!resolveSupportsImageInput) return undefined;
+  return async (input) => {
+    if (input.hook_event_name !== "PreToolUse") return {};
+    const preInput = input as PreToolUseHookInput;
+    if (preInput.tool_name !== "Read") return {};
+    let supportsImages: boolean | undefined;
+    try {
+      supportsImages = resolveSupportsImageInput({
+        ...(preInput.agent_id ? { agentId: preInput.agent_id } : {}),
+        ...(preInput.agent_type ? { agentType: preInput.agent_type } : {}),
+      });
+    } catch (error) {
+      // SDK hook exceptions are non-blocking. Return a concrete denial when the
+      // actor's route cannot be resolved, so that gap cannot bypass the policy.
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: `无法确认 Agent 的模型视觉配置：${error instanceof Error ? error.message : String(error)}`,
+        },
+      };
+    }
+    if (supportsImages !== false) return {};
+    const args = isRecord(preInput.tool_input) ? preInput.tool_input : {};
+    const filePath = typeof args.file_path === "string" ? args.file_path : "";
+    if (!filePath || !(await isNativeImageFile(filePath, preInput.cwd))) return {};
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: IMAGE_READ_DISABLED_REASON,
       },
     };
   };
@@ -1954,6 +1996,7 @@ export function buildEcoSdkHooks(ctx: EcoHookContext): Partial<Record<HookEvent,
         : "forbidden");
 
   pushHook(hooks, "PreToolUse", createWorkflowDenyPreToolHook(), "Workflow");
+  pushHook(hooks, "PreToolUse", createImageReadPreToolHook(ctx.resolveSupportsImageInput), "Read");
   pushHook(
     hooks,
     "PreToolUse",

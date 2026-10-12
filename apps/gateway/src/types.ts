@@ -33,6 +33,8 @@ export interface GatewayProvider {
   modelMaxOutputTokens?: Record<string, number>;
   /** Present only in dynamic mode; effective min(model window, global window). */
   modelContextTokens?: Record<string, number>;
+  /** Explicit provider/model vision settings, enforced before upstream requests. */
+  modelSupportsImageInput?: Record<string, boolean>;
   tokenCountMode?: "local_heuristic" | "anthropic_messages" | "openai_responses" | "llama_tokenize";
 }
 

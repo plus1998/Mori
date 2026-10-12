@@ -92,6 +92,8 @@ export interface BuildEcoPiModelInput {
   apiCompat?: EcoApiCompat;
   contextWindow?: number;
   maxOutputTokens?: number;
+  /** Provider/model setting; an explicit false forbids native image input. */
+  supportsImageInput?: boolean;
   globalMaxOutputTokens?: GlobalMaxOutputTokens;
   /** Eco global context cap; PI compaction uses min(model, this). */
   globalContextWindowLimit?: number;
@@ -182,7 +184,7 @@ export function buildEcoPiModel(input: BuildEcoPiModelInput): EcoPiModelSpec {
     baseUrl,
     reasoning: thinkingLevel !== "off",
     ...(thinkingLevel !== "off" ? { thinkingLevelMap: { ...ECO_PI_EXTENDED_THINKING_LEVEL_MAP } } : {}),
-    input: ["text", "image"],
+    input: input.supportsImageInput === false ? ["text"] : ["text", "image"],
     cost: {
       input: input.route?.primary.inputCostPerMillion ?? 0,
       output: input.route?.primary.outputCostPerMillion ?? 0,
