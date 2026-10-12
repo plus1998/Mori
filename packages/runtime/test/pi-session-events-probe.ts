@@ -26,6 +26,7 @@ export interface ScriptedTurn {
 }
 
 export interface ProbeSessionOptions {
+  signal?: AbortSignal;
   workspace: string;
   agentDir: string;
   threadId: string;
@@ -237,7 +238,7 @@ export async function runScriptedPiSession(options: ProbeSessionOptions): Promis
         fallbacks: [],
       },
     ],
-    signal: new AbortController().signal,
+    signal: options.signal ?? new AbortController().signal,
     piSession: {
       sessionMode: options.sessionMode ?? "agent",
       ...(options.mcpServers ? { mcpServers: options.mcpServers } : {}),

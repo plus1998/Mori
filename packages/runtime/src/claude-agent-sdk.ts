@@ -207,7 +207,7 @@ export interface ClaudeQueryTeardownResult {
 export const CLAUDE_QUERY_DRAIN_DEADLINE_MS = 2_000;
 
 /** Default deadline for an SDK control request before force-closing the Query. */
-export const CLAUDE_QUERY_CONTROL_DEADLINE_MS = 2_000;
+export const CLAUDE_QUERY_CONTROL_DEADLINE_MS = 500;
 
 /** Default deadline for mid-turn `streamInput` before declaring push failure. */
 export const CLAUDE_QUERY_STREAM_INPUT_DEADLINE_MS = 10_000;
@@ -1024,7 +1024,8 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       availability?: SubagentAvailability;
     },
   ): AsyncGenerator<AgentEvent, { transcript: string; finalizedPlan?: FinalizePlanPayload }> {
-    const sdk = await this.loadSdk();
+    input.signal.throwIfAborted();
+    const sdk = await sdkWorkOrAbort(this.loadSdk(), input.signal);
     const plannerRoute = findRoute(input.routes, "planner") ?? input.routes[0];
     if (!plannerRoute) {
       throw new Error("At least one model route is required to start Claude Agent SDK");
@@ -1209,7 +1210,9 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       .filter((tokens): tokens is number => tokens !== undefined);
     // Parent and children share a CLI process. Per-role budgets remain owned by Gateway.
     const sdkMaxOutputTokens = outputCeilings.length > 0 ? Math.max(...outputCeilings) : undefined;
+    const sdkAbortController = new AbortController();
     const queryOptions: Record<string, unknown> = {
+      abortController: sdkAbortController,
       cwd: sessionCwd,
       model: mainModel,
       ...(this.options.pathToClaudeCodeExecutable
@@ -1408,7 +1411,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       }
       closingNotified = true;
       try {
-        await this.options.queryLifecycle?.onClosing?.(handle);
+        await sdkWorkOrAbort(Promise.resolve(this.options.queryLifecycle?.onClosing?.(handle)), input.signal);
       } catch {
         // Port closeIngress must not block prompt/query teardown.
       }
@@ -1488,8 +1491,12 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
 
     const onAbort = () => {
       void ensureInterrupt();
+      // Drive the SDK transport too: cancellation must not depend on iterator
+      // progress, a context probe, or a mid-turn ingress waiter reaching finally.
+      sdkAbortController.abort(input.signal.reason);
     };
     input.signal.addEventListener("abort", onAbort, { once: true });
+    if (input.signal.aborted) onAbort();
 
     let transcript = "";
     const phaseTranscriptBox = { text: "" };
@@ -1531,7 +1538,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
     const iterator = query[Symbol.asyncIterator]();
     let pendingIteratorNext: Promise<IteratorResult<unknown>> | undefined;
     try {
-      await this.options.queryLifecycle?.onOpen?.(handle);
+      await sdkWorkOrAbort(Promise.resolve(this.options.queryLifecycle?.onOpen?.(handle)), input.signal);
       while (true) {
         if (input.signal.aborted) {
           break;
@@ -1617,7 +1624,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
           typeof query.setPermissionMode === "function"
         ) {
           permissionModeApplied = true;
-          await query.setPermissionMode(phase.permissionMode);
+          await sdkWorkOrAbort(Promise.resolve(query.setPermissionMode(phase.permissionMode)), input.signal);
         }
 
         const checkpointId = readSdkUserMessageCheckpointId(message);
@@ -1635,7 +1642,10 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
         ) {
           this.options.onContextProbe?.("query_result", summarizeSdkResultForProbe(message, activeSessionId));
           contextUsageCollected = true;
-          pendingContextEvents = await this.collectContextUsageEvents(query, input.threadId, activeSessionId);
+          pendingContextEvents = await sdkWorkOrAbort(
+            this.collectContextUsageEvents(query, input.threadId, activeSessionId),
+            input.signal,
+          );
         }
 
         // Calibrate planner context from getContextUsage before result billing usage.
@@ -2364,6 +2374,15 @@ type DeadlineResult<T> =
   | { kind: "rejected"; error: unknown }
   | { kind: "timeout" };
 
+async function sdkWorkOrAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error("aborted"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    void work.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+    if (signal.aborted) onAbort();
+  });
+}
+
 async function settleWithin<T>(work: Promise<T>, deadlineMs: number): Promise<DeadlineResult<T>> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<DeadlineResult<T>>((resolve) => {
@@ -2512,13 +2531,17 @@ export async function teardownClaudeQueryHandle(
         closeQuery();
       }
       interruptMs = Date.now() - interruptStarted;
+      // Once Stop is acknowledged (or its deadline expires), close the query
+      // before draining residual frames, so tools/queued turns cannot keep running.
+      closeQuery();
     }
 
-    if (options.iterator) {
+    if (options.iterator && !interruptTimedOut) {
       try {
         drain = await drainAsyncIterator(
           options.iterator,
-          options.drainDeadlineMs ?? CLAUDE_QUERY_DRAIN_DEADLINE_MS,
+          options.drainDeadlineMs ??
+            (options.shouldInterrupt ? CLAUDE_QUERY_CONTROL_DEADLINE_MS : CLAUDE_QUERY_DRAIN_DEADLINE_MS),
           options.pendingNext,
         );
       } catch (error) {

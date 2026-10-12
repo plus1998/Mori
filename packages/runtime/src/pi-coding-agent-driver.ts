@@ -31,6 +31,7 @@ import {
   type PiThinkingLevel,
   resolvePiPlannerRoute,
 } from "./pi-model-bridge.js";
+import { streamPiPromptEvents } from "./pi-prompt-event-stream.js";
 import { disposePiSdkSession } from "./pi-session-dispose.js";
 import {
   createPiModeAwareToolPermissionHandler,
@@ -785,11 +786,13 @@ export class PiCodingAgentDriver implements AgentRuntimeDriver {
     });
 
     const onAbort = () => {
-      void activeSession.abort();
-      void this.registry.abort(input.threadId);
+      void this.registry.abort(input.threadId).catch((error) => {
+        console.error(
+          `[eco-pi] thread abort failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
     };
     if (input.signal.aborted) {
-      await activeSession.abort();
       await this.registry.abort(input.threadId);
       return;
     }
@@ -1070,6 +1073,15 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
   const eventRole = input.eventRole?.trim() || "planner";
   const eventAgentId = input.eventAgentId?.trim() || sessionId;
   const sideEventBus = input.sideEventBus;
+  let abortWork: Promise<void> | undefined;
+  const abortSession = (): Promise<void> => {
+    if (!abortWork) {
+      abortWork = session.abort().finally(() => {
+        abortWork = undefined;
+      });
+    }
+    return abortWork;
+  };
 
   return {
     sessionId,
@@ -1092,9 +1104,7 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
       return mcpStartupError !== undefined;
     },
     ...(sideEventBus ? { sideEventBus } : {}),
-    abort: async () => {
-      await session.abort();
-    },
+    abort: abortSession,
     dispose: disposeSession,
     ...createPiMidTurnHandle(session),
     rebind: async (rebindInput) => {
@@ -1123,17 +1133,8 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
       await (session as { reload: (options?: Record<string, never>) => Promise<void> }).reload();
     },
     async *prompt(text: string, signal?: AbortSignal): AsyncIterable<AgentEvent> {
-      const queue: AgentEvent[] = [];
-      let resolveWait: (() => void) | undefined;
-      let done = false;
-      let runError: unknown;
       let sawSettled = false;
       let assistantError: string | undefined;
-
-      const wake = () => {
-        resolveWait?.();
-        resolveWait = undefined;
-      };
 
       const mapCtx = {
         threadId: input.threadId,
@@ -1148,53 +1149,25 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
         },
       };
 
-      const unsubscribe = session.subscribe((event) => {
-        const mapped = mapPiSessionEventToAgentEvents(event as PiSessionEventLike, mapCtx);
-        if (mapped.length > 0) {
-          queue.push(...mapped);
-          wake();
-        }
-        if ((event as { type?: string }).type === "agent_settled") {
-          sawSettled = true;
-        }
-        assistantError = applyPiAssistantErrorTracker(event as PiSessionEventLike, assistantError);
-      });
-
-      const unsubscribeSide = sideEventBus?.subscribe((event) => {
-        queue.push(event);
-        wake();
-      });
-
-      const promptPromise = session
-        .prompt(text, signal?.aborted ? { source: "rpc" } : { source: "rpc" })
-        .then(() => {
-          done = true;
-          wake();
-        })
-        .catch((error: unknown) => {
-          runError = error;
-          done = true;
-          wake();
-        });
-
       try {
-        while (!done || queue.length > 0) {
-          if (signal?.aborted) {
-            await session.abort();
-            break;
-          }
-          if (queue.length === 0) {
-            await new Promise<void>((resolve) => {
-              resolveWait = resolve;
+        const { done, runError } = yield* streamPiPromptEvents<AgentEvent>({
+          signal,
+          subscribe: (push) => {
+            const unsubscribe = session.subscribe((event) => {
+              const mapped = mapPiSessionEventToAgentEvents(event as PiSessionEventLike, mapCtx);
+              if (mapped.length > 0) push(mapped);
+              if ((event as { type?: string }).type === "agent_settled") sawSettled = true;
+              assistantError = applyPiAssistantErrorTracker(event as PiSessionEventLike, assistantError);
             });
-            continue;
-          }
-          const next = queue.shift();
-          if (next) {
-            yield next;
-          }
-        }
-        await promptPromise;
+            const unsubscribeSide = sideEventBus?.subscribe((event) => push([event]));
+            return () => {
+              unsubscribe();
+              unsubscribeSide?.();
+            };
+          },
+          run: () => session.prompt(text, { source: "rpc" }),
+          abort: abortSession,
+        });
         if (runError) {
           const message = runError instanceof Error ? runError.message : String(runError);
           yield createAgentEvent({
@@ -1230,8 +1203,6 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
           });
         }
       } finally {
-        unsubscribe();
-        unsubscribeSide?.();
         if (mcpStartupError) await disposeSession();
       }
     },

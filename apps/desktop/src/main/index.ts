@@ -969,6 +969,7 @@ import {
   resolvePlanSessionRunOutcome,
   runAttemptPhaseFromThreadMode,
 } from "./thread-run-outcome";
+import { ThreadRunPreparationCancelled, ThreadRunPreparationRegistry } from "./thread-run-preparation";
 import { ThreadRuntimeCoordinator } from "./thread-runtime-coordinator";
 import {
   runThreadRequestWithRuntimeProxy,
@@ -1466,6 +1467,7 @@ const conversationRecoveryGate = new ConversationRecoveryGate();
 const pendingCancelDisposition = new Map<string, WorktreeCancelDisposition>();
 const pendingEscalatedFollowUpDrain = new Set<string>();
 const threadFollowUpDrainScheduler = new ThreadFollowUpDrainScheduler();
+const threadRunPreparations = new ThreadRunPreparationRegistry();
 const titleGeneratingThreadIds = new Set<string>();
 const editingThreadFollowUpByThread = new Map<string, string>();
 const threadFollowUpOperationLocks = new Map<string, Promise<void>>();
@@ -1572,7 +1574,7 @@ threadRuntimeCoordinator.register({
 });
 threadRuntimeCoordinator.register({
   kind: "pi",
-  start: (input) => void startPiThreadRunFromCoordinator(input),
+  start: startPiThreadRunFromCoordinator,
   continue: startPiThreadContinuation,
   cancel: (threadId) => {
     void abortPiThread(threadId);
@@ -9257,23 +9259,23 @@ function registerRemainingDesktopCommands(): void {
         schedulingService.pauseAutomaticMessages(threadId);
         // Explicit Stop revokes an earlier Guide; cleanup must pause queued rows.
         pendingEscalatedFollowUpDrain.delete(threadId);
+        threadRunPreparations.cancel(threadId);
+        autoPauseFollowUpQueueWhenQueuedRemain(threadId);
         const owner = conversationStore.getThread(threadId)?.coreKind;
         const hadActiveRun = activeRunRuntimeState.hasRun(threadId);
         if (hadActiveRun) {
           markThreadCancelling(threadId);
-        }
-        if (owner) {
-          await threadRuntimeCoordinator.cancel(owner, threadId);
+          updateThread(threadId, { status: "running", message: "" });
         }
         if (worktreeDisposition) {
           pendingCancelDisposition.set(threadId, worktreeDisposition);
         }
-        if (activeRunRuntimeState.abortRun(threadId, "cancelled by user") || hadActiveRun) {
-          markThreadCancelling(threadId);
-          updateThread(threadId, { status: "running", message: "" });
-          cancelClarificationsForThread(threadId, "cancelled by user");
-          cancelBashApprovalsForThread(threadId, "cancelled by user");
-          cancelPlanApprovalsForThreadKeepPending(threadId, "cancelled by user");
+        // Abort before any async runtime cleanup or approval resolution can delay Stop.
+        activeRunRuntimeState.abortRun(threadId, "cancelled by user");
+        if (owner) {
+          await threadRuntimeCoordinator.cancel(owner, threadId);
+        }
+        if (hadActiveRun) {
           return;
         }
         const thread = conversationStore.getThread(threadId);
@@ -9752,10 +9754,21 @@ async function drainQueuedThreadFollowUpsAfterRun(threadId: string): Promise<voi
 }
 
 async function drainNextQueuedThreadFollowUp(threadId: string): Promise<void> {
+  return threadRunPreparations.prepare(threadId, (signal) =>
+    drainPreparedNextQueuedThreadFollowUp(threadId, signal),
+  );
+}
+
+async function drainPreparedNextQueuedThreadFollowUp(
+  threadId: string,
+  preparationSignal: AbortSignal,
+): Promise<void> {
   if (activeRunRuntimeState.hasRun(threadId)) {
     return;
   }
   const drainClaim = await withThreadFollowUpLock(threadId, async () => {
+    if (preparationSignal.aborted)
+      return { claimed: [] as ThreadPendingFollowUp[], forceEscalatedDrain: false };
     const thread = conversationStore.getThread(threadId);
     const forceEscalatedDrain = pendingEscalatedFollowUpDrain.delete(threadId);
     // Escalated interrupt may force one drain while the queue remains user-paused.
@@ -9826,6 +9839,7 @@ async function drainNextQueuedThreadFollowUp(threadId: string): Promise<void> {
     }
     await startThreadContinuation({
       threadId,
+      preparationSignal,
       prompt,
       displayPrompt,
       ...(attachments.length > 0 ? { attachments } : {}),
@@ -9845,6 +9859,16 @@ async function drainNextQueuedThreadFollowUp(threadId: string): Promise<void> {
       });
     }
   } catch (error) {
+    if (error instanceof ThreadRunPreparationCancelled) {
+      for (const followUp of claimed) {
+        const queued = conversationStore.updateThreadFollowUpStatus(threadId, followUp.id, {
+          status: "queued",
+        });
+        if (queued) emitThreadFollowUpEvent(queued, "thread.follow_up.queued", "");
+      }
+      autoPauseFollowUpQueueWhenQueuedRemain(threadId);
+      return;
+    }
     const reason = errorMessage(error);
     for (const followUp of claimed) {
       const failed =
@@ -10030,9 +10054,23 @@ function dispatchClaudeThreadStart(input: ThreadCoreStartRunInput): void {
 }
 
 async function startPiThreadRunFromCoordinator(input: ThreadCoreStartRunInput): Promise<void> {
+  try {
+    await threadRunPreparations.prepare(input.thread.id, (signal) =>
+      startPreparedPiThreadRunFromCoordinator(input, signal),
+    );
+  } catch (error) {
+    if (!(error instanceof ThreadRunPreparationCancelled)) throw error;
+  }
+}
+
+async function startPreparedPiThreadRunFromCoordinator(
+  input: ThreadCoreStartRunInput,
+  signal: AbortSignal,
+): Promise<void> {
   imageViewGateway.noteThreadPrompt(input.thread.id, input.prompt);
   const prepared = await resolvePiSessionResourcesForThread(input.thread.id, input.workspace.path);
   const agentRegistry = resolveAgentRuntimeConfigForThread(input.thread);
+  signal.throwIfAborted();
   await startPiThreadRun(
     {
       thread: input.thread,
@@ -10086,10 +10124,12 @@ async function startPiThreadContinuation(input: StartThreadContinuationInput): P
     throw new Error(runtime.reason);
   }
 
+  input.preparationSignal?.throwIfAborted();
   updateThread(thread.id, { status: "running", message: "" });
   const workspace = await ensureWorkspace(thread.workspacePath);
   let attachmentsForRuntime = await loadPromptAttachmentsForRuntime(input.attachments);
   if (!input.skipRecordUserPrompt) {
+    input.preparationSignal?.throwIfAborted();
     const recorded = await recordUserPrompt(
       thread.id,
       input.displayPrompt?.trim() || prompt,
@@ -10104,6 +10144,7 @@ async function startPiThreadContinuation(input: StartThreadContinuationInput): P
   const updated = ensureThreadRuntimeConfig(conversationStore.getThread(thread.id) ?? activeThread);
   const prepared = await resolvePiSessionResourcesForThread(updated.id, workspace.path);
   const agentRegistry = resolveAgentRuntimeConfigForThread(updated);
+  input.preparationSignal?.throwIfAborted();
   const piRuntimePromise = startPiThreadRun(
     {
       thread: updated,
@@ -10166,11 +10207,13 @@ async function startAcpThreadContinuation(
   if (thread.status === "running" || thread.status === "queued") {
     throw new Error("Wait for the current run to finish.");
   }
+  input.preparationSignal?.throwIfAborted();
   updateThread(thread.id, { status: "running", message: "" });
   const workspace = await ensureWorkspace(thread.workspacePath);
   let recordedUserActivityLineId: string | undefined;
   let attachmentsForRuntime = attachmentsForPrompt;
   if (!input.skipRecordUserPrompt) {
+    input.preparationSignal?.throwIfAborted();
     const recorded = await recordUserPrompt(
       thread.id,
       input.displayPrompt?.trim() || prompt,
@@ -10188,6 +10231,7 @@ async function startAcpThreadContinuation(
     conversationStore.saveThreadRuntimeConfig(thread.id, next);
   }
   const activeThread = conversationStore.getThread(thread.id) ?? updated;
+  input.preparationSignal?.throwIfAborted();
   const runtime = startAcpThreadRun(
     toAcpThreadStartRunInput({
       thread: activeThread,
@@ -10778,6 +10822,7 @@ async function startCodexThreadContinuation(
       ? buildThreadTurnPrompt(activeThread.prompt, prompt)
       : prompt;
 
+  input.preparationSignal?.throwIfAborted();
   updateThread(thread.id, { status: "running", message: "" });
   const workspace = await ensureWorkspace(thread.workspacePath);
   // Prefer finishing fork+local prune before the rewrite IPC returns (clean feed on refresh).
@@ -10797,6 +10842,7 @@ async function startCodexThreadContinuation(
       rewindResult.storedAttachments ?? input.attachments,
     );
   } else if (!input.skipRecordUserPrompt) {
+    input.preparationSignal?.throwIfAborted();
     const recorded = await recordUserPrompt(
       thread.id,
       input.displayPrompt?.trim() || prompt,
@@ -10810,6 +10856,7 @@ async function startCodexThreadContinuation(
     attachmentsForRuntime = await loadPromptAttachmentsForRuntime(input.attachments);
   }
   const updated = ensureThreadRuntimeConfig(conversationStore.getThread(thread.id) ?? activeThread);
+  input.preparationSignal?.throwIfAborted();
   const codexRuntimePromise = startCodexThreadRun({
     thread: updated,
     workspace,
@@ -12706,6 +12753,7 @@ async function startNewThread(
 
 interface StartThreadContinuationInput {
   threadId: string;
+  preparationSignal?: AbortSignal;
   prompt: string;
   /** Starts a new Codex turn with input: [] against the existing remote thread. */
   codexEmptyInput?: boolean;
@@ -12737,6 +12785,16 @@ interface PreparedHistoryRuntimeDispatch {
 }
 
 async function startThreadContinuation(input: StartThreadContinuationInput): Promise<ThreadContinueResult> {
+  if (input.preparationSignal) return startPreparedThreadContinuation(input);
+  return threadRunPreparations.prepare(input.threadId, (preparationSignal) =>
+    startPreparedThreadContinuation({ ...input, preparationSignal }),
+  );
+}
+
+async function startPreparedThreadContinuation(
+  input: StartThreadContinuationInput,
+): Promise<ThreadContinueResult> {
+  input.preparationSignal?.throwIfAborted();
   healOrphanedThreadBeforeContinuation(input.threadId);
   const thread = conversationStore.getThread(input.threadId);
   if (!thread) {
@@ -12768,6 +12826,7 @@ async function startThreadContinuation(input: StartThreadContinuationInput): Pro
           ),
         }
       : resolvedTarget;
+  input.preparationSignal?.throwIfAborted();
   return threadRuntimeCoordinator.continue(thread.coreKind, {
     ...input,
     ...(currentTarget ? { rewindTarget: currentTarget } : {}),
@@ -12890,12 +12949,14 @@ async function startClaudeThreadContinuation(
       ? prompt
       : buildAgentPromptWithContext(effectiveThread.prompt, prompt, activityLines);
 
+  input.preparationSignal?.throwIfAborted();
   updateThread(input.threadId, {
     status: "running",
     message: "",
   });
   let attachmentsForRuntime = await loadPromptAttachmentsForRuntime(input.attachments);
   if (!input.skipRecordUserPrompt) {
+    input.preparationSignal?.throwIfAborted();
     const recorded = await recordUserPrompt(
       input.threadId,
       input.displayPrompt?.trim() || prompt,
@@ -12934,6 +12995,7 @@ async function startClaudeThreadContinuation(
     });
   }
 
+  input.preparationSignal?.throwIfAborted();
   void dispatchThreadContinueAction({
     threadId: input.threadId,
     action: continueAction,

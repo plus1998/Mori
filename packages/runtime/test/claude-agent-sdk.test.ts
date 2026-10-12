@@ -2737,7 +2737,7 @@ test("ClaudeAgentSdkDriver force-closes when abort leaves interrupt and iterator
     interrupted: true,
     interrupt_timed_out: true,
     closed: true,
-    drain_timed_out: true,
+    drain_timed_out: false,
   });
 });
 
@@ -2776,6 +2776,59 @@ test("teardownClaudeQueryHandle does not await iterator.return after drain timeo
 
   expect(outcome).toBe("completed");
   expect(returnCalled).toBe(false);
+  expect(closeCalled).toBe(true);
+});
+
+test("Stop aborts the SDK transport and tears down even while a context probe and ingress close never resolve", async () => {
+  const controller = new AbortController();
+  let sdkController: AbortController | undefined;
+  let closeCalled = false;
+  let probeStarted!: () => void;
+  const probing = new Promise<void>((resolve) => {
+    probeStarted = resolve;
+  });
+  const never = new Promise<never>(() => {});
+  const driver = new ClaudeAgentSdkDriver({
+    apiKey: "test-key",
+    baseUrl: "http://127.0.0.1:36037",
+    queryControlDeadlineMs: 10,
+    queryLifecycle: { onClosing: () => never },
+    loadSdk: async () => ({
+      query: ({ options }) => {
+        sdkController = options.abortController as AbortController;
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield { type: "system", subtype: "init", session_id: "sess-probe-abort" };
+            yield { type: "result", subtype: "success", session_id: "sess-probe-abort" };
+          },
+          getContextUsage: () => {
+            probeStarted();
+            return never;
+          },
+          interrupt: () => never,
+          close: () => {
+            closeCalled = true;
+          },
+        };
+      },
+    }),
+  });
+  const run = (async () => {
+    for await (const _event of driver.runAsk({
+      threadId: "thr_probe_abort",
+      prompt: "Wait",
+      workspacePath: "/tmp/workspace",
+      worktreePath: "/tmp/worktree",
+      routes,
+      signal: controller.signal,
+    })) {
+    }
+  })();
+  const stopped = run.catch((error: unknown) => error);
+  await probing;
+  controller.abort("cancelled by user");
+  expect(sdkController?.signal.aborted).toBe(true);
+  expect(await stopped).toBe("cancelled by user");
   expect(closeCalled).toBe(true);
 });
 

@@ -408,7 +408,6 @@ import { SettingsSyncControl } from "./SettingsSyncControl";
 import { SidebarCoreSelector } from "./SidebarCoreSelector";
 import { SidebarSearchDialog } from "./SidebarSearchDialog";
 import { SidebarSettingsUpdateControl } from "./SidebarSettingsUpdateControl";
-import { StopThreadConfirmDialog } from "./StopThreadConfirmDialog";
 import { buildSidebarAttentionItems } from "./sidebar-attention-items";
 import type { TerminalSessionPresentation } from "./TerminalPanel";
 import { ThreadIdleCacheWarning } from "./ThreadIdleCacheWarning";
@@ -2014,7 +2013,6 @@ function App() {
     [applyFeedThreadSelection, commitSidebarThreadSelection],
   );
   const [cancelBusy, setCancelBusy] = useState(false);
-  const [stopConfirm, setStopConfirm] = useState<{ changedFiles: string[] }>();
   const [composerRuntimeConfig, setComposerRuntimeConfig] = useState<ThreadRuntimeConfig | null>(null);
   const [newThreadCoreKind, setNewThreadCoreKind] = useState<CoreKind>("claude");
   const [coreAvailability, setCoreAvailability] = useState<CoreAvailabilitySnapshot>();
@@ -8244,17 +8242,13 @@ function App() {
       current.map((thread) => (thread.id === threadId ? { ...thread, cancelling: true } : thread)),
     );
     try {
-      const head = await window.eco.conversationV2Head(threadId);
-      await window.eco.cancelThread({
-        principalId: "desktop-local",
-        clientCommandId: `run_cancel_${stableHash({
-          threadId,
-          expectedHistoryRevision: head.historyRevision,
-        })}`,
+      const command = await buildConversationV2CommandEnvelope({
         threadId,
-        expectedHistoryRevision: head.historyRevision,
+        operation: "run_cancel",
+        payload: {},
+        getHead: (id) => window.eco!.conversationV2Head(id),
       });
-      setStopConfirm(undefined);
+      await window.eco.cancelThread(command);
     } catch (caught) {
       setThreads((current) =>
         current.map((thread) => {
@@ -8272,23 +8266,10 @@ function App() {
   }
 
   async function requestStopThread() {
-    if (!activeThread || !window.eco) {
+    if (!activeThread || !window.eco || cancelBusy) {
       return;
     }
-    setError(undefined);
-    setCancelBusy(true);
-    try {
-      const status = await window.eco.getWorktreeStatus(activeThread.id);
-      if (status.exists && status.changedFiles.length > 0) {
-        setCancelBusy(false);
-        setStopConfirm({ changedFiles: status.changedFiles });
-        return;
-      }
-      await performCancel();
-    } catch (caught) {
-      setCancelBusy(false);
-      setError(errorMessage(caught));
-    }
+    await performCancel();
   }
 
   async function refreshSkillsList(workspacePath?: string) {
@@ -12095,19 +12076,6 @@ function App() {
           ) : null}
         </div>
       </section>
-
-      {stopConfirm ? (
-        <StopThreadConfirmDialog
-          changedFiles={stopConfirm.changedFiles}
-          busy={cancelBusy}
-          onConfirm={() => void performCancel()}
-          onDismiss={() => {
-            if (!cancelBusy) {
-              setStopConfirm(undefined);
-            }
-          }}
-        />
-      ) : null}
 
       {scriptsDialogOpen && currentProjectPath ? (
         <PackageScriptsDialog
