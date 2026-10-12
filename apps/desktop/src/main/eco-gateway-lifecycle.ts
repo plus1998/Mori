@@ -204,6 +204,10 @@ export class EcoGatewayLifecycle {
           host: "127.0.0.1",
           port: this.port,
           providers: gatewayProviders,
+          resolveModelLimits: async (route) => {
+            const { resolveGatewayBindingModelLimits } = await import("./anthropic-proxy");
+            return resolveGatewayBindingModelLimits(route);
+          },
           countInputTokens:
             this.options.countInputTokens ??
             (async (input) => {

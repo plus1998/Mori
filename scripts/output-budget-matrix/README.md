@@ -10,10 +10,12 @@ child roles: explore, architect, coder, reviewer, and tester.
 bun test apps/desktop/test/max-output-agent-endpoint-matrix.test.ts
 ```
 
-Nine tests execute 648 requests through the production route binding, SDK Bridge,
+Nine tests execute 864 requests through the production route binding, SDK Bridge,
 embedded Gateway, protocol conversion, and a local upstream HTTP server. Each role
 has a distinct context/output budget. Cases cover streaming/non-streaming requests
-and missing, oversized, and smaller client output limits. Short and nearly-full
+and missing, oversized, 32K SDK defaults, and smaller client output limits. Dynamic
+mode replaces these client values with the calculated budget; fixed mode preserves
+smaller requested values. Short and nearly-full
 window cases use controlled input counts to verify `W - input - 1` for each request.
 Assertions inspect the
 final upstream request and consume the complete response.
@@ -50,6 +52,11 @@ fall back to a heuristic. Unit tests cover failure, exhaustion, and rectified re
 This does **not** verify remote provider compliance or real
 model compaction near a full context window. ChatGPT subscription transport does
 not support max_output_tokens; dynamic mode rejects that transport explicitly.
+
+The native assertions require equality with `min(W - input - 1, model ceiling)`;
+they do not accept a smaller SDK default as success. Claude's process and settings
+environment receive the resolved output ceiling across its main/child routes;
+Gateway still computes and enforces each role's current request budget separately.
 
 All clients use isolated temporary workspaces and local credentials. No remote API
 credentials are needed, and application settings are not modified.

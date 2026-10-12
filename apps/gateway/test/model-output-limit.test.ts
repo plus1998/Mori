@@ -379,3 +379,65 @@ test("dynamic permits one output token but refuses insufficient thinking space a
   expect((await subscription.json()).error.message).toContain("cannot be enforced");
   expect(generations).toBe(1);
 });
+
+for (const [kind, field] of [
+  ["anthropic-messages", "max_tokens"],
+  ["responses", "max_output_tokens"],
+  ["openai-chat", "max_tokens"],
+  ["openai-chat", "max_completion_tokens"],
+] as const) {
+  test(`dynamic ${kind}/${field} replaces 32K SDK defaults and honors trusted role ceilings`, async () => {
+    const provider: GatewayProvider = {
+      id: "d",
+      name: "D",
+      upstreamKind: kind,
+      baseUrl: "https://example.test",
+      apiKey: "test",
+      upstreamModelId: "m",
+      models: ["m"],
+      modelMaxOutputTokens: { m: 128_000 },
+      modelContextTokens: { m: 200_000 },
+    };
+    const route = { provider, upstreamKind: kind, requestedModel: "m", upstreamModelId: "m" };
+    const observed: number[] = [];
+    let tokens = 100;
+    let roleCeiling = 64_000;
+    const fetcher = withDynamicOutputBudget(
+      async (_url, init) => {
+        observed.push(JSON.parse(String(init?.body))[field]);
+        return Response.json({});
+      },
+      route,
+      {
+        host: "127.0.0.1",
+        port: 0,
+        providers: [provider],
+        resolveModelLimits: async () => ({ contextTokens: 200_000, maxOutputTokens: roleCeiling }),
+        countInputTokens: async () => ({ tokens, precision: "provider_exact", source: "test" }),
+      },
+      new AbortController().signal,
+      () => {},
+    );
+    for (const requested of [32_000, 1_600]) {
+      expect(
+        (
+          await fetcher("https://example.test/request", {
+            method: "POST",
+            body: JSON.stringify({ model: "m", [field]: requested }),
+          })
+        ).status,
+      ).toBe(200);
+    }
+    roleCeiling = 4_096;
+    await fetcher("https://example.test/request", {
+      method: "POST",
+      body: JSON.stringify({ model: "m", [field]: 32_000 }),
+    });
+    tokens = 199_899;
+    await fetcher("https://example.test/request", {
+      method: "POST",
+      body: JSON.stringify({ model: "m", [field]: 32_000 }),
+    });
+    expect(observed).toEqual([64_000, 64_000, 4_096, 100]);
+  });
+}

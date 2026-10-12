@@ -1204,6 +1204,11 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
           ...(phase.planningPhase ? { getPhaseTranscript: () => phaseTranscriptBox.text } : {}),
         })
       : undefined;
+    const outputCeilings = input.routes
+      .map((route) => route.maxOutputTokens)
+      .filter((tokens): tokens is number => tokens !== undefined);
+    // Parent and children share a CLI process. Per-role budgets remain owned by Gateway.
+    const sdkMaxOutputTokens = outputCeilings.length > 0 ? Math.max(...outputCeilings) : undefined;
     const queryOptions: Record<string, unknown> = {
       cwd: sessionCwd,
       model: mainModel,
@@ -1271,6 +1276,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       env: buildSdkProcessEnv({
         apiKey: this.options.apiKey,
         baseUrl: this.options.baseUrl,
+        ...(sdkMaxOutputTokens !== undefined && { maxOutputTokens: sdkMaxOutputTokens }),
         ...(this.options.anthropicAuthMode ? { anthropicAuthMode: this.options.anthropicAuthMode } : {}),
         ...(plannerRoute.thinkingEffort ? { thinkingEffort: plannerRoute.thinkingEffort } : {}),
       }),
@@ -1294,6 +1300,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
         ? { autoCompactWindow: plannerRoute.primary.contextWindow }
         : {}),
       ...(this.options.anthropicAuthMode ? { anthropicAuthMode: this.options.anthropicAuthMode } : {}),
+      ...(sdkMaxOutputTokens !== undefined && { maxOutputTokens: sdkMaxOutputTokens }),
     });
 
     if (Object.keys(session.mcpServers).length > 0) {
@@ -2090,6 +2097,7 @@ export interface BuildSdkProcessEnvOptions {
   baseUrl: string;
   thinkingEffort?: ThinkingEffort;
   anthropicAuthMode?: "api-key" | "bearer";
+  maxOutputTokens?: number;
 }
 
 /** Merge host env and force local router credentials so Claude Code does not call api.anthropic.com directly. */
@@ -2102,6 +2110,12 @@ export function buildSdkProcessEnv(options: BuildSdkProcessEnvOptions): Record<s
   }
   env.ANTHROPIC_BASE_URL = options.baseUrl.replace(/\/+$/, "");
   env.CLAUDE_AGENT_SDK_CLIENT_APP = "eco-coding";
+  if (options.maxOutputTokens !== undefined) {
+    if (!Number.isSafeInteger(options.maxOutputTokens) || options.maxOutputTokens < 1) {
+      throw new Error("Claude SDK requires a valid resolved max output token ceiling.");
+    }
+    env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(options.maxOutputTokens);
+  }
   if (options.anthropicAuthMode === "bearer") {
     env.ANTHROPIC_AUTH_TOKEN = options.apiKey;
     delete env.ANTHROPIC_API_KEY;
@@ -2190,6 +2204,7 @@ export function applyEcoSdkSettings(
     allowedSdkBuiltinAgentKeys?: readonly string[];
     autoCompactWindow?: number;
     anthropicAuthMode?: "api-key" | "bearer";
+    maxOutputTokens?: number;
   } = {},
 ): void {
   const existing = isRecord(queryOptions.settings) ? queryOptions.settings : {};
@@ -2214,6 +2229,11 @@ export function applyEcoSdkSettings(
       ...existingEnv,
       ANTHROPIC_BASE_URL: baseUrl.replace(/\/+$/, ""),
       CLAUDE_CODE_ATTRIBUTION_HEADER: "0",
+      ...(options.maxOutputTokens !== undefined
+        ? {
+            CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(options.maxOutputTokens),
+          }
+        : {}),
       ...(options.anthropicAuthMode === "bearer"
         ? { ANTHROPIC_AUTH_TOKEN: apiKey }
         : { ANTHROPIC_API_KEY: apiKey }),

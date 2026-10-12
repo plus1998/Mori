@@ -2,7 +2,11 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { runtimeRouteToProxyRoute } from "../../apps/desktop/src/main/anthropic-proxy";
+import {
+  prepareClaudeBridgeMessagesRequest,
+  resolveProxyRoute,
+  runtimeRouteToProxyRoute,
+} from "../../apps/desktop/src/main/anthropic-proxy";
 import {
   configureEcoGatewayLifecycle,
   stopGlobalEcoGateway,
@@ -18,7 +22,7 @@ import { type Call, type Protocol, toolsIn, wireReply } from "./upstream";
 
 export const protocols = ["responses", "anthropic", "chat"] as const;
 export const roles = AGENT_ROLES;
-export const windows = [32_768, 65_536, 200_000, 200_000, 32_768, 200_000];
+export const windows = [200_000, 65_536, 200_000, 200_000, 32_768, 200_000];
 export const modelOutputs = [64_000, 64_000, 64_000, 4_096, 64_000, 128_000];
 export const compatFor = {
   responses: "openai_responses",
@@ -36,12 +40,14 @@ export type Trace = {
   input: number;
   precision: string;
   requestedOutput: number;
+  sdkRequestedOutput?: number;
 };
 
 export async function makeStack(protocol: Protocol, core: string, native = false) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "eco-output-matrix-"));
   const traces: Trace[] = [];
   const counted = new Map<string, { tokens: number; precision: string; requestedOutput: number }>();
+  const sdkRequested = new Map<string, number>();
   let mainTurns = 0;
   const handleUpstream = async (request: Request) => {
     const pathname = new URL(request.url).pathname;
@@ -60,6 +66,7 @@ export async function makeStack(protocol: Protocol, core: string, native = false
       input: counted.get(body.model)!.tokens,
       precision: counted.get(body.model)!.precision,
       requestedOutput: counted.get(body.model)!.requestedOutput,
+      ...(sdkRequested.has(body.model) && { sdkRequestedOutput: sdkRequested.get(body.model)! }),
     });
     if (native && role === "planner") {
       const results = (body.messages ?? []).flatMap((m: any) =>
@@ -130,6 +137,13 @@ export async function makeStack(protocol: Protocol, core: string, native = false
     gatewayPort: 0,
     listProviders: () => [{ ...provider, models }],
     getGlobalMaxOutputTokens: () => "dynamic",
+    prepareClaudeMessages: async ({ path, body, model, headers }) => {
+      if (!path.includes("count_tokens")) {
+        const route = resolveProxyRoute(binding.routes, model);
+        if (route && typeof body.max_tokens === "number") sdkRequested.set(route.modelId, body.max_tokens);
+      }
+      return prepareClaudeBridgeMessagesRequest({ path, body, requestedModel: model, headers });
+    },
     countInputTokens: async (input) => {
       const count = native
         ? await countGatewayInputTokens(input)
@@ -241,7 +255,7 @@ export function assertTraceBudgets(traces: Trace[]) {
       contextTokens: windows[i]!,
       modelMaxOutputTokens: modelOutputs[i]!,
     });
-    const expected = Math.min(ceiling, windows[i]! - trace.input - 1, trace.requestedOutput);
+    const expected = Math.min(ceiling, windows[i]! - trace.input - 1);
     if (typeof trace.output !== "number" || trace.output !== expected || trace.output < 1)
       throw new Error(
         `${trace.role}/${trace.protocol}: expected ${expected} with input=${trace.input}, received ${trace.output}`,

@@ -119,6 +119,7 @@ export function buildDriverRoutes(routes: readonly AnthropicProxyResolvedRoute[]
     },
     fallbacks: [],
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
+    ...(route.maxOutputTokens !== undefined && { maxOutputTokens: route.maxOutputTokens }),
   }));
 }
 

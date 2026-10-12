@@ -42,6 +42,16 @@ for (const core of ["claude", "codex", "pi"])
       else if (core === "pi") await runPi(stack);
       else await runCodex(stack);
       assertTraceBudgets(stack.traces);
+      if (core === "claude") {
+        for (const trace of stack.traces) {
+          if (
+            Number(trace.output) > 32_000 &&
+            (typeof trace.sdkRequestedOutput !== "number" || trace.sdkRequestedOutput <= 32_000)
+          ) {
+            throw new Error(`Claude SDK still advertises 32K for ${trace.role}: ${trace.sdkRequestedOutput}`);
+          }
+        }
+      }
       for (const role of roles)
         if (!stack.traces.some((t) => t.role === role))
           throw new Error(`Missing real SDK request for ${role}`);
@@ -64,6 +74,7 @@ for (const core of ["claude", "codex", "pi"])
               input: t.input,
               precision: t.precision,
               requestedOutput: t.requestedOutput,
+              sdkRequestedOutput: t.sdkRequestedOutput,
               output: t.output,
               stream: t.stream,
             })),
@@ -102,7 +113,7 @@ await fs.writeFile(
     {
       kind: "real SDK/CLI; deterministic local upstream; no remote model calls",
       formula:
-        "min(effective window - current full input tokens - 1, model output ceiling, client requested output)",
+        "min(effective window - current full input tokens - 1, model output ceiling); replaces SDK request defaults",
       inputCounting: "Production local_heuristic provider mode; estimates are not exact tokenizer counts",
       ok: report.every((c) => c.ok),
       cells: report,
@@ -119,7 +130,7 @@ await fs.writeFile(
   [
     "# 每次请求动态输出验证",
     "",
-    "公式：min(有效窗口 − 本次完整输入 tokens − 1, 模型输出上限, 客户端请求上限)。有效窗口为 min(模型窗口, 全局上下文上限)。",
+    "公式：min(有效窗口 − 本次完整输入 tokens − 1, 模型输出上限)。有效窗口为 min(模型窗口, 全局上下文上限)。动态模式覆盖 SDK 请求中的缺省输出值。",
     "",
     "真实 Claude SDK/CLI、Codex app-server、PI SDK；每组都实际启动并验证五个子 agent 完成。上游为本地模拟服务。输入计数使用生产 local_heuristic 模式，属于估算。",
     "",
@@ -130,7 +141,7 @@ await fs.writeFile(
         `| ${cell.core} | ${cell.protocol} | ${cell.ok ? "通过" : "失败"} | ${cell.traces.length} | ${roles.join("、")} |`,
     ),
     "",
-    "HTTP 回归矩阵另覆盖 648 个请求，包括流式/非流式、短输入/模拟接近满窗口的计数、缺省/超大/较小输出参数。接近满窗口场景使用受控计数结果，不是远端模型实测。",
+    "HTTP 回归矩阵另覆盖 864 个请求，包括流式/非流式、短输入/模拟接近满窗口的计数、缺省/超大/32K 缺省/较小输出参数。接近满窗口场景使用受控计数结果，不是远端模型实测。",
     "",
     "计数端点失败不会退回估算；窗口耗尽或 thinking 最低预算放不下时拒绝发送生成。ChatGPT 订阅不支持输出限制参数，动态模式明确报错。",
     "",

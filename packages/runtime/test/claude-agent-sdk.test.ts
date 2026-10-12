@@ -4718,3 +4718,29 @@ test("ClaudeAgentSdkDriver tears down the Query when onOpen fails", async () => 
   expect(closeCalled).toBe(true);
   expect(onClosedCalled).toBe(true);
 });
+
+test("Claude SDK resolved output ceiling overrides inherited 32K in process and settings env", () => {
+  const inherited = process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS;
+  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = "32000";
+  try {
+    const env = buildSdkProcessEnv({
+      apiKey: "router",
+      baseUrl: "http://127.0.0.1:18765",
+      maxOutputTokens: 128_000,
+    });
+    expect(env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe("128000");
+    const options: Record<string, unknown> = {
+      settings: { env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: "32000" } },
+    };
+    applyEcoSdkSettings(options, "router", "http://127.0.0.1:18765", { maxOutputTokens: 128_000 });
+    expect((options.settings as { env: Record<string, string> }).env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe(
+      "128000",
+    );
+    expect(() =>
+      buildSdkProcessEnv({ apiKey: "router", baseUrl: "http://127.0.0.1", maxOutputTokens: NaN }),
+    ).toThrow("valid resolved");
+  } finally {
+    if (inherited === undefined) delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS;
+    else process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = inherited;
+  }
+});

@@ -16,10 +16,11 @@ function applyOutputLimit(
   body: Record<string, unknown>,
   field: "max_tokens" | "max_output_tokens" | "max_completion_tokens",
   limit: number,
+  preserveRequested = true,
 ): void {
   const requested = body[field];
   const applied =
-    typeof requested === "number" && Number.isFinite(requested) && requested > 0
+    preserveRequested && typeof requested === "number" && Number.isFinite(requested) && requested > 0
       ? Math.min(requested, limit)
       : limit;
   body[field] = applied;
@@ -41,7 +42,12 @@ export function withDynamicOutputBudget(
   if (route.provider.modelContextTokens === undefined) return fetcher;
   return (async (url, init) => {
     try {
-      const window = route.provider.modelContextTokens?.[route.upstreamModelId];
+      const boundLimits = await config.resolveModelLimits?.(route);
+      const configuredWindow = route.provider.modelContextTokens?.[route.upstreamModelId];
+      const window =
+        configuredWindow === undefined
+          ? undefined
+          : Math.min(configuredWindow, boundLimits?.contextTokens ?? configuredWindow);
       if (window === undefined || !Number.isSafeInteger(window) || window < 2) {
         throw new Error(
           `Dynamic max output requires a resolved context window for ${route.upstreamModelId}.`,
@@ -83,6 +89,7 @@ export function withDynamicOutputBudget(
       const limit = Math.min(
         remaining,
         route.provider.modelMaxOutputTokens?.[route.upstreamModelId] ?? remaining,
+        boundLimits?.maxOutputTokens ?? remaining,
       );
       const field =
         route.upstreamKind === "anthropic-messages"
@@ -92,9 +99,11 @@ export function withDynamicOutputBudget(
               ? "max_completion_tokens"
               : "max_tokens"
             : "max_output_tokens";
-      applyOutputLimit(body, field, limit);
+      // Dynamic mode owns the output budget. SDK defaults (including Claude's 32000)
+      // must not become a second, smaller ceiling after counting this request.
+      applyOutputLimit(body, field, limit, false);
       if (field === "max_completion_tokens" && body.max_tokens !== undefined)
-        applyOutputLimit(body, "max_tokens", limit);
+        applyOutputLimit(body, "max_tokens", limit, false);
       const thinking = body.thinking as Record<string, unknown> | undefined;
       if (field === "max_tokens" && thinking?.type === "enabled" && Number(thinking.budget_tokens) < 1_024) {
         return Response.json(

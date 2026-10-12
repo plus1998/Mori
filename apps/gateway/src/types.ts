@@ -57,6 +57,14 @@ export interface GatewayConfig {
   host: string;
   port: number;
   providers: GatewayProvider[];
+  /** Trusted per-role model limits from the product's request binding. */
+  resolveModelLimits?: (route: ResolvedProviderRoute) => Promise<
+    | {
+        contextTokens?: number;
+        maxOutputTokens?: number;
+      }
+    | undefined
+  >;
   /** Count the final upstream payload, after every protocol/content transformation. */
   countInputTokens?: (input: {
     route: ResolvedProviderRoute;
@@ -64,7 +72,11 @@ export interface GatewayConfig {
     headers: Headers;
     fetcher: typeof fetch;
     signal?: AbortSignal;
-  }) => Promise<{ tokens: number; precision: "provider_exact" | "tokenizer_exact" | "heuristic"; source: string }>;
+  }) => Promise<{
+    tokens: number;
+    precision: "provider_exact" | "tokenizer_exact" | "heuristic";
+    source: string;
+  }>;
   /** Resolves a short-lived upstream bearer token without exposing it to callers. */
   resolveCredential?: (input: {
     provider: GatewayProvider;

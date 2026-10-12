@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mapApiCompatToUpstreamKind, type UpstreamKind } from "@eco/gateway";
+import { mapApiCompatToUpstreamKind, type ResolvedProviderRoute, type UpstreamKind } from "@eco/gateway";
 import {
   applyThinkingToMessagesBody,
   type GlobalMaxOutputTokens,
@@ -138,6 +138,30 @@ export function applyRouteMaxOutputTokens(body: Record<string, unknown>, maxOutp
     typeof requested === "number" && Number.isFinite(requested) && requested > 0
       ? Math.min(requested, maxOutputTokens)
       : maxOutputTokens;
+}
+
+/** Preserve product-declared role limits without treating the SDK's default as a model limit. */
+export function resolveGatewayBindingModelLimits(route: ResolvedProviderRoute):
+  | {
+      contextTokens?: number;
+      maxOutputTokens?: number;
+    }
+  | undefined {
+  if (!route.bridgeBindingId) return undefined;
+  const binding = globalClaudeBridgeBindingRegistry.getByBindingId(route.bridgeBindingId);
+  if (!binding) throw new Error(`Missing model-limit binding for ${route.requestedModel}.`);
+  const boundRoute = resolveProxyRoute(binding.routes, route.requestedModel);
+  if (
+    !boundRoute ||
+    boundRoute.provider.id !== route.provider.id ||
+    boundRoute.modelId !== route.upstreamModelId
+  ) {
+    throw new Error(`Model-limit binding does not match ${route.requestedModel}.`);
+  }
+  return {
+    ...(boundRoute.contextTokens !== undefined && { contextTokens: boundRoute.contextTokens }),
+    ...(boundRoute.maxOutputTokens !== undefined && { maxOutputTokens: boundRoute.maxOutputTokens }),
+  };
 }
 
 export interface AnthropicProxyMessagesRequestInfo {

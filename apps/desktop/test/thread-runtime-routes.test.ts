@@ -250,9 +250,12 @@ test("buildDriverRoutes copies contextTokens onto primary.contextWindow", () => 
     ...route,
     aliasModelId: createModelAlias(route.role, route.provider.id, route.modelId),
     contextTokens: route.role === "planner" ? 262_144 : 128_000,
+    maxOutputTokens: route.role === "planner" ? 128_000 : 64_000,
   }));
   const driverRoutes = buildDriverRoutes(proxyRoutes);
   expect(driverRoutes[0]?.primary.contextWindow).toBe(262_144);
+  expect(driverRoutes[0]?.maxOutputTokens).toBe(128_000);
+  expect(driverRoutes.find((route) => route.role === "coder")?.maxOutputTokens).toBe(64_000);
   expect(driverRoutes.find((route) => route.role === "coder")?.primary.contextWindow).toBe(128_000);
 });
 
