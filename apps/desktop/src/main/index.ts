@@ -901,6 +901,7 @@ import {
 } from "./thread-cancelling-state";
 import { requireThreadCore } from "./thread-core-routing";
 import { ThreadFollowUpDrainScheduler } from "./thread-follow-up-drain-scheduler";
+import { ThreadFollowUpQueueControl } from "./thread-follow-up-queue-control";
 import {
   applyExactLogicalRequestLateBind,
   applyLogicalRequestTerminal,
@@ -1468,6 +1469,7 @@ const conversationRecoveryGate = new ConversationRecoveryGate();
 const pendingCancelDisposition = new Map<string, WorktreeCancelDisposition>();
 const pendingEscalatedFollowUpDrain = new Set<string>();
 const threadFollowUpDrainScheduler = new ThreadFollowUpDrainScheduler();
+const threadFollowUpQueueControl = new ThreadFollowUpQueueControl();
 const threadRunPreparations = new ThreadRunPreparationRegistry();
 const titleGeneratingThreadIds = new Set<string>();
 const editingThreadFollowUpByThread = new Map<string, string>();
@@ -1715,6 +1717,7 @@ function startActiveRun(threadId: string, run: ActiveRunRuntimeStateInput): void
 }
 
 function finishActiveRun(threadId: string): void {
+  threadFollowUpQueueControl.finished(threadId);
   clearThreadCancelling(threadId);
   // Agent stopped operating this thread — drop the browser presence overlay now.
   browserHost?.clearAgentPresenceForThread(threadId);
@@ -9116,9 +9119,13 @@ function registerRemainingDesktopCommands(): void {
         v2: conversationStore.conversationV2(),
         errorMessage,
         execute: async () => {
+          threadFollowUpQueueControl.changed(request.threadId);
           const thread = setThreadFollowUpQueuePausedState(request.threadId, request.paused);
           if (!thread) {
             throw new Error("Thread was not found.");
+          }
+          if (request.paused && threadFollowUpDrainScheduler.isDraining(request.threadId)) {
+            threadRunPreparations.cancel(request.threadId);
           }
           if (!request.paused) {
             void drainQueuedThreadFollowUpsAfterRun(request.threadId);
@@ -9151,13 +9158,7 @@ function registerRemainingDesktopCommands(): void {
           if (!followUp) {
             throw new Error("Pending follow-up was not found or cannot be cancelled.");
           }
-          // The queue row is gone, so its V2 acceptance must go too: left `queued` it is
-          // resent as a fresh run by startup queued-message recovery.
-          discardAbandonedAcceptedPrompts(conversationStore.conversationV2(), {
-            conversationId: request.threadId,
-            messageIds: followUp.conversationMessageId ? [followUp.conversationMessageId] : [],
-            reason: "follow-up-cancelled",
-          });
+          // Store cancellation atomically discards the queued V2 acceptance.
           const attachmentPaths = promptImageFileStore.collectAttachmentPaths(followUp.attachments);
           if (attachmentPaths.length > 0) {
             await promptImageFileStore.releasePaths(attachmentPaths);
@@ -9225,9 +9226,14 @@ function registerRemainingDesktopCommands(): void {
           if (contextMonitor.isCompactInFlight(thread.id)) {
             throw new Error("上下文正在压缩中，请稍候。");
           }
+          const persistedAttachments = request.attachments?.length
+            ? await promptImageFileStore.persistMessageAttachments(
+                thread.id, `follow-up-edit:${request.clientCommandId}`, request.attachments,
+              )
+            : undefined;
           const followUp = conversationStore.updateThreadFollowUp(request.threadId, request.followUpId, {
             prompt: request.prompt,
-            ...(request.attachments?.length ? { attachments: request.attachments } : {}),
+            ...(persistedAttachments?.length ? { attachments: persistedAttachments } : {}),
           });
           if (!followUp) {
             throw new Error("Pending follow-up was not found or cannot be updated.");
@@ -9259,6 +9265,7 @@ function registerRemainingDesktopCommands(): void {
         schedulingService.pauseAutomaticMessages(threadId);
         // Explicit Stop revokes an earlier Guide; cleanup must pause queued rows.
         pendingEscalatedFollowUpDrain.delete(threadId);
+        threadFollowUpQueueControl.stopped(threadId);
         threadRunPreparations.cancel(threadId);
         autoPauseFollowUpQueueWhenQueuedRemain(threadId);
         const owner = conversationStore.getThread(threadId)?.coreKind;
@@ -9763,6 +9770,7 @@ async function drainPreparedNextQueuedThreadFollowUp(
   threadId: string,
   preparationSignal: AbortSignal,
 ): Promise<void> {
+  const queueControlRevision = threadFollowUpQueueControl.revision(threadId);
   if (activeRunRuntimeState.hasRun(threadId)) {
     return;
   }
@@ -9792,7 +9800,8 @@ async function drainPreparedNextQueuedThreadFollowUp(
         forceEscalatedDrain: false,
       };
     }
-    if (!thread || (!forceEscalatedDrain && !shouldDrainThreadFollowUps(thread.status))) {
+    if (!thread || !shouldDrainThreadFollowUps(thread.status)) {
+      if (thread && forceEscalatedDrain) pendingEscalatedFollowUpDrain.add(threadId);
       return {
         claimed: [] as ThreadPendingFollowUp[],
         forceEscalatedDrain: false,
@@ -9866,10 +9875,20 @@ async function drainPreparedNextQueuedThreadFollowUp(
         });
         if (queued) emitThreadFollowUpEvent(queued, "thread.follow_up.queued", "");
       }
-      autoPauseFollowUpQueueWhenQueuedRemain(threadId);
+      // A later Resume is authoritative even if this cancelled preparation only
+      // now returns. Retry after requeueing instead of overwriting Resume's pause.
+      if (threadFollowUpQueueControl.revision(threadId) === queueControlRevision) {
+        autoPauseFollowUpQueueWhenQueuedRemain(threadId);
+      } else if (!conversationStore.getThread(threadId)?.followUpQueuePaused) {
+        void drainQueuedThreadFollowUpsAfterRun(threadId);
+      }
+      if (!activeRunRuntimeState.hasRun(threadId) && conversationStore.getThread(threadId)?.status === "running") {
+        updateThread(threadId, { status: "idle", message: "" });
+      }
       return;
     }
     const reason = errorMessage(error);
+    failAcceptedV2Messages(threadId, v2AcceptedMessageIds, reason);
     for (const followUp of claimed) {
       const failed =
         conversationStore.updateThreadFollowUpStatus(threadId, followUp.id, {
@@ -10135,6 +10154,7 @@ async function startPiThreadContinuation(input: StartThreadContinuationInput): P
       input.displayPrompt?.trim() || prompt,
       input.attachments,
       input.v2AcceptedMessageIds,
+      { finalizeAcceptedMessages: false },
     );
     attachmentsForRuntime = await loadPromptAttachmentsForRuntime(
       recorded.storedAttachments ?? input.attachments,
@@ -10145,6 +10165,7 @@ async function startPiThreadContinuation(input: StartThreadContinuationInput): P
   const prepared = await resolvePiSessionResourcesForThread(updated.id, workspace.path);
   const agentRegistry = resolveAgentRuntimeConfigForThread(updated);
   input.preparationSignal?.throwIfAborted();
+  finalizeAcceptedV2Messages(input.threadId, input.v2AcceptedMessageIds ?? []);
   const piRuntimePromise = startPiThreadRun(
     {
       thread: updated,
@@ -10219,6 +10240,7 @@ async function startAcpThreadContinuation(
       input.displayPrompt?.trim() || prompt,
       attachmentsForPrompt ?? input.attachments,
       input.v2AcceptedMessageIds,
+      { finalizeAcceptedMessages: false },
     );
     recordedUserActivityLineId = recorded.line?.rewindTarget?.activityLineId ?? recorded.line?.id;
     attachmentsForRuntime = await loadPromptAttachmentsForRuntime(
@@ -10232,6 +10254,7 @@ async function startAcpThreadContinuation(
   }
   const activeThread = conversationStore.getThread(thread.id) ?? updated;
   input.preparationSignal?.throwIfAborted();
+  finalizeAcceptedV2Messages(input.threadId, input.v2AcceptedMessageIds ?? []);
   const runtime = startAcpThreadRun(
     toAcpThreadStartRunInput({
       thread: activeThread,
@@ -10848,6 +10871,7 @@ async function startCodexThreadContinuation(
       input.displayPrompt?.trim() || prompt,
       input.attachments,
       input.v2AcceptedMessageIds,
+      { finalizeAcceptedMessages: false },
     );
     attachmentsForRuntime = await loadPromptAttachmentsForRuntime(
       recorded.storedAttachments ?? input.attachments,
@@ -10857,6 +10881,7 @@ async function startCodexThreadContinuation(
   }
   const updated = ensureThreadRuntimeConfig(conversationStore.getThread(thread.id) ?? activeThread);
   input.preparationSignal?.throwIfAborted();
+  finalizeAcceptedV2Messages(input.threadId, input.v2AcceptedMessageIds ?? []);
   const codexRuntimePromise = startCodexThreadRun({
     thread: updated,
     workspace,
@@ -12345,6 +12370,7 @@ function recoverQueuedConversationV2Messages(): void {
       messageIds: [message.messageId],
       reason: "follow-up-abandoned",
     });
+    releaseFollowUpQueuePauseWhenEmpty(message.conversationId);
   }
 
   for (const message of queuedMessages) {
@@ -12391,6 +12417,20 @@ async function scheduleAcceptedConversationMessage(
   const terminalDelivery = terminalAcceptedMessageDelivery(currentMessage, thread.coreKind === "codex");
   if (terminalDelivery) return { ...terminalDelivery, followUpMessageId: input.messageId };
 
+  // A persisted queue receipt owns delivery even at an idle boundary. Recovery
+  // must not start this message directly and then let the same row drain again.
+  const existingFollowUp = conversationStore
+    .listThreadFollowUps(thread.id)
+    .find((followUp) => followUp.conversationMessageId === input.messageId);
+  if (existingFollowUp) {
+    if (existingFollowUp.status === "queued") {
+      void drainQueuedThreadFollowUpsAfterRun(thread.id);
+    } else if (existingFollowUp.status === "failed") {
+      markAcceptedConversationMessageFailed(input, existingFollowUp.error ?? "Queued delivery failed.");
+    }
+    return describeFollowUpDelivery(existingFollowUp);
+  }
+
   const queueIt =
     thread.status === "running" ||
     thread.status === "queued" ||
@@ -12400,15 +12440,6 @@ async function scheduleAcceptedConversationMessage(
     if (!threadAcceptsLiveFollowUp(thread.id, thread.status)) {
       throw new Error("Thread cannot accept a queued conversation message.");
     }
-    const existingQueued = conversationStore
-      .listThreadFollowUps(thread.id)
-      .find(
-        (followUp) =>
-          followUp.conversationMessageId === input.messageId &&
-          followUp.status !== "cancelled" &&
-          followUp.status !== "failed",
-      );
-    if (existingQueued) return describeFollowUpDelivery(existingQueued);
     const persistedAttachments = input.attachments?.length
       ? await promptImageFileStore.persistMessageAttachments(
           thread.id,
@@ -12962,6 +12993,7 @@ async function startClaudeThreadContinuation(
       input.displayPrompt?.trim() || prompt,
       input.attachments,
       input.v2AcceptedMessageIds,
+      { finalizeAcceptedMessages: false },
     );
     attachmentsForRuntime = await loadPromptAttachmentsForRuntime(
       recorded.storedAttachments ?? input.attachments,
@@ -12996,6 +13028,7 @@ async function startClaudeThreadContinuation(
   }
 
   input.preparationSignal?.throwIfAborted();
+  finalizeAcceptedV2Messages(input.threadId, input.v2AcceptedMessageIds ?? []);
   void dispatchThreadContinueAction({
     threadId: input.threadId,
     action: continueAction,
@@ -13899,6 +13932,9 @@ function recoverOrphanedRunningThreads(logStartupStage?: (stage: string) => void
     if (recoveryAction !== "idle") {
       continue;
     }
+    // An unexpected process exit has the same queue safety boundary as Stop.
+    // Leave unsent messages visible and paused for an explicit Resume.
+    autoPauseFollowUpQueueWhenQueuedRemain(thread.id);
     updateThread(thread.id, {
       status: "idle",
       message: "",
@@ -14766,7 +14802,7 @@ async function handleRunCancelled(
   // "queued" state here and is force-drained right after — auto-pausing would
   // flash "排队发送已暂停" and then send the message anyway, and the paused
   // state would linger for the rest of the queue.
-  if (!pendingEscalatedFollowUpDrain.has(threadId)) {
+  if (!pendingEscalatedFollowUpDrain.has(threadId) && threadFollowUpQueueControl.shouldPauseCancelledRun(threadId)) {
     autoPauseFollowUpQueueWhenQueuedRemain(threadId);
   }
   const explicit = takePendingCancelDisposition(pendingCancelDisposition, threadId);
@@ -15252,6 +15288,9 @@ function isSdkSessionAlreadyMissing(error: unknown): boolean {
 }
 
 function clearThreadRuntimeMemory(threadId: string): void {
+  threadFollowUpQueueControl.clear(threadId);
+  editingThreadFollowUpByThread.delete(threadId);
+  pendingEscalatedFollowUpDrain.delete(threadId);
   activeRunBillingState.clearRun(threadId);
   threadUsageAccumulator.clear(threadId);
   contextScheduler.clearThread(threadId);

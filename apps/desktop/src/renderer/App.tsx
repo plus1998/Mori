@@ -7655,6 +7655,14 @@ function App() {
   }
 
   useEffect(() => {
+    if (!editingFollowUpId || followUpBusy) return;
+    const edited = activeFollowUps.find((followUp) => followUp.id === editingFollowUpId);
+    if (edited && edited.status !== "queued") {
+      void cancelEditingFollowUp().catch((caught) => setError(errorMessage(caught)));
+    }
+  }, [activeFollowUps, editingFollowUpId, followUpBusy]);
+
+  useEffect(() => {
     return () => {
       const threadId = editingFollowUpThreadIdRef.current ?? selectedThreadIdRef.current;
       if (editingFollowUpIdRef.current && threadId) {
@@ -10101,6 +10109,7 @@ function App() {
 
   function startNewChat() {
     const leavingThread = Boolean(selectedThreadIdRef.current);
+    const editingThreadId = editingFollowUpThreadIdRef.current;
     setComposerRoutePopoverOpen(false);
     removeComposerDraft(composerContextKeyFromParts(undefined, currentProjectPath));
     commitSidebarThreadSelection(undefined);
@@ -10109,8 +10118,8 @@ function App() {
     // Already on an unstarted landing composer: keep orchestration / model edits.
     // Only reset when leaving an existing thread into a new landing surface.
     if (leavingThread) {
-      if (editingFollowUpIdRef.current && selectedThreadIdRef.current) {
-        void releaseThreadFollowUpEditingLock(selectedThreadIdRef.current).catch((caught) =>
+      if (editingFollowUpIdRef.current && editingThreadId) {
+        void releaseThreadFollowUpEditingLock(editingThreadId).catch((caught) =>
           setError(errorMessage(caught)),
         );
       }

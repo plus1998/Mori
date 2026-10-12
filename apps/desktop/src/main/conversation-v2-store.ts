@@ -4463,11 +4463,13 @@ export class ConversationV2Store {
     if (body === undefined) throw v2Invalid("message.replaced requires body");
     const next = optionalInteger(record.payload.nextContentVersion, "nextContentVersion") ?? base + 1;
     if (next <= base) throw integrity(`Message ${messageId} next content version is invalid.`);
+    const attachments = optionalPayloadArray(record.payload.attachments, "attachments");
     this.db
       .prepare(
-        `UPDATE conversation_messages_v2 SET body = ?, version_seq = ?, content_version = ? WHERE message_id = ?`,
+        `UPDATE conversation_messages_v2 SET body = ?, version_seq = ?, content_version = ?,
+         attachments_json = COALESCE(?, attachments_json) WHERE message_id = ?`,
       )
-      .run(body, record.seq, next, messageId);
+      .run(body, record.seq, next, attachments === undefined ? null : JSON.stringify(attachments), messageId);
     return {
       type: "message.replace",
       messageId,
@@ -4475,6 +4477,7 @@ export class ConversationV2Store {
       nextContentVersion: next,
       body,
       versionSeq: record.seq,
+      ...(attachments === undefined ? {} : { attachments }),
     };
   }
 
@@ -6793,6 +6796,7 @@ function storedEffect(value: unknown, effectSeq?: number): ConversationEffect {
       if (effectSeq !== undefined && versionSeq > effectSeq) {
         throw integrity(`Stored message ${messageId} replace is ahead of its event sequence.`);
       }
+      const attachments = optionalStoredArray(object.attachments, "effect.attachments");
       return {
         type,
         messageId,
@@ -6800,6 +6804,7 @@ function storedEffect(value: unknown, effectSeq?: number): ConversationEffect {
         nextContentVersion,
         body: rowRequiredTextAllowEmpty(object.body, "effect.body"),
         versionSeq,
+        ...(attachments === undefined ? {} : { attachments }),
       };
     }
     case "message.finalize": {

@@ -334,8 +334,8 @@ test.skipIf(!sqliteAvailable)("a cancelled follow-up leaves no queued acceptance
     conversationMessageId: accepted.messageId,
   });
   expect(store.cancelThreadFollowUp("thr_followup", queued.id)?.status).toBe("cancelled");
-  // The queue row is gone but its acceptance is still the only place that prompt lives.
-  expect(v2.getMessage("thr_followup", accepted.messageId)?.status).toBe("queued");
+  // Queue cancellation and the acceptance tombstone share one commit.
+  expect(v2.getMessage("thr_followup", accepted.messageId)?.status).toBe("deleted");
 
   const abandoned = abandonedFollowUpsForConversationMessage(
     store.listThreadFollowUps("thr_followup"),
@@ -371,6 +371,86 @@ test.skipIf(!sqliteAvailable)("updates queued follow-up prompt and attachments",
   });
   expect(updated?.attachments?.[0]?.mediaType).toBe("image/jpeg");
   expect(store.updateThreadFollowUp("thr_followup", queued.id, { prompt: "" })).toBeUndefined();
+});
+
+test("queue edits atomically replace the accepted body/images and survive reopen", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-follow-up-edit-"));
+  const dbPath = path.join(dir, "eco-coding.sqlite");
+  const store = await createConversationStore(dbPath);
+  store.saveThread(thread());
+  const v2 = store.conversationV2();
+  const accepted = v2.sendMessage({
+    principalId: "test", clientCommandId: "enqueue", conversationId: "thr_followup", text: "旧内容",
+  });
+  const queued = store.enqueueThreadFollowUp({
+    threadId: "thr_followup", prompt: "旧内容", conversationMessageId: accepted.messageId,
+  });
+  const image = { mediaType: "image/png", contentRef: `sha256:${"a".repeat(64)}`, byteLength: 3 };
+  store.updateThreadFollowUp("thr_followup", queued.id, { prompt: "新内容", attachments: [image] });
+  expect(v2.getMessage("thr_followup", accepted.messageId)).toMatchObject({
+    body: "新内容", status: "queued", contentVersion: 1, attachments: [image],
+  });
+  expect(() => v2.validateIntegrity("thr_followup")).not.toThrow();
+  const reopened = await createConversationStore(dbPath);
+  expect(reopened.getThreadFollowUp("thr_followup", queued.id)?.prompt).toBe("新内容");
+  expect(reopened.conversationV2().listQueuedUserMessages()[0]?.body).toBe("新内容");
+  reopened.updateThreadFollowUp("thr_followup", queued.id, { prompt: "删除图片后的内容" });
+  expect(reopened.conversationV2().getMessage("thr_followup", accepted.messageId)?.attachments).toEqual([]);
+  expect(reopened.getThreadFollowUp("thr_followup", queued.id)?.attachments).toBeUndefined();
+  expect(() => reopened.conversationV2().validateIntegrity("thr_followup")).not.toThrow();
+  expect(reopened.conversationV2().sync("thr_followup", reopened.conversationV2().head("thr_followup").storeEpoch, 0).effects.some(
+    ({ effect }) => effect.type === "message.replace" && effect.attachments?.length === 0,
+  )).toBe(true);
+  expect(reopened.claimQueuedThreadFollowUps("thr_followup")[0]?.prompt).toBe("删除图片后的内容");
+});
+
+test("a failed queue edit rolls back the accepted message and emits no commit", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-follow-up-atomic-edit-"));
+  const dbPath = path.join(dir, "eco-coding.sqlite");
+  const store = await createConversationStore(dbPath);
+  store.saveThread(thread());
+  const v2 = store.conversationV2();
+  const accepted = v2.sendMessage({
+    principalId: "test", clientCommandId: "enqueue", conversationId: "thr_followup", text: "旧内容",
+  });
+  const queued = store.enqueueThreadFollowUp({
+    threadId: "thr_followup", prompt: "旧内容", conversationMessageId: accepted.messageId,
+  });
+  const db = new DatabaseSync(dbPath);
+  db.exec(`CREATE TRIGGER reject_queue_edit BEFORE UPDATE OF prompt ON conversation_followups_v2
+    BEGIN SELECT RAISE(ABORT, 'edit write rejected'); END`);
+  let commits = 0;
+  v2.onCommitted(() => { commits += 1; });
+  expect(() => store.updateThreadFollowUp("thr_followup", queued.id, { prompt: "新内容" }))
+    .toThrow("edit write rejected");
+  expect(store.getThreadFollowUp("thr_followup", queued.id)?.prompt).toBe("旧内容");
+  expect(v2.getMessage("thr_followup", accepted.messageId)?.body).toBe("旧内容");
+  expect(commits).toBe(0);
+  db.close();
+});
+
+test("a failed queue cancellation rolls back its V2 tombstone", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-follow-up-atomic-cancel-"));
+  const dbPath = path.join(dir, "eco-coding.sqlite");
+  const store = await createConversationStore(dbPath);
+  store.saveThread(thread());
+  const v2 = store.conversationV2();
+  const accepted = v2.sendMessage({
+    principalId: "test", clientCommandId: "enqueue", conversationId: "thr_followup", text: "待取消",
+  });
+  const queued = store.enqueueThreadFollowUp({
+    threadId: "thr_followup", prompt: "待取消", conversationMessageId: accepted.messageId,
+  });
+  const db = new DatabaseSync(dbPath);
+  db.exec(`CREATE TRIGGER reject_queue_cancel BEFORE UPDATE OF status ON conversation_followups_v2
+    BEGIN SELECT RAISE(ABORT, 'cancel write rejected'); END`);
+  let commits = 0;
+  v2.onCommitted(() => { commits += 1; });
+  expect(() => store.cancelThreadFollowUp("thr_followup", queued.id)).toThrow("cancel write rejected");
+  expect(store.getThreadFollowUp("thr_followup", queued.id)?.status).toBe("queued");
+  expect(v2.getMessage("thr_followup", accepted.messageId)).toMatchObject({ status: "queued", isDeleted: false });
+  expect(commits).toBe(0);
+  db.close();
 });
 
 test.skipIf(!sqliteAvailable)("claims queued follow-ups for later delivery", async () => {

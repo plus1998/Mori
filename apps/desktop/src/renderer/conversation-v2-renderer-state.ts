@@ -717,6 +717,7 @@ function applyEffect(
         body: effect.body,
         contentVersion: effect.nextContentVersion,
         versionSeq: effect.versionSeq,
+        ...(effect.attachments === undefined ? {} : { attachments: effect.attachments }),
       });
       return;
     }
@@ -1159,6 +1160,7 @@ function validateMessageReplace(
     !Number.isSafeInteger(effect.nextContentVersion) ||
     effect.nextContentVersion <= effect.baseContentVersion ||
     typeof effect.body !== "string" ||
+    (effect.attachments !== undefined && !Array.isArray(effect.attachments)) ||
     !Number.isSafeInteger(effect.versionSeq) ||
     effect.versionSeq < 1 ||
     effect.versionSeq > seq

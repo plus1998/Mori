@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ThreadPendingFollowUp } from "../src/shared/ipc";
+import type { ThreadStatus } from "../src/shared/ipc";
 import {
   abandonedFollowUpsForConversationMessage,
   buildThreadFollowUpDisplayPrompt,
@@ -29,6 +30,36 @@ function followUp(id: string, patch: Partial<ThreadPendingFollowUp> = {}): Threa
     ...patch,
   };
 }
+
+test("all 224 status/pause/edit/approval/question/plan combinations obey queue gates", () => {
+  const statuses: ThreadStatus[] = ["queued", "running", "idle", "completed", "failed", "blocked", "awaiting_plan"];
+  for (const status of statuses) {
+    for (let flags = 0; flags < 32; flags += 1) {
+      const paused = Boolean(flags & 1);
+      const editing = Boolean(flags & 2);
+      const approval = Boolean(flags & 4);
+      const question = Boolean(flags & 8);
+      const plan = Boolean(flags & 16);
+      const blocked = shouldBlockThreadFollowUpDrain({
+        hasPendingBridgeApproval: approval, hasPendingClarification: question,
+        hasEditingFollowUp: editing, hasFollowUpQueuePaused: paused,
+        threadStatus: status, hasStoredPendingPlan: plan,
+      });
+      const canDrain = shouldDrainThreadFollowUps(status) && !blocked;
+      expect(canDrain).toBe(
+        status !== "queued" && status !== "running" && !paused && !editing &&
+        !approval && !question && !(status === "awaiting_plan" && plan),
+      );
+      // Guide bypasses pause only; it cannot bypass editing or a blocking user gate.
+      const guideBlocked = shouldBlockThreadFollowUpDrain({
+        hasPendingBridgeApproval: approval, hasPendingClarification: question,
+        hasEditingFollowUp: editing, hasFollowUpQueuePaused: false,
+        threadStatus: status, hasStoredPendingPlan: plan,
+      });
+      expect(guideBlocked).toBe(editing || approval || question || (status === "awaiting_plan" && plan));
+    }
+  }
+});
 
 test("abandonedFollowUpsForConversationMessage only matches rows the queue can never deliver", () => {
   const queuedRow = followUp("tfu_queued", { status: "queued", conversationMessageId: "message_a" });

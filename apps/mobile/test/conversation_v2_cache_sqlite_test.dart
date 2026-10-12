@@ -10,6 +10,90 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 void main() {
   sqfliteFfiInit();
 
+  test(
+    'queued text and image edits survive sync and database reopen',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'eco-queued-edit-',
+      );
+      final databasePath = p.join(directory.path, 'conversation-v2.sqlite');
+      addTearDown(() async {
+        await databaseFactoryFfi.deleteDatabase(databasePath);
+        await directory.delete(recursive: true);
+      });
+      final cache = _cache(databasePath);
+      await cache.installBootstrap(
+        const ConversationV2Bootstrap(
+          protocolVersion: 2,
+          storeEpoch: _storeEpoch,
+          conversationId: _conversationId,
+          snapshotSeq: 1,
+          historyRevision: 0,
+          messages: [
+            ConversationV2Message(
+              messageId: 'queued-edit',
+              conversationId: _conversationId,
+              turnId: 'turn-edit',
+              role: 'user',
+              channel: 'answer',
+              createdSeq: 1,
+              versionSeq: 1,
+              contentVersion: 0,
+              body: 'old',
+              status: ConversationV2MessageStatus.queued,
+              isDeleted: false,
+              attachments: [
+                {'contentRef': 'old-image'},
+              ],
+            ),
+          ],
+          runs: [],
+          tools: [],
+          olderCursor: null,
+          hasOlder: false,
+        ),
+      );
+      final payload = <String, dynamic>{
+        'type': 'message.replace',
+        'messageId': 'queued-edit',
+        'baseContentVersion': 0,
+        'nextContentVersion': 1,
+        'body': 'edited',
+        'versionSeq': 2,
+        'attachments': [],
+      };
+      await cache.applySyncPage(
+        _page(
+          fromSeq: 2,
+          throughSeq: 2,
+          headSeq: 2,
+          effects: [
+            ConversationV2Effect(
+              seq: 2,
+              effectVersion: 1,
+              effectHash: conversationV2StableHash(payload),
+              type: 'message.replace',
+              payload: payload,
+            ),
+          ],
+        ),
+      );
+      expect((await cache.messages(_conversationId)).single.body, 'edited');
+      expect(
+        (await cache.messages(_conversationId)).single.attachments,
+        isEmpty,
+      );
+      await cache.close();
+      final reopened = _cache(databasePath);
+      expect((await reopened.messages(_conversationId)).single.body, 'edited');
+      expect(
+        (await reopened.messages(_conversationId)).single.attachments,
+        isEmpty,
+      );
+      await reopened.close();
+    },
+  );
+
   test('pending thread delete survives database reopen', () async {
     final directory = await Directory.systemTemp.createTemp(
       'eco-conversation-v2-delete-cache-',

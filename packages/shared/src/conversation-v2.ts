@@ -130,6 +130,8 @@ export type ConversationEffect =
       nextContentVersion: number;
       body: string;
       versionSeq: number;
+      /** Queue edits replace images together with the text, including removal. */
+      attachments?: unknown[];
     }
   | {
       type: "message.finalize";

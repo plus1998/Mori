@@ -486,7 +486,9 @@ class ConversationV2Cache
         limit: 1,
       );
       if (rows.isEmpty) {
-        throw StateError('Conversation V2 bootstrap is required before live state.');
+        throw StateError(
+          'Conversation V2 bootstrap is required before live state.',
+        );
       }
       final current = ConversationV2CacheState.fromRow(rows.first);
       await _upsertState(
@@ -1171,6 +1173,12 @@ class ConversationV2Cache
         if (body is! String || next <= base) {
           throw StateError('Message replace effect is invalid.');
         }
+        final attachments = payload.containsKey('attachments')
+            ? _requiredEffectList(
+                payload['attachments'],
+                'message.replace.attachments',
+              )
+            : null;
         if (message.versionSeq >= effect.seq) return;
         if (_isTerminalMessageStatus(message.status)) return;
         if (base != message.contentVersion) {
@@ -1185,6 +1193,7 @@ class ConversationV2Cache
             body: body,
             versionSeq: effect.seq,
             contentVersion: next,
+            attachments: attachments,
           ),
         );
       case 'message.finalize':

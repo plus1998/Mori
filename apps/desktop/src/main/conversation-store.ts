@@ -3552,7 +3552,36 @@ export class ConversationStore {
     if (!existing || existing.status !== "queued") {
       return undefined;
     }
-    return this.updateThreadFollowUpStatus(threadId, followUpId, { status: "cancelled" });
+    const message = existing.conversationMessageId
+      ? this.v2.getMessage(threadId, existing.conversationMessageId)
+      : undefined;
+    if (existing.conversationMessageId && !message) {
+      throw new Error("Queued follow-up has no accepted conversation message to cancel.");
+    }
+    if (message) this.v2.validateIntegrity(threadId);
+    const results: ConversationAppendResult[] = [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (message && !message.isDeleted && message.status === "queued") {
+        const sourceEventKey = `desktop:user:follow-up-abandoned:${threadId}:${message.messageId}:follow-up-cancelled`;
+        results.push(this.v2.appendInCurrentTransaction({
+          conversationId: threadId,
+          eventId: `desktop_v2_follow_up_abandoned_${stableHash(sourceEventKey)}`,
+          sourceEventKey,
+          type: "history.deleted",
+          occurredAt: new Date().toISOString(),
+          messageId: message.messageId,
+          payload: { reason: "follow-up-cancelled", affectedMessageIds: [message.messageId] },
+        }));
+      }
+      const cancelled = this.updateThreadFollowUpStatus(threadId, followUpId, { status: "cancelled" });
+      this.db.exec("COMMIT");
+      this.v2.publishCommitted(results);
+      return cancelled;
+    } catch (error) {
+      rollbackConversationTransaction(this.db);
+      throw error;
+    }
   }
 
   updateThreadFollowUp(
@@ -3573,16 +3602,55 @@ export class ConversationStore {
       return undefined;
     }
     const now = new Date().toISOString();
-    this.db
-      .prepare(
+    // The queue and accepted user message must commit together. A half edit leaves
+    // history/startup recovery showing or resending the original text/images.
+    const message = existing.conversationMessageId
+      ? this.v2.getMessage(threadId, existing.conversationMessageId)
+      : undefined;
+    if (existing.conversationMessageId && (!message || message.status !== "queued" || message.isDeleted)) {
+      throw new Error("Queued follow-up has no editable accepted conversation message.");
+    }
+    const results: ConversationAppendResult[] = [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (message) {
+        const sourceEventKey = `desktop:user:follow-up-edit:${threadId}:${followUpId}:${message.contentVersion + 1}`;
+        results.push(this.v2.appendInCurrentTransaction({
+          conversationId: threadId,
+          eventId: `desktop_v2_follow_up_edit_${stableHash(sourceEventKey)}`,
+          sourceEventKey,
+          type: "message.replaced",
+          occurredAt: now,
+          messageId: message.messageId,
+          payload: {
+            body: prompt,
+            baseContentVersion: message.contentVersion,
+            nextContentVersion: message.contentVersion + 1,
+            attachments: (attachments ?? []).map(({ mediaType, contentRef, byteLength, data }) => ({
+              mediaType,
+              ...(contentRef ? { contentRef } : {}),
+              ...(!contentRef && data ? { data } : {}),
+              ...(byteLength !== undefined ? { byteLength } : {}),
+            })),
+          },
+        }));
+      }
+      this.db
+        .prepare(
         `UPDATE ${this.pendingFollowupsTable()}
          SET prompt = ?,
              attachments_json = ?,
              updated_at = ?
          WHERE thread_id = ? AND id = ?`,
       )
-      .run(prompt, attachments ? JSON.stringify(attachments) : null, now, threadId, followUpId);
-    this.db.prepare(`UPDATE threads SET updated_at = ? WHERE id = ?`).run(now, threadId);
+        .run(prompt, attachments ? JSON.stringify(attachments) : null, now, threadId, followUpId);
+      this.db.prepare(`UPDATE threads SET updated_at = ? WHERE id = ?`).run(now, threadId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      rollbackConversationTransaction(this.db);
+      throw error;
+    }
+    this.v2.publishCommitted(results);
     return this.getThreadFollowUp(threadId, followUpId);
   }
 
