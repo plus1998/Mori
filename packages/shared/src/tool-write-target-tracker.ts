@@ -16,7 +16,7 @@ import { readToolWriteTargetDetail } from "./tool-write-target";
  * - once the text that named the target is closed it stops looking altogether.
  *
  * The window means a target named *after* `scanLimit` characters is never read: a call that writes
- * a megabyte of content before its `file_path` is announced as「正在写入文件」rather than by name.
+ * a megabyte of content before its `file_path` is announced as「正在准备写入文件」rather than by name.
  * Every producer seen so far names the file or command in its opening keys — `file_path`,
  * `command`, or the V4A marker on the patch's first line — and a bounded label beats a main
  * process that spends twenty seconds re-reading the same arguments.

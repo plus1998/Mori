@@ -30,7 +30,7 @@ import {
   CircleAlert,
   CircleDollarSign,
   CircleHelp,
-Clock3,
+  Clock3,
   Code,
   Copy,
   Database,
@@ -40,6 +40,7 @@ Clock3,
   Globe2,
   Image as ImageIcon,
   Images,
+  LoaderCircle,
   Minimize2,
   Monitor,
   Pencil,
@@ -96,8 +97,6 @@ import { resolveFileChangeFromToolInput } from "../shared/file-change";
 import { isEcoImageDisplayToolName } from "../shared/image-display-tool";
 import { isEcoImageGenerationToolName } from "../shared/image-generation";
 import { isEcoWebSearchToolName } from "../shared/integrated-web-search";
-import { parseThreadRunCodemodeMetadata, type ThreadRunCodemodeMetadata } from "../shared/thread-run-events";
-import { isCodemodeToolName, resolveCodemodeMetadata } from "../shared/thread-run-tool-projection";
 import type {
   PromptImageAttachment,
   ThreadActivityRewindTarget,
@@ -121,7 +120,12 @@ import { attachOutputTokensToRequestSpans } from "../shared/request-span-usage";
 import { isAgentDisplayRole, normalizeAgentDisplayRole } from "../shared/subagent-roles";
 import { resolveSubagentActivityTitle } from "../shared/subagent-task-name";
 import { supportsHistoryRewrite } from "../shared/thread-request-retry";
-import { isContextCompactionEventType } from "../shared/thread-run-events";
+import {
+  isContextCompactionEventType,
+  parseThreadRunCodemodeMetadata,
+  type ThreadRunCodemodeMetadata,
+} from "../shared/thread-run-events";
+import { isCodemodeToolName, resolveCodemodeMetadata } from "../shared/thread-run-tool-projection";
 import { parseWorktreeMergeMessage } from "../shared/worktree-merge";
 import {
   type ActivityFeedLayoutChange,
@@ -2192,6 +2196,7 @@ export function ConversationV2ProjectionActivityLogView({
             <RunLogActiveTail
               waiting={waitingThinkingVisible || Boolean(toolWritingIndicator)}
               stopping={Boolean(thread?.cancelling)}
+              writing={Boolean(toolWritingLabel)}
               {...(toolWritingLabel
                 ? { label: toolWritingLabel }
                 : liveReasoningStageLabel
@@ -3331,7 +3336,6 @@ function summarizeActionBlocks(blocks: readonly ToolGroupDetailBlock[]): {
   icon: ActivityActionIcon;
 } {
   const actionBlocks = blocks.filter(
-
     (block): block is Extract<ActivityDetailBlock, { kind: "action" }> => block.kind === "action",
   );
   const failedBlocks = blocks.filter(
@@ -5203,10 +5207,13 @@ function ScrollingThinkingText({ text }: { text: string }) {
 function WaitingThinkingBlock({
   active,
   label,
+  spinner = false,
 }: {
   active?: boolean;
   /** Defaults to i18n "正在思考". Used by OpenAI reasoning summary stage lines. */
   label?: string;
+  /** Leading rotating loader, for states that read as "about to become a row". */
+  spinner?: boolean;
   requestSpan?: ThreadRunProjectionRequestSpan;
 }) {
   if (!active) {
@@ -5218,6 +5225,11 @@ function WaitingThinkingBlock({
   return (
     <div className="run-log-thinking streaming empty" role="status" aria-live="polite">
       <div className="run-log-thinking-header">
+        {/* Same 14px/8px slot the tool row's own icon occupies, so the label does not
+            slide sideways when the row this wait announces finally lands. */}
+        {spinner ? (
+          <LoaderCircle size={14} className="run-log-action-icon run-log-thinking-spinner" aria-hidden />
+        ) : null}
         <span className="run-log-thinking-label">
           <ScrollingThinkingText text={displayLabel} />
         </span>
@@ -5362,18 +5374,25 @@ function RunLogActiveTail({
   waiting,
   stopping = false,
   label,
+  writing = false,
 }: {
   waiting: boolean;
   stopping?: boolean;
   /** Live Summary tip label; when waiting without tip, defaults to「正在思考」. */
   label?: string;
+  /** The wait is the model writing a tool call — the tail is about to become a tool row. */
+  writing?: boolean;
 }) {
   // Single WaitingThinkingBlock instance: stopping > tip label > default「正在思考」.
   const statusLabel = stopping ? i18n.t("activity.stopping") : label?.trim() ? label.trim() : undefined;
   return (
     <div className="run-log-feed-entry run-log-feed-entry--tight run-log-active-tail">
       {waiting ? (
-        <WaitingThinkingBlock active {...(statusLabel ? { label: statusLabel } : {})} />
+        <WaitingThinkingBlock
+          active
+          {...(statusLabel ? { label: statusLabel } : {})}
+          {...(writing && !stopping ? { spinner: true } : {})}
+        />
       ) : (
         <RunLogConversationTail />
       )}

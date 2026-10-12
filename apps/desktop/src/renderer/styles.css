@@ -13443,6 +13443,7 @@ button.default-agent-option:focus-visible {
 .run-log-thinking-header {
   display: flex;
   align-items: center;
+  gap: 8px;
   width: 100%;
   padding: 0;
 }
@@ -13513,6 +13514,19 @@ button.default-agent-option:focus-visible {
 
 .run-log-thinking.streaming .run-log-thinking-label {
   color: #a3a3a3;
+}
+
+/* Leading loader on the「writing a tool call」tail: same size/color as a tool row's own
+   icon, so the tail label and the row it turns into sit on the same left edge. */
+.run-log-thinking-spinner {
+  flex: 0 0 auto;
+  animation: eco-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-log-thinking-spinner {
+    animation: none;
+  }
 }
 
 .run-log-thinking-trigger {

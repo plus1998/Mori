@@ -89,7 +89,7 @@ export class SdkStreamActivityBridge {
   /**
    * What was last said about each tool call being written: the tool, and the target once the
    * arguments named it. Providers stream one placeholder per argument fragment, so the same
-   * call is announced once as「正在写入文件」and once more as「正在写入 /tmp/x.md」— and never
+   * call is announced once as「正在准备写入文件」and once more as「正在写入 /tmp/x.md」— and never
    * per fragment.
    */
   private readonly announcedToolWrites = new Map<string, Map<string, string>>();
