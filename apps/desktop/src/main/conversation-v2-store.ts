@@ -50,6 +50,7 @@ import {
   legacyProviderRole,
   legacyToolCallId,
 } from "./conversation-v2-legacy-identity";
+import { conversationV2EventHash } from "./conversation-v2-event-integrity";
 import { logEcoDiag } from "./eco-diag-log";
 import { collectPromptImageContentRefs, isPromptImageContentRef } from "./prompt-image-file-store";
 
@@ -4149,7 +4150,7 @@ export class ConversationV2Store {
         );
       }
     }
-    const eventHash = stableHash(immutableEventShape(normalized));
+    const eventHash = conversationV2EventHash(normalized);
     if (existing) {
       if (existing.event_hash !== eventHash) {
         const conflictDetails = {
@@ -4228,7 +4229,7 @@ export class ConversationV2Store {
         JSON.stringify(record.payload),
         record.eventHash,
       );
-    const effect = this.applyEvent(record);
+    const effect = JSON.parse(JSON.stringify(this.applyEvent(record))) as ConversationEffect;
     this.insertEffect(record.conversationId, seq, effect);
     this.db
       .prepare(`UPDATE conversation_streams_v2 SET last_seq = ? WHERE conversation_id = ?`)
@@ -5815,8 +5816,19 @@ export class ConversationV2Store {
         throw integrity(`Conversation V2 event log is invalid at sequence ${row.seq}.`);
       }
       const record = rowToEvent(row);
-      if (row.event_hash !== stableHash(immutableEventShape(record))) {
-        throw integrity(`Conversation V2 event hash mismatch at sequence ${row.seq}.`);
+      const actualHash = conversationV2EventHash(record);
+      if (row.event_hash !== actualHash) {
+        throw new ConversationV2Error(
+          CONVERSATION_V2_ERROR.integrityFailure,
+          `Conversation V2 event hash mismatch at sequence ${row.seq}.`,
+          {
+            conversationId: stream.conversation_id,
+            seq: row.seq,
+            eventId: row.event_id,
+            expectedHash: row.event_hash,
+            actualHash,
+          },
+        );
       }
     }
   }
@@ -6361,6 +6373,19 @@ function normalizeEventInput(
   ) {
     throw v2Invalid("event payload must be an object");
   }
+  // Hash and reduce the same JSON snapshot that SQLite persists. In-memory SDK
+  // metadata can contain undefined properties (notably informational.tag),
+  // which stableHash includes but JSON.stringify omits. Hashing the original
+  // object made a successful write fail integrity checks on the next startup.
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(JSON.stringify(input.payload ?? {}));
+  } catch {
+    throw v2Invalid("event payload must be JSON serializable");
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw v2Invalid("serialized event payload must be an object");
+  }
   const sourceEventKey = optionalInputText(input.sourceEventKey, "sourceEventKey");
   const turnId = optionalInputText(input.turnId, "turnId");
   const runId = optionalInputText(input.runId, "runId");
@@ -6368,19 +6393,16 @@ function normalizeEventInput(
   const toolCallId = optionalInputText(input.toolCallId, "toolCallId");
   const agentId = optionalInputText(input.agentId, "agentId");
   const agentInstanceId = optionalInputText(
-    input.agentInstanceId ?? input.payload?.agentInstanceId,
+    input.agentInstanceId ?? payload.agentInstanceId,
     "agentInstanceId",
   );
   const parentAgentInstanceId = optionalInputText(
-    input.parentAgentInstanceId ?? input.payload?.parentAgentInstanceId,
+    input.parentAgentInstanceId ?? payload.parentAgentInstanceId,
     "parentAgentInstanceId",
   );
-  const parentAgentId = optionalInputText(
-    input.parentAgentId ?? input.payload?.parentAgentId,
-    "parentAgentId",
-  );
+  const parentAgentId = optionalInputText(input.parentAgentId ?? payload.parentAgentId, "parentAgentId");
   const parentToolCallId = optionalInputText(
-    input.parentToolCallId ?? input.payload?.parentToolCallId,
+    input.parentToolCallId ?? payload.parentToolCallId,
     "parentToolCallId",
   );
   return {
@@ -6398,27 +6420,7 @@ function normalizeEventInput(
     ...(parentAgentInstanceId ? { parentAgentInstanceId } : {}),
     ...(parentAgentId ? { parentAgentId } : {}),
     ...(parentToolCallId ? { parentToolCallId } : {}),
-    payload: input.payload ?? {},
-  };
-}
-
-function immutableEventShape(input: ConversationEventInput): unknown {
-  return {
-    conversationId: input.conversationId,
-    eventId: input.eventId,
-    type: input.type,
-    occurredAt: input.occurredAt,
-    ...(input.sourceEventKey ? { sourceEventKey: input.sourceEventKey } : {}),
-    ...(input.turnId ? { turnId: input.turnId } : {}),
-    ...(input.runId ? { runId: input.runId } : {}),
-    ...(input.messageId ? { messageId: input.messageId } : {}),
-    ...(input.toolCallId ? { toolCallId: input.toolCallId } : {}),
-    ...(input.agentId ? { agentId: input.agentId } : {}),
-    ...(input.agentInstanceId ? { agentInstanceId: input.agentInstanceId } : {}),
-    ...(input.parentAgentInstanceId ? { parentAgentInstanceId: input.parentAgentInstanceId } : {}),
-    ...(input.parentAgentId ? { parentAgentId: input.parentAgentId } : {}),
-    ...(input.parentToolCallId ? { parentToolCallId: input.parentToolCallId } : {}),
-    payload: input.payload ?? {},
+    payload,
   };
 }
 

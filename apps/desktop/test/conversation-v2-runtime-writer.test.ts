@@ -69,6 +69,43 @@ test("native provider snapshots append only new text and old replays cannot over
   }
 });
 
+test("SDK informational notices without a tag remain valid after runtime ingestion and restart", () => {
+  const { db, v2, writer } = setup();
+  try {
+    const notice: ThreadRunEventInput = {
+      threadId: "thread",
+      id: "sdk-warning",
+      runAttemptId: "run",
+      eventType: "diagnostic",
+      scope: "main",
+      role: "system",
+      streamState: "none",
+      message: "Provider warning",
+      observedAt: "2026-10-12T06:10:12.033Z",
+      metadata: {
+        activityOrigin: "sdk.informational",
+        level: "warning",
+        tag: undefined,
+        liveType: "sdk.notice",
+      },
+    };
+    const first = writer.append(notice);
+    const headSeq = v2.head("thread").lastSeq;
+    expect(v2.validateIntegrity("thread").headSeq).toBe(headSeq);
+    const restarted = new ConversationV2Store(db);
+    restarted.initialize();
+    expect(new ConversationV2RuntimeWriter(db, restarted).append(notice)).toMatchObject({
+      duplicate: true,
+      event: { sequence: first.event.sequence },
+    });
+    restarted.rebuildReadModels("thread");
+    expect(restarted.bootstrap("thread").messages[0]?.body).toBe("Provider warning");
+    expect(restarted.validateIntegrity("thread").headSeq).toBe(headSeq);
+  } finally {
+    db.close();
+  }
+});
+
 test("runtime prompts keep provisional rewind ids out of the immutable message target", () => {
   const { db, v2, writer } = setup();
   try {

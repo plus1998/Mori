@@ -33,6 +33,7 @@
     "feed:parity": "bun scripts/feed-skeleton-parity-audit.mjs",
     "conversation:v2-migrate": "bun scripts/conversation-v2-migrate.ts",
     "conversation:v2-correct-run": "bun scripts/conversation-v2-correct-run.ts",
+    "conversation:v2-repair-event-hash": "bun build scripts/conversation-v2-repair-event-hash.ts --target=node --outfile .tmp/conversation-v2-repair-event-hash.mjs && node .tmp/conversation-v2-repair-event-hash.mjs",
     "conversation:v2-benchmark": "bun scripts/conversation-v2-benchmark.ts",
     "test:release": "bun test test/desktop-update-policy.test.ts test/desktop-update-banner-state.test.ts test/release-repository.test.ts test/after-pack-mac-sign.test.ts test/prepare-node-pty.test.ts test/pack-builder-args.test.ts",
     "typecheck:release": "tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --esModuleInterop --skipLibCheck --types node src/shared/desktop-update.ts src/main/desktop-update-policy.ts src/main/desktop-update-service.ts src/renderer/desktop-update-banner-state.ts",
