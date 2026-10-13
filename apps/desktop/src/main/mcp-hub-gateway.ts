@@ -9,6 +9,7 @@ import {
   ECO_IMAGE_GENERATION_MCP_SERVER,
   IMAGE_GENERATION_MCP_TOOL_TIMEOUT_MS,
 } from "../shared/image-generation";
+import { ECO_TTS_MCP_SERVER, TTS_MCP_TOOL_TIMEOUT_MS } from "../shared/tts";
 import { buildEcoHttpInjection } from "./mcp-http-descriptor";
 import { McpHub, type McpHubServer, type McpHubSession } from "./mcp-hub";
 import { prepareMcpSdkConfigForRuntime } from "./mcp-runtime";
@@ -284,12 +285,14 @@ export class McpHubGateway {
     });
     this.threadTokens.set(threadId, token);
     // The Hub wrapper is the runtime-visible MCP server. When it contains the
-    // image generation gateway, the wrapper itself must carry the long timeout;
+    // image or speech generation gateway, the wrapper must carry the long timeout;
     // the nested gateway's timeout cannot protect an outer SDK call that has
     // already been aborted by the generic 60-second MCP default.
     const toolTimeoutMs = allowedServers.includes(ECO_IMAGE_GENERATION_MCP_SERVER)
       ? IMAGE_GENERATION_MCP_TOOL_TIMEOUT_MS
-      : undefined;
+      : allowedServers.includes(ECO_TTS_MCP_SERVER)
+        ? TTS_MCP_TOOL_TIMEOUT_MS
+        : undefined;
     const toolTimeoutSec = toolTimeoutMs === undefined ? undefined : Math.ceil(toolTimeoutMs / 1000);
     const injection = buildEcoHttpInjection({
       name: input.runtimeName?.trim() || "eco_mcp",

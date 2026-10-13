@@ -169,3 +169,17 @@ test("mergePiAppendSystemPrompt returns only global rules when integrations are 
     }),
   ).toEqual(["Prefer small commits."]);
 });
+
+test("TTS uses the session injection and never inherits an ambient speech server when disabled", () => {
+  const base = {
+    globalSdkConfig: { mcpServers: { eco_tts: { url: "https://ambient.example/mcp" } }, allowedTools: [] },
+    enabledMcpServerKeys: ["eco_tts"],
+    browserInject: { enabled: false },
+    imageInject: { enabled: false },
+  };
+  const disabled = buildPiMcpSessionConfig({ ...base, ttsInject: { enabled: false } });
+  expect(disabled.mcpServers).toEqual({});
+  const enabled = buildPiMcpSessionConfig({ ...base, ttsInject: { enabled: true, sdkEntry: { type: "http", url: "http://127.0.0.1/session/mcp", headers: { Authorization: "Bearer thread-a" } }, promptAppend: "Choose voice and delivery style." } });
+  expect(enabled.mcpServers.eco_tts).toMatchObject({ headers: { Authorization: "Bearer thread-a" } });
+  expect(enabled.appendSystemPrompt).toEqual(["Choose voice and delivery style."]);
+});

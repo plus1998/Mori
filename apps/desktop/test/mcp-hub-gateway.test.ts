@@ -425,3 +425,13 @@ test("MCP Hub retires a Codex descriptor when a thread loses its last server", a
     await gateway.close();
   }
 });
+
+
+test("MCP Hub keeps speech generation's timeout on the runtime-visible wrapper", async () => {
+  const gateway = new McpHubGateway();
+  try {
+    const prepared = await gateway.prepareThread({ threadId: "tts-timeout-thread", allowedServers: ["eco_tts"], runtimeName: "eco_mcp_tts_timeout" });
+    expect(prepared.sdkEntry).toMatchObject({ timeout: 600_000, requestTimeoutMs: 600_000 });
+    expect(prepared.codexServer.toolTimeoutSec).toBe(600);
+  } finally { await gateway.close(); }
+});

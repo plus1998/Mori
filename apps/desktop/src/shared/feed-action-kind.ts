@@ -1,3 +1,4 @@
+import { isEcoTtsToolName } from "./tts";
 import { ecoAgentBrowserToolSuffix, hasNamedAgentBrowserLabel, isEcoAgentBrowserToolName } from "./browser";
 import { isEcoComputerUseToolName } from "./computer-use";
 import { isEcoHtmlHostToolName } from "./html-host-tool";
@@ -12,6 +13,7 @@ export type ActivityActionIcon =
   | "read"
   | "image"
   | "images"
+  | "audio"
   | "browser"
   | "edit"
   | "terminal"
@@ -40,6 +42,7 @@ export type ActionKind =
   | "imageDisplay"
   | "htmlHost"
   | "imageCreate"
+  | "speechCreate"
   | "browser"
   | "computerUse"
   | "codemode"
@@ -58,6 +61,7 @@ export type ActionGroupBucket =
   | "skills"
   | "mcpTools"
   | "images"
+  | "speech"
   | "browser"
   | "computerUse"
   | "scripts"
@@ -143,6 +147,7 @@ const KIND_ICON: Record<ActionKind, ActivityActionIcon> = {
   imageDisplay: "images",
   htmlHost: "browser",
   imageCreate: "image",
+  speechCreate: "audio",
   browser: "browser",
   computerUse: "computer",
   codemode: "code",
@@ -167,6 +172,7 @@ const KIND_BUCKET: Record<ActionKind, ActionGroupBucket> = {
   imageDisplay: "images",
   htmlHost: "browser",
   imageCreate: "images",
+  speechCreate: "speech",
   browser: "browser",
   computerUse: "computerUse",
   codemode: "scripts",
@@ -243,6 +249,7 @@ export function resolveActionKind(input: { toolName?: string; payload?: ActionKi
   if (isEcoComputerUseToolName(toolName)) {
     return resolved("computerUse");
   }
+  if (isEcoTtsToolName(toolName)) return resolved("speechCreate");
   if (isEcoImageGenerationToolName(toolName)) {
     return resolved("imageCreate");
   }
@@ -284,6 +291,7 @@ export const ACTION_GROUP_ICON_PRIORITY: readonly ActivityActionIcon[] = [
   "computer",
   "images",
   "image",
+  "audio",
   "agent",
   "tool",
 ];
@@ -302,6 +310,7 @@ const SUMMARY_BUCKET_ORDER: readonly ActionGroupBucket[] = [
   "skills",
   "mcpTools",
   "images",
+  "speech",
   "browser",
   "computerUse",
   "otherTools",
@@ -320,6 +329,7 @@ const SUMMARY_I18N_KEY: Record<ActionGroupBucket, string> = {
   skills: "activity.summary.skills",
   mcpTools: "activity.summary.mcpTools",
   images: "activity.summary.images",
+  speech: "activity.summary.speech",
   browser: "activity.summary.browser",
   computerUse: "activity.summary.computerUse",
   scripts: "activity.summary.scripts",
@@ -424,6 +434,7 @@ export function formatActionLine(
   if (kind === "htmlHost") {
     return t(phase === "running" ? "activity.htmlHost.publishing" : "activity.htmlHost.published");
   }
+  if (kind === "speechCreate") return t(phase === "running" ? "activity.running.speechCreate" : "activity.done.speechCreate");
   if (kind === "imageCreate") {
     return t(phase === "running" ? "activity.running.imageCreate" : "activity.done.imageCreate");
   }

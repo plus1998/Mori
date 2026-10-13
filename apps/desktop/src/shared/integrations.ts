@@ -1,4 +1,4 @@
-export const INTEGRATION_IDS = ["browser", "imageGeneration", "computerUse"] as const;
+export const INTEGRATION_IDS = ["browser", "imageGeneration", "computerUse", "tts"] as const;
 
 export type IntegrationId = (typeof INTEGRATION_IDS)[number];
 

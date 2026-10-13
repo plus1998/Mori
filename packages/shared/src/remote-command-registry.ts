@@ -198,6 +198,8 @@ export const REMOTE_COMMAND_DEFINITIONS = [
   command("cursor:models-list", "List Cursor Agent CLI models", "read", RPC_INVOKE, []),
   command("candidate-model:list", "List candidate models", "read", RPC_INVOKE, [stringArg()]),
   command("mcp-settings:get", "Get MCP settings", "read", RPC_INVOKE, []),
+  command("tts-artifacts:list", "List speech artifacts", "read", RPC_INVOKE, [objectArg(["threadId"])]),
+  command("tts-artifact:read", "Read a speech artifact", "read", RPC_INVOKE, [objectArg(["artifactId", "audioIndex"])]),
   command("integration-availability:get", "Get integration availability", "read", RPC_INVOKE, []),
   command("skills:list", "List Skills", "read", RPC_INVOKE, [optionalStringArg()]),
   command("cursor-agents:list", "List Cursor ACP subagent definitions (read-only)", "read", RPC_INVOKE, [

@@ -110,3 +110,5 @@ export function PanelChunkFallback(): ReactNode {
 export function SuspensePanel({ children }: { children: ReactNode }): ReactNode {
   return <Suspense fallback={<PanelChunkFallback />}>{children}</Suspense>;
 }
+
+export const LazyTtsSettingsPanel = lazy(() => import("./TtsSettingsPanel").then(m => ({ default: m.TtsSettingsPanel })));

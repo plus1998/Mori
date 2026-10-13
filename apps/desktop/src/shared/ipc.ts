@@ -1,3 +1,4 @@
+import type { TtsArtifact, TtsArtifactListRequest, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSaveInput, TtsSettingsSnapshot } from "./tts";
 import type {
   ThreadRunProjectionRequestSpan,
   ThreadRunProjectionSnapshot,
@@ -331,6 +332,15 @@ export const IPC_CHANNELS = {
   imageGenerationArtifactRead: "image-generation-artifact:read",
   imageGenerationArtifactReveal: "image-generation-artifact:reveal",
   imageGenerationArtifactChanged: "image-generation-artifact:changed",
+  ttsSettingsGet: "tts-settings:get",
+  ttsSettingsSave: "tts-settings:save",
+  ttsProfileSave: "tts-profile:save",
+  ttsProfileDelete: "tts-profile:delete",
+  ttsProfileActivate: "tts-profile:activate",
+  ttsArtifactsList: "tts-artifacts:list",
+  ttsArtifactRead: "tts-artifact:read",
+  ttsArtifactReveal: "tts-artifact:reveal",
+  ttsArtifactChanged: "tts-artifact:changed",
   imageViewRead: "image-view:read",
   imageRevealInFolder: "image:reveal-in-folder",
   imageDisplayArtifactsList: "image-display-artifacts:list",
@@ -984,6 +994,7 @@ export interface WorkflowSettingsSnapshot {
 }
 
 export type {
+  TtsArtifact, TtsArtifactListRequest, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSaveInput, TtsSettingsSnapshot,
   ImageGenerationArtifact,
   ImageGenerationArtifactListRequest,
   ImageGenerationArtifactReadRequest,

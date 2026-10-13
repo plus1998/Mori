@@ -216,6 +216,7 @@ import {
 } from "../shared/thread-runtime-config";
 import { canRegenerateThreadTitle } from "../shared/thread-title-pending";
 import { buildThreadUsageSummary } from "../shared/thread-usage-summary";
+import { parseTtsTaskTabId, type TtsArtifact, type TtsSettingsSnapshot, ttsTaskTabId } from "../shared/tts";
 import type { WebChatItem, WebChatListView } from "../shared/web-chat-list";
 import { defaultWebChatListSnapshot, mergeWebChatList } from "../shared/web-chat-list";
 import { ActivityHeaderProjectInfo } from "./ActivityHeaderProjectInfo";
@@ -370,6 +371,7 @@ import {
   LazyStorageSettingsPanel,
   LazySubagentTaskDrawer,
   LazyTerminalPanel,
+  LazyTtsSettingsPanel,
   SuspensePanel,
 } from "./lazy-app-panels";
 import type { ModelsSettingsTab } from "./ModelsSettingsPanel";
@@ -411,6 +413,7 @@ import { SidebarSettingsUpdateControl } from "./SidebarSettingsUpdateControl";
 import { buildSidebarAttentionItems } from "./sidebar-attention-items";
 import type { TerminalSessionPresentation } from "./TerminalPanel";
 import { ThreadIdleCacheWarning } from "./ThreadIdleCacheWarning";
+import { TtsArtifactsContext } from "./TtsArtifactPlayer";
 import { loadTaskPanelReviewDiff } from "./task-panel-review-loader";
 import { cacheWorkspaceReviewSummary, invalidateWorkspaceReviewSummary, readWorkspaceReviewSummary } from "./workspace-review-cache";
 import {
@@ -601,6 +604,7 @@ type SettingsSectionId =
   | "browser"
   | "computerUse"
   | "imageGeneration"
+  | "tts"
   | "integratedWebSearch"
   | "providers"
   | "proxy"
@@ -664,6 +668,7 @@ const emptyIntegrationAvailability: IntegrationAvailabilitySnapshot = {
   integrations: [
     { id: "browser", enabled: false, available: false },
     { id: "imageGeneration", enabled: false, available: false },
+    { id: "tts", enabled: false, available: false },
     { id: "computerUse", enabled: false, available: false },
   ],
 };
@@ -1418,6 +1423,12 @@ function App() {
               "创意绘画",
             ],
           },
+          {
+            id: "tts",
+            label: t("settings.tts.title"),
+            icon: Mic,
+            keywords: ["TTS", "语音", "Gemini", "OpenRouter"],
+          },
           { id: "asr", label: t("asr.title"), icon: Mic },
           {
             id: "integratedWebSearch",
@@ -2043,6 +2054,13 @@ function App() {
     agentIntegrationEnabled: false,
     actionApprovalMode: "always_ask",
   });
+  const [ttsSettings, setTtsSettings] = useState<TtsSettingsSnapshot>({
+    enabled: false,
+    activeProfileId: "",
+    profiles: [],
+    apiKeyEncryptionAvailable: false,
+  });
+  const [ttsArtifactsByThread, setTtsArtifactsByThread] = useState<Record<string, TtsArtifact[]>>({});
   const [imageGenerationSettings, setImageGenerationSettings] = useState<ImageGenerationSettingsSnapshot>(
     emptyImageGenerationSettings,
   );
@@ -3511,6 +3529,53 @@ function App() {
     [feedThreadId, threads],
   );
   useEffect(() => {
+    if (!window.eco?.getTtsSettings) return;
+    void window.eco
+      .getTtsSettings()
+      .then(setTtsSettings)
+      .catch((caught) => setError(errorMessage(caught)));
+  }, []);
+  useEffect(() => {
+    if (!selectedThreadId || !window.eco?.listTtsArtifacts) return;
+    let cancelled = false;
+    void window.eco
+      .listTtsArtifacts(selectedThreadId)
+      .then((artifacts) => {
+        if (cancelled) return;
+        setTtsArtifactsByThread((current) => {
+          const byId = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
+          for (const artifact of current[selectedThreadId] ?? []) {
+            if (!byId.has(artifact.id) || artifact.updatedAt > byId.get(artifact.id)!.updatedAt)
+              byId.set(artifact.id, artifact);
+          }
+          return {
+            ...current,
+            [selectedThreadId]: [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+          };
+        });
+      })
+      .catch((caught) => {
+        if (!cancelled) setError(errorMessage(caught));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedThreadId]);
+  useEffect(
+    () =>
+      window.eco?.onTtsArtifactChanged?.((artifact) => {
+        setTtsArtifactsByThread((current) => ({
+          ...current,
+          [artifact.threadId]: [
+            artifact,
+            ...(current[artifact.threadId] ?? []).filter((item) => item.id !== artifact.id),
+          ].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        }));
+      }),
+    [],
+  );
+
+  useEffect(() => {
     if (!selectedThreadId || !window.eco?.listImageGenerationArtifacts) return;
     let cancelled = false;
     void window.eco
@@ -4385,6 +4450,10 @@ function App() {
     void window.eco.getPersonalizationSettings().then(setPersonalizationSettings);
     void window.eco.getBrowserSettings?.().then(setBrowserSettings);
     void window.eco.getComputerUseSettings?.().then(setComputerUseSettings);
+    void window.eco
+      .getTtsSettings?.()
+      .then(setTtsSettings)
+      .catch((caught) => setError(errorMessage(caught)));
     void window.eco.getImageGenerationSettings?.().then(setImageGenerationSettings);
     void window.eco.getIntegrationAvailability?.().then(setIntegrationAvailability);
     void window.eco.getWebChatList?.().then(setWebChatList);
@@ -5894,6 +5963,7 @@ function App() {
         ) {
           return true;
         }
+        if (parseTtsTaskTabId(String(tabId))) return true;
         if (parseImageGenerationTaskTabId(String(tabId))) {
           return true;
         }
@@ -6148,6 +6218,18 @@ function App() {
   const openImageGenerationArtifact = useCallback(
     (artifactId: string) => {
       const tabId = imageGenerationTaskTabId(artifactId);
+      setOpenTaskPanelTabIds((current) => addOpenTaskPanelTab(current, tabId));
+      setTaskPanelActiveTab(tabId);
+      setSelectedSubagentAgentId(undefined);
+      setTaskPanelFullscreen(false);
+      revealTaskPanel();
+    },
+    [revealTaskPanel],
+  );
+
+  const openTtsArtifact = useCallback(
+    (artifactId: string) => {
+      const tabId = ttsTaskTabId(artifactId);
       setOpenTaskPanelTabIds((current) => addOpenTaskPanelTab(current, tabId));
       setTaskPanelActiveTab(tabId);
       setSelectedSubagentAgentId(undefined);
@@ -10603,6 +10685,7 @@ function App() {
           onKeyDown={handleTaskPanelResizeKeyDown}
         />
         <SuspensePanel>
+          <TtsArtifactsContext value={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}>
           <LazySubagentTaskDrawer
             open={taskPanelLayoutOpen}
             surfaceActive={taskPanelOpen && !taskPanelExiting}
@@ -10617,6 +10700,8 @@ function App() {
             agentDisplayNames={activeRuntimeAgentDisplayNames}
             agentThemes={activeRuntimeAgentThemes}
             backgroundTasks={backgroundTerminalTasks}
+            ttsArtifacts={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}
+            onSelectTtsArtifact={openTtsArtifact}
             imageArtifacts={activeThread ? (imageArtifactsByThread[activeThread.id] ?? []) : []}
             onSelectImageArtifact={openImageGenerationArtifact}
             imageDisplayArtifacts={activeThread ? (imageDisplayArtifactsByThread[activeThread.id] ?? []) : []}
@@ -10710,6 +10795,7 @@ function App() {
               return result;
             }}
           />
+          </TtsArtifactsContext>
         </SuspensePanel>
       </motion.aside>
     ) : null;
@@ -11869,37 +11955,41 @@ function App() {
                             >
                               {activityFeedBootReady ? (
                                 <SuspensePanel>
-                                  <LazyActivityLogView
-                                    {...(activeThread && { thread: activeThread })}
-                                    {...(activeThread &&
-                                      conversationV2ByThread[activeThread.id] && {
-                                        conversationV2: conversationV2ByThread[activeThread.id],
+                                  <TtsArtifactsContext
+                                    value={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}
+                                  >
+                                    <LazyActivityLogView
+                                      {...(activeThread && { thread: activeThread })}
+                                      {...(activeThread &&
+                                        conversationV2ByThread[activeThread.id] && {
+                                          conversationV2: conversationV2ByThread[activeThread.id],
+                                        })}
+                                      onRestorePrompt={restorePrompt}
+                                      onLoadUserMessageEdit={loadUserMessageEdit}
+                                      onRewriteUserMessage={rewriteUserMessage}
+                                      onRetryFailedRequest={retryFailedRequest}
+                                      onPlannerLayoutChange={handleActivityPlannerLayoutChange}
+                                      onComposerAgentSilenceChange={setComposerAgentSilenceVisible}
+                                      {...(Object.keys(activityModelByRole).length > 0 && {
+                                        modelByRole: activityModelByRole,
                                       })}
-                                    onRestorePrompt={restorePrompt}
-                                    onLoadUserMessageEdit={loadUserMessageEdit}
-                                    onRewriteUserMessage={rewriteUserMessage}
-                                    onRetryFailedRequest={retryFailedRequest}
-                                    onPlannerLayoutChange={handleActivityPlannerLayoutChange}
-                                    onComposerAgentSilenceChange={setComposerAgentSilenceVisible}
-                                    {...(Object.keys(activityModelByRole).length > 0 && {
-                                      modelByRole: activityModelByRole,
-                                    })}
-                                    agentDisplayNames={activeRuntimeAgentDisplayNames}
-                                    agentThemes={activeRuntimeAgentThemes}
-                                    {...(taskDrawerOpen &&
-                                      selectedSubagentAgentId && { selectedSubagentAgentId })}
-                                    onOpenSubagent={openSubagentTaskDrawer}
-                                    onOpenImageGenerationTool={openImageGenerationTool}
-                                    onOpenImageDisplayTool={openImageDisplayTool}
-                                    onOpenImageDisplayArtifact={openImageDisplayArtifact}
-                                    thinkingDisplayMode={thinkingDisplayPreferences.mode}
-                                    {...(activeSubagentTimings && {
-                                      subagentTimings: activeSubagentTimings,
-                                    })}
-                                    {...(activeSubagentMetrics && {
-                                      subagentMetrics: activeSubagentMetrics,
-                                    })}
-                                  />
+                                      agentDisplayNames={activeRuntimeAgentDisplayNames}
+                                      agentThemes={activeRuntimeAgentThemes}
+                                      {...(taskDrawerOpen &&
+                                        selectedSubagentAgentId && { selectedSubagentAgentId })}
+                                      onOpenSubagent={openSubagentTaskDrawer}
+                                      onOpenImageGenerationTool={openImageGenerationTool}
+                                      onOpenImageDisplayTool={openImageDisplayTool}
+                                      onOpenImageDisplayArtifact={openImageDisplayArtifact}
+                                      thinkingDisplayMode={thinkingDisplayPreferences.mode}
+                                      {...(activeSubagentTimings && {
+                                        subagentTimings: activeSubagentTimings,
+                                      })}
+                                      {...(activeSubagentMetrics && {
+                                        subagentMetrics: activeSubagentMetrics,
+                                      })}
+                                    />
+                                  </TtsArtifactsContext>
                                 </SuspensePanel>
                               ) : null}
                               <div ref={activityEndRef} className="activity-scroll-anchor" aria-hidden />
@@ -12047,6 +12137,8 @@ function App() {
                       ),
                     );
                   }}
+                  ttsArtifacts={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}
+                  onOpenTtsArtifact={openTtsArtifact}
                   imageArtifacts={activeThread ? (imageArtifactsByThread[activeThread.id] ?? []) : []}
                   onOpenImageArtifact={openImageGenerationArtifact}
                   imageDisplayArtifacts={
@@ -12326,6 +12418,17 @@ function App() {
                       />
                     );
                   })()}
+
+                {settingsSection === "tts" && (
+                  <LazyTtsSettingsPanel
+                    settings={ttsSettings}
+                    onError={setError}
+                    onChange={(snapshot) => {
+                      setTtsSettings(snapshot);
+                      void window.eco?.getIntegrationAvailability().then(setIntegrationAvailability);
+                    }}
+                  />
+                )}
 
                 {settingsSection === "imageGeneration" && (
                   <LazyImageGenerationSettingsPanel

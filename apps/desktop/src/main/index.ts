@@ -1,3 +1,6 @@
+import { buildTtsPromptAppend, ECO_TTS_MCP_SERVER, isEcoTtsToolName, type TtsProfileSaveInput } from "../shared/tts";
+import { createTtsStore, type TtsStore } from "./tts-store";
+import { TtsMcpGateway } from "./tts-mcp-gateway";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -1364,6 +1367,8 @@ let webChatListStore: WebChatListStore;
 let sshBookmarkStore: SshBookmarkStore;
 let notificationSettingsStore: NotificationSettingsStore;
 let browserHost: BrowserHost | undefined;
+let ttsStore: TtsStore;
+let ttsGateway: TtsMcpGateway;
 let imageGenerationStore: ImageGenerationStore;
 let imageGenerationGateway: ImageGenerationMcpGateway;
 let imageViewGateway: ImageViewMcpGateway;
@@ -2374,6 +2379,21 @@ app
         });
       },
     });
+    ttsStore = await createTtsStore(dbPath, imageSecretCodec);
+    ttsGateway = new TtsMcpGateway({
+      store: ttsStore,
+      resolveWorkspacePath: (threadId) => conversationStore.getThread(threadId)?.workspacePath,
+      resolveGenerationRoot: (threadId) =>
+        activeRunRuntimeState.worktreePlan(threadId)?.worktreePath ??
+        conversationStore.getThread(threadId)?.sdkCwd ??
+        conversationStore.getThread(threadId)?.workspacePath,
+      onArtifactChanged: (artifact) => {
+        BrowserWindow.getAllWindows().forEach((window) => {
+          if (!window.isDestroyed())
+            window.webContents.send(IPC_CHANNELS.ttsArtifactChanged, artifact);
+        });
+      },
+    });
     imageViewGateway = new ImageViewMcpGateway({
       analyze: async ({ threadId, path: imagePath = "", ref, prompt, question, signal }) => {
         signal?.throwIfAborted();
@@ -3043,6 +3063,7 @@ app
       getWebSearchApprovalMode: () => integratedWebSearchSettingsStore.get().approvalMode,
       noteUpcomingImageGenerationTool: (threadId, toolName, toolUseId) => {
         imageGenerationGateway.noteUpcomingTool(threadId, toolName, toolUseId);
+        ttsGateway.noteUpcomingTool(threadId, toolName, toolUseId);
       },
       reviewApproval: (threadId, request, tool) => reviewThreadToolApproval(threadId, request, tool, "codex"),
       injectCodexApprovalFeedback: async ({ ecoThreadId, codexThreadId, turnId, toolUseId, text }) => {
@@ -3355,6 +3376,7 @@ installApplicationShutdownHook(
     stopAllPiRuntimes: disposeAllPiSessions,
     closeImageGenerationGateway: async () => {
       await imageGenerationGateway?.close();
+      await ttsGateway?.close();
     },
     closeImageViewGateway: async () => {
       await imageViewGateway?.close();
@@ -4003,6 +4025,17 @@ function registerDesktopCommand<Args extends unknown[], Result>(
     desktopEventCenter.registerCommand(channel, (args) => invokeRemote(...(args as Args)));
   }
   ipcMain.handle(channel, async (_event, ...args: unknown[]) => invokeLocal(...(args as Args)));
+}
+
+async function resolveTtsArtifactAudio(payload: unknown) {
+  if (!isRecord(payload) || typeof payload.artifactId !== "string" || !Number.isInteger(payload.audioIndex)) throw new Error("音频产物参数无效。");
+  const artifact = ttsStore.getArtifact(payload.artifactId);
+  const audio = artifact.audio[payload.audioIndex as number];
+  if (!audio) throw new Error("音频产物索引不存在。");
+  const root = await fs.realpath(artifact.generationRoot);
+  const resolvedPath = await fs.realpath(audio.absolutePath);
+  if (!resolvedPath.startsWith(`${root}${path.sep}`)) throw new Error("音频文件路径超出了工作目录。");
+  return { audio, resolvedPath };
 }
 
 function resolveImageGenerationArtifactImage(payload: unknown): {
@@ -7130,6 +7163,9 @@ function registerIpcHandlers(): void {
     const browserFeature = requireBrowserHost().isFeatureAvailable();
     const computerUseSettings = computerUseSettingsStore.get();
     const computerUseFeature = computerUseGateway.isFeatureAvailableQuick();
+    const ttsSettings = ttsStore.getSettings();
+    const ttsProfile = ttsSettings.profiles.find(profile => profile.id === ttsSettings.activeProfileId);
+    const ttsReason = !ttsProfile?.hasApiKey ? "当前语音生成 Profile 尚未配置 API Key。" : !ttsSettings.apiKeyEncryptionAvailable ? "系统加密不可用，无法读取语音生成 API Key。" : undefined;
     const imageSettings = imageGenerationStore.getSettings();
     const activeImageProfile = imageSettings.profiles.find(
       (profile) => profile.id === imageSettings.activeProfileId,
@@ -7151,6 +7187,13 @@ function registerIpcHandlers(): void {
           enabled: computerUseSettings.agentIntegrationEnabled,
           available: computerUseFeature.available,
           ...(computerUseFeature.reason ? { reason: computerUseFeature.reason } : {}),
+        },
+        {
+          id: "tts" as const,
+          enabled: ttsSettings.enabled,
+          available: Boolean(ttsSettings.enabled && ttsProfile?.hasApiKey && !ttsReason),
+          ...(ttsReason ? { reason: ttsReason } : {}),
+          ...(ttsProfile ? { activeProfileName: ttsProfile.name } : {}),
         },
         {
           id: "imageGeneration" as const,
@@ -7208,6 +7251,53 @@ function registerIpcHandlers(): void {
   });
   registerDesktopCommand(IPC_CHANNELS.imageGenerationArtifactReveal, async (payload: unknown) => {
     const { resolvedPath } = resolveImageGenerationArtifactImage(payload);
+    shell.showItemInFolder(resolvedPath);
+  });
+  registerDesktopCommand(IPC_CHANNELS.ttsSettingsGet, async () =>
+    ttsStore.getSettings(),
+  );
+  registerDesktopCommand(IPC_CHANNELS.ttsSettingsSave, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.enabled !== "boolean") {
+      throw new Error("语音生成设置无效。");
+    }
+    const saved = ttsStore.setEnabled(payload.enabled);
+    scheduleCodexGlobalRuntimeRefresh();
+    return saved;
+  });
+  registerDesktopCommand(IPC_CHANNELS.ttsProfileSave, async (payload: unknown) => {
+    if (!isRecord(payload)) throw new Error("语音生成 Profile 无效。");
+    const saved = ttsStore.saveProfile(payload as unknown as TtsProfileSaveInput);
+    scheduleCodexGlobalRuntimeRefresh();
+    return saved;
+  });
+  registerDesktopCommand(IPC_CHANNELS.ttsProfileDelete, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.id !== "string") throw new Error("语音生成 Profile ID 无效。");
+    const saved = ttsStore.deleteProfile(payload.id);
+    scheduleCodexGlobalRuntimeRefresh();
+    return saved;
+  });
+  registerDesktopCommand(IPC_CHANNELS.ttsProfileActivate, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.id !== "string") throw new Error("语音生成 Profile ID 无效。");
+    const saved = ttsStore.activateProfile(payload.id);
+    scheduleCodexGlobalRuntimeRefresh();
+    return saved;
+  });
+  registerDesktopCommand(IPC_CHANNELS.ttsArtifactsList, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.threadId !== "string") throw new Error("threadId 无效。");
+    return ttsStore.listArtifacts(payload.threadId);
+  });
+  registerDesktopCommand(IPC_CHANNELS.ttsArtifactRead, async (payload: unknown) => {
+    const { audio, resolvedPath } = await resolveTtsArtifactAudio(payload);
+    const data = await fs.readFile(resolvedPath);
+    if (data.length > 64 * 1024 * 1024) throw new Error("音频文件超过 64 MB 限制。");
+    return {
+      dataBase64: data.toString("base64"),
+      mimeType: audio.mimeType,
+      path: resolvedPath,
+    };
+  });
+  registerDesktopCommand(IPC_CHANNELS.ttsArtifactReveal, async (payload: unknown) => {
+    const { resolvedPath } = await resolveTtsArtifactAudio(payload);
     shell.showItemInFolder(resolvedPath);
   });
   registerDesktopCommand(IPC_CHANNELS.imageViewRead, async (payload: unknown) => {
@@ -11016,6 +11106,9 @@ async function startCodexThreadRun(
     const sessionImageGenerationEnabled =
       imageGenerationStore.getSettings().enabled &&
       integrationEnabled(threadRuntimeForIntegrations?.integrationsEnabled, "imageGeneration");
+    const sessionTtsEnabled =
+      ttsStore.getSettings().enabled &&
+      integrationEnabled(threadRuntimeForIntegrations?.integrationsEnabled, "tts");
     const codexAgentRegistry = resolveAgentRuntimeConfigForThreadId(input.thread.id);
     const codexPlannerRoute = resolveRoleRoutesForThread(input.thread.id).find(
       (route) => route.role === "planner",
@@ -11065,6 +11158,12 @@ async function startCodexThreadRun(
               append = appendBrowserPrompt(
                 append,
                 buildImageGenerationPromptAppend(imageGenerationStore.getActiveClientConfig()),
+              );
+            }
+            if (sessionTtsEnabled) {
+              append = appendBrowserPrompt(
+                append,
+                buildTtsPromptAppend(ttsStore.getActiveClientConfig()),
               );
             }
             append = appendBrowserPrompt(append, SCHEDULING_PROMPT);
@@ -11140,6 +11239,18 @@ async function startCodexThreadRun(
                 );
               }
               registerBuiltin(ECO_IMAGE_GENERATION_MCP_SERVER, imageInject.sdkEntry);
+            }
+            if (sessionTtsEnabled) {
+              const ttsInject = await ttsGateway.resolveInjection({
+                threadId: input.thread.id,
+                sessionEnabled: true,
+              });
+              if (!ttsInject.enabled || !ttsInject.codexServer || !ttsInject.sdkEntry) {
+                throw new Error(
+                  `本会话已开启语音生成，但不可用：${ttsInject.unavailableReason ?? "未知原因"}`,
+                );
+              }
+              registerBuiltin(ECO_TTS_MCP_SERVER, ttsInject.sdkEntry);
             }
             if (sessionComputerUseEnabled) {
               const computerUseInject = await computerUseGateway.resolveInjection({
@@ -11468,6 +11579,9 @@ async function resolvePiSessionResourcesForThread(
   const sessionImageGenerationEnabled =
     imageGenerationStore.getSettings().enabled &&
     integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "imageGeneration");
+  const sessionTtsEnabled =
+    ttsStore.getSettings().enabled &&
+    integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "tts");
 
   const browserInject = await requireBrowserHost().resolveAgentBrowserMcpInjection({
     threadId,
@@ -11489,6 +11603,13 @@ async function resolvePiSessionResourcesForThread(
   });
   if (sessionImageGenerationEnabled && !imageInject.enabled) {
     throw new Error(`本会话已开启创意绘画，但不可用：${imageInject.unavailableReason ?? "未知原因"}`);
+  }
+  const ttsInject = await ttsGateway.resolveInjection({
+    threadId,
+    sessionEnabled: sessionTtsEnabled,
+  });
+  if (sessionTtsEnabled && !ttsInject.enabled) {
+    throw new Error(`本会话已开启语音生成，但不可用：${ttsInject.unavailableReason ?? "未知原因"}`);
   }
   const imageViewInject = await imageViewGateway.resolveInjection(threadId);
   const imageDisplayInject = await imageDisplayGateway.resolveInjection(threadId);
@@ -11524,6 +11645,11 @@ async function resolvePiSessionResourcesForThread(
       enabled: imageInject.enabled,
       ...(imageInject.sdkEntry ? { sdkEntry: imageInject.sdkEntry } : {}),
       ...(imageInject.promptAppend ? { promptAppend: imageInject.promptAppend } : {}),
+    },
+    ttsInject: {
+      enabled: ttsInject.enabled,
+      ...(ttsInject.sdkEntry ? { sdkEntry: ttsInject.sdkEntry } : {}),
+      ...(ttsInject.promptAppend ? { promptAppend: ttsInject.promptAppend } : {}),
     },
     imageViewInject: {
       enabled: true,
@@ -14999,6 +15125,7 @@ function buildDesktopSdkRunInput(
       : undefined;
   let sessionEco = false;
   let sessionImage = false;
+  let sessionTts = false;
   let sessionComputerUse = false;
   if (threadId) {
     const thread = conversationStore.getThread(threadId);
@@ -15020,6 +15147,12 @@ function buildDesktopSdkRunInput(
         thread ? ensureThreadRuntimeConfig(thread).runtimeConfig?.integrationsEnabled : undefined,
         "imageGeneration",
       );
+    sessionTts =
+      ttsStore.getSettings().enabled &&
+      integrationEnabled(
+        thread ? ensureThreadRuntimeConfig(thread).runtimeConfig?.integrationsEnabled : undefined,
+        "tts",
+      );
   }
   let globalUserRules = appendBrowserPrompt(
     personalizationSettingsStore.get().globalRules,
@@ -15031,6 +15164,10 @@ function buildDesktopSdkRunInput(
   if (sessionImage && threadId) {
     const config = imageGenerationStore.getActiveClientConfig();
     globalUserRules = appendBrowserPrompt(globalUserRules, buildImageGenerationPromptAppend(config));
+  }
+  if (sessionTts && threadId) {
+    const config = ttsStore.getActiveClientConfig();
+    globalUserRules = appendBrowserPrompt(globalUserRules, buildTtsPromptAppend(config));
   }
   globalUserRules = appendBrowserPrompt(globalUserRules, SCHEDULING_PROMPT);
   globalUserRules = appendBrowserPrompt(globalUserRules, buildImageViewPromptAppend());
@@ -15279,6 +15416,7 @@ async function cleanupThreadExternalState(threadId: string): Promise<void> {
   await disposePiThreadSession(threadId);
   await removePiThreadAgentDir(app.getPath("userData"), threadId);
   imageGenerationGateway.disposeThread(threadId);
+  ttsGateway.disposeThread(threadId);
   imageViewGateway.disposeThread(threadId);
   imageDisplayGateway.disposeThread(threadId);
   htmlHostGateway.disposeThread(threadId);
@@ -17226,6 +17364,9 @@ async function buildSdkSessionOptions(
   const sessionImageGenerationEnabled =
     imageGenerationStore.getSettings().enabled &&
     integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "imageGeneration");
+  const sessionTtsEnabled =
+    ttsStore.getSettings().enabled &&
+    integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "tts");
   const browserInject = await requireBrowserHost().resolveAgentBrowserMcpInjection({
     threadId,
     sessionEnabled: sessionEcoBrowserEnabled,
@@ -17246,6 +17387,13 @@ async function buildSdkSessionOptions(
   });
   if (sessionImageGenerationEnabled && !imageInject.enabled) {
     throw new Error(`本会话已开启创意绘画，但不可用：${imageInject.unavailableReason ?? "未知原因"}`);
+  }
+  const ttsInject = await ttsGateway.resolveInjection({
+    threadId,
+    sessionEnabled: sessionTtsEnabled,
+  });
+  if (sessionTtsEnabled && !ttsInject.enabled) {
+    throw new Error(`本会话已开启语音生成，但不可用：${ttsInject.unavailableReason ?? "未知原因"}`);
   }
   const imageViewInject = await imageViewGateway.resolveInjection(threadId);
   const imageDisplayInject = await imageDisplayGateway.resolveInjection(threadId);
@@ -17303,7 +17451,8 @@ async function buildSdkSessionOptions(
   const withBrowserMcp = requireBrowserHost().mergeIntoSdkMcpConfig(filteredMcp, browserInject);
   const withComputerUseMcp = computerUseGateway.mergeIntoSdkConfig(withBrowserMcp, computerUseInject);
   const withImageMcp = imageGenerationGateway.mergeIntoSdkConfig(withComputerUseMcp, imageInject);
-  const withImageViewMcp = imageViewGateway.mergeIntoSdkConfig(withImageMcp, imageViewInject);
+  const withTtsMcp = ttsGateway.mergeIntoSdkConfig(withImageMcp, ttsInject);
+  const withImageViewMcp = imageViewGateway.mergeIntoSdkConfig(withTtsMcp, imageViewInject);
   const withImageDisplayMcp = imageDisplayGateway.mergeIntoSdkConfig(withImageViewMcp, imageDisplayInject);
   const withHtmlHostMcp = htmlHostInject
     ? htmlHostGateway.mergeIntoSdkConfig(withImageDisplayMcp, htmlHostInject)
@@ -17749,6 +17898,10 @@ function maybeRevealBrowserFromAgentTool(input: {
     ? resolveToolNameFromActivityPayload({ message: input.message })
     : undefined;
   const toolName = (input.toolName ?? fromPayload ?? fromMessage ?? "").trim();
+  if (toolName && isEcoTtsToolName(toolName)) {
+    const threadId = input.threadId?.trim();
+    if (threadId) ttsGateway.noteUpcomingTool(threadId, toolName, resolveToolUseIdFromActivityPayload(input.payload));
+  }
   if (toolName && isEcoImageGenerationToolName(toolName)) {
     const threadId = input.threadId?.trim();
     const toolUseId = resolveToolUseIdFromActivityPayload(input.payload);
@@ -17808,6 +17961,9 @@ function maybeRevealBrowserFromThreadRunEvent(event: {
     resolveToolNameFromActivityPayload(event.metadata) ??
     resolveToolNameFromActivityPayload({ message: event.message });
   const name = (toolName ?? "").trim();
+  if (name && isEcoTtsToolName(name)) {
+    ttsGateway.noteUpcomingTool(event.threadId, name, typeof metaTool?.toolUseId === "string" ? metaTool.toolUseId.trim() : undefined);
+  }
   if (name && isEcoImageGenerationToolName(name)) {
     const toolUseId = typeof metaTool?.toolUseId === "string" ? metaTool.toolUseId.trim() : undefined;
     imageGenerationGateway.noteUpcomingTool(event.threadId, name, toolUseId);

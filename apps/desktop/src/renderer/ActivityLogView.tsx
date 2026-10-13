@@ -52,6 +52,7 @@ import {
   ShieldCheck,
   Sparkles,
   Terminal,
+  Volume2,
   Wrench,
   X,
 } from "lucide-react";
@@ -193,6 +194,7 @@ import { type RuntimeAgentDisplayNames, resolveRuntimeAgentName } from "./runtim
 import { type RuntimeAgentThemes, resolveSubagentRowThemeStyle } from "./runtime-agent-theme";
 import { StreamingMarkdownContent } from "./StreamingMarkdownContent";
 import { RequestSpansContext, TokenSpeedBadge } from "./TokenSpeedBadge";
+import { readTtsToolUseId, TtsFeedArtifacts, TtsFeedGroupDetailsContext } from "./TtsArtifactPlayer";
 import {
   findThinkingFeedScrollRoot,
   isThinkingPreferenceDrivenExpand,
@@ -2817,8 +2819,13 @@ export function ProjectionToolGroupEntry({
           if (imageDisplayToolUseId) onOpenImageDisplayTool?.(imageDisplayToolUseId);
         }}
       />
+      <TtsFeedArtifacts
+        toolUseIds={entry.entries
+          .map((child) => readTtsToolUseId(child.item))
+          .filter((id): id is string => Boolean(id))}
+      />
       {expanded ? (
-        <div className="run-log-tool-group-details">
+        <TtsFeedGroupDetailsContext value={true}><div className="run-log-tool-group-details">
           {topLevel.map((child) => {
             const toolUseId = child.kind === "timeline" ? readProjectionToolUseId(child.item) : undefined;
             const nestedChildren = toolUseId ? nestedByParent.get(toolUseId) : undefined;
@@ -2834,7 +2841,7 @@ export function ProjectionToolGroupEntry({
               />
             );
           })}
-        </div>
+        </div></TtsFeedGroupDetailsContext>
       ) : null}
     </div>
   );
@@ -4505,6 +4512,7 @@ function ProjectionTimelineEntry({
 
   const requestSpan = item.requestId ? requestSpansById.get(item.requestId) : undefined;
   const requestActive = isProjectionRequestActive(requestSpan);
+  const ttsToolUseId = readTtsToolUseId(item);
   const imageToolUseId = readImageGenerationToolUseId(item);
   const imageDisplayToolUseId = readImageDisplayToolUseId(item);
   const retryTarget = !compact ? retryTargets?.get(item.id) : undefined;
@@ -4590,6 +4598,7 @@ function ProjectionTimelineEntry({
   }
 
   return wrapRunLogFeedEntry(
+    <>
     <DetailBlock
       block={block}
       requestActive={requestActive}
@@ -4609,7 +4618,9 @@ function ProjectionTimelineEntry({
           onActionActivate: () => onOpenImageDisplayTool(imageDisplayToolUseId),
         })}
       {...(onOpenImageDisplayArtifact && { onOpenImageDisplayArtifact })}
-    />,
+    />
+      {ttsToolUseId ? <TtsFeedArtifacts toolUseIds={[ttsToolUseId]} /> : null}
+    </>,
     { compact, tight: isTightFeedDetailBlock(block) },
   );
 }
@@ -7580,6 +7591,7 @@ const actionIcons = {
   read: BookOpen,
   image: ImageIcon,
   images: Images,
+  audio: Volume2,
   browser: AppWindow,
   edit: Pencil,
   terminal: Terminal,

@@ -1,3 +1,4 @@
+import type { TtsArtifact, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSnapshot } from "../shared/tts";
 import type { ScheduleCreateInput, ScheduleUpdateInput, ScheduleTrigger, ScheduleDefinition, ScheduleOccurrence, SchedulingSnapshot } from "../shared/scheduling";
 import type {
   ConversationBootstrap,
@@ -901,6 +902,34 @@ const api = {
   revealImageGenerationArtifact(request: ImageGenerationArtifactReadRequest): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationArtifactReveal, request);
   },
+  getTtsSettings(): Promise<TtsSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsSettingsGet);
+  },
+  saveTtsEnabled(enabled: boolean): Promise<TtsSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsSettingsSave, { enabled });
+  },
+  saveTtsProfile(
+    profile: TtsProfileSaveInput,
+  ): Promise<TtsProfileSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsProfileSave, profile);
+  },
+  deleteTtsProfile(id: string): Promise<TtsSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsProfileDelete, { id });
+  },
+  activateTtsProfile(id: string): Promise<TtsSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsProfileActivate, { id });
+  },
+  listTtsArtifacts(threadId: string): Promise<TtsArtifact[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsArtifactsList, { threadId });
+  },
+  readTtsArtifact(
+    request: TtsArtifactReadRequest,
+  ): Promise<TtsArtifactReadResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsArtifactRead, request);
+  },
+  revealTtsArtifact(request: TtsArtifactReadRequest): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsArtifactReveal, request);
+  },
   readImageView(request: ImageViewReadRequest): Promise<ImageViewReadResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageViewRead, request);
   },
@@ -943,6 +972,13 @@ const api = {
     };
     ipcRenderer.on(IPC_CHANNELS.imageGenerationArtifactChanged, listener);
     return () => ipcRenderer.off(IPC_CHANNELS.imageGenerationArtifactChanged, listener);
+  },
+  onTtsArtifactChanged(callback: (artifact: TtsArtifact) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+      if (payload && typeof payload === "object") callback(payload as TtsArtifact);
+    };
+    ipcRenderer.on(IPC_CHANNELS.ttsArtifactChanged, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.ttsArtifactChanged, listener);
   },
   getWebChatList(): Promise<WebChatListView> {
     return ipcRenderer.invoke(IPC_CHANNELS.webChatListGet);

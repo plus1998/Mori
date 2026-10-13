@@ -1,3 +1,5 @@
+import type { TtsArtifact } from "../shared/tts";
+import { TtsArtifactPlayer } from "./TtsArtifactPlayer";
 import {
   Blocks,
   Bot,
@@ -139,6 +141,8 @@ export interface WorkspaceFloatingCardsProps {
   onOpenBrowser?: (browserId: string) => void;
   onCloseBrowser?: (browserId: string) => void;
   onCloseAllBrowsers?: () => void;
+  ttsArtifacts?: readonly TtsArtifact[];
+  onOpenTtsArtifact?: (id: string) => void;
   imageArtifacts?: readonly ImageGenerationArtifact[];
   onOpenImageArtifact?: (artifactId: string) => void;
   imageDisplayArtifacts?: readonly ImageDisplayArtifact[];
@@ -638,6 +642,8 @@ export function WorkspaceFloatingCards({
   onOpenBrowser,
   onCloseBrowser,
   onCloseAllBrowsers,
+  ttsArtifacts = [],
+  onOpenTtsArtifact,
   imageArtifacts = [],
   onOpenImageArtifact,
   imageDisplayArtifacts = [],
@@ -854,6 +860,14 @@ export function WorkspaceFloatingCards({
             maxBodyHeight={280}
           >
             <CoderTodoPanel todos={todos} embedded compact />
+          </WorkspacePanelSection>
+        ) : null}
+
+        {ttsArtifacts.length > 0 ? (
+          <WorkspacePanelSection id="workspace-tts-artifacts" title={t("task.tts.history")} defaultExpanded maxBodyHeight={360}>
+            <div className="workspace-resource-list">
+              {ttsArtifacts.map(artifact => <TtsArtifactPlayer key={artifact.id} artifact={artifact} {...(onOpenTtsArtifact ? { onOpen: onOpenTtsArtifact } : {})} />)}
+            </div>
           </WorkspacePanelSection>
         ) : null}
 
