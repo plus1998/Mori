@@ -36,6 +36,83 @@ function sdkBlockKey(activity: CapturedActivity): string | undefined {
   return typeof key === "string" ? key : undefined;
 }
 
+test("preserves repeated numeric and phrase deltas in text and thinking streams", () => {
+  for (const blockKind of ["text", "thinking"] as const) {
+    for (const chunks of [
+      ["上限是 **", "100", "00", "**（一万）。"],
+      ["200", "00"],
+      ["00", "00"],
+      ["1", "100"],
+      ["abc", "abc", "abc"],
+      ["|---|", "---|", "---|"],
+      ["  ", "  ", "const value = 10000;"],
+      ["the end of ", "of the sentence"],
+    ]) {
+      const bridge = new SdkStreamActivityBridge();
+      const emitted: CapturedActivity[] = [];
+      const emit = captureActivity(emitted);
+      for (const text of chunks) {
+        bridge.handleEvent(
+          "thr_repeated_deltas",
+          {
+            type: "message.delta",
+            role: "planner",
+            payload: {
+              type: "eco_stream",
+              blockKind,
+              text,
+              stream_block_key: `pi-${blockKind}:sess:m1:c0`,
+            },
+          },
+          emit,
+        );
+      }
+      bridge.handleEvent(
+        "thr_repeated_deltas",
+        {
+          type: "message.delta",
+          role: "planner",
+          payload: {
+            type: "eco_stream",
+            blockKind,
+            text: "",
+            streamFinalize: true,
+            stream_block_key: `pi-${blockKind}:sess:m1:c0`,
+          },
+        },
+        emit,
+      );
+      const expected = chunks.join("");
+      expect(emitted.map((activity) => activity.message)).toEqual([expected, expected]);
+      expect(emitted.at(-1)?.stream).toBe(false);
+      expect(emitted.at(-1)?.role).toBe(blockKind === "thinking" ? "thinking" : "planner");
+    }
+  }
+});
+
+test("preserves repeated numeric deltas from raw SDK stream events", () => {
+  const bridge = new SdkStreamActivityBridge();
+  const emitted: CapturedActivity[] = [];
+  const emit = captureActivity(emitted);
+  for (const text of ["上限 ", "100", "00", " 条"]) {
+    bridge.handleEvent(
+      "thr_raw_repeated_deltas",
+      {
+        type: "message.delta",
+        role: "planner",
+        payload: {
+          type: "stream_event",
+          event: { type: "content_block_delta", delta: { type: "text_delta", text } },
+        },
+      },
+      emit,
+    );
+  }
+  bridge.flushPendingAndReset("thr_raw_repeated_deltas", emit);
+  expect(emitted.at(-1)?.message).toBe("上限 10000 条");
+  expect(emitted.at(-1)?.stream).toBe(false);
+});
+
 test("SDK informational, rate limit and requires-action events reach the activity feed", () => {
   const bridge = new SdkStreamActivityBridge();
   const emitted: CapturedActivity[] = [];

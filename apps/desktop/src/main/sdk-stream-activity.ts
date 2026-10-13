@@ -4,7 +4,6 @@ import {
   formatSendMessageToolInputSummary,
   formatSendMessageToolResultSummary,
   isEcoWebSearchToolName,
-  mergeStreamText,
   parseEcoWebSearchToolOutput,
   parseSendMessageToolResult,
   readEcoWebSearchQuery,
@@ -326,7 +325,10 @@ export class SdkStreamActivityBridge {
     if (event.type === "message.delta" && stream) {
       const previousLine = this.lastStreamLine.get(streamKey);
       const previous = previousLine?.message ?? "";
-      const accumulated = mergeStreamText(previous, message);
+      // eco_stream and raw SDK stream_event carry incremental deltas. Text equality
+      // cannot identify a replay: "100" + "00" and repeated words are valid output.
+      // The bridge emits cumulative snapshots only after appending every delta.
+      const accumulated = previous + message;
       const emitExtras = withThinkingStartedAt(
         mergeSdkActivityEmitExtras(accumulated, undefined, event.payload, sdkStreamBlockKey),
         role,
