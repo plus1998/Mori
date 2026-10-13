@@ -1812,7 +1812,15 @@ function createStartupWindowUrl(): string {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Eco Coding</title>
     <style>
-      html, body { width: 100%; height: 100%; margin: 0; background: transparent; overflow: hidden; }
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        background: transparent;
+        overflow: hidden;
+        -webkit-user-select: none;
+        user-select: none;
+      }
       #splash-icon {
         position: fixed;
         inset: 0;
@@ -1825,6 +1833,8 @@ function createStartupWindowUrl(): string {
         height: 96px;
         object-fit: contain;
         opacity: 0.92;
+        -webkit-user-drag: none;
+        user-select: none;
         animation: app-boot-splash-breathe 1.6s ease-in-out infinite;
       }
       #status {
@@ -1837,6 +1847,8 @@ function createStartupWindowUrl(): string {
         font-family: "Segoe UI", system-ui, sans-serif;
         font-size: 13px;
         text-align: center;
+        -webkit-user-select: none;
+        user-select: none;
       }
       @media (prefers-reduced-motion: reduce) {
         #splash-icon img { animation: none; }
