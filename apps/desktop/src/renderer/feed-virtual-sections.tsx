@@ -302,7 +302,6 @@ export function FeedVirtualUserMessageSentinels(props: {
 /**
  * Where the Feed's measurement-driven scroll corrections land.
  *
- * With `anchorTo: "end"`, `resizeItem` keeps the viewport pinned by adding a
  * A per-item delta only equals what the element actually did when that row was
  * the only thing that changed. The Feed breaks that assumption constantly: the
  * live tail row appears and disappears while the streaming row above it loses
@@ -315,16 +314,14 @@ export function FeedVirtualUserMessageSentinels(props: {
  * time — the same shape as upstream TanStack/virtual#1297, where the end anchor
  * misses a shrink instead of a growth.
  *
- * So while the reader is inside the stick band, a correction re-pins to the
- * element's real end rather than trusting the accumulated delta: growth lands on
- * it, a shrink the browser already absorbed becomes a no-op, and a frame that
- * grew and shrank at once lands on it too. Outside the band the reader is
- * reading history, and the per-item delta is exactly what keeps their place.
+ * While the reader follows the end, a correction uses the committed DOM's end.
+ * Explicit user input detaches that anchor; measurements alone cannot do so.
+ * A detached reader keeps the per-item delta to preserve their history position.
  * Commands (`scrollToIndex`, `scrollToOffset`, `scrollToEnd`) carry no
  * adjustments and keep using the model, which now matches the element because
  * `paddingStart` / `paddingEnd` are modelled.
  */
-function followEndAnchoredScroll(
+export function followEndAnchoredScroll(
   offset: number,
   options: { adjustments?: number; behavior?: ScrollBehavior },
   instance: { scrollElement: HTMLElement | null; options: { anchorTo?: "start" | "end" } },
@@ -336,13 +333,9 @@ function followEndAnchoredScroll(
   }
   const adjustments = options.adjustments ?? 0;
   const maxTop = Math.max(0, element.scrollHeight - element.clientHeight);
-  const insideStickBand =
-    followEnd &&
-    instance.options.anchorTo === "end" &&
-    adjustments !== 0 &&
-    maxTop - element.scrollTop <= FEED_END_ANCHOR_THRESHOLD_PX;
+  const followAdjustment = followEnd && instance.options.anchorTo === "end" && adjustments !== 0;
   element.scrollTo({
-    top: insideStickBand ? maxTop : offset + adjustments,
+    top: followAdjustment ? maxTop : offset + adjustments,
     ...(options.behavior ? { behavior: options.behavior } : null),
   });
 }
@@ -422,10 +415,31 @@ export function useFeedSectionVirtualizer(input: {
   const estimate = estimatorRef.current;
 
   const getItemKey = selectSectionKeys(sections);
+  const mountedRowSizes = useRef(new Map<string | number, number>());
+  useLayoutEffect(() => {
+    if (enabled) return;
+    const rows = runLogRef.current?.querySelectorAll<HTMLElement>(".run-log-virtual-row");
+    if (!rows) return;
+    mountedRowSizes.current.clear();
+    const remember = (row: HTMLElement) => {
+      const index = Number(row.dataset.index);
+      if (!Number.isInteger(index) || index < 0) return;
+      mountedRowSizes.current.set(getItemKey(index), row.offsetHeight);
+    };
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) remember(entry.target as HTMLElement);
+    });
+    for (const row of rows) {
+      remember(row);
+      observer.observe(row);
+    }
+    return () => observer.disconnect();
+  }, [enabled, getItemKey, runLogRef]);
+
   const estimateSize = useCallback(
     (index: number) => {
       const section = sectionsRef.current[index];
-      return section ? estimate(section) : ESTIMATE_ENTRY_PX;
+      return section ? (mountedRowSizes.current.get(section.key) ?? estimate(section)) : ESTIMATE_ENTRY_PX;
     },
     [estimate],
   );
@@ -439,6 +453,9 @@ export function useFeedSectionVirtualizer(input: {
     count: enabled ? count : 0,
     enabled,
     getScrollElement,
+    // Crossing the virtualization threshold must retain a history reader's
+    // existing offset; virtual-core otherwise initializes that offset to zero.
+    initialOffset: () => getScrollElement()?.scrollTop ?? 0,
     estimateSize,
     overscan: OVERSCAN,
     getItemKey,
@@ -468,6 +485,11 @@ export function useFeedSectionVirtualizer(input: {
     // the pinned position further from the live tail — upstream sees the same
     // shape of bug in #1227.
     useFlushSync: true,
+    // Measurements update both the virtual window and its DOM spacers. Run that
+    // mutation at the frame boundary, rather than resizing observed ancestors
+    // inside their own ResizeObserver delivery. The layout effect then pins
+    // the committed geometry before that frame is painted.
+    useAnimationFrameWithResizeObserver: true,
   });
 
   const measureElement = useCallback(
@@ -476,13 +498,24 @@ export function useFeedSectionVirtualizer(input: {
       if (!node) return;
       const index = virtualizer.indexFromElement(node);
       if (index < 0 || index >= virtualizer.options.count) return;
-      const section = sections[index];
+      const section = sectionsRef.current[index];
       if (section) {
         recordMeasuredSectionSize(section, (node as HTMLElement).offsetHeight);
       }
     },
-    [sections, virtualizer],
+    [virtualizer],
   );
+
+  // Row removals and a turn's collapse happen in one commit. Reconcile against
+  // the committed DOM, after the virtual window's spacers have changed, rather
+  // than letting each row's independent resize delta move the end anchor.
+  useLayoutEffect(() => {
+    if (!enabled || userDetached) return;
+    const element = getScrollElement();
+    if (!element) return;
+    const end = Math.max(0, element.scrollHeight - element.clientHeight);
+    if (Math.abs(element.scrollTop - end) > 1) element.scrollTop = end;
+  });
 
   useLayoutEffect(() => {
     if (!enabled) {

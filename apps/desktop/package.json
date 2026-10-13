@@ -31,6 +31,7 @@
     "build:demo-main": "bun build src/main/demo.ts --target=node --external electron --outdir dist/demo-main",
     "build:preload": "bun build src/preload/index.ts --target=node --format=cjs --external electron --outfile dist/preload/index.cjs",
     "feed:parity": "bun scripts/feed-skeleton-parity-audit.mjs",
+    "feed:replay": "bun scripts/feed-replay.ts",
     "conversation:v2-migrate": "bun scripts/conversation-v2-migrate.ts",
     "conversation:v2-correct-run": "bun scripts/conversation-v2-correct-run.ts",
     "conversation:v2-repair-event-hash": "bun build scripts/conversation-v2-repair-event-hash.ts --target=node --outfile .tmp/conversation-v2-repair-event-hash.mjs && node .tmp/conversation-v2-repair-event-hash.mjs",

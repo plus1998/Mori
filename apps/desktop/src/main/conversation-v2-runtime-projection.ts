@@ -40,6 +40,7 @@ export interface BuildThreadRunProjectionInput {
 
 interface MutableRequestSpan {
   requestId: string;
+  runAttemptId?: string;
   ownerAgentId?: string;
   role?: string;
   source?: string;
@@ -607,9 +608,18 @@ function applyToolWritingState(
       if (!writing) {
         continue;
       }
-      const target = latestSpanStartedBy(ordered, event.observedAt);
-      if (!target) {
+      const target = event.requestId
+        ? spans.get(event.requestId)
+        : latestSpanStartedBy(ordered, event.observedAt, event.runAttemptId);
+      // Gateway argument deltas can arrive after cancellation. A later running
+      // turn must not revive that old request's waiting line (or inherit it).
+      // Completed narrative streams remain eligible: the model may write its
+      // tool arguments after closing the text block.
+      if (!target || target.status === "cancelled" || target.status === "failed") {
         continue;
+      }
+      if (attached && attached !== target) {
+        delete attached.writingTool;
       }
       target.writingTool = { ...writing, since: event.observedAt };
       attached = target;
@@ -667,11 +677,15 @@ function isToolWriteKind(value: unknown): value is "file" | "read" | "command" |
 function latestSpanStartedBy(
   orderedSpans: readonly MutableRequestSpan[],
   at: string,
+  runAttemptId?: string,
 ): MutableRequestSpan | undefined {
   let found: MutableRequestSpan | undefined;
   for (const span of orderedSpans) {
     if (span.startedAt > at) {
       break;
+    }
+    if (runAttemptId && span.runAttemptId && span.runAttemptId !== runAttemptId) {
+      continue;
     }
     found = span;
   }
@@ -811,6 +825,7 @@ function readProviderRequestId(event: ThreadRunEvent): string | undefined {
 function createRequestSpan(event: ThreadRunEvent, requestId: string): MutableRequestSpan {
   return {
     requestId,
+    ...(event.runAttemptId && { runAttemptId: event.runAttemptId }),
     ...(event.agentId && { ownerAgentId: event.agentId }),
     ...(event.role && { role: event.role }),
     ...(typeof event.metadata?.source === "string" && { source: event.metadata.source }),
@@ -867,6 +882,9 @@ function applyEventToRequestSpan(
   seenStreamingKeys: Set<string>,
   historyComplete: boolean,
 ): void {
+  if (!span.runAttemptId && event.runAttemptId) {
+    span.runAttemptId = event.runAttemptId;
+  }
   if (!span.ownerAgentId && event.agentId) {
     span.ownerAgentId = event.agentId;
   }

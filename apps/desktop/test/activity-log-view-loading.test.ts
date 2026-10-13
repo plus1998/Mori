@@ -877,7 +877,7 @@ test("ActivityLogView separates a completed attempt process from its final outpu
   expect(html).toContain('class="run-log-turn-process"');
   expect(html).toContain('aria-label="执行过程" aria-hidden="true"');
   expect(html).toContain('class="run-log-turn-final" aria-label="最终输出"');
-  expect(html.indexOf("先检查事件投影。")).toBeLessThan(html.indexOf("run-log-turn-final"));
+  expect(html).not.toContain("先检查事件投影。");
   expect(html.indexOf("run-log-turn-final")).toBeLessThan(html.indexOf("Feed 已完成整理。"));
 });
 
@@ -1045,7 +1045,7 @@ test("ActivityLogView keeps block spacing between a completed turn and the next 
   );
 
   expect(html).toMatch(
-    /<div class="run-log-virtual-row"><section class="run-log-turn is-completed is-collapsed"[\s\S]*<\/section><\/div><div class="run-log-virtual-row"><div class="run-log-feed-entry"><article class="run-log-user-prompt"/,
+    /<div class="run-log-virtual-row" data-index="\d+"><section class="run-log-turn is-completed is-collapsed"[\s\S]*<\/section><\/div><div class="run-log-virtual-row" data-index="\d+"><div class="run-log-feed-entry"><article class="run-log-user-prompt"/,
   );
   expect(styles).toMatch(
     /\.codex-main:not\(\.codex-main-landing\)\s+\.run-log\s*>\s*\.run-log-turn\s*\+\s*\.run-log-feed-entry:not\(:where\(\.run-log-active-tail\)\)\s*,/,
@@ -2189,7 +2189,8 @@ test("ProjectionSubagentDetailFeed marks only the last completed summary as resu
 
   expect(html.match(/class="run-log-turn-final"/g)?.length ?? 0).toBe(1);
   expect(html.match(/修复完成，重复结果已移除。/g)?.length ?? 0).toBe(1);
-  expect(html).toContain("我先检查了事件投影。");
+  expect(html).not.toContain("我先检查了事件投影。");
+  expect(html).toContain('aria-expanded="false"');
   expect(html).not.toContain("run-log-phase");
 });
 
@@ -3308,7 +3309,7 @@ test("SubagentTaskDrawer shows live running status text in subagent tabs", () =>
 test("ProjectionSubagentDetailFeed groups detail tools across empty terminal thinking rows", () => {
   const subagent = agent({
     agentId: "agent_coder_1",
-    status: "completed",
+    status: "active",
     delegationPrompt: "整理文件操作",
     timeline: [
       item({
@@ -3389,7 +3390,7 @@ test("ProjectionSubagentDetailFeed groups detail tools across empty terminal thi
       agent: subagent,
       missionText: "整理文件操作",
       requestSpansById: new Map(),
-      threadActive: false,
+      threadActive: true,
     }),
   );
 
@@ -3636,7 +3637,7 @@ test("ProjectionSubagentDetailFeed replaces a running tool row with its complete
 test("SubagentTaskDrawer renders grouped subagent tool calls in its standalone panel", () => {
   const subagent = agent({
     agentId: "agent_coder_1",
-    status: "completed",
+    status: "active",
     delegationPrompt: "整理文件操作",
     timeline: [
       item({
@@ -3684,13 +3685,13 @@ test("SubagentTaskDrawer renders grouped subagent tool calls in its standalone p
           key: subagent.agentId,
           agent: subagent,
           timelineIds: subagent.timeline.map((entry) => entry.id),
-          running: false,
+          running: true,
           missionText: "整理文件操作",
           openable: true,
         },
       ],
       projection: projection({
-        status: "completed",
+        status: "running",
         timeline: [],
         agents: [subagent],
       }),

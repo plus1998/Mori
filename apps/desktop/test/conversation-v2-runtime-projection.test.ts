@@ -1604,3 +1604,121 @@ test("buildThreadRunProjection drops the writing mark when the thread is not run
     ).toEqual({ name: "create_file", since: "2026-01-01T00:00:02.000Z" });
   }
 });
+
+test("a late tool-writing fact from a cancelled request does not return in the next run", () => {
+  const events = [
+    event({
+      id: "old-start",
+      sequence: 1,
+      scope: "main",
+      eventType: "request.started",
+      requestId: "old",
+      runAttemptId: "old-run",
+      observedAt: "2026-01-01T00:00:01.000Z",
+    }),
+    event({
+      id: "old-cancel",
+      sequence: 2,
+      scope: "main",
+      eventType: "request.cancelled",
+      requestId: "old",
+      runAttemptId: "old-run",
+      observedAt: "2026-01-01T00:00:02.000Z",
+    }),
+    event({
+      id: "late-sed",
+      sequence: 3,
+      scope: "main",
+      eventType: "tool.writing",
+      runAttemptId: "old-run",
+      message: "Bash",
+      metadata: { toolWriting: { name: "Bash", target: "sed -n 250,300p file.ts" } },
+      observedAt: "2026-01-01T00:00:03.000Z",
+    }),
+    event({
+      id: "new-start",
+      sequence: 4,
+      scope: "main",
+      eventType: "request.started",
+      requestId: "new",
+      runAttemptId: "new-run",
+      observedAt: "2026-01-01T00:00:04.000Z",
+    }),
+  ] satisfies [ThreadRunEvent, ThreadRunEvent, ThreadRunEvent, ThreadRunEvent];
+  const project = (rows: ThreadRunEvent[]) =>
+    buildThreadRunProjection({
+      threadId: "thr_projection",
+      status: "running",
+      attempts: [],
+      agents: [],
+      events: rows,
+    });
+  expect(project(events).requestSpans.some((span) => span.writingTool)).toBe(false);
+  // The old gateway can also deliver its writing fact after the new run has started.
+  expect(
+    project([
+      ...events.slice(0, 2),
+      events[3],
+      { ...events[2], sequence: 5, observedAt: "2026-01-01T00:00:05.000Z" },
+    ]).requestSpans.some((span) => span.writingTool),
+  ).toBe(false);
+});
+
+test("replacing the live tool-writing request clears its previous mark", () => {
+  const events = [
+    event({
+      id: "start-1",
+      sequence: 1,
+      scope: "main",
+      eventType: "request.started",
+      requestId: "req_1",
+      observedAt: "2026-01-01T00:00:01.000Z",
+    }),
+    event({
+      id: "write-1",
+      sequence: 2,
+      scope: "main",
+      eventType: "tool.writing",
+      message: "Bash",
+      observedAt: "2026-01-01T00:00:02.000Z",
+    }),
+    event({
+      id: "start-2",
+      sequence: 3,
+      scope: "main",
+      eventType: "request.started",
+      requestId: "req_2",
+      observedAt: "2026-01-01T00:00:03.000Z",
+    }),
+    event({
+      id: "write-2",
+      sequence: 4,
+      scope: "main",
+      eventType: "tool.writing",
+      message: "Read",
+      observedAt: "2026-01-01T00:00:04.000Z",
+    }),
+    event({
+      id: "tool-2",
+      sequence: 5,
+      scope: "main",
+      eventType: "tool.started",
+      message: "Read",
+      observedAt: "2026-01-01T00:00:05.000Z",
+    }),
+  ];
+  const project = (rows: ThreadRunEvent[]) =>
+    buildThreadRunProjection({
+      threadId: "thr_projection",
+      status: "running",
+      attempts: [],
+      agents: [],
+      events: rows,
+    });
+  expect(
+    project(events.slice(0, 4))
+      .requestSpans.filter((span) => span.writingTool)
+      .map((span) => span.requestId),
+  ).toEqual(["req_2"]);
+  expect(project(events).requestSpans.some((span) => span.writingTool)).toBe(false);
+});

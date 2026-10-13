@@ -99,7 +99,7 @@ test("panel chrome stays pinned; main topbar only hosts workspace controls", () 
   expect(appSource).toContain("codex-main-pane-panel-actions");
   expect(appSource).toContain("codex-main-pane-panel-action-slot");
   expect(appSource).toContain("toggleTaskPanelFullscreen");
-  expect(appSource).toContain("{showPanelChromeGroupB ? panelControlButtons : null}");
+  expect(appSource).toContain("{showPanelChromeGroupB ? renderPanelControlButtons() : null}");
   expect(appSource).not.toContain("toolbarEnd");
   expect(drawerSource).not.toContain("toolbarEnd");
   expect(styles).toContain(".codex-main-pane-panel-actions");
@@ -130,14 +130,14 @@ test("panel chrome stays pinned; main topbar only hosts workspace controls", () 
   expect(styles).not.toContain("max(360px, calc(100% - 320px))");
 
   const mainTopbar = appSource.slice(
-    appSource.indexOf("const workspaceTopbarActions"),
-    appSource.indexOf("const taskPanelNode"),
+    appSource.indexOf("const renderWorkspaceTopbarActions"),
+    appSource.indexOf("const renderTaskPanel"),
   );
   expect(mainTopbar).toContain("webChatListAnchorRef");
   expect(mainTopbar).toContain("toggleWorkspacePanelForCurrentProject");
   expect(mainTopbar).not.toContain("toggleTerminalForCurrentProject");
   expect(mainTopbar).not.toContain("toggleTaskPanelForCurrentProject");
-  expect(appSource).toContain("{taskPanelLayoutOpen ? taskPanelNode : null}");
+  expect(appSource).toContain("{taskPanelLayoutOpen ? renderTaskPanel() : null}");
   expect(appSource).toContain("taskPanelLayoutOpen && !taskPanelExiting");
 });
 

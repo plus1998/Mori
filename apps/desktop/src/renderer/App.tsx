@@ -60,6 +60,7 @@ import {
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   startTransition,
   useCallback,
@@ -322,6 +323,7 @@ import {
   projectionItemToDetailBlock,
   type ThreadRunProjectionMainFeedEntry,
 } from "./conversation-v2-projection-view";
+import { isConversationV2InteractionEffect } from "./conversation-v2-render-priority";
 import {
   applyConversationV2Effects,
   type ConversationV2RendererState,
@@ -493,6 +495,7 @@ import {
   type TypographyPreferences,
 } from "./typography-preferences";
 import { useSchedulingSnapshot } from "./use-scheduling-snapshot";
+import { useStableCallback } from "./use-stable-callback";
 import { installVitePreloadRecovery } from "./vite-preload-recovery";
 import { WebChatListPopover } from "./WebChatListPopover";
 import { WorkspaceFloatingCards } from "./WorkspaceFloatingCards";
@@ -1667,34 +1670,47 @@ function App() {
   const conversationV2RecoveryInFlightRef = useRef(new Set<string>());
   const conversationV2RenderPendingRef = useRef(new Map<string, ConversationV2RendererState>());
   const conversationV2RenderFramesRef = useRef(new Map<string, number>());
+  const conversationV2RenderUrgentRef = useRef(new Set<string>());
   // Live streams can deliver hundreds of sync effects per second. Keep the
   // durable cursor in the imperative ref, but apply short bounded batches. The
   // streaming Markdown pacer fills the gaps between these commits, so users
   // see a continuous reveal without making React parse every provider delta.
   const conversationV2LiveEffectsRef = useRef(new Map<string, ConversationSyncEffect[]>());
   const conversationV2LiveFlushTimersRef = useRef(new Map<string, number>());
-  const scheduleConversationV2Render = useCallback((threadId: string, state: ConversationV2RendererState) => {
-    conversationV2RenderPendingRef.current.set(threadId, state);
-    if (conversationV2RenderFramesRef.current.has(threadId)) {
-      return;
-    }
-    const frame = window.requestAnimationFrame(() => {
-      conversationV2RenderFramesRef.current.delete(threadId);
-      const pending = conversationV2RenderPendingRef.current.get(threadId);
-      if (!pending) {
+  const scheduleConversationV2Render = useCallback(
+    (threadId: string, state: ConversationV2RendererState, urgent = false) => {
+      conversationV2RenderPendingRef.current.set(threadId, state);
+      if (urgent) conversationV2RenderUrgentRef.current.add(threadId);
+      if (conversationV2RenderFramesRef.current.has(threadId)) {
         return;
       }
-      conversationV2RenderPendingRef.current.delete(threadId);
-      setConversationV2ByThread((current) => {
-        const latest = current[threadId];
-        if (!latest || latest.storeEpoch !== pending.storeEpoch || latest.appliedSeq >= pending.appliedSeq) {
-          return current;
+      const frame = window.requestAnimationFrame(() => {
+        conversationV2RenderFramesRef.current.delete(threadId);
+        const pending = conversationV2RenderPendingRef.current.get(threadId);
+        if (!pending) {
+          return;
         }
-        return { ...current, [threadId]: pending };
+        conversationV2RenderPendingRef.current.delete(threadId);
+        const publish = () => {
+          setConversationV2ByThread((current) => {
+            const latest = current[threadId];
+            if (
+              !latest ||
+              latest.storeEpoch !== pending.storeEpoch ||
+              latest.appliedSeq >= pending.appliedSeq
+            ) {
+              return current;
+            }
+            return { ...current, [threadId]: pending };
+          });
+        };
+        if (conversationV2RenderUrgentRef.current.delete(threadId)) publish();
+        else startTransition(publish);
       });
-    });
-    conversationV2RenderFramesRef.current.set(threadId, frame);
-  }, []);
+      conversationV2RenderFramesRef.current.set(threadId, frame);
+    },
+    [],
+  );
   const scheduleConversationV2LiveFlush = useCallback(
     (threadId: string, immediate = false) => {
       const pendingTimer = conversationV2LiveFlushTimersRef.current.get(threadId);
@@ -1729,7 +1745,11 @@ function App() {
             ...conversationV2ByThreadRef.current,
             [threadId]: appliedState,
           };
-          scheduleConversationV2Render(threadId, appliedState);
+          scheduleConversationV2Render(
+            threadId,
+            appliedState,
+            effects.some((entry) => isConversationV2InteractionEffect(entry.effect)),
+          );
           refreshConversationV2ProjectionExtras(threadId);
         } catch (error) {
           console.warn("[eco] conversation V2 live batch deferred:", error);
@@ -1898,12 +1918,14 @@ function App() {
             return;
           }
           const next = installConversationV2ProjectionExtras(latest, extras);
-          setConversationV2ByThread((states) => {
-            const state = states[threadId];
-            if (!state || state.storeEpoch !== next.storeEpoch || state.appliedSeq !== next.appliedSeq) {
-              return state && state.appliedSeq > next.appliedSeq ? states : { ...states, [threadId]: next };
-            }
-            return { ...states, [threadId]: next };
+          startTransition(() => {
+            setConversationV2ByThread((states) => {
+              const state = states[threadId];
+              if (!state || state.storeEpoch !== next.storeEpoch || state.appliedSeq !== next.appliedSeq) {
+                return state && state.appliedSeq > next.appliedSeq ? states : { ...states, [threadId]: next };
+              }
+              return { ...states, [threadId]: next };
+            });
           });
         })
         .catch((error: unknown) => {
@@ -2462,7 +2484,7 @@ function App() {
         });
     };
 
-    const unsubscribe = window.eco.onThreadEvent((event) => {
+    const handleThreadEvent: Parameters<typeof eco.onThreadEvent>[0] = (event) => {
       const conversationEvent = readConversationV2SyncEvent(event);
       if (conversationEvent) {
         const threadId = conversationEvent.conversationId;
@@ -2527,12 +2549,10 @@ function App() {
         }
         pending.push(conversationEvent.effect);
         conversationV2LiveEffectsRef.current.set(threadId, pending);
-        const effect = conversationEvent.effect.effect;
-        const directUserPrompt =
-          effect.type === "message.create" &&
-          effect.message.role === "user" &&
-          effect.message.status === "queued";
-        scheduleConversationV2LiveFlush(threadId, directUserPrompt);
+        scheduleConversationV2LiveFlush(
+          threadId,
+          isConversationV2InteractionEffect(conversationEvent.effect.effect),
+        );
         return;
       }
       if (!isThreadLiveEvent(event)) {
@@ -2893,6 +2913,23 @@ function App() {
           }
         });
       }
+    };
+    const unsubscribe = window.eco.onThreadEvent((event) => {
+      if (
+        isThreadLiveEvent(event) &&
+        [
+          "thread.completed",
+          "thread.failed",
+          "thread.idle",
+          "thread.stopped",
+          "thread.cancelled",
+          "thread.blocked",
+        ].includes(event.type)
+      ) {
+        handleThreadEvent(event);
+      } else {
+        startTransition(() => handleThreadEvent(event));
+      }
     });
     return () => {
       if (rendererReadyFrame !== undefined) {
@@ -2909,6 +2946,7 @@ function App() {
       }
       conversationV2RenderFramesRef.current.clear();
       conversationV2RenderPendingRef.current.clear();
+      conversationV2RenderUrgentRef.current.clear();
       for (const timer of conversationV2LiveFlushTimersRef.current.values()) {
         window.clearTimeout(timer);
       }
@@ -5147,7 +5185,7 @@ function App() {
       activeConversationV2
         ? buildConversationV2OnlyProjection(activeConversationV2, activeThread)
         : undefined,
-    [activeConversationV2, activeThread],
+    [activeConversationV2, activeThread?.createdAt, activeThread?.status],
   );
   // V2 is the only renderer projection source. A missing V2 state is a visible
   // bootstrap/recovery condition; it never falls back to a legacy projection or
@@ -7029,6 +7067,9 @@ function App() {
       return;
     }
     activityFeedScrollTopRef.current = container.scrollTop;
+    let scrollbarDragging = false;
+    let userScrollUntil = 0;
+    let touchY: number | undefined;
     const onScroll = () => {
       if (programmaticActivityFeedScrollRef.current) {
         return;
@@ -7041,29 +7082,27 @@ function App() {
       }
       const distanceFromBottom = distanceFromActivityFeedBottom(container);
       if (scrollTop < activityFeedScrollTopRef.current - ACTIVITY_FEED_USER_SCROLL_DELTA_PX) {
-        if (distanceFromBottom <= ACTIVITY_FEED_USER_SCROLL_DELTA_PX) {
-          // scrollTop moved down but the viewport is still pinned at the bottom: this is a
-          // clamp from content shrinking (e.g. a thinking block auto-collapsing) or a
-          // programmatic scroll whose flag was cleared before the event fired — not the user
-          // scrolling up. Marking detached here would permanently stop auto-follow.
-          activityFeedUserScrollDirectionRef.current = null;
-        } else if (feedEndAnchoredRef.current && distanceFromBottom <= ACTIVITY_FEED_STICK_THRESHOLD_PX) {
-          // An end-anchored Feed compensates content that changed above the fold by
-          // moving `scrollTop` itself (a collapsed thinking block, an estimate that
-          // settled). The reader is still inside the stick band, so this is layout,
-          // not intent — a real gesture keeps going and trips the band on the next
-          // event, and the wheel handler detaches before any of this.
-          activityFeedUserScrollDirectionRef.current = null;
-        } else {
+        // Virtualizer corrections and browser clamps also emit scroll events.
+        // Wheel, touch and keyboard intent detach before scrolling; only a
+        // scrollbar drag still needs to infer its direction here.
+        if (scrollbarDragging) {
           markActivityFeedUserDetached("up");
         }
       } else if (scrollTop > activityFeedScrollTopRef.current + ACTIVITY_FEED_USER_SCROLL_DELTA_PX) {
-        activityFeedUserScrollDirectionRef.current = "down";
-        if (distanceFromBottom <= ACTIVITY_FEED_STICK_THRESHOLD_PX) {
+        if (scrollbarDragging || performance.now() < userScrollUntil) {
+          activityFeedUserScrollDirectionRef.current = "down";
+        }
+        if (
+          distanceFromBottom <= ACTIVITY_FEED_STICK_THRESHOLD_PX &&
+          (scrollbarDragging || performance.now() < userScrollUntil)
+        ) {
           userDetachedFromBottomRef.current = false;
           setActivityFeedDetachedAnchor(false);
         }
-      } else if (distanceFromBottom <= ACTIVITY_FEED_STICK_THRESHOLD_PX) {
+      } else if (
+        distanceFromBottom <= ACTIVITY_FEED_STICK_THRESHOLD_PX &&
+        (scrollbarDragging || performance.now() < userScrollUntil)
+      ) {
         userDetachedFromBottomRef.current = false;
         activityFeedUserScrollDirectionRef.current = null;
         setActivityFeedDetachedAnchor(false);
@@ -7077,6 +7116,7 @@ function App() {
       syncActivityUserMessageNavigator(container);
     };
     const onWheel = (event: WheelEvent) => {
+      userScrollUntil = performance.now() + 500;
       if (event.deltaY >= 0) {
         return;
       }
@@ -7090,19 +7130,68 @@ function App() {
       }
       syncActivityFeedBoot(container);
     };
+    const detachForInput = () => flushSync(() => markActivityFeedUserDetached("up"));
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (event.defaultPrevented) return;
+      if (target instanceof Element) {
+        if (target.closest("input, textarea, [contenteditable=true]")) return;
+        if (event.key === " " && target.closest("button")) return;
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        requestActivityFeedForceScroll();
+        return;
+      }
+      userScrollUntil = performance.now() + 500;
+      if (["ArrowUp", "PageUp", "Home"].includes(event.key) || (event.key === " " && event.shiftKey)) {
+        detachForInput();
+      }
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType === "touch") {
+        touchY = event.clientY;
+      } else if (
+        event.target === container &&
+        event.clientX >= container.getBoundingClientRect().right - 20
+      ) {
+        scrollbarDragging = true;
+      }
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      if (touchY === undefined) return;
+      userScrollUntil = performance.now() + 500;
+      if (event.clientY > touchY + 2) detachForInput();
+      touchY = event.clientY;
+    };
+    const onPointerUp = () => {
+      scrollbarDragging = false;
+      touchY = undefined;
+    };
     container.addEventListener("scroll", onScroll, { passive: true });
     container.addEventListener("wheel", onWheel, { passive: true });
+    container.addEventListener("keydown", onKeyDown);
+    container.addEventListener("pointerdown", onPointerDown);
+    container.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
     syncActivityFeedBoot(container);
     syncActivityFeedScrollJump(container);
     syncActivityUserMessageNavigator(container);
     return () => {
       container.removeEventListener("scroll", onScroll);
       container.removeEventListener("wheel", onWheel);
+      container.removeEventListener("keydown", onKeyDown);
+      container.removeEventListener("pointerdown", onPointerDown);
+      container.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
     };
   }, [
     activeThread?.id,
     distanceFromActivityFeedBottom,
     markActivityFeedUserDetached,
+    requestActivityFeedForceScroll,
     setActivityFeedDetachedAnchor,
     syncActivityFeedBoot,
     syncActivityFeedScrollJump,
@@ -7420,7 +7509,6 @@ function App() {
         ? window.eco.listThreadFollowUps(threadId)
         : Promise.resolve({ followUps: [] }),
     ]);
-    refreshConversationV2ProjectionExtras(threadId);
     if (plan) {
       upsertPendingPlanForThread(threadId, plan);
     } else {
@@ -7441,10 +7529,11 @@ function App() {
     } else {
       clearPendingBashApprovalForThread(threadId);
     }
-    setFollowUpsByThread((current) => ({
-      ...current,
-      [threadId]: mergeThreadFollowUps(current[threadId] ?? [], followUps.followUps),
-    }));
+    setFollowUpsByThread((current) => {
+      const previous = current[threadId];
+      if (!previous?.length && followUps.followUps.length === 0) return current;
+      return { ...current, [threadId]: mergeThreadFollowUps(previous ?? [], followUps.followUps) };
+    });
     refreshConversationV2ProjectionExtras(threadId);
   }
 
@@ -7539,6 +7628,10 @@ function App() {
     }
   }
 
+  const activityLoadUserMessageEdit = useStableCallback(loadUserMessageEdit);
+  const activityRewriteUserMessage = useStableCallback(rewriteUserMessage);
+  const activityRetryFailedRequest = useStableCallback(retryFailedRequest);
+
   async function sendConversationV2Continuation(input: {
     thread: ThreadSummary;
     prompt: string;
@@ -7560,26 +7653,34 @@ function App() {
         runtimeConfig: input.runtimeConfig,
       }),
     );
-    setThreads((current) =>
-      current.map((thread) => (thread.id === configured.thread.id ? configured.thread : thread)),
-    );
-    const clientCommandId = `conversation_send_${input.commandScope}_${crypto.randomUUID()}`;
-    await eco.conversationV2SendMessage({
-      principalId: "desktop-local",
-      conversationId: input.thread.id,
-      clientCommandId,
-      text: input.prompt,
-      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
-    });
-    const updated = await eco.getThread(input.thread.id);
-    if (updated) {
-      setThreads((current) => current.map((thread) => (thread.id === updated.id ? updated : thread)));
+    try {
+      const clientCommandId = `conversation_send_${input.commandScope}_${crypto.randomUUID()}`;
+      await eco.conversationV2SendMessage({
+        principalId: "desktop-local",
+        conversationId: input.thread.id,
+        clientCommandId,
+        text: input.prompt,
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      });
+      clearPendingPlanForThread(input.thread.id);
+      clearPendingClarificationForThread(input.thread.id);
+      clearPendingBashApprovalForThread(input.thread.id);
+      const [updated] = await Promise.all([
+        eco.getThread(input.thread.id),
+        refreshThreadState(input.thread.id),
+      ]);
+      const summary = updated ?? configured.thread;
+      startTransition(() =>
+        setThreads((current) => current.map((thread) => (thread.id === summary.id ? summary : thread))),
+      );
+      return summary;
+    } catch (caught) {
+      // Configuration was committed even if sending or refreshing failed.
+      setThreads((current) =>
+        current.map((thread) => (thread.id === configured.thread.id ? configured.thread : thread)),
+      );
+      throw caught;
     }
-    clearPendingPlanForThread(input.thread.id);
-    clearPendingClarificationForThread(input.thread.id);
-    clearPendingBashApprovalForThread(input.thread.id);
-    await refreshThreadState(input.thread.id);
-    return updated ?? configured.thread;
   }
 
   async function continueInterruptedCodexTurn(
@@ -10611,112 +10712,116 @@ function App() {
   }, []);
 
   // B group (ChromeStrip): top-only MainPane overlay — never mounts on settings.
-  const panelControlButtons = showPanelChromeGroupB ? (
-    <div
-      className="codex-main-pane-panel-actions"
-      data-group="chrome"
-      aria-label={t("app.workspaceControls")}
-    >
-      <span
-        className={[
-          "codex-main-pane-panel-action-slot",
-          // Open only while docked; collapse as soon as exit reflow starts so the slot
-          // motion runs with the panel (not after the spring settles).
-          taskPanelLayoutOpen && !taskPanelExiting ? "is-open" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-        aria-hidden={!taskPanelLayoutOpen || taskPanelExiting}
+  const renderPanelControlButtons = () =>
+    showPanelChromeGroupB ? (
+      <div
+        className="codex-main-pane-panel-actions"
+        data-group="chrome"
+        aria-label={t("app.workspaceControls")}
       >
+        <span
+          className={[
+            "codex-main-pane-panel-action-slot",
+            // Open only while docked; collapse as soon as exit reflow starts so the slot
+            // motion runs with the panel (not after the spring settles).
+            taskPanelLayoutOpen && !taskPanelExiting ? "is-open" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          aria-hidden={!taskPanelLayoutOpen || taskPanelExiting}
+        >
+          <button
+            type="button"
+            className={
+              taskPanelFullscreenOpen
+                ? "codex-main-toolbar-button is-active codex-main-topbar-fullscreen"
+                : "codex-main-toolbar-button codex-main-topbar-fullscreen"
+            }
+            onClick={toggleTaskPanelFullscreen}
+            title={taskPanelFullscreenOpen ? t("task.exitFullscreenTitle") : t("task.enterFullscreen")}
+            aria-label={taskPanelFullscreenOpen ? t("task.exitFullscreen") : t("task.enterFullscreen")}
+            aria-pressed={taskPanelFullscreenOpen}
+            tabIndex={taskPanelLayoutOpen && !taskPanelExiting ? 0 : -1}
+            disabled={!taskPanelLayoutOpen || taskPanelExiting}
+          >
+            {taskPanelFullscreenOpen ? (
+              <Minimize2 size={15} aria-hidden />
+            ) : (
+              <Maximize2 size={15} aria-hidden />
+            )}
+          </button>
+        </span>
         <button
           type="button"
           className={
-            taskPanelFullscreenOpen
-              ? "codex-main-toolbar-button is-active codex-main-topbar-fullscreen"
-              : "codex-main-toolbar-button codex-main-topbar-fullscreen"
+            currentTerminalState?.open ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"
           }
-          onClick={toggleTaskPanelFullscreen}
-          title={taskPanelFullscreenOpen ? t("task.exitFullscreenTitle") : t("task.enterFullscreen")}
-          aria-label={taskPanelFullscreenOpen ? t("task.exitFullscreen") : t("task.enterFullscreen")}
-          aria-pressed={taskPanelFullscreenOpen}
-          tabIndex={taskPanelLayoutOpen && !taskPanelExiting ? 0 : -1}
-          disabled={!taskPanelLayoutOpen || taskPanelExiting}
+          onClick={toggleTerminalForCurrentProject}
+          title={`${currentTerminalState?.open ? t("app.terminalClose") : t("app.terminalOpen")} (Ctrl+\`)`}
+          aria-label={currentTerminalState?.open ? t("app.terminalClose") : t("app.terminalOpen")}
+          aria-expanded={currentTerminalState?.open === true}
+          aria-controls="terminal-panel"
         >
-          {taskPanelFullscreenOpen ? (
-            <Minimize2 size={15} aria-hidden />
-          ) : (
-            <Maximize2 size={15} aria-hidden />
-          )}
+          <PanelBottom size={15} aria-hidden />
         </button>
-      </span>
-      <button
-        type="button"
-        className={
-          currentTerminalState?.open ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"
-        }
-        onClick={toggleTerminalForCurrentProject}
-        title={`${currentTerminalState?.open ? t("app.terminalClose") : t("app.terminalOpen")} (Ctrl+\`)`}
-        aria-label={currentTerminalState?.open ? t("app.terminalClose") : t("app.terminalOpen")}
-        aria-expanded={currentTerminalState?.open === true}
-        aria-controls="terminal-panel"
-      >
-        <PanelBottom size={15} aria-hidden />
-      </button>
-      <button
-        type="button"
-        className={taskPanelOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"}
-        onClick={toggleTaskPanelForCurrentProject}
-        title={taskPanelOpen ? t("app.taskSidebarCollapse") : t("app.taskSidebarOpen")}
-        aria-label={taskPanelOpen ? t("app.taskSidebarCollapse") : t("app.taskSidebarOpen")}
-        aria-expanded={taskPanelOpen}
-        aria-controls="task-panel"
-      >
-        <PanelRight size={15} aria-hidden />
-      </button>
-    </div>
-  ) : null;
-
-  // A group (workspace): web chat + workpanel — rides the feed topbar. Hidden on settings.
-  const workspaceTopbarActions = showWorkspaceActionGroupA ? (
-    <div className="codex-main-topbar-actions" aria-label={t("app.workspaceControls")}>
-      <div className="codex-main-topbar-action-group" data-group="workspace">
-        <button
-          ref={webChatListAnchorRef}
-          type="button"
-          className={webChatListOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"}
-          onClick={() => setWebChatListOpen((open) => !open)}
-          title={t("app.webChat.openList")}
-          aria-label={t("app.webChat.openList")}
-          aria-expanded={webChatListOpen}
-          aria-haspopup="dialog"
-        >
-          <MessageSquare size={15} aria-hidden />
-        </button>
-        <WebChatListPopover
-          open={webChatListOpen}
-          items={webChatList.items}
-          anchorRef={webChatListAnchorRef}
-          onClose={() => setWebChatListOpen(false)}
-          onSelect={openWebChatItem}
-          onListChange={setWebChatList}
-        />
         <button
           type="button"
-          className={
-            workspaceCardsPanelOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"
-          }
-          onClick={toggleWorkspacePanelForCurrentProject}
-          title={workspaceCardsPanelOpen ? t("app.workspaceCardsCollapse") : t("app.workspaceCardsOpen")}
-          aria-label={workspaceCardsPanelOpen ? t("app.workspaceCardsCollapse") : t("app.workspaceCardsOpen")}
-          aria-expanded={workspaceCardsPanelOpen}
-          aria-controls="workspace-cards-panel"
+          className={taskPanelOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"}
+          onClick={toggleTaskPanelForCurrentProject}
+          title={taskPanelOpen ? t("app.taskSidebarCollapse") : t("app.taskSidebarOpen")}
+          aria-label={taskPanelOpen ? t("app.taskSidebarCollapse") : t("app.taskSidebarOpen")}
+          aria-expanded={taskPanelOpen}
+          aria-controls="task-panel"
         >
-          <SlidersHorizontal size={15} aria-hidden />
+          <PanelRight size={15} aria-hidden />
         </button>
       </div>
-    </div>
-  ) : null;
-  const taskPanelNode =
+    ) : null;
+
+  // A group (workspace): web chat + workpanel — rides the feed topbar. Hidden on settings.
+  const renderWorkspaceTopbarActions = () =>
+    showWorkspaceActionGroupA ? (
+      <div className="codex-main-topbar-actions" aria-label={t("app.workspaceControls")}>
+        <div className="codex-main-topbar-action-group" data-group="workspace">
+          <button
+            ref={webChatListAnchorRef}
+            type="button"
+            className={webChatListOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"}
+            onClick={() => setWebChatListOpen((open) => !open)}
+            title={t("app.webChat.openList")}
+            aria-label={t("app.webChat.openList")}
+            aria-expanded={webChatListOpen}
+            aria-haspopup="dialog"
+          >
+            <MessageSquare size={15} aria-hidden />
+          </button>
+          <WebChatListPopover
+            open={webChatListOpen}
+            items={webChatList.items}
+            anchorRef={webChatListAnchorRef}
+            onClose={() => setWebChatListOpen(false)}
+            onSelect={openWebChatItem}
+            onListChange={setWebChatList}
+          />
+          <button
+            type="button"
+            className={
+              workspaceCardsPanelOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"
+            }
+            onClick={toggleWorkspacePanelForCurrentProject}
+            title={workspaceCardsPanelOpen ? t("app.workspaceCardsCollapse") : t("app.workspaceCardsOpen")}
+            aria-label={
+              workspaceCardsPanelOpen ? t("app.workspaceCardsCollapse") : t("app.workspaceCardsOpen")
+            }
+            aria-expanded={workspaceCardsPanelOpen}
+            aria-controls="workspace-cards-panel"
+          >
+            <SlidersHorizontal size={15} aria-hidden />
+          </button>
+        </div>
+      </div>
+    ) : null;
+  const renderTaskPanel = () =>
     showWorkspacePanel && taskPanelLayoutOpen ? (
       <motion.aside
         id="task-panel-container"
@@ -11037,7 +11142,7 @@ function App() {
     if (composerRoutePopoverOpen) setComposerRoutePopoverOpen(false);
   }, [asrSession.active, composerRoutePopoverOpen]);
 
-  const composerRouteControl = (
+  const renderComposerRouteControl = () => (
     <ComposerRoutePopover
       open={composerRoutePopoverOpen && canOpenComposerRoute && composerShowsRoute}
       settings={settings}
@@ -11062,7 +11167,7 @@ function App() {
     />
   );
 
-  const composerAgentModelsControl = (
+  const renderComposerAgentModelsControl = () => (
     <div>
       <ComposerAgentModels
         labels={agentModelLabels}
@@ -11075,7 +11180,7 @@ function App() {
     </div>
   );
 
-  const composerMcpControl = (
+  const renderComposerMcpControl = () => (
     <div>
       <ComposerMcpServers
         servers={mcpSettings.servers}
@@ -11088,7 +11193,7 @@ function App() {
     </div>
   );
 
-  const composerIntegrationsControl = (
+  const renderComposerIntegrationsControl = () => (
     <div>
       <ComposerIntegrations
         availability={integrationAvailability}
@@ -11101,7 +11206,7 @@ function App() {
     </div>
   );
 
-  const composerSkillsControl = (
+  const renderComposerSkillsControl = () => (
     <div>
       <ComposerSkillsControl
         skills={composerAvailableSkills}
@@ -11120,7 +11225,7 @@ function App() {
       ? { workflowDefault: workflowSettings.acpCursorModelId }
       : {}),
   });
-  const composerModelControl =
+  const renderComposerModelControl = () =>
     composerModelAvailability === "acp" ? (
       <ComposerAcpModelTrigger
         models={cursorModels}
@@ -11176,7 +11281,7 @@ function App() {
     return () => observer.disconnect();
   }, [queuedFollowUps.length, showComposerContextOverlays]);
 
-  const composer = (
+  const renderComposer = () => (
     <div
       className="codex-composer-wrap"
       style={
@@ -11222,10 +11327,10 @@ function App() {
             ) : null}
             {showComposerContextOverlays ? (
               <div className="composer-context-bar">
-                {composerNeedsOrchestration ? composerAgentModelsControl : null}
-                {composerMcpControl}
-                {composerIntegrationsControl}
-                {composerSkillsControl}
+                {composerNeedsOrchestration ? renderComposerAgentModelsControl() : null}
+                {renderComposerMcpControl()}
+                {renderComposerIntegrationsControl()}
+                {renderComposerSkillsControl()}
               </div>
             ) : null}
           </div>
@@ -11428,7 +11533,7 @@ function App() {
                       ) : null}
                     </div>
                     <div className="composer-footer-spacer" aria-hidden />
-                    {composerRouteControl}
+                    {renderComposerRouteControl()}
                     <input
                       ref={composerImageInputRef}
                       type="file"
@@ -11463,7 +11568,7 @@ function App() {
                           agentModelLabels={agentModelLabels}
                         />
                       ) : null}
-                      {composerModelControl}
+                      {renderComposerModelControl()}
                       {asrComposerConfigured ? (
                         <AsrMicButton session={asrSession} disabled={composerDisabled} />
                       ) : null}
@@ -11584,7 +11689,7 @@ function App() {
   // Electron: sibling `no-drag` cannot punch another element's drag region.
   // Keep controls inside a dedicated drag root, and leave a chrome gap in the sidebar.
   // Windows uses WCO (titleBarOverlay); macOS uses hiddenInset; Linux keeps a native frame.
-  const windowSidebarToolbar = (
+  const renderWindowSidebarToolbar = () => (
     <div className={isMacWindowChrome ? "macos-window-chrome-root" : "window-sidebar-chrome-root"}>
       <div className={isMacWindowChrome ? "macos-window-toolbar" : "window-sidebar-toolbar"}>
         <button
@@ -11630,9 +11735,9 @@ function App() {
     </div>
   );
 
-  return (
+  const renderAppLayout = () => (
     <main className={shellClassName}>
-      {windowSidebarToolbar}
+      {renderWindowSidebarToolbar()}
       {appMessageState ? (
         <AppMessage
           kind={appMessageState.kind}
@@ -11942,7 +12047,7 @@ function App() {
                     </div>
                   )}
                   <div className="codex-main-topbar-drag-fill" aria-hidden />
-                  {workspaceTopbarActions}
+                  {renderWorkspaceTopbarActions()}
                 </header>
               ) : null}
               <div className="codex-main-left-column">
@@ -12008,6 +12113,10 @@ function App() {
                             <div
                               ref={activityMessagesRef}
                               className="activity-messages"
+                              role="region"
+                              aria-label={activeThread?.title}
+                              // biome-ignore lint/a11y/noNoninteractiveTabindex: Scrollable history supports PageUp/PageDown and Home/End.
+                              tabIndex={0}
                               aria-busy={!activityFeedBootReady}
                             >
                               {activityFeedBootReady ? (
@@ -12021,10 +12130,11 @@ function App() {
                                         conversationV2ByThread[activeThread.id] && {
                                           conversationV2: conversationV2ByThread[activeThread.id],
                                         })}
+                                      {...(v2RunProjection && { conversationV2Projection: v2RunProjection })}
                                       onRestorePrompt={restorePrompt}
-                                      onLoadUserMessageEdit={loadUserMessageEdit}
-                                      onRewriteUserMessage={rewriteUserMessage}
-                                      onRetryFailedRequest={retryFailedRequest}
+                                      onLoadUserMessageEdit={activityLoadUserMessageEdit}
+                                      onRewriteUserMessage={activityRewriteUserMessage}
+                                      onRetryFailedRequest={activityRetryFailedRequest}
                                       onPlannerLayoutChange={handleActivityPlannerLayoutChange}
                                       onComposerAgentSilenceChange={setComposerAgentSilenceVisible}
                                       onFeedEndAnchorChange={handleFeedEndAnchorChange}
@@ -12080,7 +12190,7 @@ function App() {
                         </div>
                       </div>
                     )}
-                    {composer}
+                    <AppRenderContent render={renderComposer} />
                   </div>
                 </div>
                 {Object.entries(terminalByProject).map(([workspacePath, terminalState]) => {
@@ -12249,11 +12359,11 @@ function App() {
               </aside>
             ) : null}
           </div>
-          {taskPanelLayoutOpen ? taskPanelNode : null}
+          {taskPanelLayoutOpen ? renderTaskPanel() : null}
           <SuspensePanel>
             <LazyBrowserWebviewLayer />
           </SuspensePanel>
-          {showPanelChromeGroupB ? panelControlButtons : null}
+          {showPanelChromeGroupB ? renderPanelControlButtons() : null}
           {!showLanding && !activityFeedBootReady ? (
             <div
               className="codex-main-boot-loading"
@@ -12769,6 +12879,7 @@ function App() {
       )}
     </main>
   );
+  return <AppRenderContent render={renderAppLayout} />;
 }
 
 async function loadConversationV2RendererState(
@@ -13244,6 +13355,12 @@ function FollowUpQueuePanel({
       </div>
     </div>
   );
+}
+
+// Construct the shell in its own React work unit, outside App's large hook frame.
+// This also avoids copying that frame into every JSX owner stack in development.
+function AppRenderContent({ render }: { render: () => ReactNode }) {
+  return render();
 }
 
 function isActiveThreadStatus(status: ThreadStatus): boolean {

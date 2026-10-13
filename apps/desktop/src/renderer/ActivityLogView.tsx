@@ -265,33 +265,54 @@ function readProjectionRewindTarget(
   return readRewindTarget(item.metadata?.rewindTarget);
 }
 
+const runLogMessageTimes = new Map<string, { label: string; title: string; dateTime: string }>();
+const runLogTimeFormatters = new Map<string, { label: Intl.DateTimeFormat; title: Intl.DateTimeFormat }>();
+
 function formatRunLogMessageTime(
   value?: string,
 ): { label: string; title: string; dateTime: string } | undefined {
   if (!value) {
     return undefined;
   }
+  const locale = i18n.resolvedLanguage;
+  const key = `${locale ?? ""}:${value}`;
+  const cached = runLogMessageTimes.get(key);
+  if (cached) return cached;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return undefined;
   }
-  return {
-    label: date.toLocaleString(i18n.resolvedLanguage, {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-    title: date.toLocaleString(i18n.resolvedLanguage, {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }),
+  let formatters = runLogTimeFormatters.get(locale ?? "");
+  if (!formatters) {
+    formatters = {
+      label: new Intl.DateTimeFormat(locale, {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      title: new Intl.DateTimeFormat(locale, {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+    };
+    runLogTimeFormatters.set(locale ?? "", formatters);
+  }
+  const formatted = {
+    label: formatters.label.format(date),
+    title: formatters.title.format(date),
     dateTime: value,
   };
+  if (runLogMessageTimes.size >= 512) {
+    const oldest = runLogMessageTimes.keys().next();
+    if (!oldest.done) runLogMessageTimes.delete(oldest.value);
+  }
+  runLogMessageTimes.set(key, formatted);
+  return formatted;
 }
 
 function copyRunLogMessageText(text: string): void {
@@ -581,6 +602,8 @@ export interface ActivityLogViewProps {
   context?: ThreadContextSnapshot;
   billing?: ThreadBillingSnapshot;
   conversationV2?: ConversationV2RendererState;
+  /** The host's projection of the same V2 state, shared with its navigator/panels. */
+  conversationV2Projection?: ThreadRunProjectionSnapshot;
   agentDisplayNames?: RuntimeAgentDisplayNames;
   agentThemes?: RuntimeAgentThemes;
   subagentTimings?: ThreadSubagentSessionTiming[];
@@ -1773,11 +1796,12 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
     () =>
       props.conversationV2
         ? reconcileActivityProjectionThreadStatus(
-            buildConversationV2OnlyProjection(props.conversationV2, props.thread),
+            props.conversationV2Projection ??
+              buildConversationV2OnlyProjection(props.conversationV2, props.thread),
             props.thread,
           )
         : undefined,
-    [props.conversationV2, props.thread?.createdAt, props.thread?.status],
+    [props.conversationV2, props.conversationV2Projection, props.thread?.createdAt, props.thread?.status],
   );
   if (!projection?.sourceEventCount) {
     if (props.thread?.prompt && !isThreadStoppedForFinalSummary(props.thread.status)) {
@@ -1857,7 +1881,7 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
  * tests and replay fixtures can exercise the feed without reintroducing a
  * production V1 fallback into the app's entry component.
  */
-export function ConversationV2ProjectionActivityLogView({
+function ConversationV2ProjectionActivityLogViewImpl({
   projection,
   thread,
   onRestorePrompt,
@@ -1898,6 +1922,7 @@ export function ConversationV2ProjectionActivityLogView({
   feedUserDetached?: boolean;
   thinkingDisplayMode?: ThinkingDisplayMode;
 }) {
+  useTranslation();
   const requestSpansById = useMemo(
     () => new Map(projection.requestSpans.map((span) => [span.requestId, span])),
     [projection.requestSpans],
@@ -2251,7 +2276,7 @@ export function ConversationV2ProjectionActivityLogView({
             </>
           ) : (
             renderedFeedSections.map((section, index) => (
-              <div key={section.key} className="run-log-virtual-row">
+              <div key={section.key} className="run-log-virtual-row" data-index={index}>
                 {renderFeedSection(index)}
               </div>
             ))
@@ -2261,6 +2286,8 @@ export function ConversationV2ProjectionActivityLogView({
     </RequestSpansContext.Provider>
   );
 }
+
+export const ConversationV2ProjectionActivityLogView = memo(ConversationV2ProjectionActivityLogViewImpl);
 
 type ProjectionFeedEntrySharedProps = {
   requestSpansById: Map<string, ThreadRunProjectionSnapshot["requestSpans"][number]>;
@@ -2376,12 +2403,12 @@ function RunLogTurnSection({
   className?: string;
 }) {
   const onLayoutChange = useActivityFeedLayoutChange();
-  const [expanded, setExpanded] = useState(running);
+  const [userExpanded, setExpanded] = useState(false);
+  const expanded = running || userExpanded;
   const [animateExpansion, setAnimateExpansion] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | undefined>();
   const [detailLoadedLocally, setDetailLoadedLocally] = useState(false);
-  const previousRunningRef = useRef(running);
   const measuredDurationMs = useTurnDurationMs(startedAt, endedAt, running);
   const durationMs = Math.max(measuredDurationMs, projectedDurationMs);
   const headingLabel = formatRunLogTurnHeading(running, status, durationMs, stopping);
@@ -2390,11 +2417,8 @@ function RunLogTurnSection({
   useLayoutEffect(() => {
     setAnimateExpansion(false);
     if (running) {
-      setExpanded(true);
-    } else if (previousRunningRef.current) {
       setExpanded(false);
     }
-    previousRunningRef.current = running;
   }, [running]);
 
   useLayoutEffect(() => {
@@ -2456,7 +2480,9 @@ function RunLogTurnSection({
         aria-label={i18n.t("activity.process")}
         aria-hidden={!expanded}
       >
-        <div className={`run-log-turn-process-inner${processEmpty ? " is-empty" : ""}`}>{process}</div>
+        <div className={`run-log-turn-process-inner${processEmpty ? " is-empty" : ""}`}>
+          {expanded || animateExpansion ? process : null}
+        </div>
       </div>
       {detailLoading ? <div className="run-log-turn-detail-loading" aria-busy="true" /> : null}
       {detailError ? (

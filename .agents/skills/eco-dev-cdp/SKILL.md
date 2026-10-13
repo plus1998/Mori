@@ -26,7 +26,7 @@ bun run cdp:snap
 bun run cdp:click -- e27
 bun run cdp:fill -- eXX "要输入的文字"
 bun run cdp:snap
-bun run cdp:shot -- .smoke-artifacts/step.png
+bun run cdp:shot -- --filename .smoke-artifacts/step.png
 ```
 
 **每动一次 UI，先 `cdp:snap` 再点**（ref 会变）。
@@ -44,6 +44,8 @@ bun run cdp:shot -- .smoke-artifacts/step.png
 - 不要一次写长脚本代替逐步 `cdp:snap` / `cdp:click`
 
 ## 查 Eco 会话里 agent 做了什么
+
+用户要重放某条会话检查 Feed、停止/处理中状态、滚动或发送渲染卡顿时，使用项目内的 [eco-feed-replay](../eco-feed-replay/SKILL.md)。它只读导出 V2 事件并在真实 dev App 中隔离回放，不重新请求模型或执行原会话工具。
 
 Thread 记录在本地 SQLite（非 Cursor transcript）：
 

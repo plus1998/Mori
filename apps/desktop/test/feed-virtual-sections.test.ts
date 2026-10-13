@@ -6,10 +6,43 @@ import {
   estimateSectionSize,
   FEED_VIRTUALIZE_MIN_SECTIONS,
   findFeedSectionIndexForAnchor,
+  followEndAnchoredScroll,
   isThreadPromptAnchorId,
   listUserMessageAnchorsFromSections,
   recordMeasuredSectionSize,
 } from "../src/renderer/feed-virtual-sections";
+
+describe("Feed measurement corrections", () => {
+  function scrollFixture(scrollTop: number, scrollHeight: number) {
+    const writes: ScrollToOptions[] = [];
+    const element = {
+      scrollTop,
+      scrollHeight,
+      clientHeight: 700,
+      scrollTo: (options: ScrollToOptions) => writes.push(options),
+    } as HTMLElement;
+    return { writes, instance: { scrollElement: element, options: { anchorTo: "end" as const } } };
+  }
+
+  test("simultaneous row changes cannot detach a following reader outside the distance band", () => {
+    const { writes, instance } = scrollFixture(1500, 2600);
+    followEndAnchoredScroll(1500, { adjustments: 180 }, instance, true);
+    expect(writes).toEqual([{ top: 1900 }]);
+  });
+
+  test("a cancelled turn's shrink uses the DOM end already clamped by the browser", () => {
+    const { writes, instance } = scrollFixture(1300, 2000);
+    followEndAnchoredScroll(1900, { adjustments: -1000 }, instance, true);
+    expect(writes).toEqual([{ top: 1300 }]);
+  });
+
+  test("history reading and explicit navigation retain their requested offsets", () => {
+    const { writes, instance } = scrollFixture(900, 2600);
+    followEndAnchoredScroll(900, { adjustments: 80 }, instance, false);
+    followEndAnchoredScroll(300, { behavior: "smooth" }, instance, true);
+    expect(writes).toEqual([{ top: 980 }, { top: 300, behavior: "smooth" }]);
+  });
+});
 
 function timelineEntry(id: string, text = "hi"): ThreadRunTurnFeedSection {
   return {
