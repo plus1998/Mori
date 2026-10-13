@@ -12526,7 +12526,7 @@ function App() {
           </aside>
 
           <div className="settings-main">
-            <div className="settings-content">
+            <div className={settingsSection === "mcp" ? "settings-content is-wide" : "settings-content"}>
               <SuspensePanel>
                 {settingsSection === "preferences" && (
                   <LazyNotificationPreferencesPanel

@@ -182,6 +182,80 @@
   color: var(--danger);
 }
 
+.settings-page .mcp-mode-toggle {
+  border-color: var(--border-subtle);
+  background: var(--code-bg);
+}
+
+.settings-page .mcp-mode-btn {
+  color: var(--text-muted);
+}
+
+.settings-page .mcp-mode-btn.is-active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.settings-page .mcp-json-hint {
+  color: var(--text-muted);
+}
+
+.settings-page .mcp-json-action {
+  border-color: var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.settings-page .mcp-json-action:hover:not(:disabled) {
+  background: var(--bg-elevated-hover);
+  border-color: var(--border-strong);
+}
+
+.settings-page .mcp-json-editor {
+  border-color: var(--border-subtle);
+  background: var(--bg-input);
+}
+
+.settings-page .mcp-json-gutter {
+  border-right-color: var(--border-subtle);
+  color: var(--text-muted);
+}
+
+.settings-page .mcp-json-gutter span.is-error {
+  color: var(--danger);
+}
+
+.settings-page .mcp-json-input {
+  color: var(--text-primary);
+}
+
+.settings-page .mcp-json-message code {
+  background: var(--code-bg);
+  color: var(--text-secondary);
+}
+
+.settings-page .mcp-json-message.is-ok {
+  color: var(--status-allow-text);
+}
+
+.settings-page .mcp-json-message.is-error {
+  color: var(--status-deny-text);
+}
+
+.settings-page .mcp-import-row {
+  border-color: var(--border-subtle);
+  background: var(--bg-elevated);
+}
+
+.settings-page .mcp-import-name {
+  color: var(--text-primary);
+}
+
+.settings-page .mcp-import-summary,
+.settings-page .mcp-import-desc {
+  color: var(--text-muted);
+}
+
 .settings-page .mcp-check-status.is-ok {
   color: var(--status-allow-text);
 }

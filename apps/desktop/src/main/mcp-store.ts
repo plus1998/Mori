@@ -77,6 +77,11 @@ export class McpStore {
     const existing = input.id ? this.getRow(input.id) : undefined;
     const id = input.id ?? createServerId(input.name);
     const createdAt = existing?.created_at ?? now;
+    const name = input.name.trim();
+    const clash = this.getRowByName(name);
+    if (clash && clash.id !== id) {
+      throw new Error(`MCP server name "${name}" already exists.`);
+    }
 
     this.db
       .prepare(
@@ -128,6 +133,15 @@ export class McpStore {
          FROM mcp_servers WHERE id = ?`,
       )
       .get(id) as McpServerRow | undefined;
+  }
+
+  private getRowByName(name: string): McpServerRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT id, name, transport, enabled, command, args_json, env_json, url, headers_json, allowed_tools, created_at, updated_at
+         FROM mcp_servers WHERE name = ?`,
+      )
+      .get(name) as McpServerRow | undefined;
   }
 }
 

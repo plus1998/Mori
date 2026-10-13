@@ -10107,7 +10107,7 @@ button.integrated-web-search-clear-key:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .mcp-back-button {
@@ -10163,7 +10163,7 @@ button.integrated-web-search-clear-key:disabled {
 }
 
 .mcp-editor-title-block {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
 .mcp-editor-title-block h1 {
@@ -10380,7 +10380,7 @@ button.integrated-web-search-clear-key:disabled {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .mcp-kv-row {
@@ -10420,6 +10420,332 @@ button.integrated-web-search-clear-key:disabled {
 
 .mcp-row-delete:active {
   transform: scale(0.94);
+}
+
+/* ─── MCP raw-JSON editing ──────────────────────────────────────────── */
+
+.mcp-list-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Long connector names truncate instead of breaking mid-word inside the row. */
+.mcp-server-list .mcp-server-name {
+  overflow: hidden;
+  word-break: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-mode-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 3px;
+  margin: 0 0 28px;
+  padding: 3px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 11px;
+  background: var(--code-bg);
+}
+
+.mcp-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition:
+    background-color 0.16s cubic-bezier(0.32, 0.72, 0, 1),
+    color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.mcp-mode-btn:hover:not(.is-active):not(:disabled) {
+  color: var(--text-primary);
+}
+
+.mcp-mode-btn.is-active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    0 0 0 1px var(--border-subtle);
+}
+
+.mcp-mode-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mcp-editor-form.is-json {
+  max-width: none;
+}
+
+.mcp-json-field {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mcp-json-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mcp-json-hint {
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  color: var(--text-muted);
+}
+
+.mcp-json-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.mcp-json-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition:
+    background-color 0.14s cubic-bezier(0.32, 0.72, 0, 1),
+    border-color 0.14s ease,
+    transform 0.1s ease-out;
+}
+
+.mcp-json-action:hover:not(:disabled) {
+  background: var(--bg-elevated-hover);
+  border-color: var(--border-strong, var(--border-subtle));
+}
+
+.mcp-json-action:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.mcp-json-editor {
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-input, var(--bg-elevated));
+  transition:
+    border-color 0.14s ease,
+    box-shadow 0.14s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.mcp-json-editor:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--search-focus-ring);
+}
+
+.mcp-json-editor.has-error {
+  border-color: color-mix(in srgb, var(--danger, #f87171) 55%, var(--border-subtle));
+}
+
+.mcp-json-gutter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0;
+  overflow: hidden;
+  min-width: 42px;
+  padding: 10px 8px;
+  border-right: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 20px;
+  opacity: 0.75;
+  user-select: none;
+}
+
+.mcp-json-gutter span {
+  height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mcp-json-gutter span.is-error {
+  color: var(--danger, #f87171);
+  font-weight: 600;
+  opacity: 1;
+}
+
+.mcp-json-input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre;
+  overflow: auto;
+  resize: vertical;
+  tab-size: 2;
+}
+
+.mcp-json-input:focus {
+  outline: none;
+}
+
+.mcp-json-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.55;
+}
+
+.mcp-json-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.mcp-json-message {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+
+.mcp-json-message.is-ok {
+  color: var(--status-allow-text, var(--success));
+}
+
+.mcp-json-message.is-error {
+  color: var(--status-deny-text, var(--danger, #f87171));
+}
+
+.mcp-json-message.is-warn {
+  color: var(--warning, #c99535);
+}
+
+.mcp-json-message code {
+  max-width: 340px;
+  overflow: hidden;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--code-bg);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-import-modal {
+  width: min(820px, 100%);
+  max-height: min(92vh, 880px);
+}
+
+.mcp-import-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.mcp-import-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.mcp-import-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mcp-import-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 62px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+}
+
+.mcp-import-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mcp-import-name {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-import-summary {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-import-badge {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--status-allow-border, transparent);
+  border-radius: 999px;
+  background: var(--status-allow-bg, transparent);
+  color: var(--status-allow-text, var(--success));
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.mcp-import-badge.is-update {
+  border-color: var(--border-strong, var(--border-subtle));
+  background: var(--code-bg);
+  color: var(--text-secondary);
+}
+
+.mcp-import-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .mcp-inline-add {
@@ -21624,6 +21950,11 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   max-width: 680px;
   margin-inline: auto;
   padding: calc(var(--content-top-inset) + 18px) 28px 64px;
+}
+
+.settings-content.is-wide {
+  width: min(880px, 100%);
+  max-width: 880px;
 }
 
 .settings-content > * {
