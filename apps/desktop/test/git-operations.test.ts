@@ -61,6 +61,28 @@ test("COMMIT_DIFF_MAX_CHARS is large enough for real diffs", () => {
   expect(COMMIT_DIFF_MAX_CHARS).toBeGreaterThan(10_000);
 });
 
+test("Git status reuses the review summary for complete working-tree statistics", async () => {
+  const calls: string[][] = [];
+  const run = async (args: string[]) => {
+    calls.push(args);
+    return { exitCode: 0, stdout: args.includes("--show-toplevel") ? "/tmp/repo\n" : "", stderr: "" };
+  };
+  const status = await getGitWorkingTreeStatus("/tmp/repo", run, {
+    fetchIfStale: false,
+    readSummary: async () => ({
+      workspacePath: "/tmp/repo",
+      patch: "",
+      patchTruncated: false,
+      fileCount: 10,
+      files: [],
+      totalAdditions: 15,
+      totalDeletions: 3,
+    }),
+  });
+  expect(status).toMatchObject({ dirtyFileCount: 10, insertions: 15, deletions: 3 });
+  expect(calls.some((args) => args.includes("status") || args.includes("--numstat"))).toBe(false);
+});
+
 test("getWorkspaceDiff combines HEAD diff and untracked files", async () => {
   const run = async (args: string[], _cwd: string) => {
     const key = args.join(" ");
@@ -140,18 +162,18 @@ test("getWorkspaceDiff returns original and current file contents for merge view
 test("getWorkspaceDiff can omit file contents and patch for remote summaries", async () => {
   const run = async (args: string[]) => {
     const key = args.join(" ");
-    if (key === "git rev-parse --show-toplevel") {
+    if (key === "git rev-parse --show-toplevel --show-prefix") {
       return { exitCode: 0, stdout: "/tmp/repo\n", stderr: "" };
     }
-    if (key === "git diff HEAD") {
+    if (args.includes("--raw")) {
       return {
         exitCode: 0,
-        stdout: "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n",
+        stdout: ":100644 100644 1111111 2222222 M\0src/a.ts\0" + "1\t1\tsrc/a.ts\0",
         stderr: "",
       };
     }
-    if (key === "git ls-files --others --exclude-standard") {
-      return { exitCode: 0, stdout: "", stderr: "" };
+    if (args.includes("--porcelain=v1")) {
+      return { exitCode: 0, stdout: " M src/a.ts\0", stderr: "" };
     }
     if (key.startsWith("git show ")) {
       throw new Error("should not load file contents for summary mode");
@@ -178,7 +200,7 @@ test("getWorkspaceFileDiff returns unified patch for a tracked file", async () =
     if (key === "git rev-parse --show-toplevel") {
       return { exitCode: 0, stdout: "/tmp/repo\n", stderr: "" };
     }
-    if (key === "git ls-files --others --exclude-standard -- src/a.ts") {
+    if (key === "git ls-files --others --exclude-standard -z -- src/a.ts") {
       return { exitCode: 0, stdout: "", stderr: "" };
     }
     if (key === "git diff HEAD -- src/a.ts") {
@@ -207,8 +229,8 @@ test("getWorkspaceFileDiff returns unified patch for an untracked file", async (
     if (key === "git rev-parse --show-toplevel") {
       return { exitCode: 0, stdout: "/tmp/repo\n", stderr: "" };
     }
-    if (key === "git ls-files --others --exclude-standard -- src/new.ts") {
-      return { exitCode: 0, stdout: "src/new.ts\n", stderr: "" };
+    if (key === "git ls-files --others --exclude-standard -z -- src/new.ts") {
+      return { exitCode: 0, stdout: "src/new.ts\0", stderr: "" };
     }
     if (key === "git diff --no-index -- /dev/null src/new.ts") {
       return {
@@ -234,7 +256,7 @@ test("getWorkspaceFileDiff marks binary patches and skips preview for missing im
     if (key === "git rev-parse --show-toplevel") {
       return { exitCode: 0, stdout: "/tmp/repo\n", stderr: "" };
     }
-    if (key === "git ls-files --others --exclude-standard -- assets/logo.png") {
+    if (key === "git ls-files --others --exclude-standard -z -- assets/logo.png") {
       return { exitCode: 0, stdout: "", stderr: "" };
     }
     if (key === "git diff HEAD -- assets/logo.png") {

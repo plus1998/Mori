@@ -1,5 +1,5 @@
 import { RefreshCw, RotateCcw, Search } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useDeferredValue, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceDiffFileStatus, WorkspaceDiffResult } from "../shared/ipc";
 import { MaterialFileIcon } from "./MaterialFileIcon";
@@ -26,11 +26,7 @@ interface WorkspaceDiffFileTreeProps {
   refreshing?: boolean;
 }
 
-function compactSingleChildDirectories(
-  items: Record<string, DiffTreeItem>,
-  expandedItems: string[],
-  rootId: string,
-): void {
+function compactSingleChildDirectories(items: Record<string, DiffTreeItem>, rootId: string): void {
   const visit = (id: string) => {
     const item = items[id];
     if (!item?.isFolder || !item.children) return;
@@ -46,8 +42,6 @@ function compactSingleChildDirectories(
       item.data = `${item.data}/${child.data}`;
       item.children = child.children ?? [];
       delete items[childId];
-      const expandedIndex = expandedItems.indexOf(childId);
-      if (expandedIndex >= 0) expandedItems.splice(expandedIndex, 1);
     }
   };
 
@@ -76,6 +70,7 @@ export function buildDiffTree(
   };
   const expandedItems = [ROOT_ID];
   const fileItemIds: Record<string, string> = {};
+  const childrenByParent = new Map<string, Set<string>>();
 
   for (const file of files) {
     const segments = file.path.split("/").filter(Boolean);
@@ -104,7 +99,13 @@ export function buildDiffTree(
         if (!isFile) expandedItems.push(itemId);
       }
       const parent = items[parentId]!;
-      if (parent.children && !parent.children.includes(itemId)) {
+      let children = childrenByParent.get(parentId);
+      if (!children) {
+        children = new Set();
+        childrenByParent.set(parentId, children);
+      }
+      if (parent.children && !children.has(itemId)) {
+        children.add(itemId);
         parent.children.push(itemId);
       }
       parentId = itemId;
@@ -113,8 +114,8 @@ export function buildDiffTree(
     fileItemIds[file.path] = `file:${file.path}`;
   }
 
-  compactSingleChildDirectories(items, expandedItems, ROOT_ID);
-  return { items, expandedItems, fileItemIds };
+  compactSingleChildDirectories(items, ROOT_ID);
+  return { items, expandedItems: expandedItems.filter((index) => items[index] !== undefined), fileItemIds };
 }
 
 function resolveFileStatus(file?: DiffFile): WorkspaceDiffFileStatus {
@@ -153,12 +154,15 @@ export function WorkspaceDiffFileTree({
 }: WorkspaceDiffFileTreeProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [focusedItem, setFocusedItem] = useState<string>();
   const [collapsedItems, setCollapsedItems] = useState<string[]>([]);
   const filteredFiles = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+    const normalizedQuery = deferredQuery.trim().toLowerCase();
     if (!normalizedQuery) return files;
     return files.filter((file) => file.path.toLowerCase().includes(normalizedQuery));
-  }, [files, query]);
+  }, [files, deferredQuery]);
   const tree = useMemo(() => buildDiffTree(filteredFiles, rootLabel), [filteredFiles, rootLabel]);
   const expandedItems = useMemo(
     () => tree.expandedItems.filter((index) => !collapsedItems.includes(index)),
@@ -207,13 +211,15 @@ export function WorkspaceDiffFileTree({
       {files.length === 0 || filteredFiles.length === 0 ? (
         <p className="workspace-diff-drawer-files-empty">{t("workspace.diff.noMatchingFiles")}</p>
       ) : (
-        <div className="workspace-diff-tree__scroll">
+        <div className="workspace-diff-tree__scroll" ref={scrollRef}>
           <WorkspaceExplorerTree
             items={tree.items}
             rootItem={ROOT_ID}
             expandedItems={expandedItems}
             selectedItems={selectedItems}
-            focusedItem={selectedItems[0] ?? ROOT_ID}
+            focusedItem={focusedItem ?? selectedItems[0] ?? ROOT_ID}
+            onFocusItem={setFocusedItem}
+            virtualScrollRef={scrollRef}
             treeLabel={t("workspace.diff.files")}
             hideRoot
             className="workspace-diff-tree__explorer"

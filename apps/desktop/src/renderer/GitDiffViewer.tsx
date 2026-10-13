@@ -1,5 +1,6 @@
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { File } from "gitdiff-parser";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   type DiffDisplayHunk,
@@ -7,7 +8,8 @@ import {
   fileToDisplayHunks,
   flattenDisplayLines,
 } from "./diff-display-lines";
-import { highlightDiffDisplayLines, releaseDiffHighlighter, retainDiffHighlighter, resolveShikiLanguage } from "./diff-shiki-highlight";
+import { highlightDiffInWorker } from "./diff-highlight-client";
+import { resolveShikiLanguage } from "./diff-highlight-language";
 import { MaterialFileIcon } from "./MaterialFileIcon";
 import {
   countDiffFileStats,
@@ -57,78 +59,111 @@ function useAppTheme(): "light" | "dark" {
 const DiffLinesView = memo(function DiffLinesView({
   path,
   hunks,
+  scrollRef,
 }: {
   path: string;
   hunks: DiffDisplayHunk[];
+  scrollRef: RefObject<HTMLDivElement | null>;
 }) {
+  const { t } = useTranslation();
   const theme = useAppTheme();
   const language = useMemo(() => resolveShikiLanguage(path), [path]);
   const flatLines = useMemo(() => flattenDisplayLines(hunks), [hunks]);
-  const [lineHtml, setLineHtml] = useState<(string | null)[]>(() => flatLines.map(() => null));
-
-  const lineStarts = useMemo(() => {
-    const starts: number[] = [];
+  const [highlighted, setHighlighted] = useState<{
+    lines: DiffDisplayLine[];
+    theme: string;
+    htmls: (string | null)[];
+  }>();
+  const [highlightError, setHighlightError] = useState<string>();
+  const lineHtml = highlighted?.lines === flatLines && highlighted.theme === theme ? highlighted.htmls : [];
+  const hunkStarts = useMemo(() => {
+    const starts = new Set<number>();
     let offset = 0;
-    for (const hunk of hunks) {
-      starts.push(offset);
-      offset += hunk.lines.length;
+    for (let index = 0; index < hunks.length; index++) {
+      if (index > 0) starts.add(offset);
+      offset += hunks[index]!.lines.length;
     }
     return starts;
   }, [hunks]);
+  const virtualized = flatLines.length > 300;
+  const virtualizer = useVirtualizer({
+    count: flatLines.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (index) => 21 + (hunkStarts.has(index) ? 9 : 0),
+    overscan: 12,
+    enabled: virtualized,
+  });
+  const virtualItems = virtualizer.getVirtualItems();
 
   useEffect(() => {
-    retainDiffHighlighter();
-    return () => {
-      releaseDiffHighlighter();
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    setLineHtml(flatLines.map(() => null));
-    void highlightDiffDisplayLines(flatLines, language, theme).then((htmls) => {
-      if (active) setLineHtml(htmls);
-    });
-    return () => {
-      active = false;
-    };
+    const controller = new AbortController();
+    setHighlightError(undefined);
+    void highlightDiffInWorker(flatLines, language, theme, controller.signal)
+      .then((htmls) => {
+        if (!controller.signal.aborted) setHighlighted({ lines: flatLines, theme, htmls });
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted)
+          setHighlightError(error instanceof Error ? error.message : String(error));
+      });
+    return () => controller.abort();
   }, [flatLines, language, theme]);
 
+  const renderLine = (line: DiffDisplayLine, index: number) => {
+    const html = lineHtml[index];
+    return (
+      <div className={`pm-diff-line is-${line.kind}`} data-kind={line.kind}>
+        <span className="pm-diff-line-nos" aria-hidden="true">
+          <span className="pm-diff-line-no pm-diff-line-no--old">{line.oldNo ?? ""}</span>
+          <span className="pm-diff-line-no pm-diff-line-no--new">{line.newNo ?? ""}</span>
+        </span>
+        {html ? (
+          <span className="pm-diff-line-text is-highlighted" dangerouslySetInnerHTML={{ __html: html }} />
+        ) : (
+          <span className="pm-diff-line-text">{line.text.length > 0 ? line.text : "\u00a0"}</span>
+        )}
+      </div>
+    );
+  };
   return (
-    <div className="workspace-diff-code-editor pm-diff-viewer" data-diff-lang={language}>
-      {hunks.map((hunk, hunkIndex) => (
-        <div className="pm-diff-hunk" key={`hunk-${hunkIndex}`}>
-          {hunk.lines.map((line, lineIndex) => {
-            const globalIndex = (lineStarts[hunkIndex] ?? 0) + lineIndex;
-            const html = lineHtml[globalIndex];
-            return (
+    <>
+      {highlightError ? (
+        <p className="workspace-diff-drawer-error-banner" role="alert">
+          {t("workspace.diff.highlightFailed", { message: highlightError })}
+        </p>
+      ) : null}
+      <div
+        className="workspace-diff-code-editor pm-diff-viewer"
+        data-diff-lang={language}
+        data-diff-row-count={flatLines.length}
+      >
+        {virtualized ? (
+          <div
+            style={{
+              paddingTop: virtualItems[0]?.start ?? 0,
+              paddingBottom: Math.max(0, virtualizer.getTotalSize() - (virtualItems.at(-1)?.end ?? 0)),
+            }}
+          >
+            {virtualItems.map((row) => (
               <div
-                key={`${hunkIndex}-${lineIndex}-${line.kind}-${line.oldNo ?? ""}-${line.newNo ?? ""}`}
-                className={`pm-diff-line is-${line.kind}`}
-                data-kind={line.kind}
+                key={row.key}
+                data-index={row.index}
+                ref={virtualizer.measureElement}
+                className={`pm-diff-row${hunkStarts.has(row.index) ? " is-hunk-start" : ""}`}
               >
-                <span className="pm-diff-line-nos" aria-hidden="true">
-                  <span className="pm-diff-line-no pm-diff-line-no--old">
-                    {line.oldNo == null ? "" : String(line.oldNo)}
-                  </span>
-                  <span className="pm-diff-line-no pm-diff-line-no--new">
-                    {line.newNo == null ? "" : String(line.newNo)}
-                  </span>
-                </span>
-                {html ? (
-                  <span
-                    className="pm-diff-line-text is-highlighted"
-                    dangerouslySetInnerHTML={{ __html: html }}
-                  />
-                ) : (
-                  <span className="pm-diff-line-text">{line.text.length > 0 ? line.text : "\u00a0"}</span>
-                )}
+                {renderLine(flatLines[row.index]!, row.index)}
               </div>
-            );
-          })}
-        </div>
-      ))}
-    </div>
+            ))}
+          </div>
+        ) : (
+          flatLines.map((line, index) => (
+            <div key={index} className={`pm-diff-row${hunkStarts.has(index) ? " is-hunk-start" : ""}`}>
+              {renderLine(line, index)}
+            </div>
+          ))
+        )}
+      </div>
+    </>
   );
 });
 
@@ -165,7 +200,7 @@ export function GitDiffViewer({ patch, selectedPath, emptyLabel, additions, dele
     <div className="workspace-diff-viewer">
       {visibleFiles.map((file) => (
         <DiffFileReview
-          key={`${file.oldRevision}-${file.newRevision}-${diffFilePath(file)}`}
+          key={diffFilePath(file)}
           file={file}
           {...(additions !== undefined ? { additions } : {})}
           {...(deletions !== undefined ? { deletions } : {})}
@@ -193,6 +228,7 @@ const DiffFileReview = memo(function DiffFileReview({
     return countDiffFileStats(file);
   }, [additions, deletions, file]);
   const hunks = useMemo(() => fileToDisplayHunks(file), [file]);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   return (
     <section className="workspace-diff-file-review">
@@ -211,8 +247,8 @@ const DiffFileReview = memo(function DiffFileReview({
           </span>
         </div>
       </header>
-      <div className="workspace-diff-code-scroll">
-        <DiffLinesView path={path} hunks={hunks} />
+      <div className="workspace-diff-code-scroll" ref={scrollRef}>
+        <DiffLinesView path={path} hunks={hunks} scrollRef={scrollRef} />
       </div>
     </section>
   );

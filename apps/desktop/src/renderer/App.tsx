@@ -412,6 +412,7 @@ import { buildSidebarAttentionItems } from "./sidebar-attention-items";
 import type { TerminalSessionPresentation } from "./TerminalPanel";
 import { ThreadIdleCacheWarning } from "./ThreadIdleCacheWarning";
 import { loadTaskPanelReviewDiff } from "./task-panel-review-loader";
+import { cacheWorkspaceReviewSummary, invalidateWorkspaceReviewSummary, readWorkspaceReviewSummary } from "./workspace-review-cache";
 import {
   captureTaskPanelSessionUiState,
   emptyTaskPanelSessionUiState,
@@ -3672,7 +3673,7 @@ function App() {
   useEffect(() => {
     reviewDiffRequestRef.current += 1;
     reviewDiffManualRefreshRef.current = false;
-    setReviewDiff(undefined);
+    setReviewDiff(currentProjectPath ? readWorkspaceReviewSummary(currentProjectPath) : undefined);
     setReviewDiffLoading(false);
     setReviewDiffError(undefined);
     setReviewSelectedPath(undefined);
@@ -8653,6 +8654,7 @@ function App() {
 
   const handleChangesDiffLoaded = useCallback(
     async (diff: WorkspaceDiffResult) => {
+      cacheWorkspaceReviewSummary(diff);
       setReviewDiff(diff);
       if (reviewDiffManualRefreshRef.current) {
         reviewDiffManualRefreshRef.current = false;
@@ -8660,7 +8662,7 @@ function App() {
         // already invalidates the cache through its path/stat signature.
         setReviewDiffRevision((current) => current + 1);
       }
-      setReviewDiffError(undefined);
+      setReviewDiffError(diff.watchError);
       setReviewSelectedPath((current) =>
         current && diff.files.some((file) => file.path === current) ? current : diff.files[0]?.path,
       );
@@ -8677,8 +8679,7 @@ function App() {
           canCommit: diff.fileCount > 0,
         });
       }
-      const workspace = await window.eco.inspectWorkspace(currentProjectPath);
-      setProjectWorkspace(workspace);
+      setProjectWorkspace((current) => current?.path === currentProjectPath ? { ...current, dirtyFileCount: diff.fileCount } : current);
     },
     [currentProjectPath, storeGitStatus],
   );
@@ -8711,7 +8712,7 @@ function App() {
     reviewDiffRequestRef.current = requestId;
     await loadTaskPanelReviewDiff({
       workspacePath: currentProjectPath,
-      getWorkspaceDiff: (workspacePath) => eco.getWorkspaceDiff(workspacePath),
+      getWorkspaceDiff: (workspacePath) => eco.getWorkspaceDiff(workspacePath, { refresh: reviewDiffManualRefreshRef.current }),
       isCurrent: () => reviewDiffRequestRef.current === requestId,
       onLoadingChange: handleChangesDiffLoadingChange,
       onLoaded: handleChangesDiffLoaded,
@@ -8719,6 +8720,36 @@ function App() {
     });
   }, [currentProjectPath, handleChangesDiffError, handleChangesDiffLoaded, handleChangesDiffLoadingChange]);
   refreshReviewDiffRef.current = refreshReviewDiff;
+
+  useEffect(() => {
+    if (!window.eco?.onGitStatusChanged) return;
+    return window.eco.onGitStatusChanged((event) => {
+      const current = gitStatusByWorkspaceRef.current[event.workspacePath]?.status;
+      if (!current) return;
+      storeGitStatus(event.workspacePath, { ...current, dirtyFileCount: event.dirtyFileCount,
+        insertions: event.insertions, deletions: event.deletions, canCommit: event.dirtyFileCount > 0 });
+    });
+  }, [storeGitStatus]);
+
+  useEffect(() => {
+    if (!currentProjectPath || !window.eco?.onGitDiffChanged) return;
+    const unsubscribe = window.eco.onGitDiffChanged((event) => {
+      if (event.workspacePath !== currentProjectPath) return;
+      invalidateWorkspaceReviewSummary(currentProjectPath);
+      if (event.error) { setReviewDiffError(event.error); return; }
+      if (taskDrawerOpenRef.current && taskPanelActiveTabRef.current === TASK_PANEL_REVIEW_TAB_ID) {
+        void refreshReviewDiffRef.current();
+      }
+    });
+    const onFocus = () => {
+      if (taskDrawerOpenRef.current && taskPanelActiveTabRef.current === TASK_PANEL_REVIEW_TAB_ID) {
+        reviewDiffManualRefreshRef.current = true;
+        void refreshReviewDiffRef.current();
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    return () => { unsubscribe(); window.removeEventListener("focus", onFocus); };
+  }, [currentProjectPath]);
 
   const requestReviewDiffRefresh = useCallback(() => {
     reviewDiffManualRefreshRef.current = true;

@@ -1030,6 +1030,7 @@ import {
 import { listWorkspaceEntries, readWorkspaceFile, writeWorkspaceFile } from "./workspace-file-browser";
 import { prepareWorkspaceGit } from "./workspace-git-setup";
 import { WorkspaceGitStatusPublisher } from "./workspace-git-status-publisher";
+import { WorkspaceReviewService } from "./workspace-review-service";
 import { inspectWorkspace, resolveGitExecutable } from "./workspace-inspect";
 import {
   type ApprovedPlanArtifact,
@@ -1326,8 +1327,15 @@ backgroundTerminalTaskRegistry = new BackgroundTerminalTaskRegistry(
 const packageJsonWatcher = new PackageJsonWatcher((workspacePath) => {
   desktopEventCenter.publishPackageJsonChanged(workspacePath);
 });
+const workspaceReviewService = new WorkspaceReviewService(runGitCommand, (event) => {
+  desktopEventCenter.publishGitDiffChanged(event);
+  if (!event.error) workspaceGitStatusPublisher.schedule(event.workspacePath);
+});
 const workspaceGitStatusPublisher = new WorkspaceGitStatusPublisher(runGitCommand, (summary) => {
   desktopEventCenter.publishGitStatusChanged(summary);
+}, undefined, async (workspacePath) => {
+  const diff = await workspaceReviewService.getSummary(workspacePath);
+  return { workspacePath, dirtyFileCount: diff.fileCount, insertions: diff.totalAdditions, deletions: diff.totalDeletions };
 });
 let gitAutoFetcher: GitAutoFetcher | undefined;
 let activeGitOperations = 0;
@@ -1409,6 +1417,7 @@ function scheduleWorkspaceGitStatusPublish(workspacePath: string | undefined): v
     return;
   }
   workspaceGitStatusPublisher.schedule(workspacePath.trim());
+  workspaceReviewService.invalidate(workspacePath.trim());
 }
 
 function scheduleWorkspaceGitStatusPublishForThread(threadId: string): void {
@@ -3394,6 +3403,8 @@ installApplicationShutdownHook(
     },
     disposeGitAutoFetcher: () => {
       gitAutoFetcher?.dispose();
+      workspaceReviewService.dispose();
+      workspaceGitStatusPublisher.dispose();
     },
     disposeCenterServerClient: () => {
       centerServerClient?.dispose();
@@ -7694,18 +7705,20 @@ function registerIpcHandlers(): void {
     if (typeof workspacePath !== "string" || !workspacePath.trim()) {
       throw new Error("Workspace path is required.");
     }
-    return getGitWorkingTreeStatus(workspacePath.trim(), runGitCommand);
+    const summary = workspaceReviewService.getSummary(workspacePath.trim());
+    const [status] = await Promise.all([
+      getGitWorkingTreeStatus(workspacePath.trim(), runGitCommand, { readSummary: () => summary }),
+      summary,
+    ]);
+    return status;
   });
 
-  registerDesktopCommand(IPC_CHANNELS.gitGetWorkspaceDiff, async (workspacePath: unknown) => {
+  registerDesktopCommand(IPC_CHANNELS.gitGetWorkspaceDiff, async (workspacePath: unknown, options: unknown) => {
     if (typeof workspacePath !== "string" || !workspacePath.trim()) {
       throw new Error("Workspace path is required.");
     }
-    // List metadata only; file bodies load via git:get-workspace-file-diff.
-    return getWorkspaceDiff(workspacePath.trim(), runGitCommand, {
-      includeContents: false,
-      includePatch: false,
-    });
+    const refresh = !!options && typeof options === "object" && (options as { refresh?: unknown }).refresh === true;
+    return workspaceReviewService.getSummary(workspacePath.trim(), refresh);
   });
 
   registerDesktopCommand(IPC_CHANNELS.gitGetWorkspaceFileDiff, async (payload: unknown) => {
@@ -7719,7 +7732,7 @@ function registerIpcHandlers(): void {
     if (typeof record.path !== "string" || !record.path.trim()) {
       throw new Error("File path is required.");
     }
-    return getWorkspaceFileDiff(record.workspacePath.trim(), record.path.trim(), runGitCommand);
+    return workspaceReviewService.getFile(record.workspacePath.trim(), record.path);
   });
 
   registerDesktopCommand(IPC_CHANNELS.gitDiscardWorkspaceChanges, async (payload: unknown) => {
@@ -17469,7 +17482,7 @@ function syncGitAutoFetcherWorkspace(): void {
 async function runGitCommand(
   command: string[],
   cwd: string,
-  options?: { stdin?: string },
+  options?: { stdin?: string; signal?: AbortSignal },
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   activeGitOperations += 1;
   try {
@@ -17477,7 +17490,7 @@ async function runGitCommand(
       const child = execFile(
         command[0] === "git" ? resolveGitExecutable() : (command[0] ?? resolveGitExecutable()),
         command.slice(1),
-        { cwd, maxBuffer: 10 * 1024 * 1024 },
+        { cwd, maxBuffer: 10 * 1024 * 1024, ...(options?.signal ? { signal: options.signal } : {}) },
         (error, stdout, stderr) => {
           if (error) {
             const failed = error as NodeJS.ErrnoException & { code?: number };

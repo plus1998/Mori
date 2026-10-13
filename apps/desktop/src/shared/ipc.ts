@@ -257,6 +257,8 @@ export const IPC_CHANNELS = {
   gitGetStatus: "git:get-status",
   gitGetWorkspaceDiff: "git:get-workspace-diff",
   gitGetWorkspaceFileDiff: "git:get-workspace-file-diff",
+  gitDiffChanged: "git:diff-changed",
+  gitStatusChanged: "git:status-changed",
   gitDiscardWorkspaceChanges: "git:discard-workspace-changes",
   gitListCommits: "git:list-commits",
   gitCheckoutBranch: "git:checkout-branch",
@@ -1040,6 +1042,8 @@ export type WorkspaceDiffFileStatus = "modified" | "untracked" | "added" | "dele
 
 export interface WorkspaceDiffResult {
   workspacePath: string;
+  revision?: number;
+  watchError?: string;
   patch: string;
   patchTruncated: boolean;
   fileCount: number;
@@ -1048,11 +1052,21 @@ export interface WorkspaceDiffResult {
     additions: number;
     deletions: number;
     status: WorkspaceDiffFileStatus;
+    revision?: number;
+    previousPath?: string;
+    binary?: boolean;
     originalContent: string;
     currentContent: string;
   }>;
   totalAdditions: number;
   totalDeletions: number;
+}
+
+export interface WorkspaceDiffChangedEvent {
+  workspacePath: string;
+  revision: number;
+  changedPaths?: string[];
+  error?: string;
 }
 
 export interface GitGetWorkspaceFileDiffRequest {

@@ -27,6 +27,7 @@ import {
   isKnownIpcChannel,
   type ThreadLiveEvent,
   type ThreadSummary,
+  type WorkspaceDiffChangedEvent,
 } from "../shared/ipc";
 import type { WorkspaceDiffResult } from "./git-operations";
 import {
@@ -38,10 +39,7 @@ import {
 export type EventCenterCommandHandler = (args: readonly unknown[]) => unknown | Promise<unknown>;
 
 export interface DesktopEventCenterSink {
-  publish(
-    envelope: EventCenterEnvelope,
-    notification: EventCenterJsonRpcNotification,
-  ): void;
+  publish(envelope: EventCenterEnvelope, notification: EventCenterJsonRpcNotification): void;
 }
 
 export interface DesktopEventCenterOptions {
@@ -120,10 +118,7 @@ export class DesktopEventCenter {
     return envelope;
   }
 
-  publishThreadLiveEvent(
-    payload: ThreadLiveEvent,
-    workspacePath?: string,
-  ): ThreadLiveEventCenterEnvelope {
+  publishThreadLiveEvent(payload: ThreadLiveEvent, workspacePath?: string): ThreadLiveEventCenterEnvelope {
     const kind = classifyThreadLiveEventForCenter(payload);
     return this.publish({
       kind,
@@ -178,6 +173,15 @@ export class DesktopEventCenter {
       payload,
       workspacePath: payload.workspacePath,
       aggregateKey: `workspace:${payload.workspacePath}:git-status`,
+    });
+  }
+
+  publishGitDiffChanged(payload: WorkspaceDiffChangedEvent): EventCenterEnvelope<WorkspaceDiffChangedEvent> {
+    return this.publish({
+      kind: "workspace.git_diff_changed",
+      payload,
+      workspacePath: payload.workspacePath,
+      aggregateKey: `workspace:${payload.workspacePath}:git-diff`,
     });
   }
 
@@ -265,7 +269,9 @@ export class DesktopEventCenter {
       return shouldRespond
         ? buildEventCenterJsonRpcFailure(
             id,
-            conversationError ? EVENT_CENTER_JSON_RPC_ERROR.invalidParams : EVENT_CENTER_JSON_RPC_ERROR.internalError,
+            conversationError
+              ? EVENT_CENTER_JSON_RPC_ERROR.invalidParams
+              : EVENT_CENTER_JSON_RPC_ERROR.internalError,
             error instanceof Error ? error.message : String(error),
             conversationError,
           )
@@ -311,11 +317,13 @@ export function transformRemoteInvokeResult(channel: string, result: unknown): u
 
 function summarizeWorkspaceDiffForRemote(diff: WorkspaceDiffResult): WorkspaceDiffResult {
   return {
+    ...diff,
     workspacePath: diff.workspacePath,
     patch: "",
     patchTruncated: false,
     fileCount: diff.fileCount,
     files: diff.files.map((file) => ({
+      ...file,
       path: file.path,
       additions: file.additions,
       deletions: file.deletions,
@@ -349,6 +357,12 @@ export function createElectronEventSink(
             IPC_CHANNELS.gitRemoteFetched,
             (envelope.payload as EventCenterGitRemoteFetchedPayload).workspacePath,
           );
+          return;
+        case "workspace.git_diff_changed":
+          send(IPC_CHANNELS.gitDiffChanged, envelope.payload);
+          return;
+        case "workspace.git_status_changed":
+          send(IPC_CHANNELS.gitStatusChanged, envelope.payload);
           return;
         case "settings.updated":
           send(IPC_CHANNELS.threadEventsSubscribe, envelope.payload);

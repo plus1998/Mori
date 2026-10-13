@@ -35,6 +35,7 @@ export class WorkspaceGitStatusPublisher {
     private readonly run: GitRunner,
     private readonly onPublish: WorkspaceGitStatusPublishListener,
     private readonly debounceMs = WORKSPACE_GIT_STATUS_DEBOUNCE_MS,
+    private readonly loadSummary?: (workspacePath: string) => Promise<WorkspaceGitStatusSummary>,
   ) {}
 
   schedule(workspacePath: string): void {
@@ -53,8 +54,9 @@ export class WorkspaceGitStatusPublisher {
   async publishIfChanged(workspacePath: string): Promise<boolean> {
     const resolved = path.resolve(workspacePath);
     try {
-      const status = await getGitWorkingTreeStatus(resolved, this.run, { fetchIfStale: false });
-      const summary = gitStatusToSummary(status);
+      const summary = this.loadSummary
+        ? await this.loadSummary(resolved)
+        : gitStatusToSummary(await getGitWorkingTreeStatus(resolved, this.run, { fetchIfStale: false }));
       const fingerprint = workspaceGitStatusFingerprint(summary);
       if (this.fingerprints.get(resolved) === fingerprint) {
         return false;

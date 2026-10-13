@@ -80,6 +80,8 @@ export default defineConfig({
   root: ".",
   // Relative paths so loadFile(file://...) resolves assets next to index.html in packaged app.
   base: "./",
+  // Dynamic grammar imports in the highlighter worker require ES module output.
+  worker: { format: "es" },
   // Vite 预构建可能把 @lezer/highlight / @codemirror/* 拆成多份，
   // 导致 CodeMirror 语言包 load 后 token 不上色（社区高频问题）。
   // 强制去重，确保运行时只有单一实例。

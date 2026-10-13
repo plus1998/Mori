@@ -6223,6 +6223,11 @@ button.sidebar-settings-meta {
   padding-top: 8px;
 }
 
+.pm-diff-viewer .pm-diff-row.is-hunk-start {
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--text-muted) 18%, transparent);
+}
+
 .pm-diff-viewer .pm-diff-line {
   display: grid;
   grid-template-columns: 3.25em 3.25em minmax(0, 1fr);

@@ -66,6 +66,14 @@ test("countDiffFileStats counts inserted and deleted rows", () => {
   expect(countDiffFileStats(files[0]!)).toEqual({ additions: 1, deletions: 1 });
 });
 
+test("review parser decodes C-quoted UTF-8 and preserves spaces in Git paths", () => {
+  const unicode = typescriptPatch.replaceAll("a/src/example.ts", '"a/\\346\\265\\213\\350\\257\\225\\tfile.ts"').replaceAll("b/src/example.ts", '"b/\\346\\265\\213\\350\\257\\225\\tfile.ts"');
+  const quoted = parseDiff(unicode)[0];
+  expect(quoted && diffFilePath(quoted)).toBe("测试\tfile.ts");
+  const spaced = parseDiff(typescriptPatch.replaceAll("src/example.ts", "src/file with spaces.ts"))[0];
+  expect(spaced && diffFilePath(spaced)).toBe("src/file with spaces.ts");
+});
+
 test("buildDiffDocFromPatch filters selected path and encodes insert/delete lines", () => {
   const multi = [
     typescriptPatch,

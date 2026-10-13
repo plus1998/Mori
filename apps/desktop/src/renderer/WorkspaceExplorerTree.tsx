@@ -1,8 +1,10 @@
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useId,
@@ -51,6 +53,8 @@ export interface WorkspaceExplorerTreeProps {
   onCollapseItem: (index: string) => void;
   onSelectItem: (index: string) => void;
   onFocusItem?: (index: string) => void;
+  /** Opt in for large review lists with a known fixed row height and gap. */
+  virtualScrollRef?: RefObject<HTMLDivElement | null>;
 }
 
 interface FlatNode {
@@ -106,6 +110,7 @@ export function WorkspaceExplorerTree({
   onCollapseItem,
   onSelectItem,
   onFocusItem,
+  virtualScrollRef,
 }: WorkspaceExplorerTreeProps) {
   const treeId = useId();
   const listRef = useRef<HTMLDivElement>(null);
@@ -119,16 +124,33 @@ export function WorkspaceExplorerTree({
     focusedItem && items[focusedItem]
       ? focusedItem
       : (selectedItems.find((index) => items[index]) ?? nodes[0]?.index);
+  const virtualized = virtualScrollRef !== undefined && nodes.length > 300;
+  const getItemKey = useCallback((index: number) => nodes[index]!.index, [nodes]);
+  const virtualizer = useVirtualizer({
+    count: nodes.length,
+    getScrollElement: () => virtualScrollRef?.current ?? null,
+    estimateSize: () => 42,
+    getItemKey,
+    overscan: 8,
+    enabled: virtualized,
+  });
+  const virtualRows = virtualizer.getVirtualItems();
+  const visibleNodes = virtualized ? virtualRows.map((row) => nodes[row.index]!) : nodes;
 
   useEffect(() => {
     if (!activeIndex || !listRef.current) return;
+    if (virtualized) {
+      const index = nodes.findIndex((node) => node.index === activeIndex);
+      if (index >= 0) virtualizer.scrollToIndex(index, { align: "auto" });
+      return;
+    }
     const escaped =
       typeof CSS !== "undefined" && "escape" in CSS
         ? CSS.escape(activeIndex)
         : activeIndex.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     const row = listRef.current.querySelector<HTMLElement>(`[data-tree-index="${escaped}"]`);
     row?.scrollIntoView({ block: "nearest" });
-  }, [activeIndex]);
+  }, [activeIndex, nodes, virtualized, virtualizer]);
 
   const toggleFolder = useCallback(
     (index: string) => {
@@ -207,9 +229,17 @@ export function WorkspaceExplorerTree({
       role="tree"
       aria-label={treeLabel}
       tabIndex={0}
+      style={
+        virtualized
+          ? {
+              paddingTop: virtualRows[0]?.start ?? 0,
+              paddingBottom: Math.max(0, virtualizer.getTotalSize() - (virtualRows.at(-1)?.end ?? 0)),
+            }
+          : undefined
+      }
       onKeyDown={onKeyDown}
     >
-      {nodes.map((node) => {
+      {visibleNodes.map((node) => {
         const item = items[node.index];
         if (!item) return null;
         const isExpanded = item.isFolder && expanded.has(node.index);

@@ -451,6 +451,24 @@ const api = {
     ipcRenderer.on(IPC_CHANNELS.gitRemoteFetched, listener);
     return () => ipcRenderer.off(IPC_CHANNELS.gitRemoteFetched, listener);
   },
+  onGitDiffChanged(callback: (event: import("../shared/ipc").WorkspaceDiffChangedEvent) => void): () => void {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: import("../shared/ipc").WorkspaceDiffChangedEvent,
+    ) => callback(payload);
+    ipcRenderer.on(IPC_CHANNELS.gitDiffChanged, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.gitDiffChanged, listener);
+  },
+  onGitStatusChanged(
+    callback: (event: import("../shared/event-center").EventCenterGitStatusChangedPayload) => void,
+  ): () => void {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: import("../shared/event-center").EventCenterGitStatusChangedPayload,
+    ) => callback(payload);
+    ipcRenderer.on(IPC_CHANNELS.gitStatusChanged, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.gitStatusChanged, listener);
+  },
   startPackageScript(request: RunPackageScriptRequest): Promise<StartPackageScriptResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.workspaceStartPackageScript, request);
   },
@@ -1044,8 +1062,8 @@ const api = {
   getGitStatus(workspacePath: string): Promise<GitWorkingTreeStatus> {
     return ipcRenderer.invoke(IPC_CHANNELS.gitGetStatus, workspacePath);
   },
-  getWorkspaceDiff(workspacePath: string): Promise<WorkspaceDiffResult> {
-    return ipcRenderer.invoke(IPC_CHANNELS.gitGetWorkspaceDiff, workspacePath);
+  getWorkspaceDiff(workspacePath: string, options?: { refresh?: boolean }): Promise<WorkspaceDiffResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.gitGetWorkspaceDiff, workspacePath, options);
   },
   getWorkspaceFileDiff(request: GitGetWorkspaceFileDiffRequest): Promise<WorkspaceFileDiffResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.gitGetWorkspaceFileDiff, request);
