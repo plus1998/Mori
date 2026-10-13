@@ -25,10 +25,6 @@ function evaluateBashHardDenyCore(
     return denyDecision(100, "Bash is disabled for this Eco agent.", "bash_disabled");
   }
 
-  if (rules.workspace.denyOutsideCwd && !isInsidePath(input.cwd, input.workspacePath)) {
-    return denyDecision(100, "Command cwd is outside the workspace", "cwd_outside_workspace");
-  }
-
   const ast = parseShellCommand(command);
   const denyMatch = matchDeny(ast, rules);
   if (denyMatch) {
@@ -56,9 +52,20 @@ export function evaluateBashPolicy(
   }
 
   const ast = parseShellCommand(input.command.trim());
-  const riskScore = scoreShellAst(ast, rules);
+  const outsideWorkspace = rules.workspace.reviewOutsideCwd && !isInsidePath(input.cwd, input.workspacePath);
+  const riskScore = Math.max(scoreShellAst(ast, rules), outsideWorkspace ? 50 : 0);
   const riskLevel = riskLevelFromScore(riskScore);
-  return decideByMode(input.mode, riskScore, riskLevel, resolveAutoAskReason(ast));
+  return decideByMode(
+    input.mode,
+    riskScore,
+    riskLevel,
+    outsideWorkspace
+      ? {
+          reason: "Command cwd is outside the workspace; review the actual action",
+          matchedRule: "cwd_outside_workspace",
+        }
+      : resolveAutoAskReason(ast),
+  );
 }
 
 function decideByMode(
@@ -77,7 +84,7 @@ function decideByMode(
   }
 
   if (mode === "auto") {
-    if (riskScore > AUTO_APPROVAL_SCORE_THRESHOLD) {
+    if (autoAskReason || riskScore > AUTO_APPROVAL_SCORE_THRESHOLD) {
       return {
         action: "ask",
         riskScore,
@@ -110,6 +117,12 @@ function resolveAutoAskReason(ast: ShellAst): { reason: string; matchedRule: str
     const program = segment.program.split("/").pop() ?? segment.program;
     if (program === "rm") {
       return { reason: "File deletion requires approval", matchedRule: "file_deletion" };
+    }
+    if (program === "git" && segment.args.some((arg) => ["rm", "reset", "clean", "restore"].includes(arg))) {
+      return {
+        reason: "Git deletion or rollback requires review of recoverability",
+        matchedRule: "git_mutation",
+      };
     }
   }
   return undefined;

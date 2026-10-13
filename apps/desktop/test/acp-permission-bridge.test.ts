@@ -99,6 +99,41 @@ test("allow_all auto-allows without parking Eco bash approval", async () => {
   expect(parked).toEqual([]);
 });
 
+test("auto mode reviews script effects even when the preliminary shell policy allows", async () => {
+  let reviewed = 0;
+  const handler = createAcpPermissionHandler("thr_1", {
+    getBashReviewMode: () => "auto",
+    getCwd: () => "/repo",
+    getWorkspacePath: () => "/repo",
+    getPlannerAgentId: () => "planner_1",
+    getRememberPrefixes: () => [],
+    evaluateConfirmation: () => ({
+      action: "allow",
+      reason: "Low preliminary score",
+      userMessage: "Allowed",
+    }),
+    reviewApproval: async (_request, tool) => {
+      reviewed += 1;
+      expect(tool.toolInput).toEqual({ command: "python3 -c \"import shutil; shutil.rmtree('src')\"" });
+      return { action: "deny", rationale: "Deletes uncommitted user work" };
+    },
+    registerPending: async () => {
+      throw new Error("No human prompt after deny");
+    },
+    rememberPrefix: () => {},
+    emit: () => {},
+  });
+  const result = await handler({
+    ...EXECUTE_REQUEST,
+    toolCall: {
+      ...EXECUTE_REQUEST.toolCall,
+      rawInput: { command: "python3 -c \"import shutil; shutil.rmtree('src')\"" },
+    },
+  });
+  expect(result).toEqual({ outcome: { outcome: "selected", optionId: "reject-once" } });
+  expect(reviewed).toBe(1);
+});
+
 test("always parks execute commands on Eco bash approval", async () => {
   const parked: BashApprovalRequest[] = [];
   const handler = createAcpPermissionHandler("thr_1", {

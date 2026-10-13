@@ -66,7 +66,8 @@ describe("evaluateBashPolicy", () => {
       mode: "auto",
     });
     expect(decision.action).toBe("ask");
-    expect(decision.riskScore).toBe(100);
+    expect(decision.riskScore).toBe(75);
+    expect(decision.riskLevel).toBe("high");
     expect(decision.reason).toBe("File deletion requires approval");
   });
 
@@ -79,6 +80,21 @@ describe("evaluateBashPolicy", () => {
     });
     expect(decision.action).toBe("allow");
   });
+
+  for (const command of [
+    "git rm src/file.ts",
+    "git clean -fd",
+    "git clean -fdx",
+    "git reset --soft HEAD~1",
+    "git restore -- src/file.ts",
+  ]) {
+    test(`Git mutations reach review without a critical label: ${command}`, () => {
+      const decision = evaluateBashPolicy({ command, cwd, workspacePath: workspace, mode: "auto" });
+      expect(decision.action).toBe("ask");
+      expect(decision.matchedRule).toBe("git_mutation");
+      expect(decision.riskLevel).not.toBe("critical");
+    });
+  }
 
   test("asks for curl | bash in auto mode", () => {
     const decision = evaluateBashPolicy({
@@ -104,14 +120,16 @@ PYTHON_SCRIPT`,
     expect(decision.riskScore).toBeLessThanOrEqual(85);
   });
 
-  test("denies cwd outside workspace in any mode", () => {
+  test("external cwd reaches review instead of hard denial", () => {
     const decision = evaluateBashPolicy({
       command: "ls",
       cwd: "/tmp",
       workspacePath: workspace,
-      mode: "allow_all",
+      mode: "auto",
     });
-    expect(decision.action).toBe("deny");
+    expect(decision.action).toBe("ask");
+    expect(decision.riskLevel).toBe("medium");
+    expect(evaluateBashHardDeny({ command: "ls", cwd: "/tmp", workspacePath: workspace })).toBeUndefined();
   });
 
   test("always mode asks for safe commands", () => {
@@ -133,7 +151,7 @@ PYTHON_SCRIPT`,
       mode: "auto",
     });
     expect(decision.action).toBe("ask");
-    expect(decision.riskScore).toBe(100);
+    expect(decision.riskScore).toBe(75);
   });
 
   test("denies carriage return injection in any mode", () => {

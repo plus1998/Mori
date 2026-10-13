@@ -62,6 +62,10 @@ type PendingMcpToolCall = {
  * the approval card can show the actual Hub target and arguments.
  */
 const pendingMcpToolCalls = new Map<string, PendingMcpToolCall[]>();
+const pendingFileChanges = new Map<
+  string,
+  Array<{ itemId: string; ecoThreadId: string; changes: unknown[] }>
+>();
 
 /**
  * Detect Codex / MCP “Allow the X MCP server to run tool "Y"?” tool-run confirmations.
@@ -226,6 +230,7 @@ export interface CodexApprovalBridge {
 
 export function createCodexApprovalBridge(deps: CodexApprovalBridgeDeps): CodexApprovalBridge {
   pendingMcpToolCalls.clear();
+  pendingFileChanges.clear();
   return {
     handleServerRequest: (method, params) => handleCodexServerRequest(deps, method, params),
     handleNotification: (method, params) => handleCodexApprovalNotification(deps, method, params),
@@ -268,16 +273,39 @@ export function handleCodexApprovalNotification(
   }
   if (method === "item/started") {
     rememberPendingMcpToolCall(params);
+    const threadId = readString(params, "threadId");
+    const item = isRecord(params.item) ? params.item : undefined;
+    const itemId = item ? readString(item, "id") : undefined;
+    if (threadId && itemId && item?.type === "fileChange" && Array.isArray(item.changes)) {
+      const changes = item.changes;
+      const entries = (pendingFileChanges.get(threadId) ?? []).filter((entry) => entry.itemId !== itemId);
+      if (JSON.stringify(changes).length <= 64_000) {
+        entries.push({ itemId, changes, ecoThreadId: deps.resolveEcoThreadId(threadId) });
+        pendingFileChanges.set(threadId, entries.slice(-32));
+      } else if (entries.length) pendingFileChanges.set(threadId, entries);
+      else pendingFileChanges.delete(threadId);
+    }
     return;
   }
   if (method !== "item/completed") {
     return;
   }
   forgetPendingMcpToolCall(params);
+  const threadId = readString(params, "threadId");
+  const itemId = isRecord(params.item) ? readString(params.item, "id") : undefined;
+  if (threadId && itemId) {
+    const entries = (pendingFileChanges.get(threadId) ?? []).filter((entry) => entry.itemId !== itemId);
+    if (entries.length) pendingFileChanges.set(threadId, entries);
+    else pendingFileChanges.delete(threadId);
+  }
   handlePlanItemCompleted(deps, params);
 }
 
 export function cancelCodexApprovalsForThread(threadId: string, reason: string): void {
+  for (const [codexThreadId, entries] of pendingFileChanges) {
+    if (entries.some((entry) => entry.ecoThreadId === threadId) || codexThreadId === threadId)
+      pendingFileChanges.delete(codexThreadId);
+  }
   cancelClarificationsForThread(threadId, reason);
   cancelBashApprovalsForThread(threadId, reason);
   cancelPlanApprovalsForThread(threadId, reason);
@@ -397,9 +425,15 @@ async function handleFileChangeRequestApproval(
     return { decision: "accept" };
   }
 
+  const pendingChanges = pendingFileChanges
+    .get(codexThreadId)
+    ?.find((entry) => entry.itemId === itemId)?.changes;
   const automatic = await reviewCodexApprovalIfEnabled(deps, ecoThreadId, approvalRequest, {
     toolName: "FileChange",
-    toolInput: params,
+    toolInput: {
+      ...params,
+      ...(pendingChanges ? { changes: pendingChanges } : {}),
+    },
   });
   if (automatic?.action === "allow") {
     emitAutomaticApproval(deps, { ...approvalRequest, reviewRationale: automatic.rationale }, command);

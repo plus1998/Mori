@@ -3,7 +3,7 @@ commands:
   rm:
     deny:
       - targets: ["/", "/*"]
-    score: 100
+    score: 75
   dd:
     score: 100
   mkfs:
@@ -20,4 +20,4 @@ pipelines:
   - pattern: ["wget", "bash"]
     score: 95
 workspace:
-  denyOutsideCwd: true
+  reviewOutsideCwd: true

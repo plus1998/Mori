@@ -681,6 +681,8 @@ import {
   type EcoApprovalReviewResult,
   reviewEcoApproval,
 } from "./eco-approval-reviewer";
+import { collectApprovalHostEvidence, type ApprovalHostEvidence } from "./eco-approval-local-evidence";
+import { resolveSdkHintPermission } from "./sdk-hint-approval";
 import { logEcoDiag, logEcoDiagThrottled, shortAgentId, shortThreadId } from "./eco-diag-log";
 import {
   configureEcoGatewayLifecycle,
@@ -19440,31 +19442,66 @@ async function requestSdkHintApproval(
   const agentId = resolveThreadBashApprovalAgentId(threadId, request);
   if (!thread || !agentId)
     return { behavior: "deny", message: "Eco could not attribute the SDK permission request." };
-  const approval: BashApprovalRequest = {
+  let approval: BashApprovalRequest = {
     threadId,
     toolUseId: request.toolUseId,
     agentId,
     command: `${request.toolName} ${JSON.stringify(request.input)}`,
     cwd: request.cwd || thread.sdkCwd || thread.workspacePath || ".",
-    reason: request.decisionReason || "Claude Code requires explicit approval for this action.",
+    reason: request.decisionReason || "Claude SDK requested permission review for this action.",
     riskScore: 50,
     riskLevel: "medium",
     filesystemTool: request.toolName,
     ...sdkPermissionApprovalHints(request),
     ...(request.description && { description: request.description }),
   };
-  emitThreadEvent(
-    threadId,
-    "bash_approval.requested",
-    `等待确认 ${request.toolName}`,
-    "tool",
-    false,
-    bashApprovalEventExtras(approval, "bash_approval.requested"),
-  );
-  const resolution = await registerPendingBashApproval(threadId, approval);
-  return isBashApprovalGranted(resolution)
-    ? { behavior: "allow", updatedInput: request.input }
-    : { behavior: "deny", message: resolution.feedback || `User denied this ${request.toolName} call.` };
+  return resolveSdkHintPermission({
+    request,
+    confirmationMode: ensureThreadRuntimeConfig(thread).runtimeConfig?.bashReviewMode ?? "always",
+    review: () =>
+      reviewThreadToolApproval(threadId, approval, {
+        toolName: request.toolName,
+        toolInput: request.input,
+        sdkHints: sdkApprovalEvidenceHints(request),
+      }),
+    onReview: (review) => {
+      approval = { ...approval, reviewRationale: review.rationale };
+      if (review.action !== "human_required") {
+        const type = review.action === "allow" ? "bash_approval.approved" : "bash_approval.denied";
+        emitThreadEvent(
+          threadId,
+          type,
+          `${review.action === "allow" ? "审批模型已允许" : "已拒绝"} ${request.toolName}：${review.rationale}`,
+          "tool",
+          false,
+          bashApprovalEventExtras(approval, type),
+        );
+      }
+    },
+    requestHuman: async () => {
+      emitThreadEvent(
+        threadId,
+        "bash_approval.requested",
+        `等待确认 ${request.toolName}`,
+        "tool",
+        false,
+        bashApprovalEventExtras(approval, "bash_approval.requested"),
+      );
+      const resolution = await registerSdkHintApproval(threadId, approval);
+      return isBashApprovalGranted(resolution)
+        ? { behavior: "allow", updatedInput: request.input }
+        : { behavior: "deny", message: resolution.feedback || `User denied this ${request.toolName} call.` };
+    },
+  });
+}
+
+function sdkApprovalEvidenceHints(
+  request: SdkToolPermissionRequest,
+): NonNullable<ApprovalHostEvidence["sdkHints"]> {
+  return {
+    ...sdkPermissionApprovalHints(request),
+    ...(request.decisionReason ? { decisionReason: request.decisionReason.slice(0, 800) } : {}),
+  };
 }
 
 function createThreadBashAndFilesystemToolPermissionHandler(
@@ -19532,10 +19569,11 @@ function createThreadBashAndFilesystemToolPermissionHandler(
         description: filesystemApproval.userMessage,
       };
 
-      if (confirmationMode === "auto" && !request.defaultToNo && !request.suppressAlwaysAllowRule) {
+      if (confirmationMode === "auto") {
         const review = await reviewThreadToolApproval(threadId, approvalRequest, {
           toolName: request.toolName,
           toolInput: request.input,
+          sdkHints: sdkApprovalEvidenceHints(request),
         });
         if (review.action === "allow") {
           const reviewedRequest = {
@@ -19692,7 +19730,12 @@ function createThreadBashAndFilesystemToolPermissionHandler(
         interrupt: false,
       };
     }
-    if (confirmation.action === "allow" && !request.defaultToNo && !request.suppressAlwaysAllowRule) {
+    if (
+      confirmation.action === "allow" &&
+      (bashReviewMode !== "auto" || confirmation.matchedRule === "session_bash_prefix") &&
+      !request.defaultToNo &&
+      !request.suppressAlwaysAllowRule
+    ) {
       const description = readBashDescriptionInput(request.input);
       emitThreadEvent(threadId, "tool.started", `Tool: Bash · ${description ?? command}`, "tool", false, {
         ...(request.agentId ? { agentId: request.agentId } : {}),
@@ -19730,10 +19773,11 @@ function createThreadBashAndFilesystemToolPermissionHandler(
       ...(description ? { description } : { description: confirmation.userMessage }),
     };
 
-    if (bashReviewMode === "auto" && !request.defaultToNo && !request.suppressAlwaysAllowRule) {
+    if (bashReviewMode === "auto") {
       const review = await reviewThreadToolApproval(threadId, approvalRequest, {
         toolName: "Bash",
         toolInput: request.input,
+        sdkHints: sdkApprovalEvidenceHints(request),
       });
       if (review.action === "allow") {
         const reviewedRequest = {
@@ -19801,7 +19845,11 @@ function createThreadBashAndFilesystemToolPermissionHandler(
 async function reviewThreadToolApproval(
   threadId: string,
   request: BashApprovalRequest,
-  tool: { toolName: string; toolInput: Record<string, unknown> },
+  tool: {
+    toolName: string;
+    toolInput: Record<string, unknown>;
+    sdkHints?: ApprovalHostEvidence["sdkHints"];
+  },
   source: string = "claude",
 ): Promise<EcoApprovalReviewResult> {
   logUpstream("eco-approval-review-begin", {
@@ -19848,6 +19896,15 @@ async function reviewThreadToolApproval(
     role: line.role,
     message: line.message,
   }));
+  const worktreePath = activeRunRuntimeState.worktreePlan(threadId)?.worktreePath;
+  const hostEvidence = await collectApprovalHostEvidence({
+    toolName: tool.toolName,
+    toolInput: tool.toolInput,
+    cwd: request.cwd,
+    workspacePath: thread.workspacePath,
+    ...(worktreePath ? { worktreePath } : {}),
+    ...(tool.sdkHints ? { sdkHints: tool.sdkHints } : {}),
+  });
   const built = buildThreadApprovalEnvelope({
     activityLines,
     initialPrompt: thread.prompt,
@@ -19859,6 +19916,7 @@ async function reviewThreadToolApproval(
     riskScore: request.riskScore,
     riskLevel: request.riskLevel,
     source,
+    hostEvidence,
   });
   if (!built.ok) {
     logUpstream("eco-approval-review-skipped", {
@@ -19874,7 +19932,7 @@ async function reviewThreadToolApproval(
       policyMatches: built.policyMatches,
     };
   }
-  return reviewEcoApproval({
+  const review = await reviewEcoApproval({
     route,
     envelope: built.envelope,
     serializedEnvelope: built.serialized,
@@ -19883,6 +19941,21 @@ async function reviewThreadToolApproval(
       ? { globalProxyUrl: proxyBridgeSettingsStore.get().upstreamProxyUrl! }
       : {}),
   });
+  logUpstream("eco-approval-review-result", {
+    threadId,
+    source,
+    toolName: tool.toolName,
+    action: review.action,
+    rationale: review.rationale,
+    policyMatches: review.policyMatches,
+    diagnostics: review.diagnostics,
+    targetExtractionComplete: hostEvidence.targetExtractionComplete,
+    evidenceLimitations: [...hostEvidence.limitations, ...hostEvidence.paths.flatMap((entry) => entry.limitations)],
+  });
+  if (review.action === "allow" && (tool.sdkHints?.defaultToNo || tool.sdkHints?.suppressAlwaysAllowRule)) {
+    sdkHintApprovalsHandled.add(request.toolUseId);
+  }
+  return review;
 }
 
 function resolveFilesystemApprovalRequest(input: {

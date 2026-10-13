@@ -1,3 +1,5 @@
+import type { ApprovalHostEvidence } from "./eco-approval-local-evidence";
+
 /** Hard budgets for approval evidence (characters, not estimated tokens). */
 
 export const MAX_ENVELOPE_CHARS = 32_000;
@@ -7,6 +9,7 @@ export const MAX_USER_REQUEST_CHARS = 2_000;
 export const MAX_MESSAGE_ENTRY_CHARS = 2_000;
 export const MAX_TOOL_ENTRY_CHARS = 1_200;
 export const MAX_TRANSCRIPT_ENTRIES = 20;
+export const MAX_HOST_EVIDENCE_CHARS = 8_000;
 
 export interface ApprovalActivityLine {
   role: string;
@@ -36,6 +39,8 @@ export interface EcoApprovalEnvelopeV2 {
   reason: string;
   riskScore?: number;
   riskLevel?: string;
+  /** Independently collected host facts; tool input cannot populate this field. */
+  hostEvidence?: ApprovalHostEvidence;
   /** Logging only — never used for policy branching. */
   source?: string;
 }
@@ -209,7 +214,15 @@ export function buildApprovalEnvelope(input: {
   riskScore?: number;
   riskLevel?: string;
   source?: string;
+  hostEvidence?: ApprovalHostEvidence;
 }): BuildApprovalEnvelopeResult {
+  if (input.hostEvidence && JSON.stringify(input.hostEvidence).length > MAX_HOST_EVIDENCE_CHARS) {
+    return {
+      ok: false,
+      rationale: "宿主文件证据超过字符预算，无法完整核对目标范围，需人工审批。",
+      policyMatches: ["host_evidence_over_budget"],
+    };
+  }
   const transcript = buildApprovalTranscript(input.activityLines, input.initialPrompt);
   const plannedAction = clampPlannedAction({
     tool: input.toolName,
@@ -225,6 +238,7 @@ export function buildApprovalEnvelope(input: {
     reason: truncateText(input.reason, 800),
     ...(input.riskScore !== undefined ? { riskScore: input.riskScore } : {}),
     ...(input.riskLevel !== undefined ? { riskLevel: input.riskLevel } : {}),
+    ...(input.hostEvidence ? { hostEvidence: input.hostEvidence } : {}),
     ...(input.source ? { source: input.source } : {}),
   };
 

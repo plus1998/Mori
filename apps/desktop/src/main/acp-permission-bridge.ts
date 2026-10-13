@@ -22,10 +22,7 @@ import {
   isEcoComputerUseToolName,
   requiresComputerUseActionApproval,
 } from "../shared/computer-use";
-import {
-  isEcoWebSearchToolName,
-  type WebSearchApprovalMode,
-} from "../shared/integrated-web-search";
+import { isEcoWebSearchToolName, type WebSearchApprovalMode } from "../shared/integrated-web-search";
 import type { BashApprovalDecision, BashApprovalRequest } from "../shared/ipc";
 import type { BashApprovalResolution } from "./bash-approval-bridge";
 import type { EcoApprovalReviewResult } from "./eco-approval-reviewer";
@@ -304,7 +301,10 @@ export function createAcpPermissionHandler(
         deps.emit("bash_approval.denied", `已拒绝：${confirmation.userMessage}`, denied);
         return resolveAcpPermissionSelection(request.options, "reject") ?? acpPermissionCancelled();
       }
-      if (confirmation.action === "allow") {
+      if (
+        confirmation.action === "allow" &&
+        (bashReviewMode !== "auto" || confirmation.matchedRule === "session_bash_prefix")
+      ) {
         deps.log?.("acp-permission-policy-allow", {
           threadId,
           command,

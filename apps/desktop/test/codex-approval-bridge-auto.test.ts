@@ -4,10 +4,58 @@ import {
   CODEX_FILE_CHANGE_REQUEST_APPROVAL,
   CODEX_MCP_SERVER_ELICITATION_REQUEST,
   type CodexApprovalBridgeDeps,
+  cancelCodexApprovalsForThread,
+  handleCodexApprovalNotification,
   handleCodexServerRequest,
   resolvePendingCodexBashApproval,
 } from "../src/main/codex-approval-bridge";
 import type { BashApprovalDecision, ThreadLiveEvent } from "../src/shared/ipc";
+
+test("Codex file review receives exact changes from item/started, then clears completed/cancelled evidence", async () => {
+  const reviewed: Record<string, unknown>[] = [];
+  const deps: CodexApprovalBridgeDeps = {
+    resolveEcoThreadId: () => "file-evidence-thread",
+    getThread: () => ({ prompt: "Remove obsolete file", workspacePath: "/repo" }),
+    getWorktreePath: () => "/repo",
+    getPlannerAgentId: () => "planner",
+    getRoutesJson: () => "[]",
+    savePendingPlan: () => {},
+    emitThreadLive: () => {},
+    updateThreadStatus: () => {},
+    getApprovalMode: () => "auto",
+    reviewApproval: async (_thread, _request, tool) => {
+      reviewed.push(tool.toolInput);
+      return { action: "allow", rationale: "Scoped change" };
+    },
+  };
+  const changes = [{ path: "/repo/obsolete.ts", kind: { type: "delete" }, diff: "-old" }];
+  const params = {
+    threadId: "codex-file-evidence",
+    turnId: "turn",
+    itemId: "file-item",
+    startedAtMs: 1,
+    reason: "file change",
+  };
+  handleCodexApprovalNotification(deps, "item/started", {
+    threadId: params.threadId,
+    item: { id: params.itemId, type: "fileChange", changes },
+  });
+  await handleCodexServerRequest(deps, CODEX_FILE_CHANGE_REQUEST_APPROVAL, params);
+  expect(reviewed[0]?.changes).toEqual(changes);
+  handleCodexApprovalNotification(deps, "item/completed", {
+    threadId: params.threadId,
+    item: { id: params.itemId, type: "fileChange" },
+  });
+  await handleCodexServerRequest(deps, CODEX_FILE_CHANGE_REQUEST_APPROVAL, params);
+  expect(reviewed[1]?.changes).toBeUndefined();
+  handleCodexApprovalNotification(deps, "item/started", {
+    threadId: params.threadId,
+    item: { id: params.itemId, type: "fileChange", changes },
+  });
+  cancelCodexApprovalsForThread("file-evidence-thread", "test cleanup");
+  await handleCodexServerRequest(deps, CODEX_FILE_CHANGE_REQUEST_APPROVAL, params);
+  expect(reviewed[2]?.changes).toBeUndefined();
+});
 
 test("Codex auto mode returns accept when the approval reviewer allows the command", async () => {
   const events: ThreadLiveEvent[] = [];

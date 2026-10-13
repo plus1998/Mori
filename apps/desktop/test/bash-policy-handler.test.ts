@@ -45,3 +45,37 @@ test("plan phase denies bash when phaseAllowsExecution is false", () => {
   expect(decision.action).toBe("deny");
   expect(decision.matchedRule).toBe("phase_execution_disabled");
 });
+
+test("explicit remembered prefixes remain authorized in auto mode", () => {
+  expect(
+    evaluateThreadToolConfirmation({
+      command: "bun run dev",
+      cwd,
+      workspacePath: workspace,
+      confirmationMode: "auto",
+      sessionBashRememberPrefixes: ["bun run"],
+    }),
+  ).toMatchObject({ action: "allow", matchedRule: "session_bash_prefix" });
+});
+
+test("remembered prefixes cannot bypass hard denials or phase restrictions", () => {
+  expect(
+    evaluateThreadToolConfirmation({
+      command: "rm -rf /",
+      cwd,
+      workspacePath: workspace,
+      confirmationMode: "auto",
+      sessionBashRememberPrefixes: ["rm"],
+    }).action,
+  ).toBe("deny");
+  expect(
+    evaluateThreadToolConfirmation({
+      command: "bun run dev",
+      cwd,
+      workspacePath: workspace,
+      confirmationMode: "auto",
+      sessionBashRememberPrefixes: ["bun"],
+      phaseAllowsExecution: false,
+    }),
+  ).toMatchObject({ action: "deny", matchedRule: "phase_execution_disabled" });
+});

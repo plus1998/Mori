@@ -12,6 +12,7 @@ export interface SystemOneChoiceAnswer {
 export function parseSystemOneChoiceAnswer(
   value: unknown,
   choices: readonly string[],
+  field: string = "answer",
 ): SystemOneChoiceAnswer {
   if (!value || typeof value !== "object") throw new Error("SystemOne 返回了无效答案。");
   const answer = value as SystemOneChoiceAnswer;
@@ -25,11 +26,16 @@ export function parseSystemOneChoiceAnswer(
     typeof answer.probabilities !== "object" ||
     Array.isArray(answer.probabilities) ||
     Object.keys(answer.probabilities).length !== choices.length ||
-    choices.some((choice) => !isProbability(answer.probabilities[choice])) ||
-    Math.abs(Object.values(answer.probabilities).reduce((sum, probability) => sum + probability, 0) - 1) >
-      0.01
+    choices.some((choice) => !isProbability(answer.probabilities[choice]))
   ) {
-    throw new Error("SystemOne 返回了无效的选项或概率。");
+    throw new Error(`SystemOne 返回了无效的选项或概率（${field}：选项、置信度或概率字段不符合契约）。`);
+  }
+  const total = Object.values(answer.probabilities).reduce((sum, probability) => sum + probability, 0);
+  // The API rounds probabilities. Include the intended ±1% endpoints despite IEEE-754 error.
+  if (Math.abs(total - 1) > 0.01 + 1e-9) {
+    throw new Error(
+      `SystemOne 返回了无效的选项或概率（${field}：概率总和 ${total} 超过允许的 ±0.01 舍入范围）。`,
+    );
   }
   const chosenProbability = answer.probabilities[answer.choice];
   if (chosenProbability === undefined) throw new Error("SystemOne 响应缺少所选选项的概率。");

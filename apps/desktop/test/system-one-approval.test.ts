@@ -7,6 +7,7 @@ import { resolveAuxiliaryModelRoute } from "../src/main/auxiliary-model-route";
 import { reviewEcoApproval } from "../src/main/eco-approval-reviewer";
 import { fetchUpstreamModelsFromCredentials, testProviderConnection } from "../src/main/provider-models";
 import { createProviderStore } from "../src/main/provider-store";
+import { parseSystemOneChoiceAnswer } from "../src/main/system-one-request";
 import { resolveVisionModelRoute } from "../src/main/vision-model-route";
 import { createWorkflowSettingsStore } from "../src/main/workflow-settings-store";
 import { normalizeUpstreamApiCompat, resolveUpstreamApiCompat } from "../src/shared/api-compat";
@@ -43,6 +44,33 @@ const envelope = {
   workspacePath: "/repo",
   reason: "inspect",
 };
+
+test("SystemOne accepts exactly ±1% rounded probability totals without a floating point veto", () => {
+  for (const probabilities of [
+    { low: 0.9, medium: 0.09, high: 0.01, critical: 0.01 },
+    { low: 0.9, medium: 0.07, high: 0.01, critical: 0.01 },
+  ]) {
+    expect(
+      parseSystemOneChoiceAnswer(
+        { type: "choice", choice: "low", confidence: 0.9, probabilities },
+        ["low", "medium", "high", "critical"],
+        "risk_level",
+      ).choice,
+    ).toBe("low");
+  }
+  expect(() =>
+    parseSystemOneChoiceAnswer(
+      {
+        type: "choice",
+        choice: "low",
+        confidence: 0.9,
+        probabilities: { low: 0.9, medium: 0.1, high: 0.02, critical: 0 },
+      },
+      ["low", "medium", "high", "critical"],
+      "risk_level",
+    ),
+  ).toThrow("risk_level：概率总和");
+});
 function choice(value: string, options: string[], confidence = 0.99, probabilities?: Record<string, number>) {
   return {
     type: "choice",
