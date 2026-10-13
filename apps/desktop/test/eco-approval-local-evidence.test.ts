@@ -3,7 +3,10 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { collectApprovalHostEvidence } from "../src/main/eco-approval-local-evidence";
+import {
+  approvalHostEvidenceState,
+  collectApprovalHostEvidence,
+} from "../src/main/eco-approval-local-evidence";
 
 let root: string, repo: string;
 const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, stdio: "pipe" });
@@ -45,6 +48,53 @@ test("only the exact clean tracked target gets verified Git recovery", async () 
   });
   expect(result.paths[0]?.git?.head).toMatch(/^[a-f0-9]{40,64}$/);
 });
+
+test.skipIf(process.platform === "win32")(
+  "null-device revalidation ignores only timestamps, preserving identity and type",
+  async () => {
+    const before = await evidence("find . -print 2>/dev/null | head -50");
+    expect(typeof before.paths[0]?.characterDeviceId).toBe("number");
+    const after = structuredClone(before);
+    const fact = after.paths[0];
+    if (!fact?.identity) throw new Error("Missing null device identity");
+    fact.identity.mtimeMs += 1_000;
+    fact.identity.ctimeMs += 1_000;
+    expect(approvalHostEvidenceState(after)).toBe(approvalHostEvidenceState(before));
+    for (const change of [
+      (value: typeof fact) => {
+        if (value.identity) value.identity.inode += 1;
+      },
+      (value: typeof fact) => {
+        if (value.identity) value.identity.mode += 1;
+      },
+      (value: typeof fact) => {
+        value.characterDeviceId = (value.characterDeviceId ?? 0) + 1;
+      },
+      (value: typeof fact) => {
+        value.canonicalPath = "/tmp/important.txt";
+      },
+      (value: typeof fact) => {
+        value.kind = "file";
+      },
+      (value: typeof fact) => {
+        value.kind = "symlink";
+      },
+      (value: typeof fact) => {
+        delete value.characterDeviceId;
+      },
+    ]) {
+      const changed = structuredClone(after);
+      const target = changed.paths[0];
+      if (!target) throw new Error("Missing target");
+      change(target);
+      expect(approvalHostEvidenceState(changed)).not.toBe(approvalHostEvidenceState(before));
+    }
+    const regular = await evidence("printf report > report.txt");
+    const altered = structuredClone(regular);
+    if (altered.paths[0]) altered.paths[0].exists = true;
+    expect(approvalHostEvidenceState(altered)).not.toBe(approvalHostEvidenceState(regular));
+  },
+);
 
 for (const target of ["src/assumed.ts", "src/skipped.ts"]) {
   test(`Git index flags cannot conceal missing recovery evidence: ${target}`, async () => {

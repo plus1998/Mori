@@ -4,7 +4,11 @@ import { lstat, readdir, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { type ApprovalActionTarget, extractApprovalActionTargets } from "./approval-action-targets";
+import {
+  type ApprovalActionTarget,
+  type ApprovalActionTargets,
+  extractApprovalActionTargets,
+} from "./approval-action-targets";
 
 const runFile = promisify(execFile);
 const GENERATED_DIRECTORIES = new Set([
@@ -39,6 +43,7 @@ export interface ApprovalPathEvidence {
   kind?: "file" | "directory" | "symlink" | "other";
   currentUserOwned?: boolean;
   identity?: { device: number; inode: number; size: number; mtimeMs: number; ctimeMs: number; mode: number };
+  characterDeviceId?: number;
   protectedRoot?: boolean;
   generatedDirectoryCandidate?: boolean;
   directory?: { inspectedEntries: number; complete: boolean; containsGitMetadata: boolean };
@@ -60,6 +65,7 @@ export interface ApprovalHostEvidence {
     decisionReason?: string;
     mcpServer?: { name: string; source: string };
   };
+  shell?: ApprovalActionTargets["shell"];
 }
 
 /** Facts read by the host; no shell execution, file contents, inferred ownership, or backups. */
@@ -166,6 +172,7 @@ export async function collectApprovalHostEvidence(input: {
             ctimeMs: stat.ctimeMs,
             mode: stat.mode,
           };
+          if (stat.isCharacterDevice()) fact.characterDeviceId = stat.rdev;
           if (stat.isDirectory() && ["delete", "move", "rollback"].includes(target.operation)) {
             fact.directory = await inspectDirectory(target.path, signal);
           }
@@ -204,6 +211,7 @@ export async function collectApprovalHostEvidence(input: {
       targetExtractionComplete: extracted.complete,
       paths,
       limitations: [...new Set(extracted.limitations)],
+      ...(extracted.shell ? { shell: extracted.shell } : {}),
       ...(repositories.length ? { repositories } : {}),
       ...(input.worktreePath ? { worktreePath: input.worktreePath } : {}),
       ...(input.sdkHints ? { sdkHints: input.sdkHints } : {}),
@@ -216,10 +224,31 @@ export async function collectApprovalHostEvidence(input: {
 /** Compare facts, excluding timestamps and dialog text. A review cannot reuse stale recovery proof. */
 export function approvalHostEvidenceState(evidence: ApprovalHostEvidence): string {
   return JSON.stringify({
-    paths: evidence.paths,
+    paths: evidence.paths.map((fact) => {
+      // macOS updates /dev/null timestamps on writes by unrelated processes. Its device
+      // identity, canonical path, ownership and mode still require exact revalidation.
+      if (
+        fact.path !== "/dev/null" ||
+        fact.canonicalPath !== "/dev/null" ||
+        fact.kind !== "other" ||
+        fact.characterDeviceId === undefined ||
+        !fact.identity
+      )
+        return fact;
+      return {
+        ...fact,
+        identity: {
+          device: fact.identity.device,
+          inode: fact.identity.inode,
+          size: fact.identity.size,
+          mode: fact.identity.mode,
+        },
+      };
+    }),
     repositories: evidence.repositories,
     targetExtractionComplete: evidence.targetExtractionComplete,
     limitations: evidence.limitations,
+    shell: evidence.shell,
   });
 }
 

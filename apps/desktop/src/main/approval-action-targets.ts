@@ -10,6 +10,12 @@ export interface ApprovalActionTargets {
   targets: ApprovalActionTarget[];
   complete: boolean;
   limitations: string[];
+  /** Syntactic effect candidate for model review, never an automatic allow rule. */
+  shell?: {
+    commands: string[];
+    pipeline: boolean;
+    effect: "read_only_candidate" | "mutation_or_unknown";
+  };
 }
 
 /** Evidence extraction only. Never executes shell text or claims to parse arbitrary scripts. */
@@ -84,19 +90,30 @@ export function extractApprovalActionTargets(input: {
     result.limitations.push("shell_not_statically_resolved");
     return result;
   }
+  result.shell = {
+    commands: [],
+    pipeline: commands.some((stage) => stage.piped),
+    effect: "read_only_candidate",
+  };
+  const unknownEffects = () => {
+    if (result.shell) result.shell.effect = "mutation_or_unknown";
+  };
   let cwd = input.cwd;
   const addInCwd = (value: string, operation: ApprovalActionTarget["operation"]) => {
     const expanded = expandLiteralPath(value);
     if (expanded) add(path.resolve(cwd, expanded), operation);
     else add(value, operation);
   };
-  for (const words of commands) {
+  for (const stage of commands) {
+    const words = [...stage.words];
     if (words[0] === "command") words.shift();
     const program = path.basename(words.shift() ?? "");
+    result.shell.commands.push(program);
     if (program === "cd") {
       const target = words.length === 1 ? expandLiteralPath(words[0] ?? "") : undefined;
       if (!target) {
         result.complete = false;
+        unknownEffects();
         result.limitations.push("cwd_not_statically_resolved");
         break;
       }
@@ -106,12 +123,19 @@ export function extractApprovalActionTargets(input: {
     let redirects = words.findIndex((word) => word === ">" || word === ">>");
     while (redirects >= 0) {
       const destination = words[redirects + 1];
-      if (destination) addInCwd(destination, "write");
-      else result.complete = false;
+      if (destination) {
+        addInCwd(destination, "write");
+        // Discarding stdout/stderr is not a persistent data-file mutation.
+        if (destination !== "/dev/null") unknownEffects();
+      } else {
+        result.complete = false;
+        unknownEffects();
+      }
       words.splice(redirects, 2);
       redirects = words.findIndex((word) => word === ">" || word === ">>");
     }
     if (program === "git") {
+      unknownEffects();
       const shellCwd = cwd;
       if (words[0] === "-C" && words[1]) {
         const target = expandLiteralPath(words[1]);
@@ -146,6 +170,14 @@ export function extractApprovalActionTargets(input: {
       cwd = shellCwd;
       continue;
     }
+    if (program === "find" && isReadOnlyFind(words)) continue;
+    if (words.some((word) => word.includes("$"))) unknownEffects();
+    if (program === "rg" && words.some((word) => /^--(?:pre|hostname-bin)(?:=|$)/.test(word))) {
+      result.complete = false;
+      unknownEffects();
+      result.limitations.push("search_can_execute_external_program");
+      continue;
+    }
     if (!["rm", "rmdir", "mkdir", "touch", "cp", "mv"].includes(program)) {
       if (
         !["ls", "pwd", "cat", "head", "tail", "rg", "grep", "echo", "printf", "true", "test"].includes(
@@ -153,10 +185,12 @@ export function extractApprovalActionTargets(input: {
         )
       ) {
         result.complete = false;
+        unknownEffects();
         result.limitations.push("script_or_indirect_effects_require_semantic_review");
       }
       continue;
     }
+    unknownEffects();
     if (["cp", "mv"].includes(program) && words.some((word) => /^(-t|--target-directory)/.test(word))) {
       result.complete = false;
       result.limitations.push("copy_move_options_not_statically_resolved");
@@ -187,6 +221,66 @@ export function extractApprovalActionTargets(input: {
   return result;
 }
 
+/** Only literal roots and known non-writing predicates/actions; unknown options stay unknown. */
+function isReadOnlyFind(words: readonly string[]): boolean {
+  const values = new Set([
+    "-name",
+    "-iname",
+    "-path",
+    "-ipath",
+    "-wholename",
+    "-iwholename",
+    "-type",
+    "-maxdepth",
+    "-mindepth",
+    "-mtime",
+    "-mmin",
+    "-size",
+    "-user",
+    "-uid",
+    "-group",
+    "-gid",
+  ]);
+  const predicates = new Set([
+    "-print",
+    "-print0",
+    "-prune",
+    "-quit",
+    "-o",
+    "-or",
+    "-a",
+    "-and",
+    "-not",
+    "!",
+    "-true",
+    "-false",
+    "-xdev",
+    "-mount",
+    "-depth",
+    "-follow",
+    "-H",
+    "-L",
+    "-P",
+    "(",
+    ")",
+  ]);
+  let expression = false;
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index] ?? "";
+    // The lexer retains an fd number before output redirection as a word.
+    if (word === "2" && index === words.length - 1) continue;
+    if (values.has(word)) {
+      if (!words[++index]) return false;
+      expression = true;
+    } else if (predicates.has(word)) {
+      expression = true;
+    } else if (expression || word.startsWith("-") || !expandLiteralPath(word)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function expandLiteralPath(value: string): string | undefined {
   let expanded = value;
   for (const [name, replacement] of [
@@ -201,8 +295,8 @@ function expandLiteralPath(value: string): string | undefined {
   return /[$`*?[\]{}]/.test(expanded) ? undefined : expanded;
 }
 
-/** Deliberately bounded subset: quoted words, simple chains, and output redirections. */
-function literalShellWords(command: string): string[][] | undefined {
+/** Deliberately bounded subset: quoted words, simple chains/pipelines, and output redirections. */
+function literalShellWords(command: string): Array<{ words: string[]; piped: boolean }> | undefined {
   if (
     command.length > 8_000 ||
     /[`\r\0]/.test(command) ||
@@ -212,11 +306,12 @@ function literalShellWords(command: string): string[][] | undefined {
     (/(?:^|&&|;)\s*cd\b/.test(command) && /[;\n]/.test(command))
   )
     return undefined;
-  const commands: string[][] = [];
+  const commands: Array<{ words: string[]; piped: boolean }> = [];
   let words: string[] = [],
     word = "",
     quote = "",
-    started = false;
+    started = false,
+    piped = false;
   const flush = () => {
     if (started) words.push(word);
     word = "";
@@ -246,17 +341,21 @@ function literalShellWords(command: string): string[][] | undefined {
     }
     if (char === "#" || char === "<" || char === "(" || char === ")") return undefined;
     if (char === "&" || char === "|") {
-      if (command[index + 1] !== char) return undefined;
-      index += 1;
+      const pipeline = char === "|" && command[index + 1] !== "|";
+      if (!pipeline && command[index + 1] !== char) return undefined;
+      if (!pipeline) index += 1;
       flush();
-      commands.push(words);
+      if (!words.length) return undefined;
+      commands.push({ words, piped: piped || pipeline });
       words = [];
+      piped = pipeline;
       continue;
     }
     if (char === ";" || char === "\n") {
       flush();
-      commands.push(words);
+      commands.push({ words, piped });
       words = [];
+      piped = false;
       continue;
     }
     if (char === ">") {
@@ -276,6 +375,17 @@ function literalShellWords(command: string): string[][] | undefined {
   }
   if (quote) return undefined;
   flush();
-  commands.push(words);
-  return commands.filter((entry) => entry.length > 0);
+  if (!words.length && piped) return undefined;
+  commands.push({ words, piped });
+  // cd in a pipeline runs in a subshell; it cannot establish the following stage's cwd.
+  if (
+    commands.some(
+      (stage) =>
+        stage.piped &&
+        path.basename(stage.words[0] === "command" ? (stage.words[1] ?? "") : (stage.words[0] ?? "")) ===
+          "cd",
+    )
+  )
+    return undefined;
+  return commands.filter((entry) => entry.words.length > 0);
 }

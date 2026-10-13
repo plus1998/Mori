@@ -92,6 +92,7 @@ test("SystemOne receives all scenario rules, exact host facts, SDK hints and adv
         "task_development_process",
         "isolated_test_resources",
         "task_reads_outputs_and_authentication",
+        "task_readonly_discovery",
         "bounded_task_permission",
       ])
         expect(body.state.policy).toContain(scenario);
@@ -103,6 +104,81 @@ test("SystemOne receives all scenario rules, exact host facts, SDK hints and adv
   expect(result.action).toBe("allow");
   expect(result.diagnostics?.decision.confidence).toBe(0.99);
 });
+
+test("read-only host evidence reaches JEV but never overrides the 90% model confidence gate", async () => {
+  const input = {
+    command: `cd ${repo} && find . -name "*group-message*" -print 2>/dev/null | head -50`,
+  };
+  const hostEvidence = await collectApprovalHostEvidence({
+    toolName: "Bash",
+    toolInput: input,
+    cwd: repo,
+    workspacePath: repo,
+  });
+  expect(hostEvidence.targetExtractionComplete).toBe(true);
+  expect(hostEvidence.shell).toMatchObject({
+    commands: ["cd", "find", "head"],
+    effect: "read_only_candidate",
+    pipeline: true,
+  });
+  const built = buildThreadApprovalEnvelope({
+    activityLines: [],
+    initialPrompt: "群消息导入新增 wxid 支持",
+    toolName: "Bash",
+    toolInput: input,
+    cwd: repo,
+    workspacePath: repo,
+    reason: "inspect",
+    hostEvidence,
+  });
+  if (!built.ok) throw new Error(built.rationale);
+  const result = await reviewEcoApproval({
+    route,
+    envelope: built.envelope,
+    fetcher: async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.state.evidence.hostEvidence.shell).toEqual(hostEvidence.shell);
+      const value = await allow().json();
+      value.answers.decision.confidence = 0.8;
+      return Response.json(value);
+    },
+  });
+  expect(result.action).toBe("human_required");
+  expect(result.policyMatches).toContain("system_one_low_confidence");
+});
+
+test.skipIf(process.platform === "win32")(
+  "unrelated null-device writes do not invalidate a read-only model approval",
+  async () => {
+    const input = { command: `cd ${repo} && find . -name "*group-message*" -print 2>/dev/null | head -50` };
+    const hostEvidence = await collectApprovalHostEvidence({
+      toolName: "Bash",
+      toolInput: input,
+      cwd: repo,
+      workspacePath: repo,
+    });
+    const built = buildThreadApprovalEnvelope({
+      activityLines: [],
+      initialPrompt: "群消息导入新增 wxid 支持",
+      toolName: "Bash",
+      toolInput: input,
+      cwd: repo,
+      workspacePath: repo,
+      reason: "inspect",
+      hostEvidence,
+    });
+    if (!built.ok) throw new Error(built.rationale);
+    const result = await reviewEcoApproval({
+      route,
+      envelope: built.envelope,
+      fetcher: async () => {
+        await writeFile("/dev/null", "unrelated stderr");
+        return allow();
+      },
+    });
+    expect(result.action).toBe("allow");
+  },
+);
 
 test("file changes during model review invalidate the previous approval proof", async () => {
   const target = path.join(scratch, "changing.txt");
