@@ -225,6 +225,7 @@ import { buildConversationV2OnlyProjection } from "./ActivityLogView";
 import type { PendingMainAgentConfigCreateSeed } from "./AgentCompositionResourcesSection";
 import { AppMessage, useAppMessage } from "./AppMessage";
 import { AsrMicButton, AsrVoiceComposer, isAsrComposerConfigured, useAsrRecorder } from "./AsrRecorder";
+import { resolveActivityUserMessageActiveAnchorId } from "./activity-user-message-nav";
 import {
   type ActivityWorkspaceLayoutMode,
   activityUserMessageNavListMaxHeightPx,
@@ -6638,25 +6639,24 @@ function App() {
 
   const syncActivityUserMessageNavigator = useCallback(
     (container: HTMLElement) => {
-      const anchors = Array.from(container.querySelectorAll<HTMLElement>("[data-user-message-anchor-id]"));
-      if (anchors.length === 0) {
-        updateActiveActivityUserMessageNavId(undefined);
-        return;
-      }
       const containerRect = container.getBoundingClientRect();
-      const markerY = containerRect.top + containerRect.height * 0.46;
-      let activeAnchor = anchors[0];
-      for (const anchor of anchors) {
-        const rect = anchor.getBoundingClientRect();
-        if (rect.top <= markerY || rect.bottom <= containerRect.top + 16) {
-          activeAnchor = anchor;
-          continue;
-        }
-        break;
-      }
-      updateActiveActivityUserMessageNavId(activeAnchor?.dataset.userMessageAnchorId);
+      const anchors = Array.from(
+        container.querySelectorAll<HTMLElement>("[data-user-message-anchor-id]"),
+      )
+        .map((anchor) => ({
+          id: anchor.dataset.userMessageAnchorId ?? "",
+          top: anchor.getBoundingClientRect().top - containerRect.top,
+        }))
+        .filter((anchor) => anchor.id);
+      updateActiveActivityUserMessageNavId(
+        resolveActivityUserMessageActiveAnchorId(anchors, {
+          top: 0,
+          height: containerRect.height,
+          distanceFromBottomPx: distanceFromActivityFeedBottom(container),
+        }),
+      );
     },
-    [updateActiveActivityUserMessageNavId],
+    [distanceFromActivityFeedBottom, updateActiveActivityUserMessageNavId],
   );
 
   // Hand scroll anchoring back to the browser while the reader is detached from the bottom.
@@ -6783,10 +6783,15 @@ function App() {
             setActivityFeedDetachedAnchor(false);
           }
           syncActivityFeedScrollJump(el);
+          // Programmatic writes never reach the scroll listener (it early-returns on
+          // `programmaticActivityFeedScrollRef`), so the rail would keep whatever the
+          // pre-scroll geometry produced — a freshly opened thread stayed pinned to
+          // the first message while the Feed sat at its end.
+          syncActivityUserMessageNavigator(el);
         });
       });
     },
-    [distanceFromActivityFeedBottom, syncActivityFeedScrollJump],
+    [distanceFromActivityFeedBottom, syncActivityFeedScrollJump, syncActivityUserMessageNavigator],
   );
 
   const cancelActivityFeedLayoutScroll = useCallback(() => {
