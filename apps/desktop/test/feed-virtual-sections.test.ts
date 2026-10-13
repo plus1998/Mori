@@ -1,14 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { Virtualizer } from "@tanstack/react-virtual";
+import type { ThreadRunTurnFeedSection } from "../src/renderer/conversation-v2-turn-feed";
 import {
+  createFeedSectionKeySelector,
   estimateSectionSize,
   FEED_VIRTUALIZE_MIN_SECTIONS,
   findFeedSectionIndexForAnchor,
   isThreadPromptAnchorId,
   listUserMessageAnchorsFromSections,
   recordMeasuredSectionSize,
-  shouldFeedAdjustScrollOnResize,
 } from "../src/renderer/feed-virtual-sections";
-import type { ThreadRunTurnFeedSection } from "../src/renderer/conversation-v2-turn-feed";
 
 function timelineEntry(id: string, text = "hi"): ThreadRunTurnFeedSection {
   return {
@@ -103,6 +104,83 @@ describe("feed-virtual-sections", () => {
   });
 });
 
+describe("virtualizer key invalidation", () => {
+  function virtualizerFor(sections: readonly ThreadRunTurnFeedSection[]) {
+    const selectKeys = createFeedSectionKeySelector();
+    const virtualizer = new Virtualizer<HTMLElement, Element>({
+      count: sections.length,
+      getScrollElement: () => null,
+      getItemKey: selectKeys(sections),
+      estimateSize: () => 100,
+      initialRect: { width: 600, height: 400 },
+      scrollToFn: () => {},
+      observeElementRect: () => {},
+      observeElementOffset: () => {},
+    });
+    return { virtualizer, selectKeys };
+  }
+
+  test("text-only updates preserve measured sizes and the key callback", () => {
+    const sections = [
+      timelineEntry("key-first"),
+      timelineEntry("key-middle"),
+      timelineEntry("key-last"),
+    ] as const;
+    const { virtualizer, selectKeys } = virtualizerFor(sections);
+    virtualizer.getTotalSize();
+    virtualizer.resizeItem(1, 240);
+    const previous = virtualizer.options.getItemKey;
+    const getItemKey = selectKeys(sections.map((section) => ({ ...section })));
+    virtualizer.setOptions({ ...virtualizer.options, getItemKey });
+    expect(getItemKey).toBe(previous);
+    expect(virtualizer.getVirtualItems()[1]?.size).toBe(240);
+    expect(virtualizer.getTotalSize()).toBe(440);
+  });
+
+  test("same-count middle replacement discards the old row's measured geometry", () => {
+    const sections = [
+      timelineEntry("key-first"),
+      timelineEntry("key-middle"),
+      timelineEntry("key-last"),
+    ] as const;
+    const { virtualizer, selectKeys } = virtualizerFor(sections);
+    virtualizer.getTotalSize();
+    virtualizer.resizeItem(1, 240);
+    const previous = virtualizer.options.getItemKey;
+    virtualizer.setOptions({
+      ...virtualizer.options,
+      getItemKey: selectKeys([sections[0], timelineEntry("key-replacement"), sections[2]]),
+    });
+    expect(previous(1)).toBe("standalone:timeline:key-middle");
+    expect(virtualizer.getVirtualItems()[1]?.key).toBe("standalone:timeline:key-replacement");
+    expect(virtualizer.getVirtualItems()[1]?.size).toBe(100);
+    expect(virtualizer.getTotalSize()).toBe(300);
+  });
+
+  test("same-count reorder moves measured sizes with the corresponding keys", () => {
+    const sections = [
+      timelineEntry("key-first"),
+      timelineEntry("key-a"),
+      timelineEntry("key-b"),
+      timelineEntry("key-last"),
+    ] as const;
+    const { virtualizer, selectKeys } = virtualizerFor(sections);
+    virtualizer.getTotalSize();
+    virtualizer.resizeItem(1, 240);
+    virtualizer.resizeItem(2, 160);
+    virtualizer.setOptions({
+      ...virtualizer.options,
+      getItemKey: selectKeys([sections[0], sections[2], sections[1], sections[3]]),
+    });
+    const rows = virtualizer.getVirtualItems();
+    expect(rows[1]?.key).toBe("standalone:timeline:key-b");
+    expect(rows[1]?.size).toBe(160);
+    expect(rows[2]?.key).toBe("standalone:timeline:key-a");
+    expect(rows[2]?.size).toBe(240);
+    expect(rows[2]?.start).toBe(260);
+  });
+});
+
 function turnSection(processCount: number): ThreadRunTurnFeedSection {
   return {
     kind: "turn",
@@ -131,25 +209,6 @@ function turnSection(processCount: number): ThreadRunTurnFeedSection {
     })),
   } as ThreadRunTurnFeedSection;
 }
-
-describe("row resize scroll compensation", () => {
-  test("compensates only when the change stays above the fold", () => {
-    // Grows, still entirely above the fold: everything that moved is off-screen.
-    expect(shouldFeedAdjustScrollOnResize({ start: 100, size: 300 }, 200, 1_000)).toBe(true);
-    // Grows across the fold: part of the change happened inside the viewport.
-    expect(shouldFeedAdjustScrollOnResize({ start: 100, size: 300 }, 800, 1_000)).toBe(false);
-    // Already spanned the fold before shrinking.
-    expect(shouldFeedAdjustScrollOnResize({ start: 100, size: 1_200 }, -200, 1_000)).toBe(false);
-    // Below the fold.
-    expect(shouldFeedAdjustScrollOnResize({ start: 1_200, size: 300 }, 200, 1_000)).toBe(false);
-  });
-
-  test("a tall turn row mounting across the fold never drags the viewport", () => {
-    // The measured case: estimate 508, real 1778, top 300px above the fold.
-    // virtual-core's default compensates this by the full 1270px delta.
-    expect(shouldFeedAdjustScrollOnResize({ start: 700, size: 508 }, 1_270, 1_000)).toBe(false);
-  });
-});
 
 describe("learned row estimates", () => {
   test("a measured shape bucket replaces its static estimate", () => {
@@ -180,5 +239,42 @@ describe("learned row estimates", () => {
     recordMeasuredSectionSize(wide, 2_000);
     expect(estimateSectionSize(wide)).toBe(2_000);
     expect(estimateSectionSize(narrow)).toBe(508);
+  });
+
+  test("a streaming row never moves the estimate of its shape", () => {
+    // The live turn grows on every ResizeObserver tick. Folding those heights
+    // back into the shared bucket re-estimates every unmeasured row of the same
+    // shape, which moves totalSize — and the virtual boundary — every frame.
+    const shape = 15;
+    const settled = { ...turnSection(shape), key: "turn:settled-15" };
+    recordMeasuredSectionSize(settled, 900);
+    const baseline = estimateSectionSize(settled);
+    for (let height = 900; height <= 4_000; height += 50) {
+      recordMeasuredSectionSize({ ...turnSection(shape), key: "turn:live-15", running: true }, height);
+    }
+    expect(estimateSectionSize(settled)).toBe(baseline);
+  });
+
+  test("one row is one shape sample, so re-measuring it cannot churn the estimate", () => {
+    const row = { ...turnSection(16), key: "turn:repeat-16" };
+    recordMeasuredSectionSize(row, 1_000);
+    const baseline = estimateSectionSize(row);
+    for (const height of [1_000, 1_050, 980, 1_200]) {
+      recordMeasuredSectionSize(row, height);
+    }
+    expect(estimateSectionSize(row)).toBe(baseline);
+  });
+
+  test("the bucket estimate settles instead of chasing every sample", () => {
+    const shape = 17;
+    for (let index = 0; index < 12; index += 1) {
+      recordMeasuredSectionSize({ ...turnSection(shape), key: `turn:converge-${index}` }, 1_000);
+    }
+    const settled = estimateSectionSize(turnSection(shape));
+    recordMeasuredSectionSize({ ...turnSection(shape), key: "turn:converge-outlier" }, 1_400);
+    const afterOutlier = estimateSectionSize(turnSection(shape));
+    expect(settled).toBe(1_000);
+    // A cumulative mean moves by one sample's share, not by 40% of the gap.
+    expect(afterOutlier - settled).toBeLessThanOrEqual(31);
   });
 });

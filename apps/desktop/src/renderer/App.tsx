@@ -415,7 +415,6 @@ import type { TerminalSessionPresentation } from "./TerminalPanel";
 import { ThreadIdleCacheWarning } from "./ThreadIdleCacheWarning";
 import { TtsArtifactsContext } from "./TtsArtifactPlayer";
 import { loadTaskPanelReviewDiff } from "./task-panel-review-loader";
-import { cacheWorkspaceReviewSummary, invalidateWorkspaceReviewSummary, readWorkspaceReviewSummary } from "./workspace-review-cache";
 import {
   captureTaskPanelSessionUiState,
   emptyTaskPanelSessionUiState,
@@ -509,6 +508,11 @@ import {
   shouldRefreshWorkspaceGitStatus,
   type WorkspaceGitStatusCache,
 } from "./workspace-git-status-cache";
+import {
+  cacheWorkspaceReviewSummary,
+  invalidateWorkspaceReviewSummary,
+  readWorkspaceReviewSummary,
+} from "./workspace-review-cache";
 import "./themes.css";
 import "./styles.css";
 import "./theme-overrides.css";
@@ -6512,6 +6516,7 @@ function App() {
   const workspaceCardsPanelRef = useRef<HTMLElement>(null);
   const [topbarSolid, setTopbarSolid] = useState(true);
   const userDetachedFromBottomRef = useRef(false);
+  const [feedUserDetached, setFeedUserDetached] = useState(false);
   const activityFeedScrollTopRef = useRef(0);
   const programmaticActivityFeedScrollRef = useRef(false);
   const forceActivityFeedScrollUntilRef = useRef(0);
@@ -6624,6 +6629,20 @@ function App() {
   // stable; the class flips back off as soon as they return to the bottom (or force-scroll).
   const setActivityFeedDetachedAnchor = useCallback((detached: boolean) => {
     activityMessagesRef.current?.classList.toggle("is-reading-detached", detached);
+    setFeedUserDetached(detached);
+  }, []);
+
+  /**
+   * True while the Feed renders virtualized rows. Those rows are end-anchored,
+   * so virtual-core already compensates content growth at the tail
+   * (`resizeItem`'s `wasAtEnd` path). Writing `scrollTop` here as well makes the
+   * two writers disagree inside one frame: the follow write moves the viewport,
+   * the virtual window re-derives its boundary from the moved offset, the
+   * spacers change, and the ResizeObserver fires the follow again.
+   */
+  const feedEndAnchoredRef = useRef(false);
+  const handleFeedEndAnchorChange = useCallback((endAnchored: boolean) => {
+    feedEndAnchoredRef.current = endAnchored;
   }, []);
 
   const jumpToActivityUserMessage = useCallback(
@@ -6697,8 +6716,16 @@ function App() {
         return;
       }
       const effectiveForce = force || Date.now() < forceActivityFeedScrollUntilRef.current;
-      if (!effectiveForce && userDetachedFromBottomRef.current) {
-        return;
+      if (!effectiveForce) {
+        if (userDetachedFromBottomRef.current) {
+          return;
+        }
+        // An end-anchored Feed is pinned inside virtual-core already. Following
+        // again from here is the second writer that made the virtual boundary
+        // re-derive on nearly every stream tick.
+        if (feedEndAnchoredRef.current) {
+          return;
+        }
       }
       programmaticActivityFeedScrollRef.current = true;
       const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
@@ -7020,6 +7047,13 @@ function App() {
           // programmatic scroll whose flag was cleared before the event fired — not the user
           // scrolling up. Marking detached here would permanently stop auto-follow.
           activityFeedUserScrollDirectionRef.current = null;
+        } else if (feedEndAnchoredRef.current && distanceFromBottom <= ACTIVITY_FEED_STICK_THRESHOLD_PX) {
+          // An end-anchored Feed compensates content that changed above the fold by
+          // moving `scrollTop` itself (a collapsed thinking block, an estimate that
+          // settled). The reader is still inside the stick band, so this is layout,
+          // not intent — a real gesture keeps going and trips the band on the next
+          // event, and the wheel handler detaches before any of this.
+          activityFeedUserScrollDirectionRef.current = null;
         } else {
           markActivityFeedUserDetached("up");
         }
@@ -7047,7 +7081,13 @@ function App() {
         return;
       }
       // Detach before virtualization ResizeObserver can snap stick-to-bottom mid-gesture.
-      markActivityFeedUserDetached("up");
+      if (userDetachedFromBottomRef.current) {
+        markActivityFeedUserDetached("up");
+      } else {
+        // Disable virtual-core's resize/append follow before the next observer
+        // callback, even when this gesture has not left the 120px stick band.
+        flushSync(() => markActivityFeedUserDetached("up"));
+      }
       syncActivityFeedBoot(container);
     };
     container.addEventListener("scroll", onScroll, { passive: true });
@@ -7134,7 +7174,10 @@ function App() {
       clampActivityFeedOverscroll(container);
       syncActivityFeedBoot(container);
       // Terminal open/close resizes the feed viewport. Keep stick-to-bottom so content
-      // rises with the panel instead of being clipped under it.
+      // rises with the panel instead of being clipped under it. End-anchored rows
+      // compensate item growth, not a shrinking scroll element (upstream
+      // TanStack/virtual#1297 is still open on that), so this writer stays on even
+      // when the Feed is virtualized — hence the forced call.
       if (userDetachedFromBottomRef.current) {
         if (delta > 0) {
           container.scrollTop = Math.max(0, container.scrollTop + delta);
@@ -7144,8 +7187,8 @@ function App() {
         syncActivityUserMessageNavigator(container);
         return;
       }
-      scrollActivityFeedToEnd();
-      requestAnimationFrame(() => scrollActivityFeedToEnd());
+      scrollActivityFeedToEnd(true);
+      requestAnimationFrame(() => scrollActivityFeedToEnd(true));
       syncActivityUserMessageNavigator(container);
     });
     observer.observe(container);
@@ -8761,7 +8804,9 @@ function App() {
           canCommit: diff.fileCount > 0,
         });
       }
-      setProjectWorkspace((current) => current?.path === currentProjectPath ? { ...current, dirtyFileCount: diff.fileCount } : current);
+      setProjectWorkspace((current) =>
+        current?.path === currentProjectPath ? { ...current, dirtyFileCount: diff.fileCount } : current,
+      );
     },
     [currentProjectPath, storeGitStatus],
   );
@@ -8794,7 +8839,8 @@ function App() {
     reviewDiffRequestRef.current = requestId;
     await loadTaskPanelReviewDiff({
       workspacePath: currentProjectPath,
-      getWorkspaceDiff: (workspacePath) => eco.getWorkspaceDiff(workspacePath, { refresh: reviewDiffManualRefreshRef.current }),
+      getWorkspaceDiff: (workspacePath) =>
+        eco.getWorkspaceDiff(workspacePath, { refresh: reviewDiffManualRefreshRef.current }),
       isCurrent: () => reviewDiffRequestRef.current === requestId,
       onLoadingChange: handleChangesDiffLoadingChange,
       onLoaded: handleChangesDiffLoaded,
@@ -8808,8 +8854,13 @@ function App() {
     return window.eco.onGitStatusChanged((event) => {
       const current = gitStatusByWorkspaceRef.current[event.workspacePath]?.status;
       if (!current) return;
-      storeGitStatus(event.workspacePath, { ...current, dirtyFileCount: event.dirtyFileCount,
-        insertions: event.insertions, deletions: event.deletions, canCommit: event.dirtyFileCount > 0 });
+      storeGitStatus(event.workspacePath, {
+        ...current,
+        dirtyFileCount: event.dirtyFileCount,
+        insertions: event.insertions,
+        deletions: event.deletions,
+        canCommit: event.dirtyFileCount > 0,
+      });
     });
   }, [storeGitStatus]);
 
@@ -8818,7 +8869,10 @@ function App() {
     const unsubscribe = window.eco.onGitDiffChanged((event) => {
       if (event.workspacePath !== currentProjectPath) return;
       invalidateWorkspaceReviewSummary(currentProjectPath);
-      if (event.error) { setReviewDiffError(event.error); return; }
+      if (event.error) {
+        setReviewDiffError(event.error);
+        return;
+      }
       if (taskDrawerOpenRef.current && taskPanelActiveTabRef.current === TASK_PANEL_REVIEW_TAB_ID) {
         void refreshReviewDiffRef.current();
       }
@@ -8830,7 +8884,10 @@ function App() {
       }
     };
     window.addEventListener("focus", onFocus);
-    return () => { unsubscribe(); window.removeEventListener("focus", onFocus); };
+    return () => {
+      unsubscribe();
+      window.removeEventListener("focus", onFocus);
+    };
   }, [currentProjectPath]);
 
   const requestReviewDiffRefresh = useCallback(() => {
@@ -11970,6 +12027,8 @@ function App() {
                                       onRetryFailedRequest={retryFailedRequest}
                                       onPlannerLayoutChange={handleActivityPlannerLayoutChange}
                                       onComposerAgentSilenceChange={setComposerAgentSilenceVisible}
+                                      onFeedEndAnchorChange={handleFeedEndAnchorChange}
+                                      feedUserDetached={feedUserDetached}
                                       {...(Object.keys(activityModelByRole).length > 0 && {
                                         modelByRole: activityModelByRole,
                                       })}

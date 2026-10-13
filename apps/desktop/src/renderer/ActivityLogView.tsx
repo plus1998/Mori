@@ -564,6 +564,12 @@ function resolveTurnFinalSummaryItemIds(
   return ids;
 }
 
+/** Stand-in row for the live 「正在思考」/「正在写」 line, appended to the Feed's sections. */
+const ACTIVE_TAIL_FEED_SECTION = {
+  kind: "active-tail",
+  key: "run-log:active-tail",
+} as const satisfies ThreadRunTurnFeedSection;
+
 export interface ActivityLogViewProps {
   thread?: ThreadSummary;
   onRestorePrompt?: RestorePromptHandler;
@@ -586,6 +592,14 @@ export interface ActivityLogViewProps {
   onOpenImageDisplayArtifact?: OpenImageDisplayArtifactHandler;
   /** Called when planner / main-window log content changes — scroll the activity feed. */
   onPlannerLayoutChange?: ActivityFeedLayoutChange;
+  /**
+   * Reports whether the Feed renders virtualized rows. An end-anchored
+   * virtualizer pins the live tail inside virtual-core; the host must then keep
+   * its hands off `scrollTop` for content growth, because a second writer on
+   * the same property re-derives the virtual window on every stream tick.
+   */
+  onFeedEndAnchorChange?: (endAnchored: boolean) => void;
+  feedUserDetached?: boolean;
   /**
    * Called when the Feed has gone quiet mid-run: the agent is alive but has produced
    * nothing visible for {@link COMPOSER_FLOATING_LOADING_DELAY_MS}, which is the gap while
@@ -1822,6 +1836,10 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
       {...(props.onComposerAgentSilenceChange && {
         onComposerAgentSilenceChange: props.onComposerAgentSilenceChange,
       })}
+      {...(props.onFeedEndAnchorChange && {
+        onFeedEndAnchorChange: props.onFeedEndAnchorChange,
+      })}
+      feedUserDetached={props.feedUserDetached ?? false}
       {...(props.onLoadProjectionDetail && {
         onLoadProjectionDetail: props.onLoadProjectionDetail,
       })}
@@ -1848,6 +1866,8 @@ export function ConversationV2ProjectionActivityLogView({
   onRetryFailedRequest,
   onPlannerLayoutChange,
   onComposerAgentSilenceChange,
+  onFeedEndAnchorChange,
+  feedUserDetached = false,
   agentDisplayNames,
   agentThemes,
   onLoadProjectionDetail,
@@ -1874,6 +1894,8 @@ export function ConversationV2ProjectionActivityLogView({
   onRetryFailedRequest?: RetryFailedRequestHandler;
   onPlannerLayoutChange?: ActivityFeedLayoutChange;
   onComposerAgentSilenceChange?: (silent: boolean) => void;
+  onFeedEndAnchorChange?: (endAnchored: boolean) => void;
+  feedUserDetached?: boolean;
   thinkingDisplayMode?: ThinkingDisplayMode;
 }) {
   const requestSpansById = useMemo(
@@ -1955,30 +1977,34 @@ export function ConversationV2ProjectionActivityLogView({
 
   const runningToolVisible =
     viewModel.mainFeedEntries.some((entry) => isRunningToolFeedEntry(entry)) || settlingToolExtensionMs > 0;
-  // The live tail states are exclusive: while the latest content is a tool call or
-  // aggregation, that tool row owns the active content state — never render「正在思考」
-  // or a Summary tip beneath it. The active tail is only needed when the current
-  // slot is not already owned by a tool/aggregate.
-  const latestContentIsToolGroup = useMemo(() => {
-    const entries = viewModel.mainFeedEntries;
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
-      const entry = entries[index];
-      if (!entry) {
-        continue;
-      }
-      if (entry.kind === "timeline" || entry.kind === "agent-echo") {
-        if (isWaitingThinkingItem(entry.item, requestSpansById)) {
-          continue;
-        }
-        return false;
-      }
-      return entry.kind === "tool-group";
-    }
-    return false;
-  }, [viewModel.mainFeedEntries, requestSpansById]);
+  // The Feed's live row is one slot, and three states take turns owning it:
+  //   1. 阅后即焚的思考 — the ephemeral reasoning tip takes the slot by replacing the
+  //      trailing tool entry in the projection (`replaceLatestToolWithReasoningStage`)
+  //      and is then deferred into the active-tail row;
+  //   2. 最后一行工具调用聚合 — the trailing tool-group owns the slot by rendering its own
+  //      row, and the active tail stays away while it is there;
+  //   3. 「正在准备 xxx」 — the model writing its next call owns the slot *instead of* the
+  //      settled aggregate row it follows, never beneath it, and it outranks the
+  //      minimum-visible "running" window so a quick succession of calls still narrates.
+  // A tool that is still genuinely running keeps its row: with parallel calls the running
+  // activity is the thing to narrate, so a wait label may not hide it.
+  const liveSlotEntry = useMemo(
+    () => resolveFeedLiveSlotEntry(viewModel.mainFeedEntries, requestSpansById),
+    [viewModel.mainFeedEntries, requestSpansById],
+  );
+  const latestContentIsToolGroup = liveSlotEntry?.kind === "tool-group";
   const runningContextCompactionVisible = viewModel.mainFeedEntries.some((entry) =>
     isRunningContextCompactionFeedEntry(entry),
   );
+  const writingTakesLiveSlot =
+    conversationActive &&
+    !runningContextCompactionVisible &&
+    Boolean(toolWritingIndicator) &&
+    latestContentIsToolGroup &&
+    !(liveSlotEntry && isRunningToolFeedEntry(liveSlotEntry));
+  // Only the writing state hides a row here: the tip already took the tool entry's place
+  // in the projection, and a running tool is never displaced.
+  const suppressedFeedEntryKey = writingTakesLiveSlot ? liveSlotEntry?.key : undefined;
   // While the conversation is live, Summary tip shares the active-tail slot with
   // empty "正在思考" — never render both as sibling WaitingThinkingBlocks.
   const liveReasoningStageLabel = conversationActive
@@ -2032,6 +2058,8 @@ export function ConversationV2ProjectionActivityLogView({
     () =>
       [
         showThreadPrompt ? `prompt:${thread?.id ?? ""}` : "",
+        // The slot swap is a layout change: the row it vacates leaves the DOM.
+        suppressedFeedEntryKey ? `suppressed:${suppressedFeedEntryKey}` : "",
         ...viewModel.mainFeedEntries.map((entry) => {
           if (entry.kind === "timeline" || entry.kind === "agent-echo") {
             return `${entry.key}:${projectionTimelineItemRenderSignature(entry.item)}`;
@@ -2052,7 +2080,7 @@ export function ConversationV2ProjectionActivityLogView({
       ]
         .filter(Boolean)
         .join("|"),
-    [showThreadPrompt, thread?.id, viewModel.mainFeedEntries],
+    [showThreadPrompt, suppressedFeedEntryKey, thread?.id, viewModel.mainFeedEntries],
   );
 
   usePlannerLayoutChangeEffect(layoutSignature, onPlannerLayoutChange);
@@ -2073,20 +2101,51 @@ export function ConversationV2ProjectionActivityLogView({
 
   const runLogRef = useRef<HTMLDivElement>(null);
   const feedHeaderRef = useRef<HTMLDivElement>(null);
-  const virtualizeEnabled = feedSections.length >= FEED_VIRTUALIZE_MIN_SECTIONS;
+  /*
+    `latestContentIsToolGroup` keeps 「正在思考」 and Summary tips from stacking under a tool
+    row — that row owns the slot. It must not swallow the one state that outlives it: a
+    *settled* tool group is not an activity, and the model writing its next call is. A
+    10.9s write after a finished Edit was invisible because of this, with nothing else on
+    the wire to notice it — so the writing state now takes that row itself
+    (`writingTakesLiveSlot`) rather than appearing below it.
+  */
+  const activeTailVisible =
+    conversationActive &&
+    !runningContextCompactionVisible &&
+    (writingTakesLiveSlot || (!runningToolVisible && !latestContentIsToolGroup));
+  // The live tail is a row of the Feed, not decoration appended after it. The
+  // virtualizer keeps the bottom pinned only for geometry it measures, so a tail
+  // rendered outside the window pushes the newest output out of view.
+  const renderedFeedSections = useMemo(
+    () => (activeTailVisible ? [...feedSections, ACTIVE_TAIL_FEED_SECTION] : feedSections),
+    [feedSections, activeTailVisible],
+  );
+  const virtualizeEnabled = renderedFeedSections.length >= FEED_VIRTUALIZE_MIN_SECTIONS;
   const {
     enabled: feedVirtualized,
     virtualItems,
     totalSize,
     scrollMargin,
+    paddingStart: feedPaddingStart,
+    paddingEnd: feedPaddingEnd,
     measureElement,
     resolveSectionTopPx,
   } = useFeedSectionVirtualizer({
-    sections: feedSections,
+    sections: renderedFeedSections,
     enabled: virtualizeEnabled,
+    userDetached: feedUserDetached,
     runLogRef,
     headerRef: feedHeaderRef,
   });
+  useEffect(() => {
+    if (!onFeedEndAnchorChange) {
+      return undefined;
+    }
+    onFeedEndAnchorChange(virtualizeEnabled);
+    return () => {
+      onFeedEndAnchorChange(false);
+    };
+  }, [onFeedEndAnchorChange, virtualizeEnabled]);
   const userMessageAnchors = useMemo(() => listUserMessageAnchorsFromSections(feedSections), [feedSections]);
   const mountedSectionIndexes = useMemo(
     () => new Set(virtualItems.map((item) => item.index)),
@@ -2097,6 +2156,7 @@ export function ConversationV2ProjectionActivityLogView({
     requestSpansById,
     finalSummaryItemIds,
     deferReasoningStageTip,
+    ...(suppressedFeedEntryKey && { suppressedFeedEntryKey }),
     ...(stickyFinalSummaryItemId && { stickyFinalSummaryItemId }),
     ...(selectedSubagentAgentId && { selectedSubagentAgentId }),
     ...(onOpenSubagent && { onOpenSubagent }),
@@ -2118,7 +2178,7 @@ export function ConversationV2ProjectionActivityLogView({
   } as const;
 
   const renderFeedSection = (index: number) => {
-    const section = feedSections[index];
+    const section = renderedFeedSections[index];
     if (!section) {
       return null;
     }
@@ -2128,6 +2188,20 @@ export function ConversationV2ProjectionActivityLogView({
           section={section}
           {...sharedSectionProps}
           stopping={Boolean(thread?.cancelling)}
+        />
+      );
+    }
+    if (section.kind === "active-tail") {
+      return (
+        <RunLogActiveTail
+          waiting={waitingThinkingVisible || Boolean(toolWritingIndicator)}
+          stopping={Boolean(thread?.cancelling)}
+          writing={Boolean(toolWritingLabel)}
+          {...(toolWritingLabel
+            ? { label: toolWritingLabel }
+            : liveReasoningStageLabel
+              ? { label: liveReasoningStageLabel }
+              : {})}
         />
       );
     }
@@ -2165,43 +2239,23 @@ export function ConversationV2ProjectionActivityLogView({
                 resolveSectionTopPx={resolveSectionTopPx}
               />
               <FeedVirtualSectionWindow
-                sections={feedSections}
+                sections={renderedFeedSections}
                 totalSize={totalSize}
                 scrollMargin={scrollMargin}
+                paddingStart={feedPaddingStart}
+                paddingEnd={feedPaddingEnd}
                 virtualItems={virtualItems}
                 measureElement={measureElement}
                 renderSection={renderFeedSection}
               />
             </>
           ) : (
-            feedSections.map((section, index) => (
+            renderedFeedSections.map((section, index) => (
               <div key={section.key} className="run-log-virtual-row">
                 {renderFeedSection(index)}
               </div>
             ))
           )}
-          {/*
-            `latestContentIsToolGroup` keeps 「正在思考」 and Summary tips from stacking under a tool
-            row — that row owns the slot. It must not swallow the one state that outlives it: a
-            *settled* tool group is not an activity, and the model writing its next call is. A
-            10.9s write after a finished Edit was invisible because of this, with nothing else on
-            the wire to notice it.
-          */}
-          {conversationActive &&
-          !runningToolVisible &&
-          !runningContextCompactionVisible &&
-          (!latestContentIsToolGroup || Boolean(toolWritingIndicator)) ? (
-            <RunLogActiveTail
-              waiting={waitingThinkingVisible || Boolean(toolWritingIndicator)}
-              stopping={Boolean(thread?.cancelling)}
-              writing={Boolean(toolWritingLabel)}
-              {...(toolWritingLabel
-                ? { label: toolWritingLabel }
-                : liveReasoningStageLabel
-                  ? { label: liveReasoningStageLabel }
-                  : {})}
-            />
-          ) : null}
         </div>
       </ActivityFeedLayoutContext.Provider>
     </RequestSpansContext.Provider>
@@ -2214,6 +2268,8 @@ type ProjectionFeedEntrySharedProps = {
   stickyFinalSummaryItemId?: string;
   /** Defer reasoning-stage tip rows into the feed active-tail (live conversation). */
   deferReasoningStageTip?: boolean;
+  /** The slot-owning entry a live state has taken over; that row renders as null. */
+  suppressedFeedEntryKey?: string;
   selectedSubagentAgentId?: string;
   onOpenSubagent?: OpenSubagentHandler;
   onOpenImageGenerationTool?: OpenImageGenerationToolHandler;
@@ -2241,14 +2297,19 @@ function ProjectionTurnFeedSection({
 }) {
   const requestSpansById = entryProps.requestSpansById;
   const deferReasoningStageTip = Boolean(entryProps.deferReasoningStageTip);
+  const suppressedFeedEntryKey = entryProps.suppressedFeedEntryKey;
   const detailLoaded = section.processEntries.some(
     (entry) =>
       (entry.kind === "timeline" || entry.kind === "agent-echo") && entry.item.contentLoaded === true,
   );
-  // Empty "正在思考" / live Summary tip are deferred to the feed active-tail. If the
-  // process would only render those rows as null, mark process empty so the divider
-  // does not open a hollow padding gap sitting above the tail waiting line.
+  // Empty "正在思考" / live Summary tip are deferred to the feed active-tail, and the
+  // tool aggregate a live state took over is suppressed outright. If the process would
+  // only render those rows as null, mark process empty so the divider does not open a
+  // hollow padding gap sitting above the tail waiting line.
   const processEmpty = !section.processEntries.some((entry) => {
+    if (suppressedFeedEntryKey && entry.key === suppressedFeedEntryKey) {
+      return false;
+    }
     if (entry.kind === "timeline" || entry.kind === "agent-echo") {
       return !isDeferredThinkingStatusItem(entry.item, requestSpansById, deferReasoningStageTip);
     }
@@ -2612,6 +2673,7 @@ function ProjectionMainFeedEntry({
   finalSummaryItemIds,
   stickyFinalSummaryItemId,
   deferReasoningStageTip = false,
+  suppressedFeedEntryKey,
   selectedSubagentAgentId,
   onOpenSubagent,
   onOpenImageGenerationTool,
@@ -2634,6 +2696,8 @@ function ProjectionMainFeedEntry({
   finalSummaryItemIds: ReadonlySet<string>;
   stickyFinalSummaryItemId?: string;
   deferReasoningStageTip?: boolean;
+  /** The slot-owning entry a live state has taken over; that row renders as null. */
+  suppressedFeedEntryKey?: string;
   selectedSubagentAgentId?: string;
   onOpenSubagent?: OpenSubagentHandler;
   onOpenImageGenerationTool?: OpenImageGenerationToolHandler;
@@ -2651,6 +2715,12 @@ function ProjectionMainFeedEntry({
   paceTargetKey?: string;
   onLoadProjectionDetail?: ProjectionDetailLoader;
 }) {
+  // A live state owns this row now (see `writingTakesLiveSlot`). Rendering it as null is
+  // what makes the swap a swap: the tail takes the slot the aggregate vacates, so the two
+  // can never be seen as sibling rows.
+  if (suppressedFeedEntryKey && entry.key === suppressedFeedEntryKey) {
+    return null;
+  }
   if (entry.kind === "timeline") {
     const showMessageMeta = finalSummaryItemIds.has(entry.item.id);
     return (
@@ -5359,6 +5429,32 @@ function isRunningToolFeedEntry(entry: ThreadRunProjectionMainFeedEntry): boolea
     return false;
   }
   return isRunningActionItem(entry.item);
+}
+
+/**
+ * The entry that owns the Feed's live slot: the newest content row.
+ *
+ * Deferred「正在思考」rows and Summary tips are skipped — they render as the active-tail
+ * line instead of a row of their own, so they are never the slot's owner. What this
+ * returns is what the next live state has to replace: the trailing tool aggregate.
+ */
+function resolveFeedLiveSlotEntry(
+  entries: readonly ThreadRunProjectionMainFeedEntry[],
+  requestSpansById: Map<string, ThreadRunProjectionSnapshot["requestSpans"][number]>,
+): ThreadRunProjectionMainFeedEntry | undefined {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (!entry) {
+      continue;
+    }
+    if (entry.kind === "timeline" || entry.kind === "agent-echo") {
+      if (isWaitingThinkingItem(entry.item, requestSpansById)) {
+        continue;
+      }
+    }
+    return entry;
+  }
+  return undefined;
 }
 
 function isRunningContextCompactionFeedEntry(entry: ThreadRunProjectionMainFeedEntry): boolean {

@@ -745,7 +745,7 @@ export function filterProjectionTimelineForDetailFeed(
   terminalAttemptIds?: ReadonlySet<string>,
 ): ThreadRunProjectionTimelineItem[] {
   const built = buildProjectionDisplayTimelineItems(
-    withContextCompactionTimings(timeline),
+    withContextCompactionTimings(closeDanglingToolItemsForTerminalAttempts(timeline, terminalAttemptIds)),
     requestSpansById,
   ).filter(
     (item) =>
@@ -1089,6 +1089,81 @@ export function isThreadConversationStopped(status: string): boolean {
     status === "cancelled" ||
     status === "idle"
   );
+}
+
+/**
+ * A `tool.started` row belongs to the attempt that wrote the call, and a tool cannot outlive
+ * that attempt: when a run is stopped, superseded by a retry, or lost, its in-flight calls die
+ * without ever reporting `tool.completed`/`tool.failed`. The row would otherwise present itself
+ * as live forever — shimmering, counting elapsed time, and holding the Feed's live slot shut so
+ * every later turn loses its 「正在思考」row.
+ *
+ * This closes those rows the way the runtime closes request spans for terminal owners
+ * (`closeRequestSpansForTerminalAgents` / `closeRequestSpanForTerminalThread`). The call was
+ * interrupted rather than finished, and the tool vocabulary has no `cancelled`, so it reads as
+ * incomplete — the mapping the legacy adapter already applies to a cancelled tool
+ * (`conversationV2ToolProjectionStatus`).
+ */
+function closeDanglingToolItemsForTerminalAttempts(
+  timeline: readonly ThreadRunProjectionTimelineItem[],
+  terminalAttemptIds: ReadonlySet<string> | undefined,
+): ThreadRunProjectionTimelineItem[] {
+  if (!terminalAttemptIds?.size) {
+    return [...timeline];
+  }
+  // A call that did report a terminal row is not dangling; the display collapse keeps that row.
+  const settledToolKeys = new Set<string>();
+  for (const item of timeline) {
+    const lifecycle = resolveProjectionToolLifecycle(item);
+    if (lifecycle !== "completed" && lifecycle !== "failed") {
+      continue;
+    }
+    const key = projectionToolLifecycleKey(item);
+    if (key) {
+      settledToolKeys.add(key);
+    }
+  }
+  let closed = false;
+  const output = timeline.map((item) => {
+    if (resolveProjectionToolLifecycle(item) !== "running") {
+      return item;
+    }
+    const attemptId = item.runAttemptId?.trim();
+    if (!attemptId || !terminalAttemptIds.has(attemptId)) {
+      return item;
+    }
+    const key = projectionToolLifecycleKey(item);
+    if (key && settledToolKeys.has(key)) {
+      return item;
+    }
+    const closedItem = withInterruptedToolStatus(item);
+    if (closedItem !== item) {
+      closed = true;
+    }
+    return closedItem;
+  });
+  return closed ? output : [...timeline];
+}
+
+/** Marks an orphaned `tool.started` row as interrupted so its lifecycle stops resolving `running`. */
+function withInterruptedToolStatus(
+  item: ThreadRunProjectionTimelineItem,
+): ThreadRunProjectionTimelineItem {
+  const raw = item.metadata?.tool;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return item;
+  }
+  const record = raw as Record<string, unknown>;
+  if (record.status === "failed") {
+    return item;
+  }
+  return {
+    ...item,
+    metadata: {
+      ...item.metadata,
+      tool: { ...record, status: "failed" },
+    },
+  };
 }
 
 export function collapseEphemeralReasoningSummaryTimeline(

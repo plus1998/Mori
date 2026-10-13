@@ -13,6 +13,16 @@ export type ThreadRunTurnFeedSection =
       entry: ThreadRunProjectionMainFeedEntry;
     }
   | {
+      /**
+       * The live 「正在思考」/「正在写」 line. It is feed content and it must sit
+       * **inside** the virtualized geometry: an end-anchored virtualizer can only
+       * keep the tail visible for heights it owns, and a row rendered after the
+       * virtual window silently pushes the live tail out of the viewport.
+       */
+      kind: "active-tail";
+      key: string;
+    }
+  | {
       kind: "turn";
       key: string;
       attempt: ThreadRunProjectionAttempt;

@@ -28628,25 +28628,36 @@ html:not([data-platform="darwin"])
   min-width: 0;
 }
 
-.codex-main:not(.codex-main-landing) .run-log > .run-log-feed-entry + .run-log-feed-entry,
+/*
+ * Block rhythm between two plain rows. The live tail keeps the process rhythm
+ * (its own rule below) and is excluded with `:where()` so these selectors keep
+ * the exact specificity they had — the tail loses to the process rule only
+ * because that rule is written later, not because it is more specific.
+ */
+.codex-main:not(.codex-main-landing) .run-log
+  > .run-log-feed-entry
+  + .run-log-feed-entry:not(:where(.run-log-active-tail)),
 .codex-main:not(.codex-main-landing)
   .run-log
   > .run-log-virtual-row:has(> .run-log-feed-entry)
   + .run-log-virtual-row:has(> .run-log-feed-entry)
-  > .run-log-feed-entry {
+  > .run-log-feed-entry:not(:where(.run-log-active-tail)) {
   margin-top: var(--codex-feed-gap-block);
 }
 
-.codex-main:not(.codex-main-landing) .run-log > .run-log-turn + .run-log-feed-entry,
+.codex-main:not(.codex-main-landing)
+  .run-log
+  > .run-log-turn
+  + .run-log-feed-entry:not(:where(.run-log-active-tail)),
 .codex-main:not(.codex-main-landing)
   .run-log
   > .run-log-virtual-row:has(> .run-log-turn)
   + .run-log-virtual-row:has(> .run-log-feed-entry)
-  > .run-log-feed-entry,
+  > .run-log-feed-entry:not(:where(.run-log-active-tail)),
 /* Keep the measured leading gap when the preceding turn leaves the virtual window. */
   .codex-main:not(.codex-main-landing) .run-log
   > .run-log-virtual-row[data-previous-section-kind="turn"]
-  > .run-log-feed-entry {
+  > .run-log-feed-entry:not(:where(.run-log-active-tail)) {
   margin-top: var(--codex-feed-gap-block);
 }
 
@@ -28673,30 +28684,37 @@ html:not([data-platform="darwin"])
   margin-top: 0;
 }
 
-.codex-main:not(.codex-main-landing) .run-log > .run-log-feed-entry--tight + .run-log-feed-entry--tight,
+/*
+ * The live tail is `--tight` too, but it keeps the process rhythm (its own rule
+ * below). It is excluded from the step targets here so this generic rule cannot
+ * out-specify the tail rule and drag the tip to 6px.
+ */
+.codex-main:not(.codex-main-landing) .run-log
+  > .run-log-feed-entry--tight
+  + .run-log-feed-entry--tight:not(:where(.run-log-active-tail)),
 .codex-main:not(.codex-main-landing)
   .run-log
   > .run-log-virtual-row:has(> .run-log-feed-entry--tight)
   + .run-log-virtual-row:has(> .run-log-feed-entry--tight)
-  > .run-log-feed-entry--tight,
+  > .run-log-feed-entry--tight:not(:where(.run-log-active-tail)),
 .codex-main:not(.codex-main-landing)
   .run-log
   > .run-log-feed-entry--tight
-  + .run-log-feed-entry:not(.run-log-feed-entry--tight),
+  + .run-log-feed-entry:not(.run-log-feed-entry--tight):not(:where(.run-log-active-tail)),
 .codex-main:not(.codex-main-landing)
   .run-log
   > .run-log-virtual-row:has(> .run-log-feed-entry--tight)
   + .run-log-virtual-row:has(> .run-log-feed-entry:not(.run-log-feed-entry--tight))
-  > .run-log-feed-entry,
+  > .run-log-feed-entry:not(:where(.run-log-active-tail)),
 .codex-main:not(.codex-main-landing)
   .run-log
   > .run-log-feed-entry:not(.run-log-feed-entry--tight)
-  + .run-log-feed-entry--tight,
+  + .run-log-feed-entry--tight:not(:where(.run-log-active-tail)),
 .codex-main:not(.codex-main-landing)
   .run-log
   > .run-log-virtual-row:has(> .run-log-feed-entry:not(.run-log-feed-entry--tight))
   + .run-log-virtual-row:has(> .run-log-feed-entry--tight)
-  > .run-log-feed-entry--tight {
+  > .run-log-feed-entry--tight:not(:where(.run-log-active-tail)) {
   margin-top: var(--codex-feed-gap-step);
 }
 
@@ -28758,19 +28776,21 @@ html:not([data-platform="darwin"])
 }
 
 /*
- * Active tail (「正在思考」/会话进行中) is a direct .run-log child after the last
- * virtual row / turn. Always continue the process rhythm — never step/12px
- * special cases (those made 命令→正在思考 look glued while tool↔narrative stayed open).
+ * Active tail (「正在思考」/会话进行中). Inside the Feed it is a row of its own, so the
+ * rhythm lives on the tail element within its `.run-log-virtual-row`; the short
+ * pre-projection feed still renders it as a bare `.run-log` child. Always continue
+ * the process rhythm — never step/12px special cases (those made 命令→正在思考 look glued
+ * while tool↔narrative stayed open).
+ *
+ * The step rule (6px) and the frozen `data-previous-section-kind` rule (14px) both match
+ * `.run-log-feed-entry--tight` and out-specify this selector, so both exclude
+ * `.run-log-active-tail` explicitly. Without that the tip sat 6–14px tighter than the tool
+ * rows it alternates with, and the Feed moved by that much every time it was superseded.
  */
 .codex-main:not(.codex-main-landing) .run-log > .run-log-active-tail,
 .codex-main:not(.codex-main-landing) .run-log > .run-log-turn + .run-log-active-tail,
 .codex-main:not(.codex-main-landing) .run-log > .run-log-feed-entry + .run-log-active-tail,
-.codex-main:not(.codex-main-landing) .run-log > .run-log-virtual-row + .run-log-active-tail,
-.codex-main:not(.codex-main-landing)
-  .run-log
-  > .run-log-virtual-row
-  + .run-log-virtual-spacer
-  + .run-log-active-tail {
+.codex-main:not(.codex-main-landing) .run-log > .run-log-virtual-row > .run-log-active-tail {
   margin-top: var(--codex-feed-gap-process);
 }
 

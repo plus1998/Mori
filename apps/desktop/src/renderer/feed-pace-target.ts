@@ -18,6 +18,9 @@ export function resolveFeedPaceTargetKey(sections: readonly ThreadRunTurnFeedSec
       }
       continue;
     }
+    if (section.kind === "active-tail") {
+      continue;
+    }
     for (const entry of section.processEntries) {
       const key = resolvePaceEntryKey(entry);
       if (key) {

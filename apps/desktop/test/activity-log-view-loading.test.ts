@@ -17,6 +17,7 @@ import {
 import { formatDuration, iconForToolName, reasoningSummaryLabel } from "../src/renderer/activity-log";
 import {
   buildThreadRunProjectionViewModel,
+  projectionItemToDetailBlock,
   type ThreadRunProjectionMainFeedEntry,
 } from "../src/renderer/conversation-v2-projection-view";
 import { i18n } from "../src/renderer/i18n";
@@ -80,6 +81,7 @@ function requestSpan(
     ...(input.ownerAgentId && { ownerAgentId: input.ownerAgentId }),
     ...(input.source && { source: input.source }),
     ...(input.error && { error: input.error }),
+    ...(input.writingTool && { writingTool: input.writingTool }),
   };
 }
 
@@ -1046,7 +1048,7 @@ test("ActivityLogView keeps block spacing between a completed turn and the next 
     /<div class="run-log-virtual-row"><section class="run-log-turn is-completed is-collapsed"[\s\S]*<\/section><\/div><div class="run-log-virtual-row"><div class="run-log-feed-entry"><article class="run-log-user-prompt"/,
   );
   expect(styles).toMatch(
-    /\.codex-main:not\(\.codex-main-landing\) \.run-log > \.run-log-turn \+ \.run-log-feed-entry\s*,/s,
+    /\.codex-main:not\(\.codex-main-landing\)\s+\.run-log\s*>\s*\.run-log-turn\s*\+\s*\.run-log-feed-entry:not\(:where\(\.run-log-active-tail\)\)\s*,/,
   );
   expect(styles).toMatch(
     /\.run-log\s*>\s*\.run-log-virtual-row:has\(>\s*\.run-log-turn\)\s*\+\s*\.run-log-virtual-row:has\(>\s*\.run-log-feed-entry\)\s*>\s*\.run-log-feed-entry[\s\S]*?margin-top:\s*var\(--codex-feed-gap-block\);/,
@@ -1083,7 +1085,7 @@ test("run-log feed spacing contract keeps process rhythm on --codex-feed-gap-pro
     /\.run-log\s*>\s*\.run-log-active-tail[\s\S]*?margin-top:\s*var\(--codex-feed-gap-process\);/,
   );
   expect(styles).toMatch(
-    /\.codex-main:not\(\.codex-main-landing\) \.run-log > \.run-log-feed-entry--tight \+ \.run-log-feed-entry--tight[\s\S]*?margin-top:\s*var\(--codex-feed-gap-step\);/,
+    /\.run-log\s*>\s*\.run-log-feed-entry--tight\s*\+\s*\.run-log-feed-entry--tight:not\(:where\(\.run-log-active-tail\)\)[\s\S]*?margin-top:\s*var\(--codex-feed-gap-step\);/,
   );
   const statusDividerBody = feedStatusDividerStyles.match(/\.feed-status-divider\s*\{([\s\S]*?)\n\}/)?.[1];
   expect(statusDividerBody).toBeTruthy();
@@ -1692,6 +1694,255 @@ test("ActivityLogView keeps empty waiting and reasoning summary mutually exclusi
   // Tip replaced empty「正在思考」in the same slot — do not keep both labels.
   expect(html).not.toContain("正在思考");
   expect(html.match(/定位入口/g)?.length).toBe(1);
+});
+
+function settledWriteTimeline() {
+  return [
+    item({
+      id: "write-1",
+      sequence: 1,
+      eventType: "tool.completed",
+      requestId: "req-writing",
+      text: "Tool: Write",
+      at: "2026-01-01T00:00:01.000Z",
+      metadata: {
+        tool: { name: "Write", detail: "src/app.ts", status: "completed", durationMs: 120 },
+      },
+    }),
+  ];
+}
+
+test("ActivityLogView gives the writing tool call the tool aggregate's slot instead of stacking", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        timeline: settledWriteTimeline(),
+        requestSpans: [
+          requestSpan({
+            requestId: "req-writing",
+            status: "completed",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            endedAt: "2026-01-01T00:00:02.000Z",
+            writingTool: { kind: "file", target: "src/math.ts", since: "2026-01-01T00:00:05.000Z" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  // One slot: the settled aggregate row is taken over, not stacked under the write line.
+  expect(html).toContain("run-log-active-tail");
+  expect(html).toContain("正在写入 src/math.ts");
+  expect(html).not.toContain("run-log-tool-group");
+  expect(html.match(/run-log-thinking streaming empty/g)?.length).toBe(1);
+});
+
+test("ActivityLogView keeps the tool aggregate row while nothing is being written", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        timeline: settledWriteTimeline(),
+        requestSpans: [
+          requestSpan({
+            requestId: "req-writing",
+            status: "completed",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            endedAt: "2026-01-01T00:00:02.000Z",
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html).toContain("run-log-tool-group");
+  expect(html).not.toContain("run-log-active-tail");
+});
+
+test("ActivityLogView does not let a write line hide a tool that is still running", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        timeline: [
+          item({
+            id: "bash-running",
+            sequence: 1,
+            eventType: "tool.started",
+            requestId: "req-writing",
+            text: "Tool: Bash",
+            at: "2026-01-01T00:00:01.000Z",
+            metadata: { tool: { name: "Bash", detail: "bun test", status: "started" } },
+          }),
+        ],
+        requestSpans: [
+          requestSpan({
+            requestId: "req-writing",
+            status: "completed",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            endedAt: "2026-01-01T00:00:02.000Z",
+            writingTool: { kind: "command", target: "bun test", since: "2026-01-01T00:00:05.000Z" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html).toContain("run-log-tool-group");
+  expect(html).not.toContain("run-log-active-tail");
+});
+
+test("ActivityLogView swaps the aggregate row in place inside a running turn", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        attempts: [
+          {
+            attemptId: "attempt-writing",
+            phase: "follow_up",
+            retryIndex: 0,
+            status: "running",
+            startedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        timeline: [
+          item({
+            id: "write-in-turn",
+            sequence: 1,
+            eventType: "tool.completed",
+            runAttemptId: "attempt-writing",
+            requestId: "req-writing",
+            text: "Tool: Write",
+            at: "2026-01-01T00:00:01.000Z",
+            metadata: {
+              tool: { name: "Write", detail: "src/app.ts", status: "completed", durationMs: 120 },
+            },
+          }),
+        ],
+        requestSpans: [
+          requestSpan({
+            requestId: "req-writing",
+            status: "completed",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            endedAt: "2026-01-01T00:00:02.000Z",
+            writingTool: { kind: "file", target: "src/math.ts", since: "2026-01-01T00:00:05.000Z" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html).toContain('class="run-log-turn is-running is-expanded"');
+  expect(html).toContain("正在写入 src/math.ts");
+  expect(html).not.toContain("run-log-tool-group");
+  // The turn the swap empties must not keep a hollow process gap above the write line.
+  expect(html).toContain("run-log-turn-process-inner is-empty");
+});
+
+test("ActivityLogView closes an orphan tool row left by a cancelled attempt", () => {
+  const projectionWithOrphan = (attemptStatus: "cancelled" | "running") =>
+    projection({
+      status: "running",
+      attempts: [
+        {
+          attemptId: "attempt-stopped",
+          phase: "follow_up",
+          retryIndex: 0,
+          status: attemptStatus,
+          startedAt: "2026-01-01T00:00:00.000Z",
+          ...(attemptStatus === "cancelled" && { endedAt: "2026-01-01T00:00:02.000Z" }),
+        },
+        {
+          attemptId: "attempt-follow-up",
+          phase: "follow_up",
+          retryIndex: 1,
+          status: "running",
+          startedAt: "2026-01-01T00:00:10.000Z",
+        },
+      ],
+      timeline: [
+        item({
+          id: "orphan-tool",
+          sequence: 1,
+          eventType: "tool.started",
+          runAttemptId: "attempt-stopped",
+          requestId: "req-orphan",
+          text: "Tool: mcp__mysql__mysql_query",
+          at: "2026-01-01T00:00:01.000Z",
+          metadata: {
+            tool: { name: "mcp__mysql__mysql_query", detail: "mysql/mysql_query", status: "started" },
+          },
+        }),
+        item({
+          id: "follow-up-prompt",
+          sequence: 2,
+          eventType: "thread.status",
+          role: "user",
+          text: "继续",
+          at: "2026-01-01T00:00:10.000Z",
+          metadata: { liveType: "thread.user_prompt" },
+        }),
+      ],
+    });
+
+  // The run the call started in was stopped and the call never reported terminal, so the row
+  // cannot keep presenting itself as running: it would count elapsed time forever and hold the
+  // Feed's live slot shut, costing every later turn its 「正在思考」row.
+  const stopped = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, { projection: projectionWithOrphan("cancelled") }),
+  );
+  expect(stopped).toContain("run-log-active-tail");
+  expect(stopped).toContain("正在思考");
+
+  const stoppedViewModel = buildThreadRunProjectionViewModel(projectionWithOrphan("cancelled"), {
+    id: "thr_loading",
+    prompt: "",
+  });
+  const stoppedOrphan = stoppedViewModel.mainFeedEntries
+    .flatMap((entry) =>
+      entry.kind === "tool-group"
+        ? entry.entries.map((child) => child.item)
+        : entry.kind === "timeline" || entry.kind === "agent-echo"
+          ? [entry.item]
+          : [],
+    )
+    .find((timelineItem) => timelineItem.id === "orphan-tool");
+  const stoppedBlock = stoppedOrphan ? projectionItemToDetailBlock(stoppedOrphan) : undefined;
+  // The interrupted call keeps its row but stops claiming to be live.
+  expect(stoppedBlock?.kind === "action" && stoppedBlock.lifecycle === "failed").toBe(true);
+  expect(
+    stoppedViewModel.mainFeedEntries.some((entry) =>
+      entry.kind === "tool-group"
+        ? entry.entries.some((child) => {
+            const block = projectionItemToDetailBlock(child.item);
+            return block?.kind === "action" && block.lifecycle === "running";
+          })
+        : false,
+    ),
+  ).toBe(false);
+
+  // The same shape inside a live attempt is a genuine in-flight call and must keep its row.
+  const live = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, { projection: projectionWithOrphan("running") }),
+  );
+  expect(live).not.toContain("run-log-active-tail");
+  const liveViewModel = buildThreadRunProjectionViewModel(projectionWithOrphan("running"), {
+    id: "thr_loading",
+    prompt: "",
+  });
+  const liveOrphan = liveViewModel.mainFeedEntries
+    .flatMap((entry) =>
+      entry.kind === "tool-group"
+        ? entry.entries.map((child) => child.item)
+        : entry.kind === "timeline" || entry.kind === "agent-echo"
+          ? [entry.item]
+          : [],
+    )
+    .find((timelineItem) => timelineItem.id === "orphan-tool");
+  const liveBlock = liveOrphan ? projectionItemToDetailBlock(liveOrphan) : undefined;
+  expect(liveBlock?.kind === "action" && liveBlock.lifecycle === "running").toBe(true);
 });
 
 test("splitThinkingCarouselLines prefers newlines and sentence boundaries over camelCase", () => {
