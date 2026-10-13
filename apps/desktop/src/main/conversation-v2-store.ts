@@ -2267,6 +2267,27 @@ export class ConversationV2Store {
     return rows.map((row) => this.validateStoredCommandJob(row));
   }
 
+  /** Only a durable submitted question answer may bypass the ordinary queue's pause. */
+  isAsyncClarificationAnswer(conversationId: string, messageId: string): boolean {
+    this.ensureInitialized();
+    const row = this.db
+      .prepare(
+        `SELECT * FROM conversation_command_jobs_v2
+       WHERE conversation_id = ? AND command_type = 'clarification.resolve' AND status = 'completed'
+         AND json_extract(result_json, '$.asyncMessage.messageId') = ?`,
+      )
+      .get(conversationId, messageId) as CommandJobRow | undefined;
+    if (!row) return false;
+    const job = this.validateStoredCommandJob(row);
+    const message = this.getMessage(conversationId, messageId);
+    return Boolean(
+      message && !message.isDeleted && message.role === "user" &&
+      job.request.resolution === "submit" &&
+      typeof job.request.asyncReplyText === "string" &&
+      job.request.asyncReplyText === message.body,
+    );
+  }
+
   /** Validate every durable command receipt/job owned by one conversation. */
   validateCommandState(conversationId: string): void {
     this.ensureInitialized();

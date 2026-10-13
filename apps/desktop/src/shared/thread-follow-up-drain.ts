@@ -13,8 +13,10 @@ export function shouldBlockThreadFollowUpDrain(input: {
   hasPendingBridgeApproval: boolean;
   hasPendingClarification: boolean;
   hasEditingFollowUp?: boolean;
-  /** User or session-error pause; escalate force-drain may bypass via caller. */
+  /** User or session-error pause; explicit question answers are independent of this queue. */
   hasFollowUpQueuePaused?: boolean;
+  /** The caller has verified the message's durable clarification resolution receipt. */
+  isAsyncClarificationAnswer?: boolean;
   threadStatus?: ThreadStatus;
   hasStoredPendingPlan: boolean;
 }): boolean {
@@ -22,11 +24,30 @@ export function shouldBlockThreadFollowUpDrain(input: {
     input.hasPendingBridgeApproval ||
     input.hasPendingClarification ||
     input.hasEditingFollowUp ||
-    input.hasFollowUpQueuePaused
+    (input.hasFollowUpQueuePaused && !input.isAsyncClarificationAnswer)
   ) {
     return true;
   }
   return input.threadStatus === "awaiting_plan" && input.hasStoredPendingPlan;
+}
+
+/** Explicit question answers can progress while ordinary messages keep their order and pause. */
+export function selectThreadFollowUpDrainTarget(input: {
+  followUps: readonly ThreadPendingFollowUp[];
+  forceEscalatedDrain: boolean;
+  excludeFollowUpId?: string;
+  isAsyncClarificationAnswer: (followUp: ThreadPendingFollowUp) => boolean;
+}): { followUpId?: string; priority?: "escalated"; isAsyncClarificationAnswer: boolean } {
+  const eligible = input.followUps.filter((followUp) =>
+    followUp.status === "queued" && followUp.id !== input.excludeFollowUpId,
+  );
+  if (input.forceEscalatedDrain) return { priority: "escalated", isAsyncClarificationAnswer: false };
+  const answer = eligible.find(input.isAsyncClarificationAnswer);
+  if (answer) return { followUpId: answer.id, isAsyncClarificationAnswer: true };
+  return {
+    ...(eligible.some((followUp) => followUp.priority === "escalated") ? { priority: "escalated" as const } : {}),
+    isAsyncClarificationAnswer: false,
+  };
 }
 
 /**
@@ -38,6 +59,7 @@ export function shouldBlockThreadFollowUpDrain(input: {
 export function threadAcceptsQueuedFollowUp(input: {
   status: ThreadStatus;
   followUpQueuePaused?: boolean;
+  isAsyncClarificationAnswer?: boolean;
   hasPendingBridgeApproval?: boolean;
   hasPendingClarification?: boolean;
   hasPendingBashApproval?: boolean;
@@ -47,7 +69,7 @@ export function threadAcceptsQueuedFollowUp(input: {
   if (input.status === "running" || input.status === "queued" || input.status === "awaiting_plan") {
     return true;
   }
-  if (input.followUpQueuePaused && shouldDrainThreadFollowUps(input.status)) {
+  if ((input.followUpQueuePaused || input.isAsyncClarificationAnswer) && shouldDrainThreadFollowUps(input.status)) {
     return true;
   }
   return Boolean(

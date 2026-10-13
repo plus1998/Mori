@@ -232,6 +232,41 @@ test("a finished turn delivers the answer as a plain continuation", async () => 
   expect(state.enqueued).toEqual([]);
 });
 
+test("a paused ordinary queue does not change a live question answer's steer intent", async () => {
+  const state = harness({ status: "running", followUpQueuePaused: true, enqueueStatus: "applied" });
+  handleCodexAsyncQuestions(ASYNC_INPUT);
+  const delivery = await deliverAsyncClarificationAnswers({
+    threadId: "thread-1",
+    toolUseId: "item-1",
+    commandIdempotencyKey: "paused-answer",
+    answers: { toolUseId: "item-1", selections: [["要"]] },
+  });
+  expect(delivery?.state).toBe("delivered");
+  expect(state.enqueued[0]?.followUpDeliveryMode).toBe("steer");
+  expect(state.enqueued[0]?.priority).toBeUndefined();
+});
+
+test("answering after the turn ends schedules the durable reply even while the ordinary queue is paused", async () => {
+  const state = harness({ status: "completed", followUpQueuePaused: true });
+  const acceptedMessage = {
+    conversationId: "thread-1",
+    messageId: "durable-answer",
+    turnId: "answer-turn",
+    text: "durable reply",
+  };
+  const delivery = await deliverAsyncClarificationAnswers({
+    threadId: "thread-1",
+    toolUseId: "item-1",
+    commandIdempotencyKey: "paused-idle-answer",
+    answers: { toolUseId: "item-1", selections: [["要"]] },
+    acceptedMessage,
+  });
+  expect(delivery?.state).toBe("delivered");
+  expect(state.scheduled).toEqual([acceptedMessage]);
+  expect(state.enqueued).toEqual([]);
+  expect(state.sent).toEqual([]);
+});
+
 test("a queued follow-up row is reported as queued, not delivered", async () => {
   const state = harness({ status: "running", enqueueStatus: "queued" });
   handleCodexAsyncQuestions(ASYNC_INPUT);

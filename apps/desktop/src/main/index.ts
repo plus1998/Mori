@@ -19,6 +19,7 @@ import {
   type ScheduleUpdateInput,
 } from "../shared/scheduling";
 import { ConversationRecoveryGate } from "./conversation-recovery-gate";
+import { finalizeAcceptedConversationV2Messages } from "./conversation-v2-accepted-finalization";
 import { previewSchedule } from "./schedule-time";
 import { inspectScheduledRun } from "./scheduling-inspection";
 import { SchedulingMcpGateway } from "./scheduling-mcp-gateway";
@@ -436,6 +437,7 @@ import {
   canEscalatedFollowUpProgressNow,
   collectThreadFollowUpAttachments,
   isFollowUpMidTurnResultDelivered,
+  selectThreadFollowUpDrainTarget,
   shouldAutoPauseFollowUpQueue,
   shouldBlockThreadFollowUpDrain,
   shouldDrainThreadFollowUps,
@@ -8989,6 +8991,10 @@ function enqueueThreadFollowUpCommand(
           text: request.prompt,
           ...(persistedAttachments?.length ? { attachments: persistedAttachments } : {}),
         });
+        const isAsyncAnswer = conversationStore.conversationV2().isAsyncClarificationAnswer(
+          thread.id,
+          acceptedMessage.messageId,
+        );
         const existingAcceptedFollowUp = conversationStore
           .listThreadFollowUps(thread.id)
           .find((candidate) => candidate.conversationMessageId === acceptedMessage.messageId);
@@ -9000,7 +9006,7 @@ function enqueueThreadFollowUpCommand(
         const metadata = resolveThreadFollowUpEnqueueMetadata(thread.id);
         const queuePaused = Boolean(thread.followUpQueuePaused);
         // ACP has no mid-turn: steer means interrupt + resume. Escalated priority always interrupts.
-        // While the queue is paused, never auto-deliver — new rows must wait for Resume.
+        // Ordinary messages wait for Resume; submitted question answers use their own delivery lane.
         const preferInterrupt =
           !queuePaused &&
           (request.priority === "escalated" ||
@@ -9019,7 +9025,7 @@ function enqueueThreadFollowUpCommand(
           ...metadata,
         });
 
-        if (queuePaused || deliveryMode === "queue") {
+        if ((queuePaused && !isAsyncAnswer) || deliveryMode === "queue") {
           // Keep queued while paused or when the user chose queue delivery.
           emitThreadFollowUpEvent(followUp, "thread.follow_up.queued", formatFollowUpQueuedMessage(followUp));
           return buildThreadFollowUpMutationResult(
@@ -9072,6 +9078,7 @@ function enqueueThreadFollowUpCommand(
         // Announce queue only when the row is still waiting (mid-turn skipped/rejected and requeued).
         if (settled.status === "queued") {
           emitThreadFollowUpEvent(settled, "thread.follow_up.queued", formatFollowUpQueuedMessage(settled));
+          if (isAsyncAnswer) void drainQueuedThreadFollowUpsAfterRun(thread.id);
         }
         return buildThreadFollowUpMutationResult(settled);
       },
@@ -9229,12 +9236,19 @@ function registerRemainingDesktopCommands(): void {
           if (!thread) {
             throw new Error("Thread was not found.");
           }
-          if (request.paused && threadFollowUpDrainScheduler.isDraining(request.threadId)) {
+          const hasPreparingAsyncAnswer = conversationStore
+            .listThreadFollowUps(request.threadId, { statuses: ["delivered"] })
+            .some(isAsyncClarificationAnswerFollowUp);
+          if (
+            request.paused &&
+            threadFollowUpDrainScheduler.isDraining(request.threadId) &&
+            !hasPreparingAsyncAnswer
+          ) {
             threadRunPreparations.cancel(request.threadId);
           }
-          if (!request.paused) {
-            void drainQueuedThreadFollowUpsAfterRun(request.threadId);
-          }
+          // Pause only holds ordinary rows. Also retry after cancelled preparation so
+          // an independent question answer does not wait for a later Resume click.
+          void drainQueuedThreadFollowUpsAfterRun(request.threadId);
           return {
             paused: Boolean(thread.followUpQueuePaused),
             thread,
@@ -9884,6 +9898,13 @@ async function drainPreparedNextQueuedThreadFollowUp(
       return { claimed: [] as ThreadPendingFollowUp[], forceEscalatedDrain: false };
     const thread = conversationStore.getThread(threadId);
     const forceEscalatedDrain = pendingEscalatedFollowUpDrain.delete(threadId);
+    const excludeFollowUpId = editingFollowUpClaimExclusion(threadId);
+    const target = selectThreadFollowUpDrainTarget({
+      followUps: conversationStore.listThreadFollowUps(threadId, { statuses: ["queued"] }),
+      forceEscalatedDrain,
+      ...(excludeFollowUpId ? { excludeFollowUpId } : {}),
+      isAsyncClarificationAnswer: isAsyncClarificationAnswerFollowUp,
+    });
     // Escalated interrupt may force one drain while the queue remains user-paused.
     if (
       shouldBlockThreadFollowUpDrain({
@@ -9893,6 +9914,7 @@ async function drainPreparedNextQueuedThreadFollowUp(
         hasPendingClarification: hasPendingBlockingClarificationForThread(threadId),
         hasEditingFollowUp: editingThreadFollowUpByThread.has(threadId),
         hasFollowUpQueuePaused: Boolean(thread?.followUpQueuePaused) && !forceEscalatedDrain,
+        isAsyncClarificationAnswer: target.isAsyncClarificationAnswer,
         ...(thread?.status && { threadStatus: thread.status }),
         hasStoredPendingPlan: Boolean(conversationStore.getPendingPlan(threadId)),
       })
@@ -9912,18 +9934,11 @@ async function drainPreparedNextQueuedThreadFollowUp(
         forceEscalatedDrain: false,
       };
     }
-    const excludeFollowUpId = editingFollowUpClaimExclusion(threadId);
-    const queued = conversationStore.listThreadFollowUps(threadId, {
-      statuses: ["queued"],
-    });
-    const claimPriority =
-      forceEscalatedDrain || queued.some((followUp) => followUp.priority === "escalated")
-        ? "escalated"
-        : undefined;
     const claimed = conversationStore.claimQueuedThreadFollowUps(threadId, {
       deliveryMode: "resume",
       deliveryBoundary: forceEscalatedDrain ? "forced_interrupt" : "safe_boundary",
-      ...(claimPriority ? { priority: claimPriority } : {}),
+      ...(target.priority ? { priority: target.priority } : {}),
+      ...(target.followUpId ? { followUpId: target.followUpId } : {}),
       ...(excludeFollowUpId ? { excludeFollowUpId } : {}),
     });
     return { claimed, forceEscalatedDrain };
@@ -9960,7 +9975,9 @@ async function drainPreparedNextQueuedThreadFollowUp(
       ...(v2AcceptedMessageIds.length > 0 ? { v2AcceptedMessageIds } : {}),
       requireResumeForInterrupted:
         forceEscalatedDrain || thread.status === "failed" || thread.status === "blocked",
-      ...(forceEscalatedDrain ? { allowWhileQueuePaused: true } : {}),
+      ...(forceEscalatedDrain || claimed.some(isAsyncClarificationAnswerFollowUp)
+        ? { allowWhileQueuePaused: true }
+        : {}),
       ...(skipRecordUserPrompt ? { skipRecordUserPrompt: true } : {}),
     });
     for (const followUp of claimed) {
@@ -10270,7 +10287,7 @@ async function startPiThreadContinuation(input: StartThreadContinuationInput): P
   const prepared = await resolvePiSessionResourcesForThread(updated.id, workspace.path);
   const agentRegistry = resolveAgentRuntimeConfigForThread(updated);
   input.preparationSignal?.throwIfAborted();
-  finalizeAcceptedV2Messages(input.threadId, input.v2AcceptedMessageIds ?? []);
+  await finalizeAcceptedV2Messages(input.threadId, input.v2AcceptedMessageIds ?? [], input.preparationSignal);
   const piRuntimePromise = startPiThreadRun(
     {
       thread: updated,
@@ -10359,7 +10376,7 @@ async function startAcpThreadContinuation(
   }
   const activeThread = conversationStore.getThread(thread.id) ?? updated;
   input.preparationSignal?.throwIfAborted();
-  finalizeAcceptedV2Messages(input.threadId, input.v2AcceptedMessageIds ?? []);
+  await finalizeAcceptedV2Messages(input.threadId, input.v2AcceptedMessageIds ?? [], input.preparationSignal);
   const runtime = startAcpThreadRun(
     toAcpThreadStartRunInput({
       thread: activeThread,
@@ -10986,7 +11003,7 @@ async function startCodexThreadContinuation(
   }
   const updated = ensureThreadRuntimeConfig(conversationStore.getThread(thread.id) ?? activeThread);
   input.preparationSignal?.throwIfAborted();
-  finalizeAcceptedV2Messages(input.threadId, input.v2AcceptedMessageIds ?? []);
+  await finalizeAcceptedV2Messages(input.threadId, input.v2AcceptedMessageIds ?? [], input.preparationSignal);
   const codexRuntimePromise = startCodexThreadRun({
     thread: updated,
     workspace,
@@ -12555,6 +12572,7 @@ async function scheduleAcceptedConversationMessage(
   // may consume it.
   if (!thread) return { state: "unknown", message: "对话不存在，回答未确认投递。" };
   const currentMessage = conversationStore.conversationV2().getMessage(input.conversationId, input.messageId);
+  const isAsyncAnswer = conversationStore.conversationV2().isAsyncClarificationAnswer(thread.id, input.messageId);
   const terminalDelivery = terminalAcceptedMessageDelivery(currentMessage, thread.coreKind === "codex");
   if (terminalDelivery) return { ...terminalDelivery, followUpMessageId: input.messageId };
 
@@ -12576,9 +12594,10 @@ async function scheduleAcceptedConversationMessage(
     thread.status === "running" ||
     thread.status === "queued" ||
     thread.status === "awaiting_plan" ||
-    Boolean(thread.followUpQueuePaused);
+    Boolean(thread.followUpQueuePaused) ||
+    isAsyncAnswer;
   if (queueIt) {
-    if (!threadAcceptsLiveFollowUp(thread.id, thread.status)) {
+    if (!threadAcceptsLiveFollowUp(thread.id, thread.status, isAsyncAnswer)) {
       throw new Error("Thread cannot accept a queued conversation message.");
     }
     const persistedAttachments = input.attachments?.length
@@ -12595,6 +12614,15 @@ async function scheduleAcceptedConversationMessage(
       deliveryMode: "queued",
       conversationMessageId: input.messageId,
     });
+    if (isAsyncAnswer) {
+      const pushed = await tryDeliverFollowUpViaMidTurn(thread, followUp);
+      const settled = pushed ?? conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp;
+      if (settled.status === "queued") {
+        emitThreadFollowUpEvent(settled, "thread.follow_up.queued", formatFollowUpQueuedMessage(settled));
+        void drainQueuedThreadFollowUpsAfterRun(thread.id);
+      }
+      return describeFollowUpDelivery(settled);
+    }
     emitThreadFollowUpEvent(followUp, "thread.follow_up.queued", formatFollowUpQueuedMessage(followUp));
     return describeFollowUpDelivery(followUp);
   }
@@ -12939,8 +12967,8 @@ interface StartThreadContinuationInput {
   /** V2 accepted these user messages before the legacy runtime was scheduled. */
   v2AcceptedMessageIds?: readonly string[];
   /**
-   * Escalated ("handle now") drain: the paused queue is intentional for the remaining
-   * rows, but this one row was explicitly escalated, so it may start a run anyway.
+   * Explicit question answer or "handle now": start this one row while the ordinary
+   * queue remains paused.
    */
   allowWhileQueuePaused?: boolean;
   /** Durable V2 history command whose checkpoints must move with destructive work. */
@@ -12977,8 +13005,8 @@ async function startPreparedThreadContinuation(
   }
   // Pause means new prompts join the queue; do not start a run ahead of it.
   // Rewind is allowed (explicit edit of history) and still must not drain while paused.
-  // Escalated ("handle now") is the one explicit exception: the user asked for this
-  // single row to be sent now even though the rest of the queue stays paused.
+  // Explicit question answers and "handle now" send their own row while the rest
+  // of the queue stays paused.
   if (thread.followUpQueuePaused && !input.rewindTarget && !input.allowWhileQueuePaused) {
     throw new Error("Follow-up queue is paused; enqueue the message or resume the queue before continuing.");
   }
@@ -13169,7 +13197,7 @@ async function startClaudeThreadContinuation(
   }
 
   input.preparationSignal?.throwIfAborted();
-  finalizeAcceptedV2Messages(input.threadId, input.v2AcceptedMessageIds ?? []);
+  await finalizeAcceptedV2Messages(input.threadId, input.v2AcceptedMessageIds ?? [], input.preparationSignal);
   void dispatchThreadContinueAction({
     threadId: input.threadId,
     action: continueAction,
@@ -13452,9 +13480,14 @@ function isPromptImageMediaType(value: unknown): value is PromptImageAttachment[
   return value === "image/jpeg" || value === "image/png" || value === "image/gif" || value === "image/webp";
 }
 
-function threadAcceptsLiveFollowUp(threadId: string, status: ThreadStatus): boolean {
+function threadAcceptsLiveFollowUp(
+  threadId: string,
+  status: ThreadStatus,
+  isAsyncClarificationAnswer = false,
+): boolean {
   return threadAcceptsQueuedFollowUp({
     status,
+    isAsyncClarificationAnswer,
     hasEditingFollowUp: editingThreadFollowUpByThread.has(threadId),
     followUpQueuePaused: Boolean(conversationStore.getThread(threadId)?.followUpQueuePaused),
     hasPendingBridgeApproval: Boolean(getPendingPlanApprovalForThread(threadId)),
@@ -13465,6 +13498,13 @@ function threadAcceptsLiveFollowUp(threadId: string, status: ThreadStatus): bool
     hasPendingBashApproval: Boolean(getPendingBashApprovalForThread(threadId)),
     hasPendingPlanApproval: Boolean(getPendingPlanApprovalForThread(threadId)),
   });
+}
+
+function isAsyncClarificationAnswerFollowUp(followUp: ThreadPendingFollowUp): boolean {
+  return Boolean(
+    followUp.conversationMessageId && conversationStore.conversationV2()
+      .isAsyncClarificationAnswer(followUp.threadId, followUp.conversationMessageId),
+  );
 }
 
 /**
@@ -13513,6 +13553,7 @@ async function tryDeliverFollowUpViaMidTurn(
         hasPendingClarification: hasPendingBlockingClarificationForThread(thread.id),
         hasEditingFollowUp: editingThreadFollowUpByThread.has(thread.id),
         hasFollowUpQueuePaused: Boolean(currentThread.followUpQueuePaused),
+        isAsyncClarificationAnswer: isAsyncClarificationAnswerFollowUp(currentFollowUp),
         threadStatus: currentThread.status,
         hasStoredPendingPlan: Boolean(conversationStore.getPendingPlan(thread.id)),
       })
@@ -13677,7 +13718,7 @@ async function tryDeliverFollowUpViaMidTurn(
   midTurnLocalUserPromptFollowUpIds.add(claimed.id);
 
   if (followUp.conversationMessageId) {
-    finalizeAcceptedV2Messages(thread.id, [followUp.conversationMessageId]);
+    await finalizeAcceptedV2Messages(thread.id, [followUp.conversationMessageId]);
   }
 
   emitThreadEvent(
@@ -18765,32 +18806,20 @@ async function recordUserPrompt(
   };
 }
 
-/** Finalize an accepted V2 prompt only after a mid-turn provider push succeeds. */
-function finalizeAcceptedV2Messages(threadId: string, messageIds: readonly string[]): void {
-  const v2 = conversationStore.conversationV2();
-  for (const rawMessageId of messageIds) {
-    const messageId = rawMessageId.trim();
-    if (!messageId) continue;
-    const existing = v2.getMessage(threadId, messageId);
-    if (
-      !existing ||
-      existing.status === "final" ||
-      existing.status === "failed" ||
-      existing.status === "cancelled"
-    ) {
-      continue;
-    }
-    const v2Key = `desktop:user:accepted-mid-turn:${threadId}:${messageId}`;
-    v2.appendRuntime({
-      conversationId: threadId,
-      eventId: `desktop_v2_user_finalize_mid_turn_${stableHash(v2Key)}`,
-      sourceEventKey: v2Key,
-      type: "message.finalized",
-      occurredAt: new Date().toISOString(),
-      messageId,
-      payload: { status: "final" },
-    });
-  }
+/** Finalize only after dispatch preparation or a mid-turn provider push succeeds. */
+function finalizeAcceptedV2Messages(
+  threadId: string,
+  messageIds: readonly string[],
+  signal?: AbortSignal,
+): Promise<void> {
+  return finalizeAcceptedConversationV2Messages({
+    store: conversationStore.conversationV2(),
+    conversationId: threadId,
+    messageIds,
+    resolveAttachments: (attachments) => promptImageFileStore.resolveAttachmentsForRuntime(attachments),
+    createPreviews: createPromptImagePreviews,
+    ...(signal ? { signal } : {}),
+  });
 }
 
 function failAcceptedV2Messages(threadId: string, messageIds: readonly string[], reason: string): void {

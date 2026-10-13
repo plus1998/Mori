@@ -3873,11 +3873,14 @@ export class ConversationStore {
       deliveryMode?: ThreadFollowUpDeliveryMode;
       targetRunAttemptId?: string;
       priority?: ThreadFollowUpPriority;
+      /** Claim this one independently delivered answer without consuming ordinary rows. */
+      followUpId?: string;
       deliveryBoundary?: ThreadFollowUpBoundary;
       excludeFollowUpId?: string;
     },
   ): ThreadPendingFollowUp[] {
     const queued = this.listThreadFollowUps(threadId, { statuses: ["queued"] })
+      .filter((followUp) => !input?.followUpId || followUp.id === input.followUpId)
       .filter((followUp) => !input?.priority || followUp.priority === input.priority)
       .filter((followUp) => !input?.excludeFollowUpId || followUp.id !== input.excludeFollowUpId)
       .slice(0, 1);

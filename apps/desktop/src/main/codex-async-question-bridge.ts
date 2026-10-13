@@ -324,8 +324,8 @@ export async function deliverAsyncClarificationAnswers(input: {
 }
 
 /**
- * Mirrors the composer's routing: live runs (and paused queues, so the answer joins the
- * pause) take follow-up rows, a finished thread takes a fresh continuation run.
+ * Live runs take a follow-up receipt for steer; a finished thread schedules its accepted
+ * answer directly. Ordinary queue pause does not change the answer's delivery intent.
  * `awaiting_plan` is live but not running — its row waits for the plan decision like any
  * other queued message.
  */
@@ -336,7 +336,6 @@ function shouldDeliverAsyncAnswerThroughFollowUpQueue(thread: {
   return (
     thread.status === "running" ||
     thread.status === "queued" ||
-    thread.status === "awaiting_plan" ||
-    Boolean(thread.followUpQueuePaused)
+    thread.status === "awaiting_plan"
   );
 }
