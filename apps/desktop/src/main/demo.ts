@@ -5,7 +5,7 @@ import { app, BrowserWindow, Menu, nativeImage, nativeTheme, screen } from "elec
 import { demoLog, installDemoStdioGuard } from "../demo/demo-log";
 import { getDemoFeedReplayState, initDemoFeedReplayState } from "../demo/feed-replay-bootstrap";
 import { demoRuntimeState, registerDemoIpcHandlers } from "../demo/register-ipc-handlers";
-import { resolveInitialWindowBounds } from "./desktop-window-placement";
+import { resolveInitialWindowBounds, resolveInitialWindowSizing } from "./desktop-window-placement";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 installDemoStdioGuard();
@@ -74,11 +74,11 @@ async function createDemoWindow(): Promise<BrowserWindow> {
   const isMac = process.platform === "darwin";
   const width = 1600;
   const height = 960;
+  const initialSizing = resolveInitialWindowSizing(width, height, 960, 640);
   const window = new BrowserWindow({
-    width,
-    height,
-    minWidth: 960,
-    minHeight: 640,
+    ...initialSizing.bounds,
+    minWidth: initialSizing.minWidth,
+    minHeight: initialSizing.minHeight,
     // Match production: show immediately. Demo must not wait on ready-to-show after
     // await loadURL — that event already fired and the window would stay invisible.
     show: true,

@@ -668,7 +668,7 @@ import { listDiscoveredCursorAgents } from "./cursor-agents-discovery";
 import { DesktopNotificationRetainer } from "./desktop-notification-retainer";
 import { presentDesktopWindow } from "./desktop-single-instance";
 import { DesktopUpdateService } from "./desktop-update-service";
-import { resolveInitialWindowBounds } from "./desktop-window-placement";
+import { resolveInitialWindowSizing } from "./desktop-window-placement";
 import {
   hydratePromptAttachmentsForComposerRestore,
   resolveRestorePromptText,
@@ -1934,6 +1934,14 @@ function setWindowControlsOverlayMode(mode: "landing" | "conversation"): void {
   }
 }
 
+// Preferred startup size; both the size and the minimums are clamped to the work
+// area of the display we open on, so a short display never gets a window that
+// hangs off the bottom of the screen.
+const MAIN_WINDOW_WIDTH = 1320;
+const MAIN_WINDOW_HEIGHT = 860;
+const MIN_MAIN_WINDOW_WIDTH = 480;
+const MIN_MAIN_WINDOW_HEIGHT = 600;
+
 async function createMainWindow(
   options: { startupSplash?: boolean; show?: boolean } = {},
 ): Promise<BrowserWindow> {
@@ -1944,21 +1952,21 @@ async function createMainWindow(
   const windowsChrome = WINDOW_CHROME_BY_THEME[resolveWindowChromeTheme()];
   const windowsMaterial = isWindows ? resolveWindowsMaterial() : undefined;
   const windowsBackdropVersion = isWindows ? resolveWindowsBackdropVersion(os.release()) : undefined;
-  const width = 1320;
-  const height = 860;
-  const { x, y } = resolveInitialWindowBounds(width, height);
+  const initialSizing = resolveInitialWindowSizing(
+    MAIN_WINDOW_WIDTH,
+    MAIN_WINDOW_HEIGHT,
+    MIN_MAIN_WINDOW_WIDTH,
+    MIN_MAIN_WINDOW_HEIGHT,
+  );
   const windowOptions: BrowserWindowConstructorOptions = {
-    x,
-    y,
-    width,
-    height,
+    ...initialSizing.bounds,
     // The boot splash is a progress indicator: it is shown explicitly (and
     // inactive) below, so it never becomes the key window. Otherwise launching
     // Eco steals keyboard focus from the app the user was already typing in.
     show: options.show ?? !isStartupSplash,
     ...(isStartupSplash ? { focusable: false } : {}),
-    minWidth: 480,
-    minHeight: 600,
+    minWidth: initialSizing.minWidth,
+    minHeight: initialSizing.minHeight,
     // macOS: frameless + traffic lights inset.
     // Windows and Linux: hidden title bar + native Window Controls Overlay.
     ...(isMac
