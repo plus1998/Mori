@@ -245,6 +245,7 @@ import {
 import { integrationEnabled } from "../shared/integrations";
 import {
   type AgentRole,
+  type AddCodexCatalogModelRequest,
   type AgentTemplate,
   type AgentTemplateExportRequest,
   applyBusyMutableRuntimeConfigFields,
@@ -264,6 +265,8 @@ import {
   type ClarificationSubmitPayload,
   type ClarificationSubmitResult,
   type CoderTodoItem,
+  type CodexCatalogModelView,
+  type CodexModelCatalogSnapshot,
   hasCompleteOrchestrationSelection,
   IPC_CHANNELS,
   type IpcChannel,
@@ -765,6 +768,10 @@ import { McpHubGateway } from "./mcp-hub-gateway";
 import { prepareCodexGlobalMcpServerPool, prepareMcpSdkConfigForRuntime } from "./mcp-runtime";
 import { createMcpStore, type McpStore } from "./mcp-store";
 import { ModelsDevPricingCache } from "./models-dev-pricing-cache";
+import {
+  CodexRemoteModelCatalogService,
+  resolveCodexModelCatalogCachePath,
+} from "./codex-model-catalog-remote";
 import {
   createNotificationSettingsStore,
   isNotificationSettingsSnapshot,
@@ -1565,6 +1572,7 @@ let sdkStreamActivityIngestion: SdkStreamActivityIngestion;
 let threadRunEventLivePersister: ReturnType<typeof createThreadRunEventLivePersister>;
 let pricingCache: ModelsDevPricingCache;
 let pricingCatalogReady: Promise<void> = Promise.resolve();
+let codexModelCatalogService: CodexRemoteModelCatalogService | undefined;
 let billingRuntimeEnvironment: BillingRuntimeEnvironment;
 let contextMonitor: ContextWindowMonitor;
 let threadPromptCacheMonitor: ThreadPromptCacheMonitor;
@@ -3676,6 +3684,61 @@ function syncChatGptSubscriptionModels(models: Array<{ id: string; displayName?:
   ensureChatGptSubscriptionProvider();
   const result = providerStore.syncCandidateModels("eco-coding-chatgpt", models);
   if (result.changed) emitSettingsUpdated();
+}
+
+/**
+ * Codex 账号 (built-in `openai` / auth.json) has no provider row and no upstream
+ * /v1/models endpoint, so its candidate models come from the codex-rs
+ * models-manager catalog plus whatever the user added by hand.
+ */
+function getCodexModelCatalogService(): CodexRemoteModelCatalogService {
+  if (!codexModelCatalogService) {
+    codexModelCatalogService = new CodexRemoteModelCatalogService({
+      cachePath: resolveCodexModelCatalogCachePath(app.getPath("userData")),
+      // Chromium net stack honors OS system proxy (Clash / PAC / etc.); Node fetch does not.
+      fetchImpl: net.fetch.bind(net) as typeof fetch,
+    });
+  }
+  return codexModelCatalogService;
+}
+
+function codexCatalogCandidateViews(models: readonly CodexCatalogModelView[]): CandidateModelView[] {
+  const timestamps = new Date().toISOString();
+  return models.map((model, index) => ({
+    id: `cand-openai-${model.modelId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`,
+    providerId: "openai",
+    modelId: model.modelId,
+    displayName: model.displayName,
+    sortOrder: index,
+    ...(model.contextWindow !== undefined ? { resolvedContextTokens: model.contextWindow } : {}),
+    ...(model.supportsImageInput !== undefined
+      ? { resolvedSupportsImageInput: model.supportsImageInput }
+      : {}),
+    ...(model.reasoningEfforts.length > 0 ? { resolvedSupportsReasoning: true } : {}),
+    resolvedSupportsNativeWebSearch: true,
+    createdAt: timestamps,
+    updatedAt: timestamps,
+  }));
+}
+
+/** True when the provider id is the virtual Codex Auth provider rather than a user-created OpenAI provider. */
+function isBuiltInCodexCatalogProvider(providerId: string): boolean {
+  if (providerId !== "openai") {
+    return false;
+  }
+  const stored = providerStore.listProviders().find((provider) => provider.id === providerId);
+  if (!stored) {
+    return true;
+  }
+  return stored.authMethod === "auth_json" && !stored.hasApiKey;
+}
+
+async function codexModelCatalogSnapshot(): Promise<CodexModelCatalogSnapshot> {
+  const [models, status] = await Promise.all([
+    getCodexModelCatalogService().listModels(),
+    getCodexModelCatalogService().getStatus(),
+  ]);
+  return { models, status };
 }
 
 function listCodexCatalogRoutesFromSettings(): CodexGatewayCatalogRoute[] {
@@ -5922,9 +5985,33 @@ function registerIpcHandlers(): void {
     if (!payload || typeof payload !== "object") {
       return { ok: false, error: "Invalid models list request." } as const;
     }
-    if (payload.providerId) {
-      const provider = providerStore.getProviderWithSecret(payload.providerId);
-      if (provider?.authMethod === "chatgpt_subscription" || payload.authMethod === "chatgpt_subscription") {
+    const requestedProvider = payload.providerId
+      ? providerStore.getProviderWithSecret(payload.providerId)
+      : undefined;
+    // Codex Auth (auth.json) has no upstream /v1/models endpoint: its list comes from
+    // the codex-rs models-manager catalog, refreshed from the Codex 账号 page.
+    if (
+      payload.authMethod === "auth_json" ||
+      (requestedProvider?.authMethod === "auth_json" && !requestedProvider.hasApiKey)
+    ) {
+      try {
+        const models = await getCodexModelCatalogService().listModels();
+        return {
+          ok: true,
+          models: models.map((model) => ({ id: model.modelId, displayName: model.displayName })),
+        } as const;
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          ...(requestedProvider?.id ? { providerId: requestedProvider.id } : {}),
+          ...(requestedProvider?.name ? { providerName: requestedProvider.name } : {}),
+        } as const;
+      }
+    }
+    if (requestedProvider) {
+      const provider = requestedProvider;
+      if (provider.authMethod === "chatgpt_subscription" || payload.authMethod === "chatgpt_subscription") {
         try {
           const service = await getChatGptSubscriptionService();
           const models = await service.listModels();
@@ -6692,14 +6779,10 @@ function registerIpcHandlers(): void {
       throw new Error("Provider id is required.");
     }
     const trimmedProviderId = providerId.trim();
-    // Built-in OpenAI (auth.json) — return hardcoded model list
-    if (trimmedProviderId === "openai") {
-      const { OPENAI_BUILTIN_MODELS } = await import("./provider-models");
-      return OPENAI_BUILTIN_MODELS.map((m) => ({
-        providerId: "openai",
-        modelId: m.id,
-        displayName: m.id,
-      }));
+    // Built-in Codex Auth (auth.json): codex-rs catalog + manual adds. A user-created
+    // OpenAI provider that happens to reuse this id keeps its stored candidates.
+    if (isBuiltInCodexCatalogProvider(trimmedProviderId)) {
+      return codexCatalogCandidateViews(await getCodexModelCatalogService().listModels());
     }
     const candidates = providerStore.listCandidateModels(trimmedProviderId);
     const provider = providerStore.listProviders().find((p) => p.id === trimmedProviderId);
@@ -6760,6 +6843,40 @@ function registerIpcHandlers(): void {
       return results;
     },
   );
+
+  // ─── Codex 账号 model catalog (codex-rs models.json) ───────────────────────────
+
+  registerDesktopCommand(IPC_CHANNELS.codexModelCatalogGet, async () => {
+    return await codexModelCatalogSnapshot();
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.codexModelCatalogRefresh, async () => {
+    await getCodexModelCatalogService().refresh();
+    emitSettingsUpdated();
+    return await codexModelCatalogSnapshot();
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.codexModelCatalogAdd, async (payload: unknown) => {
+    if (!payload || typeof payload !== "object") {
+      throw new Error("Invalid Codex model catalog add request.");
+    }
+    const request = payload as AddCodexCatalogModelRequest;
+    await getCodexModelCatalogService().addManualModel({
+      modelId: request.modelId ?? "",
+      ...(typeof request.displayName === "string" ? { displayName: request.displayName } : {}),
+    });
+    emitSettingsUpdated();
+    return await codexModelCatalogSnapshot();
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.codexModelCatalogRemove, async (modelId: unknown) => {
+    if (typeof modelId !== "string" || !modelId.trim()) {
+      throw new Error("Model id is required.");
+    }
+    await getCodexModelCatalogService().removeManualModel(modelId.trim());
+    emitSettingsUpdated();
+    return await codexModelCatalogSnapshot();
+  });
 
   registerDesktopCommand(
     IPC_CHANNELS.agentTemplateList,

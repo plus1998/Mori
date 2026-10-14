@@ -255,6 +255,10 @@ export const IPC_CHANNELS = {
   candidateModelDelete: "candidate-model:delete",
   candidateModelReorder: "candidate-model:reorder",
   candidateModelBulkImport: "candidate-model:bulk-import",
+  codexModelCatalogGet: "codex-model-catalog:get",
+  codexModelCatalogRefresh: "codex-model-catalog:refresh",
+  codexModelCatalogAdd: "codex-model-catalog:add",
+  codexModelCatalogRemove: "codex-model-catalog:remove",
   gitGetStatus: "git:get-status",
   gitGetWorkspaceDiff: "git:get-workspace-diff",
   gitGetWorkspaceFileDiff: "git:get-workspace-file-diff",
@@ -478,6 +482,11 @@ export type {
   McpTransport,
 } from "./mcp";
 export type {
+  AddCodexCatalogModelRequest,
+  CodexCatalogModelOrigin,
+  CodexCatalogModelView,
+  CodexModelCatalogSnapshot,
+  CodexModelCatalogStatusView,
   ListUpstreamModelsRequest,
   ListUpstreamModelsResult,
   ProviderRequestError,

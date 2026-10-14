@@ -22,10 +22,10 @@ import {
   KeyRound,
   Inbox,
   PanelRightOpen,
-  ArrowUpRight,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { OpenAIAccount, OpenAIAccountDetails, OpenAIAccountQuota, OpenAIAccountQuotaWindow, OpenAIAccountSyncStatus } from "../../shared/openai-account";
+import { CodexModelCatalogSection } from "./CodexModelCatalogSection";
 
 function formatResetTime(window: OpenAIAccountQuotaWindow, fetchedAt: number): string {
   const resetAt = window.resetAt > 0 ? window.resetAt * 1_000 : fetchedAt + window.resetAfterSeconds * 1_000;
@@ -599,22 +599,9 @@ export function OpenAIAccountsPanel() {
         </div>
       ) : null}
 
-      <div className="codex-current-account">
-        <div className="codex-current-symbol"><ShieldCheck size={20} /></div>
-        <div className="codex-current-identity">
-          <span className="codex-current-eyebrow">当前工作账号</span>
-          <div className="codex-current-switch"><OpenAIAccountSwitchStatus
-            activeAccountId={activeAccountId}
-            activeAccountName={activeAccount?.name}
-            pendingAccountId={pendingAccountId}
-            pendingAccountName={accounts.find((account) => account.id === pendingAccountId)?.name}
-            busy={busy}
-            onCancel={() => void handleCancelSwitch()}
-          /></div>
-          <span className="codex-current-caption">{activeAccount?.email || (activeAccount ? "新的 Codex 任务将使用这个账号" : "登录后，选择一个账号开始使用")}</span>
-        </div>
-        {activeAccount ? <button className="codex-current-assistant" type="button" onClick={() => void openAssistant(activeAccount.id)}><PanelRightOpen size={15} />登录助手<ArrowUpRight size={13} /></button> : null}
-      </div>
+      {/* Above the account list on purpose: the list grows with every imported
+          account and would otherwise push the model catalog out of view. */}
+      <CodexModelCatalogSection />
 
       <div className="codex-accounts-toolbar">
         <span>
@@ -622,6 +609,18 @@ export function OpenAIAccountsPanel() {
           <span className="codex-toolbar-divider">·</span>
           {loggedInCount} 个已登录
         </span>
+        {/* The active account already sorts first and carries a 当前使用 badge, so
+            the switch line only appears while a switch or credential update is pending. */}
+        {pendingAccountId !== undefined ? (
+          <span className="codex-toolbar-switch"><OpenAIAccountSwitchStatus
+            activeAccountId={activeAccountId}
+            activeAccountName={activeAccount?.name}
+            pendingAccountId={pendingAccountId}
+            pendingAccountName={accounts.find((account) => account.id === pendingAccountId)?.name}
+            busy={busy}
+            onCancel={() => void handleCancelSwitch()}
+          /></span>
+        ) : null}
         <div className="codex-toolbar-links">
           <button
             type="button"

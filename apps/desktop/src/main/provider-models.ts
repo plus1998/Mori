@@ -9,21 +9,14 @@ import {
   type UpstreamApiCompat,
 } from "../shared/api-compat";
 
-/** Built-in OpenAI models for ChatGPT OAuth (auth.json) — same as sub2api openai.DefaultModels. */
-export const OPENAI_BUILTIN_MODELS: { id: string }[] = [
-  { id: "gpt-5.6-sol" },
-  { id: "gpt-6" },
-  { id: "gpt-5.6" },
-  { id: "gpt-5.6-terra" },
-  { id: "gpt-5.6-luna" },
-  { id: "gpt-6-astra" },
-  { id: "gpt-5.5" },
-  { id: "gpt-5.4" },
-  { id: "gpt-5.4-mini" },
-  { id: "gpt-5.3-codex-spark" },
-  { id: "codex-auto-review" },
-  { id: "gpt-5.2" },
-];
+/**
+ * Codex Auth (auth.json) has no upstream model endpoint. Its list is fetched from
+ * the codex-rs models-manager catalog by CodexRemoteModelCatalogService; this layer
+ * must not invent one, otherwise a stale constant silently replaces a failed refresh.
+ */
+export const CODEX_AUTH_MODELS_UNAVAILABLE_ERROR =
+  "Codex 账号（auth.json）没有上游 /v1/models 接口，模型列表来自 codex-rs models.json，请在「模型设置 → Codex 账号」中刷新。";
+
 import type { ThinkingEffort } from "../shared/ipc";
 import type {
   ListUpstreamModelsRequest,
@@ -98,14 +91,16 @@ export async function listProviderUpstreamModels(
     return resolved;
   }
 
-  // The built-in OpenAI catalogue belongs to Codex Auth (auth.json) only: that
-  // login has no upstream API key and no usable /v1/models endpoint. ChatGPT
-  // subscription providers are handled in the desktop IPC layer with their OAuth
-  // account pool before reaching this path. Any other provider still attempts the
-  // upstream GET /v1/models (local servers often allow an unauthenticated list)
-  // and reports whatever the upstream answers.
+  // ChatGPT subscription and Codex Auth providers are resolved in the desktop IPC
+  // layer (account pool / codex-rs catalog) before reaching this path. Any other
+  // provider still attempts the upstream GET /v1/models (local servers often allow
+  // an unauthenticated list) and reports whatever the upstream answers.
   if (!resolved.apiKey.trim() && resolved.authMethod === "auth_json") {
-    return { ok: true, models: OPENAI_BUILTIN_MODELS };
+    return {
+      ok: false,
+      error: CODEX_AUTH_MODELS_UNAVAILABLE_ERROR,
+      ...(request.providerId ? { providerId: request.providerId } : {}),
+    };
   }
 
   const routing = describeProviderCompatRouting(

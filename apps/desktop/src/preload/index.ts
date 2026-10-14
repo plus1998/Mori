@@ -29,6 +29,7 @@ import type {
 } from "../shared/openai-account";
 import type { SupabaseDeploymentConnection, SupabaseDeploymentSnapshot } from "../shared/supabase-deployment";
 import {
+  type AddCodexCatalogModelRequest,
   type AgentTemplate,
   type AgentTemplateExportRequest,
   type AgentTemplateExportResult,
@@ -92,6 +93,7 @@ import {
   type ClarificationSubmitPayload,
   type ClarificationSubmitResult,
   type ClipboardWriteImageRequest,
+  type CodexModelCatalogSnapshot,
   type ComposerDraftDeleteRequest,
   type ComposerDraftDeleteResult,
   type ComposerDraftRecord,
@@ -710,6 +712,18 @@ const api = {
   },
   bulkImportCandidateModels(providerId: string, modelIds: string[]): Promise<CandidateModelView[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.candidateModelBulkImport, providerId, modelIds);
+  },
+  getCodexModelCatalog(): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexModelCatalogGet);
+  },
+  refreshCodexModelCatalog(): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexModelCatalogRefresh);
+  },
+  addCodexModelCatalogModel(request: AddCodexCatalogModelRequest): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexModelCatalogAdd, request);
+  },
+  removeCodexModelCatalogModel(modelId: string): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexModelCatalogRemove, modelId);
   },
   listAgentTemplates(): Promise<AgentTemplate[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.agentTemplateList);

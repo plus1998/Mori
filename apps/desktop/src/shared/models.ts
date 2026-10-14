@@ -11,6 +11,44 @@ export interface CodexModelCatalogEntryView {
   supportedReasoningEfforts: string[];
 }
 
+/** Where a Codex-account model came from: the codex-rs catalog or a manual add. */
+export type CodexCatalogModelOrigin = "remote" | "manual";
+
+/** Trimmed codex-rs models-manager entry as shown in the Codex 账号 model list. */
+export interface CodexCatalogModelView {
+  modelId: string;
+  displayName: string;
+  description?: string;
+  contextWindow?: number;
+  maxContextWindow?: number;
+  defaultReasoningEffort?: string;
+  reasoningEfforts: string[];
+  supportsImageInput?: boolean;
+  priority?: number;
+  hidden: boolean;
+  origin: CodexCatalogModelOrigin;
+}
+
+export interface CodexModelCatalogStatusView {
+  sourceUrl: string;
+  /** Wall-clock ms of the last successful fetch; absent until one succeeds. */
+  fetchedAt?: number;
+  /** Last refresh failure; cleared by the next successful refresh. */
+  lastError?: string;
+  remoteCount: number;
+  manualCount: number;
+}
+
+export interface CodexModelCatalogSnapshot {
+  models: CodexCatalogModelView[];
+  status: CodexModelCatalogStatusView;
+}
+
+export interface AddCodexCatalogModelRequest {
+  modelId: string;
+  displayName?: string;
+}
+
 import type { UpstreamApiCompat } from "./api-compat";
 
 export interface ListUpstreamModelsRequest {
