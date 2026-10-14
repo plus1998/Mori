@@ -124,6 +124,7 @@ import {
   net,
   powerMonitor,
   powerSaveBlocker,
+  screen,
   safeStorage,
   session,
   shell,
@@ -668,7 +669,14 @@ import { listDiscoveredCursorAgents } from "./cursor-agents-discovery";
 import { DesktopNotificationRetainer } from "./desktop-notification-retainer";
 import { presentDesktopWindow } from "./desktop-single-instance";
 import { DesktopUpdateService } from "./desktop-update-service";
-import { resolveInitialWindowSizing } from "./desktop-window-placement";
+import { resolveStartupWindowSizing } from "./desktop-window-placement";
+import {
+  createDesktopWindowStateStore,
+  type DesktopWindowState,
+  type DesktopWindowStateStore,
+  WINDOW_STATE_FILE_NAME,
+  WINDOW_STATE_SAVE_DEBOUNCE_MS,
+} from "./desktop-window-state";
 import {
   hydratePromptAttachmentsForComposerRestore,
   resolveRestorePromptText,
@@ -1936,6 +1944,7 @@ function revealWindowControls(window: BrowserWindow): void {
   window.setMaximizable(true);
   window.setClosable(true);
   applyWindowControlsOverlay(window);
+  applyPendingMaximizedRestore(window);
 }
 
 function syncWindowControlsOverlays(): void {
@@ -1957,13 +1966,98 @@ function setWindowControlsOverlayMode(mode: "landing" | "conversation"): void {
   }
 }
 
-// Preferred startup size; both the size and the minimums are clamped to the work
-// area of the display we open on, so a short display never gets a window that
-// hangs off the bottom of the screen.
+// Preferred startup size, used when there is no saved frame (first launch, or
+// the saved display is gone). Both the size and the minimums are clamped to the
+// work area of the display we open on, so a short display never gets a window
+// that hangs off the bottom of the screen.
 const MAIN_WINDOW_WIDTH = 1320;
 const MAIN_WINDOW_HEIGHT = 860;
 const MIN_MAIN_WINDOW_WIDTH = 480;
 const MIN_MAIN_WINDOW_HEIGHT = 600;
+
+/** Last window frame (size, position, display, maximized), persisted across launches. */
+let windowStateStore: DesktopWindowStateStore | undefined;
+
+/** Windows whose saved frame was maximized, waiting for a window that allows it. */
+const pendingMaximizedWindows = new WeakSet<BrowserWindow>();
+
+function readWindowState(window: BrowserWindow): DesktopWindowState | undefined {
+  if (window.isDestroyed()) {
+    return undefined;
+  }
+  // getNormalBounds(), not getBounds(): while maximized getBounds() returns the
+  // display-sized frame, which would restore as a display-sized window instead
+  // of the un-maximized size the user had.
+  const bounds = window.getNormalBounds();
+  return {
+    bounds,
+    displayId: screen.getDisplayMatching(bounds).id,
+    isMaximized: window.isMaximized(),
+  };
+}
+
+function saveWindowState(window: BrowserWindow): void {
+  const state = readWindowState(window);
+  if (!windowStateStore || !state) {
+    return;
+  }
+  windowStateStore.save(state);
+}
+
+/**
+ * Persist the frame as the user changes it, not only at quit: a crash or a
+ * force-quit should still reopen where the window last was.
+ */
+function trackWindowState(window: BrowserWindow): void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleSave = () => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(() => {
+      timer = undefined;
+      saveWindowState(window);
+    }, WINDOW_STATE_SAVE_DEBOUNCE_MS);
+  };
+  window.on("resize", scheduleSave);
+  window.on("move", scheduleSave);
+  // Not `once`: the quit guard can veto a close, and the frame must still be
+  // written when that window closes for good later.
+  window.on("close", () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    if (!windowStateStore) {
+      return;
+    }
+    // Quit may end the process before a queued write runs.
+    const state = readWindowState(window);
+    if (state) {
+      windowStateStore.saveSync(state);
+    }
+  });
+}
+
+function requestMaximizedRestore(window: BrowserWindow): void {
+  pendingMaximizedWindows.add(window);
+  applyPendingMaximizedRestore(window);
+}
+
+function applyPendingMaximizedRestore(window: BrowserWindow): void {
+  if (!pendingMaximizedWindows.has(window) || window.isDestroyed()) {
+    return;
+  }
+  // While the Windows boot frame hides its caption controls the window is not
+  // maximizable, and maximize() is ignored; retry when the controls are revealed.
+  if (windowsAreBooting.has(window)) {
+    return;
+  }
+  pendingMaximizedWindows.delete(window);
+  if (!window.isMaximized()) {
+    window.maximize();
+  }
+}
 
 async function createMainWindow(
   options: { startupSplash?: boolean; show?: boolean } = {},
@@ -1975,7 +2069,8 @@ async function createMainWindow(
   const windowsChrome = WINDOW_CHROME_BY_THEME[resolveWindowChromeTheme()];
   const windowsMaterial = isWindows ? resolveWindowsMaterial() : undefined;
   const windowsBackdropVersion = isWindows ? resolveWindowsBackdropVersion(os.release()) : undefined;
-  const initialSizing = resolveInitialWindowSizing(
+  const initialSizing = resolveStartupWindowSizing(
+    windowStateStore?.load(),
     MAIN_WINDOW_WIDTH,
     MAIN_WINDOW_HEIGHT,
     MIN_MAIN_WINDOW_WIDTH,
@@ -2069,6 +2164,13 @@ async function createMainWindow(
     });
   } else if (isWindows) {
     windowsAreBooting.add(window);
+  }
+  if (initialSizing.isMaximized) {
+    requestMaximizedRestore(window);
+  }
+  // The boot splash is never resized by the user; only the real window writes back.
+  if (!isStartupSplash) {
+    trackWindowState(window);
   }
 
   if (app.isPackaged) {
@@ -2199,6 +2301,12 @@ app
     if (!hasSingleInstanceLock) {
       return;
     }
+    // Read the saved frame before any window exists: the boot window has to open
+    // where the last one closed, and an async read would show it centered first.
+    windowStateStore = createDesktopWindowStateStore(
+      path.join(app.getPath("userData"), WINDOW_STATE_FILE_NAME),
+    );
+    windowStateStore.load();
     startupWindow = await createMainWindow({ startupSplash: true });
     logStartupStage("startup-window.ready");
     // Let the OS hand eco://... deep links to this app.

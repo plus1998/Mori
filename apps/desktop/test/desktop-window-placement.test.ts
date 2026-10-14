@@ -62,10 +62,24 @@ describe("centerBoundsInWorkArea", () => {
 
 describe("createMainWindow startup bounds", () => {
   test("uses the work-area-fitted size instead of the requested size", () => {
-    expect(indexSource).toContain("resolveInitialWindowSizing(");
+    expect(indexSource).toContain("resolveStartupWindowSizing(");
     expect(indexSource).toContain("...initialSizing.bounds,");
     expect(indexSource).toContain("minWidth: initialSizing.minWidth,");
     expect(indexSource).toContain("minHeight: initialSizing.minHeight,");
     expect(indexSource).not.toContain("resolveInitialWindowBounds(width, height)");
+  });
+
+  test("restores the saved frame and writes it back from the real window", () => {
+    // Read before the boot window exists, so it opens where the last one closed.
+    expect(indexSource).toContain("windowStateStore.load();");
+    expect(indexSource).toContain("windowStateStore?.load(),");
+    expect(indexSource).toContain("trackWindowState(window);");
+    expect(indexSource).toContain('window.on("resize", scheduleSave);');
+    expect(indexSource).toContain('window.on("move", scheduleSave);');
+    expect(indexSource).toContain("windowStateStore.saveSync(state);");
+    // A maximized window must persist its un-maximized size, not the display-sized frame.
+    expect(indexSource).toContain("window.getNormalBounds()");
+    expect(indexSource).toContain("isMaximized: window.isMaximized()");
+    expect(indexSource).toContain("window.maximize();");
   });
 });
