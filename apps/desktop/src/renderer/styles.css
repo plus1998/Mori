@@ -27391,6 +27391,46 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   flex-shrink: 0;
 }
 
+.chatgpt-test-modal {
+  width: min(480px, calc(100vw - 48px));
+}
+
+.chatgpt-test-modal .settings-modal-header {
+  padding: 22px 24px 0;
+}
+
+.chatgpt-test-modal .settings-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px 24px 10px;
+}
+
+.chatgpt-test-modal .settings-modal-footer {
+  padding: 12px 24px 22px;
+}
+
+.chatgpt-test-description {
+  max-width: 42ch;
+  line-height: 1.6;
+}
+
+.chatgpt-test-model-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chatgpt-test-model-section .mcp-field {
+  gap: 9px;
+}
+
+.chatgpt-test-refresh-link {
+  align-self: flex-start;
+  min-height: 24px;
+  padding-inline: 2px;
+}
+
 .provider-modal-layout {
   display: flex;
   min-height: 0;
