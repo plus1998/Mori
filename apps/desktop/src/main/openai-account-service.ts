@@ -13,6 +13,7 @@ import type {
   OpenAIAccountCreateInput,
   OpenAIAccountDetails,
   OpenAIAccountQuota,
+  OpenAIAccountImageQuota,
   OpenAIAccountSyncStatus,
   OpenAIAccountUpdateInput,
 } from "../shared/openai-account";
@@ -621,6 +622,8 @@ export class OpenAIAccountService {
         ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
         ...(lastLogin ? { lastLogin } : {}),
         ...(account.quota ? { quota: account.quota } : {}),
+        imageGenerationEnabled: account.imageGenerationEnabled ?? false,
+        ...(account.imageQuota ? { imageQuota: account.imageQuota } : {}),
       };
     });
   }
@@ -848,6 +851,17 @@ export class OpenAIAccountService {
     const result = this.getStore().importProfiles(input);
     this.onAccountsChanged?.({ syncStatus: this.syncStatus });
     return result;
+  }
+
+  async setImageGenerationEnabled(accountId: string, enabled: boolean): Promise<void> {
+    await this.requireAccount(accountId);
+    this.getStore().setImageGenerationEnabled(accountId, enabled);
+    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+  }
+
+  saveImageQuota(accountId: string, authJson: string, quota: OpenAIAccountImageQuota): void {
+    this.getStore().saveImageQuota(accountId, authJson, quota);
+    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
   }
 
   async cancelPendingAccountSwitch(): Promise<{ success: boolean }> {

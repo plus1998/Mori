@@ -1,0 +1,59 @@
+{
+  "started_at": "2026-10-14T13:21:58Z",
+  "source": "eco-account",
+  "requests": [
+    {
+      "path": "/backend-api/wham/usage",
+      "status": 200,
+      "keys": [
+        "user_id",
+        "account_id",
+        "email",
+        "plan_type",
+        "rate_limit",
+        "code_review_rate_limit",
+        "additional_rate_limits",
+        "model_usage",
+        "credits",
+        "spend_control",
+        "rate_limit_reached_type",
+        "rate_limit_upsell",
+        "promo",
+        "rate_limit_reset_credits"
+      ],
+      "plan_type": "free",
+      "rate_limit": {
+        "allowed": false,
+        "limit_reached": true,
+        "primary_window": {
+          "used_percent": 100,
+          "limit_window_seconds": 2592000,
+          "reset_after_seconds": 429453,
+          "reset_at": 1792413573
+        },
+        "secondary_window": null
+      },
+      "additional_rate_limits": null,
+      "model_usage": {}
+    },
+    {
+      "path": "/backend-api/conversation/init",
+      "status": 403,
+      "error": "<html>\n  <head>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <style global>body{font-family:Arial,Helvetica,sans-serif}.container{align-items:center;display:flex;flex-direction:column;gap:2rem;height:100%;justify-content:center;width:100%}@keyframes enlarge-appear{0%{opacity:0;transform:scale(75%) rotate(-90deg)}to{opacity:1;transform:scale(100%) rotate(0deg)}}.logo{color:#8e8ea0}.scale-appear{animation:enlarge-appear .4s ease-out}@media (min-width:768px){.scale-appear{height:48px;width:48px}}.data:empty{display:none}.data{border-radius:5px;color:#8e8ea0;text-align:center}@media (prefers-color-scheme:dark){body{background-color:#343541}.logo{color:#acacbe}}</style>\n  <meta http-equiv=\"refresh\" content=\"360\"></head>\n  <body>\n    <div class=\"container\">\n      <div class=\"logo\">\n        <svg\n          width=\"41\"\n          height=\"41\"\n          viewBox=\"0 0 41 41\"\n          fill=\"none\"\n          xmlns=\"http://www.w3.org/2000/svg\"\n          strokeWidth=\"2\"\n"
+    },
+    {
+      "path": "/backend-api/codex/responses",
+      "model": "gpt-5.5",
+      "image_model": "gpt-image-2",
+      "event_types": {},
+      "images": [],
+      "status": 429,
+      "error": "{\"error\":{\"type\":\"usage_limit_reached\",\"message\":\"The usage limit has been reached\",\"plan_type\":\"free\",\"resets_at\":1792413573,\"eligible_promo\":null,\"limit_window_minutes\":43200,\"resets_in_seconds\":429449}}",
+      "elapsed_seconds": 5.05
+    },
+    {
+      "path": "/backend-api/wham/usage",
+      "error": "<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1082)>"
+    }
+  ]
+}

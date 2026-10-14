@@ -1,0 +1,40 @@
+{
+  "quota": {
+    "source": "chatgpt_image_gen",
+    "status": "available",
+    "fetchedAt": 1791987079939,
+    "remaining": 120,
+    "resetAt": "2026-10-15T14:11:18.694909+00:00"
+  },
+  "artifact": {
+    "id": "e962fe10-e2a6-4078-a1f4-71dbd9c58583",
+    "threadId": "thr_codex_image_smoke",
+    "status": "completed",
+    "prompt": "A simple flat illustration of a small orange flower centered on white. No text.",
+    "parameters": {
+      "count": 1,
+      "quality": "low"
+    },
+    "provider": "codex",
+    "profileName": "Codex 登录账号",
+    "model": "gpt-image-2",
+    "workspacePath": "/tmp/eco-codex-image-integrated-smoke",
+    "generationRoot": "/tmp/eco-codex-image-integrated-smoke",
+    "images": [
+      {
+        "absolutePath": "/tmp/eco-codex-image-integrated-smoke/.eco/generated-images/thread-12cb4e8d/image-1791987113640-1-2a6ee711.png",
+        "relativePath": ".eco/generated-images/thread-12cb4e8d/image-1791987113640-1-2a6ee711.png",
+        "mimeType": "image/png",
+        "bytes": 1005314
+      }
+    ],
+    "createdAt": "2026-10-14T14:11:19.964Z",
+    "updatedAt": "2026-10-14T14:11:53.641Z"
+  },
+  "verification": {
+    "mcp": "completed",
+    "png_decode": "passed",
+    "temporary_credentials_removed": true,
+    "cleanup_harness_error": "store.close is not a function; script corrected; copied credentials removed"
+  }
+}

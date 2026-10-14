@@ -549,7 +549,7 @@ export const i18nCatalogs = {
       "task.tts.playbackError": "音频无法播放。",
       "task.tts.reveal": "在文件夹中显示",
       "settings.imageGeneration.title": "创意绘画",
-      "settings.imageGeneration.pageDesc": "配置创意绘画供应商、模型和 API Key。会话可单独开启创意绘画工具。",
+      "settings.imageGeneration.pageDesc": "配置创意绘画供应商或 Codex 登录账号。会话可单独开启创意绘画工具。",
       "settings.imageGeneration.masterTitle": "允许会话使用创意绘画",
       "settings.imageGeneration.masterHint": "使用激活的供应商配置进行创意绘画；每次调用都需要确认",
       "settings.imageGeneration.encryptionUnavailable": "系统安全存储不可用，无法保存或读取 API Key。",
@@ -3137,7 +3137,7 @@ export const i18nCatalogs = {
       "task.tts.reveal": "Show in folder",
       "settings.imageGeneration.title": "Creative Drawing",
       "settings.imageGeneration.pageDesc":
-        "Configure Creative Drawing providers, models, and API keys. The tool can be enabled per session.",
+        "Configure Creative Drawing providers or signed-in Codex accounts. The tool can be enabled per session.",
       "settings.imageGeneration.masterTitle": "Allow sessions to use Creative Drawing",
       "settings.imageGeneration.masterHint":
         "Draw with the active provider profile; every call requires confirmation",

@@ -8,6 +8,7 @@ import {
 } from "../src/main/image-generation-client";
 import type { ImageGenerationClientConfig } from "../src/main/image-generation-store";
 import { ImageGenerationError } from "../src/shared/image-generation";
+import { CodexImageBatchError } from "../src/main/codex-image-service";
 
 const originalFetch = globalThis.fetch;
 const temporaryDirectories: string[] = [];
@@ -45,6 +46,28 @@ function config(
     ...overrides,
   };
 }
+
+test("a partial Codex batch writes completed images into the failed artifact payload", async () => {
+  const root = await generationRoot();
+  try {
+    await generateImagesToWorkspace({
+      config: config("codex", { apiKey: "", model: "gpt-image-2" }),
+      toolInput: { prompt: "leaf", count: 2 }, generationRoot: root,
+      workspacePath: root, threadDirectory: "codex-partial",
+      generateCodex: async () => { throw new CodexImageBatchError(
+        new ImageGenerationError("usage_limit_reached", "second image limited", 429),
+        [{ bytes: pngBytes, mimeType: "image/png" }],
+      ); },
+    });
+    throw new Error("expected failure");
+  } catch (error) {
+    expect(error).toBeInstanceOf(ImageGenerationError);
+    const failure = error as ImageGenerationError;
+    expect(failure.code).toBe("usage_limit_reached");
+    expect(failure.partialImages).toHaveLength(1);
+    expect(await fs.readFile(failure.partialImages[0]!.absolutePath)).toEqual(pngBytes);
+  }
+});
 
 test("OpenAI request preserves model and parameters and writes under the thread directory", async () => {
   let requestedUrl = "";

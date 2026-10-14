@@ -38,6 +38,8 @@ function formFromProfile(profile: ImageGenerationProfileSnapshot): ImageGenerati
 }
 
 function imageProviderLabel(provider: ImageGenerationProvider): string {
+  if (provider === "chatgpt_web") return "GPT网页生图";
+  if (provider === "codex") return "Codex 登录账号";
   if (provider === "openai") return "OpenAI";
   if (provider === "gemini") return "Gemini";
   return "OpenAI 兼容";
@@ -227,7 +229,11 @@ export function ImageGenerationSettingsPanel({
                     </div>
                   </div>
                   <div className="image-generation-profile-card-meta">
-                    <span>Base URL：{profile.endpoint}</span>
+                    <span>
+                      {profile.provider === "codex" || profile.provider === "chatgpt_web"
+                        ? "轮流使用已勾选「用于创意绘画」的账号"
+                        : `Base URL：${profile.endpoint}`}
+                    </span>
                     <span>{profile.supportsImageToImage ? "支持图片编辑" : "仅支持文生图"}</span>
                   </div>
                 </article>
@@ -271,7 +277,9 @@ export function ImageGenerationSettingsPanel({
                       {selected ? "编辑创意绘画配置" : "添加创意绘画配置"}
                     </h2>
                     <p className="image-generation-profile-modal-subtitle">
-                      配置渠道、模型、Base URL 和 API Key。
+                      {form.provider === "codex" || form.provider === "chatgpt_web"
+                        ? "生成图片，或基于参考图进行编辑。"
+                        : "配置渠道、模型、Base URL 和 API Key。"}
                     </p>
                   </div>
                   <button
@@ -316,15 +324,22 @@ export function ImageGenerationSettingsPanel({
                       <option value="openai">OpenAI</option>
                       <option value="gemini">Gemini</option>
                       <option value="openai_compatible">OpenAI-compatible</option>
+                      <option value="codex">Codex 登录账号（轮询）</option>
+                      <option value="chatgpt_web">GPT网页生图</option>
                     </select>
                   </label>
+                  {form.provider === "codex" || form.provider === "chatgpt_web" ? (
+                    <p className="settings-form-hint">
+                      在账号的「更多操作」菜单中勾选「用于创意绘画」。无需 API Key。
+                    </p>
+                  ) : null}
                   <label className="settings-form-field">
                     <span className="settings-form-label">Base URL</span>
                     <input
                       className="settings-form-input"
                       type="url"
                       value={form.endpoint}
-                      disabled={busy}
+                      disabled={busy || form.provider === "codex" || form.provider === "chatgpt_web"}
                       required
                       onChange={(event) => setForm({ ...form, endpoint: event.target.value })}
                     />
@@ -334,7 +349,7 @@ export function ImageGenerationSettingsPanel({
                     <input
                       className="settings-form-input"
                       value={form.model}
-                      disabled={busy}
+                      disabled={busy || form.provider === "codex" || form.provider === "chatgpt_web"}
                       required
                       onChange={(event) => setForm({ ...form, model: event.target.value })}
                     />
@@ -357,17 +372,19 @@ export function ImageGenerationSettingsPanel({
                       {t("settings.imageGeneration.supportsImageToImageHint")}
                     </small>
                   </label>
-                  <label className="settings-form-field">
-                    <span className="settings-form-label">API Key</span>
-                    <input
-                      className="settings-form-input"
-                      type="password"
-                      value={form.apiKey ?? ""}
-                      disabled={busy || !settings.apiKeyEncryptionAvailable}
-                      placeholder={selected?.hasApiKey ? t("settings.imageGeneration.keyConfigured") : ""}
-                      onChange={(event) => setForm({ ...form, apiKey: event.target.value })}
-                    />
-                  </label>
+                  {form.provider !== "codex" && form.provider !== "chatgpt_web" ? (
+                    <label className="settings-form-field">
+                      <span className="settings-form-label">API Key</span>
+                      <input
+                        className="settings-form-input"
+                        type="password"
+                        value={form.apiKey ?? ""}
+                        disabled={busy || !settings.apiKeyEncryptionAvailable}
+                        placeholder={selected?.hasApiKey ? t("settings.imageGeneration.keyConfigured") : ""}
+                        onChange={(event) => setForm({ ...form, apiKey: event.target.value })}
+                      />
+                    </label>
+                  ) : null}
                 </div>
                 <footer className="settings-modal-footer">
                   <button

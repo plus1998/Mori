@@ -32,6 +32,7 @@ export interface ImageGenerationMcpInjection {
 }
 
 export interface ImageGenerationGatewayDeps {
+  generateCodex?: Parameters<typeof generateImagesToWorkspace>[0]["generateCodex"];
   store: ImageGenerationStore;
   resolveWorkspacePath(threadId: string): string | undefined;
   resolveGenerationRoot(threadId: string): string | undefined;
@@ -271,6 +272,7 @@ export class ImageGenerationMcpGateway {
         generationRoot,
         threadDirectory: threadDirectoryName(threadId),
         workspacePath,
+        ...(this.deps.generateCodex ? { generateCodex: this.deps.generateCodex } : {}),
         ...(signal ? { signal } : {}),
       });
       const completed = this.deps.store.completeArtifact(artifact.id, images);

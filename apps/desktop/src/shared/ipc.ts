@@ -99,6 +99,8 @@ export const IPC_CHANNELS = {
   openAIAccountsGetActive: "openai-accounts:get-active",
   openAIAccountsSetAuthJson: "openai-accounts:set-auth-json",
   openAIAccountsQueryQuota: "openai-accounts:query-quota",
+  openAIAccountsImageEnabled: "openai-accounts:image-enabled",
+  openAIAccountsImageQuota: "openai-accounts:image-quota",
   openAIAccountsUpdate: "openai-accounts:update",
   openAIAccountsGetAuthJson: "openai-accounts:get-auth-json",
   openAIAccountsGetDetails: "openai-accounts:get-details",

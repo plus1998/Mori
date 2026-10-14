@@ -37,7 +37,19 @@ export interface OpenAIAccountQuota {
   fetchedAt: number;
 }
 
+/** The image_gen balance queried by chatgpt2api, not a verified Codex-only balance. */
+export interface OpenAIAccountImageQuota {
+  source: "chatgpt_image_gen";
+  status: "available" | "error";
+  fetchedAt: number;
+  remaining?: number;
+  resetAt?: string;
+  error?: string;
+}
+
 export interface OpenAIAccount {
+  imageGenerationEnabled?: boolean;
+  imageQuota?: OpenAIAccountImageQuota;
   id: string;
   name: string;
   email?: string;
@@ -81,6 +93,8 @@ export interface OpenAIAccountAssistantActionResult {
 }
 
 export interface OpenAIAccountDetails extends OpenAIAccountProfile {
+  imageGenerationEnabled?: boolean;
+  imageQuota?: OpenAIAccountImageQuota;
   id: string;
   name: string;
   proxyUrl?: string;

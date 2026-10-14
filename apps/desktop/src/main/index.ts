@@ -750,6 +750,9 @@ import { HtmlHostStore } from "./html-host-store";
 import { ImageDisplayMcpGateway } from "./image-display-mcp-gateway";
 import { createImageDisplayStore, ImageDisplayError, type ImageDisplayStore } from "./image-display-store";
 import { ImageGenerationMcpGateway } from "./image-generation-mcp-gateway";
+import { CodexImageService } from "./codex-image-service";
+import { imageGenerationAvailability } from "./image-generation-availability";
+import { connectCodexImageAccount, disposeCodexImageConnections } from "./codex-image-electron-transport";
 import {
   createImageGenerationStore,
   type ImageGenerationSecretCodec,
@@ -1400,6 +1403,7 @@ let ttsStore: TtsStore;
 let ttsGateway: TtsMcpGateway;
 let imageGenerationStore: ImageGenerationStore;
 let imageGenerationGateway: ImageGenerationMcpGateway;
+let codexImages: CodexImageService;
 let imageViewGateway: ImageViewMcpGateway;
 let imageDisplayStore: ImageDisplayStore;
 let imageDisplayGateway: ImageDisplayMcpGateway;
@@ -2517,6 +2521,7 @@ app
     imageGenerationStore = await createImageGenerationStore(dbPath, imageSecretCodec);
     imageGenerationGateway = new ImageGenerationMcpGateway({
       store: imageGenerationStore,
+      generateCodex: (input, images, signal, route) => codexImages.generate(input, images, signal, route),
       resolveWorkspacePath: (threadId) => conversationStore.getThread(threadId)?.workspacePath,
       resolveGenerationRoot: (threadId) =>
         activeRunRuntimeState.worktreePlan(threadId)?.worktreePath ??
@@ -6725,6 +6730,21 @@ function registerIpcHandlers(): void {
     return quota;
   });
 
+  codexImages = new CodexImageService({
+    listAccounts: async () => (await getOpenAIAccountService()).listAccounts(),
+    getAccountDetails: async (id) => (await getOpenAIAccountService()).getAccountDetails(id),
+    saveImageQuota: async (id, authJson, quota) => (await getOpenAIAccountService()).saveImageQuota(id, authJson, quota),
+  }, connectCodexImageAccount);
+  app.once("before-quit", () => { void disposeCodexImageConnections(); });
+
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsImageEnabled, async (payload: { accountId: string; enabled: boolean }) => {
+    if (typeof payload.enabled !== "boolean") throw new Error("生图开关值无效。");
+    await (await getOpenAIAccountService()).setImageGenerationEnabled(payload.accountId, payload.enabled);
+  });
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsImageQuota, async (payload: { accountId: string }) => {
+    return codexImages.queryQuota(payload.accountId);
+  });
+
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsUpdate, async (payload: OpenAIAccountUpdateInput) => {
     const svc = await getOpenAIAccountService();
     const prevAccount = (await svc.listAccounts()).find((a: OpenAIAccount) => a.id === payload.accountId);
@@ -7455,10 +7475,8 @@ function registerIpcHandlers(): void {
     const activeImageProfile = imageSettings.profiles.find(
       (profile) => profile.id === imageSettings.activeProfileId,
     );
-    let imageReason: string | undefined;
-    if (!activeImageProfile?.hasApiKey) imageReason = "当前创意绘画 Profile 尚未配置 API Key。";
-    else if (!imageSettings.apiKeyEncryptionAvailable)
-      imageReason = "系统加密不可用，无法读取创意绘画 API Key。";
+    const imageAvailability = imageGenerationAvailability(imageSettings,
+      activeImageProfile?.provider === "codex" || activeImageProfile?.provider === "chatgpt_web" ? await codexImages.getAvailability(activeImageProfile.provider) : undefined);
     return {
       integrations: [
         {
@@ -7483,8 +7501,7 @@ function registerIpcHandlers(): void {
         {
           id: "imageGeneration" as const,
           enabled: imageSettings.enabled,
-          available: Boolean(imageSettings.enabled && activeImageProfile?.hasApiKey && !imageReason),
-          ...(imageReason ? { reason: imageReason } : {}),
+          ...imageAvailability,
           ...(activeImageProfile ? { activeProfileName: activeImageProfile.name } : {}),
         },
       ],

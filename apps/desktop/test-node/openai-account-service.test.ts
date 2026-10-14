@@ -9,6 +9,7 @@ import { removeTempDirectory } from "../test/helpers/temp-directory";
 import { OpenAIAccountService, readAuthRefreshStamp } from "../src/main/openai-account-service";
 import { parseOpenAIAccountImport } from "../src/main/openai-account-import";
 import { writeFakeCodexLogin } from "../test-support/fake-codex-login";
+import { OpenAIAccountStore } from "../src/main/openai-account-store";
 
 function authJson(input: { accountId: string; refreshToken: string; stamp: string; unknown?: unknown }): string {
   return JSON.stringify({
@@ -23,6 +24,35 @@ function authJson(input: { accountId: string; refreshToken: string; stamp: strin
     },
   }, null, 2);
 }
+
+test("image switches and per-account quota survive restart, invalidate on account change, and preserve active Codex auth", async (t) => {
+  const { root, service } = await makeService(t);
+  const a = await service.createAccount("A");
+  const b = await service.createAccount("B");
+  const rawA = authJson({ accountId: "chatgpt-A", refreshToken: "A", stamp: "2026-10-14" });
+  const rawB = authJson({ accountId: "chatgpt-B", refreshToken: "B", stamp: "2026-10-14" });
+  await service.setAuthJson(a.id, rawA);
+  await service.setAuthJson(b.id, rawB);
+  await service.setActiveAccount(a.id);
+  await service.applyPendingTransition();
+  const activeFile = path.join(root, "codex/auth.json");
+  const before = await fs.readFile(activeFile, "utf8");
+  await service.setImageGenerationEnabled(b.id, true);
+  service.saveImageQuota(b.id, rawB, { source: "chatgpt_image_gen", status: "available", fetchedAt: Date.now(), remaining: 120 });
+  assert.equal(await fs.readFile(activeFile, "utf8"), before);
+  assert.equal(await service.getActiveAccountId(), a.id);
+  assert.equal((await service.listAccounts()).find((x) => x.id === b.id)?.imageGenerationEnabled, true);
+  assert.equal((await service.listAccounts()).find((x) => x.id === a.id)?.imageQuota, undefined);
+  const store = await OpenAIAccountStore.open(path.join(root, "eco-coding.sqlite"));
+  try {
+    assert.equal(store.get(b.id)?.imageQuota?.remaining, 120);
+    assert.equal(store.get(b.id)?.imageGenerationEnabled, true);
+    const changed = authJson({ accountId: "chatgpt-replaced", refreshToken: "C", stamp: "2026-10-14" });
+    store.saveAuthJson(b.id, changed);
+    assert.equal(store.get(b.id)?.imageQuota, undefined);
+    assert.throws(() => store.saveImageQuota(b.id, rawB, { source: "chatgpt_image_gen", status: "available", fetchedAt: Date.now(), remaining: 120 }), /凭据已变更/);
+  } finally { store.close(); }
+});
 
 async function makeService(t: test.TestContext, executable?: string, onAccountsChanged?: ConstructorParameters<typeof OpenAIAccountService>[2]) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "eco-openai-sqlite-"));

@@ -24,6 +24,7 @@ import type {
   OpenAIAccountDetails,
   OpenAIAccountImportResult,
   OpenAIAccountQuota,
+  OpenAIAccountImageQuota,
   OpenAIAccountSyncStatus,
   OpenAIAccountUpdateInput,
 } from "../shared/openai-account";
@@ -655,6 +656,13 @@ const api = {
 
   openAIAccountsQueryQuota(accountId: string): Promise<OpenAIAccountQuota> {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsQueryQuota, { accountId });
+  },
+
+  openAIAccountsSetImageEnabled(accountId: string, enabled: boolean): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsImageEnabled, { accountId, enabled });
+  },
+  openAIAccountsQueryImageQuota(accountId: string): Promise<OpenAIAccountImageQuota> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsImageQuota, { accountId });
   },
 
   openAIAccountsUpdate(input: OpenAIAccountUpdateInput): Promise<{ success: boolean }> {

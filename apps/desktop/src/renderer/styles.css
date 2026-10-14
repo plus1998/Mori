@@ -9339,6 +9339,28 @@ button.integrated-web-search-clear-key:disabled {
   color: var(--text-secondary);
   font-weight: 500;
 }
+
+.codex-image-quota-summary {
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+.codex-account-action-checkbox input {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--codex-blue);
+  cursor: inherit;
+}
+.codex-account-action-checkbox:has(input:disabled) {
+  background: transparent;
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.codex-image-quota-error {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
 .codex-quota-summary em {
   font-style: normal;
 }

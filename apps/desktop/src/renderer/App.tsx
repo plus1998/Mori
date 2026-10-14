@@ -4538,6 +4538,28 @@ function App() {
   }, [settingsOpen, settingsSection]);
 
   useEffect(() => {
+    const eco = window.eco;
+    if (!eco?.onOpenAIAccountsChanged) return;
+    let alive = true;
+    let revision = 0;
+    const unsubscribe = eco.onOpenAIAccountsChanged(() => {
+      const requestedRevision = ++revision;
+      void eco
+        .getIntegrationAvailability()
+        .then((snapshot) => {
+          if (alive && requestedRevision === revision) setIntegrationAvailability(snapshot);
+        })
+        .catch((caught) => {
+          if (alive && requestedRevision === revision) setError(errorMessage(caught));
+        });
+    });
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!settingsOpen || settingsSection !== "defaultAgent") {
       return;
     }

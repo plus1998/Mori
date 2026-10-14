@@ -1,0 +1,129 @@
+{
+  "started_at": "2026-10-14T13:20:11Z",
+  "source": "auth-file",
+  "requests": [
+    {
+      "path": "/backend-api/wham/usage",
+      "status": 200,
+      "keys": [
+        "user_id",
+        "account_id",
+        "email",
+        "plan_type",
+        "rate_limit",
+        "code_review_rate_limit",
+        "additional_rate_limits",
+        "model_usage",
+        "credits",
+        "spend_control",
+        "rate_limit_reached_type",
+        "promo",
+        "rate_limit_reset_credits"
+      ],
+      "plan_type": "plus",
+      "rate_limit": {
+        "allowed": true,
+        "limit_reached": false,
+        "primary_window": {
+          "used_percent": 11,
+          "limit_window_seconds": 18000,
+          "reset_after_seconds": 15626,
+          "reset_at": 1791999639
+        },
+        "secondary_window": {
+          "used_percent": 63,
+          "limit_window_seconds": 604800,
+          "reset_after_seconds": 492030,
+          "reset_at": 1792476043
+        }
+      },
+      "additional_rate_limits": null,
+      "model_usage": {
+        "gpt-6-astra": {
+          "available": true,
+          "available_at": null,
+          "credits_would_enable": false
+        }
+      }
+    },
+    {
+      "path": "/backend-api/conversation/init",
+      "status": 403,
+      "error": "<html>\n  <head>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <style global>body{font-family:Arial,Helvetica,sans-serif}.container{align-items:center;display:flex;flex-direction:column;gap:2rem;height:100%;justify-content:center;width:100%}@keyframes enlarge-appear{0%{opacity:0;transform:scale(75%) rotate(-90deg)}to{opacity:1;transform:scale(100%) rotate(0deg)}}.logo{color:#8e8ea0}.scale-appear{animation:enlarge-appear .4s ease-out}@media (min-width:768px){.scale-appear{height:48px;width:48px}}.data:empty{display:none}.data{border-radius:5px;color:#8e8ea0;text-align:center}@media (prefers-color-scheme:dark){body{background-color:#343541}.logo{color:#acacbe}}</style>\n  <meta http-equiv=\"refresh\" content=\"360\"></head>\n  <body>\n    <div class=\"container\">\n      <div class=\"logo\">\n        <svg\n          width=\"41\"\n          height=\"41\"\n          viewBox=\"0 0 41 41\"\n          fill=\"none\"\n          xmlns=\"http://www.w3.org/2000/svg\"\n          strokeWidth=\"2\"\n"
+    },
+    {
+      "path": "/backend-api/codex/responses",
+      "model": "gpt-5.5",
+      "image_model": "gpt-image-2",
+      "event_types": {
+        "response.created": 1,
+        "response.in_progress": 1,
+        "response.output_item.added": 2,
+        "response.image_generation_call.in_progress": 1,
+        "response.image_generation_call.generating": 1,
+        "response.image_generation_call.completed": 1,
+        "response.output_item.done": 2,
+        "response.content_part.added": 1,
+        "response.output_text.done": 1,
+        "response.content_part.done": 1,
+        "response.completed": 1
+      },
+      "images": [
+        {
+          "file": "generated-1.png",
+          "bytes": 1019872,
+          "sha256": "bba7bfee951941235f05449e64f5039f94d3b5ba0be704192ef80a946130dff7",
+          "width": 1254,
+          "height": 1254
+        }
+      ],
+      "status": 200,
+      "success": true,
+      "elapsed_seconds": 38.89
+    },
+    {
+      "path": "/backend-api/wham/usage",
+      "status": 200,
+      "keys": [
+        "user_id",
+        "account_id",
+        "email",
+        "plan_type",
+        "rate_limit",
+        "code_review_rate_limit",
+        "additional_rate_limits",
+        "model_usage",
+        "credits",
+        "spend_control",
+        "rate_limit_reached_type",
+        "promo",
+        "rate_limit_reset_credits"
+      ],
+      "plan_type": "plus",
+      "rate_limit": {
+        "allowed": true,
+        "limit_reached": false,
+        "primary_window": {
+          "used_percent": 11,
+          "limit_window_seconds": 18000,
+          "reset_after_seconds": 15583,
+          "reset_at": 1791999639
+        },
+        "secondary_window": {
+          "used_percent": 63,
+          "limit_window_seconds": 604800,
+          "reset_after_seconds": 491987,
+          "reset_at": 1792476043
+        }
+      },
+      "additional_rate_limits": null,
+      "model_usage": {
+        "gpt-6-astra": {
+          "available": true,
+          "available_at": null,
+          "credits_would_enable": false
+        }
+      }
+    }
+  ]
+}

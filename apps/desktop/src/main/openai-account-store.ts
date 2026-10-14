@@ -7,6 +7,7 @@ import type {
   OpenAIAccountImportResult,
   OpenAIAccountProfile,
   OpenAIAccountQuota,
+  OpenAIAccountImageQuota,
   OpenAIAccountUpdateInput,
 } from "../shared/openai-account";
 import { parseOpenAIAccountImport, type ParsedOpenAIAccountImportRow } from "./openai-account-import";
@@ -32,6 +33,9 @@ export interface PendingAccountTransition {
 }
 
 interface AccountRow {
+  image_generation_enabled: number;
+  image_quota_json: string | null;
+  image_quota_account_id: string | null;
   id: string;
   name: string;
   proxy_url: string | null;
@@ -83,6 +87,9 @@ function mapAccount(row: AccountRow): StoredOpenAIAccount {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     authJson: row.auth_json,
+    ...(row.image_generation_enabled === 1 ? { imageGenerationEnabled: true } : {}),
+    ...(row.image_quota_json && row.auth_json && readChatGptAccountId(row.auth_json) === row.image_quota_account_id
+      ? { imageQuota: JSON.parse(row.image_quota_json) as OpenAIAccountImageQuota } : {}),
     ...(quota ? { quota } : {}),
     ...(row.proxy_url !== null ? { proxyUrl: row.proxy_url } : {}),
     ...(normalizeOptional(row.email) !== undefined ? { email: row.email as string } : {}),
@@ -241,6 +248,9 @@ export class OpenAIAccountStore {
       ["pickup_url", "TEXT"],
       ["two_factor_secret", "TEXT"],
       ["auth_json", "TEXT"],
+      ["image_generation_enabled", "INTEGER NOT NULL DEFAULT 0 CHECK(image_generation_enabled IN (0, 1))"],
+      ["image_quota_json", "TEXT"],
+      ["image_quota_account_id", "TEXT"],
     ] as const) {
       if (!columns.has(column)) this.db.exec(`ALTER TABLE openai_accounts ADD COLUMN ${column} ${declaration}`);
     }
@@ -594,6 +604,20 @@ export class OpenAIAccountStore {
 
   getAuthJson(accountId: string): string | null {
     return this.get(accountId)?.authJson ?? null;
+  }
+
+  setImageGenerationEnabled(accountId: string, enabled: boolean): void {
+    const result = this.db.prepare("UPDATE openai_accounts SET image_generation_enabled = ?, updated_at = ? WHERE id = ?")
+      .run(enabled ? 1 : 0, nowIso(), accountId);
+    if (!result.changes) throw new Error(`OpenAI account not found: ${accountId}`);
+  }
+
+  saveImageQuota(accountId: string, authJson: string, quota: OpenAIAccountImageQuota): void {
+    const identity = readChatGptAccountId(authJson);
+    if (!identity) throw new Error("账号凭据缺少 account_id");
+    const result = this.db.prepare(`UPDATE openai_accounts SET image_quota_json = ?, image_quota_account_id = ?
+      WHERE id = ? AND auth_json = ?`).run(JSON.stringify(quota), identity, accountId, authJson);
+    if (!result.changes) throw new Error("账号凭据已变更，请重新刷新图片额度");
   }
 
   saveQuota(accountId: string, chatGptAccountId: string, quota: OpenAIAccountQuota): void {

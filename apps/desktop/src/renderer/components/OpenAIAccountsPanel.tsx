@@ -24,11 +24,15 @@ import {
   PanelRightOpen,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { OpenAIAccount, OpenAIAccountDetails, OpenAIAccountQuota, OpenAIAccountQuotaWindow, OpenAIAccountSyncStatus } from "../../shared/openai-account";
+import type { OpenAIAccount, OpenAIAccountDetails, OpenAIAccountImageQuota, OpenAIAccountQuota, OpenAIAccountQuotaWindow, OpenAIAccountSyncStatus } from "../../shared/openai-account";
 import { CodexModelCatalogSection } from "./CodexModelCatalogSection";
 
 function formatResetTime(window: OpenAIAccountQuotaWindow, fetchedAt: number): string {
   const resetAt = window.resetAt > 0 ? window.resetAt * 1_000 : fetchedAt + window.resetAfterSeconds * 1_000;
+  return formatQuotaResetTime(resetAt);
+}
+
+function formatQuotaResetTime(resetAt: number): string {
   const seconds = Math.ceil((resetAt - Date.now()) / 1_000);
   if (seconds <= 0) return "已到重置时间，待刷新";
   if (seconds < 3600) return `${Math.ceil(seconds / 60)}m 后重置`;
@@ -42,6 +46,15 @@ function formatResetTime(window: OpenAIAccountQuotaWindow, fetchedAt: number): s
   return `${h > 0 ? `${d}d ${h}h` : `${d}d`} 后重置`;
 }
 
+function QuotaRefreshedAt({ fetchedAt }: { fetchedAt: number }) {
+  const refreshedAt = new Date(fetchedAt);
+  return (
+    <time className="codex-quota-refreshed-at" dateTime={refreshedAt.toISOString()} title={refreshedAt.toLocaleString()}>
+      上次刷新 {refreshedAt.toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+    </time>
+  );
+}
+
 export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error }: {
   quota: OpenAIAccountQuota | undefined;
   isLoggedIn: boolean;
@@ -50,7 +63,6 @@ export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error }:
 }) {
   if (!quota && !isLoggedIn) return null;
   const primary = quota?.rateLimit.primaryWindow;
-  const refreshedAt = quota ? new Date(quota.fetchedAt) : undefined;
   return <span className="codex-quota-summary" aria-busy={loading}>
     {loading ? <Loader2 size={13} className="mcp-spin" aria-label="正在刷新额度" /> : null}
     {quota ? <>
@@ -58,9 +70,7 @@ export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error }:
       {primary ? <em className={quota.rateLimit.limitReached ? "is-limited" : "is-ok"}>{Math.round(primary.usedPercent)}% 已使用</em> : null}
       {primary && (primary.resetAt > 0 || primary.resetAfterSeconds > 0) ? <span>{formatResetTime(primary, quota.fetchedAt)}</span> : null}
       {quota.resetCreditsAvailable > 0 ? <span>{quota.resetCreditsAvailable} 次重置</span> : null}
-      <time className="codex-quota-refreshed-at" dateTime={refreshedAt!.toISOString()} title={refreshedAt!.toLocaleString()}>
-        上次刷新 {refreshedAt!.toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-      </time>
+      <QuotaRefreshedAt fetchedAt={quota.fetchedAt} />
       {error ? <em className="is-error" title={error} role="status">刷新失败，显示缓存</em> : null}
     </> : <span className={error ? "is-error" : undefined} title={error}>{error ? "额度刷新失败" : loading ? "正在刷新额度" : "额度未获取"}</span>}
   </span>;
@@ -98,6 +108,23 @@ function ProfileSecretInput({
       </div>
     </label>
   );
+}
+
+export function OpenAIAccountImageQuotaSummary({ account, loading }: { account: OpenAIAccount; loading: boolean }) {
+  const quota: OpenAIAccountImageQuota | undefined = account.imageQuota;
+  const resetAt = quota?.status === "available" && quota.resetAt ? Date.parse(quota.resetAt) : undefined;
+  return <div className="codex-quota-summary codex-image-quota-summary" aria-busy={loading}>
+    {loading ? <Loader2 size={13} className="mcp-spin" aria-label="正在刷新图片额度" /> : null}
+    <b title="ChatGPT 网页图片额度">图片</b>
+    {quota?.status === "available" ? <>
+      <em className={quota.remaining === 0 ? "is-limited" : "is-ok"}>剩余 {quota.remaining} 张</em>
+      {resetAt !== undefined && Number.isFinite(resetAt) ? <span title={`恢复于 ${new Date(resetAt).toLocaleString()}`}>{formatQuotaResetTime(resetAt)}</span> : null}
+    </> : <span className={quota?.status === "error" ? "is-error" : undefined} title={quota?.error}>
+      {quota?.status === "error" ? "图片额度查询失败" : "图片额度未查询"}
+    </span>}
+    {quota ? <QuotaRefreshedAt fetchedAt={quota.fetchedAt} /> : null}
+    {quota?.status === "error" ? <span className="codex-image-quota-error is-error" role="alert">{quota.error}</span> : null}
+  </div>;
 }
 
 export function OpenAIAccountProfileFields({
@@ -202,6 +229,7 @@ export function OpenAIAccountsPanel() {
   const [quotaErrors, setQuotaErrors] = useState<Record<string, string>>({});
   const [quotaLoading, setQuotaLoading] = useState(false);
   const [quotaLoadingId, setQuotaLoadingId] = useState<string | null>(null);
+  const [imageOperation, setImageOperation] = useState<{ accountId: string; kind: "toggle" | "quota" } | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({
     top: 0,
@@ -283,12 +311,12 @@ export function OpenAIAccountsPanel() {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         const items = Array.from(
-          menuRef.current?.querySelectorAll<HTMLButtonElement>(
-            "button:not(:disabled)",
+          menuRef.current?.querySelectorAll<HTMLElement>(
+            "button:not(:disabled), input[type='checkbox']:not(:disabled)",
           ) ?? [],
         );
         const index = items.indexOf(
-          document.activeElement as HTMLButtonElement,
+          document.activeElement as HTMLElement,
         );
         items[
           (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) %
@@ -325,6 +353,34 @@ export function OpenAIAccountsPanel() {
       setQuotaErrors((previous) => ({ ...previous, [accountId]: error instanceof Error ? error.message : String(error) }));
     }
   }, [eco]);
+
+  async function handleImageEnabled(accountId: string, enabled: boolean) {
+    if (!eco || imageOperation) return;
+    setImageOperation({ accountId, kind: "toggle" });
+    setOperationError("");
+    try {
+      await eco.openAIAccountsSetImageEnabled(accountId, enabled);
+      await refresh();
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setImageOperation(null);
+    }
+  }
+
+  async function handleImageQuotaRefresh(accountId: string) {
+    if (!eco || imageOperation) return;
+    setImageOperation({ accountId, kind: "quota" });
+    setOperationError("");
+    try {
+      await eco.openAIAccountsQueryImageQuota(accountId);
+      await refresh();
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setImageOperation(null);
+    }
+  }
 
   const refreshQuotas = useCallback(async () => {
     if (!eco || accounts.length === 0 || quotaLoading || quotaLoadingId !== null) return;
@@ -796,7 +852,7 @@ export function OpenAIAccountsPanel() {
                         setMenuPos({
                           top: Math.max(
                             8,
-                            Math.min(rect.bottom + 4, window.innerHeight - 220),
+                            Math.min(rect.bottom + 4, window.innerHeight - 260),
                           ),
                           left: Math.max(
                             8,
@@ -829,6 +885,7 @@ export function OpenAIAccountsPanel() {
                       : "尚未登录"}
                   </span>
                   <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={account.isLoggedIn} loading={(quotaLoading && account.isLoggedIn) || quotaLoadingId === account.id} error={quotaErrors[account.id]} />
+                  <OpenAIAccountImageQuotaSummary account={account} loading={imageOperation?.accountId === account.id && imageOperation.kind === "quota"} />
                 </div>
                 {menuOpenId === account.id
                   ? createPortal(
@@ -893,6 +950,31 @@ export function OpenAIAccountsPanel() {
                           <RefreshCw size={14} />
                           {t("settings.openaiAccounts.refreshQuota")}
                         </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="account-action-item"
+                          disabled={busy || !account.isLoggedIn || imageOperation !== null}
+                          onClick={() => {
+                            setMenuOpenId(null);
+                            void handleImageQuotaRefresh(account.id);
+                          }}
+                        >
+                          <RefreshCw size={14} />
+                          刷新图片额度
+                        </button>
+                        <label className="account-action-item codex-account-action-checkbox">
+                          <input
+                            type="checkbox"
+                            role="menuitemcheckbox"
+                            aria-label="用于创意绘画"
+                            aria-checked={account.imageGenerationEnabled ?? false}
+                            checked={account.imageGenerationEnabled ?? false}
+                            disabled={busy || imageOperation !== null}
+                            onChange={(event) => void handleImageEnabled(account.id, event.target.checked)}
+                          />
+                          用于创意绘画
+                        </label>
                         {!isActive && account.isLoggedIn ? (
                           <button
                             type="button"
