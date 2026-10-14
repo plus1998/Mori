@@ -8,6 +8,7 @@ import { SchedulingService, type SchedulingDeps } from "../src/main/scheduling-s
 import { SchedulingMcpGateway } from "../src/main/scheduling-mcp-gateway";
 import type { ScheduleCreateInput, ScheduleExecutionProfile, ScheduleOccurrence } from "../src/shared/scheduling";
 import { buildAcpThreadRuntimeConfig } from "../src/shared/thread-runtime-config";
+import { SystemSleepBlocker } from "../src/main/system-sleep-blocker";
 
 const baseTime = Date.parse("2026-10-08T00:00:00Z");
 const profile: ScheduleExecutionProfile = { coreKind: "acp", runtimeConfig: buildAcpThreadRuntimeConfig({ cursorModelId: "cheap-model" }) };
@@ -34,6 +35,111 @@ async function fixture(t: test.TestContext, overrides: Partial<SchedulingDeps> =
   t.after(async () => { service.stop(); store.close(); await fs.rm(directory, { recursive: true, force: true }); });
   return { store, service, deps, dbPath, dispatched, states, setNow: (value: number) => { now = value; }, setBusy: (value: boolean) => { busy = value; } };
 }
+
+async function sleepFixture(t: test.TestContext, overrides: Partial<SchedulingDeps> = {}) {
+  const f = await fixture(t, overrides);
+  let nextId = 0;
+  const assertions = new Set<number>();
+  const blocker = new SystemSleepBlocker({
+    start: () => { const id = ++nextId; assertions.add(id); return id; },
+    stop: id => assertions.delete(id),
+    isStarted: id => assertions.has(id),
+  });
+  let runningWork = false;
+  f.deps.onChanged = () => blocker.sync(runningWork || f.service.hasWorkRequiringAwake());
+  return {
+    ...f, blocker,
+    setRunningWork: (value: boolean) => { runningWork = value; f.deps.onChanged(); },
+  };
+}
+
+test("future schedules block sleep immediately, including after restart; pause and delete release", async t => {
+  const f = await sleepFixture(t);
+  const definition = f.service.create(task("keep-awake"));
+  assert.equal(f.blocker.isBlocking, true);
+  f.blocker.sync(false);
+  f.service.start();
+  assert.equal(f.blocker.isBlocking, true);
+  assert.equal(f.dispatched.length, 0);
+
+  const paused = f.service.update({ id: definition.id, expectedRevision: 1, enabled: false });
+  assert.equal(f.blocker.isBlocking, false);
+  f.service.update({ id: definition.id, expectedRevision: paused.revision, enabled: true });
+  assert.equal(f.blocker.isBlocking, true);
+  f.service.remove(definition.id);
+  assert.equal(f.blocker.isBlocking, false);
+});
+
+test("overdue one-shots stay awake while pending; cancelling the pending run releases", async t => {
+  const f = await sleepFixture(t);
+  const definition = f.service.create(task("busy-awake"));
+  f.setBusy(true);
+  f.setNow(baseTime + 60_000);
+  await f.service.tick();
+  assert.equal(f.store.get(definition.id)?.nextRunAt, null);
+  assert.equal(f.store.occurrences()[0]?.status, "pending");
+  assert.equal(f.blocker.isBlocking, true);
+  f.service.update({ id: definition.id, expectedRevision: 1, enabled: false });
+  assert.equal(f.blocker.isBlocking, false);
+});
+
+test("one-shot messages stay awake after definition cleanup until the delivered run completes", async t => {
+  const f = await sleepFixture(t);
+  const message = f.service.create({ kind: "session_message", requestId: "awake-message", name: "Wake", threadId: "source", prompt: "Continue", trigger: { type: "at", at: new Date(baseTime + 60_000).toISOString() } }, { source: "agent", threadId: "source" });
+  assert.equal(f.blocker.isBlocking, true);
+  f.setNow(baseTime + 60_000);
+  await f.service.tick();
+  assert.equal(f.store.get(message.id), undefined);
+  assert.equal(f.blocker.isBlocking, true);
+  f.states.set(f.dispatched[0]!.id, { status: "completed" });
+  await f.service.tick();
+  assert.equal(f.blocker.isBlocking, false);
+});
+
+test("a paused manual run acquires before dispatch and survives deletion during dispatch", async t => {
+  let completeDispatch!: (value: { threadId: string }) => void;
+  const dispatch = new Promise<{ threadId: string }>(resolve => { completeDispatch = resolve; });
+  const f = await sleepFixture(t, { dispatch: () => dispatch });
+  const definition = f.service.create(task("manual-awake"));
+  f.service.update({ id: definition.id, expectedRevision: 1, enabled: false });
+  assert.equal(f.blocker.isBlocking, false);
+  const occurrence = f.service.runNow(definition.id, "manual");
+  assert.equal(f.store.occurrences()[0]?.status, "dispatching");
+  assert.equal(f.blocker.isBlocking, true);
+  f.service.remove(definition.id);
+  assert.equal(f.blocker.isBlocking, true);
+  completeDispatch({ threadId: "thr_manual" });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.blocker.isBlocking, true);
+  f.states.set(occurrence.id, { status: "completed" });
+  await f.service.tick();
+  assert.equal(f.blocker.isBlocking, false);
+});
+
+test("pausing schedules for approval releases only when no ordinary work remains", async t => {
+  const f = await sleepFixture(t);
+  f.service.create({ ...task("approval-awake"), trigger: { type: "interval", everySeconds: 60, anchorAt: new Date(baseTime + 60_000).toISOString() } });
+  f.setNow(baseTime + 60_000);
+  await f.service.tick();
+  f.setRunningWork(true);
+  f.states.set(f.dispatched[0]!.id, { status: "waiting_user" });
+  await f.service.tick();
+  assert.equal(f.service.hasWorkRequiringAwake(), false);
+  assert.equal(f.blocker.isBlocking, true);
+  f.setRunningWork(false);
+  assert.equal(f.blocker.isBlocking, false);
+});
+
+test("stopping the scheduler releases future schedules even when another change arrives later", async t => {
+  const f = await sleepFixture(t);
+  f.service.create(task("stop-awake"));
+  f.service.start();
+  assert.equal(f.blocker.isBlocking, true);
+  f.service.stop();
+  assert.equal(f.blocker.isBlocking, false);
+  f.deps.onChanged();
+  assert.equal(f.blocker.isBlocking, false);
+});
 
 test("definitions persist and creation/run-now retries deduplicate", async t => {
   const f = await fixture(t);

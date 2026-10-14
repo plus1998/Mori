@@ -32,6 +32,10 @@ export class SchedulingService {
   private stopped = false;
   constructor(readonly store: SchedulingStore, private readonly deps: SchedulingDeps, private readonly clock = Date.now) {}
 
+  hasWorkRequiringAwake(): boolean {
+    return !this.stopped && this.store.hasWorkRequiringAwake();
+  }
+
   create(input: ScheduleCreateInput, actor: SchedulingActor = { source: "user" }): ScheduleDefinition {
     const requestId = requiredText(input.requestId, "请求标识", 200);
     const key = `${actor.source}:${actor.threadId ?? "local"}:${requestId}`;
@@ -158,9 +162,16 @@ export class SchedulingService {
     }
     this.timer = setInterval(() => void this.tick(), 1000);
     this.timer.unref();
+    // Restored future schedules must acquire the sleep assertion before the first due tick.
+    this.deps.onChanged();
     void this.tick();
   }
-  stop(): void { this.stopped = true; if (this.timer) clearInterval(this.timer); }
+  stop(): void {
+    if (this.stopped) return;
+    this.stopped = true;
+    if (this.timer) clearInterval(this.timer);
+    this.deps.onChanged();
+  }
 
   async tick(): Promise<void> {
     if (this.ticking || this.stopped) return;
@@ -185,6 +196,8 @@ export class SchedulingService {
           threadId: occurrence.definition.kind === "scheduled_task" ? `thr_${occurrence.id}` : occurrence.definition.threadId!,
         };
         this.store.saveOccurrence(dispatching);
+        // Publish before awaiting dispatch: even a paused/manual one-shot must stay awake.
+        this.deps.onChanged();
         try {
           if (dispatching.definition.executionProfile) this.deps.validateProfile(dispatching.definition.executionProfile);
           const receipt = await this.deps.dispatch(dispatching);

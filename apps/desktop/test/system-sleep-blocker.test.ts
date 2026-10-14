@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  type PowerSaveBlockerApi,
-  SystemSleepBlocker,
-} from "../src/main/system-sleep-blocker";
+import { type PowerSaveBlockerApi, SystemSleepBlocker } from "../src/main/system-sleep-blocker";
 
 function createFakePowerSaveBlocker(): PowerSaveBlockerApi & {
   starts: Array<"prevent-app-suspension" | "prevent-display-sleep">;
@@ -52,8 +49,35 @@ test("SystemSleepBlocker dispose releases an active blocker", () => {
 
   blocker.sync(true);
   blocker.dispose();
+  blocker.sync(true);
+  blocker.sync(true, { refresh: true });
+  blocker.dispose();
   expect(api.stops).toEqual([1]);
+  expect(api.starts).toHaveLength(1);
   expect(blocker.isBlocking).toBe(false);
+});
+
+test("SystemSleepBlocker releases before reacquiring so Electron renews the native assertion on resume", () => {
+  const api = createFakePowerSaveBlocker();
+  const blocker = new SystemSleepBlocker(api);
+  blocker.sync(true);
+  const start = api.start.bind(api);
+  api.start = (type) => {
+    expect(api.isStarted(1)).toBe(false);
+    return start(type);
+  };
+
+  blocker.sync(true, { refresh: true });
+  expect(api.starts).toEqual(["prevent-app-suspension", "prevent-app-suspension"]);
+  expect(api.stops).toEqual([1]);
+  expect(blocker.isBlocking).toBe(true);
+});
+
+test("SystemSleepBlocker does not acquire on an idle resume", () => {
+  const api = createFakePowerSaveBlocker();
+  const blocker = new SystemSleepBlocker(api);
+  blocker.sync(false, { refresh: true });
+  expect(api.starts).toHaveLength(0);
 });
 
 test("SystemSleepBlocker restarts after the OS drops a previous blocker id", () => {

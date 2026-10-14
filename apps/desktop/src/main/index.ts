@@ -1308,12 +1308,23 @@ let backgroundTerminalTaskRegistry: BackgroundTerminalTaskRegistry;
 const systemSleepBlocker = new SystemSleepBlocker(powerSaveBlocker);
 let applicationShutdownDeps: ApplicationShutdownDeps | undefined;
 
-function syncSystemSleepBlocker(): void {
-  if (!applicationShutdownDeps) {
+function syncSystemSleepBlocker(options: { refresh?: boolean } = {}): void {
+  if (!applicationShutdownDeps || !conversationStore) {
     return;
   }
   try {
-    systemSleepBlocker.sync(hasRunningWork(collectRunningWorkSummary(applicationShutdownDeps)));
+    const runningWork = hasRunningWork(collectRunningWorkSummary(applicationShutdownDeps));
+    const scheduledWork = schedulingService?.hasWorkRequiringAwake() ?? false;
+    const wasBlocking = systemSleepBlocker.isBlocking;
+    systemSleepBlocker.sync(runningWork || scheduledWork, options);
+    if (wasBlocking !== systemSleepBlocker.isBlocking || options.refresh) {
+      logEcoDiag("system-sleep-blocker.changed", {
+        blocking: systemSleepBlocker.isBlocking,
+        runningWork,
+        scheduledWork,
+        refreshed: options.refresh ?? false,
+      });
+    }
   } catch (error) {
     process.stderr.write(
       `[eco] system sleep blocker sync failed: ${error instanceof Error ? error.message : String(error)}\n`,
@@ -3313,9 +3324,11 @@ app
     });
 
     powerMonitor.on("resume", () => {
+      syncSystemSleepBlocker({ refresh: true });
       void centerServerClient?.recoverAfterIdle("resume");
     });
     powerMonitor.on("unlock-screen", () => {
+      syncSystemSleepBlocker();
       void centerServerClient?.recoverAfterIdle("unlock-screen");
     });
 
@@ -12845,10 +12858,12 @@ function createSchedulingService(dbPath: string): SchedulingService {
       return { threadId, followUpId: followUp.id };
     },
     inspect: inspectScheduledOccurrence,
-    onChanged: () =>
+    onChanged: () => {
+      syncSystemSleepBlocker();
       BrowserWindow.getAllWindows().forEach((window) => {
         if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.schedulingChanged);
-      }),
+      });
+    },
     onError: (error) => logEcoDiag("scheduling.error", { error: errorMessage(error) }),
   });
 }

@@ -44,6 +44,15 @@ export class SchedulingStore {
   list(): ScheduleDefinition[] {
     return (this.db.prepare("SELECT data FROM schedule_definitions ORDER BY rowid DESC").all() as JsonRow[]).map(row => JSON.parse(row.data));
   }
+  /** Include claimed one-shots and manual runs even after their definition is paused or removed. */
+  hasWorkRequiringAwake(): boolean {
+    return Boolean(this.db.prepare(`
+      SELECT 1 FROM schedule_definitions WHERE enabled=1 AND next_run_at IS NOT NULL
+      UNION ALL
+      SELECT 1 FROM schedule_occurrences WHERE status IN ('pending', 'dispatching', 'running')
+      LIMIT 1
+    `).get());
+  }
   insert(definition: ScheduleDefinition, creationKey: string): ScheduleDefinition {
     this.transaction(() => {
       this.db.prepare("INSERT INTO schedule_definitions(id, creation_key, enabled, next_run_at, data) VALUES(?,?,?,?,?)")
