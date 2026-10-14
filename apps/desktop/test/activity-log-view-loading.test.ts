@@ -2722,9 +2722,63 @@ test("ActivityLogView hides waiting thinking while an MCP tool is running", () =
     }),
   );
 
-  expect(html).toContain("正在调用 MCP");
+  expect(html).toContain("正在调用 eco_browser · browser snapshot");
   expect(html).not.toContain('aria-label="会话进行中"');
   expect(html).not.toContain("正在思考");
+});
+
+test("ActivityLogView shows external MCP names in running and completed group headers", () => {
+  for (const server of ["mysql", "mongo"]) {
+    for (const phase of ["started", "completed"] as const) {
+      const name = `mcp__${server}__query`;
+      const html = renderToStaticMarkup(
+        createElement(ProjectionActivityLogView, {
+          projection: projection({
+            status: phase === "started" ? "running" : "completed",
+            timeline: [
+              item({
+                id: `${server}-${phase}`,
+                eventType: `tool.${phase}`,
+                text: `Tool: ${name}`,
+                metadata: {
+                  liveType: `tool.${phase}`,
+                  tool: { name, toolUseId: `${server}-query`, status: phase },
+                },
+              }),
+            ],
+          }),
+        }),
+      );
+      expect(html).toContain(`${phase === "started" ? "正在调用" : "调用了"} ${server} · query`);
+      expect(html).not.toContain("正在调用 MCP");
+      expect(html).not.toContain("调用了 MCP 工具");
+    }
+  }
+});
+
+test("ActivityLogView separates mysql and mongo in a completed MCP group summary", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "completed",
+        timeline: ["mysql", "mysql", "mongo"].map((server, index) => {
+          const name = `mcp__${server}__query`;
+          return item({
+            id: `mcp-completed-${index}`,
+            sequence: index + 1,
+            eventType: "tool.completed",
+            text: `Tool: ${name}`,
+            metadata: {
+              liveType: "tool.completed",
+              tool: { name, toolUseId: `mcp-query-${index}`, status: "completed" },
+            },
+          });
+        }),
+      }),
+    }),
+  );
+  expect(html).toContain("已调用 mysql 2 次和已调用 mongo 1 次");
+  expect(html).not.toContain("已调用 3 个 MCP 工具");
 });
 
 test("ActivityLogView hides waiting thinking while a file tool is running", () => {

@@ -87,6 +87,8 @@ export interface ResolvedAction {
   bucket: ActionGroupBucket;
   /** 浏览器等专名 key 的 suffix，如 `agent_browser_open` */
   namedSuffix?: string;
+  /** Real MCP identity, after the runtime unwraps Hub/proxy calls. */
+  mcpTool?: { serverName: string; toolName: string };
 }
 
 const ALIASES: Record<string, ActionKind> = {
@@ -267,7 +269,13 @@ export function resolveActionKind(input: { toolName?: string; payload?: ActionKi
   }
 
   if (name.startsWith("mcp__")) {
-    return resolved("mcp");
+    const match = toolName.trim().match(/^mcp__(.+?)__(.+)$/i);
+    return {
+      ...resolved("mcp"),
+      ...(match?.[1] && match[2]
+        ? { mcpTool: { serverName: match[1], toolName: match[2] } }
+        : {}),
+    };
   }
 
   if (name.includes("skill")) {
@@ -444,6 +452,13 @@ export function formatActionLine(
   if (kind === "mcpSearch") {
     return t(phase === "running" ? "activity.running.mcpSearch" : "activity.done.mcpSearch");
   }
+  if (kind === "mcp" && resolved.mcpTool) {
+    const { serverName, toolName } = resolved.mcpTool;
+    return t(`activity.${phase}.mcpNamed`, {
+      name: serverName,
+      suffix: ` · ${clamp64(toolName.replaceAll("_", " "))}`,
+    });
+  }
   if (kind === "browser") {
     const target = resolveActionTarget(resolved, input);
     const usesHostLine =
@@ -481,9 +496,26 @@ export function summarizeActionGroup(
 ): { label: string; icon: ActivityActionIcon } {
   const clauses: string[] = [];
   for (const bucket of SUMMARY_BUCKET_ORDER) {
-    const count = items.filter((item) => item.bucket === bucket).length;
-    if (count > 0) {
-      clauses.push(t(SUMMARY_I18N_KEY[bucket], { count }));
+    const bucketItems = items.filter((item) => item.bucket === bucket);
+    if (bucket === "mcpTools") {
+      const servers = new Map<string, number>();
+      let anonymousCount = 0;
+      for (const item of bucketItems) {
+        const server = item.mcpTool?.serverName;
+        if (server) {
+          servers.set(server, (servers.get(server) ?? 0) + 1);
+        } else {
+          anonymousCount += 1;
+        }
+      }
+      for (const [name, count] of servers) {
+        clauses.push(t("activity.summary.mcpNamed", { name, count }));
+      }
+      if (anonymousCount > 0) {
+        clauses.push(t(SUMMARY_I18N_KEY[bucket], { count: anonymousCount }));
+      }
+    } else if (bucketItems.length > 0) {
+      clauses.push(t(SUMMARY_I18N_KEY[bucket], { count: bucketItems.length }));
     }
   }
 
