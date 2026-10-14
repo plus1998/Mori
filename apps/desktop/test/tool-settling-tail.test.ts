@@ -139,7 +139,7 @@ test("waiting request after a settled tool group stays in the same active slot",
       [{ requestId: "next", status: "waiting_first_token", startedAt: iso(0) }],
     ),
   );
-  expect(html).toContain("已调用 2 个 MCP 工具");
+  expect(html).toContain("已调用 eco 2 次");
   expect(html).not.toContain("run-log-active-tail");
   expect(html).not.toContain("run-log-conversation-tail");
   expect(html).not.toContain("正在思考");
