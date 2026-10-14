@@ -11501,6 +11501,7 @@ function App() {
                     onKeyDown={handleComposerKeyDown}
                     maxHeight={COMPOSER_TEXTAREA_MAX_HEIGHT}
                     onPaste={handleComposerPaste}
+                    onPasteImageFiles={(files) => void addComposerImageFiles(files)}
                     placeholder={composerPlaceholder}
                     disabled={composerDisabled}
                   />

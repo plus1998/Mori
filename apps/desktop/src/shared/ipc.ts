@@ -44,6 +44,7 @@ export const IPC_CHANNELS = {
   appThreadOpenRequested: "app:thread-open-requested",
   coreAvailabilityGet: "core:availability-get",
   clipboardReadText: "clipboard:read-text",
+  clipboardReadImage: "clipboard:read-image",
   clipboardWriteImage: "clipboard:write-image",
   cursorModelsList: "cursor:models-list",
   workspaceOpen: "workspace:open",
@@ -561,6 +562,18 @@ export interface ImageRevealInFolderRequest {
  */
 export interface ClipboardWriteImageRequest {
   pngBase64: string;
+}
+
+/**
+ * PNG bytes read out of the system clipboard by the main process.
+ *
+ * Renderer clipboard-read stays denied (see `session-permissions.ts`), so right-click "Paste"
+ * in the Composer asks main for the clipboard image the same way the terminal asks for text.
+ * `null` means the clipboard holds no image.
+ */
+export interface ClipboardReadImageResult {
+  pngBase64: string;
+  byteLength: number;
 }
 
 /** Upper bound for the base64 PNG accepted by `clipboard:write-image` (≈30 MB of image bytes). */

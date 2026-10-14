@@ -92,6 +92,7 @@ import {
   type ClarificationRequest,
   type ClarificationSubmitPayload,
   type ClarificationSubmitResult,
+  type ClipboardReadImageResult,
   type ClipboardWriteImageRequest,
   type CodexModelCatalogSnapshot,
   type ComposerDraftDeleteRequest,
@@ -518,6 +519,13 @@ const api = {
   /** Plain-text system clipboard contents, read in the main process (the renderer has no clipboard-read). */
   readClipboardText(): Promise<string> {
     return ipcRenderer.invoke(IPC_CHANNELS.clipboardReadText);
+  },
+  /**
+   * PNG system-clipboard image, read in the main process for the same reason. `null` when the
+   * clipboard holds no image, which is how the Composer's right-click Paste picks text instead.
+   */
+  readClipboardImage(): Promise<ClipboardReadImageResult | null> {
+    return ipcRenderer.invoke(IPC_CHANNELS.clipboardReadImage);
   },
   /**
    * Image system-clipboard write, performed in the main process. The renderer's own write

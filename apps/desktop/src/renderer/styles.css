@@ -3371,11 +3371,12 @@ button.sidebar-settings-meta {
   caret-color: transparent;
 }
 
-/* Context menus (right-click): terminal and image viewer share one surface. Portaled to
-   <body>, so they carry their own surface tokens; screen coordinates come from
+/* Context menus (right-click): terminal, image viewer and Composer input share one surface.
+   Portaled to <body>, so they carry their own surface tokens; screen coordinates come from
    context-menu-layout.ts. */
 .terminal-context-menu,
-.image-context-menu {
+.image-context-menu,
+.composer-context-menu {
   display: flex;
   flex-direction: column;
   padding: 4px;
@@ -3389,7 +3390,8 @@ button.sidebar-settings-meta {
 }
 
 .terminal-context-menu-item,
-.image-context-menu-item {
+.image-context-menu-item,
+.composer-context-menu-item {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -3405,7 +3407,8 @@ button.sidebar-settings-meta {
 }
 
 .terminal-context-menu-item svg,
-.image-context-menu-item svg {
+.image-context-menu-item svg,
+.composer-context-menu-item svg {
   flex: 0 0 auto;
   color: var(--text-muted);
 }
@@ -3413,24 +3416,29 @@ button.sidebar-settings-meta {
 .terminal-context-menu-item:hover:not(:disabled),
 .terminal-context-menu-item:focus-visible:not(:disabled),
 .image-context-menu-item:hover:not(:disabled),
-.image-context-menu-item:focus-visible:not(:disabled) {
+.image-context-menu-item:focus-visible:not(:disabled),
+.composer-context-menu-item:hover:not(:disabled),
+.composer-context-menu-item:focus-visible:not(:disabled) {
   background: var(--nav-hover);
   color: var(--text-heading);
 }
 
 .terminal-context-menu-item:focus-visible,
-.image-context-menu-item:focus-visible {
+.image-context-menu-item:focus-visible,
+.composer-context-menu-item:focus-visible {
   outline: none;
 }
 
 .terminal-context-menu-item:disabled,
-.image-context-menu-item:disabled {
+.image-context-menu-item:disabled,
+.composer-context-menu-item:disabled {
   color: var(--text-tertiary);
   cursor: default;
 }
 
 .terminal-context-menu-item:disabled svg,
-.image-context-menu-item:disabled svg {
+.image-context-menu-item:disabled svg,
+.composer-context-menu-item:disabled svg {
   color: var(--text-tertiary);
 }
 

@@ -264,6 +264,7 @@ import {
   type ClarificationDismissPayload,
   type ClarificationSubmitPayload,
   type ClarificationSubmitResult,
+  type ClipboardReadImageResult,
   type CoderTodoItem,
   type CodexCatalogModelView,
   type CodexModelCatalogSnapshot,
@@ -4457,6 +4458,27 @@ function registerIpcHandlers(): void {
   // Terminal paste reads through the main process: the renderer clipboard-read permission
   // stays denied, and Electron's clipboard is not gated on window focus.
   registerDesktopCommand(IPC_CHANNELS.clipboardReadText, async () => clipboard.readText());
+
+  // Composer right-click paste reads the clipboard image here for the same reason. PNG only:
+  // Electron's nativeImage stops at that format, which is also what the Composer accepts.
+  registerDesktopCommand(
+    IPC_CHANNELS.clipboardReadImage,
+    async (): Promise<ClipboardReadImageResult | null> => {
+      const image = clipboard.readImage();
+      if (image.isEmpty()) {
+        return null;
+      }
+      const png = image.toPNG();
+      if (png.length === 0) {
+        return null;
+      }
+      const pngBase64 = png.toString("base64");
+      if (pngBase64.length > MAX_CLIPBOARD_IMAGE_BASE64_CHARS) {
+        return null;
+      }
+      return { pngBase64, byteLength: png.length };
+    },
+  );
 
   // Same reason for image writes: the renderer's `navigator.clipboard.write` refuses when the
   // document is unfocused, so the image viewer retries the copy here. PNG only — Chromium and
