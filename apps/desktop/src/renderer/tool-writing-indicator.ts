@@ -18,7 +18,8 @@ export interface ToolWritingIndicator extends ToolWritingActivity {
 }
 
 /**
- * Newest request that is writing a tool call, if any.
+ * Newest request of this agent that is writing a tool call, if any. Omitting the
+ * owner selects the main agent; subagent spans never supply the main Feed's label.
  *
  * Note this is *not* gated on the request span still being open: a span is marked completed
  * as soon as the narrative stream finalizes, and that happens before the tool call the model
@@ -32,9 +33,13 @@ export interface ToolWritingIndicator extends ToolWritingActivity {
  */
 export function resolveToolWritingIndicator(
   spans: Iterable<ThreadRunProjectionRequestSpan>,
+  ownerAgentId?: string,
 ): ToolWritingIndicator | undefined {
   let newest: ToolWritingIndicator | undefined;
   for (const span of spans) {
+    if (span.ownerAgentId !== ownerAgentId) {
+      continue;
+    }
     const writing = span.writingTool;
     if (!writing?.name && !writing?.kind && !writing?.target) {
       continue;

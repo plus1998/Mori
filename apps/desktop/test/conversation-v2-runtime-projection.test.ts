@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { buildThreadRunProjection } from "../src/main/conversation-v2-runtime-projection";
+import {
+  buildThreadRunProjection,
+  buildThreadRunProjectionRequestSpans,
+} from "../src/main/conversation-v2-runtime-projection";
 import type { AgentInstanceRecord, RunAttemptRecord } from "../src/main/usage-ledger";
 import type { ThreadBillingSnapshot, ThreadContextSnapshot, ThreadRunEvent } from "../src/shared/ipc";
 
@@ -1822,4 +1825,186 @@ test("replacing the live tool-writing request clears its previous mark", () => {
       .map((span) => span.requestId),
   ).toEqual(["req_2"]);
   expect(project(events).requestSpans.some((span) => span.writingTool)).toBe(false);
+});
+
+test("parallel agents attach and clear tool-writing state only on their own requests", () => {
+  const events = [
+    event({
+      id: "main-request",
+      sequence: 1,
+      scope: "main",
+      eventType: "request.started",
+      requestId: "main",
+      observedAt: "2026-01-01T00:00:01.000Z",
+    }),
+    event({
+      id: "a-request",
+      sequence: 2,
+      agentId: "coder_a",
+      eventType: "request.started",
+      requestId: "a",
+      observedAt: "2026-01-01T00:00:02.000Z",
+    }),
+    event({
+      id: "b-request",
+      sequence: 3,
+      agentId: "coder_b",
+      eventType: "request.started",
+      requestId: "b",
+      observedAt: "2026-01-01T00:00:03.000Z",
+    }),
+    event({
+      id: "a-write",
+      sequence: 4,
+      agentId: "coder_a",
+      eventType: "tool.writing",
+      message: "Write",
+      observedAt: "2026-01-01T00:00:04.000Z",
+    }),
+    event({
+      id: "main-write",
+      sequence: 5,
+      scope: "main",
+      eventType: "tool.writing",
+      message: "Read",
+      observedAt: "2026-01-01T00:00:05.000Z",
+    }),
+    event({
+      id: "b-tool",
+      sequence: 6,
+      agentId: "coder_b",
+      eventType: "tool.completed",
+      observedAt: "2026-01-01T00:00:06.000Z",
+    }),
+    event({
+      id: "a-tool",
+      sequence: 7,
+      agentId: "coder_a",
+      eventType: "tool.started",
+      observedAt: "2026-01-01T00:00:07.000Z",
+    }),
+    event({
+      id: "main-tool",
+      sequence: 8,
+      scope: "main",
+      eventType: "tool.started",
+      observedAt: "2026-01-01T00:00:08.000Z",
+    }),
+  ];
+  const agents = [agent({ agentId: "coder_a" }), agent({ agentId: "coder_b" })];
+  const writingRequests = (count: number) => {
+    const rows = events.slice(0, count);
+    const spans = buildThreadRunProjectionRequestSpans({ events: rows, threadStatus: "running", agents });
+    expect(
+      buildThreadRunProjection({
+        threadId: "thr_projection",
+        status: "running",
+        attempts: [attempt],
+        agents,
+        events: rows,
+      }).requestSpans,
+    ).toEqual(spans);
+    return spans.filter((span) => span.writingTool).map((span) => span.requestId);
+  };
+  expect(writingRequests(4)).toEqual(["a"]);
+  expect(writingRequests(5)).toEqual(["main", "a"]);
+  expect(writingRequests(6)).toEqual(["main", "a"]);
+  expect(writingRequests(7)).toEqual(["main"]);
+  expect(writingRequests(8)).toEqual([]);
+});
+
+test("an unlinked subagent writing fact cannot borrow a main request", () => {
+  for (const ownership of [{ agentId: "coder_missing" }, { parentToolUseId: "unlinked-call" }, {}]) {
+    const spans = buildThreadRunProjectionRequestSpans({
+      threadStatus: "running",
+      events: [
+        event({
+          id: "main-request",
+          sequence: 1,
+          scope: "main",
+          eventType: "request.started",
+          requestId: "main",
+          observedAt: "2026-01-01T00:00:01.000Z",
+        }),
+        event({
+          id: "child-write",
+          sequence: 2,
+          scope: "agent",
+          eventType: "tool.writing",
+          message: "Write",
+          ...ownership,
+        }),
+      ],
+    });
+    expect(spans.some((span) => span.writingTool)).toBe(false);
+  }
+});
+
+test("a parent-tool-linked writing fact belongs to the linked subagent request", () => {
+  const spans = buildThreadRunProjectionRequestSpans({
+    threadStatus: "running",
+    agents: [agent({ agentId: "coder_a", parentToolUseId: "spawn-a" })],
+    events: [
+      event({
+        id: "child-request",
+        sequence: 1,
+        agentId: "coder_a",
+        eventType: "request.started",
+        requestId: "child",
+        observedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      event({
+        id: "main-request",
+        sequence: 2,
+        scope: "main",
+        eventType: "request.started",
+        requestId: "main",
+        observedAt: "2026-01-01T00:00:01.000Z",
+      }),
+      event({
+        id: "child-write",
+        sequence: 3,
+        parentToolUseId: "spawn-a",
+        eventType: "tool.writing",
+        message: "Write",
+      }),
+    ],
+  });
+  expect(spans.filter((span) => span.writingTool).map((span) => span.requestId)).toEqual(["child"]);
+});
+
+test("a stopped agent clears tool-writing state after its narrative request completed", () => {
+  const events = [
+    event({
+      id: "child-request",
+      sequence: 1,
+      agentId: "coder_a",
+      eventType: "request.started",
+      requestId: "child",
+      observedAt: "2026-01-01T00:00:00.000Z",
+    }),
+    event({
+      id: "child-completed",
+      sequence: 2,
+      agentId: "coder_a",
+      eventType: "request.completed",
+      requestId: "child",
+      observedAt: "2026-01-01T00:00:01.000Z",
+    }),
+    event({
+      id: "child-write",
+      sequence: 3,
+      agentId: "coder_a",
+      eventType: "tool.writing",
+      message: "Write",
+    }),
+  ];
+  const project = (status: AgentInstanceRecord["status"]) =>
+    buildThreadRunProjectionRequestSpans({
+      threadStatus: "running",
+      agents: [agent({ agentId: "coder_a", status })],
+      events,
+    });
+  expect(project("active")[0]?.writingTool).toBeDefined();
+  expect(project("stopped")[0]?.writingTool).toBeUndefined();
 });

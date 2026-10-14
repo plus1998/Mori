@@ -1990,6 +1990,54 @@ test("ActivityLogView gives the writing tool call the tool aggregate's slot inst
   expect(html.match(/run-log-thinking streaming empty/g)?.length).toBe(1);
 });
 
+test("a subagent writing a tool call cannot replace the main Feed's settled tool row", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        timeline: settledWriteTimeline(),
+        agents: [agent({ agentId: "coder_a" })],
+        requestSpans: [
+          requestSpan({
+            requestId: "req-child-writing",
+            ownerAgentId: "coder_a",
+            status: "completed",
+            writingTool: { kind: "file", target: "child-secret.ts", since: "2026-01-01T00:00:05.000Z" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html).not.toContain("child-secret.ts");
+  expect(html).toContain("run-log-tool-group");
+});
+
+test("a newer subagent write cannot override the main agent's writing label", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        timeline: settledWriteTimeline(),
+        requestSpans: [
+          requestSpan({
+            requestId: "req-main-writing",
+            writingTool: { kind: "file", target: "main.ts", since: "2026-01-01T00:00:04.000Z" },
+          }),
+          requestSpan({
+            requestId: "req-child-writing",
+            ownerAgentId: "coder_a",
+            writingTool: { kind: "file", target: "child-secret.ts", since: "2026-01-01T00:00:05.000Z" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html).toContain("正在写入 main.ts");
+  expect(html).not.toContain("child-secret.ts");
+});
+
 test("ActivityLogView keeps the tool aggregate row while nothing is being written", () => {
   const html = renderToStaticMarkup(
     createElement(ProjectionActivityLogView, {

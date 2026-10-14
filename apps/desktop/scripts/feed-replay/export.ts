@@ -20,6 +20,7 @@ interface EventRow {
   store_epoch: string;
   occurred_at: string;
   type: string;
+  message_id: string | null;
   payload_json: string;
   effect_version: number | null;
   effect_hash: string | null;
@@ -67,7 +68,7 @@ export function exportFeedReplay(databasePath: string, conversationId: string): 
     // LEFT JOIN makes missing sync effects an error instead of silently losing events.
     const rows = db
       .query<EventRow, [string]>(`
-      SELECT e.seq,e.store_epoch,e.occurred_at,e.type,e.payload_json,
+      SELECT e.seq,e.store_epoch,e.occurred_at,e.type,e.message_id,e.payload_json,
              s.effect_version,s.effect_hash,s.effect_json
       FROM conversation_events_v2 AS e LEFT JOIN conversation_sync_effects_v2 AS s
       ON s.conversation_id=e.conversation_id AND s.seq=e.seq
@@ -77,6 +78,7 @@ export function exportFeedReplay(databasePath: string, conversationId: string): 
     if (!rows.length) throw new Error(`No V2 events for ${conversationId}; legacy sessions are unsupported.`);
     const epoch = rows[0]!.store_epoch;
     const sources = new Map<string, ThreadRunEvent>();
+    const messageBodies = new Map<string, string>();
     const agents = new Map<string, AgentInstanceRecord>();
     const seenStreams = new Set<string>();
     let status: ThreadSummary["status"] = "idle";
@@ -95,6 +97,16 @@ export function exportFeedReplay(databasePath: string, conversationId: string): 
       const effect = JSON.parse(row.effect_json) as ConversationSyncEffect["effect"];
       if (stableHash(effect) !== row.effect_hash)
         throw new Error(`Effect hash mismatch at sequence ${row.seq}.`);
+      if (effect.type === "message.create") {
+        messageBodies.set(effect.message.messageId, effect.message.body);
+      } else if (effect.type === "message.append") {
+        const body = messageBodies.get(effect.messageId);
+        if (body === undefined)
+          throw new Error(`Missing message ${effect.messageId} at sequence ${row.seq}.`);
+        messageBodies.set(effect.messageId, body + effect.delta);
+      } else if (effect.type === "message.replace") {
+        messageBodies.set(effect.messageId, effect.body);
+      }
       const payload = JSON.parse(row.payload_json) as { source?: ThreadRunEvent; message?: string };
       const source = payload.source;
       const liveType = source?.metadata?.liveType;
@@ -152,8 +164,17 @@ export function exportFeedReplay(databasePath: string, conversationId: string): 
         (firstStream ||
           source.eventType.startsWith("request.") ||
           ["tool.writing", "tool.started", "tool.completed", "tool.failed"].includes(source.eventType));
-      if (relevantSource)
-        sources.set(source.id, { ...source, sequence: row.seq, message: payload.message ?? source.message });
+      if (relevantSource) {
+        // New V2 receipts reference the message already materialized by preceding effects.
+        // Read its body at this sequence, never the final body from the current messages table.
+        const message =
+          payload.message ??
+          source.message ??
+          (row.message_id ? messageBodies.get(row.message_id) : undefined);
+        if (typeof message !== "string")
+          throw new Error(`Missing source message for ${source.id} at sequence ${row.seq}.`);
+        sources.set(source.id, { ...source, sequence: row.seq, message });
+      }
       if (relevantSource || effect.type === "run.upsert" || effect.type === "agent.upsert") {
         event.requestSpans = buildThreadRunProjectionRequestSpans({
           events: [...sources.values()].sort((a, b) => a.sequence - b.sequence),

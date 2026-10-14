@@ -588,8 +588,8 @@ function latestActivity(items: readonly ThreadRunProjectionTimelineItem[]): stri
  * `tool:<callId>` and a call outlives the request that wrote it — so the per-span pass above
  * never sees them. They still belong to a request: the call is written *by* the model's last
  * request, and it is observed milliseconds after that request reports terminal, before the
- * tool row lands. The span in flight when the fact was observed is therefore the latest one
- * that had started, which is what this resolves.
+ * tool row lands. Attribute it to the latest started request of the same agent, using the
+ * explicit agent id or its parent-tool link rather than another concurrent agent's request.
  *
  * State is cleared by the real tool row landing (the wait is over even when the call itself
  * keeps running) and by the thread leaving `running`, so a write interrupted before its call
@@ -599,21 +599,44 @@ function applyToolWritingState(
   spans: ReadonlyMap<string, MutableRequestSpan>,
   events: readonly ThreadRunEvent[],
   threadStatus: string,
+  agents: readonly AgentInstanceRecord[],
 ): void {
   if (!ACTIVE_THREAD_STATUSES.has(threadStatus)) {
     return;
   }
-  const ordered = [...spans.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
-  let attached: MutableRequestSpan | undefined;
+  const orderedByOwner = new Map<string | undefined, MutableRequestSpan[]>();
+  for (const span of spans.values()) {
+    const owned = orderedByOwner.get(span.ownerAgentId) ?? [];
+    owned.push(span);
+    orderedByOwner.set(span.ownerAgentId, owned);
+  }
+  for (const owned of orderedByOwner.values()) {
+    owned.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+  }
+  const agentsByParentToolUseId = buildAgentsByParentToolUseId(agents);
+  const attachedByOwner = new Map<string | undefined, MutableRequestSpan>();
+  const resolveTarget = (event: ThreadRunEvent): MutableRequestSpan | undefined => {
+    if (event.requestId) {
+      return spans.get(event.requestId);
+    }
+    const parentToolUseId = event.parentToolUseId?.trim() ?? readEventParentToolUseId(event);
+    const ownerAgentId =
+      event.agentId?.trim() ||
+      (parentToolUseId ? agentsByParentToolUseId.get(parentToolUseId)?.agentId : undefined);
+    // An unresolved agent-scoped fact has no main-agent ownership to borrow.
+    if (!ownerAgentId && (parentToolUseId || event.scope !== "main")) {
+      return undefined;
+    }
+    const ordered = orderedByOwner.get(ownerAgentId);
+    return ordered ? latestSpanStartedBy(ordered, event.observedAt, event.runAttemptId) : undefined;
+  };
   for (const event of events) {
     if (event.eventType === "tool.writing") {
       const writing = resolveToolWritingActivity(event);
       if (!writing) {
         continue;
       }
-      const target = event.requestId
-        ? spans.get(event.requestId)
-        : latestSpanStartedBy(ordered, event.observedAt, event.runAttemptId);
+      const target = resolveTarget(event);
       // Gateway argument deltas can arrive after cancellation. A later running
       // turn must not revive that old request's waiting line (or inherit it).
       // Completed narrative streams remain eligible: the model may write its
@@ -621,11 +644,12 @@ function applyToolWritingState(
       if (!target || target.status === "cancelled" || target.status === "failed") {
         continue;
       }
+      const attached = attachedByOwner.get(target.ownerAgentId);
       if (attached && attached !== target) {
         delete attached.writingTool;
       }
       target.writingTool = { ...writing, since: event.observedAt };
-      attached = target;
+      attachedByOwner.set(target.ownerAgentId, target);
       continue;
     }
     if (
@@ -633,15 +657,15 @@ function applyToolWritingState(
       event.eventType === "tool.completed" ||
       event.eventType === "tool.failed"
     ) {
-      // Any tool row ends the wait, not only the row of the call being written: the fact carries no
-      // call or agent identity — it is attributed to the latest started span — and a subagent
-      // writes its arguments into the same thread. Matching rows to facts by agent would be
-      // guessing under that attribution, and a label naming the wrong file is worse than one that
-      // stops a little early: while the Feed is quiet the Composer's own loading state still says
-      // the run is working.
+      // A tool row ends only its owner's wait; concurrent agents keep their writing state.
+      const target = resolveTarget(event);
+      if (!target) {
+        continue;
+      }
+      const attached = attachedByOwner.get(target.ownerAgentId);
       if (attached) {
         delete attached.writingTool;
-        attached = undefined;
+        attachedByOwner.delete(target.ownerAgentId);
       }
     }
   }
@@ -676,7 +700,7 @@ function isToolWriteKind(value: unknown): value is "file" | "read" | "command" |
   return value === "file" || value === "read" || value === "command" || value === "tool";
 }
 
-/** The span in flight when `at` was observed: the latest one that had already started. */
+/** The latest request of this agent that had already started when `at` was observed. */
 function latestSpanStartedBy(
   orderedSpans: readonly MutableRequestSpan[],
   at: string,
@@ -776,7 +800,7 @@ function buildRequestSpans(
     applyEventToRequestSpan(span, event, diagnostics, seenStreamingKeys, historyComplete);
   }
 
-  applyToolWritingState(spans, events, threadStatus);
+  applyToolWritingState(spans, events, threadStatus, agents);
   applyPendingThinkingState(spans, events, threadStatus);
 
   closeRequestSpansForTerminalAgents(spans, agents);
@@ -843,6 +867,8 @@ function closeRequestSpansForTerminalAgents(
     }
     for (const span of spans.values()) {
       if (span.ownerAgentId !== agent.agentId) continue;
+      // Completed narrative streams may still carry a tool call being written.
+      delete span.writingTool;
       delete span.pendingThinkingSince;
       delete span.pendingThinkingMessageId;
       if (!isOpenRequestSpan(span)) continue;
@@ -852,8 +878,6 @@ function closeRequestSpansForTerminalAgents(
         span.status = "completed";
       }
       span.endedAt = span.endedAt ?? agent.endedAt ?? agent.updatedAt;
-      // A stopped agent is not still writing anything.
-      delete span.writingTool;
     }
   }
 }

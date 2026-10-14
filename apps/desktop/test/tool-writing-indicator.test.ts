@@ -13,6 +13,7 @@ function span(
     status: input.status ?? "streaming",
     startedAt: input.startedAt ?? "2026-01-01T00:00:01.000Z",
     ...(input.endedAt && { endedAt: input.endedAt }),
+    ...(input.ownerAgentId && { ownerAgentId: input.ownerAgentId }),
     ...(input.writingTool && { writingTool: input.writingTool }),
   };
 }
@@ -67,6 +68,26 @@ test("resolveToolWritingIndicator prefers the newest write", () => {
       }),
     ]),
   ).toMatchObject({ requestId: "req_2", name: "Bash" });
+});
+
+test("the main Feed ignores subagent writes even when they are newer", () => {
+  const child = span({
+    requestId: "req_child",
+    ownerAgentId: "coder_a",
+    writingTool: writing({ name: "Write", kind: "file", target: "child.ts" }, "2026-01-01T00:00:09.000Z"),
+  });
+  expect(resolveToolWritingIndicator([child])).toBeUndefined();
+  expect(resolveToolWritingIndicator([child], "coder_a")).toMatchObject({ requestId: "req_child" });
+  expect(resolveToolWritingIndicator([child], "coder_b")).toBeUndefined();
+  expect(
+    resolveToolWritingIndicator([
+      span({
+        requestId: "req_main",
+        writingTool: writing({ name: "Read", kind: "read", target: "main.ts" }),
+      }),
+      child,
+    ]),
+  ).toMatchObject({ requestId: "req_main", target: "main.ts" });
 });
 
 test("a fact about a call the producers could not name is still a fact", () => {

@@ -1928,7 +1928,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
     () => new Map(projection.requestSpans.map((span) => [span.requestId, span])),
     [projection.requestSpans],
   );
-  // The one wait the Feed cannot render as a row yet: the model is writing a tool call.
+  // Request spans include every agent; only the main agent's write owns this Feed's live slot.
   const toolWritingIndicator = useMemo(
     () => resolveToolWritingIndicator(projection.requestSpans),
     [projection.requestSpans],

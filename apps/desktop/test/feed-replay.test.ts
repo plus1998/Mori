@@ -98,7 +98,7 @@ function database(events: FeedReplayEvent[]) {
     CREATE TABLE threads(id TEXT PRIMARY KEY,title TEXT,prompt TEXT,workspace_path TEXT,status TEXT,message TEXT,
       created_at TEXT,updated_at TEXT,core_kind TEXT,runtime_config_json TEXT);
     CREATE TABLE thread_core_sessions(thread_id TEXT,external_session_id TEXT);
-    CREATE TABLE conversation_events_v2(conversation_id TEXT,seq INTEGER,store_epoch TEXT,occurred_at TEXT,type TEXT,payload_json TEXT);
+    CREATE TABLE conversation_events_v2(conversation_id TEXT,seq INTEGER,store_epoch TEXT,occurred_at TEXT,type TEXT,payload_json TEXT,message_id TEXT);
     CREATE TABLE conversation_sync_effects_v2(conversation_id TEXT,seq INTEGER,effect_version INTEGER,effect_hash TEXT,effect_json TEXT);
     CREATE TABLE conversation_detail_items_v2(conversation_id TEXT,item_id TEXT,run_id TEXT,type TEXT,created_seq INTEGER,version_seq INTEGER,content TEXT);
   `);
@@ -114,14 +114,9 @@ function database(events: FeedReplayEvent[]) {
     "codex",
   );
   for (const item of events) {
-    db.query("INSERT INTO conversation_events_v2 VALUES(?,?,?,?,?,?)").run(
-      id,
-      item.seq,
-      "epoch_test",
-      new Date(item.at).toISOString(),
-      item.eventType,
-      "{}",
-    );
+    db.query(
+      "INSERT INTO conversation_events_v2(conversation_id,seq,store_epoch,occurred_at,type,payload_json) VALUES(?,?,?,?,?,?)",
+    ).run(id, item.seq, "epoch_test", new Date(item.at).toISOString(), item.eventType, "{}");
     db.query("INSERT INTO conversation_sync_effects_v2 VALUES(?,?,?,?,?)").run(
       id,
       item.seq,
@@ -195,6 +190,59 @@ describe("replay export", () => {
     expect(exported.events[1]?.requestSpans?.[0]?.status).toBe("waiting_first_token");
     expect(exported.events[3]?.requestSpans?.[0]?.status).toBe("cancelled");
     expect(exported.events[3]?.requestSpans?.[0]?.writingTool).toBeUndefined();
+    source.db.close();
+  });
+
+  test("resolves body-free provider receipts from message effects at the recorded sequence", () => {
+    const message = user(2);
+    if (message.effect.type !== "message.create") throw new Error("Expected message creation.");
+    message.effect.message.role = "assistant";
+    message.effect.message.channel = "thinking";
+    message.effect.message.body = "";
+    message.effectHash = stableHash(message.effect);
+    const source = database([
+      run(1, "running"),
+      message,
+      event(3),
+      event(4, {
+        type: "message.append",
+        messageId: "message_2",
+        baseContentVersion: 0,
+        nextContentVersion: 1,
+        delta: "已产生思考内容",
+        versionSeq: 4,
+      }),
+      event(5),
+    ]);
+    const recorded = {
+      id: "thinking-source",
+      threadId: id,
+      eventType: "thinking.delta",
+      scope: "main",
+      streamState: "streaming",
+      observedAt: timestamp,
+      requestId: "request_1",
+    };
+    source.db
+      .query("UPDATE conversation_events_v2 SET payload_json=?,message_id=? WHERE seq=3")
+      .run(JSON.stringify({ source: recorded }), "message_2");
+    source.db.query("UPDATE conversation_events_v2 SET payload_json=?,message_id=? WHERE seq=5").run(
+      JSON.stringify({
+        source: {
+          ...recorded,
+          id: "thinking-final",
+          eventType: "thinking.final",
+          streamState: "finalized",
+        },
+      }),
+      "message_2",
+    );
+    const exported = exportFeedReplay(source.path, id);
+    expect(exported.events[2]?.requestSpans?.[0]?.pendingThinkingSince).toBe(timestamp);
+    expect(exported.events[4]?.requestSpans?.[0]?.pendingThinkingSince).toBeUndefined();
+    expect(exported.events[2]?.requestSpans?.[0]?.status).toBe("waiting_first_token");
+    source.db.query("UPDATE conversation_events_v2 SET message_id='missing' WHERE seq=3").run();
+    expect(() => exportFeedReplay(source.path, id)).toThrow("Missing source message");
     source.db.close();
   });
 });
