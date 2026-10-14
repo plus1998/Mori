@@ -117,8 +117,9 @@ test("auto mode reviews script effects even when the preliminary shell policy al
       expect(tool.toolInput).toEqual({ command: "python3 -c \"import shutil; shutil.rmtree('src')\"" });
       return { action: "deny", rationale: "Deletes uncommitted user work" };
     },
-    registerPending: async () => {
-      throw new Error("No human prompt after deny");
+    registerPending: async (_threadId, request) => {
+      expect(request.reviewRationale).toContain("Deletes uncommitted user work");
+      return { decision: "approved" };
     },
     rememberPrefix: () => {},
     emit: () => {},
@@ -130,7 +131,7 @@ test("auto mode reviews script effects even when the preliminary shell policy al
       rawInput: { command: "python3 -c \"import shutil; shutil.rmtree('src')\"" },
     },
   });
-  expect(result).toEqual({ outcome: { outcome: "selected", optionId: "reject-once" } });
+  expect(result).toEqual({ outcome: { outcome: "selected", optionId: "allow-once" } });
   expect(reviewed).toBe(1);
 });
 

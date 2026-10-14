@@ -19699,12 +19699,12 @@ async function requestSdkHintApproval(
       }),
     onReview: (review) => {
       approval = { ...approval, reviewRationale: review.rationale };
-      if (review.action !== "human_required") {
-        const type = review.action === "allow" ? "bash_approval.approved" : "bash_approval.denied";
+      if (review.action === "allow") {
+        const type = "bash_approval.approved";
         emitThreadEvent(
           threadId,
           type,
-          `${review.action === "allow" ? "审批模型已允许" : "已拒绝"} ${request.toolName}：${review.rationale}`,
+          `审批模型已允许 ${request.toolName}：${review.rationale}`,
           "tool",
           false,
           bashApprovalEventExtras(approval, type),
@@ -19822,25 +19822,6 @@ function createThreadBashAndFilesystemToolPermissionHandler(
             bashApprovalEventExtras(reviewedRequest, "bash_approval.approved"),
           );
           return { behavior: "allow", updatedInput: request.input };
-        }
-        if (review.action === "deny") {
-          const reviewedRequest = {
-            ...approvalRequest,
-            reviewRationale: review.rationale,
-          };
-          emitThreadEvent(
-            threadId,
-            "bash_approval.denied",
-            `已拒绝 ${request.toolName}：${review.rationale}`,
-            "tool",
-            false,
-            bashApprovalEventExtras(reviewedRequest, "bash_approval.denied"),
-          );
-          return {
-            behavior: "deny",
-            message: review.rationale,
-            interrupt: false,
-          };
         }
         approvalRequest = {
           ...approvalRequest,
@@ -20026,25 +20007,6 @@ function createThreadBashAndFilesystemToolPermissionHandler(
           bashApprovalEventExtras(reviewedRequest, "bash_approval.approved"),
         );
         return { behavior: "allow", updatedInput: request.input };
-      }
-      if (review.action === "deny") {
-        const reviewedRequest = {
-          ...approvalRequest,
-          reviewRationale: review.rationale,
-        };
-        emitThreadEvent(
-          threadId,
-          "bash_approval.denied",
-          `已拒绝 Bash：${review.rationale}`,
-          "tool",
-          false,
-          bashApprovalEventExtras(reviewedRequest, "bash_approval.denied"),
-        );
-        return {
-          behavior: "deny",
-          message: review.rationale,
-          interrupt: false,
-        };
       }
       approvalRequest = {
         ...approvalRequest,

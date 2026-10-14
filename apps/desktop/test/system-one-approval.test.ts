@@ -120,11 +120,11 @@ test("SystemOne reviews use state/questions and Bearer auth rather than a chat p
 });
 
 for (const [risk, authorization, decision, confidence, action] of [
-  ["critical", "high", "allow", 0.99, "deny"],
-  ["low", "high", "deny", 0.99, "deny"],
+  ["critical", "high", "allow", 0.99, "human_required"],
+  ["low", "high", "deny", 0.99, "human_required"],
   ["high", "low", "allow", 0.99, "human_required"],
-  ["high", "high", "allow", 0.99, "allow"],
-  ["low", "medium", "allow", 0.6, "human_required"],
+  ["high", "high", "allow", 0.99, "human_required"],
+  ["low", "medium", "allow", 0.6, "allow"],
   ["low", "medium", "human_required", 0.99, "human_required"],
 ] as const) {
   test(`SystemOne enforces risk/authorization/confidence: ${risk}/${authorization}/${decision}/${confidence}`, async () => {
@@ -182,7 +182,7 @@ test("low/medium risk uncertainty does not add a strong authorization requiremen
 });
 
 for (const authorization of ["medium", "high"]) {
-  test(`high risk accepts combined medium/high authorization with ${authorization} selected`, async () => {
+  test(`high risk always reaches the user with ${authorization} authorization selected`, async () => {
     const value = answers("high", authorization);
     value.user_authorization = choice(authorization, ["unknown", "low", "medium", "high"], 0.44, {
       unknown: 0.02,
@@ -191,7 +191,7 @@ for (const authorization of ["medium", "high"]) {
       high: authorization === "high" ? 0.49 : 0.47,
     });
     const result = await reviewEcoApproval({ route, envelope, fetcher: fetchAnswers(value) });
-    expect(result.action).toBe("allow");
+    expect(result.action).toBe("human_required");
   });
 }
 
@@ -210,12 +210,9 @@ for (const authorization of ["low", "high"]) {
       locale: "zh-CN",
       fetcher: fetchAnswers(value),
     });
-    expect(result.action).toBe(authorization === "high" ? "allow" : "human_required");
-    if (authorization === "low") {
-      expect(result.policyMatches).toContain("system_one_authorization_insufficient");
-      expect(result.rationale).toContain("低/中风险概率为 51.0%");
-      expect(result.rationale).toContain("中/高授权概率");
-    }
+    expect(result.action).toBe("human_required");
+    expect(result.policyMatches).toContain("system_one_high_risk_uncertain");
+    expect(result.rationale).toContain("低/中风险概率为 51.0%");
   });
 }
 
@@ -234,16 +231,16 @@ test("a confident authorization grade cannot override insufficient authorized pr
     fetcher: fetchAnswers(value),
   });
   expect(result.action).toBe("human_required");
-  expect(result.policyMatches).toContain("system_one_authorization_insufficient");
-  expect(result.rationale).toContain("Medium/high authorization probability is 85.0%");
+  expect(result.policyMatches).toContain("model_recommendation_requires_human");
+  expect(result.rationale).toContain("requires the user's decision");
 });
 
 test("critical-risk probability blocks automatic allow even with strong authorization", async () => {
-  const value = answers("high", "high");
-  value.risk_level = choice("high", ["low", "medium", "high", "critical"], 0.7, {
-    low: 0.05,
-    medium: 0.05,
-    high: 0.7,
+  const value = answers("low", "high");
+  value.risk_level = choice("low", ["low", "medium", "high", "critical"], 0.7, {
+    low: 0.6,
+    medium: 0.15,
+    high: 0.05,
     critical: 0.2,
   });
   const result = await reviewEcoApproval({
@@ -258,23 +255,21 @@ test("critical-risk probability blocks automatic allow even with strong authoriz
 });
 
 for (const locale of ["zh-CN", "en-US"]) {
-  test(`uncertain allow decisions require human review with a specific explanation: ${locale}`, async () => {
+  test(`routine allow/human confidence does not block a confidently low-risk action: ${locale}`, async () => {
     const result = await reviewEcoApproval({
       route,
       envelope,
       locale,
       fetcher: fetchAnswers(answers("low", "high", "allow", 0.44)),
     });
-    expect(result.action).toBe("human_required");
-    expect(result.policyMatches).toContain("system_one_low_confidence");
+    expect(result.action).toBe("allow");
     expect(result.rationale).toContain("44.0%");
-    expect(result.rationale).toContain(
-      locale === "zh-CN" ? "允许决策的置信度低于 90%" : "Allow-decision confidence is below 90%",
-    );
+    expect(result.rationale).not.toContain("below 90%");
+    expect(result.rationale).not.toContain("置信度低于 90%");
   });
 }
 
-test("critical classification retains its veto even when the final decision is confident allow", async () => {
+test("critical classification goes to the user even when the final decision is confident allow", async () => {
   const value = answers("critical", "high");
   value.risk_level = choice("critical", ["low", "medium", "high", "critical"], 0.3, {
     low: 0.2,
@@ -283,7 +278,7 @@ test("critical classification retains its veto even when the final decision is c
     critical: 0.4,
   });
   const result = await reviewEcoApproval({ route, envelope, fetcher: fetchAnswers(value) });
-  expect(result.action).toBe("deny");
+  expect(result.action).toBe("human_required");
 });
 
 test("deny and human-required decisions are never upgraded by favorable risk or authorization", async () => {
@@ -293,17 +288,17 @@ test("deny and human-required decisions are never upgraded by favorable risk or 
       envelope,
       fetcher: fetchAnswers(answers("low", "high", decision, 0.4)),
     });
-    expect(result.action).toBe(decision);
+    expect(result.action).toBe("human_required");
   }
 });
 
 test("policy probability thresholds include exactly 90%", async () => {
-  const value = answers("high", "medium", "allow", 0.9);
-  value.user_authorization = choice("medium", ["unknown", "low", "medium", "high"], 0.4, {
-    unknown: 0.05,
-    low: 0.05,
-    medium: 0.45,
-    high: 0.45,
+  const value = answers("low", "unknown", "allow", 0.4);
+  value.risk_level = choice("low", ["low", "medium", "high", "critical"], 0.4, {
+    low: 0.7,
+    medium: 0.2,
+    high: 0.1,
+    critical: 0,
   });
   const result = await reviewEcoApproval({ route, envelope, fetcher: fetchAnswers(value) });
   expect(result.action).toBe("allow");
@@ -319,7 +314,20 @@ test("rounded probability totals cannot inflate a policy boundary above its thre
   });
   const result = await reviewEcoApproval({ route, envelope, fetcher: fetchAnswers(value) });
   expect(result.action).toBe("human_required");
-  expect(result.policyMatches).toContain("system_one_authorization_insufficient");
+  expect(result.policyMatches).toContain("system_one_high_risk_uncertain");
+});
+
+test("adverse decision probability still requires a human despite a low-risk allow choice", async () => {
+  const value = answers("low", "unknown", "allow", 0.44);
+  value.decision = choice("allow", ["allow", "human_required", "deny"], 0.44, {
+    allow: 0.5,
+    human_required: 0.3,
+    deny: 0.2,
+  });
+  const result = await reviewEcoApproval({ route, envelope, fetcher: fetchAnswers(value) });
+  expect(result.action).toBe("human_required");
+  expect(result.policyMatches).toContain("system_one_deny_uncertain");
+  expect(result.rationale).toContain("20.0%");
 });
 
 test("malformed SystemOne distributions and HTTP failures stay visible and never allow", async () => {

@@ -105,7 +105,7 @@ test("SystemOne receives all scenario rules, exact host facts, SDK hints and adv
   expect(result.diagnostics?.decision.confidence).toBe(0.99);
 });
 
-test("read-only host evidence reaches JEV but never overrides the 90% model confidence gate", async () => {
+test("read-only host evidence reaches JEV and routine actions do not require 90% allow/human confidence", async () => {
   const input = {
     command: `cd ${repo} && find . -name "*group-message*" -print 2>/dev/null | head -50`,
   };
@@ -143,8 +143,8 @@ test("read-only host evidence reaches JEV but never overrides the 90% model conf
       return Response.json(value);
     },
   });
-  expect(result.action).toBe("human_required");
-  expect(result.policyMatches).toContain("system_one_low_confidence");
+  expect(result.action).toBe("allow");
+  expect(result.diagnostics?.decision.confidence).toBe(0.8);
 });
 
 test.skipIf(process.platform === "win32")(
@@ -179,6 +179,37 @@ test.skipIf(process.platform === "win32")(
     expect(result.action).toBe("allow");
   },
 );
+
+for (const [input, expected] of [
+  [{ sql: "SELECT MIN(id) FROM messages", detail: "x".repeat(9_000) }, "planned_action_incomplete"],
+  [{ _argumentsUnavailable: "ambiguous_concurrent_calls" }, "mcp_approval_evidence_incomplete"],
+  [{ _argumentsUnavailable: "invalid_json" }, "mcp_approval_evidence_incomplete"],
+  [{ _argumentsUnavailable: "conflicting_argument_sources" }, "mcp_approval_evidence_incomplete"],
+] as const) {
+  test(`missing MCP action details require a human even without filesystem facts: ${expected}/${input._argumentsUnavailable || "truncated"}`, async () => {
+    const hostEvidence = await collectApprovalHostEvidence({
+      toolName: "mcp__mysql__mysql_query",
+      toolInput: input,
+      cwd: repo,
+      workspacePath: repo,
+    });
+    expect(hostEvidence.paths).toHaveLength(0);
+    const built = buildThreadApprovalEnvelope({
+      activityLines: [],
+      initialPrompt: "查询归档 ID 范围",
+      toolName: "mcp__mysql__mysql_query",
+      toolInput: input,
+      cwd: repo,
+      workspacePath: repo,
+      reason: "query",
+      hostEvidence,
+    });
+    if (!built.ok) throw new Error(built.rationale);
+    const result = await reviewEcoApproval({ route, envelope: built.envelope, fetcher: async () => allow() });
+    expect(result.action).toBe("human_required");
+    expect(result.policyMatches).toContain(expected);
+  });
+}
 
 test("file changes during model review invalidate the previous approval proof", async () => {
   const target = path.join(scratch, "changing.txt");

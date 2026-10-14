@@ -60,12 +60,13 @@ for (const action of ["deny", "human_required"] as const) {
       onReview: () => {},
       requestHuman: async (review) => {
         parked += 1;
-        expect(review?.rationale).toBe("Missing target evidence");
+        expect(review?.rationale).toContain("Missing target evidence");
+        expect(review?.action).toBe("human_required");
         return { behavior: "deny", message: "User denied" };
       },
     });
     expect(result.behavior).toBe("deny");
-    expect(parked).toBe(action === "human_required" ? 1 : 0);
+    expect(parked).toBe(1);
   });
 }
 

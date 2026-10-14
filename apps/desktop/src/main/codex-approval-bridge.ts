@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import {
   CODEX_JSON_RPC_INVALID_PARAMS,
   CODEX_JSON_RPC_METHOD_NOT_FOUND,
@@ -26,6 +27,7 @@ import type {
   PlanApprovalRequest,
   ThreadLiveEvent,
 } from "../shared/ipc";
+import { modelApprovalOutcome } from "./approval-model-outcome";
 import {
   type BashApprovalResolution,
   cancelBashApprovalsForThread,
@@ -364,10 +366,6 @@ async function handleCommandExecutionRequestApproval(
     emitAutomaticApproval(deps, { ...approvalRequest, reviewRationale: automatic.rationale }, command);
     return { decision: "accept" };
   }
-  if (automatic?.action === "deny") {
-    emitAutomaticDenial(deps, approvalRequest, automatic.rationale);
-    return { decision: "decline" };
-  }
   if (automatic?.action === "human_required") {
     approvalRequest = { ...approvalRequest, reviewRationale: automatic.rationale };
   }
@@ -438,10 +436,6 @@ async function handleFileChangeRequestApproval(
   if (automatic?.action === "allow") {
     emitAutomaticApproval(deps, { ...approvalRequest, reviewRationale: automatic.rationale }, command);
     return { decision: "accept" };
-  }
-  if (automatic?.action === "deny") {
-    emitAutomaticDenial(deps, approvalRequest, automatic.rationale);
-    return { decision: "decline" };
   }
   if (automatic?.action === "human_required") {
     approvalRequest = { ...approvalRequest, reviewRationale: automatic.rationale };
@@ -520,10 +514,6 @@ async function handlePermissionsRequestApproval(
     );
     return { permissions: requestedPermissions, scope: "turn" };
   }
-  if (automatic?.action === "deny") {
-    emitAutomaticDenial(deps, approvalRequest, automatic.rationale);
-    return denied;
-  }
   if (automatic?.action === "human_required") {
     approvalRequest = { ...approvalRequest, reviewRationale: automatic.rationale };
   }
@@ -587,7 +577,16 @@ async function handleMcpServerElicitationRequest(
   // same bridge before applying integration-specific policies below.
   if (parsedToolName && (approvalMode === "allow_all" || approvalMode === "auto")) {
     const toolName = parsedToolName;
-    const toolInput = nestedHubCall?.arguments ?? {};
+    const approvalItemId = readString(params, "itemId");
+    const toolInput =
+      nestedHubCall?.arguments ??
+      resolveDirectMcpApprovalArguments({
+        codexThreadId,
+        serverName,
+        toolName,
+        message: rawMessage,
+        ...(approvalItemId ? { itemId: approvalItemId } : {}),
+      });
     const isImageGenerationTool =
       serverName.trim().toLowerCase() === ECO_IMAGE_GENERATION_MCP_SERVER &&
       toolName.endsWith(`__${ECO_IMAGE_GENERATION_TOOL}`);
@@ -628,10 +627,6 @@ async function handleMcpServerElicitationRequest(
       }
       emitAutomaticApproval(deps, { ...approvalRequest, reviewRationale: automatic.rationale }, toolName);
       return { action: "accept", content: {} };
-    }
-    if (automatic?.action === "deny") {
-      emitAutomaticDenial(deps, approvalRequest, automatic.rationale);
-      return { action: "decline" };
     }
     if (automatic?.action === "human_required") {
       approvalRequest = { ...approvalRequest, reviewRationale: automatic.rationale };
@@ -2202,7 +2197,8 @@ async function reviewCodexApprovalIfEnabled(
   if (deps.getApprovalMode?.(threadId) !== "auto" || !deps.reviewApproval) {
     return undefined;
   }
-  return deps.reviewApproval(threadId, request, tool);
+  const review = await deps.reviewApproval(threadId, request, tool);
+  return modelApprovalOutcome(review);
 }
 
 function emitAutomaticApproval(
@@ -2216,20 +2212,6 @@ function emitAutomaticApproval(
     message: `审批模型已允许：${commandLabel}`,
     role: "tool",
     bashApproval: request,
-  });
-}
-
-function emitAutomaticDenial(
-  deps: CodexApprovalBridgeDeps,
-  request: BashApprovalRequest,
-  rationale: string,
-): void {
-  deps.emitThreadLive({
-    threadId: request.threadId,
-    type: "bash_approval.denied",
-    message: `已拒绝：${rationale}`,
-    role: "tool",
-    bashApproval: { ...request, reviewRationale: rationale },
   });
 }
 
@@ -2546,6 +2528,45 @@ function resolvePendingHubCall(
     };
   }
   return undefined;
+}
+
+/** Preserve direct MCP arguments as well as Hub arguments; never borrow an ambiguous concurrent call. */
+function resolveDirectMcpApprovalArguments(input: {
+  codexThreadId: string;
+  serverName: string;
+  toolName: string;
+  message: string;
+  itemId?: string;
+}): Record<string, unknown> {
+  const calls = (pendingMcpToolCalls.get(input.codexThreadId) ?? []).filter(
+    (call) =>
+      call.serverName.trim().toLowerCase() === input.serverName.trim().toLowerCase() &&
+      parseMcpToolRunElicitationMessage(call.serverName, `run tool "${call.toolName}"`) === input.toolName &&
+      (!input.itemId || call.itemId === input.itemId),
+  );
+  // Some Codex versions include exact JSON arguments in the elicitation rather than item/started.
+  const encoded = input.message.match(/with arguments\s+(\{[\s\S]*\})\s*\?\s*$/i)?.[1];
+  let statedArguments: Record<string, unknown> | undefined;
+  if (encoded) {
+    try {
+      const parsed: unknown = JSON.parse(encoded);
+      if (isRecord(parsed)) statedArguments = parsed;
+    } catch {
+      // Keep the raw protocol evidence below so the reviewer sees the actual gap.
+    }
+  }
+  if (calls.length === 1 && calls[0]) {
+    if (statedArguments && !isDeepStrictEqual(statedArguments, calls[0].arguments)) {
+      return { _approvalMessage: input.message, _argumentsUnavailable: "conflicting_argument_sources" };
+    }
+    return calls[0].arguments;
+  }
+  if (statedArguments) return statedArguments;
+  return {
+    _approvalMessage: input.message,
+    _argumentsUnavailable:
+      calls.length > 1 ? "ambiguous_concurrent_calls" : encoded ? "invalid_json" : "not_provided",
+  };
 }
 
 function buildMcpToolApprovalMessage(

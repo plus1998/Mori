@@ -24,6 +24,7 @@ import {
 } from "../shared/computer-use";
 import { isEcoWebSearchToolName, type WebSearchApprovalMode } from "../shared/integrated-web-search";
 import type { BashApprovalDecision, BashApprovalRequest } from "../shared/ipc";
+import { modelApprovalOutcome } from "./approval-model-outcome";
 import type { BashApprovalResolution } from "./bash-approval-bridge";
 import type { EcoApprovalReviewResult } from "./eco-approval-reviewer";
 import type { ThreadToolConfirmationInput, ToolConfirmationDecision } from "./thread-bash-permission";
@@ -378,10 +379,11 @@ async function applyAcpAuxiliaryReview(input: {
     toolName: input.toolName,
     command: input.command,
   });
-  const review = await input.deps.reviewApproval(input.approvalRequest, {
+  const modelReview = await input.deps.reviewApproval(input.approvalRequest, {
     toolName: input.toolName,
     toolInput: input.toolInput,
   });
+  const review = { ...modelReview, ...modelApprovalOutcome(modelReview) };
   const approvalRequest = { ...input.approvalRequest, reviewRationale: review.rationale };
   if (review.action === "allow") {
     input.deps.emit(
@@ -395,13 +397,6 @@ async function applyAcpAuxiliaryReview(input: {
         options: input.request.options,
         toolCall: input.request.toolCall,
       }),
-    };
-  }
-  if (review.action === "deny") {
-    input.deps.emit("bash_approval.denied", `已拒绝 ${input.toolName}：${review.rationale}`, approvalRequest);
-    return {
-      kind: "resolved",
-      outcome: resolveAcpPermissionSelection(input.request.options, "reject") ?? acpPermissionCancelled(),
     };
   }
   return { kind: "park", approvalRequest };

@@ -3,6 +3,7 @@ import {
   CODEX_COMMAND_EXECUTION_REQUEST_APPROVAL,
   CODEX_FILE_CHANGE_REQUEST_APPROVAL,
   CODEX_MCP_SERVER_ELICITATION_REQUEST,
+  CODEX_PERMISSIONS_REQUEST_APPROVAL,
   type CodexApprovalBridgeDeps,
   cancelCodexApprovalsForThread,
   handleCodexApprovalNotification,
@@ -450,7 +451,13 @@ test("Codex auto mode routes generic MCP tool approval through the reviewer", as
     }),
   ).resolves.toEqual({ action: "accept", content: {} });
 
-  expect(reviewedTool).toEqual({ toolName: "mcp__github__create_issue", toolInput: {} });
+  expect(reviewedTool).toEqual({
+    toolName: "mcp__github__create_issue",
+    toolInput: {
+      _approvalMessage: 'Allow the github MCP server to run tool "create_issue"?',
+      _argumentsUnavailable: "not_provided",
+    },
+  });
   expect(events[0]).toMatchObject({
     type: "bash_approval.approved",
     bashApproval: {
@@ -461,3 +468,124 @@ test("Codex auto mode routes generic MCP tool approval through the reviewer", as
     },
   });
 });
+
+test("Codex direct MCP review receives SQL from item/started and from the original elicitation JSON", async () => {
+  const reviewed: Record<string, unknown>[] = [];
+  const deps: CodexApprovalBridgeDeps = {
+    resolveEcoThreadId: () => "mcp-args-thread",
+    getThread: () => ({ prompt: "查询归档 ID 范围", workspacePath: "/workspace" }),
+    getWorktreePath: () => "/workspace",
+    getPlannerAgentId: () => "planner",
+    getRoutesJson: () => "[]",
+    savePendingPlan: () => {},
+    emitThreadLive: () => {},
+    updateThreadStatus: () => {},
+    getApprovalMode: () => "auto",
+    reviewApproval: async (_thread, _request, tool) => {
+      reviewed.push(tool.toolInput);
+      return { action: "allow", rationale: "Read-only query" };
+    },
+  };
+  const request = {
+    threadId: "codex-mcp-args",
+    turnId: "turn",
+    serverName: "mysql",
+    mode: "form",
+    requestedSchema: {},
+    message: 'Allow the mysql MCP server to run tool "mysql_query"?',
+  };
+  const args = { sql: "SELECT MIN(id), MAX(id) FROM wecom_archived_message" };
+  handleCodexApprovalNotification(deps, "item/started", {
+    threadId: request.threadId,
+    item: { id: "query", type: "mcpToolCall", server: "mysql", tool: "mysql_query", arguments: args },
+  });
+  await handleCodexServerRequest(deps, CODEX_MCP_SERVER_ELICITATION_REQUEST, request);
+  expect(reviewed[0]).toEqual(args);
+  await handleCodexServerRequest(deps, CODEX_MCP_SERVER_ELICITATION_REQUEST, {
+    ...request,
+    message: 'Allow mysql to run tool "mysql_query" with arguments {"sql":"DROP TABLE messages"}?',
+  });
+  expect(reviewed[1]).toMatchObject({ _argumentsUnavailable: "conflicting_argument_sources" });
+  handleCodexApprovalNotification(deps, "item/completed", {
+    threadId: request.threadId,
+    item: { id: "query", type: "mcpToolCall" },
+  });
+  await handleCodexServerRequest(deps, CODEX_MCP_SERVER_ELICITATION_REQUEST, {
+    ...request,
+    message: `Allow the mysql MCP server to run tool "mysql_query" with arguments ${JSON.stringify(args)}?`,
+  });
+  expect(reviewed[2]).toEqual(args);
+  for (const id of ["query1", "query2"])
+    handleCodexApprovalNotification(deps, "item/started", {
+      threadId: request.threadId,
+      item: {
+        id,
+        type: "mcpToolCall",
+        server: "mysql",
+        tool: "mysql_query",
+        arguments: { sql: `SELECT '${id}'` },
+      },
+    });
+  await handleCodexServerRequest(deps, CODEX_MCP_SERVER_ELICITATION_REQUEST, request);
+  expect(reviewed[3]).toMatchObject({ _argumentsUnavailable: "ambiguous_concurrent_calls" });
+  expect(reviewed[3]).not.toHaveProperty("sql");
+  cancelCodexApprovalsForThread("mcp-args-thread", "test cleanup");
+});
+
+for (const method of [
+  CODEX_COMMAND_EXECUTION_REQUEST_APPROVAL,
+  CODEX_FILE_CHANGE_REQUEST_APPROVAL,
+  CODEX_MCP_SERVER_ELICITATION_REQUEST,
+  CODEX_PERMISSIONS_REQUEST_APPROVAL,
+]) {
+  for (const decision of ["approved", "denied"] as const) {
+    test(`Codex model deny advice waits for the user's ${decision} decision: ${method}`, async () => {
+      const events: ThreadLiveEvent[] = [];
+      const deps: CodexApprovalBridgeDeps = {
+        resolveEcoThreadId: () => "model-deny-thread",
+        getThread: () => ({ prompt: "任务", workspacePath: "/workspace" }),
+        getWorktreePath: () => "/workspace",
+        getPlannerAgentId: () => "planner",
+        getRoutesJson: () => "[]",
+        savePendingPlan: () => {},
+        updateThreadStatus: () => {},
+        getApprovalMode: () => "auto",
+        reviewApproval: async () => ({ action: "deny", rationale: "Model risk concern" }),
+        emitThreadLive: (event) => {
+          events.push(event);
+          const request = event.bashApproval;
+          if (event.type === "bash_approval.requested" && request)
+            queueMicrotask(() => {
+              resolvePendingCodexBashApproval(request.toolUseId, { decision });
+            });
+        },
+      };
+      const result = await handleCodexServerRequest(deps, method, {
+        threadId: "codex-model-deny",
+        turnId: "turn",
+        itemId: "item",
+        startedAtMs: 1,
+        command: "npx jest",
+        cwd: "/workspace",
+        reason: "Review action",
+        serverName: "mysql",
+        mode: "form",
+        message: 'Allow mysql to run tool "mysql_query"?',
+        requestedSchema: {},
+        permissions: { network: { enabled: true } },
+      });
+      expect(events[0]?.type).toBe("bash_approval.requested");
+      expect(events[0]?.bashApproval?.reviewRationale).toContain("Model risk concern");
+      expect(events.some((event) => event.type === "bash_approval.denied")).toBe(false);
+      expect(result).toEqual(
+        method === CODEX_PERMISSIONS_REQUEST_APPROVAL
+          ? { permissions: decision === "approved" ? { network: { enabled: true } } : {}, scope: "turn" }
+          : method === CODEX_MCP_SERVER_ELICITATION_REQUEST
+            ? decision === "approved"
+              ? { action: "accept", content: {} }
+              : { action: "decline" }
+            : { decision: decision === "approved" ? "accept" : "decline" },
+      );
+    });
+  }
+}
