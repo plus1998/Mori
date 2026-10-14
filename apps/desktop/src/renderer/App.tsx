@@ -11118,6 +11118,11 @@ function App() {
             : t("thread.action.send");
   const composerActionClassName = ["send-button", composerActionMode].filter(Boolean).join(" ");
   const composerCompact = !showLanding;
+  useLayoutEffect(() => {
+    // The same editor survives landing → conversation. Its CSS minimum height
+    // changes with compact mode, so remeasure before the first keystroke.
+    composerRef.current?.fitHeight();
+  }, [composerCompact]);
   const composerIconOnly = useComposerIconOnlyToolbar();
   const handleAsrText = useCallback((text: string) => {
     const start = composerRef.current?.getSelectionStart() ?? composerPromptRef.current.length;
