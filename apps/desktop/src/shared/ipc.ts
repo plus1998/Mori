@@ -1784,6 +1784,7 @@ export interface ThreadApprovalNotificationResult {
 
 export interface ThreadClarificationNotificationRequest {
   threadId: string;
+  toolUseId: string;
   activelyViewed: boolean;
 }
 

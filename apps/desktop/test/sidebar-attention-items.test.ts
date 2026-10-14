@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { buildSidebarAttentionItems } from "../src/renderer/sidebar-attention-items";
-import type { BashApprovalRequest, ThreadPendingPlan, ThreadSummary } from "../src/shared/ipc";
+import type {
+  BashApprovalRequest,
+  ClarificationRequest,
+  ThreadPendingPlan,
+  ThreadSummary,
+} from "../src/shared/ipc";
 
 function thread(partial: Partial<ThreadSummary> & Pick<ThreadSummary, "id" | "title">): ThreadSummary {
   return {
@@ -69,6 +74,7 @@ test("aggregates plan, bash, awaiting_plan fallback, and unread completed", () =
       }),
     ],
     unreadThreadIds: new Set(["t-done"]),
+    pendingClarificationsByThread: {},
     pendingPlansByThread: {
       "t-plan": plan({ threadId: "t-plan" }),
     },
@@ -99,6 +105,7 @@ test("keeps plan and completed items for the same thread", () => {
       }),
     ],
     unreadThreadIds: new Set(["t-1"]),
+    pendingClarificationsByThread: {},
     pendingPlansByThread: {
       "t-1": plan({ threadId: "t-1", plan: "审批计划" }),
     },
@@ -113,6 +120,7 @@ test("skips items without a resolvable title", () => {
   const items = buildSidebarAttentionItems({
     threads: [thread({ id: "blank", title: " ", status: "completed" })],
     unreadThreadIds: new Set(["blank", "missing"]),
+    pendingClarificationsByThread: {},
     pendingPlansByThread: {
       ghost: plan({ threadId: "ghost", userPrompt: " ", analysis: " ", plan: " " }),
     },
@@ -143,6 +151,7 @@ test("sorts by kind priority then updatedAt descending", () => {
       thread({ id: "c-1", title: "完成", status: "completed", updatedAt: "2026-01-05T00:00:00.000Z" }),
     ],
     unreadThreadIds: new Set(["c-1"]),
+    pendingClarificationsByThread: {},
     pendingPlansByThread: {
       "p-old": plan({ threadId: "p-old" }),
       "p-new": plan({ threadId: "p-new" }),
@@ -153,4 +162,51 @@ test("sorts by kind priority then updatedAt descending", () => {
   });
 
   expect(items.map((item) => item.threadId)).toEqual(["p-new", "p-old", "b-1", "c-1"]);
+});
+
+test("pending questions remain in attention until answered, including async questions on completed threads", () => {
+  const pendingClarificationsByThread: Record<string, ClarificationRequest> = {
+    "q-1": {
+      threadId: "q-1",
+      toolUseId: "question-1",
+      questions: [{ question: "选哪个数据库？", options: [] }],
+    },
+    "q-2": {
+      threadId: "q-2",
+      toolUseId: "question-2",
+      delivery: "async",
+      questions: [{ question: "颜色呢？", options: [] }],
+    },
+  };
+  const input = {
+    threads: [
+      thread({ id: "q-1", title: "数据库", status: "running" }),
+      thread({ id: "q-2", title: "界面", status: "completed" }),
+      thread({ id: "p-1", title: "计划", status: "awaiting_plan" }),
+    ],
+    unreadThreadIds: new Set(["q-2"]),
+    pendingPlansByThread: {},
+    pendingBashApprovalsByThread: {},
+    pendingClarificationsByThread,
+  };
+  const questions = buildSidebarAttentionItems(input).filter((item) => item.kind === "question");
+  expect(questions.map((item) => item.id)).toEqual(["question:q-1:question-1", "question:q-2:question-2"]);
+  expect(questions.map((item) => item.detail)).toEqual(["选哪个数据库？", "颜色呢？"]);
+  expect(buildSidebarAttentionItems(input).map((item) => item.kind)).toEqual([
+    "question",
+    "question",
+    "plan",
+    "completed",
+  ]);
+  // Reading a question does not answer it.
+  expect(
+    buildSidebarAttentionItems({ ...input, unreadThreadIds: new Set() }).filter(
+      (item) => item.kind === "question",
+    ),
+  ).toHaveLength(2);
+  expect(
+    buildSidebarAttentionItems({ ...input, pendingClarificationsByThread: {} }).some(
+      (item) => item.kind === "question",
+    ),
+  ).toBe(false);
 });

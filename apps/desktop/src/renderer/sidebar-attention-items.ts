@@ -1,6 +1,11 @@
-import type { BashApprovalRequest, ThreadPendingPlan, ThreadSummary } from "../shared/ipc";
+import type {
+  BashApprovalRequest,
+  ClarificationRequest,
+  ThreadPendingPlan,
+  ThreadSummary,
+} from "../shared/ipc";
 
-export type SidebarAttentionKind = "plan" | "bash" | "completed";
+export type SidebarAttentionKind = "question" | "plan" | "bash" | "completed";
 
 export interface SidebarAttentionItem {
   id: string;
@@ -16,18 +21,35 @@ export interface BuildSidebarAttentionItemsInput {
   unreadThreadIds: ReadonlySet<string>;
   pendingPlansByThread: Readonly<Record<string, ThreadPendingPlan>>;
   pendingBashApprovalsByThread: Readonly<Record<string, BashApprovalRequest>>;
+  pendingClarificationsByThread: Readonly<Record<string, ClarificationRequest>>;
 }
 
 const KIND_PRIORITY: Record<SidebarAttentionKind, number> = {
-  plan: 0,
-  bash: 1,
-  completed: 2,
+  question: 0,
+  plan: 1,
+  bash: 2,
+  completed: 3,
 };
 
 export function buildSidebarAttentionItems(input: BuildSidebarAttentionItemsInput): SidebarAttentionItem[] {
   const threadsById = new Map(input.threads.map((thread) => [thread.id, thread]));
   const items: SidebarAttentionItem[] = [];
   const planThreadIds = new Set<string>();
+
+  for (const [threadId, clarification] of Object.entries(input.pendingClarificationsByThread)) {
+    const thread = threadsById.get(threadId);
+    const title = threadTitle(thread);
+    if (!title) continue;
+    const detail = clarification.questions.find((question) => question.question.trim())?.question.trim();
+    items.push({
+      id: `question:${threadId}:${clarification.toolUseId}`,
+      threadId,
+      title,
+      kind: "question",
+      ...(detail ? { detail } : {}),
+      updatedAt: thread?.updatedAt ?? "",
+    });
+  }
 
   for (const [threadId, plan] of Object.entries(input.pendingPlansByThread)) {
     const thread = threadsById.get(threadId);

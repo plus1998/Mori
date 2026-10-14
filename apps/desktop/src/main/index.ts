@@ -4487,6 +4487,8 @@ function registerIpcHandlers(): void {
       !isRecord(payload) ||
       typeof payload.threadId !== "string" ||
       !payload.threadId.trim() ||
+      typeof payload.toolUseId !== "string" ||
+      !payload.toolUseId.trim() ||
       typeof payload.activelyViewed !== "boolean"
     ) {
       return { shown: false, reason: "invalid_request" } as const;
@@ -4499,8 +4501,8 @@ function registerIpcHandlers(): void {
     if (!thread) {
       return { shown: false, reason: "thread_not_found" } as const;
     }
-    const clarification = getPendingClarificationForThread(thread.id);
-    if (!clarification) {
+    const clarification = getPendingClarificationByToolUseId(payload.toolUseId);
+    if (!clarification || clarification.threadId !== thread.id) {
       return { shown: false, reason: "clarification_not_pending" } as const;
     }
     const content = buildThreadClarificationNotificationContent(thread, clarification, currentAppLocale());

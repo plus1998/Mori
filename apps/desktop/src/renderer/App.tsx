@@ -279,6 +279,7 @@ import { ComposerSkillsControl } from "./ComposerSkillsControl";
 import { ComposerSkillsInput, type ComposerSkillsInputHandle } from "./ComposerSkillsInput";
 import { ComposerSkillsSlashMenu } from "./ComposerSkillsSlashMenu";
 import { ComposerThreadUsagePills } from "./ComposerThreadUsagePills";
+import { createClarificationNotifications } from "./clarification-notifications";
 import { createClarificationQueueSync } from "./clarification-queue-sync";
 import { buildComposerAgentModelLabels } from "./composer-agent-model-labels";
 import {
@@ -2486,10 +2487,27 @@ function App() {
         });
     };
 
+    const clarificationNotifications = createClarificationNotifications({
+      refreshPending: refreshPendingClarificationForThread,
+      notify: (threadId, toolUseId) => {
+        ensureThreadListed(threadId);
+        reportDesktopNotification(
+          eco.showThreadClarificationNotification({
+            threadId,
+            toolUseId,
+            activelyViewed: isThreadActivelyViewed(selectedThreadIdRef.current, threadId, document.hasFocus()),
+          }),
+          "clarification",
+        );
+      },
+      onError: (error) => setError(errorMessage(error)),
+    });
+
     const handleThreadEvent: Parameters<typeof eco.onThreadEvent>[0] = (event) => {
       const conversationEvent = readConversationV2SyncEvent(event);
       if (conversationEvent) {
         const threadId = conversationEvent.conversationId;
+        clarificationNotifications.handleSyncEffect(threadId, conversationEvent.effect.effect);
         const existing = conversationV2ByThreadRef.current[threadId];
         if (!existing || existing.storeEpoch !== conversationEvent.storeEpoch) {
           if (threadId === selectedThreadIdRef.current) {
@@ -2560,6 +2578,7 @@ function App() {
       if (!isThreadLiveEvent(event)) {
         return;
       }
+      clarificationNotifications.handleLiveEvent(event);
       // The tool-writing fact is the only thing that changes the Feed's request spans without
       // producing events of its own: the model is writing a call's arguments, and nothing else
       // happens on the wire until they are complete. Fetch the derived spans when *it* arrives
@@ -2774,32 +2793,6 @@ function App() {
         setThreads((current) =>
           current.map((thread) => (thread.id === event.threadId ? { ...thread, externalSessionId } : thread)),
         );
-      }
-
-      if (event.type.startsWith("clarification.")) {
-        if (event.type === "clarification.requested" && event.clarification) {
-          void refreshPendingClarificationForThread(event.threadId).catch((error) =>
-            setError(errorMessage(error)),
-          );
-          const activelyViewed = isThreadActivelyViewed(
-            selectedThreadIdRef.current,
-            event.threadId,
-            document.hasFocus(),
-          );
-          reportDesktopNotification(
-            window.eco!.showThreadClarificationNotification({
-              threadId: event.threadId,
-              activelyViewed,
-            }),
-            "clarification",
-          );
-          return;
-        }
-        if (window.eco) {
-          void refreshPendingClarificationForThread(event.threadId).catch((error) =>
-            setError(errorMessage(error)),
-          );
-        }
       }
 
       if (event.type === "bash_approval.requested" && event.bashApproval) {
@@ -3844,6 +3837,7 @@ function App() {
     unreadThreadIds,
     pendingPlansByThread,
     pendingBashApprovalsByThread,
+    pendingClarificationsByThread,
   });
 
   useEffect(() => {
