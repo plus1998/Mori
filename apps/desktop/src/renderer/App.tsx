@@ -5365,7 +5365,11 @@ function App() {
       threadAcceptsInput,
   );
   const canSend = composerFollowUpMode ? canSendFollowUp : canSendThreadMessage;
-  const showPlanApproval = Boolean(activeThread && pendingPlan);
+  // Forced delegation retains the plan for retry until the child finishes.
+  // That retained record must not keep the approval dock open during execution.
+  const showPlanApproval = Boolean(
+    activeThread && pendingPlan && activeThread.status !== "running" && activeThread.status !== "queued",
+  );
   const showClarification = Boolean(pendingClarification);
   const showComposerDockApproval = showBashApproval || showPlanApproval || showClarification;
   const composerDockSurfaceKey = showBashApproval
@@ -8332,6 +8336,9 @@ function App() {
           threadId,
           resolution: "approve",
           executionTarget,
+          // A failed delegation leaves the same plan and history revision in place.
+          // Retrying after that run must dispatch a new command, not replay its receipt.
+          previousAttemptId: displayProjection?.attempts.at(-1)?.attemptId,
           expectedHistoryRevision: displayProjection?.historyRevision ?? 0,
         })}`,
         threadId,

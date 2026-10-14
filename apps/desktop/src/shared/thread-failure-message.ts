@@ -1,4 +1,5 @@
 export const planExecutionFailurePrefix = "执行失败，已回退更改。";
+export const planDelegationFailurePrefix = "计划委派失败。";
 
 export function buildPlanExecutionFailureMessage(detail: string): string {
   const trimmed = detail.trim();
@@ -6,10 +7,13 @@ export function buildPlanExecutionFailureMessage(detail: string): string {
 }
 
 export function extractPlanFailureMessage(threadMessage: string): string | undefined {
-  if (!threadMessage.startsWith(planExecutionFailurePrefix)) {
+  const prefix = [planExecutionFailurePrefix, planDelegationFailurePrefix].find((value) =>
+    threadMessage.startsWith(value),
+  );
+  if (!prefix) {
     return undefined;
   }
-  const detail = threadMessage.slice(planExecutionFailurePrefix.length).trim();
+  const detail = threadMessage.slice(prefix.length).trim();
   return detail.length > 0 ? detail : undefined;
 }
 
@@ -17,7 +21,7 @@ export function persistThreadSummaryMessage(status: string, message: string): st
   if (status === "failed" || status === "blocked") {
     return message;
   }
-  if (message.startsWith(planExecutionFailurePrefix)) {
+  if (message.startsWith(planExecutionFailurePrefix) || message.startsWith(planDelegationFailurePrefix)) {
     return message;
   }
   return "";
@@ -34,7 +38,10 @@ export function resolveThreadMessageFromLiveEvent(eventType: string, eventMessag
   ) {
     return eventMessage;
   }
-  if (eventMessage.startsWith(planExecutionFailurePrefix)) {
+  if (
+    eventMessage.startsWith(planExecutionFailurePrefix) ||
+    eventMessage.startsWith(planDelegationFailurePrefix)
+  ) {
     return eventMessage;
   }
   return "";

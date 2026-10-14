@@ -71,6 +71,26 @@ test("SubagentStart confirmation permits successful settlement", () => {
   expect(forcedPlanDelegationStore.get(THREAD_ID)).toBeUndefined();
 });
 
+test("a failed child remains failed when the parent reports the error and finishes normally", () => {
+  armForcedPlanDelegation({
+    threadId: THREAD_ID,
+    coreKind: "pi",
+    target: { kind: "subagent", agentKey: "coder" },
+    plan: "printf eco_pk_subagent_ok",
+  });
+  confirmForcedPlanDelegationSpawn(THREAD_ID, {
+    agentKey: "coder",
+    toolUseIds: ["call_spawn"],
+  });
+  forcedPlanDelegationStore.fail(THREAD_ID, "Dynamic max output requires a resolved context window");
+
+  expect(settleForcedPlanDelegation(THREAD_ID, { ok: true })).toEqual({
+    outcome: "failed",
+    reason: "Dynamic max output requires a resolved context window",
+  });
+  expect(forcedPlanDelegationStore.get(THREAD_ID)).toBeUndefined();
+});
+
 test("Claude SubagentStart without a parent tool id confirms the locked role", () => {
   armForcedPlanDelegation({
     threadId: THREAD_ID,

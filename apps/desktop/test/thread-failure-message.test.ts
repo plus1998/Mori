@@ -4,6 +4,7 @@ import {
   buildPlanExecutionFailureMessage,
   extractPlanFailureMessage,
   persistThreadSummaryMessage,
+  planDelegationFailurePrefix,
   planExecutionFailurePrefix,
   resolveThreadMessageFromLiveEvent,
   shouldUpdateThreadSummaryFromLiveEvent,
@@ -63,6 +64,13 @@ test("execution failure roundtrip keeps plan approval error visible", () => {
   const detail = formatUserFacingRequestError("fetch failed");
   const message = buildPlanExecutionFailureMessage(detail);
   expect(extractPlanFailureMessage(message)).toBe(detail);
+});
+
+test("delegation failure survives persistence and live updates without claiming a rollback", () => {
+  const message = `${planDelegationFailurePrefix}子代理 HTTP 400`;
+  expect(persistThreadSummaryMessage("awaiting_plan", message)).toBe(message);
+  expect(resolveThreadMessageFromLiveEvent("thread.awaiting_plan", message)).toBe(message);
+  expect(extractPlanFailureMessage(message)).toBe("子代理 HTTP 400");
 });
 
 test("shouldUpdateThreadSummaryFromLiveEvent ignores worktree cleanup notices", () => {

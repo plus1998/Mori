@@ -433,6 +433,7 @@ import {
 import {
   buildPlanExecutionFailureMessage,
   persistThreadSummaryMessage,
+  planDelegationFailurePrefix,
   planExecutionFailurePrefix,
 } from "../shared/thread-failure-message";
 import { coreSupportsMidTurnFollowUp, coreUsesInterruptForSteer } from "../shared/thread-follow-up-core";
@@ -11042,7 +11043,10 @@ function piRuntimeOrchestrationDeps(): import("./pi-runtime-run").PiRuntimeOrche
               ok: true,
             });
             if (settled?.outcome === "failed") {
-              markThreadInterrupted(input.threadId, settled.reason ?? "计划委派失败。");
+              updateThread(input.threadId, {
+                status: "awaiting_plan",
+                message: `${planDelegationFailurePrefix}${settled.reason ?? "子代理未完成计划。"}`,
+              });
               return;
             }
             conversationStore.clearPendingPlan(input.threadId);
