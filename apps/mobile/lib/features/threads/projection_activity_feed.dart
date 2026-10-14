@@ -173,15 +173,24 @@ List<ActivityFeedEntry> groupProjectionActivityFeedTurns(
 
   for (final attempt in attempts) {
     final rootKey = '${attempt.attemptId}#after:0';
+    final hasInitialPrompt = userBoundariesByTime.any(
+      (boundary) => boundary.at.compareTo(attempt.startedAt) <= 0,
+    );
     if (attempt.status == 'completed' ||
         turnBySegmentKey.containsKey(rootKey) ||
-        turnBySegmentKey.keys.any(
-          (key) => key.startsWith('${attempt.attemptId}#'),
+        turnBySegmentKey.values.any(
+          (turn) =>
+              turn.attempt.attemptId == attempt.attemptId &&
+              (!attempt.isRunning ||
+                  !hasInitialPrompt ||
+                  turn.boundaryAt == null ||
+                  turn.boundaryAt!.compareTo(attempt.startedAt) <= 0),
         ) ||
         (!attempt.isRunning &&
             !visibleTimelineAttemptIds.contains(attempt.attemptId))) {
       continue;
     }
+    // Preserve the original heading if the first output follows a mid-turn prompt.
     turnBySegmentKey[rootKey] = _MutableProjectionTurn(
       attempt,
       afterUserSequence: 0,
@@ -215,13 +224,15 @@ List<ActivityFeedEntry> groupProjectionActivityFeedTurns(
 
   sections.sort(_compareOrderedFeedSections);
 
-  return [
-    for (final section in sections)
-      if (section.value is ActivityFeedEntry)
-        section.value as ActivityFeedEntry
-      else
-        _buildTurnFeedEntry(section.value as _MutableProjectionTurn),
-  ];
+  final seenAttemptIds = <String>{};
+  return sections.map((section) {
+    if (section.value is ActivityFeedEntry) {
+      return section.value as ActivityFeedEntry;
+    }
+    final turn = section.value as _MutableProjectionTurn;
+    final continuation = !seenAttemptIds.add(turn.attempt.attemptId);
+    return _buildTurnFeedEntry(turn, continuation: continuation);
+  }).toList();
 }
 
 int _compareOrderedFeedSections(
@@ -272,7 +283,10 @@ bool _isStreamNarrativeFeedEntry(ActivityFeedEntry entry) {
       entry.kind == ActivityFeedKind.subagentMission;
 }
 
-ActivityFeedEntry _buildTurnFeedEntry(_MutableProjectionTurn turn) {
+ActivityFeedEntry _buildTurnFeedEntry(
+  _MutableProjectionTurn turn, {
+  required bool continuation,
+}) {
   final finalOutput = turn.attempt.isRunning
       ? null
       : _resolveFinalProjectionOutput(turn.entries);
@@ -293,6 +307,7 @@ ActivityFeedEntry _buildTurnFeedEntry(_MutableProjectionTurn turn) {
     text: '',
     runAttemptId: turn.attempt.attemptId,
     running: turn.attempt.isRunning,
+    continuation: continuation,
     turnStatus: turn.attempt.status,
     durationMs: durationMs,
     startedAt: turn.attempt.startedAt,

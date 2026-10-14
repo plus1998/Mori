@@ -2345,8 +2345,9 @@ function ProjectionTurnFeedSection({
 
   return (
     <RunLogTurnSection
-      turnKey={section.attempt.attemptId}
+      turnKey={section.key}
       running={section.running}
+      showHeading={!section.running || !section.continuation}
       stopping={Boolean(entryProps.stopping) && section.running}
       status={section.attempt.status}
       startedAt={section.attempt.startedAt}
@@ -2374,6 +2375,7 @@ function ProjectionTurnFeedSection({
 function RunLogTurnSection({
   turnKey,
   running,
+  showHeading = true,
   stopping = false,
   status,
   startedAt,
@@ -2389,6 +2391,7 @@ function RunLogTurnSection({
 }: {
   turnKey: string;
   running: boolean;
+  showHeading?: boolean;
   stopping?: boolean;
   status?: ThreadRunProjectionAttempt["status"];
   startedAt: string;
@@ -2433,47 +2436,50 @@ function RunLogTurnSection({
         running ? "is-running" : "is-completed",
         expanded ? "is-expanded" : "is-collapsed",
         animateExpansion ? "is-user-transitioning" : "",
+        !showHeading ? "is-continuation" : "",
       ]
         .filter(Boolean)
         .join(" ")}
       aria-label={running ? i18n.t("activity.process") : i18n.t("activity.turnResult")}
     >
       {leading}
-      <button
-        type="button"
-        className="run-log-turn-toggle"
-        onClick={() => {
-          if (running) {
-            return;
-          }
-          setAnimateExpansion(true);
-          const nextExpanded = !expanded;
-          setExpanded(nextExpanded);
-          if (nextExpanded && onLoadDetail && !detailLoading && !detailLoaded && !detailLoadedLocally) {
-            setDetailError(undefined);
-            setDetailLoading(true);
-            void onLoadDetail()
-              .then(() => setDetailLoadedLocally(true))
-              .catch((error) => setDetailError(error instanceof Error ? error.message : String(error)))
-              .finally(() => setDetailLoading(false));
-          }
-        }}
-        disabled={running}
-        aria-expanded={expanded}
-        aria-controls={contentId}
-      >
-        <span className="run-log-turn-heading">
-          <span className="run-log-turn-status">{headingLabel}</span>
-          {!running ? (
-            <ChevronRight
-              size={15}
-              className={`run-log-turn-chevron${expanded ? " open" : ""}`}
-              aria-hidden
-            />
-          ) : null}
-        </span>
-        <span className="run-log-turn-divider" aria-hidden />
-      </button>
+      {showHeading ? (
+        <button
+          type="button"
+          className="run-log-turn-toggle"
+          onClick={() => {
+            if (running) {
+              return;
+            }
+            setAnimateExpansion(true);
+            const nextExpanded = !expanded;
+            setExpanded(nextExpanded);
+            if (nextExpanded && onLoadDetail && !detailLoading && !detailLoaded && !detailLoadedLocally) {
+              setDetailError(undefined);
+              setDetailLoading(true);
+              void onLoadDetail()
+                .then(() => setDetailLoadedLocally(true))
+                .catch((error) => setDetailError(error instanceof Error ? error.message : String(error)))
+                .finally(() => setDetailLoading(false));
+            }
+          }}
+          disabled={running}
+          aria-expanded={expanded}
+          aria-controls={contentId}
+        >
+          <span className="run-log-turn-heading">
+            <span className="run-log-turn-status">{headingLabel}</span>
+            {!running ? (
+              <ChevronRight
+                size={15}
+                className={`run-log-turn-chevron${expanded ? " open" : ""}`}
+                aria-hidden
+              />
+            ) : null}
+          </span>
+          <span className="run-log-turn-divider" aria-hidden />
+        </button>
+      ) : null}
       <div
         id={contentId}
         className="run-log-turn-process"

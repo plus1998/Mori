@@ -1128,6 +1128,141 @@ test("ActivityLogView keeps a running attempt process expanded without final out
   expect(html).not.toContain('class="run-log-turn-final"');
 });
 
+test("mid-turn prompts keep one running heading while every continuation remains expanded", () => {
+  for (const status of ["running", "completed", "cancelled", "failed"] as const) {
+    const timeline = [
+      item({
+        id: "user-first",
+        eventType: "thread.status",
+        sequence: 1,
+        role: "user",
+        text: "开始检查",
+        at: "2026-01-01T00:00:00.000Z",
+        metadata: { liveType: "thread.user_prompt" },
+      }),
+      item({
+        id: "output-first",
+        sequence: 3,
+        eventType: "message.final",
+        text: "先检查代码。",
+        runAttemptId: "attempt-midturn",
+        at: "2026-01-01T00:00:02.000Z",
+      }),
+      item({
+        id: "user-mid",
+        eventType: "thread.status",
+        sequence: 4,
+        role: "user",
+        text: "补充第一条要求",
+        at: "2026-01-01T00:00:03.000Z",
+        metadata: { liveType: "thread.user_prompt" },
+      }),
+      item({
+        id: "output-mid",
+        sequence: 5,
+        eventType: "message.final",
+        text: "继续检查第一条要求。",
+        runAttemptId: "attempt-midturn",
+        at: "2026-01-01T00:00:04.000Z",
+      }),
+      item({
+        id: "user-mid-2",
+        eventType: "thread.status",
+        sequence: 6,
+        role: "user",
+        text: "补充第二条要求",
+        at: "2026-01-01T00:00:05.000Z",
+        metadata: { liveType: "thread.user_prompt" },
+      }),
+      item({
+        id: "output-mid-2",
+        sequence: 7,
+        eventType: "message.final",
+        text: "继续检查第二条要求。",
+        runAttemptId: "attempt-midturn",
+        at: "2026-01-01T00:00:06.000Z",
+      }),
+    ];
+    const html = renderToStaticMarkup(
+      createElement(ProjectionActivityLogView, {
+        projection: projection({
+          status,
+          timeline,
+          attempts: [
+            {
+              attemptId: "attempt-midturn",
+              status,
+              startedAt: "2026-01-01T00:00:01.000Z",
+              ...(status !== "running" ? { endedAt: "2026-01-01T00:00:08.000Z" } : {}),
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(html.match(/class="run-log-turn-toggle"/g)?.length).toBe(status === "running" ? 1 : 3);
+    if (status === "running") {
+      expect(html.match(/run-log-turn-status">处理中/g)?.length).toBe(1);
+      expect(html.match(/is-expanded is-continuation/g)?.length).toBe(2);
+      expect(html).toContain("先检查代码。");
+      expect(html).toContain("继续检查第一条要求。");
+      expect(html).toContain("继续检查第二条要求。");
+      expect(html.indexOf("补充第一条要求")).toBeLessThan(html.indexOf("继续检查第一条要求。"));
+      expect(html.indexOf("补充第二条要求")).toBeLessThan(html.indexOf("继续检查第二条要求。"));
+    } else {
+      expect(html).not.toContain("is-continuation");
+    }
+  }
+});
+
+test("a new follow-up attempt keeps its own running heading", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        attempts: [
+          {
+            attemptId: "attempt-first",
+            status: "completed",
+            startedAt: "2026-01-01T00:00:01.000Z",
+            endedAt: "2026-01-01T00:00:03.000Z",
+          },
+          { attemptId: "attempt-next", status: "running", startedAt: "2026-01-01T00:00:05.000Z" },
+        ],
+        timeline: [
+          item({
+            id: "first-output",
+            eventType: "message.final",
+            sequence: 1,
+            runAttemptId: "attempt-first",
+            text: "第一轮完成。",
+            at: "2026-01-01T00:00:02.000Z",
+          }),
+          item({
+            id: "next-prompt",
+            eventType: "thread.status",
+            sequence: 2,
+            role: "user",
+            text: "下一轮",
+            at: "2026-01-01T00:00:04.000Z",
+            metadata: { liveType: "thread.user_prompt" },
+          }),
+          item({
+            id: "next-output",
+            sequence: 3,
+            eventType: "message.final",
+            runAttemptId: "attempt-next",
+            text: "正在执行下一轮。",
+            at: "2026-01-01T00:00:06.000Z",
+          }),
+        ],
+      }),
+    }),
+  );
+  expect(html.match(/class="run-log-turn-toggle"/g)?.length).toBe(2);
+  expect(html.match(/run-log-turn-status">处理中/g)?.length).toBe(1);
+  expect(html).not.toContain("is-continuation");
+});
+
 test("ActivityLogView collapses completed thinking behind a deep-thinking summary", () => {
   const html = renderToStaticMarkup(
     createElement(ProjectionActivityLogView, {

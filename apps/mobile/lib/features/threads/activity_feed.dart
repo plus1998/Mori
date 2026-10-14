@@ -172,6 +172,7 @@ class ActivityFeedEntry {
     this.taskName,
     this.agentId,
     this.running = false,
+    this.continuation = false,
     this.turnStatus,
     this.durationMs = 0,
     this.statusText,
@@ -221,6 +222,9 @@ class ActivityFeedEntry {
   final String? taskName;
   final String? agentId;
   final bool running;
+
+  /// Output after a prompt inserted into an already running attempt.
+  final bool continuation;
   final String? turnStatus;
   final int durationMs;
   final String? statusText;
@@ -288,6 +292,7 @@ class ActivityFeedEntry {
       taskName: taskName,
       agentId: agentId,
       running: running,
+      continuation: continuation,
       turnStatus: turnStatus,
       durationMs: durationMs,
       statusText: statusText,
@@ -340,6 +345,7 @@ class ActivityFeedEntry {
       taskName: taskName,
       agentId: agentId,
       running: running,
+      continuation: continuation,
       turnStatus: turnStatus,
       durationMs: durationMs,
       statusText: statusText,
@@ -1775,58 +1781,60 @@ class _TurnFeedTileState extends State<_TurnFeedTile> {
       stopping: _FeedStoppingScope.of(context) && widget.entry.running,
     );
     final process = widget.entry.processEntries;
+    final showHeading = !widget.entry.running || !widget.entry.continuation;
 
     return Padding(
       padding: const EdgeInsets.only(top: 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Semantics(
-            button: !widget.entry.running,
-            expanded: _expanded,
-            label: widget.entry.running
-                ? context.l10n.activityExecutionProcess
-                : context.l10n.activityExecutionResult,
-            child: InkWell(
-              onTap: widget.entry.running ? null : _toggleExpanded,
-              borderRadius: BorderRadius.circular(4),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          status,
-                          style: activityFeedBodyStyle(
-                            context,
-                            height: 1.4,
-                            color: eco.textMuted,
-                          )?.copyWith(fontWeight: FontWeight.w500),
-                        ),
-                        if (!widget.entry.running) ...[
-                          const SizedBox(width: 3),
-                          AnimatedRotation(
-                            turns: _expanded ? 0.25 : 0,
-                            duration: const Duration(milliseconds: 180),
-                            curve: Curves.easeOut,
-                            child: Icon(
-                              Icons.chevron_right_rounded,
-                              size: 18,
+          if (showHeading)
+            Semantics(
+              button: !widget.entry.running,
+              expanded: _expanded,
+              label: widget.entry.running
+                  ? context.l10n.activityExecutionProcess
+                  : context.l10n.activityExecutionResult,
+              child: InkWell(
+                onTap: widget.entry.running ? null : _toggleExpanded,
+                borderRadius: BorderRadius.circular(4),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            status,
+                            style: activityFeedBodyStyle(
+                              context,
+                              height: 1.4,
                               color: eco.textMuted,
-                            ),
+                            )?.copyWith(fontWeight: FontWeight.w500),
                           ),
+                          if (!widget.entry.running) ...[
+                            const SizedBox(width: 3),
+                            AnimatedRotation(
+                              turns: _expanded ? 0.25 : 0,
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOut,
+                              child: Icon(
+                                Icons.chevron_right_rounded,
+                                size: 18,
+                                color: eco.textMuted,
+                              ),
+                            ),
+                          ],
                         ],
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Divider(height: 1, color: eco.borderSubtle),
-                  ],
+                      ),
+                      const SizedBox(height: 8),
+                      Divider(height: 1, color: eco.borderSubtle),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
           ClipRect(
             child: AnimatedSize(
               duration: const Duration(milliseconds: 180),
@@ -1834,7 +1842,7 @@ class _TurnFeedTileState extends State<_TurnFeedTile> {
               alignment: Alignment.topCenter,
               child: _expanded
                   ? Padding(
-                      padding: const EdgeInsets.only(top: 7),
+                      padding: EdgeInsets.only(top: showHeading ? 7 : 0),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [

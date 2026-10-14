@@ -27,6 +27,8 @@ export type ThreadRunTurnFeedSection =
       key: string;
       attempt: ThreadRunProjectionAttempt;
       running: boolean;
+      /** Output after a prompt inserted into an already running attempt. */
+      continuation?: boolean;
       processEntries: ThreadRunProjectionMainFeedEntry[];
       finalEntry?: ThreadRunProjectionMainFeedEntry;
     };
@@ -126,14 +128,24 @@ export function buildThreadRunTurnFeedSections(
 
   for (const attempt of attempts) {
     const rootKey = `${attempt.attemptId}#after:0`;
+    const hasInitialPrompt = userBoundariesByTime.some((boundary) => boundary.at <= attempt.startedAt);
     if (
       attempt.status === "completed" ||
       turnBySegmentKey.has(rootKey) ||
-      [...turnBySegmentKey.keys()].some((key) => key.startsWith(`${attempt.attemptId}#`)) ||
+      [...turnBySegmentKey.values()].some(
+        (turn) =>
+          turn.attempt.attemptId === attempt.attemptId &&
+          (attempt.status !== "running" ||
+            !hasInitialPrompt ||
+            !turn.boundaryAt ||
+            turn.boundaryAt <= attempt.startedAt),
+      ) ||
       (attempt.status !== "running" && !visibleTimelineAttemptIds.has(attempt.attemptId))
     ) {
       continue;
     }
+    // Keep the original heading when the first output arrives only after a
+    // mid-turn prompt, instead of moving that heading below the inserted user.
     const turn: MutableTurnSection = {
       kind: "turn",
       key: `turn:${rootKey}`,
@@ -172,6 +184,7 @@ export function buildThreadRunTurnFeedSections(
 
   sections.sort(compareOrderedSections);
 
+  const seenAttemptIds = new Set<string>();
   return sections.map(({ section }) => {
     if (section.kind !== "turn") {
       return section;
@@ -179,11 +192,14 @@ export function buildThreadRunTurnFeedSections(
     const matched = [...turnBySegmentKey.values()].find((turn) => turn.key === section.key);
     const turnEntries = matched?.entries ?? [];
     const finalEntry = section.running ? undefined : resolveFinalOutputEntry(turnEntries);
+    const continuation = seenAttemptIds.has(section.attempt.attemptId);
+    seenAttemptIds.add(section.attempt.attemptId);
     return {
       kind: "turn",
       key: section.key,
       attempt: section.attempt,
       running: section.running,
+      continuation,
       processEntries: finalEntry ? turnEntries.filter((entry) => entry.key !== finalEntry.key) : turnEntries,
       ...(finalEntry && { finalEntry }),
     };

@@ -395,6 +395,50 @@ test("stream rows that keep an early sequence still follow a later mid-turn user
   expect(turns[0].finalEntry?.key).toBe("main:stale-seq-final");
 });
 
+test("mid-turn output preserves the original running heading before the first agent event", () => {
+  const user = entry(
+    item("user", "开始", {
+      role: "user",
+      sequence: 1,
+      at: "2026-01-01T00:00:00.500Z",
+      metadata: { liveType: "thread.user_prompt" },
+    }),
+  );
+  const midturnUser = entry(
+    item("midturn-user", "补充要求", {
+      role: "user",
+      sequence: 10,
+      at: "2026-01-01T00:00:03.000Z",
+      metadata: { liveType: "thread.user_prompt" },
+    }),
+  );
+  const output = entry(
+    item("output", "正在检查补充要求。", {
+      runAttemptId: "attempt-1",
+      sequence: 5,
+      at: "2026-01-01T00:00:05.000Z",
+    }),
+  );
+
+  const before = buildThreadRunTurnFeedSections([user, midturnUser], {
+    attempts: [attempt("running")],
+    timeline: [],
+  });
+  const after = buildThreadRunTurnFeedSections([user, midturnUser, output], {
+    attempts: [attempt("running")],
+    timeline: [],
+  });
+
+  expect(before.map((section) => section.kind)).toEqual(["entry", "turn", "entry"]);
+  expect(after.map((section) => section.kind)).toEqual(["entry", "turn", "entry", "turn"]);
+  if (after[1]?.kind !== "turn" || after[3]?.kind !== "turn") throw new Error("expected turn sections");
+  expect(after[1].key).toBe(before[1]?.key);
+  expect(after[1].continuation).toBe(false);
+  expect(after[1].processEntries).toEqual([]);
+  expect(after[3].continuation).toBe(true);
+  expect(after[3].processEntries.map((entry) => entry.key)).toEqual([output.key]);
+});
+
 test("legacy entries recover turn ownership from the attempt time window", () => {
   const sections = buildThreadRunTurnFeedSections(
     [entry(item("legacy-final", "旧会话结果。", { at: "2026-01-01T00:00:07.000Z" }))],

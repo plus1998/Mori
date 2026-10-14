@@ -28933,6 +28933,10 @@ html:not([data-platform="darwin"])
   padding-top: 0;
 }
 
+.codex-main:not(.codex-main-landing) .run-log-turn.is-continuation .run-log-turn-process-inner {
+  padding-top: 0;
+}
+
 .codex-main:not(.codex-main-landing) .run-log-turn.is-collapsed .run-log-turn-process-inner {
   padding-top: 0;
 }
