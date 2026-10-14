@@ -7,6 +7,7 @@ import {
   formatRunLogTurnHeading,
   isTailThinkingStreamingLive,
   ConversationV2ProjectionActivityLogView as ProjectionActivityLogView,
+  ProjectionCodemodeDetails,
   ProjectionSubagentDetailFeed,
   ProjectionToolGroupEntry,
   reconcileActivityProjectionThreadStatus,
@@ -2710,33 +2711,34 @@ test("ActivityLogView hides waiting thinking while context compaction is running
   expect(html).not.toContain('aria-label="会话进行中"');
 });
 
-test.each(["正在自动压缩上下文", "正在手动压缩上下文", "正在压缩上下文"])(
-  "ActivityLogView shimmers %s while counting elapsed time in the text flow",
-  (label) => {
-    const startedAt = new Date(Date.now() - 10_500).toISOString();
-    const html = renderToStaticMarkup(
-      createElement(ProjectionActivityLogView, {
-        projection: projection({
-          status: "running",
-          timeline: [
-            item({
-              id: "compact-start",
-              eventType: "context.compaction.started",
-              text: label,
-              at: startedAt,
-              metadata: { liveType: "context.compaction.started" },
-            }),
-          ],
-        }),
+test.each([
+  "正在自动压缩上下文",
+  "正在手动压缩上下文",
+  "正在压缩上下文",
+])("ActivityLogView shimmers %s while counting elapsed time in the text flow", (label) => {
+  const startedAt = new Date(Date.now() - 10_500).toISOString();
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        timeline: [
+          item({
+            id: "compact-start",
+            eventType: "context.compaction.started",
+            text: label,
+            at: startedAt,
+            metadata: { liveType: "context.compaction.started" },
+          }),
+        ],
       }),
-    );
+    }),
+  );
 
-    expect(html).toContain(
-      `<span class="run-log-shimmer-text" aria-live="polite">${label}</span><span class="run-log-action-elapsed run-log-action-elapsed--inline">10s</span>`,
-    );
-    expect(html).not.toContain('class="run-log-action-meta run-log-action-elapsed"');
-  },
-);
+  expect(html).toContain(
+    `<span class="run-log-shimmer-text" aria-live="polite">${label}</span><span class="run-log-action-elapsed run-log-action-elapsed--inline">10s</span>`,
+  );
+  expect(html).not.toContain('class="run-log-action-meta run-log-action-elapsed"');
+});
 
 test.each([
   { eventType: "context.compaction.completed", label: "上下文已自动压缩" },
@@ -4256,6 +4258,76 @@ test("codemode keeps the calls its script made inside the script's card", () => 
   // A script alone gets the code icon; next to a file read the group keeps the read icon.
   expect(display.summary.icon).toBe("read");
 
+  // The card starts collapsed like every other tool child: the row carries the call count, and the
+  // script's panes only reach the DOM once the user opens it.
+  const collapsed = renderToStaticMarkup(
+    createElement(ProjectionToolGroupEntry, {
+      entry,
+      requestSpansById: new Map(),
+      defaultExpanded: true,
+    }),
+  );
+  expect(collapsed).toContain("run-log-codemode");
+  expect(collapsed).toContain("运行了代码脚本");
+  expect(collapsed).toContain("2 次调用");
+  expect(collapsed).toContain('aria-expanded="false"');
+  expect(collapsed).not.toContain("run-log-codemode-details");
+  expect(collapsed).not.toContain("const a = await tools.read");
+  // The model-issued read next to the script keeps its own row; the script's own calls do not —
+  // they live inside the card, not beside it.
+  expect(collapsed).toContain("读取了 c.ts");
+  expect(collapsed).not.toContain("读取了 a.ts");
+  expect(collapsed).not.toContain("读取了 b.ts");
+
+  // Opened, the card is the script, what it called and what it returned.
+  const codemodeBlock = projectionItemToDetailBlock(entry.entries[0]?.item ?? ({} as never));
+  if (codemodeBlock?.kind !== "action") {
+    throw new Error("codemode action block missing");
+  }
+  const html = renderToStaticMarkup(
+    createElement(ProjectionCodemodeDetails, {
+      block: codemodeBlock,
+      nestedChildren: entry.entries.slice(1, 3),
+      requestSpansById: new Map(),
+    }),
+  );
+  expect(html).toContain("run-log-codemode-details");
+  expect(html).toContain("const a = await tools.read");
+  expect(html).toContain("1234");
+  expect(html).toContain("脚本里的调用");
+  expect(html).toContain("run-log-codemode-calls-list");
+  // The script's own calls appear once, nested — not again as siblings of the script.
+  expect(html.match(/读取了 a\.ts/g)?.length).toBe(1);
+  expect(html.match(/读取了 b\.ts/g)?.length).toBe(1);
+  expect(html).not.toContain("读取了 c.ts");
+});
+
+test("codemode keeps a lone script behind its row too", () => {
+  // No nested calls, same disclosure: the row is one line either way and the script stays a click away.
+  const view = buildThreadRunProjectionViewModel(
+    projection({
+      status: "completed",
+      timeline: [
+        item({
+          id: "lone-codemode",
+          eventType: "tool.completed",
+          text: "Tool: codemode",
+          metadata: {
+            tool: {
+              name: "codemode",
+              toolUseId: "code_7",
+              status: "completed",
+              codemode: { script: "return 1 + 1;", output: "2" },
+            },
+          },
+        }),
+      ],
+    }),
+  );
+  const entry = view.mainFeedEntries[0];
+  if (entry?.kind !== "tool-group") {
+    throw new Error("codemode tool group missing");
+  }
   const html = renderToStaticMarkup(
     createElement(ProjectionToolGroupEntry, {
       entry,
@@ -4264,15 +4336,9 @@ test("codemode keeps the calls its script made inside the script's card", () => 
     }),
   );
   expect(html).toContain("run-log-codemode");
-  expect(html).toContain("运行了代码脚本");
-  expect(html).toContain("const a = await tools.read");
-  expect(html).toContain("1234");
-  expect(html).toContain("脚本里的调用");
-  expect(html).toContain("run-log-codemode-calls-list");
-  // The script's own calls appear once, nested — not again as siblings of the script.
-  expect(html.match(/读取了 a\.ts/g)?.length).toBe(1);
-  expect(html.match(/读取了 b\.ts/g)?.length).toBe(1);
-  expect(html).toContain("读取了 c.ts");
+  expect(html).toContain('aria-expanded="false"');
+  expect(html).not.toContain("run-log-codemode-details");
+  expect(html).not.toContain("return 1 + 1;");
 });
 
 test("codemode nests its calls when the legacy row carries the link on the tool metadata", () => {
@@ -4291,7 +4357,7 @@ test("codemode nests its calls when the legacy row carries the link on the tool 
               name: "codemode",
               toolUseId: "code_9",
               status: "completed",
-              codemode: { script: "tools.bash({ command: \"echo one\" });", output: "one" },
+              codemode: { script: 'tools.bash({ command: "echo one" });', output: "one" },
             },
           },
         }),
@@ -4385,11 +4451,25 @@ test("codemode lists each call once when PI's details duplicate its own tool row
   if (entry?.kind !== "tool-group") {
     throw new Error("codemode tool group missing");
   }
-  const html = renderToStaticMarkup(
+  const codemodeBlock = projectionItemToDetailBlock(entry.entries[0]?.item ?? ({} as never));
+  if (codemodeBlock?.kind !== "action") {
+    throw new Error("codemode action block missing");
+  }
+  // The collapsed row still counts both calls: the badge is what tells the user to open the card.
+  const row = renderToStaticMarkup(
     createElement(ProjectionToolGroupEntry, {
       entry,
       requestSpansById: new Map(),
       defaultExpanded: true,
+    }),
+  );
+  expect(row).toContain("2 次调用");
+
+  const html = renderToStaticMarkup(
+    createElement(ProjectionCodemodeDetails, {
+      block: codemodeBlock,
+      nestedChildren: entry.entries.slice(1),
+      requestSpansById: new Map(),
     }),
   );
   // The tool row wins; PI's record of the same call adds nothing.
@@ -4397,5 +4477,5 @@ test("codemode lists each call once when PI's details duplicate its own tool row
   expect(html).toContain("run-log-codemode-call");
   expect(html).toContain("bash");
   // One row from the tool event plus one record with no row, not 2 + 2.
-  expect(html).toContain("2 次调用");
+  expect(html.match(/run-log-codemode-call"/g)?.length).toBe(1);
 });

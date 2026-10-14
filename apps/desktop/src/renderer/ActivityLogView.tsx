@@ -124,6 +124,7 @@ import { supportsHistoryRewrite } from "../shared/thread-request-retry";
 import {
   isContextCompactionEventType,
   parseThreadRunCodemodeMetadata,
+  type ThreadRunCodemodeCallMetadata,
   type ThreadRunCodemodeMetadata,
 } from "../shared/thread-run-events";
 import { isCodemodeToolName, resolveCodemodeMetadata } from "../shared/thread-run-tool-projection";
@@ -3276,9 +3277,10 @@ function ProjectionToolGroupBashChild({
 
 /**
  * PI's codemode card: the script the model wrote, the calls that script made, and what the script
- * returned. PI's own TUI shows the same three things, because a script row carries no information
- * without them — the tool name is identical for every script, and the nested calls never reach the
- * model as tool calls, so this card is their only record.
+ * returned. The nested calls never reach the model as tool calls, so this card is their only
+ * record — but all three panes stay behind the row, like every other tool child: a script and its
+ * call list are the tallest blocks in the Feed, and a group that opens with them pushes the actual
+ * answer out of view. The row's call-count badge is what says there is something to open.
  */
 function ProjectionToolGroupCodemodeChild({
   block,
@@ -3295,31 +3297,13 @@ function ProjectionToolGroupCodemodeChild({
   onOpenImageDisplayTool?: OpenImageDisplayToolHandler;
   onLoadProjectionDetail?: ProjectionDetailLoader;
 }) {
-  // The group's own disclosure already means "show me this step", so the script opens with it:
-  // a second collapsed layer would hide the only content that explains what the script did.
-  const [expanded, setExpanded] = useState(true);
-  const script = block.codemodeRun?.script?.trim() ?? "";
-  const output = block.codemodeRun?.output?.trim() ?? "";
-  const fullOutputPath = block.codemodeRun?.fullOutputPath?.trim() ?? "";
-  // PI gives each nested call the id of the tool event it caused, so any call that reached the tool
-  // pipeline is in both lists: as a full row, and as one of the script's own records. Keep the row,
-  // and keep only the records with no row — the calls cancelled when the script ended, which never
-  // produced one. A record with no id is kept: it cannot be matched, and losing it is worse.
-  const nestedCallIds = new Set(
-    nestedChildren
-      .map((child) => (child.kind === "timeline" ? readProjectionToolUseId(child.item) : undefined))
-      .filter((id): id is string => Boolean(id)),
-  );
-  const detailCallRows = (block.codemodeRun?.calls ?? [])
-    .filter((call) => !call.id || !nestedCallIds.has(call.id))
-    .map((call, index) => ({
-      call,
-      key: call.id ?? `${call.name}:${index}`,
-    }));
-  const callCount = nestedChildren.length + detailCallRows.length;
+  const [expanded, setExpanded] = useState(false);
+  const callCount = countCodemodeCalls(block, nestedChildren);
   const summary = formatToolGroupChildDetail(block);
   const lifecycle = block.lifecycle;
-  const hasDetails = Boolean(script || output || callCount > 0);
+  const hasDetails = Boolean(
+    block.codemodeRun?.script?.trim() || block.codemodeRun?.output?.trim() || callCount > 0,
+  );
   return (
     <div className={`run-log-tool-group-child run-log-codemode${expanded ? " is-expanded" : ""}`}>
       <button
@@ -3355,59 +3339,125 @@ function ProjectionToolGroupCodemodeChild({
         ) : null}
       </button>
       {expanded ? (
-        <div className="run-log-codemode-details">
-          {script ? <RunLogCodemodeScript script={script} /> : null}
-          {callCount > 0 ? (
-            <div className="run-log-codemode-calls">
-              <div className="run-log-codemode-section-label">{i18n.t("activity.codemode.callsLabel")}</div>
-              {/* The label stays put and only the rows scroll: a 60-call script must not push the
-                  script and its output out of view. */}
-              <div className="run-log-codemode-calls-list">
-                {nestedChildren.map((child) => (
-                  <ProjectionToolGroupChildEntry
-                    key={child.key}
-                    entry={child}
-                    requestSpansById={requestSpansById}
-                    {...(onOpenImageGenerationTool && { onOpenImageGenerationTool })}
-                    {...(onOpenImageDisplayTool && { onOpenImageDisplayTool })}
-                    {...(onLoadProjectionDetail && { onLoadProjectionDetail })}
-                  />
-                ))}
-                {detailCallRows.map(({ call, key }) => (
-                  <div className="run-log-codemode-call" key={key}>
-                    <span className={`run-log-codemode-call-status is-${call.status ?? "ok"}`} aria-hidden>
-                      {codemodeCallGlyph(call.status)}
-                    </span>
-                    <span className="run-log-codemode-call-name">{call.name}</span>
-                    {call.args ? <span className="run-log-codemode-call-args">{call.args}</span> : null}
-                    {call.durationMs !== undefined ? (
-                      <span className="run-log-codemode-call-meta">{formatDuration(call.durationMs)}</span>
-                    ) : null}
-                    {call.cost !== undefined ? (
-                      <span className="run-log-codemode-call-meta">
-                        {i18n.t("activity.codemode.modelCost", { cost: call.cost.toFixed(3) })}
-                      </span>
-                    ) : null}
-                  </div>
-                ))}
+        <ProjectionCodemodeDetails
+          block={block}
+          nestedChildren={nestedChildren}
+          requestSpansById={requestSpansById}
+          {...(onOpenImageGenerationTool && { onOpenImageGenerationTool })}
+          {...(onOpenImageDisplayTool && { onOpenImageDisplayTool })}
+          {...(onLoadProjectionDetail && { onLoadProjectionDetail })}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The three panes of a codemode card. Split out so the collapsed row above stays a row: the
+ * disclosure decision and the content it hides are separate questions.
+ */
+export function ProjectionCodemodeDetails({
+  block,
+  nestedChildren = [],
+  requestSpansById,
+  onOpenImageGenerationTool,
+  onOpenImageDisplayTool,
+  onLoadProjectionDetail,
+}: {
+  block: Extract<ActivityDetailBlock, { kind: "action" }>;
+  nestedChildren?: ToolGroupChildEntry[];
+  requestSpansById: Map<string, ThreadRunProjectionSnapshot["requestSpans"][number]>;
+  onOpenImageGenerationTool?: OpenImageGenerationToolHandler;
+  onOpenImageDisplayTool?: OpenImageDisplayToolHandler;
+  onLoadProjectionDetail?: ProjectionDetailLoader;
+}) {
+  const script = block.codemodeRun?.script?.trim() ?? "";
+  const output = block.codemodeRun?.output?.trim() ?? "";
+  const fullOutputPath = block.codemodeRun?.fullOutputPath?.trim() ?? "";
+  const detailCallRows = resolveCodemodeDetailCallRows(block, nestedChildren);
+  const callCount = nestedChildren.length + detailCallRows.length;
+  return (
+    <div className="run-log-codemode-details">
+      {script ? <RunLogCodemodeScript script={script} /> : null}
+      {callCount > 0 ? (
+        <div className="run-log-codemode-calls">
+          <div className="run-log-codemode-section-label">{i18n.t("activity.codemode.callsLabel")}</div>
+          {/* The label stays put and only the rows scroll: a 60-call script must not push the
+              script and its output out of view. */}
+          <div className="run-log-codemode-calls-list">
+            {nestedChildren.map((child) => (
+              <ProjectionToolGroupChildEntry
+                key={child.key}
+                entry={child}
+                requestSpansById={requestSpansById}
+                {...(onOpenImageGenerationTool && { onOpenImageGenerationTool })}
+                {...(onOpenImageDisplayTool && { onOpenImageDisplayTool })}
+                {...(onLoadProjectionDetail && { onLoadProjectionDetail })}
+              />
+            ))}
+            {detailCallRows.map(({ call, key }) => (
+              <div className="run-log-codemode-call" key={key}>
+                <span className={`run-log-codemode-call-status is-${call.status ?? "ok"}`} aria-hidden>
+                  {codemodeCallGlyph(call.status)}
+                </span>
+                <span className="run-log-codemode-call-name">{call.name}</span>
+                {call.args ? <span className="run-log-codemode-call-args">{call.args}</span> : null}
+                {call.durationMs !== undefined ? (
+                  <span className="run-log-codemode-call-meta">{formatDuration(call.durationMs)}</span>
+                ) : null}
+                {call.cost !== undefined ? (
+                  <span className="run-log-codemode-call-meta">
+                    {i18n.t("activity.codemode.modelCost", { cost: call.cost.toFixed(3) })}
+                  </span>
+                ) : null}
               </div>
-            </div>
-          ) : null}
-          {output ? (
-            <div className="run-log-codemode-output">
-              <div className="run-log-codemode-section-label">{i18n.t("activity.codemode.outputLabel")}</div>
-              <RunLogBashOutput output={output} />
-            </div>
-          ) : null}
-          {fullOutputPath ? (
-            <div className="run-log-codemode-full-output">
-              {i18n.t("activity.codemode.fullOutput", { path: fullOutputPath })}
-            </div>
-          ) : null}
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {output ? (
+        <div className="run-log-codemode-output">
+          <div className="run-log-codemode-section-label">{i18n.t("activity.codemode.outputLabel")}</div>
+          <RunLogBashOutput output={output} />
+        </div>
+      ) : null}
+      {fullOutputPath ? (
+        <div className="run-log-codemode-full-output">
+          {i18n.t("activity.codemode.fullOutput", { path: fullOutputPath })}
         </div>
       ) : null}
     </div>
   );
+}
+
+/**
+ * PI gives each nested call the id of the tool event it caused, so any call that reached the tool
+ * pipeline is in both lists: as a full row, and as one of the script's own records. Keep the row,
+ * and keep only the records with no row — the calls cancelled when the script ended, which never
+ * produced one. A record with no id is kept: it cannot be matched, and losing it is worse.
+ */
+function resolveCodemodeDetailCallRows(
+  block: Extract<ActivityDetailBlock, { kind: "action" }>,
+  nestedChildren: readonly ToolGroupChildEntry[],
+): { call: ThreadRunCodemodeCallMetadata; key: string }[] {
+  const nestedCallIds = new Set(
+    nestedChildren
+      .map((child) => (child.kind === "timeline" ? readProjectionToolUseId(child.item) : undefined))
+      .filter((id): id is string => Boolean(id)),
+  );
+  return (block.codemodeRun?.calls ?? [])
+    .filter((call) => !call.id || !nestedCallIds.has(call.id))
+    .map((call, index) => ({
+      call,
+      key: call.id ?? `${call.name}:${index}`,
+    }));
+}
+
+function countCodemodeCalls(
+  block: Extract<ActivityDetailBlock, { kind: "action" }>,
+  nestedChildren: readonly ToolGroupChildEntry[],
+): number {
+  return nestedChildren.length + resolveCodemodeDetailCallRows(block, nestedChildren).length;
 }
 
 /** Same glyphs PI's TUI uses for the calls a script made. */
