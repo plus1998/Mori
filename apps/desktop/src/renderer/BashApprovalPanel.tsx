@@ -9,6 +9,7 @@ import {
   formatBashApprovalRememberPrefix,
 } from "../shared/bash-approval-ui";
 import type { BashApprovalDecision, BashApprovalRequest } from "../shared/ipc";
+import { presentMcpApproval } from "../shared/mcp-approval-presentation";
 import { ExpandablePreBlock } from "./ExpandablePreBlock";
 
 export interface BashApprovalResolutionInput {
@@ -154,9 +155,10 @@ export function BashApprovalPanel({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [busy, denyFeedback, highlightIndex, onResolve, onSkip, options, request.defaultToNo]);
 
+  const presentation = presentMcpApproval(request);
   const title =
-    request.description?.trim() ||
-    request.reason ||
+    presentation.description?.trim() ||
+    presentation.reason ||
     (request.filesystemTool
       ? t("approval.bash.fileTitle", { tool: request.filesystemTool })
       : t("approval.bash.title"));
@@ -164,7 +166,7 @@ export function BashApprovalPanel({
     ? t("approval.bash.runningTool", { tool: request.filesystemTool })
     : t("approval.bash.runningCommand", { command: request.command });
   const panelLabel = request.filesystemTool ? t("approval.bash.fileLabel") : t("approval.bash.label");
-  const detail = request.filesystemPath ?? request.command;
+  const detail = presentation.filesystemPath ?? request.command;
   const docked = variant === "dock";
 
   function renderOption(option: BashApprovalOption, optionIndex: number) {
@@ -307,10 +309,10 @@ export function BashApprovalPanel({
         </aside>
       ) : null}
 
-      {request.reason?.trim() &&
-      request.reason.trim() !== request.reviewRationale?.trim() &&
-      request.reason.trim() !== request.description?.trim() ? (
-        <p className="bash-approval-gate-reason">{request.reason.trim()}</p>
+      {presentation.reason?.trim() &&
+      presentation.reason.trim() !== request.reviewRationale?.trim() &&
+      presentation.reason.trim() !== presentation.description?.trim() ? (
+        <p className="bash-approval-gate-reason">{presentation.reason.trim()}</p>
       ) : null}
 
       <ExpandablePreBlock

@@ -337,6 +337,10 @@ export class McpHubGateway {
     return [...this.threadCodexServers.values()];
   }
 
+  getThreadCodexServerName(threadId: string): string | undefined {
+    return this.threadCodexServers.get(threadId.trim())?.name;
+  }
+
   revokeThread(threadId: string): boolean {
     const normalizedThreadId = threadId.trim();
     for (const proxy of this.threadProxies.values()) proxy.removeThread(normalizedThreadId);

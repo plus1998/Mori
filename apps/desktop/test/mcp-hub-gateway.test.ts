@@ -364,6 +364,8 @@ test("MCP Hub tracks and retires thread-scoped Codex descriptors", async () => {
     });
     expect(first.codexServerChanged).toBe(true);
     expect(gateway.listThreadCodexServers().map((server) => server.name)).toEqual(["eco_mcp_thread_a"]);
+    expect(gateway.getThreadCodexServerName("thread-a")).toBe("eco_mcp_thread_a");
+    expect(gateway.getThreadCodexServerName("thread-b")).toBeUndefined();
 
     const same = await gateway.prepareThread({
       threadId: "thread-a",
@@ -387,6 +389,8 @@ test("MCP Hub tracks and retires thread-scoped Codex descriptors", async () => {
     ]);
 
     gateway.revokeThread("thread-a");
+    expect(gateway.getThreadCodexServerName("thread-a")).toBeUndefined();
+    expect(gateway.getThreadCodexServerName("thread-b")).toBe("eco_mcp_thread_b");
     expect(gateway.listThreadCodexServers().map((server) => server.name)).toEqual(["eco_mcp_thread_b"]);
   } finally {
     await gateway.close();

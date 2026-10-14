@@ -3085,6 +3085,7 @@ app
       },
       getWorktreePath: (threadId) => activeRunRuntimeState.worktreePlan(threadId)?.worktreePath,
       getPlannerAgentId: (threadId) => agentLifecycle.usagePlannerAgentId(threadId),
+      getMcpHubServerName: (threadId) => mcpHubGateway.getThreadCodexServerName(threadId),
       getApprovalMode: (threadId) => {
         const thread = conversationStore.getThread(threadId);
         return thread

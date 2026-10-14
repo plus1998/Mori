@@ -27,6 +27,7 @@ import type {
   PlanApprovalRequest,
   ThreadLiveEvent,
 } from "../shared/ipc";
+import { presentMcpApproval } from "../shared/mcp-approval-presentation";
 import { modelApprovalOutcome } from "./approval-model-outcome";
 import {
   type BashApprovalResolution,
@@ -189,6 +190,8 @@ export interface CodexApprovalBridgeDeps {
   emitThreadLive: (event: ThreadLiveEvent) => void;
   updateThreadStatus: (ecoThreadId: string, patch: { status: string; message: string }) => void;
   getApprovalMode?: (ecoThreadId: string) => "always" | "auto" | "allow_all";
+  /** Exact registered server owned by this thread; a matching prefix is not sufficient. */
+  getMcpHubServerName?: (ecoThreadId: string) => string | undefined;
   /**
    * Built-in browser open approval (settings). Used to auto-accept Codex MCP
    * tool-run elicitations for eco_agent_browser when mode is always_allow.
@@ -564,7 +567,20 @@ async function handleMcpServerElicitationRequest(
   const rawMessage = requireRequestString(CODEX_MCP_SERVER_ELICITATION_REQUEST, params, "message");
   validateNullableStringFields(CODEX_MCP_SERVER_ELICITATION_REQUEST, params, ["turnId"]);
   const turnId = readString(params, "turnId");
-  const nestedHubCall = resolvePendingHubCall(codexThreadId, rawServerName);
+  const rawToolName =
+    mode === "form" ? parseMcpToolRunElicitationMessage(rawServerName, rawMessage) : undefined;
+  if (
+    mode === "form" &&
+    deps.getThread(ecoThreadId) &&
+    deps.getMcpHubServerName?.(ecoThreadId) === rawServerName &&
+    rawToolName === parseMcpToolRunElicitationMessage(rawServerName, 'run tool "search_tools"')
+  ) {
+    return { action: "accept", content: {} };
+  }
+  const nestedHubCall =
+    rawToolName === parseMcpToolRunElicitationMessage(rawServerName, 'run tool "call_tool"')
+      ? resolvePendingHubCall(codexThreadId, rawServerName)
+      : undefined;
   const serverName = nestedHubCall?.serverName ?? rawServerName;
   const message = nestedHubCall
     ? buildMcpToolApprovalMessage(nestedHubCall.serverName, nestedHubCall.toolName, nestedHubCall.arguments)
@@ -2170,12 +2186,13 @@ function emitBashApprovalRequested(
   request: BashApprovalRequest,
   commandLabel: string,
 ): void {
+  const presentation = presentMcpApproval(request);
   deps.emitThreadLive({
     threadId: request.threadId,
     type: "bash_approval.requested",
-    message: `等待确认：${commandLabel}`,
+    message: `等待确认：${request.kind === "mcp" ? presentation.description : commandLabel}`,
     role: "tool",
-    bashApproval: request,
+    bashApproval: presentation,
   });
   deps.updateThreadStatus(request.threadId, {
     status: "running",
