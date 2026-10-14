@@ -37759,6 +37759,11 @@ body,
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
   color: var(--accent-text);
 }
+.image-generation-profile-card-icon img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
 .image-generation-profile-card-identity {
   display: flex;
   min-width: 0;

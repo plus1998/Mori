@@ -51,6 +51,7 @@ import {
   Square,
   Trash2,
   Unplug,
+  Volume2,
   Workflow,
   X,
 } from "lucide-react";
@@ -1434,7 +1435,7 @@ function App() {
           {
             id: "tts",
             label: t("settings.tts.title"),
-            icon: Mic,
+            icon: Volume2,
             keywords: ["TTS", "语音", "Gemini", "OpenRouter"],
           },
           { id: "asr", label: t("asr.title"), icon: Mic },
