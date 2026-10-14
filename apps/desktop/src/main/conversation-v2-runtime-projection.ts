@@ -17,6 +17,7 @@ import type {
   ToolWritingActivity,
 } from "../shared/ipc";
 import { SUBAGENT_ROLES } from "../shared/ipc";
+import { legacyMessageId } from "./conversation-v2-legacy-identity";
 import { isMetricsOnlyThreadRunEvent } from "./thread-run-event-normalizer";
 import { dedupeSettledSdkMessageBlocks } from "./thread-run-message-blocks";
 import type { AgentInstanceRecord, RunAttemptRecord } from "./usage-ledger";
@@ -51,6 +52,8 @@ interface MutableRequestSpan {
   error?: string;
   providerRequestId?: string;
   writingTool?: ThreadRunProjectionWritingTool;
+  pendingThinkingSince?: string;
+  pendingThinkingMessageId?: string;
   sawStreamStart: boolean;
 }
 
@@ -692,6 +695,67 @@ function latestSpanStartedBy(
   return found;
 }
 
+/** Keep an empty thinking start as request state, never as an unfinished V2 message. */
+function applyPendingThinkingState(
+  spans: ReadonlyMap<string, MutableRequestSpan>,
+  events: readonly ThreadRunEvent[],
+  threadStatus: string,
+): void {
+  if (!ACTIVE_THREAD_STATUSES.has(threadStatus)) return;
+  const pending = new Set<MutableRequestSpan>();
+  const clear = (span: MutableRequestSpan): void => {
+    delete span.pendingThinkingSince;
+    delete span.pendingThinkingMessageId;
+    pending.delete(span);
+  };
+  for (const event of events) {
+    const target = event.requestId ? spans.get(event.requestId) : undefined;
+    if (event.eventType === "request.started" && target) {
+      for (const span of pending) {
+        if (span !== target && span.ownerAgentId === target.ownerAgentId) clear(span);
+      }
+    }
+    if (
+      event.eventType === "thinking.delta" &&
+      !event.message.trim() &&
+      (event.streamState === "placeholder" || event.streamState === "streaming")
+    ) {
+      if (!target || target.status === "cancelled" || target.status === "failed") continue;
+      for (const span of pending) {
+        if (span !== target && span.ownerAgentId === target.ownerAgentId) clear(span);
+      }
+      target.pendingThinkingSince =
+        typeof event.metadata?.thinkingStartedAt === "string"
+          ? event.metadata.thinkingStartedAt
+          : event.observedAt;
+      pending.add(target);
+      target.pendingThinkingMessageId = legacyMessageId(event);
+      if (target.writingTool && target.writingTool.since <= event.observedAt) delete target.writingTool;
+      continue;
+    }
+    if (
+      event.eventType.startsWith("tool.") ||
+      event.eventType === "message.delta" ||
+      event.eventType === "message.final" ||
+      event.eventType === "thinking.delta" ||
+      event.eventType === "thinking.final" ||
+      event.eventType === "request.completed" ||
+      event.eventType === "request.failed" ||
+      event.eventType === "request.cancelled" ||
+      event.eventType === "api.error"
+    ) {
+      if (target) {
+        clear(target);
+      } else if (event.eventType.startsWith("tool.")) {
+        // Tools have no request id; their explicit agent ownership ends only that agent's wait.
+        for (const span of pending) {
+          if (span.ownerAgentId === event.agentId) clear(span);
+        }
+      }
+    }
+  }
+}
+
 function buildRequestSpans(
   events: readonly ThreadRunEvent[],
   threadStatus: string,
@@ -713,6 +777,7 @@ function buildRequestSpans(
   }
 
   applyToolWritingState(spans, events, threadStatus);
+  applyPendingThinkingState(spans, events, threadStatus);
 
   closeRequestSpansForTerminalAgents(spans, agents);
 
@@ -744,6 +809,8 @@ function buildRequestSpans(
       ...(span.error && { error: span.error }),
       ...(span.providerRequestId && { providerRequestId: span.providerRequestId }),
       ...(span.writingTool && { writingTool: span.writingTool }),
+      ...(span.pendingThinkingSince && { pendingThinkingSince: span.pendingThinkingSince }),
+      ...(span.pendingThinkingMessageId && { pendingThinkingMessageId: span.pendingThinkingMessageId }),
     });
   }
   return output.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
@@ -775,9 +842,10 @@ function closeRequestSpansForTerminalAgents(
       continue;
     }
     for (const span of spans.values()) {
-      if (span.ownerAgentId !== agent.agentId || !isOpenRequestSpan(span)) {
-        continue;
-      }
+      if (span.ownerAgentId !== agent.agentId) continue;
+      delete span.pendingThinkingSince;
+      delete span.pendingThinkingMessageId;
+      if (!isOpenRequestSpan(span)) continue;
       if (agent.status === "abandoned") {
         span.status = "cancelled";
       } else {
@@ -801,6 +869,8 @@ function closeRequestSpanForTerminalThread(
 ): void {
   // Once the request is over nothing is being written, so the wait label must not outlive it.
   delete span.writingTool;
+  delete span.pendingThinkingSince;
+  delete span.pendingThinkingMessageId;
   if (threadStatus === "failed" || threadStatus === "blocked") {
     span.status = "failed";
     span.error = span.error ?? `Thread ended with status ${threadStatus}.`;

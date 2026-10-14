@@ -4,6 +4,7 @@ import type { ConversationSyncEffect } from "@eco/shared";
 export function isConversationV2InteractionEffect(effect: ConversationSyncEffect["effect"]): boolean {
   return (
     (effect.type === "message.create" && effect.message.role === "user") ||
+    (effect.type === "noop" && effect.reason === "runtime.thinking.changed") ||
     (effect.type === "run.upsert" && effect.run.status !== "running" && effect.run.status !== "queued")
   );
 }

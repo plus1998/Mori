@@ -78,6 +78,28 @@ test("parsePiUsage returns null when empty", () => {
   expect(parsePiUsage({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })).toBeNull();
 });
 
+test("PI exposes a thinking placeholder before content on the same stream", () => {
+  const ctx = makeCtx();
+  const started = mapPiSessionEventToAgentEvents(
+    { type: "message_update", assistantMessageEvent: { type: "thinking_start", contentIndex: 0 } },
+    ctx,
+  );
+  expect(started).toHaveLength(1);
+  expect(started[0]).toMatchObject({
+    type: "message.delta",
+    payload: { type: "eco_stream", blockKind: "thinking", streamPlaceholder: true },
+  });
+  const content = mapPiSessionEventToAgentEvents(
+    {
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "先检查代码" },
+    },
+    ctx,
+  );
+  expect(streamKey(started[0])).toBe(streamKey(content[0]));
+  expect(content[0]?.payload).toMatchObject({ text: "先检查代码" });
+});
+
 test("mapPiSessionEvent maps text deltas and tools", () => {
   const ctx = makeCtx();
   mapPiSessionEventToAgentEvents({ type: "message_start", message: { role: "assistant", content: [] } }, ctx);

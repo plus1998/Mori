@@ -309,7 +309,21 @@ export function mapPiSessionEventToAgentEvents(
         ensureMessageGeneration(state);
         state.lastThinkingIndex = contentIndex ?? state.lastThinkingIndex ?? 0;
         state.openThinking = true;
-        return [];
+        const reasoningDisplay = stampOpenThinkingDisplay(amEvent, ctx, state);
+        return [
+          createAgentEvent({
+            id: `${ctx.threadId}:pi:${seq}:thinking_start`,
+            ...base,
+            type: "message.delta",
+            payload: {
+              type: "eco_stream",
+              blockKind: "thinking",
+              streamPlaceholder: true,
+              ...(reasoningDisplay && { reasoningDisplay }),
+              stream_block_key: thinkingStreamKey(ctx.sessionId, state),
+            },
+          }),
+        ];
       }
 
       if (amType === "text_delta") {

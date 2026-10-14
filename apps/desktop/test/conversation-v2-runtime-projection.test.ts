@@ -60,6 +60,107 @@ function event(input: Partial<ThreadRunEvent> & { id: string; sequence: number }
   };
 }
 
+test("native thinking starts wait for content without changing narrative TTFT", () => {
+  const start = event({
+    id: "thinking-start",
+    sequence: 1,
+    scope: "main",
+    eventType: "thinking.delta",
+    streamState: "placeholder",
+    role: "thinking",
+    requestId: "req-thinking",
+    observedAt: "2026-01-01T00:00:02.000Z",
+  });
+  const project = (events: ThreadRunEvent[], status = "running") =>
+    buildThreadRunProjection({
+      threadId: "thr_projection",
+      status,
+      attempts: [attempt],
+      agents: [],
+      events,
+    });
+  expect(project([start]).requestSpans[0]).toMatchObject({ pendingThinkingSince: start.observedAt });
+  expect(project([start]).requestSpans[0]?.firstTokenAt).toBeUndefined();
+  for (const next of [
+    event({
+      id: "content",
+      sequence: 2,
+      scope: "main",
+      eventType: "thinking.delta",
+      requestId: "req-thinking",
+      streamState: "streaming",
+      message: "先检查代码",
+    }),
+    event({
+      id: "empty-end",
+      sequence: 2,
+      scope: "main",
+      eventType: "thinking.final",
+      requestId: "req-thinking",
+      streamState: "finalized",
+    }),
+    event({ id: "tool", sequence: 2, scope: "main", eventType: "tool.started", message: "Tool: Read" }),
+    event({
+      id: "text",
+      sequence: 2,
+      scope: "main",
+      eventType: "message.delta",
+      requestId: "req-thinking",
+      streamState: "streaming",
+      message: "答复",
+    }),
+    event({
+      id: "cancel",
+      sequence: 2,
+      scope: "main",
+      eventType: "request.cancelled",
+      requestId: "req-thinking",
+    }),
+  ]) {
+    expect(project([start, next]).requestSpans[0]?.pendingThinkingSince).toBeUndefined();
+  }
+  for (const status of ["completed", "failed", "cancelled", "idle"]) {
+    expect(project([start], status).requestSpans[0]?.pendingThinkingSince).toBeUndefined();
+  }
+  const childTool = event({
+    id: "child-tool",
+    sequence: 2,
+    eventType: "tool.started",
+    agentId: "child",
+    message: "Tool: Read",
+  });
+  expect(project([start, childTool]).requestSpans[0]?.pendingThinkingSince).toBe(start.observedAt);
+});
+
+test("a stopped subagent clears pending thinking even after its earlier narration ended", () => {
+  const projection = buildThreadRunProjection({
+    threadId: "thr_projection",
+    status: "running",
+    attempts: [attempt],
+    agents: [{ ...agent({ agentId: "child" }), status: "stopped" }],
+    events: [
+      event({
+        id: "child-narrative",
+        sequence: 1,
+        agentId: "child",
+        requestId: "req-child",
+        eventType: "message.final",
+        streamState: "finalized",
+        message: "上一阶段答复",
+      }),
+      event({
+        id: "child-pending",
+        sequence: 2,
+        agentId: "child",
+        requestId: "req-child",
+        eventType: "thinking.delta",
+        streamState: "placeholder",
+      }),
+    ],
+  });
+  expect(projection.requestSpans[0]?.pendingThinkingSince).toBeUndefined();
+});
+
 test("buildThreadRunProjection isolates concurrent same-role subagents by agentId", () => {
   const projection = buildThreadRunProjection({
     threadId: "thr_projection",

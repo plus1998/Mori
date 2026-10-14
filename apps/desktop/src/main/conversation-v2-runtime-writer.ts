@@ -132,6 +132,22 @@ export class ConversationV2RuntimeWriter {
     });
     const receipt = this.v2.appendInCurrentTransaction(receiptInput);
     results.push(receipt);
+    if (
+      source.eventType === "thinking.final" ||
+      (source.eventType === "thinking.delta" && source.streamState === "placeholder")
+    ) {
+      // A separate notice preserves existing receipt hashes and wakes the renderer even
+      // when an empty start creates no message effect. Never emit this per content delta.
+      const noticeKey = `thinking-state:${sourceEventKey}`;
+      results.push(this.v2.appendInCurrentTransaction({
+        conversationId: source.threadId,
+        eventId: `thinking_state_${stableHash(noticeKey)}`,
+        sourceEventKey: noticeKey,
+        type: "noop",
+        occurredAt: source.observedAt,
+        payload: { reason: "runtime.thinking.changed" },
+      }));
+    }
     return { event: { ...source, sequence: receipt.event.seq }, duplicate: false };
   }
 }

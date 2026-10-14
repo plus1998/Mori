@@ -400,6 +400,7 @@ import {
   sortThreadsForSidebar,
 } from "./project-sidebar-order";
 import {
+  isConversationV2ProjectionRefreshEffect,
   shouldRefreshConversationV2ProjectionExtras,
   TOOL_WRITING_REFRESH_LIVE_TYPES,
 } from "./projection-extras-refresh";
@@ -1753,7 +1754,9 @@ function App() {
             appliedState,
             effects.some((entry) => isConversationV2InteractionEffect(entry.effect)),
           );
-          refreshConversationV2ProjectionExtras(threadId);
+          refreshConversationV2ProjectionExtras(threadId, {
+            force: effects.some((entry) => isConversationV2ProjectionRefreshEffect(entry.effect)),
+          });
         } catch (error) {
           console.warn("[eco] conversation V2 live batch deferred:", error);
           if (threadId === selectedThreadIdRef.current) {
@@ -1767,6 +1770,7 @@ function App() {
   );
   const conversationV2DuplicateVerificationInFlightRef = useRef(new Set<string>());
   const conversationV2ProjectionExtrasInFlightRef = useRef(new Set<string>());
+  const conversationV2ProjectionExtrasPendingRef = useRef(new Set<string>());
   const conversationV2ProjectionExtrasNextAllowedRef = useRef(new Map<string, number>());
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -1886,17 +1890,23 @@ function App() {
    * event stream, and `getConversationV2ProjectionExtras` re-derives request spans on every call,
    * so paying for it per streamed token would be waste.
    *
-   * `force` is for the one fact that has no stream of its own to ride: while the model writes a
+   * `force` also carries thinking block starts and first content. Empty starts create no
+   * message, so the dedicated V2 notice wakes this path and a busy fetch queues the update.
+   * While the model writes a
    * tool call's arguments, *nothing* happens on the wire until the arguments are complete. Relying
    * on the next effect-driven refresh (up to a second away, and none at all if the throttle ate
    * the call the fact itself triggered) is what left the Feed showing a still timeline for the
    * whole write — measured at 12–17s on this endpoint.
    */
   const refreshConversationV2ProjectionExtras = useCallback(
-    (threadId: string, options?: { force?: boolean }) => {
+    (threadId: string, options?: { force?: boolean }): void => {
       const api = window.eco;
       const current = conversationV2ByThreadRef.current[threadId];
       const now = Date.now();
+      if (options?.force && conversationV2ProjectionExtrasInFlightRef.current.has(threadId)) {
+        conversationV2ProjectionExtrasPendingRef.current.add(threadId);
+        return;
+      }
       if (
         !current ||
         !api ||
@@ -1936,6 +1946,9 @@ function App() {
         })
         .finally(() => {
           conversationV2ProjectionExtrasInFlightRef.current.delete(threadId);
+          if (conversationV2ProjectionExtrasPendingRef.current.delete(threadId)) {
+            refreshConversationV2ProjectionExtras(threadId, { force: true });
+          }
         });
     },
     [],
@@ -2602,6 +2615,7 @@ function App() {
         conversationV2PendingEventsRef.current.delete(event.threadId);
         conversationV2LiveEffectsRef.current.delete(event.threadId);
         conversationV2ProjectionExtrasNextAllowedRef.current.delete(event.threadId);
+        conversationV2ProjectionExtrasPendingRef.current.delete(event.threadId);
         const liveTimer = conversationV2LiveFlushTimersRef.current.get(event.threadId);
         if (liveTimer !== undefined) {
           window.clearTimeout(liveTimer);
@@ -2948,6 +2962,7 @@ function App() {
       conversationV2LiveFlushTimersRef.current.clear();
       conversationV2LiveEffectsRef.current.clear();
       conversationV2ProjectionExtrasNextAllowedRef.current.clear();
+      conversationV2ProjectionExtrasPendingRef.current.clear();
       unsubscribe();
       unsubscribeThreadOpen();
     };

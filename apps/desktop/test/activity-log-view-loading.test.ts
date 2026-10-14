@@ -523,6 +523,122 @@ test("ActivityLogView hides the conversation tail while a request is waiting for
   expect(html).not.toContain("run-log-conversation-tail");
 });
 
+test("native thinking start shows the existing waiting row until thinking content arrives", () => {
+  const render = (pending: boolean, text?: string, status = "running", ownerAgentId?: string) =>
+    renderToStaticMarkup(
+      createElement(ProjectionActivityLogView, {
+        thinkingDisplayMode: "expanded",
+        projection: projection({
+          status,
+          requestSpans: [
+            {
+              ...requestSpan({ requestId: "req-native-thinking" }),
+              pendingThinkingMessageId: "thinking-body-message",
+              ...(pending ? { pendingThinkingSince: "2026-01-01T00:00:02.000Z" } : {}),
+              ...(ownerAgentId ? { ownerAgentId } : {}),
+            },
+          ],
+          timeline: [
+            item({ id: "earlier-output", sequence: 1, eventType: "message.final", text: "上一阶段答复" }),
+            ...(text
+              ? [
+                  item({
+                    id: "thinking-body",
+                    sequence: 2,
+                    eventType: "thinking.delta",
+                    role: "thinking",
+                    requestId: "req-native-thinking",
+                    text,
+                    metadata: { reasoningDisplay: "raw", conversationV2MessageId: "thinking-body-message" },
+                  }),
+                ]
+              : []),
+          ],
+        }),
+      }),
+    );
+  expect(render(true)).toContain("正在思考");
+  expect(render(true).match(/run-log-thinking streaming empty/g)?.length).toBe(1);
+  // Content replaces the wait immediately, even before projection extras finish refreshing.
+  const withContent = render(true, "先检查实现，再确认边界");
+  expect(withContent).toContain("先检查实现，再确认边界");
+  expect(withContent).not.toContain("run-log-thinking streaming empty");
+  expect(render(true, undefined, "completed")).not.toContain("run-log-thinking streaming empty");
+  expect(render(true, undefined, "running", "child")).not.toContain("run-log-thinking streaming empty");
+});
+
+test("subagent native thinking start waits without appearing on the main agent", () => {
+  const render = (pending: boolean, text?: string) =>
+    renderToStaticMarkup(
+      createElement(ProjectionSubagentDetailFeed, {
+        agent: agent({
+          agentId: "child-thinking",
+          status: "active",
+          timeline: [
+            item({ id: "child-earlier", scope: "agent", eventType: "message.final", text: "上一阶段答复" }),
+            ...(text
+              ? [
+                  item({
+                    id: "child-thought",
+                    sequence: 2,
+                    scope: "agent",
+                    eventType: "thinking.delta",
+                    role: "thinking",
+                    requestId: "req-child",
+                    text,
+                    metadata: { reasoningDisplay: "raw", conversationV2MessageId: "child-thought-message" },
+                  }),
+                ]
+              : []),
+          ],
+        }),
+        missionText: "检查代码",
+        threadActive: true,
+        thinkingDisplayMode: "expanded",
+        requestSpansById: new Map([
+          [
+            "req-child",
+            {
+              ...requestSpan({ requestId: "req-child", ownerAgentId: "child-thinking" }),
+              pendingThinkingMessageId: "child-thought-message",
+              ...(pending ? { pendingThinkingSince: "2026-01-01T00:00:02.000Z" } : {}),
+            },
+          ],
+        ]),
+      }),
+    );
+  expect(render(true)).toContain("run-log-thinking streaming empty");
+  const withContent = render(true, "检查子任务边界");
+  expect(withContent).toContain("检查子任务边界");
+  expect(withContent).not.toContain("run-log-thinking streaming empty");
+});
+
+test("native thinking start takes the live slot after a settled tool", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        requestSpans: [
+          {
+            ...requestSpan({ requestId: "req-after-tool" }),
+            pendingThinkingSince: "2026-01-01T00:00:02.000Z",
+          },
+        ],
+        timeline: [
+          item({
+            id: "settled-read",
+            eventType: "tool.completed",
+            text: "Tool: Read",
+            metadata: { tool: { name: "Read", toolUseId: "read-1", status: "completed" } },
+          }),
+        ],
+      }),
+    }),
+  );
+  expect(html).toContain("正在思考");
+  expect(html.match(/run-log-thinking streaming empty/g)?.length).toBe(1);
+});
+
 test("ActivityLogView removes the waiting indicator after the first stream output", () => {
   const html = renderToStaticMarkup(
     createElement(ProjectionActivityLogView, {

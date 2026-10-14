@@ -3,9 +3,12 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import type { ConversationEffect } from "@eco/shared";
 import { ConversationStore } from "../src/main/conversation-store";
 import { ConversationV2RuntimeWriter } from "../src/main/conversation-v2-runtime-writer";
+import { buildThreadRunProjectionRequestSpans } from "../src/main/conversation-v2-runtime-projection";
 import { ConversationV2Store } from "../src/main/conversation-v2-store";
+import { isConversationV2ProjectionRefreshEffect } from "../src/renderer/projection-extras-refresh";
 import type { ThreadRunEventInput } from "../src/shared/thread-run-events";
 import { removeTempDirectory } from "./helpers/temp-directory";
 
@@ -39,6 +42,68 @@ function snapshot(body: string, final = false): ThreadRunEventInput {
     observedAt: "2026-09-18T00:00:00Z",
   };
 }
+
+test("empty thinking starts persist without an unfinished message and hydrate into content", () => {
+  const { db, v2, writer } = setup();
+  const published: ConversationEffect[] = [];
+  v2.onCommitted((result) => published.push(result.effect.effect));
+  const start: ThreadRunEventInput = {
+    ...snapshot(""),
+    eventType: "thinking.delta",
+    requestId: "req-thinking",
+    role: "thinking",
+    streamState: "placeholder",
+  };
+  try {
+    writer.append(start);
+    expect(published.at(-1)).toEqual({ type: "noop", reason: "runtime.thinking.changed" });
+    expect(isConversationV2ProjectionRefreshEffect(published.at(-1)!)).toBe(true);
+    const read = () =>
+      db.prepare("SELECT event_type, stream_state, message FROM conversation_provider_events_v2").all();
+    const spans = () => {
+      const rows = db
+        .prepare(`SELECT p.source_json, v.sequence, v.message
+        FROM conversation_provider_inputs_v2 p JOIN conversation_provider_events_v2 v ON v.id = p.input_id`)
+        .all() as Array<{ source_json: string; sequence: number; message: string }>;
+      return buildThreadRunProjectionRequestSpans({
+        threadStatus: "running",
+        events: rows.map((row) => ({
+          ...JSON.parse(row.source_json),
+          sequence: row.sequence,
+          message: row.message,
+        })),
+      });
+    };
+    expect(v2.bootstrap("thread").messages).toEqual([]);
+    expect(read()).toEqual([{ event_type: "thinking.delta", stream_state: "placeholder", message: "" }]);
+    expect(spans()[0]?.pendingThinkingSince).toBe(start.observedAt);
+    const messageId = spans()[0]?.pendingThinkingMessageId;
+    v2.rebuildReadModels("thread");
+    expect(v2.bootstrap("thread").messages).toEqual([]);
+    expect(read()).toEqual([{ event_type: "thinking.delta", stream_state: "placeholder", message: "" }]);
+    expect(spans()[0]?.pendingThinkingSince).toBe(start.observedAt);
+    writer.append({ ...start, streamState: "streaming", message: " " });
+    expect(spans()[0]?.pendingThinkingSince).toBe(start.observedAt);
+    writer.append({ ...start, streamState: "streaming", message: "先检查实现" });
+    expect(spans()[0]?.pendingThinkingSince).toBeUndefined();
+    expect(read()).toEqual([
+      { event_type: "thinking.delta", stream_state: "streaming", message: "先检查实现" },
+    ]);
+    expect(v2.bootstrap("thread").messages).toHaveLength(1);
+    expect(v2.bootstrap("thread").messages[0]).toMatchObject({ body: "先检查实现", channel: "thinking" });
+    expect(v2.bootstrap("thread").messages[0]?.messageId).toBe(messageId);
+    expect(
+      published.some(
+        (effect) => effect.type === "message.create" && isConversationV2ProjectionRefreshEffect(effect),
+      ),
+    ).toBe(true);
+    v2.rebuildReadModels("thread");
+    expect(v2.bootstrap("thread").messages).toHaveLength(1);
+    expect(v2.bootstrap("thread").messages[0]?.body).toBe("先检查实现");
+  } finally {
+    db.close();
+  }
+});
 
 test("native provider snapshots append only new text and old replays cannot overwrite newer content", () => {
   const { db, v2, writer } = setup();

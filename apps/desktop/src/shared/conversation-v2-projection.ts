@@ -135,6 +135,10 @@ export interface ThreadRunProjectionRequestSpan {
    * can name the wait instead of reading an unmoving timeline as "stalled".
    */
   writingTool?: ThreadRunProjectionWritingTool;
+  /** Native thinking block started, but has not produced visible content yet. */
+  pendingThinkingSince?: string;
+  /** Exact V2 message identity that will replace the empty thinking start. */
+  pendingThinkingMessageId?: string;
   /**
    * Provider-reported completion tokens for this request when ledger usage can
    * be joined. Absent for cores that never emit usage (e.g. Cursor ACP).

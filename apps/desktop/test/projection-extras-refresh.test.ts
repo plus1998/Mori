@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  isConversationV2ProjectionRefreshEffect,
   shouldRefreshConversationV2ProjectionExtras,
   TOOL_WRITING_REFRESH_LIVE_TYPES,
 } from "../src/renderer/projection-extras-refresh";
@@ -11,6 +12,15 @@ const ready = {
   now: 1_000,
   nextAllowed: 2_000,
 };
+
+test("native thinking boundaries force projection refresh while token appends stay throttled", () => {
+  expect(isConversationV2ProjectionRefreshEffect({ type: "noop", reason: "runtime.thinking.changed" })).toBe(true);
+  expect(isConversationV2ProjectionRefreshEffect({ type: "noop", reason: "runtime.input" })).toBe(false);
+  expect(isConversationV2ProjectionRefreshEffect({
+    type: "message.append", messageId: "thought", baseContentVersion: 0,
+    nextContentVersion: 1, delta: "继续分析", versionSeq: 3,
+  })).toBe(false);
+});
 
 test("the extras fetch stays throttled for the facts that ride the event stream", () => {
   expect(shouldRefreshConversationV2ProjectionExtras(ready)).toBe(false);

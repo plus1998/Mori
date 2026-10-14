@@ -1969,6 +1969,9 @@ function ConversationV2ProjectionActivityLogViewImpl({
   );
   const allowUserMessageRewrite = supportsHistoryRewrite(thread?.coreKind);
   const conversationActive = !isThreadStoppedForFinalSummary(projection.thread.status);
+  const pendingThinking = projection.requestSpans.some(
+    (span) => !span.ownerAgentId && isPendingThinkingWithoutContent(span, projection.timeline),
+  );
   // Settled tool groups keep their "running" display for TOOL_RUNNING_MIN_VISIBLE_MS
   // (resolveToolGroupDisplayState). The tail must honor the same window, otherwise the
   // settling tool row and the「正在思考」tail state render at the same time.
@@ -2027,14 +2030,21 @@ function ConversationV2ProjectionActivityLogViewImpl({
     Boolean(toolWritingIndicator) &&
     latestContentIsToolGroup &&
     !(liveSlotEntry && isRunningToolFeedEntry(liveSlotEntry));
-  // Only the writing state hides a row here: the tip already took the tool entry's place
-  // in the projection, and a running tool is never displaced.
-  const suppressedFeedEntryKey = writingTakesLiveSlot ? liveSlotEntry?.key : undefined;
+  const thinkingTakesLiveSlot =
+    conversationActive &&
+    pendingThinking &&
+    !runningContextCompactionVisible &&
+    latestContentIsToolGroup &&
+    !(liveSlotEntry && isRunningToolFeedEntry(liveSlotEntry));
+  // A native thinking start or writing state replaces a settled tool; a running tool keeps its row.
+  const suppressedFeedEntryKey =
+    writingTakesLiveSlot || thinkingTakesLiveSlot ? liveSlotEntry?.key : undefined;
   // While the conversation is live, Summary tip shares the active-tail slot with
   // empty "正在思考" — never render both as sibling WaitingThinkingBlocks.
-  const liveReasoningStageLabel = conversationActive
-    ? resolveLiveReasoningStageLabel(viewModel.mainFeedEntries)
-    : undefined;
+  const liveReasoningStageLabel =
+    conversationActive && !pendingThinking
+      ? resolveLiveReasoningStageLabel(viewModel.mainFeedEntries)
+      : undefined;
   const deferReasoningStageTip =
     conversationActive && !runningToolVisible && !runningContextCompactionVisible;
   // Sending has to look acknowledged even before the request span exists. Every prompt
@@ -2044,10 +2054,11 @@ function ConversationV2ProjectionActivityLogViewImpl({
   // present after every follow-up too.
   const awaitingAgentAnswer = isAwaitingAgentAnswer(viewModel.mainFeedEntries);
   const waitingThinkingVisible =
-    !runningToolVisible &&
+    (!runningToolVisible || thinkingTakesLiveSlot) &&
     !runningContextCompactionVisible &&
-    !latestContentIsToolGroup &&
-    (awaitingAgentAnswer ||
+    (!latestContentIsToolGroup || thinkingTakesLiveSlot) &&
+    (pendingThinking ||
+      awaitingAgentAnswer ||
       Boolean(liveReasoningStageLabel) ||
       viewModel.mainFeedEntries.some((entry) => {
         if (entry.kind !== "timeline" && entry.kind !== "agent-echo") {
@@ -2137,7 +2148,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
   const activeTailVisible =
     conversationActive &&
     !runningContextCompactionVisible &&
-    (writingTakesLiveSlot || (!runningToolVisible && !latestContentIsToolGroup));
+    (writingTakesLiveSlot || thinkingTakesLiveSlot || (!runningToolVisible && !latestContentIsToolGroup));
   // The live tail is a row of the Feed, not decoration appended after it. The
   // virtualizer keeps the bottom pinned only for geometry it measures, so a tail
   // rendered outside the window pushes the newest output out of view.
@@ -3856,6 +3867,8 @@ function projectionRequestSpanRenderSignature(span?: ProjectionRequestSpan): str
     span.error ?? "",
     span.providerRequestId ?? "",
     span.outputTokens ?? "",
+    span.pendingThinkingSince ?? "",
+    span.pendingThinkingMessageId ?? "",
   ].join(":");
 }
 
@@ -3992,10 +4005,19 @@ const ProjectionSubagentDetailFeedEntry = memo(function ProjectionSubagentDetail
 function ProjectionSubagentTurn({
   turn,
   requestSpansById,
+  pendingThinking = false,
 }: {
   turn: SubagentDetailTurn;
   requestSpansById: ProjectionRequestSpansById;
+  pendingThinking?: boolean;
 }) {
+  const waitingThinkingVisible =
+    turn.running &&
+    (turn.entries.length === 0 ||
+      (pendingThinking &&
+        !turn.entries.some(
+          (entry) => isRunningToolFeedEntry(entry) || isRunningContextCompactionFeedEntry(entry),
+        )));
   return (
     <RunLogTurnSection
       turnKey={turn.key}
@@ -4030,7 +4052,7 @@ function ProjectionSubagentTurn({
               />
             ),
           )}
-          {turn.running && turn.entries.length === 0
+          {waitingThinkingVisible
             ? wrapRunLogFeedEntry(<WaitingThinkingBlock active />, {
                 tight: true,
               })
@@ -4248,11 +4270,37 @@ function areProjectionSubagentDetailFeedPropsEqual(
   return (
     prev.missionText === next.missionText &&
     prev.thinkingDisplayMode === next.thinkingDisplayMode &&
+    hasPendingAgentThinking(prev.agent, prev.requestSpansById) ===
+      hasPendingAgentThinking(next.agent, next.requestSpansById) &&
     promptImagePreviewSignature(prev.images) === promptImagePreviewSignature(next.images) &&
     projectionSubagentDetailTimelineRequestSpanSignature(prev.agent.timeline, prev.requestSpansById) ===
       projectionSubagentDetailTimelineRequestSpanSignature(next.agent.timeline, next.requestSpansById) &&
     projectionSubagentDetailAgentSignature(prev.agent) === projectionSubagentDetailAgentSignature(next.agent)
   );
+}
+
+function isPendingThinkingWithoutContent(
+  span: ProjectionRequestSpan,
+  timeline: readonly ThreadRunProjectionTimelineItem[],
+): boolean {
+  if (!span.pendingThinkingSince) return false;
+  return !timeline.some(
+    (item) =>
+      span.pendingThinkingMessageId !== undefined &&
+      item.metadata?.conversationV2MessageId === span.pendingThinkingMessageId &&
+      Boolean(item.text.trim()),
+  );
+}
+
+function hasPendingAgentThinking(
+  agent: ThreadRunProjectionAgent,
+  spans: ProjectionRequestSpansById,
+): boolean {
+  for (const span of spans.values()) {
+    if (span.ownerAgentId === agent.agentId && isPendingThinkingWithoutContent(span, agent.timeline))
+      return true;
+  }
+  return false;
 }
 
 export const ProjectionSubagentDetailFeed = memo(function ProjectionSubagentDetailFeed({
@@ -4289,6 +4337,7 @@ export const ProjectionSubagentDetailFeed = memo(function ProjectionSubagentDeta
   }, [agent.timeline, missionDisplay, requestSpansById, resolvedThinkingDisplayMode, running]);
   const detailFeedEntries = useStableSubagentDetailFeedEntries(agent.agentId, visibleTimeline);
   const turns = useMemo(() => buildSubagentDetailTurns(detailFeedEntries, agent), [agent, detailFeedEntries]);
+  const pendingThinking = running && hasPendingAgentThinking(agent, requestSpansById);
   const latestTimelineItem = visibleTimeline.at(-1);
   const layoutSignature = [
     agent.agentId,
@@ -4297,6 +4346,7 @@ export const ProjectionSubagentDetailFeed = memo(function ProjectionSubagentDeta
     turns.length,
     latestTimelineItem?.id ?? "",
     latestTimelineItem?.text.length ?? 0,
+    pendingThinking,
   ].join(":");
   const scrollToBottom = useCallback((force = false) => {
     const feed = feedRef.current;
@@ -4395,7 +4445,12 @@ export const ProjectionSubagentDetailFeed = memo(function ProjectionSubagentDeta
             : null}
           {turns.length > 0 ? (
             turns.map((turn) => (
-              <ProjectionSubagentTurn key={turn.key} turn={turn} requestSpansById={requestSpansById} />
+              <ProjectionSubagentTurn
+                key={turn.key}
+                turn={turn}
+                requestSpansById={requestSpansById}
+                pendingThinking={pendingThinking && turn === turns.at(-1)}
+              />
             ))
           ) : running ? (
             wrapRunLogFeedEntry(<WaitingThinkingBlock active />, {
@@ -4404,7 +4459,7 @@ export const ProjectionSubagentDetailFeed = memo(function ProjectionSubagentDeta
           ) : (
             <p className="subagent-task-detail-empty">{i18n.t("activity.noDetails")}</p>
           )}
-          {running ? (
+          {running && !pendingThinking ? (
             <div className="run-log-feed-entry run-log-feed-entry--tight run-log-active-tail">
               <RunLogConversationTail />
             </div>

@@ -2,6 +2,11 @@ import { expect, test } from "bun:test";
 import type { ConversationMessage, ConversationRun } from "@eco/shared";
 import { isConversationV2InteractionEffect } from "../src/renderer/conversation-v2-render-priority";
 
+test("native thinking boundaries are published without waiting for a text batch", () => {
+  expect(isConversationV2InteractionEffect({ type: "noop", reason: "runtime.thinking.changed" })).toBe(true);
+  expect(isConversationV2InteractionEffect({ type: "noop", reason: "runtime.input" })).toBe(false);
+});
+
 const message: ConversationMessage = {
   messageId: "message_1",
   conversationId: "thread_1",
