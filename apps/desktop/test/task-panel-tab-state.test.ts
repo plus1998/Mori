@@ -3,9 +3,11 @@ import {
   addOpenTaskPanelTab,
   removeOpenTaskPanelTab,
   replaceOpenTaskPanelTab,
+  resolveTaskPanelReopenTab,
 } from "../src/renderer/task-panel-tab-state";
 import {
   TASK_PANEL_FILES_TAB_ID,
+  TASK_PANEL_HOME_TAB_ID,
   TASK_PANEL_REVIEW_TAB_ID,
   TASK_PANEL_SSH_BOOKMARKS_TAB_ID,
 } from "../src/renderer/task-panel-tabs";
@@ -64,5 +66,21 @@ describe("task panel tab state", () => {
     expect(removeOpenTaskPanelTab(["file-viewer"], "file-viewer")).toEqual({
       tabs: [],
     });
+  });
+
+  test("reopening the panel restores the tab it collapsed on instead of opening a new one", () => {
+    expect(resolveTaskPanelReopenTab(["files", "browser:page", "review"], "browser:page")).toBe(
+      "browser:page",
+    );
+    expect(resolveTaskPanelReopenTab(["files", "new-tab:1"], "new-tab:1")).toBe("new-tab:1");
+  });
+
+  test("reopening falls back to the last opened tab when the active tab is gone or is home", () => {
+    expect(resolveTaskPanelReopenTab(["files", "review"], TASK_PANEL_HOME_TAB_ID)).toBe("review");
+    expect(resolveTaskPanelReopenTab(["files", "review"], "closed-agent")).toBe("review");
+  });
+
+  test("reopening an empty panel has no tab to restore", () => {
+    expect(resolveTaskPanelReopenTab([], TASK_PANEL_HOME_TAB_ID)).toBeUndefined();
   });
 });

@@ -309,12 +309,14 @@ export function ChatGPTSubscriptionAccountsPanel() {
       {testDialog ? createPortal(
         <div className="settings-modal-backdrop">
           <button type="button" className="settings-modal-backdrop-close" aria-label="关闭" disabled={busy} onClick={() => setTestDialog(undefined)} tabIndex={-1} />
-          <form ref={dialogRef} className="settings-modal settings-modal-provider-editor" role="dialog" aria-modal="true" aria-labelledby="chatgpt-test-title" onSubmit={(event) => { event.preventDefault(); if (!busy && selectedModel) void testAccount(testDialog); }}>
+          <form ref={dialogRef} className="settings-modal settings-modal-provider-editor chatgpt-test-modal" role="dialog" aria-modal="true" aria-labelledby="chatgpt-test-title" onSubmit={(event) => { event.preventDefault(); if (!busy && selectedModel) void testAccount(testDialog); }}>
             <header className="settings-modal-header"><h2 className="settings-modal-title" id="chatgpt-test-title">测试连接</h2><button type="button" className="mcp-icon-button" aria-label="关闭" disabled={busy} onClick={() => setTestDialog(undefined)}><X size={17} /></button></header>
             <div className="settings-modal-body openai-account-modal-body">
               <p className="chatgpt-test-description">向选定模型发送“hi”，检查 {testDialog.displayName} 的连接。</p>
-              <label className="mcp-field"><span className="mcp-field-label">测试模型</span><select className="mcp-field-input" value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)} disabled={busy || modelsLoading || !models.length} autoFocus><option value="">{modelsLoading ? "获取模型中…" : "请选择模型"}</option>{models.map((model) => <option key={model.id} value={model.id}>{model.displayName || model.id}</option>)}</select></label>
-              <button type="button" className="chatgpt-inline-link" disabled={busy || modelsLoading} onClick={() => void refreshModels()}><RefreshCw size={13} />重新获取模型</button>
+              <div className="chatgpt-test-model-section">
+                <label className="mcp-field"><span className="mcp-field-label">测试模型</span><select className="mcp-field-input" value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)} disabled={busy || modelsLoading || !models.length} autoFocus><option value="">{modelsLoading ? "获取模型中…" : "请选择模型"}</option>{models.map((model) => <option key={model.id} value={model.id}>{model.displayName || model.id}</option>)}</select></label>
+                <button type="button" className="chatgpt-inline-link chatgpt-test-refresh-link" disabled={busy || modelsLoading} onClick={() => void refreshModels()}><RefreshCw size={13} />重新获取模型</button>
+              </div>
               {modelsError ? <p className="chatgpt-notice is-error" role="alert">{modelsError}</p> : null}
               {testDialog.status === "not_eligible" ? <p className="chatgpt-notice">此账号上次被官方判定为订阅共享资格不可用。本次测试会直接向官方接口验证。</p> : null}
               {testResult ? <p className={`chatgpt-notice ${testResult.success ? "is-success" : "is-error"}`} role="status">{testResult.message}</p> : null}

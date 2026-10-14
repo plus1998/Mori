@@ -12,7 +12,14 @@ import {
   formatUsageBadge,
   shortenModelId,
 } from "@eco/runtime/usage";
-import type { ConversationMessage, ConversationRun, ConversationToolCall } from "@eco/shared";
+import type {
+  ConversationDetailItem,
+  ConversationMessage,
+  ConversationMessageOrigin,
+  ConversationRun,
+  ConversationToolCall,
+} from "@eco/shared";
+import { isConversationMessageOrigin } from "@eco/shared";
 import {
   AppWindow,
   ArrowDownToLine,
@@ -23,6 +30,8 @@ import {
   CircleAlert,
   CircleDollarSign,
   CircleHelp,
+  Clock3,
+  Code,
   Copy,
   Database,
   ExternalLink,
@@ -31,6 +40,7 @@ import {
   Globe2,
   Image as ImageIcon,
   Images,
+  LoaderCircle,
   Minimize2,
   Monitor,
   Pencil,
@@ -42,6 +52,7 @@ import {
   ShieldCheck,
   Sparkles,
   Terminal,
+  Volume2,
   Wrench,
   X,
 } from "lucide-react";
@@ -67,14 +78,14 @@ import {
   type ToolActionLifecycle,
 } from "../shared/activity-display";
 import {
+  formatCodexAsyncQuestionReplySummary,
+  parseCodexAsyncQuestionReplyText,
+} from "../shared/codex-async-questions";
+import {
   CONVERSATION_RUNTIME_EVENT_FAILURE_ORIGIN,
   CONVERSATION_RUNTIME_EVENT_FAILURE_ROLE,
   CONVERSATION_RUNTIME_EVENT_FAILURE_TITLE,
 } from "../shared/conversation-runtime-event-failure";
-import {
-  formatCodexAsyncQuestionReplySummary,
-  parseCodexAsyncQuestionReplyText,
-} from "../shared/codex-async-questions";
 import {
   type ActionGroupBucket,
   type ActionKindPayload,
@@ -110,6 +121,13 @@ import { attachOutputTokensToRequestSpans } from "../shared/request-span-usage";
 import { isAgentDisplayRole, normalizeAgentDisplayRole } from "../shared/subagent-roles";
 import { resolveSubagentActivityTitle } from "../shared/subagent-task-name";
 import { supportsHistoryRewrite } from "../shared/thread-request-retry";
+import {
+  isContextCompactionEventType,
+  parseThreadRunCodemodeMetadata,
+  type ThreadRunCodemodeCallMetadata,
+  type ThreadRunCodemodeMetadata,
+} from "../shared/thread-run-events";
+import { isCodemodeToolName, resolveCodemodeMetadata } from "../shared/thread-run-tool-projection";
 import { parseWorktreeMergeMessage } from "../shared/worktree-merge";
 import {
   type ActivityFeedLayoutChange,
@@ -141,6 +159,7 @@ import {
   isProjectionRequestActive,
   isProjectionSubagentPromptItem,
   isProjectionUserPromptItem,
+  isThreadConversationStopped,
   projectionItemToDetailBlock,
   readProjectionAgentDelegation,
   readProjectionToolMetadata,
@@ -176,6 +195,7 @@ import { type RuntimeAgentDisplayNames, resolveRuntimeAgentName } from "./runtim
 import { type RuntimeAgentThemes, resolveSubagentRowThemeStyle } from "./runtime-agent-theme";
 import { StreamingMarkdownContent } from "./StreamingMarkdownContent";
 import { RequestSpansContext, TokenSpeedBadge } from "./TokenSpeedBadge";
+import { readTtsToolUseId, TtsFeedArtifacts, TtsFeedGroupDetailsContext } from "./TtsArtifactPlayer";
 import {
   findThinkingFeedScrollRoot,
   isThinkingPreferenceDrivenExpand,
@@ -191,6 +211,7 @@ import {
   type ThinkingDisplayMode,
   thinkingModeDefaultExpanded,
 } from "./thinking-display-preferences";
+import { resolveToolWritingIndicator, resolveToolWritingLabel } from "./tool-writing-indicator";
 import { UserPromptBodyContent } from "./UserPromptBodyContent";
 import { WorkspaceChangesCard } from "./WorkspaceChangesCard";
 
@@ -245,33 +266,54 @@ function readProjectionRewindTarget(
   return readRewindTarget(item.metadata?.rewindTarget);
 }
 
+const runLogMessageTimes = new Map<string, { label: string; title: string; dateTime: string }>();
+const runLogTimeFormatters = new Map<string, { label: Intl.DateTimeFormat; title: Intl.DateTimeFormat }>();
+
 function formatRunLogMessageTime(
   value?: string,
 ): { label: string; title: string; dateTime: string } | undefined {
   if (!value) {
     return undefined;
   }
+  const locale = i18n.resolvedLanguage;
+  const key = `${locale ?? ""}:${value}`;
+  const cached = runLogMessageTimes.get(key);
+  if (cached) return cached;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return undefined;
   }
-  return {
-    label: date.toLocaleString(i18n.resolvedLanguage, {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-    title: date.toLocaleString(i18n.resolvedLanguage, {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }),
+  let formatters = runLogTimeFormatters.get(locale ?? "");
+  if (!formatters) {
+    formatters = {
+      label: new Intl.DateTimeFormat(locale, {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      title: new Intl.DateTimeFormat(locale, {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+    };
+    runLogTimeFormatters.set(locale ?? "", formatters);
+  }
+  const formatted = {
+    label: formatters.label.format(date),
+    title: formatters.title.format(date),
     dateTime: value,
   };
+  if (runLogMessageTimes.size >= 512) {
+    const oldest = runLogMessageTimes.keys().next();
+    if (!oldest.done) runLogMessageTimes.delete(oldest.value);
+  }
+  runLogMessageTimes.set(key, formatted);
+  return formatted;
 }
 
 function copyRunLogMessageText(text: string): void {
@@ -472,13 +514,7 @@ function useComposerAgentSilenceEffect(
 }
 
 function isThreadStoppedForFinalSummary(status: string): boolean {
-  return (
-    status === "completed" ||
-    status === "failed" ||
-    status === "blocked" ||
-    status === "cancelled" ||
-    status === "idle"
-  );
+  return isThreadConversationStopped(status);
 }
 
 /**
@@ -550,6 +586,12 @@ function resolveTurnFinalSummaryItemIds(
   return ids;
 }
 
+/** Stand-in row for the live 「正在思考」/「正在写」 line, appended to the Feed's sections. */
+const ACTIVE_TAIL_FEED_SECTION = {
+  kind: "active-tail",
+  key: "run-log:active-tail",
+} as const satisfies ThreadRunTurnFeedSection;
+
 export interface ActivityLogViewProps {
   thread?: ThreadSummary;
   onRestorePrompt?: RestorePromptHandler;
@@ -561,6 +603,8 @@ export interface ActivityLogViewProps {
   context?: ThreadContextSnapshot;
   billing?: ThreadBillingSnapshot;
   conversationV2?: ConversationV2RendererState;
+  /** The host's projection of the same V2 state, shared with its navigator/panels. */
+  conversationV2Projection?: ThreadRunProjectionSnapshot;
   agentDisplayNames?: RuntimeAgentDisplayNames;
   agentThemes?: RuntimeAgentThemes;
   subagentTimings?: ThreadSubagentSessionTiming[];
@@ -572,6 +616,14 @@ export interface ActivityLogViewProps {
   onOpenImageDisplayArtifact?: OpenImageDisplayArtifactHandler;
   /** Called when planner / main-window log content changes — scroll the activity feed. */
   onPlannerLayoutChange?: ActivityFeedLayoutChange;
+  /**
+   * Reports whether the Feed renders virtualized rows. An end-anchored
+   * virtualizer pins the live tail inside virtual-core; the host must then keep
+   * its hands off `scrollTop` for content growth, because a second writer on
+   * the same property re-derives the virtual window on every stream tick.
+   */
+  onFeedEndAnchorChange?: (endAnchored: boolean) => void;
+  feedUserDetached?: boolean;
   /**
    * Called when the Feed has gone quiet mid-run: the agent is alive but has produced
    * nothing visible for {@link COMPOSER_FLOATING_LOADING_DELAY_MS}, which is the gap while
@@ -635,6 +687,7 @@ function conversationV2MessageToTimelineItem(
       conversationV2ContentVersion: message.contentVersion,
       conversationV2Channel: message.channel,
       conversationV2Status: message.status,
+      ...(message.origin ? { messageOrigin: message.origin } : {}),
       ...(isNotice && message.providerRole === CONVERSATION_RUNTIME_EVENT_FAILURE_ROLE
         ? {
             activityOrigin: CONVERSATION_RUNTIME_EVENT_FAILURE_ORIGIN,
@@ -887,6 +940,21 @@ export function buildConversationV2OnlyProjection(
     );
   }
 
+  for (const detail of conversationV2.details.values()) {
+    if (!isContextCompactionEventType(detail.type)) continue;
+    const item = conversationV2CompactionToTimelineItem(detail);
+    const agentId = detail.agentId && cardAgentIds.has(detail.agentId) ? detail.agentId : undefined;
+    if (agentId) {
+      item.scope = "agent";
+      const owned = messagesByAgent.get(agentId) ?? [];
+      owned.push(item);
+      messagesByAgent.set(agentId, owned);
+    } else {
+      item.scope = "main";
+      mainTimeline.push(item);
+    }
+  }
+
   const agents: ThreadRunProjectionAgent[] = [];
   for (const agentId of agentIds) {
     const record = registry.get(agentId);
@@ -953,7 +1021,11 @@ export function buildConversationV2OnlyProjection(
     ),
     timeline: mainTimeline,
     diagnostics: [],
-    sourceEventCount: conversationV2.messages.size + conversationV2.runs.size + conversationV2.tools.size,
+    sourceEventCount:
+      conversationV2.messages.size +
+      conversationV2.runs.size +
+      conversationV2.tools.size +
+      conversationV2.details.size,
     historyRevision: conversationV2.historyRevision,
     ...(conversationV2.projectionExtras?.billing ? { billing: conversationV2.projectionExtras.billing } : {}),
     ...(conversationV2.projectionExtras?.context ? { context: conversationV2.projectionExtras.context } : {}),
@@ -962,6 +1034,41 @@ export function buildConversationV2OnlyProjection(
       : {}),
     ...(conversationV2.projectionExtras?.subagentMetrics
       ? { subagentMetrics: conversationV2.projectionExtras.subagentMetrics }
+      : {}),
+  };
+}
+
+function conversationV2CompactionToTimelineItem(
+  detail: ConversationDetailItem,
+): ThreadRunProjectionTimelineItem {
+  const content = JSON.parse(detail.content ?? "null");
+  if (
+    !isContextCompactionEventType(detail.type) ||
+    !content ||
+    typeof content.message !== "string" ||
+    typeof content.observedAt !== "string"
+  ) {
+    throw new Error(`Conversation V2 compaction detail ${detail.itemId} is invalid.`);
+  }
+  return {
+    id: detail.itemId,
+    sequence: detail.createdSeq,
+    eventType: detail.type,
+    scope: "main",
+    text: content.message,
+    at: content.observedAt,
+    runAttemptId: detail.runId,
+    ...(detail.agentId ? { agentId: detail.agentId } : {}),
+    ...(typeof content.role === "string" ? { role: content.role } : {}),
+    ...(typeof content.requestId === "string" ? { requestId: content.requestId } : {}),
+    ...(typeof content.streamKey === "string" ? { streamKey: content.streamKey } : {}),
+    ...(content.metadata || content.timing
+      ? {
+          metadata: {
+            ...content.metadata,
+            ...(content.timing ? { compactionTiming: content.timing } : {}),
+          },
+        }
       : {}),
   };
 }
@@ -1152,6 +1259,20 @@ function conversationV2ToolPresentation(tool: ConversationToolCall): {
     presentation.imageView = rawImageView ?? { path: imagePath };
   }
 
+  // PI's codemode: the script is the call and its return value is what the model saw, so both
+  // belong on the row. Without them the row can only ever read "执行了工具".
+  const codemode = mergeCodemodeMetadata(
+    resolveCodemodeMetadata({
+      name: tool.name,
+      callInput: values,
+      output: typeof tool.output === "string" ? tool.output : (outputPreview ?? ""),
+    }),
+    // PI's nested calls and full-output path are stored on the row itself: the tool table has no
+    // column for them, so they ride inside `input`.
+    parseThreadRunCodemodeMetadata(conversationV2ToolValue(values, "codemode")),
+  );
+  if (codemode) presentation.codemode = codemode;
+
   return {
     ...(detail ? { detail } : {}),
     ...(outputPreview ? { outputPreview } : {}),
@@ -1181,6 +1302,7 @@ export function subagentCardVisibleRows(
     options.requestSpansById as never,
     true,
     options.thinkingDisplayMode,
+    agent.status === "active" || agent.status === "launching",
   ).filter((item) => !shouldSuppressSubagentCardTimelineItem(item, missionDisplay));
   return collapseConsecutiveThinkingTimelineItems(collapsed);
 }
@@ -1231,6 +1353,40 @@ function conversationV2ToolToTimelineItem(
   };
 }
 
+/**
+ * Two copies of one script's metadata reach the Feed from different places: the live tool event
+ * carries PI's nested calls and the full-output path, while a persisted conversationV2 row rebuilds
+ * only the script and its output from `input`/`output`. Union them by field so neither reader drops
+ * what the other has.
+ */
+function mergeCodemodeMetadata(
+  existing: ThreadRunCodemodeMetadata | undefined,
+  incoming: ThreadRunCodemodeMetadata | undefined,
+): ThreadRunCodemodeMetadata | undefined {
+  if (!existing) {
+    return incoming;
+  }
+  if (!incoming) {
+    return existing;
+  }
+  const longerText = (left: string | undefined, right: string | undefined): string | undefined =>
+    (left?.length ?? 0) >= (right?.length ?? 0) ? left : right;
+  const richerCalls = (
+    left: ThreadRunCodemodeMetadata["calls"],
+    right: ThreadRunCodemodeMetadata["calls"],
+  ) => ((left?.length ?? 0) >= (right?.length ?? 0) ? left : right);
+  const script = longerText(existing.script, incoming.script);
+  const output = longerText(existing.output, incoming.output);
+  const fullOutputPath = existing.fullOutputPath ?? incoming.fullOutputPath;
+  const calls = richerCalls(existing.calls, incoming.calls);
+  return {
+    ...(script ? { script } : {}),
+    ...(output ? { output } : {}),
+    ...(fullOutputPath ? { fullOutputPath } : {}),
+    ...(calls && calls.length > 0 ? { calls } : {}),
+  };
+}
+
 function mergeConversationV2ToolIntoTimelineItem(
   item: ThreadRunProjectionTimelineItem,
   tool: ConversationToolCall,
@@ -1238,6 +1394,10 @@ function mergeConversationV2ToolIntoTimelineItem(
   const existingTool = readProjectionToolMetadata(item);
   const presentation = conversationV2ToolPresentation(tool);
   const eventType = conversationV2ToolEventType(tool.status);
+  const codemode = mergeCodemodeMetadata(
+    existingTool?.codemode,
+    parseThreadRunCodemodeMetadata(presentation.metadata.codemode),
+  );
   return {
     ...item,
     eventType,
@@ -1259,6 +1419,7 @@ function mergeConversationV2ToolIntoTimelineItem(
       tool: {
         ...(existingTool ?? {}),
         ...presentation.metadata,
+        ...(codemode ? { codemode } : {}),
         status: conversationV2ToolProjectionStatus(tool.status),
       },
       ...(presentation.metadata.bashApproval ? { bashApproval: presentation.metadata.bashApproval } : {}),
@@ -1494,13 +1655,13 @@ export function mergeConversationV2MessagesIntoProjection(
       (isDeferredAcceptedConversationV2Message(message)
         ? undefined
         : message.role === "user"
-        ? projection.timeline.find(
-            (item) =>
-              isConversationV2MessageTimelineItem(item) &&
-              item.role !== "user" &&
-              item.sequence >= message.createdSeq,
-          )
-        : undefined);
+          ? projection.timeline.find(
+              (item) =>
+                isConversationV2MessageTimelineItem(item) &&
+                item.role !== "user" &&
+                item.sequence >= message.createdSeq,
+            )
+          : undefined);
     const anchor = explicitAnchor ?? runPosition?.anchor ?? fallbackAnchor;
     const item = conversationV2MessageToTimelineItem(message, anchor?.at ?? projection.thread.generatedAt);
     if (anchor) {
@@ -1633,13 +1794,15 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
   // recovery condition; it must render loading/prompt UI instead of reopening the
   // retired projection path.
   const projection = useMemo(
-    () => props.conversationV2
-      ? reconcileActivityProjectionThreadStatus(
-          buildConversationV2OnlyProjection(props.conversationV2, props.thread),
-          props.thread,
-        )
-      : undefined,
-    [props.conversationV2, props.thread?.createdAt, props.thread?.status],
+    () =>
+      props.conversationV2
+        ? reconcileActivityProjectionThreadStatus(
+            props.conversationV2Projection ??
+              buildConversationV2OnlyProjection(props.conversationV2, props.thread),
+            props.thread,
+          )
+        : undefined,
+    [props.conversationV2, props.conversationV2Projection, props.thread?.createdAt, props.thread?.status],
   );
   if (!projection?.sourceEventCount) {
     if (props.thread?.prompt && !isThreadStoppedForFinalSummary(props.thread.status)) {
@@ -1698,6 +1861,10 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
       {...(props.onComposerAgentSilenceChange && {
         onComposerAgentSilenceChange: props.onComposerAgentSilenceChange,
       })}
+      {...(props.onFeedEndAnchorChange && {
+        onFeedEndAnchorChange: props.onFeedEndAnchorChange,
+      })}
+      feedUserDetached={props.feedUserDetached ?? false}
       {...(props.onLoadProjectionDetail && {
         onLoadProjectionDetail: props.onLoadProjectionDetail,
       })}
@@ -1715,7 +1882,7 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
  * tests and replay fixtures can exercise the feed without reintroducing a
  * production V1 fallback into the app's entry component.
  */
-export function ConversationV2ProjectionActivityLogView({
+function ConversationV2ProjectionActivityLogViewImpl({
   projection,
   thread,
   onRestorePrompt,
@@ -1724,6 +1891,8 @@ export function ConversationV2ProjectionActivityLogView({
   onRetryFailedRequest,
   onPlannerLayoutChange,
   onComposerAgentSilenceChange,
+  onFeedEndAnchorChange,
+  feedUserDetached = false,
   agentDisplayNames,
   agentThemes,
   onLoadProjectionDetail,
@@ -1750,12 +1919,27 @@ export function ConversationV2ProjectionActivityLogView({
   onRetryFailedRequest?: RetryFailedRequestHandler;
   onPlannerLayoutChange?: ActivityFeedLayoutChange;
   onComposerAgentSilenceChange?: (silent: boolean) => void;
+  onFeedEndAnchorChange?: (endAnchored: boolean) => void;
+  feedUserDetached?: boolean;
   thinkingDisplayMode?: ThinkingDisplayMode;
 }) {
+  useTranslation();
   const requestSpansById = useMemo(
     () => new Map(projection.requestSpans.map((span) => [span.requestId, span])),
     [projection.requestSpans],
   );
+  // Request spans include every agent; only the main agent's write owns this Feed's live slot.
+  const toolWritingIndicator = useMemo(
+    () => resolveToolWritingIndicator(projection.requestSpans),
+    [projection.requestSpans],
+  );
+  const toolWritingLabel = useMemo(() => {
+    if (!toolWritingIndicator) {
+      return undefined;
+    }
+    const label = resolveToolWritingLabel(toolWritingIndicator);
+    return i18n.t(label.key, label.params);
+  }, [toolWritingIndicator, i18n]);
   const resolvedThinkingDisplayMode = thinkingDisplayMode ?? readStoredThinkingDisplayPreferences().mode;
   const viewModel = useMemo(
     () =>
@@ -1786,6 +1970,9 @@ export function ConversationV2ProjectionActivityLogView({
   );
   const allowUserMessageRewrite = supportsHistoryRewrite(thread?.coreKind);
   const conversationActive = !isThreadStoppedForFinalSummary(projection.thread.status);
+  const pendingThinking = projection.requestSpans.some(
+    (span) => !span.ownerAgentId && isPendingThinkingWithoutContent(span, projection.timeline),
+  );
   // Settled tool groups keep their "running" display for TOOL_RUNNING_MIN_VISIBLE_MS
   // (resolveToolGroupDisplayState). The tail must honor the same window, otherwise the
   // settling tool row and the「正在思考」tail state render at the same time.
@@ -1819,35 +2006,46 @@ export function ConversationV2ProjectionActivityLogView({
 
   const runningToolVisible =
     viewModel.mainFeedEntries.some((entry) => isRunningToolFeedEntry(entry)) || settlingToolExtensionMs > 0;
-  // The live tail states are exclusive: while the latest content is a tool call or
-  // aggregation, that tool row owns the active content state — never render「正在思考」
-  // or a Summary tip beneath it. The active tail is only needed when the current
-  // slot is not already owned by a tool/aggregate.
-  const latestContentIsToolGroup = useMemo(() => {
-    const entries = viewModel.mainFeedEntries;
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
-      const entry = entries[index];
-      if (!entry) {
-        continue;
-      }
-      if (entry.kind === "timeline" || entry.kind === "agent-echo") {
-        if (isWaitingThinkingItem(entry.item, requestSpansById)) {
-          continue;
-        }
-        return false;
-      }
-      return entry.kind === "tool-group";
-    }
-    return false;
-  }, [viewModel.mainFeedEntries, requestSpansById]);
+  // The Feed's live row is one slot, and three states take turns owning it:
+  //   1. 阅后即焚的思考 — the ephemeral reasoning tip takes the slot by replacing the
+  //      trailing tool entry in the projection (`replaceLatestToolWithReasoningStage`)
+  //      and is then deferred into the active-tail row;
+  //   2. 最后一行工具调用聚合 — the trailing tool-group owns the slot by rendering its own
+  //      row, and the active tail stays away while it is there;
+  //   3. 「正在准备 xxx」 — the model writing its next call owns the slot *instead of* the
+  //      settled aggregate row it follows, never beneath it, and it outranks the
+  //      minimum-visible "running" window so a quick succession of calls still narrates.
+  // A tool that is still genuinely running keeps its row: with parallel calls the running
+  // activity is the thing to narrate, so a wait label may not hide it.
+  const liveSlotEntry = useMemo(
+    () => resolveFeedLiveSlotEntry(viewModel.mainFeedEntries, requestSpansById),
+    [viewModel.mainFeedEntries, requestSpansById],
+  );
+  const latestContentIsToolGroup = liveSlotEntry?.kind === "tool-group";
   const runningContextCompactionVisible = viewModel.mainFeedEntries.some((entry) =>
     isRunningContextCompactionFeedEntry(entry),
   );
+  const writingTakesLiveSlot =
+    conversationActive &&
+    !runningContextCompactionVisible &&
+    Boolean(toolWritingIndicator) &&
+    latestContentIsToolGroup &&
+    !(liveSlotEntry && isRunningToolFeedEntry(liveSlotEntry));
+  const thinkingTakesLiveSlot =
+    conversationActive &&
+    pendingThinking &&
+    !runningContextCompactionVisible &&
+    latestContentIsToolGroup &&
+    !(liveSlotEntry && isRunningToolFeedEntry(liveSlotEntry));
+  // A native thinking start or writing state replaces a settled tool; a running tool keeps its row.
+  const suppressedFeedEntryKey =
+    writingTakesLiveSlot || thinkingTakesLiveSlot ? liveSlotEntry?.key : undefined;
   // While the conversation is live, Summary tip shares the active-tail slot with
   // empty "正在思考" — never render both as sibling WaitingThinkingBlocks.
-  const liveReasoningStageLabel = conversationActive
-    ? resolveLiveReasoningStageLabel(viewModel.mainFeedEntries)
-    : undefined;
+  const liveReasoningStageLabel =
+    conversationActive && !pendingThinking
+      ? resolveLiveReasoningStageLabel(viewModel.mainFeedEntries)
+      : undefined;
   const deferReasoningStageTip =
     conversationActive && !runningToolVisible && !runningContextCompactionVisible;
   // Sending has to look acknowledged even before the request span exists. Every prompt
@@ -1857,10 +2055,11 @@ export function ConversationV2ProjectionActivityLogView({
   // present after every follow-up too.
   const awaitingAgentAnswer = isAwaitingAgentAnswer(viewModel.mainFeedEntries);
   const waitingThinkingVisible =
-    !runningToolVisible &&
+    (!runningToolVisible || thinkingTakesLiveSlot) &&
     !runningContextCompactionVisible &&
-    !latestContentIsToolGroup &&
-    (awaitingAgentAnswer ||
+    (!latestContentIsToolGroup || thinkingTakesLiveSlot) &&
+    (pendingThinking ||
+      awaitingAgentAnswer ||
       Boolean(liveReasoningStageLabel) ||
       viewModel.mainFeedEntries.some((entry) => {
         if (entry.kind !== "timeline" && entry.kind !== "agent-echo") {
@@ -1896,6 +2095,8 @@ export function ConversationV2ProjectionActivityLogView({
     () =>
       [
         showThreadPrompt ? `prompt:${thread?.id ?? ""}` : "",
+        // The slot swap is a layout change: the row it vacates leaves the DOM.
+        suppressedFeedEntryKey ? `suppressed:${suppressedFeedEntryKey}` : "",
         ...viewModel.mainFeedEntries.map((entry) => {
           if (entry.kind === "timeline" || entry.kind === "agent-echo") {
             return `${entry.key}:${projectionTimelineItemRenderSignature(entry.item)}`;
@@ -1916,7 +2117,7 @@ export function ConversationV2ProjectionActivityLogView({
       ]
         .filter(Boolean)
         .join("|"),
-    [showThreadPrompt, thread?.id, viewModel.mainFeedEntries],
+    [showThreadPrompt, suppressedFeedEntryKey, thread?.id, viewModel.mainFeedEntries],
   );
 
   usePlannerLayoutChangeEffect(layoutSignature, onPlannerLayoutChange);
@@ -1926,7 +2127,10 @@ export function ConversationV2ProjectionActivityLogView({
   useComposerAgentSilenceEffect(
     {
       active: conversationActive,
-      feedIndicatorVisible: waitingThinkingVisible || isTailThinkingStreamingLive(viewModel.mainFeedEntries),
+      feedIndicatorVisible:
+        waitingThinkingVisible ||
+        Boolean(toolWritingIndicator) ||
+        isTailThinkingStreamingLive(viewModel.mainFeedEntries),
       signature: layoutSignature,
     },
     onComposerAgentSilenceChange,
@@ -1934,20 +2138,51 @@ export function ConversationV2ProjectionActivityLogView({
 
   const runLogRef = useRef<HTMLDivElement>(null);
   const feedHeaderRef = useRef<HTMLDivElement>(null);
-  const virtualizeEnabled = feedSections.length >= FEED_VIRTUALIZE_MIN_SECTIONS;
+  /*
+    `latestContentIsToolGroup` keeps 「正在思考」 and Summary tips from stacking under a tool
+    row — that row owns the slot. It must not swallow the one state that outlives it: a
+    *settled* tool group is not an activity, and the model writing its next call is. A
+    10.9s write after a finished Edit was invisible because of this, with nothing else on
+    the wire to notice it — so the writing state now takes that row itself
+    (`writingTakesLiveSlot`) rather than appearing below it.
+  */
+  const activeTailVisible =
+    conversationActive &&
+    !runningContextCompactionVisible &&
+    (writingTakesLiveSlot || thinkingTakesLiveSlot || (!runningToolVisible && !latestContentIsToolGroup));
+  // The live tail is a row of the Feed, not decoration appended after it. The
+  // virtualizer keeps the bottom pinned only for geometry it measures, so a tail
+  // rendered outside the window pushes the newest output out of view.
+  const renderedFeedSections = useMemo(
+    () => (activeTailVisible ? [...feedSections, ACTIVE_TAIL_FEED_SECTION] : feedSections),
+    [feedSections, activeTailVisible],
+  );
+  const virtualizeEnabled = renderedFeedSections.length >= FEED_VIRTUALIZE_MIN_SECTIONS;
   const {
     enabled: feedVirtualized,
     virtualItems,
     totalSize,
     scrollMargin,
+    paddingStart: feedPaddingStart,
+    paddingEnd: feedPaddingEnd,
     measureElement,
     resolveSectionTopPx,
   } = useFeedSectionVirtualizer({
-    sections: feedSections,
+    sections: renderedFeedSections,
     enabled: virtualizeEnabled,
+    userDetached: feedUserDetached,
     runLogRef,
     headerRef: feedHeaderRef,
   });
+  useEffect(() => {
+    if (!onFeedEndAnchorChange) {
+      return undefined;
+    }
+    onFeedEndAnchorChange(virtualizeEnabled);
+    return () => {
+      onFeedEndAnchorChange(false);
+    };
+  }, [onFeedEndAnchorChange, virtualizeEnabled]);
   const userMessageAnchors = useMemo(() => listUserMessageAnchorsFromSections(feedSections), [feedSections]);
   const mountedSectionIndexes = useMemo(
     () => new Set(virtualItems.map((item) => item.index)),
@@ -1958,6 +2193,7 @@ export function ConversationV2ProjectionActivityLogView({
     requestSpansById,
     finalSummaryItemIds,
     deferReasoningStageTip,
+    ...(suppressedFeedEntryKey && { suppressedFeedEntryKey }),
     ...(stickyFinalSummaryItemId && { stickyFinalSummaryItemId }),
     ...(selectedSubagentAgentId && { selectedSubagentAgentId }),
     ...(onOpenSubagent && { onOpenSubagent }),
@@ -1979,7 +2215,7 @@ export function ConversationV2ProjectionActivityLogView({
   } as const;
 
   const renderFeedSection = (index: number) => {
-    const section = feedSections[index];
+    const section = renderedFeedSections[index];
     if (!section) {
       return null;
     }
@@ -1989,6 +2225,20 @@ export function ConversationV2ProjectionActivityLogView({
           section={section}
           {...sharedSectionProps}
           stopping={Boolean(thread?.cancelling)}
+        />
+      );
+    }
+    if (section.kind === "active-tail") {
+      return (
+        <RunLogActiveTail
+          waiting={waitingThinkingVisible || Boolean(toolWritingIndicator)}
+          stopping={Boolean(thread?.cancelling)}
+          writing={Boolean(toolWritingLabel)}
+          {...(toolWritingLabel
+            ? { label: toolWritingLabel }
+            : liveReasoningStageLabel
+              ? { label: liveReasoningStageLabel }
+              : {})}
         />
       );
     }
@@ -2026,35 +2276,30 @@ export function ConversationV2ProjectionActivityLogView({
                 resolveSectionTopPx={resolveSectionTopPx}
               />
               <FeedVirtualSectionWindow
+                sections={renderedFeedSections}
                 totalSize={totalSize}
                 scrollMargin={scrollMargin}
+                paddingStart={feedPaddingStart}
+                paddingEnd={feedPaddingEnd}
                 virtualItems={virtualItems}
                 measureElement={measureElement}
                 renderSection={renderFeedSection}
               />
             </>
           ) : (
-            feedSections.map((section, index) => (
-              <div key={section.key} className="run-log-virtual-row">
+            renderedFeedSections.map((section, index) => (
+              <div key={section.key} className="run-log-virtual-row" data-index={index}>
                 {renderFeedSection(index)}
               </div>
             ))
           )}
-          {conversationActive &&
-          !runningToolVisible &&
-          !runningContextCompactionVisible &&
-          !latestContentIsToolGroup ? (
-            <RunLogActiveTail
-              waiting={waitingThinkingVisible}
-              stopping={Boolean(thread?.cancelling)}
-              {...(liveReasoningStageLabel ? { label: liveReasoningStageLabel } : {})}
-            />
-          ) : null}
         </div>
       </ActivityFeedLayoutContext.Provider>
     </RequestSpansContext.Provider>
   );
 }
+
+export const ConversationV2ProjectionActivityLogView = memo(ConversationV2ProjectionActivityLogViewImpl);
 
 type ProjectionFeedEntrySharedProps = {
   requestSpansById: Map<string, ThreadRunProjectionSnapshot["requestSpans"][number]>;
@@ -2062,6 +2307,8 @@ type ProjectionFeedEntrySharedProps = {
   stickyFinalSummaryItemId?: string;
   /** Defer reasoning-stage tip rows into the feed active-tail (live conversation). */
   deferReasoningStageTip?: boolean;
+  /** The slot-owning entry a live state has taken over; that row renders as null. */
+  suppressedFeedEntryKey?: string;
   selectedSubagentAgentId?: string;
   onOpenSubagent?: OpenSubagentHandler;
   onOpenImageGenerationTool?: OpenImageGenerationToolHandler;
@@ -2089,14 +2336,19 @@ function ProjectionTurnFeedSection({
 }) {
   const requestSpansById = entryProps.requestSpansById;
   const deferReasoningStageTip = Boolean(entryProps.deferReasoningStageTip);
+  const suppressedFeedEntryKey = entryProps.suppressedFeedEntryKey;
   const detailLoaded = section.processEntries.some(
     (entry) =>
       (entry.kind === "timeline" || entry.kind === "agent-echo") && entry.item.contentLoaded === true,
   );
-  // Empty "正在思考" / live Summary tip are deferred to the feed active-tail. If the
-  // process would only render those rows as null, mark process empty so the divider
-  // does not open a hollow padding gap sitting above the tail waiting line.
+  // Empty "正在思考" / live Summary tip are deferred to the feed active-tail, and the
+  // tool aggregate a live state took over is suppressed outright. If the process would
+  // only render those rows as null, mark process empty so the divider does not open a
+  // hollow padding gap sitting above the tail waiting line.
   const processEmpty = !section.processEntries.some((entry) => {
+    if (suppressedFeedEntryKey && entry.key === suppressedFeedEntryKey) {
+      return false;
+    }
     if (entry.kind === "timeline" || entry.kind === "agent-echo") {
       return !isDeferredThinkingStatusItem(entry.item, requestSpansById, deferReasoningStageTip);
     }
@@ -2105,8 +2357,9 @@ function ProjectionTurnFeedSection({
 
   return (
     <RunLogTurnSection
-      turnKey={section.attempt.attemptId}
+      turnKey={section.key}
       running={section.running}
+      showHeading={!section.running || !section.continuation}
       stopping={Boolean(entryProps.stopping) && section.running}
       status={section.attempt.status}
       startedAt={section.attempt.startedAt}
@@ -2134,6 +2387,7 @@ function ProjectionTurnFeedSection({
 function RunLogTurnSection({
   turnKey,
   running,
+  showHeading = true,
   stopping = false,
   status,
   startedAt,
@@ -2149,6 +2403,7 @@ function RunLogTurnSection({
 }: {
   turnKey: string;
   running: boolean;
+  showHeading?: boolean;
   stopping?: boolean;
   status?: ThreadRunProjectionAttempt["status"];
   startedAt: string;
@@ -2163,12 +2418,12 @@ function RunLogTurnSection({
   className?: string;
 }) {
   const onLayoutChange = useActivityFeedLayoutChange();
-  const [expanded, setExpanded] = useState(running);
+  const [userExpanded, setExpanded] = useState(false);
+  const expanded = running || userExpanded;
   const [animateExpansion, setAnimateExpansion] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | undefined>();
   const [detailLoadedLocally, setDetailLoadedLocally] = useState(false);
-  const previousRunningRef = useRef(running);
   const measuredDurationMs = useTurnDurationMs(startedAt, endedAt, running);
   const durationMs = Math.max(measuredDurationMs, projectedDurationMs);
   const headingLabel = formatRunLogTurnHeading(running, status, durationMs, stopping);
@@ -2177,11 +2432,8 @@ function RunLogTurnSection({
   useLayoutEffect(() => {
     setAnimateExpansion(false);
     if (running) {
-      setExpanded(true);
-    } else if (previousRunningRef.current) {
       setExpanded(false);
     }
-    previousRunningRef.current = running;
   }, [running]);
 
   useLayoutEffect(() => {
@@ -2196,54 +2448,59 @@ function RunLogTurnSection({
         running ? "is-running" : "is-completed",
         expanded ? "is-expanded" : "is-collapsed",
         animateExpansion ? "is-user-transitioning" : "",
+        !showHeading ? "is-continuation" : "",
       ]
         .filter(Boolean)
         .join(" ")}
       aria-label={running ? i18n.t("activity.process") : i18n.t("activity.turnResult")}
     >
       {leading}
-      <button
-        type="button"
-        className="run-log-turn-toggle"
-        onClick={() => {
-          if (running) {
-            return;
-          }
-          setAnimateExpansion(true);
-          const nextExpanded = !expanded;
-          setExpanded(nextExpanded);
-          if (nextExpanded && onLoadDetail && !detailLoading && !detailLoaded && !detailLoadedLocally) {
-            setDetailError(undefined);
-            setDetailLoading(true);
-            void onLoadDetail()
-              .then(() => setDetailLoadedLocally(true))
-              .catch((error) => setDetailError(error instanceof Error ? error.message : String(error)))
-              .finally(() => setDetailLoading(false));
-          }
-        }}
-        disabled={running}
-        aria-expanded={expanded}
-        aria-controls={contentId}
-      >
-        <span className="run-log-turn-heading">
-          <span className="run-log-turn-status">{headingLabel}</span>
-          {!running ? (
-            <ChevronRight
-              size={15}
-              className={`run-log-turn-chevron${expanded ? " open" : ""}`}
-              aria-hidden
-            />
-          ) : null}
-        </span>
-        <span className="run-log-turn-divider" aria-hidden />
-      </button>
+      {showHeading ? (
+        <button
+          type="button"
+          className="run-log-turn-toggle"
+          onClick={() => {
+            if (running) {
+              return;
+            }
+            setAnimateExpansion(true);
+            const nextExpanded = !expanded;
+            setExpanded(nextExpanded);
+            if (nextExpanded && onLoadDetail && !detailLoading && !detailLoaded && !detailLoadedLocally) {
+              setDetailError(undefined);
+              setDetailLoading(true);
+              void onLoadDetail()
+                .then(() => setDetailLoadedLocally(true))
+                .catch((error) => setDetailError(error instanceof Error ? error.message : String(error)))
+                .finally(() => setDetailLoading(false));
+            }
+          }}
+          disabled={running}
+          aria-expanded={expanded}
+          aria-controls={contentId}
+        >
+          <span className="run-log-turn-heading">
+            <span className="run-log-turn-status">{headingLabel}</span>
+            {!running ? (
+              <ChevronRight
+                size={15}
+                className={`run-log-turn-chevron${expanded ? " open" : ""}`}
+                aria-hidden
+              />
+            ) : null}
+          </span>
+          <span className="run-log-turn-divider" aria-hidden />
+        </button>
+      ) : null}
       <div
         id={contentId}
         className="run-log-turn-process"
         aria-label={i18n.t("activity.process")}
         aria-hidden={!expanded}
       >
-        <div className={`run-log-turn-process-inner${processEmpty ? " is-empty" : ""}`}>{process}</div>
+        <div className={`run-log-turn-process-inner${processEmpty ? " is-empty" : ""}`}>
+          {expanded || animateExpansion ? process : null}
+        </div>
       </div>
       {detailLoading ? <div className="run-log-turn-detail-loading" aria-busy="true" /> : null}
       {detailError ? (
@@ -2420,6 +2677,26 @@ export function readImageDisplayToolUseId(item: ThreadRunProjectionTimelineItem)
   return name && toolUseId && isEcoImageDisplayToolName(name) ? toolUseId : undefined;
 }
 
+/**
+ * PI marks a call a tool issued itself (today only a codemode script) with `parentToolCallId`.
+ * It is deliberately not `parentToolUseId`, which everywhere else means "owned by a subagent".
+ */
+function readProjectionParentToolCallId(item: ThreadRunProjectionTimelineItem): string | undefined {
+  const raw = item.metadata?.conversationV2ParentToolCallId;
+  if (typeof raw === "string" && raw.trim()) {
+    return raw.trim();
+  }
+  // The legacy row has no column for the link, so it rides on the tool metadata instead.
+  const rawTool = item.metadata?.tool;
+  if (rawTool && typeof rawTool === "object" && !Array.isArray(rawTool)) {
+    const nested = (rawTool as Record<string, unknown>).parentToolCallId;
+    if (typeof nested === "string" && nested.trim()) {
+      return nested.trim();
+    }
+  }
+  return undefined;
+}
+
 function readProjectionToolUseId(item: ThreadRunProjectionTimelineItem): string | undefined {
   const rawTool = item.metadata?.tool;
   if (rawTool && typeof rawTool === "object" && !Array.isArray(rawTool)) {
@@ -2440,6 +2717,7 @@ function ProjectionMainFeedEntry({
   finalSummaryItemIds,
   stickyFinalSummaryItemId,
   deferReasoningStageTip = false,
+  suppressedFeedEntryKey,
   selectedSubagentAgentId,
   onOpenSubagent,
   onOpenImageGenerationTool,
@@ -2462,6 +2740,8 @@ function ProjectionMainFeedEntry({
   finalSummaryItemIds: ReadonlySet<string>;
   stickyFinalSummaryItemId?: string;
   deferReasoningStageTip?: boolean;
+  /** The slot-owning entry a live state has taken over; that row renders as null. */
+  suppressedFeedEntryKey?: string;
   selectedSubagentAgentId?: string;
   onOpenSubagent?: OpenSubagentHandler;
   onOpenImageGenerationTool?: OpenImageGenerationToolHandler;
@@ -2479,6 +2759,12 @@ function ProjectionMainFeedEntry({
   paceTargetKey?: string;
   onLoadProjectionDetail?: ProjectionDetailLoader;
 }) {
+  // A live state owns this row now (see `writingTakesLiveSlot`). Rendering it as null is
+  // what makes the swap a swap: the tail takes the slot the aggregate vacates, so the two
+  // can never be seen as sibling rows.
+  if (suppressedFeedEntryKey && entry.key === suppressedFeedEntryKey) {
+    return null;
+  }
   if (entry.kind === "timeline") {
     const showMessageMeta = finalSummaryItemIds.has(entry.item.id);
     return (
@@ -2595,6 +2881,10 @@ export function ProjectionToolGroupEntry({
     return entry.at;
   }, [entry]);
   const runningElapsedMs = useTurnDurationMs(runningStartedAt, undefined, lifecycle === "running");
+  const { topLevel, nestedByParent } = useMemo(
+    () => partitionCodemodeToolGroupChildren(entry.entries),
+    [entry.entries],
+  );
   useEffect(() => {
     if (remainingMs <= 0) {
       return;
@@ -2643,19 +2933,29 @@ export function ProjectionToolGroupEntry({
           if (imageDisplayToolUseId) onOpenImageDisplayTool?.(imageDisplayToolUseId);
         }}
       />
+      <TtsFeedArtifacts
+        toolUseIds={entry.entries
+          .map((child) => readTtsToolUseId(child.item))
+          .filter((id): id is string => Boolean(id))}
+      />
       {expanded ? (
-        <div className="run-log-tool-group-details">
-          {entry.entries.map((child) => (
-            <ProjectionToolGroupChildEntry
-              key={child.key}
-              entry={child}
-              requestSpansById={requestSpansById}
-              {...(onOpenImageGenerationTool && { onOpenImageGenerationTool })}
-              {...(onOpenImageDisplayTool && { onOpenImageDisplayTool })}
-              {...(onLoadProjectionDetail && { onLoadProjectionDetail })}
-            />
-          ))}
-        </div>
+        <TtsFeedGroupDetailsContext value={true}><div className="run-log-tool-group-details">
+          {topLevel.map((child) => {
+            const toolUseId = child.kind === "timeline" ? readProjectionToolUseId(child.item) : undefined;
+            const nestedChildren = toolUseId ? nestedByParent.get(toolUseId) : undefined;
+            return (
+              <ProjectionToolGroupChildEntry
+                key={child.key}
+                entry={child}
+                requestSpansById={requestSpansById}
+                {...(nestedChildren && nestedChildren.length > 0 ? { nestedChildren } : {})}
+                {...(onOpenImageGenerationTool && { onOpenImageGenerationTool })}
+                {...(onOpenImageDisplayTool && { onOpenImageDisplayTool })}
+                {...(onLoadProjectionDetail && { onLoadProjectionDetail })}
+              />
+            );
+          })}
+        </div></TtsFeedGroupDetailsContext>
       ) : null}
     </div>
   );
@@ -2676,11 +2976,58 @@ export interface ToolGroupDisplayState {
  * the feed tail can share the exact same window: a settling tool row must never
  * render alongside the「正在思考」tail state.
  */
+type ToolGroupChildEntry = ThreadRunProjectionTimelineFeedEntry | ThreadRunProjectionAgentEchoFeedEntry;
+
+/**
+ * A codemode script calls the tools itself, so PI emits those calls as tool events carrying the
+ * script's `parentToolCallId`. They are not model-issued calls: they belong inside the script's
+ * card. Left as siblings they dominate the group header ("已执行 12 个工具") and the one thing
+ * that actually happened — the script — disappears from the summary.
+ */
+function partitionCodemodeToolGroupChildren(entries: readonly ToolGroupChildEntry[]): {
+  topLevel: ToolGroupChildEntry[];
+  nestedByParent: Map<string, ToolGroupChildEntry[]>;
+} {
+  const scriptIds = new Set<string>();
+  for (const child of entries) {
+    if (child.kind !== "timeline") {
+      continue;
+    }
+    const tool = readProjectionToolMetadata(child.item);
+    if (!tool || !isCodemodeToolName(tool.name)) {
+      continue;
+    }
+    const toolUseId = readProjectionToolUseId(child.item);
+    if (toolUseId) {
+      scriptIds.add(toolUseId);
+    }
+  }
+  if (scriptIds.size === 0) {
+    return { topLevel: [...entries], nestedByParent: new Map() };
+  }
+  const topLevel: ToolGroupChildEntry[] = [];
+  const nestedByParent = new Map<string, ToolGroupChildEntry[]>();
+  for (const child of entries) {
+    const parentId = child.kind === "timeline" ? readProjectionParentToolCallId(child.item) : undefined;
+    if (parentId && scriptIds.has(parentId)) {
+      const siblings = nestedByParent.get(parentId) ?? [];
+      siblings.push(child);
+      nestedByParent.set(parentId, siblings);
+      continue;
+    }
+    topLevel.push(child);
+  }
+  return { topLevel, nestedByParent };
+}
+
 export function resolveToolGroupDisplayState(
   entries: readonly (ThreadRunProjectionTimelineFeedEntry | ThreadRunProjectionAgentEchoFeedEntry)[],
   nowMs: number,
 ): ToolGroupDisplayState {
-  const blocks = entries
+  // The header describes what the model asked for; a script's own calls are described by the
+  // script's card, so they stay out of the count and out of the lifecycle.
+  const { topLevel } = partitionCodemodeToolGroupChildren(entries);
+  const blocks = topLevel
     .map((child) => projectionItemToDetailBlock(child.item))
     .filter(
       (block): block is ToolGroupDetailBlock => block?.kind === "action" || block?.kind === "tool-failed",
@@ -2690,10 +3037,10 @@ export function resolveToolGroupDisplayState(
   if (lifecycle === "running") {
     return { summary, lifecycle, remainingMs: 0 };
   }
-  const extensionEndMs = resolveToolGroupSettledExtensionEndMs(entries);
+  const extensionEndMs = resolveToolGroupSettledExtensionEndMs(topLevel);
   if (extensionEndMs !== undefined && extensionEndMs > nowMs) {
     return {
-      summary: resolveToolGroupRunningLabel(entries) ?? summary,
+      summary: resolveToolGroupRunningLabel(topLevel) ?? summary,
       lifecycle: "running",
       remainingMs: extensionEndMs - nowMs,
     };
@@ -2756,12 +3103,15 @@ function resolveToolGroupRunningLabel(
 function ProjectionToolGroupChildEntry({
   entry,
   requestSpansById,
+  nestedChildren,
   onOpenImageGenerationTool,
   onOpenImageDisplayTool,
   onLoadProjectionDetail,
 }: {
   entry: ThreadRunProjectionTimelineFeedEntry | ThreadRunProjectionAgentEchoFeedEntry;
   requestSpansById: Map<string, ThreadRunProjectionSnapshot["requestSpans"][number]>;
+  /** Tool calls a codemode script made; rendered inside that script's card. */
+  nestedChildren?: ToolGroupChildEntry[];
   onOpenImageGenerationTool?: OpenImageGenerationToolHandler;
   onOpenImageDisplayTool?: OpenImageDisplayToolHandler;
   onLoadProjectionDetail?: ProjectionDetailLoader;
@@ -2784,6 +3134,18 @@ function ProjectionToolGroupChildEntry({
         block={block}
         {...(toolUseId && { toolUseId })}
         detailLoaded={entry.item.contentLoaded === true}
+        {...(onLoadProjectionDetail && { onLoadProjectionDetail })}
+      />
+    );
+  }
+  if (block?.kind === "action" && block.codemodeRun) {
+    return (
+      <ProjectionToolGroupCodemodeChild
+        block={block}
+        {...(nestedChildren ? { nestedChildren } : {})}
+        requestSpansById={requestSpansById}
+        {...(onOpenImageGenerationTool && { onOpenImageGenerationTool })}
+        {...(onOpenImageDisplayTool && { onOpenImageDisplayTool })}
         {...(onLoadProjectionDetail && { onLoadProjectionDetail })}
       />
     );
@@ -2909,6 +3271,228 @@ function ProjectionToolGroupBashChild({
           />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * PI's codemode card: the script the model wrote, the calls that script made, and what the script
+ * returned. The nested calls never reach the model as tool calls, so this card is their only
+ * record — but all three panes stay behind the row, like every other tool child: a script and its
+ * call list are the tallest blocks in the Feed, and a group that opens with them pushes the actual
+ * answer out of view. The row's call-count badge is what says there is something to open.
+ */
+function ProjectionToolGroupCodemodeChild({
+  block,
+  nestedChildren = [],
+  requestSpansById,
+  onOpenImageGenerationTool,
+  onOpenImageDisplayTool,
+  onLoadProjectionDetail,
+}: {
+  block: Extract<ActivityDetailBlock, { kind: "action" }>;
+  nestedChildren?: ToolGroupChildEntry[];
+  requestSpansById: Map<string, ThreadRunProjectionSnapshot["requestSpans"][number]>;
+  onOpenImageGenerationTool?: OpenImageGenerationToolHandler;
+  onOpenImageDisplayTool?: OpenImageDisplayToolHandler;
+  onLoadProjectionDetail?: ProjectionDetailLoader;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const callCount = countCodemodeCalls(block, nestedChildren);
+  const summary = formatToolGroupChildDetail(block);
+  const lifecycle = block.lifecycle;
+  const hasDetails = Boolean(
+    block.codemodeRun?.script?.trim() || block.codemodeRun?.output?.trim() || callCount > 0,
+  );
+  return (
+    <div className={`run-log-tool-group-child run-log-codemode${expanded ? " is-expanded" : ""}`}>
+      <button
+        type="button"
+        className={[
+          "run-log-tool-group-trigger",
+          "run-log-tool-group-child-trigger",
+          lifecycle === "running" ? "is-running" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={hasDetails ? expanded : undefined}
+      >
+        <RunLogActionIcon icon={block.icon} {...(lifecycle && { lifecycle })} />
+        <span className="run-log-tool-group-summary">
+          {lifecycle === "running" ? <ShimmerText>{summary}</ShimmerText> : summary}
+        </span>
+        {callCount > 0 ? (
+          <span className="run-log-codemode-count">
+            {i18n.t("activity.codemode.callCount", { count: callCount })}
+          </span>
+        ) : null}
+        {lifecycle === "failed" ? (
+          <span className="run-log-tool-status-dot" title={i18n.t("activity.incomplete")} aria-hidden />
+        ) : null}
+        {hasDetails ? (
+          <ChevronRight
+            size={15}
+            className={`run-log-tool-group-chevron${expanded ? " open" : ""}`}
+            aria-hidden
+          />
+        ) : null}
+      </button>
+      {expanded ? (
+        <ProjectionCodemodeDetails
+          block={block}
+          nestedChildren={nestedChildren}
+          requestSpansById={requestSpansById}
+          {...(onOpenImageGenerationTool && { onOpenImageGenerationTool })}
+          {...(onOpenImageDisplayTool && { onOpenImageDisplayTool })}
+          {...(onLoadProjectionDetail && { onLoadProjectionDetail })}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The three panes of a codemode card. Split out so the collapsed row above stays a row: the
+ * disclosure decision and the content it hides are separate questions.
+ */
+export function ProjectionCodemodeDetails({
+  block,
+  nestedChildren = [],
+  requestSpansById,
+  onOpenImageGenerationTool,
+  onOpenImageDisplayTool,
+  onLoadProjectionDetail,
+}: {
+  block: Extract<ActivityDetailBlock, { kind: "action" }>;
+  nestedChildren?: ToolGroupChildEntry[];
+  requestSpansById: Map<string, ThreadRunProjectionSnapshot["requestSpans"][number]>;
+  onOpenImageGenerationTool?: OpenImageGenerationToolHandler;
+  onOpenImageDisplayTool?: OpenImageDisplayToolHandler;
+  onLoadProjectionDetail?: ProjectionDetailLoader;
+}) {
+  const script = block.codemodeRun?.script?.trim() ?? "";
+  const output = block.codemodeRun?.output?.trim() ?? "";
+  const fullOutputPath = block.codemodeRun?.fullOutputPath?.trim() ?? "";
+  const detailCallRows = resolveCodemodeDetailCallRows(block, nestedChildren);
+  const callCount = nestedChildren.length + detailCallRows.length;
+  return (
+    <div className="run-log-codemode-details">
+      {script ? <RunLogCodemodeScript script={script} /> : null}
+      {callCount > 0 ? (
+        <div className="run-log-codemode-calls">
+          <div className="run-log-codemode-section-label">{i18n.t("activity.codemode.callsLabel")}</div>
+          {/* The label stays put and only the rows scroll: a 60-call script must not push the
+              script and its output out of view. */}
+          <div className="run-log-codemode-calls-list">
+            {nestedChildren.map((child) => (
+              <ProjectionToolGroupChildEntry
+                key={child.key}
+                entry={child}
+                requestSpansById={requestSpansById}
+                {...(onOpenImageGenerationTool && { onOpenImageGenerationTool })}
+                {...(onOpenImageDisplayTool && { onOpenImageDisplayTool })}
+                {...(onLoadProjectionDetail && { onLoadProjectionDetail })}
+              />
+            ))}
+            {detailCallRows.map(({ call, key }) => (
+              <div className="run-log-codemode-call" key={key}>
+                <span className={`run-log-codemode-call-status is-${call.status ?? "ok"}`} aria-hidden>
+                  {codemodeCallGlyph(call.status)}
+                </span>
+                <span className="run-log-codemode-call-name">{call.name}</span>
+                {call.args ? <span className="run-log-codemode-call-args">{call.args}</span> : null}
+                {call.durationMs !== undefined ? (
+                  <span className="run-log-codemode-call-meta">{formatDuration(call.durationMs)}</span>
+                ) : null}
+                {call.cost !== undefined ? (
+                  <span className="run-log-codemode-call-meta">
+                    {i18n.t("activity.codemode.modelCost", { cost: call.cost.toFixed(3) })}
+                  </span>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {output ? (
+        <div className="run-log-codemode-output">
+          <div className="run-log-codemode-section-label">{i18n.t("activity.codemode.outputLabel")}</div>
+          <RunLogBashOutput output={output} />
+        </div>
+      ) : null}
+      {fullOutputPath ? (
+        <div className="run-log-codemode-full-output">
+          {i18n.t("activity.codemode.fullOutput", { path: fullOutputPath })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * PI gives each nested call the id of the tool event it caused, so any call that reached the tool
+ * pipeline is in both lists: as a full row, and as one of the script's own records. Keep the row,
+ * and keep only the records with no row — the calls cancelled when the script ended, which never
+ * produced one. A record with no id is kept: it cannot be matched, and losing it is worse.
+ */
+function resolveCodemodeDetailCallRows(
+  block: Extract<ActivityDetailBlock, { kind: "action" }>,
+  nestedChildren: readonly ToolGroupChildEntry[],
+): { call: ThreadRunCodemodeCallMetadata; key: string }[] {
+  const nestedCallIds = new Set(
+    nestedChildren
+      .map((child) => (child.kind === "timeline" ? readProjectionToolUseId(child.item) : undefined))
+      .filter((id): id is string => Boolean(id)),
+  );
+  return (block.codemodeRun?.calls ?? [])
+    .filter((call) => !call.id || !nestedCallIds.has(call.id))
+    .map((call, index) => ({
+      call,
+      key: call.id ?? `${call.name}:${index}`,
+    }));
+}
+
+function countCodemodeCalls(
+  block: Extract<ActivityDetailBlock, { kind: "action" }>,
+  nestedChildren: readonly ToolGroupChildEntry[],
+): number {
+  return nestedChildren.length + resolveCodemodeDetailCallRows(block, nestedChildren).length;
+}
+
+/** Same glyphs PI's TUI uses for the calls a script made. */
+function codemodeCallGlyph(status: "running" | "ok" | "error" | "cancelled" | undefined): string {
+  switch (status) {
+    case "running":
+      return "…";
+    case "error":
+      return "✗";
+    case "cancelled":
+      return "⊘";
+    default:
+      return "✓";
+  }
+}
+
+function RunLogCodemodeScript({ script }: { script: string }) {
+  return (
+    <div className="run-log-codemode-script">
+      <div className="run-log-codemode-script-head">
+        <span className="run-log-codemode-section-label">{i18n.t("activity.codemode.scriptLabel")}</span>
+        <button
+          type="button"
+          className="run-log-bash-copy"
+          onClick={(event) => {
+            event.stopPropagation();
+            copyRunLogMessageText(script);
+          }}
+          aria-label={i18n.t("activity.codemode.copyScript")}
+          title={i18n.t("activity.codemode.copyScript")}
+        >
+          <Copy size={13} aria-hidden />
+        </button>
+      </div>
+      <pre className="run-log-bash-command-text">{script}</pre>
     </div>
   );
 }
@@ -3333,6 +3917,8 @@ function projectionRequestSpanRenderSignature(span?: ProjectionRequestSpan): str
     span.error ?? "",
     span.providerRequestId ?? "",
     span.outputTokens ?? "",
+    span.pendingThinkingSince ?? "",
+    span.pendingThinkingMessageId ?? "",
   ].join(":");
 }
 
@@ -3469,10 +4055,19 @@ const ProjectionSubagentDetailFeedEntry = memo(function ProjectionSubagentDetail
 function ProjectionSubagentTurn({
   turn,
   requestSpansById,
+  pendingThinking = false,
 }: {
   turn: SubagentDetailTurn;
   requestSpansById: ProjectionRequestSpansById;
+  pendingThinking?: boolean;
 }) {
+  const waitingThinkingVisible =
+    turn.running &&
+    (turn.entries.length === 0 ||
+      (pendingThinking &&
+        !turn.entries.some(
+          (entry) => isRunningToolFeedEntry(entry) || isRunningContextCompactionFeedEntry(entry),
+        )));
   return (
     <RunLogTurnSection
       turnKey={turn.key}
@@ -3507,7 +4102,7 @@ function ProjectionSubagentTurn({
               />
             ),
           )}
-          {turn.running && turn.entries.length === 0
+          {waitingThinkingVisible
             ? wrapRunLogFeedEntry(<WaitingThinkingBlock active />, {
                 tight: true,
               })
@@ -3725,11 +4320,37 @@ function areProjectionSubagentDetailFeedPropsEqual(
   return (
     prev.missionText === next.missionText &&
     prev.thinkingDisplayMode === next.thinkingDisplayMode &&
+    hasPendingAgentThinking(prev.agent, prev.requestSpansById) ===
+      hasPendingAgentThinking(next.agent, next.requestSpansById) &&
     promptImagePreviewSignature(prev.images) === promptImagePreviewSignature(next.images) &&
     projectionSubagentDetailTimelineRequestSpanSignature(prev.agent.timeline, prev.requestSpansById) ===
       projectionSubagentDetailTimelineRequestSpanSignature(next.agent.timeline, next.requestSpansById) &&
     projectionSubagentDetailAgentSignature(prev.agent) === projectionSubagentDetailAgentSignature(next.agent)
   );
+}
+
+function isPendingThinkingWithoutContent(
+  span: ProjectionRequestSpan,
+  timeline: readonly ThreadRunProjectionTimelineItem[],
+): boolean {
+  if (!span.pendingThinkingSince) return false;
+  return !timeline.some(
+    (item) =>
+      span.pendingThinkingMessageId !== undefined &&
+      item.metadata?.conversationV2MessageId === span.pendingThinkingMessageId &&
+      Boolean(item.text.trim()),
+  );
+}
+
+function hasPendingAgentThinking(
+  agent: ThreadRunProjectionAgent,
+  spans: ProjectionRequestSpansById,
+): boolean {
+  for (const span of spans.values()) {
+    if (span.ownerAgentId === agent.agentId && isPendingThinkingWithoutContent(span, agent.timeline))
+      return true;
+  }
+  return false;
 }
 
 export const ProjectionSubagentDetailFeed = memo(function ProjectionSubagentDetailFeed({
@@ -3760,11 +4381,13 @@ export const ProjectionSubagentDetailFeed = memo(function ProjectionSubagentDeta
       requestSpansById,
       true,
       resolvedThinkingDisplayMode,
+      running,
     ).filter((item) => !shouldSuppressSubagentCardTimelineItem(item, missionDisplay));
     return collapseConsecutiveThinkingTimelineItems(collapsed);
-  }, [agent.timeline, missionDisplay, requestSpansById, resolvedThinkingDisplayMode]);
+  }, [agent.timeline, missionDisplay, requestSpansById, resolvedThinkingDisplayMode, running]);
   const detailFeedEntries = useStableSubagentDetailFeedEntries(agent.agentId, visibleTimeline);
   const turns = useMemo(() => buildSubagentDetailTurns(detailFeedEntries, agent), [agent, detailFeedEntries]);
+  const pendingThinking = running && hasPendingAgentThinking(agent, requestSpansById);
   const latestTimelineItem = visibleTimeline.at(-1);
   const layoutSignature = [
     agent.agentId,
@@ -3773,6 +4396,7 @@ export const ProjectionSubagentDetailFeed = memo(function ProjectionSubagentDeta
     turns.length,
     latestTimelineItem?.id ?? "",
     latestTimelineItem?.text.length ?? 0,
+    pendingThinking,
   ].join(":");
   const scrollToBottom = useCallback((force = false) => {
     const feed = feedRef.current;
@@ -3871,7 +4495,12 @@ export const ProjectionSubagentDetailFeed = memo(function ProjectionSubagentDeta
             : null}
           {turns.length > 0 ? (
             turns.map((turn) => (
-              <ProjectionSubagentTurn key={turn.key} turn={turn} requestSpansById={requestSpansById} />
+              <ProjectionSubagentTurn
+                key={turn.key}
+                turn={turn}
+                requestSpansById={requestSpansById}
+                pendingThinking={pendingThinking && turn === turns.at(-1)}
+              />
             ))
           ) : running ? (
             wrapRunLogFeedEntry(<WaitingThinkingBlock active />, {
@@ -3880,7 +4509,7 @@ export const ProjectionSubagentDetailFeed = memo(function ProjectionSubagentDeta
           ) : (
             <p className="subagent-task-detail-empty">{i18n.t("activity.noDetails")}</p>
           )}
-          {running ? (
+          {running && !pendingThinking ? (
             <div className="run-log-feed-entry run-log-feed-entry--tight run-log-active-tail">
               <RunLogConversationTail />
             </div>
@@ -4067,6 +4696,9 @@ function ProjectionTimelineEntry({
     return wrapRunLogFeedEntry(
       <UserPromptBlock
         text={item.text}
+        {...(isConversationMessageOrigin(item.metadata?.messageOrigin)
+          ? { origin: item.metadata.messageOrigin }
+          : {})}
         images={readPromptImagePreviews(item.metadata)}
         anchorId={item.id}
         {...(item.at ? { createdAt: item.at } : {})}
@@ -4087,6 +4719,7 @@ function ProjectionTimelineEntry({
 
   const requestSpan = item.requestId ? requestSpansById.get(item.requestId) : undefined;
   const requestActive = isProjectionRequestActive(requestSpan);
+  const ttsToolUseId = readTtsToolUseId(item);
   const imageToolUseId = readImageGenerationToolUseId(item);
   const imageDisplayToolUseId = readImageDisplayToolUseId(item);
   const retryTarget = !compact ? retryTargets?.get(item.id) : undefined;
@@ -4157,6 +4790,7 @@ function ProjectionTimelineEntry({
     return wrapRunLogFeedEntry(
       <PhaseBlock
         label={block.label}
+        {...(block.compaction && { compaction: block.compaction })}
         {...(block.reconnecting && { reconnecting: block.reconnecting })}
         {...(block.reconnectFailed && {
           reconnectFailed: block.reconnectFailed,
@@ -4171,6 +4805,7 @@ function ProjectionTimelineEntry({
   }
 
   return wrapRunLogFeedEntry(
+    <>
     <DetailBlock
       block={block}
       requestActive={requestActive}
@@ -4190,7 +4825,9 @@ function ProjectionTimelineEntry({
           onActionActivate: () => onOpenImageDisplayTool(imageDisplayToolUseId),
         })}
       {...(onOpenImageDisplayArtifact && { onOpenImageDisplayArtifact })}
-    />,
+    />
+      {ttsToolUseId ? <TtsFeedArtifacts toolUseIds={[ttsToolUseId]} /> : null}
+    </>,
     { compact, tight: isTightFeedDetailBlock(block) },
   );
 }
@@ -4395,6 +5032,7 @@ function DetailBlock({
     return (
       <PhaseBlock
         label={block.label}
+        {...(block.compaction && { compaction: block.compaction })}
         {...(block.reconnecting && { reconnecting: block.reconnecting })}
         {...(block.reconnectFailed && {
           reconnectFailed: block.reconnectFailed,
@@ -4577,21 +5215,30 @@ function DetailBlock({
 
 function PhaseBlock({
   label,
+  compaction,
   reconnecting,
   reconnectFailed,
   reconnectDetail,
   onRetry,
 }: {
   label: string;
+  compaction?: Extract<ActivityDetailBlock, { kind: "phase" }>["compaction"];
   reconnecting?: boolean;
   reconnectFailed?: boolean;
   reconnectDetail?: string;
   onRetry?: () => void;
 }) {
-  if (isContextCompactionPhaseLabel(label)) {
+  if (compaction || isContextCompactionPhaseLabel(label)) {
     return (
       <div className="run-log-context-action" role="status" aria-live="polite">
-        <RunLogAction icon="context" label={label} lifecycle={contextCompactionLifecycle(label)} />
+        <RunLogAction
+          icon="context"
+          label={label}
+          lifecycle={compaction?.lifecycle ?? contextCompactionLifecycle(label)}
+          {...(compaction?.startedAt && { startedAt: compaction.startedAt })}
+          {...(compaction?.durationMs !== undefined && { durationMs: compaction.durationMs })}
+          elapsedInline
+        />
       </div>
     );
   }
@@ -4775,10 +5422,13 @@ function ScrollingThinkingText({ text }: { text: string }) {
 function WaitingThinkingBlock({
   active,
   label,
+  spinner = false,
 }: {
   active?: boolean;
   /** Defaults to i18n "正在思考". Used by OpenAI reasoning summary stage lines. */
   label?: string;
+  /** Leading rotating loader, for states that read as "about to become a row". */
+  spinner?: boolean;
   requestSpan?: ThreadRunProjectionRequestSpan;
 }) {
   if (!active) {
@@ -4790,6 +5440,11 @@ function WaitingThinkingBlock({
   return (
     <div className="run-log-thinking streaming empty" role="status" aria-live="polite">
       <div className="run-log-thinking-header">
+        {/* Same 14px/8px slot the tool row's own icon occupies, so the label does not
+            slide sideways when the row this wait announces finally lands. */}
+        {spinner ? (
+          <LoaderCircle size={14} className="run-log-action-icon run-log-thinking-spinner" aria-hidden />
+        ) : null}
         <span className="run-log-thinking-label">
           <ScrollingThinkingText text={displayLabel} />
         </span>
@@ -4913,6 +5568,32 @@ function isRunningToolFeedEntry(entry: ThreadRunProjectionMainFeedEntry): boolea
   return isRunningActionItem(entry.item);
 }
 
+/**
+ * The entry that owns the Feed's live slot: the newest content row.
+ *
+ * Deferred「正在思考」rows and Summary tips are skipped — they render as the active-tail
+ * line instead of a row of their own, so they are never the slot's owner. What this
+ * returns is what the next live state has to replace: the trailing tool aggregate.
+ */
+function resolveFeedLiveSlotEntry(
+  entries: readonly ThreadRunProjectionMainFeedEntry[],
+  requestSpansById: Map<string, ThreadRunProjectionSnapshot["requestSpans"][number]>,
+): ThreadRunProjectionMainFeedEntry | undefined {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (!entry) {
+      continue;
+    }
+    if (entry.kind === "timeline" || entry.kind === "agent-echo") {
+      if (isWaitingThinkingItem(entry.item, requestSpansById)) {
+        continue;
+      }
+    }
+    return entry;
+  }
+  return undefined;
+}
+
 function isRunningContextCompactionFeedEntry(entry: ThreadRunProjectionMainFeedEntry): boolean {
   if (entry.kind !== "timeline" && entry.kind !== "agent-echo") {
     return false;
@@ -4934,18 +5615,25 @@ function RunLogActiveTail({
   waiting,
   stopping = false,
   label,
+  writing = false,
 }: {
   waiting: boolean;
   stopping?: boolean;
   /** Live Summary tip label; when waiting without tip, defaults to「正在思考」. */
   label?: string;
+  /** The wait is the model writing a tool call — the tail is about to become a tool row. */
+  writing?: boolean;
 }) {
   // Single WaitingThinkingBlock instance: stopping > tip label > default「正在思考」.
   const statusLabel = stopping ? i18n.t("activity.stopping") : label?.trim() ? label.trim() : undefined;
   return (
     <div className="run-log-feed-entry run-log-feed-entry--tight run-log-active-tail">
       {waiting ? (
-        <WaitingThinkingBlock active {...(statusLabel ? { label: statusLabel } : {})} />
+        <WaitingThinkingBlock
+          active
+          {...(statusLabel ? { label: statusLabel } : {})}
+          {...(writing && !stopping ? { spinner: true } : {})}
+        />
       ) : (
         <RunLogConversationTail />
       )}
@@ -5324,6 +6012,7 @@ function UnknownItemBlock({
 
 function UserPromptBlock({
   text,
+  origin,
   images = [],
   className,
   anchorId,
@@ -5336,6 +6025,7 @@ function UserPromptBlock({
   allowUserMessageRewrite = false,
 }: {
   text: string;
+  origin?: ConversationMessageOrigin;
   images?: readonly PromptImagePreview[];
   className?: string;
   anchorId?: string;
@@ -5611,6 +6301,12 @@ function UserPromptBlock({
       className={["run-log-user-prompt", className].filter(Boolean).join(" ")}
       {...(anchorId && { "data-user-message-anchor-id": anchorId })}
     >
+      {origin && (
+        <span className="run-log-user-prompt-origin">
+          <Clock3 size={12} aria-hidden />
+          {i18n.t("scheduling.messageOrigin")}
+        </span>
+      )}
       {editing ? (
         <div
           className="run-log-user-prompt-edit"
@@ -6577,6 +7273,8 @@ function RunLogAction({
   displayLabelOverride,
   lifecycle,
   startedAt,
+  durationMs,
+  elapsedInline,
   bashRun,
   fileChange,
   webSearch,
@@ -6594,6 +7292,10 @@ function RunLogAction({
   lifecycle?: ToolActionLifecycle;
   /** 工具调用开始时间（行事件/插入时间）；running 行据此显示实时耗时。 */
   startedAt?: string;
+  /** Measured duration of a settled lifecycle row, retained after reopening. */
+  durationMs?: number;
+  /** Render the elapsed time inside the label flow (right after the text) instead of at the row end. */
+  elapsedInline?: boolean;
   bashRun?: import("../shared/activity-display").BashRunCardDisplay;
   fileChange?: import("../shared/activity-display").FileChangeCardDisplay;
   webSearch?: import("../shared/activity-display").WebSearchCardDisplay;
@@ -6610,12 +7312,21 @@ function RunLogAction({
   const labelRef = useRef<HTMLSpanElement>(null);
   const [canExpand, setCanExpand] = useState(false);
   // Live elapsed time for a running tool row; 0 (never ticking) when the row is settled
-  // or carries no start time. Displayed only past TOOL_ELAPSED_MIN_VISIBLE_MS.
+  // or carries no start time. Displayed only past TOOL_ELAPSED_MIN_VISIBLE_MS, except for
+  // inline rows (context compaction), which count up from the first whole second.
   const runningElapsedMs = useTurnDurationMs(
     startedAt ?? "",
     undefined,
     startedAt !== undefined && lifecycle === "running",
   );
+  const elapsedLabel =
+    lifecycle === "running"
+      ? elapsedInline || runningElapsedMs > TOOL_ELAPSED_MIN_VISIBLE_MS
+        ? formatDuration(runningElapsedMs)
+        : ""
+      : durationMs !== undefined
+        ? formatDuration(durationMs)
+        : "";
   const subagentRole = subagent?.trim() ? subagent : undefined;
   const showRoleLabel =
     subagentRole !== undefined &&
@@ -6673,12 +7384,17 @@ function RunLogAction({
     <>
       <RunLogActionIcon icon={icon} {...(lifecycle && { lifecycle })} />
       <span ref={labelRef} className="run-log-action-label">
-        {displayLabel}
+        {icon === "context" && lifecycle === "running" ? (
+          <ShimmerText>{displayLabel}</ShimmerText>
+        ) : (
+          displayLabel
+        )}
+        {elapsedInline && elapsedLabel ? (
+          <span className="run-log-action-elapsed run-log-action-elapsed--inline">{elapsedLabel}</span>
+        ) : null}
       </span>
-      {lifecycle === "running" && runningElapsedMs > TOOL_ELAPSED_MIN_VISIBLE_MS ? (
-        <span className="run-log-action-meta run-log-action-elapsed">
-          {formatDuration(runningElapsedMs)}
-        </span>
+      {elapsedLabel && !elapsedInline ? (
+        <span className="run-log-action-meta run-log-action-elapsed">{elapsedLabel}</span>
       ) : null}
       {lifecycle === "failed" ? (
         <span className="run-log-tool-status-dot" title={i18n.t("activity.incomplete")} aria-hidden />
@@ -7108,6 +7824,7 @@ const actionIcons = {
   read: BookOpen,
   image: ImageIcon,
   images: Images,
+  audio: Volume2,
   browser: AppWindow,
   edit: Pencil,
   terminal: Terminal,
@@ -7115,6 +7832,7 @@ const actionIcons = {
   context: Minimize2,
   network: Globe2,
   computer: Monitor,
+  code: Code,
   tool: Wrench,
 } as const;
 

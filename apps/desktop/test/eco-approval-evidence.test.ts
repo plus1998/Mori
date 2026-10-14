@@ -14,6 +14,7 @@ import {
   shouldIncludeActivityLine,
   truncateText,
 } from "../src/main/eco-approval-evidence";
+import type { ApprovalHostEvidence } from "../src/main/eco-approval-local-evidence";
 import { reviewEcoApproval } from "../src/main/eco-approval-reviewer";
 
 const route: AnthropicProxyRoute = {
@@ -162,6 +163,52 @@ test("oversized planned action is truncated inside envelope", () => {
   }
   expect(built.serialized.length).toBeLessThanOrEqual(MAX_ENVELOPE_CHARS);
   expect(JSON.stringify(built.envelope.plannedAction.input).length).toBeLessThan(12_000);
+});
+
+test("host evidence has independent provenance and survives transcript shrinking", () => {
+  const hostEvidence: ApprovalHostEvidence = {
+    version: 1,
+    collectedAt: "2026-10-13",
+    targetExtractionComplete: false,
+    paths: [],
+    limitations: ["dynamic_path"],
+  };
+  const built = buildApprovalEnvelope({
+    activityLines: [],
+    initialPrompt: "Fix project",
+    toolName: "Bash",
+    toolInput: { command: "rm $TARGET", hostEvidence: { targetExtractionComplete: true } },
+    cwd: "/repo",
+    workspacePath: "/repo",
+    reason: "Review deletion",
+    hostEvidence,
+  });
+  expect(built.ok).toBe(true);
+  if (built.ok) {
+    expect(built.envelope.hostEvidence).toEqual(hostEvidence);
+    expect(built.envelope.plannedAction.input.hostEvidence).not.toEqual(hostEvidence);
+  }
+});
+
+test("oversized host facts require human review instead of silently dropping evidence", () => {
+  const hostEvidence: ApprovalHostEvidence = {
+    version: 1,
+    collectedAt: "2026-10-13",
+    targetExtractionComplete: false,
+    paths: [],
+    limitations: ["x".repeat(9_000)],
+  };
+  const built = buildApprovalEnvelope({
+    activityLines: [],
+    initialPrompt: "Fix project",
+    toolName: "Bash",
+    toolInput: { command: "rm src" },
+    cwd: "/repo",
+    workspacePath: "/repo",
+    reason: "Review deletion",
+    hostEvidence,
+  });
+  expect(built).toMatchObject({ ok: false, policyMatches: ["host_evidence_over_budget"] });
 });
 
 test("reviewer reuses the same serialized envelope across retries", async () => {

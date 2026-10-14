@@ -1,43 +1,34 @@
-/** Pure layout helpers for the terminal context menu (no React DOM deps). */
-
-export const TERMINAL_CONTEXT_MENU_WIDTH = 188;
-export const TERMINAL_CONTEXT_MENU_VIEWPORT_MARGIN = 8;
-/** Above macOS window chrome, matching the other body-portal popovers. */
-export const TERMINAL_CONTEXT_MENU_Z_INDEX = 2_000_000_000;
-
-export interface TerminalContextMenuBox {
-  position: "fixed";
-  top: number;
-  left: number;
-  width: number;
-  zIndex: number;
-}
-
-export interface TerminalContextMenuPoint {
-  x: number;
-  y: number;
-}
-
-export interface TerminalContextMenuSize {
-  height: number;
-}
-
 /**
- * Context menus open at the pointer with their top-left corner under the cursor, then
- * clamp inside the viewport so a right-click near an edge stays fully readable.
+ * Terminal-facing aliases over the shared context-menu layout (no React DOM deps).
+ *
+ * The geometry itself lives in `context-menu-layout.ts`: the terminal menu and the image
+ * viewer menu clamp to the viewport the same way, and keeping one implementation is what
+ * stops their edge behaviour from drifting apart.
  */
+import {
+  CONTEXT_MENU_VIEWPORT_MARGIN,
+  CONTEXT_MENU_WIDTH,
+  CONTEXT_MENU_Z_INDEX,
+  type ContextMenuBox,
+  type ContextMenuPoint,
+  type ContextMenuSize,
+  contextMenuBoxForPoint,
+} from "./context-menu-layout";
+
+export const TERMINAL_CONTEXT_MENU_WIDTH = CONTEXT_MENU_WIDTH;
+export const TERMINAL_CONTEXT_MENU_VIEWPORT_MARGIN = CONTEXT_MENU_VIEWPORT_MARGIN;
+export const TERMINAL_CONTEXT_MENU_Z_INDEX = CONTEXT_MENU_Z_INDEX;
+
+export type {
+  ContextMenuBox as TerminalContextMenuBox,
+  ContextMenuPoint as TerminalContextMenuPoint,
+  ContextMenuSize as TerminalContextMenuSize,
+} from "./context-menu-layout";
+
 export function terminalContextMenuBoxForPoint(
-  point: TerminalContextMenuPoint,
-  size: TerminalContextMenuSize,
+  point: ContextMenuPoint,
+  size: ContextMenuSize,
   viewport: { width: number; height: number },
-): TerminalContextMenuBox {
-  const maxLeft = viewport.width - TERMINAL_CONTEXT_MENU_VIEWPORT_MARGIN - TERMINAL_CONTEXT_MENU_WIDTH;
-  const maxTop = viewport.height - TERMINAL_CONTEXT_MENU_VIEWPORT_MARGIN - size.height;
-  return {
-    position: "fixed",
-    left: Math.max(TERMINAL_CONTEXT_MENU_VIEWPORT_MARGIN, Math.min(point.x, maxLeft)),
-    top: Math.max(TERMINAL_CONTEXT_MENU_VIEWPORT_MARGIN, Math.min(point.y, maxTop)),
-    width: TERMINAL_CONTEXT_MENU_WIDTH,
-    zIndex: TERMINAL_CONTEXT_MENU_Z_INDEX,
-  };
+): ContextMenuBox {
+  return contextMenuBoxForPoint(point, size, viewport, CONTEXT_MENU_WIDTH);
 }

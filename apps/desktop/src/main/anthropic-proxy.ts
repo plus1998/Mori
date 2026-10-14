@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
-import { mapApiCompatToUpstreamKind, type UpstreamKind } from "@eco/gateway";
-import { applyThinkingToMessagesBody, type ParsedUsage, resolveAppliedMaxOutputTokens } from "@eco/runtime";
+import { mapApiCompatToUpstreamKind, type ResolvedProviderRoute, type UpstreamKind } from "@eco/gateway";
+import { containsImageInput } from "@eco/shared";
+import {
+  applyThinkingToMessagesBody,
+  type GlobalMaxOutputTokens,
+  type ParsedUsage,
+  resolveAppliedMaxOutputTokens,
+} from "@eco/runtime";
 import {
   assertApiCompatCompatibleWithProviderPath,
   IncompatibleApiCompatError,
@@ -73,6 +79,7 @@ export interface AnthropicProxyRoute {
   maxOutputTokens?: number;
   /** Resolved catalog/manual context window; drives SDK `[1m]` alias suffix when >= 1M. */
   contextTokens?: number;
+  supportsImageInput?: boolean;
 }
 
 export interface RuntimeRouteProxySource {
@@ -84,13 +91,33 @@ export interface RuntimeRouteProxySource {
   manualSpec?: RouteManualSpec;
 }
 
+function rejectDisabledImageInput(
+  route: AnthropicProxyRoute,
+  body: Record<string, unknown>,
+  hasPendingImages = false,
+): Response | undefined {
+  if (route.supportsImageInput !== false || (!hasPendingImages && !containsImageInput(body))) {
+    return undefined;
+  }
+  return Response.json(
+    {
+      error: {
+        type: "invalid_request_error",
+        code: "image_input_disabled",
+        message: `模型 ${route.modelId} 已关闭视觉，禁止直接读取图片。请在提供商的模型设置中启用视觉，或选择支持图片的视觉模型。`,
+      },
+    },
+    { status: 400 },
+  );
+}
+
 export function resolveRouteMaxOutputTokens(manualSpec?: RouteManualSpec): number | undefined {
   const tokens = manualSpec?.maxOutputTokens;
   return tokens !== undefined && tokens > 0 ? tokens : undefined;
 }
 
 export interface RuntimeRouteToProxyOptions {
-  globalMaxOutputTokens?: number;
+  globalMaxOutputTokens?: GlobalMaxOutputTokens;
   contextTokens?: number;
   catalogMaxOutputTokens?: number;
 }
@@ -99,6 +126,7 @@ export function runtimeRouteToProxyRoute(
   route: RuntimeRouteProxySource,
   options?: RuntimeRouteToProxyOptions,
 ): AnthropicProxyRoute {
+  resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat);
   const modelMax =
     resolveRouteMaxOutputTokens(route.manualSpec) ??
     (options?.catalogMaxOutputTokens !== undefined && options.catalogMaxOutputTokens > 0
@@ -118,6 +146,9 @@ export function runtimeRouteToProxyRoute(
     ...(route.apiCompat && { apiCompat: route.apiCompat }),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
     maxOutputTokens,
+    ...(route.manualSpec?.supportsImageInput !== undefined && {
+      supportsImageInput: route.manualSpec.supportsImageInput,
+    }),
     ...(options?.contextTokens !== undefined && { contextTokens: options.contextTokens }),
   };
 }
@@ -127,7 +158,35 @@ export function applyRouteMaxOutputTokens(body: Record<string, unknown>, maxOutp
   if (maxOutputTokens === undefined || maxOutputTokens <= 0) {
     return;
   }
-  body.max_tokens = maxOutputTokens;
+  const requested = body.max_tokens;
+  body.max_tokens =
+    typeof requested === "number" && Number.isFinite(requested) && requested > 0
+      ? Math.min(requested, maxOutputTokens)
+      : maxOutputTokens;
+}
+
+/** Preserve product-declared role limits without treating the SDK's default as a model limit. */
+export function resolveGatewayBindingModelLimits(route: ResolvedProviderRoute):
+  | {
+      contextTokens?: number;
+      maxOutputTokens?: number;
+    }
+  | undefined {
+  if (!route.bridgeBindingId) return undefined;
+  const binding = globalClaudeBridgeBindingRegistry.getByBindingId(route.bridgeBindingId);
+  if (!binding) throw new Error(`Missing model-limit binding for ${route.requestedModel}.`);
+  const boundRoute = resolveProxyRoute(binding.routes, route.requestedModel);
+  if (
+    !boundRoute ||
+    boundRoute.provider.id !== route.provider.id ||
+    boundRoute.modelId !== route.upstreamModelId
+  ) {
+    throw new Error(`Model-limit binding does not match ${route.requestedModel}.`);
+  }
+  return {
+    ...(boundRoute.contextTokens !== undefined && { contextTokens: boundRoute.contextTokens }),
+    ...(boundRoute.maxOutputTokens !== undefined && { maxOutputTokens: boundRoute.maxOutputTokens }),
+  };
 }
 
 export interface AnthropicProxyMessagesRequestInfo {
@@ -217,6 +276,7 @@ export async function startAnthropicModelProxy(
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
     ...(route.maxOutputTokens !== undefined && { maxOutputTokens: route.maxOutputTokens }),
     ...(route.contextTokens !== undefined && { contextTokens: route.contextTokens }),
+    ...(route.supportsImageInput !== undefined && { supportsImageInput: route.supportsImageInput }),
   }));
 
   const bindingRoutes: ClaudeBridgeBindingRoute[] = resolvedRoutes.map((route) => ({
@@ -228,6 +288,7 @@ export async function startAnthropicModelProxy(
     ...(route.thinkingEffort ? { thinkingEffort: route.thinkingEffort } : {}),
     ...(route.maxOutputTokens !== undefined ? { maxOutputTokens: route.maxOutputTokens } : {}),
     ...(route.contextTokens !== undefined ? { contextTokens: route.contextTokens } : {}),
+    ...(route.supportsImageInput !== undefined ? { supportsImageInput: route.supportsImageInput } : {}),
   }));
 
   const binding = globalClaudeBridgeBindingRegistry.create({
@@ -437,6 +498,12 @@ export async function prepareGatewayBindingForwardRequest(input: {
       };
     }
 
+    const imageRejection = rejectDisabledImageInput(route, input.body);
+    if (imageRejection) {
+      releaseLease();
+      return { kind: "response", response: imageRejection };
+    }
+
     // Responses is the conversion hub: the gateway can convert Responses IR to
     // openai_responses, openai_chat_completions, or anthropic upstream wire formats.
     // Chat Completions is passthrough-only and must match openai_chat_completions.
@@ -475,7 +542,9 @@ export async function prepareGatewayBindingForwardRequest(input: {
       resolution: {
         providerId: route.provider.id,
         upstreamModelId: route.modelId,
-        upstreamKind: mapApiCompatToUpstreamKind(route.apiCompat),
+        upstreamKind: mapApiCompatToUpstreamKind(
+          resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
+        ),
       },
       clientModel,
       bridgeBindingId: binding.bindingId,
@@ -538,6 +607,16 @@ async function prepareAgainstBinding(
 
   const body = input.body;
   const countTokens = input.path.includes("count_tokens");
+
+  const imageRejection = rejectDisabledImageInput(
+    route,
+    body,
+    binding.pendingImages.length > 0 && !binding.imagesInjected,
+  );
+  if (imageRejection) {
+    releaseLease();
+    return { kind: "response", response: imageRejection };
+  }
 
   if (binding.pendingImages.length > 0 && !binding.imagesInjected) {
     // count_tokens may run before the real messages call — inject a view of the

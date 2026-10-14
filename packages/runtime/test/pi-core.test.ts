@@ -78,6 +78,28 @@ test("parsePiUsage returns null when empty", () => {
   expect(parsePiUsage({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })).toBeNull();
 });
 
+test("PI exposes a thinking placeholder before content on the same stream", () => {
+  const ctx = makeCtx();
+  const started = mapPiSessionEventToAgentEvents(
+    { type: "message_update", assistantMessageEvent: { type: "thinking_start", contentIndex: 0 } },
+    ctx,
+  );
+  expect(started).toHaveLength(1);
+  expect(started[0]).toMatchObject({
+    type: "message.delta",
+    payload: { type: "eco_stream", blockKind: "thinking", streamPlaceholder: true },
+  });
+  const content = mapPiSessionEventToAgentEvents(
+    {
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "先检查代码" },
+    },
+    ctx,
+  );
+  expect(streamKey(started[0])).toBe(streamKey(content[0]));
+  expect(content[0]?.payload).toMatchObject({ text: "先检查代码" });
+});
+
 test("mapPiSessionEvent maps text deltas and tools", () => {
   const ctx = makeCtx();
   mapPiSessionEventToAgentEvents({ type: "message_start", message: { role: "assistant", content: [] } }, ctx);
@@ -149,6 +171,87 @@ test("mapPiSessionEvent maps text deltas and tools", () => {
     ctx,
   );
   expect(end[0]?.type).toBe("tool.completed");
+});
+
+/**
+ * The wait PI used to leave unnamed. `tool_execution_start` only fires once the arguments
+ * are complete, so between the last narrative token and that event the model was visibly
+ * idle while it wrote the call. PI does stream `toolcall_start` / `toolcall_delta` — those
+ * carry the tool name — so the adapter must hand that state over instead of dropping it.
+ */
+test("mapPiSessionEvent announces a tool call the model is still writing", () => {
+  const ctx = makeCtx();
+  mapPiSessionEventToAgentEvents({ type: "message_start", message: { role: "assistant", content: [] } }, ctx);
+  const partial = {
+    role: "assistant",
+    content: [{ type: "toolCall", id: "call_1", name: "create_file", arguments: {}, partialJson: '{"pa' }],
+  };
+
+  const started = mapPiSessionEventToAgentEvents(
+    { type: "message_update", assistantMessageEvent: { type: "toolcall_start", contentIndex: 0, partial } },
+    ctx,
+  );
+  expect(started).toHaveLength(1);
+  expect(started[0]?.type).toBe("tool.started");
+  expect(started[0]?.payload).toMatchObject({
+    type: "tool_use",
+    tool_name: "create_file",
+    tool_use_id: "call_1",
+    streaming: true,
+    input_complete: false,
+  });
+  // Still incomplete: the Feed must not treat this as a runnable tool row.
+  expect((started[0]?.payload as { input?: unknown }).input).toBeUndefined();
+
+  // PI streams one delta per argument fragment; the state changes once, not per fragment.
+  const fragment = mapPiSessionEventToAgentEvents(
+    {
+      type: "message_update",
+      assistantMessageEvent: { type: "toolcall_delta", contentIndex: 0, delta: 'th":', partial },
+    },
+    ctx,
+  );
+  expect(fragment).toHaveLength(0);
+
+  // A second call in the same message is a different state, so it must be announced too.
+  const secondPartial = {
+    role: "assistant",
+    content: [
+      partial.content[0],
+      { type: "toolCall", id: "call_2", name: "read_file", arguments: {}, partialJson: "{" },
+    ],
+  };
+  const second = mapPiSessionEventToAgentEvents(
+    {
+      type: "message_update",
+      assistantMessageEvent: { type: "toolcall_start", contentIndex: 1, partial: secondPartial },
+    },
+    ctx,
+  );
+  expect(second).toHaveLength(1);
+  expect((second[0]?.payload as { tool_name?: string }).tool_name).toBe("read_file");
+
+  // A new assistant message resets the announcement set.
+  mapPiSessionEventToAgentEvents({ type: "message_end", message: { role: "assistant", content: [] } }, ctx);
+  mapPiSessionEventToAgentEvents({ type: "message_start", message: { role: "assistant", content: [] } }, ctx);
+  const afterReset = mapPiSessionEventToAgentEvents(
+    { type: "message_update", assistantMessageEvent: { type: "toolcall_start", contentIndex: 0, partial } },
+    ctx,
+  );
+  expect(afterReset).toHaveLength(1);
+});
+
+test("mapPiSessionEvent ignores a tool call write with no name yet", () => {
+  const ctx = makeCtx();
+  mapPiSessionEventToAgentEvents({ type: "message_start", message: { role: "assistant", content: [] } }, ctx);
+  const unnamed = mapPiSessionEventToAgentEvents(
+    {
+      type: "message_update",
+      assistantMessageEvent: { type: "toolcall_start", contentIndex: 0, partial: { content: [] } },
+    },
+    ctx,
+  );
+  expect(unnamed).toHaveLength(0);
 });
 
 test("PI thinking close keeps the same reasoningDisplay as the open stream", () => {
@@ -569,6 +672,14 @@ test("buildEcoPiModel keeps a model window smaller than the global cap", () => {
       globalContextWindowLimit: 262_144,
     }).contextWindow,
   ).toBe(128_000);
+});
+
+test("buildEcoPiModel honors disabled vision for every API face", () => {
+  for (const apiCompat of ["anthropic", "openai_responses", "openai_chat_completions"] as const) {
+    const input = { bridgeBaseUrl: "http://127.0.0.1:18765", bridgeModelId: "alias", apiCompat };
+    expect(buildEcoPiModel({ ...input, supportsImageInput: false }).input).toEqual(["text"]);
+    expect(buildEcoPiModel({ ...input, supportsImageInput: true }).input).toEqual(["text", "image"]);
+  }
 });
 
 test("buildEcoPiModel maps apiCompat to Pi api / auth provider", () => {
@@ -1813,3 +1924,135 @@ test("PiCodingAgentDriver passes planner thinkingEffort into PI session thinking
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+test("codemode reports its nested calls and full-output path on the tool result", () => {
+  const ctx = makeCtx();
+  mapPiSessionEventToAgentEvents(
+    {
+      type: "tool_execution_start",
+      toolCallId: "code_1",
+      toolName: "codemode",
+      args: { code: 'await tools.bash({ command: "ls" });' },
+    },
+    ctx,
+  );
+  const end = mapPiSessionEventToAgentEvents(
+    {
+      type: "tool_execution_end",
+      toolCallId: "code_1",
+      toolName: "codemode",
+      result: {
+        content: [{ type: "text", text: "Script completed\nWall time 1.20 seconds\nOutput:\n12" }],
+        details: {
+          fullOutputPath: "/tmp/pi-out-1.txt",
+          calls: [
+            { id: "code_1/1", name: "bash", args: '{"command":"ls"}', status: "ok", durationMs: 120 },
+            // Cancelled when the script ended: it never produced its own tool event.
+            { id: "code_1/?", name: "read", args: '{"path":"a.ts"}', status: "cancelled" },
+          ],
+        },
+      },
+      isError: false,
+    },
+    ctx,
+  );
+  const payload = end[0]?.payload;
+  expect(isRecord(payload) ? payload.codemodeDetails : undefined).toEqual({
+    fullOutputPath: "/tmp/pi-out-1.txt",
+    calls: [
+      { id: "code_1/1", name: "bash", args: '{"command":"ls"}', status: "ok", durationMs: 120 },
+      { id: "code_1/?", name: "read", args: '{"path":"a.ts"}', status: "cancelled" },
+    ],
+  });
+});
+
+test("a failed codemode script keeps its nested-call details", () => {
+  const ctx = makeCtx();
+  const end = mapPiSessionEventToAgentEvents(
+    {
+      type: "tool_execution_end",
+      toolCallId: "code_2",
+      toolName: "codemode",
+      result: {
+        content: [
+          {
+            type: "text",
+            text: "Script failed\nWall time 0.40 seconds\nOutput:\n\nScript error: Error: boom",
+          },
+        ],
+        details: { calls: [{ id: "code_2/1", name: "read", args: "{}", status: "error", error: "boom" }] },
+      },
+      isError: true,
+    },
+    ctx,
+  );
+  const payload = end[0]?.payload;
+  expect(end[0]?.type).toBe("tool.failed");
+  expect(isRecord(payload) ? payload.codemodeDetails : undefined).toEqual({
+    calls: [{ id: "code_2/1", name: "read", args: "{}", status: "error", error: "boom" }],
+  });
+});
+
+test("a call the codemode script made carries the script as its parent tool call", () => {
+  const ctx = makeCtx();
+  const start = mapPiSessionEventToAgentEvents(
+    {
+      type: "tool_execution_start",
+      toolCallId: "code_1/1",
+      toolName: "bash",
+      args: { command: "ls" },
+      parentToolCallId: "code_1",
+    },
+    ctx,
+  );
+  expect(isRecord(start[0]?.payload) ? start[0]?.payload.parent_tool_call_id : undefined).toBe("code_1");
+  const end = mapPiSessionEventToAgentEvents(
+    {
+      type: "tool_execution_end",
+      toolCallId: "code_1/1",
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "a.ts" }], details: {} },
+      isError: false,
+      parentToolCallId: "code_1",
+    },
+    ctx,
+  );
+  expect(isRecord(end[0]?.payload) ? end[0]?.payload.parent_tool_call_id : undefined).toBe("code_1");
+});
+
+test("a tool result with unrelated details carries no codemode details", () => {
+  const ctx = makeCtx();
+  const end = mapPiSessionEventToAgentEvents(
+    {
+      type: "tool_execution_end",
+      toolCallId: "tc_ws",
+      toolName: "web_search",
+      result: {
+        content: [{ type: "text", text: "ok" }],
+        details: { provider: "p", query: "q", results: [{ title: "t", url: "u" }] },
+      },
+      isError: false,
+    },
+    ctx,
+  );
+  const payload = end[0]?.payload;
+  expect(isRecord(payload) ? payload.codemodeDetails : undefined).toBeUndefined();
+});
+
+test("PI model receives dynamic output budget and preserves explicitly larger fixed budgets", () => {
+  const dynamic = buildEcoPiModel({
+    bridgeBaseUrl: "http://127.0.0.1:18765",
+    bridgeModelId: "small",
+    contextWindow: 32_768,
+    globalMaxOutputTokens: "dynamic",
+  });
+  expect(dynamic.maxTokens).toBe(32_767);
+  const resolved = buildEcoPiModel({
+    bridgeBaseUrl: "http://127.0.0.1:18765",
+    bridgeModelId: "large",
+    contextWindow: 200_000,
+    maxOutputTokens: 64_000,
+    globalMaxOutputTokens: 64_000,
+  });
+  expect(resolved.maxTokens).toBe(64_000);
+});

@@ -4,6 +4,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { parseUnifiedDiffStats } from "../shared/worktree-merge";
+import { getWorkspaceDiffSummary, type WorkspaceDiffContext } from "./workspace-diff-summary";
 import { resolveGitExecutable } from "./workspace-inspect";
 
 const execFileAsync = promisify(execFile);
@@ -16,7 +17,11 @@ export interface GitCommandResult {
   stderr: string;
 }
 
-export type GitRunner = (args: string[], cwd: string) => Promise<GitCommandResult>;
+export type GitRunner = (
+  args: string[],
+  cwd: string,
+  options?: { stdin?: string; signal?: AbortSignal },
+) => Promise<GitCommandResult>;
 
 export interface GhAvailability {
   available: boolean;
@@ -118,6 +123,8 @@ export interface GitCommitRecord {
 
 export interface WorkspaceDiffResult {
   workspacePath: string;
+  revision?: number;
+  watchError?: string;
   patch: string;
   patchTruncated: boolean;
   fileCount: number;
@@ -126,6 +133,9 @@ export interface WorkspaceDiffResult {
     additions: number;
     deletions: number;
     status: "modified" | "untracked" | "added" | "deleted";
+    revision?: number;
+    previousPath?: string;
+    binary?: boolean;
     originalContent: string;
     currentContent: string;
   }>;
@@ -173,24 +183,34 @@ function stripGitPrefix(args: string[]): string[] {
 }
 
 export function createGitRunner(runCommand: GitRunner): GitRunner {
-  return async (args, cwd) => runCommand(stripGitPrefix(args), cwd);
+  return async (args, cwd, options) => runCommand(stripGitPrefix(args), cwd, options);
 }
 
-export async function defaultGitRunner(args: string[], cwd: string): Promise<GitCommandResult> {
-  try {
-    const { stdout, stderr } = await execFileAsync(resolveGitExecutable(), stripGitPrefix(args), {
-      cwd,
-      maxBuffer: 12 * 1024 * 1024,
-    });
-    return { exitCode: 0, stdout: String(stdout), stderr: String(stderr) };
-  } catch (error) {
-    const failed = error as NodeJS.ErrnoException & { code?: number; stdout?: string; stderr?: string };
-    return {
-      exitCode: typeof failed.code === "number" ? failed.code : 1,
-      stdout: String(failed.stdout ?? ""),
-      stderr: String(failed.stderr ?? failed.message ?? "git command failed"),
-    };
-  }
+export async function defaultGitRunner(
+  args: string[],
+  cwd: string,
+  options?: { stdin?: string; signal?: AbortSignal },
+): Promise<GitCommandResult> {
+  return new Promise((resolve) => {
+    const child = execFile(
+      resolveGitExecutable(),
+      stripGitPrefix(args),
+      {
+        cwd,
+        maxBuffer: 12 * 1024 * 1024,
+        ...(options?.signal ? { signal: options.signal } : {}),
+      },
+      (error, stdout, stderr) => {
+        const failed = error as (NodeJS.ErrnoException & { code?: number }) | null;
+        resolve({
+          exitCode: failed ? (typeof failed.code === "number" ? failed.code : 1) : 0,
+          stdout: String(stdout ?? ""),
+          stderr: String(stderr || failed?.message || ""),
+        });
+      },
+    );
+    child.stdin?.end(options?.stdin);
+  });
 }
 
 async function runGitOk(run: GitRunner, cwd: string, args: string[]): Promise<string> {
@@ -308,7 +328,7 @@ export async function checkGhAvailability(): Promise<GhAvailability> {
 export async function getGitWorkingTreeStatus(
   workspacePath: string,
   run: GitRunner = defaultGitRunner,
-  options: { fetchIfStale?: boolean } = {},
+  options: { fetchIfStale?: boolean; readSummary?: () => Promise<WorkspaceDiffResult> } = {},
 ): Promise<GitWorkingTreeStatus> {
   const resolvedPath = path.resolve(workspacePath);
   const gh = await checkGhAvailability();
@@ -349,13 +369,22 @@ export async function getGitWorkingTreeStatus(
         ? [branch]
         : [];
 
-  const status = await run(["git", "status", "--short"], resolvedPath);
-  const dirtyFileCount =
-    status.exitCode === 0 ? status.stdout.split("\n").filter((line) => line.trim()).length : 0;
-
-  const numstat = await run(["git", "diff", "--numstat", "HEAD"], resolvedPath);
-  const { insertions, deletions } =
-    numstat.exitCode === 0 ? parseNumstat(numstat.stdout) : { insertions: 0, deletions: 0 };
+  let dirtyFileCount: number;
+  let insertions: number;
+  let deletions: number;
+  if (options.readSummary) {
+    const summary = await options.readSummary();
+    dirtyFileCount = summary.fileCount;
+    insertions = summary.totalAdditions;
+    deletions = summary.totalDeletions;
+  } else {
+    const status = await run(["git", "status", "--short"], resolvedPath);
+    dirtyFileCount =
+      status.exitCode === 0 ? status.stdout.split("\n").filter((line) => line.trim()).length : 0;
+    const numstat = await run(["git", "diff", "--numstat", "HEAD"], resolvedPath);
+    ({ insertions, deletions } =
+      numstat.exitCode === 0 ? parseNumstat(numstat.stdout) : { insertions: 0, deletions: 0 });
+  }
 
   let aheadCount = 0;
   let behindCount = 0;
@@ -566,6 +595,9 @@ export async function getWorkspaceDiff(
   run: GitRunner = defaultGitRunner,
   options: { includeContents?: boolean; includePatch?: boolean } = {},
 ): Promise<WorkspaceDiffResult> {
+  if (options.includeContents === false && options.includePatch === false) {
+    return getWorkspaceDiffSummary(workspacePath, run);
+  }
   const includeContents = options.includeContents !== false;
   const includePatch = options.includePatch !== false;
   const cwd = path.resolve(workspacePath);
@@ -606,7 +638,7 @@ export async function getWorkspaceDiff(
 
   const fullPatch = patchParts.join("\n");
   const truncated = truncatePatch(fullPatch, COMMIT_DIFF_MAX_CHARS);
-  const summary = parseUnifiedDiffStats(truncated.text);
+  const summary = parseUnifiedDiffStats(fullPatch);
   const files = await Promise.all(
     summary.files.map(async (file) => {
       const contents = includeContents
@@ -643,7 +675,7 @@ export async function getWorkspaceDiff(
 }
 
 function normalizeWorkspaceDiffPath(filePath: string): string {
-  return filePath.trim().replace(/\\/g, "/");
+  return path.sep === "\\" ? filePath.replace(/\\/g, "/") : filePath;
 }
 
 function inferDiffStatusFromPatch(patch: string, isUntracked: boolean): WorkspaceDiffFileStatus {
@@ -720,10 +752,14 @@ export async function getWorkspaceFileDiff(
   workspacePath: string,
   filePath: string,
   run: GitRunner = defaultGitRunner,
+  options: {
+    context?: WorkspaceDiffContext;
+    file?: import("../shared/ipc").WorkspaceDiffResult["files"][number];
+  } = {},
 ): Promise<WorkspaceFileDiffResult> {
   const cwd = path.resolve(workspacePath);
   const target = normalizeWorkspaceDiffPath(filePath);
-  if (!target) {
+  if (!target.trim()) {
     throw new Error("File path is required.");
   }
   if (!isWorkspaceRelativePath(cwd, target)) {
@@ -740,35 +776,59 @@ export async function getWorkspaceFileDiff(
     binary: false,
   };
 
-  const revParse = await run(["git", "rev-parse", "--show-toplevel"], cwd);
+  const revParse = options.context
+    ? { exitCode: 0, stdout: options.context.root, stderr: "" }
+    : await run(["git", "rev-parse", "--show-toplevel"], cwd);
   if (revParse.exitCode !== 0) {
     return empty;
   }
   const repoRoot = revParse.stdout.trim() || cwd;
 
-  const untracked = await run(["git", "ls-files", "--others", "--exclude-standard", "--", target], cwd);
+  const untracked = options.file
+    ? { exitCode: 0, stdout: options.file.status === "untracked" ? target : "", stderr: "" }
+    : await run(["git", "ls-files", "--others", "--exclude-standard", "-z", "--", target], cwd);
+  if (untracked.exitCode !== 0) throw new Error(untracked.stderr || "Could not inspect Git file status");
   const isUntracked =
     untracked.exitCode === 0 &&
     untracked.stdout
-      .trim()
-      .split("\n")
+      .split("\0")
       .map((line) => normalizeWorkspaceDiffPath(line))
       .filter(Boolean)
       .includes(target);
 
   let rawPatch = "";
-  if (isUntracked) {
+  if (isUntracked || options.context?.hasHead === false) {
     const fileDiff = await run(["git", "diff", "--no-index", "--", "/dev/null", target], cwd);
+    if (fileDiff.exitCode !== 0 && !(fileDiff.exitCode === 1 && fileDiff.stdout.trim())) {
+      throw new Error(fileDiff.stderr || "Could not read untracked file diff");
+    }
     rawPatch = fileDiff.stdout.trim() ? fileDiff.stdout : "";
   } else {
-    const fileDiff = await run(["git", "diff", "HEAD", "--", target], cwd);
+    const fileDiff = await run(
+      options.context
+        ? [
+            "git",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--relative",
+            "HEAD",
+            "--",
+            ...[options.file?.previousPath, target]
+              .filter((entry): entry is string => entry !== undefined)
+              .map((entry) => `:(literal)${entry}`),
+          ]
+        : ["git", "diff", "HEAD", "--", target],
+      cwd,
+    );
+    if (fileDiff.exitCode !== 0) throw new Error(fileDiff.stderr || "Could not read file diff");
     if (fileDiff.exitCode === 0 && fileDiff.stdout.trim()) {
       rawPatch = fileDiff.stdout;
     }
   }
 
-  const truncated = truncatePatch(rawPatch, COMMIT_DIFF_MAX_CHARS);
-  const summary = parseUnifiedDiffStats(truncated.text);
+  const truncated = truncatePatch(rawPatch, 2_000_000);
+  const summary = parseUnifiedDiffStats(rawPatch);
   const fileStats =
     summary.files.find((file) => normalizeWorkspaceDiffPath(file.path) === target) ?? summary.files[0];
   const binary = isBinaryPatch(rawPatch);

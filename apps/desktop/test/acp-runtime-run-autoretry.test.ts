@@ -94,11 +94,13 @@ function terminalEvent(
 
 /** Fake ACP driver: replays the given terminals per run; records dispose calls. */
 function makeFakeDriver(terminals: FakeTerminalPayload[]): AcpAgentDriver {
-  const state = { runs: 0, disposed: 0 };
+  const state = { runs: 0, disposed: 0, prompts: [] as string[], userPromptsForPlan: [] as string[] };
   const fake = {
-    run(input: { threadId: string; signal?: AbortSignal }): AsyncGenerator<SdkRunEventLike, void, unknown> {
+    run(input: { threadId: string; signal?: AbortSignal; prompt: string; userPromptForPlan: string }): AsyncGenerator<SdkRunEventLike, void, unknown> {
       const index = state.runs;
       state.runs += 1;
+      state.prompts.push(input.prompt);
+      state.userPromptsForPlan.push(input.userPromptForPlan);
       const payload: SdkRunEventLike["payload"] = input.signal?.aborted
         ? { status: "cancelled", reason: "cancelled by user" }
         : (terminals[Math.min(index, terminals.length - 1)] ?? { status: "completed" });
@@ -190,6 +192,24 @@ function makeInput(overrides: Partial<AcpThreadStartRunInput> = {}): AcpThreadSt
     ...overrides,
   };
 }
+
+test("ACP receives the prepared MCP directory before the resolved user prompt", async () => {
+  const driver = makeFakeDriver([{ status: "completed" }]);
+  const calls: Calls = { runOnce: 0, retryIndices: [], notify: [], markInterrupted: [], discard: undefined, decision: undefined };
+  const deps = makeDeps(calls, driver);
+  let prepared = false;
+  deps.resolveAcpMcpServers = async () => { prepared = true; return []; };
+  deps.resolveAcpSystemPromptAppend = ({ threadId }) => {
+    expect(prepared).toBe(true);
+    expect(threadId).toBe("t1");
+    return "External MCP: database — query records";
+  };
+  deps.resolvePromptImagesForMainContext = async () => "resolved user prompt";
+  await startAcpThreadRunWithDriver(makeInput(), deps, driver);
+  const state = (driver as unknown as { state: { prompts: string[]; userPromptsForPlan: string[] } }).state;
+  expect(state.prompts).toEqual(["External MCP: database — query records\n\nresolved user prompt"]);
+  expect(state.userPromptsForPlan).toEqual(["hello"]);
+});
 
 test("auto-retries once on unstarted keepalive failure, then completes", async () => {
   const driver = makeFakeDriver([

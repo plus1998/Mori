@@ -13,8 +13,9 @@ import { resolveActivityAgentId, shouldOmitAcpRootActivityAgentId } from "./acti
 import type { AgentLifecycleService } from "./agent-lifecycle-service";
 import type { ContextLifecycleService } from "./context-lifecycle-service";
 import type { ConversationStore } from "./conversation-store";
+import { hasStructuredThreadEventExtras, resolveEmitThreadEventMessage } from "./emit-thread-event-message";
 import { reconcileSdkAgentTerminalEvent } from "./sdk-agent-terminal-reconciliation";
-import { SdkStreamActivityBridge } from "./sdk-stream-activity";
+import { isSdkToolInputPlaceholder, SdkStreamActivityBridge } from "./sdk-stream-activity";
 import { getThreadSubagentLaunchRegistry } from "./subagent-launch-registry-store";
 import type { SubagentMetricsRegistry } from "./subagent-metrics-registry";
 import {
@@ -150,12 +151,20 @@ export function createSdkStreamActivityIngestion(
   ) => {
     const { text: normalizedMessage } = repairActivityText(message);
     const trimmed = normalizedMessage.trim();
-    const isThreadStatusEvent = type.startsWith("thread.");
-    const allowEmptyStream = stream && trimmed.length === 0;
-    if (!trimmed && !allowEmptyStream && !isThreadStatusEvent) {
+    // The same rule the live `emitThreadEvent` uses, so a replayed run records the rows the live
+    // run would have: the target of a Codex write reaches the Feed through an event that has
+    // nothing but metadata to say.
+    const messageDecision = resolveEmitThreadEventMessage({
+      type,
+      message: trimmed,
+      stream,
+      hasStructuredExtras: hasStructuredThreadEventExtras(extras),
+      hasPlan: Boolean(extras?.metadata?.plan),
+    });
+    if (messageDecision.drop) {
       return;
     }
-    const displayMessage = trimmed || (isThreadStatusEvent ? "状态已更新" : "");
+    const displayMessage = messageDecision.persistedMessage;
     persister.persistFromLiveEvent({
       threadId,
       type,
@@ -476,7 +485,10 @@ export function createSdkStreamActivityIngestion(
 
     if (
       (event.type === "tool.started" || event.type === "tool.completed" || event.type === "tool.failed") &&
-      isRecord(event.payload)
+      isRecord(event.payload) &&
+      // A call whose arguments are still being written is announced by the bridge as
+      // `tool.writing`; it is not a call yet, so nothing may register it as one.
+      !(event.type === "tool.started" && isSdkToolInputPlaceholder(event.payload))
     ) {
       if (event.type === "tool.started") {
         deps.onBrowserToolStarted?.({ threadId, payload: event.payload });

@@ -42,9 +42,8 @@ export function isWebSearchApprovalToolName(toolName: string | undefined): boole
 
 export function buildIntegratedWebSearchPromptAppend(providerLabel: string): string {
   return [
-    "Web search for this session uses Eco Integrated search.",
-    buildEcoMcpHubToolUsage({ server: ECO_WEB_SEARCH_MCP_SERVER, tool: ECO_WEB_SEARCH_TOOL }),
-    `When the direct tool \`${ECO_WEB_SEARCH_FULL_TOOL}\` is explicitly listed, call it with a \`query\` string (provider: ${providerLabel}).`,
-    "Do not use the built-in provider-native WebSearch / web_search tool.",
-  ].join(" ");
+    "Integrated web search (Eco): search public webpages for current information and reference sources.",
+    buildEcoMcpHubToolUsage({ server: ECO_WEB_SEARCH_MCP_SERVER }),
+    `Active search provider: ${providerLabel}. Use this integration for web searches in this conversation.`,
+  ].join("\n");
 }

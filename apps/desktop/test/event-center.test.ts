@@ -161,7 +161,7 @@ test("publishes committed conversation effects as durable-sync hints", () => {
   expect(seen).toHaveLength(1);
 });
 
-test("electron sink preserves legacy desktop event channels", () => {
+test("electron sink routes workspace Git updates independently of thread events", () => {
   const center = new DesktopEventCenter({ now: fixedNow, idPrefix: "test_evt" });
   const sent: Array<{ channel: string; payload: unknown }> = [];
   center.subscribe(
@@ -189,7 +189,7 @@ test("electron sink preserves legacy desktop event channels", () => {
     payload: "/repo/app",
   });
   expect(sent[2]).toEqual({
-    channel: IPC_CHANNELS.threadEventsSubscribe,
+    channel: IPC_CHANNELS.gitStatusChanged,
     payload: {
       workspacePath: "/repo/app",
       dirtyFileCount: 2,
@@ -201,6 +201,9 @@ test("electron sink preserves legacy desktop event channels", () => {
     channel: IPC_CHANNELS.threadEventsSubscribe,
     payload: makeThreadEvent({ type: "thread.completed", message: "done" }),
   });
+  center.publishGitDiffChanged({ workspacePath: "/repo/app", revision: 2, changedPaths: ["file.ts"] });
+  expect(sent[4]).toEqual({ channel: IPC_CHANNELS.gitDiffChanged,
+    payload: { workspacePath: "/repo/app", revision: 2, changedPaths: ["file.ts"] } });
 });
 
 test("handles JSON-RPC invoke requests through registered desktop commands", async () => {

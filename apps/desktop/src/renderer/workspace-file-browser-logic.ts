@@ -139,6 +139,14 @@ export function ancestorDirectories(workspacePath: string, filePath: string): st
   return segments.map((_, index) => joinWorkspacePath(root, ...segments.slice(0, index + 1)));
 }
 
+/**
+ * Directories a manual refresh must re-read: the workspace root first, then every
+ * expanded directory exactly once (the root is never duplicated).
+ */
+export function collectRefreshDirectories(workspacePath: string, expandedItems: string[]): string[] {
+  return [workspacePath, ...new Set(expandedItems.filter((item) => item !== workspacePath))];
+}
+
 export function mergeWorkspaceEntries(
   items: Record<string, WorkspaceTreeItem>,
   directoryPath: string,

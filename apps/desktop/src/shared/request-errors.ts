@@ -15,4 +15,4 @@ export function isQuotaOrRateLimitFailure(reason: string): boolean {
 }
 
 /** @deprecated Prefer `isAcpProviderExhaustionMessage` from `@eco/runtime` — kept as a desktop alias. */
-export { isAcpProviderExhaustionMessage as isRetriableProviderExhaustionMessage } from "@eco/runtime";
+export { isAcpProviderExhaustionMessage as isRetriableProviderExhaustionMessage } from "@eco/runtime/acp-provider-exhaustion";

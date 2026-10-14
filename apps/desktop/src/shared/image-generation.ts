@@ -167,15 +167,12 @@ export function buildImageGenerationPromptAppend(input: {
       : "Image-to-image is enabled: pass input_images (1..16 absolute or workspace-relative PNG/JPEG/WebP paths) with the edit prompt."
     : "Image-to-image is disabled on this profile; do not pass input_images.";
   return [
-    "Built-in Creative Drawing (Eco) is enabled for this conversation.",
-    "Use only Eco's Creative Drawing tool; do not use the built-in imagegen Skill or another image tool.",
-    buildEcoMcpHubToolUsage({ server: ECO_IMAGE_GENERATION_MCP_SERVER, tool: ECO_IMAGE_GENERATION_TOOL }),
-    `When the direct tool \`${ECO_IMAGE_GENERATION_FULL_TOOL}\` is explicitly listed, use it.`,
+    "Built-in Creative Drawing (Eco): generate illustrations and visual assets; edit reference images when the active profile supports image-to-image. Use this integration for image generation and editing.",
+    buildEcoMcpHubToolUsage({ server: ECO_IMAGE_GENERATION_MCP_SERVER }),
     `Active profile: ${input.profileName}; provider=${input.provider}; model=${input.model}.`,
     providerParameters,
     imageToImage,
-    "Every invocation requires user approval. Never change provider, model, size, quality, count, or aspect ratio after an error unless the user decides.",
-    "The tool returns absolute and workspace-relative file paths. Use those paths for subsequent file operations.",
+    "Eco handles approval for every drawing call. After an error, changes to provider, model, size, quality, count or aspect ratio require the user's decision.",
   ].join("\n");
 }
 

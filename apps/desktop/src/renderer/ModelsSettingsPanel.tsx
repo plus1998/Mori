@@ -29,6 +29,7 @@ import { requestPathPlaceholderForApiCompat } from "../shared/api-compat";
 import type { CenterServerSyncDomain, CenterServerSyncDomainResult } from "../shared/center-server";
 import type {
   AuxiliaryModelSelection,
+  ApprovalModelSelection,
   CandidateModelView,
   CommitModelOptionView,
   McpServerConfigView,
@@ -77,7 +78,12 @@ import { SettingsSyncControl } from "./SettingsSyncControl";
 import { SubagentSettingsSection } from "./SubagentSettingsSection";
 import { ToolCapabilityPanel } from "./ToolCapabilityPanel";
 
-export type ModelsSettingsTab = "subagents" | "providers" | "compositionParts" | "openaiAccounts" | "chatgptAccounts";
+export type ModelsSettingsTab =
+  | "subagents"
+  | "providers"
+  | "compositionParts"
+  | "openaiAccounts"
+  | "chatgptAccounts";
 
 type RuntimeConfigTab = "defaults" | "mainConfig" | "prompt" | "orchestration";
 
@@ -98,6 +104,10 @@ interface ModelsSettingsPanelProps {
   defaultAuxiliaryModel?: AuxiliaryModelSelection | undefined;
   onDefaultAuxiliaryModelChange?:
     | ((selection: AuxiliaryModelSelection | undefined) => void | Promise<void>)
+    | undefined;
+  defaultApprovalModel?: ApprovalModelSelection | undefined;
+  onDefaultApprovalModelChange?:
+    | ((selection: ApprovalModelSelection | undefined) => void | Promise<void>)
     | undefined;
   defaultVisionModel?: VisionModelSelection | undefined;
   onDefaultVisionModelChange?:
@@ -139,6 +149,9 @@ function modelsRequestSignature(target: ProviderConfigInput): string {
 }
 
 function providerProtocolPresentation(provider: Pick<ProviderConfigView, "apiCompat">) {
+  if (provider.apiCompat === "system_one") {
+    return { label: "SystemOne", iconSrc: "./provider-icons/system-one.png" };
+  }
   if (provider.apiCompat === "anthropic") {
     return { label: "Anthropic API", iconSrc: "./provider-icons/claude.ico" };
   }
@@ -152,6 +165,7 @@ function providerProtocolPresentation(provider: Pick<ProviderConfigView, "apiCom
 }
 
 const OFFICIAL_PROVIDER_HOSTS: Record<string, { label: string; iconSrc: string }> = {
+  "api.typesafe.ai": { label: "TypeSafe (Jev)", iconSrc: "./provider-icons/system-one.png" },
   "api.openai.com": { label: "OpenAI", iconSrc: "./provider-icons/openai.svg" },
   "api.anthropic.com": { label: "Anthropic", iconSrc: "./provider-icons/claude.ico" },
   "api.deepseek.com": { label: "DeepSeek", iconSrc: "./provider-icons/deepseek.ico" },
@@ -199,6 +213,8 @@ export function ModelsSettingsPanel({
   onDefaultOrchestrationSelectionChange,
   defaultAuxiliaryModel,
   onDefaultAuxiliaryModelChange,
+  defaultApprovalModel,
+  onDefaultApprovalModelChange,
   defaultVisionModel,
   onDefaultVisionModelChange,
   onSavingChange,
@@ -280,6 +296,13 @@ export function ModelsSettingsPanel({
     () => createCommitModelPricingExtra(auxiliaryModelOptions),
     [auxiliaryModelOptions],
   );
+  const [approvalModelOptions, setApprovalModelOptions] = useState<CommitModelOptionView[]>([]);
+  const [approvalModelsLoading, setApprovalModelsLoading] = useState(false);
+  const [approvalModelsError, setApprovalModelsError] = useState<string>();
+  const approvalModelPricingExtra = useMemo(
+    () => createCommitModelPricingExtra(approvalModelOptions),
+    [approvalModelOptions],
+  );
 
   useEffect(() => {
     setDefaultOrchestrationDraft(
@@ -345,7 +368,40 @@ export function ModelsSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [auxiliaryModelLookupId]);
+  }, [auxiliaryModelLookupId, settings.providers]);
+
+  useEffect(() => {
+    if (!window.eco?.listApprovalModelOptions) {
+      setApprovalModelOptions([]);
+      setApprovalModelsLoading(false);
+      setApprovalModelsError(undefined);
+      return;
+    }
+    let cancelled = false;
+    setApprovalModelsLoading(true);
+    setApprovalModelsError(undefined);
+    void window.eco
+      .listApprovalModelOptions(auxiliaryModelLookupId ? { mainAgentConfigId: auxiliaryModelLookupId } : {})
+      .then((result) => {
+        if (!cancelled) {
+          setApprovalModelOptions(result.options);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setApprovalModelOptions([]);
+          setApprovalModelsError(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setApprovalModelsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auxiliaryModelLookupId, settings.providers]);
 
   const selectDefaultAuxiliaryModel = useCallback(
     (selection: AuxiliaryModelSelection | undefined) => {
@@ -354,6 +410,14 @@ export function ModelsSettingsPanel({
       });
     },
     [onDefaultAuxiliaryModelChange],
+  );
+  const selectDefaultApprovalModel = useCallback(
+    (selection: ApprovalModelSelection | undefined) => {
+      void Promise.resolve(onDefaultApprovalModelChange?.(selection)).catch((error) => {
+        setPanelError(error instanceof Error ? error.message : String(error));
+      });
+    },
+    [onDefaultApprovalModelChange],
   );
   const selectDefaultVisionModel = useCallback(
     (selection: VisionModelSelection | undefined) => {
@@ -851,7 +915,11 @@ export function ModelsSettingsPanel({
                 aria-label="搜索服务商"
                 onChange={(event) => setProviderSearchQuery(event.target.value)}
               />
-              {providerSearchQuery ? <button type="button" aria-label="清除搜索" onClick={() => setProviderSearchQuery("")}><X size={13} /></button> : null}
+              {providerSearchQuery ? (
+                <button type="button" aria-label="清除搜索" onClick={() => setProviderSearchQuery("")}>
+                  <X size={13} />
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -869,7 +937,11 @@ export function ModelsSettingsPanel({
                   <article key={provider.id} className={`provider-card ${provider.enabled ? "is-enabled" : "is-disabled"}`}>
                     <div className="provider-card-main">
                       <div className="provider-card-avatar">
-                        {brand.iconSrc ? <img src={brand.iconSrc} alt={brand.label} title={brand.label} /> : <Globe2 size={18} aria-label={brand.label} />}
+                        {brand.iconSrc ? (
+                          <img src={brand.iconSrc} alt={brand.label} title={brand.label} />
+                        ) : (
+                          <Globe2 size={18} aria-label={brand.label} />
+                        )}
                       </div>
                       <div className="provider-card-identity">
                         <strong title={provider.name}>{provider.name}</strong>
@@ -899,9 +971,7 @@ export function ModelsSettingsPanel({
         </section>
       )}
 
-      {activeTab === "openaiAccounts" && (
-        <LazyOpenAIAccountsPanel />
-      )}
+      {activeTab === "openaiAccounts" && <LazyOpenAIAccountsPanel />}
 
       {activeTab === "chatgptAccounts" && <ChatGPTSubscriptionAccountsPanel />}
 
@@ -1023,6 +1093,28 @@ export function ModelsSettingsPanel({
                       selectDefaultAuxiliaryModel(
                         selection ? toCandidateModelSelection(selection) : undefined,
                       )
+                    }
+                  />
+                </label>
+                <label className="settings-global-orchestration-row settings-global-orchestration-row-with-hint">
+                  <span className="settings-global-orchestration-label">
+                    {t("composer.route.approvalModel")}
+                    <span className="settings-global-orchestration-hint">
+                      {t("composer.route.approvalModelHint")}
+                    </span>
+                  </span>
+                  <ModelCascadeSelect
+                    value={toModelCascadeSelection(defaultApprovalModel)}
+                    options={mapCommitModelOptions(approvalModelOptions)}
+                    loading={approvalModelsLoading}
+                    error={approvalModelsError}
+                    disabled={busy}
+                    clearable
+                    hint={t("composer.route.approvalModelHint")}
+                    placeholder={t("composer.route.approvalModel")}
+                    renderExtra={approvalModelPricingExtra}
+                    onChange={(selection) =>
+                      selectDefaultApprovalModel(selection ? toCandidateModelSelection(selection) : undefined)
                     }
                   />
                 </label>
@@ -1260,6 +1352,7 @@ function ProviderEditorModal({
           { apiCompat: "anthropic", requestPath: "/anthropic" },
           { apiCompat: "openai_responses", requestPath: "/openai" },
           { apiCompat: "openai_chat_completions", requestPath: "/" },
+          { apiCompat: "system_one", requestPath: "" },
         ];
   const endpointDisabled = busy || endpointOptions.length <= 1;
 
@@ -1382,7 +1475,8 @@ function ProviderEditorModal({
                 <p className="mcp-field-hint">
                   这是系统自动管理的 ChatGPT 账号连接。请在“ChatGPT 账号”页完成登录；这里不填写 API Key。
                 </p>
-              ) : <label className="mcp-field">
+              ) : (
+                <label className="mcp-field">
                 <span className="models-provider-label-row">
                   <span className="mcp-field-label">{t("settings.models.provider.apiKey")}</span>
                   {activePreset ? (
@@ -1407,7 +1501,8 @@ function ProviderEditorModal({
                 {hasExistingApiKey && !(form.apiKey ?? "").trim() ? (
                   <span className="mcp-field-hint">{t("settings.models.provider.keepKey")}</span>
                 ) : null}
-              </label>}
+                </label>
+              )}
             </section>
 
             <section className="provider-form-section">
@@ -1417,7 +1512,8 @@ function ProviderEditorModal({
                   <div><span>官方 Responses API</span><strong>https://api.openai.com/v1/responses</strong></div>
                   <p>连接地址由系统固定管理。账号代理在 ChatGPT 账号页单独配置。</p>
                 </div>
-              ) : <>
+              ) : (
+                <>
                 <label className="mcp-field">
                   <span className="mcp-field-label">baseURL</span>
                   <input
@@ -1460,7 +1556,8 @@ function ProviderEditorModal({
                   />
                   <span className="mcp-field-hint">{t("settings.models.provider.versionHint")}</span>
                 </label>
-              </>}
+                </>
+              )}
             </section>
 
             <section className="provider-form-section provider-advanced-section">
@@ -1492,7 +1589,8 @@ function ProviderEditorModal({
                         <Network size={15} />
                         <span>ChatGPT 使用账号级代理。请到 ChatGPT 账号页为每个账号分别设置。</span>
                       </div>
-                    ) : <label className="mcp-field">
+                    ) : (
+                      <label className="mcp-field">
                         <span className="mcp-field-label">{t("settings.models.provider.upstreamProxy")}</span>
                         <input
                           className="mcp-field-input"
@@ -1506,7 +1604,8 @@ function ProviderEditorModal({
                         <span className="mcp-field-hint">
                           {t("settings.models.provider.upstreamProxyHint")}
                         </span>
-                      </label>}
+                      </label>
+                    )}
                     <label className="mcp-field">
                       <span className="mcp-field-label">{t("settings.models.provider.tokenCountMode")}</span>
                       <select

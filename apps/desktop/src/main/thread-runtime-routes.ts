@@ -95,7 +95,7 @@ export function roleRoutesFromRuntime(routes: readonly RuntimeRoute[]): RuntimeR
     role: route.role,
     providerId: route.provider.id,
     modelId: route.modelId,
-    apiCompat: route.apiCompat,
+    apiCompat: resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
     ...(route.modelsDevMapping && { modelsDevMapping: route.modelsDevMapping }),
     ...(route.manualSpec && { manualSpec: route.manualSpec }),
@@ -119,6 +119,7 @@ export function buildDriverRoutes(routes: readonly AnthropicProxyResolvedRoute[]
     },
     fallbacks: [],
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
+    ...(route.maxOutputTokens !== undefined && { maxOutputTokens: route.maxOutputTokens }),
   }));
 }
 
@@ -154,7 +155,7 @@ export function buildDriverRoutesFromRuntime(
       role: route.role,
       upstreamModelId: route.modelId,
       providerId: route.provider.id,
-      apiCompat: route.apiCompat,
+      apiCompat: resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
       primary: {
         id: `${route.role}:${route.provider.id}`,
         provider: "custom",

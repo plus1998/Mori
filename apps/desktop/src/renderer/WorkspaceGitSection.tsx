@@ -112,6 +112,11 @@ export function WorkspaceGitSection({
   const [changesLoading, setChangesLoading] = useState(false);
   const [changesError, setChangesError] = useState<string | undefined>();
   const [changesDiff, setChangesDiff] = useState<WorkspaceDiffResult | undefined>();
+  const [changesRevision, setChangesRevision] = useState(0);
+  const changesDiffRef = useRef<WorkspaceDiffResult | undefined>(undefined);
+  const changesRequestRef = useRef(0);
+  const reloadChangesDiffRef = useRef<() => Promise<void>>(async () => undefined);
+  changesDiffRef.current = changesDiff;
   const [selectedChangePath, setSelectedChangePath] = useState<string | undefined>();
   const [discardBusy, setDiscardBusy] = useState(false);
   const [remoteSyncOperation, setRemoteSyncOperation] = useState<"fetch" | "pull">();
@@ -268,17 +273,24 @@ export function WorkspaceGitSection({
     };
   }, [branchMenuOpen, closeBranchMenu]);
 
-  async function reloadChangesDiff(preferredPath?: string) {
+  async function reloadChangesDiff(preferredPath?: string, options?: { manual?: boolean }) {
     if (!workspacePath || !window.eco) {
       return;
     }
+    const requestId = ++changesRequestRef.current;
+    const currentWorkspace = workspacePath;
     setChangesLoading(true);
     onChangesDiffLoadingChange?.(true);
     setChangesError(undefined);
     onChangesDiffError?.(undefined);
     try {
-      const result = await window.eco.getWorkspaceDiff(workspacePath);
+      const result = await window.eco.getWorkspaceDiff(workspacePath, { refresh: options?.manual === true });
+      if (requestId !== changesRequestRef.current || latestWorkspacePathRef.current !== currentWorkspace) return;
       setChangesDiff(result);
+      if (options?.manual) {
+        // A manual refresh must also drop the cached per-file diffs.
+        setChangesRevision((current) => current + 1);
+      }
       const nextPath =
         preferredPath && result.files.some((file) => file.path === preferredPath)
           ? preferredPath
@@ -286,16 +298,31 @@ export function WorkspaceGitSection({
       setSelectedChangePath(nextPath);
       await onChangesDiffLoaded?.(result);
     } catch (caught) {
+      if (requestId !== changesRequestRef.current || latestWorkspacePathRef.current !== currentWorkspace) return;
       const message = caught instanceof Error ? caught.message : String(caught);
       setChangesError(message);
       onChangesDiffError?.(message);
-      setChangesDiff(undefined);
-      setSelectedChangePath(undefined);
+      if (!changesDiffRef.current) {
+        setChangesDiff(undefined);
+        setSelectedChangePath(undefined);
+      }
     } finally {
-      setChangesLoading(false);
-      onChangesDiffLoadingChange?.(false);
+      if (requestId === changesRequestRef.current && latestWorkspacePathRef.current === currentWorkspace) {
+        setChangesLoading(false);
+        onChangesDiffLoadingChange?.(false);
+      }
     }
   }
+  reloadChangesDiffRef.current = () => reloadChangesDiff(selectedChangePath);
+
+  useEffect(() => {
+    if (!workspacePath || !changesDrawerOpen || !window.eco?.onGitDiffChanged) return;
+    return window.eco.onGitDiffChanged((event) => {
+      if (event.workspacePath !== workspacePath) return;
+      if (event.error) { setChangesError(event.error); return; }
+      void reloadChangesDiffRef.current();
+    });
+  }, [workspacePath, changesDrawerOpen]);
 
   async function syncWorkspaceChangesState() {
     if (changesDrawerOpen) {
@@ -697,15 +724,18 @@ export function WorkspaceGitSection({
 
       <WorkspaceDiffDrawer
         open={changesDrawerOpen}
-        loading={changesLoading}
+        loading={changesLoading && !changesDiff}
+        refreshing={changesLoading}
         discardBusy={discardBusy}
         {...(changesError && { error: changesError })}
         {...(changesDiff && { diff: changesDiff })}
         {...(selectedChangePath && { selectedPath: selectedChangePath })}
         loadFileDiff={loadFileDiff}
+        revision={changesRevision}
         onSelectPath={setSelectedChangePath}
         onDiscardPath={(path) => void handleDiscardChange(path)}
         onDiscardAll={() => void handleDiscardAllChanges()}
+        onRefresh={() => void reloadChangesDiff(selectedChangePath, { manual: true })}
         onClose={closeChangesDrawer}
       />
 

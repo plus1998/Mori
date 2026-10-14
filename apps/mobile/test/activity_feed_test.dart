@@ -1681,7 +1681,7 @@ void main() {
   });
 
   test(
-    'buildActivityFeed presents raw thinking as ephemeral tips by default',
+    'buildActivityFeed presents raw thinking as ephemeral tips while running',
     () {
       ActivityFeedEntry buildThinking(ThreadRunProjectionTimelineItem item) {
         return _flattenFeed(
@@ -1691,7 +1691,7 @@ void main() {
             groupTurns: false,
             runProjection: ThreadRunProjectionSnapshot(
               threadId: 't1',
-              status: 'completed',
+              status: 'running',
               generatedAt: item.at,
               sourceEventCount: 1,
               agents: const [],
@@ -2530,6 +2530,161 @@ void main() {
       expect(feed[2].text, '可以打开Baidu.com吗');
       expect(feed[1].finalOutput?.text, '可以，内置浏览器能打开网页。');
       expect(feed[3].finalOutput?.text, '好的，我来打开百度。');
+    },
+  );
+
+  testWidgets(
+    'mid-turn prompts show one running heading and keep subsequent output visible',
+    (tester) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+
+      ThreadRunProjectionSnapshot snapshot({
+        required String status,
+        required bool initialOutput,
+        bool continuedOutput = true,
+      }) => ThreadRunProjectionSnapshot(
+        threadId: 'midturn',
+        status: status,
+        generatedAt: '2026-01-01T00:00:08.000Z',
+        sourceEventCount: 6,
+        agents: const [],
+        attempts: [
+          ThreadRunProjectionAttempt(
+            attemptId: 'attempt-midturn',
+            phase: 'execution',
+            retryIndex: 0,
+            status: status,
+            startedAt: '2026-01-01T00:00:01.000Z',
+            endedAt: status == 'running' ? null : '2026-01-01T00:00:08.000Z',
+          ),
+        ],
+        timeline: [
+          const ThreadRunProjectionTimelineItem(
+            id: 'user-first',
+            sequence: 1,
+            eventType: 'thread.status',
+            scope: 'main',
+            role: 'user',
+            text: '开始检查',
+            at: '2026-01-01T00:00:00.000Z',
+            metadata: {'liveType': 'thread.user_prompt'},
+          ),
+          if (initialOutput)
+            const ThreadRunProjectionTimelineItem(
+              id: 'output-first',
+              sequence: 3,
+              eventType: 'message.final',
+              scope: 'main',
+              role: 'planner',
+              runAttemptId: 'attempt-midturn',
+              text: '先检查代码。',
+              at: '2026-01-01T00:00:02.000Z',
+            ),
+          const ThreadRunProjectionTimelineItem(
+            id: 'user-mid',
+            sequence: 4,
+            eventType: 'thread.status',
+            scope: 'main',
+            role: 'user',
+            text: '补充第一条要求',
+            at: '2026-01-01T00:00:03.000Z',
+            metadata: {'liveType': 'thread.user_prompt'},
+          ),
+          if (continuedOutput)
+            const ThreadRunProjectionTimelineItem(
+              id: 'output-mid',
+              sequence: 5,
+              eventType: 'message.final',
+              scope: 'main',
+              role: 'planner',
+              runAttemptId: 'attempt-midturn',
+              text: '继续检查第一条要求。',
+              at: '2026-01-01T00:00:04.000Z',
+            ),
+          const ThreadRunProjectionTimelineItem(
+            id: 'user-mid-2',
+            sequence: 6,
+            eventType: 'thread.status',
+            scope: 'main',
+            role: 'user',
+            text: '补充第二条要求',
+            at: '2026-01-01T00:00:05.000Z',
+            metadata: {'liveType': 'thread.user_prompt'},
+          ),
+          if (continuedOutput)
+            const ThreadRunProjectionTimelineItem(
+              id: 'output-mid-2',
+              sequence: 7,
+              eventType: 'message.final',
+              scope: 'main',
+              role: 'planner',
+              runAttemptId: 'attempt-midturn',
+              text: '继续检查第二条要求。',
+              at: '2026-01-01T00:00:06.000Z',
+            ),
+        ],
+      );
+
+      Future<void> show(ThreadRunProjectionSnapshot projection) async {
+        final entries = buildActivityFeed(runProjection: projection);
+        await tester.pumpWidget(
+          _localizedMaterialApp(
+            theme: buildEcoDarkTheme(),
+            home: Scaffold(
+              body: ActivityFeedList(
+                entries: entries,
+                scrollController: controller,
+                shrinkWrap: true,
+              ),
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 200));
+      }
+
+      for (final initialOutput in [true, false]) {
+        await show(
+          snapshot(
+            status: 'running',
+            initialOutput: initialOutput,
+            continuedOutput: false,
+          ),
+        );
+        expect(find.textContaining('处理中'), findsOneWidget);
+
+        final running = snapshot(
+          status: 'running',
+          initialOutput: initialOutput,
+        );
+        final entries = buildActivityFeed(runProjection: running);
+        final turns = entries
+            .where((entry) => entry.kind == ActivityFeedKind.turn)
+            .toList();
+        expect(turns.map((entry) => entry.continuation), [false, true, true]);
+        expect(turns[1].processEntries.single.text, '继续检查第一条要求。');
+        expect(turns[2].processEntries.single.text, '继续检查第二条要求。');
+        expect(
+          entries.indexOf(turns[1]),
+          greaterThan(entries.indexWhere((entry) => entry.text == '补充第一条要求')),
+        );
+        expect(
+          entries.indexOf(turns[2]),
+          greaterThan(entries.indexWhere((entry) => entry.text == '补充第二条要求')),
+        );
+        await show(running);
+        expect(find.textContaining('处理中'), findsOneWidget);
+        expect(find.text('继续检查第一条要求。'), findsOneWidget);
+        expect(find.text('继续检查第二条要求。'), findsOneWidget);
+      }
+
+      for (final status in ['completed', 'cancelled', 'failed']) {
+        await show(snapshot(status: status, initialOutput: true));
+        expect(find.textContaining('处理中'), findsNothing);
+        final heading = status == 'completed' ? '已处理' : '停止了';
+        expect(find.textContaining(heading), findsNWidgets(3));
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
     },
   );
 

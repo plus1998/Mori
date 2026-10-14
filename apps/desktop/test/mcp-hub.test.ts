@@ -1,6 +1,68 @@
 import { expect, test } from "bun:test";
 import { McpHub } from "../src/main/mcp-hub";
 
+test("MCP service directory shares search permissions, omits schemas and bypasses search result limits", async () => {
+  const listed: string[] = [];
+  const hub = new McpHub();
+  for (const server of ["database", "disabled"]) {
+    hub.registerServer({
+      name: server,
+      listTools: async () => {
+        listed.push(server);
+        return { tools: [
+          ...Array.from({ length: 240 }, (_, index) => ({ name: `read_${index}`, description: `Read ${index}`, inputSchema: { secret: true } })),
+          { name: "write", description: "Write documents" },
+        ] };
+      },
+      callTool: async () => ({}),
+    });
+  }
+  hub.bindSession({ sessionId: "parent", token: "parent", allowedServers: ["database"], allowedTools: ["database:read_*"] });
+  hub.bindSession({ sessionId: "child", token: "child", parentSessionId: "parent", allowedServers: ["database", "disabled"] });
+  hub.revokeTool({ token: "parent", toolId: "database:read_0" });
+  const directory = await hub.listServiceDirectory({ token: "child", servers: ["database", "disabled"] });
+  expect(listed).toEqual(["database"]);
+  expect(directory).toHaveLength(1);
+  expect(directory[0]?.tools).toHaveLength(239);
+  expect(directory[0]?.tools[0]).toEqual({ name: "database:read_1", description: "Read 1" });
+  expect(JSON.stringify(directory)).not.toContain("Write documents");
+  expect(JSON.stringify(directory)).not.toContain("inputSchema");
+  expect((await hub.searchTools({ token: "child", limit: 200 })).total).toBe(239);
+});
+
+test("MCP service directory exposes metadata failures and bounds hanging servers", async () => {
+  const hub = new McpHub();
+  hub.registerServer({ name: "healthy", listTools: async () => ({ tools: [{ name: "read" }] }), callTool: async () => ({}) });
+  hub.registerServer({ name: "offline", listTools: async () => { throw new Error("connection refused"); }, callTool: async () => ({}) });
+  hub.registerServer({ name: "hanging", listTools: async () => new Promise(() => {}), callTool: async () => ({}) });
+  hub.bindSession({ sessionId: "thread", token: "token" });
+  const directory = await hub.listServiceDirectory({ token: "token", servers: ["healthy", "offline", "hanging"], timeoutMs: 20 });
+  expect(directory.find((entry) => entry.server === "healthy")?.tools).toEqual([{ name: "healthy:read" }]);
+  expect(directory.find((entry) => entry.server === "offline")?.error).toBe("connection refused");
+  expect(directory.find((entry) => entry.server === "hanging")?.error).toBeTruthy();
+  const controller = new AbortController();
+  controller.abort(new Error("cancel discovery"));
+  await expect(hub.listServiceDirectory({ token: "token", servers: ["healthy"], signal: controller.signal })).rejects.toThrow("cancel discovery");
+});
+
+test("MCP service directory rechecks tool revocation after upstream discovery", async () => {
+  const hub = new McpHub();
+  let finish: (() => void) | undefined;
+  hub.registerServer({
+    name: "database",
+    listTools: async () => {
+      await new Promise<void>((resolve) => { finish = resolve; });
+      return { tools: [{ name: "read" }, { name: "write" }] };
+    },
+    callTool: async () => ({}),
+  });
+  hub.bindSession({ sessionId: "thread", token: "token", allowedServers: ["database"] });
+  const pending = hub.listServiceDirectory({ token: "token", servers: ["database"] });
+  hub.revokeTool({ token: "token", toolId: "database:write" });
+  finish!();
+  expect(await pending).toEqual([{ server: "database", tools: [{ name: "database:read" }] }]);
+});
+
 test("MCP Hub searches only the bound session's tools and dispatches by stable id", async () => {
   const calls: string[] = [];
   const hub = new McpHub();

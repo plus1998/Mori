@@ -1,4 +1,13 @@
-import { ChevronDown, ChevronRight, ExternalLink, FolderOpen, PanelLeft, RotateCcw, Search } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  FolderOpen,
+  PanelLeft,
+  RefreshCw,
+  RotateCcw,
+  Search,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MaterialFileIcon } from "./MaterialFileIcon";
@@ -8,6 +17,7 @@ import {
   ancestorDirectories,
   basename,
   buildWorkspaceRoot,
+  collectRefreshDirectories,
   mergeWorkspaceEntries,
   type WorkspaceEntry,
   type WorkspacePathSegment,
@@ -106,6 +116,7 @@ export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBro
   const [openMenuOpen, setOpenMenuOpen] = useState(false);
   const openMenuRef = useRef<HTMLDivElement | null>(null);
   const [treeVisible, setTreeVisible] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [associatedApps, setAssociatedApps] = useState<Array<{ name: string; bundleId: string; iconBase64?: string; isDefault?: boolean }>>([]);
 
   const defaultApp = associatedApps.find((app) => app.isDefault) ?? associatedApps[0];
@@ -277,6 +288,45 @@ export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBro
     void readFile(activeTarget.path, requestId);
   };
 
+  /** Reload expanded directories (keeping expansion) and re-read the open file. */
+  const refreshBrowser = useCallback(async () => {
+    if (!api) {
+      setTreeError(t("fileBrowser.apiUnavailable"));
+      return;
+    }
+    if (!confirmDiscardIfDirty()) return;
+    setRefreshing(true);
+    try {
+      // Every directory is independent (mergeWorkspaceEntries writes one directory
+      // per call), so reload them in parallel and keep going when one fails:
+      // loadDirectory already surfaces the first failure through treeError.
+      await Promise.all(collectRefreshDirectories(workspacePath, expandedItems).map(loadDirectory));
+      if (activeTarget && !activeTarget.restricted) {
+        const requestId = ++requestRef.current;
+        setActiveTarget({ ...activeTarget, requestId });
+        setDirty(false);
+        // Awaited so the refresh icon keeps spinning until the open file is back on screen.
+        await readFile(activeTarget.path, requestId);
+        void fetchAssociatedApps(activeTarget.path);
+      }
+    } catch {
+      // loadDirectory catches expected IPC failures; this keeps an unexpected failure local.
+      setTreeError(t("fileBrowser.directoryLoadFailed"));
+    } finally {
+      setRefreshing(false);
+    }
+  }, [
+    activeTarget,
+    api,
+    confirmDiscardIfDirty,
+    expandedItems,
+    fetchAssociatedApps,
+    loadDirectory,
+    readFile,
+    t,
+    workspacePath,
+  ]);
+
   const visibleItems = useMemo(
     () => filterWorkspaceItems(items, workspacePath, treeQuery),
     [items, treeQuery, workspacePath],
@@ -322,27 +372,39 @@ export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBro
     <div className={treeVisible ? "workspace-file-browser" : "workspace-file-browser is-tree-hidden"}>
       {treeVisible ? (
       <div className="workspace-file-browser__tree">
-        <label className="workspace-file-browser__search">
-          <Search size={15} aria-hidden />
-          <input
-            type="search"
-            value={treeQuery}
-            placeholder={t("fileBrowser.filterFiles")}
-            aria-label={t("fileBrowser.filterFiles")}
-            onChange={(event) => setTreeQuery(event.target.value)}
-          />
-          {treeQuery ? (
-            <button
-              type="button"
-              className="workspace-file-browser__search-clear"
-              aria-label={t("common.clear")}
-              title={t("common.clear")}
-              onClick={() => setTreeQuery("")}
-            >
-              ×
-            </button>
-          ) : null}
-        </label>
+        <div className="workspace-file-browser__toolbar" aria-busy={refreshing}>
+          <label className="workspace-file-browser__search">
+            <Search size={15} aria-hidden />
+            <input
+              type="search"
+              value={treeQuery}
+              placeholder={t("fileBrowser.filterFiles")}
+              aria-label={t("fileBrowser.filterFiles")}
+              onChange={(event) => setTreeQuery(event.target.value)}
+            />
+            {treeQuery ? (
+              <button
+                type="button"
+                className="workspace-file-browser__search-clear"
+                aria-label={t("common.clear")}
+                title={t("common.clear")}
+                onClick={() => setTreeQuery("")}
+              >
+                ×
+              </button>
+            ) : null}
+          </label>
+          <button
+            type="button"
+            className="workspace-file-browser__refresh"
+            aria-label={t("common.refresh")}
+            title={t("common.refresh")}
+            disabled={refreshing}
+            onClick={() => void refreshBrowser()}
+          >
+            <RefreshCw size={15} className={refreshing ? "spinning" : undefined} aria-hidden />
+          </button>
+        </div>
         {treeError ? (
           <div className="workspace-file-browser__tree-error" role="status">
             <span>

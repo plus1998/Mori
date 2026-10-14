@@ -281,7 +281,7 @@ function imageViewToolDefinition(): McpToolDefinition {
   return {
     name: ECO_IMAGE_VIEW_TOOL,
     description:
-      "Inspect an image with Eco's vision model using a caller-provided prompt. Provide either an absolute local path or a durable ref. The returned text is passed through without a prescribed response format.",
+      "Inspect an image with Eco's vision model using a caller-provided prompt. Provide either an absolute local path or a durable ref. The returned text is passed through without a prescribed response format. Keep image bytes out of the main prompt.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

@@ -12,6 +12,15 @@ export function replaceOpenTaskPanelTab<T extends string>(tabs: T[], sourceTabId
   return tabs.map((openTabId) => (openTabId === sourceTabId ? tabId : openTabId));
 }
 
+/**
+ * Reopening the task panel must not spawn a tab — it shows the tab the human left off on.
+ * `activeTab` survives the collapse, so prefer it; the home sentinel is never in `tabs`,
+ * so fall back to the most recently opened tab. Only an empty panel has nothing to restore.
+ */
+export function resolveTaskPanelReopenTab<T extends string>(tabs: readonly T[], activeTab: T): T | undefined {
+  return tabs.includes(activeTab) ? activeTab : tabs.at(-1);
+}
+
 export function removeOpenTaskPanelTab<T extends string>(
   tabs: readonly T[],
   tabId: T,

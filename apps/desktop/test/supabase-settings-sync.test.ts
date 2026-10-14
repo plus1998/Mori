@@ -1474,6 +1474,51 @@ test("normalizeEcoSyncedProxyBridgeSettings preserves integrated web search", as
   });
 });
 
+test("per-core User-Agents survive the synced proxyBridge payload", async () => {
+  const {
+    normalizeEcoSyncedProxyBridgeSettings,
+    isEcoSyncedSettingsPayload,
+    isSparseEcoSyncedSettings,
+    emptyEcoSyncedSettingsPayload,
+  } = await import("../src/main/supabase-settings-sync");
+
+  expect(
+    normalizeEcoSyncedProxyBridgeSettings({
+      upstreamUserAgents: { codex: "  codex/1  ", claude: "", pi: "pi/1", cursor: "ignored" },
+    }),
+  ).toEqual({ upstreamUserAgents: { codex: "codex/1", pi: "pi/1" } });
+
+  // A fully cleared per-core map is not a syncable change.
+  expect(normalizeEcoSyncedProxyBridgeSettings({ upstreamUserAgents: { codex: " ", pi: "" } })).toEqual({});
+
+  const payloadWith = (proxyBridge: unknown) => ({
+    ...emptyEcoSyncedSettingsPayload(),
+    proxyBridge,
+  });
+  expect(isEcoSyncedSettingsPayload(payloadWith({ upstreamUserAgents: { codex: "codex/1" } }))).toBe(true);
+  expect(isEcoSyncedSettingsPayload(payloadWith({ upstreamUserAgents: { codex: 1 } }))).toBe(false);
+  expect(isEcoSyncedSettingsPayload(payloadWith({ upstreamUserAgents: "nope" }))).toBe(false);
+
+  // Per-core only payloads are not sparse (they must be pushed).
+  expect(isSparseEcoSyncedSettings(payloadWith({ upstreamUserAgents: { pi: "pi/1" } }))).toBe(false);
+});
+
+test("domainPayloadEqual treats per-core User-Agent changes as a proxyBridge change", async () => {
+  const { domainPayloadEqual, emptyEcoSyncedSettingsPayload } = await import(
+    "../src/main/supabase-settings-sync"
+  );
+  const base = emptyEcoSyncedSettingsPayload();
+  const left = { ...base, proxyBridge: { upstreamUserAgents: { codex: "codex/1", pi: "pi/1" } } };
+  const sameReordered = {
+    ...base,
+    proxyBridge: { upstreamUserAgents: { pi: "pi/1", codex: "codex/1" } },
+  };
+  const changed = { ...base, proxyBridge: { upstreamUserAgents: { codex: "codex/2", pi: "pi/1" } } };
+
+  expect(domainPayloadEqual(left, sameReordered, "proxyBridge")).toBe(true);
+  expect(domainPayloadEqual(left, changed, "proxyBridge")).toBe(false);
+});
+
 test("domainPayloadEqual compares integrated web search under proxyBridge", async () => {
   const { domainPayloadEqual, emptyEcoSyncedSettingsPayload } = await import(
     "../src/main/supabase-settings-sync"

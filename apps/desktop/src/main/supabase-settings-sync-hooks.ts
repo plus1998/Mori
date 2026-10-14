@@ -13,17 +13,17 @@ import type {
 import type { AgentOrchestrationStore } from "./agent-orchestration-store";
 import type { AsrSettingsStore } from "./asr-settings-store";
 import { type GitSettingsStore, normalizeGitSettingsSnapshot } from "./git-settings-store";
-import {
-  type PersonalizationSettingsStore,
-  normalizePersonalizationSettingsSnapshot,
-} from "./personalization-settings-store";
 import type { ImageGenerationStore } from "./image-generation-store";
 import type { IntegratedWebSearchSettingsStore } from "./integrated-web-search-settings-store";
 import type { PackageScriptArgsStore } from "./package-script-args-store";
+import {
+  normalizePersonalizationSettingsSnapshot,
+  type PersonalizationSettingsStore,
+} from "./personalization-settings-store";
 import type { ProjectOrchestrationSettingsStore } from "./project-orchestration-settings-store";
 import type { ProviderStore } from "./provider-store";
-import { resolveOutboundProxyUrl } from "./proxy-bridge-settings-store";
 import type { ProxyBridgeSettingsStore } from "./proxy-bridge-settings-store";
+import { resolveOutboundProxyUrl, resolveUpstreamUserAgentOverrides } from "./proxy-bridge-settings-store";
 import type { SshBookmarkStore } from "./ssh-bookmark-store";
 import { sshBookmarkSecretKeyKey, sshBookmarkSecretPasswordKey } from "./ssh-bookmark-store";
 import {
@@ -100,6 +100,8 @@ function collectPayload(input: {
   const image = input.imageGenerationStore.getSettings();
   const orchestration = input.agentOrchestrationStore;
   const packageScriptOverrides = input.packageScriptArgsStore.getAllSnapshotSync();
+  const proxyBridge = input.proxyBridgeSettingsStore.get();
+  const upstreamUserAgents = resolveUpstreamUserAgentOverrides(proxyBridge);
 
   return {
     version: 1,
@@ -154,9 +156,8 @@ function collectPayload(input: {
       }),
     ),
     proxyBridge: {
-      ...(input.proxyBridgeSettingsStore.get().upstreamUserAgent
-        ? { upstreamUserAgent: input.proxyBridgeSettingsStore.get().upstreamUserAgent }
-        : {}),
+      ...(proxyBridge.upstreamUserAgent ? { upstreamUserAgent: proxyBridge.upstreamUserAgent } : {}),
+      ...(upstreamUserAgents ? { upstreamUserAgents } : {}),
       integratedWebSearch: {
         enabled: input.integratedWebSearchSettingsStore.get().enabled,
         provider: input.integratedWebSearchSettingsStore.get().provider,
@@ -336,8 +337,8 @@ async function applyPayload(
     applyProxyBridgeSettingsPayload(input, payload.proxyBridge);
   } else {
     const current = input.proxyBridgeSettingsStore.get();
-    if (current.upstreamUserAgent) {
-      const { upstreamUserAgent: _removed, ...rest } = current;
+    if (current.upstreamUserAgent || current.upstreamUserAgents) {
+      const { upstreamUserAgent: _removedUa, upstreamUserAgents: _removedPerCore, ...rest } = current;
       input.proxyBridgeSettingsStore.save(rest);
     }
   }
@@ -378,7 +379,9 @@ async function applyPayload(
     input.gitSettingsStore.save(normalizeGitSettingsSnapshot(payload.git));
   }
   if (payload.personalization !== undefined) {
-    input.personalizationSettingsStore.save(normalizePersonalizationSettingsSnapshot(payload.personalization));
+    input.personalizationSettingsStore.save(
+      normalizePersonalizationSettingsSnapshot(payload.personalization),
+    );
   }
   if (payload.packageScriptArgs !== undefined || payload.packageScriptPrefixes !== undefined) {
     // Older cloud snapshots have no prefixes key: keep the local ones.
@@ -404,6 +407,7 @@ function applyProxyBridgeSettingsPayload(
   input.proxyBridgeSettingsStore.save({
     ...(current.enabled === undefined ? {} : { enabled: current.enabled }),
     ...(proxyBridge.upstreamUserAgent ? { upstreamUserAgent: proxyBridge.upstreamUserAgent } : {}),
+    ...(proxyBridge.upstreamUserAgents ? { upstreamUserAgents: proxyBridge.upstreamUserAgents } : {}),
     ...(current.upstreamProxyUrl ? { upstreamProxyUrl: current.upstreamProxyUrl } : {}),
   });
   if (proxyBridge.integratedWebSearch) {

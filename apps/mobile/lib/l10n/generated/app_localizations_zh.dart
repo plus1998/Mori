@@ -126,6 +126,13 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get settingsMaxOutputDynamic => '动态计算';
+
+  @override
+  String get settingsMaxOutputDynamicCaption =>
+      '每次请求按实际窗口 − 本次完整输入 tokens − 1 计算，且不超过模型输出上限。输入计数遵循提供商设置；本地估算并非精确值。';
+
+  @override
   String get settingsMaxOutput => '最大输出';
 
   @override
@@ -147,7 +154,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsModels => '更多模型';
 
   @override
-  String get settingsModelsCaption => '新建会话的默认辅助模型与视觉模型';
+  String get settingsModelsCaption => '新建会话的默认辅助模型、审批模型与视觉模型';
 
   @override
   String get settingsAccount => '账户';
@@ -506,13 +513,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get approvalAutoReviewFailedTitle => '自动审批未通过';
 
   @override
-  String get approvalAutoReviewFailedHint => '请先阅读辅助模型给出的风险说明，再决定是否放行。';
+  String get approvalAutoReviewFailedHint => '请先阅读审批模型给出的风险说明，再决定是否放行。';
 
   @override
   String get approvalAutoReviewErrorTitle => '自动审批请求失败';
 
   @override
-  String get approvalAutoReviewErrorHint => '辅助模型未返回有效审批结果，已转人工审批。下方为原始错误信息。';
+  String get approvalAutoReviewErrorHint => '审批模型未返回有效审批结果，已转人工审批。下方为原始错误信息。';
 
   @override
   String get composerAddImage => '添加图片';
@@ -870,7 +877,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get bashReviewAuto => '替我审批';
 
   @override
-  String get bashReviewAutoDescription => '由辅助模型审批；检测到风险或审批失败时请求人工批准';
+  String get bashReviewAutoDescription => '由审批模型审批；检测到风险或审批失败时请求人工批准';
 
   @override
   String get bashReviewAllowAll => '完全访问';
@@ -2148,7 +2155,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerAuxiliaryModel => '辅助模型';
 
   @override
-  String get composerAuxiliaryModelHint => '用于标题生成、命令自动审批';
+  String get composerAuxiliaryModelHint => '用于标题生成、Git 提交信息';
 
   @override
   String get composerAuxiliaryModelManualFallback => '仍可发送；标题不会自动生成，审查将使用手动模式';
@@ -2178,10 +2185,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerCoreKind => '运行核心';
 
   @override
-  String get auxiliaryModelRequiredForAutoReview => '尚未配置辅助模型，无法启用自动审查';
+  String get auxiliaryModelRequiredForAutoReview => '尚未配置审批模型，无法启用自动审查';
 
   @override
-  String get auxiliaryModelAutoReviewFallback => '尚未配置辅助模型，已切换为手动审查并继续发送';
+  String get auxiliaryModelAutoReviewFallback => '尚未配置审批模型，已切换为手动审查并继续发送';
 
   @override
   String get composerReasoning => '推理';
@@ -2625,4 +2632,20 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get markdownTableRotatePortrait => '竖向查看';
+
+  @override
+  String get composerApprovalModel => '审批模型';
+
+  @override
+  String get composerApprovalModelHint => '用于工具自动审批，支持普通模型及 SystemOne（Jev）决策模型';
+
+  @override
+  String get composerApprovalModelManualFallback => '未配置时无法启用自动审批';
+
+  @override
+  String get composerApprovalModelNeedsMainAgent => '请先配置主 Agent，再选择审批模型';
+
+  @override
+  String get composerApprovalModelHintAcp =>
+      '用于工具自动审批，支持普通模型及 SystemOne（Jev）决策模型';
 }

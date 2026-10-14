@@ -43,10 +43,10 @@ import {
   buildResponsesInputTokensUrl,
   buildResponsesTestRequestBody,
   buildRouteTestDedupeKey,
+  CODEX_AUTH_MODELS_UNAVAILABLE_ERROR,
   describeProviderCompatRouting,
   listProviderUpstreamModels,
   normalizeRequestPath,
-  OPENAI_BUILTIN_MODELS,
   parseUpstreamModelsPayload,
   resolveModelsListUrl,
   splitBaseUrlAndRequestPath,
@@ -121,7 +121,7 @@ describe("listProviderUpstreamModels", () => {
     }
   });
 
-  test("keeps the built-in OpenAI catalogue for Codex Auth (auth.json) providers", async () => {
+  test("refuses to invent a model list for Codex Auth (auth.json) providers", async () => {
     const store = {
       getProviderWithSecret: () => ({
         id: "openai",
@@ -138,11 +138,12 @@ describe("listProviderUpstreamModels", () => {
 
     const result = await listProviderUpstreamModels(store, { providerId: "openai" });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
+    expect(result.ok).toBe(false);
+    if (result.ok) {
       return;
     }
-    expect(result.models.map((model) => model.id)).toEqual(OPENAI_BUILTIN_MODELS.map((model) => model.id));
+    expect(result.error).toBe(CODEX_AUTH_MODELS_UNAVAILABLE_ERROR);
+    expect(result.providerId).toBe("openai");
   });
 });
 

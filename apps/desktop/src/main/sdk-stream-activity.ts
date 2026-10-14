@@ -4,7 +4,6 @@ import {
   formatSendMessageToolInputSummary,
   formatSendMessageToolResultSummary,
   isEcoWebSearchToolName,
-  mergeStreamText,
   parseEcoWebSearchToolOutput,
   parseSendMessageToolResult,
   readEcoWebSearchQuery,
@@ -20,6 +19,8 @@ import {
   resolveSkillDisplayName,
 } from "@eco/runtime";
 import { formatAgentEventDisplay, isEcoStreamFinalize, isEcoStreamPlaceholder } from "@eco/runtime/sdk";
+import { classifyToolWriteKind } from "@eco/shared";
+import type { ToolWritingActivity } from "../shared/conversation-v2-projection";
 import {
   enrichFileChangeFromToolOutput,
   isFileChangeToolName,
@@ -28,6 +29,7 @@ import {
 import type { ThreadRunImageViewMetadata, ThreadRunToolMetadata } from "../shared/ipc";
 import { resolvePiMcpProxyCall, resolvePiMcpProxyToolName } from "../shared/pi-mcp-proxy.js";
 import { parseThreadRunImageViewMetadata } from "../shared/thread-run-events.js";
+import { resolveCodemodeMetadata } from "../shared/thread-run-tool-projection.js";
 import {
   formatThreadRunGrepTargetLabel,
   formatThreadRunReadTargetLabel,
@@ -84,6 +86,57 @@ export class SdkStreamActivityBridge {
   >();
 
   /**
+   * What was last said about each tool call being written: the tool, and the target once the
+   * arguments named it. Providers stream one placeholder per argument fragment, so the same
+   * call is announced once as「正在准备写入文件」and once more as「正在写入 /tmp/x.md」— and never
+   * per fragment.
+   */
+  private readonly announcedToolWrites = new Map<string, Map<string, string>>();
+
+  /**
+   * Surface the gap the Feed cannot narrate: the model is writing a tool call whose
+   * arguments are not complete yet, so no tool row exists to look at. Emitted as its own
+   * activity (`tool.writing`) instead of being dropped, because "the agent is busy" is a
+   * fact the stream states plainly — it is only the tool card that has to wait.
+   */
+  private announceToolWrite(
+    threadId: string,
+    payload: unknown,
+    emit: SdkActivityEmit,
+    activityAgentId: string | undefined,
+  ): void {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return;
+    }
+    const record = payload as Record<string, unknown>;
+    const toolName = readString(record.tool_name)?.trim();
+    const target = readString(record.tool_input_target)?.trim();
+    if (!toolName && !target) {
+      return;
+    }
+    // The call's own id is what tells two calls of the same tool apart. Without one — a provider
+    // that omits the block id — two calls of the same tool in one run collapse into a single key,
+    // and the second one stays silent (the SDK, π and ACP all name their calls, so this is the
+    // malformed-stream case rather than the common one).
+    const writeKey = readString(record.tool_use_id)?.trim() || toolName || target || "tool";
+    const announced = this.announcedToolWrites.get(threadId) ?? new Map<string, string>();
+    const signature = `${toolName ?? ""}\u0000${target ?? ""}`;
+    if (announced.get(writeKey) === signature) {
+      return;
+    }
+    announced.set(writeKey, signature);
+    this.announcedToolWrites.set(threadId, announced);
+    const writing: ToolWritingActivity = {
+      kind: toolName ? classifyToolWriteKind(toolName) : "tool",
+      ...(toolName && { name: toolName }),
+      ...(target && { target }),
+    };
+    emit(threadId, "tool.writing", toolName ?? target ?? "", "tool", false, activityAgentId, {
+      metadata: { activityOrigin: "sdk.tool_writing", toolWriting: writing },
+    });
+  }
+
+  /**
    * Flush throttled deltas and finalize any open narrative streams before clearing
    * bridge state. Dropping pending text here would lose the durable V2 tail.
    */
@@ -99,6 +152,7 @@ export class SdkStreamActivityBridge {
   }
 
   resetThread(threadId: string): void {
+    this.announcedToolWrites.delete(threadId);
     for (const key of [...this.lastStreamLine.keys()]) {
       if (key.startsWith(`${threadId}:`)) {
         this.lastStreamLine.delete(key);
@@ -146,6 +200,7 @@ export class SdkStreamActivityBridge {
 
     if (event.type === "tool.started") {
       if (isSdkToolInputPlaceholder(event.payload)) {
+        this.announceToolWrite(threadId, event.payload, emit, activityAgentId);
         return;
       }
       this.closeUnkeyedNarrativeBeforeTool({
@@ -270,7 +325,10 @@ export class SdkStreamActivityBridge {
     if (event.type === "message.delta" && stream) {
       const previousLine = this.lastStreamLine.get(streamKey);
       const previous = previousLine?.message ?? "";
-      const accumulated = mergeStreamText(previous, message);
+      // eco_stream and raw SDK stream_event carry incremental deltas. Text equality
+      // cannot identify a replay: "100" + "00" and repeated words are valid output.
+      // The bridge emits cumulative snapshots only after appending every delta.
+      const accumulated = previous + message;
       const emitExtras = withThinkingStartedAt(
         mergeSdkActivityEmitExtras(accumulated, undefined, event.payload, sdkStreamBlockKey),
         role,
@@ -618,6 +676,16 @@ function resolveSdkMcpToolIdentity(
   };
 }
 
+/**
+ * PI's codemode sandbox issues tool calls from inside the script and marks each one with the script's
+ * own call id. The Feed needs that link to keep the script's calls inside the script's card instead of
+ * counting them as commands the model issued. It is display nesting, not ownership, so it stays off the
+ * event's `parentToolUseId` (Eco's subagent link).
+ */
+function readSdkNestedToolCallId(record: Record<string, unknown>): string | undefined {
+  return readString(record.parent_tool_call_id);
+}
+
 function resolveSdkToolSummaryMetadata(payload: unknown): ThreadRunToolMetadata | undefined {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return undefined;
@@ -657,6 +725,7 @@ function resolveSdkToolSummaryMetadata(payload: unknown): ThreadRunToolMetadata 
   const outputPreview = output ? createToolOutputPreview(output) : undefined;
   const imageViewMeta = toImageViewMetadata(imageViewCall);
   const toolUseId = readString(record.tool_use_id);
+  const parentToolCallId = readSdkNestedToolCallId(record);
   const description =
     name === "Bash"
       ? (readString(record.description) ?? readBashDescriptionFromToolInput(toolInput))
@@ -694,6 +763,13 @@ function resolveSdkToolSummaryMetadata(payload: unknown): ThreadRunToolMetadata 
   const htmlHostMeta = htmlHostCall
     ? readHtmlHostMetadataFromToolOutput(output ?? record.result ?? record.content)
     : undefined;
+  // PI's codemode: the script is the call and its return value is what the model saw.
+  const codemode = resolveCodemodeMetadata({
+    name: displayName,
+    callInput: toolInput,
+    ...(output ? { output } : {}),
+    ...(record.codemodeDetails !== undefined ? { details: record.codemodeDetails } : {}),
+  });
   return {
     name: displayName,
     ...(command && { detail: command }),
@@ -733,6 +809,8 @@ function resolveSdkToolSummaryMetadata(payload: unknown): ThreadRunToolMetadata 
       }),
     ...(mcpDiscovery && { mcpDiscovery }),
     ...(webSearch && { webSearch }),
+    ...(parentToolCallId && { parentToolCallId }),
+    ...(codemode && { codemode }),
     status: "completed",
   };
 }
@@ -782,6 +860,13 @@ function resolveSdkToolFailedMetadata(payload: unknown): ThreadRunToolMetadata |
     ? resolveFileChangeFromToolInput(displayName, toolInput)
     : undefined;
   const failedImageViewMeta = toImageViewMetadata(imageViewCall);
+  const parentToolCallId = readSdkNestedToolCallId(record);
+  const failedCodemode = resolveCodemodeMetadata({
+    name: displayName,
+    callInput: toolInput,
+    ...(message ? { output: message } : {}),
+    ...(record.codemodeDetails !== undefined ? { details: record.codemodeDetails } : {}),
+  });
   return {
     name: displayName,
     ...(detail && { detail }),
@@ -794,11 +879,13 @@ function resolveSdkToolFailedMetadata(payload: unknown): ThreadRunToolMetadata |
     ...(failedImageViewMeta && { imageView: failedImageViewMeta }),
     ...(mcpDiscovery && { mcpDiscovery }),
     ...(nonExecutionKind && { nonExecutionKind }),
+    ...(parentToolCallId && { parentToolCallId }),
+    ...(failedCodemode && { codemode: failedCodemode }),
     status: "failed",
   };
 }
 
-function isSdkToolInputPlaceholder(payload: unknown): boolean {
+export function isSdkToolInputPlaceholder(payload: unknown): boolean {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return false;
   }
@@ -972,6 +1059,7 @@ function resolveSdkToolUseMetadata(payload: unknown): ThreadRunToolMetadata | un
     (targets.grepTarget && formatThreadRunGrepTargetLabel(targets.grepTarget)) ||
     resolveSdkToolDisplayDetail(displayName, toolInput);
   const toolUseId = readString(record.tool_use_id);
+  const parentToolCallId = readSdkNestedToolCallId(record);
   const description = displayName === "Bash" ? readBashDescriptionFromToolInput(toolInput) : undefined;
   const fileChange = isFileChangeToolName(displayName)
     ? resolveFileChangeFromToolInput(displayName, toolInput)
@@ -991,6 +1079,7 @@ function resolveSdkToolUseMetadata(payload: unknown): ThreadRunToolMetadata | un
     ...(imageViewMeta && { imageView: imageViewMeta }),
     ...(mcpDiscovery && { mcpDiscovery }),
     ...(webSearch && { webSearch }),
+    ...(parentToolCallId && { parentToolCallId }),
     status: "started",
   };
 }

@@ -77,6 +77,15 @@ test("ACP session delete IPC errors localize without raw Chinese in en-US", () =
   }
 });
 
+test("scheduling IPC errors localize without raw Chinese in en-US", () => {
+  const messages = ["一次性项目已到期，请设置新的未来时间。"];
+  for (const message of messages) {
+    const key = expectedIpcErrorKey(message);
+    expect(key).toBeDefined();
+    expect(translateCatalog("en-US", key!)).not.toMatch(/[\u3400-\u9fff]/);
+  }
+});
+
 test("workspace folder IPC errors localize without raw Chinese in en-US", () => {
   const key = expectedIpcErrorKey("找不到该项目目录。");
   expect(key).toBe("native.error.workspaceNotFound");

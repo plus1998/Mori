@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
-import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { removeTempDirectorySync } from "./helpers/temp-directory";
-import { ConversationV2Store } from "../src/main/conversation-v2-store";
+import { DatabaseSync } from "node:sqlite";
 import {
   executeClarificationResolutionCommand,
   recoverAsyncClarificationCommands,
 } from "../src/main/conversation-interaction-command";
+import { ConversationV2Store } from "../src/main/conversation-v2-store";
+import { removeTempDirectorySync } from "./helpers/temp-directory";
 
 const text =
   '<send_user_message_question_reply>[{"questionItemId":"q1","question":"选哪项？","answer":"A"}]</send_user_message_question_reply>';
@@ -46,6 +46,8 @@ test("an async answer is durably accepted before its clarification command compl
       errorMessage: String,
     });
     expect(result.asyncMessage?.text).toBe(text);
+    if (!result.asyncMessage) throw new Error("Async answer acceptance is missing.");
+    expect(v2.isAsyncClarificationAnswer(input.conversationId, result.asyncMessage.messageId)).toBe(true);
     expect(v2.getCommandJob(input.principalId, input.conversationId, input.clientCommandId)?.status).toBe(
       "completed",
     );
@@ -99,6 +101,8 @@ for (const boundary of ["accepted", "running", "message-accepted"] as const) {
         errorMessage: String,
       });
       expect(replay.asyncMessage?.messageId).toBe(queued[0]?.messageId);
+      if (!replay.asyncMessage) throw new Error("Recovered async answer acceptance is missing.");
+      expect(v2.isAsyncClarificationAnswer(input.conversationId, replay.asyncMessage.messageId)).toBe(true);
       expect(replay.answers).toEqual(input.answers);
       expect(v2.listQueuedUserMessages()).toHaveLength(1);
     } finally {

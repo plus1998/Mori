@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronUp,
+  Clock3,
   Cloud,
   Cog,
   CornerDownRight,
@@ -26,16 +27,16 @@ import {
   Globe2,
   GripVertical,
   HardDrive,
-  Image as ImageIcon,
+  KeyRound,
   LoaderCircle,
   type LucideIcon,
-  KeyRound,
   Maximize2,
   MessageCirclePlus,
   MessageSquare,
   Mic,
   Minimize2,
   Monitor,
+  Palette,
   PanelBottom,
   PanelLeft,
   PanelRight,
@@ -50,6 +51,7 @@ import {
   Square,
   Trash2,
   Unplug,
+  Volume2,
   Workflow,
   X,
 } from "lucide-react";
@@ -59,6 +61,7 @@ import {
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   startTransition,
   useCallback,
@@ -94,6 +97,7 @@ import { imageGenerationTaskTabId, parseImageGenerationTaskTabId } from "../shar
 import type { IntegrationId } from "../shared/integrations";
 import {
   type AppMenuCommand,
+  type ApprovalModelSelection,
   type AsrProfileSaveInput,
   type AsrProfileSnapshot,
   type AsrProfilesSnapshot,
@@ -162,6 +166,8 @@ import {
   type ThreadSubagentMetricsSummary,
   type ThreadSubagentSessionTiming,
   type ThreadSummary,
+  UPSTREAM_AGENT_CORES,
+  type UpstreamAgentCore,
   type VisionModelSelection,
   type WorkflowSettingsSnapshot,
   type WorkspaceDiffResult,
@@ -179,6 +185,7 @@ import {
   resolvePromptCacheOrchestrationLabel,
 } from "../shared/prompt-cache-config";
 import { resolveDraftCoreKindWhenAcpHidden } from "../shared/resolve-draft-core-kind-when-acp-hidden";
+import type { ScheduleDefinition } from "../shared/scheduling";
 import {
   dedupeSkillsByName,
   isSkillAvailableForCore,
@@ -211,13 +218,15 @@ import {
 } from "../shared/thread-runtime-config";
 import { canRegenerateThreadTitle } from "../shared/thread-title-pending";
 import { buildThreadUsageSummary } from "../shared/thread-usage-summary";
+import { parseTtsTaskTabId, type TtsArtifact, type TtsSettingsSnapshot, ttsTaskTabId } from "../shared/tts";
 import type { WebChatItem, WebChatListView } from "../shared/web-chat-list";
 import { defaultWebChatListSnapshot, mergeWebChatList } from "../shared/web-chat-list";
 import { ActivityHeaderProjectInfo } from "./ActivityHeaderProjectInfo";
 import { buildConversationV2OnlyProjection } from "./ActivityLogView";
 import type { PendingMainAgentConfigCreateSeed } from "./AgentCompositionResourcesSection";
 import { AppMessage, useAppMessage } from "./AppMessage";
-import { AsrMicButton, AsrVoiceComposer, useAsrRecorder } from "./AsrRecorder";
+import { AsrMicButton, AsrVoiceComposer, isAsrComposerConfigured, useAsrRecorder } from "./AsrRecorder";
+import { resolveActivityUserMessageActiveAnchorId } from "./activity-user-message-nav";
 import {
   type ActivityWorkspaceLayoutMode,
   activityUserMessageNavListMaxHeightPx,
@@ -249,7 +258,6 @@ import { BashApprovalPanel, type BashApprovalResolutionInput } from "./BashAppro
 import { BROWSER_HTML_OPEN_EVENT, BROWSER_LINK_OPEN_EVENT, openPublishedHtmlInBrowser } from "./browser-link";
 import { browserStateStore, useBrowserInstanceIds } from "./browser-state-store";
 import { ClarificationPanel } from "./ClarificationPanel";
-import { createClarificationQueueSync } from "./clarification-queue-sync";
 import { ComposerAcpModelTrigger } from "./ComposerAcpModelTrigger";
 import { ComposerAgentModels } from "./ComposerAgentModels";
 import { ComposerBashReviewToggle } from "./ComposerBashReviewToggle";
@@ -271,6 +279,8 @@ import { ComposerSkillsControl } from "./ComposerSkillsControl";
 import { ComposerSkillsInput, type ComposerSkillsInputHandle } from "./ComposerSkillsInput";
 import { ComposerSkillsSlashMenu } from "./ComposerSkillsSlashMenu";
 import { ComposerThreadUsagePills } from "./ComposerThreadUsagePills";
+import { createClarificationNotifications } from "./clarification-notifications";
+import { createClarificationQueueSync } from "./clarification-queue-sync";
 import { buildComposerAgentModelLabels } from "./composer-agent-model-labels";
 import {
   COMPOSER_MAX_IMAGES,
@@ -286,11 +296,6 @@ import {
   captureComposerBeforeFollowUpEdit,
   resolveComposerAfterFollowUpEdit,
 } from "./composer-follow-up-edit-draft";
-import {
-  resolveComposerContextPrompt,
-  type ComposerPlanHandoff,
-  resolveComposerPlanRuntimeConfig,
-} from "./composer-plan-handoff";
 import { buildComposerGlobalRuntimeConfig } from "./composer-global-runtime-config";
 import {
   composerRequiresOrchestration,
@@ -298,6 +303,11 @@ import {
   isBuiltInOpenAiProvider,
   resolveComposerModelAvailability,
 } from "./composer-model-availability";
+import {
+  type ComposerPlanHandoff,
+  resolveComposerContextPrompt,
+  resolveComposerPlanRuntimeConfig,
+} from "./composer-plan-handoff";
 import { shouldOpenOrchestrationFullSettings } from "./composer-route-open";
 import {
   applySlashSkillSelection,
@@ -316,6 +326,7 @@ import {
   projectionItemToDetailBlock,
   type ThreadRunProjectionMainFeedEntry,
 } from "./conversation-v2-projection-view";
+import { isConversationV2InteractionEffect } from "./conversation-v2-render-priority";
 import {
   applyConversationV2Effects,
   type ConversationV2RendererState,
@@ -359,10 +370,13 @@ import {
   LazyOpenAIAccountsPanel,
   LazyPersonalizationSettingsPanel,
   LazyProxySettingsPanel,
+  LazyScheduledMessageDialog,
+  LazySchedulingPanel,
   LazySkillsSettingsPanel,
   LazyStorageSettingsPanel,
   LazySubagentTaskDrawer,
   LazyTerminalPanel,
+  LazyTtsSettingsPanel,
   SuspensePanel,
 } from "./lazy-app-panels";
 import type { ModelsSettingsTab } from "./ModelsSettingsPanel";
@@ -386,21 +400,26 @@ import {
   sortThreadsForSidebar,
 } from "./project-sidebar-order";
 import {
+  isConversationV2ProjectionRefreshEffect,
+  shouldRefreshConversationV2ProjectionExtras,
+  TOOL_WRITING_REFRESH_LIVE_TYPES,
+} from "./projection-extras-refresh";
+import {
   type PromptCacheTipPreferences,
   persistPromptCacheTipPreferences,
   readStoredPromptCacheTipPreferences,
 } from "./prompt-cache-tip-preferences";
-import { readUserPromptRetryIdentity, type RequestFailureRetryTarget } from "./request-failure-retry";
+import { type RequestFailureRetryTarget, readUserPromptRetryIdentity } from "./request-failure-retry";
 import { buildRuntimeAgentDisplayNames } from "./runtime-agent-display";
 import { buildRuntimeAgentThemes } from "./runtime-agent-theme";
 import { SettingsSyncControl } from "./SettingsSyncControl";
 import { SidebarCoreSelector } from "./SidebarCoreSelector";
 import { SidebarSearchDialog } from "./SidebarSearchDialog";
 import { SidebarSettingsUpdateControl } from "./SidebarSettingsUpdateControl";
-import { StopThreadConfirmDialog } from "./StopThreadConfirmDialog";
 import { buildSidebarAttentionItems } from "./sidebar-attention-items";
 import type { TerminalSessionPresentation } from "./TerminalPanel";
 import { ThreadIdleCacheWarning } from "./ThreadIdleCacheWarning";
+import { TtsArtifactsContext } from "./TtsArtifactPlayer";
 import { loadTaskPanelReviewDiff } from "./task-panel-review-loader";
 import {
   captureTaskPanelSessionUiState,
@@ -408,8 +427,15 @@ import {
   normalizeTaskPanelSessionUiState,
   type TaskPanelSessionUiState,
 } from "./task-panel-session-ui-state";
-import { addOpenTaskPanelTab, removeOpenTaskPanelTab, replaceOpenTaskPanelTab } from "./task-panel-tab-state";
 import {
+  addOpenTaskPanelTab,
+  removeOpenTaskPanelTab,
+  replaceOpenTaskPanelTab,
+  resolveTaskPanelReopenTab,
+} from "./task-panel-tab-state";
+import {
+  isNewTaskPanelTabId,
+  newTaskPanelTabId,
   TASK_PANEL_BACKGROUND_TERMINAL_TAB_ID,
   TASK_PANEL_FILE_VIEWER_TAB_ID,
   TASK_PANEL_FILES_TAB_ID,
@@ -419,8 +445,6 @@ import {
   TASK_PANEL_SSH_BOOKMARKS_TAB_ID,
   type TaskPanelActiveTab,
   type TaskPanelHomeTool,
-  isNewTaskPanelTabId,
-  newTaskPanelTabId,
 } from "./task-panel-tabs";
 import {
   createProjectTerminalState,
@@ -474,6 +498,8 @@ import {
   readStoredTypographyPreferences,
   type TypographyPreferences,
 } from "./typography-preferences";
+import { useSchedulingSnapshot } from "./use-scheduling-snapshot";
+import { useStableCallback } from "./use-stable-callback";
 import { installVitePreloadRecovery } from "./vite-preload-recovery";
 import { WebChatListPopover } from "./WebChatListPopover";
 import { WorkspaceFloatingCards } from "./WorkspaceFloatingCards";
@@ -489,6 +515,11 @@ import {
   shouldRefreshWorkspaceGitStatus,
   type WorkspaceGitStatusCache,
 } from "./workspace-git-status-cache";
+import {
+  cacheWorkspaceReviewSummary,
+  invalidateWorkspaceReviewSummary,
+  readWorkspaceReviewSummary,
+} from "./workspace-review-cache";
 import "./themes.css";
 import "./styles.css";
 import "./theme-overrides.css";
@@ -584,6 +615,7 @@ type SettingsSectionId =
   | "browser"
   | "computerUse"
   | "imageGeneration"
+  | "tts"
   | "integratedWebSearch"
   | "providers"
   | "proxy"
@@ -647,6 +679,7 @@ const emptyIntegrationAvailability: IntegrationAvailabilitySnapshot = {
   integrations: [
     { id: "browser", enabled: false, available: false },
     { id: "imageGeneration", enabled: false, available: false },
+    { id: "tts", enabled: false, available: false },
     { id: "computerUse", enabled: false, available: false },
   ],
 };
@@ -1139,6 +1172,20 @@ function ActivityUserMessageNavigator({
 function App() {
   const { t } = useTranslation();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [schedulingOpen, setSchedulingOpen] = useState(false);
+  const scheduling = useSchedulingSnapshot();
+  const scheduledMessages = useMemo(
+    () => scheduling.snapshot.schedules.filter((item) => item.kind === "session_message"),
+    [scheduling.snapshot.schedules],
+  );
+  const [scheduledMessageEditor, setScheduledMessageEditor] = useState<{
+    threadId: string;
+    definition?: ScheduleDefinition;
+  }>();
+  const [scheduledMessagesReveal, setScheduledMessagesReveal] = useState<{
+    threadId: string;
+    requestId: number;
+  }>();
   const [ecoConnectLink, setEcoConnectLink] = useState<EcoConnectDeepLink>();
   const [sidebarOpen, setSidebarOpen] = useState(() => !window.matchMedia(compactSidebarMediaQuery).matches);
   const menuCommandHandlerRef = useRef<(command: AppMenuCommand) => void>(() => {});
@@ -1246,7 +1293,7 @@ function App() {
   const settingsNavGroups = useMemo<SettingsNavGroup[]>(
     () => [
       {
-        label: t("settings.group.personal"),
+        label: t("settings.group.general"),
         sections: [
           {
             id: "preferences",
@@ -1313,12 +1360,49 @@ function App() {
               "old chats",
             ],
           },
+          { id: "centerServer", label: t("settings.connection"), icon: Cloud },
+          {
+            id: "proxy",
+            label: t("settings.gateway"),
+            icon: Globe2,
+            keywords: [
+              "gateway",
+              "proxy",
+              "网关",
+              "代理",
+              "socks5",
+              "http",
+              "upgrade",
+              "升级",
+              "outbound",
+              "user-agent",
+              "ua",
+              "请求头",
+            ],
+          },
         ],
       },
       {
-        label: t("settings.group.integrations"),
+        label: t("settings.group.models"),
         sections: [
           { id: "providers", label: t("settings.providers"), icon: Settings2 },
+          {
+            id: "orchestrationComponents",
+            label: t("settings.orchestrationComponents"),
+            icon: Workflow,
+          },
+          { id: "defaultAgent", label: t("settings.defaultAgent"), icon: Cpu },
+          {
+            id: "contextWindow",
+            label: t("settings.contextWindow"),
+            icon: Gauge,
+            keywords: ["context", "tokens", "compact", "上下文", "压缩"],
+          },
+        ],
+      },
+      {
+        label: t("settings.group.capabilities"),
+        sections: [
           { id: "mcp", label: t("settings.mcp.title"), icon: Unplug },
           {
             id: "browser",
@@ -1341,7 +1425,7 @@ function App() {
           {
             id: "imageGeneration",
             label: t("settings.imageGeneration.title"),
-            icon: ImageIcon,
+            icon: Palette,
             keywords: [
               t("settings.imageGeneration.masterTitle"),
               "creative drawing",
@@ -1350,7 +1434,12 @@ function App() {
               "创意绘画",
             ],
           },
-          { id: "centerServer", label: t("settings.connection"), icon: Cloud },
+          {
+            id: "tts",
+            label: t("settings.tts.title"),
+            icon: Volume2,
+            keywords: ["TTS", "语音", "Gemini", "OpenRouter"],
+          },
           { id: "asr", label: t("asr.title"), icon: Mic },
           {
             id: "integratedWebSearch",
@@ -1363,27 +1452,9 @@ function App() {
       {
         label: t("settings.group.coding"),
         sections: [
-          {
-            id: "orchestrationComponents",
-            label: t("settings.orchestrationComponents"),
-            icon: Workflow,
-          },
-          { id: "defaultAgent", label: t("settings.defaultAgent"), icon: Cpu },
-          {
-            id: "contextWindow",
-            label: t("settings.contextWindow"),
-            icon: Gauge,
-            keywords: ["context", "tokens", "compact", "上下文", "压缩"],
-          },
           { id: "agentLibrary", label: t("settings.agentLibrary"), icon: BookOpen },
           { id: "skills", label: t("settings.skills.store"), icon: Sparkles },
           { id: "git", label: "Git", icon: GitBranch },
-          {
-            id: "proxy",
-            label: t("settings.proxy"),
-            icon: Globe2,
-            keywords: ["proxy", "代理", "socks5", "http", "upgrade", "升级", "outbound"],
-          },
         ],
       },
     ],
@@ -1429,7 +1500,7 @@ function App() {
     showBilling: true,
     defaultBashReviewMode: "always",
     contextWindowLimitTokens: 262_144,
-    maxOutputLimitTokens: 32_768,
+    maxOutputLimitTokens: "dynamic",
     followUpDeliveryMode: "steer",
   });
   const [centerServerSettings, setCenterServerSettings] =
@@ -1538,16 +1609,19 @@ function App() {
   const [pendingClarificationsByThread, setPendingClarificationsByThread] = useState<
     Record<string, ClarificationRequest>
   >({});
-  const [refreshPendingClarificationForThread] = useState(() => createClarificationQueueSync({
-    getPending: (threadId) => {
-      if (!window.eco) throw new Error("Desktop clarification bridge is unavailable.");
-      return window.eco.getPendingClarification(threadId);
-    },
-    apply: (threadId, request) => setPendingClarificationsByThread((current) => {
-      if (current[threadId]?.toolUseId === request?.toolUseId) return current;
-      return request ? { ...current, [threadId]: request } : removeRecordKey(current, threadId);
+  const [refreshPendingClarificationForThread] = useState(() =>
+    createClarificationQueueSync({
+      getPending: (threadId) => {
+        if (!window.eco) throw new Error("Desktop clarification bridge is unavailable.");
+        return window.eco.getPendingClarification(threadId);
+      },
+      apply: (threadId, request) =>
+        setPendingClarificationsByThread((current) => {
+          if (current[threadId]?.toolUseId === request?.toolUseId) return current;
+          return request ? { ...current, [threadId]: request } : removeRecordKey(current, threadId);
+        }),
     }),
-  }));
+  );
   const [clarificationBusy, setClarificationBusy] = useState(false);
   const [pendingBashApprovalsByThread, setPendingBashApprovalsByThread] = useState<
     Record<string, BashApprovalRequest>
@@ -1600,81 +1674,103 @@ function App() {
   const conversationV2RecoveryInFlightRef = useRef(new Set<string>());
   const conversationV2RenderPendingRef = useRef(new Map<string, ConversationV2RendererState>());
   const conversationV2RenderFramesRef = useRef(new Map<string, number>());
+  const conversationV2RenderUrgentRef = useRef(new Set<string>());
   // Live streams can deliver hundreds of sync effects per second. Keep the
   // durable cursor in the imperative ref, but apply short bounded batches. The
   // streaming Markdown pacer fills the gaps between these commits, so users
   // see a continuous reveal without making React parse every provider delta.
   const conversationV2LiveEffectsRef = useRef(new Map<string, ConversationSyncEffect[]>());
   const conversationV2LiveFlushTimersRef = useRef(new Map<string, number>());
-  const scheduleConversationV2Render = useCallback((threadId: string, state: ConversationV2RendererState) => {
-    conversationV2RenderPendingRef.current.set(threadId, state);
-    if (conversationV2RenderFramesRef.current.has(threadId)) {
-      return;
-    }
-    const frame = window.requestAnimationFrame(() => {
-      conversationV2RenderFramesRef.current.delete(threadId);
-      const pending = conversationV2RenderPendingRef.current.get(threadId);
-      if (!pending) {
+  const scheduleConversationV2Render = useCallback(
+    (threadId: string, state: ConversationV2RendererState, urgent = false) => {
+      conversationV2RenderPendingRef.current.set(threadId, state);
+      if (urgent) conversationV2RenderUrgentRef.current.add(threadId);
+      if (conversationV2RenderFramesRef.current.has(threadId)) {
         return;
       }
-      conversationV2RenderPendingRef.current.delete(threadId);
-      setConversationV2ByThread((current) => {
-        const latest = current[threadId];
-        if (!latest || latest.storeEpoch !== pending.storeEpoch || latest.appliedSeq >= pending.appliedSeq) {
-          return current;
+      const frame = window.requestAnimationFrame(() => {
+        conversationV2RenderFramesRef.current.delete(threadId);
+        const pending = conversationV2RenderPendingRef.current.get(threadId);
+        if (!pending) {
+          return;
         }
-        return { ...current, [threadId]: pending };
+        conversationV2RenderPendingRef.current.delete(threadId);
+        const publish = () => {
+          setConversationV2ByThread((current) => {
+            const latest = current[threadId];
+            if (
+              !latest ||
+              latest.storeEpoch !== pending.storeEpoch ||
+              latest.appliedSeq >= pending.appliedSeq
+            ) {
+              return current;
+            }
+            return { ...current, [threadId]: pending };
+          });
+        };
+        if (conversationV2RenderUrgentRef.current.delete(threadId)) publish();
+        else startTransition(publish);
       });
-    });
-    conversationV2RenderFramesRef.current.set(threadId, frame);
-  }, []);
-  const scheduleConversationV2LiveFlush = useCallback((threadId: string, immediate = false) => {
-    const pendingTimer = conversationV2LiveFlushTimersRef.current.get(threadId);
-    if (pendingTimer !== undefined) {
-      if (!immediate) return;
-      // A user message can arrive while a stream batch is waiting. Do not
-      // let that older timer delay the prompt acknowledgement.
-      window.clearTimeout(pendingTimer);
-      conversationV2LiveFlushTimersRef.current.delete(threadId);
-    }
-    const pendingEffects = conversationV2LiveEffectsRef.current.get(threadId)?.length ?? 0;
-    const delayMs =
-      immediate
+      conversationV2RenderFramesRef.current.set(threadId, frame);
+    },
+    [],
+  );
+  const scheduleConversationV2LiveFlush = useCallback(
+    (threadId: string, immediate = false) => {
+      const pendingTimer = conversationV2LiveFlushTimersRef.current.get(threadId);
+      if (pendingTimer !== undefined) {
+        if (!immediate) return;
+        // A user message can arrive while a stream batch is waiting. Do not
+        // let that older timer delay the prompt acknowledgement.
+        window.clearTimeout(pendingTimer);
+        conversationV2LiveFlushTimersRef.current.delete(threadId);
+      }
+      const pendingEffects = conversationV2LiveEffectsRef.current.get(threadId)?.length ?? 0;
+      const delayMs = immediate
         ? 0
         : pendingEffects >= 96
           ? CONVERSATION_V2_LIVE_FLUSH_BACKPRESSURE_MS
           : CONVERSATION_V2_LIVE_FLUSH_TARGET_MS;
-    const timer = window.setTimeout(() => {
-      conversationV2LiveFlushTimersRef.current.delete(threadId);
-      const effects = conversationV2LiveEffectsRef.current.get(threadId);
-      if (!effects || effects.length === 0) return;
-      conversationV2LiveEffectsRef.current.delete(threadId);
-      const existing = conversationV2ByThreadRef.current[threadId];
-      if (!existing) {
-        if (threadId === selectedThreadIdRef.current) {
-          for (const effect of effects) bufferConversationV2Event(threadId, effect);
+      const timer = window.setTimeout(() => {
+        conversationV2LiveFlushTimersRef.current.delete(threadId);
+        const effects = conversationV2LiveEffectsRef.current.get(threadId);
+        if (!effects || effects.length === 0) return;
+        conversationV2LiveEffectsRef.current.delete(threadId);
+        const existing = conversationV2ByThreadRef.current[threadId];
+        if (!existing) {
+          if (threadId === selectedThreadIdRef.current) {
+            for (const effect of effects) bufferConversationV2Event(threadId, effect);
+          }
+          return;
         }
-        return;
-      }
-      try {
-        const appliedState = applyConversationV2Effects(existing, effects);
-        conversationV2ByThreadRef.current = {
-          ...conversationV2ByThreadRef.current,
-          [threadId]: appliedState,
-        };
-        scheduleConversationV2Render(threadId, appliedState);
-        refreshConversationV2ProjectionExtras(threadId);
-      } catch (error) {
-        console.warn("[eco] conversation V2 live batch deferred:", error);
-        if (threadId === selectedThreadIdRef.current) {
-          for (const effect of effects) bufferConversationV2Event(threadId, effect);
+        try {
+          const appliedState = applyConversationV2Effects(existing, effects);
+          conversationV2ByThreadRef.current = {
+            ...conversationV2ByThreadRef.current,
+            [threadId]: appliedState,
+          };
+          scheduleConversationV2Render(
+            threadId,
+            appliedState,
+            effects.some((entry) => isConversationV2InteractionEffect(entry.effect)),
+          );
+          refreshConversationV2ProjectionExtras(threadId, {
+            force: effects.some((entry) => isConversationV2ProjectionRefreshEffect(entry.effect)),
+          });
+        } catch (error) {
+          console.warn("[eco] conversation V2 live batch deferred:", error);
+          if (threadId === selectedThreadIdRef.current) {
+            for (const effect of effects) bufferConversationV2Event(threadId, effect);
+          }
         }
-      }
-    }, delayMs);
-    conversationV2LiveFlushTimersRef.current.set(threadId, timer);
-  }, [scheduleConversationV2Render]);
+      }, delayMs);
+      conversationV2LiveFlushTimersRef.current.set(threadId, timer);
+    },
+    [scheduleConversationV2Render],
+  );
   const conversationV2DuplicateVerificationInFlightRef = useRef(new Set<string>());
   const conversationV2ProjectionExtrasInFlightRef = useRef(new Set<string>());
+  const conversationV2ProjectionExtrasPendingRef = useRef(new Set<string>());
   const conversationV2ProjectionExtrasNextAllowedRef = useRef(new Map<string, number>());
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -1789,44 +1885,74 @@ function App() {
     },
     [queueConversationV2Recovery],
   );
-  const refreshConversationV2ProjectionExtras = useCallback((threadId: string) => {
-    const api = window.eco;
-    const current = conversationV2ByThreadRef.current[threadId];
-    const now = Date.now();
-    const nextAllowed = conversationV2ProjectionExtrasNextAllowedRef.current.get(threadId) ?? 0;
-    if (
-      !current ||
-      typeof api?.conversationV2Projection !== "function" ||
-      conversationV2ProjectionExtrasInFlightRef.current.has(threadId) ||
-      now < nextAllowed
-    ) {
-      return;
-    }
-    conversationV2ProjectionExtrasNextAllowedRef.current.set(threadId, now + 1000);
-    conversationV2ProjectionExtrasInFlightRef.current.add(threadId);
-    void api
-      .conversationV2Projection(threadId)
-      .then((extras) => {
-        const latest = conversationV2ByThreadRef.current[threadId];
-        if (!latest || latest.storeEpoch !== current.storeEpoch) {
-          return;
-        }
-        const next = installConversationV2ProjectionExtras(latest, extras);
-        setConversationV2ByThread((states) => {
-          const state = states[threadId];
-          if (!state || state.storeEpoch !== next.storeEpoch || state.appliedSeq !== next.appliedSeq) {
-            return state && state.appliedSeq > next.appliedSeq ? states : { ...states, [threadId]: next };
+  /**
+   * Refresh the mutable V2 panel facts. Normally effect-driven and throttled: they ride on the
+   * event stream, and `getConversationV2ProjectionExtras` re-derives request spans on every call,
+   * so paying for it per streamed token would be waste.
+   *
+   * `force` also carries thinking block starts and first content. Empty starts create no
+   * message, so the dedicated V2 notice wakes this path and a busy fetch queues the update.
+   * While the model writes a
+   * tool call's arguments, *nothing* happens on the wire until the arguments are complete. Relying
+   * on the next effect-driven refresh (up to a second away, and none at all if the throttle ate
+   * the call the fact itself triggered) is what left the Feed showing a still timeline for the
+   * whole write — measured at 12–17s on this endpoint.
+   */
+  const refreshConversationV2ProjectionExtras = useCallback(
+    (threadId: string, options?: { force?: boolean }): void => {
+      const api = window.eco;
+      const current = conversationV2ByThreadRef.current[threadId];
+      const now = Date.now();
+      if (options?.force && conversationV2ProjectionExtrasInFlightRef.current.has(threadId)) {
+        conversationV2ProjectionExtrasPendingRef.current.add(threadId);
+        return;
+      }
+      if (
+        !current ||
+        !api ||
+        !shouldRefreshConversationV2ProjectionExtras({
+          hasThreadState: true,
+          hasProjectionApi: typeof api.conversationV2Projection === "function",
+          inFlight: conversationV2ProjectionExtrasInFlightRef.current.has(threadId),
+          now,
+          nextAllowed: conversationV2ProjectionExtrasNextAllowedRef.current.get(threadId) ?? 0,
+          ...(options?.force !== undefined ? { force: options.force } : {}),
+        })
+      ) {
+        return;
+      }
+      conversationV2ProjectionExtrasNextAllowedRef.current.set(threadId, now + 1000);
+      conversationV2ProjectionExtrasInFlightRef.current.add(threadId);
+      void api
+        .conversationV2Projection(threadId)
+        .then((extras) => {
+          const latest = conversationV2ByThreadRef.current[threadId];
+          if (!latest || latest.storeEpoch !== current.storeEpoch) {
+            return;
           }
-          return { ...states, [threadId]: next };
+          const next = installConversationV2ProjectionExtras(latest, extras);
+          startTransition(() => {
+            setConversationV2ByThread((states) => {
+              const state = states[threadId];
+              if (!state || state.storeEpoch !== next.storeEpoch || state.appliedSeq !== next.appliedSeq) {
+                return state && state.appliedSeq > next.appliedSeq ? states : { ...states, [threadId]: next };
+              }
+              return { ...states, [threadId]: next };
+            });
+          });
+        })
+        .catch((error: unknown) => {
+          console.warn("[eco] conversation V2 projection extras refresh failed:", error);
+        })
+        .finally(() => {
+          conversationV2ProjectionExtrasInFlightRef.current.delete(threadId);
+          if (conversationV2ProjectionExtrasPendingRef.current.delete(threadId)) {
+            refreshConversationV2ProjectionExtras(threadId, { force: true });
+          }
         });
-      })
-      .catch((error: unknown) => {
-        console.warn("[eco] conversation V2 projection extras refresh failed:", error);
-      })
-      .finally(() => {
-        conversationV2ProjectionExtrasInFlightRef.current.delete(threadId);
-      });
-  }, []);
+    },
+    [],
+  );
   const recentlyViewedThreadIdsRef = useRef<string[]>([]);
   const projectionEvictTimersRef = useRef(new Map<string, number>());
   const threadsRef = useRef(threads);
@@ -1941,7 +2067,6 @@ function App() {
     [applyFeedThreadSelection, commitSidebarThreadSelection],
   );
   const [cancelBusy, setCancelBusy] = useState(false);
-  const [stopConfirm, setStopConfirm] = useState<{ changedFiles: string[] }>();
   const [composerRuntimeConfig, setComposerRuntimeConfig] = useState<ThreadRuntimeConfig | null>(null);
   const [newThreadCoreKind, setNewThreadCoreKind] = useState<CoreKind>("claude");
   const [coreAvailability, setCoreAvailability] = useState<CoreAvailabilitySnapshot>();
@@ -1971,6 +2096,13 @@ function App() {
     agentIntegrationEnabled: false,
     actionApprovalMode: "always_ask",
   });
+  const [ttsSettings, setTtsSettings] = useState<TtsSettingsSnapshot>({
+    enabled: false,
+    activeProfileId: "",
+    profiles: [],
+    apiKeyEncryptionAvailable: false,
+  });
+  const [ttsArtifactsByThread, setTtsArtifactsByThread] = useState<Record<string, TtsArtifact[]>>({});
   const [imageGenerationSettings, setImageGenerationSettings] = useState<ImageGenerationSettingsSnapshot>(
     emptyImageGenerationSettings,
   );
@@ -2085,7 +2217,12 @@ function App() {
   const [reviewDiffLoading, setReviewDiffLoading] = useState(false);
   const [reviewDiffError, setReviewDiffError] = useState<string>();
   const [reviewSelectedPath, setReviewSelectedPath] = useState<string>();
+  const [reviewDiffRevision, setReviewDiffRevision] = useState(0);
   const reviewDiffRequestRef = useRef(0);
+  const reviewDiffRef = useRef<WorkspaceDiffResult | undefined>(undefined);
+  /** Set by a manual refresh; the next successful load drops cached per-file diffs. */
+  const reviewDiffManualRefreshRef = useRef(false);
+  reviewDiffRef.current = reviewDiff;
   const [fileTarget, setFileTarget] = useState<
     (WorkspaceFileReference & { requestId: number; restricted?: boolean }) | undefined
   >();
@@ -2363,10 +2500,27 @@ function App() {
         });
     };
 
-    const unsubscribe = window.eco.onThreadEvent((event) => {
+    const clarificationNotifications = createClarificationNotifications({
+      refreshPending: refreshPendingClarificationForThread,
+      notify: (threadId, toolUseId) => {
+        ensureThreadListed(threadId);
+        reportDesktopNotification(
+          eco.showThreadClarificationNotification({
+            threadId,
+            toolUseId,
+            activelyViewed: isThreadActivelyViewed(selectedThreadIdRef.current, threadId, document.hasFocus()),
+          }),
+          "clarification",
+        );
+      },
+      onError: (error) => setError(errorMessage(error)),
+    });
+
+    const handleThreadEvent: Parameters<typeof eco.onThreadEvent>[0] = (event) => {
       const conversationEvent = readConversationV2SyncEvent(event);
       if (conversationEvent) {
         const threadId = conversationEvent.conversationId;
+        clarificationNotifications.handleSyncEffect(threadId, conversationEvent.effect.effect);
         const existing = conversationV2ByThreadRef.current[threadId];
         if (!existing || existing.storeEpoch !== conversationEvent.storeEpoch) {
           if (threadId === selectedThreadIdRef.current) {
@@ -2428,16 +2582,23 @@ function App() {
         }
         pending.push(conversationEvent.effect);
         conversationV2LiveEffectsRef.current.set(threadId, pending);
-        const effect = conversationEvent.effect.effect;
-        const directUserPrompt =
-          effect.type === "message.create" &&
-          effect.message.role === "user" &&
-          effect.message.status === "queued";
-        scheduleConversationV2LiveFlush(threadId, directUserPrompt);
+        scheduleConversationV2LiveFlush(
+          threadId,
+          isConversationV2InteractionEffect(conversationEvent.effect.effect),
+        );
         return;
       }
       if (!isThreadLiveEvent(event)) {
         return;
+      }
+      clarificationNotifications.handleLiveEvent(event);
+      // The tool-writing fact is the only thing that changes the Feed's request spans without
+      // producing events of its own: the model is writing a call's arguments, and nothing else
+      // happens on the wire until they are complete. Fetch the derived spans when *it* arrives
+      // (and when the call's row lands, or the turn ends, which clear it again) instead of
+      // waiting for the next event-driven refresh that this window never produces.
+      if (TOOL_WRITING_REFRESH_LIVE_TYPES.has(event.type)) {
+        refreshConversationV2ProjectionExtras(event.threadId, { force: true });
       }
       // Main emits settings.updated with threadId "settings" after config pull/push
       // and local settings saves. Ignoring it left the renderer on stale React state
@@ -2454,6 +2615,7 @@ function App() {
         conversationV2PendingEventsRef.current.delete(event.threadId);
         conversationV2LiveEffectsRef.current.delete(event.threadId);
         conversationV2ProjectionExtrasNextAllowedRef.current.delete(event.threadId);
+        conversationV2ProjectionExtrasPendingRef.current.delete(event.threadId);
         const liveTimer = conversationV2LiveFlushTimersRef.current.get(event.threadId);
         if (liveTimer !== undefined) {
           window.clearTimeout(liveTimer);
@@ -2647,28 +2809,6 @@ function App() {
         );
       }
 
-      if (event.type.startsWith("clarification.")) {
-        if (event.type === "clarification.requested" && event.clarification) {
-          void refreshPendingClarificationForThread(event.threadId).catch((error) => setError(errorMessage(error)));
-          const activelyViewed = isThreadActivelyViewed(
-            selectedThreadIdRef.current,
-            event.threadId,
-            document.hasFocus(),
-          );
-          reportDesktopNotification(
-            window.eco!.showThreadClarificationNotification({
-              threadId: event.threadId,
-              activelyViewed,
-            }),
-            "clarification",
-          );
-          return;
-        }
-        if (window.eco) {
-          void refreshPendingClarificationForThread(event.threadId).catch((error) => setError(errorMessage(error)));
-        }
-      }
-
       if (event.type === "bash_approval.requested" && event.bashApproval) {
         upsertPendingBashApprovalForThread(event.threadId, event.bashApproval);
       }
@@ -2782,6 +2922,23 @@ function App() {
           }
         });
       }
+    };
+    const unsubscribe = window.eco.onThreadEvent((event) => {
+      if (
+        isThreadLiveEvent(event) &&
+        [
+          "thread.completed",
+          "thread.failed",
+          "thread.idle",
+          "thread.stopped",
+          "thread.cancelled",
+          "thread.blocked",
+        ].includes(event.type)
+      ) {
+        handleThreadEvent(event);
+      } else {
+        startTransition(() => handleThreadEvent(event));
+      }
     });
     return () => {
       if (rendererReadyFrame !== undefined) {
@@ -2798,12 +2955,14 @@ function App() {
       }
       conversationV2RenderFramesRef.current.clear();
       conversationV2RenderPendingRef.current.clear();
+      conversationV2RenderUrgentRef.current.clear();
       for (const timer of conversationV2LiveFlushTimersRef.current.values()) {
         window.clearTimeout(timer);
       }
       conversationV2LiveFlushTimersRef.current.clear();
       conversationV2LiveEffectsRef.current.clear();
       conversationV2ProjectionExtrasNextAllowedRef.current.clear();
+      conversationV2ProjectionExtrasPendingRef.current.clear();
       unsubscribe();
       unsubscribeThreadOpen();
     };
@@ -3422,6 +3581,53 @@ function App() {
     [feedThreadId, threads],
   );
   useEffect(() => {
+    if (!window.eco?.getTtsSettings) return;
+    void window.eco
+      .getTtsSettings()
+      .then(setTtsSettings)
+      .catch((caught) => setError(errorMessage(caught)));
+  }, []);
+  useEffect(() => {
+    if (!selectedThreadId || !window.eco?.listTtsArtifacts) return;
+    let cancelled = false;
+    void window.eco
+      .listTtsArtifacts(selectedThreadId)
+      .then((artifacts) => {
+        if (cancelled) return;
+        setTtsArtifactsByThread((current) => {
+          const byId = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
+          for (const artifact of current[selectedThreadId] ?? []) {
+            if (!byId.has(artifact.id) || artifact.updatedAt > byId.get(artifact.id)!.updatedAt)
+              byId.set(artifact.id, artifact);
+          }
+          return {
+            ...current,
+            [selectedThreadId]: [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+          };
+        });
+      })
+      .catch((caught) => {
+        if (!cancelled) setError(errorMessage(caught));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedThreadId]);
+  useEffect(
+    () =>
+      window.eco?.onTtsArtifactChanged?.((artifact) => {
+        setTtsArtifactsByThread((current) => ({
+          ...current,
+          [artifact.threadId]: [
+            artifact,
+            ...(current[artifact.threadId] ?? []).filter((item) => item.id !== artifact.id),
+          ].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        }));
+      }),
+    [],
+  );
+
+  useEffect(() => {
     if (!selectedThreadId || !window.eco?.listImageGenerationArtifacts) return;
     let cancelled = false;
     void window.eco
@@ -3560,9 +3766,31 @@ function App() {
   useLayoutEffect(() => {
     setWorkspacePanelManualOverride(undefined);
   }, [activityWorkspaceLayoutMode, currentProjectPath, activeThread?.id]);
+  useLayoutEffect(() => {
+    if (scheduledMessagesReveal?.threadId !== activeThread?.id || !currentProjectPath) return;
+    setWorkspacePanelManualOverride({
+      layoutMode: activityWorkspaceLayoutMode,
+      projectPath: currentProjectPath,
+      threadId: activeThread?.id,
+      open: true,
+    });
+    const panel = workspaceCardsPanelRef.current;
+    const scroller = panel?.querySelector<HTMLElement>(".workspace-floating-cards-sections") ?? panel;
+    if (!scroller) return;
+    const section = scroller
+      .querySelector<HTMLElement>("#workspace-scheduled-messages-body")
+      ?.closest<HTMLElement>(".workspace-panel-section");
+    if (section) {
+      const delta = section.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+      scroller.scrollTo({ top: scroller.scrollTop + delta });
+    } else {
+      scroller.scrollTo({ top: 0 });
+    }
+  }, [scheduledMessagesReveal, activeThread?.id, currentProjectPath, activityWorkspaceLayoutMode]);
   useEffect(() => {
     reviewDiffRequestRef.current += 1;
-    setReviewDiff(undefined);
+    reviewDiffManualRefreshRef.current = false;
+    setReviewDiff(currentProjectPath ? readWorkspaceReviewSummary(currentProjectPath) : undefined);
     setReviewDiffLoading(false);
     setReviewDiffError(undefined);
     setReviewSelectedPath(undefined);
@@ -3624,6 +3852,7 @@ function App() {
     unreadThreadIds,
     pendingPlansByThread,
     pendingBashApprovalsByThread,
+    pendingClarificationsByThread,
   });
 
   useEffect(() => {
@@ -4274,6 +4503,10 @@ function App() {
     void window.eco.getPersonalizationSettings().then(setPersonalizationSettings);
     void window.eco.getBrowserSettings?.().then(setBrowserSettings);
     void window.eco.getComputerUseSettings?.().then(setComputerUseSettings);
+    void window.eco
+      .getTtsSettings?.()
+      .then(setTtsSettings)
+      .catch((caught) => setError(errorMessage(caught)));
     void window.eco.getImageGenerationSettings?.().then(setImageGenerationSettings);
     void window.eco.getIntegrationAvailability?.().then(setIntegrationAvailability);
     void window.eco.getWebChatList?.().then(setWebChatList);
@@ -4581,6 +4814,9 @@ function App() {
           ...((current?.auxiliaryModel ?? workflowSettings.defaultAuxiliaryModel)
             ? { auxiliaryModel: current?.auxiliaryModel ?? workflowSettings.defaultAuxiliaryModel }
             : {}),
+          ...((current?.approvalModel ?? workflowSettings.defaultApprovalModel)
+            ? { approvalModel: current?.approvalModel ?? workflowSettings.defaultApprovalModel }
+            : {}),
           ...((current?.visionModel ?? workflowSettings.defaultVisionModel)
             ? { visionModel: current?.visionModel ?? workflowSettings.defaultVisionModel }
             : {}),
@@ -4718,6 +4954,9 @@ function App() {
         ...(base?.subagentEnabled ? { subagentEnabled: base.subagentEnabled } : {}),
         ...((base?.auxiliaryModel ?? workflowSettings.defaultAuxiliaryModel)
           ? { auxiliaryModel: base?.auxiliaryModel ?? workflowSettings.defaultAuxiliaryModel }
+          : {}),
+        ...((base?.approvalModel ?? workflowSettings.defaultApprovalModel)
+          ? { approvalModel: base?.approvalModel ?? workflowSettings.defaultApprovalModel }
           : {}),
         ...((base?.visionModel ?? workflowSettings.defaultVisionModel)
           ? { visionModel: base?.visionModel ?? workflowSettings.defaultVisionModel }
@@ -4957,7 +5196,7 @@ function App() {
       activeConversationV2
         ? buildConversationV2OnlyProjection(activeConversationV2, activeThread)
         : undefined,
-    [activeConversationV2, activeThread],
+    [activeConversationV2, activeThread?.createdAt, activeThread?.status],
   );
   // V2 is the only renderer projection source. A missing V2 state is a visible
   // bootstrap/recovery condition; it never falls back to a legacy projection or
@@ -5282,7 +5521,8 @@ function App() {
     (activeThread.status === "failed" || activeThread.status === "blocked" || activeThread.status === "idle");
 
   const composerContinueTarget = useMemo(() => {
-    if (!lastRunInterrupted || !activeThread || !threadAcceptsInput || !latestContinueAttempt) return undefined;
+    if (!lastRunInterrupted || !activeThread || !threadAcceptsInput || !latestContinueAttempt)
+      return undefined;
     const timeline = displayProjection?.timeline ?? [];
     for (let i = timeline.length - 1; i >= 0; i -= 1) {
       const item = timeline[i];
@@ -5587,13 +5827,7 @@ function App() {
         showAppMessageError(error instanceof Error ? error.message : t("app.sshBookmarks.connectFailed"));
       }
     },
-    [
-      currentProjectPath,
-      dismissTaskPanel,
-      openTerminalSessionTab,
-      showAppMessageError,
-      t,
-    ],
+    [currentProjectPath, dismissTaskPanel, openTerminalSessionTab, showAppMessageError, t],
   );
 
   useEffect(() => {
@@ -5782,6 +6016,7 @@ function App() {
         ) {
           return true;
         }
+        if (parseTtsTaskTabId(String(tabId))) return true;
         if (parseImageGenerationTaskTabId(String(tabId))) {
           return true;
         }
@@ -5928,8 +6163,27 @@ function App() {
       return;
     }
     setTaskPanelFullscreen(false);
-    openBrowserTaskPanel();
-  }, [currentProjectPath, dismissTaskPanel, openBrowserTaskPanel, revealTaskPanel, taskDrawerOpen]);
+    // Reopening the sidebar restores the tab it was collapsed on; only an empty panel
+    // (every tab closed) gets a fresh start page.
+    const restoreTab = resolveTaskPanelReopenTab(openTaskPanelTabIds, taskPanelActiveTabRef.current);
+    if (!restoreTab) {
+      openBrowserTaskPanel();
+      return;
+    }
+    setTaskPanelActiveTab(restoreTab);
+    setSelectedSubagentAgentId(
+      activeSubagentCards.some((card) => card.key === restoreTab) ? restoreTab : undefined,
+    );
+    revealTaskPanel();
+  }, [
+    activeSubagentCards,
+    currentProjectPath,
+    dismissTaskPanel,
+    openBrowserTaskPanel,
+    openTaskPanelTabIds,
+    revealTaskPanel,
+    taskDrawerOpen,
+  ]);
 
   const openWebChatItem = useCallback(
     (item: WebChatItem) => {
@@ -6017,6 +6271,18 @@ function App() {
   const openImageGenerationArtifact = useCallback(
     (artifactId: string) => {
       const tabId = imageGenerationTaskTabId(artifactId);
+      setOpenTaskPanelTabIds((current) => addOpenTaskPanelTab(current, tabId));
+      setTaskPanelActiveTab(tabId);
+      setSelectedSubagentAgentId(undefined);
+      setTaskPanelFullscreen(false);
+      revealTaskPanel();
+    },
+    [revealTaskPanel],
+  );
+
+  const openTtsArtifact = useCallback(
+    (artifactId: string) => {
+      const tabId = ttsTaskTabId(artifactId);
       setOpenTaskPanelTabIds((current) => addOpenTaskPanelTab(current, tabId));
       setTaskPanelActiveTab(tabId);
       setSelectedSubagentAgentId(undefined);
@@ -6192,6 +6458,10 @@ function App() {
   const canEditBashReviewMode = Boolean(composerRuntimeConfig);
   // Route settings remain viewable for every thread state, including an active run;
   // canEditComposerConfig continues to gate every route mutation handler/control.
+  // Auxiliary / approval / vision requests are stateless single-shot calls: the host
+  // re-reads their selection for each request, so they stay switchable mid-run and
+  // take effect on the next auxiliary / approval / vision request.
+  const canEditStatelessModelConfig = !isSavingSettings;
   // Open permission only collapses while settings are saving.
   const canOpenComposerRoute = !isSavingSettings;
   const resetComposerToGlobalSettings = useCallback(async () => {
@@ -6295,6 +6565,7 @@ function App() {
   const workspaceCardsPanelRef = useRef<HTMLElement>(null);
   const [topbarSolid, setTopbarSolid] = useState(true);
   const userDetachedFromBottomRef = useRef(false);
+  const [feedUserDetached, setFeedUserDetached] = useState(false);
   const activityFeedScrollTopRef = useRef(0);
   const programmaticActivityFeedScrollRef = useRef(false);
   const forceActivityFeedScrollUntilRef = useRef(0);
@@ -6334,6 +6605,12 @@ function App() {
   }, []);
 
   const clampActivityFeedOverscroll = useCallback((container: HTMLElement): boolean => {
+    // A reader mid-history may sit past the (shrinking) bottom: the rubber-band gap self-heals
+    // when the tail regrows, and snapping them back would lurch the content they are reading.
+    // Only the follow state needs the hard clamp.
+    if (userDetachedFromBottomRef.current) {
+      return false;
+    }
     const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
     if (container.scrollTop <= maxScrollTop) {
       return false;
@@ -6372,26 +6649,49 @@ function App() {
 
   const syncActivityUserMessageNavigator = useCallback(
     (container: HTMLElement) => {
-      const anchors = Array.from(container.querySelectorAll<HTMLElement>("[data-user-message-anchor-id]"));
-      if (anchors.length === 0) {
-        updateActiveActivityUserMessageNavId(undefined);
-        return;
-      }
       const containerRect = container.getBoundingClientRect();
-      const markerY = containerRect.top + containerRect.height * 0.46;
-      let activeAnchor = anchors[0];
-      for (const anchor of anchors) {
-        const rect = anchor.getBoundingClientRect();
-        if (rect.top <= markerY || rect.bottom <= containerRect.top + 16) {
-          activeAnchor = anchor;
-          continue;
-        }
-        break;
-      }
-      updateActiveActivityUserMessageNavId(activeAnchor?.dataset.userMessageAnchorId);
+      const anchors = Array.from(
+        container.querySelectorAll<HTMLElement>("[data-user-message-anchor-id]"),
+      )
+        .map((anchor) => ({
+          id: anchor.dataset.userMessageAnchorId ?? "",
+          top: anchor.getBoundingClientRect().top - containerRect.top,
+        }))
+        .filter((anchor) => anchor.id);
+      updateActiveActivityUserMessageNavId(
+        resolveActivityUserMessageActiveAnchorId(anchors, {
+          top: 0,
+          height: containerRect.height,
+          distanceFromBottomPx: distanceFromActivityFeedBottom(container),
+        }),
+      );
     },
-    [updateActiveActivityUserMessageNavId],
+    [distanceFromActivityFeedBottom, updateActiveActivityUserMessageNavId],
   );
+
+  // Hand scroll anchoring back to the browser while the reader is detached from the bottom.
+  // The follow state uses overflow-anchor: none so Chromium can't fight the JS stick-to-bottom
+  // on a growing tail — but with anchoring off, any content reflow *above* the viewport
+  // (thinking-block auto-collapse, lazy mounts, expanding blocks) lurches the reading position
+  // with no compensation. Anchoring on while detached keeps the content the user is reading
+  // stable; the class flips back off as soon as they return to the bottom (or force-scroll).
+  const setActivityFeedDetachedAnchor = useCallback((detached: boolean) => {
+    activityMessagesRef.current?.classList.toggle("is-reading-detached", detached);
+    setFeedUserDetached(detached);
+  }, []);
+
+  /**
+   * True while the Feed renders virtualized rows. Those rows are end-anchored,
+   * so virtual-core already compensates content growth at the tail
+   * (`resizeItem`'s `wasAtEnd` path). Writing `scrollTop` here as well makes the
+   * two writers disagree inside one frame: the follow write moves the viewport,
+   * the virtual window re-derives its boundary from the moved offset, the
+   * spacers change, and the ResizeObserver fires the follow again.
+   */
+  const feedEndAnchoredRef = useRef(false);
+  const handleFeedEndAnchorChange = useCallback((endAnchored: boolean) => {
+    feedEndAnchoredRef.current = endAnchored;
+  }, []);
 
   const jumpToActivityUserMessage = useCallback(
     (anchorId: string) => {
@@ -6413,6 +6713,7 @@ function App() {
         const targetTop = Math.max(0, container.scrollTop + targetRect.top - containerRect.top - 18);
         userDetachedFromBottomRef.current = true;
         activityFeedUserScrollDirectionRef.current = targetTop < container.scrollTop ? "up" : "down";
+        setActivityFeedDetachedAnchor(true);
         programmaticActivityFeedScrollRef.current = true;
         updateActiveActivityUserMessageNavId(anchorId);
         container.scrollTo({ top: targetTop, behavior: "smooth" });
@@ -6436,6 +6737,7 @@ function App() {
         return;
       }
       userDetachedFromBottomRef.current = true;
+      setActivityFeedDetachedAnchor(true);
       updateActiveActivityUserMessageNavId(anchorId);
       window.setTimeout(() => {
         if (activityMessagesRef.current !== container) {
@@ -6447,7 +6749,12 @@ function App() {
         }
       }, 48);
     },
-    [syncActivityFeedScrollJump, syncActivityUserMessageNavigator, updateActiveActivityUserMessageNavId],
+    [
+      syncActivityFeedScrollJump,
+      syncActivityUserMessageNavigator,
+      setActivityFeedDetachedAnchor,
+      updateActiveActivityUserMessageNavId,
+    ],
   );
 
   const scrollActivityFeedToEnd = useCallback(
@@ -6457,8 +6764,16 @@ function App() {
         return;
       }
       const effectiveForce = force || Date.now() < forceActivityFeedScrollUntilRef.current;
-      if (!effectiveForce && userDetachedFromBottomRef.current) {
-        return;
+      if (!effectiveForce) {
+        if (userDetachedFromBottomRef.current) {
+          return;
+        }
+        // An end-anchored Feed is pinned inside virtual-core already. Following
+        // again from here is the second writer that made the virtual boundary
+        // re-derive on nearly every stream tick.
+        if (feedEndAnchoredRef.current) {
+          return;
+        }
       }
       programmaticActivityFeedScrollRef.current = true;
       const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
@@ -6475,12 +6790,18 @@ function App() {
           if (distanceFromActivityFeedBottom(el) <= ACTIVITY_FEED_STICK_THRESHOLD_PX) {
             userDetachedFromBottomRef.current = false;
             activityFeedUserScrollDirectionRef.current = null;
+            setActivityFeedDetachedAnchor(false);
           }
           syncActivityFeedScrollJump(el);
+          // Programmatic writes never reach the scroll listener (it early-returns on
+          // `programmaticActivityFeedScrollRef`), so the rail would keep whatever the
+          // pre-scroll geometry produced — a freshly opened thread stayed pinned to
+          // the first message while the Feed sat at its end.
+          syncActivityUserMessageNavigator(el);
         });
       });
     },
-    [distanceFromActivityFeedBottom, syncActivityFeedScrollJump],
+    [distanceFromActivityFeedBottom, syncActivityFeedScrollJump, syncActivityUserMessageNavigator],
   );
 
   const cancelActivityFeedLayoutScroll = useCallback(() => {
@@ -6494,11 +6815,12 @@ function App() {
     (direction: ActivityFeedUserScrollDirection = "up") => {
       userDetachedFromBottomRef.current = true;
       activityFeedUserScrollDirectionRef.current = direction;
+      setActivityFeedDetachedAnchor(true);
       // Stop stick-to-bottom timers so virtualization remounts cannot snap back mid-gesture.
       cancelActivityFeedLayoutScroll();
       forceActivityFeedScrollUntilRef.current = 0;
     },
-    [cancelActivityFeedLayoutScroll],
+    [cancelActivityFeedLayoutScroll, setActivityFeedDetachedAnchor],
   );
 
   const scheduleActivityFeedLayoutScroll = useCallback(() => {
@@ -6637,6 +6959,7 @@ function App() {
     forceActivityFeedScrollUntilRef.current = Date.now() + ACTIVITY_FEED_FORCE_SCROLL_MS;
     userDetachedFromBottomRef.current = false;
     activityFeedUserScrollDirectionRef.current = null;
+    setActivityFeedDetachedAnchor(false);
     activityFeedScrollJumpRef.current = null;
     setActivityFeedScrollJump(null);
     scrollActivityFeedToEnd(true);
@@ -6644,7 +6967,7 @@ function App() {
       scrollActivityFeedToEnd(true);
       requestAnimationFrame(() => scrollActivityFeedToEnd(true));
     });
-  }, [scrollActivityFeedToEnd]);
+  }, [scrollActivityFeedToEnd, setActivityFeedDetachedAnchor]);
 
   const jumpActivityFeedToTop = useCallback(() => {
     const container = activityMessagesRef.current;
@@ -6759,6 +7082,9 @@ function App() {
       return;
     }
     activityFeedScrollTopRef.current = container.scrollTop;
+    let scrollbarDragging = false;
+    let userScrollUntil = 0;
+    let touchY: number | undefined;
     const onScroll = () => {
       if (programmaticActivityFeedScrollRef.current) {
         return;
@@ -6771,23 +7097,30 @@ function App() {
       }
       const distanceFromBottom = distanceFromActivityFeedBottom(container);
       if (scrollTop < activityFeedScrollTopRef.current - ACTIVITY_FEED_USER_SCROLL_DELTA_PX) {
-        if (distanceFromBottom <= ACTIVITY_FEED_USER_SCROLL_DELTA_PX) {
-          // scrollTop moved down but the viewport is still pinned at the bottom: this is a
-          // clamp from content shrinking (e.g. a thinking block auto-collapsing) or a
-          // programmatic scroll whose flag was cleared before the event fired — not the user
-          // scrolling up. Marking detached here would permanently stop auto-follow.
-          activityFeedUserScrollDirectionRef.current = null;
-        } else {
+        // Virtualizer corrections and browser clamps also emit scroll events.
+        // Wheel, touch and keyboard intent detach before scrolling; only a
+        // scrollbar drag still needs to infer its direction here.
+        if (scrollbarDragging) {
           markActivityFeedUserDetached("up");
         }
       } else if (scrollTop > activityFeedScrollTopRef.current + ACTIVITY_FEED_USER_SCROLL_DELTA_PX) {
-        activityFeedUserScrollDirectionRef.current = "down";
-        if (distanceFromBottom <= ACTIVITY_FEED_STICK_THRESHOLD_PX) {
-          userDetachedFromBottomRef.current = false;
+        if (scrollbarDragging || performance.now() < userScrollUntil) {
+          activityFeedUserScrollDirectionRef.current = "down";
         }
-      } else if (distanceFromBottom <= ACTIVITY_FEED_STICK_THRESHOLD_PX) {
+        if (
+          distanceFromBottom <= ACTIVITY_FEED_STICK_THRESHOLD_PX &&
+          (scrollbarDragging || performance.now() < userScrollUntil)
+        ) {
+          userDetachedFromBottomRef.current = false;
+          setActivityFeedDetachedAnchor(false);
+        }
+      } else if (
+        distanceFromBottom <= ACTIVITY_FEED_STICK_THRESHOLD_PX &&
+        (scrollbarDragging || performance.now() < userScrollUntil)
+      ) {
         userDetachedFromBottomRef.current = false;
         activityFeedUserScrollDirectionRef.current = null;
+        setActivityFeedDetachedAnchor(false);
       }
       activityFeedScrollTopRef.current = scrollTop;
       if (scrollTop <= ACTIVITY_FEED_SCROLL_JUMP_THRESHOLD_PX) {
@@ -6798,26 +7131,83 @@ function App() {
       syncActivityUserMessageNavigator(container);
     };
     const onWheel = (event: WheelEvent) => {
+      userScrollUntil = performance.now() + 500;
       if (event.deltaY >= 0) {
         return;
       }
       // Detach before virtualization ResizeObserver can snap stick-to-bottom mid-gesture.
-      markActivityFeedUserDetached("up");
+      if (userDetachedFromBottomRef.current) {
+        markActivityFeedUserDetached("up");
+      } else {
+        // Disable virtual-core's resize/append follow before the next observer
+        // callback, even when this gesture has not left the 120px stick band.
+        flushSync(() => markActivityFeedUserDetached("up"));
+      }
       syncActivityFeedBoot(container);
+    };
+    const detachForInput = () => flushSync(() => markActivityFeedUserDetached("up"));
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (event.defaultPrevented) return;
+      if (target instanceof Element) {
+        if (target.closest("input, textarea, [contenteditable=true]")) return;
+        if (event.key === " " && target.closest("button")) return;
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        requestActivityFeedForceScroll();
+        return;
+      }
+      userScrollUntil = performance.now() + 500;
+      if (["ArrowUp", "PageUp", "Home"].includes(event.key) || (event.key === " " && event.shiftKey)) {
+        detachForInput();
+      }
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType === "touch") {
+        touchY = event.clientY;
+      } else if (
+        event.target === container &&
+        event.clientX >= container.getBoundingClientRect().right - 20
+      ) {
+        scrollbarDragging = true;
+      }
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      if (touchY === undefined) return;
+      userScrollUntil = performance.now() + 500;
+      if (event.clientY > touchY + 2) detachForInput();
+      touchY = event.clientY;
+    };
+    const onPointerUp = () => {
+      scrollbarDragging = false;
+      touchY = undefined;
     };
     container.addEventListener("scroll", onScroll, { passive: true });
     container.addEventListener("wheel", onWheel, { passive: true });
+    container.addEventListener("keydown", onKeyDown);
+    container.addEventListener("pointerdown", onPointerDown);
+    container.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
     syncActivityFeedBoot(container);
     syncActivityFeedScrollJump(container);
     syncActivityUserMessageNavigator(container);
     return () => {
       container.removeEventListener("scroll", onScroll);
       container.removeEventListener("wheel", onWheel);
+      container.removeEventListener("keydown", onKeyDown);
+      container.removeEventListener("pointerdown", onPointerDown);
+      container.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
     };
   }, [
     activeThread?.id,
     distanceFromActivityFeedBottom,
     markActivityFeedUserDetached,
+    requestActivityFeedForceScroll,
+    setActivityFeedDetachedAnchor,
     syncActivityFeedBoot,
     syncActivityFeedScrollJump,
     syncActivityUserMessageNavigator,
@@ -6888,7 +7278,10 @@ function App() {
       clampActivityFeedOverscroll(container);
       syncActivityFeedBoot(container);
       // Terminal open/close resizes the feed viewport. Keep stick-to-bottom so content
-      // rises with the panel instead of being clipped under it.
+      // rises with the panel instead of being clipped under it. End-anchored rows
+      // compensate item growth, not a shrinking scroll element (upstream
+      // TanStack/virtual#1297 is still open on that), so this writer stays on even
+      // when the Feed is virtualized — hence the forced call.
       if (userDetachedFromBottomRef.current) {
         if (delta > 0) {
           container.scrollTop = Math.max(0, container.scrollTop + delta);
@@ -6898,8 +7291,8 @@ function App() {
         syncActivityUserMessageNavigator(container);
         return;
       }
-      scrollActivityFeedToEnd();
-      requestAnimationFrame(() => scrollActivityFeedToEnd());
+      scrollActivityFeedToEnd(true);
+      requestAnimationFrame(() => scrollActivityFeedToEnd(true));
       syncActivityUserMessageNavigator(container);
     });
     observer.observe(container);
@@ -7131,7 +7524,6 @@ function App() {
         ? window.eco.listThreadFollowUps(threadId)
         : Promise.resolve({ followUps: [] }),
     ]);
-    refreshConversationV2ProjectionExtras(threadId);
     if (plan) {
       upsertPendingPlanForThread(threadId, plan);
     } else {
@@ -7152,10 +7544,11 @@ function App() {
     } else {
       clearPendingBashApprovalForThread(threadId);
     }
-    setFollowUpsByThread((current) => ({
-      ...current,
-      [threadId]: mergeThreadFollowUps(current[threadId] ?? [], followUps.followUps),
-    }));
+    setFollowUpsByThread((current) => {
+      const previous = current[threadId];
+      if (!previous?.length && followUps.followUps.length === 0) return current;
+      return { ...current, [threadId]: mergeThreadFollowUps(previous ?? [], followUps.followUps) };
+    });
     refreshConversationV2ProjectionExtras(threadId);
   }
 
@@ -7250,6 +7643,10 @@ function App() {
     }
   }
 
+  const activityLoadUserMessageEdit = useStableCallback(loadUserMessageEdit);
+  const activityRewriteUserMessage = useStableCallback(rewriteUserMessage);
+  const activityRetryFailedRequest = useStableCallback(retryFailedRequest);
+
   async function sendConversationV2Continuation(input: {
     thread: ThreadSummary;
     prompt: string;
@@ -7271,29 +7668,39 @@ function App() {
         runtimeConfig: input.runtimeConfig,
       }),
     );
-    setThreads((current) =>
-      current.map((thread) => (thread.id === configured.thread.id ? configured.thread : thread)),
-    );
-    const clientCommandId = `conversation_send_${input.commandScope}_${crypto.randomUUID()}`;
-    await eco.conversationV2SendMessage({
-      principalId: "desktop-local",
-      conversationId: input.thread.id,
-      clientCommandId,
-      text: input.prompt,
-      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
-    });
-    const updated = await eco.getThread(input.thread.id);
-    if (updated) {
-      setThreads((current) => current.map((thread) => (thread.id === updated.id ? updated : thread)));
+    try {
+      const clientCommandId = `conversation_send_${input.commandScope}_${crypto.randomUUID()}`;
+      await eco.conversationV2SendMessage({
+        principalId: "desktop-local",
+        conversationId: input.thread.id,
+        clientCommandId,
+        text: input.prompt,
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      });
+      clearPendingPlanForThread(input.thread.id);
+      clearPendingClarificationForThread(input.thread.id);
+      clearPendingBashApprovalForThread(input.thread.id);
+      const [updated] = await Promise.all([
+        eco.getThread(input.thread.id),
+        refreshThreadState(input.thread.id),
+      ]);
+      const summary = updated ?? configured.thread;
+      startTransition(() =>
+        setThreads((current) => current.map((thread) => (thread.id === summary.id ? summary : thread))),
+      );
+      return summary;
+    } catch (caught) {
+      // Configuration was committed even if sending or refreshing failed.
+      setThreads((current) =>
+        current.map((thread) => (thread.id === configured.thread.id ? configured.thread : thread)),
+      );
+      throw caught;
     }
-    clearPendingPlanForThread(input.thread.id);
-    clearPendingClarificationForThread(input.thread.id);
-    clearPendingBashApprovalForThread(input.thread.id);
-    await refreshThreadState(input.thread.id);
-    return updated ?? configured.thread;
   }
 
-  async function continueInterruptedCodexTurn(target: RequestFailureRetryTarget & { sourceAttemptId: string }) {
+  async function continueInterruptedCodexTurn(
+    target: RequestFailureRetryTarget & { sourceAttemptId: string },
+  ) {
     if (!activeThread || isStarting || !window.eco) return;
     const threadId = activeThread.id;
     const expectedHistoryRevision = displayProjection?.historyRevision ?? 0;
@@ -7481,12 +7888,21 @@ function App() {
     if (
       editingFollowUpIdRef.current !== expectedFollowUpId ||
       editingFollowUpThreadIdRef.current !== threadId
-    ) return;
+    )
+      return;
     editingFollowUpIdRef.current = undefined;
     editingFollowUpThreadIdRef.current = undefined;
     setEditingFollowUpId(undefined);
     restoreComposerAfterFollowUpEdit();
   }
+
+  useEffect(() => {
+    if (!editingFollowUpId || followUpBusy) return;
+    const edited = activeFollowUps.find((followUp) => followUp.id === editingFollowUpId);
+    if (edited && edited.status !== "queued") {
+      void cancelEditingFollowUp().catch((caught) => setError(errorMessage(caught)));
+    }
+  }, [activeFollowUps, editingFollowUpId, followUpBusy]);
 
   useEffect(() => {
     return () => {
@@ -7823,6 +8239,56 @@ function App() {
     await approvePendingPlanWithTarget({ kind: "main" });
   }
 
+  async function reviewPendingPlanCode() {
+    if (!activeThread || !pendingPlan || !window.eco || planActionBusy || isStarting) return;
+    const threadId = activeThread.id;
+    const planToRemember = pendingPlan;
+    const runtimeConfigForSend = resolveComposerRuntimeConfigForSend();
+    if (!runtimeConfigForSend) {
+      setError(t("app.configureOrchestration"));
+      return;
+    }
+    setError(undefined);
+    setPlanActionBusy(true);
+    try {
+      const expectedHistoryRevision = displayProjection?.historyRevision ?? 0;
+      // Awaiting-plan messages only queue. Resolve the gate before sending the review request.
+      const result = await window.eco.dismissPlan({
+        principalId: "desktop-local",
+        clientCommandId: `plan_resolve_${stableHash({
+          threadId,
+          resolution: "review-code",
+          expectedHistoryRevision,
+        })}`,
+        threadId,
+        expectedHistoryRevision,
+      });
+      rememberApprovedPlanForThread(threadId, planToRemember);
+      clearPendingPlanForThread(threadId);
+      const updatedThread = result.thread;
+      if (!updatedThread) {
+        throw new Error("计划待审批状态已结束，但未能获取当前会话，无法发送审查请求。");
+      }
+      setThreads((current) =>
+        current.map((thread) => (thread.id === updatedThread.id ? updatedThread : thread)),
+      );
+      await sendConversationV2Continuation({
+        thread: updatedThread,
+        prompt: "计划已经实施，请审查代码。",
+        runtimeConfig: { ...runtimeConfigForSend, sessionMode: "agent" },
+        commandScope: "plan_review",
+      });
+      requestActivityFeedForceScroll();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      if (isWaitForRunError(caught)) {
+        void resyncThreadSummaryAfterWaitForRun(threadId);
+      }
+    } finally {
+      setPlanActionBusy(false);
+    }
+  }
+
   async function approvePendingPlanWithSubagent(agentKey: string, additionalMessage?: string) {
     await approvePendingPlanWithTarget({
       kind: "subagent",
@@ -8030,17 +8496,13 @@ function App() {
       current.map((thread) => (thread.id === threadId ? { ...thread, cancelling: true } : thread)),
     );
     try {
-      const head = await window.eco.conversationV2Head(threadId);
-      await window.eco.cancelThread({
-        principalId: "desktop-local",
-        clientCommandId: `run_cancel_${stableHash({
-          threadId,
-          expectedHistoryRevision: head.historyRevision,
-        })}`,
+      const command = await buildConversationV2CommandEnvelope({
         threadId,
-        expectedHistoryRevision: head.historyRevision,
+        operation: "run_cancel",
+        payload: {},
+        getHead: (id) => window.eco!.conversationV2Head(id),
       });
-      setStopConfirm(undefined);
+      await window.eco.cancelThread(command);
     } catch (caught) {
       setThreads((current) =>
         current.map((thread) => {
@@ -8058,23 +8520,10 @@ function App() {
   }
 
   async function requestStopThread() {
-    if (!activeThread || !window.eco) {
+    if (!activeThread || !window.eco || cancelBusy) {
       return;
     }
-    setError(undefined);
-    setCancelBusy(true);
-    try {
-      const status = await window.eco.getWorktreeStatus(activeThread.id);
-      if (status.exists && status.changedFiles.length > 0) {
-        setCancelBusy(false);
-        setStopConfirm({ changedFiles: status.changedFiles });
-        return;
-      }
-      await performCancel();
-    } catch (caught) {
-      setCancelBusy(false);
-      setError(errorMessage(caught));
-    }
+    await performCancel();
   }
 
   async function refreshSkillsList(workspacePath?: string) {
@@ -8255,7 +8704,7 @@ function App() {
     }
   }
 
-  async function saveMaxOutputLimit(maxOutputLimitTokens: number) {
+  async function saveMaxOutputLimit(maxOutputLimitTokens: WorkflowSettingsSnapshot["maxOutputLimitTokens"]) {
     if (!window.eco?.saveWorkflowSettings) {
       return;
     }
@@ -8446,8 +8895,15 @@ function App() {
 
   const handleChangesDiffLoaded = useCallback(
     async (diff: WorkspaceDiffResult) => {
+      cacheWorkspaceReviewSummary(diff);
       setReviewDiff(diff);
-      setReviewDiffError(undefined);
+      if (reviewDiffManualRefreshRef.current) {
+        reviewDiffManualRefreshRef.current = false;
+        // Only a manual refresh forces a per-file diff refetch: an automatic reload
+        // already invalidates the cache through its path/stat signature.
+        setReviewDiffRevision((current) => current + 1);
+      }
+      setReviewDiffError(diff.watchError);
       setReviewSelectedPath((current) =>
         current && diff.files.some((file) => file.path === current) ? current : diff.files[0]?.path,
       );
@@ -8464,8 +8920,9 @@ function App() {
           canCommit: diff.fileCount > 0,
         });
       }
-      const workspace = await window.eco.inspectWorkspace(currentProjectPath);
-      setProjectWorkspace(workspace);
+      setProjectWorkspace((current) =>
+        current?.path === currentProjectPath ? { ...current, dirtyFileCount: diff.fileCount } : current,
+      );
     },
     [currentProjectPath, storeGitStatus],
   );
@@ -8476,10 +8933,17 @@ function App() {
 
   const handleChangesDiffError = useCallback((message?: string) => {
     setReviewDiffError(message);
-    if (message) {
-      setReviewDiff(undefined);
-      setReviewSelectedPath(undefined);
+    if (!message) {
+      return;
     }
+    reviewDiffManualRefreshRef.current = false;
+    if (reviewDiffRef.current) {
+      // A failed refresh keeps the last good list on screen (shown as an inline error
+      // banner); wiping it would throw away the file the reviewer is reading.
+      return;
+    }
+    setReviewDiff(undefined);
+    setReviewSelectedPath(undefined);
   }, []);
 
   const refreshReviewDiff = useCallback(async () => {
@@ -8491,7 +8955,8 @@ function App() {
     reviewDiffRequestRef.current = requestId;
     await loadTaskPanelReviewDiff({
       workspacePath: currentProjectPath,
-      getWorkspaceDiff: (workspacePath) => eco.getWorkspaceDiff(workspacePath),
+      getWorkspaceDiff: (workspacePath) =>
+        eco.getWorkspaceDiff(workspacePath, { refresh: reviewDiffManualRefreshRef.current }),
       isCurrent: () => reviewDiffRequestRef.current === requestId,
       onLoadingChange: handleChangesDiffLoadingChange,
       onLoaded: handleChangesDiffLoaded,
@@ -8499,6 +8964,52 @@ function App() {
     });
   }, [currentProjectPath, handleChangesDiffError, handleChangesDiffLoaded, handleChangesDiffLoadingChange]);
   refreshReviewDiffRef.current = refreshReviewDiff;
+
+  useEffect(() => {
+    if (!window.eco?.onGitStatusChanged) return;
+    return window.eco.onGitStatusChanged((event) => {
+      const current = gitStatusByWorkspaceRef.current[event.workspacePath]?.status;
+      if (!current) return;
+      storeGitStatus(event.workspacePath, {
+        ...current,
+        dirtyFileCount: event.dirtyFileCount,
+        insertions: event.insertions,
+        deletions: event.deletions,
+        canCommit: event.dirtyFileCount > 0,
+      });
+    });
+  }, [storeGitStatus]);
+
+  useEffect(() => {
+    if (!currentProjectPath || !window.eco?.onGitDiffChanged) return;
+    const unsubscribe = window.eco.onGitDiffChanged((event) => {
+      if (event.workspacePath !== currentProjectPath) return;
+      invalidateWorkspaceReviewSummary(currentProjectPath);
+      if (event.error) {
+        setReviewDiffError(event.error);
+        return;
+      }
+      if (taskDrawerOpenRef.current && taskPanelActiveTabRef.current === TASK_PANEL_REVIEW_TAB_ID) {
+        void refreshReviewDiffRef.current();
+      }
+    });
+    const onFocus = () => {
+      if (taskDrawerOpenRef.current && taskPanelActiveTabRef.current === TASK_PANEL_REVIEW_TAB_ID) {
+        reviewDiffManualRefreshRef.current = true;
+        void refreshReviewDiffRef.current();
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      unsubscribe();
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [currentProjectPath]);
+
+  const requestReviewDiffRefresh = useCallback(() => {
+    reviewDiffManualRefreshRef.current = true;
+    void refreshReviewDiff();
+  }, [refreshReviewDiff]);
 
   const openTaskPanelHomeTool = useCallback(
     async (sourceTabId: string, tool: TaskPanelHomeTool) => {
@@ -8770,7 +9281,7 @@ function App() {
   }
 
   async function selectComposerAuxiliaryModel(selection: AuxiliaryModelSelection) {
-    if (!canEditComposerConfig || !window.eco?.saveWorkflowSettings) {
+    if (!canEditStatelessModelConfig || !window.eco?.saveWorkflowSettings) {
       return;
     }
     const base =
@@ -8789,7 +9300,7 @@ function App() {
     if (!base) {
       return;
     }
-    await persistComposerRuntimeConfig({ ...base, auxiliaryModel: selection });
+    await persistComposerRuntimeConfig({ ...base, auxiliaryModel: selection }, { persistWhileRunning: true });
     try {
       const saved = await window.eco.saveWorkflowSettings({
         ...workflowSettings,
@@ -8801,8 +9312,40 @@ function App() {
     }
   }
 
+  async function selectComposerApprovalModel(selection: ApprovalModelSelection) {
+    if (!canEditStatelessModelConfig || !window.eco?.saveWorkflowSettings) {
+      return;
+    }
+    const base =
+      composerRuntimeConfig ??
+      (composerCoreKind === "acp"
+        ? buildAcpThreadRuntimeConfig({
+            sessionMode: workflowSettings.sessionMode,
+            ...(workflowSettings.acpCursorModelId
+              ? { cursorModelId: workflowSettings.acpCursorModelId }
+              : {}),
+            ...(workflowSettings.defaultVisionModel
+              ? { visionModel: workflowSettings.defaultVisionModel }
+              : {}),
+          })
+        : null);
+    if (!base) {
+      return;
+    }
+    await persistComposerRuntimeConfig({ ...base, approvalModel: selection }, { persistWhileRunning: true });
+    try {
+      const saved = await window.eco.saveWorkflowSettings({
+        ...workflowSettings,
+        defaultApprovalModel: selection,
+      });
+      setWorkflowSettings(saved);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }
+
   async function selectComposerVisionModel(selection: VisionModelSelection) {
-    if (!canEditComposerConfig || !window.eco?.saveWorkflowSettings) {
+    if (!canEditStatelessModelConfig || !window.eco?.saveWorkflowSettings) {
       return;
     }
     const base =
@@ -8816,12 +9359,15 @@ function App() {
             ...(workflowSettings.defaultAuxiliaryModel
               ? { auxiliaryModel: workflowSettings.defaultAuxiliaryModel }
               : {}),
+            ...(workflowSettings.defaultApprovalModel
+              ? { approvalModel: workflowSettings.defaultApprovalModel }
+              : {}),
           })
         : null);
     if (!base) {
       return;
     }
-    await persistComposerRuntimeConfig({ ...base, visionModel: selection });
+    await persistComposerRuntimeConfig({ ...base, visionModel: selection }, { persistWhileRunning: true });
     try {
       const saved = await window.eco.saveWorkflowSettings({
         ...workflowSettings,
@@ -8844,6 +9390,9 @@ function App() {
         ...(workflowSettings.acpCursorModelId ? { cursorModelId: workflowSettings.acpCursorModelId } : {}),
         ...(workflowSettings.defaultAuxiliaryModel
           ? { auxiliaryModel: workflowSettings.defaultAuxiliaryModel }
+          : {}),
+        ...(workflowSettings.defaultApprovalModel
+          ? { approvalModel: workflowSettings.defaultApprovalModel }
           : {}),
         ...(workflowSettings.defaultVisionModel ? { visionModel: workflowSettings.defaultVisionModel } : {}),
         ...(modelId ? { cursorModelId: modelId } : {}),
@@ -9055,6 +9604,44 @@ function App() {
         setComposerRuntimeConfig({
           ...baseRuntimeConfig,
           ...(selection ? { auxiliaryModel: selection } : {}),
+        });
+      } else if (!activeThread && !composerRuntimeConfig && selection) {
+        const next = buildComposerDefaultConfig({
+          workflowDefaults: saved,
+        });
+        if (next) {
+          setComposerRuntimeConfig(next);
+        }
+      }
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setIsSavingSettings(false);
+    }
+  }
+
+  async function saveDefaultApprovalModel(selection: ApprovalModelSelection | undefined) {
+    if (!window.eco?.saveWorkflowSettings) {
+      return;
+    }
+    setIsSavingSettings(true);
+    setError(undefined);
+    try {
+      const nextWorkflowSettings: WorkflowSettingsSnapshot = {
+        ...workflowSettings,
+      };
+      if (selection) {
+        nextWorkflowSettings.defaultApprovalModel = selection;
+      } else {
+        delete nextWorkflowSettings.defaultApprovalModel;
+      }
+      const saved = await window.eco.saveWorkflowSettings(nextWorkflowSettings);
+      setWorkflowSettings(saved);
+      if (!activeThread && composerRuntimeConfig) {
+        const { approvalModel: _previous, ...baseRuntimeConfig } = composerRuntimeConfig;
+        setComposerRuntimeConfig({
+          ...baseRuntimeConfig,
+          ...(selection ? { approvalModel: selection } : {}),
         });
       } else if (!activeThread && !composerRuntimeConfig && selection) {
         const next = buildComposerDefaultConfig({
@@ -9808,6 +10395,7 @@ function App() {
 
   function startNewChat() {
     const leavingThread = Boolean(selectedThreadIdRef.current);
+    const editingThreadId = editingFollowUpThreadIdRef.current;
     setComposerRoutePopoverOpen(false);
     removeComposerDraft(composerContextKeyFromParts(undefined, currentProjectPath));
     commitSidebarThreadSelection(undefined);
@@ -9816,8 +10404,8 @@ function App() {
     // Already on an unstarted landing composer: keep orchestration / model edits.
     // Only reset when leaving an existing thread into a new landing surface.
     if (leavingThread) {
-      if (editingFollowUpIdRef.current && selectedThreadIdRef.current) {
-        void releaseThreadFollowUpEditingLock(selectedThreadIdRef.current).catch((caught) =>
+      if (editingFollowUpIdRef.current && editingThreadId) {
+        void releaseThreadFollowUpEditingLock(editingThreadId).catch((caught) =>
           setError(errorMessage(caught)),
         );
       }
@@ -10139,112 +10727,116 @@ function App() {
   }, []);
 
   // B group (ChromeStrip): top-only MainPane overlay — never mounts on settings.
-  const panelControlButtons = showPanelChromeGroupB ? (
-    <div
-      className="codex-main-pane-panel-actions"
-      data-group="chrome"
-      aria-label={t("app.workspaceControls")}
-    >
-      <span
-        className={[
-          "codex-main-pane-panel-action-slot",
-          // Open only while docked; collapse as soon as exit reflow starts so the slot
-          // motion runs with the panel (not after the spring settles).
-          taskPanelLayoutOpen && !taskPanelExiting ? "is-open" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-        aria-hidden={!taskPanelLayoutOpen || taskPanelExiting}
+  const renderPanelControlButtons = () =>
+    showPanelChromeGroupB ? (
+      <div
+        className="codex-main-pane-panel-actions"
+        data-group="chrome"
+        aria-label={t("app.workspaceControls")}
       >
+        <span
+          className={[
+            "codex-main-pane-panel-action-slot",
+            // Open only while docked; collapse as soon as exit reflow starts so the slot
+            // motion runs with the panel (not after the spring settles).
+            taskPanelLayoutOpen && !taskPanelExiting ? "is-open" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          aria-hidden={!taskPanelLayoutOpen || taskPanelExiting}
+        >
+          <button
+            type="button"
+            className={
+              taskPanelFullscreenOpen
+                ? "codex-main-toolbar-button is-active codex-main-topbar-fullscreen"
+                : "codex-main-toolbar-button codex-main-topbar-fullscreen"
+            }
+            onClick={toggleTaskPanelFullscreen}
+            title={taskPanelFullscreenOpen ? t("task.exitFullscreenTitle") : t("task.enterFullscreen")}
+            aria-label={taskPanelFullscreenOpen ? t("task.exitFullscreen") : t("task.enterFullscreen")}
+            aria-pressed={taskPanelFullscreenOpen}
+            tabIndex={taskPanelLayoutOpen && !taskPanelExiting ? 0 : -1}
+            disabled={!taskPanelLayoutOpen || taskPanelExiting}
+          >
+            {taskPanelFullscreenOpen ? (
+              <Minimize2 size={15} aria-hidden />
+            ) : (
+              <Maximize2 size={15} aria-hidden />
+            )}
+          </button>
+        </span>
         <button
           type="button"
           className={
-            taskPanelFullscreenOpen
-              ? "codex-main-toolbar-button is-active codex-main-topbar-fullscreen"
-              : "codex-main-toolbar-button codex-main-topbar-fullscreen"
+            currentTerminalState?.open ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"
           }
-          onClick={toggleTaskPanelFullscreen}
-          title={taskPanelFullscreenOpen ? t("task.exitFullscreenTitle") : t("task.enterFullscreen")}
-          aria-label={taskPanelFullscreenOpen ? t("task.exitFullscreen") : t("task.enterFullscreen")}
-          aria-pressed={taskPanelFullscreenOpen}
-          tabIndex={taskPanelLayoutOpen && !taskPanelExiting ? 0 : -1}
-          disabled={!taskPanelLayoutOpen || taskPanelExiting}
+          onClick={toggleTerminalForCurrentProject}
+          title={`${currentTerminalState?.open ? t("app.terminalClose") : t("app.terminalOpen")} (Ctrl+\`)`}
+          aria-label={currentTerminalState?.open ? t("app.terminalClose") : t("app.terminalOpen")}
+          aria-expanded={currentTerminalState?.open === true}
+          aria-controls="terminal-panel"
         >
-          {taskPanelFullscreenOpen ? (
-            <Minimize2 size={15} aria-hidden />
-          ) : (
-            <Maximize2 size={15} aria-hidden />
-          )}
+          <PanelBottom size={15} aria-hidden />
         </button>
-      </span>
-      <button
-        type="button"
-        className={
-          currentTerminalState?.open ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"
-        }
-        onClick={toggleTerminalForCurrentProject}
-        title={`${currentTerminalState?.open ? t("app.terminalClose") : t("app.terminalOpen")} (Ctrl+\`)`}
-        aria-label={currentTerminalState?.open ? t("app.terminalClose") : t("app.terminalOpen")}
-        aria-expanded={currentTerminalState?.open === true}
-        aria-controls="terminal-panel"
-      >
-        <PanelBottom size={15} aria-hidden />
-      </button>
-      <button
-        type="button"
-        className={taskPanelOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"}
-        onClick={toggleTaskPanelForCurrentProject}
-        title={taskPanelOpen ? t("app.taskSidebarCollapse") : t("app.taskSidebarOpen")}
-        aria-label={taskPanelOpen ? t("app.taskSidebarCollapse") : t("app.taskSidebarOpen")}
-        aria-expanded={taskPanelOpen}
-        aria-controls="task-panel"
-      >
-        <PanelRight size={15} aria-hidden />
-      </button>
-    </div>
-  ) : null;
-
-  // A group (workspace): web chat + workpanel — rides the feed topbar. Hidden on settings.
-  const workspaceTopbarActions = showWorkspaceActionGroupA ? (
-    <div className="codex-main-topbar-actions" aria-label={t("app.workspaceControls")}>
-      <div className="codex-main-topbar-action-group" data-group="workspace">
-        <button
-          ref={webChatListAnchorRef}
-          type="button"
-          className={webChatListOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"}
-          onClick={() => setWebChatListOpen((open) => !open)}
-          title={t("app.webChat.openList")}
-          aria-label={t("app.webChat.openList")}
-          aria-expanded={webChatListOpen}
-          aria-haspopup="dialog"
-        >
-          <MessageSquare size={15} aria-hidden />
-        </button>
-        <WebChatListPopover
-          open={webChatListOpen}
-          items={webChatList.items}
-          anchorRef={webChatListAnchorRef}
-          onClose={() => setWebChatListOpen(false)}
-          onSelect={openWebChatItem}
-          onListChange={setWebChatList}
-        />
         <button
           type="button"
-          className={
-            workspaceCardsPanelOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"
-          }
-          onClick={toggleWorkspacePanelForCurrentProject}
-          title={workspaceCardsPanelOpen ? t("app.workspaceCardsCollapse") : t("app.workspaceCardsOpen")}
-          aria-label={workspaceCardsPanelOpen ? t("app.workspaceCardsCollapse") : t("app.workspaceCardsOpen")}
-          aria-expanded={workspaceCardsPanelOpen}
-          aria-controls="workspace-cards-panel"
+          className={taskPanelOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"}
+          onClick={toggleTaskPanelForCurrentProject}
+          title={taskPanelOpen ? t("app.taskSidebarCollapse") : t("app.taskSidebarOpen")}
+          aria-label={taskPanelOpen ? t("app.taskSidebarCollapse") : t("app.taskSidebarOpen")}
+          aria-expanded={taskPanelOpen}
+          aria-controls="task-panel"
         >
-          <SlidersHorizontal size={15} aria-hidden />
+          <PanelRight size={15} aria-hidden />
         </button>
       </div>
-    </div>
-  ) : null;
-  const taskPanelNode =
+    ) : null;
+
+  // A group (workspace): web chat + workpanel — rides the feed topbar. Hidden on settings.
+  const renderWorkspaceTopbarActions = () =>
+    showWorkspaceActionGroupA ? (
+      <div className="codex-main-topbar-actions" aria-label={t("app.workspaceControls")}>
+        <div className="codex-main-topbar-action-group" data-group="workspace">
+          <button
+            ref={webChatListAnchorRef}
+            type="button"
+            className={webChatListOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"}
+            onClick={() => setWebChatListOpen((open) => !open)}
+            title={t("app.webChat.openList")}
+            aria-label={t("app.webChat.openList")}
+            aria-expanded={webChatListOpen}
+            aria-haspopup="dialog"
+          >
+            <MessageSquare size={15} aria-hidden />
+          </button>
+          <WebChatListPopover
+            open={webChatListOpen}
+            items={webChatList.items}
+            anchorRef={webChatListAnchorRef}
+            onClose={() => setWebChatListOpen(false)}
+            onSelect={openWebChatItem}
+            onListChange={setWebChatList}
+          />
+          <button
+            type="button"
+            className={
+              workspaceCardsPanelOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"
+            }
+            onClick={toggleWorkspacePanelForCurrentProject}
+            title={workspaceCardsPanelOpen ? t("app.workspaceCardsCollapse") : t("app.workspaceCardsOpen")}
+            aria-label={
+              workspaceCardsPanelOpen ? t("app.workspaceCardsCollapse") : t("app.workspaceCardsOpen")
+            }
+            aria-expanded={workspaceCardsPanelOpen}
+            aria-controls="workspace-cards-panel"
+          >
+            <SlidersHorizontal size={15} aria-hidden />
+          </button>
+        </div>
+      </div>
+    ) : null;
+  const renderTaskPanel = () =>
     showWorkspacePanel && taskPanelLayoutOpen ? (
       <motion.aside
         id="task-panel-container"
@@ -10270,6 +10862,7 @@ function App() {
           onKeyDown={handleTaskPanelResizeKeyDown}
         />
         <SuspensePanel>
+          <TtsArtifactsContext value={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}>
           <LazySubagentTaskDrawer
             open={taskPanelLayoutOpen}
             surfaceActive={taskPanelOpen && !taskPanelExiting}
@@ -10284,6 +10877,8 @@ function App() {
             agentDisplayNames={activeRuntimeAgentDisplayNames}
             agentThemes={activeRuntimeAgentThemes}
             backgroundTasks={backgroundTerminalTasks}
+            ttsArtifacts={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}
+            onSelectTtsArtifact={openTtsArtifact}
             imageArtifacts={activeThread ? (imageArtifactsByThread[activeThread.id] ?? []) : []}
             onSelectImageArtifact={openImageGenerationArtifact}
             imageDisplayArtifacts={activeThread ? (imageDisplayArtifactsByThread[activeThread.id] ?? []) : []}
@@ -10292,6 +10887,8 @@ function App() {
             reviewLoading={reviewDiffLoading}
             {...(reviewDiffError && { reviewError: reviewDiffError })}
             {...(reviewSelectedPath && { reviewSelectedPath })}
+            reviewRevision={reviewDiffRevision}
+            onRefreshReview={requestReviewDiffRefresh}
             onSelectAgent={(agentId) => {
               setTaskPanelActiveTab(agentId);
               setSelectedSubagentAgentId(agentId);
@@ -10375,6 +10972,7 @@ function App() {
               return result;
             }}
           />
+          </TtsArtifactsContext>
         </SuspensePanel>
       </motion.aside>
     ) : null;
@@ -10520,6 +11118,11 @@ function App() {
             : t("thread.action.send");
   const composerActionClassName = ["send-button", composerActionMode].filter(Boolean).join(" ");
   const composerCompact = !showLanding;
+  useLayoutEffect(() => {
+    // The same editor survives landing → conversation. Its CSS minimum height
+    // changes with compact mode, so remeasure before the first keystroke.
+    composerRef.current?.fitHeight();
+  }, [composerCompact]);
   const composerIconOnly = useComposerIconOnlyToolbar();
   const handleAsrText = useCallback((text: string) => {
     const start = composerRef.current?.getSelectionStart() ?? composerPromptRef.current.length;
@@ -10544,6 +11147,7 @@ function App() {
   const handleAsrError = useCallback((message: string) => {
     showAppMessageErrorRef.current(message);
   }, []);
+  const asrComposerConfigured = isAsrComposerConfigured(asrProfiles);
   const asrSession = useAsrRecorder({
     ...(asrProfiles.activeProfileId ? { activeProfileId: asrProfiles.activeProfileId } : {}),
     selectedInputDeviceId: asrProfiles.inputDeviceId ?? "",
@@ -10558,12 +11162,13 @@ function App() {
     if (composerRoutePopoverOpen) setComposerRoutePopoverOpen(false);
   }, [asrSession.active, composerRoutePopoverOpen]);
 
-  const composerRouteControl = (
+  const renderComposerRouteControl = () => (
     <ComposerRoutePopover
       open={composerRoutePopoverOpen && canOpenComposerRoute && composerShowsRoute}
       settings={settings}
       busy={isSavingSettings}
       canEdit={canEditComposerConfig}
+      canEditStatelessModels={canEditStatelessModelConfig}
       showOrchestration={composerNeedsOrchestration}
       invalidFields={invalidOrchestrationFields}
       orchestrationIssues={orchestrationIssues}
@@ -10574,6 +11179,7 @@ function App() {
       onSelectMainPrompt={selectComposerMainPrompt}
       onSelectSubagents={selectComposerSubagents}
       onSelectAuxiliaryModel={selectComposerAuxiliaryModel}
+      onSelectApprovalModel={selectComposerApprovalModel}
       onSelectVisionModel={selectComposerVisionModel}
       coreKind={composerCoreKind}
       onResetToGlobalSettings={() => void resetComposerToGlobalSettings()}
@@ -10581,7 +11187,7 @@ function App() {
     />
   );
 
-  const composerAgentModelsControl = (
+  const renderComposerAgentModelsControl = () => (
     <div>
       <ComposerAgentModels
         labels={agentModelLabels}
@@ -10594,7 +11200,7 @@ function App() {
     </div>
   );
 
-  const composerMcpControl = (
+  const renderComposerMcpControl = () => (
     <div>
       <ComposerMcpServers
         servers={mcpSettings.servers}
@@ -10607,7 +11213,7 @@ function App() {
     </div>
   );
 
-  const composerIntegrationsControl = (
+  const renderComposerIntegrationsControl = () => (
     <div>
       <ComposerIntegrations
         availability={integrationAvailability}
@@ -10620,7 +11226,7 @@ function App() {
     </div>
   );
 
-  const composerSkillsControl = (
+  const renderComposerSkillsControl = () => (
     <div>
       <ComposerSkillsControl
         skills={composerAvailableSkills}
@@ -10639,7 +11245,7 @@ function App() {
       ? { workflowDefault: workflowSettings.acpCursorModelId }
       : {}),
   });
-  const composerModelControl =
+  const renderComposerModelControl = () =>
     composerModelAvailability === "acp" ? (
       <ComposerAcpModelTrigger
         models={cursorModels}
@@ -10695,7 +11301,7 @@ function App() {
     return () => observer.disconnect();
   }, [queuedFollowUps.length, showComposerContextOverlays]);
 
-  const composer = (
+  const renderComposer = () => (
     <div
       className="codex-composer-wrap"
       style={
@@ -10741,19 +11347,17 @@ function App() {
             ) : null}
             {showComposerContextOverlays ? (
               <div className="composer-context-bar">
-                {composerNeedsOrchestration ? composerAgentModelsControl : null}
-                {composerMcpControl}
-                {composerIntegrationsControl}
-                {composerSkillsControl}
+                {composerNeedsOrchestration ? renderComposerAgentModelsControl() : null}
+                {renderComposerMcpControl()}
+                {renderComposerIntegrationsControl()}
+                {renderComposerSkillsControl()}
               </div>
             ) : null}
           </div>
         ) : null}
         {/* The overlay band is shared: a queued follow-up panel or the landing context bar
             already owns it, and stacking the dots under either would just collide. */}
-        {composerAgentSilenceVisible && !showComposerInputOverlays ? (
-          <ComposerFloatingLoading />
-        ) : null}
+        {composerAgentSilenceVisible && !showComposerInputOverlays ? <ComposerFloatingLoading /> : null}
         <ComposerDockMorph
           showApproval={showComposerDockApproval}
           surfaceKey={composerDockSurfaceKey}
@@ -10774,6 +11378,7 @@ function App() {
                 {...(planFailureMessage && { failureMessage: planFailureMessage })}
                 onApprove={() => void approvePendingPlan()}
                 onStartNewSession={() => startNewChatWithPlan(pendingPlan)}
+                onReviewCode={() => void reviewPendingPlanCode()}
                 onApproveWithSubagent={(agentKey, additionalMessage) =>
                   void approvePendingPlanWithSubagent(agentKey, additionalMessage)
                 }
@@ -10896,6 +11501,7 @@ function App() {
                     onKeyDown={handleComposerKeyDown}
                     maxHeight={COMPOSER_TEXTAREA_MAX_HEIGHT}
                     onPaste={handleComposerPaste}
+                    onPasteImageFiles={(files) => void addComposerImageFiles(files)}
                     placeholder={composerPlaceholder}
                     disabled={composerDisabled}
                   />
@@ -10910,6 +11516,11 @@ function App() {
                         saving={isSavingSettings}
                         onSelectMode={(mode) => void selectComposerSessionMode(mode)}
                         onPickImage={() => composerImageInputRef.current?.click()}
+                        onAddScheduledMessage={
+                          activeThread && window.eco
+                            ? () => setScheduledMessageEditor({ threadId: activeThread.id })
+                            : undefined
+                        }
                         onOpenRoute={() => {
                           openComposerRoutePopover("plus");
                         }}
@@ -10943,7 +11554,7 @@ function App() {
                       ) : null}
                     </div>
                     <div className="composer-footer-spacer" aria-hidden />
-                    {composerRouteControl}
+                    {renderComposerRouteControl()}
                     <input
                       ref={composerImageInputRef}
                       type="file"
@@ -10978,8 +11589,10 @@ function App() {
                           agentModelLabels={agentModelLabels}
                         />
                       ) : null}
-                      {composerModelControl}
-                      <AsrMicButton session={asrSession} disabled={composerDisabled} />
+                      {renderComposerModelControl()}
+                      {asrComposerConfigured ? (
+                        <AsrMicButton session={asrSession} disabled={composerDisabled} />
+                      ) : null}
                       <button
                         type="button"
                         className={composerActionClassName}
@@ -11097,7 +11710,7 @@ function App() {
   // Electron: sibling `no-drag` cannot punch another element's drag region.
   // Keep controls inside a dedicated drag root, and leave a chrome gap in the sidebar.
   // Windows uses WCO (titleBarOverlay); macOS uses hiddenInset; Linux keeps a native frame.
-  const windowSidebarToolbar = (
+  const renderWindowSidebarToolbar = () => (
     <div className={isMacWindowChrome ? "macos-window-chrome-root" : "window-sidebar-chrome-root"}>
       <div className={isMacWindowChrome ? "macos-window-toolbar" : "window-sidebar-toolbar"}>
         <button
@@ -11143,9 +11756,9 @@ function App() {
     </div>
   );
 
-  return (
+  const renderAppLayout = () => (
     <main className={shellClassName}>
-      {windowSidebarToolbar}
+      {renderWindowSidebarToolbar()}
       {appMessageState ? (
         <AppMessage
           kind={appMessageState.kind}
@@ -11215,6 +11828,10 @@ function App() {
             <button type="button" className="sidebar-action" onClick={startNewChat}>
               <MessageCirclePlus size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
               {t("nav.newThread")}
+            </button>
+            <button type="button" className="sidebar-action muted" onClick={() => setSchedulingOpen(true)}>
+              <Clock3 size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
+              {t("scheduling.title")}
             </button>
             <div className="sidebar-section sidebar-section-grow">
               <button
@@ -11318,9 +11935,16 @@ function App() {
         open={sidebarSearchOpen}
         threads={sidebarSearchThreads}
         projects={projects}
+        scheduledMessages={scheduledMessages}
+        schedulingError={scheduling.error}
         onClose={() => setSidebarSearchOpen(false)}
         onSelectThread={selectSearchThread}
         onSelectProject={selectSearchProject}
+        onSelectScheduledMessage={(_message, thread) => {
+          dismissTaskPanel();
+          selectSearchThread(thread);
+          setScheduledMessagesReveal({ threadId: thread.id, requestId: Date.now() });
+        }}
       />
 
       <section
@@ -11444,7 +12068,7 @@ function App() {
                     </div>
                   )}
                   <div className="codex-main-topbar-drag-fill" aria-hidden />
-                  {workspaceTopbarActions}
+                  {renderWorkspaceTopbarActions()}
                 </header>
               ) : null}
               <div className="codex-main-left-column">
@@ -11510,41 +12134,52 @@ function App() {
                             <div
                               ref={activityMessagesRef}
                               className="activity-messages"
+                              role="region"
+                              aria-label={activeThread?.title}
+                              // biome-ignore lint/a11y/noNoninteractiveTabindex: Scrollable history supports PageUp/PageDown and Home/End.
+                              tabIndex={0}
                               aria-busy={!activityFeedBootReady}
                             >
                               {activityFeedBootReady ? (
                                 <SuspensePanel>
-                                  <LazyActivityLogView
-                                    {...(activeThread && { thread: activeThread })}
-                                    {...(activeThread &&
-                                      conversationV2ByThread[activeThread.id] && {
-                                        conversationV2: conversationV2ByThread[activeThread.id],
+                                  <TtsArtifactsContext
+                                    value={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}
+                                  >
+                                    <LazyActivityLogView
+                                      {...(activeThread && { thread: activeThread })}
+                                      {...(activeThread &&
+                                        conversationV2ByThread[activeThread.id] && {
+                                          conversationV2: conversationV2ByThread[activeThread.id],
+                                        })}
+                                      {...(v2RunProjection && { conversationV2Projection: v2RunProjection })}
+                                      onRestorePrompt={restorePrompt}
+                                      onLoadUserMessageEdit={activityLoadUserMessageEdit}
+                                      onRewriteUserMessage={activityRewriteUserMessage}
+                                      onRetryFailedRequest={activityRetryFailedRequest}
+                                      onPlannerLayoutChange={handleActivityPlannerLayoutChange}
+                                      onComposerAgentSilenceChange={setComposerAgentSilenceVisible}
+                                      onFeedEndAnchorChange={handleFeedEndAnchorChange}
+                                      feedUserDetached={feedUserDetached}
+                                      {...(Object.keys(activityModelByRole).length > 0 && {
+                                        modelByRole: activityModelByRole,
                                       })}
-                                    onRestorePrompt={restorePrompt}
-                                    onLoadUserMessageEdit={loadUserMessageEdit}
-                                    onRewriteUserMessage={rewriteUserMessage}
-                                    onRetryFailedRequest={retryFailedRequest}
-                                    onPlannerLayoutChange={handleActivityPlannerLayoutChange}
-                                    onComposerAgentSilenceChange={setComposerAgentSilenceVisible}
-                                    {...(Object.keys(activityModelByRole).length > 0 && {
-                                      modelByRole: activityModelByRole,
-                                    })}
-                                    agentDisplayNames={activeRuntimeAgentDisplayNames}
-                                    agentThemes={activeRuntimeAgentThemes}
-                                    {...(taskDrawerOpen &&
-                                      selectedSubagentAgentId && { selectedSubagentAgentId })}
-                                    onOpenSubagent={openSubagentTaskDrawer}
-                                    onOpenImageGenerationTool={openImageGenerationTool}
-                                    onOpenImageDisplayTool={openImageDisplayTool}
-                                    onOpenImageDisplayArtifact={openImageDisplayArtifact}
-                                    thinkingDisplayMode={thinkingDisplayPreferences.mode}
-                                    {...(activeSubagentTimings && {
-                                      subagentTimings: activeSubagentTimings,
-                                    })}
-                                    {...(activeSubagentMetrics && {
-                                      subagentMetrics: activeSubagentMetrics,
-                                    })}
-                                  />
+                                      agentDisplayNames={activeRuntimeAgentDisplayNames}
+                                      agentThemes={activeRuntimeAgentThemes}
+                                      {...(taskDrawerOpen &&
+                                        selectedSubagentAgentId && { selectedSubagentAgentId })}
+                                      onOpenSubagent={openSubagentTaskDrawer}
+                                      onOpenImageGenerationTool={openImageGenerationTool}
+                                      onOpenImageDisplayTool={openImageDisplayTool}
+                                      onOpenImageDisplayArtifact={openImageDisplayArtifact}
+                                      thinkingDisplayMode={thinkingDisplayPreferences.mode}
+                                      {...(activeSubagentTimings && {
+                                        subagentTimings: activeSubagentTimings,
+                                      })}
+                                      {...(activeSubagentMetrics && {
+                                        subagentMetrics: activeSubagentMetrics,
+                                      })}
+                                    />
+                                  </TtsArtifactsContext>
                                 </SuspensePanel>
                               ) : null}
                               <div ref={activityEndRef} className="activity-scroll-anchor" aria-hidden />
@@ -11576,7 +12211,7 @@ function App() {
                         </div>
                       </div>
                     )}
-                    {composer}
+                    <AppRenderContent render={renderComposer} />
                   </div>
                 </div>
                 {Object.entries(terminalByProject).map(([workspacePath, terminalState]) => {
@@ -11635,6 +12270,17 @@ function App() {
                 <WorkspaceFloatingCards
                   todos={activeThread ? coderTodos : []}
                   hasActiveThread={Boolean(activeThread)}
+                  scheduledMessages={
+                    activeThread ? scheduledMessages.filter((item) => item.threadId === activeThread.id) : []
+                  }
+                  scheduleOccurrences={scheduling.snapshot.occurrences}
+                  schedulingError={scheduling.error}
+                  scheduledMessagesRevealKey={`${activeThread?.id ?? ""}:${scheduledMessagesReveal?.requestId ?? 0}`}
+                  onEditScheduledMessage={(definition) => {
+                    if (activeThread) setScheduledMessageEditor({ threadId: activeThread.id, definition });
+                  }}
+                  onRefreshSchedules={scheduling.refresh}
+                  onScheduledMessageActionError={(message) => showAppMessageErrorRef.current(message)}
                   agentModelLabels={activeThread?.coreKind === "acp" ? [] : agentModelLabels}
                   {...(activeThread?.coreKind === "acp" && cursorAgentsSnapshot
                     ? {
@@ -11681,6 +12327,8 @@ function App() {
                       ),
                     );
                   }}
+                  ttsArtifacts={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}
+                  onOpenTtsArtifact={openTtsArtifact}
                   imageArtifacts={activeThread ? (imageArtifactsByThread[activeThread.id] ?? []) : []}
                   onOpenImageArtifact={openImageGenerationArtifact}
                   imageDisplayArtifacts={
@@ -11732,11 +12380,11 @@ function App() {
               </aside>
             ) : null}
           </div>
-          {taskPanelLayoutOpen ? taskPanelNode : null}
+          {taskPanelLayoutOpen ? renderTaskPanel() : null}
           <SuspensePanel>
             <LazyBrowserWebviewLayer />
           </SuspensePanel>
-          {showPanelChromeGroupB ? panelControlButtons : null}
+          {showPanelChromeGroupB ? renderPanelControlButtons() : null}
           {!showLanding && !activityFeedBootReady ? (
             <div
               className="codex-main-boot-loading"
@@ -11756,19 +12404,6 @@ function App() {
         </div>
       </section>
 
-      {stopConfirm ? (
-        <StopThreadConfirmDialog
-          changedFiles={stopConfirm.changedFiles}
-          busy={cancelBusy}
-          onConfirm={() => void performCancel()}
-          onDismiss={() => {
-            if (!cancelBusy) {
-              setStopConfirm(undefined);
-            }
-          }}
-        />
-      ) : null}
-
       {scriptsDialogOpen && currentProjectPath ? (
         <PackageScriptsDialog
           open={scriptsDialogOpen}
@@ -11786,6 +12421,58 @@ function App() {
         />
       ) : null}
 
+      {schedulingOpen && window.eco && (
+        <SuspensePanel>
+          <LazySchedulingPanel
+            settings={settings}
+            workflow={workflowSettings}
+            snapshot={scheduling.snapshot}
+            loading={scheduling.loading}
+            loadError={scheduling.error}
+            onRefresh={scheduling.refresh}
+            workspacePath={currentProjectPath}
+            projects={projects}
+            defaultProfile={
+              composerRuntimeConfig
+                ? { coreKind: composerCoreKind, runtimeConfig: composerRuntimeConfig }
+                : undefined
+            }
+            onClose={() => setSchedulingOpen(false)}
+            onOpenThread={(id) => {
+              void window
+                .eco!.getThread(id)
+                .then((thread) => {
+                  if (!thread) throw new Error(t("scheduling.threadMissing"));
+                  selectThread(thread);
+                  setSchedulingOpen(false);
+                })
+                .catch((caught) => setError(errorMessage(caught)));
+            }}
+          />
+        </SuspensePanel>
+      )}
+      {scheduledMessageEditor &&
+        window.eco &&
+        threads.find((thread) => thread.id === scheduledMessageEditor.threadId) && (
+          <SuspensePanel>
+            <LazyScheduledMessageDialog
+              key={scheduledMessageEditor.definition?.id ?? scheduledMessageEditor.threadId}
+              thread={threads.find((thread) => thread.id === scheduledMessageEditor.threadId)!}
+              definition={scheduledMessageEditor.definition}
+              occurrences={scheduling.snapshot.occurrences}
+              onClose={() => setScheduledMessageEditor(undefined)}
+              onSaved={() => {
+                dismissTaskPanel();
+                void scheduling.refresh();
+                setScheduledMessagesReveal({
+                  threadId: scheduledMessageEditor.threadId,
+                  requestId: Date.now(),
+                });
+                setScheduledMessageEditor(undefined);
+              }}
+            />
+          </SuspensePanel>
+        )}
       {settingsOpen && (
         <div className="settings-page" role="dialog" aria-modal="true" aria-label={t("settings.dialog")}>
           <aside className="settings-nav">
@@ -11855,7 +12542,7 @@ function App() {
           </aside>
 
           <div className="settings-main">
-            <div className="settings-content">
+            <div className={settingsSection === "mcp" ? "settings-content is-wide" : "settings-content"}>
               <SuspensePanel>
                 {settingsSection === "preferences" && (
                   <LazyNotificationPreferencesPanel
@@ -11878,19 +12565,6 @@ function App() {
                       startTransition(() => {
                         setThinkingDisplayPreferences({ mode });
                       });
-                    }}
-                    upstreamUserAgent={proxyBridgeSettings?.upstreamUserAgent}
-                    upstreamUserAgentSaving={isSavingProxyBridgeSettings}
-                    onUpstreamUserAgentChange={(value) => {
-                      const next: ProxyBridgeSettingsSnapshot = {
-                        ...(proxyBridgeSettings ?? {}),
-                      };
-                      if (value) {
-                        next.upstreamUserAgent = value;
-                      } else {
-                        delete next.upstreamUserAgent;
-                      }
-                      void saveProxyBridgeSettings(next);
                     }}
                   />
                 )}
@@ -11934,6 +12608,17 @@ function App() {
                       />
                     );
                   })()}
+
+                {settingsSection === "tts" && (
+                  <LazyTtsSettingsPanel
+                    settings={ttsSettings}
+                    onError={setError}
+                    onChange={(snapshot) => {
+                      setTtsSettings(snapshot);
+                      void window.eco?.getIntegrationAvailability().then(setIntegrationAvailability);
+                    }}
+                  />
+                )}
 
                 {settingsSection === "imageGeneration" && (
                   <LazyImageGenerationSettingsPanel
@@ -12106,7 +12791,10 @@ function App() {
                       busy={isSavingProxyBridgeSettings}
                       onSave={(next) => {
                         const merged: ProxyBridgeSettingsSnapshot = { ...(proxyBridgeSettings ?? {}) };
-                        merged.enabled = next.enabled === undefined ? true : next.enabled;
+                        // 缺省视为开启（兼容旧数据）；未携带该键表示本次保存不修改开关。
+                        if (next.enabled !== undefined) {
+                          merged.enabled = next.enabled;
+                        }
                         // 键存在与否表示是否修改：关闭开关时保留已保存 URL。
                         if (next.upstreamProxyUrl !== undefined) {
                           if (next.upstreamProxyUrl) {
@@ -12115,13 +12803,36 @@ function App() {
                             delete merged.upstreamProxyUrl;
                           }
                         }
+                        // 按 Agent Core 单独覆盖：空串 = 清除该 core，回退到 SDK 自己的 UA。
+                        if (next.upstreamUserAgents !== undefined) {
+                          const perCore: Partial<Record<UpstreamAgentCore, string>> = {};
+                          for (const core of UPSTREAM_AGENT_CORES) {
+                            const value = next.upstreamUserAgents[core]?.trim();
+                            if (value) {
+                              perCore[core] = value;
+                            }
+                          }
+                          if (Object.keys(perCore).length > 0) {
+                            merged.upstreamUserAgents = perCore;
+                          } else {
+                            delete merged.upstreamUserAgents;
+                          }
+                        }
+                        // 空串 = 清除已保存的兼底请求头。
+                        if (next.upstreamUserAgent !== undefined) {
+                          if (next.upstreamUserAgent) {
+                            merged.upstreamUserAgent = next.upstreamUserAgent;
+                          } else {
+                            delete merged.upstreamUserAgent;
+                          }
+                        }
                         void saveProxyBridgeSettings(merged);
                       }}
                       centerServerSyncVisible={centerServerSyncVisible}
                       onSyncDomain={syncCenterServerConfigDomain}
                     />
                   ) : (
-                    <p className="settings-empty-hint">{t("settings.proxy.loading")}</p>
+                    <p className="settings-empty-hint">{t("settings.gateway.loading")}</p>
                   ))}
 
                 {(settingsSection === "agentLibrary" || settingsSection === "orchestrationComponents") &&
@@ -12147,6 +12858,9 @@ function App() {
                       {...(workflowSettings.defaultAuxiliaryModel && {
                         defaultAuxiliaryModel: workflowSettings.defaultAuxiliaryModel,
                       })}
+                      {...(workflowSettings.defaultApprovalModel && {
+                        defaultApprovalModel: workflowSettings.defaultApprovalModel,
+                      })}
                       {...(workflowSettings.defaultVisionModel && {
                         defaultVisionModel: workflowSettings.defaultVisionModel,
                       })}
@@ -12158,6 +12872,7 @@ function App() {
                         void saveDefaultOrchestrationSelection(selection)
                       }
                       onDefaultAuxiliaryModelChange={(selection) => void saveDefaultAuxiliaryModel(selection)}
+                      onDefaultApprovalModelChange={(selection) => void saveDefaultApprovalModel(selection)}
                       onDefaultVisionModelChange={(selection) => void saveDefaultVisionModel(selection)}
                       {...(settingsSection === "orchestrationComponents" || settingsSection === "agentLibrary"
                         ? {
@@ -12185,6 +12900,7 @@ function App() {
       )}
     </main>
   );
+  return <AppRenderContent render={renderAppLayout} />;
 }
 
 async function loadConversationV2RendererState(
@@ -12660,6 +13376,12 @@ function FollowUpQueuePanel({
       </div>
     </div>
   );
+}
+
+// Construct the shell in its own React work unit, outside App's large hook frame.
+// This also avoids copying that frame into every JSX owner stack in development.
+function AppRenderContent({ render }: { render: () => ReactNode }) {
+  return render();
 }
 
 function isActiveThreadStatus(status: ThreadStatus): boolean {

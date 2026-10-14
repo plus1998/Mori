@@ -1,4 +1,4 @@
-import { type AgentEvent, createAgentEvent } from "../../shared/src";
+import { type AgentEvent, createAgentEvent, ToolWriteTargetTracker } from "../../shared/src";
 import { mapPiToolNameToSdkToolName } from "./pi-tool-approval.js";
 import { parsePiUsage } from "./pi-usage.js";
 
@@ -27,6 +27,23 @@ export interface PiEventAdapterState {
     string,
     { toolName: string; input: Record<string, unknown>; parentToolCallId?: string }
   >;
+  /**
+   * Tool calls whose "the model is writing its arguments" placeholder was already
+   * emitted for the current assistant message. PI streams one `toolcall_delta` per
+   * fragment, so without this the same call would be announced thousands of times.
+   */
+  /** writeKey → target already announced for that call (`""` while it has none yet). */
+  announcedToolWrites: Map<string, string>;
+  /** writeKey → tool-call arguments seen so far, for naming the write's target. */
+  piToolCallArguments: Map<string, PiToolCallArguments>;
+  /** writeKey → reader that names the write's target without re-reading every fragment. */
+  piToolWriteTargets: Map<string, ToolWriteTargetTracker>;
+}
+
+interface PiToolCallArguments {
+  text: string;
+  /** True for the model's own JSON text; false for a re-serialized parsed object. */
+  raw: boolean;
 }
 
 export function createPiEventAdapterState(): PiEventAdapterState {
@@ -38,6 +55,9 @@ export function createPiEventAdapterState(): PiEventAdapterState {
     openThinking: false,
     openThinkingDisplay: undefined,
     pendingToolUses: new Map(),
+    announcedToolWrites: new Map(),
+    piToolCallArguments: new Map(),
+    piToolWriteTargets: new Map(),
   };
 }
 
@@ -289,7 +309,21 @@ export function mapPiSessionEventToAgentEvents(
         ensureMessageGeneration(state);
         state.lastThinkingIndex = contentIndex ?? state.lastThinkingIndex ?? 0;
         state.openThinking = true;
-        return [];
+        const reasoningDisplay = stampOpenThinkingDisplay(amEvent, ctx, state);
+        return [
+          createAgentEvent({
+            id: `${ctx.threadId}:pi:${seq}:thinking_start`,
+            ...base,
+            type: "message.delta",
+            payload: {
+              type: "eco_stream",
+              blockKind: "thinking",
+              streamPlaceholder: true,
+              ...(reasoningDisplay && { reasoningDisplay }),
+              stream_block_key: thinkingStreamKey(ctx.sessionId, state),
+            },
+          }),
+        ];
       }
 
       if (amType === "text_delta") {
@@ -437,7 +471,48 @@ export function mapPiSessionEventToAgentEvents(
         return events;
       }
 
-      // toolcall_* are handled via tool_execution_* session events; ignore raw LLM toolcall stream noise.
+      if (amType === "toolcall_start" || amType === "toolcall_delta") {
+        // The model has started writing this tool call. Nothing renders for it yet —
+        // arguments are incomplete, and `tool_execution_start` only fires once it runs —
+        // but the state itself is not silence, so hand it over as a placeholder rather
+        // than dropping it and letting the Composer guess from a still Feed.
+        const writing = readPiToolCallWrite(amEvent, contentIndex);
+        if (!writing) {
+          return [];
+        }
+        const writeKey = writing.id ?? `pos:${state.messageSeq}:${writing.position}`;
+        const feedToolName = mapPiFeedToolName(writing.name);
+        // `toolcall_delta` fragments are the call's arguments, so the Feed can name the file or
+        // command being written instead of only saying a call is under way.
+        const argumentsText = accumulatePiToolCallArguments(state, amEvent, contentIndex, writing.id);
+        const target = piToolWriteTarget(state, writeKey, feedToolName).observe(argumentsText);
+        const announced = state.announcedToolWrites.get(writeKey);
+        const isFirstAnnouncement = announced === undefined;
+        if (!isFirstAnnouncement && (!target || target === announced)) {
+          return [];
+        }
+        state.announcedToolWrites.set(writeKey, target ?? "");
+        const parentToolCallId = readPiParentToolCallId(event);
+        return [
+          createAgentEvent({
+            id: `${ctx.threadId}:pi:${seq}:toolcall_writing:${writeKey}`,
+            ...base,
+            type: "tool.started",
+            payload: {
+              type: "tool_use",
+              tool_name: feedToolName,
+              ...(writing.id ? { tool_use_id: writing.id } : {}),
+              streaming: true,
+              input_complete: false,
+              ...(target ? { tool_input_target: target } : {}),
+              ...piNestedToolCallPayload(parentToolCallId),
+            },
+          }),
+        ];
+      }
+
+      // Remaining toolcall_* noise (e.g. argument fragments) is covered by
+      // tool_execution_* session events; nothing else here is a Feed row.
       return [];
     }
 
@@ -549,6 +624,7 @@ export function mapPiSessionEventToAgentEvents(
       const resultText = formatToolResult(event.result);
       const parentToolCallId = readPiParentToolCallId(event) ?? pending?.parentToolCallId;
       const structuredContent = readPiStructuredContent(event.result);
+      const codemodeDetails = readPiCodemodeDetails(event.result);
       return [
         createAgentEvent({
           id: `${ctx.threadId}:pi:${seq}:tool_end:${toolCallId}`,
@@ -562,6 +638,7 @@ export function mapPiSessionEventToAgentEvents(
                 input,
                 message: resultText || "Tool execution failed.",
                 ...piNestedToolCallPayload(parentToolCallId),
+                ...(codemodeDetails ? { codemodeDetails } : {}),
               }
             : {
                 type: "tool_result",
@@ -571,6 +648,7 @@ export function mapPiSessionEventToAgentEvents(
                 content: resultText,
                 ...(structuredContent !== undefined && { structuredContent }),
                 ...piNestedToolCallPayload(parentToolCallId),
+                ...(codemodeDetails ? { codemodeDetails } : {}),
               },
         }),
       ];
@@ -587,6 +665,9 @@ function beginMessage(state: PiEventAdapterState): void {
   state.lastThinkingIndex = null;
   state.openText = false;
   state.openThinking = false;
+  state.announcedToolWrites.clear();
+  state.piToolCallArguments.clear();
+  state.piToolWriteTargets.clear();
 }
 
 function endMessage(state: PiEventAdapterState): void {
@@ -594,6 +675,136 @@ function endMessage(state: PiEventAdapterState): void {
   state.lastThinkingIndex = null;
   state.openText = false;
   state.openThinking = false;
+  state.announcedToolWrites.clear();
+  state.piToolCallArguments.clear();
+  state.piToolWriteTargets.clear();
+}
+
+/** One tracker per call: it remembers what it has already read out of the arguments. */
+function piToolWriteTarget(
+  state: PiEventAdapterState,
+  writeKey: string,
+  toolName: string,
+): ToolWriteTargetTracker {
+  const existing = state.piToolWriteTargets.get(writeKey);
+  if (existing) {
+    return existing;
+  }
+  const created = new ToolWriteTargetTracker(toolName);
+  state.piToolWriteTargets.set(writeKey, created);
+  return created;
+}
+
+/**
+ * PI streams a tool call's arguments as `toolcall_delta` JSON fragments, and the live `partial`
+ * already holds whatever has accumulated. Keep the longer of the two per call.
+ */
+function accumulatePiToolCallArguments(
+  state: PiEventAdapterState,
+  amEvent: Record<string, unknown>,
+  contentIndex: number | null,
+  id: string | undefined,
+): string {
+  const key = id ?? `idx:${contentIndex ?? 0}`;
+  const previous = state.piToolCallArguments.get(key);
+  // Only the call's own JSON text can say whether a value is finished: PI also exposes the
+  // partially *parsed* call, where a half-written `src/o` has already become a whole-looking
+  // `src`. The raw text is right there in the event, and the fragments rebuild it when it is not.
+  const partialJson = readPiToolCallPartialJson(amEvent, contentIndex);
+  if (partialJson) {
+    state.piToolCallArguments.set(key, { text: partialJson, raw: true });
+    return partialJson;
+  }
+  const delta = typeof amEvent.delta === "string" ? amEvent.delta : "";
+  if (delta) {
+    const text = `${previous?.raw ? previous.text : ""}${delta}`;
+    state.piToolCallArguments.set(key, { text, raw: true });
+    return text;
+  }
+  if (previous) {
+    return previous.text;
+  }
+  const parsed = readPiToolCallParsedArguments(amEvent, contentIndex);
+  if (parsed) {
+    state.piToolCallArguments.set(key, { text: parsed, raw: false });
+  }
+  return parsed ?? "";
+}
+
+/** `partialJson` is the call's raw JSON text, exactly as the model has written it so far. */
+function readPiToolCallPartialJson(
+  amEvent: Record<string, unknown>,
+  contentIndex: number | null,
+): string | undefined {
+  for (const candidate of piToolCallCandidates(amEvent, contentIndex)) {
+    const partialJson = candidate.partialJson;
+    if (typeof partialJson === "string" && partialJson.trim()) {
+      return partialJson;
+    }
+  }
+  return undefined;
+}
+
+/** The parsed arguments, for a provider that delivers the whole call without partial JSON. */
+function readPiToolCallParsedArguments(
+  amEvent: Record<string, unknown>,
+  contentIndex: number | null,
+): string | undefined {
+  for (const candidate of piToolCallCandidates(amEvent, contentIndex)) {
+    const args = candidate.arguments;
+    if (typeof args === "string" && args.trim()) {
+      return args;
+    }
+    if (isRecord(args) && Object.keys(args).length > 0) {
+      return JSON.stringify(args);
+    }
+  }
+  return undefined;
+}
+
+function piToolCallCandidates(
+  amEvent: Record<string, unknown>,
+  contentIndex: number | null,
+): Record<string, unknown>[] {
+  const partial = isRecord(amEvent.partial) ? amEvent.partial : undefined;
+  const content = Array.isArray(partial?.content) ? partial.content : [];
+  const candidates: unknown[] = [];
+  if (contentIndex !== null) {
+    candidates.push(content[contentIndex]);
+  }
+  candidates.push(amEvent.toolCall, ...content);
+  return candidates.filter(
+    (candidate): candidate is Record<string, unknown> => isRecord(candidate) && candidate.type === "toolCall",
+  );
+}
+
+function readPiToolCallWrite(
+  amEvent: Record<string, unknown>,
+  contentIndex: number | null,
+): { name: string; id?: string; position: string } | undefined {
+  const partial = isRecord(amEvent.partial) ? amEvent.partial : undefined;
+  const content = Array.isArray(partial?.content) ? partial.content : [];
+  const candidates: unknown[] = [];
+  if (contentIndex !== null) {
+    candidates.push(content[contentIndex]);
+  }
+  candidates.push(amEvent.toolCall, ...content);
+  for (const candidate of candidates) {
+    if (!isRecord(candidate) || candidate.type !== "toolCall") {
+      continue;
+    }
+    const name = typeof candidate.name === "string" ? candidate.name.trim() : "";
+    if (!name) {
+      continue;
+    }
+    const id = typeof candidate.id === "string" && candidate.id.trim() ? candidate.id.trim() : undefined;
+    return {
+      name,
+      ...(id ? { id } : {}),
+      position: String(contentIndex ?? content.indexOf(candidate)),
+    };
+  }
+  return undefined;
 }
 
 /** First streamed content without message_start (defensive). */
@@ -816,6 +1027,22 @@ function readPiStructuredContent(result: unknown): unknown {
     return undefined;
   }
   return result.structuredContent;
+}
+
+/**
+ * PI's codemode reports the calls its script made, plus the temp file holding untruncated output,
+ * in the tool result's `details` (`CodemodeToolDetails`). `formatToolResult` keeps only the text,
+ * so without this the script's card loses the calls that never produced their own tool event —
+ * calls cancelled when the script ended — and the pointer to the full output.
+ *
+ * Keyed on `details.calls` rather than the tool name: PI assigns each nested call the id of the
+ * tool event it caused, which is how the Feed tells these rows apart from the script's own.
+ */
+function readPiCodemodeDetails(result: unknown): unknown {
+  if (!isRecord(result) || !isRecord(result.details) || !Array.isArray(result.details.calls)) {
+    return undefined;
+  }
+  return result.details;
 }
 
 function formatToolResult(result: unknown): string {

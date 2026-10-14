@@ -260,7 +260,7 @@ function imageDisplayToolDefinition(): McpToolDefinition {
   return {
     name: ECO_IMAGE_DISPLAY_TOOL,
     description:
-      "Display an image to the user. On success returns { status: \"ok\" }. Eco places it in the workspace cards / task panel — tell the user to open it there. Do not embed Markdown image links.",
+      "Display an image to the user. On success returns { status: \"ok\" }. Eco places it in the workspace cards / task panel — tell the user to open it there. Do not embed Markdown image links or paste base64 into replies.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

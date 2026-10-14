@@ -766,11 +766,26 @@ function handleItemStarted(ctx: AdapterContext, params: Record<string, unknown>)
     return;
   }
   if (itemType === "reasoning") {
-    // item/started for reasoning is a placeholder; text arrives via deltas.
+    const codexThreadId = readCodexThreadId(params);
     const itemId = readCodexItemId(params, item);
-    if (itemId && !ctx.reasoningStartedAtByItemId.has(itemId)) {
-      ctx.reasoningStartedAtByItemId.set(itemId, ctx.observedAt);
-    }
+    if (!codexThreadId || !itemId || ctx.reasoningStartedAtByItemId.has(itemId)) return;
+    ctx.reasoningStartedAtByItemId.set(itemId, ctx.observedAt);
+    emit(ctx, {
+      eventType: "thinking.delta",
+      codexThreadId,
+      turnId: readCodexTurnId(params),
+      itemId,
+      role: "thinking",
+      message: "",
+      streamState: "placeholder",
+      metadata: {
+        codexMethod: "item/started",
+        itemId,
+        itemType: "reasoning",
+        logicalEntityId: itemId,
+        thinkingStartedAt: ctx.observedAt,
+      },
+    });
     return;
   }
   if (itemType === "agentMessage") {

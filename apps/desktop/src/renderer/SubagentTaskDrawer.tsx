@@ -1,3 +1,5 @@
+import { parseTtsTaskTabId, ttsTaskTabId, type TtsArtifact } from "../shared/tts";
+import { TtsArtifactPlayer } from "./TtsArtifactPlayer";
 import { shortenModelId } from "@eco/runtime/usage";
 import {
   Bot,
@@ -698,12 +700,16 @@ export function SubagentTaskDrawer({
   agentDisplayNames,
   agentThemes,
   backgroundTasks,
+  ttsArtifacts = [],
+  onSelectTtsArtifact,
   imageArtifacts = [],
   imageDisplayArtifacts = [],
   reviewDiff,
   reviewLoading,
   reviewError,
   reviewSelectedPath,
+  reviewRevision,
+  onRefreshReview,
   onSelectAgent,
   onSelectPlan,
   onCloseTab,
@@ -750,12 +756,17 @@ export function SubagentTaskDrawer({
   agentDisplayNames?: RuntimeAgentDisplayNames;
   agentThemes?: RuntimeAgentThemes;
   backgroundTasks: readonly BackgroundTerminalTask[];
+  ttsArtifacts?: readonly TtsArtifact[];
+  onSelectTtsArtifact?: (id: string) => void;
   imageArtifacts?: readonly ImageGenerationArtifact[];
   imageDisplayArtifacts?: readonly ImageDisplayArtifact[];
   reviewDiff?: WorkspaceDiffResult;
   reviewLoading?: boolean;
   reviewError?: string;
   reviewSelectedPath?: string;
+  /** Bumped when the reviewer refreshes manually, to drop cached per-file diffs. */
+  reviewRevision?: number;
+  onRefreshReview?: () => void;
   onSelectAgent: (agentId: string) => void;
   onSelectPlan: () => void;
   onCloseTab: (tabId: TaskPanelActiveTab) => void;
@@ -801,6 +812,9 @@ export function SubagentTaskDrawer({
   const browserSelected = Boolean(activeBrowserId);
   const newTabIds = openTabIds.filter(isNewTaskPanelTabId);
   const newTabSelected = isNewTaskPanelTabId(activeTab);
+  const activeTtsArtifactId = parseTtsTaskTabId(String(activeTab));
+  const activeTtsArtifact = ttsArtifacts.find(artifact => artifact.id === activeTtsArtifactId);
+  const openTtsArtifacts = ttsArtifacts.filter(artifact => openTabIds.includes(ttsTaskTabId(artifact.id)));
   const activeImageArtifactId = parseImageGenerationTaskTabId(String(activeTab));
   const imageSelected = Boolean(activeImageArtifactId);
   const activeImageArtifact = imageArtifacts.find((artifact) => artifact.id === activeImageArtifactId);
@@ -856,6 +870,7 @@ export function SubagentTaskDrawer({
     !sshBookmarksSelected &&
     !browserSelected &&
     !newTabSelected &&
+    !activeTtsArtifactId &&
     !imageSelected &&
     !imageDisplaySelected
       ? cards.find((card) => card.key === activeTab)
@@ -1108,6 +1123,36 @@ export function SubagentTaskDrawer({
               </span>
             );
           })}
+          {openTtsArtifacts.map((artifact) => {
+            const tabId = ttsTaskTabId(artifact.id);
+            const isActive = activeTab === tabId;
+            return (
+              <span
+                key={tabId}
+                data-task-panel-tab-id={tabId}
+                className={`subagent-task-panel-tab-shell${isActive ? " is-active" : ""}`}
+              >
+                <button
+                  type="button"
+                  className={`subagent-task-panel-tab${isActive ? " is-active" : ""}`}
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => onSelectTtsArtifact?.(artifact.id)}
+                >
+                  <ImageIcon size={15} aria-hidden />
+                  <span className="subagent-task-panel-tab-label">{t("task.tts.title")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="subagent-task-panel-tab-close"
+                  title={t("task.closeTabTitle")}
+                  onClick={() => onCloseTab(tabId)}
+                >
+                  <X size={13} aria-hidden />
+                </button>
+              </span>
+            );
+          })}
           {openImageDisplayArtifacts.map((artifact) => {
             const tabId = imageDisplayTaskTabId(artifact.id);
             const isActive = activeTab === tabId;
@@ -1303,12 +1348,15 @@ export function SubagentTaskDrawer({
             role="tabpanel"
           >
             <WorkspaceDiffPanel
-              loading={reviewLoading ?? false}
+              loading={(reviewLoading ?? false) && !reviewDiff}
+              refreshing={reviewLoading ?? false}
               {...(reviewError && { error: reviewError })}
               {...(reviewDiff && { diff: reviewDiff })}
               {...(reviewSelectedPath && { selectedPath: reviewSelectedPath })}
               loadFileDiff={loadFileDiff}
+              revision={reviewRevision ?? 0}
               onSelectPath={onSelectReviewPath}
+              {...(onRefreshReview && { onRefresh: onRefreshReview })}
             />
           </div>
         ) : null}
@@ -1338,6 +1386,11 @@ export function SubagentTaskDrawer({
         {planSelected && plan ? (
           <div id="subagent-task-tab-plan" className="subagent-task-panel-tab-pane" role="tabpanel">
             <PlanDetailPanel plan={plan} />
+          </div>
+        ) : null}
+        {activeTtsArtifact ? (
+          <div className="subagent-task-panel-tab-pane" role="tabpanel">
+            <TtsArtifactPlayer key={activeTtsArtifact.id} artifact={activeTtsArtifact} />
           </div>
         ) : null}
         {imageSelected && activeImageArtifact ? (

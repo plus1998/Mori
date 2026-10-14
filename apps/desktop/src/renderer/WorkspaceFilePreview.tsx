@@ -1,9 +1,10 @@
 import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
-import { Eye, Pencil, RotateCcw } from "lucide-react";
+import { Check, Eye, Pencil, RotateCcw, TriangleAlert } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MarkdownContent } from "./MarkdownContent";
+import { useImageCopyMenu } from "./use-image-copy-menu";
 import { clampTargetColumn, clampTargetLine, languageForFile } from "./workspace-file-browser-logic";
 
 export interface WorkspaceFile {
@@ -229,6 +230,63 @@ function dataUrl(file: WorkspaceFile): string | undefined {
   return file.base64 && file.mimeType ? `data:${file.mimeType};base64,${file.base64}` : undefined;
 }
 
+/** 复制结果的小浮标：图片预览右上角，几秒后自动消失。 */
+function MediaCopyStatus({ state }: { state: "copied" | "failed" }) {
+  const { t } = useTranslation();
+  return (
+    <span
+      className={`workspace-file-browser__copy-status workspace-file-browser__copy-status--${state}`}
+      role="status"
+    >
+      {state === "copied" ? <Check size={13} aria-hidden /> : <TriangleAlert size={13} aria-hidden />}
+      <span>{state === "copied" ? t("lightbox.copyImageDone") : t("lightbox.copyImageFailed")}</span>
+    </span>
+  );
+}
+
+/**
+ * 图片 / 音频 / 视频预览。图片支持右键复制到剪贴板，与图片浏览器（ImageLightbox）共用同一套
+ * 右键菜单与复制管线：PNG 原样写入，其他格式重编码为 PNG。
+ */
+function WorkspaceMediaPreview({ file }: { file: WorkspaceFile }) {
+  const { t } = useTranslation();
+  const src = dataUrl(file);
+  const copyMenu = useImageCopyMenu(src);
+  if (!src) {
+    return <div className="workspace-file-browser__message">{t("fileBrowser.mediaMissing")}</div>;
+  }
+  const isImage = file.kind === "image";
+  return (
+    <div
+      className="workspace-file-browser__media-wrap"
+      {...(isImage ? { onContextMenu: copyMenu.openMenu } : {})}
+    >
+      {isImage ? <img className="workspace-file-browser__media" src={src} alt={file.name} /> : null}
+      {file.kind === "audio" ? (
+        <audio className="workspace-file-browser__audio" src={src} controls aria-label={file.name} />
+      ) : null}
+      {file.kind === "video" ? (
+        <video className="workspace-file-browser__media" src={src} controls aria-label={file.name} />
+      ) : null}
+      {copyMenu.copyState ? <MediaCopyStatus state={copyMenu.copyState} /> : null}
+      {copyMenu.menu}
+    </div>
+  );
+}
+
+/** SVG 预览（文本源码渲染出来的图）同样可以右键复制，写入时重编码为 PNG。 */
+function WorkspaceSvgPreview({ name, draft }: { name: string; draft: string }) {
+  const svgDataUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(draft)))}`;
+  const copyMenu = useImageCopyMenu(svgDataUrl);
+  return (
+    <div className="workspace-file-browser__svg-preview" onContextMenu={copyMenu.openMenu}>
+      <img src={svgDataUrl} alt={name} className="workspace-file-browser__svg-image" />
+      {copyMenu.copyState ? <MediaCopyStatus state={copyMenu.copyState} /> : null}
+      {copyMenu.menu}
+    </div>
+  );
+}
+
 export function WorkspaceFilePreview({
   file,
   target,
@@ -341,21 +399,7 @@ export function WorkspaceFilePreview({
   }, [editable, file.path, t, workspacePath]);
 
   if (file.kind === "image" || file.kind === "audio" || file.kind === "video") {
-    const src = dataUrl(file);
-    if (!src) return <div className="workspace-file-browser__message">{t("fileBrowser.mediaMissing")}</div>;
-    return (
-      <div className="workspace-file-browser__media-wrap">
-        {file.kind === "image" ? (
-          <img className="workspace-file-browser__media" src={src} alt={file.name} />
-        ) : null}
-        {file.kind === "audio" ? (
-          <audio className="workspace-file-browser__audio" src={src} controls aria-label={file.name} />
-        ) : null}
-        {file.kind === "video" ? (
-          <video className="workspace-file-browser__media" src={src} controls aria-label={file.name} />
-        ) : null}
-      </div>
-    );
+    return <WorkspaceMediaPreview file={file} />;
   }
   if (file.kind === "unsupported") {
     return (
@@ -392,16 +436,7 @@ export function WorkspaceFilePreview({
       );
     }
     if (isSvg) {
-      const svgDataUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(draft)))}`;
-      return (
-        <div className="workspace-file-browser__svg-preview">
-          <img 
-            src={svgDataUrl} 
-            alt={file.name} 
-            className="workspace-file-browser__svg-image"
-          />
-        </div>
-      );
+      return <WorkspaceSvgPreview name={file.name} draft={draft} />;
     }
     return null;
   };

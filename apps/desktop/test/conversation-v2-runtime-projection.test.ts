@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { buildThreadRunProjection } from "../src/main/conversation-v2-runtime-projection";
+import {
+  buildThreadRunProjection,
+  buildThreadRunProjectionRequestSpans,
+} from "../src/main/conversation-v2-runtime-projection";
 import type { AgentInstanceRecord, RunAttemptRecord } from "../src/main/usage-ledger";
 import type { ThreadBillingSnapshot, ThreadContextSnapshot, ThreadRunEvent } from "../src/shared/ipc";
 
@@ -59,6 +62,107 @@ function event(input: Partial<ThreadRunEvent> & { id: string; sequence: number }
     ...(input.metadata && { metadata: input.metadata }),
   };
 }
+
+test("native thinking starts wait for content without changing narrative TTFT", () => {
+  const start = event({
+    id: "thinking-start",
+    sequence: 1,
+    scope: "main",
+    eventType: "thinking.delta",
+    streamState: "placeholder",
+    role: "thinking",
+    requestId: "req-thinking",
+    observedAt: "2026-01-01T00:00:02.000Z",
+  });
+  const project = (events: ThreadRunEvent[], status = "running") =>
+    buildThreadRunProjection({
+      threadId: "thr_projection",
+      status,
+      attempts: [attempt],
+      agents: [],
+      events,
+    });
+  expect(project([start]).requestSpans[0]).toMatchObject({ pendingThinkingSince: start.observedAt });
+  expect(project([start]).requestSpans[0]?.firstTokenAt).toBeUndefined();
+  for (const next of [
+    event({
+      id: "content",
+      sequence: 2,
+      scope: "main",
+      eventType: "thinking.delta",
+      requestId: "req-thinking",
+      streamState: "streaming",
+      message: "先检查代码",
+    }),
+    event({
+      id: "empty-end",
+      sequence: 2,
+      scope: "main",
+      eventType: "thinking.final",
+      requestId: "req-thinking",
+      streamState: "finalized",
+    }),
+    event({ id: "tool", sequence: 2, scope: "main", eventType: "tool.started", message: "Tool: Read" }),
+    event({
+      id: "text",
+      sequence: 2,
+      scope: "main",
+      eventType: "message.delta",
+      requestId: "req-thinking",
+      streamState: "streaming",
+      message: "答复",
+    }),
+    event({
+      id: "cancel",
+      sequence: 2,
+      scope: "main",
+      eventType: "request.cancelled",
+      requestId: "req-thinking",
+    }),
+  ]) {
+    expect(project([start, next]).requestSpans[0]?.pendingThinkingSince).toBeUndefined();
+  }
+  for (const status of ["completed", "failed", "cancelled", "idle"]) {
+    expect(project([start], status).requestSpans[0]?.pendingThinkingSince).toBeUndefined();
+  }
+  const childTool = event({
+    id: "child-tool",
+    sequence: 2,
+    eventType: "tool.started",
+    agentId: "child",
+    message: "Tool: Read",
+  });
+  expect(project([start, childTool]).requestSpans[0]?.pendingThinkingSince).toBe(start.observedAt);
+});
+
+test("a stopped subagent clears pending thinking even after its earlier narration ended", () => {
+  const projection = buildThreadRunProjection({
+    threadId: "thr_projection",
+    status: "running",
+    attempts: [attempt],
+    agents: [{ ...agent({ agentId: "child" }), status: "stopped" }],
+    events: [
+      event({
+        id: "child-narrative",
+        sequence: 1,
+        agentId: "child",
+        requestId: "req-child",
+        eventType: "message.final",
+        streamState: "finalized",
+        message: "上一阶段答复",
+      }),
+      event({
+        id: "child-pending",
+        sequence: 2,
+        agentId: "child",
+        requestId: "req-child",
+        eventType: "thinking.delta",
+        streamState: "placeholder",
+      }),
+    ],
+  });
+  expect(projection.requestSpans[0]?.pendingThinkingSince).toBeUndefined();
+});
 
 test("buildThreadRunProjection isolates concurrent same-role subagents by agentId", () => {
   const projection = buildThreadRunProjection({
@@ -1359,4 +1463,548 @@ test("ACP nested Agent tool mints a subagent card timeline from agent.started + 
   });
   expect(projection.agents[0]?.timeline.some((item) => item.text === "1+1 = 2")).toBe(true);
   expect(projection.timeline.some((item) => item.eventType === "tool.started")).toBe(true);
+});
+
+/**
+ * The window between "the narrative stopped" and "the tool row exists". The model is
+ * writing the call's arguments; nothing renders. The stream names the state, so the
+ * projection carries it on the request span instead of leaving the Feed to infer a stall
+ * from an unmoving timeline — and it must not become a Feed row of its own.
+ */
+test("buildThreadRunProjection marks the request while the model writes a tool call", () => {
+  // Shape matters: the bridge keys tool facts by `tool:<callId>` and leaves `requestId` empty
+  // (a call outlives the request that wrote it). A fixture that helpfully fills the request id
+  // in hides the fact that tool events never reach the request-span pass at all.
+  const requestStarted = event({
+    id: "e1",
+    sequence: 1,
+    scope: "main",
+    role: "planner",
+    eventType: "request.started",
+    requestId: "req_1",
+    message: "Requesting model…",
+    observedAt: "2026-01-01T00:00:01.000Z",
+  });
+  const narrative = event({
+    id: "e2",
+    sequence: 2,
+    scope: "main",
+    role: "planner",
+    eventType: "message.delta",
+    requestId: "req_1",
+    streamState: "streaming",
+    message: "先创建文件",
+    observedAt: "2026-01-01T00:00:02.000Z",
+  });
+  const writing = event({
+    id: "e3",
+    sequence: 3,
+    scope: "main",
+    role: "tool",
+    eventType: "tool.writing",
+    streamKey: "tool:call_1",
+    message: "Write",
+    observedAt: "2026-01-01T00:00:03.000Z",
+    metadata: {
+      liveType: "tool.writing",
+      activityOrigin: "sdk.tool_writing",
+      toolWriting: { name: "Write", kind: "file", target: "/tmp/eco.md" },
+    },
+  });
+
+  const whileWriting = buildThreadRunProjection({
+    threadId: "thr_projection",
+    status: "running",
+    attempts: [attempt],
+    agents: [],
+    events: [requestStarted, narrative, writing],
+    nowMs: Date.parse("2026-01-01T00:00:03.500Z"),
+  });
+
+  // The fact carries what the arguments revealed: which file, and that it is a file write.
+  expect(whileWriting.requestSpans[0]?.writingTool).toEqual({
+    name: "Write",
+    kind: "file",
+    target: "/tmp/eco.md",
+    since: "2026-01-01T00:00:03.000Z",
+  });
+  // A fact about the turn, not a row: the tool card appears when its input lands.
+  expect(whileWriting.timeline.some((item) => item.eventType === "tool.writing")).toBe(false);
+  expect(whileWriting.timeline.some((item) => item.eventType === "message.delta")).toBe(true);
+
+  const afterToolRow = buildThreadRunProjection({
+    threadId: "thr_projection",
+    status: "running",
+    attempts: [attempt],
+    agents: [],
+    events: [
+      requestStarted,
+      narrative,
+      writing,
+      event({
+        id: "e4",
+        sequence: 4,
+        scope: "main",
+        role: "planner",
+        eventType: "tool.started",
+        streamKey: "tool:call_1",
+        message: "Tool: create_file",
+        observedAt: "2026-01-01T00:00:04.000Z",
+      }),
+    ],
+    nowMs: Date.parse("2026-01-01T00:00:04.500Z"),
+  });
+
+  // The real row exists, so the wait is over — the label must not linger over the card.
+  expect(afterToolRow.requestSpans[0]?.writingTool).toBeUndefined();
+  expect(afterToolRow.requestSpans[0]?.status).toBe("streaming");
+});
+
+test("the writing mark lands on the request the model wrote the call on, not the next one", () => {
+  // Production order, as persisted: the tool facts carry no requestId, and the request that
+  // wrote the call reports terminal milliseconds *before* the fact is observed. The next
+  // request of the turn only starts after the tool row lands.
+  const events = [
+    event({
+      id: "e1",
+      sequence: 1,
+      scope: "main",
+      role: "planner",
+      eventType: "request.started",
+      requestId: "req_1",
+      message: "Requesting model…",
+      observedAt: "2026-01-01T00:00:01.000Z",
+    }),
+    event({
+      id: "e2",
+      sequence: 2,
+      scope: "main",
+      role: "planner",
+      eventType: "message.final",
+      requestId: "req_1",
+      streamState: "finalized",
+      message: "我来创建文件",
+      observedAt: "2026-01-01T00:00:02.000Z",
+    }),
+    event({
+      id: "e3",
+      sequence: 3,
+      scope: "main",
+      role: "planner",
+      eventType: "request.completed",
+      requestId: "req_1",
+      observedAt: "2026-01-01T00:00:02.002Z",
+    }),
+    event({
+      id: "e4",
+      sequence: 4,
+      scope: "main",
+      role: "tool",
+      eventType: "tool.writing",
+      streamKey: "tool:call_1",
+      message: "Write",
+      observedAt: "2026-01-01T00:00:02.004Z",
+      metadata: { liveType: "tool.writing", activityOrigin: "sdk.tool_writing" },
+    }),
+    event({
+      id: "e5",
+      sequence: 5,
+      scope: "main",
+      role: "tool",
+      eventType: "tool.started",
+      streamKey: "tool:call_1",
+      message: "Tool: Write",
+      observedAt: "2026-01-01T00:00:12.900Z",
+    }),
+    event({
+      id: "e6",
+      sequence: 6,
+      scope: "main",
+      role: "planner",
+      eventType: "request.started",
+      requestId: "req_2",
+      message: "Requesting model…",
+      observedAt: "2026-01-01T00:00:13.100Z",
+    }),
+  ];
+
+  const midWrite = buildThreadRunProjection({
+    threadId: "thr_projection",
+    status: "running",
+    attempts: [attempt],
+    agents: [],
+    events: events.slice(0, 4),
+    nowMs: Date.parse("2026-01-01T00:00:05.000Z"),
+  });
+  expect(midWrite.requestSpans.find((span) => span.requestId === "req_1")?.writingTool).toEqual({
+    name: "Write",
+    since: "2026-01-01T00:00:02.004Z",
+  });
+  expect(midWrite.requestSpans.find((span) => span.requestId === "req_2")).toBeUndefined();
+
+  // Once the call is made and the next request begins, nothing is being written.
+  const settled = buildThreadRunProjection({
+    threadId: "thr_projection",
+    status: "running",
+    attempts: [attempt],
+    agents: [],
+    events,
+    nowMs: Date.parse("2026-01-01T00:00:14.000Z"),
+  });
+  expect(settled.requestSpans.some((span) => span.writingTool)).toBe(false);
+});
+
+test("buildThreadRunProjection drops the writing mark when the thread is not running", () => {
+  const writing = event({
+    id: "e2",
+    sequence: 2,
+    scope: "main",
+    role: "tool",
+    eventType: "tool.writing",
+    streamKey: "tool:call_1",
+    message: "create_file",
+    observedAt: "2026-01-01T00:00:02.000Z",
+    metadata: { liveType: "tool.writing" },
+  });
+  const events = [
+    event({
+      id: "e1",
+      sequence: 1,
+      scope: "main",
+      role: "planner",
+      eventType: "request.started",
+      requestId: "req_1",
+      message: "Requesting model…",
+      observedAt: "2026-01-01T00:00:01.000Z",
+    }),
+    writing,
+  ];
+
+  // A write that never gets its tool row (cancelled or failed mid-arguments) must not leave the
+  // Feed saying "writing a tool call" forever.
+  for (const status of ["completed", "failed", "blocked", "idle", "awaiting_plan"] as const) {
+    expect(
+      buildThreadRunProjection({
+        threadId: "thr_projection",
+        status,
+        attempts: [attempt],
+        agents: [],
+        events,
+        nowMs: Date.parse("2026-01-01T00:00:05.000Z"),
+      }).requestSpans[0]?.writingTool,
+    ).toBeUndefined();
+  }
+
+  for (const status of ["running", "queued"] as const) {
+    expect(
+      buildThreadRunProjection({
+        threadId: "thr_projection",
+        status,
+        attempts: [attempt],
+        agents: [],
+        events,
+        nowMs: Date.parse("2026-01-01T00:00:05.000Z"),
+      }).requestSpans[0]?.writingTool,
+    ).toEqual({ name: "create_file", since: "2026-01-01T00:00:02.000Z" });
+  }
+});
+
+test("a late tool-writing fact from a cancelled request does not return in the next run", () => {
+  const events = [
+    event({
+      id: "old-start",
+      sequence: 1,
+      scope: "main",
+      eventType: "request.started",
+      requestId: "old",
+      runAttemptId: "old-run",
+      observedAt: "2026-01-01T00:00:01.000Z",
+    }),
+    event({
+      id: "old-cancel",
+      sequence: 2,
+      scope: "main",
+      eventType: "request.cancelled",
+      requestId: "old",
+      runAttemptId: "old-run",
+      observedAt: "2026-01-01T00:00:02.000Z",
+    }),
+    event({
+      id: "late-sed",
+      sequence: 3,
+      scope: "main",
+      eventType: "tool.writing",
+      runAttemptId: "old-run",
+      message: "Bash",
+      metadata: { toolWriting: { name: "Bash", target: "sed -n 250,300p file.ts" } },
+      observedAt: "2026-01-01T00:00:03.000Z",
+    }),
+    event({
+      id: "new-start",
+      sequence: 4,
+      scope: "main",
+      eventType: "request.started",
+      requestId: "new",
+      runAttemptId: "new-run",
+      observedAt: "2026-01-01T00:00:04.000Z",
+    }),
+  ] satisfies [ThreadRunEvent, ThreadRunEvent, ThreadRunEvent, ThreadRunEvent];
+  const project = (rows: ThreadRunEvent[]) =>
+    buildThreadRunProjection({
+      threadId: "thr_projection",
+      status: "running",
+      attempts: [],
+      agents: [],
+      events: rows,
+    });
+  expect(project(events).requestSpans.some((span) => span.writingTool)).toBe(false);
+  // The old gateway can also deliver its writing fact after the new run has started.
+  expect(
+    project([
+      ...events.slice(0, 2),
+      events[3],
+      { ...events[2], sequence: 5, observedAt: "2026-01-01T00:00:05.000Z" },
+    ]).requestSpans.some((span) => span.writingTool),
+  ).toBe(false);
+});
+
+test("replacing the live tool-writing request clears its previous mark", () => {
+  const events = [
+    event({
+      id: "start-1",
+      sequence: 1,
+      scope: "main",
+      eventType: "request.started",
+      requestId: "req_1",
+      observedAt: "2026-01-01T00:00:01.000Z",
+    }),
+    event({
+      id: "write-1",
+      sequence: 2,
+      scope: "main",
+      eventType: "tool.writing",
+      message: "Bash",
+      observedAt: "2026-01-01T00:00:02.000Z",
+    }),
+    event({
+      id: "start-2",
+      sequence: 3,
+      scope: "main",
+      eventType: "request.started",
+      requestId: "req_2",
+      observedAt: "2026-01-01T00:00:03.000Z",
+    }),
+    event({
+      id: "write-2",
+      sequence: 4,
+      scope: "main",
+      eventType: "tool.writing",
+      message: "Read",
+      observedAt: "2026-01-01T00:00:04.000Z",
+    }),
+    event({
+      id: "tool-2",
+      sequence: 5,
+      scope: "main",
+      eventType: "tool.started",
+      message: "Read",
+      observedAt: "2026-01-01T00:00:05.000Z",
+    }),
+  ];
+  const project = (rows: ThreadRunEvent[]) =>
+    buildThreadRunProjection({
+      threadId: "thr_projection",
+      status: "running",
+      attempts: [],
+      agents: [],
+      events: rows,
+    });
+  expect(
+    project(events.slice(0, 4))
+      .requestSpans.filter((span) => span.writingTool)
+      .map((span) => span.requestId),
+  ).toEqual(["req_2"]);
+  expect(project(events).requestSpans.some((span) => span.writingTool)).toBe(false);
+});
+
+test("parallel agents attach and clear tool-writing state only on their own requests", () => {
+  const events = [
+    event({
+      id: "main-request",
+      sequence: 1,
+      scope: "main",
+      eventType: "request.started",
+      requestId: "main",
+      observedAt: "2026-01-01T00:00:01.000Z",
+    }),
+    event({
+      id: "a-request",
+      sequence: 2,
+      agentId: "coder_a",
+      eventType: "request.started",
+      requestId: "a",
+      observedAt: "2026-01-01T00:00:02.000Z",
+    }),
+    event({
+      id: "b-request",
+      sequence: 3,
+      agentId: "coder_b",
+      eventType: "request.started",
+      requestId: "b",
+      observedAt: "2026-01-01T00:00:03.000Z",
+    }),
+    event({
+      id: "a-write",
+      sequence: 4,
+      agentId: "coder_a",
+      eventType: "tool.writing",
+      message: "Write",
+      observedAt: "2026-01-01T00:00:04.000Z",
+    }),
+    event({
+      id: "main-write",
+      sequence: 5,
+      scope: "main",
+      eventType: "tool.writing",
+      message: "Read",
+      observedAt: "2026-01-01T00:00:05.000Z",
+    }),
+    event({
+      id: "b-tool",
+      sequence: 6,
+      agentId: "coder_b",
+      eventType: "tool.completed",
+      observedAt: "2026-01-01T00:00:06.000Z",
+    }),
+    event({
+      id: "a-tool",
+      sequence: 7,
+      agentId: "coder_a",
+      eventType: "tool.started",
+      observedAt: "2026-01-01T00:00:07.000Z",
+    }),
+    event({
+      id: "main-tool",
+      sequence: 8,
+      scope: "main",
+      eventType: "tool.started",
+      observedAt: "2026-01-01T00:00:08.000Z",
+    }),
+  ];
+  const agents = [agent({ agentId: "coder_a" }), agent({ agentId: "coder_b" })];
+  const writingRequests = (count: number) => {
+    const rows = events.slice(0, count);
+    const spans = buildThreadRunProjectionRequestSpans({ events: rows, threadStatus: "running", agents });
+    expect(
+      buildThreadRunProjection({
+        threadId: "thr_projection",
+        status: "running",
+        attempts: [attempt],
+        agents,
+        events: rows,
+      }).requestSpans,
+    ).toEqual(spans);
+    return spans.filter((span) => span.writingTool).map((span) => span.requestId);
+  };
+  expect(writingRequests(4)).toEqual(["a"]);
+  expect(writingRequests(5)).toEqual(["main", "a"]);
+  expect(writingRequests(6)).toEqual(["main", "a"]);
+  expect(writingRequests(7)).toEqual(["main"]);
+  expect(writingRequests(8)).toEqual([]);
+});
+
+test("an unlinked subagent writing fact cannot borrow a main request", () => {
+  for (const ownership of [{ agentId: "coder_missing" }, { parentToolUseId: "unlinked-call" }, {}]) {
+    const spans = buildThreadRunProjectionRequestSpans({
+      threadStatus: "running",
+      events: [
+        event({
+          id: "main-request",
+          sequence: 1,
+          scope: "main",
+          eventType: "request.started",
+          requestId: "main",
+          observedAt: "2026-01-01T00:00:01.000Z",
+        }),
+        event({
+          id: "child-write",
+          sequence: 2,
+          scope: "agent",
+          eventType: "tool.writing",
+          message: "Write",
+          ...ownership,
+        }),
+      ],
+    });
+    expect(spans.some((span) => span.writingTool)).toBe(false);
+  }
+});
+
+test("a parent-tool-linked writing fact belongs to the linked subagent request", () => {
+  const spans = buildThreadRunProjectionRequestSpans({
+    threadStatus: "running",
+    agents: [agent({ agentId: "coder_a", parentToolUseId: "spawn-a" })],
+    events: [
+      event({
+        id: "child-request",
+        sequence: 1,
+        agentId: "coder_a",
+        eventType: "request.started",
+        requestId: "child",
+        observedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      event({
+        id: "main-request",
+        sequence: 2,
+        scope: "main",
+        eventType: "request.started",
+        requestId: "main",
+        observedAt: "2026-01-01T00:00:01.000Z",
+      }),
+      event({
+        id: "child-write",
+        sequence: 3,
+        parentToolUseId: "spawn-a",
+        eventType: "tool.writing",
+        message: "Write",
+      }),
+    ],
+  });
+  expect(spans.filter((span) => span.writingTool).map((span) => span.requestId)).toEqual(["child"]);
+});
+
+test("a stopped agent clears tool-writing state after its narrative request completed", () => {
+  const events = [
+    event({
+      id: "child-request",
+      sequence: 1,
+      agentId: "coder_a",
+      eventType: "request.started",
+      requestId: "child",
+      observedAt: "2026-01-01T00:00:00.000Z",
+    }),
+    event({
+      id: "child-completed",
+      sequence: 2,
+      agentId: "coder_a",
+      eventType: "request.completed",
+      requestId: "child",
+      observedAt: "2026-01-01T00:00:01.000Z",
+    }),
+    event({
+      id: "child-write",
+      sequence: 3,
+      agentId: "coder_a",
+      eventType: "tool.writing",
+      message: "Write",
+    }),
+  ];
+  const project = (status: AgentInstanceRecord["status"]) =>
+    buildThreadRunProjectionRequestSpans({
+      threadStatus: "running",
+      agents: [agent({ agentId: "coder_a", status })],
+      events,
+    });
+  expect(project("active")[0]?.writingTool).toBeDefined();
+  expect(project("stopped")[0]?.writingTool).toBeUndefined();
 });

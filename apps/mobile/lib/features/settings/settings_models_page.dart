@@ -91,7 +91,7 @@ class _SettingsModelsPageState extends ConsumerState<SettingsModelsPage> {
         ),
       );
     } else if (modelSettings != null &&
-        modelSettings.mainAgentConfigs.isNotEmpty &&
+        !isAcp &&
         config != null) {
       body = ListView(
         padding: EdgeInsets.only(
@@ -114,6 +114,7 @@ class _SettingsModelsPageState extends ConsumerState<SettingsModelsPage> {
               rememberedMcp: null,
               showOrchestrationPickers: false,
               showAuxiliaryModelPicker: true,
+              showApprovalModelPicker: true,
               showVisionModelPicker: true,
             ),
           ),
@@ -133,6 +134,14 @@ class _SettingsModelsPageState extends ConsumerState<SettingsModelsPage> {
             child: Column(
               children: [
                 ComposerAuxiliaryModelSection(
+                  runtimeConfig: config,
+                  threadId: '',
+                  canEdit: desktopConnected,
+                  onChanged: (next) => setState(() => _config = next),
+                  mainAgentConfigId: '',
+                  isAcp: true,
+                ),
+                ComposerApprovalModelSection(
                   runtimeConfig: config,
                   threadId: '',
                   canEdit: desktopConnected,

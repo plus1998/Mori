@@ -95,6 +95,50 @@ test("resolveActionKind does not let skill heuristic steal mcp tools", () => {
   expect(resolveActionKind({ toolName: "custom_skill_loader" }).kind).toBe("skill");
 });
 
+test("external MCP labels retain server identity in both phases and languages", () => {
+  for (const serverName of ["MySQL", "Mongo", "analytics_db-prod"]) {
+    const resolved = resolveActionKind({ toolName: `mcp__${serverName}__list_tables` });
+    expect(resolved.mcpTool).toEqual({ serverName, toolName: "list_tables" });
+    expect(resolved.kind).toBe("mcp");
+    expect(resolved.icon).toBe("network");
+    expect(resolved.bucket).toBe("mcpTools");
+    // Row labels/argument previews must not duplicate or replace the real identity.
+    expect(formatActionLine({ resolved, phase: "running", rawTarget: "list_tables" }, tZh)).toBe(
+      `正在调用 ${serverName} · list tables`,
+    );
+    expect(formatActionLine({ resolved, phase: "done" }, tZh)).toBe(`调用了 ${serverName} · list tables`);
+    expect(formatActionLine({ resolved, phase: "running" }, tEn)).toBe(`Calling ${serverName} · list tables`);
+    expect(formatActionLine({ resolved, phase: "done" }, tEn)).toBe(`Called ${serverName} · list tables`);
+  }
+});
+
+test("MCP discovery and anonymous historical calls do not invent a server name", () => {
+  const discovery = resolveActionKind({
+    toolName: "mcp__eco_mcp__search_tools",
+    payload: { mcpDiscovery: { kind: "search" } },
+  });
+  expect(formatActionLine({ resolved: discovery, phase: "running" }, tZh)).toBe("正在查找 MCP 工具");
+  for (const toolName of ["mcp", "mcp_tool", "mcpScript", "mcp__incomplete"]) {
+    const resolved = resolveActionKind({ toolName });
+    expect(resolved.mcpTool).toBeUndefined();
+    expect(formatActionLine({ resolved, phase: "running" }, tZh)).toBe("正在调用 MCP");
+    expect(formatActionLine({ resolved, phase: "done" }, tZh)).toBe("调用了 MCP 工具");
+  }
+});
+
+test("MCP group summaries count each named server separately", () => {
+  const items = [
+    resolveActionKind({ toolName: "mcp__mysql__query" }),
+    resolveActionKind({ toolName: "mcp__mysql__list_tables" }),
+    resolveActionKind({ toolName: "mcp__mongo__find" }),
+  ];
+  expect(summarizeActionGroup(items, tZh).label).toBe("已调用 mysql 2 次和已调用 mongo 1 次");
+  expect(summarizeActionGroup(items, tEn).label).toBe("Called mysql ×2 and Called mongo ×1");
+  expect(summarizeActionGroup([...items, resolveActionKind({ toolName: "mcp" })], tZh).label).toBe(
+    "已调用 mysql 2 次、已调用 mongo 1 次和已调用 1 个 MCP 工具",
+  );
+});
+
 test("resolveActionKind unknown tools use kind tool and icon tool", () => {
   const resolved = resolveActionKind({ toolName: "TotallyUnknown" });
   expect(resolved.kind).toBe("tool");
@@ -210,4 +254,32 @@ test("summarizeActionGroup icon priority uses network for mcp-only and browser f
       tZh,
     ).icon,
   ).toBe("read");
+});
+
+test("resolveActionKind classifies PI codemode as its own action", () => {
+  const resolved = resolveActionKind({ toolName: "codemode" });
+  expect(resolved.kind).toBe("codemode");
+  expect(resolved.icon).toBe("code");
+  expect(resolved.bucket).toBe("scripts");
+  expect(resolveActionKind({ toolName: "CodeMode" }).kind).toBe("codemode");
+  expect(
+    resolveActionKind({ toolName: "run_script", payload: { codemodeRun: { script: "return 1;" } } }).kind,
+  ).toBe("codemode");
+});
+
+test("codemode labels say what ran instead of falling back to 执行了工具", () => {
+  const resolved = resolveActionKind({ toolName: "codemode" });
+  expect(formatActionLine({ resolved, phase: "done" }, tZh)).toBe("运行了代码脚本");
+  expect(formatActionLine({ resolved, phase: "running" }, tZh)).toBe("正在运行代码脚本");
+  expect(formatActionLine({ resolved, phase: "done" }, tEn)).toBe("Ran a code script");
+});
+
+test("summarizeActionGroup counts codemode scripts apart from generic tools", () => {
+  const items = [
+    resolveActionKind({ toolName: "codemode" }),
+    resolveActionKind({ toolName: "read" }),
+    resolveActionKind({ toolName: "read" }),
+  ];
+  expect(summarizeActionGroup(items, tZh).label).toBe("已读取 2 个文件和已运行 1 个代码脚本");
+  expect(summarizeActionGroup([resolveActionKind({ toolName: "codemode" })], tZh).icon).toBe("code");
 });

@@ -19,7 +19,7 @@ class SettingsMaxOutputPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsMaxOutputPageState extends ConsumerState<SettingsMaxOutputPage> {
-  int? _maxOutputLimitTokens;
+  Object? _maxOutputLimitTokens;
 
   @override
   void initState() {
@@ -53,12 +53,38 @@ class _SettingsMaxOutputPageState extends ConsumerState<SettingsMaxOutputPage> {
               children: [
                 EcoGroupedSection(
                   caption: desktopConnected
-                      ? l10n.settingsMaxOutputCaption
+                      ? (selected == defaultMaxOutputLimitTokens
+                            ? l10n.settingsMaxOutputDynamicCaption
+                            : l10n.settingsMaxOutputCaption)
                       : l10n.settingsConnectPcFirst,
                   topSpacing: 28,
                   child: Column(
                     children: [
-                      for (var i = 0; i < maxOutputLimitPresets.length; i++) ...[
+                      SettingsRadioOption(
+                        title: l10n.settingsMaxOutputDynamic,
+                        subtitle: l10n.settingsMaxOutputDynamicCaption,
+                        icon: EcoIcons.send,
+                        selected: selected == defaultMaxOutputLimitTokens,
+                        enabled: desktopConnected,
+                        onTap: () async {
+                          await saveSettingsMaxOutputLimit(
+                            ref,
+                            context: context,
+                            nextLimit: defaultMaxOutputLimitTokens,
+                            previousLimit: selected,
+                            onOptimistic: (value) =>
+                                setState(() => _maxOutputLimitTokens = value),
+                            onRevert: (value) =>
+                                setState(() => _maxOutputLimitTokens = value),
+                          );
+                        },
+                      ),
+                      const EcoGroupedDivider(indent: 52),
+                      for (
+                        var i = 0;
+                        i < maxOutputLimitPresets.length;
+                        i++
+                      ) ...[
                         if (i > 0) const EcoGroupedDivider(indent: 52),
                         SettingsRadioOption(
                           title: maxOutputLimitLabel(maxOutputLimitPresets[i]),

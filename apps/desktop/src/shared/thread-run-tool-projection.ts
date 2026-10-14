@@ -1,13 +1,71 @@
-import { createToolOutputPreview, isEcoImageViewToolName } from "@eco/runtime";
-import { parseThreadRunImageViewMetadata, type ThreadRunToolMetadata } from "./thread-run-events";
+import { isEcoImageViewToolName } from "@eco/runtime/eco-image-view-names";
+import { createToolOutputPreview } from "@eco/runtime/tool-output-preview";
+import {
+  parseThreadRunCodemodeMetadata,
+  parseThreadRunImageViewMetadata,
+  type ThreadRunCodemodeMetadata,
+  type ThreadRunToolMetadata,
+} from "./thread-run-events";
 
 /**
  * 工具输出会按调用逐条落库，所以只有"输出本身就是卡片重点"的工具才值得存。
  * Bash 一直如此；查看图像也要，因为视觉模型的回答是提示词唯一的答案——不存它，
- * 卡片就只能显示图片，永远说不出问了什么、答了什么。
+ * 卡片就只能显示图片，永远说不出问了什么、答了什么。codemode 同理：脚本的返回值
+ * 就是模型看到的唯一东西，不存它卡片就只剩"执行了工具"。
  */
 export function keepsOutputPreview(name: string): boolean {
-  return name === "Bash" || isEcoImageViewToolName(name);
+  return (
+    name === "Bash" || isEcoImageViewToolName(name) || name.trim().toLowerCase() === PI_CODEMODE_TOOL_NAME
+  );
+}
+
+/** PI's `codemode` tool name (kept local so the shared layer stays renderer-safe). */
+export const PI_CODEMODE_TOOL_NAME = "codemode";
+
+/** PI prefixes every script result with `Script completed|failed\nWall time X seconds\nOutput:\n`. */
+const PI_CODEMODE_HEADER = /^Script (completed|failed)\nWall time [\d.]+ seconds\nOutput:\n/;
+
+export function isCodemodeToolName(name: string | undefined): boolean {
+  return name?.trim().toLowerCase() === PI_CODEMODE_TOOL_NAME;
+}
+
+/**
+ * Assemble the codemode card payload from what the runtime already carries: the script in the
+ * call input, the script output in the tool result, PI's `details` for the nested calls.
+ */
+export function resolveCodemodeMetadata(input: {
+  name: string;
+  callInput?: unknown;
+  output?: string;
+  details?: unknown;
+}): ThreadRunCodemodeMetadata | undefined {
+  if (!isCodemodeToolName(input.name)) {
+    return undefined;
+  }
+  const callInput =
+    input.callInput && typeof input.callInput === "object" && !Array.isArray(input.callInput)
+      ? (input.callInput as Record<string, unknown>)
+      : {};
+  const argumentsRecord =
+    callInput.arguments && typeof callInput.arguments === "object" && !Array.isArray(callInput.arguments)
+      ? (callInput.arguments as Record<string, unknown>)
+      : undefined;
+  const script =
+    (typeof callInput.code === "string" && callInput.code) ||
+    (typeof argumentsRecord?.code === "string" && argumentsRecord.code) ||
+    "";
+  const rawOutput = input.output?.trim() ?? "";
+  const output = rawOutput.replace(PI_CODEMODE_HEADER, "").trim();
+  const details =
+    input.details && typeof input.details === "object" && !Array.isArray(input.details)
+      ? (input.details as Record<string, unknown>)
+      : undefined;
+  return parseThreadRunCodemodeMetadata({
+    script,
+    output,
+    ...(details?.fullOutputPath !== undefined ? { fullOutputPath: details.fullOutputPath } : {}),
+    ...(details?.calls !== undefined ? { calls: details.calls } : {}),
+  });
 }
 
 export function projectThreadRunToolMetadata(
@@ -25,6 +83,7 @@ export function projectThreadRunToolMetadata(
       ? createToolOutputPreview(tool.outputPreview)
       : undefined;
   const imageView = parseThreadRunImageViewMetadata(tool.imageView);
+  const codemode = parseThreadRunCodemodeMetadata(tool.codemode);
   const projected = {
     name,
     ...(tool.detail?.trim() && { detail: tool.detail.trim() }),
@@ -65,6 +124,8 @@ export function projectThreadRunToolMetadata(
         },
       }),
     ...(tool.mcpDiscovery?.kind === "search" && { mcpDiscovery: { kind: "search" as const } }),
+    ...(tool.parentToolCallId?.trim() && { parentToolCallId: tool.parentToolCallId.trim() }),
+    ...(codemode && { codemode }),
     ...(tool.sendMessage && { sendMessage: tool.sendMessage }),
   };
   return projected;

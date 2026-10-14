@@ -228,10 +228,10 @@ test("Codex Hub elicitation unwraps the started call before showing MCP approval
   expect(approval).toMatchObject({
     kind: "mcp",
     filesystemTool: "MCP",
-    filesystemPath: "github/mcp__github__create_issue",
+    filesystemPath: 'github · create_issue\n{"title":"example"}',
   });
   expect(approval?.description).toContain("create_issue");
-  expect(approval?.description).toContain('"title":"example"');
+  expect(approval?.filesystemPath).toContain('"title":"example"');
   const approvalToolUseId = approval?.toolUseId;
   expect(approvalToolUseId).toBeTruthy();
   expect(resolvePendingCodexBashApproval(approvalToolUseId ?? "", { decision: "approved" })).toBe(true);

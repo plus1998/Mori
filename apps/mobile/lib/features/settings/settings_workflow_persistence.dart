@@ -16,11 +16,13 @@ WorkflowSettingsSnapshot workflowSettingsWith({
   String? defaultBashReviewMode,
   bool clearDefaultCoreKind = false,
   int? contextWindowLimitTokens,
-  int? maxOutputLimitTokens,
+  Object? maxOutputLimitTokens,
   OrchestrationSelection? defaultOrchestrationSelection,
   bool clearDefaultOrchestrationSelection = false,
   AuxiliaryModelSelection? defaultAuxiliaryModel,
+  ApprovalModelSelection? defaultApprovalModel,
   bool clearDefaultAuxiliaryModel = false,
+  bool clearDefaultApprovalModel = false,
   VisionModelSelection? defaultVisionModel,
   bool clearDefaultVisionModel = false,
   Map<String, bool>? mcpServersEnabled,
@@ -51,6 +53,9 @@ WorkflowSettingsSnapshot workflowSettingsWith({
     defaultAuxiliaryModel: clearDefaultAuxiliaryModel
         ? null
         : (defaultAuxiliaryModel ?? workflow?.defaultAuxiliaryModel),
+    defaultApprovalModel: clearDefaultApprovalModel
+        ? null
+        : (defaultApprovalModel ?? workflow?.defaultApprovalModel),
     defaultVisionModel: clearDefaultVisionModel
         ? null
         : (defaultVisionModel ?? workflow?.defaultVisionModel),
@@ -164,10 +169,10 @@ Future<void> saveSettingsContextWindowLimit(
 Future<void> saveSettingsMaxOutputLimit(
   WidgetRef ref, {
   required BuildContext context,
-  required int nextLimit,
-  required int previousLimit,
-  required ValueChanged<int> onOptimistic,
-  required ValueChanged<int> onRevert,
+  required Object nextLimit,
+  required Object previousLimit,
+  required ValueChanged<Object> onOptimistic,
+  required ValueChanged<Object> onRevert,
 }) async {
   if (nextLimit == previousLimit) return;
   onOptimistic(nextLimit);

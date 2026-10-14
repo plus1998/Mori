@@ -2,6 +2,7 @@ import type { EcoAgentRuntimeConfig } from "@eco/runtime";
 import {
   type ExecutionConfirmationMode,
   evaluateBashConfirmation,
+  evaluateBashHookGate,
   resolveAgentBashPolicyForConfirmation,
   type ToolConfirmationDecision,
 } from "@eco/runtime";
@@ -23,6 +24,20 @@ export interface ThreadToolConfirmationInput {
 
 /** Desktop canUseTool：Bash 的单一确认决策入口。 */
 export function evaluateThreadToolConfirmation(input: ThreadToolConfirmationInput): ToolConfirmationDecision {
+  const agentBash = resolveAgentBashPolicyForConfirmation({
+    ...(input.agentRegistry ? { registry: input.agentRegistry } : {}),
+    ...(input.agentId ? { agentId: input.agentId } : {}),
+    ...(input.agentType ? { agentType: input.agentType } : {}),
+  });
+  const hardDeny = evaluateBashHookGate({
+    command: input.command,
+    cwd: input.cwd,
+    workspacePath: input.workspacePath,
+    confirmationMode: input.confirmationMode,
+    ...(input.phaseAllowsExecution !== undefined ? { phaseAllowsExecution: input.phaseAllowsExecution } : {}),
+    ...(agentBash ? { agentBash } : {}),
+  });
+  if (hardDeny) return hardDeny;
   if (
     input.sessionBashRememberPrefixes?.length &&
     commandMatchesAnyRememberedBashPrefix(input.command, input.sessionBashRememberPrefixes)
@@ -35,11 +50,6 @@ export function evaluateThreadToolConfirmation(input: ThreadToolConfirmationInpu
     };
   }
 
-  const agentBash = resolveAgentBashPolicyForConfirmation({
-    ...(input.agentRegistry ? { registry: input.agentRegistry } : {}),
-    ...(input.agentId ? { agentId: input.agentId } : {}),
-    ...(input.agentType ? { agentType: input.agentType } : {}),
-  });
   return evaluateBashConfirmation({
     command: input.command,
     cwd: input.cwd,

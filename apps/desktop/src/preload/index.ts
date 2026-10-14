@@ -1,4 +1,6 @@
-﻿import type {
+import type { TtsArtifact, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSnapshot } from "../shared/tts";
+import type { ScheduleCreateInput, ScheduleUpdateInput, ScheduleTrigger, ScheduleDefinition, ScheduleOccurrence, SchedulingSnapshot } from "../shared/scheduling";
+import type {
   ConversationBootstrap,
   ConversationCapabilities,
   ConversationDetailItem,
@@ -27,6 +29,7 @@ import type {
 } from "../shared/openai-account";
 import type { SupabaseDeploymentConnection, SupabaseDeploymentSnapshot } from "../shared/supabase-deployment";
 import {
+  type AddCodexCatalogModelRequest,
   type AgentTemplate,
   type AgentTemplateExportRequest,
   type AgentTemplateExportResult,
@@ -89,6 +92,9 @@ import {
   type ClarificationRequest,
   type ClarificationSubmitPayload,
   type ClarificationSubmitResult,
+  type ClipboardReadImageResult,
+  type ClipboardWriteImageRequest,
+  type CodexModelCatalogSnapshot,
   type ComposerDraftDeleteRequest,
   type ComposerDraftDeleteResult,
   type ComposerDraftRecord,
@@ -163,8 +169,7 @@ import {
   type ProviderConfigInput,
   type ProviderConfigView,
   type ProviderDeleteResult,
-  type ProxyBridgeSettingsSnapshot,
-  type RouteCapabilityHint,
+  type ProxyBridgeSettingsSnapshot,  type RouteCapabilityHint,
   type RoutePricingHint,
   type RouteProfileInput,
   type RouteProfileView,
@@ -450,6 +455,24 @@ const api = {
     ipcRenderer.on(IPC_CHANNELS.gitRemoteFetched, listener);
     return () => ipcRenderer.off(IPC_CHANNELS.gitRemoteFetched, listener);
   },
+  onGitDiffChanged(callback: (event: import("../shared/ipc").WorkspaceDiffChangedEvent) => void): () => void {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: import("../shared/ipc").WorkspaceDiffChangedEvent,
+    ) => callback(payload);
+    ipcRenderer.on(IPC_CHANNELS.gitDiffChanged, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.gitDiffChanged, listener);
+  },
+  onGitStatusChanged(
+    callback: (event: import("../shared/event-center").EventCenterGitStatusChangedPayload) => void,
+  ): () => void {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: import("../shared/event-center").EventCenterGitStatusChangedPayload,
+    ) => callback(payload);
+    ipcRenderer.on(IPC_CHANNELS.gitStatusChanged, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.gitStatusChanged, listener);
+  },
   startPackageScript(request: RunPackageScriptRequest): Promise<StartPackageScriptResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.workspaceStartPackageScript, request);
   },
@@ -496,6 +519,20 @@ const api = {
   /** Plain-text system clipboard contents, read in the main process (the renderer has no clipboard-read). */
   readClipboardText(): Promise<string> {
     return ipcRenderer.invoke(IPC_CHANNELS.clipboardReadText);
+  },
+  /**
+   * PNG system-clipboard image, read in the main process for the same reason. `null` when the
+   * clipboard holds no image, which is how the Composer's right-click Paste picks text instead.
+   */
+  readClipboardImage(): Promise<ClipboardReadImageResult | null> {
+    return ipcRenderer.invoke(IPC_CHANNELS.clipboardReadImage);
+  },
+  /**
+   * Image system-clipboard write, performed in the main process. The renderer's own write
+   * needs a focused document; this one does not, so it is the image viewer's fallback.
+   */
+  writeImageToClipboard(request: ClipboardWriteImageRequest): Promise<boolean> {
+    return ipcRenderer.invoke(IPC_CHANNELS.clipboardWriteImage, request);
   },
   onTerminalEvent(callback: (event: TerminalStreamEvent) => void): () => void {
     const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
@@ -683,6 +720,18 @@ const api = {
   },
   bulkImportCandidateModels(providerId: string, modelIds: string[]): Promise<CandidateModelView[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.candidateModelBulkImport, providerId, modelIds);
+  },
+  getCodexModelCatalog(): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexModelCatalogGet);
+  },
+  refreshCodexModelCatalog(): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexModelCatalogRefresh);
+  },
+  addCodexModelCatalogModel(request: AddCodexCatalogModelRequest): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexModelCatalogAdd, request);
+  },
+  removeCodexModelCatalogModel(modelId: string): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexModelCatalogRemove, modelId);
   },
   listAgentTemplates(): Promise<AgentTemplate[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.agentTemplateList);
@@ -875,6 +924,34 @@ const api = {
   revealImageGenerationArtifact(request: ImageGenerationArtifactReadRequest): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationArtifactReveal, request);
   },
+  getTtsSettings(): Promise<TtsSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsSettingsGet);
+  },
+  saveTtsEnabled(enabled: boolean): Promise<TtsSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsSettingsSave, { enabled });
+  },
+  saveTtsProfile(
+    profile: TtsProfileSaveInput,
+  ): Promise<TtsProfileSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsProfileSave, profile);
+  },
+  deleteTtsProfile(id: string): Promise<TtsSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsProfileDelete, { id });
+  },
+  activateTtsProfile(id: string): Promise<TtsSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsProfileActivate, { id });
+  },
+  listTtsArtifacts(threadId: string): Promise<TtsArtifact[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsArtifactsList, { threadId });
+  },
+  readTtsArtifact(
+    request: TtsArtifactReadRequest,
+  ): Promise<TtsArtifactReadResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsArtifactRead, request);
+  },
+  revealTtsArtifact(request: TtsArtifactReadRequest): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsArtifactReveal, request);
+  },
   readImageView(request: ImageViewReadRequest): Promise<ImageViewReadResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageViewRead, request);
   },
@@ -917,6 +994,13 @@ const api = {
     };
     ipcRenderer.on(IPC_CHANNELS.imageGenerationArtifactChanged, listener);
     return () => ipcRenderer.off(IPC_CHANNELS.imageGenerationArtifactChanged, listener);
+  },
+  onTtsArtifactChanged(callback: (artifact: TtsArtifact) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+      if (payload && typeof payload === "object") callback(payload as TtsArtifact);
+    };
+    ipcRenderer.on(IPC_CHANNELS.ttsArtifactChanged, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.ttsArtifactChanged, listener);
   },
   getWebChatList(): Promise<WebChatListView> {
     return ipcRenderer.invoke(IPC_CHANNELS.webChatListGet);
@@ -1036,8 +1120,8 @@ const api = {
   getGitStatus(workspacePath: string): Promise<GitWorkingTreeStatus> {
     return ipcRenderer.invoke(IPC_CHANNELS.gitGetStatus, workspacePath);
   },
-  getWorkspaceDiff(workspacePath: string): Promise<WorkspaceDiffResult> {
-    return ipcRenderer.invoke(IPC_CHANNELS.gitGetWorkspaceDiff, workspacePath);
+  getWorkspaceDiff(workspacePath: string, options?: { refresh?: boolean }): Promise<WorkspaceDiffResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.gitGetWorkspaceDiff, workspacePath, options);
   },
   getWorkspaceFileDiff(request: GitGetWorkspaceFileDiffRequest): Promise<WorkspaceFileDiffResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.gitGetWorkspaceFileDiff, request);
@@ -1081,6 +1165,11 @@ const api = {
     request: GitListCommitModelOptionsRequest,
   ): Promise<GitListCommitModelOptionsResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.gitListCommitModelOptions, request);
+  },
+  listApprovalModelOptions(
+    request: GitListCommitModelOptionsRequest,
+  ): Promise<GitListCommitModelOptionsResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.approvalListModelOptions, request);
   },
   commitGitChanges(request: GitCommitRequest): Promise<GitCommitResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.gitCommit, request);
@@ -1230,6 +1319,17 @@ const api = {
     const listener = (_event: Electron.IpcRendererEvent, payload: string) => callback(payload);
     ipcRenderer.on(IPC_CHANNELS.appEcoDeepLinkOpen, listener);
     return () => ipcRenderer.off(IPC_CHANNELS.appEcoDeepLinkOpen, listener);
+  },
+  listSchedules(): Promise<SchedulingSnapshot> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingList); },
+  createSchedule(input: ScheduleCreateInput): Promise<ScheduleDefinition> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingCreate, input); },
+  updateSchedule(input: ScheduleUpdateInput): Promise<ScheduleDefinition> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingUpdate, input); },
+  deleteSchedule(id: string): Promise<void> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingDelete, id); },
+  runScheduleNow(input: { id: string; requestId: string }): Promise<ScheduleOccurrence> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingRunNow, input); },
+  previewSchedule(trigger: ScheduleTrigger): Promise<string[]> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingPreview, trigger); },
+  onSchedulesChanged(callback: () => void): () => void {
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.schedulingChanged, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.schedulingChanged, listener);
   },
   startThread(request: ThreadStartRequest): Promise<ThreadStartResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadStart, request);

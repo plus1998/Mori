@@ -325,8 +325,6 @@ export * from "./acp-provider-exhaustion.js";
 export * from "./acp-session-config.js";
 export * from "./acp-session-delete.js";
 export * from "./acp-types.js";
-export * from "./managed-process.js";
-export * from "./windows-job-object.js";
 export {
   formatSubagentMissionMessage,
   isGenericMissionSummary,
@@ -397,10 +395,9 @@ export {
   syncCodexSpawnAgentHook,
 } from "./codex-spawn-agent-hook.js";
 export * from "./codex-spawn-role-queue.js";
-export * from "./codex-version.js";
-export * from "./forced-plan-delegation.js";
 export * from "./codex-thread-attribution.js";
 export * from "./codex-thread-resume.js";
+export * from "./codex-tool-display-name.js";
 export {
   applyCodexExecutionConfirmation,
   CODEX_APPROVAL_POLICIES,
@@ -426,6 +423,7 @@ export {
 export * from "./codex-turn-interrupt.js";
 export * from "./codex-turn-route-registry.js";
 export * from "./codex-turn-steer.js";
+export * from "./codex-version.js";
 export {
   alignBreakdownSegmentsToOccupied,
   CONTEXT_SEGMENT_COLORS,
@@ -448,13 +446,15 @@ export {
   listCursorAgentModels,
   parseCursorAgentModelsOutput,
 } from "./cursor-agent-models";
-export * from "./eco-image-view-tool.js";
-export * from "./eco-image-display-tool.js";
 export * from "./eco-html-host-tool.js";
+export * from "./eco-image-display-tool.js";
+export * from "./eco-image-view-tool.js";
 export * from "./eco-mcp-hub-tool.js";
-export * from "./eco-web-search-tool.js";
 export * from "./eco-sdk-hooks";
+export * from "./eco-web-search-tool.js";
 export * from "./filesystem-scope-policy.js";
+export * from "./forced-plan-delegation.js";
+export * from "./managed-process.js";
 export {
   extractCapabilitiesFromModelEntry,
   lookupModelCapabilitiesInCatalog,
@@ -469,6 +469,7 @@ export {
   DEFAULT_CONTEXT_LIMIT,
   DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT,
   DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
+  DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT,
   effectiveContextLimit,
   extractLimitsFromModelEntry,
   formatContextLimit,
@@ -491,6 +492,7 @@ export {
   normalizeGlobalMaxOutputTokens,
   occupancyPercent,
   resolveAppliedMaxOutputTokens,
+  resolveDynamicMaxOutputTokens,
   resolveEffectiveContextLimit,
 } from "./models-dev-limits";
 export {
@@ -526,6 +528,8 @@ export * from "./pi-coding-agent-driver.js";
 export * from "./pi-eco-extensions.js";
 export * from "./pi-event-adapter.js";
 export * from "./pi-finalize-plan.js";
+export * from "./pi-integrated-web-search.js";
+export * from "./pi-integrated-web-search-factory.js";
 export * from "./pi-mcp.js";
 export * from "./pi-model-bridge.js";
 export * from "./pi-session-mode.js";
@@ -534,8 +538,6 @@ export * from "./pi-skills.js";
 export * from "./pi-subagent.js";
 export * from "./pi-tool-approval.js";
 export * from "./pi-usage.js";
-export * from "./pi-integrated-web-search.js";
-export * from "./pi-integrated-web-search-factory.js";
 export * from "./pi-web-search-config.js";
 export * from "./pi-web-search-factory.js";
 export * from "./pi-web-search-plan.js";
@@ -599,3 +601,4 @@ export {
 } from "./usage";
 export * from "./v4a-teaching.js";
 export * from "./v4a-teaching-flags.js";
+export * from "./windows-job-object.js";

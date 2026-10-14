@@ -68,6 +68,7 @@ test("buildCodexConfigToml maps enabled providers to eco_* model_providers", () 
   expect(toml).toContain("[features]");
   expect(toml).toContain("remote_plugin = false");
   expect(toml).toContain("plugins = false");
+  expect(toml).toContain("apps = false");
   expect(toml).not.toContain("view_image = false");
   expect(toml).toContain("[tools.update_plan]");
   expect(toml).toContain("enabled = true");
@@ -90,6 +91,7 @@ test("buildCodexConfigToml leaves the built-in OpenAI provider on Codex's offici
   expect(toml).not.toContain("model_provider =");
   expect(toml).not.toContain("[model_providers.eco_openai]");
   expect(toml).not.toContain("http://127.0.0.1:18765/v1");
+  expect(toml).toContain("apps = false");
   expect(toml).not.toContain("view_image = false");
 });
 
@@ -144,6 +146,11 @@ test("syncCodexConfigFromEcoProviders does not report built-in OpenAI as a Gatew
   expect(result.defaultProviderSlug).toBeUndefined();
   const written = await fs.readFile(result.configPath, "utf8");
   expect(written).not.toContain("eco_openai");
+  expect(Bun.TOML.parse(written).features).toMatchObject({
+    apps: false,
+    plugins: false,
+    remote_plugin: false,
+  });
 });
 
 test("buildCodexConfigToml selects the Codex remote compaction protocol only explicitly", () => {

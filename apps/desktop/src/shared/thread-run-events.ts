@@ -2,6 +2,19 @@ export type ThreadRunEventScope = "main" | "agent" | "both";
 
 export type ThreadRunEventStreamState = "none" | "placeholder" | "streaming" | "finalized";
 
+export const CONTEXT_COMPACTION_EVENT_TYPES = [
+  "context.compaction.started",
+  "context.compaction.completed",
+  "context.compaction.failed",
+  "context.compaction.suspended",
+] as const;
+
+export function isContextCompactionEventType(
+  value: unknown,
+): value is (typeof CONTEXT_COMPACTION_EVENT_TYPES)[number] {
+  return CONTEXT_COMPACTION_EVENT_TYPES.some((type) => type === value);
+}
+
 export type ThreadRunEventType =
   | "thread.status"
   | "run.attempt.started"
@@ -29,6 +42,7 @@ export type ThreadRunEventType =
   | "thinking.delta"
   | "thinking.final"
   | "tool.started"
+  | "tool.writing"
   | "tool.completed"
   | "tool.failed"
   | "api.error"
@@ -68,8 +82,112 @@ export interface ThreadRunToolMetadata {
   htmlHost?: ThreadRunHtmlHostMetadata;
   /** PI `mcp({ search })` / `mcp({ action })` probes before a real `{ tool, args }` call. */
   mcpDiscovery?: ThreadRunMcpDiscoveryMetadata;
+  /**
+   * PI `codemode`: the model writes a script and the script calls the tools. The script and its
+   * output are the whole point of the row, so they ride on the tool metadata instead of the
+   * generic `detail` / `outputPreview` (which are single-line previews).
+   */
+  codemode?: ThreadRunCodemodeMetadata;
+  /**
+   * PI `codemode`: a call the script itself made names the script's call as its parent. This is a
+   * display nesting, not ownership — it stays off the event's `parentToolUseId`, which is Eco's
+   * subagent link everywhere it is read (scope, owner agent, usage attribution).
+   */
+  parentToolCallId?: string;
   /** Planner → subagent SendMessage resume/follow-up payload. */
   sendMessage?: ThreadRunSendMessageMetadata;
+}
+
+/** One call a codemode script made. Mirrors PI's `CodemodeNestedCall`. */
+export interface ThreadRunCodemodeCallMetadata {
+  /** PI's nested call id, `<codemode call id>/<n>`; unique within the script. */
+  id?: string;
+  name: string;
+  /** Compact JSON of the arguments, already truncated for display by PI. */
+  args?: string;
+  status?: "running" | "ok" | "error" | "cancelled";
+  durationMs?: number;
+  /** Cost in USD of a `models.*` call that reported usage. */
+  cost?: number;
+  error?: string;
+}
+
+export interface ThreadRunCodemodeMetadata {
+  script?: string;
+  /** Script output, PI's `Script completed / Wall time / Output:` header stripped. */
+  output?: string;
+  /** Temp file with the untruncated output, when PI truncated it. */
+  fullOutputPath?: string;
+  /**
+   * Nested calls from PI's tool `details`. They never reach the model as tool calls, so they are
+   * the only record of `models.*` calls and of calls cancelled mid-script.
+   */
+  calls?: ThreadRunCodemodeCallMetadata[];
+}
+
+const CODEMODE_SCRIPT_LIMIT = 12_000;
+const CODEMODE_OUTPUT_LIMIT = 8_000;
+const CODEMODE_CALL_LIMIT = 64;
+
+/**
+ * One parser for every reader (store read-back, Feed projection, tool projection), the same way
+ * `imageView` is parsed: a field added here must not silently drop on its way to the card.
+ */
+export function parseThreadRunCodemodeMetadata(value: unknown): ThreadRunCodemodeMetadata | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const script = typeof record.script === "string" ? record.script.trim() : "";
+  const output = typeof record.output === "string" ? record.output.trim() : "";
+  const fullOutputPath = typeof record.fullOutputPath === "string" ? record.fullOutputPath.trim() : "";
+  const calls = Array.isArray(record.calls)
+    ? record.calls
+        .map((entry): ThreadRunCodemodeCallMetadata | undefined => {
+          if (typeof entry !== "object" || entry === null) {
+            return undefined;
+          }
+          const call = entry as Record<string, unknown>;
+          const name = typeof call.name === "string" ? call.name.trim() : "";
+          if (!name) {
+            return undefined;
+          }
+          const id = typeof call.id === "string" ? call.id.trim() : "";
+          const args = typeof call.args === "string" ? call.args.trim() : "";
+          const error = typeof call.error === "string" ? call.error.trim() : "";
+          const durationMs =
+            typeof call.durationMs === "number" && Number.isFinite(call.durationMs)
+              ? Math.max(0, call.durationMs)
+              : undefined;
+          const cost =
+            typeof call.cost === "number" && Number.isFinite(call.cost) && call.cost > 0
+              ? call.cost
+              : undefined;
+          return {
+            ...(id ? { id } : {}),
+            name,
+            ...(args ? { args: args.slice(0, 400) } : {}),
+            ...(call.status === "running" ||
+            call.status === "ok" ||
+            call.status === "error" ||
+            call.status === "cancelled"
+              ? { status: call.status }
+              : {}),
+            ...(durationMs !== undefined ? { durationMs } : {}),
+            ...(cost !== undefined ? { cost } : {}),
+            ...(error ? { error: error.slice(0, 500) } : {}),
+          };
+        })
+        .filter((entry): entry is ThreadRunCodemodeCallMetadata => Boolean(entry))
+        .slice(0, CODEMODE_CALL_LIMIT)
+    : undefined;
+  const parsed: ThreadRunCodemodeMetadata = {
+    ...(script ? { script: script.slice(0, CODEMODE_SCRIPT_LIMIT) } : {}),
+    ...(output ? { output: output.slice(0, CODEMODE_OUTPUT_LIMIT) } : {}),
+    ...(fullOutputPath ? { fullOutputPath } : {}),
+    ...(calls && calls.length > 0 ? { calls } : {}),
+  };
+  return parsed.script || parsed.output || parsed.fullOutputPath || parsed.calls ? parsed : undefined;
 }
 
 /**

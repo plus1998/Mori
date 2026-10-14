@@ -1,4 +1,9 @@
-import { type AgentEvent, createAgentEvent, type RuntimeAgentRole } from "../../shared/src";
+import {
+  type AgentEvent,
+  createAgentEvent,
+  type RuntimeAgentRole,
+  ToolWriteTargetTracker,
+} from "../../shared/src";
 import { tryParseSerializedAnthropicContentBlocks } from "./anthropic-content-normalize.js";
 import { SDK_GENERAL_PURPOSE_AGENT_KEY, SDK_PLAN_AGENT_KEY } from "./subagent-availability.js";
 import { normalizeSdkSubagentType } from "./subagent-resume.js";
@@ -23,6 +28,10 @@ export interface SdkStreamContext {
   activeBlockIndex?: number;
   emittedStreamBlockKeys: Set<string>;
   emittedToolUseIds: Set<string>;
+  /** Target already announced for the tool call being written, so it is said once. */
+  announcedToolWriteTarget?: string;
+  /** Reads that target out of the arguments without re-reading them on every fragment. */
+  toolWriteTarget?: ToolWriteTargetTracker;
   toolUseById: Map<string, { name: string; input?: Record<string, unknown> }>;
   resolveSubagentAgentId?: (input: {
     role: RuntimeAgentRole;
@@ -196,6 +205,8 @@ export type EcoStreamPayload =
       input?: Record<string, unknown>;
       streaming?: boolean;
       input_complete?: boolean;
+      /** The file or command the call names, known before its arguments are complete. */
+      tool_input_target?: string;
       parent_tool_use_id?: string | null;
       subagent_type?: string;
       agent_type?: string;
@@ -349,6 +360,8 @@ export function mapStreamEventToEvents(
         delete ctx.currentToolUseId;
       }
       ctx.currentToolInputJson = "";
+      delete ctx.announcedToolWriteTarget;
+      ctx.toolWriteTarget = new ToolWriteTargetTracker(block.name);
       if (ctx.currentToolUseId) {
         ctx.emittedToolUseIds.add(ctx.currentToolUseId);
         ctx.toolUseById.set(ctx.currentToolUseId, { name: block.name });
@@ -423,7 +436,33 @@ export function mapStreamEventToEvents(
     const delta = event.delta;
     if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
       ctx.currentToolInputJson += delta.partial_json;
-      return events;
+      // The arguments name their file (or command) within the first fragments; the Feed can
+      // say which one instead of only「正在写入文件」for the whole write.
+      const tracker = ctx.toolWriteTarget ?? new ToolWriteTargetTracker(ctx.currentToolName ?? "");
+      ctx.toolWriteTarget = tracker;
+      const target = tracker.observe(ctx.currentToolInputJson);
+      if (!target || target === ctx.announcedToolWriteTarget) {
+        return events;
+      }
+      ctx.announcedToolWriteTarget = target;
+      return [
+        createToolStartedEvent(
+          threadId,
+          sessionId,
+          streamRole,
+          uuid,
+          {
+            type: "tool_use",
+            tool_name: ctx.currentToolName ?? "",
+            ...(ctx.currentToolUseId && { tool_use_id: ctx.currentToolUseId }),
+            streaming: true,
+            tool_input_target: target,
+            ...streamMeta,
+          },
+          ctx,
+          parentToolUseId,
+        ),
+      ];
     }
     if (ctx.inToolBlock && delta.type === "text_delta") {
       return events;
@@ -629,6 +668,8 @@ export function mapStreamEventToEvents(
     delete ctx.activeBlockIndex;
     delete ctx.currentToolName;
     delete ctx.currentToolUseId;
+    delete ctx.announcedToolWriteTarget;
+    delete ctx.toolWriteTarget;
     ctx.currentToolInputJson = "";
     return events;
   }

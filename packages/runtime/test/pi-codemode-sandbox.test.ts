@@ -23,6 +23,17 @@ function toolEvents(events: AgentEvent[]): ToolEvent[] {
   return events.filter((event) => event.type.startsWith("tool.")) as unknown as ToolEvent[];
 }
 
+/**
+ * Tool calls that actually ran. The adapter also announces a call while the model is still
+ * writing its arguments (`tool.started` with `input_complete: false`); that is a fact about
+ * the model, not an execution, so these tests look at the executed calls only.
+ */
+function executedToolEvents(events: AgentEvent[]): ToolEvent[] {
+  return toolEvents(events).filter(
+    (event) => !(event.type === "tool.started" && event.payload.input_complete === false),
+  );
+}
+
 async function makeWorkspace(): Promise<{ workspace: string; agentDir: string }> {
   const workspace = await mkdtemp(path.join(tmpdir(), "eco-pi-codemode-ws-"));
   const agentDir = await mkdtemp(path.join(tmpdir(), "eco-pi-codemode-agent-"));
@@ -73,7 +84,7 @@ test("serial nested tool calls surface as their own events with <parent>/<n> ids
     ],
   });
   try {
-    const events = toolEvents(result.events);
+    const events = executedToolEvents(result.events);
     expect(events.map((event) => `${event.type}:${event.payload.tool_use_id}`)).toEqual([
       "tool.started:code_1",
       "tool.started:code_1/1",
@@ -121,7 +132,7 @@ test("parallel nested tool calls each get a distinct index under the same parent
     ],
   });
   try {
-    const started = toolEvents(result.events).filter((event) => event.type === "tool.started");
+    const started = executedToolEvents(result.events).filter((event) => event.type === "tool.started");
     expect(started.map((event) => event.payload.tool_use_id)).toEqual(["code_2", "code_2/1", "code_2/2"]);
     expect(started.map((event) => event.payload.parent_tool_call_id)).toEqual([
       undefined,

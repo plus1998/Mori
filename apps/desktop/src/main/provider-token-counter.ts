@@ -1,4 +1,9 @@
-import { GATEWAY_PROVIDER_ID_HEADER, GATEWAY_UPSTREAM_KIND_HEADER } from "@eco/gateway";
+import {
+  buildUpstreamUrl,
+  GATEWAY_PROVIDER_ID_HEADER,
+  GATEWAY_UPSTREAM_KIND_HEADER,
+  type GatewayConfig,
+} from "@eco/gateway";
 import {
   type AnthropicRequest,
   anthropicToResponses,
@@ -6,8 +11,8 @@ import {
   responsesToChatCompletionsRequest,
 } from "@eco/openai-anthropic-bridge";
 import type { UpstreamApiCompat } from "../shared/api-compat";
-import type { ProviderTokenCountMode } from "../shared/provider-token-count";
-import { estimateAnthropicRequestTokens } from "../shared/token-estimate";
+import { normalizeProviderTokenCountMode, type ProviderTokenCountMode } from "../shared/provider-token-count";
+import { estimateAnthropicRequestTokens, estimateTextTokens } from "../shared/token-estimate";
 import { stripSemanticCompactionDirectives } from "./bridge-upstream";
 import { ensureGlobalEcoGateway, handleGlobalEcoGatewayRequest } from "./eco-gateway-lifecycle";
 import {
@@ -19,6 +24,140 @@ import type { ProviderConfigSecret } from "./provider-store";
 import { buildProviderDirectUpstreamHeaders } from "./upstream-request-headers";
 
 const DEFAULT_TOKEN_COUNT_TIMEOUT_MS = 30_000;
+
+/** Dispatch-time counting uses the actual native body, never a lossy protocol round trip. */
+export const countGatewayInputTokens: NonNullable<GatewayConfig["countInputTokens"]> = async (input) => {
+  const { route, body } = input;
+  const mode = normalizeProviderTokenCountMode(route.provider.tokenCountMode);
+  if (mode === "local_heuristic") {
+    if (body.previous_response_id || body.conversation) {
+      throw new Error("本地估算无法读取服务端会话历史；动态输出需要 openai_responses 输入计数模式。");
+    }
+    const fields =
+      route.upstreamKind === "anthropic-messages"
+        ? ["system", "messages", "tools", "tool_choice", "thinking", "output_config", "cache_control"]
+        : route.upstreamKind === "openai-chat"
+          ? ["messages", "tools", "tool_choice", "functions", "function_call", "response_format"]
+          : ["input", "instructions", "tools", "tool_choice", "text", "reasoning", "personality"];
+    const countable = pickFields(body, fields);
+    return {
+      tokens: estimateTextTokens(JSON.stringify(countable)),
+      precision: "heuristic",
+      source: "eco:local_heuristic",
+    };
+  }
+
+  const transport = {
+    provider: route.provider,
+    fetcher: input.fetcher,
+    ...(input.signal && { signal: input.signal }),
+    headers: input.headers,
+  };
+  if (mode === "anthropic_messages") {
+    if (route.upstreamKind !== "anthropic-messages") {
+      throw new Error(
+        "anthropic_messages 精确计数需要 Messages 上游；不能用协议转换后的计数冒充原生请求输入。",
+      );
+    }
+    const url = `${buildUpstreamUrl(route.provider, "anthropic-messages")}/count_tokens`;
+    const raw = await postJsonForTokenCount(
+      transport,
+      url,
+      pickFields(body, [
+        "model",
+        "system",
+        "messages",
+        "tools",
+        "tool_choice",
+        "thinking",
+        "output_config",
+        "cache_control",
+      ]),
+      "anthropic",
+    );
+    return {
+      tokens: parseInputTokens(raw, "Anthropic count_tokens"),
+      precision: "provider_exact",
+      source: url,
+    };
+  }
+  if (mode === "openai_responses") {
+    if (route.upstreamKind !== "responses" && route.upstreamKind !== "gateway-delegated") {
+      throw new Error(
+        "openai_responses 精确计数需要 Responses 上游；不能用协议转换后的计数冒充原生请求输入。",
+      );
+    }
+    const url = `${buildUpstreamUrl(route.provider, route.upstreamKind)}/input_tokens`;
+    const raw = await postJsonForTokenCount(
+      transport,
+      url,
+      pickResponsesInputTokenFields(body),
+      "openai_responses",
+    );
+    return {
+      tokens: parseInputTokens(raw, "Responses input_tokens"),
+      precision: "provider_exact",
+      source: url,
+    };
+  }
+  if (route.upstreamKind !== "openai-chat") {
+    throw new Error("llama_tokenize 动态输出计数需要原生 Chat Completions 上游。");
+  }
+  if (
+    (Array.isArray(body.tools) && body.tools.length > 0) ||
+    (Array.isArray(body.functions) && body.functions.length > 0) ||
+    body.response_format
+  ) {
+    throw new Error(
+      "llama_tokenize 无法精确计入 tools/functions/response_format；请配置支持这些输入的服务端计数接口。",
+    );
+  }
+  if (!Array.isArray(body.messages)) throw new Error("llama_tokenize 最终请求缺少 chat messages。");
+  if (
+    body.messages.some((message) => {
+      if (!message || typeof message !== "object") return false;
+      const content = (message as Record<string, unknown>).content;
+      return (
+        Array.isArray(content) &&
+        content.some(
+          (part) => part && typeof part === "object" && (part as Record<string, unknown>).type !== "text",
+        )
+      );
+    })
+  ) {
+    throw new Error("llama_tokenize 无法通过文本模板精确计入图片、音频或文件输入。");
+  }
+  const url = buildUpstreamUrl(route.provider, "openai-chat").replace(
+    /\/(?:v[^/]+\/)?chat\/completions$/,
+    "",
+  );
+  const template = await postJsonForTokenCount(
+    transport,
+    `${url}/apply-template`,
+    { messages: body.messages },
+    "openai_chat_completions",
+  );
+  const tokenized = await postJsonForTokenCount(
+    transport,
+    `${url}/tokenize`,
+    {
+      content: readPrompt(template),
+      add_special: false,
+      parse_special: true,
+      with_pieces: false,
+    },
+    "openai_chat_completions",
+  );
+  return {
+    tokens: readTokenArray(tokenized).length,
+    precision: "tokenizer_exact",
+    source: `${url}/apply-template -> ${url}/tokenize`,
+  };
+};
+
+function pickFields(body: Record<string, unknown>, fields: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(fields.filter((key) => body[key] !== undefined).map((key) => [key, body[key]]));
+}
 
 export type ProviderTokenCountPrecision = "provider_exact" | "tokenizer_exact" | "heuristic";
 
@@ -193,7 +332,20 @@ function normalizeAnthropicCountRequest(body: Record<string, unknown>, modelId: 
 
 function pickResponsesInputTokenFields(body: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  for (const key of ["model", "input", "instructions", "tools", "tool_choice", "reasoning"] as const) {
+  for (const key of [
+    "model",
+    "input",
+    "instructions",
+    "tools",
+    "tool_choice",
+    "reasoning",
+    "text",
+    "previous_response_id",
+    "conversation",
+    "parallel_tool_calls",
+    "truncation",
+    "personality",
+  ] as const) {
     if (body[key] !== undefined) {
       result[key] = body[key];
     }
@@ -202,7 +354,10 @@ function pickResponsesInputTokenFields(body: Record<string, unknown>): Record<st
 }
 
 async function postJsonForTokenCount(
-  input: CountProviderInputTokensRequest,
+  input: Pick<CountProviderInputTokensRequest, "fetcher" | "signal" | "upstreamUserAgent" | "timeoutMs"> & {
+    provider: Pick<ProviderConfigSecret, "apiKey">;
+    headers?: HeadersInit;
+  },
   url: string,
   body: Record<string, unknown>,
   apiCompat: UpstreamApiCompat,
@@ -221,13 +376,18 @@ async function postJsonForTokenCount(
     input.signal?.addEventListener("abort", abortFromParent, { once: true });
   }
   try {
+    const headers = new Headers(
+      input.headers ??
+        buildProviderDirectUpstreamHeaders({
+          apiKey: input.provider.apiKey,
+          apiCompat,
+          ...(input.upstreamUserAgent && { upstreamUserAgent: input.upstreamUserAgent }),
+        }),
+    );
+    headers.set("accept", "application/json");
     const response = await fetcher(url, {
       method: "POST",
-      headers: buildProviderDirectUpstreamHeaders({
-        apiKey: input.provider.apiKey,
-        apiCompat,
-        ...(input.upstreamUserAgent && { upstreamUserAgent: input.upstreamUserAgent }),
-      }),
+      headers,
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -265,10 +425,10 @@ function parseInputTokens(raw: unknown, label: string): number {
     throw new Error(`${label} 响应不是对象。`);
   }
   const value = (raw as Record<string, unknown>).input_tokens;
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${label} 响应缺少有效 input_tokens。`);
   }
-  return Math.trunc(value);
+  return value;
 }
 
 function readPrompt(raw: unknown): string {

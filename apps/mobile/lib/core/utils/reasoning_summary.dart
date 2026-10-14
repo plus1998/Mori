@@ -97,9 +97,19 @@ List<ThreadRunProjectionTimelineItem> presentThinkingAsEphemeralSummaryTips(
 /// - later summary replaces earlier ones
 /// - tools / messages / raw thinking after it clear the tip
 /// - may be delta or final (final still shows until superseded)
+/// - once the conversation has left its live statuses the tip is gone: supersede-by-event
+///   only works while the run keeps producing, and 阅后即焚 has no durable form
 List<ThreadRunProjectionTimelineItem> collapseEphemeralReasoningSummaryTimeline(
-  List<ThreadRunProjectionTimelineItem> timeline,
-) {
+  List<ThreadRunProjectionTimelineItem> timeline, {
+  bool conversationLive = true,
+  Set<String> terminalAttemptIds = const {},
+}) {
+  if (!conversationLive) {
+    return [
+      for (final item in timeline)
+        if (!isReasoningSummaryItem(item)) item,
+    ];
+  }
   var lastSupersedingIndex = -1;
   for (var index = 0; index < timeline.length; index += 1) {
     if (isReasoningSummarySupersedingItem(timeline[index]) &&
@@ -133,7 +143,8 @@ List<ThreadRunProjectionTimelineItem> collapseEphemeralReasoningSummaryTimeline(
     for (var index = 0; index < timeline.length; index += 1) ...[
       if (!isReasoningSummaryItem(timeline[index]))
         timeline[index]
-      else if (index == tipSummaryIndex)
+      else if (index == tipSummaryIndex &&
+          !terminalAttemptIds.contains(timeline[index].runAttemptId))
         _withReasoningSummarySlotKey(timeline[index], slotKey),
     ],
   ];

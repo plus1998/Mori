@@ -21,6 +21,8 @@ import {
   resolveAnthropicStreamUsage,
   trackAnthropicStreamUsage,
 } from "../anthropic-stream-usage.js";
+import { rejectDisabledModelImageInput } from "../image-input-policy.js";
+import { applyModelOutputLimit, withDynamicOutputBudget } from "../model-output-limit.js";
 import {
   applyGatewayResponsesPromptCacheHints,
   buildResolveProviderRouteOptions,
@@ -40,6 +42,11 @@ import {
   tryEmitLogicalCancelled,
   tryEmitLogicalCompleted,
 } from "../request-lifecycle.js";
+import {
+  credentialResolutionErrorResponse,
+  reportRouteCredentialResult,
+  resolveRouteCredential,
+} from "../route-credentials.js";
 import type { GatewayLogFn } from "../server.js";
 import {
   appendStreamUtf8Chunk,
@@ -56,10 +63,10 @@ import type {
   GatewayUsageObserver,
   ResolvedProviderRoute,
 } from "../types.js";
-import { fetchUpstreamWithRetry } from "../upstream/fetch-with-retry.js";
 import { fetchWithThinkingRectifiers } from "../upstream/anthropic-messages.js";
-import { forwardOpenAIChat } from "../upstream/openai-chat.js";
 import { collectResponsesStream, ResponsesStreamError } from "../upstream/collect-responses-stream.js";
+import { fetchUpstreamWithRetry } from "../upstream/fetch-with-retry.js";
+import { forwardOpenAIChat } from "../upstream/openai-chat.js";
 import { headersWithLogicalRequestIdentity, readUpstreamRequestId } from "../upstream/request-id-headers.js";
 import {
   isDeepSeekResponsesUpstreamModel,
@@ -70,8 +77,7 @@ import {
   extractUpstreamErrorMessage,
   formatUpstreamHttpError,
 } from "../upstream/upstream-error.js";
-import { applyUpstreamUserAgent } from "../upstream/user-agent.js";
-import { credentialResolutionErrorResponse, reportRouteCredentialResult, resolveRouteCredential } from "../route-credentials.js";
+import { applyUpstreamUserAgent, resolveUpstreamUserAgent } from "../upstream/user-agent.js";
 import {
   extractUsageFromResponsesStreamEvent,
   normalizeAnthropicUsage,
@@ -137,6 +143,8 @@ export async function handlePostMessages(
     throw error;
   }
 
+  const imageRejection = rejectDisabledModelImageInput(route, body);
+  if (imageRejection) return imageRejection;
   try {
     route = await resolveRouteCredential(route, config, request);
   } catch (error) {
@@ -151,9 +159,17 @@ export async function handlePostMessages(
     `POST /v1/messages provider=${route.provider.id} kind=${route.upstreamKind} model=${route.upstreamModelId} downstreamStream=${stream}`,
   );
 
+  applyModelOutputLimit(body, route, "max_tokens");
+  fetchImpl = withDynamicOutputBudget(fetchImpl, route, config, request.signal, onLog);
   const lifecycle = buildRequestLifecycleContext(route, "messages", onLog, onRequestLifecycle);
 
   let response: Response;
+  // UA: per agent core override → global override → SDK UA → Eco fallback.
+  const upstreamUserAgent = resolveUpstreamUserAgent(request.headers, {
+    override: config.upstreamUserAgent,
+    byCore: config.upstreamUserAgents,
+    fallback: config.userAgentDefault,
+  });
   switch (route.upstreamKind) {
     case "anthropic-messages":
       response = await forwardMessagesNative(
@@ -164,7 +180,7 @@ export async function handlePostMessages(
         fetchImpl,
         onLog,
         onUsage,
-        config.upstreamUserAgent,
+        upstreamUserAgent,
         lifecycle,
       );
       break;
@@ -178,7 +194,7 @@ export async function handlePostMessages(
         fetchImpl,
         onLog,
         onUsage,
-        config.upstreamUserAgent,
+        upstreamUserAgent,
         lifecycle,
         request.signal,
       );
@@ -191,7 +207,7 @@ export async function handlePostMessages(
         fetchImpl,
         onLog,
         onUsage,
-        config.upstreamUserAgent,
+        upstreamUserAgent,
         lifecycle,
       );
       break;
@@ -248,6 +264,8 @@ export async function handlePostMessagesCountTokens(
     throw error;
   }
 
+  const imageRejection = rejectDisabledModelImageInput(route, body);
+  if (imageRejection) return imageRejection;
   if (route.upstreamKind !== "anthropic-messages") {
     onLog(`count_tokens unsupported for kind=${route.upstreamKind}; missing exact token count`);
     return Response.json(
@@ -267,7 +285,15 @@ export async function handlePostMessagesCountTokens(
     "x-api-key": route.provider.apiKey,
     "anthropic-version": request.headers.get("anthropic-version") ?? ANTHROPIC_VERSION,
   };
-  applyUpstreamUserAgent(headers, request.headers, config.upstreamUserAgent);
+  applyUpstreamUserAgent(
+    headers,
+    request.headers,
+    resolveUpstreamUserAgent(request.headers, {
+      override: config.upstreamUserAgent,
+      byCore: config.upstreamUserAgents,
+      fallback: config.userAgentDefault,
+    }),
+  );
   try {
     return await fetchUpstreamWithRetry({
       fetchImpl,
@@ -552,7 +578,8 @@ async function forwardMessagesViaResponses(
   const contentType = upstreamResponse.headers.get("content-type") ?? "";
   // OAuth's stream:true contract is authoritative. Its successful SSE replies
   // can omit Content-Type; parsing them as JSON triggers SDK non-stream retries.
-  const isEventStream = contentType.includes("text/event-stream") ||
+  const isEventStream =
+    contentType.includes("text/event-stream") ||
     (route.provider.authMethod === "chatgpt_subscription" && responsesBody.stream === true);
   onLog(
     `messages→responses upstream status=${upstreamResponse.status} ct=${contentType} downstreamStream=${wantStream} upstreamStream=${responsesBody.stream === true} tools=${requestToolNames.length} dropped=${droppedParams.join(",") || "(none)"} ttfb=${Date.now() - startedAt}ms`,
@@ -642,7 +669,10 @@ async function forwardMessagesViaResponses(
         if (block.type === "tool_use" && typeof block.input === "string") {
           const input: unknown = JSON.parse(block.input);
           if (!input || typeof input !== "object" || Array.isArray(input)) {
-            throw new ResponsesStreamError("Invalid upstream tool arguments: expected a JSON object", "invalid_tool_arguments");
+            throw new ResponsesStreamError(
+              "Invalid upstream tool arguments: expected a JSON object",
+              "invalid_tool_arguments",
+            );
           }
           block.input = input;
         }
@@ -660,7 +690,11 @@ async function forwardMessagesViaResponses(
           ...(providerRequestId ? { providerRequestId } : {}),
         });
       }
-      return anthropicErrorResponse(502, message, error instanceof ResponsesStreamError ? error.code : undefined);
+      return anthropicErrorResponse(
+        502,
+        message,
+        error instanceof ResponsesStreamError ? error.code : undefined,
+      );
     }
     if (onUsage) {
       const usage = normalizeResponsesUsage(json.usage, route.upstreamModelId);

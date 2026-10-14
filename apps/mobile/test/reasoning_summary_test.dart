@@ -71,6 +71,33 @@ void main() {
     );
   });
 
+  test('collapse drops every tip once the conversation has stopped', () {
+    // Supersede-by-event only works while the run keeps producing. A conversation
+    // that stopped without landing a hard event after the tip must not leave the
+    // 阅后即焚 tip on the Feed, still cycling its stages.
+    final collapsed = collapseEphemeralReasoningSummaryTimeline(
+      [
+        _item(
+          id: 'bash-1',
+          eventType: 'tool.completed',
+          text: 'Tool: Bash · ls',
+          sequence: 1,
+        ),
+        _item(
+          id: 'stage-1',
+          eventType: 'thinking.final',
+          text: '定位入口',
+          streamKey: 'rs_1',
+          metadata: const {'reasoningDisplay': 'summary'},
+          sequence: 2,
+        ),
+      ],
+      conversationLive: false,
+    );
+
+    expect(collapsed.map((item) => item.id), ['bash-1']);
+  });
+
   test(
     'collapse keeps only the latest tip after the last superseding event',
     () {

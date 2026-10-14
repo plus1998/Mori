@@ -11,10 +11,13 @@ import type {
   ThreadRunProjectionSnapshot,
   ThreadRunProjectionTimelineItem,
   ThreadRunProjectionUsage,
+  ThreadRunProjectionWritingTool,
   ThreadStatus,
   ThreadSubagentSessionTiming,
+  ToolWritingActivity,
 } from "../shared/ipc";
 import { SUBAGENT_ROLES } from "../shared/ipc";
+import { legacyMessageId } from "./conversation-v2-legacy-identity";
 import { isMetricsOnlyThreadRunEvent } from "./thread-run-event-normalizer";
 import { dedupeSettledSdkMessageBlocks } from "./thread-run-message-blocks";
 import type { AgentInstanceRecord, RunAttemptRecord } from "./usage-ledger";
@@ -38,6 +41,7 @@ export interface BuildThreadRunProjectionInput {
 
 interface MutableRequestSpan {
   requestId: string;
+  runAttemptId?: string;
   ownerAgentId?: string;
   role?: string;
   source?: string;
@@ -47,6 +51,9 @@ interface MutableRequestSpan {
   endedAt?: string;
   error?: string;
   providerRequestId?: string;
+  writingTool?: ThreadRunProjectionWritingTool;
+  pendingThinkingSince?: string;
+  pendingThinkingMessageId?: string;
   sawStreamStart: boolean;
 }
 
@@ -66,7 +73,11 @@ export function buildThreadRunProjection(input: BuildThreadRunProjectionInput): 
     attempts.find((attempt) => attempt.status === "running")?.attemptId ??
     attempts[attempts.length - 1]?.attemptId;
 
-  const timeline = events.map((event) => eventToTimelineItem(event));
+  // Facts that only exist to drive projection state (request spans, timings) must not grow
+  // a Feed row; every other feed path already filters them the same way.
+  const timeline = events
+    .filter((event) => !isMetricsOnlyThreadRunEvent(event))
+    .map((event) => eventToTimelineItem(event));
   const diagnostics: ThreadRunProjectionDiagnostic[] = [];
   const agentsById = new Map<string, ThreadRunProjectionAgent>();
   const eventsByAgentId = new Map<string, ThreadRunProjectionTimelineItem[]>();
@@ -570,6 +581,205 @@ function latestActivity(items: readonly ThreadRunProjectionTimelineItem[]): stri
   return undefined;
 }
 
+/**
+ * Attach "the model is writing a tool call" to the request the model was on when it wrote it.
+ *
+ * Tool facts are the one event family that carries no `requestId` — the bridge keys them by
+ * `tool:<callId>` and a call outlives the request that wrote it — so the per-span pass above
+ * never sees them. They still belong to a request: the call is written *by* the model's last
+ * request, and it is observed milliseconds after that request reports terminal, before the
+ * tool row lands. Attribute it to the latest started request of the same agent, using the
+ * explicit agent id or its parent-tool link rather than another concurrent agent's request.
+ *
+ * State is cleared by the real tool row landing (the wait is over even when the call itself
+ * keeps running) and by the thread leaving `running`, so a write interrupted before its call
+ * is ever made cannot leave the Feed naming it forever.
+ */
+function applyToolWritingState(
+  spans: ReadonlyMap<string, MutableRequestSpan>,
+  events: readonly ThreadRunEvent[],
+  threadStatus: string,
+  agents: readonly AgentInstanceRecord[],
+): void {
+  if (!ACTIVE_THREAD_STATUSES.has(threadStatus)) {
+    return;
+  }
+  const orderedByOwner = new Map<string | undefined, MutableRequestSpan[]>();
+  for (const span of spans.values()) {
+    const owned = orderedByOwner.get(span.ownerAgentId) ?? [];
+    owned.push(span);
+    orderedByOwner.set(span.ownerAgentId, owned);
+  }
+  for (const owned of orderedByOwner.values()) {
+    owned.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+  }
+  const agentsByParentToolUseId = buildAgentsByParentToolUseId(agents);
+  const attachedByOwner = new Map<string | undefined, MutableRequestSpan>();
+  const resolveTarget = (event: ThreadRunEvent): MutableRequestSpan | undefined => {
+    if (event.requestId) {
+      return spans.get(event.requestId);
+    }
+    const parentToolUseId = event.parentToolUseId?.trim() ?? readEventParentToolUseId(event);
+    const ownerAgentId =
+      event.agentId?.trim() ||
+      (parentToolUseId ? agentsByParentToolUseId.get(parentToolUseId)?.agentId : undefined);
+    // An unresolved agent-scoped fact has no main-agent ownership to borrow.
+    if (!ownerAgentId && (parentToolUseId || event.scope !== "main")) {
+      return undefined;
+    }
+    const ordered = orderedByOwner.get(ownerAgentId);
+    return ordered ? latestSpanStartedBy(ordered, event.observedAt, event.runAttemptId) : undefined;
+  };
+  for (const event of events) {
+    if (event.eventType === "tool.writing") {
+      const writing = resolveToolWritingActivity(event);
+      if (!writing) {
+        continue;
+      }
+      const target = resolveTarget(event);
+      // Gateway argument deltas can arrive after cancellation. A later running
+      // turn must not revive that old request's waiting line (or inherit it).
+      // Completed narrative streams remain eligible: the model may write its
+      // tool arguments after closing the text block.
+      if (!target || target.status === "cancelled" || target.status === "failed") {
+        continue;
+      }
+      const attached = attachedByOwner.get(target.ownerAgentId);
+      if (attached && attached !== target) {
+        delete attached.writingTool;
+      }
+      target.writingTool = { ...writing, since: event.observedAt };
+      attachedByOwner.set(target.ownerAgentId, target);
+      continue;
+    }
+    if (
+      event.eventType === "tool.started" ||
+      event.eventType === "tool.completed" ||
+      event.eventType === "tool.failed"
+    ) {
+      // A tool row ends only its owner's wait; concurrent agents keep their writing state.
+      const target = resolveTarget(event);
+      if (!target) {
+        continue;
+      }
+      const attached = attachedByOwner.get(target.ownerAgentId);
+      if (attached) {
+        delete attached.writingTool;
+        attachedByOwner.delete(target.ownerAgentId);
+      }
+    }
+  }
+}
+
+const ACTIVE_THREAD_STATUSES = new Set(["running", "queued"]);
+
+/**
+ * The `tool.writing` fact carries what is known about the call in `metadata.toolWriting`. Rows
+ * written before the fact was refined carry only the tool name in their message, so they are
+ * still read — the Feed shows the tier that fact supports rather than nothing.
+ */
+function resolveToolWritingActivity(event: ThreadRunEvent): ToolWritingActivity | undefined {
+  const metadata = event.metadata?.toolWriting;
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    const record = metadata as Record<string, unknown>;
+    const kind = record.kind;
+    const activity: ToolWritingActivity = {
+      ...(typeof record.name === "string" && record.name.trim() ? { name: record.name.trim() } : {}),
+      ...(isToolWriteKind(kind) ? { kind } : {}),
+      ...(typeof record.target === "string" && record.target.trim() ? { target: record.target.trim() } : {}),
+    };
+    if (activity.name || activity.kind || activity.target) {
+      return activity;
+    }
+  }
+  const name = event.message.trim();
+  return name ? { name } : undefined;
+}
+
+function isToolWriteKind(value: unknown): value is "file" | "read" | "command" | "tool" {
+  return value === "file" || value === "read" || value === "command" || value === "tool";
+}
+
+/** The latest request of this agent that had already started when `at` was observed. */
+function latestSpanStartedBy(
+  orderedSpans: readonly MutableRequestSpan[],
+  at: string,
+  runAttemptId?: string,
+): MutableRequestSpan | undefined {
+  let found: MutableRequestSpan | undefined;
+  for (const span of orderedSpans) {
+    if (span.startedAt > at) {
+      break;
+    }
+    if (runAttemptId && span.runAttemptId && span.runAttemptId !== runAttemptId) {
+      continue;
+    }
+    found = span;
+  }
+  return found;
+}
+
+/** Keep an empty thinking start as request state, never as an unfinished V2 message. */
+function applyPendingThinkingState(
+  spans: ReadonlyMap<string, MutableRequestSpan>,
+  events: readonly ThreadRunEvent[],
+  threadStatus: string,
+): void {
+  if (!ACTIVE_THREAD_STATUSES.has(threadStatus)) return;
+  const pending = new Set<MutableRequestSpan>();
+  const clear = (span: MutableRequestSpan): void => {
+    delete span.pendingThinkingSince;
+    delete span.pendingThinkingMessageId;
+    pending.delete(span);
+  };
+  for (const event of events) {
+    const target = event.requestId ? spans.get(event.requestId) : undefined;
+    if (event.eventType === "request.started" && target) {
+      for (const span of pending) {
+        if (span !== target && span.ownerAgentId === target.ownerAgentId) clear(span);
+      }
+    }
+    if (
+      event.eventType === "thinking.delta" &&
+      !event.message.trim() &&
+      (event.streamState === "placeholder" || event.streamState === "streaming")
+    ) {
+      if (!target || target.status === "cancelled" || target.status === "failed") continue;
+      for (const span of pending) {
+        if (span !== target && span.ownerAgentId === target.ownerAgentId) clear(span);
+      }
+      target.pendingThinkingSince =
+        typeof event.metadata?.thinkingStartedAt === "string"
+          ? event.metadata.thinkingStartedAt
+          : event.observedAt;
+      pending.add(target);
+      target.pendingThinkingMessageId = legacyMessageId(event);
+      if (target.writingTool && target.writingTool.since <= event.observedAt) delete target.writingTool;
+      continue;
+    }
+    if (
+      event.eventType.startsWith("tool.") ||
+      event.eventType === "message.delta" ||
+      event.eventType === "message.final" ||
+      event.eventType === "thinking.delta" ||
+      event.eventType === "thinking.final" ||
+      event.eventType === "request.completed" ||
+      event.eventType === "request.failed" ||
+      event.eventType === "request.cancelled" ||
+      event.eventType === "api.error"
+    ) {
+      if (target) {
+        clear(target);
+      } else if (event.eventType.startsWith("tool.")) {
+        // Tools have no request id; their explicit agent ownership ends only that agent's wait.
+        for (const span of pending) {
+          if (span.ownerAgentId === event.agentId) clear(span);
+        }
+      }
+    }
+  }
+}
+
 function buildRequestSpans(
   events: readonly ThreadRunEvent[],
   threadStatus: string,
@@ -589,6 +799,9 @@ function buildRequestSpans(
     spans.set(requestId, span);
     applyEventToRequestSpan(span, event, diagnostics, seenStreamingKeys, historyComplete);
   }
+
+  applyToolWritingState(spans, events, threadStatus, agents);
+  applyPendingThinkingState(spans, events, threadStatus);
 
   closeRequestSpansForTerminalAgents(spans, agents);
 
@@ -619,6 +832,9 @@ function buildRequestSpans(
       ...(span.endedAt && { endedAt: span.endedAt }),
       ...(span.error && { error: span.error }),
       ...(span.providerRequestId && { providerRequestId: span.providerRequestId }),
+      ...(span.writingTool && { writingTool: span.writingTool }),
+      ...(span.pendingThinkingSince && { pendingThinkingSince: span.pendingThinkingSince }),
+      ...(span.pendingThinkingMessageId && { pendingThinkingMessageId: span.pendingThinkingMessageId }),
     });
   }
   return output.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
@@ -650,9 +866,12 @@ function closeRequestSpansForTerminalAgents(
       continue;
     }
     for (const span of spans.values()) {
-      if (span.ownerAgentId !== agent.agentId || !isOpenRequestSpan(span)) {
-        continue;
-      }
+      if (span.ownerAgentId !== agent.agentId) continue;
+      // Completed narrative streams may still carry a tool call being written.
+      delete span.writingTool;
+      delete span.pendingThinkingSince;
+      delete span.pendingThinkingMessageId;
+      if (!isOpenRequestSpan(span)) continue;
       if (agent.status === "abandoned") {
         span.status = "cancelled";
       } else {
@@ -672,6 +891,10 @@ function closeRequestSpanForTerminalThread(
   threadStatus: string,
   terminalAt: string | undefined,
 ): void {
+  // Once the request is over nothing is being written, so the wait label must not outlive it.
+  delete span.writingTool;
+  delete span.pendingThinkingSince;
+  delete span.pendingThinkingMessageId;
   if (threadStatus === "failed" || threadStatus === "blocked") {
     span.status = "failed";
     span.error = span.error ?? `Thread ended with status ${threadStatus}.`;
@@ -696,6 +919,7 @@ function readProviderRequestId(event: ThreadRunEvent): string | undefined {
 function createRequestSpan(event: ThreadRunEvent, requestId: string): MutableRequestSpan {
   return {
     requestId,
+    ...(event.runAttemptId && { runAttemptId: event.runAttemptId }),
     ...(event.agentId && { ownerAgentId: event.agentId }),
     ...(event.role && { role: event.role }),
     ...(typeof event.metadata?.source === "string" && { source: event.metadata.source }),
@@ -752,6 +976,9 @@ function applyEventToRequestSpan(
   seenStreamingKeys: Set<string>,
   historyComplete: boolean,
 ): void {
+  if (!span.runAttemptId && event.runAttemptId) {
+    span.runAttemptId = event.runAttemptId;
+  }
   if (!span.ownerAgentId && event.agentId) {
     span.ownerAgentId = event.agentId;
   }

@@ -283,6 +283,9 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
   @override
   Widget build(BuildContext context) {
     final canEditConfig = !widget.isRunning;
+    // Auxiliary / approval / vision requests are stateless single-shot calls, so the
+    // host accepts switching them mid-run; they take effect on the next such request.
+    const canEditStatelessModelConfig = true;
     final showSpeechInput =
         _speechBusy || ref.watch(desktopRpcProvider) != null;
     final asrModel = ref.watch(asrStatusProvider).valueOrNull?.model;
@@ -496,6 +499,7 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                               runtimeConfig: widget.runtimeConfig,
                               threadId: widget.threadId,
                               canEdit: canEditConfig,
+                              canEditStatelessModels: canEditStatelessModelConfig,
                               onChanged: widget.onRuntimeConfigChanged,
                               billing: widget.billing,
                               contextSnapshot: widget.contextSnapshot,

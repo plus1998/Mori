@@ -36,6 +36,83 @@ function sdkBlockKey(activity: CapturedActivity): string | undefined {
   return typeof key === "string" ? key : undefined;
 }
 
+test("preserves repeated numeric and phrase deltas in text and thinking streams", () => {
+  for (const blockKind of ["text", "thinking"] as const) {
+    for (const chunks of [
+      ["上限是 **", "100", "00", "**（一万）。"],
+      ["200", "00"],
+      ["00", "00"],
+      ["1", "100"],
+      ["abc", "abc", "abc"],
+      ["|---|", "---|", "---|"],
+      ["  ", "  ", "const value = 10000;"],
+      ["the end of ", "of the sentence"],
+    ]) {
+      const bridge = new SdkStreamActivityBridge();
+      const emitted: CapturedActivity[] = [];
+      const emit = captureActivity(emitted);
+      for (const text of chunks) {
+        bridge.handleEvent(
+          "thr_repeated_deltas",
+          {
+            type: "message.delta",
+            role: "planner",
+            payload: {
+              type: "eco_stream",
+              blockKind,
+              text,
+              stream_block_key: `pi-${blockKind}:sess:m1:c0`,
+            },
+          },
+          emit,
+        );
+      }
+      bridge.handleEvent(
+        "thr_repeated_deltas",
+        {
+          type: "message.delta",
+          role: "planner",
+          payload: {
+            type: "eco_stream",
+            blockKind,
+            text: "",
+            streamFinalize: true,
+            stream_block_key: `pi-${blockKind}:sess:m1:c0`,
+          },
+        },
+        emit,
+      );
+      const expected = chunks.join("");
+      expect(emitted.map((activity) => activity.message)).toEqual([expected, expected]);
+      expect(emitted.at(-1)?.stream).toBe(false);
+      expect(emitted.at(-1)?.role).toBe(blockKind === "thinking" ? "thinking" : "planner");
+    }
+  }
+});
+
+test("preserves repeated numeric deltas from raw SDK stream events", () => {
+  const bridge = new SdkStreamActivityBridge();
+  const emitted: CapturedActivity[] = [];
+  const emit = captureActivity(emitted);
+  for (const text of ["上限 ", "100", "00", " 条"]) {
+    bridge.handleEvent(
+      "thr_raw_repeated_deltas",
+      {
+        type: "message.delta",
+        role: "planner",
+        payload: {
+          type: "stream_event",
+          event: { type: "content_block_delta", delta: { type: "text_delta", text } },
+        },
+      },
+      emit,
+    );
+  }
+  bridge.flushPendingAndReset("thr_raw_repeated_deltas", emit);
+  expect(emitted.at(-1)?.message).toBe("上限 10000 条");
+  expect(emitted.at(-1)?.stream).toBe(false);
+});
+
 test("SDK informational, rate limit and requires-action events reach the activity feed", () => {
   const bridge = new SdkStreamActivityBridge();
   const emitted: CapturedActivity[] = [];
@@ -897,36 +974,40 @@ test("emits failed Edit results with the original file change metadata", () => {
 
 test("defers streaming tool placeholder until input is complete", () => {
   const bridge = new SdkStreamActivityBridge();
-  const emitted: Array<{ message: string; tool?: { name: string; detail?: string } }> = [];
+  const emitted: Array<{
+    type: string;
+    message: string;
+    stream: boolean;
+    tool?: { name: string; detail?: string };
+    metadata?: Record<string, unknown>;
+  }> = [];
   const emit = (
     _threadId: string,
-    _type: string,
+    type: string,
     message: string,
     _role: string,
-    _stream: boolean,
+    stream: boolean,
     _agentId?: string,
-    extras?: { tool?: { name: string; detail?: string } },
+    extras?: { tool?: { name: string; detail?: string }; metadata?: Record<string, unknown> },
   ) => {
     emitted.push({
+      type,
       message,
+      stream,
       ...(extras?.tool && { tool: extras.tool }),
+      ...(extras?.metadata && { metadata: extras.metadata }),
     });
   };
 
-  bridge.handleEvent(
-    "thr_1",
-    {
-      type: "tool.started",
-      role: "planner",
-      payload: {
-        type: "tool_use",
-        tool_name: "mcp__eco_plan__finalize_plan",
-        tool_use_id: "toolu_plan",
-        streaming: true,
-      },
-    },
-    emit,
-  );
+  const placeholder = {
+    type: "tool_use",
+    tool_name: "mcp__eco_plan__finalize_plan",
+    tool_use_id: "toolu_plan",
+    streaming: true,
+  } as const;
+  bridge.handleEvent("thr_1", { type: "tool.started", role: "planner", payload: placeholder }, emit);
+  // Providers stream one placeholder per argument fragment; the state changes once.
+  bridge.handleEvent("thr_1", { type: "tool.started", role: "planner", payload: placeholder }, emit);
   bridge.handleEvent(
     "thr_1",
     {
@@ -944,9 +1025,43 @@ test("defers streaming tool placeholder until input is complete", () => {
     emit,
   );
 
-  expect(emitted).toHaveLength(1);
-  expect(emitted[0]?.message).toBe("Tool: mcp__eco_plan__finalize_plan");
-  expect(emitted[0]?.tool?.name).toBe("mcp__eco_plan__finalize_plan");
+  // One "still writing" fact, then the real tool row — never a card for the partial input.
+  expect(emitted.map((event) => event.type)).toEqual(["tool.writing", "tool.started"]);
+  expect(emitted[0]?.message).toBe("mcp__eco_plan__finalize_plan");
+  expect(emitted[0]?.tool).toBeUndefined();
+  expect(emitted[0]?.stream).toBe(false);
+  expect(emitted[0]?.metadata?.toolWriting).toEqual({
+    name: "mcp__eco_plan__finalize_plan",
+    kind: "tool",
+  });
+  expect(emitted[1]?.message).toBe("Tool: mcp__eco_plan__finalize_plan");
+  expect(emitted[1]?.tool?.name).toBe("mcp__eco_plan__finalize_plan");
+});
+
+test("announces a second tool call in the same run after the first one started", () => {
+  const bridge = new SdkStreamActivityBridge();
+  const announced: string[] = [];
+  const emit = (_threadId: string, type: string, message: string, _role: string, _stream: boolean) => {
+    if (type === "tool.writing") {
+      announced.push(message);
+    }
+  };
+
+  for (const [id, name] of [
+    ["toolu_a", "Read"],
+    ["toolu_b", "Bash"],
+  ] as const) {
+    bridge.handleEvent(
+      "thr_1",
+      {
+        type: "tool.started",
+        role: "planner",
+        payload: { type: "tool_use", tool_name: name, tool_use_id: id, streaming: true },
+      },
+      emit,
+    );
+  }
+  expect(announced).toEqual(["Read", "Bash"]);
 });
 
 test("emits structured SDK tool metadata without parsing display text", () => {

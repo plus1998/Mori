@@ -5,7 +5,7 @@ export const DEFAULT_BASH_POLICY_RULES: BashPolicyRules = {
   commands: {
     rm: {
       deny: [{ targets: ["/", "/*"] }],
-      score: 100,
+      score: 75,
     },
     dd: {
       score: 100,
@@ -31,7 +31,7 @@ export const DEFAULT_BASH_POLICY_RULES: BashPolicyRules = {
     },
     git: {
       scoreWhen: [
-        { argsContain: ["reset"], score: 100 },
+        { argsContain: ["reset"], score: 75 },
         { argsContain: ["clean"], score: 70 },
       ],
       score: 10,
@@ -102,6 +102,6 @@ export const DEFAULT_BASH_POLICY_RULES: BashPolicyRules = {
     { pattern: ["wget", "sh"], score: 90 },
   ],
   workspace: {
-    denyOutsideCwd: true,
+    reviewOutsideCwd: true,
   },
 };

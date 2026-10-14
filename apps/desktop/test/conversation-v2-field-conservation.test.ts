@@ -25,7 +25,7 @@ const fields = {
   ConversationSendMessageResult:
     "protocolVersion conversationId clientCommandId messageId turnId acceptedSeq status",
   ConversationMessage:
-    "messageId conversationId turnId runId role channel createdSeq versionSeq contentVersion body attachments agentId agentInstanceId occurredAt historyTarget providerRole status isDeleted",
+    "messageId conversationId turnId runId role channel createdSeq versionSeq contentVersion body origin attachments agentId agentInstanceId occurredAt historyTarget providerRole status isDeleted",
   ConversationRun:
     "runId conversationId turnId status startedAt endedAt versionSeq timingQuality retryOfRunId regenerationOfRunId",
   ConversationToolCall:
@@ -33,6 +33,38 @@ const fields = {
   ConversationAgent:
     "agentId conversationId role kind status runId parentAgentInstanceId parentToolCallId startedAt endedAt mission taskName delegationSummary delegationPrompt todoId versionSeq",
 };
+
+test("scheduled message provenance survives replay and rebuild without changing provider text", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    const store = new ConversationV2Store(db);
+    store.initialize();
+    const origin = { kind: "scheduled_message" as const, scheduleId: "schedule-hi", name: "hi" };
+    const input = { principalId: "eco-scheduler", conversationId: "scheduled-origin", clientCommandId: "occ-hi",
+      text: "[定时消息：用户正文里的文字]\n请检查日志。", origin };
+    const receipt = store.sendMessage(input);
+    store.appendRuntime({ conversationId: input.conversationId, eventId: "scheduled-final", type: "message.finalized",
+      occurredAt: "2026-10-08T00:00:00Z", messageId: receipt.messageId, payload: { status: "final" } });
+    const bootstrap = store.bootstrap(input.conversationId);
+    const empty = installConversationV2Bootstrap({ ...bootstrap, snapshotSeq: 0, messages: [], turns: [] });
+    const effects = store.sync(input.conversationId, bootstrap.storeEpoch, 0).effects;
+    const replay = applyConversationV2Effects(empty, effects);
+    const message = replay.messages.get(receipt.messageId);
+    expect(message?.body).toBe(input.text);
+    expect(message?.origin).toEqual(origin);
+    const projected = buildConversationV2OnlyProjection(replay).timeline.find(item => item.role === "user");
+    expect(projected?.text).toBe(input.text);
+    expect(projected?.metadata?.messageOrigin).toEqual(origin);
+    expect(() => store.sendMessage({ ...input, origin: { ...origin, name: "changed" } })).toThrow("different request");
+    const reopened = new ConversationV2Store(db);
+    reopened.initialize();
+    reopened.rebuildReadModels(input.conversationId);
+    expect(reopened.getMessage(input.conversationId, receipt.messageId)).toEqual(message);
+    expect(reopened.sendMessage(input)).toEqual(receipt);
+  } finally {
+    db.close();
+  }
+});
 
 test("detail fields survive durable effects, renderer replay and read-model rebuild", () => {
   const db = new DatabaseSync(":memory:");

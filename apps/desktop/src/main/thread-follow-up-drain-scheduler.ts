@@ -2,6 +2,8 @@
 export class ThreadFollowUpDrainScheduler {
   private readonly running = new Map<string, { pending: boolean; promise: Promise<void> }>();
 
+  isDraining(threadId: string): boolean { return this.running.has(threadId); }
+
   drain(threadId: string, run: () => Promise<void>): Promise<void> {
     const existing = this.running.get(threadId);
     if (existing) {

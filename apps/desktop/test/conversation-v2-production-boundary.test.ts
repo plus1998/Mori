@@ -164,12 +164,14 @@ test("desktop activity entry is V2-only and has no projection fallback props", (
 
   const activityStart = activityView.indexOf("export const ActivityLogView");
   const activityEnd = activityView.indexOf(
-    "export function ConversationV2ProjectionActivityLogView",
+    "function ConversationV2ProjectionActivityLogViewImpl",
     activityStart,
   );
   expect(activityStart).toBeGreaterThanOrEqual(0);
   expect(activityEnd).toBeGreaterThan(activityStart);
   const activityEntry = activityView.slice(activityStart, activityEnd);
+  // The shared projection remains gated by V2 state; it cannot revive a V1 feed.
+  expect(activityEntry).toMatch(/props\.conversationV2\s*\?\s*reconcileActivityProjectionThreadStatus/);
   expect(activityEntry).toContain("buildConversationV2OnlyProjection");
   expect(activityEntry).not.toContain("props.projection");
   expect(activityEntry).not.toContain("props.viewModel");

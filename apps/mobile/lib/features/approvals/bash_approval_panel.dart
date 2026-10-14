@@ -487,7 +487,13 @@ class _CodePreview extends StatelessWidget {
 // unavailable). A genuine risk-control rejection rationale is written in the
 // user's locale and never contains them, so they reliably distinguish
 // "couldn't review" from "reviewed and declined" — regardless of locale.
-const _reviewRequestErrorMarkers = ['辅助模型审批失败', '辅助模型不可用', '审批失败或返回了无效 JSON'];
+const _reviewRequestErrorMarkers = [
+  '审批模型审批失败',
+  '审批模型不可用',
+  '辅助模型审批失败',
+  '辅助模型不可用',
+  '审批失败或返回了无效 JSON',
+];
 
 bool _isReviewRequestError(String rationale) {
   return _reviewRequestErrorMarkers.any((m) => rationale.contains(m));

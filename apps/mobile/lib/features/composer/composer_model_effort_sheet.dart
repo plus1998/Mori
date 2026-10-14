@@ -34,6 +34,7 @@ enum _CascadeBranch {
   effort,
   agent,
   auxiliary,
+  approval,
   vision,
   cursorModel,
 }
@@ -51,6 +52,8 @@ Future<void> showComposerModelEffortSheet(
   String workspacePath = '',
   String? coreKind,
   ValueChanged<String>? onCoreKindChanged,
+  bool canEdit = true,
+  bool canEditStatelessModels = true,
 }) {
   final box = anchorKey.currentContext?.findRenderObject() as RenderBox?;
   if (box == null || !box.hasSize) return Future<void>.value();
@@ -80,6 +83,8 @@ Future<void> showComposerModelEffortSheet(
         workspacePath: workspacePath,
         coreKind: coreKind,
         onCoreKindChanged: onCoreKindChanged,
+        canEdit: canEdit,
+        canEditStatelessModels: canEditStatelessModels,
         onDismiss: dismiss,
       );
     },
@@ -102,6 +107,8 @@ class _ComposerCascadeOverlay extends ConsumerStatefulWidget {
     this.workspacePath = '',
     this.coreKind,
     this.onCoreKindChanged,
+    this.canEdit = true,
+    this.canEditStatelessModels = true,
   });
 
   final Rect anchorRect;
@@ -114,6 +121,12 @@ class _ComposerCascadeOverlay extends ConsumerStatefulWidget {
   final String workspacePath;
   final String? coreKind;
   final ValueChanged<String>? onCoreKindChanged;
+  /// Session-bound rows: main model / effort / core kind / orchestration.
+  final bool canEdit;
+
+  /// Auxiliary / approval / vision requests are stateless single-shot calls, so those
+  /// three pickers stay editable while a run is active.
+  final bool canEditStatelessModels;
   final VoidCallback onDismiss;
 
   @override
@@ -162,7 +175,8 @@ class _ComposerCascadeOverlayState
       _CascadeBranch.prompt => 5,
       _CascadeBranch.arrangement => 6,
       _CascadeBranch.auxiliary => 7,
-      _CascadeBranch.vision => 8,
+      _CascadeBranch.approval => 8,
+      _CascadeBranch.vision => 9,
     };
     return index * (_rowHeight + 0.5);
   }
@@ -193,6 +207,7 @@ class _ComposerCascadeOverlayState
   }
 
   void _persist(MainAgentModelOverride? nextOverride, {bool dismiss = false}) {
+    if (!widget.canEdit) return;
     final next = nextOverride == null
         ? _config.copyWith(clearMainAgentModelOverride: true)
         : _config.copyWith(mainAgentModelOverride: nextOverride);
@@ -207,6 +222,7 @@ class _ComposerCascadeOverlayState
   }
 
   void _selectCoreKind(String value) {
+    if (!widget.canEdit) return;
     if (_coreKind == value) return;
     setState(() => _coreKind = value);
     widget.onCoreKindChanged?.call(value);
@@ -214,6 +230,7 @@ class _ComposerCascadeOverlayState
   }
 
   void _selectCursorModel(String? modelId) {
+    if (!widget.canEdit) return;
     final next = modelId == null
         ? _config.copyWith(clearCursorModelId: true)
         : _config.copyWith(cursorModelId: modelId);
@@ -270,11 +287,16 @@ class _ComposerCascadeOverlayState
     required AppLocalizations l10n,
     required AsyncValue<List<CommitModelOptionView>>? auxOptions,
     required bool isVision,
+    bool isApproval = false,
   }) {
-    final selectedCandidateId = isVision
+    final selectedCandidateId = isApproval
+        ? _config.approvalModel?.candidateModelId
+        : isVision
         ? _config.visionModel?.candidateModelId
         : _config.auxiliaryModel?.candidateModelId;
-    final isNotConfigured = isVision
+    final isNotConfigured = isApproval
+        ? _config.approvalModel == null
+        : isVision
         ? _config.visionModel == null
         : _config.auxiliaryModel == null;
     final statusStyle = Theme.of(context)
@@ -308,7 +330,9 @@ class _ComposerCascadeOverlayState
                 for (final option in items) {
                   if (option.candidateModelId == key) {
                     HapticFeedback.selectionClick();
-                    if (isVision) {
+                    if (isApproval) {
+                      _selectApproval(option);
+                    } else if (isVision) {
                       _selectVision(option);
                     } else {
                       _selectAuxiliary(option);
@@ -338,7 +362,9 @@ class _ComposerCascadeOverlayState
           selected: isNotConfigured,
           onTap: () {
             HapticFeedback.selectionClick();
-            if (isVision) {
+            if (isApproval) {
+              _selectApproval(null);
+            } else if (isVision) {
               _selectVision(null);
             } else {
               _selectAuxiliary(null);
@@ -371,6 +397,7 @@ class _ComposerCascadeOverlayState
     MainAgentPromptSelection? mainPrompt,
     SubagentSelection? subagents,
   }) {
+    if (!widget.canEdit) return;
     final nextConfig = applyOrchestrationSelectionPatch(
       settings: settings,
       runtimeConfig: _config,
@@ -396,6 +423,7 @@ class _ComposerCascadeOverlayState
   }
 
   void _selectAuxiliary(CommitModelOptionView? option) {
+    if (!widget.canEditStatelessModels) return;
     final selection = option == null
         ? null
         : AuxiliaryModelSelection(
@@ -406,7 +434,6 @@ class _ComposerCascadeOverlayState
     var next = option == null
         ? _config.copyWith(clearAuxiliaryModel: true)
         : _config.copyWith(auxiliaryModel: selection);
-    next = downgradeAuxiliaryDependentFeatures(next);
     _persistConfig(next);
     persistAuxiliaryModelWorkflowDefault(
       ref,
@@ -414,7 +441,33 @@ class _ComposerCascadeOverlayState
     ).catchError((_) {});
   }
 
+  void _selectApproval(CommitModelOptionView? option) {
+    if (!widget.canEditStatelessModels) return;
+    final selection = option == null
+        ? null
+        : ApprovalModelSelection(
+            providerId: option.providerId,
+            modelId: option.modelId,
+            candidateModelId: option.candidateModelId,
+          );
+    var next = option == null
+        ? _config.copyWith(clearApprovalModel: true)
+        : _config.copyWith(approvalModel: selection);
+    next = downgradeApprovalDependentFeatures(next);
+    _persistConfig(next);
+    persistApprovalModelWorkflowDefault(ref, selection: selection).catchError((
+      Object error,
+    ) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    });
+  }
+
   void _selectVision(CommitModelOptionView? option) {
+    if (!widget.canEditStatelessModels) return;
     final selection = option == null
         ? null
         : VisionModelSelection(
@@ -464,6 +517,7 @@ class _ComposerCascadeOverlayState
               _branch == _CascadeBranch.arrangement ||
               _branch == _CascadeBranch.agent ||
               _branch == _CascadeBranch.auxiliary ||
+              _branch == _CascadeBranch.approval ||
               _branch == _CascadeBranch.vision)) {
         _branch = null;
       }
@@ -584,6 +638,7 @@ class _ComposerCascadeOverlayState
     final cascadeSubmenu = showSubmenu &&
         (branch == _CascadeBranch.cursorModel ||
             branch == _CascadeBranch.auxiliary ||
+            branch == _CascadeBranch.approval ||
             branch == _CascadeBranch.vision);
     final idealSubmenuWidth =
         cascadeSubmenu ? _cascadeSubmenuWidth : _submenuWidthIdeal;
@@ -632,11 +687,15 @@ class _ComposerCascadeOverlayState
 
     final auxVisionCascade =
         branch == _CascadeBranch.auxiliary ||
+                branch == _CascadeBranch.approval ||
                 branch == _CascadeBranch.vision
             ? _buildAuxVisionCascade(
                 l10n: l10n,
-                auxOptions: auxOptionsAsync,
+                auxOptions: branch == _CascadeBranch.approval
+                    ? ref.watch(approvalModelOptionsProvider(mainAgentConfigId))
+                    : auxOptionsAsync,
                 isVision: branch == _CascadeBranch.vision,
+                isApproval: branch == _CascadeBranch.approval,
               )
             : null;
 
@@ -878,8 +937,13 @@ class _ComposerCascadeOverlayState
   }) {
     final mainAgentConfigId =
         _config.orchestrationSelection?.mainAgentConfigId.trim() ?? '';
-    final canPickAuxVision = mainAgentConfigId.isNotEmpty || isAcp;
-    final orchestrationEnabled = canPickOrchestration && !settingsLoading;
+    // Auxiliary / approval / vision requests are stateless single-shot calls, so those
+    // three pickers stay switchable while a run locks the session-bound rows.
+    final canPickAuxVision =
+        (mainAgentConfigId.isNotEmpty || isAcp) && widget.canEditStatelessModels;
+    final canEditSession = widget.canEdit;
+    final orchestrationEnabled =
+        canPickOrchestration && !settingsLoading && canEditSession;
     final coreKindDisplay = _coreKindDisplay(l10n);
 
     if (isAcp) {
@@ -892,6 +956,7 @@ class _ComposerCascadeOverlayState
               label: l10n.composerModel,
               value: cursorModelName,
               selected: _branch == _CascadeBranch.cursorModel,
+              enabled: canEditSession,
               onTap: () {
                 HapticFeedback.selectionClick();
                 _setBranch(_CascadeBranch.cursorModel);
@@ -903,6 +968,7 @@ class _ComposerCascadeOverlayState
               value: coreKindDisplay.label,
               valueBadge: coreKindDisplay.badge,
               selected: _branch == _CascadeBranch.agent,
+              enabled: canEditSession,
               onTap: () {
                 HapticFeedback.selectionClick();
                 _setBranch(_CascadeBranch.agent);
@@ -918,6 +984,19 @@ class _ComposerCascadeOverlayState
                 if (!canPickAuxVision) return;
                 HapticFeedback.selectionClick();
                 _setBranch(_CascadeBranch.auxiliary);
+              },
+            ),
+            _Hairline(eco: eco),
+            _PrimaryRow(
+              label: l10n.composerApprovalModel,
+              value: _config.approvalModel == null
+                  ? l10n.composerNone
+                  : composerModelDisplayName(_config.approvalModel!.modelId),
+              selected: _branch == _CascadeBranch.approval,
+              enabled: widget.canEditStatelessModels,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                _setBranch(_CascadeBranch.approval);
               },
             ),
             _Hairline(eco: eco),
@@ -958,6 +1037,7 @@ class _ComposerCascadeOverlayState
             label: l10n.composerModel,
             value: modelName,
             selected: _branch == _CascadeBranch.model,
+            enabled: canEditSession,
             onTap: () {
               HapticFeedback.selectionClick();
               _setBranch(_CascadeBranch.model);
@@ -968,6 +1048,7 @@ class _ComposerCascadeOverlayState
             label: l10n.composerReasoningIntensity,
             value: effortLabel,
             selected: _branch == _CascadeBranch.effort,
+            enabled: canEditSession,
             onTap: () {
               HapticFeedback.selectionClick();
               _setBranch(_CascadeBranch.effort);
@@ -1018,7 +1099,7 @@ class _ComposerCascadeOverlayState
               value: coreKindDisplay.label,
               valueBadge: coreKindDisplay.badge,
               selected: _branch == _CascadeBranch.agent,
-              enabled: _coreKind != null,
+              enabled: _coreKind != null && canEditSession,
               onTap: () {
                 if (_coreKind == null) return;
                 HapticFeedback.selectionClick();
@@ -1059,6 +1140,19 @@ class _ComposerCascadeOverlayState
                 if (!canPickAuxVision) return;
                 HapticFeedback.selectionClick();
                 _setBranch(_CascadeBranch.auxiliary);
+              },
+            ),
+            _Hairline(eco: eco),
+            _PrimaryRow(
+              label: l10n.composerApprovalModel,
+              value: _config.approvalModel == null
+                  ? l10n.composerNone
+                  : composerModelDisplayName(_config.approvalModel!.modelId),
+              selected: _branch == _CascadeBranch.approval,
+              enabled: widget.canEditStatelessModels,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                _setBranch(_CascadeBranch.approval);
               },
             ),
             _Hairline(eco: eco),

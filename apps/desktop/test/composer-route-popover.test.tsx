@@ -17,6 +17,7 @@ const noopHandlers = {
   onSelectMainPrompt: async () => {},
   onSelectSubagents: async () => {},
   onSelectAuxiliaryModel: async () => {},
+  onSelectApprovalModel: async () => {},
   onSelectVisionModel: async () => {},
   onOpenFullSettings: () => {},
 };
@@ -64,6 +65,8 @@ test("ComposerRouteCardBody hides Eco orchestration fields for ACP", () => {
   );
 
   expect(markup).toContain("辅助模型");
+  expect(markup).toContain("审批模型");
+  expect(markup).toContain("SystemOne（Jev）");
   expect(markup).toContain("视觉模型");
   expect(markup).toContain("用于 Git 提交信息生成");
   expect(markup).toContain("ACP 没有 Eco 主模型可回退");
@@ -73,3 +76,37 @@ test("ComposerRouteCardBody hides Eco orchestration fields for ACP", () => {
 
 // ComposerRoutePopover portals to document.body; Bun static markup has no document.
 // CardBody above locks the shared canEdit → disabled wiring used by the popover controls.
+
+test("ComposerRouteCardBody keeps auxiliary / approval / vision switchable while a run locks the rest", () => {
+  const markup = renderLocalized(
+    <ComposerRouteCardBody
+      settings={emptySettings}
+      canEdit={false}
+      canEditStatelessModels
+      {...noopHandlers}
+    />,
+    "zh-CN",
+  );
+
+  // Session-bound controls stay locked while the run is active.
+  expect(markup).toMatch(/composer-route-builder-button[^>]*\sdisabled/);
+  expect(markup).toMatch(/<button[^>]*composer-field-select-trigger[^>]*\sdisabled/);
+  // Auxiliary / approval / vision requests are stateless: their selectors stay live.
+  expect(markup.match(/class="model-cascade-trigger"/g)?.length).toBe(3);
+  expect(markup).not.toMatch(/<button[^>]*model-cascade-trigger[^>]*\sdisabled/);
+});
+
+test("ComposerRouteCardBody locks the stateless role selectors when canEditStatelessModels is false", () => {
+  const markup = renderLocalized(
+    <ComposerRouteCardBody
+      settings={emptySettings}
+      canEdit={false}
+      canEditStatelessModels={false}
+      {...noopHandlers}
+    />,
+    "zh-CN",
+  );
+
+  expect(markup.match(/class="model-cascade-trigger"/g)?.length).toBe(3);
+  expect(markup).toMatch(/<button[^>]*model-cascade-trigger[^>]*\sdisabled/);
+});

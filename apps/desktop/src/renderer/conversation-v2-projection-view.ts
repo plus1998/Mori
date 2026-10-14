@@ -20,6 +20,10 @@ import {
   type ToolActionLifecycle,
   toolStatusToLifecycle,
 } from "../shared/activity-display";
+import {
+  type ContextCompactionTiming,
+  resolveContextCompactionTiming,
+} from "../shared/context-compaction-timing";
 import type { ActionKindTranslate } from "../shared/feed-action-kind";
 import { parseThreadRunFileChangeMetadata } from "../shared/file-change";
 import type {
@@ -51,7 +55,7 @@ import {
   isThreadFollowUpActivityMessage,
   isThreadFollowUpLiveEvent,
 } from "../shared/thread-follow-up-events";
-import { parseThreadRunImageViewMetadata } from "../shared/thread-run-events";
+import { isContextCompactionEventType, parseThreadRunCodemodeMetadata, parseThreadRunImageViewMetadata } from "../shared/thread-run-events";
 import {
   formatThreadRunToolDetailLabel,
   parseThreadRunGrepToolTarget,
@@ -153,17 +157,37 @@ export function buildThreadRunProjectionViewModel(
   const thinkingDisplayMode = options.thinkingDisplayMode;
   const hasProjectedUserPrompt = projection.timeline.some(isProjectionUserPromptItem);
   const showThreadPrompt = Boolean(thread?.prompt.trim() && !hasProjectedUserPrompt);
+  const conversationLive = !isThreadConversationStopped(projection.thread.status);
+  const terminalAttemptIds = new Set(
+    projection.attempts.filter((attempt) => attempt.status !== "running").map((attempt) => attempt.attemptId),
+  );
   const requestSpansById = buildDisplayRequestSpansById(projection);
   const subagentCards = projection.agents
     .filter((agent) => agent.kind === "subagent")
     .map((agent) => {
+      const running = agent.status === "active" || agent.status === "launching";
       const displayTimeline = filterProjectionTimelineForDetailFeed(
         agent.timeline,
         requestSpansById,
         includePromptCacheTips,
         thinkingDisplayMode,
+        conversationLive && running,
+        terminalAttemptIds,
       );
       const displayAgent: ThreadRunProjectionAgent = { ...agent, timeline: displayTimeline };
+      // V2's latestActivity is copied from the raw timeline; it must not echo a tip
+      // that the display lifecycle has already removed.
+      if (
+        agent.latestActivity &&
+        agent.timeline.some(
+          (item) =>
+            (item.eventType === "thinking.delta" || item.eventType === "thinking.final") &&
+            item.text.trim() === agent.latestActivity?.trim() &&
+            !displayTimeline.some((visible) => visible.id === item.id),
+        )
+      ) {
+        delete displayAgent.latestActivity;
+      }
       const statusText = resolveProjectionAgentStatusText(displayAgent);
       const missionText = resolveSubagentCardMissionText(agent, {
         mainTimeline: projection.timeline,
@@ -172,7 +196,7 @@ export function buildThreadRunProjectionViewModel(
         key: agent.agentId,
         agent: displayAgent,
         timelineIds: displayTimeline.map((item) => item.id),
-        running: agent.status === "active" || agent.status === "launching",
+        running,
         missionText,
         openable: !isAcpSubagentAgentId(agent.agentId),
         promptImages: resolveSubagentPromptImages(agent, projection.timeline),
@@ -185,6 +209,8 @@ export function buildThreadRunProjectionViewModel(
     requestSpansById,
     includePromptCacheTips,
     thinkingDisplayMode,
+    conversationLive,
+    terminalAttemptIds,
   );
   return {
     showThreadPrompt,
@@ -268,9 +294,18 @@ function buildProjectionMainFeedEntries(
   requestSpansById: ReadonlyMap<string, ThreadRunProjectionSnapshot["requestSpans"][number]>,
   includePromptCacheTips = true,
   thinkingDisplayMode: ThinkingDisplayMode = "collapsed",
+  conversationLive = true,
+  terminalAttemptIds?: ReadonlySet<string>,
 ): ThreadRunProjectionMainFeedEntry[] {
   const displayMainTimeline = filterAbsorbedSubagentDelegations(
-    filterMainTimelineForFeed(mainTimeline, requestSpansById, includePromptCacheTips, thinkingDisplayMode),
+    filterMainTimelineForFeed(
+      mainTimeline,
+      requestSpansById,
+      includePromptCacheTips,
+      thinkingDisplayMode,
+      conversationLive,
+      terminalAttemptIds,
+    ),
     subagentCards,
     requestSpansById,
   );
@@ -550,12 +585,16 @@ function filterMainTimelineForFeed(
   requestSpansById: ReadonlyMap<string, ThreadRunProjectionSnapshot["requestSpans"][number]>,
   includePromptCacheTips = true,
   thinkingDisplayMode: ThinkingDisplayMode = "collapsed",
+  conversationLive = true,
+  terminalAttemptIds?: ReadonlySet<string>,
 ): ThreadRunProjectionTimelineItem[] {
   const displayTimeline = filterProjectionTimelineForDetailFeed(
     timeline,
     requestSpansById,
     includePromptCacheTips,
     thinkingDisplayMode,
+    conversationLive,
+    terminalAttemptIds,
   );
   const requestFiltered = displayTimeline.filter(
     (item) => item.scope !== "agent" && !isMainTimelineNoiseItem(item, displayTimeline),
@@ -702,8 +741,13 @@ export function filterProjectionTimelineForDetailFeed(
   requestSpansById: ReadonlyMap<string, ThreadRunProjectionSnapshot["requestSpans"][number]>,
   includePromptCacheTips = true,
   thinkingDisplayMode: ThinkingDisplayMode = "collapsed",
+  conversationLive = true,
+  terminalAttemptIds?: ReadonlySet<string>,
 ): ThreadRunProjectionTimelineItem[] {
-  const built = buildProjectionDisplayTimelineItems(timeline, requestSpansById).filter(
+  const built = buildProjectionDisplayTimelineItems(
+    withContextCompactionTimings(closeDanglingToolItemsForTerminalAttempts(timeline, terminalAttemptIds)),
+    requestSpansById,
+  ).filter(
     (item) =>
       !isEmptyTerminalThinkingItem(item) &&
       // Mission envelopes belong on the card/header, not as echoed speech in agent timelines.
@@ -717,6 +761,8 @@ export function filterProjectionTimelineForDetailFeed(
     : built;
   const displayTimeline = collapseEphemeralReasoningSummaryTimeline(
     collapsePromptCacheTimelineItems(forCollapse),
+    conversationLive,
+    terminalAttemptIds,
   );
   const requestsWithStreamRows = new Set(
     displayTimeline
@@ -1031,9 +1077,107 @@ export function collapseLiveReasoningSummaryTimeline(
   return collapseEphemeralReasoningSummaryTimeline(timeline);
 }
 
+/**
+ * Statuses where the conversation has left its live statuses. Kept next to the tip
+ * lifecycle so the Feed's「正在思考」gate and the tip's own expiry cannot drift apart.
+ */
+export function isThreadConversationStopped(status: string): boolean {
+  return (
+    status === "completed" ||
+    status === "failed" ||
+    status === "blocked" ||
+    status === "cancelled" ||
+    status === "idle"
+  );
+}
+
+/**
+ * A `tool.started` row belongs to the attempt that wrote the call, and a tool cannot outlive
+ * that attempt: when a run is stopped, superseded by a retry, or lost, its in-flight calls die
+ * without ever reporting `tool.completed`/`tool.failed`. The row would otherwise present itself
+ * as live forever — shimmering, counting elapsed time, and holding the Feed's live slot shut so
+ * every later turn loses its 「正在思考」row.
+ *
+ * This closes those rows the way the runtime closes request spans for terminal owners
+ * (`closeRequestSpansForTerminalAgents` / `closeRequestSpanForTerminalThread`). The call was
+ * interrupted rather than finished, and the tool vocabulary has no `cancelled`, so it reads as
+ * incomplete — the mapping the legacy adapter already applies to a cancelled tool
+ * (`conversationV2ToolProjectionStatus`).
+ */
+function closeDanglingToolItemsForTerminalAttempts(
+  timeline: readonly ThreadRunProjectionTimelineItem[],
+  terminalAttemptIds: ReadonlySet<string> | undefined,
+): ThreadRunProjectionTimelineItem[] {
+  if (!terminalAttemptIds?.size) {
+    return [...timeline];
+  }
+  // A call that did report a terminal row is not dangling; the display collapse keeps that row.
+  const settledToolKeys = new Set<string>();
+  for (const item of timeline) {
+    const lifecycle = resolveProjectionToolLifecycle(item);
+    if (lifecycle !== "completed" && lifecycle !== "failed") {
+      continue;
+    }
+    const key = projectionToolLifecycleKey(item);
+    if (key) {
+      settledToolKeys.add(key);
+    }
+  }
+  let closed = false;
+  const output = timeline.map((item) => {
+    if (resolveProjectionToolLifecycle(item) !== "running") {
+      return item;
+    }
+    const attemptId = item.runAttemptId?.trim();
+    if (!attemptId || !terminalAttemptIds.has(attemptId)) {
+      return item;
+    }
+    const key = projectionToolLifecycleKey(item);
+    if (key && settledToolKeys.has(key)) {
+      return item;
+    }
+    const closedItem = withInterruptedToolStatus(item);
+    if (closedItem !== item) {
+      closed = true;
+    }
+    return closedItem;
+  });
+  return closed ? output : [...timeline];
+}
+
+/** Marks an orphaned `tool.started` row as interrupted so its lifecycle stops resolving `running`. */
+function withInterruptedToolStatus(
+  item: ThreadRunProjectionTimelineItem,
+): ThreadRunProjectionTimelineItem {
+  const raw = item.metadata?.tool;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return item;
+  }
+  const record = raw as Record<string, unknown>;
+  if (record.status === "failed") {
+    return item;
+  }
+  return {
+    ...item,
+    metadata: {
+      ...item.metadata,
+      tool: { ...record, status: "failed" },
+    },
+  };
+}
+
 export function collapseEphemeralReasoningSummaryTimeline(
   timeline: readonly ThreadRunProjectionTimelineItem[],
+  conversationLive = true,
+  terminalAttemptIds?: ReadonlySet<string>,
 ): ThreadRunProjectionTimelineItem[] {
+  if (!conversationLive) {
+    // Supersede-by-event only works while the run keeps producing. A conversation that
+    // stopped without landing a hard event after the tip (crash, lost runtime, restart
+    // recovery) would otherwise park the tip as a durable Feed row — still shimmering and
+    // cycling its stages long after the run ended. 阅后即焚 has no durable form.
+    return timeline.filter((item) => !isReasoningSummaryItem(item));
+  }
   let lastSupersedingIndex = -1;
   let tipSummaryIndex = -1;
   const slotKeyBySummaryIndex = new Map<number, string>();
@@ -1061,7 +1205,11 @@ export function collapseEphemeralReasoningSummaryTimeline(
       if (!isReasoningSummaryItem(item)) {
         return item;
       }
-      if (index <= lastSupersedingIndex || index !== tipSummaryIndex) {
+      if (
+        index <= lastSupersedingIndex ||
+        index !== tipSummaryIndex ||
+        (item.runAttemptId && terminalAttemptIds?.has(item.runAttemptId))
+      ) {
         return undefined;
       }
       const slotKey = slotKeyBySummaryIndex.get(index);
@@ -2172,6 +2320,38 @@ function settleTerminalStreamDisplayItem(
   };
 }
 
+function withContextCompactionTimings(
+  timeline: readonly ThreadRunProjectionTimelineItem[],
+): ThreadRunProjectionTimelineItem[] {
+  const previous: ThreadRunProjectionTimelineItem[] = [];
+  return timeline.map((item) => {
+    if (!isContextCompactionEventType(item.eventType)) return item;
+    const timing = readContextCompactionTiming(item) ?? resolveContextCompactionTiming(item, previous);
+    previous.push(item);
+    return timing ? { ...item, metadata: { ...item.metadata, compactionTiming: timing } } : item;
+  });
+}
+
+function readContextCompactionTiming(
+  item: ThreadRunProjectionTimelineItem,
+): ContextCompactionTiming | undefined {
+  const timing = item.metadata?.compactionTiming;
+  if (timing === undefined) return undefined;
+  if (!timing || typeof timing !== "object" || Array.isArray(timing)) {
+    throw new Error(`Compaction timing for ${item.id} is invalid.`);
+  }
+  const value = timing as ContextCompactionTiming;
+  if (
+    typeof value.startedAt !== "string" ||
+    !Number.isFinite(Date.parse(value.startedAt)) ||
+    (value.endedAt !== undefined && !Number.isFinite(Date.parse(value.endedAt))) ||
+    (value.durationMs !== undefined && (!Number.isFinite(value.durationMs) || value.durationMs < 0))
+  ) {
+    throw new Error(`Compaction timing for ${item.id} is invalid.`);
+  }
+  return value;
+}
+
 function filterCompactionTimelineForFeed(
   timeline: readonly ThreadRunProjectionTimelineItem[],
 ): ThreadRunProjectionTimelineItem[] {
@@ -3017,6 +3197,7 @@ function buildProjectionToolActionBlock(
   const readTarget = metadataTool ? resolveReadToolTargetDisplayFromToolMetadata(metadataTool) : undefined;
   const grepTarget = metadataTool ? resolveGrepToolTargetDisplayFromToolMetadata(metadataTool) : undefined;
   const toolOutput = metadataTool?.outputPreview?.trim();
+  const codemodeRun = metadataTool?.codemode;
   return {
     kind: "action",
     icon: iconForToolName(input.toolName),
@@ -3035,6 +3216,7 @@ function buildProjectionToolActionBlock(
     ...(mcpDiscovery && { mcpDiscovery }),
     ...(readTarget && { readTarget }),
     ...(grepTarget && { grepTarget }),
+    ...(codemodeRun && { codemodeRun }),
     ...(toolOutput && { toolOutput }),
     ...(subagent && { subagent }),
     ...(item.agentId && { agentId: item.agentId }),
@@ -3287,6 +3469,22 @@ export function projectionItemToDetailBlock(
 
   const phaseLabel = resolveProjectionPhaseLabel(item);
   if (phaseLabel) {
+    if (isContextCompactionEventType(item.eventType)) {
+      const timing = readContextCompactionTiming(item) ?? resolveContextCompactionTiming(item, []);
+      return {
+        kind: "phase",
+        label: phaseLabel,
+        compaction: {
+          lifecycle:
+            item.eventType === "context.compaction.started"
+              ? "running"
+              : item.eventType === "context.compaction.completed"
+                ? "completed"
+                : "failed",
+          ...timing,
+        },
+      };
+    }
     const timeline = readPromptCacheTimelineMetadata(item.metadata);
     if (timeline) {
       return {
@@ -3649,6 +3847,7 @@ export function readProjectionToolMetadata(
       ? { kind: "search" as const }
       : undefined;
   const webSearch = parseProjectionWebSearchMetadata(record.webSearch);
+  const codemode = parseThreadRunCodemodeMetadata(record.codemode);
   return {
     name,
     ...(typeof record.detail === "string" && record.detail.trim() && { detail: record.detail.trim() }),
@@ -3672,6 +3871,7 @@ export function readProjectionToolMetadata(
     ...(imageDisplay && { imageDisplay }),
     ...(htmlHost && { htmlHost }),
     ...(mcpDiscovery && { mcpDiscovery }),
+    ...(codemode && { codemode }),
   };
 }
 

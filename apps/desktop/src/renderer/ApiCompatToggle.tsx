@@ -9,6 +9,7 @@ import {
 } from "../shared/api-compat";
 
 const API_COMPAT_ICONS: Record<UpstreamApiCompat, string> = {
+  system_one: "./provider-icons/system-one.png",
   anthropic: "./provider-icons/claude.ico",
   openai_responses: "./provider-icons/openai.svg",
   openai_chat_completions: "./provider-icons/openai.svg",

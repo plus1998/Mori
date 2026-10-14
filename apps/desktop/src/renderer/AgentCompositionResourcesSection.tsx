@@ -118,7 +118,7 @@ export function AgentCompositionResourcesSection({
 
   const formOptions = useMemo(
     () => ({
-      providers: settings.providers,
+      providers: settings.providers.filter((provider) => provider.apiCompat !== "system_one"),
       templates,
       existingIds: [
         ...mainAgentConfigs.map((entry) => entry.id),
@@ -525,7 +525,7 @@ export function AgentCompositionResourcesSection({
           }
           scope={editorSession.scope}
           mode={editorSession.mode}
-          providers={settings.providers}
+          providers={settings.providers.filter((provider) => provider.apiCompat !== "system_one")}
           templates={templates}
           mcpServers={mcpServers}
           error={error || undefined}

@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  FileSearch,
   Loader2,
   Maximize2,
   MessageCirclePlus,
@@ -31,6 +32,8 @@ interface PlanApprovalPanelProps {
   onApproveWithSubagent?: ((agentKey: string, additionalMessage?: string) => void) | undefined;
   /** Starts a new landing composer prefilled with the current plan, without approving it. */
   onStartNewSession?: (() => void) | undefined;
+  /** Confirms the plan was implemented and asks the current agent to review the code. */
+  onReviewCode?: (() => void) | undefined;
   delegationAgents?: readonly PlanDelegationAgentOption[] | undefined;
   additionalMessage?: string | undefined;
   onAdditionalMessageChange?: ((value: string) => void) | undefined;
@@ -46,6 +49,7 @@ export function PlanApprovalPanel({
   onApprove,
   onApproveWithSubagent,
   onStartNewSession,
+  onReviewCode,
   delegationAgents,
   additionalMessage,
   onAdditionalMessageChange,
@@ -68,7 +72,7 @@ export function PlanApprovalPanel({
   const agents = delegationAgents ?? [];
   const executableAgents = agents.filter((agent) => agent.canExecutePlan);
   const canDelegate = executableAgents.length > 0 && Boolean(onApproveWithSubagent);
-  const canOpenExecuteMenu = canDelegate || Boolean(onStartNewSession);
+  const canOpenExecuteMenu = canDelegate || Boolean(onStartNewSession) || Boolean(onReviewCode);
   const executeMenuDisabled = Boolean(busy) || !planTrimmed;
 
   useEffect(() => {
@@ -134,6 +138,14 @@ export function PlanApprovalPanel({
     }
     setExecuteMenuOpen(false);
     onStartNewSession();
+  };
+
+  const reviewCode = () => {
+    if (executeMenuDisabled || !onReviewCode) {
+      return;
+    }
+    closeExecuteMenu();
+    onReviewCode();
   };
 
   const submitDelegation = (agent: PlanDelegationAgentOption) => {
@@ -305,9 +317,21 @@ export function PlanApprovalPanel({
                       <span>{t("approval.plan.executeInNewSession")}</span>
                     </button>
                   ) : null}
-                  {canDelegate ? (
+                  {onReviewCode ? (
                     <button
                       ref={!onStartNewSession ? firstOptionRef : undefined}
+                      type="button"
+                      className="plan-approval-menu-option"
+                      onClick={reviewCode}
+                      disabled={executeMenuDisabled}
+                    >
+                      <FileSearch size={16} aria-hidden />
+                      <span>{t("approval.plan.reviewCode")}</span>
+                    </button>
+                  ) : null}
+                  {canDelegate ? (
+                    <button
+                      ref={!onStartNewSession && !onReviewCode ? firstOptionRef : undefined}
                       type="button"
                       className="plan-approval-menu-option"
                       onClick={() => setExecuteMenuView("agents")}

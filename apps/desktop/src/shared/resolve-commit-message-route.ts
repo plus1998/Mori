@@ -51,10 +51,11 @@ export const commitRoutePriceScore = commitModelPriceScore;
 export function listCommitMessageCandidateModels(
   providers: readonly ProviderConfigView[],
   listCandidateModels: (providerId: string) => readonly CandidateModelView[],
+  purpose: "general" | "approval" = "general",
 ): CommitMessageCandidateModel[] {
   const candidates: CommitMessageCandidateModel[] = [];
   for (const provider of providers) {
-    if (!provider.enabled) {
+    if (!provider.enabled || (provider.apiCompat === "system_one" && purpose !== "approval")) {
       continue;
     }
     for (const candidate of listCandidateModels(provider.id)) {

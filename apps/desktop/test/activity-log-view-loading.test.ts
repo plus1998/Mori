@@ -7,6 +7,7 @@ import {
   formatRunLogTurnHeading,
   isTailThinkingStreamingLive,
   ConversationV2ProjectionActivityLogView as ProjectionActivityLogView,
+  ProjectionCodemodeDetails,
   ProjectionSubagentDetailFeed,
   ProjectionToolGroupEntry,
   reconcileActivityProjectionThreadStatus,
@@ -17,6 +18,7 @@ import {
 import { formatDuration, iconForToolName, reasoningSummaryLabel } from "../src/renderer/activity-log";
 import {
   buildThreadRunProjectionViewModel,
+  projectionItemToDetailBlock,
   type ThreadRunProjectionMainFeedEntry,
 } from "../src/renderer/conversation-v2-projection-view";
 import { i18n } from "../src/renderer/i18n";
@@ -80,6 +82,7 @@ function requestSpan(
     ...(input.ownerAgentId && { ownerAgentId: input.ownerAgentId }),
     ...(input.source && { source: input.source }),
     ...(input.error && { error: input.error }),
+    ...(input.writingTool && { writingTool: input.writingTool }),
   };
 }
 
@@ -521,6 +524,122 @@ test("ActivityLogView hides the conversation tail while a request is waiting for
   expect(html).not.toContain("run-log-conversation-tail");
 });
 
+test("native thinking start shows the existing waiting row until thinking content arrives", () => {
+  const render = (pending: boolean, text?: string, status = "running", ownerAgentId?: string) =>
+    renderToStaticMarkup(
+      createElement(ProjectionActivityLogView, {
+        thinkingDisplayMode: "expanded",
+        projection: projection({
+          status,
+          requestSpans: [
+            {
+              ...requestSpan({ requestId: "req-native-thinking" }),
+              pendingThinkingMessageId: "thinking-body-message",
+              ...(pending ? { pendingThinkingSince: "2026-01-01T00:00:02.000Z" } : {}),
+              ...(ownerAgentId ? { ownerAgentId } : {}),
+            },
+          ],
+          timeline: [
+            item({ id: "earlier-output", sequence: 1, eventType: "message.final", text: "上一阶段答复" }),
+            ...(text
+              ? [
+                  item({
+                    id: "thinking-body",
+                    sequence: 2,
+                    eventType: "thinking.delta",
+                    role: "thinking",
+                    requestId: "req-native-thinking",
+                    text,
+                    metadata: { reasoningDisplay: "raw", conversationV2MessageId: "thinking-body-message" },
+                  }),
+                ]
+              : []),
+          ],
+        }),
+      }),
+    );
+  expect(render(true)).toContain("正在思考");
+  expect(render(true).match(/run-log-thinking streaming empty/g)?.length).toBe(1);
+  // Content replaces the wait immediately, even before projection extras finish refreshing.
+  const withContent = render(true, "先检查实现，再确认边界");
+  expect(withContent).toContain("先检查实现，再确认边界");
+  expect(withContent).not.toContain("run-log-thinking streaming empty");
+  expect(render(true, undefined, "completed")).not.toContain("run-log-thinking streaming empty");
+  expect(render(true, undefined, "running", "child")).not.toContain("run-log-thinking streaming empty");
+});
+
+test("subagent native thinking start waits without appearing on the main agent", () => {
+  const render = (pending: boolean, text?: string) =>
+    renderToStaticMarkup(
+      createElement(ProjectionSubagentDetailFeed, {
+        agent: agent({
+          agentId: "child-thinking",
+          status: "active",
+          timeline: [
+            item({ id: "child-earlier", scope: "agent", eventType: "message.final", text: "上一阶段答复" }),
+            ...(text
+              ? [
+                  item({
+                    id: "child-thought",
+                    sequence: 2,
+                    scope: "agent",
+                    eventType: "thinking.delta",
+                    role: "thinking",
+                    requestId: "req-child",
+                    text,
+                    metadata: { reasoningDisplay: "raw", conversationV2MessageId: "child-thought-message" },
+                  }),
+                ]
+              : []),
+          ],
+        }),
+        missionText: "检查代码",
+        threadActive: true,
+        thinkingDisplayMode: "expanded",
+        requestSpansById: new Map([
+          [
+            "req-child",
+            {
+              ...requestSpan({ requestId: "req-child", ownerAgentId: "child-thinking" }),
+              pendingThinkingMessageId: "child-thought-message",
+              ...(pending ? { pendingThinkingSince: "2026-01-01T00:00:02.000Z" } : {}),
+            },
+          ],
+        ]),
+      }),
+    );
+  expect(render(true)).toContain("run-log-thinking streaming empty");
+  const withContent = render(true, "检查子任务边界");
+  expect(withContent).toContain("检查子任务边界");
+  expect(withContent).not.toContain("run-log-thinking streaming empty");
+});
+
+test("native thinking start takes the live slot after a settled tool", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        requestSpans: [
+          {
+            ...requestSpan({ requestId: "req-after-tool" }),
+            pendingThinkingSince: "2026-01-01T00:00:02.000Z",
+          },
+        ],
+        timeline: [
+          item({
+            id: "settled-read",
+            eventType: "tool.completed",
+            text: "Tool: Read",
+            metadata: { tool: { name: "Read", toolUseId: "read-1", status: "completed" } },
+          }),
+        ],
+      }),
+    }),
+  );
+  expect(html).toContain("正在思考");
+  expect(html.match(/run-log-thinking streaming empty/g)?.length).toBe(1);
+});
+
 test("ActivityLogView removes the waiting indicator after the first stream output", () => {
   const html = renderToStaticMarkup(
     createElement(ProjectionActivityLogView, {
@@ -875,7 +994,7 @@ test("ActivityLogView separates a completed attempt process from its final outpu
   expect(html).toContain('class="run-log-turn-process"');
   expect(html).toContain('aria-label="执行过程" aria-hidden="true"');
   expect(html).toContain('class="run-log-turn-final" aria-label="最终输出"');
-  expect(html.indexOf("先检查事件投影。")).toBeLessThan(html.indexOf("run-log-turn-final"));
+  expect(html).not.toContain("先检查事件投影。");
   expect(html.indexOf("run-log-turn-final")).toBeLessThan(html.indexOf("Feed 已完成整理。"));
 });
 
@@ -1043,10 +1162,10 @@ test("ActivityLogView keeps block spacing between a completed turn and the next 
   );
 
   expect(html).toMatch(
-    /<div class="run-log-virtual-row"><section class="run-log-turn is-completed is-collapsed"[\s\S]*<\/section><\/div><div class="run-log-virtual-row"><div class="run-log-feed-entry"><article class="run-log-user-prompt"/,
+    /<div class="run-log-virtual-row" data-index="\d+"><section class="run-log-turn is-completed is-collapsed"[\s\S]*<\/section><\/div><div class="run-log-virtual-row" data-index="\d+"><div class="run-log-feed-entry"><article class="run-log-user-prompt"/,
   );
   expect(styles).toMatch(
-    /\.codex-main:not\(\.codex-main-landing\) \.run-log > \.run-log-turn \+ \.run-log-feed-entry\s*,/s,
+    /\.codex-main:not\(\.codex-main-landing\)\s+\.run-log\s*>\s*\.run-log-turn\s*\+\s*\.run-log-feed-entry:not\(:where\(\.run-log-active-tail\)\)\s*,/,
   );
   expect(styles).toMatch(
     /\.run-log\s*>\s*\.run-log-virtual-row:has\(>\s*\.run-log-turn\)\s*\+\s*\.run-log-virtual-row:has\(>\s*\.run-log-feed-entry\)\s*>\s*\.run-log-feed-entry[\s\S]*?margin-top:\s*var\(--codex-feed-gap-block\);/,
@@ -1083,7 +1202,7 @@ test("run-log feed spacing contract keeps process rhythm on --codex-feed-gap-pro
     /\.run-log\s*>\s*\.run-log-active-tail[\s\S]*?margin-top:\s*var\(--codex-feed-gap-process\);/,
   );
   expect(styles).toMatch(
-    /\.codex-main:not\(\.codex-main-landing\) \.run-log > \.run-log-feed-entry--tight \+ \.run-log-feed-entry--tight[\s\S]*?margin-top:\s*var\(--codex-feed-gap-step\);/,
+    /\.run-log\s*>\s*\.run-log-feed-entry--tight\s*\+\s*\.run-log-feed-entry--tight:not\(:where\(\.run-log-active-tail\)\)[\s\S]*?margin-top:\s*var\(--codex-feed-gap-step\);/,
   );
   const statusDividerBody = feedStatusDividerStyles.match(/\.feed-status-divider\s*\{([\s\S]*?)\n\}/)?.[1];
   expect(statusDividerBody).toBeTruthy();
@@ -1124,6 +1243,141 @@ test("ActivityLogView keeps a running attempt process expanded without final out
   expect(html).not.toContain("run-log-turn-chevron");
   expect(html).toContain('aria-label="执行过程" aria-hidden="false"');
   expect(html).not.toContain('class="run-log-turn-final"');
+});
+
+test("mid-turn prompts keep one running heading while every continuation remains expanded", () => {
+  for (const status of ["running", "completed", "cancelled", "failed"] as const) {
+    const timeline = [
+      item({
+        id: "user-first",
+        eventType: "thread.status",
+        sequence: 1,
+        role: "user",
+        text: "开始检查",
+        at: "2026-01-01T00:00:00.000Z",
+        metadata: { liveType: "thread.user_prompt" },
+      }),
+      item({
+        id: "output-first",
+        sequence: 3,
+        eventType: "message.final",
+        text: "先检查代码。",
+        runAttemptId: "attempt-midturn",
+        at: "2026-01-01T00:00:02.000Z",
+      }),
+      item({
+        id: "user-mid",
+        eventType: "thread.status",
+        sequence: 4,
+        role: "user",
+        text: "补充第一条要求",
+        at: "2026-01-01T00:00:03.000Z",
+        metadata: { liveType: "thread.user_prompt" },
+      }),
+      item({
+        id: "output-mid",
+        sequence: 5,
+        eventType: "message.final",
+        text: "继续检查第一条要求。",
+        runAttemptId: "attempt-midturn",
+        at: "2026-01-01T00:00:04.000Z",
+      }),
+      item({
+        id: "user-mid-2",
+        eventType: "thread.status",
+        sequence: 6,
+        role: "user",
+        text: "补充第二条要求",
+        at: "2026-01-01T00:00:05.000Z",
+        metadata: { liveType: "thread.user_prompt" },
+      }),
+      item({
+        id: "output-mid-2",
+        sequence: 7,
+        eventType: "message.final",
+        text: "继续检查第二条要求。",
+        runAttemptId: "attempt-midturn",
+        at: "2026-01-01T00:00:06.000Z",
+      }),
+    ];
+    const html = renderToStaticMarkup(
+      createElement(ProjectionActivityLogView, {
+        projection: projection({
+          status,
+          timeline,
+          attempts: [
+            {
+              attemptId: "attempt-midturn",
+              status,
+              startedAt: "2026-01-01T00:00:01.000Z",
+              ...(status !== "running" ? { endedAt: "2026-01-01T00:00:08.000Z" } : {}),
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(html.match(/class="run-log-turn-toggle"/g)?.length).toBe(status === "running" ? 1 : 3);
+    if (status === "running") {
+      expect(html.match(/run-log-turn-status">处理中/g)?.length).toBe(1);
+      expect(html.match(/is-expanded is-continuation/g)?.length).toBe(2);
+      expect(html).toContain("先检查代码。");
+      expect(html).toContain("继续检查第一条要求。");
+      expect(html).toContain("继续检查第二条要求。");
+      expect(html.indexOf("补充第一条要求")).toBeLessThan(html.indexOf("继续检查第一条要求。"));
+      expect(html.indexOf("补充第二条要求")).toBeLessThan(html.indexOf("继续检查第二条要求。"));
+    } else {
+      expect(html).not.toContain("is-continuation");
+    }
+  }
+});
+
+test("a new follow-up attempt keeps its own running heading", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        attempts: [
+          {
+            attemptId: "attempt-first",
+            status: "completed",
+            startedAt: "2026-01-01T00:00:01.000Z",
+            endedAt: "2026-01-01T00:00:03.000Z",
+          },
+          { attemptId: "attempt-next", status: "running", startedAt: "2026-01-01T00:00:05.000Z" },
+        ],
+        timeline: [
+          item({
+            id: "first-output",
+            eventType: "message.final",
+            sequence: 1,
+            runAttemptId: "attempt-first",
+            text: "第一轮完成。",
+            at: "2026-01-01T00:00:02.000Z",
+          }),
+          item({
+            id: "next-prompt",
+            eventType: "thread.status",
+            sequence: 2,
+            role: "user",
+            text: "下一轮",
+            at: "2026-01-01T00:00:04.000Z",
+            metadata: { liveType: "thread.user_prompt" },
+          }),
+          item({
+            id: "next-output",
+            sequence: 3,
+            eventType: "message.final",
+            runAttemptId: "attempt-next",
+            text: "正在执行下一轮。",
+            at: "2026-01-01T00:00:06.000Z",
+          }),
+        ],
+      }),
+    }),
+  );
+  expect(html.match(/class="run-log-turn-toggle"/g)?.length).toBe(2);
+  expect(html.match(/run-log-turn-status">处理中/g)?.length).toBe(1);
+  expect(html).not.toContain("is-continuation");
 });
 
 test("ActivityLogView collapses completed thinking behind a deep-thinking summary", () => {
@@ -1590,6 +1844,68 @@ test("ActivityLogView renders reasoning-stage as ephemeral tip status", () => {
   expect(completedHtml).toContain("运行了命令");
 });
 
+test("ActivityLogView stops playing the ephemeral reasoning tip once the conversation is no longer live", () => {
+  // 阅后即焚 tip has no durable form. A run that ended without a superseding hard
+  // event (crash / lost runtime — nothing lands after the tip) must not leave the
+  // tip parked on the Feed still cycling its stages.
+  for (const status of ["failed", "cancelled", "blocked", "completed", "idle"]) {
+    const html = renderToStaticMarkup(
+      createElement(ProjectionActivityLogView, {
+        projection: projection({
+          status,
+          timeline: [
+            item({
+              id: `stage-${status}`,
+              eventType: "thinking.final",
+              role: "thinking",
+              sequence: 1,
+              streamKey: "rs_stage_stopped",
+              text: "定位入口\n检查测试",
+              metadata: { reasoningDisplay: "summary" },
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(html).not.toContain("定位入口");
+    expect(html).not.toContain("run-log-thinking streaming empty");
+    expect(html).not.toContain("run-log-shimmer-text");
+    expect(html).not.toContain("run-log-thinking-carousel");
+  }
+
+  // The shape the dev store actually holds after an interrupted run: the tip is the last
+  // content row, and the only thing after it is a lifecycle row, which is not one of the
+  // superseding event types.
+  const interruptedHtml = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "idle",
+        timeline: [
+          item({
+            id: "stage-interrupted",
+            eventType: "thinking.final",
+            role: "thinking",
+            sequence: 1,
+            streamKey: "rs_interrupted",
+            text: "检查测试",
+            metadata: { reasoningDisplay: "summary" },
+          }),
+          item({
+            id: "agent-interrupted",
+            eventType: "agent.interrupted",
+            role: "planner",
+            sequence: 2,
+            text: "",
+          }),
+        ],
+      }),
+    }),
+  );
+  expect(interruptedHtml).not.toContain("检查测试");
+  expect(interruptedHtml).not.toContain("run-log-thinking streaming empty");
+  expect(interruptedHtml).not.toContain("run-log-thinking-carousel");
+});
+
 test("ActivityLogView keeps empty waiting and reasoning summary mutually exclusive in one active-tail", () => {
   const html = renderToStaticMarkup(
     createElement(ProjectionActivityLogView, {
@@ -1630,6 +1946,303 @@ test("ActivityLogView keeps empty waiting and reasoning summary mutually exclusi
   // Tip replaced empty「正在思考」in the same slot — do not keep both labels.
   expect(html).not.toContain("正在思考");
   expect(html.match(/定位入口/g)?.length).toBe(1);
+});
+
+function settledWriteTimeline() {
+  return [
+    item({
+      id: "write-1",
+      sequence: 1,
+      eventType: "tool.completed",
+      requestId: "req-writing",
+      text: "Tool: Write",
+      at: "2026-01-01T00:00:01.000Z",
+      metadata: {
+        tool: { name: "Write", detail: "src/app.ts", status: "completed", durationMs: 120 },
+      },
+    }),
+  ];
+}
+
+test("ActivityLogView gives the writing tool call the tool aggregate's slot instead of stacking", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        timeline: settledWriteTimeline(),
+        requestSpans: [
+          requestSpan({
+            requestId: "req-writing",
+            status: "completed",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            endedAt: "2026-01-01T00:00:02.000Z",
+            writingTool: { kind: "file", target: "src/math.ts", since: "2026-01-01T00:00:05.000Z" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  // One slot: the settled aggregate row is taken over, not stacked under the write line.
+  expect(html).toContain("run-log-active-tail");
+  expect(html).toContain("正在写入 src/math.ts");
+  expect(html).not.toContain("run-log-tool-group");
+  expect(html.match(/run-log-thinking streaming empty/g)?.length).toBe(1);
+});
+
+test("a subagent writing a tool call cannot replace the main Feed's settled tool row", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        timeline: settledWriteTimeline(),
+        agents: [agent({ agentId: "coder_a" })],
+        requestSpans: [
+          requestSpan({
+            requestId: "req-child-writing",
+            ownerAgentId: "coder_a",
+            status: "completed",
+            writingTool: { kind: "file", target: "child-secret.ts", since: "2026-01-01T00:00:05.000Z" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html).not.toContain("child-secret.ts");
+  expect(html).toContain("run-log-tool-group");
+});
+
+test("a newer subagent write cannot override the main agent's writing label", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        timeline: settledWriteTimeline(),
+        requestSpans: [
+          requestSpan({
+            requestId: "req-main-writing",
+            writingTool: { kind: "file", target: "main.ts", since: "2026-01-01T00:00:04.000Z" },
+          }),
+          requestSpan({
+            requestId: "req-child-writing",
+            ownerAgentId: "coder_a",
+            writingTool: { kind: "file", target: "child-secret.ts", since: "2026-01-01T00:00:05.000Z" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html).toContain("正在写入 main.ts");
+  expect(html).not.toContain("child-secret.ts");
+});
+
+test("ActivityLogView keeps the tool aggregate row while nothing is being written", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        timeline: settledWriteTimeline(),
+        requestSpans: [
+          requestSpan({
+            requestId: "req-writing",
+            status: "completed",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            endedAt: "2026-01-01T00:00:02.000Z",
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html).toContain("run-log-tool-group");
+  expect(html).not.toContain("run-log-active-tail");
+});
+
+test("ActivityLogView does not let a write line hide a tool that is still running", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        timeline: [
+          item({
+            id: "bash-running",
+            sequence: 1,
+            eventType: "tool.started",
+            requestId: "req-writing",
+            text: "Tool: Bash",
+            at: "2026-01-01T00:00:01.000Z",
+            metadata: { tool: { name: "Bash", detail: "bun test", status: "started" } },
+          }),
+        ],
+        requestSpans: [
+          requestSpan({
+            requestId: "req-writing",
+            status: "completed",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            endedAt: "2026-01-01T00:00:02.000Z",
+            writingTool: { kind: "command", target: "bun test", since: "2026-01-01T00:00:05.000Z" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html).toContain("run-log-tool-group");
+  expect(html).not.toContain("run-log-active-tail");
+});
+
+test("ActivityLogView swaps the aggregate row in place inside a running turn", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        attempts: [
+          {
+            attemptId: "attempt-writing",
+            phase: "follow_up",
+            retryIndex: 0,
+            status: "running",
+            startedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        timeline: [
+          item({
+            id: "write-in-turn",
+            sequence: 1,
+            eventType: "tool.completed",
+            runAttemptId: "attempt-writing",
+            requestId: "req-writing",
+            text: "Tool: Write",
+            at: "2026-01-01T00:00:01.000Z",
+            metadata: {
+              tool: { name: "Write", detail: "src/app.ts", status: "completed", durationMs: 120 },
+            },
+          }),
+        ],
+        requestSpans: [
+          requestSpan({
+            requestId: "req-writing",
+            status: "completed",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            endedAt: "2026-01-01T00:00:02.000Z",
+            writingTool: { kind: "file", target: "src/math.ts", since: "2026-01-01T00:00:05.000Z" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html).toContain('class="run-log-turn is-running is-expanded"');
+  expect(html).toContain("正在写入 src/math.ts");
+  expect(html).not.toContain("run-log-tool-group");
+  // The turn the swap empties must not keep a hollow process gap above the write line.
+  expect(html).toContain("run-log-turn-process-inner is-empty");
+});
+
+test("ActivityLogView closes an orphan tool row left by a cancelled attempt", () => {
+  const projectionWithOrphan = (attemptStatus: "cancelled" | "running") =>
+    projection({
+      status: "running",
+      attempts: [
+        {
+          attemptId: "attempt-stopped",
+          phase: "follow_up",
+          retryIndex: 0,
+          status: attemptStatus,
+          startedAt: "2026-01-01T00:00:00.000Z",
+          ...(attemptStatus === "cancelled" && { endedAt: "2026-01-01T00:00:02.000Z" }),
+        },
+        {
+          attemptId: "attempt-follow-up",
+          phase: "follow_up",
+          retryIndex: 1,
+          status: "running",
+          startedAt: "2026-01-01T00:00:10.000Z",
+        },
+      ],
+      timeline: [
+        item({
+          id: "orphan-tool",
+          sequence: 1,
+          eventType: "tool.started",
+          runAttemptId: "attempt-stopped",
+          requestId: "req-orphan",
+          text: "Tool: mcp__mysql__mysql_query",
+          at: "2026-01-01T00:00:01.000Z",
+          metadata: {
+            tool: { name: "mcp__mysql__mysql_query", detail: "mysql/mysql_query", status: "started" },
+          },
+        }),
+        item({
+          id: "follow-up-prompt",
+          sequence: 2,
+          eventType: "thread.status",
+          role: "user",
+          text: "继续",
+          at: "2026-01-01T00:00:10.000Z",
+          metadata: { liveType: "thread.user_prompt" },
+        }),
+      ],
+    });
+
+  // The run the call started in was stopped and the call never reported terminal, so the row
+  // cannot keep presenting itself as running: it would count elapsed time forever and hold the
+  // Feed's live slot shut, costing every later turn its 「正在思考」row.
+  const stopped = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, { projection: projectionWithOrphan("cancelled") }),
+  );
+  expect(stopped).toContain("run-log-active-tail");
+  expect(stopped).toContain("正在思考");
+
+  const stoppedViewModel = buildThreadRunProjectionViewModel(projectionWithOrphan("cancelled"), {
+    id: "thr_loading",
+    prompt: "",
+  });
+  const stoppedOrphan = stoppedViewModel.mainFeedEntries
+    .flatMap((entry) =>
+      entry.kind === "tool-group"
+        ? entry.entries.map((child) => child.item)
+        : entry.kind === "timeline" || entry.kind === "agent-echo"
+          ? [entry.item]
+          : [],
+    )
+    .find((timelineItem) => timelineItem.id === "orphan-tool");
+  const stoppedBlock = stoppedOrphan ? projectionItemToDetailBlock(stoppedOrphan) : undefined;
+  // The interrupted call keeps its row but stops claiming to be live.
+  expect(stoppedBlock?.kind === "action" && stoppedBlock.lifecycle === "failed").toBe(true);
+  expect(
+    stoppedViewModel.mainFeedEntries.some((entry) =>
+      entry.kind === "tool-group"
+        ? entry.entries.some((child) => {
+            const block = projectionItemToDetailBlock(child.item);
+            return block?.kind === "action" && block.lifecycle === "running";
+          })
+        : false,
+    ),
+  ).toBe(false);
+
+  // The same shape inside a live attempt is a genuine in-flight call and must keep its row.
+  const live = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, { projection: projectionWithOrphan("running") }),
+  );
+  expect(live).not.toContain("run-log-active-tail");
+  const liveViewModel = buildThreadRunProjectionViewModel(projectionWithOrphan("running"), {
+    id: "thr_loading",
+    prompt: "",
+  });
+  const liveOrphan = liveViewModel.mainFeedEntries
+    .flatMap((entry) =>
+      entry.kind === "tool-group"
+        ? entry.entries.map((child) => child.item)
+        : entry.kind === "timeline" || entry.kind === "agent-echo"
+          ? [entry.item]
+          : [],
+    )
+    .find((timelineItem) => timelineItem.id === "orphan-tool");
+  const liveBlock = liveOrphan ? projectionItemToDetailBlock(liveOrphan) : undefined;
+  expect(liveBlock?.kind === "action" && liveBlock.lifecycle === "running").toBe(true);
 });
 
 test("splitThinkingCarouselLines prefers newlines and sentence boundaries over camelCase", () => {
@@ -1876,7 +2489,8 @@ test("ProjectionSubagentDetailFeed marks only the last completed summary as resu
 
   expect(html.match(/class="run-log-turn-final"/g)?.length ?? 0).toBe(1);
   expect(html.match(/修复完成，重复结果已移除。/g)?.length ?? 0).toBe(1);
-  expect(html).toContain("我先检查了事件投影。");
+  expect(html).not.toContain("我先检查了事件投影。");
+  expect(html).toContain('aria-expanded="false"');
   expect(html).not.toContain("run-log-phase");
 });
 
@@ -2139,9 +2753,101 @@ test("ActivityLogView hides waiting thinking while context compaction is running
 
   expect(html).toContain("正在自动压缩上下文");
   expect(html).toContain("run-log-context-action");
+  expect(html).toContain('<span class="run-log-shimmer-text" aria-live="polite">正在自动压缩上下文</span>');
   expect(html).not.toContain("正在思考");
   expect(html).not.toContain("run-log-streaming-dots");
   expect(html).not.toContain('aria-label="会话进行中"');
+});
+
+test.each([
+  "正在自动压缩上下文",
+  "正在手动压缩上下文",
+  "正在压缩上下文",
+])("ActivityLogView shimmers %s while counting elapsed time in the text flow", (label) => {
+  const startedAt = new Date(Date.now() - 10_500).toISOString();
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        timeline: [
+          item({
+            id: "compact-start",
+            eventType: "context.compaction.started",
+            text: label,
+            at: startedAt,
+            metadata: { liveType: "context.compaction.started" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html).toContain(
+    `<span class="run-log-shimmer-text" aria-live="polite">${label}</span><span class="run-log-action-elapsed run-log-action-elapsed--inline">10s</span>`,
+  );
+  expect(html).not.toContain('class="run-log-action-meta run-log-action-elapsed"');
+});
+
+test.each([
+  { eventType: "context.compaction.completed", label: "上下文已自动压缩" },
+  { eventType: "context.compaction.failed", label: "上下文压缩失败：请求失败" },
+])("ActivityLogView stops shimmering after $eventType and retains the duration", ({ eventType, label }) => {
+  const startedAt = "2026-01-01T00:00:01.000Z";
+  const endedAt = "2026-01-01T00:00:14.000Z";
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "idle",
+        timeline: [
+          item({
+            id: "compact-start",
+            sequence: 1,
+            eventType: "context.compaction.started",
+            text: "正在自动压缩上下文",
+            at: startedAt,
+          }),
+          item({
+            id: "compact-done",
+            sequence: 2,
+            eventType,
+            text: label,
+            at: endedAt,
+            metadata: { compactionTiming: { startedAt, endedAt, durationMs: 13_000 } },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html).toContain(
+    `${label}<span class="run-log-action-elapsed run-log-action-elapsed--inline">13s</span>`,
+  );
+  expect(html).not.toContain("run-log-shimmer-text");
+  expect(html).not.toContain('class="run-log-action-meta run-log-action-elapsed"');
+});
+
+test("ActivityLogView keeps a running tool group's elapsed time after its summary", () => {
+  const at = new Date(Date.now() - 10_500).toISOString();
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "running",
+        attempts: [{ attemptId: "attempt_loading", status: "running", startedAt: at }],
+        timeline: [
+          item({
+            id: "tool-run",
+            eventType: "tool.started",
+            text: "Tool: Bash",
+            at,
+            metadata: { name: "Bash", status: "started", liveType: "tool.started" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html).toContain('class="run-log-tool-group-elapsed">10s<');
+  expect(html).not.toContain("run-log-action-elapsed--inline");
 });
 
 test("ActivityLogView hides waiting thinking while an MCP tool is running", () => {
@@ -2182,9 +2888,63 @@ test("ActivityLogView hides waiting thinking while an MCP tool is running", () =
     }),
   );
 
-  expect(html).toContain("正在调用 MCP");
+  expect(html).toContain("正在调用 eco_browser · browser snapshot");
   expect(html).not.toContain('aria-label="会话进行中"');
   expect(html).not.toContain("正在思考");
+});
+
+test("ActivityLogView shows external MCP names in running and completed group headers", () => {
+  for (const server of ["mysql", "mongo"]) {
+    for (const phase of ["started", "completed"] as const) {
+      const name = `mcp__${server}__query`;
+      const html = renderToStaticMarkup(
+        createElement(ProjectionActivityLogView, {
+          projection: projection({
+            status: phase === "started" ? "running" : "completed",
+            timeline: [
+              item({
+                id: `${server}-${phase}`,
+                eventType: `tool.${phase}`,
+                text: `Tool: ${name}`,
+                metadata: {
+                  liveType: `tool.${phase}`,
+                  tool: { name, toolUseId: `${server}-query`, status: phase },
+                },
+              }),
+            ],
+          }),
+        }),
+      );
+      expect(html).toContain(`${phase === "started" ? "正在调用" : "调用了"} ${server} · query`);
+      expect(html).not.toContain("正在调用 MCP");
+      expect(html).not.toContain("调用了 MCP 工具");
+    }
+  }
+});
+
+test("ActivityLogView separates mysql and mongo in a completed MCP group summary", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "completed",
+        timeline: ["mysql", "mysql", "mongo"].map((server, index) => {
+          const name = `mcp__${server}__query`;
+          return item({
+            id: `mcp-completed-${index}`,
+            sequence: index + 1,
+            eventType: "tool.completed",
+            text: `Tool: ${name}`,
+            metadata: {
+              liveType: "tool.completed",
+              tool: { name, toolUseId: `mcp-query-${index}`, status: "completed" },
+            },
+          });
+        }),
+      }),
+    }),
+  );
+  expect(html).toContain("已调用 mysql 2 次和已调用 mongo 1 次");
+  expect(html).not.toContain("已调用 3 个 MCP 工具");
 });
 
 test("ActivityLogView hides waiting thinking while a file tool is running", () => {
@@ -2904,7 +3664,7 @@ test("SubagentTaskDrawer shows live running status text in subagent tabs", () =>
 test("ProjectionSubagentDetailFeed groups detail tools across empty terminal thinking rows", () => {
   const subagent = agent({
     agentId: "agent_coder_1",
-    status: "completed",
+    status: "active",
     delegationPrompt: "整理文件操作",
     timeline: [
       item({
@@ -2985,7 +3745,7 @@ test("ProjectionSubagentDetailFeed groups detail tools across empty terminal thi
       agent: subagent,
       missionText: "整理文件操作",
       requestSpansById: new Map(),
-      threadActive: false,
+      threadActive: true,
     }),
   );
 
@@ -3049,7 +3809,7 @@ test("ProjectionSubagentDetailFeed renders follow-up instructions as prompt bubb
         scope: "agent",
         role: "coder",
         requestId: "req_follow_up",
-        text: "状态确认：请立刻停止当前等待，直接汇报你现在的情况：\n\n1. 已执行过哪些命令？是否已成功拿到广州天气数据？\n2. 如果卡在 require_escalated 审批上，请说明具体命令；不要继续无限等待。\n3. 如果已有真实数据，立刻按原格式返回结果；如果没有，明确说\"未获取到\"，并附上失败命令与报错原文。",
+        text: '状态确认：请立刻停止当前等待，直接汇报你现在的情况：\n\n1. 已执行过哪些命令？是否已成功拿到广州天气数据？\n2. 如果卡在 require_escalated 审批上，请说明具体命令；不要继续无限等待。\n3. 如果已有真实数据，立刻按原格式返回结果；如果没有，明确说"未获取到"，并附上失败命令与报错原文。',
         // Persisted V2 user messages can retain only itemType. They are still
         // messages sent by the parent agent and must render as outgoing prompts.
         metadata: { itemType: "userMessage" },
@@ -3232,7 +3992,7 @@ test("ProjectionSubagentDetailFeed replaces a running tool row with its complete
 test("SubagentTaskDrawer renders grouped subagent tool calls in its standalone panel", () => {
   const subagent = agent({
     agentId: "agent_coder_1",
-    status: "completed",
+    status: "active",
     delegationPrompt: "整理文件操作",
     timeline: [
       item({
@@ -3280,13 +4040,13 @@ test("SubagentTaskDrawer renders grouped subagent tool calls in its standalone p
           key: subagent.agentId,
           agent: subagent,
           timelineIds: subagent.timeline.map((entry) => entry.id),
-          running: false,
+          running: true,
           missionText: "整理文件操作",
           openable: true,
         },
       ],
       projection: projection({
-        status: "completed",
+        status: "running",
         timeline: [],
         agents: [subagent],
       }),
@@ -3467,4 +4227,303 @@ test("iconForToolName maps eco browser and image generation tools", () => {
   expect(iconForToolName("WebSearch")).toBe("network");
   expect(iconForToolName("Read")).toBe("read");
   expect(iconForToolName("TotallyUnknown")).toBe("tool");
+});
+
+test("codemode keeps the calls its script made inside the script's card", () => {
+  const view = buildThreadRunProjectionViewModel(
+    projection({
+      status: "completed",
+      timeline: [
+        item({
+          id: "codemode-row",
+          eventType: "tool.completed",
+          text: "Tool: codemode",
+          metadata: {
+            tool: {
+              name: "codemode",
+              toolUseId: "code_1",
+              status: "completed",
+              durationMs: 3_400,
+              codemode: {
+                script: 'const a = await tools.read({ path: "a.ts" });\nreturn a.length;',
+                output: "1234",
+              },
+            },
+          },
+        }),
+        item({
+          id: "codemode-nested-1",
+          eventType: "tool.completed",
+          text: "Tool: read · a.ts",
+          metadata: {
+            conversationV2ParentToolCallId: "code_1",
+            tool: {
+              name: "read",
+              toolUseId: "code_1/1",
+              status: "completed",
+              readTarget: { filePath: "a.ts", fileName: "a.ts" },
+            },
+          },
+        }),
+        item({
+          id: "codemode-nested-2",
+          eventType: "tool.completed",
+          text: "Tool: read · b.ts",
+          metadata: {
+            conversationV2ParentToolCallId: "code_1",
+            tool: {
+              name: "read",
+              toolUseId: "code_1/2",
+              status: "completed",
+              readTarget: { filePath: "b.ts", fileName: "b.ts" },
+            },
+          },
+        }),
+        item({
+          id: "codemode-sibling",
+          eventType: "tool.completed",
+          text: "Tool: read · c.ts",
+          metadata: {
+            tool: {
+              name: "read",
+              toolUseId: "toolu_sibling",
+              status: "completed",
+              readTarget: { filePath: "c.ts", fileName: "c.ts" },
+            },
+          },
+        }),
+      ],
+    }),
+  );
+  const entry = view.mainFeedEntries[0];
+  if (entry?.kind !== "tool-group") {
+    throw new Error("codemode tool group missing");
+  }
+
+  // The header describes what the model asked for: one script and one read, not "已执行 3 个工具".
+  const display = resolveToolGroupDisplayState(entry.entries, Date.now());
+  expect(display.summary.label).toBe("已读取 1 个文件和已运行 1 个代码脚本");
+  // A script alone gets the code icon; next to a file read the group keeps the read icon.
+  expect(display.summary.icon).toBe("read");
+
+  // The card starts collapsed like every other tool child: the row carries the call count, and the
+  // script's panes only reach the DOM once the user opens it.
+  const collapsed = renderToStaticMarkup(
+    createElement(ProjectionToolGroupEntry, {
+      entry,
+      requestSpansById: new Map(),
+      defaultExpanded: true,
+    }),
+  );
+  expect(collapsed).toContain("run-log-codemode");
+  expect(collapsed).toContain("运行了代码脚本");
+  expect(collapsed).toContain("2 次调用");
+  expect(collapsed).toContain('aria-expanded="false"');
+  expect(collapsed).not.toContain("run-log-codemode-details");
+  expect(collapsed).not.toContain("const a = await tools.read");
+  // The model-issued read next to the script keeps its own row; the script's own calls do not —
+  // they live inside the card, not beside it.
+  expect(collapsed).toContain("读取了 c.ts");
+  expect(collapsed).not.toContain("读取了 a.ts");
+  expect(collapsed).not.toContain("读取了 b.ts");
+
+  // Opened, the card is the script, what it called and what it returned.
+  const codemodeBlock = projectionItemToDetailBlock(entry.entries[0]?.item ?? ({} as never));
+  if (codemodeBlock?.kind !== "action") {
+    throw new Error("codemode action block missing");
+  }
+  const html = renderToStaticMarkup(
+    createElement(ProjectionCodemodeDetails, {
+      block: codemodeBlock,
+      nestedChildren: entry.entries.slice(1, 3),
+      requestSpansById: new Map(),
+    }),
+  );
+  expect(html).toContain("run-log-codemode-details");
+  expect(html).toContain("const a = await tools.read");
+  expect(html).toContain("1234");
+  expect(html).toContain("脚本里的调用");
+  expect(html).toContain("run-log-codemode-calls-list");
+  // The script's own calls appear once, nested — not again as siblings of the script.
+  expect(html.match(/读取了 a\.ts/g)?.length).toBe(1);
+  expect(html.match(/读取了 b\.ts/g)?.length).toBe(1);
+  expect(html).not.toContain("读取了 c.ts");
+});
+
+test("codemode keeps a lone script behind its row too", () => {
+  // No nested calls, same disclosure: the row is one line either way and the script stays a click away.
+  const view = buildThreadRunProjectionViewModel(
+    projection({
+      status: "completed",
+      timeline: [
+        item({
+          id: "lone-codemode",
+          eventType: "tool.completed",
+          text: "Tool: codemode",
+          metadata: {
+            tool: {
+              name: "codemode",
+              toolUseId: "code_7",
+              status: "completed",
+              codemode: { script: "return 1 + 1;", output: "2" },
+            },
+          },
+        }),
+      ],
+    }),
+  );
+  const entry = view.mainFeedEntries[0];
+  if (entry?.kind !== "tool-group") {
+    throw new Error("codemode tool group missing");
+  }
+  const html = renderToStaticMarkup(
+    createElement(ProjectionToolGroupEntry, {
+      entry,
+      requestSpansById: new Map(),
+      defaultExpanded: true,
+    }),
+  );
+  expect(html).toContain("run-log-codemode");
+  expect(html).toContain('aria-expanded="false"');
+  expect(html).not.toContain("run-log-codemode-details");
+  expect(html).not.toContain("return 1 + 1;");
+});
+
+test("codemode nests its calls when the legacy row carries the link on the tool metadata", () => {
+  // A legacy thread-run row has no column for the nesting link, so it rides inside `metadata.tool`.
+  // Reading only the conversationV2 key would leave the script's calls as siblings of the script.
+  const view = buildThreadRunProjectionViewModel(
+    projection({
+      status: "completed",
+      timeline: [
+        item({
+          id: "legacy-codemode-row",
+          eventType: "tool.completed",
+          text: "Tool: codemode",
+          metadata: {
+            tool: {
+              name: "codemode",
+              toolUseId: "code_9",
+              status: "completed",
+              codemode: { script: 'tools.bash({ command: "echo one" });', output: "one" },
+            },
+          },
+        }),
+        item({
+          id: "legacy-codemode-nested",
+          eventType: "tool.completed",
+          text: "Tool: Bash · echo one",
+          metadata: {
+            tool: {
+              name: "Bash",
+              toolUseId: "code_9/1",
+              status: "completed",
+              parentToolCallId: "code_9",
+              detail: "echo one",
+            },
+          },
+        }),
+      ],
+    }),
+  );
+  const entry = view.mainFeedEntries[0];
+  if (entry?.kind !== "tool-group") {
+    throw new Error("codemode tool group missing");
+  }
+  // Nesting worked: the header describes the script alone, not the command it ran.
+  expect(resolveToolGroupDisplayState(entry.entries, Date.now()).summary.label).toBe("运行了代码脚本");
+});
+
+test("codemode card caps the height of its script, call list and output panes", () => {
+  // One knob for all three panes: a 300-line script or 60 nested calls must not stretch the Feed.
+  expect(styles).toMatch(/\.run-log-codemode-details\s*\{[^}]*--codemode-pane-max-height:\s*240px;/s);
+  expect(styles).toMatch(
+    /\.run-log-codemode-script \.run-log-bash-command-text\s*\{[^}]*max-height:\s*var\(--codemode-pane-max-height/s,
+  );
+  expect(styles).toMatch(
+    /\.run-log-codemode-calls-list\s*\{[^}]*max-height:\s*var\(--codemode-pane-max-height[^}]*overflow-y:\s*auto;/s,
+  );
+  // RunLogBashOutput renders the scroll wrap without the .run-log-bash-terminal shell, so a cap on
+  // the shell silently never matches — the cap belongs on the wrap.
+  expect(styles).toMatch(
+    /\.run-log-codemode-output \.run-log-bash-output-wrap\s*\{[^}]*max-height:\s*var\(--codemode-pane-max-height[^}]*overflow-y:\s*auto;/s,
+  );
+  expect(styles).not.toMatch(/\.run-log-codemode-output \.run-log-bash-terminal/);
+});
+
+test("codemode lists each call once when PI's details duplicate its own tool rows", () => {
+  const view = buildThreadRunProjectionViewModel(
+    projection({
+      status: "completed",
+      timeline: [
+        item({
+          id: "codemode-row",
+          eventType: "tool.completed",
+          text: "Tool: codemode",
+          metadata: {
+            tool: {
+              name: "codemode",
+              toolUseId: "code_9",
+              status: "completed",
+              codemode: {
+                script: 'await tools.read({ path: "a.ts" });',
+                output: "done",
+                calls: [
+                  // Same id as the tool event PI ran: it already has its own row.
+                  { id: "code_9/1", name: "read", args: '{"path":"a.ts"}', status: "ok", durationMs: 90 },
+                  // Cancelled at script end: no tool event, so only PI's record shows it.
+                  { id: "code_9/?", name: "bash", args: '{"command":"ls"}', status: "cancelled" },
+                ],
+              },
+            },
+          },
+        }),
+        item({
+          id: "codemode-nested",
+          eventType: "tool.completed",
+          text: "Tool: read · a.ts",
+          metadata: {
+            conversationV2ParentToolCallId: "code_9",
+            tool: {
+              name: "read",
+              toolUseId: "code_9/1",
+              status: "completed",
+              readTarget: { filePath: "a.ts", fileName: "a.ts" },
+            },
+          },
+        }),
+      ],
+    }),
+  );
+  const entry = view.mainFeedEntries[0];
+  if (entry?.kind !== "tool-group") {
+    throw new Error("codemode tool group missing");
+  }
+  const codemodeBlock = projectionItemToDetailBlock(entry.entries[0]?.item ?? ({} as never));
+  if (codemodeBlock?.kind !== "action") {
+    throw new Error("codemode action block missing");
+  }
+  // The collapsed row still counts both calls: the badge is what tells the user to open the card.
+  const row = renderToStaticMarkup(
+    createElement(ProjectionToolGroupEntry, {
+      entry,
+      requestSpansById: new Map(),
+      defaultExpanded: true,
+    }),
+  );
+  expect(row).toContain("2 次调用");
+
+  const html = renderToStaticMarkup(
+    createElement(ProjectionCodemodeDetails, {
+      block: codemodeBlock,
+      nestedChildren: entry.entries.slice(1),
+      requestSpansById: new Map(),
+    }),
+  );
+  // The tool row wins; PI's record of the same call adds nothing.
+  expect(html.match(/读取了 a\.ts/g)?.length).toBe(1);
+  expect(html).toContain("run-log-codemode-call");
+  expect(html).toContain("bash");
+  // One row from the tool event plus one record with no row, not 2 + 2.
+  expect(html.match(/run-log-codemode-call"/g)?.length).toBe(1);
 });

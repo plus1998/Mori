@@ -6,6 +6,7 @@ import {
   buildWorkspaceRoot,
   clampTargetColumn,
   clampTargetLine,
+  collectRefreshDirectories,
   fileExtension,
   itemIndex,
   languageForFile,
@@ -104,6 +105,17 @@ test("builds and merges a sorted lazy tree", () => {
 test("returns ancestor directories in loading order", () => {
   expect(ancestorDirectories("/repo", "/repo/src/lib/file.ts")).toEqual(["/repo/src", "/repo/src/lib"]);
   expect(basename("/repo/")).toBe("repo");
+});
+
+test("collects every expanded directory once for a manual refresh, root first", () => {
+  expect(collectRefreshDirectories("/repo", ["/repo", "/repo/src", "/repo/src/lib"])).toEqual([
+    "/repo",
+    "/repo/src",
+    "/repo/src/lib",
+  ]);
+  // The root is re-read even when nothing is expanded, and never listed twice.
+  expect(collectRefreshDirectories("/repo", [])).toEqual(["/repo"]);
+  expect(collectRefreshDirectories("/repo", ["/repo", "/repo"])).toEqual(["/repo"]);
 });
 
 test("builds clickable workspace breadcrumb hierarchy", () => {

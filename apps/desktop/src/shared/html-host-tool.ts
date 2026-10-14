@@ -1,4 +1,4 @@
-import { ECO_HTML_HOST_FULL_TOOL } from "@eco/runtime/eco-html-host-names";
+import { ECO_HTML_HOST_MCP_SERVER } from "@eco/runtime/eco-html-host-names";
 import { buildEcoMcpHubToolUsage } from "./mcp-hub-tool-usage";
 
 export {
@@ -10,13 +10,7 @@ export {
 
 export function buildHtmlHostPromptAppend(): string {
   return [
-    "Built-in HTML page hosting (Eco Artifacts) is available when Supabase Center is connected and html-host Edge Functions are deployed.",
-    buildEcoMcpHubToolUsage({ server: "eco_html_host", tool: "publish_html" }),
-    `When the direct tool \`${ECO_HTML_HOST_FULL_TOOL}\` is explicitly listed, use it to publish a progress / report / stats page.`,
-    "Provide a short `title` and a single self-contained `html` document (inline CSS/JS). Do not draw the Eco chrome / top bar — Eco wraps your content.",
-    "Optional `pageId` updates an existing page's content without resetting TTL.",
-    "On success the tool returns `{ status: \"ok\", pageId, publicUrl, expiresAt, canExtend }`. Tell the user they can open or copy the link from the Feed card.",
-    "Default retention is 7 days; viewers can extend once (+7 days) from the page. Do not invent share URLs.",
-    "Note: on Supabase Cloud without a Custom Domain, shared-domain links may be served as text/plain and fail to render in external browsers — still publish; warn the user if relevant.",
+    "Built-in HTML page hosting (Eco Artifacts): publish or update shareable, self-contained HTML pages for progress reports and statistics.",
+    buildEcoMcpHubToolUsage({ server: ECO_HTML_HOST_MCP_SERVER }),
   ].join("\n");
 }

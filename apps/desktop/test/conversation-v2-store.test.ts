@@ -26,6 +26,62 @@ function createStore(): { db: DatabaseSync; store: ConversationV2Store } {
 }
 
 describe("conversation storage V2", () => {
+  test("hashes the persisted JSON snapshot and survives replay with optional SDK metadata", () => {
+    const { db, store } = createStore();
+    const input = {
+      conversationId: "thread_json_snapshot",
+      eventId: "sdk_notice",
+      type: "noop" as const,
+      occurredAt: "2026-10-12T06:10:12.033Z",
+      payload: {
+        reason: "snapshot.test",
+        source: { metadata: { activityOrigin: "sdk.informational", level: "warning", tag: undefined } },
+        items: [undefined, { absent: undefined, value: "kept" }],
+      },
+    };
+    const first = store.append(input);
+    expect(first.event.payload).toEqual(JSON.parse(JSON.stringify(input.payload)));
+    expect(Object.hasOwn((first.event.payload.source as typeof input.payload.source).metadata, "tag")).toBe(
+      false,
+    );
+    input.payload.source.metadata.level = "mutated after commit";
+    expect((first.event.payload.source as typeof input.payload.source).metadata.level).toBe("warning");
+    store.validateIntegrity(input.conversationId);
+    const restarted = new ConversationV2Store(db);
+    restarted.initialize();
+    expect(
+      restarted.append({
+        ...input,
+        payload: {
+          ...input.payload,
+          source: { metadata: { activityOrigin: "sdk.informational", level: "warning", tag: undefined } },
+        },
+      }).duplicate,
+    ).toBe(true);
+    restarted.rebuildReadModels(input.conversationId);
+    expect(restarted.validateIntegrity(input.conversationId).headSeq).toBe(1);
+    db.close();
+  });
+
+  test("rejects unserializable payloads atomically before persisting a hash", () => {
+    const { db, store } = createStore();
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    for (const payload of [circular, { value: 1n }, { toJSON: () => "not an object" }]) {
+      expect(() =>
+        store.append({
+          conversationId: "thread_json_invalid",
+          eventId: "invalid_json",
+          type: "noop",
+          occurredAt: "2026-10-12T06:10:12.033Z",
+          payload,
+        }),
+      ).toThrow(expect.objectContaining({ code: CONVERSATION_V2_ERROR.invalidParams }));
+    }
+    expect(db.prepare("SELECT COUNT(*) AS count FROM conversation_events_v2").get()).toEqual({ count: 0 });
+    db.close();
+  });
+
   test("replays the shared golden fixture into the same read model", () => {
     const fixturePath = fileURLToPath(
       new URL(

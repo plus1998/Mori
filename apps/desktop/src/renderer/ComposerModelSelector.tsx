@@ -284,7 +284,6 @@ export function ComposerModelSelector({
   const modelMenuId = useId();
   const effortMenuId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const modelNameRef = useRef<HTMLSpanElement>(null);
   const rootPanelRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
   const submenuBackRef = useRef<HTMLButtonElement>(null);
@@ -303,7 +302,6 @@ export function ComposerModelSelector({
     style: { visibility: "hidden" },
     overlay: false,
   }));
-  const [nameTruncated, setNameTruncated] = useState(false);
 
   const selectedOption = useMemo(() => {
     const identity = value ?? templateModel;
@@ -332,6 +330,10 @@ export function ComposerModelSelector({
   const currentModelName = formatComposerModelName(currentModel.modelId, currentModel.displayName);
   const currentEffortLabel = formatComposerThinkingEffortLabel(currentEffort);
   const triggerLabel = `${currentModelName} ${currentEffortLabel}`;
+  // Hover tooltip shows only the provider name — not the model id — and stays
+  // available even when the trigger is disabled.
+  const providerName = currentModel.providerName.trim();
+  const tooltipLabel = providerName || triggerLabel;
   const currentOverrideMissing = Boolean(value && !selectedOption);
   const selectedModelKey = selectedOption ? modelOptionKey(selectedOption) : undefined;
   const selectedModelIndex = Math.max(
@@ -345,35 +347,6 @@ export function ComposerModelSelector({
   const reasoningUnavailable = currentModel.supportsReasoning === false;
   const rootItemCount = value ? 3 : 2;
   const interactionDisabled = Boolean(disabled);
-
-  const measureNameTruncation = useCallback(() => {
-    const el = modelNameRef.current;
-    if (!el) {
-      setNameTruncated(false);
-      return;
-    }
-    setNameTruncated(el.scrollWidth > el.clientWidth + 1);
-  }, []);
-
-  useLayoutEffect(() => {
-    measureNameTruncation();
-  }, [measureNameTruncation, triggerLabel]);
-
-  useEffect(() => {
-    const nameEl = modelNameRef.current;
-    const triggerEl = triggerRef.current;
-    if (!nameEl && !triggerEl) {
-      return;
-    }
-    const observer = new ResizeObserver(measureNameTruncation);
-    if (nameEl) {
-      observer.observe(nameEl);
-    }
-    if (triggerEl) {
-      observer.observe(triggerEl);
-    }
-    return () => observer.disconnect();
-  }, [measureNameTruncation, triggerLabel]);
 
   const updateRootPanelPosition = useCallback(() => {
     const anchor = triggerRef.current;
@@ -973,8 +946,8 @@ export function ComposerModelSelector({
 
   return (
     <ComposerHoverTooltip
-      content={value ? t("composer.model.temporaryOverride", { label: triggerLabel }) : triggerLabel}
-      disabled={open || interactionDisabled || !nameTruncated}
+      content={tooltipLabel}
+      disabled={open}
     >
       <span className="composer-model-selector">
         <button
@@ -984,7 +957,7 @@ export function ComposerModelSelector({
             .filter(Boolean)
             .join(" ")}
           disabled={interactionDisabled}
-          aria-label={t("composer.model.triggerAria", { label: triggerLabel })}
+          aria-label={t("composer.model.triggerAria", { label: providerName ? `${providerName} · ${triggerLabel}` : triggerLabel })}
           aria-haspopup="menu"
           aria-controls={rootMenuId}
           aria-expanded={open}
@@ -1009,7 +982,6 @@ export function ComposerModelSelector({
             thinkingEffort={currentEffort}
             size="medium"
             effortAccent={Boolean(value)}
-            nameRef={modelNameRef}
           />
         </button>
         {popover}

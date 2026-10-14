@@ -44,6 +44,27 @@ test("Codex thread Skill visibility is path-scoped", () => {
   });
 });
 
+test("disabling built-in imagegen preserves user skill switches on repeated config updates", () => {
+  const initial = withCodexSkillConfig({ mcp_servers: {} }, [
+    { path: "/repo/.agents/skills/project/SKILL.md", enabled: true },
+    { path: "/Users/test/.agents/skills/user/SKILL.md", enabled: false },
+  ]);
+  const updated = withCodexSkillConfig(initial, [
+    { path: "/system/imagegen/SKILL.md", enabled: false },
+    { path: "/repo/.agents/skills/project/SKILL.md", enabled: false },
+  ]);
+  expect(updated.skills?.config).toEqual([
+    { path: "/repo/.agents/skills/project/SKILL.md", enabled: false },
+    { path: "/Users/test/.agents/skills/user/SKILL.md", enabled: false },
+    { path: "/system/imagegen/SKILL.md", enabled: false },
+  ]);
+  expect(initial.skills?.config).toEqual([
+    { path: "/repo/.agents/skills/project/SKILL.md", enabled: true },
+    { path: "/Users/test/.agents/skills/user/SKILL.md", enabled: false },
+  ]);
+  expect(withCodexSkillConfig(updated, []).skills).toEqual(updated.skills);
+});
+
 test("native image viewing follows the selected provider without changing other thread features", () => {
   const config = {
     features: { multi_agent: true, hooks: true, multi_agent_v2: false },
@@ -287,6 +308,21 @@ test("official OpenAI subagents retain native image viewing beside custom provid
   expect(customToml).toContain("[features]\nview_image = false");
   expect(result.roleThreadConfigs.explore?.features?.view_image).toBe(true);
   expect(result.roleThreadConfigs.researcher?.features?.view_image).toBe(false);
+});
+
+test("disabled model vision hides Codex native image tools for main and subagent roles", async () => {
+  const config = { features: { multi_agent: true, hooks: true }, mcp_servers: {} };
+  expect(withCodexNativeImageView(config, "openai", false).features?.view_image).toBe(false);
+  const ecoDataDir = await makeTempEcoDataDir();
+  const result = await syncOrchestrationAgentsToCodexRoles({
+    codexHomeDir: resolveCodexHomeDir(ecoDataDir),
+    orchestration: buildOrchestration({ agents: [exploreAgent({ providerId: "openai", modelId: "gpt-5" })] }),
+    templates: [],
+    resolveSupportsImageInput: () => false,
+  });
+  const roleToml = await fs.readFile(path.join(result.agentsDir, "explore.toml"), "utf8");
+  expect(roleToml).toContain("[features]\nview_image = false");
+  expect(result.roleThreadConfigs.explore?.features?.view_image).toBe(false);
 });
 
 test("role TOML carries an explicit apiCompat override in the V1 gateway alias", async () => {

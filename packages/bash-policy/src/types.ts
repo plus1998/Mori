@@ -55,7 +55,7 @@ export interface BashPolicyRules {
   commands: Record<string, CommandRule>;
   pipelines: PipelineRule[];
   workspace: {
-    denyOutsideCwd: boolean;
+    reviewOutsideCwd: boolean;
   };
 }
 

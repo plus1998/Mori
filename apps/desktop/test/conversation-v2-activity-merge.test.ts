@@ -410,7 +410,7 @@ test("renders V2 running execution and tool state when the legacy projection is 
   );
 
   expect(html).toContain("处理中");
-  expect(html).toContain("正在调用 MCP");
+  expect(html).toContain("正在调用 eco · inspect");
   expect(html).toContain("run-log-shimmer-text");
   expect(html).not.toContain("run-log-projection-loading");
   expect(html).not.toContain("正在思考");

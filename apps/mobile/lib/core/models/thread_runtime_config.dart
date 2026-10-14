@@ -210,6 +210,7 @@ ThreadRuntimeConfig buildRuntimeConfigForSelection({
     skillsEnabled: runtimeConfig.skillsEnabled,
     mainAgentModelOverride: null,
     auxiliaryModel: runtimeConfig.auxiliaryModel,
+    approvalModel: runtimeConfig.approvalModel,
     visionModel: runtimeConfig.visionModel,
     sessionMode: runtimeConfig.sessionMode,
     bashReviewMode: runtimeConfig.bashReviewMode,
@@ -255,6 +256,7 @@ ThreadRuntimeConfig buildAcpRuntimeConfig({
   String? bashReviewMode,
   Map<String, bool>? subagentEnabled,
   AuxiliaryModelSelection? auxiliaryModel,
+  ApprovalModelSelection? approvalModel,
   VisionModelSelection? visionModel,
   Map<String, bool>? mcpServersEnabled,
   Map<String, bool>? integrationsEnabled,
@@ -264,6 +266,7 @@ ThreadRuntimeConfig buildAcpRuntimeConfig({
     cursorModelId: selectedModelId?.isEmpty == true ? null : selectedModelId,
     subagentEnabled: normalizeSubagentAvailability(subagentEnabled),
     auxiliaryModel: auxiliaryModel ?? workflow?.defaultAuxiliaryModel,
+    approvalModel: approvalModel ?? workflow?.defaultApprovalModel,
     visionModel: visionModel ?? workflow?.defaultVisionModel,
     mcpServersEnabled: mcpServersEnabled ?? workflow?.mcpServersEnabled,
     integrationsEnabled: integrationsEnabled ?? workflow?.integrationsEnabled,
@@ -318,6 +321,7 @@ ThreadRuntimeConfig buildDefaultRuntimeConfig({
       orchestrationSelection: selection,
       subagentEnabled: defaultSubagentAvailability(),
       auxiliaryModel: workflow?.defaultAuxiliaryModel,
+      approvalModel: workflow?.defaultApprovalModel,
       visionModel: workflow?.defaultVisionModel,
       integrationsEnabled: workflow?.integrationsEnabled,
       sessionMode: resolveSessionMode(sessionMode: workflow?.sessionMode),
@@ -343,7 +347,7 @@ ThreadRuntimeConfig buildDefaultRuntimeConfig({
           remembered: workflow?.mcpServersEnabled,
         );
   final bashReviewMode =
-      defaultBashReviewMode == 'auto' && workflow?.defaultAuxiliaryModel == null
+      defaultBashReviewMode == 'auto' && workflow?.defaultApprovalModel == null
       ? 'always'
       : defaultBashReviewMode;
 
@@ -352,6 +356,7 @@ ThreadRuntimeConfig buildDefaultRuntimeConfig({
     resolvedOrchestrationSnapshot: snapshot,
     subagentEnabled: deriveSubagentEnabledFromSnapshot(snapshot),
     auxiliaryModel: workflow?.defaultAuxiliaryModel,
+    approvalModel: workflow?.defaultApprovalModel,
     visionModel: workflow?.defaultVisionModel,
     mcpServersEnabled: mcpServersEnabled,
     integrationsEnabled: workflow?.integrationsEnabled,
@@ -360,10 +365,10 @@ ThreadRuntimeConfig buildDefaultRuntimeConfig({
   );
 }
 
-ThreadRuntimeConfig downgradeAuxiliaryDependentFeatures(
+ThreadRuntimeConfig downgradeApprovalDependentFeatures(
   ThreadRuntimeConfig runtimeConfig,
 ) {
-  if (runtimeConfig.auxiliaryModel != null ||
+  if (runtimeConfig.approvalModel != null ||
       runtimeConfig.bashReviewMode != 'auto') {
     return runtimeConfig;
   }

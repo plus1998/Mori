@@ -133,6 +133,13 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get settingsMaxOutputDynamic => 'Dynamic';
+
+  @override
+  String get settingsMaxOutputDynamicCaption =>
+      'Each request uses the effective window − current full input tokens − 1, capped by the model output limit. Input counting follows provider settings; local estimates are not exact.';
+
+  @override
   String get settingsMaxOutput => 'Max output';
 
   @override
@@ -155,7 +162,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsModelsCaption =>
-      'Default auxiliary and vision models for new sessions';
+      'Default auxiliary, approval, and vision models for new threads';
 
   @override
   String get settingsAccount => 'Account';
@@ -948,7 +955,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get bashReviewAutoDescription =>
-      'Use the auxiliary model; ask you when risk is detected or review fails';
+      'Use the approval model; ask you when risk is detected or review fails';
 
   @override
   String get bashReviewAllowAll => 'Full access';
@@ -2252,7 +2259,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get composerAuxiliaryModelHint =>
-      'Used for title generation and automatic command approval';
+      'Used for titles and Git commit messages';
 
   @override
   String get composerAuxiliaryModelManualFallback =>
@@ -2290,11 +2297,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get auxiliaryModelRequiredForAutoReview =>
-      'Configure an auxiliary model before enabling automatic reviews';
+      'Configure an approval model before enabling automatic reviews';
 
   @override
   String get auxiliaryModelAutoReviewFallback =>
-      'No auxiliary model is configured. Switched to manual review and continued sending';
+      'No approval model is configured. Switched to manual review and continued sending';
 
   @override
   String get composerReasoning => 'Reasoning';
@@ -2773,4 +2780,23 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get markdownTableRotatePortrait => 'Portrait view';
+
+  @override
+  String get composerApprovalModel => 'Approval model';
+
+  @override
+  String get composerApprovalModelHint =>
+      'Used for automatic tool reviews; supports chat models and SystemOne (Jev)';
+
+  @override
+  String get composerApprovalModelManualFallback =>
+      'Configure an approval model to enable automatic reviews';
+
+  @override
+  String get composerApprovalModelNeedsMainAgent =>
+      'Configure the main Agent before selecting an approval model';
+
+  @override
+  String get composerApprovalModelHintAcp =>
+      'Used for automatic tool reviews; supports chat models and SystemOne (Jev)';
 }

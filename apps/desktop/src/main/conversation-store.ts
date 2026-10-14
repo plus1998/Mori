@@ -48,6 +48,7 @@ import {
 import { readPromptImagePreviews } from "../shared/prompt-image-metadata";
 import {
   mergeThreadRunImageViewMetadata,
+  parseThreadRunCodemodeMetadata,
   parseThreadRunImageViewMetadata,
 } from "../shared/thread-run-events";
 import { keepsOutputPreview, projectThreadRunToolMetadata } from "../shared/thread-run-tool-projection.js";
@@ -59,6 +60,7 @@ import {
   type HistoryCommandRecoveryDecision,
 } from "./conversation-command-recovery";
 import { conversationV2AgentEvent } from "./conversation-v2-agent-events";
+import { migrateCodexCompactionDetails } from "./conversation-v2-compaction-migration";
 import {
   appendLegacyThreadRunEventToConversationV2,
   conversationV2MessageIdForLegacyEvent,
@@ -1436,6 +1438,7 @@ export class ConversationStore {
         throw error;
       }
     }
+    migrateCodexCompactionDetails(this.db, this.v2);
   }
 
   /**
@@ -3549,7 +3552,36 @@ export class ConversationStore {
     if (!existing || existing.status !== "queued") {
       return undefined;
     }
-    return this.updateThreadFollowUpStatus(threadId, followUpId, { status: "cancelled" });
+    const message = existing.conversationMessageId
+      ? this.v2.getMessage(threadId, existing.conversationMessageId)
+      : undefined;
+    if (existing.conversationMessageId && !message) {
+      throw new Error("Queued follow-up has no accepted conversation message to cancel.");
+    }
+    if (message) this.v2.validateIntegrity(threadId);
+    const results: ConversationAppendResult[] = [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (message && !message.isDeleted && message.status === "queued") {
+        const sourceEventKey = `desktop:user:follow-up-abandoned:${threadId}:${message.messageId}:follow-up-cancelled`;
+        results.push(this.v2.appendInCurrentTransaction({
+          conversationId: threadId,
+          eventId: `desktop_v2_follow_up_abandoned_${stableHash(sourceEventKey)}`,
+          sourceEventKey,
+          type: "history.deleted",
+          occurredAt: new Date().toISOString(),
+          messageId: message.messageId,
+          payload: { reason: "follow-up-cancelled", affectedMessageIds: [message.messageId] },
+        }));
+      }
+      const cancelled = this.updateThreadFollowUpStatus(threadId, followUpId, { status: "cancelled" });
+      this.db.exec("COMMIT");
+      this.v2.publishCommitted(results);
+      return cancelled;
+    } catch (error) {
+      rollbackConversationTransaction(this.db);
+      throw error;
+    }
   }
 
   updateThreadFollowUp(
@@ -3570,16 +3602,55 @@ export class ConversationStore {
       return undefined;
     }
     const now = new Date().toISOString();
-    this.db
-      .prepare(
+    // The queue and accepted user message must commit together. A half edit leaves
+    // history/startup recovery showing or resending the original text/images.
+    const message = existing.conversationMessageId
+      ? this.v2.getMessage(threadId, existing.conversationMessageId)
+      : undefined;
+    if (existing.conversationMessageId && (!message || message.status !== "queued" || message.isDeleted)) {
+      throw new Error("Queued follow-up has no editable accepted conversation message.");
+    }
+    const results: ConversationAppendResult[] = [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (message) {
+        const sourceEventKey = `desktop:user:follow-up-edit:${threadId}:${followUpId}:${message.contentVersion + 1}`;
+        results.push(this.v2.appendInCurrentTransaction({
+          conversationId: threadId,
+          eventId: `desktop_v2_follow_up_edit_${stableHash(sourceEventKey)}`,
+          sourceEventKey,
+          type: "message.replaced",
+          occurredAt: now,
+          messageId: message.messageId,
+          payload: {
+            body: prompt,
+            baseContentVersion: message.contentVersion,
+            nextContentVersion: message.contentVersion + 1,
+            attachments: (attachments ?? []).map(({ mediaType, contentRef, byteLength, data }) => ({
+              mediaType,
+              ...(contentRef ? { contentRef } : {}),
+              ...(!contentRef && data ? { data } : {}),
+              ...(byteLength !== undefined ? { byteLength } : {}),
+            })),
+          },
+        }));
+      }
+      this.db
+        .prepare(
         `UPDATE ${this.pendingFollowupsTable()}
          SET prompt = ?,
              attachments_json = ?,
              updated_at = ?
          WHERE thread_id = ? AND id = ?`,
       )
-      .run(prompt, attachments ? JSON.stringify(attachments) : null, now, threadId, followUpId);
-    this.db.prepare(`UPDATE threads SET updated_at = ? WHERE id = ?`).run(now, threadId);
+        .run(prompt, attachments ? JSON.stringify(attachments) : null, now, threadId, followUpId);
+      this.db.prepare(`UPDATE threads SET updated_at = ? WHERE id = ?`).run(now, threadId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      rollbackConversationTransaction(this.db);
+      throw error;
+    }
+    this.v2.publishCommitted(results);
     return this.getThreadFollowUp(threadId, followUpId);
   }
 
@@ -3802,11 +3873,14 @@ export class ConversationStore {
       deliveryMode?: ThreadFollowUpDeliveryMode;
       targetRunAttemptId?: string;
       priority?: ThreadFollowUpPriority;
+      /** Claim this one independently delivered answer without consuming ordinary rows. */
+      followUpId?: string;
       deliveryBoundary?: ThreadFollowUpBoundary;
       excludeFollowUpId?: string;
     },
   ): ThreadPendingFollowUp[] {
     const queued = this.listThreadFollowUps(threadId, { statuses: ["queued"] })
+      .filter((followUp) => !input?.followUpId || followUp.id === input.followUpId)
       .filter((followUp) => !input?.priority || followUp.priority === input.priority)
       .filter((followUp) => !input?.excludeFollowUpId || followUp.id !== input.excludeFollowUpId)
       .slice(0, 1);
@@ -9960,7 +10034,9 @@ function isRicherThreadRunToolMetadata(
         incoming.imageView ||
         incoming.imageDisplay ||
         incoming.htmlHost ||
-        incoming.mcpDiscovery,
+        incoming.mcpDiscovery ||
+        incoming.codemode ||
+        incoming.parentToolCallId,
     );
   }
   if (existing.name !== incoming.name) {
@@ -9981,7 +10057,9 @@ function isRicherThreadRunToolMetadata(
       (incoming.imageView && !isSameJsonValue(incoming.imageView, existing.imageView)) ||
       (incoming.imageDisplay && !isSameJsonValue(incoming.imageDisplay, existing.imageDisplay)) ||
       (incoming.htmlHost && !isSameJsonValue(incoming.htmlHost, existing.htmlHost)) ||
-      (incoming.mcpDiscovery && !isSameJsonValue(incoming.mcpDiscovery, existing.mcpDiscovery)),
+      (incoming.mcpDiscovery && !isSameJsonValue(incoming.mcpDiscovery, existing.mcpDiscovery)) ||
+      (incoming.codemode && !isSameJsonValue(incoming.codemode, existing.codemode)) ||
+      (incoming.parentToolCallId && incoming.parentToolCallId !== existing.parentToolCallId),
   );
 }
 
@@ -10009,6 +10087,7 @@ function readThreadRunToolMetadata(
   const htmlHost = parseThreadRunHtmlHostMetadata(raw.htmlHost);
   const mcpDiscovery = parseThreadRunMcpDiscoveryMetadata(raw.mcpDiscovery);
   const webSearch = parseThreadRunWebSearchMetadata(raw.webSearch);
+  const codemode = parseThreadRunCodemodeMetadata(raw.codemode);
   return {
     name,
     ...(typeof raw.detail === "string" && raw.detail.trim() && { detail: raw.detail.trim() }),
@@ -10036,6 +10115,9 @@ function readThreadRunToolMetadata(
     ...(mcpDiscovery && { mcpDiscovery }),
     ...(sendMessage && { sendMessage }),
     ...(webSearch && { webSearch }),
+    ...(typeof raw.parentToolCallId === "string" &&
+      raw.parentToolCallId.trim() && { parentToolCallId: raw.parentToolCallId.trim() }),
+    ...(codemode && { codemode }),
   };
 }
 

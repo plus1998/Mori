@@ -92,7 +92,7 @@ test("buildEcoComputerUsePromptAppend mentions shared desktop and MCP server", (
   const append = buildEcoComputerUsePromptAppend();
   expect(append).toContain("eco_computer_use");
   expect(append).toContain("shared across conversations");
-  expect(append).toContain("Do NOT shell");
+  expect(append).toContain("do not launch substitute MCP servers or CLIs");
 });
 
 test("openComputerUseNativeRelativePath maps current platforms", () => {

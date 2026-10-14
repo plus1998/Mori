@@ -1,8 +1,9 @@
-import { Folder, Search } from "lucide-react";
+import { Clock3, Folder, Search } from "lucide-react";
 import { type RefObject, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ThreadSummary } from "../shared/ipc";
+import type { ScheduleDefinition } from "../shared/scheduling";
 
 export interface SidebarSearchProject {
   path: string;
@@ -11,19 +12,25 @@ export interface SidebarSearchProject {
 
 export type SidebarSearchResult =
   | { kind: "thread"; key: string; thread: ThreadSummary; projectName: string }
+  | { kind: "scheduled_message"; key: string; message: ScheduleDefinition; thread: ThreadSummary }
   | { kind: "project"; key: string; project: SidebarSearchProject };
 
 interface SidebarSearchDialogProps {
   open: boolean;
   threads: readonly ThreadSummary[];
   projects: readonly SidebarSearchProject[];
+  scheduledMessages?: readonly ScheduleDefinition[];
+  schedulingError?: string;
   onClose: () => void;
   onSelectThread: (thread: ThreadSummary) => void;
   onSelectProject: (path: string) => void;
+  onSelectScheduledMessage?: (message: ScheduleDefinition, thread: ThreadSummary) => void;
 }
 
 const MAX_THREAD_RESULTS = 10;
 const MAX_PROJECT_RESULTS = 8;
+const MAX_MESSAGE_RESULTS = 10;
+const EMPTY_MESSAGES: readonly ScheduleDefinition[] = [];
 
 function normalizeSearchText(value: string): string {
   return value.trim().toLocaleLowerCase();
@@ -33,6 +40,7 @@ export function buildSidebarSearchResults(
   threads: readonly ThreadSummary[],
   projects: readonly SidebarSearchProject[],
   query: string,
+  scheduledMessages: readonly ScheduleDefinition[] = EMPTY_MESSAGES,
 ): SidebarSearchResult[] {
   const normalizedQuery = normalizeSearchText(query);
   const projectNames = new Map(projects.map((project) => [project.path, project.name]));
@@ -66,16 +74,31 @@ export function buildSidebarSearchResults(
         project,
       }),
     );
-  return [...threadResults, ...projectResults];
+  const threadsById = new Map(threads.map(thread => [thread.id, thread]));
+  const messageResults: SidebarSearchResult[] = [];
+  for (const message of [...scheduledMessages].sort((left, right) =>
+    (left.nextRunAt ?? "9999").localeCompare(right.nextRunAt ?? "9999") || right.createdAt.localeCompare(left.createdAt))) {
+    if (message.kind !== "session_message" || !message.threadId) continue;
+    const thread = threadsById.get(message.threadId);
+    if (!thread) continue;
+    if (normalizedQuery && ![message.name, message.prompt, thread.title].some(text => normalizeSearchText(text).includes(normalizedQuery))) continue;
+    messageResults.push({ kind: "scheduled_message", key: `scheduled_message:${message.id}`, message, thread });
+    if (messageResults.length === MAX_MESSAGE_RESULTS) break;
+  }
+  return [...threadResults.filter(result => result.kind === "thread" && result.thread.status === "running"), ...messageResults,
+    ...threadResults.filter(result => result.kind === "thread" && result.thread.status !== "running"), ...projectResults];
 }
 
 export function SidebarSearchDialog({
   open,
   threads,
   projects,
+  scheduledMessages = EMPTY_MESSAGES,
+  schedulingError,
   onClose,
   onSelectThread,
   onSelectProject,
+  onSelectScheduledMessage,
 }: SidebarSearchDialogProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -85,8 +108,8 @@ export function SidebarSearchDialog({
   const activeResultRef = useRef<HTMLButtonElement>(null);
   const listboxId = useId();
   const results = useMemo(
-    () => buildSidebarSearchResults(threads, projects, deferredQuery),
-    [deferredQuery, projects, threads],
+    () => buildSidebarSearchResults(threads, projects, deferredQuery, scheduledMessages),
+    [deferredQuery, projects, threads, scheduledMessages],
   );
   const runningThreadResults = results.filter(
     (result) => result.kind === "thread" && result.thread.status === "running",
@@ -95,6 +118,7 @@ export function SidebarSearchDialog({
     (result) => result.kind === "thread" && result.thread.status !== "running",
   );
   const projectResults = results.filter((result) => result.kind === "project");
+  const messageResults = results.filter(result => result.kind === "scheduled_message");
   const activeResult = results[activeIndex];
 
   useEffect(() => {
@@ -125,6 +149,8 @@ export function SidebarSearchDialog({
     if (!result) return;
     if (result.kind === "thread") {
       onSelectThread(result.thread);
+    } else if (result.kind === "scheduled_message") {
+      onSelectScheduledMessage?.(result.message, result.thread);
     } else {
       onSelectProject(result.project.path);
     }
@@ -192,6 +218,7 @@ export function SidebarSearchDialog({
           role="listbox"
           aria-label={t("nav.searchResults")}
         >
+          {schedulingError && <div className="sidebar-search-empty" role="alert">{schedulingError}</div>}
           {results.length === 0 ? (
             <div className="sidebar-search-empty">{t("nav.noSearchResults")}</div>
           ) : (
@@ -208,6 +235,16 @@ export function SidebarSearchDialog({
                   onSelect={selectResult}
                 />
               ) : null}
+              {messageResults.length > 0 ? <SearchResultGroup
+                label={t("scheduling.session_message")}
+                results={messageResults}
+                allResults={results}
+                activeIndex={activeIndex}
+                listboxId={listboxId}
+                activeResultRef={activeResultRef}
+                onActivate={setActiveIndex}
+                onSelect={selectResult}
+              /> : null}
               {recentThreadResults.length > 0 ? (
                 <SearchResultGroup
                   label={t("nav.threads")}
@@ -262,6 +299,7 @@ function SearchResultGroup({
   onActivate,
   onSelect,
 }: SearchResultGroupProps) {
+  const { t, i18n } = useTranslation();
   return (
     <section className="sidebar-search-group" aria-label={label}>
       <h2>{label}</h2>
@@ -282,13 +320,14 @@ function SearchResultGroup({
               onClick={() => onSelect(result)}
             >
               <span className="sidebar-search-result-icon" aria-hidden>
-                {result.kind === "project" ? <Folder size={17} /> : <span />}
+                {result.kind === "project" ? <Folder size={17} /> : result.kind === "scheduled_message" ? <Clock3 size={17}/> : <span />}
               </span>
               <span className="sidebar-search-result-title">
-                {result.kind === "thread" ? result.thread.title : result.project.name}
+                {result.kind === "project" ? result.project.name : result.kind === "scheduled_message" ? result.message.name : result.thread.title}
               </span>
               <span className="sidebar-search-result-meta">
-                {result.kind === "thread" ? result.projectName : result.project.path}
+                {result.kind === "project" ? result.project.path : result.kind === "thread" ? result.projectName :
+                  `${result.thread.title} · ${result.message.error ? t("scheduling.needsAttention") : result.message.enabled && result.message.nextRunAt ? new Date(result.message.nextRunAt).toLocaleString(i18n.language) : t("scheduling.paused")}`}
               </span>
             </button>
           );

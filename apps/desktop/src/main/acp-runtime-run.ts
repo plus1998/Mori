@@ -68,6 +68,8 @@ export interface AcpRuntimeOrchestrationDeps {
   resolveAcpCursorEnv?: () => NodeJS.ProcessEnv;
   /** Composer-selected Eco MCP servers mapped to ACP `mcpServers`. */
   resolveAcpMcpServers?: (input: { threadId: string; workspacePath: string }) => Promise<AcpMcpServer[]>;
+  /** ACP has no system-prompt field, so pass Eco integration guidance as turn context. */
+  resolveAcpSystemPromptAppend?: (input: { threadId: string }) => string | undefined;
   resolvePromptImagesForMainContext?: (input: {
     threadId: string;
     prompt: string;
@@ -311,7 +313,7 @@ export async function startAcpThreadRunWithDriver(
           workspacePath: input.workspace.path,
         })
       : [];
-    const promptForAgent = deps.resolvePromptImagesForMainContext
+    const resolvedPrompt = deps.resolvePromptImagesForMainContext
       ? await deps.resolvePromptImagesForMainContext({
           threadId: input.thread.id,
           prompt: input.prompt,
@@ -319,6 +321,10 @@ export async function startAcpThreadRunWithDriver(
           signal: controller.signal,
         })
       : input.prompt;
+    const systemPromptAppend = deps.resolveAcpSystemPromptAppend?.({ threadId: input.thread.id })?.trim();
+    const promptForAgent = systemPromptAppend
+      ? `${systemPromptAppend}\n\n${resolvedPrompt}`
+      : resolvedPrompt;
     const onCreatePlan = deps.resolveAcpCreatePlanHandler?.({
       threadId: input.thread.id,
       workspacePath: input.workspace.path,

@@ -3,11 +3,14 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { removeTempDirectory } from "./helpers/temp-directory";
+import type { ConversationEffect } from "@eco/shared";
 import { ConversationStore } from "../src/main/conversation-store";
 import { ConversationV2RuntimeWriter } from "../src/main/conversation-v2-runtime-writer";
+import { buildThreadRunProjectionRequestSpans } from "../src/main/conversation-v2-runtime-projection";
 import { ConversationV2Store } from "../src/main/conversation-v2-store";
+import { isConversationV2ProjectionRefreshEffect } from "../src/renderer/projection-extras-refresh";
 import type { ThreadRunEventInput } from "../src/shared/thread-run-events";
+import { removeTempDirectory } from "./helpers/temp-directory";
 
 function setup() {
   const db = new DatabaseSync(":memory:");
@@ -40,6 +43,68 @@ function snapshot(body: string, final = false): ThreadRunEventInput {
   };
 }
 
+test("empty thinking starts persist without an unfinished message and hydrate into content", () => {
+  const { db, v2, writer } = setup();
+  const published: ConversationEffect[] = [];
+  v2.onCommitted((result) => published.push(result.effect.effect));
+  const start: ThreadRunEventInput = {
+    ...snapshot(""),
+    eventType: "thinking.delta",
+    requestId: "req-thinking",
+    role: "thinking",
+    streamState: "placeholder",
+  };
+  try {
+    writer.append(start);
+    expect(published.at(-1)).toEqual({ type: "noop", reason: "runtime.thinking.changed" });
+    expect(isConversationV2ProjectionRefreshEffect(published.at(-1)!)).toBe(true);
+    const read = () =>
+      db.prepare("SELECT event_type, stream_state, message FROM conversation_provider_events_v2").all();
+    const spans = () => {
+      const rows = db
+        .prepare(`SELECT p.source_json, v.sequence, v.message
+        FROM conversation_provider_inputs_v2 p JOIN conversation_provider_events_v2 v ON v.id = p.input_id`)
+        .all() as Array<{ source_json: string; sequence: number; message: string }>;
+      return buildThreadRunProjectionRequestSpans({
+        threadStatus: "running",
+        events: rows.map((row) => ({
+          ...JSON.parse(row.source_json),
+          sequence: row.sequence,
+          message: row.message,
+        })),
+      });
+    };
+    expect(v2.bootstrap("thread").messages).toEqual([]);
+    expect(read()).toEqual([{ event_type: "thinking.delta", stream_state: "placeholder", message: "" }]);
+    expect(spans()[0]?.pendingThinkingSince).toBe(start.observedAt);
+    const messageId = spans()[0]?.pendingThinkingMessageId;
+    v2.rebuildReadModels("thread");
+    expect(v2.bootstrap("thread").messages).toEqual([]);
+    expect(read()).toEqual([{ event_type: "thinking.delta", stream_state: "placeholder", message: "" }]);
+    expect(spans()[0]?.pendingThinkingSince).toBe(start.observedAt);
+    writer.append({ ...start, streamState: "streaming", message: " " });
+    expect(spans()[0]?.pendingThinkingSince).toBe(start.observedAt);
+    writer.append({ ...start, streamState: "streaming", message: "先检查实现" });
+    expect(spans()[0]?.pendingThinkingSince).toBeUndefined();
+    expect(read()).toEqual([
+      { event_type: "thinking.delta", stream_state: "streaming", message: "先检查实现" },
+    ]);
+    expect(v2.bootstrap("thread").messages).toHaveLength(1);
+    expect(v2.bootstrap("thread").messages[0]).toMatchObject({ body: "先检查实现", channel: "thinking" });
+    expect(v2.bootstrap("thread").messages[0]?.messageId).toBe(messageId);
+    expect(
+      published.some(
+        (effect) => effect.type === "message.create" && isConversationV2ProjectionRefreshEffect(effect),
+      ),
+    ).toBe(true);
+    v2.rebuildReadModels("thread");
+    expect(v2.bootstrap("thread").messages).toHaveLength(1);
+    expect(v2.bootstrap("thread").messages[0]?.body).toBe("先检查实现");
+  } finally {
+    db.close();
+  }
+});
+
 test("native provider snapshots append only new text and old replays cannot overwrite newer content", () => {
   const { db, v2, writer } = setup();
   try {
@@ -64,6 +129,43 @@ test("native provider snapshots append only new text and old replays cannot over
     expect(db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'thread_%'").all()).toEqual([]);
     v2.rebuildReadModels("thread");
     expect(v2.bootstrap("thread").messages[0]?.body).toBe("hello 🌏");
+  } finally {
+    db.close();
+  }
+});
+
+test("SDK informational notices without a tag remain valid after runtime ingestion and restart", () => {
+  const { db, v2, writer } = setup();
+  try {
+    const notice: ThreadRunEventInput = {
+      threadId: "thread",
+      id: "sdk-warning",
+      runAttemptId: "run",
+      eventType: "diagnostic",
+      scope: "main",
+      role: "system",
+      streamState: "none",
+      message: "Provider warning",
+      observedAt: "2026-10-12T06:10:12.033Z",
+      metadata: {
+        activityOrigin: "sdk.informational",
+        level: "warning",
+        tag: undefined,
+        liveType: "sdk.notice",
+      },
+    };
+    const first = writer.append(notice);
+    const headSeq = v2.head("thread").lastSeq;
+    expect(v2.validateIntegrity("thread").headSeq).toBe(headSeq);
+    const restarted = new ConversationV2Store(db);
+    restarted.initialize();
+    expect(new ConversationV2RuntimeWriter(db, restarted).append(notice)).toMatchObject({
+      duplicate: true,
+      event: { sequence: first.event.sequence },
+    });
+    restarted.rebuildReadModels("thread");
+    expect(restarted.bootstrap("thread").messages[0]?.body).toBe("Provider warning");
+    expect(restarted.validateIntegrity("thread").headSeq).toBe(headSeq);
   } finally {
     db.close();
   }
@@ -201,6 +303,125 @@ test("native tools require explicit run ownership and never invent synthetic run
   }
 });
 
+test("a codemode script's own calls keep the script as their parent tool", () => {
+  const { db, v2, writer } = setup();
+  try {
+    writer.append({
+      threadId: "thread",
+      id: "script-start",
+      runAttemptId: "run",
+      eventType: "tool.started",
+      role: "tool",
+      scope: "main",
+      streamState: "final",
+      message: "Tool: codemode",
+      observedAt: "2026-09-18T00:00:01Z",
+      metadata: { tool: { toolUseId: "code_1", name: "codemode", input: { code: "tools.bash({});" } } },
+    });
+    // PI issues the nested call itself and names the script as its parent. The link must reach the
+    // tool row, or the Feed counts the script's own calls as commands the model issued.
+    writer.append({
+      threadId: "thread",
+      id: "nested-start",
+      runAttemptId: "run",
+      eventType: "tool.started",
+      role: "tool",
+      scope: "main",
+      streamState: "final",
+      message: "Tool: Bash",
+      observedAt: "2026-09-18T00:00:02Z",
+      metadata: {
+        tool: {
+          toolUseId: "code_1/1",
+          name: "Bash",
+          input: { command: "echo one" },
+          parentToolCallId: "code_1",
+        },
+      },
+    });
+    writer.append({
+      threadId: "thread",
+      id: "nested-end",
+      runAttemptId: "run",
+      eventType: "tool.completed",
+      role: "tool",
+      scope: "main",
+      streamState: "final",
+      message: "Tool: Bash",
+      observedAt: "2026-09-18T00:00:03Z",
+      metadata: { tool: { toolUseId: "code_1/1", name: "Bash", outputPreview: "one", parentToolCallId: "code_1" } },
+    });
+    expect(
+      db
+        .prepare(
+          "SELECT tool_call_id, parent_tool_call_id, status FROM conversation_tool_calls_v2 ORDER BY tool_call_id",
+        )
+        .all(),
+    ).toEqual([
+      { tool_call_id: "code_1", parent_tool_call_id: null, status: "running" },
+      { tool_call_id: "code_1/1", parent_tool_call_id: "code_1", status: "completed" },
+    ]);
+  } finally {
+    db.close();
+  }
+});
+
+test("the store's own append keeps a codemode call's link to the script that made it", () => {
+  // The live chain appends through ConversationStore, which sanitizes tool metadata field by field
+  // before the writer sees it. A link that survives the writer but not the sanitizer never reaches
+  // the row, and the Feed reads the script's own calls as commands the model issued.
+  const db = new DatabaseSync(":memory:");
+  try {
+    const store = new ConversationStore(db, { freshStorageMode: "v2_only" });
+    store.initialize();
+    store.conversationV2().ensureConversation("thread");
+    store.upsertRunAttempt({
+      threadId: "thread",
+      attemptId: "run",
+      phase: "execution",
+      retryIndex: 0,
+      status: "running",
+      startedAt: "2026-09-18T00:00:00Z",
+    });
+    store.appendConversationRuntimeEvent({
+      threadId: "thread",
+      id: "script-end",
+      runAttemptId: "run",
+      eventType: "tool.completed",
+      role: "tool",
+      scope: "main",
+      streamState: "final",
+      message: "Tool: codemode",
+      observedAt: "2026-09-18T00:00:02Z",
+      metadata: { tool: { toolUseId: "code_1", name: "codemode", outputPreview: "one" } },
+    });
+    store.appendConversationRuntimeEvent({
+      threadId: "thread",
+      id: "nested-end",
+      runAttemptId: "run",
+      eventType: "tool.completed",
+      role: "tool",
+      scope: "main",
+      streamState: "final",
+      message: "Tool: Bash",
+      observedAt: "2026-09-18T00:00:03Z",
+      metadata: { tool: { toolUseId: "code_1/1", name: "Bash", outputPreview: "one", parentToolCallId: "code_1" } },
+    });
+    expect(
+      db
+        .prepare(
+          "SELECT tool_call_id, parent_tool_call_id FROM conversation_tool_calls_v2 ORDER BY tool_call_id",
+        )
+        .all(),
+    ).toEqual([
+      { tool_call_id: "code_1", parent_tool_call_id: null },
+      { tool_call_id: "code_1/1", parent_tool_call_id: "code_1" },
+    ]);
+  } finally {
+    db.close();
+  }
+});
+
 test("a child lifecycle terminal event keeps its original run and role after the parent starts another run", () => {
   const { db, v2, writer } = setup();
   try {
@@ -255,8 +476,9 @@ test("a child lifecycle terminal event keeps its original run and role after the
     v2.rebuildReadModels("thread");
     expect(v2.agentsOf("thread")[0]).toMatchObject({ runId: "run", role: "explore", status: "completed" });
 
-    expect(() => writer.append({ ...stopped, id: "wrong-parent", parentToolUseId: "another-call" }))
-      .toThrow(/changed identity or ownership/);
+    expect(() => writer.append({ ...stopped, id: "wrong-parent", parentToolUseId: "another-call" })).toThrow(
+      /changed identity or ownership/,
+    );
     expect(v2.head("thread").lastSeq).toBe(head);
   } finally {
     db.close();
@@ -526,6 +748,65 @@ test("history invalidation hides provider identities and rejects late resurrecti
       expect(() => writer.append(snapshot("late result", true))).toThrow(/late updates are rejected/);
       expect(v2.head("thread").lastSeq).toBe(head);
     }
+  } finally {
+    db.close();
+  }
+});
+
+/**
+ * `tool.writing` is a real runtime fact ("the model is writing this call") that must be
+ * durable enough for the projection to read, but it is not a tool. If it ever landed as a
+ * tool row the Feed would show an empty card for a call that has not been made yet.
+ */
+test("a tool-writing fact persists for the projection without inventing a tool row", () => {
+  const { db, v2, writer } = setup();
+  try {
+    writer.append({
+      threadId: "thread",
+      id: "writing-fact",
+      runAttemptId: "run",
+      requestId: "req_1",
+      eventType: "tool.writing",
+      scope: "main",
+      role: "tool",
+      streamState: "none",
+      message: "create_file",
+      observedAt: "2026-09-18T00:00:01Z",
+      metadata: { liveType: "tool.writing" },
+    });
+
+    // Readable back as a runtime source, which is what the projection consumes.
+    const sources = db
+      .prepare("SELECT event_type, message FROM conversation_provider_events_v2 ORDER BY sequence ASC")
+      .all() as unknown as Array<{ event_type: string; message: string }>;
+    expect(sources).toEqual([{ event_type: "tool.writing", message: "create_file" }]);
+
+    // No tool summary, no message body, nothing the Feed can render as a card.
+    expect(db.prepare("SELECT tool_call_id FROM conversation_tool_calls_v2").all()).toEqual([]);
+    expect(v2.bootstrap("thread").messages).toHaveLength(0);
+    expect(
+      db
+        .prepare("SELECT type FROM conversation_events_v2 WHERE type IN ('tool.started','tool.updated')")
+        .all(),
+    ).toEqual([]);
+
+    // Replaying the same fact is a duplicate, not a second row.
+    expect(
+      writer.append({
+        threadId: "thread",
+        id: "writing-fact",
+        runAttemptId: "run",
+        requestId: "req_1",
+        eventType: "tool.writing",
+        scope: "main",
+        role: "tool",
+        streamState: "none",
+        message: "create_file",
+        observedAt: "2026-09-18T00:00:01Z",
+        metadata: { liveType: "tool.writing" },
+      }).duplicate,
+    ).toBe(true);
+    expect(db.prepare("SELECT * FROM conversation_provider_events_v2").all()).toHaveLength(1);
   } finally {
     db.close();
   }

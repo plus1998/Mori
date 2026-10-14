@@ -35,6 +35,7 @@ type AgentResourceSelectedNode = { kind: "agent"; agentKey: string };
 function selectPresetDefaultProvider(
   providers: readonly ProviderConfigView[],
 ): ProviderConfigView | undefined {
+  providers = providers.filter((provider) => provider.apiCompat !== "system_one");
   return (
     providers.find((provider) => provider.enabled && provider.defaultModel.trim()) ??
     providers.find((provider) => provider.defaultModel.trim())
@@ -331,7 +332,7 @@ export function AgentResourceEditorModal({
                   <SubagentOrchestrationRosterEditor
                     agents={form.agents}
                     templates={templates}
-                    providers={providers}
+                    providers={providers.filter((provider) => provider.apiCompat !== "system_one")}
                     busy={busy}
                     {...(selectedAgentKey !== undefined ? { selectedAgentKey } : {})}
                     onAddAgent={handleAddAgentToRoster}
@@ -350,7 +351,7 @@ export function AgentResourceEditorModal({
                     template={selectedAgentTemplate}
                     templates={templates}
                     mcpServers={mcpServers}
-                    providers={providers}
+                    providers={providers.filter((provider) => provider.apiCompat !== "system_one")}
                     busy={busy}
                     onClose={() => setSelectedNode(null)}
                     onPatchAgent={patchAgent}
@@ -386,7 +387,7 @@ export function AgentResourceEditorModal({
                     candidateModelId={form.mainCandidateModelId}
                     thinkingEffort={form.mainThinkingEffort}
                     apiCompat={form.mainApiCompat}
-                    providers={providers}
+                    providers={providers.filter((provider) => provider.apiCompat !== "system_one")}
                     candidates={mainCandidates}
                     candidatesLoading={mainCandidatesLoading}
                     {...(selectedMainCandidate ? { selectedCandidate: selectedMainCandidate } : {})}
@@ -590,7 +591,7 @@ function ApiCompatSelect({
         onChange={onChange}
       >
         <option value="">{t("common.default")}</option>
-        {UPSTREAM_API_COMPAT_OPTIONS.map((option) => (
+        {UPSTREAM_API_COMPAT_OPTIONS.filter((option) => option.value !== "system_one").map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>
@@ -641,13 +642,13 @@ function ResourceNodeCandidateModelFields({
             showPlaceholder={providers.length === 0}
             placeholder={t("settings.models.addCandidatesFirst")}
             renderOptionIcon={(option) =>
-              option.value === "eco-coding-chatgpt" ? (
-                <img src="./provider-icons/openai.svg" alt="" />
-              ) : null
+              option.value === "eco-coding-chatgpt" ? <img src="./provider-icons/openai.svg" alt="" /> : null
             }
             onChange={onProviderChange}
           >
-            {providers.map((provider) => (
+            {providers
+              .filter((provider) => provider.apiCompat !== "system_one")
+              .map((provider) => (
               <option key={provider.id} value={provider.id}>
                 {provider.name}
               </option>
@@ -770,7 +771,7 @@ function SubagentRosterAgentConfigPanel({
           candidateModelId={agent.candidateModelId}
           thinkingEffort={agent.thinkingEffort}
           apiCompat={agent.apiCompat}
-          providers={providers}
+          providers={providers.filter((provider) => provider.apiCompat !== "system_one")}
           candidates={nodeCandidates}
           candidatesLoading={nodeCandidatesLoading}
           {...(selectedCandidate ? { selectedCandidate } : {})}

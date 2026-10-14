@@ -1,3 +1,4 @@
+import type { TtsArtifact, TtsArtifactListRequest, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSaveInput, TtsSettingsSnapshot } from "./tts";
 import type {
   ThreadRunProjectionRequestSpan,
   ThreadRunProjectionSnapshot,
@@ -17,6 +18,13 @@ import type { McpSettingsSnapshot } from "./mcp";
 import type { ThreadRunToolMetadata } from "./thread-run-events";
 
 export const IPC_CHANNELS = {
+  schedulingList: "scheduling:list",
+  schedulingCreate: "scheduling:create",
+  schedulingUpdate: "scheduling:update",
+  schedulingDelete: "scheduling:delete",
+  schedulingRunNow: "scheduling:run-now",
+  schedulingPreview: "scheduling:preview",
+  schedulingChanged: "scheduling:changed",
   appMenuCommand: "app:menu-command",
   appRendererReady: "app:renderer-ready",
   appScreenRecordingAppLabel: "app:screen-recording-app-label",
@@ -36,6 +44,8 @@ export const IPC_CHANNELS = {
   appThreadOpenRequested: "app:thread-open-requested",
   coreAvailabilityGet: "core:availability-get",
   clipboardReadText: "clipboard:read-text",
+  clipboardReadImage: "clipboard:read-image",
+  clipboardWriteImage: "clipboard:write-image",
   cursorModelsList: "cursor:models-list",
   workspaceOpen: "workspace:open",
   workspaceOpenPath: "workspace:open-path",
@@ -246,9 +256,15 @@ export const IPC_CHANNELS = {
   candidateModelDelete: "candidate-model:delete",
   candidateModelReorder: "candidate-model:reorder",
   candidateModelBulkImport: "candidate-model:bulk-import",
+  codexModelCatalogGet: "codex-model-catalog:get",
+  codexModelCatalogRefresh: "codex-model-catalog:refresh",
+  codexModelCatalogAdd: "codex-model-catalog:add",
+  codexModelCatalogRemove: "codex-model-catalog:remove",
   gitGetStatus: "git:get-status",
   gitGetWorkspaceDiff: "git:get-workspace-diff",
   gitGetWorkspaceFileDiff: "git:get-workspace-file-diff",
+  gitDiffChanged: "git:diff-changed",
+  gitStatusChanged: "git:status-changed",
   gitDiscardWorkspaceChanges: "git:discard-workspace-changes",
   gitListCommits: "git:list-commits",
   gitCheckoutBranch: "git:checkout-branch",
@@ -256,6 +272,7 @@ export const IPC_CHANNELS = {
   gitGenerateCommitMessage: "git:generate-commit-message",
   gitGenerateCommitMessageDelta: "git:generate-commit-message-delta",
   gitListCommitModelOptions: "git:list-commit-model-options",
+  approvalListModelOptions: "approval:list-model-options",
   gitSaveCommitModelPreference: "git:save-commit-model-preference",
   gitCommit: "git:commit",
   gitPush: "git:push",
@@ -320,6 +337,15 @@ export const IPC_CHANNELS = {
   imageGenerationArtifactRead: "image-generation-artifact:read",
   imageGenerationArtifactReveal: "image-generation-artifact:reveal",
   imageGenerationArtifactChanged: "image-generation-artifact:changed",
+  ttsSettingsGet: "tts-settings:get",
+  ttsSettingsSave: "tts-settings:save",
+  ttsProfileSave: "tts-profile:save",
+  ttsProfileDelete: "tts-profile:delete",
+  ttsProfileActivate: "tts-profile:activate",
+  ttsArtifactsList: "tts-artifacts:list",
+  ttsArtifactRead: "tts-artifact:read",
+  ttsArtifactReveal: "tts-artifact:reveal",
+  ttsArtifactChanged: "tts-artifact:changed",
   imageViewRead: "image-view:read",
   imageRevealInFolder: "image:reveal-in-folder",
   imageDisplayArtifactsList: "image-display-artifacts:list",
@@ -407,6 +433,8 @@ export type {
   ThreadRunProjectionSnapshot,
   ThreadRunProjectionTimelineItem,
   ThreadRunProjectionUsage,
+  ThreadRunProjectionWritingTool,
+  ToolWritingActivity,
 } from "./conversation-v2-projection";
 export type {
   CursorAgentInfo,
@@ -455,6 +483,11 @@ export type {
   McpTransport,
 } from "./mcp";
 export type {
+  AddCodexCatalogModelRequest,
+  CodexCatalogModelOrigin,
+  CodexCatalogModelView,
+  CodexModelCatalogSnapshot,
+  CodexModelCatalogStatusView,
   ListUpstreamModelsRequest,
   ListUpstreamModelsResult,
   ProviderRequestError,
@@ -520,6 +553,31 @@ export interface ImageViewReadRequest {
 export interface ImageRevealInFolderRequest {
   path: string;
 }
+
+/**
+ * PNG bytes for a system-clipboard image write performed in the main process.
+ *
+ * The renderer's `navigator.clipboard.write` needs a focused document, so the image viewer
+ * falls back to this channel when that write is refused (see `image-clipboard.ts`).
+ */
+export interface ClipboardWriteImageRequest {
+  pngBase64: string;
+}
+
+/**
+ * PNG bytes read out of the system clipboard by the main process.
+ *
+ * Renderer clipboard-read stays denied (see `session-permissions.ts`), so right-click "Paste"
+ * in the Composer asks main for the clipboard image the same way the terminal asks for text.
+ * `null` means the clipboard holds no image.
+ */
+export interface ClipboardReadImageResult {
+  pngBase64: string;
+  byteLength: number;
+}
+
+/** Upper bound for the base64 PNG accepted by `clipboard:write-image` (≈30 MB of image bytes). */
+export const MAX_CLIPBOARD_IMAGE_BASE64_CHARS = 40_000_000;
 
 export type ImageViewReadFailureCode =
   | "invalid_path"
@@ -943,7 +1001,7 @@ export interface WorkflowSettingsSnapshot {
   /** Default execution approval mode for new sessions. Absent → `"always"`. */
   defaultBashReviewMode?: import("../../../../packages/bash-policy/src").BashReviewMode;
   contextWindowLimitTokens: number;
-  maxOutputLimitTokens: number;
+  maxOutputLimitTokens: import("@eco/runtime/models-dev-limits").GlobalMaxOutputTokens;
   /**
    * When a thread is running: `steer` prefers mid-turn inject (streamInput / turn/steer);
    * `queue` only enqueues for post-turn drain. Escalated / "handle now" still tries mid-turn first.
@@ -951,12 +1009,14 @@ export interface WorkflowSettingsSnapshot {
   followUpDeliveryMode: FollowUpDeliveryMode;
   defaultOrchestrationSelection?: import("./agent-orchestration").OrchestrationSelection;
   defaultAuxiliaryModel?: import("./auxiliary-model").AuxiliaryModelSelection;
+  defaultApprovalModel?: import("./approval-model").ApprovalModelSelection;
   defaultVisionModel?: import("./vision-model").VisionModelSelection;
   mcpServersEnabled?: Record<string, boolean>;
   integrationsEnabled?: IntegrationsEnabledSettings;
 }
 
 export type {
+  TtsArtifact, TtsArtifactListRequest, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSaveInput, TtsSettingsSnapshot,
   ImageGenerationArtifact,
   ImageGenerationArtifactListRequest,
   ImageGenerationArtifactReadRequest,
@@ -1015,6 +1075,8 @@ export type WorkspaceDiffFileStatus = "modified" | "untracked" | "added" | "dele
 
 export interface WorkspaceDiffResult {
   workspacePath: string;
+  revision?: number;
+  watchError?: string;
   patch: string;
   patchTruncated: boolean;
   fileCount: number;
@@ -1023,11 +1085,21 @@ export interface WorkspaceDiffResult {
     additions: number;
     deletions: number;
     status: WorkspaceDiffFileStatus;
+    revision?: number;
+    previousPath?: string;
+    binary?: boolean;
     originalContent: string;
     currentContent: string;
   }>;
   totalAdditions: number;
   totalDeletions: number;
+}
+
+export interface WorkspaceDiffChangedEvent {
+  workspacePath: string;
+  revision: number;
+  changedPaths?: string[];
+  error?: string;
 }
 
 export interface GitGetWorkspaceFileDiffRequest {
@@ -1222,11 +1294,18 @@ export {
   normalizeComputerUseSettingsSnapshot,
 } from "./computer-use";
 
+/** Agent cores that can carry their own upstream User-Agent. */
+export const UPSTREAM_AGENT_CORES = ["codex", "claude", "pi"] as const;
+
+export type UpstreamAgentCore = (typeof UPSTREAM_AGENT_CORES)[number];
+
 export interface ProxyBridgeSettingsSnapshot {
   /** 出站代理总开关；关闭时忽略 upstreamProxyUrl */
   enabled?: boolean;
-  /** 留空：透传 SDK User-Agent；非空：覆盖透传 */
+  /** 全局覆盖：未识别 Agent Core 时生效；留空 = 透传 SDK User-Agent */
   upstreamUserAgent?: string;
+  /** 按 Agent Core 单独覆盖；留空（或缺失）表示回到该项目 SDK 自己的 UA */
+  upstreamUserAgents?: Partial<Record<UpstreamAgentCore, string>>;
   /** 出站 HTTP/HTTPS/SOCKS5 代理 URL（gateway upstream + 在线升级）；留空直连 */
   upstreamProxyUrl?: string;
 }
@@ -1451,6 +1530,7 @@ export {
   listEnabledGlobalMcpServerKeys,
 } from "./composer-mcp";
 export type {
+  ApprovalModelSelection,
   AuxiliaryModelSelection,
   MainAgentModelOverride,
   MainAgentSystemPromptPreset,
@@ -1460,12 +1540,14 @@ export type {
   VisionModelSelection,
 } from "./thread-runtime-config";
 export {
+  applyBusyMutableRuntimeConfigFields,
   buildAcpThreadRuntimeConfig,
   buildThreadRuntimeConfigFromDefaults,
   deriveSubagentEnabledFromSnapshot,
   hasCompleteOrchestrationSelection,
   isAskSessionMode,
   isBashReviewModeOnlyRuntimeConfigUpdate,
+  isBusyMutableOnlyRuntimeConfigUpdate,
   isThreadRuntimeConfig,
   lockThreadRuntimeConfigSnapshotOnContinue,
   materializeThreadOrchestrationSnapshot,
@@ -1724,6 +1806,7 @@ export interface ThreadApprovalNotificationResult {
 
 export interface ThreadClarificationNotificationRequest {
   threadId: string;
+  toolUseId: string;
   activelyViewed: boolean;
 }
 

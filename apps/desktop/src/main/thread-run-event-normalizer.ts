@@ -43,14 +43,33 @@ export function isMetricsOnlyThreadLiveEvent(liveType: string): boolean {
   return METRICS_ONLY_THREAD_LIVE_TYPES.has(liveType);
 }
 
+/**
+ * Live events that must be persisted for projection state but never become a Feed row.
+ * `tool.writing` is a fact about the current request (the model is writing a tool call),
+ * not a row: the tool card itself appears when its arguments are complete.
+ */
+const PROJECTION_ONLY_THREAD_LIVE_TYPES = new Set(["tool.writing"]);
+
 /** Status live types that skip run-event persist (still need feed projection refresh). */
 export function isThreadStatusLiveTypeOmittedFromFeed(liveType: string): boolean {
   return THREAD_STATUS_LIVE_TYPES_OMITTED_FROM_FEED.has(liveType);
 }
 
+/**
+ * Live events whose payload is metadata rather than a sentence. They are recorded — their
+ * metadata is the point — but they never become a Feed row, and they never need a message
+ * standing in for content they do not have.
+ */
+export function isMetadataOnlyThreadLiveEvent(liveType: string): boolean {
+  return METRICS_ONLY_THREAD_LIVE_TYPES.has(liveType) || PROJECTION_ONLY_THREAD_LIVE_TYPES.has(liveType);
+}
+
 export function isMetricsOnlyThreadRunEvent(event: { metadata?: Record<string, unknown> }): boolean {
   const liveType = event.metadata?.liveType;
-  return typeof liveType === "string" && METRICS_ONLY_THREAD_LIVE_TYPES.has(liveType);
+  if (typeof liveType !== "string") {
+    return false;
+  }
+  return isMetadataOnlyThreadLiveEvent(liveType);
 }
 
 export interface BuildThreadRunEventFromLiveInput {
@@ -203,6 +222,9 @@ function resolveThreadRunEventType(input: BuildThreadRunEventFromLiveInput): Thr
   if (isSdkNoticeLiveType(input.liveType)) return "diagnostic";
   if (input.apiError || input.liveType === "thread.api_error") {
     return "api.error";
+  }
+  if (input.liveType === "tool.writing") {
+    return "tool.writing";
   }
   if (input.liveType === "tool.started") {
     return "tool.started";

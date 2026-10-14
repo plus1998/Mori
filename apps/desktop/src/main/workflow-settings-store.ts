@@ -4,7 +4,8 @@ import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import {
   type CoreKind,
   DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT,
-  DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
+  DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT,
+  type GlobalMaxOutputTokens,
   type EcoOrchestrationMode,
   isCoreKind,
   isGlobalContextWindowLimit,
@@ -14,6 +15,11 @@ import {
 } from "@eco/runtime";
 import type { OrchestrationSelection } from "../shared/agent-orchestration";
 import { isOrchestrationSelection } from "../shared/agent-orchestration";
+import {
+  type ApprovalModelSelection,
+  isApprovalModelSelection,
+  normalizeApprovalModelSelection,
+} from "../shared/approval-model";
 import {
   type AuxiliaryModelSelection,
   isAuxiliaryModelSelection,
@@ -70,10 +76,11 @@ export interface WorkflowSettingsSnapshot {
    */
   defaultBashReviewMode?: BashReviewMode;
   contextWindowLimitTokens: number;
-  maxOutputLimitTokens: number;
+  maxOutputLimitTokens: GlobalMaxOutputTokens;
   followUpDeliveryMode: FollowUpDeliveryMode;
   defaultOrchestrationSelection?: OrchestrationSelection;
   defaultAuxiliaryModel?: AuxiliaryModelSelection;
+  defaultApprovalModel?: ApprovalModelSelection;
   defaultVisionModel?: VisionModelSelection;
   mcpServersEnabled?: Record<string, boolean>;
   integrationsEnabled?: IntegrationsEnabledSettings;
@@ -86,7 +93,7 @@ export function defaultWorkflowSettings(): WorkflowSettingsSnapshot {
     showBilling: true,
     defaultBashReviewMode: "always",
     contextWindowLimitTokens: DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT,
-    maxOutputLimitTokens: DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
+    maxOutputLimitTokens: DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT,
     followUpDeliveryMode: DEFAULT_FOLLOW_UP_DELIVERY_MODE,
   };
 }
@@ -125,6 +132,7 @@ export class WorkflowSettingsStore {
     const maxOutputLimitTokens = this.readMaxOutputLimitTokens();
     const defaultOrchestrationSelection = this.readDefaultOrchestrationSelection();
     const defaultAuxiliaryModel = this.readDefaultAuxiliaryModel();
+    const defaultApprovalModel = this.readDefaultApprovalModel();
     const defaultVisionModel = this.readDefaultVisionModel();
     const followUpDeliveryMode = this.readFollowUpDeliveryMode();
     const mcpServersEnabled = this.readMcpServersEnabled();
@@ -157,6 +165,7 @@ export class WorkflowSettingsStore {
       followUpDeliveryMode,
       ...(defaultOrchestrationSelection ? { defaultOrchestrationSelection } : {}),
       ...(defaultAuxiliaryModel ? { defaultAuxiliaryModel } : {}),
+      ...(defaultApprovalModel ? { defaultApprovalModel } : {}),
       ...(defaultVisionModel ? { defaultVisionModel } : {}),
       ...(cleanedMcp && Object.keys(cleanedMcp).length > 0 ? { mcpServersEnabled: cleanedMcp } : {}),
       ...(integrationsEnabled ? { integrationsEnabled } : {}),
@@ -292,6 +301,17 @@ export class WorkflowSettingsStore {
         .run("default_auxiliary_model", JSON.stringify(normalized.defaultAuxiliaryModel), now);
     } else {
       this.db.prepare(`DELETE FROM workflow_settings WHERE key = ?`).run("default_auxiliary_model");
+    }
+    if (normalized.defaultApprovalModel) {
+      this.db
+        .prepare(
+          `INSERT INTO workflow_settings (key, value_json, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+        )
+        .run("default_approval_model", JSON.stringify(normalized.defaultApprovalModel), now);
+    } else {
+      this.db.prepare(`DELETE FROM workflow_settings WHERE key = ?`).run("default_approval_model");
     }
     if (normalized.defaultVisionModel) {
       this.db
@@ -559,17 +579,17 @@ export class WorkflowSettingsStore {
     }
   }
 
-  private readMaxOutputLimitTokens(): number {
+  private readMaxOutputLimitTokens(): GlobalMaxOutputTokens {
     const row = this.db
       .prepare(`SELECT value_json FROM workflow_settings WHERE key = ?`)
       .get("max_output_limit_tokens") as { value_json: string } | undefined;
     if (!row?.value_json?.trim()) {
-      return DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS;
+      return DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT;
     }
     try {
       return normalizeGlobalMaxOutputTokens(JSON.parse(row.value_json) as unknown);
     } catch {
-      return DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS;
+      return DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT;
     }
   }
 
@@ -611,6 +631,20 @@ export class WorkflowSettingsStore {
     }
     try {
       return normalizeAuxiliaryModelSelection(JSON.parse(row.value_json) as unknown);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private readDefaultApprovalModel(): ApprovalModelSelection | undefined {
+    const row = this.db
+      .prepare(`SELECT value_json FROM workflow_settings WHERE key = ?`)
+      .get("default_approval_model") as { value_json: string } | undefined;
+    if (!row?.value_json?.trim()) {
+      return undefined;
+    }
+    try {
+      return normalizeApprovalModelSelection(JSON.parse(row.value_json) as unknown);
     } catch {
       return undefined;
     }
@@ -683,6 +717,7 @@ export function normalizeWorkflowSettingsSnapshot(value: unknown): WorkflowSetti
     ? record.defaultOrchestrationSelection
     : undefined;
   const defaultAuxiliaryModel = normalizeAuxiliaryModelSelection(record.defaultAuxiliaryModel);
+  const defaultApprovalModel = normalizeApprovalModelSelection(record.defaultApprovalModel);
   const defaultVisionModel = normalizeVisionModelSelection(record.defaultVisionModel);
   const mcpServersEnabled = normalizeMcpServersEnabled(record.mcpServersEnabled);
   const integrationsEnabled = normalizeIntegrationsEnabled(record.integrationsEnabled);
@@ -691,6 +726,7 @@ export function normalizeWorkflowSettingsSnapshot(value: unknown): WorkflowSetti
   const integrationsPart = integrationsEnabled ? { integrationsEnabled } : {};
   const defaultOrchestrationPart = defaultOrchestrationSelection ? { defaultOrchestrationSelection } : {};
   const defaultAuxiliaryPart = defaultAuxiliaryModel ? { defaultAuxiliaryModel } : {};
+  const defaultApprovalPart = defaultApprovalModel ? { defaultApprovalModel } : {};
   const defaultVisionPart = defaultVisionModel ? { defaultVisionModel } : {};
   if (isSessionMode(record.sessionMode)) {
     return {
@@ -707,6 +743,7 @@ export function normalizeWorkflowSettingsSnapshot(value: unknown): WorkflowSetti
       followUpDeliveryMode,
       ...defaultOrchestrationPart,
       ...defaultAuxiliaryPart,
+      ...defaultApprovalPart,
       ...defaultVisionPart,
       ...mcpPart,
       ...integrationsPart,
@@ -823,6 +860,7 @@ export function isWorkflowSettingsSnapshot(value: unknown): value is WorkflowSet
     (record.defaultOrchestrationSelection === undefined ||
       isOrchestrationSelection(record.defaultOrchestrationSelection)) &&
     (record.defaultAuxiliaryModel === undefined || isAuxiliaryModelSelection(record.defaultAuxiliaryModel)) &&
+    (record.defaultApprovalModel === undefined || isApprovalModelSelection(record.defaultApprovalModel)) &&
     (record.defaultVisionModel === undefined || isVisionModelSelection(record.defaultVisionModel)) &&
     (record.integrationsEnabled === undefined ||
       normalizeIntegrationsEnabled(record.integrationsEnabled) !== undefined)

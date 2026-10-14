@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { buildSidebarSearchResults, type SidebarSearchProject } from "../src/renderer/SidebarSearchDialog";
 import type { ThreadSummary } from "../src/shared/ipc";
+import type { ScheduleDefinition } from "../src/shared/scheduling";
 
 const projects: SidebarSearchProject[] = [
   { path: "/workspace/eco-coding", name: "eco-coding" },
@@ -63,5 +64,33 @@ test("sidebar search puts running threads first", () => {
     "thread:queued",
     "project:/workspace/eco-coding",
     "project:/workspace/notes",
+  ]);
+});
+
+function scheduledMessage(id: string, threadId: string, name: string, prompt: string, at: string): ScheduleDefinition {
+  return { id, threadId, name, prompt, kind: "session_message", trigger: { type: "at", at }, nextRunAt: at,
+    enabled: true, source: "user", revision: 1, maxLatenessSeconds: 86400, createdAt: at, updatedAt: at };
+}
+
+test("scheduled messages are searchable by name, body, and target conversation", () => {
+  const messages = [scheduledMessage("check", "older", "稍后检查", "检查构建进度", "2026-10-08T09:00:00Z")];
+  for (const query of ["稍后", "构建", "回退"]) {
+    const results = buildSidebarSearchResults(threads, projects, query, messages);
+    const result = results.find(item => item.kind === "scheduled_message");
+    expect(result?.key).toBe("scheduled_message:check");
+    if (result?.kind === "scheduled_message") expect(result.thread.id).toBe("older");
+  }
+});
+
+test("scheduled messages appear between running and recent conversations, with earliest first and no orphan targets", () => {
+  const running = thread("active", "进行中", "/workspace/eco-coding", "2026-01-03T00:00:00Z", "running");
+  const messages = [
+    scheduledMessage("later", "older", "稍后", "稍后检查", "2026-10-08T10:00:00Z"),
+    scheduledMessage("first", "newer", "最早", "先检查", "2026-10-08T09:00:00Z"),
+    scheduledMessage("missing", "deleted", "删除会话", "无目标", "2026-10-08T08:00:00Z"),
+  ];
+  expect(buildSidebarSearchResults([...threads, running], projects, "", messages).map(item => item.key)).toEqual([
+    "thread:active", "scheduled_message:first", "scheduled_message:later", "thread:newer", "thread:older",
+    "project:/workspace/eco-coding", "project:/workspace/notes",
   ]);
 });

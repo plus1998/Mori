@@ -1,8 +1,11 @@
+import type { TtsArtifact } from "../shared/tts";
+import { TtsArtifactPlayer } from "./TtsArtifactPlayer";
 import {
   Blocks,
   Bot,
   Check,
   ChevronDown,
+  Clock3,
   Copy,
   GitBranch,
   GitGraph,
@@ -65,6 +68,8 @@ import { WorkspaceGitCommitGraph } from "./WorkspaceGitCommitGraph";
 import { WorkspaceGitSection } from "./WorkspaceGitSection";
 import { persistCardExpanded, readCardExpanded } from "./workspace-floating-card-storage";
 import { resolveWorkspacePlanTitle } from "./workspace-plan-title";
+import type { ScheduleDefinition, ScheduleOccurrence } from "../shared/scheduling";
+import { ScheduledMessagesCardBody } from "./ScheduledMessagesCardBody";
 
 export interface ThreadUsageSummary {
   billing?: ThreadBillingSnapshot;
@@ -103,6 +108,13 @@ export interface WorkspaceFloatingCardsProps {
   todos?: CoderTodoItem[];
   threadStatus?: ThreadStatus;
   hasActiveThread?: boolean;
+  scheduledMessages?: readonly ScheduleDefinition[];
+  scheduleOccurrences?: readonly ScheduleOccurrence[];
+  schedulingError?: string;
+  scheduledMessagesRevealKey?: string;
+  onEditScheduledMessage?: (message: ScheduleDefinition) => void;
+  onRefreshSchedules?: () => Promise<void>;
+  onScheduledMessageActionError?: (message: string) => void;
   agentModelLabels?: ComposerAgentModelLabel[];
   /** ACP Cursor: read-only roster from `.cursor/agents` (no toggles). */
   cursorAgentsRoster?: {
@@ -129,6 +141,8 @@ export interface WorkspaceFloatingCardsProps {
   onOpenBrowser?: (browserId: string) => void;
   onCloseBrowser?: (browserId: string) => void;
   onCloseAllBrowsers?: () => void;
+  ttsArtifacts?: readonly TtsArtifact[];
+  onOpenTtsArtifact?: (id: string) => void;
   imageArtifacts?: readonly ImageGenerationArtifact[];
   onOpenImageArtifact?: (artifactId: string) => void;
   imageDisplayArtifacts?: readonly ImageDisplayArtifact[];
@@ -599,6 +613,13 @@ export function WorkspaceFloatingCards({
   onCommitDialogOpenChange,
   todos = [],
   hasActiveThread = false,
+  scheduledMessages = [],
+  scheduleOccurrences = [],
+  schedulingError,
+  scheduledMessagesRevealKey,
+  onEditScheduledMessage,
+  onRefreshSchedules,
+  onScheduledMessageActionError,
   agentModelLabels = [],
   cursorAgentsRoster,
   composerRuntimeConfig,
@@ -621,6 +642,8 @@ export function WorkspaceFloatingCards({
   onOpenBrowser,
   onCloseBrowser,
   onCloseAllBrowsers,
+  ttsArtifacts = [],
+  onOpenTtsArtifact,
   imageArtifacts = [],
   onOpenImageArtifact,
   imageDisplayArtifacts = [],
@@ -727,6 +750,36 @@ export function WorkspaceFloatingCards({
           />
         </WorkspacePanelSection>
 
+        {hasActiveThread && (scheduledMessages.length > 0 || schedulingError) ? (
+          <WorkspacePanelSection
+            key={scheduledMessagesRevealKey}
+            id="workspace-scheduled-messages"
+            title={t("scheduling.session_message")}
+            defaultExpanded
+            persistExpanded={false}
+            summary={
+              <>
+                <Clock3 size={14} aria-hidden />
+                <span>{scheduledMessages.length}</span>
+              </>
+            }
+            maxBodyHeight={360}
+          >
+            {schedulingError && (
+              <p className="workspace-scheduled-message-error" role="alert">
+                {schedulingError}
+              </p>
+            )}
+            <ScheduledMessagesCardBody
+              messages={scheduledMessages}
+              occurrences={scheduleOccurrences}
+              onEdit={onEditScheduledMessage}
+              onRefresh={onRefreshSchedules}
+              onError={onScheduledMessageActionError}
+            />
+          </WorkspacePanelSection>
+        ) : null}
+
         {hasActiveThread && subagentRunCards.length > 0 ? (
           <WorkspacePanelSection
             id="workspace-subagent-runs"
@@ -807,6 +860,14 @@ export function WorkspaceFloatingCards({
             maxBodyHeight={280}
           >
             <CoderTodoPanel todos={todos} embedded compact />
+          </WorkspacePanelSection>
+        ) : null}
+
+        {ttsArtifacts.length > 0 ? (
+          <WorkspacePanelSection id="workspace-tts-artifacts" title={t("task.tts.history")} defaultExpanded maxBodyHeight={360}>
+            <div className="workspace-resource-list">
+              {ttsArtifacts.map(artifact => <TtsArtifactPlayer key={artifact.id} artifact={artifact} {...(onOpenTtsArtifact ? { onOpen: onOpenTtsArtifact } : {})} />)}
+            </div>
           </WorkspacePanelSection>
         ) : null}
 

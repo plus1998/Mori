@@ -13,17 +13,18 @@ import type {
   MainAgentPromptResource,
   SubagentOrchestrationResource,
 } from "../shared/agent-orchestration";
+import { isWebSearchApprovalMode } from "../shared/integrated-web-search";
 import type {
   CandidateModelInput,
   IntegratedWebSearchSettingsSnapshot,
   ProxyBridgeSettingsSnapshot,
   RouteProfileInput,
 } from "../shared/ipc";
-import { normalizeIntegratedWebSearchProvider } from "./integrated-web-search-settings-store";
-import { isWebSearchApprovalMode } from "../shared/integrated-web-search";
 import type { SshBookmarkPublic } from "../shared/ssh-bookmarks";
 import { defaultGitSettings, normalizeGitSettingsSnapshot } from "./git-settings-store";
+import { normalizeIntegratedWebSearchProvider } from "./integrated-web-search-settings-store";
 import { normalizePersonalizationSettingsSnapshot } from "./personalization-settings-store";
+import { resolveUpstreamUserAgentOverrides } from "./proxy-bridge-settings-store";
 import type { WorkflowSettingsSnapshot } from "./workflow-settings-store";
 
 export const ECO_SYNCED_SETTINGS_VERSION = 1 as const;
@@ -39,7 +40,10 @@ export type EcoSyncedIntegratedWebSearchSettings = Pick<
   "enabled" | "provider" | "approvalMode"
 >;
 
-export type EcoSyncedProxyBridgeSettings = Pick<ProxyBridgeSettingsSnapshot, "upstreamUserAgent"> & {
+export type EcoSyncedProxyBridgeSettings = Pick<
+  ProxyBridgeSettingsSnapshot,
+  "upstreamUserAgent" | "upstreamUserAgents"
+> & {
   integratedWebSearch?: EcoSyncedIntegratedWebSearchSettings;
 };
 
@@ -162,7 +166,9 @@ export interface SettingsSyncHooks {
   applyPlainSecrets: (secrets: EcoPlainSecret[]) => void | Promise<void>;
 }
 
-function isEcoSyncedIntegratedWebSearchSettings(value: unknown): value is EcoSyncedIntegratedWebSearchSettings {
+function isEcoSyncedIntegratedWebSearchSettings(
+  value: unknown,
+): value is EcoSyncedIntegratedWebSearchSettings {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
@@ -181,6 +187,18 @@ function isEcoSyncedProxyBridgeSettings(value: unknown): value is EcoSyncedProxy
   const record = value as Record<string, unknown>;
   if (record.upstreamUserAgent !== undefined && typeof record.upstreamUserAgent !== "string") {
     return false;
+  }
+  if (record.upstreamUserAgents !== undefined) {
+    if (!record.upstreamUserAgents || typeof record.upstreamUserAgents !== "object") {
+      return false;
+    }
+    if (
+      Object.values(record.upstreamUserAgents as Record<string, unknown>).some(
+        (entry) => typeof entry !== "string",
+      )
+    ) {
+      return false;
+    }
   }
   if (
     record.integratedWebSearch !== undefined &&
@@ -214,6 +232,10 @@ export function normalizeEcoSyncedProxyBridgeSettings(value: unknown): EcoSynced
   const ua = typeof record.upstreamUserAgent === "string" ? record.upstreamUserAgent.trim() : "";
   if (ua) {
     result.upstreamUserAgent = ua;
+  }
+  const upstreamUserAgents = resolveUpstreamUserAgentOverrides(record);
+  if (upstreamUserAgents) {
+    result.upstreamUserAgents = upstreamUserAgents;
   }
   if (record.integratedWebSearch !== undefined) {
     result.integratedWebSearch = normalizeEcoSyncedIntegratedWebSearchSettings(record.integratedWebSearch);
@@ -629,6 +651,7 @@ export function isSparseEcoSyncedSettings(payload: EcoSyncedSettingsPayload): bo
     (payload.candidateModels?.length ?? 0) === 0 &&
     (payload.routeProfiles?.length ?? 0) === 0 &&
     !payload.proxyBridge?.upstreamUserAgent &&
+    !payload.proxyBridge?.upstreamUserAgents &&
     !payload.proxyBridge?.integratedWebSearch?.enabled
   );
 }
@@ -1116,10 +1139,15 @@ export function canonicalizeDomainPayloadSlice(domain: EcoSettingsSyncDomain, sl
     case "personalization":
       return normalizePersonalizationSettingsSnapshot(slice);
     case "packageScriptArgs": {
-      const record = slice as { args?: Record<string, Record<string, string>>; prefixes?: Record<string, Record<string, string>> };
+      const record = slice as {
+        args?: Record<string, Record<string, string>>;
+        prefixes?: Record<string, Record<string, string>>;
+      };
       const sortWorkspaces = (record: Record<string, Record<string, string>> | undefined) => {
         const sorted: Record<string, Record<string, string>> = {};
-        for (const workspacePath of Object.keys(record ?? {}).sort((left, right) => left.localeCompare(right))) {
+        for (const workspacePath of Object.keys(record ?? {}).sort((left, right) =>
+          left.localeCompare(right),
+        )) {
           sorted[workspacePath] = sortRecordKeys(record?.[workspacePath] ?? {});
         }
         return sorted;
@@ -1157,7 +1185,11 @@ function isDomainSliceEmpty(domain: EcoSettingsSyncDomain, slice: unknown): bool
     }
     case "proxyBridge": {
       const record = normalizeEcoSyncedProxyBridgeSettings(slice);
-      return !record.upstreamUserAgent?.trim() && record.integratedWebSearch?.enabled !== true;
+      return (
+        !record.upstreamUserAgent?.trim() &&
+        !record.upstreamUserAgents &&
+        record.integratedWebSearch?.enabled !== true
+      );
     }
     case "asr":
       return ((slice as EcoSyncedSettingsPayload["asr"]).profiles?.length ?? 0) === 0;
@@ -1241,7 +1273,7 @@ export function buildDomainSyncSummary(
     case "proxyBridge": {
       const record = normalizeEcoSyncedProxyBridgeSettings(normalized.proxyBridge);
       const parts: string[] = [];
-      if (record.upstreamUserAgent?.trim()) {
+      if (record.upstreamUserAgent?.trim() || record.upstreamUserAgents) {
         parts.push("proxy");
       }
       if (record.integratedWebSearch?.enabled) {
@@ -1288,10 +1320,8 @@ export function buildDomainSyncSummary(
     case "packageScriptArgs": {
       const argsByWorkspace = normalized.packageScriptArgs ?? {};
       const prefixesByWorkspace = normalized.packageScriptPrefixes ?? {};
-      const workspaceCount = new Set([
-        ...Object.keys(argsByWorkspace),
-        ...Object.keys(prefixesByWorkspace),
-      ]).size;
+      const workspaceCount = new Set([...Object.keys(argsByWorkspace), ...Object.keys(prefixesByWorkspace)])
+        .size;
       if (workspaceCount === 0) {
         return "";
       }

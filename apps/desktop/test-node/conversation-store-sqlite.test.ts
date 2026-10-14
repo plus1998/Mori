@@ -8,6 +8,9 @@ import { CONVERSATION_V2_ERROR, ConversationV2Error } from "@eco/shared";
 import { removeTempDirectory } from "../test/helpers/temp-directory";
 import { createAgentOrchestrationStore } from "../src/main/agent-orchestration-store";
 import { createConversationStore } from "../src/main/conversation-store";
+import { migrateCodexCompactionDetails } from "../src/main/conversation-v2-compaction-migration";
+import { conversationV2ProviderReceipt } from "../src/main/conversation-v2-runtime-writer";
+import { ConversationV2Store } from "../src/main/conversation-v2-store";
 import { FEED_SKELETON_RULES_VERSION } from "../src/main/legacy-feed-skeleton-store";
 import { createProjectMcpSettingsStore } from "../src/main/project-mcp-settings-store";
 import { createProjectSkillsSettingsStore } from "../src/main/project-skills-settings-store";
@@ -30,6 +33,63 @@ async function createLegacyConversationStore(dbPath: string) {
     requiredStorageMode: "legacy_compat",
   });
 }
+
+test("Node SQLite upgrades native compaction receipts atomically and reopens their latest state", async (t) => {
+  const directory = await createTestDirectory(t, "eco-node-compaction-");
+  const filename = path.join(directory, "compaction.sqlite");
+  let db = new DatabaseSync(filename);
+  try {
+    let v2 = new ConversationV2Store(db);
+    v2.initialize();
+    v2.append({
+      conversationId: "thread",
+      eventId: "run-start",
+      runId: "run",
+      turnId: "run",
+      type: "run.started",
+      occurredAt: "2026-10-07T03:28:00.000Z",
+      payload: { status: "running" },
+    });
+    for (const stage of ["started", "completed"] as const) {
+      v2.append(
+        conversationV2ProviderReceipt(
+          {
+            id: `compaction-${stage}`,
+            threadId: "thread",
+            runAttemptId: "run",
+            eventType: `context.compaction.${stage}`,
+            scope: "main",
+            streamState: "none",
+          observedAt: stage === "started" ? "2026-10-07T03:28:39.020Z" : "2026-10-07T03:28:52.297Z",
+            message: stage,
+            sequence: 0,
+            metadata: { itemType: "contextCompaction" },
+          },
+          "runtime-input",
+        ),
+      );
+    }
+    assert.equal(migrateCodexCompactionDetails(db, v2), 2);
+    assert.equal(v2.bootstrap("thread").details?.length, 2);
+    assert.equal(JSON.parse(v2.bootstrap("thread").details![1]!.content!).timing.durationMs, 13_277);
+    db.close();
+    db = new DatabaseSync(filename);
+    v2 = new ConversationV2Store(db);
+    v2.initialize();
+    assert.equal(migrateCodexCompactionDetails(db, v2), 0);
+    v2.rebuildReadModels("thread");
+    assert.deepEqual(
+      v2.bootstrap("thread").details?.map((detail) => detail.type),
+      ["context.compaction.started", "context.compaction.completed"],
+    );
+    assert.equal(JSON.parse(v2.bootstrap("thread").details![1]!.content!).timing.durationMs, 13_277);
+    const head = v2.head("thread").lastSeq;
+    assert.equal(head, 5);
+    assert.equal(v2.sync("thread", v2.getStoreEpoch(), 3).effects[0]?.effect.type, "detail.upsert");
+  } finally {
+    db.close();
+  }
+});
 
 test("Node SQLite remembers Skills independently for each project", async (t) => {
   const directory = await createTestDirectory(t, "eco-node-project-skills-");

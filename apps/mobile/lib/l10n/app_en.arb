@@ -43,6 +43,8 @@
       "tokens": {"type": "int"}
     }
   },
+  "settingsMaxOutputDynamic": "Dynamic",
+  "settingsMaxOutputDynamicCaption": "Each request uses the effective window − current full input tokens − 1, capped by the model output limit. Input counting follows provider settings; local estimates are not exact.",
   "settingsMaxOutput": "Max output",
   "settingsMaxOutputCaption": "Hard ceiling: request max_tokens is min(model config, this limit). Unset models use this default, never above context − 1",
   "settingsMaxOutputTokens": "{tokens} tokens",
@@ -54,7 +56,7 @@
   "settingsSessionDefaults": "Session defaults",
   "settingsRuntimeConfig": "Runtime config",
   "settingsModels": "More models",
-  "settingsModelsCaption": "Default auxiliary and vision models for new sessions",
+  "settingsModelsCaption": "Default auxiliary, approval, and vision models for new threads",
   "settingsAccount": "Account",
   "settingsSwitchPc": "Switch PC",
   "settingsSwitchPcSubtitle": "Select or pair another Desktop device",
@@ -340,7 +342,7 @@
   "bashReviewAlways": "Request approval",
   "bashReviewAlwaysDescription": "Always ask before editing files outside the workspace or accessing the internet",
   "bashReviewAuto": "Approve for me",
-  "bashReviewAutoDescription": "Use the auxiliary model; ask you when risk is detected or review fails",
+  "bashReviewAutoDescription": "Use the approval model; ask you when risk is detected or review fails",
   "bashReviewAllowAll": "Full access",
   "bashReviewAllowAllDescription": "Unrestricted access to the internet and any file on your computer",
   "bashReviewAllowAllConfirm": "Full access auto-allows internet and local-file actions without asking you each time. Continue?",
@@ -751,7 +753,7 @@
   "composerAcpModelCurrent": "Current",
   "composerAcpModelLoadFailed": "Could not load models from Cursor Agent CLI",
   "composerAuxiliaryModel": "Auxiliary model",
-  "composerAuxiliaryModelHint": "Used for title generation and automatic command approval",
+  "composerAuxiliaryModelHint": "Used for titles and Git commit messages",
   "composerAuxiliaryModelManualFallback": "Sending remains available; titles are not generated and reviews use manual mode",
   "composerAuxiliaryModelNeedsMainAgent": "Configure the main Agent before selecting an auxiliary model",
   "composerVisionModel": "Vision model",
@@ -761,8 +763,8 @@
   "composerAuxiliaryModelHintAcp": "Used for title generation and automatic command approval",
   "composerVisionModelHintAcp": "Used by the image_view tool; falls back to the Cursor model when unset",
   "composerCoreKind": "Runtime core",
-  "auxiliaryModelRequiredForAutoReview": "Configure an auxiliary model before enabling automatic reviews",
-  "auxiliaryModelAutoReviewFallback": "No auxiliary model is configured. Switched to manual review and continued sending",
+  "auxiliaryModelRequiredForAutoReview": "Configure an approval model before enabling automatic reviews",
+  "auxiliaryModelAutoReviewFallback": "No approval model is configured. Switched to manual review and continued sending",
   "composerReasoning": "Reasoning",
   "composerReasoningIntensity": "Reasoning",
   "composerAdvanced": "Advanced",
@@ -915,5 +917,10 @@
   "markdownTableExpand": "Expand table",
   "markdownTableLabel": "table",
   "markdownTableRotateLandscape": "Landscape view",
-  "markdownTableRotatePortrait": "Portrait view"
+  "markdownTableRotatePortrait": "Portrait view",
+  "composerApprovalModel": "Approval model",
+  "composerApprovalModelHint": "Used for automatic tool reviews; supports chat models and SystemOne (Jev)",
+  "composerApprovalModelManualFallback": "Configure an approval model to enable automatic reviews",
+  "composerApprovalModelNeedsMainAgent": "Configure the main Agent before selecting an approval model",
+  "composerApprovalModelHintAcp": "Used for automatic tool reviews; supports chat models and SystemOne (Jev)"
 }

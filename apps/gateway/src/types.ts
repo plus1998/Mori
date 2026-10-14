@@ -1,3 +1,4 @@
+import type { ToolWriteKind } from "@eco/shared";
 import type { ParsedUsage } from "./usage-normalize.js";
 
 export type UpstreamKind = "anthropic-messages" | "responses" | "openai-chat" | "gateway-delegated";
@@ -30,6 +31,11 @@ export interface GatewayProvider {
   models: string[];
   /** Per-upstream-model output limits used when Codex omits max_output_tokens. */
   modelMaxOutputTokens?: Record<string, number>;
+  /** Present only in dynamic mode; effective min(model window, global window). */
+  modelContextTokens?: Record<string, number>;
+  /** Explicit provider/model vision settings, enforced before upstream requests. */
+  modelSupportsImageInput?: Record<string, boolean>;
+  tokenCountMode?: "local_heuristic" | "anthropic_messages" | "openai_responses" | "llama_tokenize";
 }
 
 export interface ResolvedProviderRoute {
@@ -46,10 +52,33 @@ export interface ResolvedProviderRoute {
   credentialAccountId?: string;
 }
 
+/** Agent core that issued the upstream request. */
+export type GatewayAgentCore = "codex" | "claude" | "pi";
+
 export interface GatewayConfig {
   host: string;
   port: number;
   providers: GatewayProvider[];
+  /** Trusted per-role model limits from the product's request binding. */
+  resolveModelLimits?: (route: ResolvedProviderRoute) => Promise<
+    | {
+        contextTokens?: number;
+        maxOutputTokens?: number;
+      }
+    | undefined
+  >;
+  /** Count the final upstream payload, after every protocol/content transformation. */
+  countInputTokens?: (input: {
+    route: ResolvedProviderRoute;
+    body: Record<string, unknown>;
+    headers: Headers;
+    fetcher: typeof fetch;
+    signal?: AbortSignal;
+  }) => Promise<{
+    tokens: number;
+    precision: "provider_exact" | "tokenizer_exact" | "heuristic";
+    source: string;
+  }>;
   /** Resolves a short-lived upstream bearer token without exposing it to callers. */
   resolveCredential?: (input: {
     provider: GatewayProvider;
@@ -67,6 +96,10 @@ export interface GatewayConfig {
    * When unset, passthrough client UA or fall back to Eco default.
    */
   upstreamUserAgent?: string;
+  /** Per agent core overrides; a cleared entry falls back to the SDK UA. */
+  upstreamUserAgents?: Partial<Record<GatewayAgentCore, string>>;
+  /** Eco fallback UA (app version + OS) for requests without any client UA. */
+  userAgentDefault?: string;
   /** Optional global outbound HTTP/HTTPS/SOCKS proxy URL for upstream fetch. */
   upstreamProxyUrl?: string;
 }
@@ -208,3 +241,29 @@ export type GatewayRequestLifecycleEvent =
     };
 
 export type GatewayRequestLifecycleObserver = (event: GatewayRequestLifecycleEvent) => void | Promise<void>;
+
+/**
+ * The model has begun writing a tool call, observed on the upstream stream.
+ *
+ * Codex is the only client that sends `x-codex-turn-metadata`, and its app-server
+ * publishes nothing for this period: the `item/started` it eventually emits already
+ * carries the finished arguments, and a large `apply_patch` takes minutes to write.
+ * The upstream stream states the fact plainly (`response.output_item.added` for a tool
+ * item lands milliseconds after the last text), so the gateway forwards it.
+ */
+export interface GatewayToolWriteObservation {
+  /** Client thread identity from `x-codex-turn-metadata`. */
+  codexThreadId: string;
+  turnId?: string;
+  /** Function name exactly as the model sent it (`apply_patch`, `shell`, `mcp__…`). */
+  toolName?: string;
+  /** What the call does, for the label while the arguments still have not named a target. */
+  kind: ToolWriteKind;
+  /** The file or command line the call names, once its arguments have revealed it. */
+  target?: string;
+  /** Provider call id, used to announce each call once. */
+  callId?: string;
+  observedAt: string;
+}
+
+export type GatewayToolWriteObserver = (observation: GatewayToolWriteObservation) => void | Promise<void>;

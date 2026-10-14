@@ -1,4 +1,4 @@
-import { Check, Image, LayoutTemplate, Plus, X } from "lucide-react";
+import { Check, Clock3, Image, LayoutTemplate, Plus, X } from "lucide-react";
 import {
   type CSSProperties,
   type ReactNode,
@@ -22,7 +22,7 @@ const MENU_WIDTH = 220;
 const VIEWPORT_MARGIN = 8;
 const ANCHOR_GAP = 6;
 
-export type ComposerPlusMenuAction = "plan" | "ask" | "image" | "route";
+export type ComposerPlusMenuAction = "plan" | "ask" | "image" | "route" | "scheduled-message";
 
 function menuStyleForAnchor(anchor: HTMLElement): CSSProperties {
   const rect = anchor.getBoundingClientRect();
@@ -58,6 +58,7 @@ interface ComposerPlusMenuProps {
   onSelectMode: (sessionMode: SessionMode) => void;
   onPickImage: () => void;
   onOpenRoute: () => void;
+  onAddScheduledMessage?: (() => void) | undefined;
   onOpenChange?: ((open: boolean) => void) | undefined;
 }
 
@@ -71,6 +72,7 @@ export function ComposerPlusMenu({
   onSelectMode,
   onPickImage,
   onOpenRoute,
+  onAddScheduledMessage,
   onOpenChange,
 }: ComposerPlusMenuProps) {
   const { t } = useTranslation();
@@ -155,6 +157,9 @@ export function ComposerPlusMenu({
             onOpenRoute();
           }
           break;
+        case "scheduled-message":
+          onAddScheduledMessage?.();
+          break;
       }
     }, 0);
   }
@@ -194,6 +199,7 @@ export function ComposerPlusMenu({
                 }}
                 onPickImage={() => handleAction("image")}
                 onOpenRoute={() => handleAction("route")}
+                onAddScheduledMessage={onAddScheduledMessage ? () => handleAction("scheduled-message") : undefined}
               />
             </div>,
             document.body,
@@ -212,6 +218,7 @@ export function ComposerPlusMenuPanel({
   onSelectMode,
   onPickImage,
   onOpenRoute,
+  onAddScheduledMessage,
 }: {
   sessionMode: SessionMode;
   canEditMode: boolean;
@@ -221,6 +228,7 @@ export function ComposerPlusMenuPanel({
   onSelectMode: (sessionMode: SessionMode) => void;
   onPickImage: () => void;
   onOpenRoute: () => void;
+  onAddScheduledMessage?: (() => void) | undefined;
 }) {
   const { t } = useTranslation();
   return (
@@ -245,6 +253,11 @@ export function ComposerPlusMenuPanel({
         label={t("composer.plus.image")}
         onSelect={onPickImage}
       />
+      {onAddScheduledMessage ? <PlusMenuRow
+        icon={<Clock3 size={18} strokeWidth={COMPOSER_TOOLBAR_ICON_STROKE} aria-hidden />}
+        label={t("scheduling.messageAction")}
+        onSelect={onAddScheduledMessage}
+      /> : null}
       {showRoute ? (
         <PlusMenuRow
           icon={<LayoutTemplate size={18} strokeWidth={COMPOSER_TOOLBAR_ICON_STROKE} aria-hidden />}

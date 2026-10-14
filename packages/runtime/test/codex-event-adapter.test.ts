@@ -2220,6 +2220,36 @@ test("ignores self-parent subAgentActivity so planner thinking stays on main sco
   expect(typeof events[0]?.metadata?.thinkingStartedAt).toBe("string");
 });
 
+test("Codex exposes a reasoning start placeholder and replaces it with content", () => {
+  const events: CodexThreadRunEventInput[] = [];
+  const adapter = new CodexEventAdapter({
+    resolveEcoThreadId,
+    recordThreadRunEvent: (event) => events.push(event),
+  });
+  const params = {
+    threadId: CODEX_THREAD,
+    turnId: "turn_pending_reasoning",
+    item: { type: "reasoning", id: "reasoning_pending", summary: [], content: [] },
+  };
+  adapter.dispatch("item/started", params);
+  adapter.dispatch("item/started", params);
+  expect(events).toHaveLength(1);
+  expect(events[0]).toMatchObject({ eventType: "thinking.delta", streamState: "placeholder", message: "" });
+  adapter.dispatch("item/reasoning/summaryTextDelta", {
+    threadId: CODEX_THREAD,
+    turnId: params.turnId,
+    itemId: params.item.id,
+    delta: "先检查代码",
+  });
+  expect(events[1]).toMatchObject({
+    eventType: "thinking.delta",
+    streamState: "streaming",
+    message: "先检查代码",
+  });
+  expect(events[1]?.id).toBe(events[0]?.id);
+  expect(events[1]?.metadata?.thinkingStartedAt).toBe(events[0]?.metadata?.thinkingStartedAt);
+});
+
 test("dispatch stamps thinking duration on reasoning completion", () => {
   const events = collectEvents((record) => {
     const adapter = new CodexEventAdapter({

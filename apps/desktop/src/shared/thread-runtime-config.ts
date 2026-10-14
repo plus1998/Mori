@@ -15,6 +15,11 @@ import {
   resolveOrchestrationSnapshot,
 } from "./agent-orchestration";
 import {
+  type ApprovalModelSelection,
+  isApprovalModelSelection,
+  normalizeApprovalModelSelection,
+} from "./approval-model";
+import {
   type AuxiliaryModelSelection,
   isAuxiliaryModelSelection,
   normalizeAuxiliaryModelSelection,
@@ -47,6 +52,7 @@ import {
 } from "./vision-model";
 
 export type {
+  ApprovalModelSelection,
   AuxiliaryModelSelection,
   BashReviewMode,
   IntegrationsEnabledSettings,
@@ -79,6 +85,7 @@ export interface ThreadRuntimeConfig {
   resolvedOrchestrationSnapshot?: ResolvedOrchestrationSnapshot;
   mainAgentModelOverride?: MainAgentModelOverride;
   auxiliaryModel?: AuxiliaryModelSelection;
+  approvalModel?: ApprovalModelSelection;
   visionModel?: VisionModelSelection;
   mainAgentSystemPromptPresetOverride?: MainAgentSystemPromptPreset;
   subagentEnabled: SubagentEnabledSettings;
@@ -272,6 +279,9 @@ export function isThreadRuntimeConfig(value: unknown): value is ThreadRuntimeCon
   if (record.auxiliaryModel !== undefined && !isAuxiliaryModelSelection(record.auxiliaryModel)) {
     return false;
   }
+  if (record.approvalModel !== undefined && !isApprovalModelSelection(record.approvalModel)) {
+    return false;
+  }
   if (record.visionModel !== undefined && !isVisionModelSelection(record.visionModel)) {
     return false;
   }
@@ -414,6 +424,7 @@ export function normalizeThreadRuntimeConfig(config: ThreadRuntimeConfig): Threa
     (typeof legacyBrowserEnabled === "boolean" ? { browser: legacyBrowserEnabled } : undefined);
   const skillsEnabled = normalizeSkillsEnabled(config.skillsEnabled);
   const auxiliaryModel = normalizeAuxiliaryModelSelection(config.auxiliaryModel);
+  const approvalModel = normalizeApprovalModelSelection(config.approvalModel);
   const visionModel = normalizeVisionModelSelection(config.visionModel);
   return {
     ...(typeof config.cursorModelId === "string" && config.cursorModelId.trim()
@@ -430,6 +441,7 @@ export function normalizeThreadRuntimeConfig(config: ThreadRuntimeConfig): Threa
       ? { mainAgentModelOverride: normalizeMainAgentModelOverride(config.mainAgentModelOverride) }
       : {}),
     ...(auxiliaryModel ? { auxiliaryModel } : {}),
+    ...(approvalModel ? { approvalModel } : {}),
     ...(visionModel ? { visionModel } : {}),
     ...(config.mainAgentSystemPromptPresetOverride
       ? { mainAgentSystemPromptPresetOverride: config.mainAgentSystemPromptPresetOverride }
@@ -485,6 +497,7 @@ export function buildAcpThreadRuntimeConfig(input?: {
   bashReviewMode?: BashReviewMode;
   subagentEnabled?: SubagentEnabledSettings;
   auxiliaryModel?: AuxiliaryModelSelection;
+  approvalModel?: ApprovalModelSelection;
   visionModel?: VisionModelSelection;
   mcpServersEnabled?: McpServersEnabledSettings;
   integrationsEnabled?: IntegrationsEnabledSettings;
@@ -493,6 +506,7 @@ export function buildAcpThreadRuntimeConfig(input?: {
   const cursorModelId =
     typeof input?.cursorModelId === "string" ? input.cursorModelId.trim().slice(0, 256) : "";
   const auxiliaryModel = normalizeAuxiliaryModelSelection(input?.auxiliaryModel);
+  const approvalModel = normalizeApprovalModelSelection(input?.approvalModel);
   const visionModel = normalizeVisionModelSelection(input?.visionModel);
   const mcpServersEnabled = normalizeMcpServersEnabled(input?.mcpServersEnabled);
   const integrationsEnabled = normalizeIntegrationsEnabled(input?.integrationsEnabled);
@@ -503,6 +517,7 @@ export function buildAcpThreadRuntimeConfig(input?: {
     sessionMode: normalizeSessionMode(input?.sessionMode),
     bashReviewMode: input?.bashReviewMode ?? "always",
     ...(auxiliaryModel ? { auxiliaryModel } : {}),
+    ...(approvalModel ? { approvalModel } : {}),
     ...(visionModel ? { visionModel } : {}),
     ...(mcpServersEnabled ? { mcpServersEnabled } : {}),
     ...(integrationsEnabled ? { integrationsEnabled } : {}),
@@ -543,6 +558,9 @@ export function buildThreadRuntimeConfigFromDefaults(input: {
       : {}),
     ...(input.workflowDefaults.defaultAuxiliaryModel
       ? { auxiliaryModel: input.workflowDefaults.defaultAuxiliaryModel }
+      : {}),
+    ...(input.workflowDefaults.defaultApprovalModel
+      ? { approvalModel: input.workflowDefaults.defaultApprovalModel }
       : {}),
     ...(input.workflowDefaults.defaultVisionModel
       ? { visionModel: input.workflowDefaults.defaultVisionModel }
@@ -612,22 +630,65 @@ export function isBashReviewModeOnlyRuntimeConfigUpdate(
 }
 
 /**
- * Host-side execution confirmation can change mid-run (Claude/Pi/Codex/ACP).
- * Other runtime-config fields still require the run to finish.
+ * Fields that may change while a run is active:
+ * - `bashReviewMode`: host-side execution confirmation is re-read per tool call.
+ * - `auxiliaryModel` / `approvalModel` / `visionModel`: every auxiliary, approval and
+ *   vision request is a stateless single-shot call; the host re-reads the thread
+ *   selection when the request is made, so a switch only affects the next request.
+ * Everything else (main agent route, orchestration, session mode, MCP / skills /
+ * integrations) is bound to the running session and still requires the run to finish.
+ *
+ * Serialized view of every session-bound field; those busy-mutable fields are neutralized.
  */
+function busyImmutableThreadRuntimeConfigView(config: ThreadRuntimeConfig): string {
+  const {
+    auxiliaryModel: _a,
+    approvalModel: _p,
+    visionModel: _v,
+    ...rest
+  } = threadRuntimeConfigForBashReviewModeCompare(normalizeThreadRuntimeConfig(config));
+  return serializeThreadRuntimeConfigForCompare({ ...rest, bashReviewMode: "auto" });
+}
+
+/** True when `after` differs from `before` only by fields that are safe mid-run. */
+export function isBusyMutableOnlyRuntimeConfigUpdate(
+  before: ThreadRuntimeConfig,
+  after: ThreadRuntimeConfig,
+): boolean {
+  return busyImmutableThreadRuntimeConfigView(before) === busyImmutableThreadRuntimeConfigView(after);
+}
+
+export function applyBusyMutableRuntimeConfigFields(
+  existing: ThreadRuntimeConfig,
+  incoming: ThreadRuntimeConfig,
+): ThreadRuntimeConfig {
+  const { auxiliaryModel, approvalModel, visionModel, bashReviewMode } = incoming;
+  const base = { ...existing };
+  delete base.auxiliaryModel;
+  delete base.approvalModel;
+  delete base.visionModel;
+  return {
+    ...base,
+    bashReviewMode,
+    ...(auxiliaryModel ? { auxiliaryModel } : {}),
+    ...(approvalModel ? { approvalModel } : {}),
+    ...(visionModel ? { visionModel } : {}),
+  };
+}
+
 export function resolveBusyThreadRuntimeConfigUpdate(input: {
   existing: ThreadRuntimeConfig | undefined;
   incoming: ThreadRuntimeConfig;
 }): { kind: "apply"; runtimeConfig: ThreadRuntimeConfig } | { kind: "blocked" } {
-  if (!input.existing || !isBashReviewModeOnlyRuntimeConfigUpdate(input.existing, input.incoming)) {
+  if (!input.existing || !isBusyMutableOnlyRuntimeConfigUpdate(input.existing, input.incoming)) {
     return { kind: "blocked" };
   }
   return {
     kind: "apply",
-    runtimeConfig: {
-      ...input.existing,
-      bashReviewMode: input.incoming.bashReviewMode,
-    },
+    runtimeConfig: applyBusyMutableRuntimeConfigFields(
+      normalizeThreadRuntimeConfig(input.existing),
+      normalizeThreadRuntimeConfig(input.incoming),
+    ),
   };
 }
 

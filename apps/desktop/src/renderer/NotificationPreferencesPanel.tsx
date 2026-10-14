@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BASH_REVIEW_MODES, type BashReviewMode, isBashReviewMode } from "../shared/bash-review-ui";
 import type { FollowUpDeliveryMode } from "../shared/ipc";
@@ -35,9 +35,6 @@ interface NotificationPreferencesPanelProps {
   onTokenSpeedModeChange?: (mode: TokenSpeedDisplayMode) => void | Promise<void>;
   thinkingDisplayMode?: ThinkingDisplayMode;
   onThinkingDisplayModeChange?: (mode: ThinkingDisplayMode) => void | Promise<void>;
-  upstreamUserAgent?: string | undefined;
-  upstreamUserAgentSaving?: boolean | undefined;
-  onUpstreamUserAgentChange?: ((value: string) => void) | undefined;
 }
 
 const LOCALE_OPTIONS: readonly AppLocalePreference[] = ["system", "zh-CN", "en-US"];
@@ -60,16 +57,8 @@ export function NotificationPreferencesPanel({
   onTokenSpeedModeChange = () => undefined,
   thinkingDisplayMode = "ephemeral",
   onThinkingDisplayModeChange = () => undefined,
-  upstreamUserAgent,
-  upstreamUserAgentSaving,
-  onUpstreamUserAgentChange,
 }: NotificationPreferencesPanelProps) {
   const { t } = useTranslation();
-  const [uaDraft, setUaDraft] = useState(upstreamUserAgent ?? "");
-
-  useEffect(() => {
-    setUaDraft(upstreamUserAgent ?? "");
-  }, [upstreamUserAgent]);
   const turnSelectId = useId();
   const languageSelectId = useId();
   const cacheBreakTipsId = useId();
@@ -433,41 +422,6 @@ export function NotificationPreferencesPanel({
           </li>
         </ul>
       </section>
-
-      {onUpstreamUserAgentChange && (
-        <section className="settings-section">
-          <div className="settings-section-head">
-            <div>
-              <span className="settings-section-label">{t("settings.ua")}</span>
-              <p className="settings-section-subtitle">{t("settings.ua.subtitle")}</p>
-            </div>
-          </div>
-
-          <label className="mcp-field">
-            <span className="mcp-field-label">{t("settings.ua.label")}</span>
-            <input
-              className="mcp-field-input"
-              value={uaDraft}
-              placeholder={t("settings.ua.placeholder")}
-              disabled={upstreamUserAgentSaving === true}
-              onChange={(event) => setUaDraft(event.target.value)}
-              onBlur={() => {
-                const value = uaDraft.trim();
-                if (value === (upstreamUserAgent ?? "")) {
-                  return;
-                }
-                onUpstreamUserAgentChange(value);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.currentTarget.blur();
-                }
-              }}
-            />
-            <span className="mcp-field-hint">{t("settings.ua.hint")}</span>
-          </label>
-        </section>
-      )}
     </div>
   );
 }

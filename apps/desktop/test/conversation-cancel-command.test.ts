@@ -6,6 +6,7 @@ import {
   failInterruptedCancelCommands,
 } from "../src/main/conversation-cancel-command";
 import { ConversationV2Store } from "../src/main/conversation-v2-store";
+import { buildConversationV2CommandEnvelope } from "../src/renderer/conversation-v2-command-envelope";
 import type { ThreadCancelRequest } from "../src/shared/ipc";
 
 function harness() {
@@ -49,6 +50,26 @@ test("thread cancellation is durable and idempotent after response loss", async 
     request: { threadId: state.input.threadId },
     result: { ok: true, threadId: state.input.threadId },
   });
+  state.db.close();
+});
+
+test("Stop after resuming at the same history revision cancels again; a transport retry stays idempotent", async () => {
+  const state = harness();
+  const command = () =>
+    buildConversationV2CommandEnvelope({
+      threadId: state.input.threadId,
+      operation: "run_cancel",
+      payload: {},
+      getHead: async () => ({ historyRevision: 0 }),
+    });
+  const first = await command();
+  await executeThreadCancelCommand(first, state.deps);
+  await executeThreadCancelCommand(first, state.deps);
+  expect(state.calls()).toBe(1);
+  const afterResume = await command();
+  expect(afterResume.clientCommandId).not.toBe(first.clientCommandId);
+  await executeThreadCancelCommand(afterResume, state.deps);
+  expect(state.calls()).toBe(2);
   state.db.close();
 });
 

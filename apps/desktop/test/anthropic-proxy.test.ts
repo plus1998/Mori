@@ -10,6 +10,7 @@ import {
   extractUsageFromResponseBody,
   injectImagesIntoMessagesBody,
   normalizeThinkingEffortFields,
+  prepareClaudeBridgeMessagesRequest,
   prepareGatewayBindingForwardRequest,
   resolveProxyRoute,
   resolveRouteMaxOutputTokens,
@@ -345,10 +346,10 @@ test("runtimeRouteToProxyRoute defaults missing model max output to global 32K",
   expect(route.maxOutputTokens).toBe(32_768);
 });
 
-test("applyRouteMaxOutputTokens overrides Anthropic max_tokens when configured", () => {
+test("applyRouteMaxOutputTokens preserves a smaller SDK budget", () => {
   const body: Record<string, unknown> = { max_tokens: 16_000, model: "claude-sonnet-4-6" };
   applyRouteMaxOutputTokens(body, 64_000);
-  expect(body.max_tokens).toBe(64_000);
+  expect(body.max_tokens).toBe(16_000);
 });
 
 test("applyRouteMaxOutputTokens is a no-op without configured cap", () => {
@@ -467,6 +468,123 @@ test("createStreamingUsageTracker merges raw chunks then dedupes OpenAI-compat t
 
 beforeEach(() => {
   globalClaudeBridgeBindingRegistry.clearAllForTests();
+});
+
+test("runtimeRouteToProxyRoute carries disabled vision into the request binding", () => {
+  expect(
+    runtimeRouteToProxyRoute({
+      role: "planner",
+      provider: createProvider("local", "Local", "key"),
+      modelId: "text-model",
+      manualSpec: { supportsImageInput: false },
+    }).supportsImageInput,
+  ).toBe(false);
+});
+
+test("bridge rejects images locally on every API face without consuming pending state or request callbacks", async () => {
+  const cases = [
+    {
+      face: "responses",
+      body: {
+        input: [
+          { role: "user", content: [{ type: "input_image", image_url: "data:image/png;base64,bytes" }] },
+        ],
+      },
+    },
+    {
+      face: "chat_completions",
+      body: {
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "image_url", image_url: { url: "https://example.test/image.png" } }],
+          },
+        ],
+      },
+    },
+    {
+      face: "messages",
+      body: {
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                content: [{ type: "image", source: { type: "base64", data: "bytes" } }],
+              },
+            ],
+          },
+        ],
+      },
+    },
+  ] as const;
+  for (const { face, body } of cases) {
+    let callbacks = 0;
+    const binding = globalClaudeBridgeBindingRegistry.create({
+      routes: [
+        {
+          role: "planner",
+          provider: createProvider("local", "Local", "key"),
+          modelId: "text-model",
+          aliasModelId: "text-alias",
+          apiCompat: "openai_chat_completions",
+          supportsImageInput: false,
+        },
+      ],
+      callbacks: {
+        onMessagesRequest: () => {
+          callbacks += 1;
+        },
+      },
+    });
+    const request = {
+      body: structuredClone(body),
+      requestedModel: "text-alias",
+      headers: new Headers({ authorization: `Bearer ${binding.credential}` }),
+    };
+    const result =
+      face === "messages"
+        ? await prepareClaudeBridgeMessagesRequest({ ...request, path: "/v1/messages" })
+        : await prepareGatewayBindingForwardRequest({ ...request, face });
+    expect(result.kind).toBe("response");
+    if (result.kind !== "response") throw new Error("image request unexpectedly forwarded");
+    expect(result.response.status).toBe(400);
+    expect(await result.response.json()).toMatchObject({ error: { code: "image_input_disabled" } });
+    expect(callbacks).toBe(0);
+    expect(binding.inFlight).toBe(0);
+    expect(binding.imagesInjected).toBe(false);
+  }
+});
+
+test("Messages rejects pending attachments before injecting or consuming them", async () => {
+  const binding = globalClaudeBridgeBindingRegistry.create({
+    routes: [
+      {
+        role: "planner",
+        provider: createProvider("local", "Local", "key"),
+        modelId: "text-model",
+        aliasModelId: "text-alias",
+        apiCompat: "anthropic",
+        supportsImageInput: false,
+      },
+    ],
+    pendingImages: [{ id: "image", mediaType: "image/png", data: "bytes" }],
+  });
+  for (const requestPath of ["/v1/messages/count_tokens", "/v1/messages"]) {
+    const body = { messages: [{ role: "user", content: "hi" }] };
+    const result = await prepareClaudeBridgeMessagesRequest({
+      path: requestPath,
+      body,
+      requestedModel: "text-alias",
+      headers: new Headers({ "x-api-key": binding.credential }),
+    });
+    expect(result.kind).toBe("response");
+    expect(binding.pendingImages).toHaveLength(1);
+    expect(binding.imagesInjected).toBe(false);
+    expect(body.messages[0]?.content).toBe("hi");
+    expect(binding.inFlight).toBe(0);
+  }
 });
 
 test("prepareGatewayBindingForwardRequest allows openai_chat_completions route on responses face", async () => {

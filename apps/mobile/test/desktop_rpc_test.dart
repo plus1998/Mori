@@ -12,6 +12,22 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
+    'each Stop cancels again after resume at the same history revision',
+    () async {
+      final client = _RecordingEcoCenterClient();
+      final rpc = DesktopRpc(client, 'desktop_1');
+      await rpc.cancelThread('thr_1');
+      final first = Map<String, dynamic>.from(client.args!.first as Map);
+      await rpc.cancelThread('thr_1');
+      final second = client.args!.first as Map<String, dynamic>;
+      expect(client.channel, 'thread:cancel');
+      expect(first['expectedHistoryRevision'], 0);
+      expect(second['expectedHistoryRevision'], 0);
+      expect(second['clientCommandId'], isNot(first['clientCommandId']));
+    },
+  );
+
+  test(
     'conversation V2 RPC preserves every route and paging envelope',
     () async {
       final client = _ConversationV2EcoCenterClient();

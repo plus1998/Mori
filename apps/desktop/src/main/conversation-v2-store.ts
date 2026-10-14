@@ -18,6 +18,7 @@ import {
   type ConversationEventRecord,
   type ConversationHead,
   type ConversationMessage,
+  type ConversationMessageOrigin,
   type ConversationMessageHistoryTarget,
   type ConversationMessagesPage,
   type ConversationRun,
@@ -32,10 +33,16 @@ import {
   decodeConversationCursor,
   encodeConversationCursor,
   estimateConversationBytes,
+  isConversationMessageOrigin,
   limitConversationToolSummaryPayload,
   stableHash,
   stableJson,
 } from "@eco/shared";
+import {
+  type ContextCompactionTimingItem,
+  resolveContextCompactionTiming,
+} from "../shared/context-compaction-timing";
+import { isContextCompactionEventType } from "../shared/thread-run-events";
 import {
   type LegacyEventIdentityRow,
   legacyIdentityEventFromRow,
@@ -43,6 +50,7 @@ import {
   legacyProviderRole,
   legacyToolCallId,
 } from "./conversation-v2-legacy-identity";
+import { conversationV2EventHash } from "./conversation-v2-event-integrity";
 import { logEcoDiag } from "./eco-diag-log";
 import { collectPromptImageContentRefs, isPromptImageContentRef } from "./prompt-image-file-store";
 
@@ -213,6 +221,7 @@ export interface ConversationSendMessageInput {
   conversationId: string;
   clientCommandId: string;
   text: string;
+  origin?: ConversationMessageOrigin;
   turnId?: string;
   messageId?: string;
   attachments?: unknown[];
@@ -361,6 +370,7 @@ interface MessageRow {
   content_version: number;
   body: string;
   attachments_json: string | null;
+  origin_json?: string | null;
   agent_id?: string | null;
   agent_instance_id?: string | null;
   // When the row happened, taken from the event that produced it. Placement in a
@@ -668,6 +678,7 @@ export class ConversationV2Store {
         content_version INTEGER NOT NULL DEFAULT 0,
         body TEXT NOT NULL DEFAULT '',
         attachments_json TEXT,
+        origin_json TEXT,
         agent_id TEXT,
         agent_instance_id TEXT,
         occurred_at TEXT,
@@ -1096,6 +1107,7 @@ export class ConversationV2Store {
         "conversation_messages_v2",
         [
           "attachments_json",
+          "origin_json",
           "agent_id",
           "agent_instance_id",
           "occurred_at",
@@ -2044,9 +2056,11 @@ export class ConversationV2Store {
     const text = input.text;
     if (typeof text !== "string") throw v2Invalid("message text must be a string");
     const storedAttachments = sanitizeConversationV2Attachments(input.attachments);
+    const origin = parseMessageOrigin(input.origin, "origin");
     const requestHash = stableHash({
       text,
       attachments: storedAttachments,
+      ...(origin ? { origin } : {}),
     });
     this.beginWrite();
     let appendResult: ConversationAppendResult;
@@ -2083,6 +2097,7 @@ export class ConversationV2Store {
           role: "user",
           channel: "answer",
           body: text,
+          ...(origin ? { origin } : {}),
           status: "queued",
           ...(storedAttachments.length ? { attachments: storedAttachments } : {}),
         },
@@ -2250,6 +2265,27 @@ export class ConversationV2Store {
       )
       .all() as unknown as CommandJobRow[];
     return rows.map((row) => this.validateStoredCommandJob(row));
+  }
+
+  /** Only a durable submitted question answer may bypass the ordinary queue's pause. */
+  isAsyncClarificationAnswer(conversationId: string, messageId: string): boolean {
+    this.ensureInitialized();
+    const row = this.db
+      .prepare(
+        `SELECT * FROM conversation_command_jobs_v2
+       WHERE conversation_id = ? AND command_type = 'clarification.resolve' AND status = 'completed'
+         AND json_extract(result_json, '$.asyncMessage.messageId') = ?`,
+      )
+      .get(conversationId, messageId) as CommandJobRow | undefined;
+    if (!row) return false;
+    const job = this.validateStoredCommandJob(row);
+    const message = this.getMessage(conversationId, messageId);
+    return Boolean(
+      message && !message.isDeleted && message.role === "user" &&
+      job.request.resolution === "submit" &&
+      typeof job.request.asyncReplyText === "string" &&
+      job.request.asyncReplyText === message.body,
+    );
   }
 
   /** Validate every durable command receipt/job owned by one conversation. */
@@ -2577,6 +2613,34 @@ export class ConversationV2Store {
       let messages = this.readMessages(conversationId, pageSize, maxBytes);
       const turns = this.listTurns(conversationId, pageSize);
       const runs = this.listRuns(conversationId, pageSize);
+      // Keep a bounded history plus every owner's latest state. A busy child
+      // must not push the main agent's current compaction state out of bootstrap.
+      const detailRows = this.db
+        .prepare(
+          `WITH compaction AS (
+             SELECT *,
+               ROW_NUMBER() OVER (
+                 PARTITION BY COALESCE(agent_instance_id, agent_id, '')
+                 ORDER BY created_seq DESC, item_id DESC
+               ) AS owner_rank,
+               ROW_NUMBER() OVER (ORDER BY created_seq DESC, item_id DESC) AS recent_rank
+             FROM conversation_detail_items_v2
+             WHERE conversation_id = ? AND type IN (
+               'context.compaction.started', 'context.compaction.completed',
+               'context.compaction.failed', 'context.compaction.suspended'
+             )
+           ) SELECT * FROM compaction WHERE owner_rank = 1 OR recent_rank <= ?
+             ORDER BY created_seq ASC, item_id ASC`,
+        )
+        .all(conversationId, CONVERSATION_V2_MAX_PAGE_SIZE) as unknown as (DetailRow & {
+        owner_rank: number;
+      })[];
+      const details = detailRows.map(rowToDetail);
+      const latestCompactionIds = new Set(
+        detailRows.filter((row) => row.owner_rank === 1).map((row) => row.item_id),
+      );
+      const supersededDetailIndex = () =>
+        details.findIndex((detail) => !latestCompactionIds.has(detail.itemId));
       const toolRunIdsForMessages = (visibleMessages: readonly ConversationMessage[]) => [
         ...new Set([
           ...(visibleMessages.length === 0
@@ -2606,15 +2670,21 @@ export class ConversationV2Store {
           toolSummaryCounts,
           this.listAgents(conversationId),
           this.listTodos(conversationId),
+          details,
           (oldest) => this.hasOlderMessages(conversationId, oldest),
         );
       let response = buildResponse();
-      while (estimateConversationBytes(response) > safeBytes && (tools.length > 0 || messages.length > 1)) {
+      while (
+        estimateConversationBytes(response) > safeBytes &&
+        (tools.length > 0 || supersededDetailIndex() >= 0 || messages.length > 1)
+      ) {
         // Tool summaries have their own cursor. Trim them before shrinking the
         // message window so a large run cannot make bootstrap fail or discard
         // useful history merely because its summary list is long.
         if (tools.length > 0) {
           tools = tools.slice(1);
+        } else if (supersededDetailIndex() >= 0) {
+          details.splice(supersededDetailIndex(), 1);
         } else {
           // readMessages returns newest-first. Drop the oldest item from this
           // bounded snapshot so the returned cursor still advances backwards.
@@ -3054,6 +3124,7 @@ export class ConversationV2Store {
       .prepare(
         `SELECT message_id, conversation_id, turn_id, run_id, role, channel,
                 created_seq, version_seq, content_version, body, attachments_json,
+                origin_json,
                 agent_id, agent_instance_id, occurred_at, provider_role,
                 history_activity_line_id, history_user_message_id,
                 status, is_deleted
@@ -4100,7 +4171,7 @@ export class ConversationV2Store {
         );
       }
     }
-    const eventHash = stableHash(immutableEventShape(normalized));
+    const eventHash = conversationV2EventHash(normalized);
     if (existing) {
       if (existing.event_hash !== eventHash) {
         const conflictDetails = {
@@ -4179,7 +4250,7 @@ export class ConversationV2Store {
         JSON.stringify(record.payload),
         record.eventHash,
       );
-    const effect = this.applyEvent(record);
+    const effect = JSON.parse(JSON.stringify(this.applyEvent(record))) as ConversationEffect;
     this.insertEffect(record.conversationId, seq, effect);
     this.db
       .prepare(`UPDATE conversation_streams_v2 SET last_seq = ? WHERE conversation_id = ?`)
@@ -4279,6 +4350,8 @@ export class ConversationV2Store {
     const body =
       payloadString(record.payload.body, "body") ?? payloadString(record.payload.text, "text") ?? "";
     const attachments = optionalPayloadArray(record.payload.attachments, "attachments");
+    const origin = parseMessageOrigin(record.payload.origin, "origin");
+    if (origin && role !== "user") throw v2Invalid("message origin is only valid for user messages");
     const runId = optionalText(record.runId) ?? optionalPayloadText(record.payload.runId, "runId");
     // Agent ownership is part of a message's identity for display purposes: without
     // it a subagent's narration is indistinguishable from the main agent's.
@@ -4305,6 +4378,7 @@ export class ConversationV2Store {
         existing.channel !== channel ||
         existing.body !== body ||
         !sameJsonValue(parseJson(existing.attachments_json), attachments) ||
+        !sameJsonValue(parseJson(existing.origin_json ?? null), origin) ||
         existing.status !== status ||
         (historyTarget?.activityLineId !== undefined &&
           existing.history_activity_line_id !== historyTarget.activityLineId) ||
@@ -4323,10 +4397,10 @@ export class ConversationV2Store {
       .prepare(
         `INSERT INTO conversation_messages_v2
          (message_id, conversation_id, turn_id, run_id, role, channel, created_seq,
-          version_seq, content_version, body, attachments_json, agent_id,
+          version_seq, content_version, body, attachments_json, origin_json, agent_id,
           agent_instance_id, occurred_at, provider_role, history_activity_line_id,
           history_user_message_id, status, is_deleted)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       )
       .run(
         messageId,
@@ -4339,6 +4413,7 @@ export class ConversationV2Store {
         record.seq,
         body,
         attachments === undefined ? null : JSON.stringify(attachments),
+        origin === undefined ? null : JSON.stringify(origin),
         agentId ?? null,
         agentInstanceId ?? null,
         record.occurredAt,
@@ -4410,11 +4485,13 @@ export class ConversationV2Store {
     if (body === undefined) throw v2Invalid("message.replaced requires body");
     const next = optionalInteger(record.payload.nextContentVersion, "nextContentVersion") ?? base + 1;
     if (next <= base) throw integrity(`Message ${messageId} next content version is invalid.`);
+    const attachments = optionalPayloadArray(record.payload.attachments, "attachments");
     this.db
       .prepare(
-        `UPDATE conversation_messages_v2 SET body = ?, version_seq = ?, content_version = ? WHERE message_id = ?`,
+        `UPDATE conversation_messages_v2 SET body = ?, version_seq = ?, content_version = ?,
+         attachments_json = COALESCE(?, attachments_json) WHERE message_id = ?`,
       )
-      .run(body, record.seq, next, messageId);
+      .run(body, record.seq, next, attachments === undefined ? null : JSON.stringify(attachments), messageId);
     return {
       type: "message.replace",
       messageId,
@@ -4422,6 +4499,7 @@ export class ConversationV2Store {
       nextContentVersion: next,
       body,
       versionSeq: record.seq,
+      ...(attachments === undefined ? {} : { attachments }),
     };
   }
 
@@ -5030,7 +5108,16 @@ export class ConversationV2Store {
       throw integrity(`Detail ${itemId} changed type.`);
     }
     const type = incomingType ?? existing?.type ?? record.type;
-    const content = payloadString(p.content, "content") ?? existing?.content ?? null;
+    let content = payloadString(p.content, "content") ?? existing?.content ?? null;
+    if (isContextCompactionEventType(type)) {
+      content = this.withCompactionDetailTiming(
+        record,
+        type,
+        content,
+        runId,
+        agentInstanceId ?? agentId ?? existing?.agent_instance_id ?? existing?.agent_id ?? undefined,
+      );
+    }
     const ref = payloadString(p.ref, "ref") ?? existing?.ref ?? null;
     this.db
       .prepare(
@@ -5061,6 +5148,52 @@ export class ConversationV2Store {
       type: "detail.upsert",
       detail: this.getDetailOrThrow(record.conversationId, itemId),
     };
+  }
+
+  private withCompactionDetailTiming(
+    record: ConversationEventRecord,
+    type: string,
+    content: string | null,
+    runId: string,
+    agentId: string | undefined,
+  ): string {
+    const parse = (eventType: string, stored: string | null) => {
+      const value = JSON.parse(stored ?? "null");
+      if (!value || typeof value.observedAt !== "string" || typeof value.scope !== "string") {
+        throw integrity(`Compaction detail ${record.eventId} has invalid lifecycle content.`);
+      }
+      const item: ContextCompactionTimingItem = {
+        eventType,
+        at: value.observedAt,
+        scope: value.scope,
+        runAttemptId: runId,
+        ...(agentId ? { agentId } : {}),
+        ...(value.requestId ? { requestId: value.requestId } : {}),
+        ...(value.streamKey ? { streamKey: value.streamKey } : {}),
+        ...(value.metadata ? { metadata: value.metadata } : {}),
+      };
+      return { value, item };
+    };
+    const current = parse(type, content);
+    const previous =
+      type === "context.compaction.started"
+        ? []
+        : (
+            this.db
+              .prepare(
+                `SELECT type, content FROM conversation_detail_items_v2
+         WHERE conversation_id = ? AND run_id = ?
+           AND COALESCE(agent_instance_id, agent_id, '') = ? AND created_seq < ?
+           AND type IN ('context.compaction.started', 'context.compaction.completed', 'context.compaction.failed')
+         ORDER BY created_seq ASC, item_id ASC`,
+              )
+              .all(record.conversationId, runId, agentId ?? "", record.seq) as Array<{
+              type: string;
+              content: string | null;
+            }>
+          ).map((row) => parse(row.type, row.content).item);
+    const timing = resolveContextCompactionTiming(current.item, previous);
+    return JSON.stringify({ ...current.value, timing });
   }
 
   private applyHistoryInvalidation(record: ConversationEventRecord): ConversationEffect {
@@ -5704,8 +5837,19 @@ export class ConversationV2Store {
         throw integrity(`Conversation V2 event log is invalid at sequence ${row.seq}.`);
       }
       const record = rowToEvent(row);
-      if (row.event_hash !== stableHash(immutableEventShape(record))) {
-        throw integrity(`Conversation V2 event hash mismatch at sequence ${row.seq}.`);
+      const actualHash = conversationV2EventHash(record);
+      if (row.event_hash !== actualHash) {
+        throw new ConversationV2Error(
+          CONVERSATION_V2_ERROR.integrityFailure,
+          `Conversation V2 event hash mismatch at sequence ${row.seq}.`,
+          {
+            conversationId: stream.conversation_id,
+            seq: row.seq,
+            eventId: row.event_id,
+            expectedHash: row.event_hash,
+            actualHash,
+          },
+        );
       }
     }
   }
@@ -6250,6 +6394,19 @@ function normalizeEventInput(
   ) {
     throw v2Invalid("event payload must be an object");
   }
+  // Hash and reduce the same JSON snapshot that SQLite persists. In-memory SDK
+  // metadata can contain undefined properties (notably informational.tag),
+  // which stableHash includes but JSON.stringify omits. Hashing the original
+  // object made a successful write fail integrity checks on the next startup.
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(JSON.stringify(input.payload ?? {}));
+  } catch {
+    throw v2Invalid("event payload must be JSON serializable");
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw v2Invalid("serialized event payload must be an object");
+  }
   const sourceEventKey = optionalInputText(input.sourceEventKey, "sourceEventKey");
   const turnId = optionalInputText(input.turnId, "turnId");
   const runId = optionalInputText(input.runId, "runId");
@@ -6257,19 +6414,16 @@ function normalizeEventInput(
   const toolCallId = optionalInputText(input.toolCallId, "toolCallId");
   const agentId = optionalInputText(input.agentId, "agentId");
   const agentInstanceId = optionalInputText(
-    input.agentInstanceId ?? input.payload?.agentInstanceId,
+    input.agentInstanceId ?? payload.agentInstanceId,
     "agentInstanceId",
   );
   const parentAgentInstanceId = optionalInputText(
-    input.parentAgentInstanceId ?? input.payload?.parentAgentInstanceId,
+    input.parentAgentInstanceId ?? payload.parentAgentInstanceId,
     "parentAgentInstanceId",
   );
-  const parentAgentId = optionalInputText(
-    input.parentAgentId ?? input.payload?.parentAgentId,
-    "parentAgentId",
-  );
+  const parentAgentId = optionalInputText(input.parentAgentId ?? payload.parentAgentId, "parentAgentId");
   const parentToolCallId = optionalInputText(
-    input.parentToolCallId ?? input.payload?.parentToolCallId,
+    input.parentToolCallId ?? payload.parentToolCallId,
     "parentToolCallId",
   );
   return {
@@ -6287,27 +6441,7 @@ function normalizeEventInput(
     ...(parentAgentInstanceId ? { parentAgentInstanceId } : {}),
     ...(parentAgentId ? { parentAgentId } : {}),
     ...(parentToolCallId ? { parentToolCallId } : {}),
-    payload: input.payload ?? {},
-  };
-}
-
-function immutableEventShape(input: ConversationEventInput): unknown {
-  return {
-    conversationId: input.conversationId,
-    eventId: input.eventId,
-    type: input.type,
-    occurredAt: input.occurredAt,
-    ...(input.sourceEventKey ? { sourceEventKey: input.sourceEventKey } : {}),
-    ...(input.turnId ? { turnId: input.turnId } : {}),
-    ...(input.runId ? { runId: input.runId } : {}),
-    ...(input.messageId ? { messageId: input.messageId } : {}),
-    ...(input.toolCallId ? { toolCallId: input.toolCallId } : {}),
-    ...(input.agentId ? { agentId: input.agentId } : {}),
-    ...(input.agentInstanceId ? { agentInstanceId: input.agentInstanceId } : {}),
-    ...(input.parentAgentInstanceId ? { parentAgentInstanceId: input.parentAgentInstanceId } : {}),
-    ...(input.parentAgentId ? { parentAgentId: input.parentAgentId } : {}),
-    ...(input.parentToolCallId ? { parentToolCallId: input.parentToolCallId } : {}),
-    payload: input.payload ?? {},
+    payload,
   };
 }
 
@@ -6432,6 +6566,7 @@ function rowToMessage(row: MessageRow): ConversationMessage {
   );
   const contentVersion = rowNonNegativeInteger(row.content_version, "message.content_version");
   const body = rowRequiredTextAllowEmpty(row.body, "message.body");
+  const origin = row.origin_json == null ? undefined : parseMessageOrigin(parseJson(row.origin_json), "message.origin", true);
   const agentId = rowOptionalText(row.agent_id ?? null, "message.agent_id");
   const agentInstanceId = rowOptionalText(row.agent_instance_id ?? null, "message.agent_instance_id");
   const status = storedMessageStatus(row.status);
@@ -6450,6 +6585,7 @@ function rowToMessage(row: MessageRow): ConversationMessage {
     versionSeq,
     contentVersion,
     body,
+    ...(origin ? { origin } : {}),
     ...(agentId ? { agentId } : {}),
     ...(agentInstanceId ? { agentInstanceId } : {}),
     ...(occurredAt ? { occurredAt } : {}),
@@ -6683,6 +6819,7 @@ function storedEffect(value: unknown, effectSeq?: number): ConversationEffect {
       if (effectSeq !== undefined && versionSeq > effectSeq) {
         throw integrity(`Stored message ${messageId} replace is ahead of its event sequence.`);
       }
+      const attachments = optionalStoredArray(object.attachments, "effect.attachments");
       return {
         type,
         messageId,
@@ -6690,6 +6827,7 @@ function storedEffect(value: unknown, effectSeq?: number): ConversationEffect {
         nextContentVersion,
         body: rowRequiredTextAllowEmpty(object.body, "effect.body"),
         versionSeq,
+        ...(attachments === undefined ? {} : { attachments }),
       };
     }
     case "message.finalize": {
@@ -6804,6 +6942,7 @@ function storedMessage(value: unknown, field: string): ConversationMessage {
   const versionSeq = rowPositiveInteger(object.versionSeq, `${field}.versionSeq`);
   const contentVersion = rowNonNegativeInteger(object.contentVersion, `${field}.contentVersion`);
   const body = rowRequiredTextAllowEmpty(object.body, `${field}.body`);
+  const origin = parseMessageOrigin(object.origin, `${field}.origin`, true);
   const agentId = storedEffectOptionalText(object.agentId, `${field}.agentId`);
   const agentInstanceId = storedEffectOptionalText(object.agentInstanceId, `${field}.agentInstanceId`);
   const occurredAt = storedEffectOptionalText(object.occurredAt, `${field}.occurredAt`);
@@ -6825,6 +6964,7 @@ function storedMessage(value: unknown, field: string): ConversationMessage {
     versionSeq,
     contentVersion,
     body,
+    ...(origin ? { origin } : {}),
     ...(agentId ? { agentId } : {}),
     ...(agentInstanceId ? { agentInstanceId } : {}),
     ...(occurredAt ? { occurredAt } : {}),
@@ -7025,6 +7165,7 @@ function buildBootstrapResponse(
   toolSummaryCounts: Readonly<Record<string, number>>,
   agents: readonly ConversationAgent[],
   todos: readonly ConversationTodo[],
+  details: readonly ConversationDetailItem[],
   hasOlderFor: (oldest: ConversationMessage | undefined) => boolean,
 ): ConversationBootstrap {
   const oldest = messagesNewestFirst.at(-1);
@@ -7042,6 +7183,7 @@ function buildBootstrapResponse(
     ...(Object.keys(toolSummaryCounts).length > 0 ? { toolSummaryCounts: { ...toolSummaryCounts } } : {}),
     agents: [...agents],
     todos: [...todos],
+    ...(details.length > 0 ? { details: [...details] } : {}),
     ...(oldest && hasOlder
       ? {
           olderCursor: encodeConversationCursor({
@@ -7270,6 +7412,14 @@ function optionalPayloadText(value: unknown, field: string): string | undefined 
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") throw v2Invalid(`${field} must be a string`);
   return value.trim() || undefined;
+}
+
+function parseMessageOrigin(value: unknown, field: string, stored = false): ConversationMessageOrigin | undefined {
+  if (value === undefined) return undefined;
+  if (!isConversationMessageOrigin(value)) {
+    throw stored ? integrity(`Stored ${field} is invalid.`) : v2Invalid(`${field} must be a valid scheduled-message origin`);
+  }
+  return { kind: value.kind, scheduleId: value.scheduleId, name: value.name };
 }
 
 function optionalPayloadHistoryTarget(

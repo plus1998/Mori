@@ -11,6 +11,7 @@ interface SidebarAttentionButtonProps {
 }
 
 const kindLabelKey: Record<SidebarAttentionKind, string> = {
+  question: "nav.attentionKind.question",
   plan: "nav.attentionKind.plan",
   bash: "nav.attentionKind.bash",
   completed: "nav.attentionKind.completed",

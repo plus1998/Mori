@@ -327,15 +327,15 @@ void main() {
     expect(snapshot.toJson()['defaultBashReviewMode'], 'always');
   });
 
-  test('missing auxiliary model downgrades automatic review to manual', () {
+  test('missing approval model downgrades automatic review to manual', () {
     final automatic = _runtimeConfig().copyWith(bashReviewMode: 'auto');
-    final downgraded = downgradeAuxiliaryDependentFeatures(automatic);
+    final downgraded = downgradeApprovalDependentFeatures(automatic);
 
     expect(downgraded.bashReviewMode, 'always');
     expect(
-      downgradeAuxiliaryDependentFeatures(
+      downgradeApprovalDependentFeatures(
         automatic.copyWith(
-          auxiliaryModel: const AuxiliaryModelSelection(
+          approvalModel: const ApprovalModelSelection(
             providerId: 'provider-2',
             modelId: 'fast-model',
             candidateModelId: 'candidate-fast',

@@ -51,12 +51,14 @@
     "./acp-cursor-agent": "./src/acp-cursor-agent.ts",
     "./acp-agent-driver": "./src/acp-agent-driver.ts",
     "./acp-host-ui-features": "./src/acp-host-ui-features.ts",
+    "./acp-provider-exhaustion": "./src/acp-provider-exhaustion.ts",
     "./cursor-agent-models": "./src/cursor-agent-models.ts",
     "./models-dev-limits": "./src/models-dev-limits.ts",
     "./models-dev-pricing": "./src/models-dev-pricing.ts",
     "./subagent-availability": "./src/subagent-availability.ts",
     "./subagent-resume": "./src/subagent-resume.ts",
     "./tool-permission-policy": "./src/tool-permission-policy.ts",
+    "./tool-output-preview": "./src/tool-output-preview.ts",
     "./usage": "./src/usage.ts",
     "./skill-display": "./src/skill-display.ts"
   }

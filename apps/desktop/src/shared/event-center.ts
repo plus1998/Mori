@@ -1,5 +1,5 @@
-import type { IpcChannel, TerminalStreamEvent, ThreadLiveEvent } from "./ipc";
 import type { ConversationSyncEffect } from "@eco/shared";
+import type { IpcChannel, TerminalStreamEvent, ThreadLiveEvent, WorkspaceDiffChangedEvent } from "./ipc";
 
 export const EVENT_CENTER_PROTOCOL_VERSION = 1 as const;
 export const EVENT_CENTER_JSON_RPC_VERSION = "2.0" as const;
@@ -30,7 +30,8 @@ export type EventCenterEventKind =
   | "workspace.terminal"
   | "workspace.package_json_changed"
   | "workspace.git_remote_fetched"
-  | "workspace.git_status_changed";
+  | "workspace.git_status_changed"
+  | "workspace.git_diff_changed";
 
 export type ThreadEventCenterEventKind = Exclude<
   EventCenterEventKind,
@@ -38,6 +39,7 @@ export type ThreadEventCenterEventKind = Exclude<
   | "workspace.package_json_changed"
   | "workspace.git_remote_fetched"
   | "workspace.git_status_changed"
+  | "workspace.git_diff_changed"
 >;
 
 export type EventCenterSource = "desktop" | "renderer" | "center-server" | "mobile";
@@ -140,6 +142,7 @@ export interface EventCenterPayloadMap {
   "workspace.package_json_changed": EventCenterPackageJsonChangedPayload;
   "workspace.git_remote_fetched": EventCenterGitRemoteFetchedPayload;
   "workspace.git_status_changed": EventCenterGitStatusChangedPayload;
+  "workspace.git_diff_changed": WorkspaceDiffChangedEvent;
 }
 
 export const EVENT_CENTER_JSON_RPC_ERROR = {

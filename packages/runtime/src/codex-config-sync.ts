@@ -189,9 +189,10 @@ export function buildCodexConfigToml(input: SyncCodexConfigFromEcoProvidersInput
   }
 
   // Features are global to the app-server process. Always pin fail-closed defaults:
-  // Codex 0.146 enables remote_plugin/plugins by default (marketplace outbounds).
+  // Codex also loads the built-in Apps catalog independently of plugins/MCP selection.
+  // Disable it so cached account tools do not enter Eco sessions without being selected.
   // Role definitions stay thread-scoped via thread/start.config & thread/resume.config.
-  lines.push("[features]", "remote_plugin = false", "plugins = false");
+  lines.push("[features]", "remote_plugin = false", "plugins = false", "apps = false");
   if (enableMultiAgent) {
     lines.push("multi_agent = true", "hooks = true", "", "[agents]", "max_threads = 16", "max_depth = 1");
   }

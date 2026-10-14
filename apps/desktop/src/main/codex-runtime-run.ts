@@ -1,3 +1,4 @@
+import { resolveUpstreamApiCompat } from "../shared/api-compat";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -218,9 +219,7 @@ export interface CodexRuntimeRunDeps {
   >;
   onCodexPlanReady?: NonNullable<ConstructorParameters<typeof CodexEventAdapter>[0]["onPlanReady"]>;
   /** Codex 0.160 `agentMessage` items carrying `delivery: "async"` + questions. */
-  onCodexAsyncQuestions?: NonNullable<
-    ConstructorParameters<typeof CodexEventAdapter>[0]["onAsyncQuestions"]
-  >;
+  onCodexAsyncQuestions?: NonNullable<ConstructorParameters<typeof CodexEventAdapter>[0]["onAsyncQuestions"]>;
   onStderr?: (message: string) => void;
 }
 
@@ -237,6 +236,7 @@ export interface PrepareCodexRuntimeInput {
   requiredProviderIds?: readonly string[];
   /** Main thread's selected provider (the built-in `openai` route retains native image viewing). */
   mainProviderId?: string;
+  mainSupportsImageInput?: boolean;
   /**
    * Global MCP pool for `config.toml` `[mcp_servers.*]` (settings-enabled servers).
    * Thread selection is applied via per-server `enabledTools` (warm process, hidden tools).
@@ -930,7 +930,8 @@ export function scheduleCodexGlobalRuntimeRefresh(options?: { beforePrepare?: ()
         await prepareCodexRuntime({ globalOnly: true, globalRuntimeRevision: revision });
         globalRefreshError = undefined;
       } catch (error) {
-        if (globalRuntimeRefreshShuttingDown && error === globalRefreshIdleAbortController.signal.reason) return;
+        if (globalRuntimeRefreshShuttingDown && error === globalRefreshIdleAbortController.signal.reason)
+          return;
         // A newer request may have superseded the operation that failed. Keep
         // the refresh coordinator alive and try the latest queued transition.
         if (revision !== desiredGlobalRuntimeRevision) {
@@ -982,7 +983,8 @@ export async function prepareCodexRuntime(
       await awaitGlobalRuntimeRefresh(globalRefreshPromise, input.signal);
     }
     if (globalRefreshError) throw globalRefreshError;
-    if (refreshPending) throw new Error("Codex runtime refresh did not complete; new tasks are blocked until it succeeds.");
+    if (refreshPending)
+      throw new Error("Codex runtime refresh did not complete; new tasks are blocked until it succeeds.");
   }
   const run = prepareRuntimeTail.then(() => prepareCodexRuntimeUnlocked(input));
   prepareRuntimeTail = run.then(
@@ -1077,6 +1079,10 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
             ? { executionConfirmationMode: input.executionConfirmationMode }
             : {}),
           ...(input.webSearchOverride ? { webSearchOverride: input.webSearchOverride } : {}),
+          resolveSupportsImageInput: (ref) =>
+            input.requiredCatalogRoutes?.find(
+              (route) => route.providerId === ref.providerId && route.modelId === ref.modelId,
+            )?.manualSpec?.supportsImageInput,
         })
       : undefined;
 
@@ -1099,7 +1105,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     ),
     threadConfig: withCodexSkillConfig(
       mainProviderId
-        ? withCodexNativeImageView(threadConfigWithWebSearch, mainProviderId)
+        ? withCodexNativeImageView(threadConfigWithWebSearch, mainProviderId, input.mainSupportsImageInput)
         : threadConfigWithWebSearch,
       input.skillConfig ?? [],
     ),
@@ -1128,9 +1134,8 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
         .filter((id) => Boolean(id) && id !== "openai"),
     ),
   ];
-  const gatewayProviders = requiredProviderIds.length > 0
-    ? await ensureGlobalEcoGateway({ requiredProviderIds })
-    : [];
+  const gatewayProviders =
+    requiredProviderIds.length > 0 ? await ensureGlobalEcoGateway({ requiredProviderIds }) : [];
   if (gatewayProviders.length > 0) {
     runtimeDeps.onStderr?.(
       `[eco-gateway] ready providers=${gatewayProviders.map((p) => `${p.id}[${p.models.join("|")}]`).join(", ")}`,
@@ -1678,7 +1683,7 @@ export async function runThreadRequestWithRuntimeProxy(
       requiredCatalogRoutes.push({
         providerId,
         modelId,
-        apiCompat: route.apiCompat,
+        apiCompat: resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
         displayName: `${route.provider.name} / ${modelId}`,
         ...(route.manualSpec
           ? {
@@ -1710,6 +1715,9 @@ export async function runThreadRequestWithRuntimeProxy(
       ...(subagentAvailability ? { subagentAvailability } : {}),
       requiredProviderIds,
       ...(selectedRoute ? { mainProviderId: selectedRoute.provider.id } : {}),
+      ...(selectedRoute?.manualSpec?.supportsImageInput !== undefined
+        ? { mainSupportsImageInput: selectedRoute.manualSpec.supportsImageInput }
+        : {}),
       mcpServers,
       threadEnabledMcpServerNames,
       skillConfig,

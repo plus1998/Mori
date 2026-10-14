@@ -124,7 +124,7 @@ test("reviewer rejects conflicting adjacent JSON objects", async () => {
   expect(result.policyMatches).toContain("review_failed_closed");
 });
 
-test("reviewer hard-denies a model-classified critical action", async () => {
+test("reviewer retains model-classified critical risk and transfers the final decision to the user", async () => {
   const result = await reviewEcoApproval({
     route,
     envelope: envelope("custom-admin-command"),
@@ -148,7 +148,9 @@ test("reviewer hard-denies a model-classified critical action", async () => {
         { status: 200, headers: { "content-type": "application/json" } },
       ),
   });
-  expect(result.action).toBe("deny");
+  expect(result.action).toBe("human_required");
+  expect(result).toMatchObject({ riskLevel: "critical" });
+  expect(result.policyMatches).toContain("model_recommendation_requires_human");
 });
 
 test("reviewer fails closed to human approval on invalid model output", async () => {

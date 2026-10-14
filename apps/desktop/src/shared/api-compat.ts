@@ -1,7 +1,9 @@
 /** Upstream API surface used for chat and connection tests. */
-export type UpstreamApiCompat = "anthropic" | "openai_responses" | "openai_chat_completions";
+export type ChatApiCompat = "anthropic" | "openai_responses" | "openai_chat_completions";
+export type UpstreamApiCompat = ChatApiCompat | "system_one";
 
 export const API_COMPAT_THEME: Record<UpstreamApiCompat, { label: string; color: string }> = {
+  system_one: { label: "SystemOne", color: "#7c3aed" },
   anthropic: {
     label: "Anthropic",
     color: "#cc785c",
@@ -20,6 +22,7 @@ export const UPSTREAM_API_COMPAT_CYCLE: UpstreamApiCompat[] = [
   "anthropic",
   "openai_responses",
   "openai_chat_completions",
+  "system_one",
 ];
 
 export function isOpenAICompat(apiCompat: UpstreamApiCompat): boolean {
@@ -28,6 +31,8 @@ export function isOpenAICompat(apiCompat: UpstreamApiCompat): boolean {
 
 export function requestPathPlaceholderForApiCompat(apiCompat: UpstreamApiCompat): string {
   switch (apiCompat) {
+    case "system_one":
+      return "/";
     case "openai_responses":
       return "/openai";
     case "openai_chat_completions":
@@ -49,6 +54,7 @@ export const UPSTREAM_API_COMPAT_OPTIONS: Array<{
   label: string;
   hint: string;
 }> = [
+  { value: "system_one", label: "SystemOne", hint: "POST …/v1/systemone（Jev 等决策模型，仅用于审批）" },
   {
     value: "anthropic",
     label: "Anthropic Messages",
@@ -68,6 +74,9 @@ export const UPSTREAM_API_COMPAT_OPTIONS: Array<{
 
 /** Legacy stored value `openai` maps to Responses. */
 export function normalizeUpstreamApiCompat(value?: string | null): UpstreamApiCompat {
+  if (value === "system_one") {
+    return "system_one";
+  }
   if (value === "openai" || value === "openai_responses") {
     return "openai_responses";
   }
@@ -103,14 +112,12 @@ export function isMessagesOnlyRequestPath(path?: string): boolean {
 export function resolveUpstreamApiCompat(
   routeCompat?: UpstreamApiCompat,
   providerCompat?: UpstreamApiCompat,
-): UpstreamApiCompat {
-  if (routeCompat) {
-    return normalizeUpstreamApiCompat(routeCompat);
+): ChatApiCompat {
+  const resolved = normalizeUpstreamApiCompat(routeCompat ?? providerCompat);
+  if (providerCompat === "system_one" || resolved === "system_one") {
+    throw new Error("SystemOne 供应商仅可用于审批模型，不能用于聊天、辅助模型或视觉模型。");
   }
-  if (providerCompat) {
-    return normalizeUpstreamApiCompat(providerCompat);
-  }
-  return "anthropic";
+  return resolved;
 }
 
 /** User-facing misconfiguration (route OpenAI surface on Anthropic-only path). */

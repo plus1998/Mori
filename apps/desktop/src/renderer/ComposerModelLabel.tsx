@@ -1,5 +1,6 @@
 import type { Ref } from "react";
 import type { ThinkingEffort } from "../shared/ipc";
+import { formatModelDisplayName } from "../shared/model-id";
 import { i18n } from "./i18n";
 
 const THINKING_EFFORT_KEYS: Record<ThinkingEffort, string> = {
@@ -51,23 +52,8 @@ export function formatComposerModelName(modelId: string, displayName?: string): 
   if (preferred) {
     return preferred;
   }
-  const normalizedModelId = modelId.trim();
-  const leaf = normalizedModelId.includes("/")
-    ? (normalizedModelId.split("/").pop() ?? normalizedModelId)
-    : normalizedModelId;
-  const gptMatch = leaf.match(/^gpt-(\d+(?:\.\d+)*)(?:-([a-z0-9]+(?:-[a-z0-9]+)*))?$/i);
-  if (gptMatch) {
-    const version = gptMatch[1];
-    if (!version) {
-      return leaf;
-    }
-    const suffix = gptMatch[2]
-      ?.split("-")
-      .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
-      .join(" ");
-    return suffix ? `${version} ${suffix}` : version;
-  }
-  return leaf.length > 24 ? `${leaf.slice(0, 12)}…${leaf.slice(-9)}` : leaf;
+  const formatted = formatModelDisplayName(modelId);
+  return formatted.length > 24 ? `${formatted.slice(0, 12)}…${formatted.slice(-9)}` : formatted;
 }
 
 export function formatComposerThinkingEffortLabel(effort: ThinkingEffort | undefined): string {

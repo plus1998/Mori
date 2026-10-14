@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import {
   CODEX_JSON_RPC_INVALID_PARAMS,
   CODEX_JSON_RPC_METHOD_NOT_FOUND,
@@ -26,6 +27,8 @@ import type {
   PlanApprovalRequest,
   ThreadLiveEvent,
 } from "../shared/ipc";
+import { presentMcpApproval } from "../shared/mcp-approval-presentation";
+import { modelApprovalOutcome } from "./approval-model-outcome";
 import {
   type BashApprovalResolution,
   cancelBashApprovalsForThread,
@@ -62,6 +65,10 @@ type PendingMcpToolCall = {
  * the approval card can show the actual Hub target and arguments.
  */
 const pendingMcpToolCalls = new Map<string, PendingMcpToolCall[]>();
+const pendingFileChanges = new Map<
+  string,
+  Array<{ itemId: string; ecoThreadId: string; changes: unknown[] }>
+>();
 
 /**
  * Detect Codex / MCP “Allow the X MCP server to run tool "Y"?” tool-run confirmations.
@@ -183,6 +190,8 @@ export interface CodexApprovalBridgeDeps {
   emitThreadLive: (event: ThreadLiveEvent) => void;
   updateThreadStatus: (ecoThreadId: string, patch: { status: string; message: string }) => void;
   getApprovalMode?: (ecoThreadId: string) => "always" | "auto" | "allow_all";
+  /** Exact registered server owned by this thread; a matching prefix is not sufficient. */
+  getMcpHubServerName?: (ecoThreadId: string) => string | undefined;
   /**
    * Built-in browser open approval (settings). Used to auto-accept Codex MCP
    * tool-run elicitations for eco_agent_browser when mode is always_allow.
@@ -226,6 +235,7 @@ export interface CodexApprovalBridge {
 
 export function createCodexApprovalBridge(deps: CodexApprovalBridgeDeps): CodexApprovalBridge {
   pendingMcpToolCalls.clear();
+  pendingFileChanges.clear();
   return {
     handleServerRequest: (method, params) => handleCodexServerRequest(deps, method, params),
     handleNotification: (method, params) => handleCodexApprovalNotification(deps, method, params),
@@ -268,16 +278,39 @@ export function handleCodexApprovalNotification(
   }
   if (method === "item/started") {
     rememberPendingMcpToolCall(params);
+    const threadId = readString(params, "threadId");
+    const item = isRecord(params.item) ? params.item : undefined;
+    const itemId = item ? readString(item, "id") : undefined;
+    if (threadId && itemId && item?.type === "fileChange" && Array.isArray(item.changes)) {
+      const changes = item.changes;
+      const entries = (pendingFileChanges.get(threadId) ?? []).filter((entry) => entry.itemId !== itemId);
+      if (JSON.stringify(changes).length <= 64_000) {
+        entries.push({ itemId, changes, ecoThreadId: deps.resolveEcoThreadId(threadId) });
+        pendingFileChanges.set(threadId, entries.slice(-32));
+      } else if (entries.length) pendingFileChanges.set(threadId, entries);
+      else pendingFileChanges.delete(threadId);
+    }
     return;
   }
   if (method !== "item/completed") {
     return;
   }
   forgetPendingMcpToolCall(params);
+  const threadId = readString(params, "threadId");
+  const itemId = isRecord(params.item) ? readString(params.item, "id") : undefined;
+  if (threadId && itemId) {
+    const entries = (pendingFileChanges.get(threadId) ?? []).filter((entry) => entry.itemId !== itemId);
+    if (entries.length) pendingFileChanges.set(threadId, entries);
+    else pendingFileChanges.delete(threadId);
+  }
   handlePlanItemCompleted(deps, params);
 }
 
 export function cancelCodexApprovalsForThread(threadId: string, reason: string): void {
+  for (const [codexThreadId, entries] of pendingFileChanges) {
+    if (entries.some((entry) => entry.ecoThreadId === threadId) || codexThreadId === threadId)
+      pendingFileChanges.delete(codexThreadId);
+  }
   cancelClarificationsForThread(threadId, reason);
   cancelBashApprovalsForThread(threadId, reason);
   cancelPlanApprovalsForThread(threadId, reason);
@@ -336,10 +369,6 @@ async function handleCommandExecutionRequestApproval(
     emitAutomaticApproval(deps, { ...approvalRequest, reviewRationale: automatic.rationale }, command);
     return { decision: "accept" };
   }
-  if (automatic?.action === "deny") {
-    emitAutomaticDenial(deps, approvalRequest, automatic.rationale);
-    return { decision: "decline" };
-  }
   if (automatic?.action === "human_required") {
     approvalRequest = { ...approvalRequest, reviewRationale: automatic.rationale };
   }
@@ -397,17 +426,19 @@ async function handleFileChangeRequestApproval(
     return { decision: "accept" };
   }
 
+  const pendingChanges = pendingFileChanges
+    .get(codexThreadId)
+    ?.find((entry) => entry.itemId === itemId)?.changes;
   const automatic = await reviewCodexApprovalIfEnabled(deps, ecoThreadId, approvalRequest, {
     toolName: "FileChange",
-    toolInput: params,
+    toolInput: {
+      ...params,
+      ...(pendingChanges ? { changes: pendingChanges } : {}),
+    },
   });
   if (automatic?.action === "allow") {
     emitAutomaticApproval(deps, { ...approvalRequest, reviewRationale: automatic.rationale }, command);
     return { decision: "accept" };
-  }
-  if (automatic?.action === "deny") {
-    emitAutomaticDenial(deps, approvalRequest, automatic.rationale);
-    return { decision: "decline" };
   }
   if (automatic?.action === "human_required") {
     approvalRequest = { ...approvalRequest, reviewRationale: automatic.rationale };
@@ -486,10 +517,6 @@ async function handlePermissionsRequestApproval(
     );
     return { permissions: requestedPermissions, scope: "turn" };
   }
-  if (automatic?.action === "deny") {
-    emitAutomaticDenial(deps, approvalRequest, automatic.rationale);
-    return denied;
-  }
   if (automatic?.action === "human_required") {
     approvalRequest = { ...approvalRequest, reviewRationale: automatic.rationale };
   }
@@ -540,7 +567,20 @@ async function handleMcpServerElicitationRequest(
   const rawMessage = requireRequestString(CODEX_MCP_SERVER_ELICITATION_REQUEST, params, "message");
   validateNullableStringFields(CODEX_MCP_SERVER_ELICITATION_REQUEST, params, ["turnId"]);
   const turnId = readString(params, "turnId");
-  const nestedHubCall = resolvePendingHubCall(codexThreadId, rawServerName);
+  const rawToolName =
+    mode === "form" ? parseMcpToolRunElicitationMessage(rawServerName, rawMessage) : undefined;
+  if (
+    mode === "form" &&
+    deps.getThread(ecoThreadId) &&
+    deps.getMcpHubServerName?.(ecoThreadId) === rawServerName &&
+    rawToolName === parseMcpToolRunElicitationMessage(rawServerName, 'run tool "search_tools"')
+  ) {
+    return { action: "accept", content: {} };
+  }
+  const nestedHubCall =
+    rawToolName === parseMcpToolRunElicitationMessage(rawServerName, 'run tool "call_tool"')
+      ? resolvePendingHubCall(codexThreadId, rawServerName)
+      : undefined;
   const serverName = nestedHubCall?.serverName ?? rawServerName;
   const message = nestedHubCall
     ? buildMcpToolApprovalMessage(nestedHubCall.serverName, nestedHubCall.toolName, nestedHubCall.arguments)
@@ -553,7 +593,16 @@ async function handleMcpServerElicitationRequest(
   // same bridge before applying integration-specific policies below.
   if (parsedToolName && (approvalMode === "allow_all" || approvalMode === "auto")) {
     const toolName = parsedToolName;
-    const toolInput = nestedHubCall?.arguments ?? {};
+    const approvalItemId = readString(params, "itemId");
+    const toolInput =
+      nestedHubCall?.arguments ??
+      resolveDirectMcpApprovalArguments({
+        codexThreadId,
+        serverName,
+        toolName,
+        message: rawMessage,
+        ...(approvalItemId ? { itemId: approvalItemId } : {}),
+      });
     const isImageGenerationTool =
       serverName.trim().toLowerCase() === ECO_IMAGE_GENERATION_MCP_SERVER &&
       toolName.endsWith(`__${ECO_IMAGE_GENERATION_TOOL}`);
@@ -594,10 +643,6 @@ async function handleMcpServerElicitationRequest(
       }
       emitAutomaticApproval(deps, { ...approvalRequest, reviewRationale: automatic.rationale }, toolName);
       return { action: "accept", content: {} };
-    }
-    if (automatic?.action === "deny") {
-      emitAutomaticDenial(deps, approvalRequest, automatic.rationale);
-      return { action: "decline" };
     }
     if (automatic?.action === "human_required") {
       approvalRequest = { ...approvalRequest, reviewRationale: automatic.rationale };
@@ -2141,12 +2186,13 @@ function emitBashApprovalRequested(
   request: BashApprovalRequest,
   commandLabel: string,
 ): void {
+  const presentation = presentMcpApproval(request);
   deps.emitThreadLive({
     threadId: request.threadId,
     type: "bash_approval.requested",
-    message: `等待确认：${commandLabel}`,
+    message: `等待确认：${request.kind === "mcp" ? presentation.description : commandLabel}`,
     role: "tool",
-    bashApproval: request,
+    bashApproval: presentation,
   });
   deps.updateThreadStatus(request.threadId, {
     status: "running",
@@ -2168,7 +2214,8 @@ async function reviewCodexApprovalIfEnabled(
   if (deps.getApprovalMode?.(threadId) !== "auto" || !deps.reviewApproval) {
     return undefined;
   }
-  return deps.reviewApproval(threadId, request, tool);
+  const review = await deps.reviewApproval(threadId, request, tool);
+  return modelApprovalOutcome(review);
 }
 
 function emitAutomaticApproval(
@@ -2179,23 +2226,9 @@ function emitAutomaticApproval(
   deps.emitThreadLive({
     threadId: request.threadId,
     type: "bash_approval.approved",
-    message: `辅助模型已允许：${commandLabel}`,
+    message: `审批模型已允许：${commandLabel}`,
     role: "tool",
     bashApproval: request,
-  });
-}
-
-function emitAutomaticDenial(
-  deps: CodexApprovalBridgeDeps,
-  request: BashApprovalRequest,
-  rationale: string,
-): void {
-  deps.emitThreadLive({
-    threadId: request.threadId,
-    type: "bash_approval.denied",
-    message: `已拒绝：${rationale}`,
-    role: "tool",
-    bashApproval: { ...request, reviewRationale: rationale },
   });
 }
 
@@ -2512,6 +2545,45 @@ function resolvePendingHubCall(
     };
   }
   return undefined;
+}
+
+/** Preserve direct MCP arguments as well as Hub arguments; never borrow an ambiguous concurrent call. */
+function resolveDirectMcpApprovalArguments(input: {
+  codexThreadId: string;
+  serverName: string;
+  toolName: string;
+  message: string;
+  itemId?: string;
+}): Record<string, unknown> {
+  const calls = (pendingMcpToolCalls.get(input.codexThreadId) ?? []).filter(
+    (call) =>
+      call.serverName.trim().toLowerCase() === input.serverName.trim().toLowerCase() &&
+      parseMcpToolRunElicitationMessage(call.serverName, `run tool "${call.toolName}"`) === input.toolName &&
+      (!input.itemId || call.itemId === input.itemId),
+  );
+  // Some Codex versions include exact JSON arguments in the elicitation rather than item/started.
+  const encoded = input.message.match(/with arguments\s+(\{[\s\S]*\})\s*\?\s*$/i)?.[1];
+  let statedArguments: Record<string, unknown> | undefined;
+  if (encoded) {
+    try {
+      const parsed: unknown = JSON.parse(encoded);
+      if (isRecord(parsed)) statedArguments = parsed;
+    } catch {
+      // Keep the raw protocol evidence below so the reviewer sees the actual gap.
+    }
+  }
+  if (calls.length === 1 && calls[0]) {
+    if (statedArguments && !isDeepStrictEqual(statedArguments, calls[0].arguments)) {
+      return { _approvalMessage: input.message, _argumentsUnavailable: "conflicting_argument_sources" };
+    }
+    return calls[0].arguments;
+  }
+  if (statedArguments) return statedArguments;
+  return {
+    _approvalMessage: input.message,
+    _argumentsUnavailable:
+      calls.length > 1 ? "ambiguous_concurrent_calls" : encoded ? "invalid_json" : "not_provided",
+  };
 }
 
 function buildMcpToolApprovalMessage(

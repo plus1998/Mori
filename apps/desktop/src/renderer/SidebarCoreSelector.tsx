@@ -135,6 +135,11 @@ export function coreDisplayName(coreKind: CoreKind | undefined): string {
   return i18n.t("sidebar.unknownCore");
 }
 
+/** Brand icon for a core, for surfaces that show the logo instead of the core name. */
+export function coreIconSrc(coreKind: CoreKind | undefined): string {
+  return coreOptions.find((option) => option.kind === coreKind)?.iconSrc ?? "./agent-icons/other.svg";
+}
+
 function AcpCoreTag() {
   return (
     <span className="sidebar-core-acp-tag" aria-hidden="true">

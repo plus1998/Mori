@@ -708,6 +708,7 @@ function userResourceIdFrom(id: string): string {
 }
 
 function selectDefaultProvider(providers: readonly ProviderConfigView[]): ProviderConfigView | undefined {
+  providers = providers.filter((provider) => provider.apiCompat !== "system_one");
   return (
     providers.find((provider) => provider.enabled && provider.defaultModel.trim()) ??
     providers.find((provider) => provider.defaultModel.trim())

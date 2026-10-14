@@ -999,8 +999,7 @@ class DesktopRpc {
     await _client.invoke(desktopDeviceId, 'thread:cancel', [
       {
         'principalId': principalId,
-        'clientCommandId':
-            'run_cancel_${conversationV2StableHash({'threadId': normalizedThreadId, 'expectedHistoryRevision': expectedHistoryRevision})}',
+        'clientCommandId': 'run_cancel_${const Uuid().v4()}',
         'threadId': normalizedThreadId,
         'expectedHistoryRevision': expectedHistoryRevision,
       },
@@ -1769,6 +1768,22 @@ class DesktopRpc {
     final result = await _client.invoke<Map<String, dynamic>>(
       desktopDeviceId,
       'git:list-commit-model-options',
+      [
+        {
+          if (mainAgentConfigId != null && mainAgentConfigId.trim().isNotEmpty)
+            'mainAgentConfigId': mainAgentConfigId.trim(),
+        },
+      ],
+    );
+    return GitListCommitModelOptionsResult.fromJson(result);
+  }
+
+  Future<GitListCommitModelOptionsResult> listApprovalModelOptions({
+    String? mainAgentConfigId,
+  }) async {
+    final result = await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'approval:list-model-options',
       [
         {
           if (mainAgentConfigId != null && mainAgentConfigId.trim().isNotEmpty)

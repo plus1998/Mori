@@ -65,7 +65,7 @@ test("requires approval for dangerous commands", () => {
       cwd: REPO,
       workspacePath: REPO,
     }).riskLevel,
-  ).toBe("critical");
+  ).toBe("high");
 
   expect(
     evaluateCommand({
@@ -76,14 +76,14 @@ test("requires approval for dangerous commands", () => {
   ).toBe("allow");
 });
 
-test("denies commands and writes outside the workspace", () => {
+test("reviews external commands while writes keep their workspace policy", () => {
   expect(
     evaluateCommand({
       command: ["ls"],
       cwd: "/tmp",
       workspacePath: REPO,
     }).action,
-  ).toBe("deny");
+  ).toBe("ask");
 
   expect(
     evaluateFileWrite({

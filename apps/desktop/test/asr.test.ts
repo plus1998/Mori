@@ -13,6 +13,7 @@ import {
 } from "../src/main/asr-settings-store";
 import {
   createAsrCleanupOnce,
+  isAsrComposerConfigured,
   isAsrInputDeviceConstraintError,
   mapAsrAnalyserRmsToLevel,
   reportAsrError,
@@ -25,7 +26,6 @@ import {
   isAsrProfileDraftDirty,
   profileStatusLine,
   resolveAsrLoadErrorDetail,
-  resolveAsrProfileEditorSelection,
 } from "../src/renderer/AsrSettingsPanel";
 import { isAsrAsyncTokenCurrent, nextAsrAsyncToken } from "../src/renderer/asr-async-token";
 import { encodePcm16Wav, wavToBase64 } from "../src/renderer/asr-audio";
@@ -41,6 +41,11 @@ import {
   MAX_ASR_DATA_URL_BYTES,
 } from "../src/shared/asr-limits";
 import { i18nCatalogs } from "../src/shared/i18n-catalogs";
+import {
+  PROVIDER_BRAND_IDS,
+  PROVIDER_BRAND_LOGOS,
+  resolveProviderBrandLogo,
+} from "../src/shared/provider-brand-logo";
 import { renderLocalized } from "./i18n-test";
 
 test("starts waveform animation only for an active non-busy recording", () => {
@@ -109,10 +114,18 @@ test("contains all visible ASR settings catalog keys in both locales", () => {
     "asr.loadError",
     "asr.loadErrorUnknown",
     "asr.saveError",
-    "asr.savedMessage",
     "asr.profiles",
     "asr.profileName",
-    "asr.useForRecording",
+    "asr.addProfile",
+    "asr.profileCount",
+    "asr.profileCountActiveSuffix",
+    "asr.emptyTitle",
+    "asr.emptyHint",
+    "asr.editorSubtitle",
+    "asr.editProfileAction",
+    "asr.inactive",
+    "asr.saving",
+    "asr.setActive",
     "asr.deleteConfirm",
     "asr.inputDevice",
     "asr.systemDefault",
@@ -124,77 +137,64 @@ test("contains all visible ASR settings catalog keys in both locales", () => {
   }
 });
 
-test("uses Voice as the English title and reserves transcription wording for the protocol name", () => {
+test("uses Voice Input as the title and reserves transcription wording for the protocol name", () => {
   const zh = i18nCatalogs["zh-CN"].translation;
   const en = i18nCatalogs["en-US"].translation;
-  expect(zh["asr.title"]).toBe("语音");
-  expect(en["asr.title"]).toBe("Voice");
+  expect(zh["asr.title"]).toBe("语音输入");
+  expect(en["asr.title"]).toBe("Voice Input");
   for (const [key, value] of Object.entries(en)) {
     if (!key.startsWith("asr.")) continue;
     expect(value.replaceAll("Audio Transcriptions", "").toLowerCase()).not.toContain("transcription");
   }
 });
 
+test("shows the composer voice button only after a usable profile and an input device are configured", () => {
+  const profile = { id: "profile-1", model: "qwen3-asr-flash", hasApiKey: true };
+  const configured = { profiles: [profile], activeProfileId: "profile-1", inputDeviceId: "mic-1" };
+  expect(isAsrComposerConfigured(configured)).toBe(true);
+  expect(isAsrComposerConfigured({ ...configured, inputDeviceId: undefined })).toBe(false);
+  expect(isAsrComposerConfigured({ ...configured, inputDeviceId: "" })).toBe(false);
+  expect(isAsrComposerConfigured({ profiles: [], activeProfileId: "", inputDeviceId: "mic-1" })).toBe(false);
+  expect(isAsrComposerConfigured({ ...configured, activeProfileId: "profile-missing" })).toBe(false);
+  expect(isAsrComposerConfigured({ ...configured, profiles: [{ ...profile, hasApiKey: false }] })).toBe(
+    false,
+  );
+  expect(isAsrComposerConfigured({ ...configured, profiles: [{ ...profile, model: "  " }] })).toBe(false);
+});
+
+test("resolves vendor brand logos from name, then model, then protocol", () => {
+  expect(resolveProviderBrandLogo({ name: "OpenAI 官方", model: "whatever" })?.iconSrc).toBe(
+    "./provider-icons/openai.svg",
+  );
+  expect(resolveProviderBrandLogo({ name: "", model: "gpt-image-2" })?.brand).toBe("openai");
+  expect(resolveProviderBrandLogo({ model: "gemini-2.5-flash-image" })?.iconSrc).toBe(
+    "./agent-icons/gemini.png",
+  );
+  expect(resolveProviderBrandLogo({ model: "grok-4-image" })?.iconSrc).toBe("./agent-icons/grok.ico");
+  // Vendor name wins over the model when both match different brands.
+  expect(resolveProviderBrandLogo({ name: "Google AI Studio", model: "gpt-image-2" })?.brand).toBe("google");
+  // Protocol and base URL are the fallbacks.
+  expect(resolveProviderBrandLogo({ protocol: "openai_compatible" })?.brand).toBe("openai");
+  expect(
+    resolveProviderBrandLogo({ endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1" })?.brand,
+  ).toBe("bailian");
+  expect(resolveProviderBrandLogo({ name: "百炼 API", model: "qwen3-asr-flash" })?.iconSrc).toBe(
+    "./provider-icons/bailian.png",
+  );
+  expect(resolveProviderBrandLogo({ name: "DeepSeek" })?.iconSrc).toBe("./provider-icons/deepseek.ico");
+  // Every advertised brand ships a real asset path.
+  for (const brand of PROVIDER_BRAND_IDS) {
+    expect(PROVIDER_BRAND_LOGOS[brand]).toMatch(/^\.\/(agent|provider)-icons\//);
+  }
+  // Unknown vendors stay unlabelled so the caller can keep its own icon.
+  expect(resolveProviderBrandLogo({ name: "本地自建", model: "whisper-large" })).toBeUndefined();
+  expect(resolveProviderBrandLogo({})).toBeUndefined();
+});
+
 test("renders an ASR settings load error detail or localized unknown fallback", () => {
   expect(resolveAsrLoadErrorDetail("database unavailable", "Unknown error")).toBe("database unavailable");
   expect(resolveAsrLoadErrorDetail("", "Unknown error")).toBe("Unknown error");
   expect(resolveAsrLoadErrorDetail(undefined, "Unknown error")).toBeUndefined();
-});
-
-test("keeps create-mode and existing profile selection across unrelated snapshot refreshes", () => {
-  const work = {
-    id: "profile-1",
-    name: "Work",
-    endpoint: "https://example.com/v1",
-    apiMode: "chat_completions" as const,
-    model: "custom-asr-model",
-    systemPrompt: "",
-    hasApiKey: true,
-    createdAt: "2026-08-03T00:00:00.000Z",
-    updatedAt: "2026-08-03T00:00:00.000Z",
-  };
-  const personal = {
-    ...work,
-    id: "profile-2",
-    name: "Personal",
-    updatedAt: "2026-08-03T01:00:00.000Z",
-  };
-
-  expect(
-    resolveAsrProfileEditorSelection({
-      selectedProfileId: undefined,
-      profiles: [work, personal],
-      activeProfileId: work.id,
-    }),
-  ).toEqual({ action: "keep" });
-
-  expect(
-    resolveAsrProfileEditorSelection({
-      selectedProfileId: work.id,
-      profiles: [{ ...work, updatedAt: "2026-08-03T02:00:00.000Z" }, personal],
-      activeProfileId: personal.id,
-    }),
-  ).toEqual({ action: "keep" });
-
-  expect(
-    resolveAsrProfileEditorSelection({
-      selectedProfileId: work.id,
-      profiles: [personal],
-      activeProfileId: personal.id,
-    }),
-  ).toEqual({
-    action: "reselect",
-    profileId: personal.id,
-    draft: {
-      id: personal.id,
-      name: personal.name,
-      endpoint: personal.endpoint,
-      apiMode: personal.apiMode,
-      model: personal.model,
-      systemPrompt: personal.systemPrompt,
-      apiKey: "",
-    },
-  });
 });
 
 test("detects dirty ASR drafts and builds compact profile status lines", () => {
@@ -250,13 +250,10 @@ test("detects dirty ASR drafts and builds compact profile status lines", () => {
       undefined,
     ),
   ).toBe(false);
-  expect(
-    profileStatusLine(work, {
-      hasApiKey: "Key saved",
-      noApiKey: "No key",
-      notSet: "Not set",
-    }),
-  ).toBe("Chat Completions · custom-asr-model · Key saved");
+  expect(profileStatusLine(work, { notSet: "Not set" })).toBe("Chat Completions · custom-asr-model");
+  expect(profileStatusLine({ apiMode: "chat_completions", model: "  " }, { notSet: "Not set" })).toBe(
+    "Chat Completions · Not set",
+  );
 });
 
 test("renders voice profiles with active metadata and disables editing while busy", () => {
@@ -273,6 +270,17 @@ test("renders voice profiles with active metadata and disables editing while bus
           hasApiKey: true,
           createdAt: "2026-08-03T00:00:00.000Z",
           updatedAt: "2026-08-03T00:00:00.000Z",
+        },
+        {
+          id: "profile-2",
+          name: "百炼 API",
+          endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          apiMode: "chat_completions" as const,
+          model: "qwen3-asr-flash",
+          systemPrompt: "",
+          hasApiKey: false,
+          createdAt: "2026-08-03T01:00:00.000Z",
+          updatedAt: "2026-08-03T01:00:00.000Z",
         },
       ],
       activeProfileId: "profile-1",
@@ -295,23 +303,37 @@ test("renders voice profiles with active metadata and disables editing while bus
     onInputDeviceChange: async () => {},
   };
   const markup = renderLocalized(createElement(AsrSettingsPanel, props), "en-US");
-  expect(markup).toContain("<h1>Voice</h1>");
+  expect(markup).toContain("<h1>Voice Input</h1>");
   expect(markup).toContain("Choose a microphone and manage the service profiles used for recording.");
-  expect(markup).toContain("Work");
-  expect(markup).toContain("Active");
-  expect(markup).toContain("Key saved");
+  expect(markup).toContain("Microphone");
   expect(markup).toContain("System default");
-  expect(markup).toContain("Used for recording right now");
-  expect(markup).toContain('value="custom-asr-model"');
-  expect(markup).not.toContain('value="custom-asr-model" readonly');
-  expect(markup).toContain("Chat Completions");
-  expect(markup).toContain("Audio Transcriptions");
-  expect(markup).toContain('aria-pressed="true"');
-  expect(markup).toContain('aria-pressed="false"');
-  expect(markup).toContain('role="group" aria-label="API protocol"');
+  expect(markup).toContain("Voice profiles");
+  expect(markup).toContain("2 profiles · 1 active");
+  expect(markup).toContain("Add profile");
+  expect(markup).toContain("Work");
+  expect(markup).toContain("Chat Completions · custom-asr-model");
+  // A saved key is the normal case and stays out of the card; only a missing key is surfaced.
+  expect(markup).not.toContain("Key saved");
+  expect(markup).toContain("Active");
+  expect(markup).toContain("Not active");
+  expect(markup).toContain("Set active");
+  // The state chip is the activation control: active profile is pressed + disabled,
+  // inactive profile stays clickable. No separate "Set active" button exists.
+  expect(markup).toMatch(/asr-profile-state is-active"[^>]*aria-pressed="true"[^>]*disabled/);
+  expect(markup).toMatch(/asr-profile-state"[^>]*aria-pressed="false"/);
+  expect(markup).not.toContain("asr-profile-action-primary");
+  expect(markup).toContain("Edit");
+  expect(markup).toContain("Chat Completions · qwen3-asr-flash");
+  expect(markup).toContain("No API key");
+  // Brand marks come from the vendor name / model, not from a generic icon.
+  expect(markup).toContain('src="./provider-icons/bailian.png"');
+  expect(markup).toContain("asr-profile-card-actions");
+  // The editor moved into a modal, so its fields stay out of the page markup.
+  expect(markup).not.toContain('placeholder="qwen3-asr-flash"');
+  expect(markup).not.toContain("Audio Transcriptions");
   const busyMarkup = renderLocalized(createElement(AsrSettingsPanel, { ...props, busy: true }), "en-US");
-  expect(busyMarkup).toContain('disabled="" placeholder="qwen3-asr-flash"');
-  expect(busyMarkup).toContain('value="custom-asr-model"');
+  expect(busyMarkup).toMatch(/class="settings-primary-button asr-add-button"[^>]*disabled/);
+  expect(busyMarkup).toMatch(/asr-profile-action-secondary"[^>]*disabled/);
 });
 
 test("builds exact input constraints and never treats a missing saved device as available", () => {

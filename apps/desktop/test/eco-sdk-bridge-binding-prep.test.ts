@@ -29,6 +29,7 @@ function stubGateway(onRequest: (request: Request) => void | Promise<void>): Eco
     getProviders: () => [],
     setProviders: () => undefined,
     setUpstreamUserAgent: () => undefined,
+    setUpstreamUserAgents: () => undefined,
     setUpstreamProxyUrl: () => undefined,
     getUpstreamProxyUrl: () => undefined,
   };

@@ -1,3 +1,4 @@
+import { isEcoTtsToolName } from "./tts";
 import { ecoAgentBrowserToolSuffix, hasNamedAgentBrowserLabel, isEcoAgentBrowserToolName } from "./browser";
 import { isEcoComputerUseToolName } from "./computer-use";
 import { isEcoHtmlHostToolName } from "./html-host-tool";
@@ -12,6 +13,7 @@ export type ActivityActionIcon =
   | "read"
   | "image"
   | "images"
+  | "audio"
   | "browser"
   | "edit"
   | "terminal"
@@ -19,6 +21,7 @@ export type ActivityActionIcon =
   | "context"
   | "network"
   | "computer"
+  | "code"
   | "tool";
 
 export type ActionKind =
@@ -39,8 +42,10 @@ export type ActionKind =
   | "imageDisplay"
   | "htmlHost"
   | "imageCreate"
+  | "speechCreate"
   | "browser"
   | "computerUse"
+  | "codemode"
   | "tool";
 
 export type ActionGroupBucket =
@@ -56,8 +61,10 @@ export type ActionGroupBucket =
   | "skills"
   | "mcpTools"
   | "images"
+  | "speech"
   | "browser"
   | "computerUse"
+  | "scripts"
   | "otherTools";
 
 export interface ActionKindPayload {
@@ -70,6 +77,8 @@ export interface ActionKindPayload {
   imageDisplay?: { artifactId?: string };
   htmlHost?: { pageId?: string; publicUrl?: string; title?: string };
   bashRun?: { command?: string };
+  /** PI `codemode`: a script the model wrote; its nested calls are not model-issued calls. */
+  codemodeRun?: { script?: string };
 }
 
 export interface ResolvedAction {
@@ -78,6 +87,8 @@ export interface ResolvedAction {
   bucket: ActionGroupBucket;
   /** 浏览器等专名 key 的 suffix，如 `agent_browser_open` */
   namedSuffix?: string;
+  /** Real MCP identity, after the runtime unwraps Hub/proxy calls. */
+  mcpTool?: { serverName: string; toolName: string };
 }
 
 const ALIASES: Record<string, ActionKind> = {
@@ -105,6 +116,7 @@ const ALIASES: Record<string, ActionKind> = {
   taskcreate: "taskCreate",
   taskupdate: "taskUpdate",
   todowrite: "taskUpdate",
+  codemode: "codemode",
   skill: "skill",
   skills: "skill",
   readskill: "skill",
@@ -137,8 +149,10 @@ const KIND_ICON: Record<ActionKind, ActivityActionIcon> = {
   imageDisplay: "images",
   htmlHost: "browser",
   imageCreate: "image",
+  speechCreate: "audio",
   browser: "browser",
   computerUse: "computer",
+  codemode: "code",
   tool: "tool",
 };
 
@@ -160,8 +174,10 @@ const KIND_BUCKET: Record<ActionKind, ActionGroupBucket> = {
   imageDisplay: "images",
   htmlHost: "browser",
   imageCreate: "images",
+  speechCreate: "speech",
   browser: "browser",
   computerUse: "computerUse",
+  codemode: "scripts",
   tool: "otherTools",
 };
 
@@ -202,6 +218,9 @@ function kindFromPayload(payload: ActionKindPayload | undefined): ActionKind | u
   if (payload.bashRun) {
     return "command";
   }
+  if (payload.codemodeRun) {
+    return "codemode";
+  }
   return undefined;
 }
 
@@ -232,6 +251,7 @@ export function resolveActionKind(input: { toolName?: string; payload?: ActionKi
   if (isEcoComputerUseToolName(toolName)) {
     return resolved("computerUse");
   }
+  if (isEcoTtsToolName(toolName)) return resolved("speechCreate");
   if (isEcoImageGenerationToolName(toolName)) {
     return resolved("imageCreate");
   }
@@ -249,7 +269,13 @@ export function resolveActionKind(input: { toolName?: string; payload?: ActionKi
   }
 
   if (name.startsWith("mcp__")) {
-    return resolved("mcp");
+    const match = toolName.trim().match(/^mcp__(.+?)__(.+)$/i);
+    return {
+      ...resolved("mcp"),
+      ...(match?.[1] && match[2]
+        ? { mcpTool: { serverName: match[1], toolName: match[2] } }
+        : {}),
+    };
   }
 
   if (name.includes("skill")) {
@@ -268,10 +294,12 @@ export const ACTION_GROUP_ICON_PRIORITY: readonly ActivityActionIcon[] = [
   "search",
   "network",
   "terminal",
+  "code",
   "browser",
   "computer",
   "images",
   "image",
+  "audio",
   "agent",
   "tool",
 ];
@@ -283,12 +311,14 @@ const SUMMARY_BUCKET_ORDER: readonly ActionGroupBucket[] = [
   "searches",
   "web",
   "commands",
+  "scripts",
   "taskCreates",
   "taskUpdates",
   "agents",
   "skills",
   "mcpTools",
   "images",
+  "speech",
   "browser",
   "computerUse",
   "otherTools",
@@ -307,8 +337,10 @@ const SUMMARY_I18N_KEY: Record<ActionGroupBucket, string> = {
   skills: "activity.summary.skills",
   mcpTools: "activity.summary.mcpTools",
   images: "activity.summary.images",
+  speech: "activity.summary.speech",
   browser: "activity.summary.browser",
   computerUse: "activity.summary.computerUse",
+  scripts: "activity.summary.scripts",
   otherTools: "activity.summary.tools",
 };
 
@@ -410,6 +442,7 @@ export function formatActionLine(
   if (kind === "htmlHost") {
     return t(phase === "running" ? "activity.htmlHost.publishing" : "activity.htmlHost.published");
   }
+  if (kind === "speechCreate") return t(phase === "running" ? "activity.running.speechCreate" : "activity.done.speechCreate");
   if (kind === "imageCreate") {
     return t(phase === "running" ? "activity.running.imageCreate" : "activity.done.imageCreate");
   }
@@ -418,6 +451,13 @@ export function formatActionLine(
   }
   if (kind === "mcpSearch") {
     return t(phase === "running" ? "activity.running.mcpSearch" : "activity.done.mcpSearch");
+  }
+  if (kind === "mcp" && resolved.mcpTool) {
+    const { serverName, toolName } = resolved.mcpTool;
+    return t(`activity.${phase}.mcpNamed`, {
+      name: serverName,
+      suffix: ` · ${clamp64(toolName.replaceAll("_", " "))}`,
+    });
   }
   if (kind === "browser") {
     const target = resolveActionTarget(resolved, input);
@@ -456,9 +496,26 @@ export function summarizeActionGroup(
 ): { label: string; icon: ActivityActionIcon } {
   const clauses: string[] = [];
   for (const bucket of SUMMARY_BUCKET_ORDER) {
-    const count = items.filter((item) => item.bucket === bucket).length;
-    if (count > 0) {
-      clauses.push(t(SUMMARY_I18N_KEY[bucket], { count }));
+    const bucketItems = items.filter((item) => item.bucket === bucket);
+    if (bucket === "mcpTools") {
+      const servers = new Map<string, number>();
+      let anonymousCount = 0;
+      for (const item of bucketItems) {
+        const server = item.mcpTool?.serverName;
+        if (server) {
+          servers.set(server, (servers.get(server) ?? 0) + 1);
+        } else {
+          anonymousCount += 1;
+        }
+      }
+      for (const [name, count] of servers) {
+        clauses.push(t("activity.summary.mcpNamed", { name, count }));
+      }
+      if (anonymousCount > 0) {
+        clauses.push(t(SUMMARY_I18N_KEY[bucket], { count: anonymousCount }));
+      }
+    } else if (bucketItems.length > 0) {
+      clauses.push(t(SUMMARY_I18N_KEY[bucket], { count: bucketItems.length }));
     }
   }
 

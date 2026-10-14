@@ -1,7 +1,11 @@
-export { CODEX_TURN_METADATA_HEADER, parseCodexTurnMetadataHeader } from "./codex-turn-metadata.js";
-export { reportRouteCredentialResult, resolveRouteCredential } from "./route-credentials.js";
 export { validateChatGptResponsesRequest } from "./chatgpt-responses-policy.js";
-export { buildProviderProxyRoutes, defaultProviders, loadGatewayConfig, normalizeProvider } from "./provider-config.js";
+export { CODEX_TURN_METADATA_HEADER, parseCodexTurnMetadataHeader } from "./codex-turn-metadata.js";
+export {
+  buildProviderProxyRoutes,
+  defaultProviders,
+  loadGatewayConfig,
+  normalizeProvider,
+} from "./provider-config.js";
 export {
   applyGatewayResponsesPromptCacheHints,
   buildGatewayPromptCacheKey,
@@ -29,6 +33,7 @@ export {
   readUpstreamKindFromHeaders,
   resolveProviderRoute,
 } from "./provider-router.js";
+export { reportRouteCredentialResult, resolveRouteCredential } from "./route-credentials.js";
 export {
   createGatewayFetchHandler,
   dispatchNodeRequest,
@@ -38,6 +43,7 @@ export {
   startEcoGateway,
 } from "./server.js";
 export type {
+  GatewayAgentCore,
   GatewayCodexRequestKind,
   GatewayCodexTurnMetadata,
   GatewayConfig,
@@ -45,6 +51,8 @@ export type {
   GatewayRequestLifecycleEvent,
   GatewayRequestLifecycleObserver,
   GatewayRequestLifecycleSource,
+  GatewayToolWriteObservation,
+  GatewayToolWriteObserver,
   GatewayUsageEvent,
   GatewayUsageObserver,
   ResolvedProviderRoute,
@@ -57,6 +65,16 @@ export {
   headersWithUpstreamRequestId,
   readUpstreamRequestId,
 } from "./upstream/request-id-headers.js";
+export {
+  applyUpstreamUserAgent,
+  DEFAULT_UPSTREAM_USER_AGENT,
+  GATEWAY_AGENT_CORE_HEADER,
+  GATEWAY_AGENT_CORES,
+  isGatewayAgentCore,
+  readGatewayAgentCore,
+  resolveUpstreamUserAgent,
+  type UpstreamUserAgentPolicy,
+} from "./upstream/user-agent.js";
 export {
   createUpstreamFetchController,
   parseUpstreamProxyUrl,

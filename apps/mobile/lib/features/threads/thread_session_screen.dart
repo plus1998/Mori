@@ -1008,6 +1008,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
             bashReviewMode: current?.bashReviewMode,
             subagentEnabled: current?.subagentEnabled,
             auxiliaryModel: current?.auxiliaryModel,
+            approvalModel: current?.approvalModel,
             visionModel: current?.visionModel,
             mcpServersEnabled: current?.mcpServersEnabled,
             integrationsEnabled: current?.integrationsEnabled,
@@ -1041,6 +1042,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
           maxOutputLimitTokens: workflow.maxOutputLimitTokens,
           defaultOrchestrationSelection: workflow.defaultOrchestrationSelection,
           defaultAuxiliaryModel: workflow.defaultAuxiliaryModel,
+          defaultApprovalModel: workflow.defaultApprovalModel,
           defaultVisionModel: workflow.defaultVisionModel,
           mcpServersEnabled: workflow.mcpServersEnabled,
           integrationsEnabled: workflow.integrationsEnabled,
@@ -1078,7 +1080,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
 
     setState(() => _starting = true);
     try {
-      final sendRuntimeConfig = downgradeAuxiliaryDependentFeatures(
+      final sendRuntimeConfig = downgradeApprovalDependentFeatures(
         runtimeConfig,
       );
       if (sendRuntimeConfig.bashReviewMode != runtimeConfig.bashReviewMode) {
@@ -1485,7 +1487,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
       } else {
         setState(() => _sendBusy = true);
         try {
-          final sendRuntimeConfig = downgradeAuxiliaryDependentFeatures(
+          final sendRuntimeConfig = downgradeApprovalDependentFeatures(
             runtimeConfig,
           );
           if (sendRuntimeConfig.bashReviewMode !=
@@ -1721,6 +1723,7 @@ class _ActivityFeedView extends ConsumerWidget {
           conversationV2.projectionExtras?.subagentTimings ?? const [],
       l10n: context.l10n,
       thinkingDisplayMode: thinkingDisplayMode,
+      conversationLive: isRunning,
     );
     final displayFeedEntries = resolveThreadSessionDisplayFeedEntries(
       feedEntries: feedEntries,

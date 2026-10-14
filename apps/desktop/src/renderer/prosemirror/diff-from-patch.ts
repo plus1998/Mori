@@ -61,10 +61,61 @@ function normalizeDiffText(text: string): string {
   ].join("\n");
 }
 
+/** Git quotes UTF-8 bytes with C/octal escapes, rather than JSON escapes. */
+function decodeGitPath(value: string): string {
+  // Git appends a separator tab to unquoted ---/+++ paths containing spaces.
+  if (value.endsWith("\t")) value = value.slice(0, -1);
+  if (!value.startsWith('"')) return value.replace(/^[ab]\//, "");
+  const bytes: number[] = [];
+  const encoder = new TextEncoder();
+  const escapes: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92 };
+  for (let i = 1; i < value.length - 1; i++) {
+    const character = value[i];
+    if (character === "\\") {
+      const next = value[++i];
+      if (next === undefined) throw new Error("Incomplete quoted Git path");
+      if (/[0-7]/.test(next)) {
+        let octal = next;
+        while (octal.length < 3 && /[0-7]/.test(value[i + 1] ?? "")) octal += value[++i];
+        bytes.push(Number.parseInt(octal, 8));
+      } else {
+        const byte = escapes[next];
+        if (byte === undefined) throw new Error("Invalid quoted Git path escape");
+        bytes.push(byte);
+      }
+    } else {
+      const codePoint = value.codePointAt(i);
+      if (codePoint === undefined) throw new Error("Invalid quoted Git path");
+      bytes.push(...encoder.encode(String.fromCodePoint(codePoint)));
+      if (codePoint > 0xffff) i++;
+    }
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(bytes)).replace(/^[ab]\//, "");
+}
+
 export function parseDiff(text: string): File[] {
-  const files = parser.parse(normalizeDiffText(text));
-  return files.map((file) => ({
+  const normalized = normalizeDiffText(text);
+  const paths = normalized
+    .split(/(?=^diff --git )/m)
+    .filter((section) => section.startsWith("diff --git "))
+    .map((section) => {
+      const header = section.split(/\n@@/, 1)[0] ?? "";
+      const lines = header.split("\n");
+      const first = /^diff --git ("(?:\\.|[^"\\])*"|a\/[\s\S]*?) ("(?:\\.|[^"\\])*"|b\/[\s\S]*)$/.exec(
+        lines[0] ?? "",
+      );
+      const oldPath = lines.find((line) => line.startsWith("--- "))?.slice(4) ?? first?.[1];
+      const newPath = lines.find((line) => line.startsWith("+++ "))?.slice(4) ?? first?.[2];
+      return {
+        oldPath: oldPath === undefined ? undefined : decodeGitPath(oldPath),
+        newPath: newPath === undefined ? undefined : decodeGitPath(newPath),
+      };
+    });
+  const files = parser.parse(normalized);
+  return files.map((file, index) => ({
     ...file,
+    oldPath: paths[index]?.oldPath ?? file.oldPath,
+    newPath: paths[index]?.newPath ?? file.newPath,
     hunks: file.hunks.map((hunk) => ({
       ...hunk,
       changes: zipChanges(hunk.changes),
@@ -81,36 +132,7 @@ export function resolveDiffFilePath(file: File): string {
   return diffFilePath(file);
 }
 
-export function resolveDiffLanguage(path: string): string | undefined {
-  const fileName = path.split("/").at(-1)?.toLowerCase() ?? "";
-  if (fileName === "dockerfile") return "shell";
-  const extension = fileName.includes(".") ? fileName.split(".").at(-1) : undefined;
-  const languageByExtension: Readonly<Record<string, string>> = {
-    cjs: "javascript",
-    css: "css",
-    go: "go",
-    htm: "html",
-    html: "html",
-    java: "java",
-    js: "javascript",
-    json: "json",
-    jsx: "jsx",
-    md: "markdown",
-    mdx: "markdown",
-    mjs: "javascript",
-    py: "python",
-    rb: "ruby",
-    rs: "rust",
-    sh: "shell",
-    sql: "sql",
-    ts: "typescript",
-    tsx: "tsx",
-    yaml: "yaml",
-    yml: "yaml",
-    zsh: "shell",
-  };
-  return extension ? languageByExtension[extension] : undefined;
-}
+export { resolveDiffLanguage } from "../diff-language";
 
 export function countDiffFileStats(file: File): { additions: number; deletions: number } {
   let additions = 0;

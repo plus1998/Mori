@@ -140,12 +140,19 @@ export function createPiSubagentSpawnHandler(
       bridgeModelId: bindingRoute.aliasModelId,
       route,
       apiCompat,
+      ...(bindingRoute.supportsImageInput !== undefined && {
+        supportsImageInput: bindingRoute.supportsImageInput,
+      }),
       ...(route.primary.contextWindow !== undefined
         ? { contextWindow: route.primary.contextWindow }
         : bindingRoute.contextTokens !== undefined
           ? { contextWindow: bindingRoute.contextTokens }
           : {}),
       globalContextWindowLimit: armed.globalContextWindowLimit,
+      ...(bindingRoute.maxOutputTokens !== undefined && {
+        maxOutputTokens: bindingRoute.maxOutputTokens,
+        globalMaxOutputTokens: bindingRoute.maxOutputTokens,
+      }),
       headers,
     });
     const thinkingLevel = mapEcoThinkingEffortToPiThinkingLevel(route.thinkingEffort);

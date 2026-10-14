@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
+import type { GatewayProvider } from "@eco/gateway";
 import type { ProviderConfigSecret } from "../src/main/provider-store";
-import { countProviderInputTokens } from "../src/main/provider-token-counter";
+import { countGatewayInputTokens, countProviderInputTokens } from "../src/main/provider-token-counter";
 
 function provider(overrides: Partial<ProviderConfigSecret> = {}): ProviderConfigSecret {
   return {
@@ -301,4 +302,203 @@ test("Anthropic proxy uses the provider's explicit token count adapter", async (
     await resetGlobalEcoGatewayForTests();
     upstream.stop(true);
   }
+});
+
+for (const [kind, mode, endpoint] of [
+  ["responses", "openai_responses", "/zen/v2/responses/input_tokens"],
+  ["anthropic-messages", "anthropic_messages", "/zen/v2/messages/count_tokens"],
+] as const) {
+  test(`dispatch counter keeps the final ${kind} payload and credentials`, async () => {
+    const provider: GatewayProvider = {
+      id: "p",
+      name: "P",
+      baseUrl: "https://count.test",
+      requestPath: "/zen",
+      version: "v2",
+      apiKey: "rotated-account-secret",
+      upstreamKind: kind,
+      upstreamModelId: "actual",
+      models: ["actual"],
+      tokenCountMode: mode,
+    };
+    const body =
+      kind === "responses"
+        ? {
+            model: "actual",
+            input: [{ type: "function_call_output", call_id: "tool-1", output: "tool result" }],
+            instructions: "system",
+            tools: [{ type: "custom", name: "edit", format: { type: "text" } }],
+            previous_response_id: "previous",
+            text: { format: { type: "json_object" } },
+            max_output_tokens: 32_768,
+            stream: true,
+          }
+        : {
+            model: "actual",
+            system: [{ type: "text", text: "system" }],
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "image", source: { type: "url", url: "https://image.test/a.png" } },
+                  { type: "text", text: "hi" },
+                ],
+              },
+            ],
+            tools: [{ name: "edit", input_schema: { type: "object" } }],
+            thinking: { type: "adaptive" },
+            max_tokens: 32_768,
+            stream: true,
+          };
+    let calls = 0;
+    const count = await countGatewayInputTokens({
+      route: { provider, upstreamKind: kind, upstreamModelId: "actual", requestedModel: "alias" },
+      body,
+      headers: new Headers({
+        authorization: "Bearer resolved-account",
+        "anthropic-beta": "interleaved-thinking",
+        "content-type": "application/json",
+      }),
+      fetcher: async (url, init) => {
+        calls++;
+        expect(new URL(String(url)).pathname).toBe(endpoint);
+        const headers = new Headers(init?.headers);
+        expect(headers.get("authorization")).toBe("Bearer resolved-account");
+        expect(headers.get("anthropic-beta")).toBe("interleaved-thinking");
+        const sent = JSON.parse(String(init?.body));
+        expect(sent.model).toBe("actual");
+        expect(sent.tools).toEqual(body.tools);
+        expect(sent.stream).toBeUndefined();
+        expect(sent.max_tokens).toBeUndefined();
+        expect(sent.max_output_tokens).toBeUndefined();
+        if (kind === "responses") {
+          expect(sent.input).toEqual(body.input);
+          expect(sent.previous_response_id).toBe("previous");
+          expect(sent.text).toEqual(body.text);
+        } else {
+          expect(sent.messages).toEqual(body.messages);
+          expect(sent.thinking).toEqual(body.thinking);
+        }
+        return Response.json({ input_tokens: 30_000 });
+      },
+    });
+    expect(count.tokens).toBe(30_000);
+    expect(count.precision).toBe("provider_exact");
+    expect(calls).toBe(1);
+  });
+}
+
+test("dispatch local heuristic counts full input fields and rejects unseen server history", async () => {
+  const provider: GatewayProvider = {
+    id: "p",
+    name: "P",
+    baseUrl: "https://count.test",
+    apiKey: "test",
+    upstreamKind: "responses",
+    upstreamModelId: "m",
+    models: ["m"],
+    tokenCountMode: "local_heuristic",
+  };
+  const input = {
+    route: { provider, upstreamKind: "responses" as const, upstreamModelId: "m", requestedModel: "m" },
+    headers: new Headers(),
+    fetcher: async () => {
+      throw new Error("must not fetch");
+    },
+  };
+  const short = await countGatewayInputTokens({ ...input, body: { input: "hi" } });
+  const full = await countGatewayInputTokens({
+    ...input,
+    body: {
+      input: [{ type: "function_call_output", call_id: "call", output: "x".repeat(1_000) }],
+      instructions: "s".repeat(1_000),
+      tools: [{ type: "function", name: "f", parameters: { description: "t".repeat(1_000) } }],
+    },
+  });
+  expect(full.tokens).toBeGreaterThan(short.tokens + 700);
+  expect(full.precision).toBe("heuristic");
+  await expect(
+    countGatewayInputTokens({ ...input, body: { input: "hi", previous_response_id: "old" } }),
+  ).rejects.toThrow("服务端会话历史");
+});
+
+test("dispatch exact counter errors and protocol mismatches never fall back", async () => {
+  const provider: GatewayProvider = {
+    id: "p",
+    name: "P",
+    baseUrl: "https://count.test",
+    apiKey: "test",
+    upstreamKind: "responses",
+    upstreamModelId: "m",
+    models: ["m"],
+    tokenCountMode: "openai_responses",
+  };
+  const input = {
+    route: { provider, upstreamKind: "responses" as const, upstreamModelId: "m", requestedModel: "m" },
+    body: { model: "m", input: "hi" },
+    headers: new Headers(),
+  };
+  for (const response of [
+    new Response("unsupported", { status: 404 }),
+    Response.json({ input_tokens: 1.5 }),
+    Response.json({}),
+  ]) {
+    await expect(countGatewayInputTokens({ ...input, fetcher: async () => response })).rejects.toThrow();
+  }
+  provider.tokenCountMode = "anthropic_messages";
+  await expect(
+    countGatewayInputTokens({
+      ...input,
+      fetcher: async () => {
+        throw new Error("must not fetch");
+      },
+    }),
+  ).rejects.toThrow("不能用协议转换后的计数冒充");
+});
+
+test("dispatch llama tokenizer counts native text and rejects uncountable media/tools", async () => {
+  const provider: GatewayProvider = {
+    id: "p",
+    name: "P",
+    baseUrl: "https://count.test",
+    requestPath: "/zen",
+    version: "v2",
+    apiKey: "test",
+    upstreamKind: "openai-chat",
+    upstreamModelId: "m",
+    models: ["m"],
+    tokenCountMode: "llama_tokenize",
+  };
+  const messages = [{ role: "user", content: "hi" }];
+  const urls: string[] = [];
+  const input = {
+    route: { provider, upstreamKind: "openai-chat" as const, upstreamModelId: "m", requestedModel: "m" },
+    headers: new Headers(),
+    fetcher: async (url: RequestInfo | URL, init?: RequestInit) => {
+      urls.push(String(url));
+      const body = JSON.parse(String(init?.body));
+      if (String(url).endsWith("apply-template")) {
+        expect(body.messages).toEqual(messages);
+        return Response.json({ prompt: "<user>hi<assistant>" });
+      }
+      expect(body.content).toBe("<user>hi<assistant>");
+      expect(body.add_special).toBe(false);
+      return Response.json({ tokens: [1, 2, 3] });
+    },
+  };
+  const count = await countGatewayInputTokens({ ...input, body: { model: "m", messages } });
+  expect(count.tokens).toBe(3);
+  expect(count.precision).toBe("tokenizer_exact");
+  expect(urls).toEqual(["https://count.test/zen/apply-template", "https://count.test/zen/tokenize"]);
+  for (const body of [
+    { messages, tools: [{ type: "function", function: { name: "f" } }] },
+    {
+      messages: [
+        { role: "user", content: [{ type: "image_url", image_url: { url: "https://image.test" } }] },
+      ],
+    },
+  ]) {
+    await expect(countGatewayInputTokens({ ...input, body })).rejects.toThrow("无法");
+  }
+  expect(urls).toHaveLength(2);
 });

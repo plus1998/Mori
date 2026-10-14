@@ -1,7 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
-import type { ProxyBridgeSettingsSnapshot } from "../shared/ipc";
+import {
+  type ProxyBridgeSettingsSnapshot,
+  UPSTREAM_AGENT_CORES,
+  type UpstreamAgentCore,
+} from "../shared/ipc";
 
 const PROXY_BRIDGE_SETTINGS_KEY = "proxy_bridge";
 const MAX_UPSTREAM_USER_AGENT_LENGTH = 512;
@@ -59,6 +63,21 @@ export class ProxyBridgeSettingsStore {
   }
 }
 
+/** Trim + validate one upstream User-Agent override. Empty means "not configured". */
+function normalizeUpstreamUserAgentValue(value: unknown): string | undefined {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) {
+    return undefined;
+  }
+  if (trimmed.includes("\r") || trimmed.includes("\n")) {
+    throw new Error("上游 User-Agent 不能包含换行符。");
+  }
+  if (trimmed.length > MAX_UPSTREAM_USER_AGENT_LENGTH) {
+    throw new Error(`上游 User-Agent 不能超过 ${MAX_UPSTREAM_USER_AGENT_LENGTH} 个字符。`);
+  }
+  return trimmed;
+}
+
 export function normalizeProxyBridgeSettingsSnapshot(value: unknown): ProxyBridgeSettingsSnapshot {
   if (!value || typeof value !== "object") {
     return defaultProxyBridgeSettings();
@@ -70,15 +89,23 @@ export function normalizeProxyBridgeSettingsSnapshot(value: unknown): ProxyBridg
     result.enabled = record.enabled;
   }
 
-  const rawUa = typeof record.upstreamUserAgent === "string" ? record.upstreamUserAgent.trim() : "";
+  const rawUa = normalizeUpstreamUserAgentValue(record.upstreamUserAgent);
   if (rawUa) {
-    if (rawUa.includes("\r") || rawUa.includes("\n")) {
-      throw new Error("上游 User-Agent 不能包含换行符。");
-    }
-    if (rawUa.length > MAX_UPSTREAM_USER_AGENT_LENGTH) {
-      throw new Error(`上游 User-Agent 不能超过 ${MAX_UPSTREAM_USER_AGENT_LENGTH} 个字符。`);
-    }
     result.upstreamUserAgent = rawUa;
+  }
+
+  const rawUserAgents = record.upstreamUserAgents;
+  if (rawUserAgents && typeof rawUserAgents === "object") {
+    const perCore: Partial<Record<UpstreamAgentCore, string>> = {};
+    for (const core of UPSTREAM_AGENT_CORES) {
+      const normalized = normalizeUpstreamUserAgentValue((rawUserAgents as Record<string, unknown>)[core]);
+      if (normalized) {
+        perCore[core] = normalized;
+      }
+    }
+    if (Object.keys(perCore).length > 0) {
+      result.upstreamUserAgents = perCore;
+    }
   }
 
   const rawProxy = typeof record.upstreamProxyUrl === "string" ? record.upstreamProxyUrl.trim() : "";
@@ -116,6 +143,16 @@ export function isProxyBridgeSettingsSnapshot(value: unknown): value is ProxyBri
   if (record.upstreamUserAgent !== undefined && typeof record.upstreamUserAgent !== "string") {
     return false;
   }
+  if (record.upstreamUserAgents !== undefined) {
+    if (!record.upstreamUserAgents || typeof record.upstreamUserAgents !== "object") {
+      return false;
+    }
+    for (const value of Object.values(record.upstreamUserAgents as Record<string, unknown>)) {
+      if (value !== undefined && typeof value !== "string") {
+        return false;
+      }
+    }
+  }
   if (record.upstreamProxyUrl !== undefined && typeof record.upstreamProxyUrl !== "string") {
     return false;
   }
@@ -126,6 +163,23 @@ export function isProxyBridgeSettingsSnapshot(value: unknown): value is ProxyBri
 export function resolveUpstreamUserAgentOverride(settings: ProxyBridgeSettingsSnapshot): string | undefined {
   const trimmed = settings.upstreamUserAgent?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+/**
+ * 按 Agent Core 解析出的 UA 覆盖表；空表返回 undefined。
+ * 单个 core 缺省（或清空）= 该项目使用 SDK 自己的 UA。
+ */
+export function resolveUpstreamUserAgentOverrides(
+  settings: ProxyBridgeSettingsSnapshot,
+): Partial<Record<UpstreamAgentCore, string>> | undefined {
+  const resolved: Partial<Record<UpstreamAgentCore, string>> = {};
+  for (const core of UPSTREAM_AGENT_CORES) {
+    const trimmed = settings.upstreamUserAgents?.[core]?.trim();
+    if (trimmed) {
+      resolved[core] = trimmed;
+    }
+  }
+  return Object.keys(resolved).length > 0 ? resolved : undefined;
 }
 
 /**

@@ -207,7 +207,7 @@ export interface ClaudeQueryTeardownResult {
 export const CLAUDE_QUERY_DRAIN_DEADLINE_MS = 2_000;
 
 /** Default deadline for an SDK control request before force-closing the Query. */
-export const CLAUDE_QUERY_CONTROL_DEADLINE_MS = 2_000;
+export const CLAUDE_QUERY_CONTROL_DEADLINE_MS = 500;
 
 /** Default deadline for mid-turn `streamInput` before declaring push failure. */
 export const CLAUDE_QUERY_STREAM_INPUT_DEADLINE_MS = 10_000;
@@ -523,6 +523,17 @@ const planningContinuationAllowedTools = [
 ] as const;
 // Plan submission tools are user-approval boundaries; never let SDK allow-rules auto-approve them.
 const protectedPlanModeToolNames = ["EnterPlanMode", "ExitPlanMode", "mcp__eco_plan__finalize_plan"] as const;
+// A preset also advertises CLI-only scheduling and worktree tools. Keep the native
+// tools Eco supports explicit; allowedTools controls approval, not visibility.
+const nativeSdkTools = uniqueStrings([
+  ...defaultAllowedTools,
+  "AskUserQuestion",
+  "EnterPlanMode",
+  "ExitPlanMode",
+  "ListAgents",
+  "SendMessage",
+  "TaskStop",
+]);
 const askAllowedTools = [
   "Agent",
   ...SDK_TASK_READ_TOOL_NAMES,
@@ -664,10 +675,10 @@ export function resolveSdkSessionOptions(session?: EcoSdkSessionOptions): {
   skills: EcoSdkSessionOptions["skills"];
   mcpServers: Record<string, unknown>;
 } {
-  const plannerSkills = resolveAgentSkills("planner", session?.agentSkills, session?.skills);
+  const plannerSkills = readAgentSkillAssignment(session?.agentSkills, "planner") ?? session?.skills;
   return {
     settingSources: session?.settingSources ?? [...defaultSettingSources],
-    skills: plannerSkills.length > 0 ? plannerSkills : undefined,
+    skills: plannerSkills === undefined ? undefined : [...plannerSkills],
     mcpServers: session?.mcpServers ?? {},
   };
 }
@@ -689,10 +700,10 @@ export function resolveAgentSkills(
   sessionSkills?: string[],
 ): string[] {
   const fromRole = readAgentSkillAssignment(agentSkills, role);
-  if (fromRole && fromRole.length > 0) {
+  if (fromRole !== undefined) {
     return [...fromRole];
   }
-  if (role === "planner" && sessionSkills && sessionSkills.length > 0) {
+  if (role === "planner" && sessionSkills !== undefined) {
     return [...sessionSkills];
   }
   return [];
@@ -719,7 +730,7 @@ function readAgentSkillAssignment(
   }
   for (const key of agentSkillLookupKeys(role)) {
     const skills = agentSkills[key];
-    if (skills && skills.length > 0) {
+    if (skills !== undefined) {
       return skills;
     }
   }
@@ -1013,7 +1024,8 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       availability?: SubagentAvailability;
     },
   ): AsyncGenerator<AgentEvent, { transcript: string; finalizedPlan?: FinalizePlanPayload }> {
-    const sdk = await this.loadSdk();
+    input.signal.throwIfAborted();
+    const sdk = await sdkWorkOrAbort(this.loadSdk(), input.signal);
     const plannerRoute = findRoute(input.routes, "planner") ?? input.routes[0];
     if (!plannerRoute) {
       throw new Error("At least one model route is required to start Claude Agent SDK");
@@ -1193,7 +1205,14 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
           ...(phase.planningPhase ? { getPhaseTranscript: () => phaseTranscriptBox.text } : {}),
         })
       : undefined;
+    const outputCeilings = input.routes
+      .map((route) => route.maxOutputTokens)
+      .filter((tokens): tokens is number => tokens !== undefined);
+    // Parent and children share a CLI process. Per-role budgets remain owned by Gateway.
+    const sdkMaxOutputTokens = outputCeilings.length > 0 ? Math.max(...outputCeilings) : undefined;
+    const sdkAbortController = new AbortController();
     const queryOptions: Record<string, unknown> = {
+      abortController: sdkAbortController,
       cwd: sessionCwd,
       model: mainModel,
       ...(this.options.pathToClaudeCodeExecutable
@@ -1203,7 +1222,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       includePartialMessages: true,
       forwardSubagentText: true,
       settingSources: session.settingSources,
-      ...(session.skills && session.skills.length > 0 ? { skills: session.skills } : {}),
+      ...(session.skills !== undefined ? { skills: session.skills } : {}),
       permissionMode: phase.permissionMode,
       ...(phase.permissionMode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
       allowedTools,
@@ -1230,7 +1249,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
           }
         : {}),
       systemPrompt,
-      tools: { type: "preset", preset: "claude_code" },
+      tools: nativeSdkTools.filter((tool) => !disallowedSet.has(tool)),
       ...(shouldBuildHooks
         ? {
             hooks: buildEcoSdkHooks({
@@ -1260,6 +1279,10 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       env: buildSdkProcessEnv({
         apiKey: this.options.apiKey,
         baseUrl: this.options.baseUrl,
+        ...(plannerRoute.primary.contextWindow !== undefined && {
+          contextWindow: plannerRoute.primary.contextWindow,
+        }),
+        ...(sdkMaxOutputTokens !== undefined && { maxOutputTokens: sdkMaxOutputTokens }),
         ...(this.options.anthropicAuthMode ? { anthropicAuthMode: this.options.anthropicAuthMode } : {}),
         ...(plannerRoute.thinkingEffort ? { thinkingEffort: plannerRoute.thinkingEffort } : {}),
       }),
@@ -1280,9 +1303,13 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
     applyEcoSdkSettings(queryOptions, this.options.apiKey, this.options.baseUrl, {
       ...(allowedSdkBuiltinAgentKeys ? { allowedSdkBuiltinAgentKeys } : {}),
       ...(plannerRoute.primary.contextWindow !== undefined
-        ? { autoCompactWindow: plannerRoute.primary.contextWindow }
+        ? {
+            contextWindow: plannerRoute.primary.contextWindow,
+            autoCompactWindow: plannerRoute.primary.contextWindow,
+          }
         : {}),
       ...(this.options.anthropicAuthMode ? { anthropicAuthMode: this.options.anthropicAuthMode } : {}),
+      ...(sdkMaxOutputTokens !== undefined && { maxOutputTokens: sdkMaxOutputTokens }),
     });
 
     if (Object.keys(session.mcpServers).length > 0) {
@@ -1384,7 +1411,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       }
       closingNotified = true;
       try {
-        await this.options.queryLifecycle?.onClosing?.(handle);
+        await sdkWorkOrAbort(Promise.resolve(this.options.queryLifecycle?.onClosing?.(handle)), input.signal);
       } catch {
         // Port closeIngress must not block prompt/query teardown.
       }
@@ -1464,8 +1491,12 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
 
     const onAbort = () => {
       void ensureInterrupt();
+      // Drive the SDK transport too: cancellation must not depend on iterator
+      // progress, a context probe, or a mid-turn ingress waiter reaching finally.
+      sdkAbortController.abort(input.signal.reason);
     };
     input.signal.addEventListener("abort", onAbort, { once: true });
+    if (input.signal.aborted) onAbort();
 
     let transcript = "";
     const phaseTranscriptBox = { text: "" };
@@ -1507,7 +1538,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
     const iterator = query[Symbol.asyncIterator]();
     let pendingIteratorNext: Promise<IteratorResult<unknown>> | undefined;
     try {
-      await this.options.queryLifecycle?.onOpen?.(handle);
+      await sdkWorkOrAbort(Promise.resolve(this.options.queryLifecycle?.onOpen?.(handle)), input.signal);
       while (true) {
         if (input.signal.aborted) {
           break;
@@ -1593,7 +1624,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
           typeof query.setPermissionMode === "function"
         ) {
           permissionModeApplied = true;
-          await query.setPermissionMode(phase.permissionMode);
+          await sdkWorkOrAbort(Promise.resolve(query.setPermissionMode(phase.permissionMode)), input.signal);
         }
 
         const checkpointId = readSdkUserMessageCheckpointId(message);
@@ -1611,7 +1642,10 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
         ) {
           this.options.onContextProbe?.("query_result", summarizeSdkResultForProbe(message, activeSessionId));
           contextUsageCollected = true;
-          pendingContextEvents = await this.collectContextUsageEvents(query, input.threadId, activeSessionId);
+          pendingContextEvents = await sdkWorkOrAbort(
+            this.collectContextUsageEvents(query, input.threadId, activeSessionId),
+            input.signal,
+          );
         }
 
         // Calibrate planner context from getContextUsage before result billing usage.
@@ -2079,6 +2113,8 @@ export interface BuildSdkProcessEnvOptions {
   baseUrl: string;
   thinkingEffort?: ThinkingEffort;
   anthropicAuthMode?: "api-key" | "bearer";
+  contextWindow?: number;
+  maxOutputTokens?: number;
 }
 
 /** Merge host env and force local router credentials so Claude Code does not call api.anthropic.com directly. */
@@ -2091,6 +2127,15 @@ export function buildSdkProcessEnv(options: BuildSdkProcessEnvOptions): Record<s
   }
   env.ANTHROPIC_BASE_URL = options.baseUrl.replace(/\/+$/, "");
   env.CLAUDE_AGENT_SDK_CLIENT_APP = "eco-coding";
+  if (options.contextWindow !== undefined) {
+    env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = serializeSdkContextWindow(options.contextWindow);
+  }
+  if (options.maxOutputTokens !== undefined) {
+    if (!Number.isSafeInteger(options.maxOutputTokens) || options.maxOutputTokens < 1) {
+      throw new Error("Claude SDK requires a valid resolved max output token ceiling.");
+    }
+    env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(options.maxOutputTokens);
+  }
   if (options.anthropicAuthMode === "bearer") {
     env.ANTHROPIC_AUTH_TOKEN = options.apiKey;
     delete env.ANTHROPIC_API_KEY;
@@ -2107,6 +2152,13 @@ export function buildSdkProcessEnv(options: BuildSdkProcessEnvOptions): Record<s
 
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
   return env;
+}
+
+function serializeSdkContextWindow(contextWindow: number): string {
+  if (!Number.isSafeInteger(contextWindow) || contextWindow < 2) {
+    throw new Error("Claude SDK requires a valid resolved context window.");
+  }
+  return String(contextWindow);
 }
 
 export function getDefaultAllowedTools(): string[] {
@@ -2179,6 +2231,8 @@ export function applyEcoSdkSettings(
     allowedSdkBuiltinAgentKeys?: readonly string[];
     autoCompactWindow?: number;
     anthropicAuthMode?: "api-key" | "bearer";
+    contextWindow?: number;
+    maxOutputTokens?: number;
   } = {},
 ): void {
   const existing = isRecord(queryOptions.settings) ? queryOptions.settings : {};
@@ -2203,6 +2257,16 @@ export function applyEcoSdkSettings(
       ...existingEnv,
       ANTHROPIC_BASE_URL: baseUrl.replace(/\/+$/, ""),
       CLAUDE_CODE_ATTRIBUTION_HEADER: "0",
+      ...(options.contextWindow !== undefined
+        ? {
+            CLAUDE_CODE_MAX_CONTEXT_TOKENS: serializeSdkContextWindow(options.contextWindow),
+          }
+        : {}),
+      ...(options.maxOutputTokens !== undefined
+        ? {
+            CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(options.maxOutputTokens),
+          }
+        : {}),
       ...(options.anthropicAuthMode === "bearer"
         ? { ANTHROPIC_AUTH_TOKEN: apiKey }
         : { ANTHROPIC_API_KEY: apiKey }),
@@ -2309,6 +2373,15 @@ type DeadlineResult<T> =
   | { kind: "settled"; value: T }
   | { kind: "rejected"; error: unknown }
   | { kind: "timeout" };
+
+async function sdkWorkOrAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error("aborted"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    void work.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+    if (signal.aborted) onAbort();
+  });
+}
 
 async function settleWithin<T>(work: Promise<T>, deadlineMs: number): Promise<DeadlineResult<T>> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -2458,13 +2531,17 @@ export async function teardownClaudeQueryHandle(
         closeQuery();
       }
       interruptMs = Date.now() - interruptStarted;
+      // Once Stop is acknowledged (or its deadline expires), close the query
+      // before draining residual frames, so tools/queued turns cannot keep running.
+      closeQuery();
     }
 
-    if (options.iterator) {
+    if (options.iterator && !interruptTimedOut) {
       try {
         drain = await drainAsyncIterator(
           options.iterator,
-          options.drainDeadlineMs ?? CLAUDE_QUERY_DRAIN_DEADLINE_MS,
+          options.drainDeadlineMs ??
+            (options.shouldInterrupt ? CLAUDE_QUERY_CONTROL_DEADLINE_MS : CLAUDE_QUERY_DRAIN_DEADLINE_MS),
           options.pendingNext,
         );
       } catch (error) {

@@ -996,7 +996,7 @@ bool isThreadFollowUpActivityMessage(String message) {
 /// surface as assistant activity in the Feed.
 final _bashApprovalTransitionTextPattern = RegExp(
   r'^(?:'
-  r'辅助模型已允许'
+  r'(?:辅助模型|审批模型)已允许'
   r'|已允许(?:本次(?:\s*[A-Za-z][A-Za-z0-9_]*|图片创建)|打开(?:内置)?浏览器)?'
   r'|已拒绝'
   r'|等待确认'

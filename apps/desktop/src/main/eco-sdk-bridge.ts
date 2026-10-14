@@ -9,6 +9,7 @@ import {
   CODEX_TURN_METADATA_HEADER,
   dispatchNodeRequest,
   type EcoGatewayServer,
+  GATEWAY_AGENT_CORE_HEADER,
   GATEWAY_LOGICAL_REQUEST_ID_HEADER,
   GATEWAY_PROVIDER_ID_HEADER,
   GATEWAY_REQUESTED_MODEL_HEADER,
@@ -16,17 +17,19 @@ import {
   GATEWAY_UPSTREAM_KIND_HEADER,
   mapApiCompatToUpstreamKind,
   parseCodexTurnMetadataHeader,
+  readGatewayAgentCore,
   type UpstreamKind,
 } from "@eco/gateway";
 import type { CodexTurnRouteRegistry } from "@eco/runtime";
 import { InvalidCodexGatewayModelAliasError, parseCodexGatewayModelAlias } from "@eco/shared";
+import type { UpstreamAgentCore } from "../shared/ipc";
+import { isEcoSdkModelAlias } from "../shared/model-id";
 import {
   ECO_BRIDGE_BINDING_ID_HEADER,
   ECO_BRIDGE_RUN_ATTEMPT_ID_HEADER,
   extractClaudeBridgeCredential,
   redactClaudeBridgeSecret,
 } from "./claude-bridge-binding";
-import { isEcoSdkModelAlias } from "../shared/model-id";
 
 export type BridgeLogFn = (message: string) => void;
 
@@ -117,6 +120,42 @@ export interface EcoSdkBridgeServer {
 
 function defaultLog(message: string): void {
   process.stderr.write(`[eco-bridge] ${message}\n`);
+}
+
+/**
+ * Which core issued this request: an explicit stamp wins (PI stamps itself), otherwise
+ * the wire face implies it. Chat Completions stays unidentified so it keeps the global
+ * UA rules.
+ */
+function resolveAgentCore(
+  headers: Headers,
+  face: "responses" | "messages" | "chat_completions",
+): UpstreamAgentCore | undefined {
+  const stamped = readGatewayAgentCore(headers);
+  if (stamped) {
+    return stamped;
+  }
+  if (face === "responses") {
+    return "codex";
+  }
+  if (face === "messages") {
+    return "claude";
+  }
+  return undefined;
+}
+
+/**
+ * Stamp which agent core issued this request so the gateway can pick a per-core
+ * upstream User-Agent (Codex / Claude Code / PI).
+ */
+function stampAgentCoreHeader(headers: Headers, face: "responses" | "messages" | "chat_completions"): void {
+  if (headers.get(GATEWAY_AGENT_CORE_HEADER)?.trim()) {
+    return;
+  }
+  const core = resolveAgentCore(headers, face);
+  if (core) {
+    headers.set(GATEWAY_AGENT_CORE_HEADER, core);
+  }
 }
 
 /**
@@ -241,6 +280,8 @@ async function forwardWithResolvedRoute(
 
   const model = typeof body.model === "string" ? body.model : undefined;
   const headers = new Headers(request.headers);
+  // Stamp the issuing agent core so the gateway can apply a per-core User-Agent.
+  stampAgentCoreHeader(headers, face);
   let clientModel = model?.trim();
 
   // Explicit product binding (title/auxiliary/provider probe): wins over table/alias.
@@ -373,9 +414,7 @@ async function forwardWithResolvedRoute(
   if (preboundProvider && model?.trim()) {
     const requested = model.trim();
     if (isEcoSdkModelAlias(requested)) {
-      onLog(
-        `bridge refused prebound SDK alias face=${face} provider=${preboundProvider} model=${requested}`,
-      );
+      onLog(`bridge refused prebound SDK alias face=${face} provider=${preboundProvider} model=${requested}`);
       return Response.json(
         {
           error: {

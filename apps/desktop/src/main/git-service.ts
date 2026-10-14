@@ -128,9 +128,14 @@ export async function handleGitListCommitModelOptions(
     gitSettingsStore: GitSettingsStore;
     pricingCache: ModelsDevPricingCache;
   },
+  purpose: "general" | "approval" = "general",
 ): Promise<GitListCommitModelOptionsResult> {
-  const candidates = await listCommitCandidates({ providerStore: deps.providerStore });
   const providers = deps.providerStore.listProvidersWithSecrets();
+  const candidates = listCommitMessageCandidateModels(
+    providers,
+    (providerId) => deps.providerStore.listCandidateModels(providerId),
+    purpose,
+  );
   const hints = await lookupCommitModelPricingHints(
     deps.pricingCache,
     providers,

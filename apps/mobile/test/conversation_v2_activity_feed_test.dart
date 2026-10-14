@@ -724,6 +724,7 @@ void main() {
         runProjection: projection,
         l10n: lookupAppLocalizations(const Locale('zh')),
         thinkingDisplayMode: mode,
+        conversationLive: true,
       );
       return entries
           .expand(
@@ -748,6 +749,58 @@ void main() {
       collapsed.single.text.trim(),
       'finished reasoning\n\nlive reasoning',
     );
+  });
+
+  test('ephemeral mode drops the reasoning tip once the run has terminated', () {
+    // Supersede-by-event only works while the run keeps producing. A run that ended
+    // without landing a hard event after the tip must not leave 阅后即焚 content
+    // parked on the Feed, still cycling its stages.
+    const tip = ConversationV2Message(
+      messageId: 'thinking_tip',
+      conversationId: 'thread_1',
+      turnId: 'turn_1',
+      role: 'assistant',
+      channel: 'thinking',
+      createdSeq: 1,
+      versionSeq: 2,
+      contentVersion: 1,
+      body: '定位入口',
+      status: ConversationV2MessageStatus.finalised,
+      isDeleted: false,
+      runId: 'run_1',
+    );
+    final projection = buildConversationV2Projection(
+      conversationId: 'thread_1',
+      messages: const [tip],
+      runs: const [
+        ConversationV2Run(
+          runId: 'run_1',
+          conversationId: 'thread_1',
+          turnId: 'turn_1',
+          status: 'completed',
+          versionSeq: 3,
+          timingQuality: 'recorded',
+        ),
+      ],
+      tools: const [],
+    );
+    final entries = buildActivityFeed(
+      threadPrompt: '',
+      threadId: 'thread_1',
+      runProjection: projection,
+      l10n: lookupAppLocalizations(const Locale('zh')),
+      thinkingDisplayMode: ThinkingDisplayMode.ephemeral,
+    );
+    final texts = entries
+        .expand(
+          (entry) => entry.kind == ActivityFeedKind.turn
+              ? [...entry.processEntries, ?entry.finalOutput]
+              : [entry],
+        )
+        .map((entry) => entry.text.trim())
+        .toList();
+
+    expect(texts, isNot(contains('定位入口')));
   });
 }
 

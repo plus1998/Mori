@@ -22,7 +22,7 @@ test("creates pending approvals for dangerous commands", async () => {
   expect(approval).toMatchObject({
     id: "approval_1",
     decision: "pending",
-    riskLevel: "critical",
+    riskLevel: "high",
   });
   expect(saved).toHaveLength(1);
 });
@@ -54,7 +54,7 @@ test("creates approvals for risky shell command strings", async () => {
   expect(approval).toMatchObject({
     decision: "pending",
     command: ["sh", "-lc", "echo ok && rm -rf src"],
-    riskLevel: "critical",
+    riskLevel: "high",
   });
 });
 

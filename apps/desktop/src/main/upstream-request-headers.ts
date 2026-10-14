@@ -5,6 +5,36 @@ import { buildAnthropicHeaders, buildOpenAIHeaders } from "./provider-models";
 const ANTHROPIC_VERSION = "2023-06-01";
 export const DEFAULT_UPSTREAM_USER_AGENT = "Eco-Coding/0.0.0";
 
+/**
+ * Eco fallback User-Agent: used only when neither an override nor an SDK UA exists.
+ * Carries the app version plus the OS so upstream can attribute the request.
+ */
+export function buildDefaultUpstreamUserAgent(input: {
+  version: string;
+  platform: string;
+  release: string;
+  arch: string;
+}): string {
+  const version = input.version.trim() || "0.0.0";
+  const platform = input.platform.trim() || "unknown";
+  const release = input.release.trim();
+  const arch = input.arch.trim();
+  const os = release ? `${platform} ${release}` : platform;
+  return `Eco-Coding/${version} (${arch ? `${os}; ${arch}` : os})`;
+}
+
+let injectedDefaultUpstreamUserAgent: string | undefined;
+
+/** Let the host replace the bare fallback constant with a versioned UA. */
+export function setDefaultUpstreamUserAgent(value: string | undefined): void {
+  const trimmed = value?.trim();
+  injectedDefaultUpstreamUserAgent = trimmed ? trimmed : undefined;
+}
+
+function fallbackUpstreamUserAgent(): string {
+  return injectedDefaultUpstreamUserAgent ?? DEFAULT_UPSTREAM_USER_AGENT;
+}
+
 const PASSTHROUGH_HEADER_NAMES = ["accept", "anthropic-beta", "anthropic-version", "user-agent"] as const;
 
 function readHeaderString(headers: IncomingHttpHeaders, name: string): string | undefined {
@@ -27,7 +57,7 @@ function applyUserAgent(
     headers["user-agent"] = clientUa;
     return;
   }
-  headers["user-agent"] = DEFAULT_UPSTREAM_USER_AGENT;
+  headers["user-agent"] = fallbackUpstreamUserAgent();
 }
 
 /** Headers for proxy bridge → upstream (SDK client headers + optional global UA override). */
@@ -38,7 +68,7 @@ export function buildProxyUpstreamHeaders(input: {
   upstreamUserAgent?: string;
 }): Record<string, string> {
   const { clientHeaders, apiKey, apiCompat, upstreamUserAgent } = input;
-  const isOpenAI = isOpenAICompat(apiCompat);
+  const isOpenAI = isOpenAICompat(apiCompat) || apiCompat === "system_one";
   const headers: Record<string, string> = {
     ...(isOpenAI ? buildOpenAIHeaders(apiKey) : buildAnthropicHeaders(apiKey)),
   };

@@ -21,6 +21,8 @@ export interface ResolvedModelRoute {
   primary: ModelProfile;
   fallbacks: ModelProfile[];
   thinkingEffort?: RouteThinkingEffort;
+  /** Product-resolved model output ceiling, before per-request input subtraction. */
+  maxOutputTokens?: number;
 }
 
 export interface RouterConfig {

@@ -118,7 +118,7 @@ class _ComposerSettingsSheet extends ConsumerWidget {
                       onTap: () async {
                         final option = bashReviewOptions[i];
                         if (option.value == 'auto' &&
-                            liveRuntimeConfig.auxiliaryModel == null) {
+                            liveRuntimeConfig.approvalModel == null) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(

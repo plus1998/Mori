@@ -5,6 +5,7 @@ import type {
   WebSearchCardDisplay,
 } from "../shared/activity-display";
 import { isReconnectActivityMessage } from "../shared/activity-display";
+import type { ContextCompactionTiming } from "../shared/context-compaction-timing";
 import { type ActivityActionIcon, resolveActionKind } from "../shared/feed-action-kind";
 import type { ThreadSubagentSessionTiming } from "../shared/ipc";
 import {
@@ -12,6 +13,7 @@ import {
   resolveSubagentRunDisplayTitle as resolveSharedSubagentRunDisplayTitle,
 } from "../shared/subagent-roles";
 import type { GrepToolTargetDisplay, ReadToolTargetDisplay } from "../shared/tool-target";
+import type { ThreadRunCodemodeMetadata } from "../shared/thread-run-events";
 import type { WorktreeMergeSummary } from "../shared/worktree-merge";
 import { i18n } from "./i18n";
 
@@ -50,6 +52,9 @@ export type ActivityDetailBlock =
       reconnecting?: boolean;
       reconnectFailed?: boolean;
       reconnectDetail?: string;
+      compaction?: Partial<ContextCompactionTiming> & {
+        lifecycle: "running" | "completed" | "failed";
+      };
     }
   | {
       kind: "prompt-cache-timeline";
@@ -120,6 +125,8 @@ export type ActivityDetailBlock =
       mcpDiscovery?: { kind: "search" };
       readTarget?: ReadToolTargetDisplay;
       grepTarget?: GrepToolTargetDisplay;
+      /** PI `codemode`: script + script output + the calls the script made. */
+      codemodeRun?: ThreadRunCodemodeMetadata;
       toolOutput?: string;
     }
   | {

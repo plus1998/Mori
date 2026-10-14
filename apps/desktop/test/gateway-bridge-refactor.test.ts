@@ -197,6 +197,7 @@ describe("2A: Bridge compact intercept（不调 gateway/upstream）", () => {
         getProviders: () => [],
         setProviders: () => undefined,
         setUpstreamUserAgent: () => undefined,
+        setUpstreamUserAgents: () => undefined,
         setUpstreamProxyUrl: () => undefined,
         getUpstreamProxyUrl: () => undefined,
       },

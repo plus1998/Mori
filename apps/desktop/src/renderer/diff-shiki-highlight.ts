@@ -1,59 +1,7 @@
-import { createHighlighter, type Highlighter, type ThemedToken } from "shiki";
+import type { Highlighter, ThemedToken } from "shiki";
 import type { DiffDisplayLine } from "./diff-display-lines";
-import { resolveDiffLanguage } from "./prosemirror/diff-from-patch";
 
-/** Codex-like caps: skip rich highlight on huge diffs to avoid main-thread stalls. */
-const MAX_HIGHLIGHT_LINES = 2_000;
-const MAX_HIGHLIGHT_CHARS = 400_000;
-
-const BUNDLED_LANGS = [
-  "typescript",
-  "tsx",
-  "javascript",
-  "jsx",
-  "json",
-  "css",
-  "html",
-  "markdown",
-  "python",
-  "rust",
-  "go",
-  "java",
-  "shellscript",
-  "yaml",
-  "toml",
-  "sql",
-  "ruby",
-  "c",
-  "cpp",
-  "xml",
-  "diff",
-  "plaintext",
-] as const;
-
-const SHIKI_ALIAS: Readonly<Record<string, string>> = {
-  shell: "shellscript",
-  bash: "shellscript",
-  sh: "shellscript",
-  zsh: "shellscript",
-  ts: "typescript",
-  js: "javascript",
-  md: "markdown",
-  mdx: "markdown",
-  yml: "yaml",
-  htm: "html",
-  cjs: "javascript",
-  mjs: "javascript",
-  rs: "rust",
-  py: "python",
-  rb: "ruby",
-};
-
-export function resolveShikiLanguage(path: string): string {
-  const fromPath = resolveDiffLanguage(path);
-  if (!fromPath) return "plaintext";
-  return SHIKI_ALIAS[fromPath] ?? fromPath;
-}
+export { resolveShikiLanguage } from "./diff-highlight-language";
 
 function themeForApp(theme: "light" | "dark"): "github-light" | "github-dark" {
   return theme === "dark" ? "github-dark" : "github-light";
@@ -66,10 +14,17 @@ const SHIKI_RELEASE_DELAY_MS = 30_000;
 
 export function getDiffHighlighter(): Promise<Highlighter> {
   if (!highlighterPromise) {
-    highlighterPromise = createHighlighter({
-      themes: ["github-light", "github-dark"],
-      langs: [...BUNDLED_LANGS],
-    });
+    highlighterPromise = import("shiki")
+      .then(({ createHighlighter }) =>
+        createHighlighter({
+          themes: ["github-light", "github-dark"],
+          langs: [],
+        }),
+      )
+      .catch((error) => {
+        highlighterPromise = null;
+        throw error;
+      });
   }
   return highlighterPromise;
 }
@@ -140,14 +95,11 @@ export function themedTokensToHtml(tokens: ThemedToken[]): string {
 }
 
 async function resolveLoadedLanguage(highlighter: Highlighter, lang: string): Promise<string> {
+  if (lang === "plaintext") return lang;
   const loaded = highlighter.getLoadedLanguages();
   if (loaded.includes(lang)) return lang;
-  try {
-    await highlighter.loadLanguage(lang as never);
-    return lang;
-  } catch {
-    return "plaintext";
-  }
+  await highlighter.loadLanguage(lang as never);
+  return lang;
 }
 
 function tokenLinesFromCode(
@@ -174,11 +126,6 @@ export async function highlightDiffDisplayLines(
   const htmls: (string | null)[] = lines.map(() => null);
   if (lines.length === 0) return htmls;
 
-  const totalChars = lines.reduce((sum, line) => sum + line.text.length + 1, 0);
-  if (lines.length > MAX_HIGHLIGHT_LINES || totalChars > MAX_HIGHLIGHT_CHARS) {
-    return htmls;
-  }
-
   const oldTexts: string[] = [];
   const oldToDisplay: number[] = [];
   const newTexts: string[] = [];
@@ -195,7 +142,7 @@ export async function highlightDiffDisplayLines(
     }
   });
 
-  try {
+  {
     const highlighter = await getDiffHighlighter();
     const lang = await resolveLoadedLanguage(highlighter, language);
     const theme = themeForApp(appTheme);
@@ -224,8 +171,6 @@ export async function highlightDiffDisplayLines(
         htmls[displayIndex] = themedTokensToHtml(tokens);
       }
     });
-  } catch {
-    // Keep plain text on highlighter failure — do not fake success.
   }
 
   return htmls;

@@ -1,4 +1,7 @@
 import http from "node:http";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { expect, test } from "bun:test";
 import { McpHubGateway } from "../src/main/mcp-hub-gateway";
 import { IMAGE_GENERATION_MCP_TOOL_TIMEOUT_MS } from "../src/shared/image-generation";
@@ -108,20 +111,91 @@ test("MCP Hub gateway adapts HTTP config and enforces per-thread token scope", a
   const gateway = new McpHubGateway();
   try {
     expect(gateway.syncSdkConfig({ mcpServers: { remote: { type: "http", url: `http://127.0.0.1:${port}/mcp` } }, allowedTools: ["mcp__remote__echo"] })).toEqual({ registered: ["remote"], unsupported: [] });
-    const prepared = await gateway.prepareThread({ threadId: "remote-a", allowedServers: ["remote"], allowedTools: ["mcp__remote__echo"] });
+    const prepared = (await gateway.prepareThreadFromSdkConfig({
+      threadId: "remote-a",
+      config: { mcpServers: { remote: { type: "http", url: `http://127.0.0.1:${port}/mcp` } }, allowedTools: ["mcp__remote__echo"] },
+      allowedServers: ["remote"],
+    }))!;
+    expect(prepared.promptAppend).toContain('"server":"remote"');
+    expect(prepared.promptAppend).toContain('"name":"remote:echo"');
+    expect(prepared.promptAppend).toContain("Description not provided");
+    expect(prepared.promptAppend).not.toContain(`127.0.0.1:${port}`);
+    expect(gateway.getThreadPromptAppend("remote-a")).toBe(prepared.promptAppend);
     const a = await initialize(prepared.sdkEntry);
     const search = await rpc(a.url, a.h, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "search_tools", arguments: {} } }, a.sid);
     expect((search.body.result as { structuredContent: { tools: Array<{ name: string }> } }).structuredContent.tools.map((x) => x.name)).toEqual(["remote:echo"]);
     const called = await rpc(a.url, a.h, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "call_tool", arguments: { name: "remote:echo", arguments: { value: "remote-ok" } } } }, a.sid);
     expect((called.body.result as { content: Array<{ text: string }> }).content[0]?.text).toBe("remote-ok");
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
     const other = await gateway.prepareThread({ threadId: "remote-b", allowedServers: [] });
+    expect(gateway.getThreadPromptAppend("remote-b")).toBeUndefined();
     const b = await initialize(other.sdkEntry);
     const denied = await rpc(b.url, b.h, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "search_tools", arguments: {} } }, b.sid);
     expect((denied.body.result as { structuredContent: { tools: unknown[] } }).structuredContent.tools).toEqual([]);
   } finally {
     await gateway.close();
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
+  }
+});
+
+test("MCP Hub injects real stdio capabilities, refreshes permissions and removes disabled directories", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "eco-hub-directory-"));
+  const script = path.join(directory, "server.mjs");
+  await fs.writeFile(script, `
+import readline from "node:readline";
+readline.createInterface({ input: process.stdin }).on("line", (line) => {
+  const request = JSON.parse(line);
+  if (request.id === undefined) return;
+  const tools = [
+    { name: "read", description: "Read database records", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
+    { name: "write", description: "Modify database records", inputSchema: { type: "object" } },
+  ];
+  const result = request.method === "initialize"
+    ? { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "database", version: "1" } }
+    : { tools };
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }) + "\\n");
+});
+`);
+  const gateway = new McpHubGateway();
+  const servers = {
+    database: { command: process.execPath, args: [script], env: { ECO_DIRECTORY_TEST_SECRET: "private-config-value" } },
+    unselected: { command: "this-server-must-never-be-launched" },
+  };
+  try {
+    const first = (await gateway.prepareThreadFromSdkConfig({
+      threadId: "stdio-thread", config: { mcpServers: servers, allowedTools: ["mcp__database__read"] }, allowedServers: ["database"],
+    }))!;
+    expect(first.promptAppend).toContain("database:read");
+    expect(first.promptAppend).toContain("Read database records");
+    expect(first.promptAppend).not.toContain("Modify database records");
+    expect(first.promptAppend).not.toContain("unselected");
+    expect(first.promptAppend).not.toContain("private-config-value");
+    expect(first.promptAppend).not.toContain(script);
+    expect(first.promptAppend).not.toContain('"query"');
+    const second = (await gateway.prepareThreadFromSdkConfig({
+      threadId: "stdio-thread", config: { mcpServers: servers, allowedTools: ["mcp__database__write"] }, allowedServers: ["database"],
+    }))!;
+    expect(second.token).toBe(first.token);
+    expect(second.promptAppend).toContain("database:write");
+    expect(second.promptAppend).not.toContain("database:read");
+    const other = await gateway.prepareThreadFromSdkConfig({
+      threadId: "other-thread", config: { mcpServers: servers, allowedTools: ["mcp__database__read"] }, allowedServers: ["database"],
+    });
+    expect(other?.promptAppend).toContain("database:read");
+    expect(gateway.getThreadPromptAppend("stdio-thread")).toBe(second.promptAppend);
+
+    gateway.registerThreadServerEntry({ name: "eco_demo", threadId: "stdio-thread", sdkEntry: { type: "http", url: "http://127.0.0.1:1/mcp" } });
+    const builtinOnly = await gateway.prepareThreadFromSdkConfig({
+      threadId: "stdio-thread", config: { mcpServers: servers, allowedTools: [] }, allowedServers: ["eco_demo"],
+    });
+    expect(builtinOnly?.promptAppend).toBeUndefined();
+    expect(gateway.getThreadPromptAppend("stdio-thread")).toBeUndefined();
+    expect(gateway.getThreadPromptAppend("other-thread")).toBe(other?.promptAppend);
+    gateway.revokeThread("other-thread");
+    expect(gateway.getThreadPromptAppend("other-thread")).toBeUndefined();
+  } finally {
+    await gateway.close();
+    await fs.rm(directory, { recursive: true, force: true });
   }
 });
 
@@ -290,6 +364,8 @@ test("MCP Hub tracks and retires thread-scoped Codex descriptors", async () => {
     });
     expect(first.codexServerChanged).toBe(true);
     expect(gateway.listThreadCodexServers().map((server) => server.name)).toEqual(["eco_mcp_thread_a"]);
+    expect(gateway.getThreadCodexServerName("thread-a")).toBe("eco_mcp_thread_a");
+    expect(gateway.getThreadCodexServerName("thread-b")).toBeUndefined();
 
     const same = await gateway.prepareThread({
       threadId: "thread-a",
@@ -313,6 +389,8 @@ test("MCP Hub tracks and retires thread-scoped Codex descriptors", async () => {
     ]);
 
     gateway.revokeThread("thread-a");
+    expect(gateway.getThreadCodexServerName("thread-a")).toBeUndefined();
+    expect(gateway.getThreadCodexServerName("thread-b")).toBe("eco_mcp_thread_b");
     expect(gateway.listThreadCodexServers().map((server) => server.name)).toEqual(["eco_mcp_thread_b"]);
   } finally {
     await gateway.close();
@@ -350,4 +428,14 @@ test("MCP Hub retires a Codex descriptor when a thread loses its last server", a
   } finally {
     await gateway.close();
   }
+});
+
+
+test("MCP Hub keeps speech generation's timeout on the runtime-visible wrapper", async () => {
+  const gateway = new McpHubGateway();
+  try {
+    const prepared = await gateway.prepareThread({ threadId: "tts-timeout-thread", allowedServers: ["eco_tts"], runtimeName: "eco_mcp_tts_timeout" });
+    expect(prepared.sdkEntry).toMatchObject({ timeout: 600_000, requestTimeoutMs: 600_000 });
+    expect(prepared.codexServer.toolTimeoutSec).toBe(600);
+  } finally { await gateway.close(); }
 });

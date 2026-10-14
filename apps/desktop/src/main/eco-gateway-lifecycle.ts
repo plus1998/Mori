@@ -1,7 +1,9 @@
 import {
   type EcoGatewayServer,
+  type GatewayConfig,
   type GatewayProvider,
   type GatewayRequestLifecycleObserver,
+  type GatewayToolWriteObserver,
   type GatewayUsageObserver,
   normalizeProvider,
   startEcoGateway,
@@ -9,10 +11,13 @@ import {
 import {
   type CodexTurnRouteRegistry,
   DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
+  type GlobalMaxOutputTokens,
   resolveAppliedMaxOutputTokens,
   resolveEcoGatewayPort,
 } from "@eco/runtime";
 import type { UpstreamApiCompat } from "../shared/api-compat";
+import type { UpstreamAgentCore } from "../shared/ipc";
+import { normalizeProviderTokenCountMode, type ProviderTokenCountMode } from "../shared/provider-token-count";
 import {
   type BridgeRouteResolution,
   type EcoSdkBridgeOptions,
@@ -37,12 +42,15 @@ export interface EcoProviderForGateway {
   /** Per-provider upstream proxy; empty/missing = global proxy setting. */
   upstreamProxyUrl?: string;
   apiCompat: UpstreamApiCompat;
+  tokenCountMode?: ProviderTokenCountMode;
   defaultModel: string;
   /** Extra model ids that Codex may send (candidates / route models). */
   modelIds?: readonly string[];
   models?: readonly {
     modelId: string;
     maxOutputTokens?: number;
+    contextTokens?: number;
+    supportsImageInput?: boolean;
   }[];
 }
 
@@ -60,27 +68,48 @@ export interface GatewayProviderPayload {
   upstreamModelId: string;
   models: string[];
   modelMaxOutputTokens?: Record<string, number>;
+  modelContextTokens?: Record<string, number>;
+  modelSupportsImageInput?: Record<string, boolean>;
+  tokenCountMode?: ProviderTokenCountMode;
 }
 
 export interface EcoGatewayLifecycleOptions {
   ecoDataDir: string;
-  listProviders: () => readonly EcoProviderForGateway[];
+  listProviders: () => readonly EcoProviderForGateway[] | Promise<readonly EcoProviderForGateway[]>;
   /** Global Proxy Bridge User-Agent override; undefined = passthrough / Eco default. */
   getUpstreamUserAgent?: () => string | undefined;
+  /** Per agent core (codex/claude/pi) User-Agent overrides; empty = SDK UA. */
+  getUpstreamUserAgents?: () => Partial<Record<UpstreamAgentCore, string>> | undefined;
+  /** Eco fallback UA (`Eco-Coding/<version> (<platform> <release>; <arch>)`). */
+  getDefaultUpstreamUserAgent?: () => string | undefined;
   /** Outbound SOCKS/HTTP proxy URL for gateway upstream fetch. */
   getUpstreamProxyUrl?: () => string | undefined;
   getGatewayCredentialResolver?: () =>
-    | ((input: { provider: GatewayProvider; request?: Request }) => Promise<{ accessToken: string; accountId?: string; upstreamProxyUrl?: string }>)
+    | ((input: {
+        provider: GatewayProvider;
+        request?: Request;
+      }) => Promise<{ accessToken: string; accountId?: string; upstreamProxyUrl?: string }>)
     | undefined;
   getGatewayCredentialReporter?: () =>
-    | ((input: { provider: GatewayProvider; accountId?: string; statusCode: number; errorCode?: string }) => void | Promise<void>)
+    | ((input: {
+        provider: GatewayProvider;
+        accountId?: string;
+        statusCode: number;
+        errorCode?: string;
+      }) => void | Promise<void>)
     | undefined;
-  /** Hard ceiling for gateway modelMaxOutputTokens (default 32K). */
-  getGlobalMaxOutputTokens?: () => number;
+  /** Fixed ceiling or per-request remaining-window budget. */
+  getGlobalMaxOutputTokens?: () => GlobalMaxOutputTokens;
+  countInputTokens?: GatewayConfig["countInputTokens"];
   gatewayPort?: number;
   onStderr?: (chunk: string) => void;
   onUsage?: GatewayUsageObserver;
   onRequestLifecycle?: GatewayRequestLifecycleObserver;
+  /**
+   * The model began writing a tool call on the upstream stream. Codex reports a tool only
+   * once its arguments are complete, so this is the only signal for the write itself.
+   */
+  onToolWriteStarted?: GatewayToolWriteObserver;
   getTurnRouteRegistry?: () => CodexTurnRouteRegistry | undefined;
   /** Claude product-layer route resolution (stamp / role registry). */
   resolveMessagesRoute?: (input: {
@@ -145,7 +174,7 @@ export class EcoGatewayLifecycle {
   private async ensureRunningImpl(): Promise<GatewayProviderPayload[]> {
     const globalMaxOutputTokens =
       this.options.getGlobalMaxOutputTokens?.() ?? DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS;
-    const built = buildGatewayProvidersFromEcoProviders(this.options.listProviders(), {
+    const built = buildGatewayProvidersFromEcoProviders(await this.options.listProviders(), {
       globalMaxOutputTokens,
     });
     this.lastIncompleteProviderIds = built.incompleteProviderIds;
@@ -158,6 +187,8 @@ export class EcoGatewayLifecycle {
       normalizeProvider(provider as GatewayProvider),
     );
     const upstreamUserAgent = this.options.getUpstreamUserAgent?.()?.trim() || undefined;
+    const upstreamUserAgents = this.options.getUpstreamUserAgents?.();
+    const userAgentDefault = this.options.getDefaultUpstreamUserAgent?.()?.trim() || undefined;
     const upstreamProxyUrl = this.options.getUpstreamProxyUrl?.()?.trim() || undefined;
     const credentialResolver = this.options.getGatewayCredentialResolver?.();
     const credentialReporter = this.options.getGatewayCredentialReporter?.();
@@ -175,7 +206,19 @@ export class EcoGatewayLifecycle {
           host: "127.0.0.1",
           port: this.port,
           providers: gatewayProviders,
+          resolveModelLimits: async (route) => {
+            const { resolveGatewayBindingModelLimits } = await import("./anthropic-proxy");
+            return resolveGatewayBindingModelLimits(route);
+          },
+          countInputTokens:
+            this.options.countInputTokens ??
+            (async (input) => {
+              const { countGatewayInputTokens } = await import("./provider-token-counter");
+              return countGatewayInputTokens(input);
+            }),
           ...(upstreamUserAgent ? { upstreamUserAgent } : {}),
+          ...(upstreamUserAgents && Object.keys(upstreamUserAgents).length > 0 ? { upstreamUserAgents } : {}),
+          ...(userAgentDefault ? { userAgentDefault } : {}),
           ...(upstreamProxyUrl ? { upstreamProxyUrl } : {}),
           ...(credentialResolver ? { resolveCredential: credentialResolver } : {}),
           ...(credentialReporter ? { reportCredentialResult: credentialReporter } : {}),
@@ -190,12 +233,16 @@ export class EcoGatewayLifecycle {
           ...(this.options.resolveEcoThreadIdFromCodex && {
             resolveEcoThreadIdFromCodex: this.options.resolveEcoThreadIdFromCodex,
           }),
+          ...(this.options.onToolWriteStarted && {
+            onToolWriteStarted: this.options.onToolWriteStarted,
+          }),
         },
       );
       log(`embedded gateway ready (no public listen)`);
     } else {
       this.gateway.setProviders(gatewayProviders);
       this.gateway.setUpstreamUserAgent(upstreamUserAgent);
+      this.gateway.setUpstreamUserAgents(upstreamUserAgents, userAgentDefault);
       this.gateway.setUpstreamProxyUrl(upstreamProxyUrl);
       this.gateway.setCredentialResolver(credentialResolver);
       this.gateway.setCredentialReporter(credentialReporter);
@@ -347,6 +394,8 @@ export async function probeLocalBridgeHealth(port: number): Promise<boolean> {
 
 export function mapApiCompatToUpstreamKind(apiCompat: UpstreamApiCompat): GatewayUpstreamKind {
   switch (apiCompat) {
+    case "system_one":
+      throw new Error("SystemOne 供应商仅可用于审批，不能注册到聊天 Gateway。");
     case "anthropic":
       return "anthropic-messages";
     case "openai_responses":
@@ -399,7 +448,7 @@ export interface BuildGatewayProvidersResult {
  */
 export function buildGatewayProvidersFromEcoProviders(
   providers: readonly EcoProviderForGateway[],
-  options?: { globalMaxOutputTokens?: number },
+  options?: { globalMaxOutputTokens?: GlobalMaxOutputTokens },
 ): BuildGatewayProvidersResult {
   const globalMaxOutputTokens = options?.globalMaxOutputTokens ?? DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS;
   const enabled = providers.filter((provider) => provider.enabled);
@@ -448,7 +497,29 @@ export function buildGatewayProvidersFromEcoProviders(
       ...(provider.upstreamProxyUrl?.trim() ? { upstreamProxyUrl: provider.upstreamProxyUrl.trim() } : {}),
       upstreamModelId: defaultModel,
       models,
+      modelSupportsImageInput: Object.fromEntries(
+        (provider.models ?? []).flatMap((model) =>
+          model.supportsImageInput === undefined
+            ? []
+            : [[model.modelId.trim(), model.supportsImageInput] as const],
+        ),
+      ),
       ...(modelMaxOutputTokens ? { modelMaxOutputTokens } : {}),
+      ...(globalMaxOutputTokens === "dynamic"
+        ? {
+            modelContextTokens: Object.fromEntries(
+              (provider.models ?? []).map((model) => {
+                if (model.contextTokens === undefined) {
+                  throw new Error(
+                    `Dynamic max output requires a resolved context window for ${model.modelId}.`,
+                  );
+                }
+                return [model.modelId.trim(), model.contextTokens];
+              }),
+            ),
+            tokenCountMode: normalizeProviderTokenCountMode(provider.tokenCountMode),
+          }
+        : {}),
     });
   }
 
@@ -464,7 +535,7 @@ export function buildGatewayProvidersFromEcoProviders(
 function collectModelMaxOutputTokens(
   models: EcoProviderForGateway["models"],
   upstreamModelIds: readonly string[],
-  globalMaxOutputTokens: number,
+  globalMaxOutputTokens: GlobalMaxOutputTokens,
 ): Record<string, number> | undefined {
   const limits: Record<string, number> = {};
   const modelById = new Map(
@@ -479,6 +550,7 @@ function collectModelMaxOutputTokens(
         modelMaxOutputTokens: model.maxOutputTokens,
       }),
       globalMaxOutputTokens,
+      ...(model?.contextTokens !== undefined && { contextTokens: model.contextTokens }),
     });
   }
   return Object.keys(limits).length > 0 ? limits : undefined;

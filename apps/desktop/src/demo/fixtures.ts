@@ -87,7 +87,7 @@ export const demoModelSettings: ModelSettingsSnapshot = {
 export const demoWorkflowSettings: WorkflowSettingsSnapshot = {
   sessionMode: "agent",
   contextWindowLimitTokens: 262_144,
-  maxOutputLimitTokens: 32_768,
+  maxOutputLimitTokens: "dynamic",
   followUpDeliveryMode: "steer",
   defaultCoreKind: "codex",
   defaultOrchestrationSelection: demoBundle.selection,

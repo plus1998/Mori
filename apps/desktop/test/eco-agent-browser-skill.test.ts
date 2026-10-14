@@ -60,8 +60,8 @@ test("remove does not delete non-managed same-name skill", async () => {
 });
 
 test("prompt append forbids inventing session names", () => {
-  expect(ECO_AGENT_BROWSER_PROMPT_APPEND).toContain("Do NOT pass a custom `session`");
-  expect(ECO_AGENT_BROWSER_PROMPT_APPEND).toMatch(/__active__|web\/chat/);
+  expect(ECO_AGENT_BROWSER_PROMPT_APPEND).toContain("do not pass a custom `session`");
+  expect(ECO_AGENT_BROWSER_PROMPT_APPEND).toContain("binds the browser session automatically");
   expect(ECO_AGENT_BROWSER_PROMPT_APPEND).toContain("eco_agent_browser");
 });
 

@@ -3,7 +3,15 @@ import {
   type ResponsesRequest,
   type ResponsesUsage,
 } from "@eco/openai-anthropic-bridge";
-import { CODEX_TURN_METADATA_HEADER, enrichResolvedRouteWithCodexTurnIdentity, parseCodexTurnMetadataHeader } from "../codex-turn-metadata.js";
+import { validateChatGptResponsesRequest } from "../chatgpt-responses-policy.js";
+import {
+  CODEX_TURN_METADATA_HEADER,
+  enrichResolvedRouteWithCodexTurnIdentity,
+  parseCodexTurnMetadataHeader,
+} from "../codex-turn-metadata.js";
+import { resolveEcoMcpHubNamespace } from "../eco-mcp-hub-fixup.js";
+import { rejectDisabledModelImageInput } from "../image-input-policy.js";
+import { applyModelOutputLimit, withDynamicOutputBudget } from "../model-output-limit.js";
 import {
   buildResolveProviderRouteOptions,
   buildUpstreamCompactUrl,
@@ -20,17 +28,22 @@ import {
   reportLogicalUpstreamFailure,
   tryEmitLogicalCompleted,
 } from "../request-lifecycle.js";
+import {
+  credentialResolutionErrorResponse,
+  reportRouteCredentialResult,
+  resolveRouteCredential,
+} from "../route-credentials.js";
 import type { GatewayLogFn } from "../server.js";
 import {
   codexToolArgumentFailureCircuitBreaker,
   normalizeResponsesToolArgumentResponse,
   toolArgumentCircuitBreakResponse,
 } from "../tool-argument-guard.js";
-import { resolveEcoMcpHubNamespace } from "../eco-mcp-hub-fixup.js";
 import type {
   GatewayCodexTurnMetadata,
   GatewayConfig,
   GatewayRequestLifecycleObserver,
+  GatewayToolWriteObserver,
   GatewayUsageEvent,
   GatewayUsageObserver,
   ResolvedProviderRoute,
@@ -41,10 +54,8 @@ import { forwardOpenAIChat } from "../upstream/openai-chat.js";
 import { readUpstreamRequestId } from "../upstream/request-id-headers.js";
 import { forwardResponsesPassthrough } from "../upstream/responses-passthrough.js";
 import { upstreamErrorResponse } from "../upstream/upstream-error.js";
-import { applyUpstreamUserAgent } from "../upstream/user-agent.js";
+import { applyUpstreamUserAgent, resolveUpstreamUserAgent } from "../upstream/user-agent.js";
 import { normalizeResponsesUsage } from "../usage-normalize.js";
-import { credentialResolutionErrorResponse, reportRouteCredentialResult, resolveRouteCredential } from "../route-credentials.js";
-import { validateChatGptResponsesRequest } from "../chatgpt-responses-policy.js";
 
 let compactUsageEventSeq = 0;
 
@@ -56,6 +67,7 @@ export async function handlePostResponses(
   onUsage?: GatewayUsageObserver,
   onRequestLifecycle?: GatewayRequestLifecycleObserver,
   resolveEcoThreadIdFromCodex?: (codexThreadId: string) => string | undefined,
+  onToolWriteStarted?: GatewayToolWriteObserver,
 ): Promise<Response> {
   let body: ResponsesRequest;
   try {
@@ -70,10 +82,7 @@ export async function handlePostResponses(
   if (request.headers.has(CODEX_TURN_METADATA_HEADER) && !codexTurnMetadata) {
     onLog(`POST /v1/responses received invalid ${CODEX_TURN_METADATA_HEADER}; usage will not be billed`);
   }
-  const hubNamespace = resolveEcoMcpHubNamespace(
-    resolveEcoThreadIdFromCodex,
-    codexTurnMetadata?.threadId,
-  );
+  const hubNamespace = resolveEcoMcpHubNamespace(resolveEcoThreadIdFromCodex, codexTurnMetadata?.threadId);
   if (hubNamespace) {
     onLog(
       `eco mcp hub namespace fixup active codexThread=${codexTurnMetadata?.threadId ?? "(unknown)"} hub=${hubNamespace}`,
@@ -114,6 +123,8 @@ export async function handlePostResponses(
     }
     throw error;
   }
+  const imageRejection = rejectDisabledModelImageInput(route, body);
+  if (imageRejection) return imageRejection;
   route = enrichResolvedRouteWithCodexTurnIdentity(route, codexTurnMetadata);
   try {
     route = await resolveRouteCredential(route, config, request);
@@ -122,6 +133,8 @@ export async function handlePostResponses(
     onLog(`credential resolution failed provider=${route.provider.id}: ${message}`);
     return credentialResolutionErrorResponse(error);
   }
+  applyModelOutputLimit(body as unknown as Record<string, unknown>, route, "max_output_tokens");
+  fetchImpl = withDynamicOutputBudget(fetchImpl, route, config, request.signal, onLog);
   // The ChatGPT subscription Responses preview rejects max_output_tokens.
   // Pi/Codex send native Responses requests with this field, so remove it
   // after routing (where authMethod is known) before applying the preview
@@ -159,6 +172,13 @@ export async function handlePostResponses(
 
   const lifecycle = buildRequestLifecycleContext(route, "responses", onLog, onRequestLifecycle);
 
+  // UA: per agent core override → global override → SDK UA → Eco fallback.
+  const upstreamUserAgent = resolveUpstreamUserAgent(request.headers, {
+    override: config.upstreamUserAgent,
+    byCore: config.upstreamUserAgents,
+    fallback: config.userAgentDefault,
+  });
+
   let upstreamResponse: Response;
   switch (route.upstreamKind) {
     case "anthropic-messages":
@@ -170,8 +190,9 @@ export async function handlePostResponses(
         onLog,
         onUsage,
         codexTurnMetadata,
-        config.upstreamUserAgent,
+        upstreamUserAgent,
         lifecycle,
+        onToolWriteStarted,
       );
       break;
     case "responses":
@@ -184,8 +205,9 @@ export async function handlePostResponses(
         onLog,
         onUsage,
         codexTurnMetadata,
-        config.upstreamUserAgent,
+        upstreamUserAgent,
         lifecycle,
+        onToolWriteStarted,
       );
       break;
     case "openai-chat":
@@ -197,7 +219,7 @@ export async function handlePostResponses(
         onLog,
         onUsage,
         codexTurnMetadata,
-        config.upstreamUserAgent,
+        upstreamUserAgent,
         lifecycle,
       );
       break;
@@ -258,6 +280,8 @@ export async function handlePostResponsesCompact(
     }
     throw error;
   }
+  const imageRejection = rejectDisabledModelImageInput(route, body);
+  if (imageRejection) return imageRejection;
   route = enrichResolvedRouteWithCodexTurnIdentity(route, codexTurnMetadata);
   try {
     route = await resolveRouteCredential(route, config, request);
@@ -291,7 +315,15 @@ export async function handlePostResponsesCompact(
   if (openAiProject) {
     headers["openai-project"] = openAiProject;
   }
-  applyUpstreamUserAgent(headers, request.headers, config.upstreamUserAgent);
+  applyUpstreamUserAgent(
+    headers,
+    request.headers,
+    resolveUpstreamUserAgent(request.headers, {
+      override: config.upstreamUserAgent,
+      byCore: config.upstreamUserAgents,
+      fallback: config.userAgentDefault,
+    }),
+  );
 
   const lifecycle = buildRequestLifecycleContext(route, "responses", onLog, onRequestLifecycle);
 

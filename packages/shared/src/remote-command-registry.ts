@@ -198,6 +198,8 @@ export const REMOTE_COMMAND_DEFINITIONS = [
   command("cursor:models-list", "List Cursor Agent CLI models", "read", RPC_INVOKE, []),
   command("candidate-model:list", "List candidate models", "read", RPC_INVOKE, [stringArg()]),
   command("mcp-settings:get", "Get MCP settings", "read", RPC_INVOKE, []),
+  command("tts-artifacts:list", "List speech artifacts", "read", RPC_INVOKE, [objectArg(["threadId"])]),
+  command("tts-artifact:read", "Read a speech artifact", "read", RPC_INVOKE, [objectArg(["artifactId", "audioIndex"])]),
   command("integration-availability:get", "Get integration availability", "read", RPC_INVOKE, []),
   command("skills:list", "List Skills", "read", RPC_INVOKE, [optionalStringArg()]),
   command("cursor-agents:list", "List Cursor ACP subagent definitions (read-only)", "read", RPC_INVOKE, [
@@ -243,7 +245,10 @@ export const REMOTE_COMMAND_DEFINITIONS = [
   ]),
 
   command("git:get-status", "Get git working tree status", "read", RPC_INVOKE, [stringArg()]),
-  command("git:get-workspace-diff", "Get workspace diff", "read", RPC_INVOKE, [stringArg()]),
+  command("git:get-workspace-diff", "Get workspace diff", "read", RPC_INVOKE, [
+    stringArg(),
+    { ...objectArg([]), optional: true },
+  ]),
   command("git:get-workspace-file-diff", "Get workspace file diff", "read", RPC_INVOKE, [
     objectArg(["workspacePath", "path"]),
   ]),
@@ -259,6 +264,7 @@ export const REMOTE_COMMAND_DEFINITIONS = [
   command("git:list-commit-model-options", "List commit message model options", "read", RPC_INVOKE, [
     objectArg([]),
   ]),
+  command("approval:list-model-options", "List approval model options", "read", RPC_INVOKE, [objectArg([])]),
   command(
     "git:save-commit-model-preference",
     "Save commit message model preference",

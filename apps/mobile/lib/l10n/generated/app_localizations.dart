@@ -326,6 +326,18 @@ abstract class AppLocalizations {
   /// **'{tokens} tokens'**
   String settingsContextWindowTokens(int tokens);
 
+  /// No description provided for @settingsMaxOutputDynamic.
+  ///
+  /// In en, this message translates to:
+  /// **'Dynamic'**
+  String get settingsMaxOutputDynamic;
+
+  /// No description provided for @settingsMaxOutputDynamicCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Each request uses the effective window − current full input tokens − 1, capped by the model output limit. Input counting follows provider settings; local estimates are not exact.'**
+  String get settingsMaxOutputDynamicCaption;
+
   /// No description provided for @settingsMaxOutput.
   ///
   /// In en, this message translates to:
@@ -365,7 +377,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsModelsCaption.
   ///
   /// In en, this message translates to:
-  /// **'Default auxiliary and vision models for new sessions'**
+  /// **'Default auxiliary, approval, and vision models for new threads'**
   String get settingsModelsCaption;
 
   /// No description provided for @settingsAccount.
@@ -1721,7 +1733,7 @@ abstract class AppLocalizations {
   /// No description provided for @bashReviewAutoDescription.
   ///
   /// In en, this message translates to:
-  /// **'Use the auxiliary model; ask you when risk is detected or review fails'**
+  /// **'Use the approval model; ask you when risk is detected or review fails'**
   String get bashReviewAutoDescription;
 
   /// No description provided for @bashReviewAllowAll.
@@ -3929,7 +3941,7 @@ abstract class AppLocalizations {
   /// No description provided for @composerAuxiliaryModelHint.
   ///
   /// In en, this message translates to:
-  /// **'Used for title generation and automatic command approval'**
+  /// **'Used for titles and Git commit messages'**
   String get composerAuxiliaryModelHint;
 
   /// No description provided for @composerAuxiliaryModelManualFallback.
@@ -3989,13 +4001,13 @@ abstract class AppLocalizations {
   /// No description provided for @auxiliaryModelRequiredForAutoReview.
   ///
   /// In en, this message translates to:
-  /// **'Configure an auxiliary model before enabling automatic reviews'**
+  /// **'Configure an approval model before enabling automatic reviews'**
   String get auxiliaryModelRequiredForAutoReview;
 
   /// No description provided for @auxiliaryModelAutoReviewFallback.
   ///
   /// In en, this message translates to:
-  /// **'No auxiliary model is configured. Switched to manual review and continued sending'**
+  /// **'No approval model is configured. Switched to manual review and continued sending'**
   String get auxiliaryModelAutoReviewFallback;
 
   /// No description provided for @composerReasoning.
@@ -4831,6 +4843,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Portrait view'**
   String get markdownTableRotatePortrait;
+
+  /// No description provided for @composerApprovalModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Approval model'**
+  String get composerApprovalModel;
+
+  /// No description provided for @composerApprovalModelHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Used for automatic tool reviews; supports chat models and SystemOne (Jev)'**
+  String get composerApprovalModelHint;
+
+  /// No description provided for @composerApprovalModelManualFallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Configure an approval model to enable automatic reviews'**
+  String get composerApprovalModelManualFallback;
+
+  /// No description provided for @composerApprovalModelNeedsMainAgent.
+  ///
+  /// In en, this message translates to:
+  /// **'Configure the main Agent before selecting an approval model'**
+  String get composerApprovalModelNeedsMainAgent;
+
+  /// No description provided for @composerApprovalModelHintAcp.
+  ///
+  /// In en, this message translates to:
+  /// **'Used for automatic tool reviews; supports chat models and SystemOne (Jev)'**
+  String get composerApprovalModelHintAcp;
 }
 
 class _AppLocalizationsDelegate

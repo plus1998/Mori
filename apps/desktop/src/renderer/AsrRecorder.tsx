@@ -431,6 +431,23 @@ export function useAsrRecorder({
   };
 }
 
+export interface AsrComposerReadinessInput {
+  profiles: readonly { id: string; model: string; hasApiKey: boolean }[];
+  activeProfileId: string;
+  inputDeviceId?: string;
+}
+
+/**
+ * Composer 默认不展示语音输入按钮：
+ * 只有启用中的配置真正可用（填了模型且已保存 API key，否则转写必定失败）、
+ * 并且在设置里选过输入设备时，才把按钮显示出来。
+ */
+export function isAsrComposerConfigured(input: AsrComposerReadinessInput): boolean {
+  if (!input.inputDeviceId) return false;
+  const activeProfile = input.profiles.find((profile) => profile.id === input.activeProfileId);
+  return Boolean(activeProfile?.model.trim() && activeProfile.hasApiKey);
+}
+
 export function AsrMicButton({ session, disabled }: { session: AsrRecorderSession; disabled?: boolean }) {
   const { t } = useTranslation();
   return (

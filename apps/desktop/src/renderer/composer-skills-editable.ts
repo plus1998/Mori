@@ -199,6 +199,28 @@ export function setCursorOffset(root: HTMLElement, offset: number): void {
   setSelectionOffsets(root, offset, offset);
 }
 
+/**
+ * Place the caret at a viewport point inside `root`. A right-click that arrives while the
+ * document selection lives elsewhere uses this so Paste lands where the pointer aimed.
+ * Returns false when the point resolves outside the editor.
+ */
+export function setSelectionAtPoint(root: HTMLElement, x: number, y: number): boolean {
+  const position = document.caretPositionFromPoint?.(x, y);
+  if (!position || !root.contains(position.offsetNode)) {
+    return false;
+  }
+  const selection = window.getSelection();
+  if (!selection) {
+    return false;
+  }
+  const range = document.createRange();
+  range.setStart(position.offsetNode, position.offset);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
+}
+
 export function setSelectionOffsets(root: HTMLElement, start: number, end: number): void {
   const selection = window.getSelection();
   if (!selection) {
@@ -404,6 +426,10 @@ export function insertPlainTextAtSelection(text: string): void {
     return;
   }
   selection.deleteFromDocument();
+  if (!text) {
+    // Cut: the selection is already gone and Chromium has collapsed the caret to its start.
+    return;
+  }
   const range = selection.getRangeAt(0);
   const node = document.createTextNode(text);
   range.insertNode(node);

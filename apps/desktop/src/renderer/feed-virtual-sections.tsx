@@ -1,17 +1,25 @@
-import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
+import { useVirtualizer, type VirtualItem, type VirtualizerOptions } from "@tanstack/react-virtual";
 import {
+  type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
-  type ReactNode,
-  type RefObject,
 } from "react";
-import type { ThreadRunTurnFeedSection } from "./conversation-v2-turn-feed";
 import { isProjectionUserPromptItem } from "./conversation-v2-projection-view";
+import type { ThreadRunTurnFeedSection } from "./conversation-v2-turn-feed";
 
 /** Below this count, mount everything — virtualization overhead is not worth it. */
 export const FEED_VIRTUALIZE_MIN_SECTIONS = 12;
+
+/**
+ * Distance from the end that still counts as "reading the live tail". The Feed's
+ * stick-to-bottom follow in App.tsx uses the same number, so the library and the
+ * follow writer agree on when the reader has left the bottom.
+ */
+export const FEED_END_ANCHOR_THRESHOLD_PX = 120;
 
 export const FEED_SCROLL_TO_ANCHOR_EVENT = "eco:feed-scroll-to-anchor";
 
@@ -21,6 +29,7 @@ export type FeedScrollToAnchorDetail = {
 
 const ESTIMATE_TURN_PX = 220;
 const ESTIMATE_ENTRY_PX = 140;
+const ESTIMATE_ACTIVE_TAIL_PX = 56;
 const OVERSCAN = 6;
 
 const ESTIMATE_TOOL_ENTRY_PX = 36;
@@ -33,12 +42,33 @@ const ESTIMATE_TOOL_ENTRY_PX = 36;
  * learns its own average from what it has already measured.
  */
 const LEARNED_ESTIMATE_BUCKETS = 48;
-const LEARNED_ESTIMATE_ALPHA = 0.4;
 const LEARNED_ESTIMATE_MIN_PX = 40;
 const LEARNED_ESTIMATE_MAX_PX = 4_000;
 const learnedSectionSizes = new Map<string, number>();
+const learnedSectionSamples = new Map<string, number>();
+/** Section keys already folded into a bucket, so one row is one shape sample. */
+const learnedEstimateSampleKeys = new Set<string>();
+const LEARNED_ESTIMATE_SAMPLE_KEYS = 1_024;
+
+/** Keep callbacks stable for text updates, but capture a new key snapshot for structural changes. */
+export function createFeedSectionKeySelector() {
+  let keys: readonly string[] = [];
+  let getItemKey = (index: number): string | number => index;
+  return (sections: readonly ThreadRunTurnFeedSection[]) => {
+    if (keys.length !== sections.length || sections.some((section, index) => section.key !== keys[index])) {
+      const nextKeys = sections.map((section) => section.key);
+      keys = nextKeys;
+      // Previous callbacks must retain their old snapshot for virtual-core's anchor lookup.
+      getItemKey = (index: number) => nextKeys[index] ?? index;
+    }
+    return getItemKey;
+  };
+}
 
 function sectionEstimateKey(section: ThreadRunTurnFeedSection): string {
+  if (section.kind === "active-tail") {
+    return "active-tail";
+  }
   if (section.kind !== "turn") {
     return "entry";
   }
@@ -49,25 +79,104 @@ function staticEstimateSectionSize(section: ThreadRunTurnFeedSection): number {
   if (section.kind === "turn") {
     return ESTIMATE_TURN_PX + Math.min(section.processEntries.length, 8) * ESTIMATE_TOOL_ENTRY_PX;
   }
+  if (section.kind === "active-tail") {
+    return ESTIMATE_ACTIVE_TAIL_PX;
+  }
   return ESTIMATE_ENTRY_PX;
+}
+
+/** Padding the scroll element carries itself, which the virtual model cannot see. */
+type FeedScrollPadding = { start: number; end: number };
+
+function readScrollPadding(element: HTMLElement): FeedScrollPadding {
+  const style = getComputedStyle(element);
+  return {
+    start: Number.parseFloat(style.paddingTop) || 0,
+    end: Number.parseFloat(style.paddingBottom) || 0,
+  };
 }
 
 export function estimateSectionSize(section: ThreadRunTurnFeedSection): number {
   return learnedSectionSizes.get(sectionEstimateKey(section)) ?? staticEstimateSectionSize(section);
 }
 
-/** Fold one measured row height into its shape bucket's average. */
+export type FrozenSectionEstimator = (section: ThreadRunTurnFeedSection) => number;
+
+/** Cap on frozen estimates per mounted Feed (evicted oldest-first). */
+const FROZEN_ESTIMATE_KEYS = 4_096;
+
+/**
+ * Give each section one estimate for its lifetime in the model.
+ *
+ * The shape buckets learn, so `estimateSectionSize` alone is not a function of
+ * the section: measuring any row nudges the average and therefore rewrites the
+ * estimate of every unmeasured row of that shape. `getTotalSize()` follows, and
+ * an end-anchored virtualizer treats that as a real content change — `resizeItem`
+ * compensates `scrollTop` by the delta even though no DOM box changed size. The
+ * viewport lifts off the bottom by exactly that delta, the live tail drops into
+ * the Composer's mask band, and because the next measurement nudges the bucket
+ * again the two states oscillate. Measured against the running app: writes of
+ * `maxScrollTop − 41` from `applyScrollAdjustment` while `scrollHeight` stayed
+ * flat, repeating every few hundred milliseconds.
+ *
+ * Freezing per key keeps the buckets useful (rows that enter the model later
+ * start from what has already been measured) while making the model monotonic:
+ * only a real measurement of a row can change that row's size.
+ */
+export function createFrozenSectionEstimator(): FrozenSectionEstimator {
+  const frozen = new Map<string, number>();
+  return (section) => {
+    const cached = frozen.get(section.key);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const size = estimateSectionSize(section);
+    if (frozen.size >= FROZEN_ESTIMATE_KEYS) {
+      const oldest = frozen.keys().next();
+      if (!oldest.done) {
+        frozen.delete(oldest.value);
+      }
+    }
+    frozen.set(section.key, size);
+    return size;
+  };
+}
+
+/**
+ * Fold one measured row height into its shape bucket's average.
+ *
+ * Two rules keep the estimate from feeding the churn it exists to absorb: a row
+ * contributes at most one sample, and a row that is still streaming contributes
+ * none. Otherwise a growing turn row re-averages its own bucket on every
+ * ResizeObserver tick, which moves the estimate of every *unmeasured* row,
+ * which moves `getTotalSize()`, which moves the spacers — and the virtual
+ * window then re-derives its boundary from geometry that just moved.
+ */
 export function recordMeasuredSectionSize(section: ThreadRunTurnFeedSection, size: number): void {
   if (!(size > 0) || !Number.isFinite(size)) {
     return;
   }
+  if (section.kind === "turn" && section.running) {
+    return;
+  }
+  if (learnedEstimateSampleKeys.has(section.key)) {
+    return;
+  }
+  learnedEstimateSampleKeys.add(section.key);
+  while (learnedEstimateSampleKeys.size > LEARNED_ESTIMATE_SAMPLE_KEYS) {
+    const oldest = learnedEstimateSampleKeys.values().next();
+    if (oldest.done) {
+      break;
+    }
+    learnedEstimateSampleKeys.delete(oldest.value);
+  }
   const clamped = Math.min(LEARNED_ESTIMATE_MAX_PX, Math.max(LEARNED_ESTIMATE_MIN_PX, size));
   const key = sectionEstimateKey(section);
   const previous = learnedSectionSizes.get(key);
+  const samples = learnedSectionSamples.get(key) ?? 0;
   const next =
-    previous === undefined
-      ? Math.round(clamped)
-      : Math.round(previous * (1 - LEARNED_ESTIMATE_ALPHA) + clamped * LEARNED_ESTIMATE_ALPHA);
+    previous === undefined ? Math.round(clamped) : Math.round((previous * samples + clamped) / (samples + 1));
+  learnedSectionSamples.set(key, samples + 1);
   learnedSectionSizes.delete(key);
   learnedSectionSizes.set(key, next);
   while (learnedSectionSizes.size > LEARNED_ESTIMATE_BUCKETS) {
@@ -76,27 +185,8 @@ export function recordMeasuredSectionSize(section: ThreadRunTurnFeedSection, siz
       break;
     }
     learnedSectionSizes.delete(oldest.value);
+    learnedSectionSamples.delete(oldest.value);
   }
-}
-
-/**
- * Decide whether a measured size change may move the viewport.
- *
- * virtual-core compensates the first measurement of any row whose top sits
- * above the fold, including rows that span it. These rows are flow laid out, so
- * a tall turn row that mounts while the reader scrolls upward grows *into* the
- * viewport, and compensating it drags the viewport down by the whole delta.
- * Only compensate when the change is confined to the region above the fold —
- * in either the old or the new geometry.
- */
-export function shouldFeedAdjustScrollOnResize(
-  item: { start: number; size: number },
-  delta: number,
-  scrollOffsetWithAdjustments: number,
-): boolean {
-  const oldBottom = item.start + item.size;
-  const newBottom = oldBottom + delta;
-  return Math.max(oldBottom, newBottom) <= scrollOffsetWithAdjustments;
 }
 
 function sectionContainsUserAnchor(section: ThreadRunTurnFeedSection, anchorId: string): boolean {
@@ -105,6 +195,9 @@ function sectionContainsUserAnchor(section: ThreadRunTurnFeedSection, anchorId: 
       return true;
     }
     return section.entry.key === anchorId || section.key === `standalone:${anchorId}`;
+  }
+  if (section.kind === "active-tail") {
+    return false;
   }
   if (section.finalEntry?.kind === "timeline" && section.finalEntry.item.id === anchorId) {
     return true;
@@ -206,14 +299,57 @@ export function FeedVirtualUserMessageSentinels(props: {
   );
 }
 
+/**
+ * Where the Feed's measurement-driven scroll corrections land.
+ *
+ * A per-item delta only equals what the element actually did when that row was
+ * the only thing that changed. The Feed breaks that assumption constantly: the
+ * live tail row appears and disappears while the streaming row above it loses
+ * the same height, thinking blocks collapse when a turn ends, and sections get
+ * appended in the same commit. The element's height then moves by the net of
+ * several deltas while each correction applies one of them, and the viewport
+ * ends up that far from the end. Measured against the running app:
+ * `applyScrollAdjustment` writing `maxScrollTop − 42` while `scrollHeight`
+ * stayed flat, leaving the live tail row 42px below the fold for seconds at a
+ * time — the same shape as upstream TanStack/virtual#1297, where the end anchor
+ * misses a shrink instead of a growth.
+ *
+ * While the reader follows the end, a correction uses the committed DOM's end.
+ * Explicit user input detaches that anchor; measurements alone cannot do so.
+ * A detached reader keeps the per-item delta to preserve their history position.
+ * Commands (`scrollToIndex`, `scrollToOffset`, `scrollToEnd`) carry no
+ * adjustments and keep using the model, which now matches the element because
+ * `paddingStart` / `paddingEnd` are modelled.
+ */
+export function followEndAnchoredScroll(
+  offset: number,
+  options: { adjustments?: number; behavior?: ScrollBehavior },
+  instance: { scrollElement: HTMLElement | null; options: { anchorTo?: "start" | "end" } },
+  followEnd: boolean,
+): void {
+  const element = instance.scrollElement;
+  if (!element) {
+    return;
+  }
+  const adjustments = options.adjustments ?? 0;
+  const maxTop = Math.max(0, element.scrollHeight - element.clientHeight);
+  const followAdjustment = followEnd && instance.options.anchorTo === "end" && adjustments !== 0;
+  element.scrollTo({
+    top: followAdjustment ? maxTop : offset + adjustments,
+    ...(options.behavior ? { behavior: options.behavior } : null),
+  });
+}
+
 export function useFeedSectionVirtualizer(input: {
   sections: readonly ThreadRunTurnFeedSection[];
   enabled: boolean;
+  /** Explicit user intent overrides the virtualizer's near-end distance heuristic. */
+  userDetached?: boolean;
   runLogRef: RefObject<HTMLElement | null>;
   /** Element above the virtualized rows (e.g. thread prompt) inside the same scroll parent. */
   headerRef: RefObject<HTMLElement | null>;
 }) {
-  const { sections, enabled, runLogRef, headerRef } = input;
+  const { sections, enabled, userDetached = false, runLogRef, headerRef } = input;
   const count = sections.length;
   const [scrollMargin, setScrollMargin] = useState(0);
 
@@ -225,53 +361,161 @@ export function useFeedSectionVirtualizer(input: {
     return runLog.closest(".activity-messages") as HTMLElement | null;
   }, [runLogRef]);
 
-  const getItemKey = useCallback((index: number) => sections[index]?.key ?? index, [sections]);
-  const estimateSize = useCallback((index: number) => {
-    const section = sections[index];
-    return section ? estimateSectionSize(section) : ESTIMATE_ENTRY_PX;
-  }, [sections]);
+  /**
+   * The Feed reserves the Composer's band as padding on the scroll element
+   * itself (`padding-bottom: mask + overlays + 32`), and that reservation grows
+   * whenever the Composer stacks overlays. virtual-core only knows about item
+   * boxes, so left alone it places "the end" `padding-top + padding-bottom`
+   * above the element's real scroll end: `scrollToEnd`, `followOnAppend` and
+   * `isAtEnd` all land that far short, and the newest row sits inside the band
+   * the padding exists to keep clear. Measured live: `getTotalSize()` trailed
+   * `scrollHeight` by a constant 55px while every row was measured.
+   */
+  const [scrollPadding, setScrollPadding] = useState<FeedScrollPadding>({ start: 0, end: 0 });
+
+  useLayoutEffect(() => {
+    if (!enabled) {
+      setScrollPadding((current) =>
+        current.start === 0 && current.end === 0 ? current : { start: 0, end: 0 },
+      );
+      return;
+    }
+    const element = getScrollElement();
+    if (!element) {
+      return;
+    }
+    const apply = () => {
+      const next = readScrollPadding(element);
+      setScrollPadding((current) =>
+        Math.abs(current.start - next.start) > 0.5 || Math.abs(current.end - next.end) > 0.5 ? next : current,
+      );
+    };
+    apply();
+    // Padding changes move the content box without moving the border box, so a
+    // content-box observer is what sees the Composer's overlays arriving.
+    const observer = new ResizeObserver(apply);
+    observer.observe(element, { box: "content-box" });
+    return () => {
+      observer.disconnect();
+    };
+  }, [enabled, getScrollElement]);
+
+  // Text updates keep the key callback stable. Replacements/reorders need a new
+  // callback so virtual-core invalidates measurements even when count is unchanged.
+  const sectionsRef = useRef(sections);
+  sectionsRef.current = sections;
+  const [selectSectionKeys] = useState(createFeedSectionKeySelector);
+
+  // One estimator per mounted Feed: its frozen estimates live exactly as long as
+  // the geometry they describe.
+  const estimatorRef = useRef<FrozenSectionEstimator | null>(null);
+  if (estimatorRef.current === null) {
+    estimatorRef.current = createFrozenSectionEstimator();
+  }
+  const estimate = estimatorRef.current;
+
+  const getItemKey = selectSectionKeys(sections);
+  const mountedRowSizes = useRef(new Map<string | number, number>());
+  useLayoutEffect(() => {
+    if (enabled) return;
+    const rows = runLogRef.current?.querySelectorAll<HTMLElement>(".run-log-virtual-row");
+    if (!rows) return;
+    mountedRowSizes.current.clear();
+    const remember = (row: HTMLElement) => {
+      const index = Number(row.dataset.index);
+      if (!Number.isInteger(index) || index < 0) return;
+      mountedRowSizes.current.set(getItemKey(index), row.offsetHeight);
+    };
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) remember(entry.target as HTMLElement);
+    });
+    for (const row of rows) {
+      remember(row);
+      observer.observe(row);
+    }
+    return () => observer.disconnect();
+  }, [enabled, getItemKey, runLogRef]);
+
+  const estimateSize = useCallback(
+    (index: number) => {
+      const section = sectionsRef.current[index];
+      return section ? (mountedRowSizes.current.get(section.key) ?? estimate(section)) : ESTIMATE_ENTRY_PX;
+    },
+    [estimate],
+  );
+
+  const scrollToFn = useCallback<VirtualizerOptions<HTMLElement, Element>["scrollToFn"]>(
+    (offset, options, instance) => followEndAnchoredScroll(offset, options, instance, !userDetached),
+    [userDetached],
+  );
 
   const virtualizer = useVirtualizer({
     count: enabled ? count : 0,
     enabled,
     getScrollElement,
+    // Crossing the virtualization threshold must retain a history reader's
+    // existing offset; virtual-core otherwise initializes that offset to zero.
+    initialOffset: () => getScrollElement()?.scrollTop ?? 0,
     estimateSize,
     overscan: OVERSCAN,
     getItemKey,
     scrollMargin,
-    // Mount measurements can correct the scroll offset during React's commit.
-    // Let React batch those notifications rather than flush the whole Feed here.
-    useFlushSync: false,
+    paddingStart: scrollPadding.start,
+    paddingEnd: scrollPadding.end,
+    scrollToFn,
+    // The live tail is the anchor. While the reader sits at the end, virtual-core
+    // compensates growth itself (`resizeItem`'s `wasAtEnd` path) and follows an
+    // appended section, instead of leaving every growth tick to App.tsx's follow
+    // writer — two writers racing on one `scrollTop` is what made the boundary
+    // re-derive on nearly every frame. Upstream calls this end-anchored
+    // virtualization (TanStack/virtual#1173); its chat guide uses this option set.
+    anchorTo: "end",
+    followOnAppend: !userDetached,
+    // Distance is nonnegative, so -1 disables end-follow on resize while keeping
+    // end-anchored key preservation and above-viewport resize compensation.
+    scrollEndThreshold: userDetached ? -1 : FEED_END_ANCHOR_THRESHOLD_PX,
+    // No `gap`: the Feed's rhythm lives inside each row (a margin-top on the row's
+    // own child), so every pixel of scroll height sits inside a measured row. A
+    // flex gap would be height the model never sees.
+    //
+    // Keep React's default flushSync. `anchorTo:"end"` writes `scrollTop`
+    // synchronously inside the measurement ResizeObserver, while the spacers that
+    // make that write land correctly only exist after React re-renders. Batching
+    // the notification splits the two across frames, so every measurement leaves
+    // the pinned position further from the live tail — upstream sees the same
+    // shape of bug in #1227.
+    useFlushSync: true,
+    // Measurements update both the virtual window and its DOM spacers. Run that
+    // mutation at the frame boundary, rather than resizing observed ancestors
+    // inside their own ResizeObserver delivery. The layout effect then pins
+    // the committed geometry before that frame is painted.
+    useAnimationFrameWithResizeObserver: true,
   });
 
-  // virtual-core reads this off the instance, not from the options object.
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, delta, instance) =>
-    shouldFeedAdjustScrollOnResize(
-      item,
-      delta,
-      // getScrollOffset() is private in the typings; these two fields are what
-      // it resolves to (initialOffset stays 0 here).
-      (instance.scrollOffset ?? 0) + instance.scrollAdjustments,
-    );
+  const measureElement = useCallback(
+    (node: Element | null) => {
+      virtualizer.measureElement(node);
+      if (!node) return;
+      const index = virtualizer.indexFromElement(node);
+      if (index < 0 || index >= virtualizer.options.count) return;
+      const section = sectionsRef.current[index];
+      if (section) {
+        recordMeasuredSectionSize(section, (node as HTMLElement).offsetHeight);
+      }
+    },
+    [virtualizer],
+  );
 
-  const measureElement = useCallback((node: Element | null) => {
-    virtualizer.measureElement(node);
-    if (!node) return;
-    const index = virtualizer.indexFromElement(node);
-    if (index < 0 || index >= virtualizer.options.count) return;
-    const height = (node as HTMLElement).offsetHeight;
-    const section = sections[index];
-    if (section) {
-      recordMeasuredSectionSize(section, height);
-    }
-    const key = virtualizer.options.getItemKey(index);
-    if (virtualizer.itemSizeCache.has(key)) return;
-    // The library skips mount measurements while scrolling. In our flow layout,
-    // an unmeasured long row changes scrollHeight before the bottom-follow RO runs.
-    // It can then be removed before its own RO ever fires, oscillating forever
-    // between its estimate and DOM height. Cache its first size in this commit.
-    virtualizer.resizeItem(index, height);
-  }, [sections, virtualizer]);
+  // Row removals and a turn's collapse happen in one commit. Reconcile against
+  // the committed DOM, after the virtual window's spacers have changed, rather
+  // than letting each row's independent resize delta move the end anchor.
+  useLayoutEffect(() => {
+    if (!enabled || userDetached) return;
+    const element = getScrollElement();
+    if (!element) return;
+    const end = Math.max(0, element.scrollHeight - element.clientHeight);
+    if (Math.abs(element.scrollTop - end) > 1) element.scrollTop = end;
+  });
 
   useLayoutEffect(() => {
     if (!enabled) {
@@ -344,14 +588,20 @@ export function useFeedSectionVirtualizer(input: {
     virtualItems: enabled ? virtualizer.getVirtualItems() : ([] as VirtualItem[]),
     totalSize: enabled ? virtualizer.getTotalSize() : 0,
     scrollMargin: enabled ? scrollMargin : 0,
+    // The scroll element's own padding is real DOM space already, so anything
+    // laid out from the model has to take it back out again.
+    paddingStart: enabled ? scrollPadding.start : 0,
+    paddingEnd: enabled ? scrollPadding.end : 0,
     measureElement,
     resolveSectionTopPx: (sectionIndex: number) => {
       if (!enabled || sectionIndex < 0) {
         return 0;
       }
+      // Sentinels are positioned inside the row container, which starts below the
+      // scroll element's own padding-top, while model offsets include it.
       const measured = virtualizer.measurementsCache[sectionIndex];
       if (measured) {
-        return measured.start;
+        return measured.start - scrollPadding.start;
       }
       let start = scrollMargin;
       for (let index = 0; index < sectionIndex; index += 1) {
@@ -365,24 +615,48 @@ export function useFeedSectionVirtualizer(input: {
 }
 
 export function FeedVirtualSectionWindow(props: {
+  sections: readonly ThreadRunTurnFeedSection[];
   totalSize: number;
   scrollMargin: number;
+  /** The scroll element's own padding, which the model counts but the DOM already has. */
+  paddingStart: number;
+  paddingEnd: number;
   virtualItems: readonly VirtualItem[];
   measureElement: (node: Element | null) => void;
   renderSection: (index: number) => ReactNode;
 }): ReactNode {
-  const { totalSize, scrollMargin, virtualItems, measureElement, renderSection } = props;
+  const {
+    sections,
+    totalSize,
+    scrollMargin,
+    paddingStart,
+    paddingEnd,
+    virtualItems,
+    measureElement,
+    renderSection,
+  } = props;
   const first = virtualItems[0];
   const last = virtualItems[virtualItems.length - 1];
-  // item.start/end include scrollMargin; totalSize does not. Header already occupies that margin in DOM.
-  const topSpacer = Math.max(0, (first?.start ?? 0) - scrollMargin);
-  const bottomSpacer = Math.max(0, totalSize - ((last?.end ?? scrollMargin) - scrollMargin));
+  // item.start/end include scrollMargin and the element's padding-top; totalSize
+  // also carries the element's padding-bottom. The padding is real DOM space
+  // outside the row container, so the spacers must not reproduce it — otherwise
+  // the Composer's band gets reserved twice.
+  const topSpacer = Math.max(0, (first?.start ?? 0) - scrollMargin - paddingStart);
+  const bottomSpacer = Math.max(0, totalSize - paddingEnd - ((last?.end ?? scrollMargin) - scrollMargin));
 
   return (
     <>
-      {topSpacer > 0 ? <div className="run-log-virtual-spacer" style={{ height: topSpacer }} aria-hidden /> : null}
+      {topSpacer > 0 ? (
+        <div className="run-log-virtual-spacer" style={{ height: topSpacer }} aria-hidden />
+      ) : null}
       {virtualItems.map((item) => (
-        <div key={item.key} data-index={item.index} ref={measureElement} className="run-log-virtual-row">
+        <div
+          key={item.key}
+          data-index={item.index}
+          data-previous-section-kind={sections[item.index - 1]?.kind}
+          ref={measureElement}
+          className="run-log-virtual-row"
+        >
           {renderSection(item.index)}
         </div>
       ))}

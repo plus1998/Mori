@@ -2,12 +2,17 @@ import {
   type ClipboardEvent,
   forwardRef,
   type KeyboardEvent,
+  type MouseEvent,
   useCallback,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
+  useState,
 } from "react";
 import type { SkillInfo } from "../shared/skills";
+import { ComposerContextMenu, type ComposerContextMenuAnchor } from "./ComposerContextMenu";
+import { copyTextToClipboard } from "./clipboard";
+import { readComposerClipboard } from "./composer-clipboard-paste";
 import {
   getCursorOffset,
   getSelectionOffsets,
@@ -16,6 +21,7 @@ import {
   insertPlainTextAtSelection,
   renderEditablePrompt,
   serializeEditable,
+  setSelectionAtPoint,
   setSelectionOffsets,
 } from "./composer-skills-editable";
 
@@ -39,6 +45,8 @@ interface ComposerSkillsInputProps {
   maxHeight?: number | undefined;
   onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
   onPaste?: (event: ClipboardEvent<HTMLDivElement>) => void;
+  /** Clipboard images pasted through the right-click menu (Cmd+V images arrive via `onPaste`). */
+  onPasteImageFiles?: (files: File[]) => void;
   onCursorChange?: (cursor: number) => void;
 }
 
@@ -53,6 +61,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
       maxHeight = 200,
       onKeyDown,
       onPaste,
+      onPasteImageFiles,
       onCursorChange,
     },
     ref,
@@ -62,6 +71,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
     const lastEmittedValueRef = useRef(value);
     const skillsByNameRef = useRef(skillsByName);
     skillsByNameRef.current = skillsByName;
+    const [contextMenu, setContextMenu] = useState<ComposerContextMenuAnchor | undefined>(undefined);
 
     const fitHeight = useCallback(
       (editor: HTMLDivElement) => {
@@ -251,6 +261,113 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
       handleInput();
     };
 
+    /**
+     * Right-click opens Eco's own menu. Electron renders no native menu for the renderer, and
+     * Chromium's built-in one cannot act on this contentEditable, so without it the Composer has
+     * no pointer route to cut / copy / paste / select-all.
+     */
+    const handleContextMenu = (event: MouseEvent<HTMLDivElement>) => {
+      const editor = editorRef.current;
+      if (!editor || disabled) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const selection = window.getSelection();
+      const anchorNode = selection?.anchorNode ?? null;
+      const focusNode = selection?.focusNode ?? null;
+      const inEditor =
+        anchorNode !== null &&
+        focusNode !== null &&
+        editor.contains(anchorNode) &&
+        editor.contains(focusNode);
+      let start = 0;
+      let end = 0;
+      let selectedText = "";
+      if (inEditor) {
+        ({ start, end } = getSelectionOffsets(editor));
+        selectedText = selection?.toString() ?? "";
+      } else {
+        // The pointer is in the Composer but the document selection is not (first right-click,
+        // or text selected in the Feed): aim the caret at the pointer instead of the stale range.
+        editor.focus();
+        if (!setSelectionAtPoint(editor, event.clientX, event.clientY)) {
+          const length = serializeEditable(editor).length;
+          setSelectionOffsets(editor, length, length);
+        }
+        ({ start, end } = getSelectionOffsets(editor));
+      }
+      setContextMenu({ x: event.clientX, y: event.clientY, start, end, selectedText });
+    };
+
+    const closeContextMenu = useCallback(() => {
+      setContextMenu(undefined);
+    }, []);
+
+    /** Re-apply the selection captured at right-click: the menu button took focus meanwhile. */
+    const replaceSelection = (anchor: ComposerContextMenuAnchor, text: string) => {
+      const editor = editorRef.current;
+      if (!editor) {
+        return;
+      }
+      editor.focus();
+      setSelectionOffsets(editor, anchor.start, anchor.end);
+      insertPlainTextAtSelection(text);
+      commitEditorValue();
+    };
+
+    const handleContextMenuCut = () => {
+      const anchor = contextMenu;
+      closeContextMenu();
+      if (!anchor?.selectedText) {
+        return;
+      }
+      void copyTextToClipboard(anchor.selectedText);
+      replaceSelection(anchor, "");
+    };
+
+    const handleContextMenuCopy = () => {
+      const anchor = contextMenu;
+      closeContextMenu();
+      if (!anchor?.selectedText) {
+        return;
+      }
+      void copyTextToClipboard(anchor.selectedText);
+      editorRef.current?.focus();
+    };
+
+    const handleContextMenuPaste = () => {
+      const anchor = contextMenu;
+      closeContextMenu();
+      if (!anchor) {
+        return;
+      }
+      void (async () => {
+        const content = await readComposerClipboard(window.eco);
+        if (!content) {
+          editorRef.current?.focus();
+          return;
+        }
+        if (content.kind === "image") {
+          onPasteImageFiles?.([content.file]);
+          editorRef.current?.focus();
+          return;
+        }
+        replaceSelection(anchor, content.text);
+      })();
+    };
+
+    const handleContextMenuSelectAll = () => {
+      const editor = editorRef.current;
+      closeContextMenu();
+      if (!editor) {
+        return;
+      }
+      editor.focus();
+      setSelectionOffsets(editor, 0, serializeEditable(editor).length);
+      syncCursor();
+    };
+
     return (
       <div className="composer-skill-input">
         <div
@@ -268,8 +385,20 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
           onClick={syncCursor}
           onKeyUp={syncCursor}
           onPaste={handlePaste}
+          onContextMenu={handleContextMenu}
           onKeyDown={handleKeyDown}
         />
+        {contextMenu ? (
+          <ComposerContextMenu
+            anchor={contextMenu}
+            hasSelection={contextMenu.start !== contextMenu.end}
+            onCut={handleContextMenuCut}
+            onCopy={handleContextMenuCopy}
+            onPaste={handleContextMenuPaste}
+            onSelectAll={handleContextMenuSelectAll}
+            onClose={closeContextMenu}
+          />
+        ) : null}
       </div>
     );
   },

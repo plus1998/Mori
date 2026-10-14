@@ -104,9 +104,9 @@ test("claim router preserves toolUseId and isolates authenticated thread claims"
 test("logical MCP server name is always eco_agent_browser", () => {
   expect(ECO_AGENT_BROWSER_MCP_SERVER).toBe("eco_agent_browser");
   expect(isEcoAgentBrowserRuntimeServerName("eco_agent_browser")).toBe(true);
-  expect(buildEcoAgentBrowserPromptAppend("thr_x")).toContain("mcp__eco_agent_browser__*");
+  expect(buildEcoAgentBrowserPromptAppend("thr_x")).toContain("Hub target: `eco_agent_browser`");
   expect(buildEcoAgentBrowserPromptAppend("thr_x")).toContain("auth");
-  expect(buildEcoAgentBrowserPromptAppend("thr_x")).toContain("list_mcp_resources");
+  expect(buildEcoAgentBrowserPromptAppend("thr_x")).toContain("this server exposes tools only");
 });
 
 test("merge eco browser SDK config keeps fixed server name", () => {

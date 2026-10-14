@@ -1113,6 +1113,20 @@ final auxiliaryModelOptionsProvider =
       return result.options;
     });
 
+final approvalModelOptionsProvider =
+    FutureProvider.family<List<CommitModelOptionView>, String>((
+      ref,
+      mainAgentConfigId,
+    ) async {
+      ref.watch(modelSettingsProvider);
+      final rpc = ref.watch(desktopRpcProvider);
+      if (rpc == null) return const [];
+      final result = await rpc.listApprovalModelOptions(
+        mainAgentConfigId: mainAgentConfigId,
+      );
+      return result.options;
+    });
+
 final workflowSettingsProvider = FutureProvider<WorkflowSettingsSnapshot?>((
   ref,
 ) async {

@@ -8,8 +8,10 @@ import {
 } from "../request-lifecycle.js";
 import type { GatewayLogFn } from "../server.js";
 import { parseResponsesStreamEventBlock, splitSseBlocks } from "../sse.js";
+import { GatewayToolWriteAnnouncer } from "../tool-write-observation.js";
 import type {
   GatewayCodexTurnMetadata,
+  GatewayToolWriteObserver,
   GatewayUsageEvent,
   GatewayUsageObserver,
   ResolvedProviderRoute,
@@ -189,6 +191,7 @@ export async function forwardResponsesPassthrough(
   codexTurnMetadata?: GatewayCodexTurnMetadata,
   upstreamUserAgent?: string,
   lifecycle?: RequestLifecycleContext,
+  onToolWriteStarted?: GatewayToolWriteObserver,
 ): Promise<Response> {
   const deepSeekSanitized = sanitizeDeepSeekResponsesCustomTools(responsesBody, route.upstreamModelId);
   const longCatSanitized = sanitizeLongCatResponsesAgentMessages(deepSeekSanitized, route.provider.baseUrl);
@@ -272,7 +275,8 @@ export async function forwardResponsesPassthrough(
   }
 
   const contentType = upstreamResponse.headers.get("content-type") ?? "";
-  const isEventStream = contentType.includes("text/event-stream") ||
+  const isEventStream =
+    contentType.includes("text/event-stream") ||
     (route.provider.authMethod === "chatgpt_subscription" && upstreamBody.stream === true);
   const providerRequestId = readUpstreamRequestId(upstreamResponse.headers);
   if (!isEventStream || !upstreamResponse.body) {
@@ -304,6 +308,7 @@ export async function forwardResponsesPassthrough(
     ...(providerRequestId && { providerRequestId }),
     ...(codexTurnMetadata && { codexTurnMetadata }),
     ...(lifecycle && { lifecycle }),
+    ...(onToolWriteStarted && { onToolWriteStarted }),
   });
 
   return new Response(observedBody, {
@@ -377,6 +382,7 @@ function observeResponsesSseBody(input: {
   codexTurnMetadata?: GatewayCodexTurnMetadata;
   onUsage: GatewayUsageObserver | undefined;
   onLog: GatewayLogFn;
+  onToolWriteStarted?: GatewayToolWriteObserver;
   lifecycle?: RequestLifecycleContext;
 }): ReadableStream<Uint8Array> {
   const decoder = new TextDecoder();
@@ -473,6 +479,12 @@ function observeResponsesSseBody(input: {
     }, POST_TOOL_STALL_MS);
   };
 
+  const toolWriteAnnouncer = new GatewayToolWriteAnnouncer(
+    input.onToolWriteStarted,
+    input.codexTurnMetadata,
+    input.onLog,
+  );
+
   /** Observe one SSE block after it has been enqueued. Returns true when terminal froze the stream. */
   const observeEnqueuedBlock = (
     block: string,
@@ -486,6 +498,8 @@ function observeResponsesSseBody(input: {
       return false;
     }
     const type = typeof event.type === "string" ? event.type : "unknown";
+
+    toolWriteAnnouncer.observeEvent(event);
 
     if (
       type === "error" ||

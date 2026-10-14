@@ -1,3 +1,4 @@
+import type { ToolWriteKind } from "@eco/shared";
 import type { ThreadRunEventScope, ThreadRunEventType } from "./thread-run-events";
 
 export type ThreadRunProjectionAgentKind = "planner" | "subagent";
@@ -92,6 +93,26 @@ export interface ThreadRunProjectionAgent {
   timeline: ThreadRunProjectionTimelineItem[];
 }
 
+/**
+ * What the model is writing, as carried by the `tool.writing` fact.
+ *
+ * Refined in tiers, so the Feed never has to fall back to "something is happening": the target
+ * (file or command line) once the arguments name it, the kind while they still have not, and
+ * nothing at all for the provider-side items that name neither.
+ */
+export interface ToolWritingActivity {
+  /** Tool name as the core reports it; absent when the call does not name itself. */
+  name?: string;
+  kind?: ToolWriteKind;
+  /** File path or command line, once the arguments have revealed it. */
+  target?: string;
+}
+
+export interface ThreadRunProjectionWritingTool extends ToolWritingActivity {
+  /** observedAt of the `tool.writing` fact — lets the UI show the wait as bounded. */
+  since: string;
+}
+
 export interface ThreadRunProjectionRequestSpan {
   requestId: string;
   ownerAgentId?: string;
@@ -108,6 +129,16 @@ export interface ThreadRunProjectionRequestSpan {
    * keys off `providerRequestId` rather than the Eco logical `requestId`.
    */
   providerRequestId?: string;
+  /**
+   * Tool call the model is still writing arguments for on this request. Set from a
+   * `tool.writing` fact and cleared the moment the real tool row starts, so the Feed
+   * can name the wait instead of reading an unmoving timeline as "stalled".
+   */
+  writingTool?: ThreadRunProjectionWritingTool;
+  /** Native thinking block started, but has not produced visible content yet. */
+  pendingThinkingSince?: string;
+  /** Exact V2 message identity that will replace the empty thinking start. */
+  pendingThinkingMessageId?: string;
   /**
    * Provider-reported completion tokens for this request when ledger usage can
    * be joined. Absent for cores that never emit usage (e.g. Cursor ACP).

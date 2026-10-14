@@ -9,6 +9,7 @@ import {
   formatBashApprovalRememberPrefix,
 } from "../shared/bash-approval-ui";
 import type { BashApprovalDecision, BashApprovalRequest } from "../shared/ipc";
+import { presentMcpApproval } from "../shared/mcp-approval-presentation";
 import { ExpandablePreBlock } from "./ExpandablePreBlock";
 
 export interface BashApprovalResolutionInput {
@@ -35,7 +36,13 @@ const CIRCLED_OPTION_MARKERS = ["①", "②", "③", "④", "⑤"] as const;
 // unavailable). A genuine risk-control rejection rationale is written in the
 // user's locale and never contains them, so they reliably distinguish
 // "couldn't review" from "reviewed and declined" — regardless of locale.
-const REVIEW_REQUEST_ERROR_MARKERS = ["辅助模型审批失败", "辅助模型不可用", "审批失败或返回了无效 JSON"];
+const REVIEW_REQUEST_ERROR_MARKERS = [
+  "审批模型审批失败",
+  "审批模型不可用",
+  "辅助模型审批失败",
+  "辅助模型不可用",
+  "审批失败或返回了无效 JSON",
+];
 
 function isReviewRequestError(rationale: string): boolean {
   return REVIEW_REQUEST_ERROR_MARKERS.some((marker) => rationale.includes(marker));
@@ -148,9 +155,10 @@ export function BashApprovalPanel({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [busy, denyFeedback, highlightIndex, onResolve, onSkip, options, request.defaultToNo]);
 
+  const presentation = presentMcpApproval(request);
   const title =
-    request.description?.trim() ||
-    request.reason ||
+    presentation.description?.trim() ||
+    presentation.reason ||
     (request.filesystemTool
       ? t("approval.bash.fileTitle", { tool: request.filesystemTool })
       : t("approval.bash.title"));
@@ -158,7 +166,7 @@ export function BashApprovalPanel({
     ? t("approval.bash.runningTool", { tool: request.filesystemTool })
     : t("approval.bash.runningCommand", { command: request.command });
   const panelLabel = request.filesystemTool ? t("approval.bash.fileLabel") : t("approval.bash.label");
-  const detail = request.filesystemPath ?? request.command;
+  const detail = presentation.filesystemPath ?? request.command;
   const docked = variant === "dock";
 
   function renderOption(option: BashApprovalOption, optionIndex: number) {
@@ -301,10 +309,10 @@ export function BashApprovalPanel({
         </aside>
       ) : null}
 
-      {request.reason?.trim() &&
-      request.reason.trim() !== request.reviewRationale?.trim() &&
-      request.reason.trim() !== request.description?.trim() ? (
-        <p className="bash-approval-gate-reason">{request.reason.trim()}</p>
+      {presentation.reason?.trim() &&
+      presentation.reason.trim() !== request.reviewRationale?.trim() &&
+      presentation.reason.trim() !== presentation.description?.trim() ? (
+        <p className="bash-approval-gate-reason">{presentation.reason.trim()}</p>
       ) : null}
 
       <ExpandablePreBlock

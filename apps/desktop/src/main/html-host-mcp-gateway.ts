@@ -290,7 +290,7 @@ function htmlHostToolDefinition(): McpToolDefinition {
   return {
     name: ECO_HTML_HOST_TOOL,
     description:
-      "Publish a self-contained HTML page (progress / report / stats) to Eco Supabase hosting. Returns { status, pageId, publicUrl, expiresAt, canExtend }. Eco wraps content in chrome — do not draw the outer frame.",
+      "Publish a self-contained HTML page (progress / report / stats) to Eco Supabase hosting. Pass pageId to update an existing page without resetting its expiry. Returns { status, pageId, publicUrl, expiresAt, canExtend }; use the returned URL and expiry. Users can open or copy the link from the Feed card. Eco wraps content in chrome — do not draw the outer frame.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

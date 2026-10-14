@@ -5,11 +5,14 @@ import { handlePostChatCompletions } from "./routes/chat-completions.js";
 import { handleGetModels, handlePostMessages, handlePostMessagesCountTokens } from "./routes/messages.js";
 import { handleHealth, handlePostResponses, handlePostResponsesCompact } from "./routes/responses.js";
 import type {
+  GatewayAgentCore,
   GatewayConfig,
   GatewayProvider,
   GatewayRequestLifecycleObserver,
+  GatewayToolWriteObserver,
   GatewayUsageObserver,
 } from "./types.js";
+import { GATEWAY_AGENT_CORES } from "./upstream/user-agent.js";
 import {
   createUpstreamFetchController,
   parseUpstreamProxyUrl,
@@ -28,6 +31,11 @@ export interface EcoGatewayServer {
   setCredentialResolver: (resolver: GatewayConfig["resolveCredential"]) => void;
   setCredentialReporter: (reporter: GatewayConfig["reportCredentialResult"]) => void;
   setUpstreamUserAgent: (upstreamUserAgent: string | undefined) => void;
+  /** Per agent core UA overrides + Eco fallback UA (live update). */
+  setUpstreamUserAgents: (
+    upstreamUserAgents: Partial<Record<GatewayAgentCore, string>> | undefined,
+    userAgentDefault: string | undefined,
+  ) => void;
   setUpstreamProxyUrl: (proxyUrl: string | undefined) => void;
   getUpstreamProxyUrl: () => string | undefined;
 }
@@ -37,6 +45,11 @@ export interface StartEcoGatewayOptions {
   onLog?: GatewayLogFn;
   onUsage?: GatewayUsageObserver;
   onRequestLifecycle?: GatewayRequestLifecycleObserver;
+  /**
+   * The model began writing a tool call. Codex's app-server reports a tool only once its
+   * arguments are complete, so this is the only signal for the (often minute-long) write.
+   */
+  onToolWriteStarted?: GatewayToolWriteObserver;
   /**
    * When true, do not bind a public TCP port. Desktop Bridge owns the public
    * listener and calls handleRequest in-process.
@@ -57,6 +70,7 @@ export function createGatewayFetchHandler(
   onRequestLifecycle?: GatewayRequestLifecycleObserver,
   onProvidersChanged?: (providers: readonly GatewayProvider[]) => void,
   resolveEcoThreadIdFromCodex?: (codexThreadId: string) => string | undefined,
+  onToolWriteStarted?: GatewayToolWriteObserver,
 ): (request: Request) => Response | Promise<Response> {
   return async (request: Request) => {
     const url = new URL(request.url);
@@ -90,6 +104,7 @@ export function createGatewayFetchHandler(
         onUsage,
         onRequestLifecycle,
         resolveEcoThreadIdFromCodex,
+        onToolWriteStarted,
       );
       onLog(`POST ${path} → ${response.status} (${Date.now() - startedAt}ms)`);
       return response;
@@ -228,6 +243,7 @@ export async function startEcoGateway(
         }
       : undefined,
     options?.resolveEcoThreadIdFromCodex,
+    options?.onToolWriteStarted,
   );
 
   let server: http.Server | undefined;
@@ -297,6 +313,26 @@ export async function startEcoGateway(
         config.upstreamUserAgent = trimmed;
       } else {
         delete config.upstreamUserAgent;
+      }
+    },
+    setUpstreamUserAgents: (upstreamUserAgents, userAgentDefault) => {
+      const normalized: Partial<Record<GatewayAgentCore, string>> = {};
+      for (const core of GATEWAY_AGENT_CORES) {
+        const trimmed = upstreamUserAgents?.[core]?.trim();
+        if (trimmed) {
+          normalized[core] = trimmed;
+        }
+      }
+      if (Object.keys(normalized).length > 0) {
+        config.upstreamUserAgents = normalized;
+      } else {
+        delete config.upstreamUserAgents;
+      }
+      const fallback = userAgentDefault?.trim();
+      if (fallback) {
+        config.userAgentDefault = fallback;
+      } else {
+        delete config.userAgentDefault;
       }
     },
     setUpstreamProxyUrl: (proxyUrl) => {

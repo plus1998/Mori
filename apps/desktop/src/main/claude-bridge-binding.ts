@@ -21,6 +21,7 @@ export interface ClaudeBridgeBindingRoute {
   thinkingEffort?: ThinkingEffort;
   maxOutputTokens?: number;
   contextTokens?: number;
+  supportsImageInput?: boolean;
 }
 
 export interface ClaudeBridgeBindingUsageInfo {

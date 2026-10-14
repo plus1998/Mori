@@ -30,6 +30,7 @@ test("mainstream provider presets are sorted alphabetically by display name", ()
     "openai",
     "opencode-zen",
     "tencent",
+    "typesafe",
     "xiaomi-mimo",
   ]);
 });
@@ -40,7 +41,7 @@ test("default new provider preset stays OpenAI even when presets are sorted", ()
 });
 
 test("mainstream provider presets are valid service roots", () => {
-  expect(MAINSTREAM_PROVIDER_PRESETS).toHaveLength(10);
+  expect(MAINSTREAM_PROVIDER_PRESETS).toHaveLength(11);
 
   const ids = new Set<string>();
   for (const preset of MAINSTREAM_PROVIDER_PRESETS) {
@@ -54,7 +55,7 @@ test("mainstream provider presets are valid service roots", () => {
     expect(preset.baseUrl).toMatch(/^https:\/\//);
     expect(preset.baseUrl).not.toMatch(/\/v1\/?$/);
     expect(preset.requestPath === "" || preset.requestPath.startsWith("/")).toBe(true);
-    expect(["anthropic", "openai_responses", "openai_chat_completions"]).toContain(preset.apiCompat);
+    expect(["anthropic", "openai_responses", "openai_chat_completions", "system_one"]).toContain(preset.apiCompat);
   }
 });
 

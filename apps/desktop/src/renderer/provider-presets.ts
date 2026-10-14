@@ -41,6 +41,17 @@ function compareProviderPresets(a: ProviderPresetDefinition, b: ProviderPresetDe
 
 const PROVIDER_PRESET_DEFINITIONS: ProviderPresetDefinition[] = [
   {
+    id: "typesafe",
+    name: "TypeSafe (Jev)",
+    iconSrc: "./provider-icons/system-one.png",
+    baseUrl: "https://api.typesafe.ai",
+    requestPath: "",
+    version: "v1",
+    apiCompat: "system_one",
+    defaultModel: "jev-latest",
+    apiKeyUrl: "https://console.typesafe.ai",
+  },
+  {
     id: "chatgpt-subscription",
     name: "ChatGPT OAuth",
     iconSrc: "./provider-icons/openai.svg",

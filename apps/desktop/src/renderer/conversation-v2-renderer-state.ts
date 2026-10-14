@@ -13,7 +13,7 @@ import type {
   ConversationToolCall,
   ConversationToolsPage,
 } from "@eco/shared";
-import { limitConversationToolSummaryPayload, stableHash, stableJson } from "@eco/shared";
+import { isConversationMessageOrigin, limitConversationToolSummaryPayload, stableHash, stableJson } from "@eco/shared";
 import type { ConversationV2ProjectionExtras } from "../shared/ipc";
 
 function isGenericToolLabel(name: string): boolean {
@@ -207,6 +207,7 @@ export function installConversationV2Bootstrap(
     !Array.isArray(bootstrap.turns) ||
     !Array.isArray(bootstrap.runs) ||
     !Array.isArray(bootstrap.tools) ||
+    (bootstrap.details !== undefined && !Array.isArray(bootstrap.details)) ||
     typeof bootstrap.hasOlder !== "boolean" ||
     (bootstrap.hasOlder && typeof bootstrap.olderCursor !== "string") ||
     (!bootstrap.hasOlder && bootstrap.olderCursor !== undefined)
@@ -268,6 +269,15 @@ export function installConversationV2Bootstrap(
     }
   }
   const toolIds = new Set<string>();
+  const details = bootstrap.details ?? [];
+  const detailIds = new Set<string>();
+  for (const detail of details) {
+    validateDetail(detail, bootstrap.conversationId, bootstrap.snapshotSeq, "bootstrap detail");
+    if (detailIds.has(detail.itemId)) {
+      throw new Error(`Conversation V2 renderer bootstrap detail ${detail.itemId} is duplicated.`);
+    }
+    detailIds.add(detail.itemId);
+  }
   for (const tool of bootstrap.tools) {
     validateTool(tool, bootstrap.conversationId, bootstrap.snapshotSeq, "bootstrap tool");
     if (!toolIds.add(tool.toolCallId)) {
@@ -285,7 +295,7 @@ export function installConversationV2Bootstrap(
     todos: new Map(todos.map((todo) => [todo.todoId, todo])),
     tools: new Map(bootstrap.tools.map((tool) => [tool.toolCallId, tool])),
     ...(toolSummaryCounts ? { toolSummaryCounts } : {}),
-    details: new Map(),
+    details: new Map(details.map((detail) => [detail.itemId, detail])),
     effectHashes: new Map(),
     hasOlder: bootstrap.hasOlder,
     ...(bootstrap.olderCursor ? { olderCursor: bootstrap.olderCursor } : {}),
@@ -707,6 +717,7 @@ function applyEffect(
         body: effect.body,
         contentVersion: effect.nextContentVersion,
         versionSeq: effect.versionSeq,
+        ...(effect.attachments === undefined ? {} : { attachments: effect.attachments }),
       });
       return;
     }
@@ -994,6 +1005,7 @@ function validateMessage(
     !MESSAGE_CHANNELS.has(message.channel) ||
     !MESSAGE_STATUSES.has(message.status) ||
     typeof message.body !== "string" ||
+    (message.origin !== undefined && (message.role !== "user" || !isConversationMessageOrigin(message.origin))) ||
     (message.attachments !== undefined && !Array.isArray(message.attachments)) ||
     typeof message.isDeleted !== "boolean" ||
     message.isDeleted !== (message.status === "deleted") ||
@@ -1148,6 +1160,7 @@ function validateMessageReplace(
     !Number.isSafeInteger(effect.nextContentVersion) ||
     effect.nextContentVersion <= effect.baseContentVersion ||
     typeof effect.body !== "string" ||
+    (effect.attachments !== undefined && !Array.isArray(effect.attachments)) ||
     !Number.isSafeInteger(effect.versionSeq) ||
     effect.versionSeq < 1 ||
     effect.versionSeq > seq
@@ -1220,7 +1233,8 @@ function assertMessageIdentity(left: ConversationMessage, right: ConversationMes
     left.runId !== right.runId ||
     left.role !== right.role ||
     left.channel !== right.channel ||
-    left.createdSeq !== right.createdSeq
+    left.createdSeq !== right.createdSeq ||
+    stableJson(left.origin) !== stableJson(right.origin)
   ) {
     throw new Error(`Conversation V2 renderer message ${right.messageId} changed immutable identity.`);
   }
@@ -1314,6 +1328,7 @@ function sameMessage(left: ConversationMessage, right: ConversationMessage): boo
     left.versionSeq === right.versionSeq &&
     left.contentVersion === right.contentVersion &&
     left.body === right.body &&
+    stableJson(left.origin) === stableJson(right.origin) &&
     stableJson(left.attachments) === stableJson(right.attachments) &&
     left.status === right.status &&
     left.isDeleted === right.isDeleted

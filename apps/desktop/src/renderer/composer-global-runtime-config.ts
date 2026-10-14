@@ -14,6 +14,7 @@ import {
 const disabledGlobalIntegrations = {
   browser: false,
   imageGeneration: false,
+  tts: false,
 };
 
 export function buildComposerGlobalRuntimeConfig(input: {
@@ -31,6 +32,9 @@ export function buildComposerGlobalRuntimeConfig(input: {
       sessionMode: workflowDefaults.sessionMode,
       ...(workflowDefaults.defaultAuxiliaryModel
         ? { auxiliaryModel: workflowDefaults.defaultAuxiliaryModel }
+        : {}),
+      ...(workflowDefaults.defaultApprovalModel
+        ? { approvalModel: workflowDefaults.defaultApprovalModel }
         : {}),
       ...(workflowDefaults.defaultVisionModel ? { visionModel: workflowDefaults.defaultVisionModel } : {}),
       ...(workflowDefaults.mcpServersEnabled

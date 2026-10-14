@@ -3,6 +3,8 @@
  * Native openai-chat passthrough only — never disguise as Anthropic/Responses.
  */
 import type { ChatCompletionsRequest } from "@eco/openai-anthropic-bridge";
+import { rejectDisabledModelImageInput } from "../image-input-policy.js";
+import { applyModelOutputLimit, withDynamicOutputBudget } from "../model-output-limit.js";
 import {
   buildResolveProviderRouteOptions,
   IncompatibleUpstreamKindError,
@@ -12,6 +14,11 @@ import {
   UnsupportedUpstreamKindError,
 } from "../provider-router.js";
 import { buildRequestLifecycleContext } from "../request-lifecycle.js";
+import {
+  credentialResolutionErrorResponse,
+  reportRouteCredentialResult,
+  resolveRouteCredential,
+} from "../route-credentials.js";
 import type { GatewayLogFn } from "../server.js";
 import type {
   GatewayConfig,
@@ -20,7 +27,7 @@ import type {
   ResolvedProviderRoute,
 } from "../types.js";
 import { forwardOpenAIChatPassthrough } from "../upstream/openai-chat-passthrough.js";
-import { credentialResolutionErrorResponse, reportRouteCredentialResult, resolveRouteCredential } from "../route-credentials.js";
+import { resolveUpstreamUserAgent } from "../upstream/user-agent.js";
 
 export async function handlePostChatCompletions(
   request: Request,
@@ -63,6 +70,8 @@ export async function handlePostChatCompletions(
     throw error;
   }
 
+  const imageRejection = rejectDisabledModelImageInput(route, body);
+  if (imageRejection) return imageRejection;
   try {
     route = await resolveRouteCredential(route, config, request);
   } catch (error) {
@@ -70,6 +79,16 @@ export async function handlePostChatCompletions(
     return credentialResolutionErrorResponse(error);
   }
 
+  const outputBody = body as unknown as Record<string, unknown>;
+  fetchImpl = withDynamicOutputBudget(fetchImpl, route, config, request.signal, onLog);
+  applyModelOutputLimit(
+    outputBody,
+    route,
+    body.max_completion_tokens !== undefined ? "max_completion_tokens" : "max_tokens",
+  );
+  if (body.max_completion_tokens !== undefined && body.max_tokens !== undefined) {
+    applyModelOutputLimit(outputBody, route, "max_tokens");
+  }
   const lifecycle = buildRequestLifecycleContext(route, "chat_completions", onLog, onRequestLifecycle);
 
   onLog(
@@ -83,7 +102,11 @@ export async function handlePostChatCompletions(
     fetchImpl,
     onLog,
     onUsage,
-    config.upstreamUserAgent,
+    resolveUpstreamUserAgent(request.headers, {
+      override: config.upstreamUserAgent,
+      byCore: config.upstreamUserAgents,
+      fallback: config.userAgentDefault,
+    }),
     lifecycle,
   );
   await reportRouteCredentialResult(route, config, response);

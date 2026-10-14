@@ -159,14 +159,10 @@ export function requiresComputerUseActionApproval(toolName: string): boolean {
  */
 export function buildEcoComputerUsePromptAppend(): string {
   return [
-    "Built-in Computer Use (Eco): MCP server `eco_computer_use` controls the local desktop via accessibility APIs (open-computer-use).",
-    "Desktop state is shared across conversations — concurrent sessions share the same OS UI.",
-    "Workflow: call list_apps, then get_app_state before element-targeted actions; re-snapshot after navigation or failed actions.",
-    "Prefer element_index from get_app_state; use x/y coordinates only when no AX element matches.",
+    "Built-in Computer Use (Eco): inspect and operate local applications and desktop interfaces through accessibility APIs.",
     buildEcoMcpHubToolUsage({ server: ECO_COMPUTER_USE_MCP_SERVER }),
-    "When direct `mcp__eco_computer_use__*` tools are explicitly listed, use them for desktop actions.",
-    "Do NOT shell `open-computer-use` / `ocu` CLI (`Bash`).",
-    "Do NOT use a separate Computer Use MCP server when this integration is available for the thread.",
+    "Desktop state is shared across conversations; actions affect the same OS UI. Action approvals follow the current Eco settings.",
+    "Act on current accessibility state; refresh it after navigation or failed actions. Prefer element indices, using coordinates only when no accessibility element matches.",
   ].join("\n");
 }
 

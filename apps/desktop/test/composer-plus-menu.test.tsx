@@ -13,12 +13,14 @@ test("plus menu includes runtime configuration for Eco cores", () => {
       onSelectMode: () => undefined,
       onPickImage: () => undefined,
       onOpenRoute: () => undefined,
+      onAddScheduledMessage: () => undefined,
     }),
     "zh-CN",
   );
 
   expect(markup).toContain("配置");
   expect(markup).toContain("图片");
+  expect(markup).toContain("定时消息");
 });
 
 test("plus menu can hide the runtime configuration row", () => {
@@ -37,4 +39,5 @@ test("plus menu can hide the runtime configuration row", () => {
 
   expect(markup).toContain("图片");
   expect(markup).not.toContain("配置");
+  expect(markup).not.toContain("定时消息");
 });

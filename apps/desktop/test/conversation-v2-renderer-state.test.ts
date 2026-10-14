@@ -52,6 +52,17 @@ function effect(seq: number, value: ConversationSyncEffect["effect"]): Conversat
 }
 
 describe("conversation V2 renderer state", () => {
+  test("queued message replacement updates and removes attachments with its body", () => {
+    const state = installConversationV2Bootstrap({
+      ...bootstrap,
+      messages: [{ ...bootstrap.messages[0]!, role: "user", status: "queued", attachments: [{ contentRef: "old" }] }],
+    });
+    const replaced = applyConversationV2Effect(state, effect(2, {
+      type: "message.replace", messageId: "message_1", baseContentVersion: 0,
+      nextContentVersion: 1, body: "edited", versionSeq: 2, attachments: [],
+    }));
+    expect(replaced.messages.get("message_1")).toMatchObject({ body: "edited", attachments: [], status: "queued" });
+  });
   test("installs V2 projection extras without falling back to legacy projection fields", () => {
     const state = installConversationV2Bootstrap(bootstrap);
     const next = installConversationV2ProjectionExtras(state, {

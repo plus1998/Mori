@@ -74,7 +74,7 @@ const TITLE_REFUSAL_PATTERN =
 
 /** Reject runtime status text accidentally returned by a shared auxiliary route. */
 const TITLE_OPERATIONAL_FAILURE_PATTERN =
-  /(?:辅助模型[^\n]{0,24}(?:审批)?(?:失败|不可用)|(?:会话)?标题(?:生成)?失败|自动审批[^\n]{0,24}失败|review_failed_closed|auxiliary model[^\n]{0,24}(?:failed|unavailable)|approval[^\n]{0,24}(?:failed|error))/i;
+  /(?:(?:辅助模型|审批模型)[^\n]{0,24}(?:审批)?(?:失败|不可用)|(?:会话)?标题(?:生成)?失败|自动审批[^\n]{0,24}失败|review_failed_closed|auxiliary model[^\n]{0,24}(?:failed|unavailable)|approval[^\n]{0,24}(?:failed|error))/i;
 
 /** Reject structured-artifact garbage sometimes appended to titles (Codex #17627). */
 const TITLE_GARBAGE_SUFFIX_PATTERN = /[\]})'"]{3,}$/;

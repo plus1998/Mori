@@ -41,6 +41,8 @@
         display: grid;
         place-items: center;
         pointer-events: none;
+        -webkit-user-select: none;
+        user-select: none;
         z-index: 0;
       }
 
@@ -48,6 +50,8 @@
         width: 96px;
         height: 96px;
         object-fit: contain;
+        -webkit-user-drag: none;
+        user-select: none;
         opacity: 0.92;
         animation: app-boot-splash-breathe 1.6s ease-in-out infinite;
       }

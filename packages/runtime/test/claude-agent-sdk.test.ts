@@ -480,6 +480,14 @@ test("removes Bash from SDK auto-approved tools when confirmation is enabled", (
   expect(stripBashAutoApprovedTools(["Read", "Bash", "mcp__github__*"])).toEqual(["Read", "mcp__github__*"]);
 });
 
+test("explicit empty skill selections stay empty instead of enabling CLI defaults", () => {
+  expect(resolveSdkSessionOptions({ skills: [] }).skills).toEqual([]);
+  expect(resolveSdkSessionOptions({ skills: ["pdf"], agentSkills: { planner: [] } }).skills).toEqual([]);
+  expect(resolveSdkSessionOptions({ agentSkills: { eco_planner: [] } }).skills).toEqual([]);
+  expect(resolveAgentSkills("planner", { planner: [], eco_planner: ["pdf"] }, ["docx"])).toEqual([]);
+  expect(resolveAgentSkills("planner", undefined, ["pdf"])).toEqual(["pdf"]);
+});
+
 test("removes Plan Mode submission tools from SDK auto-approved tools", () => {
   expect(
     stripProtectedPlanModeAutoApprovedTools([
@@ -2136,6 +2144,7 @@ test("ClaudeAgentSdkDriver does not inject fallback Eco agents without a UI regi
     workspacePath: "/tmp/workspace",
     worktreePath: "/tmp/worktree",
     routes,
+    sdkSession: { skills: [] },
   };
 
   for await (const _event of driver.run({
@@ -2166,6 +2175,35 @@ test("ClaudeAgentSdkDriver does not inject fallback Eco agents without a UI regi
   }
 
   expect(capturedOptions[0]?.forwardSubagentText).toBe(true);
+  for (const options of capturedOptions) {
+    expect(options.skills).toEqual([]);
+    expect(options.tools).toEqual(
+      expect.arrayContaining([
+        "Read",
+        "Skill",
+        "WebSearch",
+        "Agent",
+        "SendMessage",
+        "ListAgents",
+        "TaskStop",
+      ]),
+    );
+    for (const tool of [
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "ScheduleWakeup",
+      "ReportFindings",
+      "EnterWorktree",
+      "ExitWorktree",
+    ]) {
+      expect(options.tools).not.toContain(tool);
+    }
+  }
+  expect(capturedOptions[0]?.tools).toEqual(expect.arrayContaining(["Bash", "Write", "AskUserQuestion"]));
+  expect(capturedOptions[1]?.tools).not.toContain("Bash");
+  expect(capturedOptions[1]?.tools).not.toContain("Write");
+  expect(capturedOptions[0]?.tools).not.toContain("ExitPlanMode");
   expect(capturedOptions[0]?.agents).toBeUndefined();
   expect(capturedOptions[1]?.agents).toBeUndefined();
   expect(capturedOptions[1]?.permissionMode).toBe("dontAsk");
@@ -2699,7 +2737,7 @@ test("ClaudeAgentSdkDriver force-closes when abort leaves interrupt and iterator
     interrupted: true,
     interrupt_timed_out: true,
     closed: true,
-    drain_timed_out: true,
+    drain_timed_out: false,
   });
 });
 
@@ -2738,6 +2776,59 @@ test("teardownClaudeQueryHandle does not await iterator.return after drain timeo
 
   expect(outcome).toBe("completed");
   expect(returnCalled).toBe(false);
+  expect(closeCalled).toBe(true);
+});
+
+test("Stop aborts the SDK transport and tears down even while a context probe and ingress close never resolve", async () => {
+  const controller = new AbortController();
+  let sdkController: AbortController | undefined;
+  let closeCalled = false;
+  let probeStarted!: () => void;
+  const probing = new Promise<void>((resolve) => {
+    probeStarted = resolve;
+  });
+  const never = new Promise<never>(() => {});
+  const driver = new ClaudeAgentSdkDriver({
+    apiKey: "test-key",
+    baseUrl: "http://127.0.0.1:36037",
+    queryControlDeadlineMs: 10,
+    queryLifecycle: { onClosing: () => never },
+    loadSdk: async () => ({
+      query: ({ options }) => {
+        sdkController = options.abortController as AbortController;
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield { type: "system", subtype: "init", session_id: "sess-probe-abort" };
+            yield { type: "result", subtype: "success", session_id: "sess-probe-abort" };
+          },
+          getContextUsage: () => {
+            probeStarted();
+            return never;
+          },
+          interrupt: () => never,
+          close: () => {
+            closeCalled = true;
+          },
+        };
+      },
+    }),
+  });
+  const run = (async () => {
+    for await (const _event of driver.runAsk({
+      threadId: "thr_probe_abort",
+      prompt: "Wait",
+      workspacePath: "/tmp/workspace",
+      worktreePath: "/tmp/worktree",
+      routes,
+      signal: controller.signal,
+    })) {
+    }
+  })();
+  const stopped = run.catch((error: unknown) => error);
+  await probing;
+  controller.abort("cancelled by user");
+  expect(sdkController?.signal.aborted).toBe(true);
+  expect(await stopped).toBe("cancelled by user");
   expect(closeCalled).toBe(true);
 });
 
@@ -2938,6 +3029,9 @@ test("ClaudeAgentSdkDriver planning uses official plan mode and captures ExitPla
   expect(capturedOptions[0]?.allowedTools).not.toContain("Bash");
   expect(capturedOptions[0]?.allowedTools).not.toContain("Write");
   expect(capturedOptions[0]?.permissionMode).toBe("plan");
+  expect(capturedOptions[0]?.tools).toEqual(
+    expect.arrayContaining(["Write", "Edit", "Bash", "ExitPlanMode", "AskUserQuestion"]),
+  );
   for (const tool of ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]) {
     expect(capturedOptions[0]?.disallowedTools ?? []).not.toContain(tool);
   }
@@ -4676,4 +4770,102 @@ test("ClaudeAgentSdkDriver tears down the Query when onOpen fails", async () => 
   await expect(run()).rejects.toThrow("port open failed");
   expect(closeCalled).toBe(true);
   expect(onClosedCalled).toBe(true);
+});
+
+test("Claude SDK resolved output ceiling overrides inherited 32K in process and settings env", () => {
+  const inherited = process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS;
+  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = "32000";
+  try {
+    const env = buildSdkProcessEnv({
+      apiKey: "router",
+      baseUrl: "http://127.0.0.1:18765",
+      maxOutputTokens: 128_000,
+    });
+    expect(env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe("128000");
+    const options: Record<string, unknown> = {
+      settings: { env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: "32000" } },
+    };
+    applyEcoSdkSettings(options, "router", "http://127.0.0.1:18765", { maxOutputTokens: 128_000 });
+    expect((options.settings as { env: Record<string, string> }).env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe(
+      "128000",
+    );
+    expect(() =>
+      buildSdkProcessEnv({ apiKey: "router", baseUrl: "http://127.0.0.1", maxOutputTokens: NaN }),
+    ).toThrow("valid resolved");
+  } finally {
+    if (inherited === undefined) delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS;
+    else process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = inherited;
+  }
+});
+
+test("Claude session context windows override inherited settings without mutating the host", async () => {
+  const inherited = process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS;
+  process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = "200000";
+  const captured: Record<string, unknown>[] = [];
+  try {
+    const driver = new ClaudeAgentSdkDriver({
+      apiKey: "local-test",
+      baseUrl: "http://127.0.0.1:36037",
+      loadSdk: async () => ({
+        query: ({ options }) => {
+          captured.push(options);
+          return {
+            close() {},
+            async *[Symbol.asyncIterator]() {
+              yield { type: "result", subtype: "success", num_turns: 1, session_id: crypto.randomUUID() };
+            },
+          };
+        },
+      }),
+    });
+    await Promise.all(
+      [262_144, 524_288].map(async (contextWindow) => {
+        const planner = routes[0];
+        if (!planner) throw new Error("Missing planner test route.");
+        for await (const _event of driver.runAsk({
+          threadId: `thr_context_${contextWindow}`,
+          prompt: "Check context window",
+          workspacePath: "/tmp",
+          worktreePath: "/tmp",
+          routes: [{ ...planner, primary: { ...planner.primary, contextWindow } }],
+          signal: new AbortController().signal,
+        })) {
+          // Consume both concurrent sessions.
+        }
+      }),
+    );
+    expect(captured).toHaveLength(2);
+    expect(
+      captured
+        .map((options) => (options.env as Record<string, string>).CLAUDE_CODE_MAX_CONTEXT_TOKENS)
+        .sort(),
+    ).toEqual(["262144", "524288"]);
+    expect(
+      captured
+        .map(
+          (options) =>
+            (options.settings as { env: Record<string, string> }).env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,
+        )
+        .sort(),
+    ).toEqual(["262144", "524288"]);
+    expect(process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("200000");
+    const settings: Record<string, unknown> = {
+      settings: { env: { CLAUDE_CODE_MAX_CONTEXT_TOKENS: "200000" } },
+    };
+    applyEcoSdkSettings(settings, "router", "http://127.0.0.1", { contextWindow: 262_144 });
+    expect((settings.settings as { env: Record<string, string> }).env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe(
+      "262144",
+    );
+    for (const contextWindow of [NaN, Infinity, 0, -1, 1.5]) {
+      expect(() =>
+        buildSdkProcessEnv({ apiKey: "router", baseUrl: "http://127.0.0.1", contextWindow }),
+      ).toThrow("valid resolved context window");
+      expect(() => applyEcoSdkSettings({}, "router", "http://127.0.0.1", { contextWindow })).toThrow(
+        "valid resolved context window",
+      );
+    }
+  } finally {
+    if (inherited === undefined) delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS;
+    else process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = inherited;
+  }
 });

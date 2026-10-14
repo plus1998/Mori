@@ -1,4 +1,5 @@
 import type { McpStreamableHttpHandlers, McpToolCallResult, McpToolDefinition } from "./mcp-streamable-http";
+import type { McpHubServiceDirectoryEntry } from "../shared/mcp-hub-tool-usage";
 
 export type McpHubSession = {
   sessionId: string;
@@ -161,6 +162,59 @@ export class McpHub {
     this.sessions.set(session.token, { ...session, allowedTools, deniedTools });
   }
 
+  /** Read only selected session-authorized services; never expose schemas in the initial directory. */
+  async listServiceDirectory(input: {
+    token: string;
+    servers: Iterable<string>;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  }): Promise<McpHubServiceDirectoryEntry[]> {
+    const session = this.resolveSession(input.token);
+    const allowedServers = this.effectiveServers(session);
+    const names = [...new Set([...input.servers].map(normalizeServerName))]
+      .filter((name) => allowedServers.has(name))
+      .sort();
+    const listed = await Promise.allSettled(names.map(async (name) => {
+      const server = this.servers.get(name);
+      if (!server) throw new Error(`MCP Hub server unavailable: ${name}`);
+      const timeout = AbortSignal.timeout(input.timeoutMs ?? 10_000);
+      const signal = input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
+      signal.throwIfAborted();
+      let onAbort: (() => void) | undefined;
+      try {
+        return await Promise.race([
+          server.listTools({ signal, session }),
+          new Promise<never>((_, reject) => {
+            onAbort = () => reject(signal.reason);
+            signal.addEventListener("abort", onAbort, { once: true });
+            if (signal.aborted) onAbort();
+          }),
+        ]);
+      } finally {
+        if (onAbort) signal.removeEventListener("abort", onAbort);
+      }
+    }));
+    input.signal?.throwIfAborted();
+    // Permissions may have changed while metadata was in flight.
+    const current = this.resolveSession(input.token);
+    const currentServers = this.effectiveServers(current);
+    const policy = this.effectiveToolPolicy(current);
+    return names.flatMap((server, index) => {
+      if (!currentServers.has(server)) return [];
+      const result = listed[index]!;
+      if (result.status === "rejected") {
+        return [{ server, tools: [], error: result.reason instanceof Error ? result.reason.message : String(result.reason) }];
+      }
+      const tools = result.value.tools.flatMap((tool) => {
+        const leaf = typeof tool.name === "string" ? tool.name.trim() : "";
+        const name = `${server}:${leaf}`;
+        if (!leaf || !isToolAuthorized(policy, name, leaf)) return [];
+        return [{ name, ...(typeof tool.description === "string" ? { description: tool.description } : {}) }];
+      });
+      return [{ server, tools }];
+    });
+  }
+
   async searchTools(input: {
     token: string;
     query?: string;
@@ -182,8 +236,7 @@ export class McpHub {
         if (!leaf) continue;
         const toolId = `${serverName}:${leaf}`;
         const policy = this.effectiveToolPolicy(session);
-        if (policy.denied.has(toolId) || policy.denied.has(leaf)) continue;
-        if (!policy.allowAll && !matchesTool(policy.tools, toolId, leaf)) continue;
+        if (!isToolAuthorized(policy, toolId, leaf)) continue;
         if (query && !`${toolId} ${tool.description ?? ""}`.toLowerCase().includes(query)) continue;
         this.catalog.set(toolId, { ...tool, name: toolId });
         visible.push({ ...tool, name: toolId });
@@ -345,6 +398,15 @@ function matchesTool(allowed: ReadonlySet<string>, toolId: string, leaf: string)
     if (pattern.endsWith("*") && toolId.startsWith(pattern.slice(0, -1))) return true;
     return false;
   });
+}
+
+function isToolAuthorized(
+  policy: { allowAll: boolean; tools: ReadonlySet<string>; denied: ReadonlySet<string> },
+  toolId: string,
+  leaf: string,
+): boolean {
+  return !policy.denied.has(toolId) && !policy.denied.has(leaf)
+    && (policy.allowAll || matchesTool(policy.tools, toolId, leaf));
 }
 
 function canonicalToolId(value: string): string {

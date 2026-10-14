@@ -1,4 +1,4 @@
-import { FolderOpen, Minus, Plus, RotateCcw, X } from "lucide-react";
+import { Check, FolderOpen, Minus, Plus, RotateCcw, TriangleAlert, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { i18n } from "./i18n";
@@ -9,6 +9,7 @@ import {
   type LightboxZoomController,
   type LightboxZoomTransform,
 } from "./lightbox-zoom";
+import { useImageCopyMenu } from "./use-image-copy-menu";
 
 export function ImageLightbox({
   src,
@@ -40,6 +41,7 @@ export function ImageLightbox({
     x: 0,
     y: 0,
   });
+  const copyMenu = useImageCopyMenu(src);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -92,7 +94,9 @@ export function ImageLightbox({
     <div
       className="run-log-image-view-lightbox"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
+        // Right-clicking the backdrop must not close the viewer: that press belongs to the
+        // context menu, and closing here would eat the menu before it can open.
+        if (event.button === 0 && event.target === event.currentTarget) {
           onClose();
         }
       }}
@@ -106,6 +110,23 @@ export function ImageLightbox({
         <div className="run-log-image-view-lightbox-bar">
           <span title={title}>{title}</span>
           <div className="lightbox-zoom-controls">
+            {copyMenu.copyState ? (
+              <span
+                className={`run-log-image-view-lightbox-status run-log-image-view-lightbox-status--${copyMenu.copyState}`}
+                role="status"
+              >
+                {copyMenu.copyState === "copied" ? (
+                  <Check size={14} aria-hidden />
+                ) : (
+                  <TriangleAlert size={14} aria-hidden />
+                )}
+                <span>
+                  {copyMenu.copyState === "copied"
+                    ? i18n.t("lightbox.copyImageDone")
+                    : i18n.t("lightbox.copyImageFailed")}
+                </span>
+              </span>
+            ) : null}
             <button
               type="button"
               className="run-log-image-view-lightbox-close"
@@ -165,13 +186,18 @@ export function ImageLightbox({
           </div>
         </div>
         <div className="run-log-image-view-lightbox-body">
-          <div ref={stageRef} className="run-log-image-view-lightbox-stage lightbox-zoom-stage">
+          <div
+            ref={stageRef}
+            className="run-log-image-view-lightbox-stage lightbox-zoom-stage"
+            onContextMenu={copyMenu.openMenu}
+          >
             <div ref={canvasRef} className="lightbox-zoom-canvas">
               <img src={src} alt={alt} draggable={false} />
             </div>
           </div>
           {sidePanel ? <aside className="run-log-image-view-lightbox-side">{sidePanel}</aside> : null}
         </div>
+        {copyMenu.menu}
       </div>
     </div>,
     document.body,

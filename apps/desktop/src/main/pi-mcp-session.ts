@@ -1,3 +1,4 @@
+import { ECO_TTS_MCP_SERVER } from "../shared/tts";
 import path from "node:path";
 import { ECO_IMAGE_VIEW_MCP_SERVER } from "@eco/runtime";
 import { ECO_AGENT_BROWSER_MCP_SERVER } from "../shared/browser";
@@ -7,6 +8,7 @@ import { ECO_IMAGE_DISPLAY_MCP_SERVER } from "../shared/image-display-tool";
 import { ECO_IMAGE_GENERATION_MCP_SERVER } from "../shared/image-generation";
 import type { McpSdkConfig } from "../shared/mcp";
 import { filterMcpSdkConfigByAssignedServers, sanitizeMcpServerName } from "../shared/mcp";
+import { mergeEcoMcpHubPromptParts } from "../shared/mcp-hub-tool-usage";
 import { prepareMcpSdkConfigForRuntime } from "./mcp-runtime";
 
 export type PiMcpSessionResolution = {
@@ -25,10 +27,7 @@ export function mergePiAppendSystemPrompt(parts: {
   integrationAppend?: readonly string[];
 }): string[] {
   const rules = parts.globalUserRules?.trim() ?? "";
-  return [
-    ...(rules ? [rules] : []),
-    ...(parts.integrationAppend ?? []).map((entry) => entry.trim()).filter((entry) => entry.length > 0),
-  ];
+  return mergeEcoMcpHubPromptParts([...(rules ? [rules] : []), ...(parts.integrationAppend ?? [])]);
 }
 
 /**
@@ -49,6 +48,11 @@ export function buildPiMcpSessionConfig(input: {
     promptAppend?: string;
   };
   imageInject: {
+    enabled: boolean;
+    sdkEntry?: Record<string, unknown>;
+    promptAppend?: string;
+  };
+  ttsInject?: {
     enabled: boolean;
     sdkEntry?: Record<string, unknown>;
     promptAppend?: string;
@@ -79,6 +83,7 @@ export function buildPiMcpSessionConfig(input: {
         !key.startsWith("eco_ab_") &&
         key !== ECO_COMPUTER_USE_MCP_SERVER &&
         key !== ECO_IMAGE_GENERATION_MCP_SERVER &&
+        key !== ECO_TTS_MCP_SERVER &&
         key !== ECO_IMAGE_VIEW_MCP_SERVER &&
         key !== ECO_IMAGE_DISPLAY_MCP_SERVER &&
         key !== ECO_HTML_HOST_MCP_SERVER,
@@ -111,6 +116,13 @@ export function buildPiMcpSessionConfig(input: {
     mcpServers[ECO_IMAGE_GENERATION_MCP_SERVER] = input.imageInject.sdkEntry;
     if (input.imageInject.promptAppend?.trim()) {
       appendSystemPrompt.push(input.imageInject.promptAppend.trim());
+    }
+  }
+
+  if (input.ttsInject?.enabled && input.ttsInject.sdkEntry) {
+    mcpServers[ECO_TTS_MCP_SERVER] = input.ttsInject.sdkEntry;
+    if (input.ttsInject.promptAppend?.trim()) {
+      appendSystemPrompt.push(input.ttsInject.promptAppend.trim());
     }
   }
 

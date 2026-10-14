@@ -548,13 +548,22 @@
   background: var(--bg-main, #fff);
 }
 
-.workspace-file-browser__search {
+.workspace-file-browser__toolbar {
   display: flex;
-  min-height: 40px;
   flex: 0 0 40px;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   margin: 14px 4px 12px;
+}
+
+.workspace-file-browser__search {
+  display: flex;
+  min-width: 0;
+  min-height: 40px;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
   padding: 0 14px;
   border: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
   border-radius: 12px;
@@ -607,6 +616,43 @@
 .workspace-file-browser__search-clear:hover {
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
+}
+
+.workspace-file-browser__refresh {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  background: transparent;
+  color: var(--wfb-muted, var(--text-muted));
+  cursor: pointer;
+  transition:
+    background-color 0.14s cubic-bezier(0.32, 0.72, 0, 1),
+    color 0.14s ease,
+    transform 0.1s ease-out;
+}
+
+.workspace-file-browser__refresh:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary, currentColor);
+}
+
+.workspace-file-browser__refresh:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.workspace-file-browser__refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.workspace-file-browser__refresh:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 68%, transparent);
+  outline-offset: 1px;
 }
 
 .workspace-file-browser__explorer {
@@ -800,6 +846,7 @@
   place-items: center;
   padding: 24px;
   overflow: auto;
+  position: relative;
   background: var(--bg-main, transparent);
 }
 
@@ -853,6 +900,34 @@
   min-height: 240px;
   place-items: center;
   padding: 18px;
+  position: relative;
+}
+
+/* 右键「复制图像」的结果浮标（图片与 SVG 预览共用），贴在预览右上角并自动消失。 */
+.workspace-file-browser__copy-status {
+  display: inline-flex;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  pointer-events: none;
+}
+
+.workspace-file-browser__copy-status--copied {
+  color: var(--success, #34c759);
+  background: color-mix(in srgb, var(--success, #34c759) 14%, transparent);
+}
+
+.workspace-file-browser__copy-status--failed {
+  color: var(--danger, #f87171);
+  background: color-mix(in srgb, var(--danger, #f87171) 14%, transparent);
 }
 
 .workspace-file-browser__audio {
