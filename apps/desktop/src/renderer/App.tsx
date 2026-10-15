@@ -5513,7 +5513,14 @@ function App() {
   }, [composerContextKey]);
 
   useEffect(() => {
-    if (!composerContextKey || !composerAttachments.some((attachment) => attachment.contentRef && !attachment.data)) {
+    // Only durable-reference attachments without a renderer-owned preview need a read.
+    // A freshly pasted/dropped image already owns a local blob preview, and its staged
+    // content reference is not persisted in the draft yet, so reading it back would fail
+    // authorization and wrongly report the preview as unavailable.
+    const needsPreview = composerAttachments.some(
+      (attachment) => attachment.contentRef && !attachment.data && !attachment.previewUrl,
+    );
+    if (!composerContextKey || !needsPreview) {
       return;
     }
     const readChunk = window.eco?.readPromptImageChunk;

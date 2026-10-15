@@ -117,6 +117,12 @@ export async function hydrateComposerImageAttachments(
           ? attachment
           : { ...attachment, data, previewUrl: createImageObjectUrlFromBase64(attachment.mediaType, data) };
       }
+      // A local (fresh paste/drop) attachment already owns renderer preview bytes; the
+      // durable reference is only needed for sending, so never re-read it just to rebuild
+      // a preview. Re-reading also races the staged reference becoming durable.
+      if (attachment.previewUrl) {
+        return attachment;
+      }
       const contentRef = attachment.contentRef?.trim();
       if (!contentRef) {
         return attachment;

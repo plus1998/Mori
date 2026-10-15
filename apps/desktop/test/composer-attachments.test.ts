@@ -53,6 +53,28 @@ test("hydrates content-ref-only queue images from chunked bytes", async () => {
   ]);
 });
 
+test("keeps a local preview instead of re-reading the durable reference", async () => {
+  let readCount = 0;
+  const attachments = [
+    {
+      id: "img_staged",
+      mediaType: "image/png" as const,
+      path: "/tmp/spool/img.png",
+      contentRef: CONTENT_REF,
+      previewUrl: "blob:local-preview",
+    },
+  ];
+
+  const hydrated = await hydrateComposerImageAttachments(attachments, "thread:draft", async () => {
+    readCount += 1;
+    throw new Error("staged reference is not authorized yet");
+  });
+
+  expect(readCount).toBe(0);
+  expect(hydrated[0]).toBe(attachments[0]);
+  expect(hydrated[0]?.previewUrl).toBe("blob:local-preview");
+});
+
 test("still rejects an attachment with no durable source", () => {
   expect(() => toPromptImageAttachments([{ id: "broken", mediaType: "image/png", previewUrl: "" }])).toThrow(
     "Composer image attachment is missing file data.",

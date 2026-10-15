@@ -771,18 +771,23 @@ export class ConversationStore {
   }
 
   /**
-   * Keep the desktop CAS reader scoped to the conversation or landing draft
-   * that supplied the reference. V2-only never falls back to retired V1 rows.
+   * Keep the desktop CAS reader scoped to the composer draft, conversation, or
+   * landing draft that supplied the reference. V2-only never falls back to
+   * retired V1 rows.
    */
   isPromptImageContentRefAuthorized(contextKey: string, contentRef: string): boolean {
     const key = contextKey.trim();
     const ref = contentRef.trim();
     if (!key || !isPromptImageContentRef(ref)) return false;
 
-    if (key.startsWith("landing:")) {
-      const draft = this.getComposerDraft(key);
-      return draft?.attachments?.some((attachment) => attachment.contentRef?.trim() === ref) === true;
+    // An unsent composer draft owns every image staged for its own context key, whether
+    // that is a landing surface or a thread the user has not sent the image in yet.
+    const draft = this.getComposerDraft(key);
+    if (draft?.attachments?.some((attachment) => attachment.contentRef?.trim() === ref) === true) {
+      return true;
     }
+
+    if (key.startsWith("landing:")) return false;
 
     if (!key.startsWith("thread:")) return false;
     const threadId = key.slice("thread:".length).trim();
