@@ -23,6 +23,18 @@ description: >-
 
 这是对话事件重放，不是整个应用的断网镜像。当前 UI 代码、当前环境配置和生产投影会影响结果。历史审批弹窗、计划/队列操作、账单/上下文快照和媒体内容没有完整收录，`status` / `trace` 会给出 coverage；不要用它们宣布这些功能已验证。运行时可用性是基于录制 Core 的本地模拟，不会启动 SDK 探针。未实现的操作要看 `blockedCalls` 并明确说明，禁止改成任意空值来掩盖缺口。
 
+### 显式复现队列与终端条件
+
+可复制导出的 fixture 到同一私有 artifacts 目录，添加可选 `uiScenario`：
+
+- `pausedFollowUps`：完整 `ThreadPendingFollowUp[]`，必须属于本会话且状态为 `queued`。它固定展示暂停队列，不重演历史队列操作；原生修改入口仍被阻止。
+- `terminalHeight`：120–600 的像素高度。挂载真实终端组件，PTY 为本地模拟，不启动 shell。
+
+使用 `open --fixture <副本路径>` 打开。通过 CDP 在该 iframe 调用
+`window.__ECO_FEED_REPLAY__.writeTerminalOutput("明确标注为合成的测试输出\r\n")`
+可驱动真实 Ghostty 输出渲染。`status` / `trace` 标记这些条件为重建和合成输出，
+不能用它证明生产 PTY、IPC 时序或历史终端输出已经重放。停止自己的输出定时器后再关闭回放。
+
 ## 打开与播放
 
 先确认 dev 正在运行；没有运行时执行 `bun run dev`。再按 [eco-dev-cdp](../eco-dev-cdp/SKILL.md) 用 Shell 连接：

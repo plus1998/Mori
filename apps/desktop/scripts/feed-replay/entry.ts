@@ -32,6 +32,18 @@ const memoryStorage = () => {
 };
 Object.defineProperty(window, "localStorage", { value: memoryStorage() });
 Object.defineProperty(window, "sessionStorage", { value: memoryStorage() });
+if (fixture.uiScenario?.terminalHeight !== undefined) {
+  localStorage.setItem("eco.terminal", JSON.stringify({
+    projects: {
+      [fixture.thread.workspacePath]: {
+        open: true,
+        height: fixture.uiScenario.terminalHeight,
+        tabs: [{ id: "session:feed-replay-terminal", label: "离线终端（模拟输出）", kind: "local" }],
+        activeTabId: "session:feed-replay-terminal",
+      },
+    },
+  }));
+}
 for (const attr of ["data-theme", "data-platform"]) {
   const value = window.parent.document.documentElement.getAttribute(attr);
   if (value) document.documentElement.setAttribute(attr, value);
@@ -144,7 +156,13 @@ const controller = {
         next?.effect.type === "message.create"
           ? { seq: next.seq, text: next.effect.message.body, messageId: next.effect.message.messageId }
           : undefined,
-      coverage: fixture.coverage,
+      coverage: fixture.uiScenario ? [...fixture.coverage,
+        "UI scenario is explicitly reconstructed; terminal output is synthetic, not historical PTY/IPC replay."] : fixture.coverage,
+      uiScenario: fixture.uiScenario ? {
+        pausedFollowUpCount: fixture.uiScenario.pausedFollowUps?.length,
+        terminalHeight: fixture.uiScenario.terminalHeight,
+        terminalMode: fixture.uiScenario.terminalHeight === undefined ? undefined : "synthetic-output",
+      } : undefined,
       geometry: geometry(),
     };
   },
@@ -164,10 +182,16 @@ const controller = {
       });
   },
   pause: () => session.pause(),
+  writeTerminalOutput: (data: string) => {
+    session.writeTerminalOutput(data);
+    append("calls", calls, {
+      name: "syntheticTerminalOutput", kind: "local", wall: performance.now(), seq: session.state.appliedSeq,
+    });
+  },
   trace: () => ({
     formatVersion: 1,
     conversationId: fixture.conversationId,
-    coverage: fixture.coverage,
+    coverage: controller.status().coverage,
     status: controller.status(),
     frames,
     marks,

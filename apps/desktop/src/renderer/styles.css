@@ -29859,10 +29859,14 @@ html:not([data-platform="darwin"])
 
 .codex-main:not(.codex-main-landing) .run-log-action-trigger {
   gap: 8px;
+  min-height: 24px;
 }
 
 .codex-main:not(.codex-main-landing) .run-log-tool-group-trigger {
   gap: 8px;
+  /* Match the active thinking tail's line box: replacing its 24px line with
+     a 14px × 1.55 tool line moved every preceding row by about 2.3px. */
+  min-height: 24px;
   color: var(--codex-log-muted);
   font-size: var(--codex-feed-font-size);
   font-weight: 450;

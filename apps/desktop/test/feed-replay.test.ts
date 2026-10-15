@@ -374,6 +374,40 @@ describe("replay session", () => {
 });
 
 describe("native isolation", () => {
+  test("explicit UI scenarios render a paused queue and terminal without native processes or input", async () => {
+    const recording = fixture([event(1)]);
+    recording.uiScenario = {
+      terminalHeight: 280,
+      pausedFollowUps: [{ id: "queued", threadId: id, prompt: "录制画面中的排队消息",
+        status: "queued", priority: "normal", deliveryMode: "queued", createdAt: timestamp, updatedAt: timestamp }],
+    };
+    const session = new FeedReplaySession(recording);
+    const forbidden = () => { throw new Error("Native must not execute"); };
+    const api = createReplayApi({ spawnTerminal: forbidden, resizeTerminal: forbidden,
+      listTerminalSessions: forbidden, writeTerminalInput: forbidden, onTerminalEvent: forbidden }, session, () => {});
+    const call = (name: string, ...args: unknown[]) =>
+      (api[name] as (...input: unknown[]) => Promise<any>)(...args);
+    expect(session.thread.followUpQueuePaused).toBe(true);
+    expect((await call("listThreadFollowUps", id)).followUps).toEqual(recording.uiScenario.pausedFollowUps);
+    await expect(call("listThreadFollowUps", "other")).rejects.toThrow("another conversation");
+    const terminals = await call("listTerminalSessions", { workspacePath: "/test" });
+    expect(terminals).toHaveLength(1);
+    await call("resizeTerminal", { sessionId: terminals[0].sessionId, cols: 80, rows: 24 });
+    const output: unknown[] = [];
+    const unsubscribe = (api.onTerminalEvent as (listener: (event: unknown) => void) => () => void)((event) => output.push(event));
+    session.writeTerminalOutput("synthetic output\r\n");
+    expect(output).toEqual([{ type: "output", sessionId: terminals[0].sessionId, data: "synthetic output\r\n" }]);
+    unsubscribe();
+    session.writeTerminalOutput("unsubscribed\r\n");
+    expect(output).toHaveLength(1);
+    await expect(call("writeTerminalInput", { sessionId: terminals[0].sessionId, data: "command" }))
+      .rejects.toThrow("Native execution is blocked");
+    recording.uiScenario.pausedFollowUps![0]!.threadId = "other";
+    expect(() => validateReplayFixture(recording)).toThrow("paused follow-ups");
+    recording.uiScenario = { terminalHeight: 0 };
+    expect(() => validateReplayFixture(recording)).toThrow("terminal height");
+  });
+
   test("Send/Stop are local; core probes, generation, writes and unknown get APIs never reach native", async () => {
     let nativeInvocations = 0;
     const forbidden = () => {

@@ -5,7 +5,11 @@ import {
   type ConversationSyncEffect,
   stableHash,
 } from "@eco/shared";
-import type { ThreadRunProjectionRequestSpan, ThreadSummary } from "../../src/shared/ipc";
+import type {
+  ThreadPendingFollowUp,
+  ThreadRunProjectionRequestSpan,
+  ThreadSummary,
+} from "../../src/shared/ipc";
 
 export interface FeedReplayEvent extends ConversationSyncEffect {
   at: number;
@@ -24,6 +28,11 @@ export interface FeedReplayFixture {
   events: FeedReplayEvent[];
   detailItems: ConversationDetailItem[];
   coverage: string[];
+  /** Explicit reproduction conditions, not a reconstruction of historical UI state. */
+  uiScenario?: {
+    pausedFollowUps?: ThreadPendingFollowUp[];
+    terminalHeight?: number;
+  };
 }
 
 export function replayThreadStatus(status?: ConversationRunStatus): ThreadSummary["status"] {
@@ -72,6 +81,25 @@ export function validateReplayFixture(value: unknown): asserts value is FeedRepl
       stableHash(event.effect) !== event.effectHash
     ) {
       throw new Error(`Invalid or non-contiguous replay event at index ${index}.`);
+    }
+  }
+  const scenario = fixture.uiScenario;
+  if (scenario !== undefined) {
+    if (!scenario || typeof scenario !== "object" || Array.isArray(scenario))
+      throw new Error("Replay UI scenario must be an object.");
+    if (
+      scenario.terminalHeight !== undefined &&
+      (!Number.isFinite(scenario.terminalHeight) || scenario.terminalHeight < 120 || scenario.terminalHeight > 600)
+    ) {
+      throw new Error("Replay terminal height must be between 120 and 600.");
+    }
+    if (
+      scenario.pausedFollowUps !== undefined &&
+      (!Array.isArray(scenario.pausedFollowUps) || scenario.pausedFollowUps.some((item) =>
+        !item || item.threadId !== fixture.conversationId || item.status !== "queued" ||
+        !item.id || typeof item.prompt !== "string"))
+    ) {
+      throw new Error("Replay paused follow-ups must be queued messages in this conversation.");
     }
   }
 }
