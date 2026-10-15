@@ -1,4 +1,3 @@
-import { resolveUpstreamApiCompat } from "../shared/api-compat";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -56,6 +55,7 @@ import {
   withCodexNativeImageView,
   withCodexSkillConfig,
 } from "@eco/runtime";
+import { resolveUpstreamApiCompat } from "../shared/api-compat";
 import type { SkillsEnabledSettings } from "../shared/composer-skills-settings";
 import type { CodexModelCatalogEntryView } from "../shared/models";
 import type { ThreadRunEventInput } from "../shared/thread-run-events";
@@ -186,7 +186,7 @@ export interface CodexRuntimeRunDeps {
    * Bind a Codex user item id onto the latest local user-prompt run event.
    * Returns true when the local event was updated (caller should skip appending a duplicate).
    */
-  bindLatestUserPromptToCodexItem?: (threadId: string, itemId: string) => boolean;
+  bindLatestUserPromptToCodexItem?: (threadId: string, itemId: string, turnId?: string) => boolean;
   /** Local prune after a successful app-server `thread/fork` rewind. */
   pruneThreadAfterCodexFork?: (ecoThreadId: string, itemId: string) => void;
   /** @deprecated Use pruneThreadAfterCodexFork. */
@@ -377,7 +377,11 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
         projectionEvent.role === "user" &&
         projectionEvent.metadata?.itemType === "userMessage" &&
         itemId &&
-        config.bindLatestUserPromptToCodexItem?.(projectionEvent.threadId, itemId)
+        config.bindLatestUserPromptToCodexItem?.(
+          projectionEvent.threadId,
+          itemId,
+          typeof projectionEvent.metadata?.turnId === "string" ? projectionEvent.metadata.turnId : undefined,
+        )
       ) {
         // Projection-only: local user prompt already carries the Codex item id / rewindTarget.
         config.scheduleThreadRunProjectionUpdated(projectionEvent.threadId, { streaming: false });

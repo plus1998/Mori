@@ -256,6 +256,8 @@ import type { AppLocalePreference } from "../shared/locale";
 import type { NotificationSettingsSnapshot } from "../shared/notification-settings";
 import type { WebChatListSnapshot, WebChatListView } from "../shared/web-chat-list";
 
+import type { ThreadForkFromMessageRequest, ThreadForkFromMessageResult } from "../shared/ipc";
+
 type InvokePayload = Record<string, unknown> | undefined;
 
 function resolveWindowsBackdropVersion(): "win10" | "win11" | undefined {
@@ -1557,6 +1559,9 @@ const api = {
   },
   rewriteThreadFromMessage(request: ThreadRewriteFromMessageRequest): Promise<ThreadContinueResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadRewriteFromMessage, request);
+  },
+  forkThreadFromMessage(request: ThreadForkFromMessageRequest): Promise<ThreadForkFromMessageResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.threadForkFromMessage, request);
   },
   retryThreadFromMessage(request: ThreadRetryFromMessageRequest): Promise<ThreadContinueResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadRetryFromMessage, request);

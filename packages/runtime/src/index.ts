@@ -72,6 +72,8 @@ export interface CodexSessionOptions {
 
 /** Per-run PI skill / MCP visibility (Eco-selected; private agentDir/skills always included). */
 export interface PiSessionOptions {
+  /** Host identity of the dispatched prompt, bound to the exact persisted Pi user entry. */
+  promptActivityLineId?: string;
   /** Absolute skill directories or SKILL.md paths enabled for this thread. */
   skillPaths?: string[];
   /**
@@ -468,8 +470,8 @@ export {
   DEFAULT_AUTOCOMPACT_BUFFER,
   DEFAULT_CONTEXT_LIMIT,
   DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT,
-  DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
   DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT,
+  DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS,
   effectiveContextLimit,
   extractLimitsFromModelEntry,
   formatContextLimit,

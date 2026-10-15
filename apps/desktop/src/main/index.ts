@@ -1069,6 +1069,10 @@ import {
   writeApprovedPlanSnapshot,
 } from "./worktree-lifecycle";
 
+import { ConversationForkCommands } from "./conversation-fork-command";
+import { cleanupNativeConversationFork, forkNativeConversation } from "./conversation-native-fork";
+import type { ThreadForkFromMessageRequest } from "../shared/ipc";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 
@@ -1384,6 +1388,57 @@ let agentOrchestrationStore: AgentOrchestrationStore;
 let mcpStore: McpStore;
 let mcpHubGateway: McpHubGateway;
 let conversationStore: ConversationStore;
+let conversationForkCommands: ConversationForkCommands | undefined;
+
+function getConversationForkCommands(): ConversationForkCommands {
+  return (conversationForkCommands ??= new ConversationForkCommands({
+    store: conversationStore,
+    ensureThreadRuntimeConfig,
+    hasActiveRun: (threadId) => activeRunRuntimeState.hasRun(threadId),
+    prepareHistory: async (_thread, history) => {
+      for (const message of [...history.messages, history.target]) {
+        for (const attachment of parsePromptImageAttachments(message.attachments)) {
+          if (!attachment.contentRef || !(await promptImageFileStore.hasReadableContentRef(attachment)))
+            throw new Error("分叉历史中的图片原图不可用，请重新发送该图片。");
+        }
+      }
+    },
+    forkNative: async (thread, history, childThreadId, onCreated) => {
+      const binding = conversationStore.getThreadCoreSession(thread.id);
+      if (!binding || !["claude", "codex", "pi"].includes(binding.coreKind))
+        throw new Error("源会话缺少可恢复的原生绑定。");
+      return forkNativeConversation({
+        history,
+        childThreadId,
+        coreKind: binding.coreKind as "claude" | "codex" | "pi",
+        sessionId: binding.externalSessionId,
+        cwd: binding.cwd,
+        ...(typeof binding.metadata?.sessionFile === "string"
+          ? { sessionFile: binding.metadata.sessionFile }
+          : {}),
+        ecoDataDir: app.getPath("userData"),
+        recoveryTitle: `eco-fork:${childThreadId}`,
+        ...(resolveCodexExecutable() ? { codexExecutable: resolveCodexExecutable()! } : {}),
+        codexHome: resolveCodexHomeDir(app.getPath("userData")),
+        resolveClaudeUserId: (activityLineId) => resolveCurrentClaudeUserMessageId(thread.id, activityLineId),
+        onCreated,
+      });
+    },
+    cleanupNative: async (result) => {
+      if (result.coreKind === "codex") {
+        await (await ensureCodexControlPlaneClient()).request("thread/archive", {
+          threadId: result.externalSessionId,
+        });
+      } else await cleanupNativeConversationFork(result);
+    },
+    validateRecoveredNative: (result) => {
+      if (result.empty) return;
+      const file = result.coreKind === "codex" ? result.metadata?.rolloutPath : result.metadata?.sessionFile;
+      if (typeof file !== "string" || !existsSync(file))
+        throw new Error("原生分支历史文件缺失，无法恢复该分叉。");
+    },
+  }));
+}
 let executeThreadDeleteCommand: ReturnType<typeof createThreadDeleteCommandCoordinator>;
 let codexThreadMap: CodexThreadMap;
 let workflowSettingsStore: WorkflowSettingsStore;
@@ -3107,8 +3162,10 @@ app
           });
         }
       },
-      bindLatestUserPromptToCodexItem: (threadId, itemId) => {
-        return Boolean(conversationStore.bindLatestUserRunEventToSdkMessage(threadId, itemId));
+      bindLatestUserPromptToCodexItem: (threadId, itemId, turnId) => {
+        const bound = Boolean(conversationStore.bindLatestUserRunEventToSdkMessage(threadId, itemId));
+        if (bound && turnId) conversationStore.bindCodexForkTurn(threadId, itemId, turnId);
+        return bound;
       },
       resolveCodexForkTurnIndex: (threadId, itemId) =>
         conversationStore.resolveCodexUserTurnIndex(threadId, itemId),
@@ -5865,6 +5922,30 @@ function registerIpcHandlers(): void {
     return getThreadUserMessageEdit(threadId, activityLineId);
   });
 
+  registerDesktopCommand(IPC_CHANNELS.threadForkFromMessage, async (payload: unknown) => {
+    const request = parseConversationV2Request(
+      payload,
+      ["principalId", "clientCommandId", "threadId", "activityLineId", "expectedHistoryRevision"],
+      ["principalId", "clientCommandId", "threadId", "activityLineId"],
+    ) as Partial<ThreadForkFromMessageRequest>;
+    const input: ThreadForkFromMessageRequest = {
+      principalId: requiredConversationV2String(request.principalId, "principalId"),
+      clientCommandId: requiredConversationV2String(request.clientCommandId, "clientCommandId"),
+      threadId: requiredConversationV2String(request.threadId, "threadId"),
+      activityLineId: requiredConversationV2String(request.activityLineId, "activityLineId"),
+      expectedHistoryRevision: requiredConversationV2Integer(
+        request.expectedHistoryRevision,
+        "expectedHistoryRevision",
+      ),
+    };
+    requireConversationV2Thread(input.threadId);
+    const result = await getConversationForkCommands().execute(input);
+    emitThreadEvent(result.thread.id, "thread.created", "", "system", false, {
+      metadata: { sourceThreadId: result.sourceThreadId },
+    });
+    return result;
+  });
+
   registerDesktopCommand(IPC_CHANNELS.threadRewriteFromMessage, async (payload: unknown) => {
     if (!payload || typeof payload !== "object") {
       throw new Error("Invalid user message rewrite request.");
@@ -7470,8 +7551,12 @@ function registerIpcHandlers(): void {
     const computerUseSettings = computerUseSettingsStore.get();
     const computerUseFeature = computerUseGateway.isFeatureAvailableQuick();
     const ttsSettings = ttsStore.getSettings();
-    const ttsProfile = ttsSettings.profiles.find(profile => profile.id === ttsSettings.activeProfileId);
-    const ttsReason = !ttsProfile?.hasApiKey ? "当前语音生成 Profile 尚未配置 API Key。" : !ttsSettings.apiKeyEncryptionAvailable ? "系统加密不可用，无法读取语音生成 API Key。" : undefined;
+    const ttsProfile = ttsSettings.profiles.find((profile) => profile.id === ttsSettings.activeProfileId);
+    const ttsReason = !ttsProfile?.hasApiKey
+      ? "当前语音生成 Profile 尚未配置 API Key。"
+      : !ttsSettings.apiKeyEncryptionAvailable
+        ? "系统加密不可用，无法读取语音生成 API Key。"
+        : undefined;
     const imageSettings = imageGenerationStore.getSettings();
     const activeImageProfile = imageSettings.profiles.find(
       (profile) => profile.id === imageSettings.activeProfileId,
@@ -10990,7 +11075,21 @@ function piRuntimeOrchestrationDeps(): import("./pi-runtime-run").PiRuntimeOrche
         worktreePath: input.worktreePath,
         signal: input.signal,
         onUsageRecorded: onPiUsageRecordedEvent,
-        captureSession: async () => {},
+        captureSession: async (threadId, event) => {
+          if (
+            event.type === "file.checkpoint" &&
+            isRecord(event.payload) &&
+            event.payload.source === "pi" &&
+            typeof event.payload.activityLineId === "string" &&
+            typeof event.payload.userMessageId === "string"
+          ) {
+            conversationStore.bindPiPromptEntry(
+              threadId,
+              event.payload.activityLineId,
+              event.payload.userMessageId,
+            );
+          }
+        },
         emitActivity: emitSdkStreamActivity,
       }),
     applyRunDecision: async (input: {
@@ -14284,6 +14383,7 @@ function healOrphanedThreadBeforeContinuation(threadId: string): void {
 
 /** After a crash, SQLite may still say running while no runtime run is active. */
 function recoverOrphanedRunningThreads(logStartupStage?: (stage: string) => void): void {
+  getConversationForkCommands().recover();
   logStartupStage?.("recovery-gate.start");
   const threads = conversationStore.listThreads();
   const v2 = conversationStore.conversationV2();
@@ -15779,7 +15879,8 @@ async function cleanupThreadExternalState(threadId: string): Promise<void> {
       ...(env ? { env } : {}),
     });
   }
-  await promptImageFileStore.deleteThreadMessages(threadId);
+  if (!conversationStore.hasForkImageDependents(threadId))
+    await promptImageFileStore.deleteThreadMessages(threadId);
 }
 
 function isSdkSessionAlreadyMissing(error: unknown): boolean {

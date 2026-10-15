@@ -424,6 +424,16 @@ export async function startPiThreadRun(
             signal: controller.signal,
             ...(input.agentRegistry && mode === "agent" ? { agentRegistry: input.agentRegistry } : {}),
             piSession: {
+              ...(() => {
+                const dispatched = deps.conversationStore
+                  .listConversationRuntimeSources(input.thread.id, { historyOrder: true })
+                  .filter(
+                    (source) => source.role === "user" && source.metadata?.liveType === "thread.user_prompt",
+                  )
+                  .at(-1);
+                const target = dispatched?.metadata?.rewindTarget as { activityLineId?: string } | undefined;
+                return target?.activityLineId ? { promptActivityLineId: target.activityLineId } : {};
+              })(),
               skillPaths: input.skillPaths ?? [],
               sessionMode: mode,
               ...(input.mcpServers && Object.keys(input.mcpServers).length > 0 && mode === "agent"

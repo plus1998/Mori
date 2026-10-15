@@ -13093,6 +13093,10 @@ button.default-agent-option:focus-visible {
   opacity: 0.45;
 }
 
+.run-log-fork-button:disabled {
+  cursor: not-allowed;
+}
+
 .run-log-message-meta-time {
   color: currentColor;
   font-variant-numeric: tabular-nums;

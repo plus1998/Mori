@@ -183,7 +183,7 @@ export interface PiSessionHandle {
   skillsFingerprint: string;
   /** Fingerprint of Eco-selected MCP servers for this session. */
   mcpFingerprint: string;
-  prompt: (text: string, signal?: AbortSignal) => AsyncIterable<AgentEvent>;
+  prompt: (text: string, signal?: AbortSignal, promptActivityLineId?: string) => AsyncIterable<AgentEvent>;
   abort: () => Promise<void>;
   dispose: () => void | Promise<void>;
   /** Whether the underlying AgentSession is inside an active run (mid-turn steer window). */
@@ -798,7 +798,7 @@ export class PiCodingAgentDriver implements AgentRuntimeDriver {
     }
     input.signal.addEventListener("abort", onAbort, { once: true });
     try {
-      yield* activeSession.prompt(input.prompt, input.signal);
+      yield* activeSession.prompt(input.prompt, input.signal, input.piSession?.promptActivityLineId);
     } finally {
       input.signal.removeEventListener("abort", onAbort);
     }
@@ -995,11 +995,9 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
 
   let sessionManager;
   const resumePath = input.sessionFile?.trim();
-  if (
-    resumePath &&
-    !input.replacePersistedSessions &&
-    (await isUsablePiSessionFile(resumePath, sessionsDir))
-  ) {
+  if (resumePath && !input.replacePersistedSessions) {
+    if (!(await isUsablePiSessionFile(resumePath, sessionsDir)))
+      throw new Error("PI 无法恢复指定的会话文件：文件缺失或不在当前会话目录内。");
     sessionManager = SessionManager.open(resumePath, sessionsDir, input.cwd);
   } else {
     sessionManager = SessionManager.create(input.cwd, sessionsDir, {
@@ -1132,9 +1130,14 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
       // AgentSession.reload re-reads ResourceLoader and rebuilds the system prompt.
       await (session as { reload: (options?: Record<string, never>) => Promise<void> }).reload();
     },
-    async *prompt(text: string, signal?: AbortSignal): AsyncIterable<AgentEvent> {
+    async *prompt(
+      text: string,
+      signal?: AbortSignal,
+      promptActivityLineId?: string,
+    ): AsyncIterable<AgentEvent> {
       let sawSettled = false;
       let assistantError: string | undefined;
+      let promptBound = false;
 
       const mapCtx = {
         threadId: input.threadId,
@@ -1154,6 +1157,34 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
           signal,
           subscribe: (push) => {
             const unsubscribe = session.subscribe((event) => {
+              if (
+                !promptBound &&
+                promptActivityLineId &&
+                event.type === "message_end" &&
+                event.message.role === "user"
+              ) {
+                promptBound = true;
+                const message = event.message;
+                // Pi emits message_end before persisting it. The microtask runs after the
+                // synchronous append; object identity ties this receipt to that exact entry.
+                queueMicrotask(() => {
+                  const entry = sessionManager
+                    .getEntries()
+                    .find((entry) => entry.type === "message" && entry.message === message);
+                  push([
+                    createAgentEvent({
+                      id: `${input.threadId}:pi:prompt-entry:${entry?.id ?? "missing"}`,
+                      threadId: input.threadId,
+                      agentId: eventAgentId,
+                      role: eventRole,
+                      type: entry ? "file.checkpoint" : "thread.failed",
+                      payload: entry
+                        ? { source: "pi", activityLineId: promptActivityLineId, userMessageId: entry.id }
+                        : { message: "Pi 用户消息已发送，但原生节点身份未持久化。" },
+                    }),
+                  ]);
+                });
+              }
               const mapped = mapPiSessionEventToAgentEvents(event as PiSessionEventLike, mapCtx);
               if (mapped.length > 0) push(mapped);
               if ((event as { type?: string }).type === "agent_settled") sawSettled = true;

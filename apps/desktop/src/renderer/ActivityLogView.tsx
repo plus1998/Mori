@@ -37,6 +37,7 @@ import {
   ExternalLink,
   FileText,
   Gauge,
+  GitFork,
   Globe2,
   Image as ImageIcon,
   Images,
@@ -215,6 +216,11 @@ import { resolveToolWritingIndicator, resolveToolWritingLabel } from "./tool-wri
 import { UserPromptBodyContent } from "./UserPromptBodyContent";
 import { WorkspaceChangesCard } from "./WorkspaceChangesCard";
 
+type ForkMessageHandler = (input: {
+  activityLineId: string;
+  expectedHistoryRevision: number;
+}) => Promise<void>;
+
 type RestorePromptHandler = (prompt: string, rewindTarget?: ThreadActivityRewindTarget) => void;
 type LoadUserMessageEditHandler = (activityLineId: string) => Promise<ThreadUserMessageEditGetResult>;
 type RetryFailedRequestHandler = (target: RequestFailureRetryTarget) => void | Promise<void>;
@@ -339,6 +345,49 @@ function scrollBashOutputFromCommand(event: WheelEvent<HTMLDivElement>): void {
   event.stopPropagation();
 }
 
+type MessageForkAction = {
+  activityLineId: string;
+  expectedHistoryRevision: number;
+  onFork: ForkMessageHandler;
+  disabledReason?: string;
+};
+
+function MessageForkButton({
+  activityLineId,
+  expectedHistoryRevision,
+  onFork,
+  disabledReason,
+}: MessageForkAction) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+  return (
+    <>
+      <button
+        type="button"
+        className="run-log-message-meta-button run-log-fork-button"
+        disabled={saving || Boolean(disabledReason)}
+        aria-label={i18n.t("activity.fork")}
+        title={disabledReason ?? i18n.t("activity.forkTitle")}
+        onClick={() => {
+          if (saving || disabledReason) return;
+          setSaving(true);
+          setError(undefined);
+          void onFork({ activityLineId, expectedHistoryRevision })
+            .catch((failure) => setError(failure instanceof Error ? failure.message : String(failure)))
+            .finally(() => setSaving(false));
+        }}
+      >
+        {saving ? <LoaderCircle size={13} className="spin" /> : <GitFork size={13} />}
+      </button>
+      {error ? (
+        <span role="alert" className="run-log-user-prompt-edit-error">
+          {error}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 function RunLogMessageMeta({
   createdAt,
   copyText,
@@ -347,6 +396,7 @@ function RunLogMessageMeta({
   align = "start",
   sticky = false,
   trailing,
+  forkAction,
 }: {
   createdAt?: string;
   copyText?: string;
@@ -363,10 +413,11 @@ function RunLogMessageMeta({
   sticky?: boolean;
   /** Extra content after the timestamp (e.g. token speed). */
   trailing?: ReactNode;
+  forkAction?: MessageForkAction;
 }) {
   const time = formatRunLogMessageTime(createdAt);
   const canCopy = Boolean(copyText?.trim());
-  if (!time && !canCopy && !restorePrompt && !editUserMessage && !trailing) {
+  if (!time && !canCopy && !restorePrompt && !editUserMessage && !trailing && !forkAction) {
     return null;
   }
 
@@ -418,6 +469,7 @@ function RunLogMessageMeta({
           <Copy size={13} />
         </button>
       ) : null}
+      {forkAction ? <MessageForkButton {...forkAction} /> : null}
       {time ? (
         <time className="run-log-message-meta-time" dateTime={time.dateTime} title={time.title}>
           {time.label}
@@ -427,7 +479,6 @@ function RunLogMessageMeta({
     </div>
   );
 }
-
 function shouldOmitSubagentIdentity(block: ActivityDetailBlock, hideSubagentIdentity?: boolean): boolean {
   if (!hideSubagentIdentity) {
     return false;
@@ -597,6 +648,7 @@ export interface ActivityLogViewProps {
   onRestorePrompt?: RestorePromptHandler;
   onLoadUserMessageEdit?: LoadUserMessageEditHandler;
   onRewriteUserMessage?: RewriteUserMessageHandler;
+  onForkMessage?: ForkMessageHandler;
   onRetryFailedRequest?: RetryFailedRequestHandler;
   modelByRole?: Record<string, string>;
   usageByRole?: Record<string, ThreadUsageSnapshot>;
@@ -703,6 +755,7 @@ function conversationV2MessageToTimelineItem(
       // present.
       logicalEntityId: message.messageId,
       ...(message.role === "user" && { liveType: "thread.user_prompt" }),
+      ...(message.role === "user" && message.historyTarget ? { rewindTarget: message.historyTarget } : {}),
       ...(message.role === "user" && message.attachments?.length
         ? { promptImagePreviews: message.attachments }
         : {}),
@@ -1822,6 +1875,8 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
         </div>
       );
     }
+    if (props.thread?.status === "idle" && !props.thread.prompt)
+      return <div className="run-log run-log-empty" />;
     return <ProjectionFeedLoading />;
   }
   return (
@@ -1839,6 +1894,7 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
       {...(props.onRewriteUserMessage && {
         onRewriteUserMessage: props.onRewriteUserMessage,
       })}
+      {...(props.onForkMessage && { onForkMessage: props.onForkMessage })}
       {...(props.onRetryFailedRequest && {
         onRetryFailedRequest: props.onRetryFailedRequest,
       })}
@@ -1888,6 +1944,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
   onRestorePrompt,
   onLoadUserMessageEdit,
   onRewriteUserMessage,
+  onForkMessage,
   onRetryFailedRequest,
   onPlannerLayoutChange,
   onComposerAgentSilenceChange,
@@ -1916,6 +1973,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
   onRestorePrompt?: RestorePromptHandler;
   onLoadUserMessageEdit?: LoadUserMessageEditHandler;
   onRewriteUserMessage?: RewriteUserMessageHandler;
+  onForkMessage?: ForkMessageHandler;
   onRetryFailedRequest?: RetryFailedRequestHandler;
   onPlannerLayoutChange?: ActivityFeedLayoutChange;
   onComposerAgentSilenceChange?: (silent: boolean) => void;
@@ -1969,6 +2027,11 @@ function ConversationV2ProjectionActivityLogViewImpl({
     [projection.timeline, projection.thread.status, thread?.coreKind, thread?.status],
   );
   const allowUserMessageRewrite = supportsHistoryRewrite(thread?.coreKind);
+  const forkStatus = thread?.status ?? projection.thread.status;
+  const forkDisabledReason =
+    forkStatus === "running" || forkStatus === "queued" || thread?.cancelling
+      ? i18n.t("activity.forkWait", { defaultValue: "等待当前执行结束，或停止后再分叉" })
+      : undefined;
   const conversationActive = !isThreadStoppedForFinalSummary(projection.thread.status);
   const pendingThinking = projection.requestSpans.some(
     (span) => !span.ownerAgentId && isPendingThinkingWithoutContent(span, projection.timeline),
@@ -2206,6 +2269,8 @@ function ConversationV2ProjectionActivityLogViewImpl({
     ...(onRestorePrompt && allowUserMessageRewrite && { onRestorePrompt }),
     ...(onLoadUserMessageEdit && allowUserMessageRewrite && { onLoadUserMessageEdit }),
     ...(onRewriteUserMessage && allowUserMessageRewrite && { onRewriteUserMessage }),
+    ...(onForkMessage && { onForkMessage }),
+    ...(forkDisabledReason && { forkDisabledReason }),
     ...(onRetryFailedRequest && { onRetryFailedRequest }),
     retryTargets,
     allowUserMessageRewrite,
@@ -2262,6 +2327,8 @@ function ConversationV2ProjectionActivityLogViewImpl({
                     {...(onRestorePrompt && { onRestorePrompt })}
                     {...(onLoadUserMessageEdit && { onLoadUserMessageEdit })}
                     {...(onRewriteUserMessage && { onRewriteUserMessage })}
+                    {...(onForkMessage && { onForkMessage })}
+                    {...(forkDisabledReason && { forkDisabledReason })}
                     allowUserMessageRewrite={allowUserMessageRewrite}
                     historyRevision={projection.historyRevision ?? 0}
                   />,
@@ -2317,6 +2384,8 @@ type ProjectionFeedEntrySharedProps = {
   onRestorePrompt?: RestorePromptHandler;
   onLoadUserMessageEdit?: LoadUserMessageEditHandler;
   onRewriteUserMessage?: RewriteUserMessageHandler;
+  onForkMessage?: ForkMessageHandler;
+  forkDisabledReason?: string;
   onRetryFailedRequest?: RetryFailedRequestHandler;
   retryTargets?: Map<string, RequestFailureRetryTarget>;
   allowUserMessageRewrite?: boolean;
@@ -2726,6 +2795,8 @@ function ProjectionMainFeedEntry({
   onRestorePrompt,
   onLoadUserMessageEdit,
   onRewriteUserMessage,
+  onForkMessage,
+  forkDisabledReason,
   onRetryFailedRequest,
   retryTargets,
   allowUserMessageRewrite,
@@ -2750,6 +2821,8 @@ function ProjectionMainFeedEntry({
   onRestorePrompt?: RestorePromptHandler;
   onLoadUserMessageEdit?: LoadUserMessageEditHandler;
   onRewriteUserMessage?: RewriteUserMessageHandler;
+  onForkMessage?: ForkMessageHandler;
+  forkDisabledReason?: string;
   onRetryFailedRequest?: RetryFailedRequestHandler;
   retryTargets?: Map<string, RequestFailureRetryTarget>;
   allowUserMessageRewrite?: boolean;
@@ -2779,6 +2852,8 @@ function ProjectionMainFeedEntry({
         {...(onRestorePrompt && { onRestorePrompt })}
         {...(onLoadUserMessageEdit && { onLoadUserMessageEdit })}
         {...(onRewriteUserMessage && { onRewriteUserMessage })}
+        {...(onForkMessage && { onForkMessage })}
+        {...(forkDisabledReason && { forkDisabledReason })}
         {...(onRetryFailedRequest && { onRetryFailedRequest })}
         {...(retryTargets && { retryTargets })}
         allowUserMessageRewrite={Boolean(allowUserMessageRewrite)}
@@ -4644,6 +4719,8 @@ function ProjectionTimelineEntry({
   onRestorePrompt,
   onLoadUserMessageEdit,
   onRewriteUserMessage,
+  onForkMessage,
+  forkDisabledReason,
   onRetryFailedRequest,
   retryTargets,
   allowUserMessageRewrite = false,
@@ -4666,6 +4743,8 @@ function ProjectionTimelineEntry({
   onRestorePrompt?: RestorePromptHandler;
   onLoadUserMessageEdit?: LoadUserMessageEditHandler;
   onRewriteUserMessage?: RewriteUserMessageHandler;
+  onForkMessage?: ForkMessageHandler;
+  forkDisabledReason?: string;
   onRetryFailedRequest?: RetryFailedRequestHandler;
   retryTargets?: Map<string, RequestFailureRetryTarget>;
   allowUserMessageRewrite?: boolean;
@@ -4706,6 +4785,8 @@ function ProjectionTimelineEntry({
         {...(onRestorePrompt && { onRestorePrompt })}
         {...(onLoadUserMessageEdit && { onLoadUserMessageEdit })}
         {...(onRewriteUserMessage && { onRewriteUserMessage })}
+        {...(onForkMessage && { onForkMessage })}
+        {...(forkDisabledReason && { forkDisabledReason })}
         allowUserMessageRewrite={allowUserMessageRewrite}
         historyRevision={historyRevision ?? 0}
       />,
@@ -4750,6 +4831,9 @@ function ProjectionTimelineEntry({
         compact={compact}
         {...(requestSpan && { requestSpan })}
         item={item}
+        {...(onForkMessage && {onForkMessage})}
+        {...(forkDisabledReason && {forkDisabledReason})}
+        historyRevision={historyRevision ?? 0}
       />,
       { compact },
     );
@@ -6022,6 +6106,8 @@ function UserPromptBlock({
   historyRevision = 0,
   onLoadUserMessageEdit,
   onRewriteUserMessage,
+  onForkMessage,
+  forkDisabledReason,
   allowUserMessageRewrite = false,
 }: {
   text: string;
@@ -6035,6 +6121,8 @@ function UserPromptBlock({
   historyRevision?: number;
   onLoadUserMessageEdit?: LoadUserMessageEditHandler;
   onRewriteUserMessage?: RewriteUserMessageHandler;
+  onForkMessage?: ForkMessageHandler;
+  forkDisabledReason?: string;
   allowUserMessageRewrite?: boolean;
 }) {
   const asyncQuestionReplies = useMemo(() => parseCodexAsyncQuestionReplyText(text), [text]);
@@ -6487,6 +6575,7 @@ function UserPromptBlock({
           延迟挂载 meta 的策略只针对 agent 侧流式输出（turn final summary）。 */}
       <RunLogMessageMeta
         align="end"
+        sticky={Boolean(onForkMessage && rewindTarget && !editing)}
         copyText={copyText}
         {...(createdAt ? { createdAt } : {})}
         {...(allowUserMessageRewrite &&
@@ -6500,7 +6589,16 @@ function UserPromptBlock({
             },
           })}
         {...(!editing && canEdit && { editUserMessage: { onEdit: beginEdit } })}
+        {...(onForkMessage && rewindTarget && !editing ? {
+          forkAction: {
+            activityLineId: rewindTarget.activityLineId,
+            expectedHistoryRevision: historyRevision,
+            onFork: onForkMessage,
+            ...(forkDisabledReason ? {disabledReason: forkDisabledReason} : {}),
+          },
+        } : {})}
       />
+
       {lightboxImage ? (
         <ImageLightbox
           src={lightboxImage.src}
@@ -7927,6 +8025,9 @@ function RunLogNarrative({
   omitSubagentBadge,
   requestSpan,
   item,
+  onForkMessage,
+  forkDisabledReason,
+  historyRevision = 0,
 }: {
   text: string;
   createdAt?: string;
@@ -7941,13 +8042,26 @@ function RunLogNarrative({
   omitSubagentBadge?: boolean;
   requestSpan?: ThreadRunProjectionRequestSpan;
   item?: ThreadRunProjectionTimelineItem;
+  onForkMessage?: ForkMessageHandler;
+  forkDisabledReason?: string;
+  historyRevision?: number;
 }) {
   const usage = subagent ? usageByRole?.[subagent] : undefined;
   const hasBody = text.trim().length > 0;
   const showSubagentBadge = subagent && !omitSubagentBadge;
   const showBody = hasBody || !streaming;
   const showFinalMessageMeta = showMessageMeta && hasBody && !streaming;
-  const showStickyMessageMeta = showFinalMessageMeta && stickyMessageMeta;
+  const messageId = item?.metadata?.conversationV2MessageId;
+  const forkAction: MessageForkAction | undefined =
+    onForkMessage && typeof messageId === "string" && item?.scope !== "agent"
+      ? {
+          activityLineId: messageId,
+          expectedHistoryRevision: historyRevision,
+          onFork: onForkMessage,
+          ...(forkDisabledReason ? { disabledReason: forkDisabledReason } : {}),
+        }
+      : undefined;
+  const showStickyMessageMeta = showFinalMessageMeta && (stickyMessageMeta || Boolean(forkAction));
   const waitingEmpty = Boolean(streaming) && !hasBody;
   const clarificationRows = !streaming ? parseClarificationAnswersSummary(text) : null;
   const worktreeMergeSummary = !streaming ? parseWorktreeMergeMessage(text) : null;
@@ -8000,6 +8114,7 @@ function RunLogNarrative({
         <RunLogMessageMeta
           align="start"
           copyText={text}
+          {...(forkAction && { forkAction })}
           sticky={showStickyMessageMeta}
           {...(createdAt && { createdAt })}
           {...(item

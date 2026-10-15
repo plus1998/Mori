@@ -105,6 +105,13 @@ export const REMOTE_COMMAND_DEFINITIONS = [
       "expectedHistoryRevision",
     ]),
   ]),
+  command(
+    "thread:fork-from-message",
+    "Fork an independent conversation from a user message",
+    "execute",
+    RPC_INVOKE,
+    [objectArg(["principalId", "clientCommandId", "threadId", "activityLineId", "expectedHistoryRevision"])],
+  ),
   command("thread:cancel", "Cancel thread", "execute", RPC_INVOKE, [
     objectArg(["principalId", "clientCommandId", "threadId", "expectedHistoryRevision"]),
   ]),

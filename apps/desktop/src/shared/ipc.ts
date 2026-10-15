@@ -154,6 +154,7 @@ export const IPC_CHANNELS = {
   conversationSendMessage: "conversation:send-message",
   threadUserMessageEditGet: "thread:user-message-edit-get",
   threadRewriteFromMessage: "thread:rewrite-from-message",
+  threadForkFromMessage: "thread:fork-from-message",
   threadRetryFromMessage: "thread:retry-from-message",
   threadDelete: "thread:delete",
   threadRegenerateTitle: "thread:regenerate-title",
@@ -1895,6 +1896,20 @@ export interface ThreadRewriteFromMessageRequest {
   attachments?: PromptImageAttachment[];
   expectedHistoryRevision: number;
   runtimeConfig?: ThreadRuntimeConfigInput;
+}
+
+export interface ThreadForkFromMessageRequest {
+  principalId: string;
+  clientCommandId: string;
+  threadId: string;
+  activityLineId: string;
+  expectedHistoryRevision: number;
+}
+
+export interface ThreadForkFromMessageResult {
+  thread: ThreadSummary;
+  sourceThreadId: string;
+  draft: { prompt: string; attachments: PromptImageAttachment[] };
 }
 
 export interface ThreadRetryFromMessageRequest {

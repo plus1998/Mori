@@ -7671,6 +7671,29 @@ function App() {
 
   const activityLoadUserMessageEdit = useStableCallback(loadUserMessageEdit);
   const activityRewriteUserMessage = useStableCallback(rewriteUserMessage);
+  const activityForkMessage = useStableCallback(
+    async (input: { activityLineId: string; expectedHistoryRevision: number }) => {
+      if (!activeThread || !window.eco) throw new Error("当前会话不可用。");
+      const result = await window.eco.forkThreadFromMessage({
+        principalId: "desktop-local",
+        clientCommandId: `history_fork_${crypto.randomUUID()}`,
+        threadId: activeThread.id,
+        ...input,
+      });
+      persistComposerDraftSnapshot(composerDraftsByKeyRef.current, `thread:${result.thread.id}`, {
+        prompt: result.draft.prompt,
+        attachments: fromPromptImageAttachments(result.draft.attachments),
+      });
+      setThreads((current) =>
+        current.some((thread) => thread.id === result.thread.id)
+          ? current.map((thread) => (thread.id === result.thread.id ? result.thread : thread))
+          : [result.thread, ...current],
+      );
+      selectThread(result.thread);
+      queueConversationV2Recovery(result.thread.id);
+      await refreshThreadState(result.thread.id);
+    },
+  );
   const activityRetryFailedRequest = useStableCallback(retryFailedRequest);
 
   async function sendConversationV2Continuation(input: {
@@ -12184,6 +12207,10 @@ function App() {
                                       onRestorePrompt={restorePrompt}
                                       onLoadUserMessageEdit={activityLoadUserMessageEdit}
                                       onRewriteUserMessage={activityRewriteUserMessage}
+                                      {...(activeThread &&
+                                      activeThread.coreKind !== "acp"
+                                        ? { onForkMessage: activityForkMessage }
+                                        : {})}
                                       onRetryFailedRequest={activityRetryFailedRequest}
                                       onPlannerLayoutChange={handleActivityPlannerLayoutChange}
                                       onComposerAgentSilenceChange={setComposerAgentSilenceVisible}

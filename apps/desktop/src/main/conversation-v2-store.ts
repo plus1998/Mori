@@ -53,6 +53,8 @@ import {
 import { conversationV2EventHash } from "./conversation-v2-event-integrity";
 import { logEcoDiag } from "./eco-diag-log";
 import { collectPromptImageContentRefs, isPromptImageContentRef } from "./prompt-image-file-store";
+import type { ThreadRunEvent } from "../shared/thread-run-events";
+import type { ConversationForkHistory } from "./conversation-fork-history";
 
 const META_KEY = "conversation_v2_store_epoch";
 const STORAGE_MODE_KEY = "conversation_v2_storage_mode";
@@ -264,6 +266,10 @@ export type ConversationCommandJobStatus = "accepted" | "running" | "completed" 
 
 export type ConversationCommandCheckpointName =
   | "execution.claimed"
+  | "fork.prepared"
+  | "fork.requested"
+  | "fork.created"
+  | "fork.committed"
   | "history.sdk_fork_requested"
   | "history.sdk_fork_created"
   | "history.sdk_fork_skipped"
@@ -2455,6 +2461,11 @@ export class ConversationV2Store {
         "Plan checkpoints are only valid for plan.resolve commands.",
       );
     }
+    if (name.startsWith("fork.") && current.commandType !== "history.branch")
+      throw new ConversationV2Error(
+        CONVERSATION_V2_ERROR.idempotencyConflict,
+        "Fork checkpoints are only valid for history.branch commands.",
+      );
     const existing = current.checkpoints.find((checkpoint) => checkpoint.name === name);
     if (existing) {
       if (stableHash(existing.payload) !== stableHash(payload)) {
@@ -3146,6 +3157,164 @@ export class ConversationV2Store {
         )
         .all(id) as unknown as MessageRow[];
       return rows.map(rowToMessage);
+    });
+  }
+
+  /** Freeze visible current history at the provider-delivery boundary, not queue acceptance. */
+  snapshotForkHistory(
+    conversationId: string,
+    activityLineId: string,
+    sources: readonly ThreadRunEvent[],
+  ): ConversationForkHistory {
+    return this.readTransaction(() => {
+      const target = this.db
+        .prepare(
+          `SELECT * FROM conversation_messages_v2 WHERE conversation_id = ? AND role IN ('user', 'assistant') AND is_deleted = 0 AND (message_id = ? OR history_activity_line_id = ?)`,
+        )
+        .get(conversationId, activityLineId, activityLineId) as MessageRow | undefined;
+      const targetMessage = target ? rowToMessage(target) : undefined;
+      if (!targetMessage || targetMessage.status !== "final")
+        throw new Error("所选消息尚未发送或已被移除，无法分叉。");
+      const targetSource = sources.find(
+        (source) =>
+          source.metadata?.conversationV2MessageId === targetMessage.messageId ||
+          (source.metadata?.rewindTarget as { activityLineId?: string } | undefined)?.activityLineId ===
+            activityLineId,
+      );
+      if (!targetSource) throw new Error("所选消息缺少持久化的发送边界，无法分叉。");
+      const afterAssistant = targetMessage.role === "assistant";
+      if (
+        afterAssistant &&
+        (targetMessage.channel !== "answer" || targetSource.scope === "agent" || !targetMessage.runId)
+      )
+        throw new Error("请从主 Agent 的已完成回复分叉。");
+      const allMessages = (
+        this.db
+          .prepare(
+            `SELECT * FROM conversation_messages_v2 WHERE conversation_id = ? AND is_deleted = 0 ORDER BY created_seq ASC`,
+          )
+          .all(conversationId) as unknown as MessageRow[]
+      ).map(rowToMessage);
+      const boundarySource = afterAssistant
+        ? sources.filter((source) => source.role === "user" && source.sequence < targetSource.sequence).at(-1)
+        : targetSource;
+      const boundaryUser = afterAssistant
+        ? allMessages.find(
+            (message) =>
+              message.role === "user" &&
+              message.messageId === boundarySource?.metadata?.conversationV2MessageId,
+          )
+        : undefined;
+      if (afterAssistant && !boundaryUser) throw new Error("Agent 回复缺少对应的用户轮次身份，无法分叉。");
+      if (
+        afterAssistant &&
+        allMessages.some(
+          (message) =>
+            message.role === "assistant" &&
+            message.channel === "answer" &&
+            !message.agentInstanceId &&
+            message.runId === targetMessage.runId &&
+            message.createdSeq > targetMessage.createdSeq,
+        )
+      )
+        throw new Error("请从该轮最后一条 Agent 回复分叉，避免截断工具执行。");
+      const cutoff = afterAssistant
+        ? (sources.find((source) => source.role === "user" && source.sequence > targetSource.sequence)
+            ?.sequence ?? Number.POSITIVE_INFINITY)
+        : targetSource.sequence;
+      const keptSources = sources.filter((source) => source.sequence < cutoff);
+      const messageIds = new Set(
+        keptSources.flatMap((source) =>
+          typeof source.metadata?.conversationV2MessageId === "string"
+            ? [source.metadata.conversationV2MessageId]
+            : [],
+        ),
+      );
+      const runIds = new Set(
+        keptSources.flatMap((source) =>
+          source.role !== "user" && source.runAttemptId ? [source.runAttemptId] : [],
+        ),
+      );
+      // A continuation's user receipt can still carry the previous (completed) run id.
+      // Only actual provider work crossing the boundary proves a mid-run selection.
+      if (
+        sources.some(
+          (source) =>
+            source.sequence >= cutoff &&
+            source.role !== "user" &&
+            source.runAttemptId &&
+            runIds.has(source.runAttemptId),
+        )
+      )
+        throw new Error("该消息在同一执行轮中追加，无法在完整轮次边界之前分叉。");
+      const messages = allMessages.filter((message) => messageIds.has(message.messageId));
+      const activeMessageIds = new Set(messages.map((message) => message.messageId));
+      const runs = (
+        this.db
+          .prepare(`SELECT * FROM conversation_runs_v2 WHERE conversation_id = ? ORDER BY version_seq ASC`)
+          .all(conversationId) as unknown as RunRow[]
+      )
+        .map(rowToRun)
+        .filter((run) => runIds.has(run.runId));
+      const runPayloads: Record<string, Record<string, unknown>> = {};
+      for (const row of this.db
+        .prepare(
+          `SELECT run_id, payload_json FROM conversation_events_v2 WHERE conversation_id = ? AND type LIKE 'run.%' AND json_extract(payload_json, '$.authority') = 'lifecycle' ORDER BY seq ASC`,
+        )
+        .all(conversationId) as Array<{ run_id: string; payload_json: string }>) {
+        if (runIds.has(row.run_id)) runPayloads[row.run_id] = JSON.parse(row.payload_json);
+      }
+      const tools = (
+        this.db
+          .prepare(
+            `SELECT * FROM conversation_tool_calls_v2 WHERE conversation_id = ? ORDER BY created_seq ASC`,
+          )
+          .all(conversationId) as unknown as ToolRow[]
+      )
+        .map(rowToTool)
+        .filter((tool) => runIds.has(tool.runId));
+      const details = (
+        this.db
+          .prepare(
+            `SELECT * FROM conversation_detail_items_v2 WHERE conversation_id = ? ORDER BY created_seq ASC`,
+          )
+          .all(conversationId) as unknown as DetailRow[]
+      )
+        .map(rowToDetail)
+        .filter((detail) => runIds.has(detail.runId));
+      const agents = this.agentsOf(conversationId).filter((agent) => agent.runId && runIds.has(agent.runId));
+      const codexTurnIds: Record<string, string> = {};
+      for (const source of sources)
+        if (
+          typeof source.metadata?.conversationV2MessageId === "string" &&
+          typeof source.metadata?.codexForkTurnId === "string"
+        )
+          codexTurnIds[source.metadata.conversationV2MessageId] = source.metadata.codexForkTurnId;
+      if (
+        messages.some((message) => message.status === "streaming" || message.status === "queued") ||
+        runs.some((run) => !TERMINAL_RUN_STATUSES.has(run.status)) ||
+        tools.some((tool) => !TERMINAL_TOOL_STATUSES.has(tool.status)) ||
+        agents.some((agent) => !AGENT_TERMINAL_STATUSES.has(agent.status))
+      )
+        throw new Error("分叉节点之前仍有未结束的消息或工具执行。");
+      return {
+        sourceThreadId: conversationId,
+        sourceHeadSeq: this.head(conversationId).lastSeq,
+        target: targetMessage,
+        ...(boundaryUser ? { boundaryUser } : {}),
+        messages,
+        runs,
+        runPayloads,
+        tools,
+        details,
+        agents,
+        sources: keptSources.filter(
+          (source) =>
+            typeof source.metadata?.conversationV2MessageId !== "string" ||
+            activeMessageIds.has(source.metadata.conversationV2MessageId),
+        ),
+        codexTurnIds,
+      };
     });
   }
 
@@ -5680,6 +5849,10 @@ export class ConversationV2Store {
     ) {
       throw integrity("A non-plan command contains plan checkpoints.");
     }
+    if (checkpoints.some((checkpoint) => checkpoint.name.startsWith("fork.")) && commandType !== "history.branch")
+      throw integrity("A non-branch command contains fork checkpoints.");
+    if (status === "completed" && commandType === "history.branch" && checkpoints.at(-1)?.name !== "fork.committed")
+      throw integrity("A completed branch command is missing its child commit.");
     if (
       checkpoints[1]?.name === "history.runtime_dispatch_prepared" &&
       !(commandType === "history.retry" && request.rewind === false)
@@ -7271,6 +7444,10 @@ function storedCommandJobStatus(value: unknown): ConversationCommandJobStatus {
 
 function requireCommandCheckpointName(value: unknown): ConversationCommandCheckpointName {
   if (
+    value !== "fork.prepared" &&
+    value !== "fork.requested" &&
+    value !== "fork.created" &&
+    value !== "fork.committed" &&
     value !== "execution.claimed" &&
     value !== "history.sdk_fork_requested" &&
     value !== "history.sdk_fork_created" &&
@@ -7311,34 +7488,41 @@ function assertNextCommandCheckpoint(
     previous === undefined
       ? next === "execution.claimed"
       : previous === "execution.claimed"
-        ? next === "history.sdk_fork_requested" ||
+        ? next === "fork.prepared" ||
+          next === "history.sdk_fork_requested" ||
           next === "history.sdk_fork_skipped" ||
           next === "history.runtime_dispatch_prepared" ||
           next === "plan.context_frozen"
-        : previous === "history.sdk_fork_requested"
-          ? next === "history.sdk_fork_created"
-          : previous === "history.sdk_fork_created" || previous === "history.sdk_fork_skipped"
-            ? next === "history.local_rewrite_committed"
-            : previous === "history.local_rewrite_committed"
-              ? next === "history.runtime_dispatch_prepared"
-              : previous === "history.runtime_dispatch_prepared"
-                ? next === "history.runtime_dispatched"
-                : previous === "plan.context_frozen" ||
-                    previous === "plan.snapshot_persisted" ||
-                    previous === "plan.session_mode_committed" ||
-                    previous === "plan.bridge_resolved" ||
-                    previous === "plan.bridge_continuation_resumed" ||
-                    previous === "plan.runtime_dispatch_prepared" ||
-                    previous === "plan.runtime_dispatched"
-                  ? next === "plan.snapshot_persisted" ||
-                    next === "plan.session_mode_committed" ||
-                    next === "plan.bridge_resolved" ||
-                    next === "plan.bridge_continuation_resumed" ||
-                    next === "plan.runtime_dispatch_prepared" ||
-                    next === "plan.runtime_dispatched" ||
-                    next === "plan.pending_cleared" ||
-                    next === "plan.dismissal_committed"
-                  : false;
+        : previous === "fork.prepared"
+          ? next === "fork.requested"
+          : previous === "fork.requested"
+            ? next === "fork.created"
+            : previous === "fork.created"
+              ? next === "fork.committed"
+              : previous === "history.sdk_fork_requested"
+                ? next === "history.sdk_fork_created"
+                : previous === "history.sdk_fork_created" || previous === "history.sdk_fork_skipped"
+                  ? next === "history.local_rewrite_committed"
+                  : previous === "history.local_rewrite_committed"
+                    ? next === "history.runtime_dispatch_prepared"
+                    : previous === "history.runtime_dispatch_prepared"
+                      ? next === "history.runtime_dispatched"
+                      : previous === "plan.context_frozen" ||
+                          previous === "plan.snapshot_persisted" ||
+                          previous === "plan.session_mode_committed" ||
+                          previous === "plan.bridge_resolved" ||
+                          previous === "plan.bridge_continuation_resumed" ||
+                          previous === "plan.runtime_dispatch_prepared" ||
+                          previous === "plan.runtime_dispatched"
+                        ? next === "plan.snapshot_persisted" ||
+                          next === "plan.session_mode_committed" ||
+                          next === "plan.bridge_resolved" ||
+                          next === "plan.bridge_continuation_resumed" ||
+                          next === "plan.runtime_dispatch_prepared" ||
+                          next === "plan.runtime_dispatched" ||
+                          next === "plan.pending_cleared" ||
+                          next === "plan.dismissal_committed"
+                        : false;
   if (!allowed) {
     const message = `Invalid command checkpoint transition: ${previous ?? "start"} -> ${next}.`;
     if (stored) throw integrity(message);

@@ -28,6 +28,7 @@ import type {
   ThreadFollowUpPriority,
   ThreadFollowUpRunPhase,
   ThreadFollowUpStatus,
+  ThreadForkFromMessageResult,
   ThreadPendingFollowUp,
   ThreadPendingPlan,
   ThreadRunEvent,
@@ -59,6 +60,8 @@ import {
   classifyHistoryCommandRecovery,
   type HistoryCommandRecoveryDecision,
 } from "./conversation-command-recovery";
+import { buildForkHistoryEvents, type ConversationForkHistory } from "./conversation-fork-history";
+import type { NativeConversationFork } from "./conversation-native-fork";
 import { conversationV2AgentEvent } from "./conversation-v2-agent-events";
 import { migrateCodexCompactionDetails } from "./conversation-v2-compaction-migration";
 import {
@@ -2965,6 +2968,160 @@ export class ConversationStore {
       }
       throw error;
     }
+  }
+
+  /** Commit the independent child, its references, draft and command receipt together. */
+  commitForkConversation(input: {
+    source: ThreadSummary;
+    history: ConversationForkHistory;
+    childThreadId: string;
+    native: NativeConversationFork;
+    principalId: string;
+    clientCommandId: string;
+  }): ThreadForkFromMessageResult {
+    const { source, history, childThreadId, native } = input;
+    const now = new Date().toISOString();
+    const draft = {
+      prompt: history.target.role === "user" ? history.target.body : "",
+      attachments: (history.target.role === "user" ? history.target.attachments ?? [] : []) as PromptImageAttachment[],
+    };
+    const results: ConversationAppendResult[] = [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (this.v2.head(source.id).lastSeq !== history.sourceHeadSeq)
+        throw new Error("源会话在分叉期间已变化，请刷新后重试。");
+      const current = this.getThread(source.id);
+      if (!current || current.status === "running" || current.status === "queued")
+        throw new Error("源会话正在执行，无法提交分支。");
+      this.db
+        .prepare(`INSERT INTO threads (id, title, prompt, workspace_path, status, message, created_at, updated_at, core_kind, core_locked_at, runtime_config_json, sdk_session_id, sdk_cwd)
+        VALUES (?, ?, ?, ?, 'idle', '', ?, ?, ?, ?, ?, ?, ?)`)
+        .run(
+          childThreadId,
+          `${source.title} · 分支`,
+          history.messages.find((message) => message.role === "user")?.body ?? "",
+          source.workspacePath,
+          now,
+          now,
+          native.coreKind,
+          now,
+          source.runtimeConfig ? serializeThreadRuntimeConfig(source.runtimeConfig) : null,
+          native.coreKind === "claude" ? native.externalSessionId : null,
+          native.coreKind === "claude" ? native.cwd : null,
+        );
+      this.v2.ensureConversationInCurrentTransaction(childThreadId);
+      this.writeThreadCoreSessionRow(
+        {
+          threadId: childThreadId,
+          coreKind: native.coreKind,
+          externalSessionId: native.externalSessionId,
+          cwd: native.cwd,
+          metadata: {
+            ...native.metadata,
+            ...(native.coreKind === "claude" && native.empty ? { resetPending: true } : {}),
+            forkedFromThreadId: source.id,
+            sourceSessionId: this.getThreadCoreSession(source.id)?.externalSessionId,
+            sourceActivityLineId: history.target.historyTarget?.activityLineId ?? history.target.messageId,
+          },
+        },
+        now,
+      );
+      for (const event of buildForkHistoryEvents(history, childThreadId, native.userIds))
+        results.push(this.v2.appendInCurrentTransaction(event));
+      results.push(
+        this.v2.appendInCurrentTransaction({
+          conversationId: childThreadId,
+          eventId: `fork_lineage_${childThreadId}`,
+          sourceEventKey: `fork:lineage:${childThreadId}`,
+          type: "noop",
+          occurredAt: now,
+          payload: {
+            reason: "history.fork_created",
+            sourceThreadId: source.id,
+            sourceSessionId: this.getThreadCoreSession(source.id)?.externalSessionId,
+            sourceActivityLineId: history.target.historyTarget?.activityLineId ?? history.target.messageId,
+            sourceHistoryRevision: this.v2.head(source.id).historyRevision,
+            draftAttachments: draft.attachments,
+          },
+        }),
+      );
+      this.saveComposerDraft(`thread:${childThreadId}`, draft.prompt, draft.attachments);
+      const thread = this.getThread(childThreadId);
+      if (!thread) throw new Error("分支会话创建后不可读取。");
+      const result: ThreadForkFromMessageResult = { thread, sourceThreadId: source.id, draft };
+      this.v2.recordCommandCheckpointInCurrentTransaction({
+        principalId: input.principalId,
+        conversationId: source.id,
+        clientCommandId: input.clientCommandId,
+        name: "fork.committed",
+        payload: { childThreadId },
+      });
+      this.v2.finishCommandInCurrentTransaction({
+        principalId: input.principalId,
+        conversationId: source.id,
+        clientCommandId: input.clientCommandId,
+        status: "completed",
+        value: result,
+      });
+      this.db.exec("COMMIT");
+      this.v2.publishCommitted(results);
+      return result;
+    } catch (error) {
+      rollbackConversationTransaction(this.db);
+      throw error;
+    }
+  }
+
+  hasForkImageDependents(threadId: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1 FROM conversation_events_v2 WHERE type = 'noop' AND json_extract(payload_json, '$.reason') = 'history.fork_created' AND json_extract(payload_json, '$.sourceThreadId') = ? LIMIT 1`,
+        )
+        .get(threadId),
+    );
+  }
+
+  getForkVerification(threadId: string, childThreadId: string): NativeConversationFork | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT payload_json FROM conversation_events_v2 WHERE conversation_id = ? AND source_event_key = ?`,
+      )
+      .get(threadId, `fork:verified:${childThreadId}`) as { payload_json: string } | undefined;
+    if (!row) return undefined;
+    return (JSON.parse(row.payload_json) as { native: NativeConversationFork }).native;
+  }
+
+  bindPiPromptEntry(threadId: string, activityLineId: string, entryId: string): void {
+    const message = this.v2
+      .listUserMessages(threadId)
+      .find((item) => item.historyTarget?.activityLineId === activityLineId);
+    if (!message || !entryId.trim()) throw new Error("Pi 原生用户节点没有对应的已发送消息。");
+    this.v2.appendRuntime({
+      conversationId: threadId,
+      eventId: `pi_prompt_${crypto.createHash("sha256").update(`${threadId}:${message.messageId}:${entryId}`).digest("hex")}`,
+      sourceEventKey: `pi:prompt:${message.messageId}:${entryId}`,
+      type: "message.history_targeted",
+      messageId: message.messageId,
+      occurredAt: new Date().toISOString(),
+      payload: { historyTarget: { activityLineId, userMessageId: entryId } },
+    });
+  }
+
+  bindCodexForkTurn(threadId: string, userMessageId: string, turnId: string): void {
+    const source = this.listConversationRuntimeSources(threadId).find(
+      (source) =>
+        source.role === "user" &&
+        (source.metadata?.rewindTarget as { userMessageId?: string } | undefined)?.userMessageId ===
+          userMessageId,
+    );
+    if (!source) throw new Error("Codex 用户消息没有对应的已发送事件。");
+    this.appendV2ProviderPatch(
+      threadId,
+      [source.id],
+      { metadataMerge: { codexForkTurnId: turnId } },
+      `codex-fork-turn:${source.id}:${turnId}`,
+    );
   }
 
   setThreadCoreForDraft(threadId: string, coreKind: CoreKind): void {
