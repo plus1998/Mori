@@ -82,3 +82,23 @@ test("closing another page keeps the activate intent on the live one", async () 
     host.dispose();
   }
 });
+
+test("global resource list includes other conversations and closes pages without switching scope", async () => {
+  const host = createTestHost();
+  try {
+    for (const threadId of ["t1", "t2"]) {
+      await host.openSharedSession({ threadId, url: `https://${threadId}.example.com`, revealUi: false });
+    }
+    host.setUiScope("t1");
+    const state = host.getState();
+    expect(state.instances.map((page) => page.threadId)).toEqual(["t1"]);
+    expect(state.allInstances.map((page) => page.threadId)).toEqual(["t1", "t2"]);
+    const other = state.allInstances.find((page) => page.threadId === "t2");
+    if (!other) throw new Error("Missing other conversation's browser");
+    host.closeBrowser(other.id);
+    expect(host.getState().uiScopeId).toBe("t1");
+    expect(host.getState().allInstances.map((page) => page.threadId)).toEqual(["t1"]);
+  } finally {
+    host.dispose();
+  }
+});

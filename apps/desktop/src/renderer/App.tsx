@@ -459,6 +459,7 @@ import {
   type TerminalWorkspaceState,
 } from "./terminal-panel-storage";
 import {
+  deleteTerminalSessionId,
   hasTerminalSessionsForProject,
   listTerminalSessionEntriesForProject,
   listTerminalSessionsForProject,
@@ -502,6 +503,8 @@ import { useSchedulingSnapshot } from "./use-scheduling-snapshot";
 import { useStableCallback } from "./use-stable-callback";
 import { installVitePreloadRecovery } from "./vite-preload-recovery";
 import { WebChatListPopover } from "./WebChatListPopover";
+import { RunningResourcesPopover } from "./RunningResourcesPopover";
+import type { RunningTerminal } from "./running-resources";
 import { WorkspaceFloatingCards } from "./WorkspaceFloatingCards";
 import { isThreadActivelyViewed, subscribeToWindowFocus } from "./window-focus";
 import {
@@ -2114,6 +2117,8 @@ function App() {
   );
   const [webChatListOpen, setWebChatListOpen] = useState(false);
   const webChatListAnchorRef = useRef<HTMLButtonElement>(null);
+  const [runningResourcesOpen, setRunningResourcesOpen] = useState(false);
+  const runningResourcesAnchorRef = useRef<HTMLButtonElement>(null);
   const [sshBookmarks, setSshBookmarks] = useState<SshBookmarkView[]>([]);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettingsSnapshot>(
     defaultNotificationSettings(),
@@ -4196,6 +4201,32 @@ function App() {
   }, [currentProjectPath]);
 
   useEffect(() => {
+    void refreshBackgroundTerminalTasks();
+  }, [refreshBackgroundTerminalTasks]);
+
+  const handleRunningTerminalClosed = useCallback((terminal: RunningTerminal) => {
+    const closedTabIds = new Set(
+      listTerminalSessionEntriesForProject(terminal.workspacePath)
+        .filter((entry) => entry.sessionId === terminal.sessionId)
+        .map((entry) => entry.tabId),
+    );
+    for (const tabId of closedTabIds) deleteTerminalSessionId(terminal.workspacePath, tabId);
+    setTerminalByProject((current) => {
+      const state = current[terminal.workspacePath];
+      if (!state || closedTabIds.size === 0) return current;
+      const tabs = state.tabs.filter((tab) => !closedTabIds.has(tab.id));
+      return {
+        ...current,
+        [terminal.workspacePath]: {
+          ...state,
+          tabs,
+          activeTabId: closedTabIds.has(state.activeTabId) ? (tabs.at(-1)?.id ?? "") : state.activeTabId,
+          open: state.open && tabs.length > 0,
+        },
+      };
+    });
+    setInjectedTerminalSessionId((current) => current === terminal.sessionId ? null : current);
+    setTerminalLifecycleEpoch((epoch) => epoch + 1);
     void refreshBackgroundTerminalTasks();
   }, [refreshBackgroundTerminalTasks]);
 
@@ -10851,10 +10882,38 @@ function App() {
       <div className="codex-main-topbar-actions" aria-label={t("app.workspaceControls")}>
         <div className="codex-main-topbar-action-group" data-group="workspace">
           <button
+            ref={runningResourcesAnchorRef}
+            type="button"
+            className={runningResourcesOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"}
+            onClick={() => {
+              setWebChatListOpen(false);
+              setRunningResourcesOpen((open) => !open);
+            }}
+            title={t("app.running.title")}
+            aria-label={t("app.running.title")}
+            aria-expanded={runningResourcesOpen}
+            aria-haspopup="dialog"
+          >
+            <Activity size={15} aria-hidden />
+          </button>
+          {runningResourcesOpen ? (
+            <RunningResourcesPopover
+              anchorRef={runningResourcesAnchorRef}
+              threads={threads}
+              projects={projects}
+              terminalByProject={terminalByProject}
+              onClose={() => setRunningResourcesOpen(false)}
+              onTerminalClosed={handleRunningTerminalClosed}
+            />
+          ) : null}
+          <button
             ref={webChatListAnchorRef}
             type="button"
             className={webChatListOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"}
-            onClick={() => setWebChatListOpen((open) => !open)}
+            onClick={() => {
+              setRunningResourcesOpen(false);
+              setWebChatListOpen((open) => !open);
+            }}
             title={t("app.webChat.openList")}
             aria-label={t("app.webChat.openList")}
             aria-expanded={webChatListOpen}

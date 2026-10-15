@@ -476,6 +476,9 @@ export class BrowserHost {
     return {
       uiScopeId: this.uiScopeId,
       instances,
+      allInstances: [...this.scopes.keys()].flatMap((scopeId) =>
+        scopeId === this.uiScopeId ? instances : this.listInstancesForScope(scopeId),
+      ),
       guestInstances,
       allGuestInstances,
       ...(focusedSurfaced && focusedId ? { focusedBrowserId: focusedId } : {}),

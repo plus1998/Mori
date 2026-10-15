@@ -217,6 +217,8 @@ export interface BrowserViewState {
   uiScopeId: string;
   /** Task-panel / human-visible tabs only. */
   instances: BrowserInstanceView[];
+  /** Human-visible pages across every conversation and the personal scope. */
+  allInstances: BrowserInstanceView[];
   /** All logical browsers in {@link uiScopeId} needing a renderer webview guest. */
   guestInstances: BrowserGuestInstanceView[];
   /** All browsers across every thread scope — persistent webview layer uses this. */
