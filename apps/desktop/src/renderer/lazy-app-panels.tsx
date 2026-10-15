@@ -70,6 +70,10 @@ export const LazyModelsSettingsPanel = lazy(() =>
   import("./ModelsSettingsPanel").then((m) => ({ default: m.ModelsSettingsPanel })),
 );
 
+export const LazyCodexAccountSwitchDialog = lazy(() =>
+  import("./CodexAccountSwitchDialog").then((m) => ({ default: m.CodexAccountSwitchDialog })),
+);
+
 export const LazyOpenAIAccountsPanel = lazy(() =>
   import("./components/OpenAIAccountsPanel").then((m) => ({ default: m.OpenAIAccountsPanel })),
 );

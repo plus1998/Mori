@@ -650,6 +650,7 @@ export interface ActivityLogViewProps {
   onRewriteUserMessage?: RewriteUserMessageHandler;
   onForkMessage?: ForkMessageHandler;
   onRetryFailedRequest?: RetryFailedRequestHandler;
+  onSwitchCodexAccount?: () => void;
   modelByRole?: Record<string, string>;
   usageByRole?: Record<string, ThreadUsageSnapshot>;
   context?: ThreadContextSnapshot;
@@ -1888,6 +1889,7 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
       {...(props.onRetryFailedRequest && {
         onRetryFailedRequest: props.onRetryFailedRequest,
       })}
+      {...(props.onSwitchCodexAccount && { onSwitchCodexAccount: props.onSwitchCodexAccount })}
       {...(props.selectedSubagentAgentId && {
         selectedSubagentAgentId: props.selectedSubagentAgentId,
       })}
@@ -1936,6 +1938,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
   onRewriteUserMessage,
   onForkMessage,
   onRetryFailedRequest,
+  onSwitchCodexAccount,
   onPlannerLayoutChange,
   onComposerAgentSilenceChange,
   onFeedEndAnchorChange,
@@ -1965,6 +1968,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
   onRewriteUserMessage?: RewriteUserMessageHandler;
   onForkMessage?: ForkMessageHandler;
   onRetryFailedRequest?: RetryFailedRequestHandler;
+  onSwitchCodexAccount?: () => void;
   onPlannerLayoutChange?: ActivityFeedLayoutChange;
   onComposerAgentSilenceChange?: (silent: boolean) => void;
   onFeedEndAnchorChange?: (endAnchored: boolean) => void;
@@ -2262,6 +2266,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
     ...(onForkMessage && { onForkMessage }),
     ...(forkDisabledReason && { forkDisabledReason }),
     ...(onRetryFailedRequest && { onRetryFailedRequest }),
+    ...(thread?.coreKind === "codex" && onSwitchCodexAccount && { onSwitchCodexAccount }),
     retryTargets,
     allowUserMessageRewrite,
     historyRevision: projection.historyRevision ?? 0,
@@ -2377,6 +2382,7 @@ type ProjectionFeedEntrySharedProps = {
   onForkMessage?: ForkMessageHandler;
   forkDisabledReason?: string;
   onRetryFailedRequest?: RetryFailedRequestHandler;
+  onSwitchCodexAccount?: () => void;
   retryTargets?: Map<string, RequestFailureRetryTarget>;
   allowUserMessageRewrite?: boolean;
   historyRevision: number;
@@ -2788,6 +2794,7 @@ function ProjectionMainFeedEntry({
   onForkMessage,
   forkDisabledReason,
   onRetryFailedRequest,
+  onSwitchCodexAccount,
   retryTargets,
   allowUserMessageRewrite,
   historyRevision,
@@ -2814,6 +2821,7 @@ function ProjectionMainFeedEntry({
   onForkMessage?: ForkMessageHandler;
   forkDisabledReason?: string;
   onRetryFailedRequest?: RetryFailedRequestHandler;
+  onSwitchCodexAccount?: () => void;
   retryTargets?: Map<string, RequestFailureRetryTarget>;
   allowUserMessageRewrite?: boolean;
   historyRevision: number;
@@ -2845,6 +2853,7 @@ function ProjectionMainFeedEntry({
         {...(onForkMessage && { onForkMessage })}
         {...(forkDisabledReason && { forkDisabledReason })}
         {...(onRetryFailedRequest && { onRetryFailedRequest })}
+        {...(onSwitchCodexAccount && { onSwitchCodexAccount })}
         {...(retryTargets && { retryTargets })}
         allowUserMessageRewrite={Boolean(allowUserMessageRewrite)}
         historyRevision={historyRevision ?? 0}
@@ -4712,6 +4721,7 @@ function ProjectionTimelineEntry({
   onForkMessage,
   forkDisabledReason,
   onRetryFailedRequest,
+  onSwitchCodexAccount,
   retryTargets,
   allowUserMessageRewrite = false,
   historyRevision,
@@ -4736,6 +4746,7 @@ function ProjectionTimelineEntry({
   onForkMessage?: ForkMessageHandler;
   forkDisabledReason?: string;
   onRetryFailedRequest?: RetryFailedRequestHandler;
+  onSwitchCodexAccount?: () => void;
   retryTargets?: Map<string, RequestFailureRetryTarget>;
   allowUserMessageRewrite?: boolean;
   historyRevision?: number;
@@ -4800,6 +4811,28 @@ function ProjectionTimelineEntry({
           void onRetryFailedRequest(retryTarget);
         }
       : undefined;
+
+  // Account recovery must remain available even when the failed turn already
+  // produced output and cannot use one-click request retry.
+  const failureMessage =
+    block.kind === "api-error"
+      ? block.message
+      : block.kind === "phase"
+        ? block.reconnectDetail ?? block.label
+        : undefined;
+  const usageLimitReached =
+    failureMessage !== undefined &&
+    (/\byou['’]ve hit your usage limit\b/iu.test(failureMessage) ||
+      (block.kind === "api-error" && block.code === "usage_limit_reached"));
+  if (!compact && item.scope !== "agent" && onSwitchCodexAccount && usageLimitReached) {
+    return wrapRunLogFeedEntry(
+      <FeedErrorCard
+        message={failureMessage}
+        actionLabel={i18n.t("activity.switchAccount")}
+        onAction={onSwitchCodexAccount}
+      />,
+    );
+  }
 
   if (block.kind === "subagent-prompt") {
     return wrapRunLogFeedEntry(
@@ -5326,7 +5359,7 @@ function PhaseBlock({
         <FeedErrorCard
           message={label}
           {...(reconnectDetail && { detail: reconnectDetail })}
-          {...(onRetry && { retryLabel: i18n.t("common.retry"), onRetry })}
+          {...(onRetry && { actionLabel: i18n.t("common.retry"), onAction: onRetry })}
         />
       );
     }
@@ -5357,7 +5390,7 @@ function PhaseBlock({
     );
   }
   if (onRetry) {
-    return <FeedErrorCard message={label} retryLabel={i18n.t("common.retry")} onRetry={onRetry} />;
+    return <FeedErrorCard message={label} actionLabel={i18n.t("common.retry")} onAction={onRetry} />;
   }
   return <div className="run-log-phase">{label}</div>;
 }
@@ -6837,7 +6870,7 @@ function ApiErrorBlock({
       {...(subagent && !omitRoleLabel
         ? { context: formatRoleModelLabel(subagent, modelByRole?.[subagent]) }
         : {})}
-      {...(onRetry ? { retryLabel: i18n.t("common.retry"), onRetry } : {})}
+      {...(onRetry ? { actionLabel: i18n.t("common.retry"), onAction: onRetry } : {})}
     />
   );
 }

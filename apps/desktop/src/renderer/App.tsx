@@ -358,6 +358,7 @@ import {
   LazyBrowserWebviewLayer,
   LazyCenterServerSettingsPanel,
   LazyComputerUseSettingsPanel,
+  LazyCodexAccountSwitchDialog,
   LazyContextWindowSettingsPanel,
   LazyDefaultAgentSettingsPanel,
   LazyGeneralSettingsPanel,
@@ -1176,6 +1177,7 @@ function ActivityUserMessageNavigator({
 function App() {
   const { t } = useTranslation();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [codexAccountSwitchOpen, setCodexAccountSwitchOpen] = useState(false);
   const [schedulingOpen, setSchedulingOpen] = useState(false);
   const scheduling = useSchedulingSnapshot();
   const scheduledMessages = useMemo(
@@ -8760,6 +8762,9 @@ function App() {
     setSettingsOpen(true);
   }
 
+  const openCodexAccountSwitch = useCallback(() => setCodexAccountSwitchOpen(true), []);
+  const closeCodexAccountSwitch = useCallback(() => setCodexAccountSwitchOpen(false), []);
+
   function openSettings() {
     setSettingsSection("preferences");
     setSettingsOpen(true);
@@ -12333,6 +12338,7 @@ function App() {
                                         ? { onForkMessage: activityForkMessage }
                                         : {})}
                                       onRetryFailedRequest={activityRetryFailedRequest}
+                                      onSwitchCodexAccount={openCodexAccountSwitch}
                                       onPlannerLayoutChange={handleActivityPlannerLayoutChange}
                                       onComposerAgentSilenceChange={setComposerAgentSilenceVisible}
                                       onFeedEndAnchorChange={handleFeedEndAnchorChange}
@@ -12650,6 +12656,11 @@ function App() {
             />
           </SuspensePanel>
         )}
+      {codexAccountSwitchOpen && (
+        <SuspensePanel>
+          <LazyCodexAccountSwitchDialog onClose={closeCodexAccountSwitch} />
+        </SuspensePanel>
+      )}
       {settingsOpen && (
         <div className="settings-page" role="dialog" aria-modal="true" aria-label={t("settings.dialog")}>
           <aside className="settings-nav">

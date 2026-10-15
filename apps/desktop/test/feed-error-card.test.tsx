@@ -60,11 +60,17 @@ const failedThread: ThreadSummary = {
   coreKind: "claude",
 };
 
-function renderFailure(failure: ThreadRunProjectionTimelineItem): string {
+function renderFailure(
+  failure: ThreadRunProjectionTimelineItem,
+  options: { coreKind?: ThreadSummary["coreKind"]; progress?: ThreadRunProjectionTimelineItem } = {},
+): string {
+  const projection = failedProjection(failure);
+  if (options.progress) projection.timeline.splice(1, 0, options.progress);
   return renderToStaticMarkup(
     createElement(ActivityLogView, {
-      projection: failedProjection(failure),
-      thread: failedThread,
+      projection,
+      thread: { ...failedThread, coreKind: options.coreKind ?? failedThread.coreKind },
+      onSwitchCodexAccount: () => undefined,
       onRetryFailedRequest: () => undefined,
     }),
   );
@@ -74,8 +80,8 @@ test("feed error card renders a model error and text retry action", () => {
   const markup = renderToStaticMarkup(
     createElement(FeedErrorCard, {
       message: "Selected model is at capacity. Please try a different model.",
-      retryLabel: "重试",
-      onRetry: () => undefined,
+      actionLabel: "重试",
+      onAction: () => undefined,
       title: "Model request failed",
     }),
   );
@@ -195,4 +201,100 @@ test("ActivityLogView does not treat tool failures as model request errors", () 
 
   expect(markup).not.toContain("feed-error-card");
   expect(markup).toContain("run-log-tool-group");
+});
+
+const codexUsageLimitMessage =
+  "You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again at Oct 24th, 2026 9:36 AM.";
+
+test.each([
+  codexUsageLimitMessage,
+  codexUsageLimitMessage.replace("You’ve", "You've"),
+])("Codex usage exhaustion offers switch account instead of retry: %s", (message) => {
+  const markup = renderFailure(
+    timelineItem("codex-usage-limit", 3, {
+      eventType: "api.error",
+      text: message,
+      metadata: { liveType: "thread.api_error", apiError: { message } },
+    }),
+    { coreKind: "codex" },
+  );
+
+  expect(markup).toContain('class="feed-error-card"');
+  expect(markup).toContain(">切换账号</button>");
+  expect(markup).toContain("Oct 24th, 2026 9:36 AM.");
+  expect(markup).not.toContain(">重试</button>");
+});
+
+test("Codex usage exhaustion can switch accounts after the turn has produced output", () => {
+  const markup = renderFailure(
+    timelineItem("codex-usage-limit", 3, {
+      text: codexUsageLimitMessage,
+      metadata: { apiError: { message: codexUsageLimitMessage } },
+    }),
+    {
+      coreKind: "codex",
+      progress: timelineItem("assistant-output", 2, { eventType: "message.final", text: "Work so far" }),
+    },
+  );
+
+  expect(markup).toContain("Work so far");
+  expect(markup).toContain(">切换账号</button>");
+});
+
+test("Codex usage exhaustion recognizes the structured error code", () => {
+  const markup = renderFailure(
+    timelineItem("codex-usage-limit", 2, {
+      text: "Account quota exhausted",
+      metadata: { apiError: { message: "Account quota exhausted", code: "usage_limit_reached" } },
+    }),
+    { coreKind: "codex" },
+  );
+
+  expect(markup).toContain(">切换账号</button>");
+});
+
+test("other cores and ordinary Codex rate limits retain their retry action", () => {
+  const otherCore = renderFailure(
+    timelineItem("other-core", 2, {
+      text: codexUsageLimitMessage,
+      metadata: { apiError: { message: codexUsageLimitMessage } },
+    }),
+  );
+  const rateLimit = renderFailure(
+    timelineItem("codex-rate-limit", 2, {
+      text: "Too many requests, please try again later",
+      metadata: { apiError: { statusCode: 429, message: "Too many requests, please try again later" } },
+    }),
+    { coreKind: "codex" },
+  );
+
+  for (const markup of [otherCore, rateLimit]) {
+    expect(markup).not.toContain(">切换账号</button>");
+    expect(markup).toContain(">重试</button>");
+  }
+});
+
+test("the error card action invokes account switching without propagating to the feed", () => {
+  let switched = false;
+  let prevented = false;
+  let stopped = false;
+  const card = FeedErrorCard({
+    message: codexUsageLimitMessage,
+    actionLabel: "切换账号",
+    onAction: () => {
+      switched = true;
+    },
+  });
+  const button = card.props.children[2];
+  button.props.onClick({
+    preventDefault: () => {
+      prevented = true;
+    },
+    stopPropagation: () => {
+      stopped = true;
+    },
+  });
+  expect(switched).toBe(true);
+  expect(prevented).toBe(true);
+  expect(stopped).toBe(true);
 });

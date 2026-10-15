@@ -1,0 +1,44 @@
+import type { OpenAIAccount } from "../shared/openai-account";
+
+export function hasAvailableCodexQuota(account: OpenAIAccount): boolean {
+  if (!account.isLoggedIn || account.authState !== "configured" || !account.quota) return false;
+  const { rateLimit } = account.quota;
+  const windows = [rateLimit.primaryWindow, rateLimit.secondaryWindow].filter((window) => window !== null);
+  return (
+    rateLimit.allowed &&
+    !rateLimit.limitReached &&
+    windows.length > 0 &&
+    windows.every(
+      (window) => Number.isFinite(window.usedPercent) && window.usedPercent >= 0 && window.usedPercent < 100,
+    )
+  );
+}
+
+type AccountSwitchBridge = Pick<
+  NonNullable<Window["eco"]>,
+  "openAIAccountsList" | "openAIAccountsGetActive" | "openAIAccountsQueryQuota"
+>;
+
+/** Only a successful live quota query can put an account into the switcher. */
+export async function loadAvailableCodexAccounts(eco: AccountSwitchBridge): Promise<{
+  accounts: OpenAIAccount[];
+  failedCount: number;
+}> {
+  const [accounts, active] = await Promise.all([eco.openAIAccountsList(), eco.openAIAccountsGetActive()]);
+  const candidates = accounts.filter(
+    (account) =>
+      account.id !== active.activeAccountId && account.isLoggedIn && account.authState === "configured",
+  );
+  const results = await Promise.allSettled(
+    candidates.map(async (account) => ({
+      ...account,
+      quota: await eco.openAIAccountsQueryQuota(account.id),
+    })),
+  );
+  return {
+    accounts: results.flatMap((result) =>
+      result.status === "fulfilled" && hasAvailableCodexQuota(result.value) ? [result.value] : [],
+    ),
+    failedCount: results.filter((result) => result.status === "rejected").length,
+  };
+}

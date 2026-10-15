@@ -6,12 +6,19 @@ interface FeedErrorCardProps {
   message: ReactNode;
   context?: ReactNode;
   detail?: string;
-  retryLabel?: string;
-  onRetry?: () => void;
+  actionLabel?: string;
+  onAction?: () => void;
   title?: string;
 }
 
-export function FeedErrorCard({ message, context, detail, retryLabel, onRetry, title }: FeedErrorCardProps) {
+export function FeedErrorCard({
+  message,
+  context,
+  detail,
+  actionLabel,
+  onAction,
+  title,
+}: FeedErrorCardProps) {
   const copy = (
     <>
       {context ? <span className="feed-error-card-context">{context}</span> : null}
@@ -33,17 +40,17 @@ export function FeedErrorCard({ message, context, detail, retryLabel, onRetry, t
       ) : (
         <div className="feed-error-card-copy">{copy}</div>
       )}
-      {onRetry && retryLabel ? (
+      {onAction && actionLabel ? (
         <button
           type="button"
           className="feed-error-card-retry"
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            onRetry();
+            onAction();
           }}
         >
-          {retryLabel}
+          {actionLabel}
         </button>
       ) : null}
     </section>
