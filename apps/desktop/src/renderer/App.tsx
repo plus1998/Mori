@@ -6971,6 +6971,10 @@ function App() {
       if (activityUserMessageJumpTimerRef.current) {
         clearTimeout(activityUserMessageJumpTimerRef.current);
       }
+      if (activityFeedStickRecoveryFrameRef.current !== null) {
+        cancelAnimationFrame(activityFeedStickRecoveryFrameRef.current);
+        activityFeedStickRecoveryFrameRef.current = null;
+      }
     },
     [],
   );
@@ -7072,6 +7076,50 @@ function App() {
       requestAnimationFrame(() => scrollActivityFeedToEnd(true));
     });
   }, [scrollActivityFeedToEnd, setActivityFeedDetachedAnchor]);
+
+  const activityFeedStickRecoveryFrameRef = useRef<number | null>(null);
+  /**
+   * The virtualizer swaps a top spacer for a freshly mounted (often heavy,
+   * ProseMirror-backed) row inside one commit. A forced layout landing between
+   * those mutations makes Chromium clamp `scrollTop` against the transiently
+   * shorter `scrollHeight`; once the row lands the height is restored but the
+   * offset is not, and virtual-core's end anchor declines to correct it because
+   * it no longer sees the feed at its end. The follow state deliberately runs
+   * `overflow-anchor: none`, so nothing else heals a drift past the growth band
+   * (the content observer only re-pins within `STICK_THRESHOLD * 2`). Re-pin
+   * once the layout settles, and never for a reader who scrolled away.
+   */
+  const recoverActivityFeedStick = useCallback(() => {
+    if (userDetachedFromBottomRef.current) {
+      return;
+    }
+    const container = activityMessagesRef.current;
+    if (
+      !container ||
+      distanceFromActivityFeedBottom(container) <= ACTIVITY_FEED_STICK_THRESHOLD_PX
+    ) {
+      return;
+    }
+    // `force` past `feedEndAnchoredRef`; the anchor already declined to correct
+    // this offset (it no longer considers the feed at its end). Correct before
+    // the next paint when `scrollHeight` already settled, then verify once on the
+    // next frame for a clamp measured against a still-transient height.
+    scrollActivityFeedToEnd(true);
+    if (activityFeedStickRecoveryFrameRef.current !== null) {
+      return;
+    }
+    activityFeedStickRecoveryFrameRef.current = requestAnimationFrame(() => {
+      activityFeedStickRecoveryFrameRef.current = null;
+      if (userDetachedFromBottomRef.current) {
+        return;
+      }
+      const el = activityMessagesRef.current;
+      if (!el || distanceFromActivityFeedBottom(el) <= ACTIVITY_FEED_STICK_THRESHOLD_PX) {
+        return;
+      }
+      scrollActivityFeedToEnd(true);
+    });
+  }, [distanceFromActivityFeedBottom, scrollActivityFeedToEnd]);
 
   const jumpActivityFeedToTop = useCallback(() => {
     const container = activityMessagesRef.current;
@@ -7233,6 +7281,16 @@ function App() {
       syncActivityFeedBoot(container);
       syncActivityFeedScrollJump(container);
       syncActivityUserMessageNavigator(container);
+      // No wheel/touch/keyboard intent, yet the follow state is far from the
+      // bottom: the browser clamped a transient spacer collapse. Recover it.
+      if (
+        !userDetachedFromBottomRef.current &&
+        !scrollbarDragging &&
+        performance.now() >= userScrollUntil &&
+        distanceFromBottom > ACTIVITY_FEED_STICK_THRESHOLD_PX
+      ) {
+        recoverActivityFeedStick();
+      }
     };
     const onWheel = (event: WheelEvent) => {
       userScrollUntil = performance.now() + 500;
@@ -7310,6 +7368,7 @@ function App() {
     activeThread?.id,
     distanceFromActivityFeedBottom,
     markActivityFeedUserDetached,
+    recoverActivityFeedStick,
     requestActivityFeedForceScroll,
     setActivityFeedDetachedAnchor,
     syncActivityFeedBoot,
