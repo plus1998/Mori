@@ -28,6 +28,8 @@ export type BrowserMcpGatewayDeps = {
   ensureCdpPort: (threadId: string) => Promise<number>;
   agentBrowserEnv: (cdpPort: number, threadId: string) => Record<string, string>;
   ensureScopeGuestsReady?: (threadId: string) => Promise<void>;
+  /** Resolve after guest readiness; the CLI connection is bound to this exact page. */
+  getFocusedTargetId: (threadId: string) => string;
   afterAgentBrowserClose?: (threadId: string) => Promise<void>;
   /** Fired when a tools/call is bound to a thread (presence overlay). */
   onToolCall?: (threadId: string, toolName: string) => void;
@@ -51,6 +53,7 @@ export class BrowserMcpGateway {
   private controlServer: http.Server | undefined;
   private controlPort: number | undefined;
   private disposed = false;
+  private readonly threadCalls = new Map<string, Promise<unknown>>();
 
   constructor(private readonly deps: BrowserMcpGatewayDeps) {}
 
@@ -150,6 +153,9 @@ export class BrowserMcpGateway {
     return callAgentBrowserToolViaCli({
       binaryPath: resolved.binaryPath,
       cdpPort,
+      ...(!["agent_browser_tools_profiles", "agent_browser_close"].includes(toolName)
+        ? { cdpTargetId: this.deps.getFocusedTargetId(threadId) }
+        : {}),
       sessionKey,
       env,
       toolName,
@@ -168,6 +174,25 @@ export class BrowserMcpGateway {
       ...(authToken !== undefined ? { authToken } : {}),
       toolName: name,
     });
+    // Native tab switches and CLI commands share one ordered stream per thread.
+    const previous = this.threadCalls.get(threadId) ?? Promise.resolve();
+    const call = previous
+      .catch(() => {})
+      .then(() => this.executeThreadToolCall(threadId, name, args, signal));
+    this.threadCalls.set(threadId, call);
+    try {
+      return await call;
+    } finally {
+      if (this.threadCalls.get(threadId) === call) this.threadCalls.delete(threadId);
+    }
+  }
+
+  private async executeThreadToolCall(
+    threadId: string,
+    name: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<AgentBrowserMcpToolResult> {
     this.deps.onToolCall?.(threadId, name);
     signal?.throwIfAborted();
     const nativeResult = await this.deps.invokeNativeTool?.(threadId, name, args, signal);
@@ -192,8 +217,7 @@ export class BrowserMcpGateway {
         res,
         {
           serverName: ECO_AGENT_BROWSER_MCP_SERVER,
-          instructions:
-            "Eco built-in browser. Tools apply only to the authenticated conversation thread.",
+          instructions: "Eco built-in browser. Tools apply only to the authenticated conversation thread.",
           listTools: async () => ({ tools: agentBrowserCoreToolsCatalog() }),
           callTool: async ({ name, arguments: args, authToken, signal }) =>
             this.executeToolCall(name, args, authToken, signal),

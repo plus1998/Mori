@@ -192,6 +192,7 @@ export class BrowserHost {
         ensureCdpPort: (threadId) => this.ensureCdpPort(threadId),
         agentBrowserEnv: (cdpPort, threadId) => ensureAgentBrowserRuntimeEnv(cdpPort, threadId),
         ensureScopeGuestsReady: (threadId) => this.ensureScopeGuestsReady(threadId),
+        getFocusedTargetId: (threadId) => this.getFocusedCdpTargetId(threadId),
         afterAgentBrowserClose: (threadId) => this.disposeAllBrowsersInThread(threadId),
         onToolCall: (threadId) => this.noteAgentPresenceForThread(threadId),
         invokeNativeTool: (threadId, toolName, args, signal) =>
@@ -1253,6 +1254,17 @@ export class BrowserHost {
       }
     }
     return out;
+  }
+
+  /** Exact guest used by both native tools and the CLI connection. */
+  private getFocusedCdpTargetId(threadId: string): string {
+    const scope = this.scopes.get(threadId.trim());
+    const browserId = scope?.focusedBrowserId ?? scope?.browsers.keys().next().value;
+    const browser = browserId ? scope?.browsers.get(browserId) : undefined;
+    if (!browser?.webContents || browser.webContents.isDestroyed()) {
+      throw new Error("No browser target available in this session");
+    }
+    return browser.id;
   }
 
   /** Wait for focused (or first) guest before page-level CDP tools run. */

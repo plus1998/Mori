@@ -219,10 +219,14 @@ function writeJsonFrame(socket: Socket, body: Record<string, unknown>): void {
   socket.write(encodeTextFrame(JSON.stringify(body)));
 }
 
-function broadcastJsonFrame(clients: Set<Socket>, body: Record<string, unknown>): void {
+function broadcastJsonFrame(
+  clients: Map<Socket, string | undefined>,
+  body: Record<string, unknown>,
+  targetId: string,
+): void {
   const frame = encodeTextFrame(JSON.stringify(body));
-  for (const client of clients) {
-    if (!client.destroyed) {
+  for (const [client, boundTargetId] of clients) {
+    if (!client.destroyed && (!boundTargetId || boundTargetId === targetId)) {
       client.write(frame);
     }
   }
@@ -269,7 +273,7 @@ function listJsonPages(targets: BrowserCdpTarget[], port: number): unknown[] {
 export async function startMultiBrowserCdpProxy(
   options: MultiBrowserCdpProxyOptions,
 ): Promise<BrowserCdpProxy> {
-  const clients = new Set<Socket>();
+  const clients = new Map<Socket, string | undefined>();
   const debuggerListeners = new Map<
     string,
     { wc: WebContents; listener: (event: unknown, method: string, params: unknown) => void }
@@ -303,8 +307,8 @@ export async function startMultiBrowserCdpProxy(
             sessionId: target.id,
           });
           const frame = encodeTextFrame(message);
-          for (const client of clients) {
-            if (!client.destroyed) {
+          for (const [client, boundTargetId] of clients) {
+            if (!client.destroyed && (!boundTargetId || boundTargetId === target.id)) {
               client.write(frame);
             }
           }
@@ -329,15 +333,23 @@ export async function startMultiBrowserCdpProxy(
     if (!id) {
       return;
     }
-    broadcastJsonFrame(clients, {
-      method: "Target.targetDestroyed",
-      params: { targetId: id },
-    });
+    broadcastJsonFrame(
+      clients,
+      {
+        method: "Target.targetDestroyed",
+        params: { targetId: id },
+      },
+      id,
+    );
     // Drop session-scoped attaches keyed by our target id.
-    broadcastJsonFrame(clients, {
-      method: "Target.detachedFromTarget",
-      params: { sessionId: id, targetId: id },
-    });
+    broadcastJsonFrame(
+      clients,
+      {
+        method: "Target.detachedFromTarget",
+        params: { sessionId: id, targetId: id },
+      },
+      id,
+    );
     syncDebuggerListeners();
   };
 
@@ -351,10 +363,14 @@ export async function startMultiBrowserCdpProxy(
       return;
     }
     syncDebuggerListeners();
-    broadcastJsonFrame(clients, {
-      method: "Target.targetCreated",
-      params: { targetInfo: pageTargetInfo(target) },
-    });
+    broadcastJsonFrame(
+      clients,
+      {
+        method: "Target.targetCreated",
+        params: { targetInfo: pageTargetInfo(target) },
+      },
+      id,
+    );
   };
 
   const notifyTargetInfoChanged = (targetId: string) => {
@@ -367,10 +383,14 @@ export async function startMultiBrowserCdpProxy(
       return;
     }
     const info = pageTargetInfo(target);
-    broadcastJsonFrame(clients, {
-      method: "Target.targetInfoChanged",
-      params: { targetInfo: info },
-    });
+    broadcastJsonFrame(
+      clients,
+      {
+        method: "Target.targetInfoChanged",
+        params: { targetInfo: info },
+      },
+      id,
+    );
   };
 
   const server = http.createServer((req, res) => {
@@ -407,7 +427,7 @@ export async function startMultiBrowserCdpProxy(
     notifyTargetCreated,
     notifyTargetInfoChanged,
     close: async () => {
-      for (const client of clients) {
+      for (const client of clients.keys()) {
         client.destroy();
       }
       clients.clear();
@@ -1054,12 +1074,44 @@ function handleUpgrade(
   req: IncomingMessage,
   socket: Socket,
   head: Buffer,
-  clients: Set<Socket>,
+  clients: Map<Socket, string | undefined>,
   options: MultiBrowserCdpProxyOptions,
   syncDebuggerListeners: () => void,
   notifyTargetDestroyed: (targetId: string) => void,
   notifyTargetCreated: (targetId: string) => void,
 ): void {
+  const url = new URL(req.url ?? "/", "http://127.0.0.1");
+  const boundTargetId = url.searchParams.get("targetId") ?? undefined;
+  if (boundTargetId !== undefined) {
+    const scopeOptions = options;
+    const getTargets = () => liveGuestTargets(scopeOptions).filter((t) => t.id === boundTargetId);
+    if (getTargets().length === 0) {
+      socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    const assertBoundTarget = (targetId: string) => {
+      if (targetId !== boundTargetId || getTargets().length === 0) {
+        throw new Error("Target not found in bound browser connection");
+      }
+    };
+    // A page-bound CLI must neither discover peers nor retarget after its page closes.
+    // Changing this URL makes agent-browser reconnect and clear the previous page's refs.
+    options = {
+      ...scopeOptions,
+      getTargets,
+      onCreateTarget: async () => {
+        throw new Error("Use agent_browser_tab_new to create a browser tab");
+      },
+      onActivateTarget: (targetId) => {
+        assertBoundTarget(targetId);
+        scopeOptions.onActivateTarget?.(targetId);
+      },
+      onCloseTarget: async (targetId) => {
+        assertBoundTarget(targetId);
+        await scopeOptions.onCloseTarget?.(targetId);
+      },
+    };
+  }
   const key = req.headers["sec-websocket-key"];
   if (typeof key !== "string" || !key) {
     socket.destroy();
@@ -1079,7 +1131,7 @@ function handleUpgrade(
     socket.unshift(head);
   }
 
-  clients.add(socket);
+  clients.set(socket, boundTargetId);
   const clientState: CdpClientState = { pendingDomFocusBySession: new Map() };
   let buffer: Buffer = Buffer.alloc(0);
   let closed = false;

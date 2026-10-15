@@ -130,6 +130,7 @@ function controlBaseUrl(codexServer: { url?: string }): string {
 test("global browser Codex server starts control plane without creating a thread CDP", async () => {
   let cdpRequests = 0;
   const gateway = new BrowserMcpGateway({
+    getFocusedTargetId: () => "test-target",
     ensureCdpPort: async () => {
       cdpRequests += 1;
       return 9222;
@@ -151,6 +152,7 @@ test("global browser Codex server starts control plane without creating a thread
 test("prepareThread injects MCP without starting CDP or minting a page", async () => {
   let cdpRequests = 0;
   const gateway = new BrowserMcpGateway({
+    getFocusedTargetId: () => "test-target",
     ensureCdpPort: async () => {
       cdpRequests += 1;
       return 9222;
@@ -192,6 +194,7 @@ test("prepareThread injects MCP without starting CDP or minting a page", async (
 test("tab_list native path does not start CDP", async () => {
   let cdpRequests = 0;
   const gateway = new BrowserMcpGateway({
+    getFocusedTargetId: () => "test-target",
     ensureCdpPort: async () => {
       cdpRequests += 1;
       return 9222;
@@ -229,6 +232,7 @@ test("tab_list native path does not start CDP", async () => {
 test("tab_switch native path does not start CDP", async () => {
   let cdpRequests = 0;
   const gateway = new BrowserMcpGateway({
+    getFocusedTargetId: () => "test-target",
     ensureCdpPort: async () => {
       cdpRequests += 1;
       return 9222;
@@ -275,4 +279,61 @@ test("browser MCP gateway executes tools via CLI not agent-browser mcp child", (
   expect(source).toContain("async invokeToolViaCli");
   expect(source).toContain("invokeNativeTool");
   expect(source).not.toContain("spawnSync");
+});
+
+test("browser calls serialize native switches with other tools only within the same thread", async () => {
+  const entered: string[] = [];
+  let release!: () => void;
+  let markStarted!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  const gateway = new BrowserMcpGateway({
+    getFocusedTargetId: () => "test-target",
+    ensureCdpPort: async () => {
+      throw new Error("native tools must not start CDP");
+    },
+    agentBrowserEnv: () => ({}),
+    invokeNativeTool: async (threadId, name) => {
+      entered.push(`${threadId}:${name}`);
+      if (threadId === "a" && name === "agent_browser_snapshot") {
+        markStarted();
+        await gate;
+        throw new Error("snapshot failed");
+      }
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  });
+  try {
+    const a = await gateway.prepareThread("a");
+    const b = await gateway.prepareThread("b");
+    async function call(prepared: typeof a, name: string) {
+      return fetch(`${controlBaseUrl(prepared.codexServer)}/v1/tools/call`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Eco-Browser-Control-Secret": String(
+            prepared.codexServer.httpHeaders?.["X-Eco-Browser-Control-Secret"],
+          ),
+          Authorization: `Bearer ${prepared.token}`,
+        },
+        body: JSON.stringify({ name }),
+      });
+    }
+    const snapshot = call(a, "agent_browser_snapshot");
+    await started;
+    const switchTab = call(a, "agent_browser_tab_switch");
+    expect((await call(b, "agent_browser_tab_switch")).ok).toBe(true);
+    expect(entered).toEqual(["a:agent_browser_snapshot", "b:agent_browser_tab_switch"]);
+    release();
+    expect((await snapshot).status).toBe(400);
+    expect((await switchTab).ok).toBe(true);
+    expect(entered.at(-1)).toBe("a:agent_browser_tab_switch");
+  } finally {
+    release();
+    await gateway.close();
+  }
 });
