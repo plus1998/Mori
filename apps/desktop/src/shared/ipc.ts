@@ -750,6 +750,9 @@ export interface WorkspaceFileEntry {
 export interface WorkspaceFileReadRequest {
   workspacePath: string;
   filePath: string;
+  /** UTF-8 byte boundary returned by the preceding chunk. */
+  offset?: number;
+  revision?: string;
 }
 
 export interface WorkspaceFileWriteRequest {
@@ -764,7 +767,7 @@ export interface WorkspaceFileWriteResult {
   size: number;
 }
 
-export type WorkspaceFileKind = "text" | "image" | "audio" | "video" | "unsupported";
+export type WorkspaceFileKind = "text" | "image" | "audio" | "video" | "pdf" | "unsupported";
 
 export interface WorkspaceFileReadResult {
   path: string;
@@ -774,8 +777,11 @@ export interface WorkspaceFileReadResult {
   mimeType?: string;
   content?: string;
   base64?: string;
+  url?: string;
+  nextOffset?: number;
   truncated?: boolean;
   reason?: string;
+  revision?: string;
 }
 
 export type PackageManagerKind = "bun" | "pnpm" | "yarn" | "npm";

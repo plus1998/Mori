@@ -256,6 +256,9 @@ export function appendProviderEventToConversationV2(
         {
           role,
           channel,
+          ...(channel === "thinking" && typeof event.metadata?.thinkingStartedAt === "string"
+            ? { startedAt: event.metadata.thinkingStartedAt }
+            : {}),
           body,
           status: isFinal ? "final" : "streaming",
           ...(providerRole ? { providerRole } : {}),

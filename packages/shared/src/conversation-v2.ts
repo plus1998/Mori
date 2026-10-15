@@ -239,6 +239,8 @@ export interface ConversationMessage {
    * between two tools of the same turn.
    */
   occurredAt?: string;
+  /** First observed thinking start, retained when finalization updates occurredAt. */
+  startedAt?: string;
   /**
    * The provider's own label for the row (`planner`, `coder`, `explore`, ...), kept
    * separate from `role`. `role` is the normalized channel role a client switches on;

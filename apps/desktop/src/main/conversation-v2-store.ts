@@ -384,6 +384,7 @@ interface MessageRow {
   // about a row, not when it happened, so a Feed that only has sequence numbers cannot
   // put a message between two tools of the same turn.
   occurred_at?: string | null;
+  started_at?: string | null;
   provider_role?: string | null;
   history_activity_line_id?: string | null;
   history_user_message_id?: string | null;
@@ -688,6 +689,7 @@ export class ConversationV2Store {
         agent_id TEXT,
         agent_instance_id TEXT,
         occurred_at TEXT,
+        started_at TEXT,
         provider_role TEXT,
         history_activity_line_id TEXT,
         history_user_message_id TEXT,
@@ -1117,6 +1119,7 @@ export class ConversationV2Store {
           "agent_id",
           "agent_instance_id",
           "occurred_at",
+          "started_at",
           "provider_role",
           "history_activity_line_id",
           "history_user_message_id",
@@ -1147,6 +1150,19 @@ export class ConversationV2Store {
         (addedColumns.includes("agent_id") || addedColumns.includes("agent_instance_id"))
       ) {
         this.backfillMessageAgentOwnership();
+      }
+      if (table === "conversation_messages_v2" && addedColumns.includes("started_at")) {
+        // Recover the first thinking event, never the request's start or finalization time.
+        this.db.exec(`
+          UPDATE conversation_messages_v2 AS message
+             SET started_at = (
+               SELECT COALESCE(json_extract(event.payload_json, '$.startedAt'), event.occurred_at)
+                 FROM conversation_events_v2 AS event
+                WHERE event.conversation_id = message.conversation_id
+                  AND event.seq = message.created_seq
+             )
+           WHERE message.channel = 'thinking' AND message.started_at IS NULL
+        `);
       }
       // Placement times are the same kind of fact: the read table learned when a row
       // happened from the event that produced it, so a table that predates the column
@@ -3136,7 +3152,7 @@ export class ConversationV2Store {
         `SELECT message_id, conversation_id, turn_id, run_id, role, channel,
                 created_seq, version_seq, content_version, body, attachments_json,
                 origin_json,
-                agent_id, agent_instance_id, occurred_at, provider_role,
+                agent_id, agent_instance_id, occurred_at, started_at, provider_role,
                 history_activity_line_id, history_user_message_id,
                 status, is_deleted
          FROM conversation_messages_v2 WHERE conversation_id = ? AND message_id = ?`,
@@ -4516,6 +4532,12 @@ export class ConversationV2Store {
     if (record.type === "message.accepted" && status !== "queued") {
       throw v2Invalid("message.accepted must create a queued message");
     }
+    const startedAt = channel === "thinking"
+      ? optionalPayloadText(record.payload.startedAt, "startedAt") ?? record.occurredAt
+      : undefined;
+    if (startedAt !== undefined && !Number.isFinite(Date.parse(startedAt))) {
+      throw v2Invalid("message.startedAt must be a valid timestamp");
+    }
     const body =
       payloadString(record.payload.body, "body") ?? payloadString(record.payload.text, "text") ?? "";
     const attachments = optionalPayloadArray(record.payload.attachments, "attachments");
@@ -4567,9 +4589,9 @@ export class ConversationV2Store {
         `INSERT INTO conversation_messages_v2
          (message_id, conversation_id, turn_id, run_id, role, channel, created_seq,
           version_seq, content_version, body, attachments_json, origin_json, agent_id,
-          agent_instance_id, occurred_at, provider_role, history_activity_line_id,
+          agent_instance_id, occurred_at, started_at, provider_role, history_activity_line_id,
           history_user_message_id, status, is_deleted)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       )
       .run(
         messageId,
@@ -4586,6 +4608,7 @@ export class ConversationV2Store {
         agentId ?? null,
         agentInstanceId ?? null,
         record.occurredAt,
+        startedAt ?? null,
         providerRole ?? null,
         historyTarget?.activityLineId ?? null,
         historyTarget?.userMessageId ?? null,
@@ -6728,6 +6751,7 @@ function rowToMessage(row: MessageRow): ConversationMessage {
   const createdSeq = rowPositiveInteger(row.created_seq, "message.created_seq");
   const versionSeq = rowPositiveInteger(row.version_seq, "message.version_seq");
   const occurredAt = rowOptionalText(row.occurred_at, "message.occurred_at");
+  const startedAt = rowOptionalText(row.started_at, "message.started_at");
   const providerRole = rowOptionalText(row.provider_role, "message.provider_role");
   const historyActivityLineId = rowOptionalText(
     row.history_activity_line_id,
@@ -6762,6 +6786,7 @@ function rowToMessage(row: MessageRow): ConversationMessage {
     ...(agentId ? { agentId } : {}),
     ...(agentInstanceId ? { agentInstanceId } : {}),
     ...(occurredAt ? { occurredAt } : {}),
+    ...(startedAt ? { startedAt } : {}),
     ...(providerRole ? { providerRole } : {}),
     ...(historyActivityLineId
       ? {
@@ -7119,6 +7144,7 @@ function storedMessage(value: unknown, field: string): ConversationMessage {
   const agentId = storedEffectOptionalText(object.agentId, `${field}.agentId`);
   const agentInstanceId = storedEffectOptionalText(object.agentInstanceId, `${field}.agentInstanceId`);
   const occurredAt = storedEffectOptionalText(object.occurredAt, `${field}.occurredAt`);
+  const startedAt = storedEffectOptionalText(object.startedAt, `${field}.startedAt`);
   const providerRole = storedEffectOptionalText(object.providerRole, `${field}.providerRole`);
   const historyTarget = storedHistoryTarget(object.historyTarget, `${field}.historyTarget`);
   const status = storedMessageStatus(object.status);
@@ -7141,6 +7167,7 @@ function storedMessage(value: unknown, field: string): ConversationMessage {
     ...(agentId ? { agentId } : {}),
     ...(agentInstanceId ? { agentInstanceId } : {}),
     ...(occurredAt ? { occurredAt } : {}),
+    ...(startedAt ? { startedAt } : {}),
     ...(providerRole ? { providerRole } : {}),
     ...(historyTarget ? { historyTarget } : {}),
     ...(object.attachments !== undefined

@@ -577,9 +577,6 @@ export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBro
         ) : (
           <div className="workspace-file-browser__message">{t("fileBrowser.selectFile")}</div>
         )}
-        {file?.truncated ? (
-          <div className="workspace-file-browser__status">{t("fileBrowser.truncated")}</div>
-        ) : null}
         </div>
       </div>
     </div>

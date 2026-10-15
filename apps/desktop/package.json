@@ -98,7 +98,9 @@
     "shiki": "^4.4.2",
     "socks": "^2.8.10",
     "socks-proxy-agent": "^10.1.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "papaparse": "^5.7.0",
+    "pdfjs-dist": "^6.4.299"
   },
   "optionalDependencies": {
     "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.289",
@@ -132,6 +134,7 @@
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "vite": "^7.0.0",
-    "zustand": "^5.0.0"
+    "zustand": "^5.0.0",
+    "@types/papaparse": "^5.5.2"
   }
 }

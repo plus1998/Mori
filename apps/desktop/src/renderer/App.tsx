@@ -421,7 +421,7 @@ import { SidebarSettingsUpdateControl } from "./SidebarSettingsUpdateControl";
 import { buildSidebarAttentionItems } from "./sidebar-attention-items";
 import type { TerminalSessionPresentation } from "./TerminalPanel";
 import { ThreadIdleCacheWarning } from "./ThreadIdleCacheWarning";
-import { TtsArtifactsContext } from "./TtsArtifactPlayer";
+import { OpenTtsArtifactContext, TtsArtifactsContext } from "./TtsArtifactPlayer";
 import { loadTaskPanelReviewDiff } from "./task-panel-review-loader";
 import {
   captureTaskPanelSessionUiState,
@@ -11098,6 +11098,7 @@ function App() {
           onKeyDown={handleTaskPanelResizeKeyDown}
         />
         <SuspensePanel>
+          <OpenTtsArtifactContext value={openTtsArtifact}>
           <TtsArtifactsContext value={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}>
           <LazySubagentTaskDrawer
             open={taskPanelLayoutOpen}
@@ -11209,6 +11210,7 @@ function App() {
             }}
           />
           </TtsArtifactsContext>
+          </OpenTtsArtifactContext>
         </SuspensePanel>
       </motion.aside>
     ) : null;
@@ -12386,6 +12388,7 @@ function App() {
                             >
                               {activityFeedBootReady ? (
                                 <SuspensePanel>
+                                  <OpenTtsArtifactContext value={openTtsArtifact}>
                                   <TtsArtifactsContext
                                     value={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}
                                   >
@@ -12429,6 +12432,7 @@ function App() {
                                       })}
                                     />
                                   </TtsArtifactsContext>
+                                  </OpenTtsArtifactContext>
                                 </SuspensePanel>
                               ) : null}
                               <div ref={activityEndRef} className="activity-scroll-anchor" aria-hidden />

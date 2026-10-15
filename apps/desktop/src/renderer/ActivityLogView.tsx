@@ -196,7 +196,7 @@ import { type RuntimeAgentDisplayNames, resolveRuntimeAgentName } from "./runtim
 import { type RuntimeAgentThemes, resolveSubagentRowThemeStyle } from "./runtime-agent-theme";
 import { StreamingMarkdownContent } from "./StreamingMarkdownContent";
 import { RequestSpansContext, TokenSpeedBadge } from "./TokenSpeedBadge";
-import { readTtsToolUseId, TtsFeedArtifacts, TtsFeedGroupDetailsContext } from "./TtsArtifactPlayer";
+import { readTtsToolUseId, TtsFeedArtifacts } from "./TtsArtifactPlayer";
 import {
   findThinkingFeedScrollRoot,
   isThinkingPreferenceDrivenExpand,
@@ -735,6 +735,7 @@ function conversationV2MessageToTimelineItem(
     at,
     metadata: {
       conversationV2MessageId: message.messageId,
+      ...(isThinking && message.startedAt ? { thinkingStartedAt: message.startedAt } : {}),
       conversationV2TurnId: message.turnId,
       conversationV2VersionSeq: message.versionSeq,
       conversationV2ContentVersion: message.contentVersion,
@@ -3007,13 +3008,8 @@ export function ProjectionToolGroupEntry({
           if (imageDisplayToolUseId) onOpenImageDisplayTool?.(imageDisplayToolUseId);
         }}
       />
-      <TtsFeedArtifacts
-        toolUseIds={entry.entries
-          .map((child) => readTtsToolUseId(child.item))
-          .filter((id): id is string => Boolean(id))}
-      />
       {expanded ? (
-        <TtsFeedGroupDetailsContext value={true}><div className="run-log-tool-group-details">
+        <div className="run-log-tool-group-details">
           {topLevel.map((child) => {
             const toolUseId = child.kind === "timeline" ? readProjectionToolUseId(child.item) : undefined;
             const nestedChildren = toolUseId ? nestedByParent.get(toolUseId) : undefined;
@@ -3029,7 +3025,7 @@ export function ProjectionToolGroupEntry({
               />
             );
           })}
-        </div></TtsFeedGroupDetailsContext>
+        </div>
       ) : null}
     </div>
   );
@@ -3233,12 +3229,23 @@ function ProjectionToolGroupChildEntry({
           actionLabelOverride: formatToolGroupChildDetail(block),
         })}
         compact
+        forceActionDetailsExpanded={Boolean(
+          block?.kind === "action" && (block.webSearch || readTtsToolUseId(entry.item)),
+        )}
         {...(onOpenImageGenerationTool && { onOpenImageGenerationTool })}
         {...(onOpenImageDisplayTool && { onOpenImageDisplayTool })}
       />
     );
   }
-  return <ProjectionAgentEchoEntry entry={entry} requestSpansById={requestSpansById} />;
+  return (
+    <ProjectionAgentEchoEntry
+      entry={entry}
+      requestSpansById={requestSpansById}
+      forceActionDetailsExpanded={Boolean(
+        block?.kind === "action" && (block.webSearch || readTtsToolUseId(entry.item)),
+      )}
+    />
+  );
 }
 
 function ProjectionToolGroupBashChild({
@@ -4204,6 +4211,7 @@ function ProjectionAgentEchoEntry({
   pacing?: boolean;
 }) {
   const block = projectionItemToDetailBlock(entry.item);
+  const ttsToolUseId = readTtsToolUseId(entry.item);
   if (!block) {
     return null;
   }
@@ -4251,6 +4259,9 @@ function ProjectionAgentEchoEntry({
     <ProjectionAgentEchoShell label={entry.agentLabel} agentId={entry.agent.agentId}>
       <DetailBlock
         block={block}
+        {...(ttsToolUseId && {
+          actionDetails: <TtsFeedArtifacts toolUseIds={[ttsToolUseId]} />,
+        })}
         requestActive={requestActive}
         hideSubagentIdentity
         forceActionDetailsExpanded={forceActionDetailsExpanded}
@@ -4912,9 +4923,9 @@ function ProjectionTimelineEntry({
   }
 
   return wrapRunLogFeedEntry(
-    <>
     <DetailBlock
       block={block}
+      {...(ttsToolUseId && { actionDetails: <TtsFeedArtifacts toolUseIds={[ttsToolUseId]} /> })}
       requestActive={requestActive}
       createdAt={item.at}
       hideSubagentIdentity={omitIdentity}
@@ -4932,9 +4943,7 @@ function ProjectionTimelineEntry({
           onActionActivate: () => onOpenImageDisplayTool(imageDisplayToolUseId),
         })}
       {...(onOpenImageDisplayArtifact && { onOpenImageDisplayArtifact })}
-    />
-      {ttsToolUseId ? <TtsFeedArtifacts toolUseIds={[ttsToolUseId]} /> : null}
-    </>,
+    />,
     { compact, tight: isTightFeedDetailBlock(block) },
   );
 }
@@ -5111,6 +5120,7 @@ function DetailBlock({
   hideSubagentIdentity,
   forceActionDetailsExpanded = false,
   actionLabelOverride,
+  actionDetails,
   requestActive = false,
   requestSpan,
   agentThemes,
@@ -5125,6 +5135,7 @@ function DetailBlock({
   hideSubagentIdentity?: boolean;
   forceActionDetailsExpanded?: boolean;
   actionLabelOverride?: string;
+  actionDetails?: ReactNode;
   requestActive?: boolean;
   requestSpan?: ThreadRunProjectionRequestSpan;
   agentThemes?: RuntimeAgentThemes;
@@ -5232,7 +5243,8 @@ function DetailBlock({
         {...(block.bashRun && { bashRun: block.bashRun })}
         {...(block.fileChange && { fileChange: block.fileChange })}
         {...(block.webSearch && { webSearch: block.webSearch })}
-        {...(block.toolOutput && { toolOutput: block.toolOutput })}
+        {...(!actionDetails && block.toolOutput && { toolOutput: block.toolOutput })}
+        {...(actionDetails && { details: actionDetails })}
         {...(block.lifecycle && { lifecycle: block.lifecycle })}
         {...(block.subagent && { subagent: block.subagent })}
         omitRoleLabel={omitSubagent}
@@ -7400,6 +7412,7 @@ function RunLogAction({
   fileChange,
   webSearch,
   toolOutput,
+  details,
   error,
   subagent,
   modelByRole,
@@ -7421,6 +7434,7 @@ function RunLogAction({
   fileChange?: import("../shared/activity-display").FileChangeCardDisplay;
   webSearch?: import("../shared/activity-display").WebSearchCardDisplay;
   toolOutput?: string;
+  details?: ReactNode;
   error?: string;
   subagent?: string;
   modelByRole?: Record<string, string>;
@@ -7460,9 +7474,9 @@ function RunLogAction({
       ? formatRoleModelLabel(subagentRole, modelByRole?.[subagentRole])
       : undefined;
   const displayLabel =
-    displayLabelOverride ?? bashRun?.title ?? fileChange?.fileName ?? webSearch?.title ?? label;
+    displayLabelOverride ?? bashRun?.title ?? fileChange?.fileName ?? label;
   const hasHeavyDetails = Boolean(
-    bashRun?.command || bashRun?.output || fileChange || webSearch || error || toolOutput,
+    bashRun?.command || bashRun?.output || fileChange || webSearch || error || toolOutput || details,
   );
   const detailsExpanded = forceDetailsExpanded || expanded;
   const canToggleDetails = !forceDetailsExpanded && (hasHeavyDetails || (isTerminal && canExpand));
@@ -7533,7 +7547,7 @@ function RunLogAction({
       {webSearch?.meta && !bashRun?.meta ? (
         <span className="run-log-action-meta">{webSearch.meta}</span>
       ) : null}
-      {hasHeavyDetails || (isTerminal && canExpand) ? (
+      {canToggleDetails ? (
         <ChevronDown
           size={14}
           className={`run-log-action-chevron${detailsExpanded ? " open" : ""}`}
@@ -7569,34 +7583,6 @@ function RunLogAction({
                 {...(bashRun.command && { command: bashRun.command })}
                 {...(bashRun.output && { output: bashRun.output })}
               />
-            </div>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-
-  if (webSearch) {
-    return (
-      <div className="run-log-action run-log-action--with-card run-log-action--web-search-card">
-        {roleLabel ? <span className="run-log-action-role">{roleLabel}</span> : null}
-        <div className="run-log-action-main run-log-feed-surface">
-          {canToggleDetails ? (
-            <button
-              type="button"
-              className={`${triggerClassName} run-log-feed-surface-header`}
-              onClick={() => setExpanded((value) => !value)}
-              aria-expanded={detailsExpanded}
-              title={detailsExpanded ? undefined : webSearch.title}
-            >
-              {row}
-            </button>
-          ) : (
-            <div className={`${triggerClassName} run-log-feed-surface-header`}>{row}</div>
-          )}
-          {detailsExpanded ? (
-            <div className="run-log-action-card-detail run-log-feed-surface-body run-log-web-search-detail">
-              <RunLogWebSearchDetail display={webSearch} {...(lifecycle ? { lifecycle } : {})} />
             </div>
           ) : null}
         </div>
@@ -7651,6 +7637,14 @@ function RunLogAction({
         ) : (
           <div className={triggerClassName}>{row}</div>
         )}
+        {webSearch && detailsExpanded ? (
+          <div className="run-log-feed-surface run-log-web-search-detail run-log-action-card-detail">
+            <div className="run-log-feed-surface-body">
+              <RunLogWebSearchDetail display={webSearch} {...(lifecycle ? { lifecycle } : {})} />
+            </div>
+          </div>
+        ) : null}
+        {detailsExpanded ? details : null}
         {error && detailsExpanded ? (
           <div className="run-log-tool-result-panel">
             <div className="run-log-tool-result-header">

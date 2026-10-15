@@ -11,6 +11,7 @@ export interface WorkspaceImageReadResult {
   kind: string;
   mimeType?: string;
   base64?: string;
+  url?: string;
   content?: string;
 }
 
@@ -182,6 +183,7 @@ export function rewriteLocalImageSrcs(doc: PMNode, urlBySrc: ReadonlyMap<string,
 }
 
 export function dataUrlFromWorkspaceFile(file: WorkspaceImageReadResult): string | undefined {
+  if (file.kind === "image" && file.url) return file.url;
   if (file.kind === "image" && file.base64 && file.mimeType) {
     return `data:${file.mimeType};base64,${file.base64}`;
   }

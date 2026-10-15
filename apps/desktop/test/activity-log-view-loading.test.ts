@@ -24,6 +24,8 @@ import {
 import { i18n } from "../src/renderer/i18n";
 import { StreamingMarkdownContent } from "../src/renderer/StreamingMarkdownContent";
 import { SubagentTaskDrawer } from "../src/renderer/SubagentTaskDrawer";
+import { TtsArtifactsContext } from "../src/renderer/TtsArtifactPlayer";
+import type { TtsArtifact } from "../src/shared/tts";
 import { WorkspaceFloatingCards } from "../src/renderer/WorkspaceFloatingCards";
 import type {
   ThreadRunProjectionAgent,
@@ -4526,4 +4528,49 @@ test("codemode lists each call once when PI's details duplicate its own tool row
   expect(html).toContain("bash");
   // One row from the tool event plus one record with no row, not 2 + 2.
   expect(html.match(/run-log-codemode-call"/g)?.length).toBe(1);
+});
+
+
+test("speech and web search cards stay behind the shared tool summary and appear once on expansion", () => {
+  const audio: TtsArtifact = {
+    id: "audio-group", threadId: "thread-1", toolUseId: "speech-call", status: "completed",
+    text: "测试音频正文", parameters: { voice: "Kore", style: "自然" },
+    provider: "gemini", profileName: "默认", model: "tts-model",
+    workspacePath: "/tmp", generationRoot: "/tmp", audio: [
+      { absolutePath: "/tmp/test.wav", relativePath: "test.wav", mimeType: "audio/wav", bytes: 52 },
+    ], createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:01.000Z",
+  };
+  for (const tool of [
+    { name: "mcp__eco_tts__create_speech", toolUseId: "speech-call", expected: "合成了音频" },
+    { name: "WebSearch", toolUseId: "search-call", detail: "测试搜索词", expected: "联网搜索了" },
+  ]) {
+    const view = buildThreadRunProjectionViewModel(projection({ status: "completed", timeline: [item({
+      id: tool.toolUseId, eventType: "tool.completed", text: `Tool: ${tool.name}`,
+      metadata: { tool: { ...tool, status: "completed", ...(tool.name === "WebSearch" ? {
+        webSearch: { query: "测试搜索词", provider: "test-provider", results: [
+          { title: "检索结果标题", url: "https://example.com", description: "结果说明" },
+        ] },
+      } : {}) } },
+    })] }));
+    const entry = view.mainFeedEntries[0];
+    if (entry?.kind !== "tool-group") throw new Error("tool group missing");
+    const render = (defaultExpanded: boolean) => renderLocalized(createElement(TtsArtifactsContext.Provider,
+      { value: [audio] }, createElement(ProjectionToolGroupEntry, {
+        entry, requestSpansById: new Map(), defaultExpanded,
+      })), "zh-CN");
+    const collapsed = render(false);
+    expect(collapsed).toContain(tool.expected);
+    expect(collapsed).not.toContain("tts-artifact-player");
+    expect(collapsed).not.toContain(audio.text);
+    expect(collapsed).not.toContain("run-log-feed-surface");
+    const expanded = render(true);
+    if (tool.toolUseId === "speech-call") {
+      expect(expanded.match(/class="tts-artifact-bar"/g)?.length).toBe(1);
+      expect(expanded).toContain(audio.text);
+    } else {
+      expect(expanded).toContain("run-log-web-search-detail-body");
+      expect(expanded).toContain("test-provider");
+      expect(expanded).toContain("检索结果标题");
+    }
+  }
 });

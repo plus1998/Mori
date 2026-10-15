@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import {
+  OpenTtsArtifactContext,
   readTtsToolUseId,
   TtsArtifactPlayer,
   TtsArtifactsContext,
@@ -29,7 +30,7 @@ const artifact: TtsArtifact = {
   updatedAt: "2026-10-13T00:00:01.000Z",
 };
 
-test("Feed audio links the actual tool ID, stays collapsed and does not fetch unrelated artifacts", () => {
+test("Feed audio links the actual tool ID and shows a transcript excerpt without generation details", () => {
   const id = readTtsToolUseId({
     metadata: { tool: { name: "mcp__eco_tts__create_speech", toolUseId: "tool-a" } },
   });
@@ -44,8 +45,8 @@ test("Feed audio links the actual tool ID, stays collapsed and does not fetch un
   );
   expect(markup).toContain("播放语音");
   expect(markup).toContain('class="tts-artifact-bar"');
-  // The collapsed Feed card is the audio bar only; transcript and style wait for a click.
-  expect(markup).not.toContain(artifact.text);
+  expect(markup).toContain('class="tts-artifact-transcript-preview"');
+  expect(markup).toContain(artifact.text);
   expect(markup).not.toContain(artifact.parameters.style);
   const unmatched = renderLocalized(
     createElement(
@@ -101,11 +102,21 @@ test("Doubao cards keep the full voice ID on its own row and offer in-app playba
   expect(markup.split(doubao.text).length - 1).toBe(1);
 });
 
-test("compact cards show only the audio bar; details appear after expanding", () => {
-  const compact = renderLocalized(createElement(TtsArtifactPlayer, { artifact, compact: true }), "zh-CN");
-  // Collapsed: the bar plus its disclosure control, and nothing else.
+test("compact cards show playback progress and open details in the sidebar without inline expansion", () => {
+  const compact = renderLocalized(
+    createElement(
+      OpenTtsArtifactContext.Provider,
+      { value: () => {} },
+      createElement(TtsArtifactPlayer, { artifact, compact: true }),
+    ),
+    "zh-CN",
+  );
   expect(compact).toContain('class="tts-artifact-bar"');
-  expect(compact).toContain('aria-expanded="false"');
+  expect(compact).not.toContain("aria-expanded");
+  expect(compact).toContain('type="range"');
+  expect(compact).toContain('aria-label="播放进度"');
+  expect(compact).toContain("0:00 / --:--");
+  expect(compact).not.toContain("controls=");
   expect(compact).toContain('aria-label="详情"');
   expect(compact).not.toContain(artifact.text);
   expect(compact).not.toContain(artifact.parameters.voice);
@@ -115,7 +126,7 @@ test("compact cards show only the audio bar; details appear after expanding", ()
   expect(full).toContain(artifact.text);
   expect(full).toContain(artifact.parameters.voice);
   expect(full).toContain(artifact.parameters.style);
-  expect(full).not.toContain('class="tts-artifact-bar"');
+  expect(full).toContain('class="tts-artifact-bar"');
   // A failed generation still reports itself on the collapsed bar.
   const failed = renderLocalized(
     createElement(TtsArtifactPlayer, {

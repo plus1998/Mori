@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowUpRight, LoaderCircle, Pause, Play } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isEcoTtsToolName, type TtsArtifact } from "../shared/tts";
@@ -6,23 +6,30 @@ import { dispatchWorkspaceFileReference } from "./workspace-file-reference";
 import "./tts.css";
 
 export const TtsArtifactsContext = createContext<readonly TtsArtifact[]>([]);
-export const TtsFeedGroupDetailsContext = createContext(false);
+export const OpenTtsArtifactContext = createContext<((id: string) => void) | undefined>(undefined);
 
 export function TtsArtifactPlayer({
   artifact,
   onOpen,
   compact = false,
+  showTranscriptPreview = false,
 }: {
   artifact: TtsArtifact;
   onOpen?: (id: string) => void;
-  /** Feed / floating cards show only the audio bar; details expand in place. */
+  /** Feed / floating cards keep details in the task sidebar. */
   compact?: boolean;
+  /** Feed cards show a three-line excerpt above the playback bar. */
+  showTranscriptPreview?: boolean;
 }) {
   const { t } = useTranslation();
   const [source, setSource] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
-  const [expanded, setExpanded] = useState(false);
+  const openArtifact = useContext(OpenTtsArtifactContext);
+  const openDetails = onOpen ?? openArtifact;
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState<number>();
+  const [currentTime, setCurrentTime] = useState(0);
   const player = useRef<HTMLAudioElement>(null);
   const mounted = useRef(true);
   const autoplay = useRef(false);
@@ -63,14 +70,14 @@ export function TtsArtifactPlayer({
     [artifact.id, t],
   );
 
-  // Compact cards are the audio bar itself, so the bar is ready without a click. The Feed list is
-  // virtualized, which keeps this to the artifacts the user can actually see.
+  // Read visible players' metadata so duration and seeking are ready before playback.
+  // Collapsed Feed tool groups do not mount their players.
   const eagerLoadStarted = useRef(false);
   useEffect(() => {
-    if (!compact || !playable || eagerLoadStarted.current) return;
+    if (!playable || eagerLoadStarted.current) return;
     eagerLoadStarted.current = true;
     void loadAudio(false);
-  }, [compact, playable, loadAudio]);
+  }, [playable, loadAudio]);
 
   useEffect(() => {
     if (!source || !player.current || !autoplay.current) return;
@@ -111,17 +118,12 @@ export function TtsArtifactPlayer({
         </div>
       </div>
       <p className="tts-artifact-transcript">{artifact.text}</p>
-      <details>
-        <summary>{t("task.tts.style")}</summary>
+      <div className="tts-artifact-style">
+        <span className="tts-artifact-model">{t("task.tts.style")}</span>
         <p>{artifact.parameters.style}</p>
-      </details>
+      </div>
       {artifact.audio.length > 0 ? (
         <div className="tts-artifact-player-actions">
-          {onOpen ? (
-            <button type="button" className="settings-secondary-button" onClick={() => onOpen(artifact.id)}>
-              {t("task.tts.details")}
-            </button>
-          ) : null}
           <button type="button" className="settings-secondary-button" onClick={openAudioInFileViewer}>
             {t("task.tts.openInFileViewer")}
           </button>
@@ -133,28 +135,98 @@ export function TtsArtifactPlayer({
     </>
   );
 
-  const audioBar = playable ? (
-    source ? (
-      // biome-ignore lint/a11y/useMediaCaption: The verbatim transcript is listed in the details block.
-      <audio
-        ref={player}
-        controls
-        preload="none"
-        src={source}
-        onError={() => setError(t("task.tts.playbackError"))}
-      />
-    ) : (
-      <button
-        type="button"
-        className="settings-secondary-button tts-artifact-play"
-        disabled={loading}
-        onClick={() => void loadAudio(true)}
-      >
-        {t(loading ? "task.tts.loading" : "task.tts.play")}
-      </button>
-    )
-  ) : (
-    <span className="tts-artifact-status">{t(`task.tts.status.${artifact.status}`)}</span>
+  async function togglePlayback() {
+    if (!source) {
+      await loadAudio(true);
+      return;
+    }
+    const audio = player.current;
+    if (!audio) return;
+    if (!audio.paused) {
+      audio.pause();
+      return;
+    }
+    try {
+      await audio.play();
+    } catch (caught) {
+      if (mounted.current) setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  const audioBar = (
+    <div className="tts-artifact-bar">
+      {playable ? (
+        <>
+          {/* biome-ignore lint/a11y/useMediaCaption: The transcript is available in the artifact sidebar. */}
+          <audio
+            ref={player}
+            preload="metadata"
+            src={source}
+            onLoadedMetadata={(event) => {
+              const value = event.currentTarget.duration;
+              setDuration(Number.isFinite(value) && value > 0 ? value : undefined);
+            }}
+            onDurationChange={(event) => {
+              const value = event.currentTarget.duration;
+              setDuration(Number.isFinite(value) && value > 0 ? value : undefined);
+            }}
+            onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onEnded={() => setPlaying(false)}
+            onError={() => setError(t("task.tts.playbackError"))}
+          />
+          <button
+            type="button"
+            className="tts-artifact-play"
+            disabled={loading}
+            aria-label={t(loading ? "task.tts.loading" : playing ? "task.tts.pause" : "task.tts.play")}
+            title={t(playing ? "task.tts.pause" : "task.tts.play")}
+            onClick={() => void togglePlayback()}
+          >
+            {loading ? (
+              <LoaderCircle size={15} className="tts-artifact-spinner" aria-hidden />
+            ) : playing ? (
+              <Pause size={15} fill="currentColor" aria-hidden />
+            ) : (
+              <Play size={15} fill="currentColor" aria-hidden />
+            )}
+          </button>
+          <input
+            className="tts-artifact-progress"
+            type="range"
+            min={0}
+            max={duration ?? 0}
+            step={0.1}
+            value={currentTime}
+            disabled={!duration}
+            aria-label={t("task.tts.progress")}
+            aria-valuetext={`${formatAudioTime(currentTime)} / ${formatAudioTime(duration)}`}
+            onChange={(event) => {
+              const value = Number(event.currentTarget.value);
+              if (player.current) player.current.currentTime = value;
+              setCurrentTime(value);
+            }}
+          />
+          <span className="tts-artifact-time">
+            {formatAudioTime(currentTime)} / {formatAudioTime(duration)}
+          </span>
+        </>
+      ) : (
+        <span className="tts-artifact-status">{t(`task.tts.status.${artifact.status}`)}</span>
+      )}
+      {compact && openDetails ? (
+        <button
+          type="button"
+          className="tts-artifact-details"
+          aria-label={t("task.tts.details")}
+          title={t("task.tts.details")}
+          onClick={() => openDetails(artifact.id)}
+        >
+          <ArrowUpRight size={15} aria-hidden />
+        </button>
+      ) : null}
+    </div>
   );
 
   const providerError = artifact.errorMessage ? (
@@ -181,29 +253,19 @@ export function TtsArtifactPlayer({
   }
 
   return (
-    <article
-      className="tts-artifact-player is-compact"
-      aria-label={t("settings.tts.title")}
-      data-expanded={expanded || undefined}
-    >
-      <div className="tts-artifact-bar">
-        {audioBar}
-        <button
-          type="button"
-          className="tts-artifact-toggle"
-          aria-expanded={expanded}
-          aria-label={t(expanded ? "task.tts.collapse" : "task.tts.details")}
-          title={t(expanded ? "task.tts.collapse" : "task.tts.details")}
-          onClick={() => setExpanded((current) => !current)}
-        >
-          {expanded ? <ChevronUp size={15} aria-hidden /> : <ChevronDown size={15} aria-hidden />}
-        </button>
-      </div>
+    <article className="tts-artifact-player is-compact" aria-label={t("settings.tts.title")}>
+      {showTranscriptPreview ? <p className="tts-artifact-transcript-preview">{artifact.text}</p> : null}
+      {audioBar}
       {artifact.status !== "completed" ? providerError : null}
       {localError}
-      {expanded ? details : null}
     </article>
   );
+}
+
+function formatAudioTime(seconds: number | undefined): string {
+  if (seconds === undefined) return "--:--";
+  const wholeSeconds = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, "0")}`;
 }
 
 /** Works for both full tool metadata and V2 skeleton rows; no Feed detail fetch required. */
@@ -222,14 +284,12 @@ export function readTtsToolUseId(item: {
 
 export function TtsFeedArtifacts({ toolUseIds }: { toolUseIds: readonly string[] }) {
   const artifacts = useContext(TtsArtifactsContext);
-  const groupDetails = useContext(TtsFeedGroupDetailsContext);
-  if (groupDetails) return null;
   const ids = new Set(toolUseIds);
   const matches = artifacts.filter((artifact) => artifact.toolUseId && ids.has(artifact.toolUseId));
   return matches.length > 0 ? (
     <div className="tts-feed-artifacts">
       {matches.map((artifact) => (
-        <TtsArtifactPlayer key={artifact.id} artifact={artifact} compact />
+        <TtsArtifactPlayer key={artifact.id} artifact={artifact} compact showTranscriptPreview />
       ))}
     </div>
   ) : null;

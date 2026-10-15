@@ -64,62 +64,108 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.tts-artifact-player details {
-  font-size: 12px;
-}
-.tts-artifact-player details p {
+.tts-artifact-style p {
+  margin: 4px 0 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.tts-artifact-player audio {
-  width: 100%;
-  min-width: 0;
-  height: 40px;
+.tts-artifact-transcript-preview {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.tts-artifact-player:not(.is-compact) .tts-artifact-voice {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.tts-artifact-player:not(.is-compact) .tts-artifact-transcript {
+  display: block;
+  overflow: visible;
 }
 .tts-artifact-player.is-compact {
-  gap: 8px;
+  gap: 6px;
   padding: 8px 10px;
 }
 .tts-artifact-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 10px;
   min-width: 0;
 }
 .tts-artifact-bar audio {
-  /* Chrome gives <audio> a ~300px intrinsic width; a 0 flex basis keeps the bar inside
-     narrow floating cards instead of overflowing them. */
-  flex: 1 1 0;
-  width: 100%;
-  min-width: 0;
-  height: 34px;
+  display: none;
 }
-.tts-artifact-play {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.tts-artifact-toggle {
+.tts-artifact-play,
+.tts-artifact-details {
   display: grid;
   flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   place-items: center;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   cursor: pointer;
-  transition:
-    background-color 0.14s ease,
-    color 0.14s ease;
 }
-.tts-artifact-toggle:hover {
+.tts-artifact-play {
+  background: var(--nav-hover-solid);
+  color: var(--text-primary);
+}
+.tts-artifact-details {
+  margin-left: auto;
+}
+.tts-artifact-play:hover,
+.tts-artifact-details:hover {
   color: var(--text-primary);
   background: var(--nav-hover-solid);
 }
-.tts-artifact-toggle:focus-visible {
+.tts-artifact-play:disabled {
+  cursor: wait;
+}
+.tts-artifact-play:focus-visible,
+.tts-artifact-details:focus-visible,
+.tts-artifact-progress:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+.tts-artifact-progress {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 24px;
+  height: 3px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.tts-artifact-time {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tts-artifact-spinner {
+  animation: tts-artifact-spin 1s linear infinite;
+}
+@keyframes tts-artifact-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tts-artifact-spinner {
+    animation: none;
+  }
 }
 .tts-feed-artifacts {
   display: grid;

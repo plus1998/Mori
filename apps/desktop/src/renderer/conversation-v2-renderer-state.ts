@@ -13,7 +13,12 @@ import type {
   ConversationToolCall,
   ConversationToolsPage,
 } from "@eco/shared";
-import { isConversationMessageOrigin, limitConversationToolSummaryPayload, stableHash, stableJson } from "@eco/shared";
+import {
+  isConversationMessageOrigin,
+  limitConversationToolSummaryPayload,
+  stableHash,
+  stableJson,
+} from "@eco/shared";
 import type { ConversationV2ProjectionExtras } from "../shared/ipc";
 
 function isGenericToolLabel(name: string): boolean {
@@ -659,23 +664,30 @@ function applyEffect(
 ): void {
   switch (effect.type) {
     case "message.create": {
-      validateMessage(effect.message, conversationId, seq, "message effect");
-      const existing = messages.get(effect.message.messageId);
+      // Older create effects still carry the first observed thinking timestamp.
+      // Keep it on the entity before message.finalize replaces occurredAt.
+      const message =
+        effect.message.channel === "thinking" &&
+        effect.message.startedAt === undefined &&
+        effect.message.occurredAt !== undefined
+          ? { ...effect.message, startedAt: effect.message.occurredAt }
+          : effect.message;
+      validateMessage(message, conversationId, seq, "message effect");
+      const existing = messages.get(message.messageId);
       if (existing) {
         if (existing.conversationId !== conversationId) {
           throw new Error(
             `Conversation V2 renderer message ${effect.message.messageId} changed conversations.`,
           );
         }
-        assertMessageIdentity(existing, effect.message);
+        assertMessageIdentity(existing, message);
         if (existing.versionSeq > effect.message.versionSeq) return;
-        if (existing.versionSeq === effect.message.versionSeq && sameMessage(existing, effect.message))
-          return;
+        if (existing.versionSeq === effect.message.versionSeq && sameMessage(existing, message)) return;
         throw new Error(
           `Conversation V2 renderer message ${effect.message.messageId} has conflicting identity.`,
         );
       }
-      messages.set(effect.message.messageId, effect.message);
+      messages.set(message.messageId, message);
       return;
     }
     case "message.append": {
@@ -1005,7 +1017,9 @@ function validateMessage(
     !MESSAGE_CHANNELS.has(message.channel) ||
     !MESSAGE_STATUSES.has(message.status) ||
     typeof message.body !== "string" ||
-    (message.origin !== undefined && (message.role !== "user" || !isConversationMessageOrigin(message.origin))) ||
+    (message.startedAt !== undefined && !Number.isFinite(Date.parse(message.startedAt))) ||
+    (message.origin !== undefined &&
+      (message.role !== "user" || !isConversationMessageOrigin(message.origin))) ||
     (message.attachments !== undefined && !Array.isArray(message.attachments)) ||
     typeof message.isDeleted !== "boolean" ||
     message.isDeleted !== (message.status === "deleted") ||
@@ -1328,6 +1342,7 @@ function sameMessage(left: ConversationMessage, right: ConversationMessage): boo
     left.versionSeq === right.versionSeq &&
     left.contentVersion === right.contentVersion &&
     left.body === right.body &&
+    left.startedAt === right.startedAt &&
     stableJson(left.origin) === stableJson(right.origin) &&
     stableJson(left.attachments) === stableJson(right.attachments) &&
     left.status === right.status &&

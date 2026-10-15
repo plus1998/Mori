@@ -124,6 +124,7 @@ import {
   net,
   powerMonitor,
   powerSaveBlocker,
+  protocol,
   screen,
   safeStorage,
   session,
@@ -1053,7 +1054,12 @@ import {
   resolveAcpCursorApiKeyForSave,
   type WorkflowSettingsStore,
 } from "./workflow-settings-store";
-import { listWorkspaceEntries, readWorkspaceFile, writeWorkspaceFile } from "./workspace-file-browser";
+import {
+  listWorkspaceEntries,
+  readWorkspaceFile,
+  workspaceFileStreams,
+  writeWorkspaceFile,
+} from "./workspace-file-browser";
 import { prepareWorkspaceGit } from "./workspace-git-setup";
 import { WorkspaceGitStatusPublisher } from "./workspace-git-status-publisher";
 import { WorkspaceReviewService } from "./workspace-review-service";
@@ -1076,6 +1082,12 @@ import type { ThreadForkFromMessageRequest } from "../shared/ipc";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "eco-workspace",
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+  },
+]);
 
 const packagingDir = path.join(__dirname, "../../packaging");
 
@@ -2290,6 +2302,16 @@ async function createMainWindow(
     },
   };
   const window = new BrowserWindow(windowOptions);
+  // Workspace HTML is a static, sandboxed preview. Block frame redirects to external sites too.
+  window.webContents.on("will-frame-navigate", (event) => {
+    if (
+      !event.isMainFrame &&
+      !event.url.startsWith("eco-workspace://") &&
+      !/^about:(?:blank|srcdoc)(?:#.*)?$/.test(event.url)
+    ) {
+      event.preventDefault();
+    }
+  });
   window.webContents.on("render-process-gone", (_event, details) => {
     logUpstream("desktop.render-process-gone", {
       webContentsId: window.webContents.id,
@@ -2442,6 +2464,7 @@ app
     };
 
     logStartupStage("ready");
+    protocol.handle("eco-workspace", (request) => workspaceFileStreams.respond(request));
     if (!hasSingleInstanceLock) {
       return;
     }
@@ -4940,13 +4963,23 @@ function registerIpcHandlers(): void {
     const request = payload as {
       workspacePath?: unknown;
       filePath?: unknown;
+      offset?: unknown;
+      revision?: unknown;
     };
     if (typeof request.workspacePath !== "string" || typeof request.filePath !== "string") {
       throw new Error("Workspace path and file path are required.");
     }
+    if (request.offset !== undefined && typeof request.offset !== "number") {
+      throw new Error("Invalid file offset.");
+    }
+    if (request.revision !== undefined && typeof request.revision !== "string") {
+      throw new Error("Invalid file revision.");
+    }
     return readWorkspaceFile({
       workspacePath: request.workspacePath,
       filePath: request.filePath,
+      ...(request.offset === undefined ? {} : { offset: request.offset }),
+      ...(request.revision === undefined ? {} : { revision: request.revision }),
     });
   });
 
