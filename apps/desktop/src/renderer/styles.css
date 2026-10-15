@@ -20016,6 +20016,22 @@ a.run-log-web-search-detail-result-url:focus-visible {
   cursor: zoom-in;
 }
 
+.composer-attachment-preview:disabled {
+  cursor: not-allowed;
+}
+
+.composer-attachment-preview-missing {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  padding: 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.25;
+  text-align: center;
+}
+
 .composer-attachment-preview:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 64%, transparent);
   outline-offset: 2px;

@@ -286,6 +286,7 @@ import {
   COMPOSER_MAX_IMAGES,
   type ComposerImageAttachment,
   fromPromptImageAttachments,
+  hydrateComposerImageAttachments,
   readImageFileAsAttachment,
   revokeComposerAttachmentPreview,
   revokeComposerAttachmentPreviews,
@@ -5510,6 +5511,50 @@ function App() {
   }, [composerContextKey]);
 
   useEffect(() => {
+    if (!composerContextKey || !composerAttachments.some((attachment) => attachment.contentRef && !attachment.data)) {
+      return;
+    }
+    const readChunk = window.eco?.readPromptImageChunk;
+    if (typeof readChunk !== "function") {
+      setComposerImageNotice(t("app.imagePreviewUnavailable"));
+      return;
+    }
+    const contextKey = composerContextKey;
+    const sourceAttachments = composerAttachments;
+    let cancelled = false;
+    const isCurrent = () =>
+      !cancelled &&
+      composerContextKeyRef.current === contextKey &&
+      composerAttachmentsRef.current.length === sourceAttachments.length &&
+      sourceAttachments.every(
+        (attachment, index) => composerAttachmentsRef.current[index] === attachment,
+      );
+    void hydrateComposerImageAttachments(sourceAttachments, contextKey, (request) => readChunk(request))
+      .then((hydrated) => {
+        if (!isCurrent()) {
+          hydrated.forEach((attachment, index) => {
+            if (attachment.previewUrl !== sourceAttachments[index]?.previewUrl) {
+              revokeComposerAttachmentPreview(attachment);
+            }
+          });
+          return;
+        }
+        setComposerAttachments(hydrated);
+        setComposerImageNotice(undefined);
+      })
+      .catch((caught) => {
+        if (!isCurrent()) {
+          return;
+        }
+        console.error("[eco] composer image preview load failed", caught);
+        setComposerImageNotice(t("app.imagePreviewUnavailable"));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [composerAttachments, composerContextKey, t]);
+
+  useEffect(() => {
     if (
       !composerContextKey ||
       prevComposerContextKeyRef.current !== composerContextKey ||
@@ -7909,9 +7954,18 @@ function App() {
   function restoreComposerAfterFollowUpEdit() {
     const restored = resolveComposerAfterFollowUpEdit(savedComposerBeforeFollowUpEditRef.current);
     savedComposerBeforeFollowUpEditRef.current = undefined;
+    const restoredAttachments = restored.attachments as ComposerImageAttachment[];
+    const restoredPreviewUrls = new Set(
+      restoredAttachments.map((attachment) => attachment.previewUrl).filter(Boolean),
+    );
+    composerAttachmentsRef.current.forEach((attachment) => {
+      if (!restoredPreviewUrls.has(attachment.previewUrl)) {
+        revokeComposerAttachmentPreview(attachment);
+      }
+    });
     composerPromptRef.current = restored.prompt;
     setPrompt(restored.prompt);
-    setComposerAttachments(restored.attachments as ComposerImageAttachment[]);
+    setComposerAttachments(restoredAttachments);
     setComposerRewindTarget(restored.rewindTarget as ComposerRewindTarget | undefined);
     setComposerImageNotice(restored.imageNotice);
   }
@@ -11564,16 +11618,24 @@ function App() {
                             <button
                               type="button"
                               className="composer-attachment-preview"
-                              onClick={() =>
+                              disabled={!attachment.previewUrl}
+                              onClick={() => {
+                                if (!attachment.previewUrl) return;
                                 setComposerLightbox({
                                   src: attachment.previewUrl,
                                   alt,
                                   label: openLabel,
-                                })
-                              }
-                              aria-label={openLabel}
+                                });
+                              }}
+                              aria-label={attachment.previewUrl ? openLabel : t("app.imagePreviewUnavailable")}
                             >
-                              <img src={attachment.previewUrl} alt={alt} />
+                              {attachment.previewUrl ? (
+                                <img src={attachment.previewUrl} alt={alt} />
+                              ) : (
+                                <span className="composer-attachment-preview-missing">
+                                  {t("app.imagePreviewUnavailable")}
+                                </span>
+                              )}
                             </button>
                             <button
                               type="button"
