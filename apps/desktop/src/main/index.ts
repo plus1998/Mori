@@ -6659,7 +6659,6 @@ function registerIpcHandlers(): void {
       return { success: false, message: "Failed to start login" };
     }
 
-    const mainWin = getMainWindow();
     const partition = `openai-account-auth-${payload.accountId}-${Date.now()}`;
     const authSession = session.fromPartition(partition);
     let releaseProxy: () => void;
@@ -6672,7 +6671,9 @@ function registerIpcHandlers(): void {
         message: `登录代理配置失败：${error instanceof Error ? error.message : String(error)}`,
       };
     }
-    const authWindow = createOAuthAuthWindow(mainWin, partition);
+    // Keep the OAuth page independent from the main window so it can move
+    // across displays without being constrained by the main window's window group.
+    const authWindow = createOAuthAuthWindow(undefined, partition);
     authWindow.setTitle(`Codex 登录 · ${account?.name ?? "账号"}`);
     requireAccountAssistant().attachLogin(payload.accountId, authWindow);
     let loginCancelled = false;
