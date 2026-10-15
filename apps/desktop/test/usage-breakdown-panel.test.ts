@@ -34,7 +34,7 @@ test("formatLedgerEventProviderModel prefers the provider's resolved model over 
     }),
   ).toEqual({
     providerLabel: "anthropic",
-    modelLabel: "claude-sonnet-4-6",
+    modelLabel: "Sonnet 4.6",
     title: "anthropic / claude-sonnet-4-6",
   });
   expect(
@@ -42,7 +42,7 @@ test("formatLedgerEventProviderModel prefers the provider's resolved model over 
       aliasModelId: "eco_coder__abc123",
     }),
   ).toEqual({
-    modelLabel: "eco_coder__abc123",
+    modelLabel: "Eco_coder__abc123",
     title: "eco_coder__abc123",
   });
   expect(
@@ -51,7 +51,7 @@ test("formatLedgerEventProviderModel prefers the provider's resolved model over 
     }),
   ).toEqual({
     providerLabel: "openai",
-    modelLabel: "gpt-5.6-sol",
+    modelLabel: "5.6 Sol",
     title: "openai / gpt-5.6-sol",
   });
   expect(
@@ -60,7 +60,7 @@ test("formatLedgerEventProviderModel prefers the provider's resolved model over 
       modelId: "gpt-5.6-sol",
     }),
   ).toEqual({
-    modelLabel: "gpt-5.6-sol",
+    modelLabel: "5.6 Sol",
     title: "gpt-5.6-sol",
   });
 });

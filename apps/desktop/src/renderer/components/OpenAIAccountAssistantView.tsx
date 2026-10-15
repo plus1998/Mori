@@ -1,6 +1,13 @@
 import type { CSSProperties } from "react";
-import { Copy, Eye, EyeOff, KeyRound, LogIn, Mail, Pin, PinOff, ShieldCheck, ArrowUpRight, Inbox, Check } from "lucide-react";
+import { Copy, Eye, EyeOff, KeyRound, LogIn, Mail, Pin, PinOff, ShieldCheck, ArrowUpRight, Inbox, Check, Timer } from "lucide-react";
 import type { OpenAIAccountAssistantAction, OpenAIAccountAssistantState } from "../../shared/openai-account";
+
+function formatLoginRemaining(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
+}
 
 export function OpenAIAccountAssistantView({ state, busy, password, notice, error, onAction, onHidePassword, onLogin }: {
   state: OpenAIAccountAssistantState;
@@ -32,6 +39,12 @@ export function OpenAIAccountAssistantView({ state, busy, password, notice, erro
         </button>
       </header>
       <main className="assistant-body">
+        {state.loginRemainingSeconds !== undefined ? (
+          <section className={`assistant-login-timeout ${state.loginRemainingSeconds <= 60 ? "is-expiring" : ""}`} aria-label="登录超时倒计时">
+            <span><Timer size={14} />登录超时倒计时</span>
+            <strong>{formatLoginRemaining(state.loginRemainingSeconds)}</strong>
+          </section>
+        ) : null}
         <div className="assistant-identity">
           <div className="assistant-monogram">{(state.email || state.name).slice(0, 1).toUpperCase()}</div>
           <div><span className="assistant-eyebrow">CODEX ACCOUNT</span><h1 title={state.name}>{state.name}</h1></div>

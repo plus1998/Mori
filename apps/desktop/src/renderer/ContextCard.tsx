@@ -1,6 +1,6 @@
 import { CONTEXT_SEGMENT_LABELS, contextSegmentDisplayLabel } from "@eco/runtime/context-breakdown";
 import { formatTokenCount } from "@eco/runtime/usage";
-import { X } from "lucide-react";
+import { Gauge, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ThreadContextSnapshot, ThreadRoleContextSnapshot, ThreadStatus } from "../shared/ipc";
@@ -346,8 +346,25 @@ export function ContextCard({
       return null;
     }
     return (
-      <div className="context-card context-card-empty">
-        <p className="context-card-placeholder">{placeholder ?? t("context.empty")}</p>
+      <div className="context-card context-card-empty" role="status" aria-live="polite">
+        <div className="context-card-empty-header">
+          <div className="context-card-empty-icon" aria-hidden="true">
+            <Gauge size={21} strokeWidth={1.8} />
+          </div>
+          <div className="context-card-empty-copy">
+            <h4 className="context-card-empty-title">{t("context.title")}</h4>
+            <p className="context-card-placeholder">{placeholder ?? t("context.empty")}</p>
+          </div>
+        </div>
+        <div className="context-card-empty-meter" aria-hidden="true">
+          <div className="context-card-empty-track">
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+          <span className="context-card-empty-meter-label">{t("context.emptyMeter")}</span>
+        </div>
       </div>
     );
   }

@@ -1,6 +1,6 @@
 import type { AcpHostUiFeatures } from "@eco/runtime/acp-host-ui-features";
 import { formatCostUsd, formatUsageBadge, shortenModelId } from "@eco/runtime/usage";
-import { ListTodo, X } from "lucide-react";
+import { ListTodo, ReceiptText, X } from "lucide-react";
 import {
   type CSSProperties,
   type FocusEvent,
@@ -276,6 +276,36 @@ function ContextFloatPillLabel({
   );
 }
 
+function BillingEmptyState({ hint }: { hint: string }) {
+  return (
+    <div className="thread-info-billing-empty-state" role="status" aria-live="polite">
+      <div className="thread-info-billing-empty-hero">
+        <div className="thread-info-billing-empty-icon" aria-hidden="true">
+          <ReceiptText size={20} strokeWidth={1.8} />
+        </div>
+        <div className="thread-info-billing-empty-copy">
+          <strong className="thread-info-billing-empty-title">{i18n.t("billing.emptyTitle")}</strong>
+          <p className="thread-info-muted thread-info-billing-empty">{hint}</p>
+        </div>
+      </div>
+      <div className="thread-info-billing-empty-fields" aria-hidden="true">
+        <div className="thread-info-billing-empty-field">
+          <span>{i18n.t("billing.emptyTokens")}</span>
+          <strong>—</strong>
+        </div>
+        <div className="thread-info-billing-empty-field">
+          <span>{i18n.t("billing.emptyCache")}</span>
+          <strong>—</strong>
+        </div>
+        <div className="thread-info-billing-empty-field">
+          <span>{i18n.t("billing.cost")}</span>
+          <strong>—</strong>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BillingFloatingCard({
   billing,
   ledgerEvents,
@@ -300,7 +330,15 @@ function BillingFloatingCard({
   const showComparison = Boolean(billing && shouldShowBillingSavings(billing.savedUsd));
 
   return (
-    <div className="thread-info-float-card thread-info-billing-card">
+    <div
+      className={[
+        "thread-info-float-card",
+        "thread-info-billing-card",
+        showBilling && billing ? "" : "is-empty",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div className="thread-info-float-card-header">
         <h4 className="thread-info-float-card-title">
           {i18n.t(showComparison ? "billing.comparison" : "billing.title")}
@@ -374,7 +412,7 @@ function BillingFloatingCard({
           ) : null}
         </div>
       ) : (
-        <p className="thread-info-muted thread-info-billing-empty">{billingEmptyHint(threadStatus)}</p>
+        <BillingEmptyState hint={billingEmptyHint(threadStatus)} />
       )}
 
       {showBilling && billing ? (
@@ -642,6 +680,7 @@ export function ThreadInfoFloatStack({
   const showContextFloat = showContext ?? shouldShowContextUsagePanel(threadStatus, hostUiFeatures);
   const showBillingFloat = showBillingSection && shouldShowBillingUsagePanel(threadStatus, hostUiFeatures);
   const contextOccupancyPct = resolvePlannerOccupancyPct(context);
+  const hasContextSnapshot = context !== undefined;
   const floatOpenOn = variant === "composer" ? "click" : "hover";
   const floatAlign = variant === "composer" ? "end" : "start";
 
@@ -711,8 +750,8 @@ export function ThreadInfoFloatStack({
               : {})}
             resetKey={threadId}
             width={320}
-            minHeight={360}
-            fixedHeight={360}
+            minHeight={hasContextSnapshot ? 360 : 160}
+            {...(hasContextSnapshot ? { fixedHeight: 360 } : {})}
             openOn={floatOpenOn}
             align={floatAlign}
           >

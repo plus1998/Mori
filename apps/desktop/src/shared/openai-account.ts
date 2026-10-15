@@ -75,6 +75,8 @@ export interface OpenAIAccountAssistantState {
   hasTwoFactorSecret: boolean;
   code?: string;
   remainingSeconds?: number;
+  /** Seconds remaining before the active Codex OAuth login expires. */
+  loginRemainingSeconds?: number;
   codeError?: string;
   canFill: boolean;
   hasLoginWindow: boolean;

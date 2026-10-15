@@ -971,7 +971,7 @@ export function ModelsSettingsPanel({
         </section>
       )}
 
-      {activeTab === "openaiAccounts" && <LazyOpenAIAccountsPanel />}
+      {activeTab === "openaiAccounts" && <LazyOpenAIAccountsPanel onError={showAppMessageError} />}
 
       {activeTab === "chatgptAccounts" && <ChatGPTSubscriptionAccountsPanel />}
 

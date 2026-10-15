@@ -85,6 +85,23 @@ test("buildBillingTokenBreakdown merges roles that share the same model", () => 
   expect(breakdown?.byModel[0]?.ecoCostUsd).toBeCloseTo(0.06);
 });
 
+test("buildBillingTokenBreakdown uses readable model display names", () => {
+  const breakdown = buildBillingTokenBreakdown(
+    makeBilling({
+      coder: {
+        inputTokens: 3000,
+        outputTokens: 300,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        ecoCostUsd: 0.02,
+        modelId: "deepseek-ai/deepseek-r1-distill-qwen-32b-instruct",
+      },
+    }),
+  );
+
+  expect(breakdown?.byModel[0]?.label).toBe("Deepseek R1 Distill Qwen 32b Instruct");
+});
+
 test("buildBillingTokenBreakdown includes dynamic orchestration roles", () => {
   const breakdown = buildBillingTokenBreakdown(
     makeBilling({

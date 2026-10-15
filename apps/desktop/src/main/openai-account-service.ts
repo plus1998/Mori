@@ -682,7 +682,7 @@ export class OpenAIAccountService {
   /** Start login for a specific account. */
   async startLogin(
     accountId: string,
-  ): Promise<{ authUrl: string; result: Promise<OpenAIAccountLoginResult>; cancel: () => void } | null> {
+  ): Promise<{ authUrl: string; expiresAt: number; result: Promise<OpenAIAccountLoginResult>; cancel: () => void } | null> {
     const account = await this.requireAccount(accountId);
     this.activeLogins.get(accountId)?.cancel();
     const codexExecutable = this.codexExecutableProvider();
@@ -734,7 +734,7 @@ export class OpenAIAccountService {
         if (this.activeLogins.get(accountId)?.result === result) this.activeLogins.delete(accountId);
       });
       this.activeLogins.set(accountId, { cancel: login.cancel, result });
-      return { authUrl: login.authUrl, result, cancel: login.cancel };
+      return { authUrl: login.authUrl, expiresAt: login.expiresAt, result, cancel: login.cancel };
     } catch (error) {
       bridge?.close();
       // A failed startup is not a completed login; preserve any credential file.

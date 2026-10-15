@@ -5,6 +5,7 @@ import { accountLoginFillScript, generateAccountTotp, isAccountLoginPage } from 
 export class OpenAIAccountAssistant {
   private readonly windows = new Map<string, BrowserWindow>();
   private readonly loginWindows = new Map<string, BrowserWindow>();
+  private readonly loginDeadlines = new Map<string, number>();
   private readonly pickupWindows = new Map<string, BrowserWindow>();
 
   constructor(private readonly deps: {
@@ -43,10 +44,14 @@ export class OpenAIAccountAssistant {
     }
   }
 
-  attachLogin(accountId: string, window: BrowserWindow): void {
+  attachLogin(accountId: string, window: BrowserWindow, expiresAt?: number): void {
     this.loginWindows.set(accountId, window);
+    if (expiresAt !== undefined) this.loginDeadlines.set(accountId, expiresAt);
+    else this.loginDeadlines.delete(accountId);
     window.on("closed", () => {
-      if (this.loginWindows.get(accountId) === window) this.loginWindows.delete(accountId);
+      if (this.loginWindows.get(accountId) !== window) return;
+      this.loginWindows.delete(accountId);
+      this.loginDeadlines.delete(accountId);
     });
     const assistant = this.windows.get(accountId);
     if (assistant && !assistant.isDestroyed()) this.placeLoginPair(accountId, assistant, "assistant");
@@ -75,14 +80,21 @@ export class OpenAIAccountAssistant {
     const account = await this.deps.getDetails(accountId);
     const login = this.loginWindows.get(accountId);
     const assistant = this.windows.get(accountId);
+    const hasLoginWindow = Boolean(login && !login.isDestroyed());
     const state: OpenAIAccountAssistantState = {
       accountId, name: account.name, ...(account.email ? { email: account.email } : {}),
       hasPassword: Boolean(account.password), hasPickupUrl: Boolean(account.pickupUrl),
       hasTwoFactorSecret: Boolean(account.twoFactorSecret),
-      canFill: Boolean(login && !login.isDestroyed() && isAccountLoginPage(login.webContents.getURL())),
-      hasLoginWindow: Boolean(login && !login.isDestroyed()),
+      canFill: Boolean(hasLoginWindow && login && isAccountLoginPage(login.webContents.getURL())),
+      hasLoginWindow,
       pinned: assistant?.isAlwaysOnTop() ?? true,
     };
+    if (hasLoginWindow) {
+      const expiresAt = this.loginDeadlines.get(accountId);
+      if (expiresAt !== undefined) {
+        state.loginRemainingSeconds = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1_000));
+      }
+    }
     if (account.pickupUrl) state.pickupHost = new URL(account.pickupUrl).hostname;
     if (account.twoFactorSecret) {
       try {
@@ -160,5 +172,6 @@ export class OpenAIAccountAssistant {
     this.windows.clear();
     this.pickupWindows.clear();
     this.loginWindows.clear();
+    this.loginDeadlines.clear();
   }
 }

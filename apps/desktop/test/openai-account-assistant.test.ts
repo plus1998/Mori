@@ -63,13 +63,15 @@ test("fill supports six separate OTP boxes", () => {
 
 test("assistant masks passwords, shows a live code, and offers mailbox and field actions", () => {
   const markup = renderToStaticMarkup(createElement(OpenAIAccountAssistantView, {
-    state: { accountId: "oa_test", name: "Test", email: "a@example.test", hasPassword: true, hasPickupUrl: true, pickupHost: "pickup.test", hasTwoFactorSecret: true, code: "012345", remainingSeconds: 9, canFill: true, hasLoginWindow: true, pinned: true },
+    state: { accountId: "oa_test", name: "Test", email: "a@example.test", hasPassword: true, hasPickupUrl: true, pickupHost: "pickup.test", hasTwoFactorSecret: true, code: "012345", remainingSeconds: 9, loginRemainingSeconds: 599, canFill: true, hasLoginWindow: true, pinned: true },
     busy: false, password: "", notice: "", error: "", onAction: () => {}, onHidePassword: () => {}, onLogin: () => {},
   }));
   expect(markup).toContain("••••••••••••");
   expect(markup).toContain("当前验证码 012345");
   expect(markup).toContain("复制验证码");
   expect(markup).toContain("打开收件箱");
+  expect(markup).toContain("登录超时倒计时");
+  expect(markup).toContain("09:59");
   expect(markup).toContain("取消置顶");
   expect(markup).not.toContain("打开登录页");
 });

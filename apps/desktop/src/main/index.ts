@@ -503,7 +503,7 @@ import {
   runtimeRouteToProxyRoute,
   startAnthropicModelProxy,
 } from "./anthropic-proxy";
-import { attachMainWindowQuitGuard, installApplicationShutdownHook } from "./application-shutdown";
+import { attachMainWindowQuitGuard, installApplicationShutdownHook, isApplicationQuitting } from "./application-shutdown";
 import {
   type ApplicationShutdownDeps,
   collectRunningWorkSummary,
@@ -511,6 +511,7 @@ import {
 } from "./application-shutdown-work";
 import { resolveApprovalModelRoute } from "./approval-model-route";
 import { transcribeAsr } from "./asr-client";
+import { isCodexAuthCompletionPageText } from "./codex-browser-login";
 import { type AsrSecretCodec, type AsrSettingsStore, createAsrSettingsStore } from "./asr-settings-store";
 import { resolveAuxiliaryModelRoute } from "./auxiliary-model-route";
 import { BackgroundTerminalTaskRegistry } from "./background-terminal-tasks";
@@ -1170,6 +1171,80 @@ function createOAuthAuthWindow(parent?: BrowserWindow, partition = "oauth-auth-s
       contextIsolation: true,
     },
   });
+}
+
+/** Watch for the provider's success page while the local app-server callback is still in flight. */
+function watchCodexAuthCompletionPage(authWindow: BrowserWindow, onDetected: () => void): () => void {
+  let stopped = false;
+  let checking = false;
+  let timer: ReturnType<typeof setInterval> | undefined;
+
+  function stop(): void {
+    if (stopped) return;
+    stopped = true;
+    if (timer) clearInterval(timer);
+    authWindow.webContents.removeListener("dom-ready", check);
+    authWindow.webContents.removeListener("did-finish-load", check);
+    authWindow.webContents.removeListener("did-navigate", check);
+    authWindow.webContents.removeListener("did-navigate-in-page", check);
+  }
+
+  function check(): void {
+    if (stopped || checking || authWindow.isDestroyed()) return;
+    checking = true;
+    void authWindow.webContents
+      .executeJavaScript("document.body?.innerText ?? ''", true)
+      .then((bodyText) => {
+        if (typeof bodyText !== "string" || !isCodexAuthCompletionPageText(bodyText)) return;
+        stop();
+        onDetected();
+      })
+      .catch(() => {
+        // The document can be replaced while OAuth navigates. The next load event retries.
+      })
+      .finally(() => {
+        checking = false;
+      });
+  }
+
+  authWindow.webContents.on("dom-ready", check);
+  authWindow.webContents.on("did-finish-load", check);
+  authWindow.webContents.on("did-navigate", check);
+  authWindow.webContents.on("did-navigate-in-page", check);
+  timer = setInterval(check, 1_000);
+  check();
+  return stop;
+}
+
+/** Keep the OAuth window open after provider-side success until app-server confirms the callback. */
+function installCodexAuthCompletionGuard(authWindow: BrowserWindow, cancelLogin: () => void): {
+  allowClose: () => void;
+  dispose: () => void;
+} {
+  let awaitingCallback = false;
+  const stopWatching = watchCodexAuthCompletionPage(authWindow, () => {
+    if (awaitingCallback || authWindow.isDestroyed()) return;
+    awaitingCallback = true;
+    authWindow.setClosable(false);
+    process.stderr.write("[codex-oauth] provider authorization succeeded; waiting for local callback\n");
+  });
+
+  authWindow.on("close", (event) => {
+    if (awaitingCallback && !isApplicationQuitting()) {
+      event.preventDefault();
+      return;
+    }
+    cancelLogin();
+  });
+
+  return {
+    allowClose: () => {
+      awaitingCallback = false;
+      stopWatching();
+      if (!authWindow.isDestroyed()) authWindow.setClosable(true);
+    },
+    dispose: stopWatching,
+  };
 }
 
 /** Configure the shared embedded OAuth session with the desktop outbound proxy. */
@@ -6459,8 +6534,9 @@ function registerIpcHandlers(): void {
 
       // Register before loadURL: the user can close the native window while the
       // OAuth page is still loading.
-      authWindow.on("close", cancelLogin);
+      const completionGuard = installCodexAuthCompletionGuard(authWindow, cancelLogin);
       authWindow.on("closed", () => {
+        completionGuard.dispose();
         // `destroy()` and application shutdown may skip the `close` event.
         cancelLogin();
       });
@@ -6474,6 +6550,7 @@ function registerIpcHandlers(): void {
       try {
         await authWindow.loadURL(authInfo.authUrl);
       } catch (error) {
+        completionGuard.allowClose();
         cancelLogin();
         if (!authWindow.isDestroyed()) authWindow.destroy();
         return {
@@ -6489,6 +6566,7 @@ function registerIpcHandlers(): void {
           // Mark the flow as settled before closing so the close listener does not
           // report a successful login as a cancellation.
           loginCancelled = true;
+          completionGuard.allowClose();
           if (!authWindow.isDestroyed()) authWindow.close();
           process.stderr.write(`[codex-oauth] login result: ${JSON.stringify(res)}\n`);
           if (res.success) {
@@ -6506,6 +6584,7 @@ function registerIpcHandlers(): void {
           if (loginCancelled) return;
           loginCancelled = true;
           authInfo.cancel();
+          completionGuard.allowClose();
           if (!authWindow.isDestroyed()) authWindow.close();
           process.stderr.write(`[codex-oauth] login error: ${error}\n`);
           BrowserWindow.getAllWindows().forEach((win) => {
@@ -6675,7 +6754,7 @@ function registerIpcHandlers(): void {
     // across displays without being constrained by the main window's window group.
     const authWindow = createOAuthAuthWindow(undefined, partition);
     authWindow.setTitle(`Codex 登录 · ${account?.name ?? "账号"}`);
-    requireAccountAssistant().attachLogin(payload.accountId, authWindow);
+    requireAccountAssistant().attachLogin(payload.accountId, authWindow, authInfo.expiresAt);
     let loginCancelled = false;
     let proxyReleased = false;
     const closeSocksBridge = () => {
@@ -6701,8 +6780,9 @@ function registerIpcHandlers(): void {
 
     // Register before loadURL so closing while the OAuth page is loading still
     // cancels the CLI process and releases the proxy bridge.
-    authWindow.on("close", cancelLogin);
+    const completionGuard = installCodexAuthCompletionGuard(authWindow, cancelLogin);
     authWindow.on("closed", () => {
+      completionGuard.dispose();
       closeSocksBridge();
       // `destroy()` and application shutdown may skip the `close` event.
       cancelLogin();
@@ -6712,6 +6792,7 @@ function registerIpcHandlers(): void {
       await requireAccountAssistant().open(payload.accountId);
       await authWindow.loadURL(authInfo.authUrl);
     } catch (error) {
+      completionGuard.allowClose();
       cancelLogin();
       closeSocksBridge();
       if (!authWindow.isDestroyed()) authWindow.destroy();
@@ -6727,6 +6808,7 @@ function registerIpcHandlers(): void {
         // Settle before closing so the close listener does not turn a completed
         // login into a cancellation notification.
         loginCancelled = true;
+        completionGuard.allowClose();
         closeSocksBridge();
         if (!authWindow.isDestroyed()) authWindow.close();
         // `codex login` only writes the account's own CODEX_HOME. When this account is
@@ -6751,6 +6833,7 @@ function registerIpcHandlers(): void {
         if (loginCancelled) return;
         loginCancelled = true;
         authInfo.cancel();
+        completionGuard.allowClose();
         closeSocksBridge();
         if (!authWindow.isDestroyed()) authWindow.close();
         console.error(

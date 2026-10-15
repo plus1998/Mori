@@ -1,10 +1,11 @@
-import { formatRoleModelLabel, formatUsageBadge, shortenModelId } from "@eco/runtime/usage";
+import { formatRoleModelLabel, formatUsageBadge } from "@eco/runtime/usage";
 import {
   AGENT_ROLES,
   type RuntimeAgentRole,
   type ThreadBillingModelSnapshot,
   type ThreadBillingSnapshot,
 } from "./ipc";
+import { formatModelDisplayName } from "./model-id";
 
 type RoleUsageEntry = NonNullable<ThreadBillingSnapshot["byRole"]>[string];
 
@@ -175,7 +176,7 @@ function collectDisplayByModel(billing: ThreadBillingSnapshot): ThreadBillingMod
 function toModelRows(entries: ThreadBillingModelSnapshot[]): BillingModelRow[] {
   return entries.map((entry) => ({
     modelId: entry.modelId,
-    label: shortenModelId(entry.modelId),
+    label: formatModelDisplayName(entry.modelId),
     roles: sortRoleKeys(entry.roles),
     inputTokens: entry.inputTokens,
     outputTokens: entry.outputTokens,
@@ -264,7 +265,7 @@ export function buildBillingTokenBreakdown(
   const byModel: BillingModelRow[] = [...modelMap.values()]
     .map((entry) => ({
       modelId: entry.modelId,
-      label: shortenModelId(entry.modelId),
+      label: formatModelDisplayName(entry.modelId),
       roles: sortRoleKeys(entry.roles),
       inputTokens: entry.inputTokens,
       outputTokens: entry.outputTokens,

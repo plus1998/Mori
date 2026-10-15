@@ -21,7 +21,6 @@ import {
   Mail,
   KeyRound,
   Inbox,
-  PanelRightOpen,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { OpenAIAccount, OpenAIAccountDetails, OpenAIAccountImageQuota, OpenAIAccountQuota, OpenAIAccountQuotaWindow, OpenAIAccountSyncStatus } from "../../shared/openai-account";
@@ -213,7 +212,7 @@ export function OpenAIAccountSwitchStatus({
   );
 }
 
-export function OpenAIAccountsPanel() {
+export function OpenAIAccountsPanel({ onError }: { onError: (message: string) => void }) {
   const { t } = useTranslation();
   const eco = window.eco;
   const [accounts, setAccounts] = useState<OpenAIAccount[]>([]);
@@ -280,7 +279,10 @@ export function OpenAIAccountsPanel() {
     const unsubOauth = eco.onCodexOauthLoginResult(async (result) => {
       if (result.accountId) {
         setLoggingInId((current) => current === result.accountId ? null : current);
-        if (!result.success) setOperationError(result.message);
+        if (!result.success) {
+          setOperationError("");
+          onError(result.message);
+        }
       }
       await refresh();
     });
@@ -291,7 +293,7 @@ export function OpenAIAccountsPanel() {
       if (typeof unsubOauth === "function") unsubOauth();
       unsubAccounts();
     };
-  }, [eco, refresh]);
+  }, [eco, onError, refresh]);
 
   useEffect(() => {
     if (!menuOpenId) return;
@@ -440,8 +442,16 @@ export function OpenAIAccountsPanel() {
           const authResult = await eco.openAIAccountsSetAuthJson(account.id, modalAuthJson.trim());
           if (!authResult.success) throw new Error(authResult.message);
         } else if (!saveOnly && modalMode === "login") {
-          const loginResult = await eco.openAIAccountsStartLogin(account.id);
-          if (!loginResult.success) throw new Error(loginResult.message);
+          try {
+            const loginResult = await eco.openAIAccountsStartLogin(account.id);
+            if (!loginResult.success) {
+              onError(loginResult.message);
+              return;
+            }
+          } catch (error) {
+            onError(error instanceof Error ? error.message : String(error));
+            return;
+          }
         }
       }
       setModalOpen(false);
@@ -471,6 +481,7 @@ export function OpenAIAccountsPanel() {
     modalMode,
     modalAuthJson,
     modalEditId,
+    onError,
     refresh,
   ]);
 
@@ -494,15 +505,19 @@ export function OpenAIAccountsPanel() {
     async (accountId: string) => {
       if (!eco) return;
       setLoggingInId(accountId);
+      setOperationError("");
       try {
         const result = await eco.openAIAccountsStartLogin(accountId);
-        if (!result.success) { setOperationError(result.message); setLoggingInId(null); }
+        if (!result.success) {
+          onError(result.message);
+          setLoggingInId(null);
+        }
       } catch (error) {
-        setOperationError(error instanceof Error ? error.message : String(error));
+        onError(error instanceof Error ? error.message : String(error));
         setLoggingInId(null);
       }
     },
-    [eco],
+    [eco, onError],
   );
 
   const handleSetActive = useCallback(
@@ -592,13 +607,6 @@ export function OpenAIAccountsPanel() {
       setBusy(false);
     }
   }, [eco, refresh]);
-
-  const openAssistant = useCallback(async (accountId: string) => {
-    if (!eco) return;
-    setOperationError("");
-    try { await eco.openAIAccountsOpenAssistant(accountId); }
-    catch (error) { setOperationError(error instanceof Error ? error.message : String(error)); }
-  }, [eco]);
 
   const loggedInCount = accounts.filter((account) => account.isLoggedIn).length;
   const activeAccount = accounts.find(
@@ -811,9 +819,6 @@ export function OpenAIAccountsPanel() {
                     {status}
                   </span>
                   <div className="codex-account-actions">
-                    {!account.isLoggedIn ? (
-                      <button type="button" className="codex-action-secondary codex-assistant-trigger" onClick={() => void openAssistant(account.id)}><PanelRightOpen size={14} />登录助手</button>
-                    ) : null}
                     {!isActive && account.isLoggedIn ? (
                       <button
                         type="button"
