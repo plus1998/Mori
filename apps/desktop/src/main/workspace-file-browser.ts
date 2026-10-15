@@ -25,7 +25,13 @@ const MEDIA_TYPES = new Map<string, { kind: "image" | "audio" | "video"; mimeTyp
   [".mp3", { kind: "audio", mimeType: "audio/mpeg" }],
   [".wav", { kind: "audio", mimeType: "audio/wav" }],
   [".ogg", { kind: "audio", mimeType: "audio/ogg" }],
+  // Ogg containers that Chromium decodes as Opus; `audio/ogg` is the type <audio> accepts here.
+  [".oga", { kind: "audio", mimeType: "audio/ogg" }],
+  [".opus", { kind: "audio", mimeType: "audio/ogg" }],
+  [".flac", { kind: "audio", mimeType: "audio/flac" }],
+  [".aac", { kind: "audio", mimeType: "audio/aac" }],
   [".m4a", { kind: "audio", mimeType: "audio/mp4" }],
+  [".m4b", { kind: "audio", mimeType: "audio/mp4" }],
   [".mp4", { kind: "video", mimeType: "video/mp4" }],
   [".webm", { kind: "video", mimeType: "video/webm" }],
 ]);
@@ -152,6 +158,7 @@ function hasMediaSignature(kind: "image" | "audio" | "video", buffer: Buffer): b
         (buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
           buffer.subarray(8, 12).toString("ascii") === "WAVE") ||
         buffer.subarray(0, 4).toString("ascii") === "OggS" ||
+        buffer.subarray(0, 4).toString("ascii") === "fLaC" ||
         (buffer.subarray(4, 8).toString("ascii") === "ftyp" &&
           buffer.subarray(8, 12).toString("ascii").toLowerCase().startsWith("m4"))
       );

@@ -100,6 +100,24 @@ test("rejects unknown binary files and supports whitelisted media", async () => 
   });
 });
 
+test("plays generated and common audio containers in the file browser", async () => {
+  const cases: Array<[string, Buffer, string]> = [
+    ["speech.mp3", Buffer.from("ID3\x03\x00fake-id3-tag", "latin1"), "audio/mpeg"],
+    ["speech.wav", Buffer.from("RIFF\x00\x00\x00\x00WAVEfmt ", "latin1"), "audio/wav"],
+    ["speech.ogg", Buffer.from("OggS\x00\x02", "latin1"), "audio/ogg"],
+    ["speech.opus", Buffer.from("OggS\x00\x02", "latin1"), "audio/ogg"],
+    ["speech.flac", Buffer.from("fLaC\x00\x00\x00\x22", "latin1"), "audio/flac"],
+    ["speech.aac", Buffer.from([0xff, 0xf1, 0x50, 0x80]), "audio/aac"],
+    ["book.m4b", Buffer.from("\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00", "latin1"), "audio/mp4"],
+  ];
+  for (const [name, bytes, mimeType] of cases) {
+    const filePath = path.join(workspacePath, name);
+    await fs.writeFile(filePath, bytes);
+    const result = await readWorkspaceFile({ workspacePath, filePath });
+    expect(result, name).toMatchObject({ kind: "audio", mimeType, base64: bytes.toString("base64") });
+  }
+});
+
 test("rejects media files whose signatures do not match their extensions", async () => {
   const fakePngPath = path.join(workspacePath, "fake.png");
   const fakeMp3Path = path.join(workspacePath, "fake.mp3");

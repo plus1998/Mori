@@ -866,7 +866,14 @@ export function WorkspaceFloatingCards({
         {ttsArtifacts.length > 0 ? (
           <WorkspacePanelSection id="workspace-tts-artifacts" title={t("task.tts.history")} defaultExpanded maxBodyHeight={360}>
             <div className="workspace-resource-list">
-              {ttsArtifacts.map(artifact => <TtsArtifactPlayer key={artifact.id} artifact={artifact} {...(onOpenTtsArtifact ? { onOpen: onOpenTtsArtifact } : {})} />)}
+              {ttsArtifacts.map((artifact) => (
+                <TtsArtifactPlayer
+                  key={artifact.id}
+                  artifact={artifact}
+                  compact
+                  {...(onOpenTtsArtifact ? { onOpen: onOpenTtsArtifact } : {})}
+                />
+              ))}
             </div>
           </WorkspacePanelSection>
         ) : null}
