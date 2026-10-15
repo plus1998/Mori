@@ -811,7 +811,9 @@ export function OpenAIAccountsPanel() {
                     {status}
                   </span>
                   <div className="codex-account-actions">
-                    <button type="button" className="codex-action-secondary codex-assistant-trigger" onClick={() => void openAssistant(account.id)}><PanelRightOpen size={14} />登录助手</button>
+                    {!account.isLoggedIn ? (
+                      <button type="button" className="codex-action-secondary codex-assistant-trigger" onClick={() => void openAssistant(account.id)}><PanelRightOpen size={14} />登录助手</button>
+                    ) : null}
                     {!isActive && account.isLoggedIn ? (
                       <button
                         type="button"

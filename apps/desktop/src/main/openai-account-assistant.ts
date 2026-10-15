@@ -116,7 +116,8 @@ export class OpenAIAccountAssistant {
       if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return { message: "收件页已打开" }; }
       const window = new BrowserWindow({
         width: 920, height: 700, title: `收件箱 · ${account.name}`, autoHideMenuBar: true,
-        ...(this.deps.parent() ? { parent: this.deps.parent()! } : {}),
+        // Keep the inbox as a standalone window. On macOS, an owned child
+        // window can disappear when it is moved to another display.
         webPreferences: { partition: `openai-pickup-${accountId}`, nodeIntegration: false, contextIsolation: true, sandbox: true },
       });
       this.pickupWindows.set(accountId, window);
