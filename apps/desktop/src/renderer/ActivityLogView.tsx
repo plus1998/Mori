@@ -924,17 +924,8 @@ export function buildConversationV2OnlyProjection(
     toolsByOwner.set(agentId, owned);
   }
   const registry = new Map([...conversationV2.agents.values()].map((agent) => [agent.agentId, agent]));
-  // An agent the registry knows about, or one the rows themselves reveal. The
-  // legacy projection discovered agents from their spawn events; the registry is the
-  // same fact recorded durably, and the tool/message owner ids keep an agent visible
-  // while its lifecycle event is still missing.
-  const agentIds = new Set<string>([
-    ...registry.keys(),
-    ...toolsByOwner.keys(),
-    ...[...conversationV2.messages.values()]
-      .map((message) => message.agentId?.trim())
-      .filter((agentId): agentId is string => Boolean(agentId)),
-  ]);
+  // Owner ids also identify auxiliary requests (for example image_view errors).
+  // Only a durable agent record establishes an agent lifecycle and warrants a card.
   // Who gets a card, and therefore who owns rows. The Feed draws a card for a subagent,
   // and a row belongs to the main feed unless its owner is one — a planner instance is the
   // attempt's own main agent, whose messages and tools are the conversation itself. An
@@ -943,7 +934,7 @@ export function buildConversationV2OnlyProjection(
   // announced itself is a main-feed row, not a card invented from an id (invariant 14:
   // content is shown, never hidden behind a card no agent record backs).
   const cardAgentIds = new Set<string>(
-    [...agentIds].filter((agentId) => registry.get(agentId)?.kind === "subagent"),
+    [...registry.values()].filter((agent) => agent.kind === "subagent").map((agent) => agent.agentId),
   );
   // Rows whose owner is not a card owner stay in the main feed, so the split happens here
   // once rather than at each use.
@@ -1009,8 +1000,7 @@ export function buildConversationV2OnlyProjection(
   }
 
   const agents: ThreadRunProjectionAgent[] = [];
-  for (const agentId of agentIds) {
-    const record = registry.get(agentId);
+  for (const [agentId, record] of registry) {
     const ownedTools = toolsByAgent.get(agentId) ?? [];
     const ownedMessages = messagesByAgent.get(agentId) ?? [];
     const timeline = [
@@ -1033,9 +1023,9 @@ export function buildConversationV2OnlyProjection(
       : Math.max(0, Date.now() - Date.parse(startedAt));
     agents.push({
       agentId,
-      role: record?.role ?? "subagent",
-      kind: record?.kind === "planner" ? "planner" : "subagent",
-      status: agentProjectionStatus(record?.status),
+      role: record.role,
+      kind: record.kind === "planner" ? "planner" : "subagent",
+      status: agentProjectionStatus(record.status),
       startedAt,
       durationMs,
       ...(record?.runId ? { runAttemptId: record.runId } : {}),

@@ -865,6 +865,63 @@ test("keeps a subagent message in the main feed when no agent card can hold it",
   expect(orphan?.scope).toBe("main");
 });
 
+test("an image-view failure stays visible without inventing a running subagent", () => {
+  const owner = "image_view:thread_merge:failed_request";
+  const failure: ConversationMessage = {
+    ...message("image_failure", 2),
+    role: "system",
+    channel: "system",
+    providerRole: "vision",
+    agentId: owner,
+    agentInstanceId: owner,
+    body: "【连接失败】HTTP 400：upstream unavailable",
+  };
+  const projection = buildConversationV2OnlyProjection(v2State([failure]), {
+    createdAt: "2026-09-14T00:00:00.000Z",
+    status: "completed",
+  });
+  expect(projection.agents).toEqual([]);
+  expect(projection.timeline).toHaveLength(1);
+  expect(projection.timeline[0]).toMatchObject({
+    scope: "main",
+    agentId: owner,
+    text: failure.body,
+  });
+  expect(buildThreadRunProjectionViewModel(projection).subagentCards).toEqual([]);
+  const html = renderToStaticMarkup(createElement(ActivityLogView, { conversationV2: v2State([failure]) }));
+  expect(html).toContain("连接失败 · HTTP 400");
+  expect(html).not.toContain("subagent-run-row-wrap");
+});
+
+test("an unregistered tool owner does not create an agent card or hide the tool", () => {
+  const projection = buildConversationV2OnlyProjection(
+    v2State(
+      [],
+      [],
+      [
+        {
+          toolCallId: "unregistered_tool",
+          conversationId: "thread_merge",
+          runId: "run_1",
+          agentId: "unregistered_owner",
+          name: "Bash",
+          status: "completed",
+          createdSeq: 2,
+          versionSeq: 3,
+          input: { command: "bun test" },
+        },
+      ],
+    ),
+  );
+  expect(projection.agents).toEqual([]);
+  expect(projection.timeline).toHaveLength(1);
+  expect(projection.timeline[0]).toMatchObject({
+    scope: "main",
+    agentId: "unregistered_owner",
+    metadata: { tool: { name: "Bash", toolUseId: "unregistered_tool" } },
+  });
+});
+
 test("a legacy subagent row keeps its owner from the adapter to the agent card", () => {
   // The whole pipeline, not just one layer: legacy row → V2 event → read model →
   // renderer merge. A layer that drops the agent identity makes a subagent's

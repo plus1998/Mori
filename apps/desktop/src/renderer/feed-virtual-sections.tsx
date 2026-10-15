@@ -484,6 +484,8 @@ export function useFeedSectionVirtualizer(input: {
     // the notification splits the two across frames, so every measurement leaves
     // the pinned position further from the live tail — upstream sees the same
     // shape of bug in #1227.
+    // react-virtual >= 3.14.13 skips flushSync during ref measurements, when
+    // React is already committing, while preserving these scroll corrections.
     useFlushSync: true,
     // Measurements update both the virtual window and its DOM spacers. Run that
     // mutation at the frame boundary, rather than resizing observed ancestors
@@ -506,16 +508,16 @@ export function useFeedSectionVirtualizer(input: {
     [virtualizer],
   );
 
-  // Row removals and a turn's collapse happen in one commit. Reconcile against
-  // the committed DOM, after the virtual window's spacers have changed, rather
-  // than letting each row's independent resize delta move the end anchor.
+  // Reconcile structural changes after the spacers commit. Composer edits and
+  // stream-only renders must leave measurement corrections to virtual-core;
+  // pinning on every commit races its still-pending ResizeObserver updates.
   useLayoutEffect(() => {
     if (!enabled || userDetached) return;
     const element = getScrollElement();
     if (!element) return;
     const end = Math.max(0, element.scrollHeight - element.clientHeight);
     if (Math.abs(element.scrollTop - end) > 1) element.scrollTop = end;
-  });
+  }, [enabled, userDetached, getScrollElement, getItemKey]);
 
   useLayoutEffect(() => {
     if (!enabled) {

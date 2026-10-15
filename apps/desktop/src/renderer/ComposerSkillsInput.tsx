@@ -75,10 +75,12 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
 
     const fitHeight = useCallback(
       (editor: HTMLDivElement) => {
-        editor.style.height = "0px";
-        const next = Math.min(editor.scrollHeight, maxHeight);
-        editor.style.height = `${next}px`;
-        editor.style.overflowY = editor.scrollHeight > maxHeight ? "auto" : "hidden";
+        // A contenteditable div can size to its content without a measurement
+        // pass. Collapsing it first temporarily expands the sibling Feed and
+        // clamps its scrollTop, even when the final editor height is unchanged.
+        editor.style.height = "auto";
+        editor.style.maxHeight = `${maxHeight}px`;
+        editor.style.overflowY = "auto";
       },
       [maxHeight],
     );
