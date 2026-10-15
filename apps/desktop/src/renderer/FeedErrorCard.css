@@ -36,6 +36,30 @@
 
 .feed-error-card-details > summary {
   cursor: pointer;
+  list-style: none;
+}
+
+.feed-error-card-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Flex summary suppresses the native disclosure triangle; keep an explicit affordance. */
+.feed-error-card-disclosure {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-left: auto;
+  color: var(--text-muted);
+  transition: transform 140ms ease;
+}
+
+.feed-error-card-details[open] > summary .feed-error-card-disclosure {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-error-card-disclosure {
+    transition: none;
+  }
 }
 
 .feed-error-card-context {

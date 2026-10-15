@@ -41,6 +41,35 @@ test("resolveReconnectPhaseDisplay uses origin metadata instead of SDK text", ()
     }),
   ).toEqual({
     summary: "连接失败 · HTTP 503",
+    // The body still carries the only available reason when metadata has none.
+    detail: "ignored body",
+    failed: true,
+  });
+});
+
+test("resolveReconnectPhaseDisplay surfaces the structured upstream reason", () => {
+  const reason =
+    "Upstream provider sk-deepseek-t156tt · model=deepseek-flash · url=https://slb-v1.api.fan/v1/responses · status=400 · Context window exhausted: window=262144, input=299189, reserve=1.";
+  expect(
+    resolveReconnectPhaseDisplay({
+      text: "【连接失败】HTTP 400：Upstream returned HTTP 400",
+      metadata: { activityOrigin: "proxy.connection_error" },
+      apiError: { statusCode: 400, message: reason },
+    }),
+  ).toEqual({
+    summary: "连接失败 · HTTP 400",
+    detail: reason,
+    failed: true,
+  });
+  // Rows persisted before the gateway kept the body must stay quiet.
+  expect(
+    resolveReconnectPhaseDisplay({
+      text: "【连接失败】HTTP 400：Upstream returned HTTP 400",
+      metadata: { activityOrigin: "proxy.connection_error" },
+      apiError: { statusCode: 400, message: "Upstream returned HTTP 400" },
+    }),
+  ).toEqual({
+    summary: "连接失败 · HTTP 400",
     failed: true,
   });
 });

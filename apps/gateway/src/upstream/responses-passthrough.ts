@@ -28,7 +28,7 @@ import {
   responsesCompletedSse,
   responsesFailedSse,
 } from "./responses-stream-errors.js";
-import { upstreamErrorResponse } from "./upstream-error.js";
+import { formatUpstreamHttpError, upstreamErrorResponse } from "./upstream-error.js";
 import { applyUpstreamUserAgent } from "./user-agent.js";
 
 let usageEventSeq = 0;
@@ -262,7 +262,12 @@ export async function forwardResponsesPassthrough(
     const providerRequestId = readUpstreamRequestId(upstreamResponse.headers);
     reportLogicalUpstreamFailure(lifecycle, {
       stage: "http",
-      error: `Upstream returned HTTP ${upstreamResponse.status}`,
+      error: formatUpstreamHttpError({
+        route,
+        upstreamUrl,
+        status: upstreamResponse.status,
+        bodyText: text,
+      }),
       statusCode: upstreamResponse.status,
       ...(providerRequestId ? { providerRequestId } : {}),
     });

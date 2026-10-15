@@ -1,6 +1,7 @@
 import {
   type ParsedReconnectActivity,
   parseReconnectActivityMessage,
+  readReconnectDetail,
   shouldClearReconnectActivity,
 } from "./activity-display";
 import { CONVERSATION_RUNTIME_EVENT_FAILURE_ORIGIN } from "./conversation-runtime-event-failure";
@@ -166,8 +167,14 @@ export function resolveReconnectPhaseDisplay(input: {
   const origin = resolveThreadActivityOrigin(input);
   if (origin === "proxy.connection_error") {
     if (input.apiError?.statusCode !== undefined) {
+      // The structured upstream reason is authoritative; the message text is the
+      // fallback for rows persisted before the reason was recorded in metadata.
+      const detail =
+        readReconnectDetail(input.apiError.message) ??
+        readReconnectDetail(parseReconnectActivityMessage(input.text.trim())?.detail);
       return {
         summary: `连接失败 · HTTP ${input.apiError.statusCode}`,
+        ...(detail ? { detail } : {}),
         failed: true,
       };
     }

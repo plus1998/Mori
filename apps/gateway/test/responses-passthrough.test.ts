@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { buildCodexGatewayModelAlias } from "@eco/shared";
-import type { GatewayConfig, GatewayProvider, GatewayUsageEvent } from "../src/types.js";
+import type {
+  GatewayConfig,
+  GatewayProvider,
+  GatewayRequestLifecycleEvent,
+  GatewayUsageEvent,
+} from "../src/types.js";
 import {
   collectResponsesSseEvents,
   isOfficialOpenAIResponsesBaseUrl,
@@ -145,6 +150,47 @@ describe("responses passthrough", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ id: "resp_override" });
+  });
+
+  test("400 upstream body is reported as the lifecycle failure reason", async () => {
+    const provider: GatewayProvider = {
+      id: "sk-deepseek-mock",
+      name: "Deepseek mock",
+      upstreamKind: "responses",
+      baseUrl: "https://mock.deepseek.test",
+      apiKey: "test-key",
+      upstreamModelId: "deepseek-flash",
+      models: ["deepseek-flash"],
+    };
+    const lifecycleEvents: GatewayRequestLifecycleEvent[] = [];
+    const handler = createTestGatewayFetchHandler(
+      { host: "127.0.0.1", port: 0, providers: [provider] },
+      async () =>
+        Response.json(
+          { message: "Context window exhausted: window=262144, input=299189, reserve=1." },
+          { status: 400 },
+        ),
+      () => undefined,
+      undefined,
+      (event) => {
+        lifecycleEvents.push(event);
+      },
+    );
+
+    const response = await handler(
+      new Request("http://127.0.0.1/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "deepseek-flash", stream: false, input: [] }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const failed = lifecycleEvents.filter((event) => event.type === "upstream.failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.error).toContain("sk-deepseek-mock");
+    expect(failed[0]?.error).toContain("status=400");
+    expect(failed[0]?.error).toContain("Context window exhausted: window=262144, input=299189, reserve=1.");
   });
 
   test("POST /v1/responses forwards to upstream /v1/responses and streams SSE", async () => {

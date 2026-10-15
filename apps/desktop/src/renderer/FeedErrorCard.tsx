@@ -1,4 +1,4 @@
-import { CircleAlert } from "lucide-react";
+import { ChevronDown, CircleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import "./FeedErrorCard.css";
 
@@ -24,7 +24,10 @@ export function FeedErrorCard({ message, context, detail, retryLabel, onRetry, t
       <CircleAlert className="feed-error-card-icon" size={18} strokeWidth={1.8} aria-hidden />
       {detail ? (
         <details className="feed-error-card-details">
-          <summary className="feed-error-card-copy">{copy}</summary>
+          <summary className="feed-error-card-copy">
+            {copy}
+            <ChevronDown className="feed-error-card-disclosure" size={14} strokeWidth={2} aria-hidden />
+          </summary>
           <pre className="feed-error-card-detail">{detail}</pre>
         </details>
       ) : (

@@ -3032,7 +3032,10 @@ app
             emitLogicalRequestTerminal(threadId, role, logicalRequestId, "completed");
           },
           onLogicalFailed: ({ threadId, role, error, statusCode, logicalRequestId }) => {
-            const detail = statusCode ? `HTTP ${statusCode}` : error;
+            // Keep the upstream reason. Collapsing to `HTTP <code>` loses the provider
+            // body (for example "Context window exhausted") and leaves users with a
+            // bare status code and no explanation.
+            const detail = error.trim() || (statusCode !== undefined ? `HTTP ${statusCode}` : "");
             emitLogicalRequestTerminal(threadId, role, logicalRequestId, "failed", detail);
           },
           onLogicalCancelled: ({ threadId, role, reason, logicalRequestId }) => {

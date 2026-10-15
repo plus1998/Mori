@@ -4221,7 +4221,50 @@ test("projectionItemToDetailBlock maps reconnect activity to collapsible phase",
     label: "连接失败 · HTTP 500",
     reconnecting: true,
     reconnectFailed: true,
+    reconnectDetail: "upstream error: do request failed",
   });
+});
+
+test("projectionItemToDetailBlock exposes the upstream 400 reason for the error card", () => {
+  const reason =
+    "Upstream provider sk-deepseek-t156tt · model=deepseek-flash · url=https://slb-v1.api.fan/v1/responses · status=400 · Context window exhausted: window=262144, input=299189, reserve=1. Compact the input before retrying.";
+  const detail = projectionItemToDetailBlock(
+    item({
+      id: "reconnect-context-window",
+      eventType: "api.error",
+      scope: "main",
+      text: `【连接失败】HTTP 400：${reason}`,
+      metadata: {
+        liveType: "thread.api_error",
+        activityOrigin: "proxy.connection_error",
+        apiError: { statusCode: 400, message: reason },
+      },
+    }),
+  );
+  expect(detail).toMatchObject({
+    kind: "phase",
+    label: "连接失败 · HTTP 400",
+    reconnecting: true,
+    reconnectFailed: true,
+    reconnectDetail: reason,
+  });
+});
+
+test("projectionItemToDetailBlock stays quiet for status-only legacy rows", () => {
+  const detail = projectionItemToDetailBlock(
+    item({
+      id: "reconnect-legacy",
+      eventType: "api.error",
+      scope: "main",
+      text: "【连接失败】HTTP 400：Upstream returned HTTP 400",
+      metadata: {
+        liveType: "thread.api_error",
+        activityOrigin: "proxy.connection_error",
+        apiError: { statusCode: 400, message: "Upstream returned HTTP 400" },
+      },
+    }),
+  );
+  expect(detail).toMatchObject({ kind: "phase", label: "连接失败 · HTTP 400" });
   expect(detail).not.toHaveProperty("reconnectDetail");
 });
 

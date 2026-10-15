@@ -53,7 +53,7 @@ import { fetchUpstreamWithRetry } from "../upstream/fetch-with-retry.js";
 import { forwardOpenAIChat } from "../upstream/openai-chat.js";
 import { readUpstreamRequestId } from "../upstream/request-id-headers.js";
 import { forwardResponsesPassthrough } from "../upstream/responses-passthrough.js";
-import { upstreamErrorResponse } from "../upstream/upstream-error.js";
+import { formatUpstreamHttpError, upstreamErrorResponse } from "../upstream/upstream-error.js";
 import { applyUpstreamUserAgent, resolveUpstreamUserAgent } from "../upstream/user-agent.js";
 import { normalizeResponsesUsage } from "../usage-normalize.js";
 
@@ -361,7 +361,12 @@ export async function handlePostResponsesCompact(
     if (lifecycle) {
       reportLogicalUpstreamFailure(lifecycle, {
         stage: "http",
-        error: `Upstream returned HTTP ${upstreamResponse.status}`,
+        error: formatUpstreamHttpError({
+          route,
+          upstreamUrl,
+          status: upstreamResponse.status,
+          bodyText: responseText,
+        }),
         statusCode: upstreamResponse.status,
         ...(providerRequestId ? { providerRequestId } : {}),
       });

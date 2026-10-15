@@ -100,7 +100,29 @@ test("feed error card keeps optional request context and expandable detail", () 
   expect(markup).toContain("Coder · model-x");
   expect(markup).toContain("<details");
   expect(markup).toContain("ECONNRESET");
+  expect(markup).toContain("feed-error-card-disclosure");
   expect(markup).not.toContain("feed-error-card-retry");
+});
+
+test("ActivityLogView shows the upstream 400 reason instead of a bare status code", () => {
+  const reason =
+    "Upstream provider sk-deepseek-t156tt · model=deepseek-flash · url=https://slb-v1.api.fan/v1/responses · status=400 · Context window exhausted: window=262144, input=299189, reserve=1. Compact the input before retrying.";
+  const markup = renderFailure(
+    timelineItem("context-window-400", 2, {
+      eventType: "api.error",
+      text: `【连接失败】HTTP 400：${reason}`,
+      metadata: {
+        liveType: "thread.api_error",
+        activityOrigin: "proxy.connection_error",
+        apiError: { statusCode: 400, message: reason },
+      },
+    }),
+  );
+
+  expect(markup).toContain('class="feed-error-card"');
+  expect(markup).toContain("连接失败 · HTTP 400");
+  expect(markup).toContain("Context window exhausted: window=262144, input=299189, reserve=1.");
+  expect(markup).toContain("feed-error-card-disclosure");
 });
 
 test("ActivityLogView routes model API errors through the shared error card", () => {

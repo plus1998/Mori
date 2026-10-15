@@ -36,6 +36,7 @@ import type {
 import { normalizeChatCompletionsUsage, type ParsedUsage } from "../usage-normalize.js";
 import { fetchUpstreamWithRetry } from "./fetch-with-retry.js";
 import { headersWithLogicalRequestIdentity, readUpstreamRequestId } from "./request-id-headers.js";
+import { formatUpstreamHttpError } from "./upstream-error.js";
 import { applyUpstreamUserAgent } from "./user-agent.js";
 
 let chatUsageEventSeq = 0;
@@ -183,7 +184,12 @@ export async function forwardOpenAIChat(
     const providerRequestId = readUpstreamRequestId(upstreamResponse.headers);
     reportLogicalUpstreamFailure(lifecycle, {
       stage: "http",
-      error: `Upstream returned HTTP ${upstreamResponse.status}`,
+      error: formatUpstreamHttpError({
+        route,
+        upstreamUrl,
+        status: upstreamResponse.status,
+        bodyText: text,
+      }),
       statusCode: upstreamResponse.status,
       ...(providerRequestId ? { providerRequestId } : {}),
     });
