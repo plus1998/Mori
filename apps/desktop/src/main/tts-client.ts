@@ -6,6 +6,10 @@ import type { TtsClientConfig } from "./tts-store";
 
 export const MAX_TTS_AUDIO_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = Math.ceil((MAX_TTS_AUDIO_BYTES * 4) / 3) + 1024 * 1024;
+/** Volcengine speech APIs report success with this code instead of 0 inside the stream. */
+const DOUBAO_SUCCESS_CODE = 20_000_000;
+const DOUBAO_RESOURCE_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+const DOUBAO_SPEECH_PATH = "api/v3/tts/unidirectional/sse";
 
 export function normalizeTtsToolInput(input: TtsToolInput): TtsToolInput {
   if (!input || typeof input !== "object" || Array.isArray(input))
@@ -64,15 +68,27 @@ export async function generateSpeechToWorkspace(input: {
   ensureActive();
   let bytes: Buffer;
   let mimeType: string;
+  const gemini = config.provider === "gemini";
+  const doubao = config.provider === "doubao";
+  if (doubao && !DOUBAO_RESOURCE_ID_PATTERN.test(config.model)) {
+    throw new TtsError("invalid_input", "豆包模型（资源 ID）只能包含字母、数字、点、下划线或连字符。");
+  }
   try {
-    const gemini = config.provider === "gemini";
     const response = await fetch(
-      `${config.baseUrl.replace(/\/+$/, "")}/${gemini ? "interactions" : "audio/speech"}`,
+      `${config.baseUrl.replace(/\/+$/, "")}/${gemini ? "interactions" : doubao ? DOUBAO_SPEECH_PATH : "audio/speech"}`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(gemini ? { "x-goog-api-key": config.apiKey } : { Authorization: `Bearer ${config.apiKey}` }),
+          ...(gemini
+            ? { "x-goog-api-key": config.apiKey }
+            : doubao
+              ? {
+                  "X-Api-Key": config.apiKey,
+                  "X-Api-Resource-Id": config.model,
+                  "X-Api-Request-Id": randomUUID(),
+                }
+              : { Authorization: `Bearer ${config.apiKey}` }),
         },
         body: JSON.stringify(
           gemini
@@ -95,13 +111,28 @@ export async function generateSpeechToWorkspace(input: {
                 stream: false,
                 store: false,
               }
-            : {
-                model: config.model,
-                input: args.text,
-                voice: args.voice,
-                instructions: args.style,
-                response_format: "mp3",
-              },
+            : doubao
+              ? {
+                  user: { uid: "eco-desktop" },
+                  req_params: {
+                    text: args.text,
+                    speaker: args.voice,
+                    audio_params: { format: "mp3", sample_rate: 24000 },
+                    // Doubao takes delivery directions as a natural-language instruction (语音指令).
+                    additions: JSON.stringify({
+                      context_texts: [args.style],
+                      disable_markdown_filter: true,
+                      disable_emoji_filter: true,
+                    }),
+                  },
+                }
+              : {
+                  model: config.model,
+                  input: args.text,
+                  voice: args.voice,
+                  instructions: args.style,
+                  response_format: "mp3",
+                },
         ),
         signal,
       },
@@ -112,6 +143,8 @@ export async function generateSpeechToWorkspace(input: {
       try {
         const json = JSON.parse(raw);
         if (typeof json.error?.message === "string") message = json.error.message;
+        else if (typeof json.message === "string")
+          message = typeof json.code === "number" ? `${json.code}: ${json.message}` : json.message;
       } catch {
         /* Preserve the provider's error body. */
       }
@@ -124,10 +157,14 @@ export async function generateSpeechToWorkspace(input: {
         code,
         message.slice(0, 2000) || `HTTP ${response.status}`,
         response.status,
-        response.headers.get("x-request-id") ?? undefined,
+        response.headers.get("x-request-id") ?? response.headers.get("x-tt-logid") ?? undefined,
       );
     }
-    if (gemini) {
+    if (doubao) {
+      const raw = await readBoundedBody(response, MAX_JSON_BYTES);
+      bytes = collectDoubaoAudio(raw, response.headers.get("x-tt-logid") ?? undefined);
+      mimeType = "audio/mpeg";
+    } else if (gemini) {
       const raw = await readBoundedBody(response, MAX_JSON_BYTES);
       let json: Record<string, unknown>;
       try {
@@ -238,6 +275,88 @@ async function readBoundedBody(response: Response, limit: number): Promise<Buffe
     reader.releaseLock();
   }
   return Buffer.concat(chunks);
+}
+/**
+ * Doubao V3 speech returns SSE frames: `event: 352` + `data: {"code":0,"data":"<base64>"}`,
+ * then a terminal `code: 20000000` frame. Audio arrives split across frames, so every
+ * payload is decoded on its own and the raw bytes are concatenated in arrival order.
+ */
+function collectDoubaoAudio(raw: Buffer, logid?: string): Buffer {
+  const text = raw.toString("utf8");
+  let payloads = parseSseDataPayloads(text);
+  if (!payloads.length) {
+    // Some gateways answer a single JSON object instead of an event stream.
+    try {
+      JSON.parse(text);
+      payloads = [text];
+    } catch {
+      throw new TtsError("invalid_response", "豆包语音合成响应格式无效。");
+    }
+  }
+  const chunks: Buffer[] = [];
+  let finished = false;
+  for (const payload of payloads) {
+    let frame: unknown;
+    try {
+      frame = JSON.parse(payload);
+    } catch {
+      throw new TtsError("invalid_response", "豆包返回了无效 JSON。");
+    }
+    if (!isRecord(frame)) continue;
+    const code = typeof frame.code === "number" ? frame.code : 0;
+    const message = typeof frame.message === "string" ? frame.message : "";
+    if (code !== 0 && code !== DOUBAO_SUCCESS_CODE) {
+      const requestId = typeof frame.reqid === "string" ? frame.reqid : undefined;
+      throw new TtsError(
+        doubaoErrorCode(code, message),
+        `豆包语音合成失败（${code}）：${message.slice(0, 1800) || "未知错误"}`,
+        undefined,
+        logid ?? requestId,
+      );
+    }
+    if (typeof frame.data === "string" && frame.data) chunks.push(decodeAudioBase64(frame.data));
+    if (code === DOUBAO_SUCCESS_CODE) finished = true;
+  }
+  if (!finished) throw new TtsError("invalid_response", "豆包语音合成响应未正常结束。");
+  if (!chunks.length) throw new TtsError("invalid_audio", "豆包未返回音频数据。");
+  return Buffer.concat(chunks);
+}
+function parseSseDataPayloads(text: string): string[] {
+  const payloads: string[] = [];
+  let current: string[] = [];
+  for (const line of text.split(/\r\n|\r|\n/)) {
+    if (!line.trim()) {
+      if (current.length) {
+        payloads.push(current.join("\n"));
+        current = [];
+      }
+      continue;
+    }
+    if (line.startsWith(":")) continue;
+    const match = /^data[ \t]*:[ \t]*(.*)$/.exec(line);
+    if (match?.[1] !== undefined) current.push(match[1]);
+  }
+  if (current.length) payloads.push(current.join("\n"));
+  return payloads;
+}
+function doubaoErrorCode(code: number, message: string): string {
+  // Volcengine reports every stream failure with HTTP 200, so credential problems must be read
+  // from the frame itself: 45000010 is "Invalid X-Api-Key".
+  if (
+    code === 45000009 ||
+    code === 45000010 ||
+    code === 45000011 ||
+    /api[- ]?key|access[- ]?token|invalid token|token expired|unauthoriz|forbidden|authentication|permission/i.test(
+      message,
+    )
+  )
+    return "auth_failed";
+  if (/quota exceeded|concurrency/i.test(message)) return "rate_limited";
+  // Volcengine also reports wrong speaker / unreadable text as an internal 55000000.
+  if (/mismatched with speaker|speaker not found|invalid speaker|no readable text/i.test(message))
+    return "invalid_input";
+  if (code >= 45_000_000 && code < 46_000_000) return "invalid_input";
+  return "provider_error";
 }
 function decodeAudioBase64(value: string): Buffer {
   if (!value || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value))

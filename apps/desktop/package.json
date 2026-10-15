@@ -15,6 +15,7 @@
     "test:e2e:ui": "playwright test --config playwright.config.ts --ui",
     "smoke:browser-cli": "node scripts/browser-cli-direct-smoke.mjs",
     "smoke:tool-writing-state": "bun run scripts/smoke-tool-writing-state.ts",
+    "smoke:tts-doubao": "bun run scripts/tts-doubao-smoke.ts",
     "smoke:packaged-pi": "node scripts/ensure-electron-binary.mjs && electron scripts/verify-packaged-pi-runtime.mjs --search release",
     "smoke:cdp-probe": "node scripts/dev-cdp-ui-probe.mjs",
     "smoke:cdp-center": "node scripts/dev-cdp-center-server-smoke.mjs",

@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { type TtsSecretCodec, TtsStore } from "../src/main/tts-store";
+import { DEFAULT_TTS_PROFILE_ID, type TtsSecretCodec, TtsStore } from "../src/main/tts-store";
 
 const databases: Database[] = [];
 afterEach(() => {
@@ -76,6 +76,54 @@ test("invalid URLs, protocols and unavailable secret storage fail explicitly", (
     expect(() => store.saveProfile({ ...profile, baseUrl })).toThrow();
   expect(() => store.saveProfile({ ...profile, provider: "invalid" } as never)).toThrow();
   expect(() => store.saveProfile({ ...profile, apiKey: "secret" })).toThrow("系统加密不可用");
+});
+
+test("doubao profiles keep the Volcengine endpoint and resource ID", () => {
+  const { store } = fixture();
+  configure(store);
+  const profile = store.saveProfile({
+    name: "豆包 TTS 2.0",
+    provider: "doubao",
+    baseUrl: "https://openspeech.bytedance.com",
+    model: "seed-tts-2.0",
+    apiKey: "doubao-secret",
+  });
+  store.activateProfile(profile.id);
+  expect(store.getActiveClientConfig()).toMatchObject({
+    provider: "doubao",
+    baseUrl: "https://openspeech.bytedance.com",
+    model: "seed-tts-2.0",
+    apiKey: "doubao-secret",
+  });
+});
+
+test("legacy provider CHECK migration keeps profiles and accepts doubao", () => {
+  const db = new Database(":memory:");
+  databases.push(db);
+  db.exec(`CREATE TABLE tts_profiles (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    provider TEXT NOT NULL CHECK(provider IN ('gemini', 'openai_compatible')),
+    baseUrl TEXT NOT NULL, model TEXT NOT NULL, encrypted_api_key TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE tts_settings (singleton INTEGER PRIMARY KEY, enabled INTEGER NOT NULL,
+    active_profile_id TEXT NOT NULL REFERENCES tts_profiles(id), updated_at TEXT NOT NULL);`);
+  const id = DEFAULT_TTS_PROFILE_ID;
+  db.prepare(
+    "INSERT INTO tts_profiles VALUES (?, 'Legacy', 'gemini', 'https://generativelanguage.googleapis.com/v1beta', 'gemini-3.8-flash-tts', ?, 'created', 'updated')",
+  ).run(id, codec.encrypt("legacy-secret"));
+  db.prepare("INSERT INTO tts_settings VALUES (1, 1, ?, 'updated')").run(id);
+  const store = new TtsStore(db as never, codec);
+  store.initialize();
+  expect(store.getActiveClientConfig()).toMatchObject({ profileId: id, apiKey: "legacy-secret" });
+  const doubao = store.saveProfile({
+    name: "Doubao",
+    provider: "doubao",
+    baseUrl: "https://openspeech.bytedance.com",
+    model: "seed-tts-2.0",
+    apiKey: "doubao-secret",
+  });
+  store.activateProfile(doubao.id);
+  expect(store.getActiveClientConfig().provider).toBe("doubao");
 });
 
 test("artifacts survive reopening, remain thread-scoped and interrupted generations become failures", () => {

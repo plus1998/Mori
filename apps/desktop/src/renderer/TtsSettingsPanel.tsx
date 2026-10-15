@@ -30,6 +30,7 @@ function formFromProfile(profile: TtsProfileSnapshot): TtsProfileSaveInput {
 
 function imageProviderLabel(provider: TtsProvider): string {
   if (provider === "gemini") return "Gemini";
+  if (provider === "doubao") return "豆包";
   return "OpenAI 兼容";
 }
 
@@ -288,6 +289,7 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                     >
                       <option value="gemini">Gemini 原生 (Interactions)</option>
                       <option value="openai_compatible">OpenAI 兼容 (OpenRouter / 其他)</option>
+                      <option value="doubao">豆包 (Doubao TTS 2.0)</option>
                     </select>
                   </label>
                   <label className="settings-form-field">
@@ -310,6 +312,12 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                       required
                       onChange={(event) => setForm({ ...form, model: event.target.value })}
                     />
+                    {form.provider === "doubao" ? (
+                      <small className="image-generation-profile-modal-subtitle">
+                        豆包填写资源 ID：seed-tts-2.0（合成 2.0）、seed-tts-1.0（合成 1.0）或
+                        seed-icl-2.0（声音复刻 2.0）。
+                      </small>
+                    ) : null}
                   </label>
                   <label className="settings-form-field">
                     <span className="settings-form-label">API Key</span>

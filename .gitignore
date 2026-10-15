@@ -49,6 +49,8 @@ apps/desktop/.e2e-env.json
 apps/desktop/test-results/
 apps/desktop/.smoke-artifacts/
 apps/desktop/.playwright-cli/
+# Local-only credentials for smoke scripts (e.g. Doubao TTS API key).
+apps/desktop/.local/
 
 # Supabase CLI local state
 supabase/.branches

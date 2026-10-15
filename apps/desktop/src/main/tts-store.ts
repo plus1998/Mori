@@ -88,7 +88,7 @@ export class TtsStore {
       CREATE TABLE IF NOT EXISTS tts_profiles (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-        provider TEXT NOT NULL CHECK(provider IN ('gemini', 'openai_compatible')),
+        provider TEXT NOT NULL CHECK(provider IN ('gemini', 'openai_compatible', 'doubao')),
         baseUrl TEXT NOT NULL,
         model TEXT NOT NULL,
         encrypted_api_key TEXT NOT NULL DEFAULT '',
@@ -128,6 +128,7 @@ export class TtsStore {
         "UPDATE tts_artifacts SET status = 'failed', error_code = 'interrupted', error_message = ?, updated_at = ? WHERE status = 'running'",
       )
       .run("应用退出时语音生成尚未完成，请重新生成。", new Date().toISOString());
+    this.ensureDoubaoProvider();
     const count = Number(
       (
         this.db.prepare("SELECT COUNT(*) AS count FROM tts_profiles").get() as
@@ -171,6 +172,37 @@ export class TtsStore {
            (singleton, enabled, active_profile_id, updated_at) VALUES (1, 0, ?, ?)`,
         )
         .run(first.id, new Date().toISOString());
+    }
+  }
+
+  /** SQLite cannot alter CHECK constraints: rebuild tts_profiles to accept the doubao provider. */
+  private ensureDoubaoProvider(): void {
+    const row = this.db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tts_profiles'")
+      .get() as { sql: string } | undefined;
+    if (!row?.sql || row.sql.includes("'doubao'") || !row.sql.includes("'openai_compatible'")) return;
+    this.db.exec("PRAGMA foreign_keys = OFF");
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.exec(
+        row.sql
+          .replace(
+            /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?["`]?tts_profiles["`]?/i,
+            "CREATE TABLE tts_profiles_next",
+          )
+          .replace(/'openai_compatible'(?:,\s*'doubao')?/, "'openai_compatible', 'doubao'"),
+      );
+      this.db.exec(`INSERT INTO tts_profiles_next SELECT * FROM tts_profiles;
+        DROP TABLE tts_profiles;
+        ALTER TABLE tts_profiles_next RENAME TO tts_profiles;`);
+      if (this.db.prepare("PRAGMA foreign_key_check").all().length)
+        throw new Error("语音生成配置迁移外键校验失败。");
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    } finally {
+      this.db.exec("PRAGMA foreign_keys = ON");
     }
   }
 
