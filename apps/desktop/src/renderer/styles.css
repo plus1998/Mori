@@ -1378,7 +1378,8 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
 }
 
 .sidebar-section-grow .project-tree {
-  flex: 0 0 auto;
+  flex: 1 0 auto;
+  min-height: 0;
 }
 
 .sidebar-section-label {
@@ -1426,6 +1427,10 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
 }
 
 .project-tree-empty-drop {
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 160px;
+  place-items: center;
   margin: 0;
   padding: 16px 12px;
   border: 1px dashed #3a3a3a;
