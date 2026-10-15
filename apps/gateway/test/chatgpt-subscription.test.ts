@@ -134,6 +134,46 @@ describe("ChatGPT subscription gateway adapter", () => {
     expect(usage[0]).toMatchObject({ usage: { inputTokens: 7, outputTokens: 13 }, stream: true });
   });
 
+  test("动态输出模式下跳过预算计算，并且订阅请求不发送 max_output_tokens", async () => {
+    let upstreamBody: Record<string, unknown> | undefined;
+    let countInputTokensCalls = 0;
+    const dynamicProvider = {
+      ...provider,
+      modelMaxOutputTokens: { "gpt-5": 8_192 },
+      modelContextTokens: { "gpt-5": 32_768 },
+    };
+    const handler = createGatewayFetchHandler(
+      {
+        host: "127.0.0.1",
+        port: 0,
+        providers: [dynamicProvider],
+        resolveCredential: async () => ({ accessToken: "oauth-access" }),
+        countInputTokens: async () => {
+          countInputTokensCalls++;
+          return { tokens: 1, precision: "provider_exact", source: "test" };
+        },
+      },
+      async (_input, init) => {
+        upstreamBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(new TextEncoder().encode(oauthHiSse));
+      },
+      () => undefined,
+    );
+
+    const response = await handler(
+      new Request("http://127.0.0.1/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json", [GATEWAY_PROVIDER_ID_HEADER]: provider.id },
+        body: JSON.stringify({ ...validBody, max_output_tokens: 128 }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(upstreamBody).toBeDefined();
+    expect(upstreamBody).not.toHaveProperty("max_output_tokens");
+    expect(countInputTokensCalls).toBe(0);
+  });
+
   for (const stream of [false, undefined]) {
     test(`Messages stream=${stream} 使用 OAuth SSE 上游并返回完整 JSON`, async () => {
       const usage: GatewayUsageEvent[] = [];

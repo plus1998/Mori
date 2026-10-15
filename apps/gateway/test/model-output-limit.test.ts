@@ -322,7 +322,7 @@ test("dynamic recounts the rectified thinking payload before retry", async () =>
   expect(outputs).toEqual([31_767, 32_667]);
 });
 
-test("dynamic permits one output token but refuses insufficient thinking space and unsupported subscription limits", async () => {
+test("dynamic permits one output token, refuses insufficient thinking space, and bypasses subscription limits", async () => {
   const provider: GatewayProvider = {
     id: "d",
     name: "D",
@@ -340,19 +340,25 @@ test("dynamic permits one output token but refuses insufficient thinking space a
     upstreamModelId: "m",
   };
   let generations = 0;
+  const dynamicConfig: GatewayConfig = {
+    host: "127.0.0.1",
+    port: 0,
+    providers: [provider],
+    countInputTokens: async () => ({ tokens: 32_766, precision: "provider_exact", source: "test" }),
+  };
   const fetcher = withDynamicOutputBudget(
     async (_url, init) => {
       generations++;
-      expect(JSON.parse(String(init?.body)).max_tokens).toBe(1);
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      if (provider.authMethod === "chatgpt_subscription") {
+        expect(body).not.toHaveProperty("max_tokens");
+      } else {
+        expect(body.max_tokens).toBe(1);
+      }
       return Response.json({});
     },
     route,
-    {
-      host: "127.0.0.1",
-      port: 0,
-      providers: [provider],
-      countInputTokens: async () => ({ tokens: 32_766, precision: "provider_exact", source: "test" }),
-    },
+    dynamicConfig,
     new AbortController().signal,
     () => {},
   );
@@ -371,13 +377,24 @@ test("dynamic permits one output token but refuses insufficient thinking space a
   expect(thinking.status).toBe(400);
   expect((await thinking.json()).error.code).toBe("context_length_exceeded");
   provider.authMethod = "chatgpt_subscription";
-  const subscription = await fetcher("https://example.test/v1/messages", {
+  const subscriptionFetcher = withDynamicOutputBudget(
+    async (_url, init) => {
+      generations++;
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body).not.toHaveProperty("max_tokens");
+      return Response.json({});
+    },
+    route,
+    dynamicConfig,
+    new AbortController().signal,
+    () => {},
+  );
+  const subscription = await subscriptionFetcher("https://example.test/v1/messages", {
     method: "POST",
     body: JSON.stringify({ model: "m", messages: [] }),
   });
-  expect(subscription.status).toBe(400);
-  expect((await subscription.json()).error.message).toContain("cannot be enforced");
-  expect(generations).toBe(1);
+  expect(subscription.status).toBe(200);
+  expect(generations).toBe(2);
 });
 
 for (const [kind, field] of [

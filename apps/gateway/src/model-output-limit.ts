@@ -39,6 +39,10 @@ export function withDynamicOutputBudget(
   signal: AbortSignal,
   onLog: GatewayLogFn,
 ): typeof fetch {
+  // The ChatGPT subscription Responses preview rejects max_output_tokens. The
+  // Responses and Messages→Responses routes strip that field before calling
+  // this fetcher, so there is no output budget for this wrapper to enforce.
+  if (route.provider.authMethod === "chatgpt_subscription") return fetcher;
   if (route.provider.modelContextTokens === undefined) return fetcher;
   return (async (url, init) => {
     try {
@@ -51,12 +55,6 @@ export function withDynamicOutputBudget(
       if (window === undefined || !Number.isSafeInteger(window) || window < 2) {
         throw new Error(
           `Dynamic max output requires a resolved context window for ${route.upstreamModelId}.`,
-        );
-      }
-      // The subscription preview explicitly rejects output limits; surface the gap.
-      if (route.provider.authMethod === "chatgpt_subscription") {
-        throw new Error(
-          "ChatGPT subscription transport does not support max_output_tokens; dynamic output cannot be enforced.",
         );
       }
       if (!config.countInputTokens) throw new Error("Dynamic max output requires an input token counter.");
