@@ -4782,6 +4782,7 @@ function registerIpcHandlers(): void {
 
   registerDesktopCommand(IPC_CHANNELS.appSetLocale, async (payload: unknown) => {
     appLocalePreference = normalizeLocalePreference(payload);
+    openaiAccountAssistant?.refreshTitles();
     return { localePreference: appLocalePreference };
   });
 
@@ -6720,6 +6721,7 @@ function registerIpcHandlers(): void {
     getDetails: async (accountId) => (await getOpenAIAccountService()).getAccountDetails(accountId),
     preloadPath: path.join(__dirname, "../preload/index.cjs"),
     parent: getMainWindow,
+    text: mainText,
     loadRenderer: async (window, accountId) => {
       const devUrl = process.env.VITE_DEV_SERVER_URL;
       if (devUrl) {
@@ -6734,7 +6736,7 @@ function registerIpcHandlers(): void {
     },
   });
   const requireAccountAssistant = () => {
-    if (!openaiAccountAssistant) throw new Error("登录助手未初始化");
+    if (!openaiAccountAssistant) throw new Error(mainText("assistant.notInitialized"));
     return openaiAccountAssistant;
   };
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsOpenAssistant, async (payload: { accountId: string }) => {

@@ -1,10 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { OpenAIAccountAssistantAction, OpenAIAccountAssistantState } from "../../shared/openai-account";
+import { readStoredLocalePreference } from "../../shared/locale";
+import { getResolvedRendererLocale, i18n } from "../i18n";
 import { OpenAIAccountAssistantView } from "./OpenAIAccountAssistantView";
+
+/**
+ * The helper is its own window, so it never runs `applyLocalePreference()` when the user switches
+ * language in the main window. Both windows share one session's localStorage, so re-resolving the
+ * stored preference on every poll keeps this window in step.
+ */
+function syncLocale(): void {
+  const storage = typeof window === "undefined" ? undefined : window.localStorage;
+  const locale = getResolvedRendererLocale(readStoredLocalePreference(storage));
+  if (locale === i18n.resolvedLanguage) return;
+  void i18n.changeLanguage(locale).then(() => {
+    if (typeof document !== "undefined") document.documentElement.lang = locale;
+  });
+}
 
 export function OpenAIAccountAssistantApp() {
   const accountId = new URLSearchParams(window.location.search).get("accountId");
   const eco = window.eco;
+  const { t } = useTranslation();
   const [state, setState] = useState<OpenAIAccountAssistantState>();
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -14,6 +32,7 @@ export function OpenAIAccountAssistantApp() {
   const polling = useRef(false);
   const refresh = useCallback(async () => {
     if (!eco || !accountId || polling.current) return;
+    syncLocale();
     polling.current = true;
     try { setState(await eco.openAIAccountsAssistantState(accountId)); setLoadError(""); }
     catch (error) { setState(undefined); setPassword(""); setLoadError(error instanceof Error ? error.message : String(error)); }
@@ -44,7 +63,7 @@ export function OpenAIAccountAssistantApp() {
     try {
       const result = await eco.openAIAccountsAssistantAction(accountId, action);
       if (action.type === "revealPassword") {
-        if (!result.value) throw new Error("读取密码失败，请重新打开登录助手");
+        if (!result.value) throw new Error(t("assistant.revealPasswordFailed"));
         setPassword(result.value);
       }
       setNotice(result.message);
@@ -62,7 +81,7 @@ export function OpenAIAccountAssistantApp() {
     } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   };
-  if (!eco || !accountId) return <div className="assistant-load-error">登录助手缺少账号信息，请从账号列表重新打开。</div>;
-  if (!state) return <div className="assistant-load-error" role={loadError ? "alert" : "status"}>{loadError || "正在读取账号资料…"}</div>;
+  if (!eco || !accountId) return <div className="assistant-load-error">{t("assistant.missingAccount")}</div>;
+  if (!state) return <div className="assistant-load-error" role={loadError ? "alert" : "status"}>{loadError || t("assistant.loadingProfile")}</div>;
   return <OpenAIAccountAssistantView state={state} busy={busy} password={password} notice={notice} error={error} onAction={(action) => void run(action)} onHidePassword={() => setPassword("")} onLogin={() => void login()} />;
 }

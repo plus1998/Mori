@@ -23,33 +23,53 @@ import {
   Inbox,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { OpenAIAccount, OpenAIAccountDetails, OpenAIAccountImageQuota, OpenAIAccountQuota, OpenAIAccountQuotaWindow, OpenAIAccountSyncStatus } from "../../shared/openai-account";
+import { type AppLocale, formatAppDateTime } from "../../shared/locale";
 import { CodexModelCatalogSection } from "./CodexModelCatalogSection";
 
-function formatResetTime(window: OpenAIAccountQuotaWindow, fetchedAt: number): string {
+type Translate = TFunction<"translation", undefined>;
+
+function formatResetTime(window: OpenAIAccountQuotaWindow, fetchedAt: number, t: Translate): string {
   const resetAt = window.resetAt > 0 ? window.resetAt * 1_000 : fetchedAt + window.resetAfterSeconds * 1_000;
-  return formatQuotaResetTime(resetAt);
+  return formatQuotaResetTime(resetAt, t);
 }
 
-function formatQuotaResetTime(resetAt: number): string {
+function formatQuotaResetTime(resetAt: number, t: Translate): string {
   const seconds = Math.ceil((resetAt - Date.now()) / 1_000);
-  if (seconds <= 0) return "已到重置时间，待刷新";
-  if (seconds < 3600) return `${Math.ceil(seconds / 60)}m 后重置`;
+  if (seconds <= 0) return t("settings.openaiAccounts.quotaResetDue");
+  if (seconds < 3600) {
+    return t("settings.openaiAccounts.quotaResetsIn", { duration: `${Math.ceil(seconds / 60)}m` });
+  }
   if (seconds < 86400) {
     const h = Math.floor(seconds / 3600);
     const m = Math.ceil((seconds % 3600) / 60);
-    return `${m > 0 ? `${h}h ${m}m` : `${h}h`} 后重置`;
+    return t("settings.openaiAccounts.quotaResetsIn", { duration: m > 0 ? `${h}h ${m}m` : `${h}h` });
   }
   const d = Math.floor(seconds / 86400);
   const h = Math.ceil((seconds % 86400) / 3600);
-  return `${h > 0 ? `${d}d ${h}h` : `${d}d`} 后重置`;
+  return t("settings.openaiAccounts.quotaResetsIn", { duration: h > 0 ? `${d}d ${h}h` : `${d}d` });
 }
 
 function QuotaRefreshedAt({ fetchedAt }: { fetchedAt: number }) {
+  const { t, i18n } = useTranslation();
+  const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
   const refreshedAt = new Date(fetchedAt);
   return (
-    <time className="codex-quota-refreshed-at" dateTime={refreshedAt.toISOString()} title={refreshedAt.toLocaleString()}>
-      上次刷新 {refreshedAt.toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+    <time
+      className="codex-quota-refreshed-at"
+      dateTime={refreshedAt.toISOString()}
+      title={formatAppDateTime(locale, refreshedAt)}
+    >
+      {t("settings.openaiAccounts.lastRefreshed", {
+        time: formatAppDateTime(locale, refreshedAt, {
+          month: "numeric",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+      })}
     </time>
   );
 }
@@ -60,18 +80,19 @@ export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error }:
   loading: boolean;
   error: string | undefined;
 }) {
+  const { t } = useTranslation();
   if (!quota && !isLoggedIn) return null;
   const primary = quota?.rateLimit.primaryWindow;
   return <span className="codex-quota-summary" aria-busy={loading}>
-    {loading ? <Loader2 size={13} className="mcp-spin" aria-label="正在刷新额度" /> : null}
+    {loading ? <Loader2 size={13} className="mcp-spin" aria-label={t("settings.openaiAccounts.refreshingQuotaAria")} /> : null}
     {quota ? <>
       <b>{quota.planType}</b>
-      {primary ? <em className={quota.rateLimit.limitReached ? "is-limited" : "is-ok"}>{Math.round(primary.usedPercent)}% 已使用</em> : null}
-      {primary && (primary.resetAt > 0 || primary.resetAfterSeconds > 0) ? <span>{formatResetTime(primary, quota.fetchedAt)}</span> : null}
-      {quota.resetCreditsAvailable > 0 ? <span>{quota.resetCreditsAvailable} 次重置</span> : null}
+      {primary ? <em className={quota.rateLimit.limitReached ? "is-limited" : "is-ok"}>{t("settings.openaiAccounts.usedPercent", { percent: Math.round(primary.usedPercent) })}</em> : null}
+      {primary && (primary.resetAt > 0 || primary.resetAfterSeconds > 0) ? <span>{formatResetTime(primary, quota.fetchedAt, t)}</span> : null}
+      {quota.resetCreditsAvailable > 0 ? <span>{t("settings.openaiAccounts.resetCredits", { count: quota.resetCreditsAvailable })}</span> : null}
       <QuotaRefreshedAt fetchedAt={quota.fetchedAt} />
-      {error ? <em className="is-error" title={error} role="status">刷新失败，显示缓存</em> : null}
-    </> : <span className={error ? "is-error" : undefined} title={error}>{error ? "额度刷新失败" : loading ? "正在刷新额度" : "额度未获取"}</span>}
+      {error ? <em className="is-error" title={error} role="status">{t("settings.openaiAccounts.quotaFailedCached")}</em> : null}
+    </> : <span className={error ? "is-error" : undefined} title={error}>{error ? t("settings.openaiAccounts.quotaError") : loading ? t("settings.openaiAccounts.quotaLoading") : t("settings.openaiAccounts.quotaIdle")}</span>}
   </span>;
 }
 
@@ -86,6 +107,7 @@ function ProfileSecretInput({
   onChange: (value: string) => void;
   placeholder?: string;
 }) {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   return (
     <label className="mcp-field">
@@ -98,10 +120,10 @@ function ProfileSecretInput({
           placeholder={placeholder}
           onChange={(event) => onChange(event.target.value)}
         />
-        <button type="button" className="mcp-icon-button" aria-label={visible ? "隐藏内容" : "显示内容"} onClick={() => setVisible((shown) => !shown)}>
+        <button type="button" className="mcp-icon-button" aria-label={visible ? t("common.hideValue") : t("common.showValue")} onClick={() => setVisible((shown) => !shown)}>
           {visible ? <EyeOff size={15} /> : <Eye size={15} />}
         </button>
-        <button type="button" className="mcp-icon-button" aria-label={`复制${label}`} disabled={!value} onClick={() => void navigator.clipboard.writeText(value)}>
+        <button type="button" className="mcp-icon-button" aria-label={t("common.copyNamed", { name: label })} disabled={!value} onClick={() => void navigator.clipboard.writeText(value)}>
           <Copy size={14} />
         </button>
       </div>
@@ -110,16 +132,18 @@ function ProfileSecretInput({
 }
 
 export function OpenAIAccountImageQuotaSummary({ account, loading }: { account: OpenAIAccount; loading: boolean }) {
+  const { t, i18n } = useTranslation();
+  const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
   const quota: OpenAIAccountImageQuota | undefined = account.imageQuota;
   const resetAt = quota?.status === "available" && quota.resetAt ? Date.parse(quota.resetAt) : undefined;
   return <div className="codex-quota-summary codex-image-quota-summary" aria-busy={loading}>
-    {loading ? <Loader2 size={13} className="mcp-spin" aria-label="正在刷新图片额度" /> : null}
-    <b title="ChatGPT 网页图片额度">图片</b>
+    {loading ? <Loader2 size={13} className="mcp-spin" aria-label={t("settings.openaiAccounts.imageQuotaLoadingAria")} /> : null}
+    <b title={t("settings.openaiAccounts.imageQuotaTooltip")}>{t("settings.openaiAccounts.imageQuotaLabel")}</b>
     {quota?.status === "available" ? <>
-      <em className={quota.remaining === 0 ? "is-limited" : "is-ok"}>剩余 {quota.remaining} 张</em>
-      {resetAt !== undefined && Number.isFinite(resetAt) ? <span title={`恢复于 ${new Date(resetAt).toLocaleString()}`}>{formatQuotaResetTime(resetAt)}</span> : null}
+      <em className={quota.remaining === 0 ? "is-limited" : "is-ok"}>{t("settings.openaiAccounts.imageQuotaRemaining", { total: quota.remaining })}</em>
+      {resetAt !== undefined && Number.isFinite(resetAt) ? <span title={t("settings.openaiAccounts.imageQuotaRestoresAt", { time: formatAppDateTime(locale, new Date(resetAt)) })}>{formatQuotaResetTime(resetAt, t)}</span> : null}
     </> : <span className={quota?.status === "error" ? "is-error" : undefined} title={quota?.error}>
-      {quota?.status === "error" ? "图片额度查询失败" : "图片额度未查询"}
+      {quota?.status === "error" ? t("settings.openaiAccounts.imageQuotaFailed") : t("settings.openaiAccounts.imageQuotaIdle")}
     </span>}
     {quota ? <QuotaRefreshedAt fetchedAt={quota.fetchedAt} /> : null}
     {quota?.status === "error" ? <span className="codex-image-quota-error is-error" role="alert">{quota.error}</span> : null}
@@ -147,19 +171,22 @@ export function OpenAIAccountProfileFields({
   onPickupUrlChange: (value: string) => void;
   onTwoFactorSecretChange: (value: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <fieldset className="openai-profile-fields">
-      <legend>登录资料 <span>选填</span></legend>
-      <p>登录助手可复制或填入资料，并生成 2FA 验证码。</p>
+      <legend>
+        {t("settings.openaiAccounts.profileLegend")} <span>{t("settings.openaiAccounts.optionalBadge")}</span>
+      </legend>
+      <p>{t("settings.openaiAccounts.profileHint")}</p>
       <div className="openai-profile-grid">
       <label className="mcp-field openai-profile-wide">
-        <span className="mcp-field-label">邮箱</span>
+        <span className="mcp-field-label">{t("settings.openaiAccounts.emailField")}</span>
         <input className="mcp-field-input" type="email" autoComplete="off" value={email} onChange={(event) => onEmailChange(event.target.value)} placeholder="name@example.com" />
       </label>
-      <ProfileSecretInput key={`password-${instanceKey}`} label="密码" value={password} onChange={onPasswordChange} />
-      <ProfileSecretInput key={`twofa-${instanceKey}`} label="2FA 密钥" value={twoFactorSecret} onChange={onTwoFactorSecretChange} placeholder="Base32 密钥" />
+      <ProfileSecretInput key={`password-${instanceKey}`} label={t("settings.openaiAccounts.passwordField")} value={password} onChange={onPasswordChange} />
+      <ProfileSecretInput key={`twofa-${instanceKey}`} label={t("settings.openaiAccounts.twoFactorField")} value={twoFactorSecret} onChange={onTwoFactorSecretChange} placeholder="Base32" />
       <label className="mcp-field openai-profile-wide">
-        <span className="mcp-field-label">收件箱地址</span>
+        <span className="mcp-field-label">{t("settings.openaiAccounts.pickupField")}</span>
         <input className="mcp-field-input" type="url" value={pickupUrl} onChange={(event) => onPickupUrlChange(event.target.value)} placeholder="https://example.com" />
       </label>
       </div>
@@ -168,11 +195,12 @@ export function OpenAIAccountProfileFields({
 }
 
 export function OpenAIAccountProfilePresence({ fields }: { fields: OpenAIAccount["profileFields"] }) {
-  return <div className="codex-profile-presence" aria-label="已保存的登录资料">
+  const { t } = useTranslation();
+  return <div className="codex-profile-presence" aria-label={t("settings.openaiAccounts.profilePresenceAria")}>
     {([
-      ["email", "邮箱", Mail], ["password", "密码", KeyRound],
-      ["twoFactorSecret", "2FA", ShieldCheck], ["pickupUrl", "收件箱", Inbox],
-    ] as const).map(([key, label, Icon]) => <span key={key} className={fields?.[key] ? "is-saved" : ""} title={`${label}${fields?.[key] ? "已保存" : "未保存"}`}><Icon size={12} />{label}</span>)}
+      ["email", t("settings.openaiAccounts.emailField"), Mail], ["password", t("settings.openaiAccounts.passwordField"), KeyRound],
+      ["twoFactorSecret", t("settings.openaiAccounts.fieldTwoFactor"), ShieldCheck], ["pickupUrl", t("settings.openaiAccounts.fieldPickup"), Inbox],
+    ] as const).map(([key, label, Icon]) => <span key={key} className={fields?.[key] ? "is-saved" : ""} title={t(fields?.[key] ? "settings.openaiAccounts.fieldSavedNamed" : "settings.openaiAccounts.fieldUnsavedNamed", { name: label })}><Icon size={12} />{label}</span>)}
   </div>;
 }
 
@@ -191,21 +219,22 @@ export function OpenAIAccountSwitchStatus({
   busy: boolean;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation();
   const summary = pendingAccountId !== undefined
     ? pendingAccountId === null
-      ? "待停用当前账号"
+      ? t("settings.openaiAccounts.pendingDeactivate")
       : pendingAccountId === activeAccountId
-        ? `凭据待应用：${activeAccountName ?? "当前账号"}`
-        : `待切换：${pendingAccountName ?? "目标账号"}`
+        ? t("settings.openaiAccounts.pendingCredentials", { name: activeAccountName ?? t("settings.openaiAccounts.currentAccountFallback") })
+        : t("settings.openaiAccounts.pendingSwitch", { name: pendingAccountName ?? t("settings.openaiAccounts.targetAccountFallback") })
     : activeAccountName
-      ? `当前使用：${activeAccountName}`
-      : "尚未选择当前账号";
+      ? t("settings.openaiAccounts.inUseNamed", { name: activeAccountName })
+      : t("settings.openaiAccounts.noCurrentAccount");
   return (
     <>
       <span className="codex-active-summary"><i />{summary}</span>
       {pendingAccountId !== undefined ? (
         <button type="button" className="chatgpt-inline-link" disabled={busy} onClick={onCancel}>
-          {pendingAccountId === activeAccountId ? "取消凭据更新" : "取消切换"}
+          {pendingAccountId === activeAccountId ? t("settings.openaiAccounts.cancelCredentials") : t("settings.openaiAccounts.cancelSwitch")}
         </button>
       ) : null}
     </>
@@ -213,7 +242,8 @@ export function OpenAIAccountSwitchStatus({
 }
 
 export function OpenAIAccountsPanel({ onError }: { onError: (message: string) => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
   const eco = window.eco;
   const [accounts, setAccounts] = useState<OpenAIAccount[]>([]);
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
@@ -585,7 +615,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     setOperationError("");
     try {
       const result = await eco.openAIAccountsImport(importText);
-      setImportMessage(`导入完成：新增 ${result.added} 个，更新 ${result.updated} 个`);
+      setImportMessage(t("settings.openaiAccounts.importDone", { added: result.added, updated: result.updated }));
       setImportText("");
       await refresh();
     } catch (error) {
@@ -593,7 +623,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     } finally {
       setBusy(false);
     }
-  }, [eco, importText, refresh]);
+  }, [eco, importText, refresh, t]);
 
   const handleCancelSwitch = useCallback(async () => {
     if (!eco) return;
@@ -617,10 +647,8 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     <section className="codex-accounts-panel providers-list-section">
       <div className="codex-accounts-hero">
         <div className="codex-accounts-heading">
-          <h2>Codex 账号</h2>
-          <p>
-            管理工作账号与登录资料，切换时保留正在运行的任务。
-          </p>
+          <h2>{t("settings.models.tab.openaiAccounts")}</h2>
+          <p>{t("settings.openaiAccounts.description")}</p>
         </div>
         <div className="codex-account-header-actions">
           <button
@@ -630,7 +658,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             onClick={() => { setImportMessage(""); setImportOpen(true); }}
           >
             <FileUp size={14} />
-            批量导入
+            {t("settings.openaiAccounts.bulkImport")}
           </button>
           <button
             type="button"
@@ -638,7 +666,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             disabled={busy}
             onClick={() => {
               setModalEditId(null);
-              setModalName(`Codex 账号 ${accounts.length + 1}`);
+              setModalName(t("settings.openaiAccounts.defaultAccountName", { index: accounts.length + 1 }));
               setModalProxy("");
               setModalAuthJson("");
               setModalEmail("");
@@ -655,11 +683,13 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         </div>
       </div>
 
-      {loadError ? <div className="codex-account-sync-error">账号读取失败：{loadError}</div> : null}
+      {loadError ? <div className="codex-account-sync-error">{t("settings.openaiAccounts.loadFailed", { message: loadError })}</div> : null}
       {operationError ? <div className="codex-account-sync-error">{operationError}</div> : null}
       {syncStatus.state !== "ok" ? (
         <div className={syncStatus.state === "conflict" ? "codex-account-sync-conflict" : "codex-account-sync-error"}>
-          {syncStatus.state === "conflict" ? "凭据同步冲突：" : "凭据同步错误："}{syncStatus.message}
+          {syncStatus.state === "conflict"
+            ? t("settings.openaiAccounts.syncConflict", { message: syncStatus.message })
+            : t("settings.openaiAccounts.syncError", { message: syncStatus.message })}
         </div>
       ) : null}
 
@@ -669,9 +699,9 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
 
       <div className="codex-accounts-toolbar">
         <span>
-          {accounts.length} 个账号
+          {t("settings.openaiAccounts.accountCount", { count: accounts.length })}
           <span className="codex-toolbar-divider">·</span>
-          {loggedInCount} 个已登录
+          {t("settings.openaiAccounts.loggedInCount", { total: loggedInCount })}
         </span>
         {/* The active account already sorts first and carries a 当前使用 badge, so
             the switch line only appears while a switch or credential update is pending. */}
@@ -697,15 +727,19 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
               className={quotaLoading ? "mcp-spin" : undefined}
             />
             {quotaLoading
-              ? "刷新中…"
+              ? t("settings.openaiAccounts.refreshing")
               : t("settings.openaiAccounts.refreshQuota")}
           </button>
         </div>
       </div>
 
       <div className="codex-account-controls">
-        <div className="codex-account-filters" role="group" aria-label="筛选账号">
-          {([ ["all", "全部", accounts.length], ["ready", "已登录", loggedInCount], ["missing", "待登录", accounts.length - loggedInCount] ] as const).map(([value, label, count]) =>
+        <div className="codex-account-filters" role="group" aria-label={t("settings.openaiAccounts.filterAria")}>
+          {([
+            ["all", t("settings.openaiAccounts.filterAll"), accounts.length],
+            ["ready", t("settings.openaiAccounts.filterReady"), loggedInCount],
+            ["missing", t("settings.openaiAccounts.filterMissing"), accounts.length - loggedInCount],
+          ] as const).map(([value, label, count]) =>
             <button key={value} type="button" aria-pressed={statusFilter === value} className={statusFilter === value ? "is-selected" : ""} onClick={() => setStatusFilter(value)}>{label}<span>{count}</span></button>)}
         </div>
         <div className="codex-accounts-search">
@@ -721,7 +755,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             <button
               type="button"
               className="search-input-clear"
-              aria-label="清除搜索"
+              aria-label={t("common.clearSearch")}
               onClick={() => setSearchQuery("")}
             >
               <X size={12} />
@@ -732,29 +766,29 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
 
       {loadError ? (
         <div className="codex-empty-state">
-          <strong>账号列表读取失败</strong>
+          <strong>{t("settings.openaiAccounts.listLoadFailed")}</strong>
           <p>{loadError}</p>
-          <button type="button" className="settings-primary-button" onClick={() => void refresh()}>重试</button>
+          <button type="button" className="settings-primary-button" onClick={() => void refresh()}>{t("common.retry")}</button>
         </div>
       ) : filteredAccounts.length === 0 ? (
         <div className="codex-empty-state">
           {searchQuery || accounts.length > 0 ? (
             <>
               <Search size={24} />
-              <strong>{searchQuery ? t("settings.openaiAccounts.noMatch") : "这个分类下暂无账号"}</strong>
+              <strong>{searchQuery ? t("settings.openaiAccounts.noMatch") : t("settings.openaiAccounts.filterEmpty")}</strong>
             </>
           ) : (
             <>
               <UserRound size={24} />
               <strong>{t("settings.openaiAccounts.noAccounts")}</strong>
-              <p>添加并登录后，Codex Agent 才能使用该账号。</p>
+              <p>{t("settings.openaiAccounts.noAccountsHint")}</p>
               <button
                 type="button"
                 className="settings-primary-button"
                 disabled={busy}
                 onClick={() => {
                   setModalEditId(null);
-                  setModalName("Codex 账号 1");
+                  setModalName(t("settings.openaiAccounts.defaultAccountName", { index: 1 }));
                   setModalProxy("");
                   setModalAuthJson("");
                   setModalEmail("");
@@ -778,16 +812,20 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             const isActive = activeAccountId === account.id;
             const isPending = pendingAccountId === account.id || (pendingAccountId !== undefined && isActive);
             const status = pendingAccountId === account.id
-              ? isActive ? "凭据待应用" : "待切换"
+              ? isActive
+                ? t("settings.openaiAccounts.pendingCredentialsBadge")
+                : t("settings.openaiAccounts.pendingSwitchBadge")
               : pendingAccountId !== undefined && isActive
-                ? pendingAccountId === null ? "待停用" : "等待切换"
+                ? pendingAccountId === null
+                  ? t("settings.openaiAccounts.pendingDeactivateBadge")
+                  : t("settings.openaiAccounts.waitingSwitchBadge")
               : !account.isLoggedIn
               ? account.authState === "expired"
-                ? "登录已过期"
-                : "需要登录"
+                ? t("settings.openaiAccounts.expired")
+                : t("settings.openaiAccounts.needsLogin")
               : isActive
-                ? "当前使用"
-                : "已登录";
+                ? t("settings.openaiAccounts.inUse")
+                : t("settings.openaiAccounts.loggedIn");
             const statusTone = isPending
               ? "warning"
               : !account.isLoggedIn
@@ -810,8 +848,8 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                     <span title={email}>
                       {email ||
                         (account.isLoggedIn
-                          ? "Codex OAuth 已登录"
-                          : "尚未登录")}
+                          ? t("settings.openaiAccounts.oauthLoggedIn")
+                          : t("settings.openaiAccounts.notLoggedIn"))}
                     </span>
                   </div>
                   <span className={`codex-status-badge is-${statusTone}`}>
@@ -827,7 +865,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                         onClick={() => void handleSetActive(account.id)}
                       >
                         <Check size={14} />
-                        设为当前
+                        {t("settings.openaiAccounts.setAsCurrent")}
                       </button>
                     ) : null}
                     {!account.isLoggedIn ? (
@@ -838,13 +876,13 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                         onClick={() => void handleLogin(account.id)}
                       >
                         {loggingInId === account.id ? <Loader2 size={14} className="mcp-spin" /> : <LogIn size={14} />}
-                        {loggingInId === account.id ? "登录中" : "登录"}
+                        {loggingInId === account.id ? t("settings.openaiAccounts.loggingIn") : t("settings.openaiAccounts.login")}
                       </button>
                     ) : null}
                     <button
                       type="button"
                       className="mcp-icon-button"
-                      aria-label={`${account.name} 更多操作`}
+                      aria-label={t("settings.openaiAccounts.moreActionsAria", { name: account.name })}
                       aria-haspopup="menu"
                       aria-expanded={menuOpenId === account.id}
                       disabled={busy}
@@ -884,12 +922,19 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                     }}
                   >
                     <Globe2 size={13} />
-                    {account.proxyUrl ? "独立代理" : "系统网络"}
+                    {account.proxyUrl ? t("settings.openaiAccounts.proxyOwn") : t("settings.openaiAccounts.proxySystem")}
                   </button>
                   <span>
                     {account.lastLogin
-                      ? `最近登录 ${new Date(account.lastLogin).toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
-                      : "尚未登录"}
+                      ? t("settings.openaiAccounts.lastLogin", {
+                          time: formatAppDateTime(locale, new Date(account.lastLogin), {
+                            month: "numeric",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }),
+                        })
+                      : t("settings.openaiAccounts.notLoggedIn")}
                   </span>
                   <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={account.isLoggedIn} loading={(quotaLoading && account.isLoggedIn) || quotaLoadingId === account.id} error={quotaErrors[account.id]} />
                   <OpenAIAccountImageQuotaSummary account={account} loading={imageOperation?.accountId === account.id && imageOperation.kind === "quota"} />
@@ -900,7 +945,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                         ref={menuRef}
                         className="account-action-menu codex-account-action-menu"
                         role="menu"
-                        aria-label="账号操作"
+                        aria-label={t("settings.openaiAccounts.accountActionsAria")}
                         style={{
                           position: "fixed",
                           top: menuPos.top,
@@ -919,7 +964,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                         >
                           <LogIn size={14} />
                           {account.isLoggedIn
-                            ? "重新登录"
+                            ? t("settings.openaiAccounts.relogin")
                             : t("settings.openaiAccounts.login")}
                         </button>
                         <button
@@ -968,19 +1013,19 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                           }}
                         >
                           <RefreshCw size={14} />
-                          刷新图片额度
+                          {t("settings.openaiAccounts.refreshImageQuota")}
                         </button>
                         <label className="account-action-item codex-account-action-checkbox">
                           <input
                             type="checkbox"
                             role="menuitemcheckbox"
-                            aria-label="用于创意绘画"
+                            aria-label={t("settings.openaiAccounts.useForImageGeneration")}
                             aria-checked={account.imageGenerationEnabled ?? false}
                             checked={account.imageGenerationEnabled ?? false}
                             disabled={busy || imageOperation !== null}
                             onChange={(event) => void handleImageEnabled(account.id, event.target.checked)}
                           />
-                          用于创意绘画
+                          {t("settings.openaiAccounts.useForImageGeneration")}
                         </label>
                         {!isActive && account.isLoggedIn ? (
                           <button
@@ -994,7 +1039,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                             disabled={busy}
                           >
                             <Check size={14} />
-                            设为当前
+                            {t("settings.openaiAccounts.setAsCurrent")}
                           </button>
                         ) : null}
                         <button
@@ -1052,15 +1097,20 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
 
       {importOpen ? (
         <div className="settings-modal-backdrop">
-          <button type="button" className="settings-modal-backdrop-close" aria-label="关闭" disabled={busy} onClick={() => setImportOpen(false)} tabIndex={-1} />
+          <button type="button" className="settings-modal-backdrop-close" aria-label={t("common.close")} disabled={busy} onClick={() => setImportOpen(false)} tabIndex={-1} />
           <div className="settings-modal settings-modal-provider-editor codex-import-modal" role="dialog" aria-modal="true" aria-labelledby="openai-account-import-title">
             <header className="settings-modal-header">
-              <h2 className="settings-modal-title" id="openai-account-import-title">批量导入账号资料</h2>
-              <button type="button" className="mcp-icon-button" aria-label="关闭" disabled={busy} onClick={() => setImportOpen(false)}><X size={18} /></button>
+              <h2 className="settings-modal-title" id="openai-account-import-title">{t("settings.openaiAccounts.bulkImportTitle")}</h2>
+              <button type="button" className="mcp-icon-button" aria-label={t("common.close")} disabled={busy} onClick={() => setImportOpen(false)}><X size={18} /></button>
             </header>
             <div className="settings-modal-body">
-              <div className="codex-import-intro"><div className="codex-import-icon"><FileUp size={22} /></div><div><strong>一次整理，登录时随手取用</strong><p>每行一个账号。按邮箱更新资料，整批校验通过后保存。</p></div></div>
-              <div className="codex-import-format"><span>邮箱</span><i>----</i><span>密码</span><i>----</i><span>收件地址</span><i>----</i><span>2FA 密钥</span></div>
+              <div className="codex-import-intro"><div className="codex-import-icon"><FileUp size={22} /></div><div><strong>{t("settings.openaiAccounts.bulkImportIntro")}</strong><p>{t("settings.openaiAccounts.bulkImportIntroHint")}</p></div></div>
+              <div className="codex-import-format">
+                <span>{t("settings.openaiAccounts.emailField")}</span><i>----</i>
+                <span>{t("settings.openaiAccounts.passwordField")}</span><i>----</i>
+                <span>{t("settings.openaiAccounts.pickupAddressField")}</span><i>----</i>
+                <span>{t("settings.openaiAccounts.twoFactorField")}</span>
+              </div>
               <textarea
                 className="mcp-field-input mcp-field-textarea codex-import-textarea"
                 value={importText}
@@ -1069,14 +1119,17 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                 rows={8}
                 disabled={busy}
               />
-              <div className="codex-import-help"><span>字段可留空，支持 Markdown 链接格式。</span><span>{importText.split(/\r?\n/u).filter((line) => line.trim()).length} 行待校验</span></div>
+              <div className="codex-import-help">
+                <span>{t("settings.openaiAccounts.bulkImportHelp")}</span>
+                <span>{t("settings.openaiAccounts.bulkImportPendingLines", { count: importText.split(/\r?\n/u).filter((line) => line.trim()).length })}</span>
+              </div>
               {importMessage ? <div className="openai-import-result">{importMessage}</div> : null}
             </div>
             <footer className="settings-modal-footer">
-              <button type="button" className="settings-modal-cancel" disabled={busy} onClick={() => setImportOpen(false)}>关闭</button>
+              <button type="button" className="settings-modal-cancel" disabled={busy} onClick={() => setImportOpen(false)}>{t("common.close")}</button>
               <div className="settings-modal-footer-actions">
                 <button type="button" className="plan-button primary" disabled={busy || !importText.trim()} onClick={() => void handleImport()}>
-                  {busy ? "校验并保存中…" : "校验并导入"}
+                  {busy ? t("settings.openaiAccounts.validating") : t("settings.openaiAccounts.validateAndImport")}
                 </button>
               </div>
             </footer>
@@ -1217,7 +1270,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                   onClick={() => void handleCreate(true)}
                   disabled={busy || !modalName.trim()}
                 >
-                  {busy ? "保存中…" : "仅保存资料"}
+                  {busy ? t("settings.openaiAccounts.saving") : t("settings.openaiAccounts.saveProfileOnly")}
                 </button>
                 {!modalEditId ? (
                 <button
@@ -1239,7 +1292,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                 </button>
                 ) : modalMode === "manual" && modalAuthJson.trim() ? (
                   <button type="button" className="plan-button primary" onClick={() => void handleCreate(false)} disabled={busy}>
-                    {busy ? "保存中…" : "保存账号与 auth.json"}
+                    {busy ? t("settings.openaiAccounts.saving") : t("settings.openaiAccounts.saveAccountAndAuth")}
                   </button>
                 ) : null}
               </div>

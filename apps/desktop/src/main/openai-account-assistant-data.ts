@@ -1,9 +1,21 @@
 import { createHmac } from "node:crypto";
+import type { I18nKey } from "../shared/i18n-catalogs";
+
+/**
+ * The imported secret cannot be decoded. `message` is a catalog key rather than display text: this
+ * helper stays locale-free, and the caller renders the key in the user's language.
+ */
+export class TotpSecretError extends Error {
+  constructor(readonly key: I18nKey) {
+    super(key);
+    this.name = "TotpSecretError";
+  }
+}
 
 /** RFC 6238: imported Base32 secret, SHA-1, 30 seconds, six digits. */
 export function generateAccountTotp(secret: string, now = Date.now(), digits = 6): { code: string; remainingSeconds: number } {
   const normalized = secret.replace(/[\s-]/gu, "").toUpperCase().replace(/=+$/u, "");
-  if (!normalized || !/^[A-Z2-7]+$/u.test(normalized)) throw new Error("2FA 密钥不是有效的 Base32，请编辑账号资料后重试");
+  if (!normalized || !/^[A-Z2-7]+$/u.test(normalized)) throw new TotpSecretError("assistant.error.invalidBase32");
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   const bytes: number[] = [];
   let buffer = 0;
@@ -17,7 +29,7 @@ export function generateAccountTotp(secret: string, now = Date.now(), digits = 6
     }
   }
   if ([1, 3, 6].includes(normalized.length % 8) || bytes.length === 0 || (bits > 0 && (buffer & ((1 << bits) - 1)) !== 0)) {
-    throw new Error("2FA 密钥长度或末尾编码无效，请检查导入内容");
+    throw new TotpSecretError("assistant.error.invalidLength");
   }
   const seconds = Math.floor(now / 1_000);
   const counter = Buffer.alloc(8);

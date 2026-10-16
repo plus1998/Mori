@@ -149,7 +149,10 @@ function modelsRequestSignature(target: ProviderConfigInput): string {
   ].join("|");
 }
 
-function providerProtocolPresentation(provider: Pick<ProviderConfigView, "apiCompat">) {
+function providerProtocolPresentation(
+  provider: Pick<ProviderConfigView, "apiCompat">,
+  translate: (key: string) => string,
+) {
   if (provider.apiCompat === "system_one") {
     return { label: "SystemOne", iconSrc: "./provider-icons/system-one.png" };
   }
@@ -162,7 +165,7 @@ function providerProtocolPresentation(provider: Pick<ProviderConfigView, "apiCom
   if (provider.apiCompat === "openai_chat_completions") {
     return { label: "OpenAI Chat Completions API", iconSrc: "./provider-icons/openai.svg" };
   }
-  return { label: "自定义 API", iconSrc: undefined };
+  return { label: translate("settings.models.customApi"), iconSrc: undefined };
 }
 
 const OFFICIAL_PROVIDER_HOSTS: Record<string, { label: string; iconSrc: string }> = {
@@ -178,7 +181,10 @@ const OFFICIAL_PROVIDER_HOSTS: Record<string, { label: string; iconSrc: string }
   "opencode.ai": { label: "OpenCode Zen", iconSrc: "./provider-icons/opencode-zen.ico" },
 };
 
-function providerBrandPresentation(provider: Pick<ProviderConfigView, "id" | "baseUrl" | "apiCompat">) {
+function providerBrandPresentation(
+  provider: Pick<ProviderConfigView, "id" | "baseUrl" | "apiCompat">,
+  translate: (key: string) => string,
+) {
   let hostname = "";
   try {
     hostname = new URL(provider.baseUrl).hostname.toLowerCase();
@@ -197,7 +203,7 @@ function providerBrandPresentation(provider: Pick<ProviderConfigView, "id" | "ba
       // Keep protocol fallback for an invalid preset URL.
     }
   }
-  return providerProtocolPresentation(provider);
+  return providerProtocolPresentation(provider, translate);
 }
 
 export function ModelsSettingsPanel({
@@ -228,8 +234,16 @@ export function ModelsSettingsPanel({
   const { t } = useTranslation();
   const providerSettingsTabItems: Array<{ id: ModelsSettingsTab; label: string; icon?: string }> = [
     { id: "providers", label: t("settings.models.providers") },
-    { id: "openaiAccounts" as ModelsSettingsTab, label: "Codex 账号", icon: "./provider-icons/openai.svg" },
-    { id: "chatgptAccounts", label: "ChatGPT 账号", icon: "./provider-icons/openai.svg" },
+    {
+      id: "openaiAccounts" as ModelsSettingsTab,
+      label: t("settings.models.tab.openaiAccounts"),
+      icon: "./provider-icons/openai.svg",
+    },
+    {
+      id: "chatgptAccounts",
+      label: t("settings.models.tab.chatgptAccounts"),
+      icon: "./provider-icons/openai.svg",
+    },
   ];
   const runtimeConfigTabItems: Array<{ id: RuntimeConfigTab; label: string }> = [
     { id: "defaults", label: t("settings.models.runtimeConfigTab.defaults") },
@@ -897,7 +911,7 @@ export function ModelsSettingsPanel({
           <div className="provider-list-hero">
             <div className="provider-list-heading">
               <h2>{t("settings.models.providers")}</h2>
-              <p>管理 API 服务商、连接方式和默认模型。</p>
+              <p>{t("settings.models.providersDescription")}</p>
             </div>
             <button type="button" className="settings-primary-button" disabled={busy} onClick={openCreateProvider}>
               <Plus size={15} />
@@ -906,18 +920,18 @@ export function ModelsSettingsPanel({
           </div>
 
           <div className="provider-list-toolbar">
-            <span>{providerOptions.length} 个服务商</span>
+            <span>{t("settings.models.providerCount", { count: providerOptions.length })}</span>
             <div className="provider-list-search">
               <Search size={14} className="provider-list-search-icon" />
               <input
                 type="search"
                 value={providerSearchQuery}
-                placeholder="搜索服务商、地址或模型"
-                aria-label="搜索服务商"
+                placeholder={t("settings.models.providerSearchPlaceholder")}
+                aria-label={t("settings.models.providerSearchAria")}
                 onChange={(event) => setProviderSearchQuery(event.target.value)}
               />
               {providerSearchQuery ? (
-                <button type="button" aria-label="清除搜索" onClick={() => setProviderSearchQuery("")}>
+                <button type="button" aria-label={t("settings.models.providerSearchClear")} onClick={() => setProviderSearchQuery("")}>
                   <X size={13} />
                 </button>
               ) : null}
@@ -925,15 +939,29 @@ export function ModelsSettingsPanel({
           </div>
 
           {providerOptions.length === 0 ? (
-            <div className="provider-list-empty"><strong>{t("settings.models.noProviders")}</strong><span>添加服务商后，可以在 Agent 设置中选择对应模型。</span></div>
+            <div className="provider-list-empty">
+              <strong>{t("settings.models.noProviders")}</strong>
+              <span>{t("settings.models.providersEmptyHint")}</span>
+            </div>
           ) : filteredProviderOptions.length === 0 ? (
-            <div className="provider-list-empty"><Search size={22} /><strong>没有匹配的服务商</strong><span>试试搜索名称、地址或默认模型。</span></div>
+            <div className="provider-list-empty">
+              <Search size={22} />
+              <strong>{t("settings.models.providerSearchEmpty")}</strong>
+              <span>{t("settings.models.providerSearchEmptyHint")}</span>
+            </div>
           ) : (
             <div className="provider-card-list">
               {filteredProviderOptions.map((provider) => {
-                const brand = providerBrandPresentation(provider);
-                const protocol = providerProtocolPresentation(provider);
-                const authLabel = provider.authMethod === "oauth" ? "OAuth" : provider.authMethod === "auth_json" ? "Codex Auth" : provider.authMethod === "chatgpt_subscription" ? "ChatGPT 订阅" : "API Key";
+                const brand = providerBrandPresentation(provider, t);
+                const protocol = providerProtocolPresentation(provider, t);
+                const authLabel =
+                  provider.authMethod === "oauth"
+                    ? "OAuth"
+                    : provider.authMethod === "auth_json"
+                      ? "Codex Auth"
+                      : provider.authMethod === "chatgpt_subscription"
+                        ? t("settings.models.authChatGPTSubscription")
+                        : "API Key";
                 return (
                   <article key={provider.id} className={`provider-card ${provider.enabled ? "is-enabled" : "is-disabled"}`}>
                     <div className="provider-card-main">
@@ -954,15 +982,37 @@ export function ModelsSettingsPanel({
                         onClick={() => void toggleProvider(provider)}
                         disabled={busy}
                         aria-pressed={provider.enabled}
-                        title={provider.enabled ? "点击停用" : "点击启用"}
-                      ><i />{provider.enabled ? "已启用" : "已停用"}</button>
+                        title={
+                          provider.enabled
+                            ? t("settings.models.clickToDisable")
+                            : t("settings.models.clickToEnable")
+                        }
+                      >
+                        <i />
+                        {provider.enabled ? t("common.enabled") : t("common.disabled")}
+                      </button>
                       <div className="provider-card-actions">
-                        <button type="button" className="provider-config-button" onClick={() => openEditProvider(provider)} aria-label={t("settings.models.configureProvider", { name: provider.name })} disabled={busy}><Settings2 size={14} />配置</button>
+                        <button
+                          type="button"
+                          className="provider-config-button"
+                          onClick={() => openEditProvider(provider)}
+                          aria-label={t("settings.models.configureProvider", { name: provider.name })}
+                          disabled={busy}
+                        >
+                          <Settings2 size={14} />
+                          {t("settings.models.providerConfigure")}
+                        </button>
                       </div>
                     </div>
                     <div className="provider-card-meta">
-                      <span>默认模型：{provider.defaultModel || "未设置"}</span>
-                      <span className="provider-card-protocol">端口类型：{protocol.label}</span>
+                      <span>
+                        {t("settings.models.providerDefaultModel", {
+                          model: provider.defaultModel || t("common.notSet"),
+                        })}
+                      </span>
+                      <span className="provider-card-protocol">
+                        {t("settings.models.providerEndpointType", { protocol: protocol.label })}
+                      </span>
                     </div>
                   </article>
                 );
@@ -1486,9 +1536,7 @@ function ProviderEditorModal({
             <section className="provider-form-section">
               <h3 className="provider-form-section-title">{t("settings.models.provider.authMethod")}</h3>
               {form.authMethod === "chatgpt_subscription" ? (
-                <p className="mcp-field-hint">
-                  这是系统自动管理的 ChatGPT 账号连接。请在“ChatGPT 账号”页完成登录；这里不填写 API Key。
-                </p>
+                <p className="mcp-field-hint">{t("settings.models.subscriptionAuthHint")}</p>
               ) : (
                 <label className="mcp-field">
                 <span className="models-provider-label-row">
@@ -1523,8 +1571,11 @@ function ProviderEditorModal({
               <h3 className="provider-form-section-title">{t("settings.models.provider.connection")}</h3>
               {form.authMethod === "chatgpt_subscription" ? (
                 <div className="provider-fixed-connection">
-                  <div><span>官方 Responses API</span><strong>https://api.openai.com/v1/responses</strong></div>
-                  <p>连接地址由系统固定管理。账号代理在 ChatGPT 账号页单独配置。</p>
+                  <div>
+                    <span>{t("settings.models.subscriptionFixedEndpoint")}</span>
+                    <strong>https://api.openai.com/v1/responses</strong>
+                  </div>
+                  <p>{t("settings.models.subscriptionFixedEndpointHint")}</p>
                 </div>
               ) : (
                 <>
@@ -1601,7 +1652,7 @@ function ProviderEditorModal({
                     {form.authMethod === "chatgpt_subscription" ? (
                       <div className="provider-account-proxy-note">
                         <Network size={15} />
-                        <span>ChatGPT 使用账号级代理。请到 ChatGPT 账号页为每个账号分别设置。</span>
+                        <span>{t("settings.models.subscriptionProxyHint")}</span>
                       </div>
                     ) : (
                       <label className="mcp-field">
