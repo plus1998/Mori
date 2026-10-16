@@ -44,6 +44,7 @@ import {
   LoaderCircle,
   Minimize2,
   Monitor,
+  PanelRight,
   Pencil,
   RefreshCw,
   Reply,
@@ -2975,15 +2976,6 @@ export function ProjectionToolGroupEntry({
     ),
   ];
   const imageToolUseId = imageToolUseIds.length === 1 ? imageToolUseIds[0] : undefined;
-  const imageDisplayToolUseIds = [
-    ...new Set(
-      entry.entries
-        .map((child) => readImageDisplayToolUseId(child.item))
-        .filter((value): value is string => Boolean(value)),
-    ),
-  ];
-  const imageDisplayToolUseId = imageDisplayToolUseIds.length === 1 ? imageDisplayToolUseIds[0] : undefined;
-
   return (
     <div className={["run-log-tool-group", expanded ? "is-expanded" : ""].filter(Boolean).join(" ")}>
       <RunLogCollapsibleActionTrigger
@@ -3005,7 +2997,6 @@ export function ProjectionToolGroupEntry({
         onClick={() => {
           setExpanded((value) => !value);
           if (imageToolUseId) onOpenImageGenerationTool?.(imageToolUseId);
-          if (imageDisplayToolUseId) onOpenImageDisplayTool?.(imageDisplayToolUseId);
         }}
       />
       {expanded ? (
@@ -7276,6 +7267,7 @@ export function ImageDisplayBlock({
   const previewAlt = i18n.t("activity.imageDisplay.previewAlt", {
     name: fileName,
   });
+  const openInPanelLabel = i18n.t("task.imageDisplay.open");
   const revealInFolder = useCallback(() => {
     if (loadState.status !== "ready") return;
     const bridge = window.eco;
@@ -7289,17 +7281,28 @@ export function ImageDisplayBlock({
     <div className="run-log-image-view-wrap">
       {roleLabel ? <span className="run-log-action-role">{roleLabel}</span> : null}
       <article className="run-log-image-view" aria-busy={loadState.status === "loading"}>
-        <RunLogCollapsibleActionTrigger
-          className="run-log-image-view-summary"
-          icon="images"
-          label={lifecycle === "running" ? <ShimmerText>{statusLabel}</ShimmerText> : statusLabel}
-          {...(lifecycle && { lifecycle })}
-          expanded={detailsOpen}
-          onClick={() => {
-            setDetailsOpen((value) => !value);
-            onOpenImageDisplayArtifact?.(imageDisplay.artifactId);
-          }}
-        />
+        <div className="run-log-image-view-head">
+          <RunLogCollapsibleActionTrigger
+            className="run-log-image-view-summary"
+            icon="images"
+            label={lifecycle === "running" ? <ShimmerText>{statusLabel}</ShimmerText> : statusLabel}
+            {...(lifecycle && { lifecycle })}
+            expanded={detailsOpen}
+            onClick={() => setDetailsOpen((value) => !value)}
+          />
+          {/* 折叠层只负责展开/折叠；打开工作面板需要显式点击这个按钮。 */}
+          {onOpenImageDisplayArtifact ? (
+            <button
+              type="button"
+              className="run-log-image-view-icon-button run-log-image-view-panel-trigger"
+              onClick={() => onOpenImageDisplayArtifact(imageDisplay.artifactId)}
+              aria-label={openInPanelLabel}
+              title={openInPanelLabel}
+            >
+              <PanelRight size={14} aria-hidden />
+            </button>
+          ) : null}
+        </div>
 
         {detailsOpen ? (
           <div className="run-log-image-view-body">

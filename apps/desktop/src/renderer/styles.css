@@ -16641,6 +16641,37 @@ a.run-log-web-search-detail-result-url:focus-visible {
   opacity: 1;
 }
 
+.run-log-image-view-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.run-log-image-view-head .run-log-image-view-summary {
+  flex: 0 1 auto;
+}
+
+.run-log-image-view-panel-trigger {
+  width: 22px;
+  height: 22px;
+  color: #a3a3a3;
+  opacity: 0.55;
+  transition:
+    opacity 0.14s ease,
+    background 0.14s ease;
+}
+
+.run-log-image-view-panel-trigger:hover,
+.run-log-image-view-panel-trigger:focus-visible {
+  opacity: 1;
+}
+
+.run-log-image-view-panel-trigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 58%, transparent);
+  outline-offset: 2px;
+}
+
 .run-log-image-view-body {
   margin-top: 12px;
   min-width: 0;

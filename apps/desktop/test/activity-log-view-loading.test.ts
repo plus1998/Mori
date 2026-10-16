@@ -2643,6 +2643,45 @@ test("ActivityLogView renders imageView as a standalone collapsed preview", () =
   expect(html).not.toContain('class="run-log-tool-group"');
 });
 
+test("display_image cards keep collapse separate from opening the workspace panel", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "completed",
+        timeline: [
+          item({
+            id: "image-display-feed",
+            eventType: "tool.completed",
+            text: "Tool: mcp__eco_image_display__display_image · art-feed-1",
+            metadata: {
+              itemType: "tool",
+              tool: {
+                name: "mcp__eco_image_display__display_image",
+                detail: "art-feed-1",
+                toolUseId: "toolu_display_image_feed",
+                status: "completed",
+                imageDisplay: { artifactId: "art-feed-1", title: "示例图" },
+              },
+            },
+          }),
+        ],
+      }),
+      onOpenImageDisplayArtifact: () => undefined,
+    }),
+  );
+
+  expect(html).toContain("已展示 1 张图像");
+  // The chevron row is a pure collapse control: it never opens the task panel.
+  expect(html).toContain('class="run-log-image-view-head"');
+  expect(html).toContain('class="run-log-tool-group-trigger run-log-image-view-summary"');
+  expect(html).toContain('aria-expanded="true"');
+  // Opening the panel is its own separately labelled affordance.
+  expect(html).toContain('aria-label="在工作面板中查看"');
+  expect(html).toContain("run-log-image-view-panel-trigger");
+  expect(styles).toMatch(/\.run-log-image-view-head\s*\{[^}]*display:\s*flex;/s);
+  expect(styles).toMatch(/\.run-log-image-view-panel-trigger\s*\{/);
+});
+
 test("ActivityLogView upgrades persisted imageView gaps instead of rendering unknown payload", () => {
   const html = renderToStaticMarkup(
     createElement(ProjectionActivityLogView, {
