@@ -25,7 +25,7 @@ const fields = {
   ConversationSendMessageResult:
     "protocolVersion conversationId clientCommandId messageId turnId acceptedSeq status",
   ConversationMessage:
-    "messageId conversationId turnId runId role channel createdSeq versionSeq contentVersion body origin attachments agentId agentInstanceId occurredAt historyTarget providerRole status isDeleted",
+    "messageId conversationId turnId runId role channel createdSeq versionSeq contentVersion body origin attachments agentId agentInstanceId occurredAt startedAt historyTarget providerRole status isDeleted",
   ConversationRun:
     "runId conversationId turnId status startedAt endedAt versionSeq timingQuality retryOfRunId regenerationOfRunId",
   ConversationToolCall:
