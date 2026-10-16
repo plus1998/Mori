@@ -52,6 +52,8 @@ interface TokenSliderProps {
   ariaLabel: string;
   disabled?: boolean;
   onCommit: (value: number) => Promise<void>;
+  /** Live drag/keyboard value so the card readout tracks the thumb; null once persisted. */
+  onPreviewChange?: (value: number | null) => void;
 }
 
 function TokenSlider({
@@ -64,6 +66,7 @@ function TokenSlider({
   ariaLabel,
   disabled,
   onCommit,
+  onPreviewChange,
 }: TokenSliderProps) {
   const [previewValue, setPreviewValue] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -139,6 +142,7 @@ function TokenSlider({
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = null;
       setPreviewValue(latestValueRef.current);
+      onPreviewChange?.(latestValueRef.current);
     });
   }
 
@@ -147,10 +151,14 @@ function TokenSlider({
     latestValueRef.current = next;
     // Keep the released position while IPC persists it; clearing early displays the old prop.
     setPreviewValue(next);
+    onPreviewChange?.(next);
     try {
       if (next !== value) await onCommit(next);
     } finally {
-      if (mountedRef.current) setPreviewValue(null);
+      if (mountedRef.current) {
+        setPreviewValue(null);
+        onPreviewChange?.(null);
+      }
     }
   }
 
@@ -204,6 +212,7 @@ function TokenSlider({
     latestValueRef.current = value;
     setIsDragging(false);
     setPreviewValue(null);
+    onPreviewChange?.(null);
   }
 
   function finishKeyboardEdit() {
@@ -281,9 +290,7 @@ function TokenSlider({
             </div>
           );
         })}
-        <div className="token-slider-handle" style={{ left: `${positionPct}%` }} aria-hidden>
-          <span className="token-slider-value-badge">{format(displayValue)}</span>
-        </div>
+        <div className="token-slider-handle" style={{ left: `${positionPct}%` }} aria-hidden />
       </div>
     </div>
   );
@@ -305,6 +312,10 @@ export function ContextWindowSettingsPanel({
   const { t } = useTranslation();
   const [savingContext, setSavingContext] = useState(false);
   const [savingMaxOutput, setSavingMaxOutput] = useState(false);
+  const [contextPreview, setContextPreview] = useState<number | null>(null);
+  const [maxOutputPreview, setMaxOutputPreview] = useState<number | null>(null);
+  const contextDisplayTokens = contextPreview ?? contextWindowLimitTokens;
+  const maxOutputDisplayTokens = maxOutputPreview ?? maxOutputLimitTokens;
 
   async function selectContext(next: number) {
     if (savingContext || next === contextWindowLimitTokens) {
@@ -332,22 +343,28 @@ export function ContextWindowSettingsPanel({
 
   return (
     <div className="token-limits-page">
-      <header className="token-limits-page-header">
+      <header className="settings-page-header token-limits-page-header">
         <h1>{t("settings.contextWindow")}</h1>
+        <p className="settings-page-desc">{t("settings.contextWindow.pageDesc")}</p>
       </header>
 
       <section className="token-limits-card">
         <div className="token-limits-head">
-          <div className="token-limits-head-text">
-            <span className="token-limits-title">{t("settings.contextWindow.limit")}</span>
-            <p className="token-limits-subtitle">{t("settings.contextWindow.subtitle")}</p>
-          </div>
-          <span className="token-limits-readout">
+          <h2 className="token-limits-title">{t("settings.contextWindow.limit")}</h2>
+          <span
+            className={
+              contextPreview === null
+                ? "token-limits-readout is-accent"
+                : "token-limits-readout is-accent is-live"
+            }
+          >
             {t("settings.contextWindow.tokens", {
-              tokens: contextWindowLimitTokens.toLocaleString(),
+              tokens: contextDisplayTokens.toLocaleString(),
             })}
           </span>
         </div>
+
+        <p className="token-limits-desc">{t("settings.contextWindow.subtitle")}</p>
 
         <TokenSlider
           min={GLOBAL_CONTEXT_WINDOW_LIMIT_MIN}
@@ -359,26 +376,26 @@ export function ContextWindowSettingsPanel({
           ariaLabel={t("settings.contextWindow.limit")}
           disabled={savingContext}
           onCommit={selectContext}
+          onPreviewChange={setContextPreview}
         />
       </section>
 
       <section className="token-limits-card">
         <div className="token-limits-head">
-          <div className="token-limits-head-text">
-            <span className="token-limits-title">{t("settings.maxOutput.limit")}</span>
-            <p className="token-limits-subtitle">
-              {t(
-                maxOutputLimitTokens === "dynamic"
-                  ? "settings.maxOutput.dynamicSubtitle"
-                  : "settings.maxOutput.subtitle",
-              )}
-            </p>
-          </div>
-          <span className="token-limits-readout">
-            {maxOutputLimitTokens === "dynamic"
+          <h2 className="token-limits-title">{t("settings.maxOutput.limit")}</h2>
+          <span
+            className={
+              maxOutputDisplayTokens === "dynamic"
+                ? "token-limits-readout"
+                : maxOutputPreview === null
+                  ? "token-limits-readout is-accent"
+                  : "token-limits-readout is-accent is-live"
+            }
+          >
+            {maxOutputDisplayTokens === "dynamic"
               ? t("settings.maxOutput.dynamic")
               : t("settings.maxOutput.tokens", {
-                  tokens: maxOutputLimitTokens.toLocaleString(),
+                  tokens: maxOutputDisplayTokens.toLocaleString(),
                 })}
           </span>
         </div>
@@ -404,6 +421,14 @@ export function ContextWindowSettingsPanel({
           </button>
         </fieldset>
 
+        <p className="token-limits-desc">
+          {t(
+            maxOutputLimitTokens === "dynamic"
+              ? "settings.maxOutput.dynamicSubtitle"
+              : "settings.maxOutput.subtitle",
+          )}
+        </p>
+
         {maxOutputLimitTokens !== "dynamic" ? (
           <TokenSlider
             min={GLOBAL_MAX_OUTPUT_TOKEN_MIN}
@@ -415,6 +440,7 @@ export function ContextWindowSettingsPanel({
             ariaLabel={t("settings.maxOutput.limit")}
             disabled={savingMaxOutput}
             onCommit={selectMaxOutput}
+            onPreviewChange={setMaxOutputPreview}
           />
         ) : null}
       </section>

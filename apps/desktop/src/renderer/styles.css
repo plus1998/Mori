@@ -11777,91 +11777,112 @@ button.default-agent-option:focus-visible {
   font-weight: 600;
 }
 
-/* Context / max-output limit sliders */
+/* Context / max-output limit sliders.
+   Two cards: heading + token pill on one row, a plain-language explanation of what the
+   number does underneath, then the slider itself. */
 .token-limits-page-header {
   margin-bottom: 24px;
 }
 
-.token-limits-page-header h1 {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 650;
-  line-height: 1.1;
-  letter-spacing: -0.028em;
-  color: var(--text-heading);
-}
-
 .token-limits-card {
-  margin-bottom: 20px;
-  padding: 22px 26px 34px;
+  margin-bottom: 18px;
+  padding: 20px 24px 30px;
   border: 1px solid var(--border-subtle);
   border-radius: 16px;
   background: var(--bg-elevated);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 6%, transparent);
 }
 
 .token-limits-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 26px;
 }
 
 .token-limits-title {
-  display: block;
-  color: var(--text-primary);
+  margin: 0;
+  color: var(--text-heading);
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.015em;
 }
 
-.token-limits-subtitle {
-  margin: 5px 0 0;
-  max-width: 520px;
-  color: var(--text-muted);
-  font-size: 12.5px;
-  line-height: 1.5;
-}
-
 .token-limits-readout {
   flex-shrink: 0;
-  margin-top: 1px;
   padding: 5px 12px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
   white-space: nowrap;
+  transition:
+    background-color 0.14s ease-out,
+    border-color 0.14s ease-out;
+}
+
+/* A concrete number the user owns gets the accent treatment; "dynamic" stays neutral. */
+.token-limits-readout.is-accent {
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.token-limits-desc {
+  margin: 10px 0 0;
+  max-width: 560px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 
 .token-output-mode {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  display: flex;
-  gap: 6px;
-  margin-bottom: 18px;
+  display: inline-flex;
+  gap: 4px;
+  margin: 16px 0 0;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
 }
 
 .token-output-mode button {
+  min-width: 96px;
   padding: 7px 14px;
-  border: 1px solid var(--border-subtle);
+  border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
+  letter-spacing: -0.005em;
+  transition:
+    background-color 0.14s cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 0.14s ease-out,
+    color 0.14s ease;
+}
+
+.token-output-mode button:hover:not(:disabled) {
+  color: var(--text-primary);
 }
 
 .token-output-mode button[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--text-primary);
-  border-color: var(--accent);
+  background: var(--bg-elevated);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent),
+    0 1px 3px color-mix(in srgb, var(--text-primary) 14%, transparent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.token-output-mode button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .token-output-mode button:disabled {
@@ -11870,12 +11891,14 @@ button.default-agent-option:focus-visible {
 }
 
 .token-slider {
-  padding-top: 6px;
+  /* Room for the 20px thumb and the first/last preset labels, which are centered on
+     the track ends and would otherwise clip against the card edge. */
+  padding: 10px 12px 0;
 }
 
 .token-slider-track {
   position: relative;
-  height: 32px;
+  height: 30px;
   cursor: pointer;
   touch-action: none;
   user-select: none;
@@ -11917,7 +11940,7 @@ button.default-agent-option:focus-visible {
 
 .token-slider-flag {
   position: absolute;
-  top: calc(50% + 7px);
+  top: calc(50% + 8px);
   display: grid;
   justify-items: center;
   transform: translateX(-50%);
@@ -11925,17 +11948,17 @@ button.default-agent-option:focus-visible {
 }
 
 .token-slider-flag-dot {
-  width: 3px;
-  height: 3px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--text-primary) 38%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 30%, transparent);
   transition: background 120ms ease-out;
 }
 
 .token-slider-flag-label {
-  margin-top: 5px;
+  margin-top: 6px;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
@@ -11947,26 +11970,27 @@ button.default-agent-option:focus-visible {
 }
 
 .token-slider-flag.is-active .token-slider-flag-dot {
+  width: 5px;
+  height: 5px;
   background: var(--accent);
 }
 
 .token-slider-flag.is-active .token-slider-flag-label {
-  color: var(--text-primary);
-  font-weight: 700;
+  color: var(--accent-text);
+  font-weight: 650;
   transform: translateY(-1px);
 }
 
 .token-slider-handle {
   position: absolute;
   top: 50%;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: var(--bg-elevated);
   box-shadow:
-    0 0 0 1px var(--border-strong),
-    0 1px 3px rgba(0, 0, 0, 0.25),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    0 0 0 2px var(--accent),
+    0 2px 6px color-mix(in srgb, var(--accent) 28%, transparent);
   transform: translate(-50%, -50%);
   pointer-events: none;
   transition:
@@ -11976,46 +12000,21 @@ button.default-agent-option:focus-visible {
 
 .token-slider.is-dragging .token-slider-handle,
 .token-slider-track:focus-visible .token-slider-handle {
-  transform: translate(-50%, -50%) scale(1.18);
+  transform: translate(-50%, -50%) scale(1.15);
   box-shadow:
-    0 0 0 1px var(--accent),
-    0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent);
+    0 0 0 2px var(--accent),
+    0 3px 12px color-mix(in srgb, var(--accent) 42%, transparent);
 }
 
-.token-slider-value-badge {
-  position: absolute;
-  bottom: 26px;
-  left: 50%;
-  padding: 5px 10px;
-  border-radius: 8px;
-  background: var(--bg-menu);
-  border: 1px solid var(--border-subtle);
-  box-shadow:
-    0 4px 14px rgba(0, 0, 0, 0.28),
-    0 0 0 0.5px rgba(255, 255, 255, 0.06);
-  color: var(--text-heading);
-  font-size: 12px;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-  opacity: 0;
-  transform: translateX(-50%) translateY(3px) scale(0.96);
-  transition:
-    opacity 130ms ease-out,
-    transform 130ms cubic-bezier(0.25, 0.1, 0.25, 1);
-}
-
-.token-slider.is-dragging .token-slider-value-badge,
-.token-slider-track:focus-visible .token-slider-value-badge {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0) scale(1);
-  transition-delay: 0ms;
+/* The card readout is the live value display: it tracks the thumb during a drag or
+   arrow-key edit, so the thumb itself carries no tooltip. */
+.token-limits-readout.is-live {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .token-slider-handle,
-  .token-slider-value-badge,
   .token-slider-flag-dot,
   .token-slider-flag-label {
     transition: none;

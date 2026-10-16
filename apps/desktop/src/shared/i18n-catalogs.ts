@@ -351,18 +351,19 @@ export const i18nCatalogs = {
       "asr.error.transcribe": "语音处理失败。",
       "settings.defaultAgent": "运行核心",
       "settings.contextWindow": "上下文",
+      "settings.contextWindow.pageDesc": "设置所有会话共用的上下文窗口上限与最大输出。",
       "settings.contextWindow.limit": "全局上下文上限",
       "settings.contextWindow.subtitle":
-        "所有 Claude、Codex 与 PI 会话使用该上限；模型窗口更小时仍以模型自身窗口为准。Core 自动压缩按 min(模型窗口, 该上限) 触发。",
+        "所有 Claude、Codex 与 PI 会话共用该上限；模型自身窗口更小时，以模型窗口为准。",
       "settings.contextWindow.tokens": "{{tokens}} tokens",
       "settings.maxOutput.limit": "全局最大输出",
       "settings.maxOutput.mode": "最大输出模式",
       "settings.maxOutput.dynamic": "动态计算",
       "settings.maxOutput.fixed": "固定上限",
       "settings.maxOutput.dynamicSubtitle":
-        "每次请求按 min(模型窗口, 全局上下文上限) − 本次完整输入 tokens − 1 计算，且不超过模型输出上限。输入计数遵循提供商的计数设置；本地估算并非精确值。",
+        "根据每次请求的输入长度自动留出输出空间，不超过模型自身的输出上限。",
       "settings.maxOutput.subtitle":
-        "硬顶：实际请求的 max_tokens 为 min(模型配置, 该上限)，未配置时用此默认值，且不超过上下文减 1。",
+        "所有请求的输出一律不超过该值，也不超过模型自身的输出上限。",
       "settings.maxOutput.tokens": "{{tokens}} tokens",
       "settings.agentLibrary": "智能体库",
       "settings.orchestrationComponents": "运行配置",
@@ -3034,18 +3035,20 @@ export const i18nCatalogs = {
       "asr.error.transcribe": "Voice processing failed.",
       "settings.defaultAgent": "Runtime Core",
       "settings.contextWindow": "Context",
+      "settings.contextWindow.pageDesc":
+        "Set the context window limit and maximum output shared by your sessions.",
       "settings.contextWindow.limit": "Global context limit",
       "settings.contextWindow.subtitle":
-        "Applies to every Claude, Codex, and PI session. Models with smaller windows keep their own limit. Core auto-compaction uses min(model window, this cap).",
+        "Every Claude, Codex, and PI session uses this limit. Models with a smaller window keep their own.",
       "settings.contextWindow.tokens": "{{tokens}} tokens",
       "settings.maxOutput.limit": "Global max output",
       "settings.maxOutput.mode": "Max output mode",
       "settings.maxOutput.dynamic": "Dynamic",
       "settings.maxOutput.fixed": "Fixed limit",
       "settings.maxOutput.dynamicSubtitle":
-        "Each request uses min(model window, global context limit) − current full input tokens − 1, capped by the model output limit. Input counting follows provider settings; local estimates are not exact.",
+        "Output space follows each request's input length and never exceeds the model's own limit.",
       "settings.maxOutput.subtitle":
-        "Hard ceiling: request max_tokens is min(model config, this limit). Unset models use this default, never above context − 1.",
+        "No request outputs more than this value, and never more than the model's own limit.",
       "settings.maxOutput.tokens": "{{tokens}} tokens",
       "settings.agentLibrary": "Agent library",
       "settings.orchestrationComponents": "Runtime config",
