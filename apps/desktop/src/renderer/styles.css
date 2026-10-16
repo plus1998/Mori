@@ -27363,7 +27363,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 .model-manual-spec--sidebar {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
   min-width: 0;
 }
 
@@ -27386,7 +27386,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 .model-manual-spec-sidebar-badge {
   font-size: 10px;
   font-weight: 600;
-  color: #93c5fd;
+  color: var(--accent-text);
   background: color-mix(in srgb, #6b8afd 14%, transparent);
   border: 1px solid color-mix(in srgb, #6b8afd 35%, transparent);
   border-radius: 999px;
@@ -27560,130 +27560,6 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   opacity: 0.6;
 }
 
-.model-spec-preset-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.model-spec-preset-select {
-  flex: 1;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: 7px 9px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 7px;
-  background: var(--bg-main);
-  color: var(--text-primary);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  padding-right: 28px;
-}
-
-.model-spec-preset-select:focus {
-  outline: none;
-  border-color: color-mix(in srgb, #6b8afd 55%, var(--border-subtle) 45%);
-}
-
-.model-spec-preset-select:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.model-spec-preset-edit-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  background: var(--bg-main);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    background 100ms ease-out,
-    color 100ms ease-out,
-    border-color 100ms ease-out;
-}
-
-.model-spec-preset-edit-icon-btn:hover {
-  background: var(--nav-hover);
-  color: var(--text-primary);
-  border-color: var(--border-strong);
-}
-
-.model-spec-preset-edit-icon-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.model-spec-preset-edit-icon-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.model-spec-preset-edit-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.model-spec-preset-edit-row .model-spec-field-input {
-  flex: 1;
-  min-width: 60px;
-}
-
-.model-spec-preset-edit-btn {
-  min-height: 28px;
-  padding: 4px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  background: var(--bg-main);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background 100ms ease-out,
-    color 100ms ease-out;
-}
-
-.model-spec-preset-edit-btn:hover {
-  background: var(--nav-hover);
-  color: var(--text-primary);
-}
-
-.model-spec-preset-edit-btn-save {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-
-.model-spec-preset-edit-btn-save:hover {
-  opacity: 0.9;
-}
-
-.model-spec-field-caption-custom {
-  color: var(--accent);
-  font-weight: 500;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .model-spec-preset-btn,
-  .model-spec-preset-edit-icon-btn,
-  .model-spec-preset-edit-btn {
-    transition: none;
-  }
-}
-
 .model-spec-segmented {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -27709,8 +27585,8 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 
 .model-spec-segmented-btn.is-active {
   border-color: color-mix(in srgb, #6b8afd 55%, var(--border-subtle) 45%);
-  color: #93c5fd;
-  background: color-mix(in srgb, #6b8afd 10%, var(--bg-main) 90%);
+  color: var(--accent-text);
+  background: var(--accent-soft);
 }
 
 .model-spec-segmented-btn:disabled {
@@ -28184,8 +28060,8 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 }
 
 .candidate-model-card.is-editing {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-subtle));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--border-strong);
+  background: var(--bg-elevated);
 }
 
 .candidate-model-summary {
@@ -28292,6 +28168,12 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   min-width: 0;
 }
 
+.candidate-model-edit-title .candidate-model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .candidate-model-edit-label {
   font-size: 11px;
   font-weight: 600;
@@ -28316,17 +28198,19 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 .candidate-model-edit-fields {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 16px;
+  gap: 24px;
+  padding: 20px 16px;
+  container-type: inline-size;
 }
 
 .candidate-model-edit-id-fields {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  grid-template-columns: 1fr;
+  gap: 14px;
 }
 
 .candidate-model-edit-field {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -28340,6 +28224,8 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 }
 
 .candidate-model-edit-input {
+  box-sizing: border-box;
+  min-width: 0;
   width: 100%;
   min-height: 32px;
   padding: 6px 10px;
@@ -28370,9 +28256,79 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   margin: 0;
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   color: var(--text-muted);
+}
+
+.candidate-model-edit .model-manual-spec-body {
+  gap: 24px;
+}
+
+.candidate-model-edit .model-spec-form-section {
+  gap: 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.candidate-model-edit .model-spec-form-section-title {
+  font-size: 12px;
+  color: var(--text-primary);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.candidate-model-edit .model-spec-form-grid {
+  gap: 16px 12px;
+}
+
+.candidate-model-edit .model-spec-field-input {
+  min-height: 34px;
+}
+
+.candidate-model-edit .model-spec-field-tristate {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 5px 12px;
+}
+
+.candidate-model-edit .model-spec-field-tristate .model-spec-field-caption {
+  grid-column: 1;
+}
+
+.candidate-model-edit .model-spec-field-tristate .model-spec-segmented {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  width: 174px;
+}
+
+.candidate-model-edit .model-spec-segmented-btn {
+  min-height: 30px;
+  white-space: nowrap;
+}
+
+.candidate-model-edit .model-manual-spec-catalog-ref-header {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.candidate-model-edit .model-manual-spec-catalog-ref-mapping {
+  margin-left: 0;
+  max-width: 100%;
+}
+
+@container (max-width: 270px) {
+  .candidate-model-edit .model-spec-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .candidate-model-edit .model-spec-field-tristate {
+    display: flex;
+    align-items: stretch;
+  }
+  .candidate-model-edit .model-spec-field-tristate .model-spec-segmented {
+    width: 100%;
+  }
 }
 
 .candidate-model-edit-section .model-cascade-hint {

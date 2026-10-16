@@ -327,7 +327,7 @@ export const CandidateModelPanel = forwardRef<CandidateModelPanelHandle, Candida
                       <div className="candidate-model-edit-header">
                         <div className="candidate-model-edit-title">
                           <span className="candidate-model-edit-label">{t("common.edit")}</span>
-                          <span className="candidate-model-name">{candidate.modelId}</span>
+                          <span className="candidate-model-name" title={candidate.modelId}>{candidate.modelId}</span>
                         </div>
                         <div className="candidate-model-edit-actions">
                           <button

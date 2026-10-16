@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ModelsDevMapping, RouteCapabilityHint, RoutePricingHint } from "../shared/ipc";
 import { multiplyUnitRate } from "../shared/manual-spec-pricing";
@@ -58,6 +58,7 @@ function TriStateField({
             key={option.value}
             type="button"
             className={`model-spec-segmented-btn${value === option.value ? " is-active" : ""}`}
+            aria-pressed={value === option.value}
             disabled={disabled}
             onClick={() => onChange(option.value)}
           >
@@ -127,7 +128,7 @@ function parseTokenInput(raw: string): number | undefined {
     numericPart = lower.slice(0, -1);
   }
   const parsed = Number(numericPart);
-  if (Number.isNaN(parsed)) return undefined;
+  if (!numericPart.trim() || !Number.isFinite(parsed)) return undefined;
   return Math.round(parsed * multiplier);
 }
 
@@ -148,120 +149,38 @@ function TokenPresetField({
   disabled?: boolean;
   onChange: (value: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const currentValue = parseTokenInput(value);
-  const isPreset = presets.some((p) => p === currentValue);
-
-  function startEditing() {
-    setDraft(value);
-    setEditing(true);
-    setTimeout(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }, 0);
-  }
-
-  function cancelEditing() {
-    setEditing(false);
-    setDraft("");
-  }
-
-  function saveEditing() {
-    onChange(draft);
-    setEditing(false);
-    setDraft("");
-  }
-
-  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Enter") {
-      saveEditing();
-    } else if (event.key === "Escape") {
-      cancelEditing();
-    }
-  }
-
-  if (editing) {
-    return (
-      <label className="model-spec-field">
-        <span className="model-spec-field-label">{label}</span>
-        <div className="model-spec-preset-edit-row">
-          <input
-            ref={inputRef}
-            className="model-spec-field-input"
-            type="text"
-            inputMode="numeric"
-            placeholder={placeholder}
-            value={draft}
-            disabled={disabled}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={handleKeyDown}
-          />
-          <button
-            type="button"
-            className="model-spec-preset-edit-btn model-spec-preset-edit-btn-save"
-            onClick={saveEditing}
-            disabled={disabled}
-          >
-            保存
-          </button>
-          <button
-            type="button"
-            className="model-spec-preset-edit-btn"
-            onClick={cancelEditing}
-            disabled={disabled}
-          >
-            取消
-          </button>
-        </div>
-        {caption ? <span className="model-spec-field-caption">{caption}</span> : null}
-      </label>
-    );
-  }
-
+  const presetsId = useId();
+  const inputId = useId();
   return (
-    <label className="model-spec-field">
-      <span className="model-spec-field-label">{label}</span>
-      <div className="model-spec-preset-row">
-        <select
-          className="model-spec-preset-select"
-          value={isPreset ? String(currentValue) : ""}
-          disabled={disabled}
-          onChange={(event) => {
-            const selected = event.target.value;
-            if (selected) {
-              onChange(selected);
-            }
-          }}
-        >
-          <option value="">选择...</option>
-          {presets.map((preset) => (
-            <option key={preset} value={preset}>
-              {formatTokenPresetLabel(preset)}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="model-spec-preset-edit-icon-btn"
-          onClick={startEditing}
-          disabled={disabled}
-          aria-label={`编辑${label}`}
-          title={`手动输入${label}`}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-          </svg>
-        </button>
-      </div>
+    <div className="model-spec-field">
+      <label className="model-spec-field-label" htmlFor={inputId}>{label}</label>
+      <input
+        id={inputId}
+        className="model-spec-field-input"
+        type="text"
+        inputMode="numeric"
+        list={presetsId}
+        placeholder={placeholder}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          }
+        }}
+        onBlur={(event) => {
+          const raw = event.target.value;
+          const parsed = parseTokenInput(raw);
+          if (parsed !== undefined && /[km]$/i.test(raw.trim())) onChange(String(parsed));
+        }}
+      />
+      <datalist id={presetsId}>
+        {presets.map((preset) => <option key={preset} value={preset} label={formatTokenPresetLabel(preset)} />)}
+      </datalist>
       {caption ? <span className="model-spec-field-caption">{caption}</span> : null}
-      {value && !isPreset ? (
-        <span className="model-spec-field-caption model-spec-field-caption-custom">自定义：{value}</span>
-      ) : null}
-    </label>
+    </div>
   );
 }
 
@@ -467,7 +386,7 @@ export function ModelManualSpecPanel({
     return (
       <div className="model-manual-spec model-manual-spec--sidebar">
         <div className="model-manual-spec-sidebar-head">
-          <h3 className="model-manual-spec-sidebar-title">{title}</h3>
+          <h3 className="model-manual-spec-sidebar-title">{t("modelSpec.manualOverrides")}</h3>
           {overrideCount > 0 ? (
             <span className="model-manual-spec-sidebar-badge">
               {t("modelSpec.overrideCount", { count: overrideCount })}
