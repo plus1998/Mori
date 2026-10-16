@@ -5852,7 +5852,9 @@ function registerIpcHandlers(): void {
 
   registerDesktopCommand(IPC_CHANNELS.conversationHead, async (conversationId: unknown) => {
     const id = requiredConversationV2String(conversationId, "conversationId");
-    requireConversationV2Thread(id);
+    // Reading a revision (including before deletion) does not load content.
+    // Leave read-model repairs to the content-loading commands.
+    requireConversationV2Thread(id, { repairOnLoad: false });
     return conversationStore.conversationV2().head(id);
   });
 
@@ -17850,7 +17852,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function requireConversationV2Thread(conversationId: string): void {
+function requireConversationV2Thread(
+  conversationId: string,
+  options: { repairOnLoad?: boolean } = {},
+): void {
   const id = conversationId.trim();
   conversationRecoveryGate.assertReady(id);
   if (!conversationStore.getThread(id)) {
@@ -17892,7 +17897,9 @@ function requireConversationV2Thread(conversationId: string): void {
   }
   // One-time data repairs for this conversation. Recorded per conversation, so
   // loading it again after the first pass costs only a lookup.
-  conversationStore.repairConversationV2OnLoad(id);
+  if (options.repairOnLoad !== false) {
+    conversationStore.repairConversationV2OnLoad(id);
+  }
 }
 
 function isSdkCompactionStatusEvent(event: AgentEventLike): boolean {

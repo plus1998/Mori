@@ -672,6 +672,11 @@ export class ConversationV2Store {
         ON conversation_events_v2(conversation_id, tool_call_id, seq);
       CREATE INDEX IF NOT EXISTS idx_conversation_events_v2_message
         ON conversation_events_v2(conversation_id, message_id, seq);
+      -- Deleting a thread checks cross-conversation image dependencies. Keep
+      -- that lookup on the small fork lineage index rather than the event log.
+      CREATE INDEX IF NOT EXISTS idx_conversation_events_v2_fork_source
+        ON conversation_events_v2(json_extract(payload_json, '$.sourceThreadId'))
+        WHERE type = 'noop' AND json_extract(payload_json, '$.reason') = 'history.fork_created';
 
       CREATE TABLE IF NOT EXISTS conversation_messages_v2 (
         message_id TEXT PRIMARY KEY,
@@ -950,6 +955,8 @@ export class ConversationV2Store {
         accepted_seq INTEGER NOT NULL,
         PRIMARY KEY (principal_id, conversation_id, client_command_id)
       );
+      CREATE INDEX IF NOT EXISTS idx_conversation_command_receipts_v2_conversation
+        ON conversation_command_receipts_v2(conversation_id);
 
       CREATE TABLE IF NOT EXISTS conversation_command_jobs_v2 (
         principal_id TEXT NOT NULL,
@@ -969,6 +976,8 @@ export class ConversationV2Store {
       );
       CREATE INDEX IF NOT EXISTS idx_conversation_command_jobs_v2_recovery
         ON conversation_command_jobs_v2(status, accepted_seq, conversation_id);
+      CREATE INDEX IF NOT EXISTS idx_conversation_command_jobs_v2_conversation
+        ON conversation_command_jobs_v2(conversation_id);
 
       CREATE TABLE IF NOT EXISTS conversation_command_checkpoints_v2 (
         principal_id TEXT NOT NULL,
@@ -986,6 +995,8 @@ export class ConversationV2Store {
         ON conversation_command_checkpoints_v2(
           principal_id, conversation_id, client_command_id, ordinal
         );
+      CREATE INDEX IF NOT EXISTS idx_conversation_command_checkpoints_v2_conversation
+        ON conversation_command_checkpoints_v2(conversation_id);
 
       CREATE TABLE IF NOT EXISTS conversation_migrations_v2 (
         migration_version INTEGER NOT NULL,

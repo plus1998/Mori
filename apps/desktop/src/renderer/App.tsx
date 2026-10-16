@@ -2629,8 +2629,6 @@ function App() {
         return;
       }
 
-      ensureThreadListed(event.threadId);
-
       if (event.type === "thread.deleted") {
         clearThreadClientState(event.threadId);
         conversationV2PendingEventsRef.current.delete(event.threadId);
@@ -2658,6 +2656,7 @@ function App() {
         });
         return;
       }
+      ensureThreadListed(event.threadId);
 
       if (
         event.type === "thread.failed" ||
