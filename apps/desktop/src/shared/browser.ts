@@ -12,6 +12,18 @@ export const ECO_AGENT_BROWSER_SKILL_NAME = "eco-agent-browser";
 /** Scope id when the user browses without an active Eco thread (not injectable to Agent). */
 export const ECO_BROWSER_PERSONAL_SCOPE_ID = "__personal__";
 
+/** Landing pages belong to one project even before a conversation exists. */
+export function browserPersonalScopeId(workspacePath?: string | null): string {
+  const workspace = workspacePath?.trim();
+  return workspace
+    ? `${ECO_BROWSER_PERSONAL_SCOPE_ID}:${partitionForBrowserWorkspace(workspace)}`
+    : ECO_BROWSER_PERSONAL_SCOPE_ID;
+}
+
+export function isPersonalBrowserScopeId(scopeId: string): boolean {
+  return scopeId === ECO_BROWSER_PERSONAL_SCOPE_ID || scopeId.startsWith(`${ECO_BROWSER_PERSONAL_SCOPE_ID}:`);
+}
+
 export const BROWSER_TASK_TAB_PREFIX = "browser:";
 
 /**
@@ -302,6 +314,7 @@ export interface BrowserSetVisibleRequest {
 
 export interface BrowserSetUiScopeRequest {
   threadId: string | null;
+  workspacePath?: string;
 }
 
 export function browserTaskTabId(browserId: string): string {
@@ -353,11 +366,13 @@ export function resolveBrowserScopePartition(
   options?: { workspacePath?: string | null },
 ): string {
   const workspacePath = options?.workspacePath?.trim();
-  if (scopeId === ECO_BROWSER_PERSONAL_SCOPE_ID) {
+  if (isPersonalBrowserScopeId(scopeId)) {
     if (workspacePath) {
       return partitionForBrowserWorkspace(workspacePath);
     }
-    return partitionForBrowserWorkspace(ECO_BROWSER_PERSONAL_SCOPE_ID);
+    if (scopeId === ECO_BROWSER_PERSONAL_SCOPE_ID) {
+      return partitionForBrowserWorkspace(ECO_BROWSER_PERSONAL_SCOPE_ID);
+    }
   }
   if (!workspacePath) {
     throw new Error(`无法解析会话 workspacePath（scope=${scopeId}），无法使用 workspace 级浏览器存储分区。`);

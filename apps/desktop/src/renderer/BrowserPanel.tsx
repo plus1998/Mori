@@ -46,16 +46,17 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
 
   const instance = state?.instances.find((item) => item.id === browserId);
   const viewportControlsVisible = showViewportControls ?? Boolean(instance?.viewport);
-  const displayUrl = instance?.url ?? state?.url ?? "about:blank";
-  const canGoBack = instance?.canGoBack ?? state?.canGoBack ?? false;
-  const canGoForward = instance?.canGoForward ?? state?.canGoForward ?? false;
-  const isLoading = instance?.isLoading ?? state?.isLoading ?? false;
-  const showToolHome = state !== undefined && !isLoading && displayUrl === "about:blank";
+  const displayUrl = instance?.url ?? "about:blank";
+  const canGoBack = instance?.canGoBack ?? false;
+  const canGoForward = instance?.canGoForward ?? false;
+  const isLoading = instance?.isLoading ?? false;
+  const showToolHome = instance !== undefined && !isLoading && displayUrl === "about:blank";
 
   useEffect(() => {
     void window.eco?.getBrowserState?.().then((next) => {
       setState(next);
-      const url = next.instances.find((i) => i.id === browserId)?.url ?? next.url;
+      const url = next.instances.find((i) => i.id === browserId)?.url;
+      if (url === undefined) return;
       setAddress(url === "about:blank" ? "" : url);
     });
   }, [browserId]);
@@ -68,7 +69,8 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
     void window.eco?.browserSetVisible?.({ visible: true, browserId }).then((next) => {
       if (next) {
         setState(next);
-        const url = next.instances.find((i) => i.id === browserId)?.url ?? next.url;
+        const url = next.instances.find((i) => i.id === browserId)?.url;
+        if (url === undefined) return;
         setAddress(url === "about:blank" ? "" : url);
       }
     });
@@ -81,7 +83,8 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
         return;
       }
       if (!document.activeElement || document.activeElement.id !== addressInputId) {
-        const url = next.instances.find((i) => i.id === browserId)?.url ?? next.url;
+        const url = next.instances.find((i) => i.id === browserId)?.url;
+        if (url === undefined) return;
         setAddress(url === "about:blank" ? "" : url);
       }
     });
@@ -96,7 +99,8 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
     }
     const next = await window.eco.browserNavigate({ url, reveal: true, browserId });
     setState(next);
-    const shown = next.instances.find((i) => i.id === browserId)?.url ?? next.url;
+    const shown = next.instances.find((i) => i.id === browserId)?.url;
+    if (shown === undefined) return;
     setAddress(shown === "about:blank" ? "" : shown);
   }
 

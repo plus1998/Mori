@@ -13,6 +13,7 @@ import {
   type BrowserLoadError,
   type BrowserViewState,
   browserAgentSessionKey,
+  browserPersonalScopeId,
   buildEcoAgentBrowserPromptAppend,
   ECO_AGENT_BROWSER_ALLOWED_TOOL,
   ECO_AGENT_BROWSER_MCP_SERVER,
@@ -20,6 +21,7 @@ import {
   ECO_BROWSER_PERSONAL_SCOPE_ID,
   isBrowserHttpUrl,
   isBrowserPlaceholderUrl,
+  isPersonalBrowserScopeId,
   normalizeBrowserNavigateUrl,
   pickBrowserFaviconUrl,
   planAdoptPersonalBrowsersToThread,
@@ -528,8 +530,8 @@ export class BrowserHost {
     };
   }
 
-  setUiScope(threadId: string | null): BrowserViewState {
-    const next = threadId?.trim() ? threadId.trim() : ECO_BROWSER_PERSONAL_SCOPE_ID;
+  setUiScope(threadId: string | null, workspacePath?: string): BrowserViewState {
+    const next = threadId?.trim() ? threadId.trim() : browserPersonalScopeId(workspacePath);
     if (next !== this.uiScopeId) {
       this.uiScopeId = next;
       this.revealBrowserId = undefined;
@@ -627,7 +629,7 @@ export class BrowserHost {
   }
 
   private resolvePartition(scopeId: string, workspaceHint?: string | null): string {
-    if (scopeId === ECO_BROWSER_PERSONAL_SCOPE_ID) {
+    if (isPersonalBrowserScopeId(scopeId)) {
       return resolveBrowserScopePartition(scopeId, {
         ...(workspaceHint !== undefined ? { workspacePath: workspaceHint } : {}),
       });
@@ -668,12 +670,12 @@ export class BrowserHost {
     this.partitionHandlers.add(partition);
   }
 
-  private resolveScopeId(threadId?: string | null): string {
-    if (threadId === null) {
-      return ECO_BROWSER_PERSONAL_SCOPE_ID;
-    }
+  private resolveScopeId(threadId?: string | null, workspacePath?: string): string {
     if (typeof threadId === "string" && threadId.trim()) {
       return threadId.trim();
+    }
+    if (threadId === null || workspacePath?.trim()) {
+      return browserPersonalScopeId(workspacePath);
     }
     return this.uiScopeId;
   }
@@ -854,7 +856,10 @@ export class BrowserHost {
 
   async openSharedSession(options: SharedBrowserOpenOptions = {}): Promise<BrowserViewState> {
     const revealUi = options.revealUi !== false;
-    const scopeId = this.resolveScopeId(options.threadId);
+    const scopeId = this.resolveScopeId(options.threadId, options.workspacePath);
+    if (options.browserId && !this.scopes.get(scopeId)?.browsers.has(options.browserId)) {
+      throw new Error(`Browser ${options.browserId} does not belong to scope ${scopeId}`);
+    }
     const source = options.source ?? "human";
     const updateUiFocus = options.updateUiFocus ?? source === "human";
     if (source !== "agent") {
@@ -930,7 +935,9 @@ export class BrowserHost {
     if (!found) {
       throw new Error(`Browser not found: ${browserId}`);
     }
-    this.uiScopeId = found.scope.threadId;
+    if (found.scope.threadId !== this.uiScopeId) {
+      throw new Error(`Browser ${browserId} does not belong to the current UI scope`);
+    }
     found.scope.focusedBrowserId = browserId;
     if (options?.reveal !== false) {
       this.requestReveal(browserId);
@@ -990,6 +997,9 @@ export class BrowserHost {
   setVisible(visible: boolean, browserId?: string): BrowserViewState {
     if (browserId) {
       const found = this.findBrowser(browserId);
+      if (!found || found.scope.threadId !== this.uiScopeId) {
+        throw new Error(`Browser ${browserId} does not belong to the current UI scope`);
+      }
       if (found && visible) {
         this.uiScopeId = found.scope.threadId;
         found.scope.focusedBrowserId = browserId;
@@ -1082,6 +1092,9 @@ export class BrowserHost {
       if (!found) {
         throw new Error(`Browser not found: ${browserId}`);
       }
+      if (found.scope.threadId !== this.uiScopeId) {
+        throw new Error(`Browser ${browserId} does not belong to the current UI scope`);
+      }
       return found.browser;
     }
     const scope = this.scopes.get(this.uiScopeId);
@@ -1146,7 +1159,7 @@ export class BrowserHost {
 
   async ensureCdpPort(threadId: string): Promise<number> {
     const scopeId = threadId.trim() || ECO_BROWSER_PERSONAL_SCOPE_ID;
-    if (scopeId === ECO_BROWSER_PERSONAL_SCOPE_ID) {
+    if (isPersonalBrowserScopeId(scopeId)) {
       throw new Error("Agent browser CDP requires a conversation thread id");
     }
     const scope = this.ensureScope(scopeId, this.resolveScopeWorkspacePath(scopeId));
@@ -1460,7 +1473,6 @@ export class BrowserHost {
       throw new Error(`Tab t${index + 1} not found (${ordered.length} tab(s) open)`);
     }
     scope.focusedBrowserId = browser.id;
-    this.uiScopeId = scopeId;
     this.requestReveal(browser.id);
     await this.ensureScopeGuestsReady(scopeId);
     this.emit();
@@ -1554,7 +1566,7 @@ export class BrowserHost {
   /** agent_browser_close ends CLI session — also tear down Eco scope pages. */
   async disposeAllBrowsersInThread(threadId: string): Promise<void> {
     const scopeId = threadId.trim();
-    if (!scopeId || scopeId === ECO_BROWSER_PERSONAL_SCOPE_ID) {
+    if (!scopeId || isPersonalBrowserScopeId(scopeId)) {
       return;
     }
     const scope = this.scopes.get(scopeId);
@@ -1658,12 +1670,17 @@ export class BrowserHost {
 
   async adoptPersonalScopeToThread(threadId: string): Promise<BrowserViewState> {
     const targetId = threadId.trim();
-    if (!targetId || targetId === ECO_BROWSER_PERSONAL_SCOPE_ID) {
+    if (!targetId || isPersonalBrowserScopeId(targetId)) {
       throw new Error("adoptPersonalScopeToThread requires a real conversation thread id");
     }
 
-    const personal = this.scopes.get(ECO_BROWSER_PERSONAL_SCOPE_ID);
     const targetWorkspacePath = this.deps.resolveWorkspacePath(targetId);
+    if (!targetWorkspacePath?.trim()) {
+      throw new Error(`无法解析会话 workspacePath（scope=${targetId}），不能迁移项目浏览器`);
+    }
+    const personalScopeId = browserPersonalScopeId(targetWorkspacePath);
+    const personal = this.scopes.get(personalScopeId);
+    const followAdoption = () => this.uiScopeId === personalScopeId || this.uiScopeId === targetId;
     const plan = planAdoptPersonalBrowsersToThread({
       personalBrowserCount: personal?.browsers.size ?? 0,
       targetExists: this.scopes.has(targetId),
@@ -1672,17 +1689,17 @@ export class BrowserHost {
     });
 
     if (plan.kind === "noop") {
-      return this.setUiScope(targetId);
+      return followAdoption() ? this.setUiScope(targetId) : this.getState();
     }
 
     if (!personal) {
-      return this.setUiScope(targetId);
+      return followAdoption() ? this.setUiScope(targetId) : this.getState();
     }
 
     await this.tearDownScopeCdp(personal);
 
     if (plan.kind === "rename") {
-      this.scopes.delete(ECO_BROWSER_PERSONAL_SCOPE_ID);
+      this.scopes.delete(personalScopeId);
       personal.threadId = targetId;
       personal.partition = plan.partitionForFuture;
       this.scopes.set(targetId, personal);
@@ -1698,11 +1715,13 @@ export class BrowserHost {
       target.partition = plan.partitionForFuture;
       personal.browsers.clear();
       personal.focusedBrowserId = undefined;
-      this.scopes.delete(ECO_BROWSER_PERSONAL_SCOPE_ID);
+      this.scopes.delete(personalScopeId);
     }
 
-    this.uiScopeId = targetId;
-    this.revealBrowserId = undefined;
+    if (followAdoption()) {
+      this.uiScopeId = targetId;
+      this.revealBrowserId = undefined;
+    }
     this.emit();
     return this.getState();
   }

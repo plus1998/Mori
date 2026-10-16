@@ -846,7 +846,11 @@ export function SubagentTaskDrawer({
       return known ?? { id, title: t("browser.newTab"), url: "about:blank" };
     })
     .filter((item): item is TaskPanelBrowserInstance => Boolean(item));
-  const browserTabs = openBrowserInstances.length > 0 ? openBrowserInstances : browserTabsFromOpenIds;
+  // An explicit scoped list is authoritative, including [] while switching chats.
+  // Restored ids alone must never mount a guest from the previous scope.
+  const browserTabs = browserInstances !== undefined || openBrowserInstances.length > 0
+    ? openBrowserInstances
+    : browserTabsFromOpenIds;
   const filesOpen = openTabIds.includes(TASK_PANEL_FILES_TAB_ID);
   const fileViewerOpen = openTabIds.includes(TASK_PANEL_FILE_VIEWER_TAB_ID);
   const reviewOpen = openTabIds.includes(TASK_PANEL_REVIEW_TAB_ID);

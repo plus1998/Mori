@@ -78,7 +78,12 @@ import { isAcpSubagentAgentId } from "../shared/acp-subagent";
 import { type BashReviewMode, normalizeBashReviewMode } from "../shared/bash-review-ui";
 import { enrichBillingDisplaySource } from "../shared/billing-display-source";
 import type { BrowserSettingsSnapshot } from "../shared/browser";
-import { browserTaskTabId, isBrowserTaskTabId, parseBrowserTaskTabId } from "../shared/browser";
+import {
+  browserPersonalScopeId,
+  browserTaskTabId,
+  isBrowserTaskTabId,
+  parseBrowserTaskTabId,
+} from "../shared/browser";
 import { deriveSkillsEnabled, type ProjectSkillsSettingsSnapshot } from "../shared/composer-skills-settings";
 import type { ComputerUseSettingsSnapshot } from "../shared/computer-use";
 import type { DesktopUpdateState } from "../shared/desktop-update";
@@ -256,7 +261,12 @@ import {
 import { mergeAsrTextAtSelection } from "./asr-composer";
 import { BashApprovalPanel, type BashApprovalResolutionInput } from "./BashApprovalPanel";
 import { BROWSER_HTML_OPEN_EVENT, BROWSER_LINK_OPEN_EVENT, openPublishedHtmlInBrowser } from "./browser-link";
-import { browserStateStore, useBrowserInstanceIds } from "./browser-state-store";
+import {
+  browserStateStore,
+  useBrowserInstanceIds,
+  useBrowserStateSelector,
+  useBrowserTaskInstances,
+} from "./browser-state-store";
 import { ClarificationPanel } from "./ClarificationPanel";
 import { ComposerAcpModelTrigger } from "./ComposerAcpModelTrigger";
 import { ComposerAgentModels } from "./ComposerAgentModels";
@@ -2126,7 +2136,6 @@ function App() {
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettingsSnapshot>(
     defaultNotificationSettings(),
   );
-  const browserInstanceIds = useBrowserInstanceIds();
   const [scriptsDialogOpen, setScriptsDialogOpen] = useState(false);
   const [packageScriptArgsRevision, setPackageScriptArgsRevision] = useState(0);
   const [packageScripts, setPackageScripts] = useState<PackageScriptsListResult>();
@@ -3588,6 +3597,12 @@ function App() {
     () => (feedThreadId ? threads.find((thread) => thread.id === feedThreadId) : undefined),
     [feedThreadId, threads],
   );
+  const browserScopeId = activeThread?.id ?? browserPersonalScopeId(currentProjectPath);
+  const browserScopeIdRef = useRef(browserScopeId);
+  browserScopeIdRef.current = browserScopeId;
+  const browserInstanceIds = useBrowserInstanceIds(browserScopeId);
+  const browserTaskInstances = useBrowserTaskInstances(browserScopeId);
+  const browserScopeReady = useBrowserStateSelector((state) => state?.uiScopeId === browserScopeId);
   useEffect(() => {
     if (!window.eco?.getTtsSettings) return;
     void window.eco
@@ -5732,7 +5747,7 @@ function App() {
   }, [activeProjectionViewModel, activeThread?.id, activeThread?.prompt]);
 
   useEffect(() => {
-    const nextThreadId = activeThread?.id;
+    const nextThreadId = browserScopeId;
     const prevThreadId = taskPanelUiThreadIdRef.current;
     if (prevThreadId === nextThreadId) {
       return;
@@ -5749,7 +5764,10 @@ function App() {
     pendingTaskPanelTabCloseRef.current = undefined;
 
     let restored: TaskPanelSessionUiState;
-    if (!prevThreadId && nextThreadId && adoptLandingTaskPanelUiRef.current) {
+    if (
+      prevThreadId === browserPersonalScopeId(currentProjectPath) &&
+      activeThread?.id && adoptLandingTaskPanelUiRef.current
+    ) {
       adoptLandingTaskPanelUiRef.current = false;
       restored = normalizeTaskPanelSessionUiState(liveTaskPanelUiRef.current);
       taskPanelUiByThreadRef.current[nextThreadId] = restored;
@@ -5795,7 +5813,7 @@ function App() {
     }
 
     taskPanelUiThreadIdRef.current = nextThreadId;
-  }, [activeThread?.id, prefersReducedMotion, taskPanelAnimationControls]);
+  }, [activeThread?.id, browserScopeId, currentProjectPath, prefersReducedMotion, taskPanelAnimationControls]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(taskPanelNarrowMediaQuery);
@@ -5965,6 +5983,7 @@ function App() {
 
   useEffect(() => {
     const handleBrowserLink = (event: Event) => {
+      const requestedScopeId = browserScopeIdRef.current;
       const url = (event as CustomEvent<string>).detail;
       if (typeof url !== "string" || !url.trim()) {
         return;
@@ -5980,7 +5999,10 @@ function App() {
           ...(activeThread?.id ? { threadId: activeThread.id } : { workspacePath: currentProjectPath }),
         })
         .then((state) => {
-          if (!state) return;
+          if (
+            !state || state.uiScopeId !== requestedScopeId ||
+            requestedScopeId !== browserScopeIdRef.current
+          ) return;
           const focusId = state.focusedBrowserId ?? state.revealBrowserId ?? state.instances.at(-1)?.id;
           if (focusId) {
             const tabId = browserTaskTabId(focusId);
@@ -5998,6 +6020,7 @@ function App() {
 
   useEffect(() => {
     const handleBrowserHtml = (event: Event) => {
+      const requestedScopeId = browserScopeIdRef.current;
       const html = (event as CustomEvent<string>).detail;
       if (typeof html !== "string" || !html.trim()) {
         return;
@@ -6013,7 +6036,10 @@ function App() {
           ...(activeThread?.id ? { threadId: activeThread.id } : { workspacePath: currentProjectPath }),
         })
         .then((state) => {
-          if (!state) return;
+          if (
+            !state || state.uiScopeId !== requestedScopeId ||
+            requestedScopeId !== browserScopeIdRef.current
+          ) return;
           const focusId = state.focusedBrowserId ?? state.revealBrowserId ?? state.instances.at(-1)?.id;
           if (focusId) {
             const tabId = browserTaskTabId(focusId);
@@ -6039,6 +6065,7 @@ function App() {
     void window.eco
       ?.browserSetUiScope?.({
         threadId: activeThread?.id ?? null,
+        ...(currentProjectPath ? { workspacePath: currentProjectPath } : {}),
       })
       .then(() => {
         // Switching chats while the work panel is collapsed must not leave guests painted.
@@ -6046,10 +6073,11 @@ function App() {
           void window.eco?.browserSetVisible?.({ visible: false });
         }
       });
-  }, [activeThread?.id]);
+  }, [activeThread?.id, currentProjectPath]);
 
   useEffect(() => {
     const unsubscribe = browserStateStore.onStateChange((state) => {
+      if (state.uiScopeId !== browserScopeIdRef.current) return;
       // `revealBrowserId` is sticky in main (it survives every emit until the page is
       // closed or the panel hides it), so an unchanged id is not a new request. Treating
       // every snapshot as one drags the panel back to the previous tab right after the
@@ -6111,6 +6139,9 @@ function App() {
   }, [currentProjectPath]);
 
   useEffect(() => {
+    // IPC still describes the previous chat until the scope-switch broadcast arrives.
+    // Do not remove the newly restored chat's tabs using the previous chat's ids.
+    if (!browserScopeReady) return;
     const liveBrowserIds = new Set(browserInstanceIds);
     const projectionLoaded = Boolean(activeProjectionViewModel);
     setOpenTaskPanelTabIds((current) => {
@@ -6153,7 +6184,7 @@ function App() {
       }
       return next;
     });
-  }, [activeProjectionViewModel, activeSubagentCards, browserInstanceIds, taskPanelActiveTab]);
+  }, [activeProjectionViewModel, activeSubagentCards, browserInstanceIds, browserScopeReady, taskPanelActiveTab]);
 
   const toggleWorkPanelForCurrentProject = useCallback(() => {
     toggleWorkspacePanelForCurrentProject();
@@ -6175,6 +6206,11 @@ function App() {
   }, [currentProjectPath, dismissTaskPanel, revealTaskPanel, taskDrawerOpen, taskPanelActiveTab]);
 
   const selectBrowserTaskTab = useCallback((browserId: string) => {
+    const state = browserStateStore.getState();
+    if (
+      state?.uiScopeId !== browserScopeIdRef.current ||
+      !state.guestInstances.some((g) => g.id === browserId)
+    ) return;
     const tabId = browserTaskTabId(browserId);
     setOpenTaskPanelTabIds((current) => addOpenTaskPanelTab(current, tabId));
     setTaskPanelActiveTab(tabId);
@@ -6184,6 +6220,7 @@ function App() {
 
   const openBrowserTaskPanel = useCallback(
     (options?: string | { browserId?: string; url?: string; webChatSiteId?: string }) => {
+      const requestedScopeId = browserScopeIdRef.current;
       if (!currentProjectPath) {
         return;
       }
@@ -6215,7 +6252,10 @@ function App() {
           ...(activeThread?.id ? { threadId: activeThread.id } : { workspacePath: currentProjectPath }),
         })
         .then((state) => {
-          if (!state) return;
+          if (
+            !state || state.uiScopeId !== requestedScopeId ||
+            requestedScopeId !== browserScopeIdRef.current
+          ) return;
           const focusId = state.focusedBrowserId ?? state.revealBrowserId ?? state.instances.at(-1)?.id;
           if (focusId) {
             selectBrowserTaskTab(focusId);
@@ -6233,6 +6273,7 @@ function App() {
     async (sourceTabId: string, url: string) => {
       const eco = window.eco;
       if (!eco || !currentProjectPath || pendingNewTabNavigationsRef.current.has(sourceTabId)) return;
+      const requestedScopeId = browserScopeIdRef.current;
       pendingNewTabNavigationsRef.current.add(sourceTabId);
       try {
         const next = await eco.browserOpen({
@@ -6241,6 +6282,7 @@ function App() {
           newBrowser: true,
           ...(activeThread?.id ? { threadId: activeThread.id } : { workspacePath: currentProjectPath }),
         });
+        if (next.uiScopeId !== requestedScopeId || requestedScopeId !== browserScopeIdRef.current) return;
         const browserId = next.focusedBrowserId;
         if (!browserId) throw new Error("浏览器未返回新页面实例");
         const tabId = browserTaskTabId(browserId);
@@ -11076,7 +11118,7 @@ function App() {
       </div>
     ) : null;
   const renderTaskPanel = () =>
-    showWorkspacePanel && taskPanelLayoutOpen ? (
+    showWorkspacePanel && taskPanelLayoutOpen && taskPanelUiThreadIdRef.current === browserScopeId ? (
       <motion.aside
         id="task-panel-container"
         className={["workspace-panel", "is-task-panel-mode", taskPanelFullscreenOpen ? "is-fullscreen" : ""]
@@ -11104,6 +11146,7 @@ function App() {
           <OpenTtsArtifactContext value={openTtsArtifact}>
           <TtsArtifactsContext value={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}>
           <LazySubagentTaskDrawer
+            browserInstances={browserTaskInstances}
             open={taskPanelLayoutOpen}
             surfaceActive={taskPanelOpen && !taskPanelExiting}
             fullscreen={taskPanelFullscreenOpen}

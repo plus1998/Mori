@@ -8140,7 +8140,10 @@ function registerIpcHandlers(): void {
     if (!request || !("threadId" in request)) {
       throw new Error("Invalid browser ui-scope payload.");
     }
-    return requireBrowserHost().setUiScope(typeof request.threadId === "string" ? request.threadId : null);
+    return requireBrowserHost().setUiScope(
+      typeof request.threadId === "string" ? request.threadId : null,
+      request.workspacePath,
+    );
   });
 
   registerDesktopCommand(IPC_CHANNELS.browserGoBack, async (payload: unknown) => {

@@ -2,7 +2,7 @@ import { Activity, Folder, Globe, Loader2, MessageSquare, Server, Square, Termin
 import { type CSSProperties, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { type BrowserInstanceView, ECO_BROWSER_PERSONAL_SCOPE_ID } from "../shared/browser";
+import { type BrowserInstanceView, isPersonalBrowserScopeId } from "../shared/browser";
 import { pathToName } from "../shared/home-project";
 import { browserStateStore, useBrowserStateSelector } from "./browser-state-store";
 import { collectRunningTerminals, type RunningTerminal } from "./running-resources";
@@ -140,7 +140,7 @@ export function RunningResourcesPopover({
   }, [refreshEpoch]);
 
   const threadLabel = (threadId: string) =>
-    threadId === ECO_BROWSER_PERSONAL_SCOPE_ID
+    isPersonalBrowserScopeId(threadId)
       ? t("app.running.personal")
       : threads.find((thread) => thread.id === threadId)?.title || threadId;
   const projectLabel = (workspacePath: string) =>
