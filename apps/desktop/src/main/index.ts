@@ -8119,6 +8119,14 @@ function registerIpcHandlers(): void {
         : undefined;
     return requireBrowserHost().goForward(browserId);
   });
+  registerDesktopCommand(IPC_CHANNELS.browserSetViewport, async (payload: unknown) => {
+    const request = payload as { browserId?: unknown };
+    if (!request || typeof request.browserId !== "string" || !request.browserId.trim()) {
+      throw new Error("Invalid browser viewport payload: browserId is required.");
+    }
+    return requireBrowserHost().setViewport(request.browserId.trim(), payload);
+  });
+
   registerDesktopCommand(IPC_CHANNELS.browserReload, async (payload: unknown) => {
     const browserId =
       payload &&

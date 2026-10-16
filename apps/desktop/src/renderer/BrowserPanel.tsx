@@ -8,13 +8,15 @@ import {
   ListChecks,
   LoaderCircle,
   RefreshCw,
+  Smartphone,
   Terminal,
 } from "lucide-react";
 import { type FormEvent, useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type BrowserViewState, normalizeBrowserNavigateUrl } from "../shared/browser";
-import { useBrowserInstanceIds } from "./browser-state-store";
+import { BrowserViewportControls } from "./BrowserViewportControls";
 import { BrowserWebviewViewportMarker } from "./BrowserWebviewViewportMarker";
+import { useBrowserInstanceIds } from "./browser-state-store";
 import type { TaskPanelHomeTool } from "./task-panel-tabs";
 
 const ICON_SIZE = 15;
@@ -32,20 +34,18 @@ export interface BrowserPanelProps {
  * {@link browserWebviewPool} in {@link BrowserWebviewLayer}; this panel only
  * publishes viewport bounds via {@link BrowserWebviewViewportMarker}.
  */
-export function BrowserPanel({
-  active,
-  browserId,
-  onOpenTool,
-}: BrowserPanelProps) {
+export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProps) {
   const { t } = useTranslation();
   const toolHomeTitleId = `browser-tool-home-title-${browserId}`;
   const [state, setState] = useState<BrowserViewState | undefined>();
   const [address, setAddress] = useState("");
+  const [showViewportControls, setShowViewportControls] = useState<boolean | null>(null);
   const addressInputId = useId();
   /** Main drops a closed browser from its guest list — never focus a page that is gone. */
   const liveBrowserIds = useBrowserInstanceIds();
 
   const instance = state?.instances.find((item) => item.id === browserId);
+  const viewportControlsVisible = showViewportControls ?? Boolean(instance?.viewport);
   const displayUrl = instance?.url ?? state?.url ?? "about:blank";
   const canGoBack = instance?.canGoBack ?? state?.canGoBack ?? false;
   const canGoForward = instance?.canGoForward ?? state?.canGoForward ?? false;
@@ -155,6 +155,16 @@ export function BrowserPanel({
         </form>
         <button
           type="button"
+          className={`browser-panel-icon-btn${instance?.viewport ? " is-active" : ""}`}
+          aria-label={t("browser.viewportDevice")}
+          title={t("browser.viewportDevice")}
+          aria-expanded={viewportControlsVisible}
+          onClick={() => setShowViewportControls(!viewportControlsVisible)}
+        >
+          <Smartphone size={ICON_SIZE} />
+        </button>
+        <button
+          type="button"
           className="browser-panel-icon-btn"
           disabled={!displayUrl || displayUrl === "about:blank"}
           onClick={() => void window.eco?.browserOpenExternal?.(browserId)}
@@ -164,6 +174,14 @@ export function BrowserPanel({
           <ExternalLink size={ICON_SIZE} />
         </button>
       </div>
+      {viewportControlsVisible ? (
+        <BrowserViewportControls browserId={browserId} viewport={instance?.viewport} onChange={setState} />
+      ) : null}
+      {instance?.viewportError ? (
+        <div className="browser-viewport-error" role="alert">
+          {instance.viewportError}
+        </div>
+      ) : null}
       <div className="browser-panel-content">
         {showToolHome ? (
           <section

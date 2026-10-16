@@ -42,6 +42,29 @@ Do **not** start a separate headless Chrome, and do **not** shell out to macOS `
 3. Act with **refs** from that snapshot (`@e1`, `@e2`, …) via click/fill/type tools.
 4. After any navigation, submit, dialog, or dynamic re-render: **snapshot again** before the next ref action. Refs go stale after DOM changes.
 
+## Responsive device testing
+
+Call `agent_browser_list_devices` to discover named device presets (stable IDs, names, dimensions and DPR),
+including iPhone SE/16/16 Pro Max, Pixel, Galaxy, iPad, Surface and Nest Hub Max.
+Foldable entries use cover-screen dimensions; hinge and folding posture are not emulated.
+Use `agent_browser_set_viewport` on the focused tab with `{ "preset": "iphone-se" }`,
+`{ "preset": "iphone-16-pro-max" }`, `{ "preset": "phone" }`,
+`{ "preset": "tablet", "landscape": true }`, `laptop`, or `desktop`.
+For custom sizes, provide `width` and `height` in **CSS pixels**, with optional
+`deviceScaleFactor` (1–4), `mobile`, and `touch`. Use `{ "preset": "auto" }` to restore
+panel-sized browsing. Settings belong to each tab and survive navigation and hiding.
+
+The device toolbar offers a curated model list and Responsive mode with edge/corner drag handles;
+custom dimensions are shown as read-only text. Agents can still set exact dimensions through this tool.
+Eco scales the visible preview to fit the panel **without changing the page viewport**.
+Snapshots, clicks, media queries, and screenshots use the emulated page coordinates;
+do not multiply click coordinates by the on-screen preview scale.
+`agent_browser_get_viewport` returns configured settings and actual page metrics.
+After a device switch, take a fresh snapshot and screenshot to check responsive layout.
+Mobile emulation honors the page's meta viewport; pages without one can retain a wider
+layout viewport, just as in Chromium device mode. This emulates Chromium viewport,
+DPR, orientation and touch; it does not switch to Safari/WebKit or change User-Agent.
+
 ## Prefer
 
 - Snapshot-and-ref over raw CSS selectors when the tools expose refs.

@@ -6,6 +6,8 @@
  * empty `properties: {}` caused Claude to omit `url` for agent_browser_open.
  */
 
+import { BROWSER_VIEWPORT_PRESETS } from "../shared/browser-viewport";
+
 export const AGENT_BROWSER_CORE_TOOL_NAMES = [
   "agent_browser_tools_profiles",
   "agent_browser_open",
@@ -14,6 +16,9 @@ export const AGENT_BROWSER_CORE_TOOL_NAMES = [
   "agent_browser_back",
   "agent_browser_forward",
   "agent_browser_reload",
+  "agent_browser_set_viewport",
+  "agent_browser_get_viewport",
+  "agent_browser_list_devices",
   "agent_browser_click",
   "agent_browser_fill",
   "agent_browser_type",
@@ -117,6 +122,47 @@ const TOOL_DEFINITIONS: Record<
   },
   agent_browser_reload: {
     description: "Reload the focused tab.",
+    inputSchema: emptyObjectSchema,
+  },
+  agent_browser_set_viewport: {
+    description:
+      "Set the focused tab's real CSS viewport for responsive testing; its on-screen preview scales to fit independently. Choose a named device (e.g. iphone-se or iphone-16-pro-max), a generic preset, or provide width and height. Call agent_browser_list_devices for names, IDs, dimensions and DPR. Use preset auto to restore panel size. Does not reload the page or change User-Agent/browser engine. Returns applied settings and page metrics. Tabs retain independent settings.",
+    inputSchema: objectSchema({
+      properties: {
+        preset: {
+          type: "string",
+          enum: ["auto", ...BROWSER_VIEWPORT_PRESETS.map((device) => device.preset), "custom"],
+        },
+        width: {
+          type: "integer",
+          minimum: 100,
+          maximum: 4096,
+          description: "CSS pixels; supply height too.",
+        },
+        height: { type: "integer", minimum: 100, maximum: 4096 },
+        deviceScaleFactor: {
+          type: "number",
+          minimum: 1,
+          maximum: 4,
+          description: "Device pixel ratio, independent of display scaling.",
+        },
+        mobile: { type: "boolean", description: "Enable mobile viewport/meta-viewport behavior." },
+        touch: { type: "boolean", description: "Emulate touch input and coarse pointer." },
+        landscape: {
+          type: "boolean",
+          description: "Orient the selected dimensions horizontally (true) or vertically (false).",
+        },
+      },
+    }),
+  },
+  agent_browser_get_viewport: {
+    description:
+      "Get the focused tab's viewport settings and actual page metrics (innerWidth/height, screen size, DPR, orientation, visual viewport, touch points). A null viewport means automatic panel size.",
+    inputSchema: emptyObjectSchema,
+  },
+  agent_browser_list_devices: {
+    description:
+      "List available device viewport presets, including a curated selection of iPhone SE/16/16 Pro Max, Pixel, Galaxy, iPad, Surface, Nest Hub Max and generic sizes. Foldable entries use cover-screen viewports without hinge/posture emulation. Returns stable preset IDs, names, groups, CSS width/height, DPR, mobile and touch settings. No open tab is required. Apply a returned preset ID with agent_browser_set_viewport.",
     inputSchema: emptyObjectSchema,
   },
   agent_browser_click: {

@@ -102,3 +102,105 @@ test("global resource list includes other conversations and closes pages without
     host.dispose();
   }
 });
+
+function createViewportGuest(id: number) {
+  const commands: Array<{ method: string; params?: Record<string, unknown> }> = [];
+  return {
+    id,
+    commands,
+    isDestroyed: () => false,
+    getType: () => "webview",
+    getURL: () => "about:blank",
+    getTitle: () => "",
+    isLoading: () => false,
+    setWindowOpenHandler: () => {},
+    on: () => {},
+    close: () => {},
+    debugger: {
+      isAttached: () => true,
+      sendCommand: async (method: string, params?: Record<string, unknown>) => {
+        commands.push({ method, params });
+      },
+    },
+    executeJavaScript: async () => ({ width: 390, height: 844, deviceScaleFactor: 3 }),
+  };
+}
+
+test("Agent can discover named devices without creating a page or CDP session", async () => {
+  const host = createTestHost();
+  try {
+    const result = await host.invokeNativeAgentBrowserTool("t1", "agent_browser_list_devices", {});
+    const devices = JSON.parse((result?.content[0] as { text: string }).text).devices;
+    expect(devices.find((device: { preset: string }) => device.preset === "iphone-16")).toMatchObject({
+      name: "iPhone 16",
+      width: 393,
+      height: 852,
+    });
+    expect(devices.find((device: { preset: string }) => device.preset === "iphone-se")).toMatchObject({
+      name: "iPhone SE",
+      width: 375,
+      height: 667,
+    });
+    expect(host.getState().allGuestInstances).toHaveLength(0);
+    expect(host.getState().cdpPort).toBeUndefined();
+  } finally {
+    host.dispose();
+  }
+});
+
+test("viewport changes stay tab-scoped and native Agent tools use the authenticated thread", async () => {
+  const host = createTestHost();
+  try {
+    await host.openSharedSession({ threadId: "t1", revealUi: false });
+    const first = host.getState().focusedBrowserId!;
+    const guest = createViewportGuest(100);
+    host.registerGuestWebContents(first, guest as never);
+    await host.openSharedSession({ threadId: "t2", revealUi: false });
+    const second = host.getState().focusedBrowserId!;
+    const otherGuest = createViewportGuest(101);
+    host.registerGuestWebContents(second, otherGuest as never);
+    const result = await host.invokeNativeAgentBrowserTool("t1", "agent_browser_set_viewport", {
+      preset: "phone",
+    });
+    const state = host.getState();
+    expect(state.allInstances.find((page) => page.id === first)?.viewport?.width).toBe(390);
+    expect(state.allInstances.find((page) => page.id === second)?.viewport).toBeUndefined();
+    expect(otherGuest.commands).toHaveLength(0);
+    expect(JSON.parse((result!.content[0] as { text: string }).text).metrics.width).toBe(390);
+    expect(
+      guest.commands.find((call) => call.method.endsWith("setDeviceMetricsOverride"))?.params
+        ?.deviceScaleFactor,
+    ).toBe(3);
+    await host.setViewport(first, { preset: "auto" });
+    expect(host.getState().allInstances.find((page) => page.id === first)?.viewport).toBeUndefined();
+  } finally {
+    host.dispose();
+  }
+});
+
+test("concurrent viewport changes are applied in order and failed changes are visible", async () => {
+  const host = createTestHost();
+  try {
+    await host.openSharedSession({ threadId: "t1", revealUi: false });
+    const browserId = host.getState().focusedBrowserId!;
+    const guest = createViewportGuest(102);
+    host.registerGuestWebContents(browserId, guest as never);
+    await Promise.all([
+      host.setViewport(browserId, { preset: "phone" }),
+      host.setViewport(browserId, { preset: "desktop" }),
+    ]);
+    expect(host.getState().instances[0]?.viewport?.width).toBe(1920);
+    const widths = guest.commands
+      .filter((call) => call.method.endsWith("setDeviceMetricsOverride"))
+      .map((call) => call.params?.width);
+    expect(widths).toEqual([390, 1920]);
+    guest.debugger.sendCommand = async () => {
+      throw new Error("Emulation failed");
+    };
+    await expect(host.setViewport(browserId, { preset: "phone" })).rejects.toThrow("Emulation failed");
+    expect(host.getState().instances[0]?.viewportError).toBe("Emulation failed");
+    expect(host.getState().instances[0]?.viewport?.width).toBe(1920);
+  } finally {
+    host.dispose();
+  }
+});

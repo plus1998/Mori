@@ -33,6 +33,7 @@ import {
   type BrowserAgentPresenceEvent,
   isBrowserAgentPresencePointerType,
 } from "../shared/browser-agent-presence";
+import { BROWSER_VIEWPORT_PRESETS, type BrowserViewport, parseBrowserViewport } from "../shared/browser-viewport";
 import type { McpSdkConfig } from "../shared/mcp";
 import type { AgentBrowserMcpToolResult } from "./agent-browser-cli-bridge";
 import { resolveAgentBrowserTabIndex } from "./agent-browser-cli-bridge";
@@ -47,6 +48,7 @@ import {
   isFullPageScreenshot,
   resolveAgentBrowserScreenshotPath,
 } from "./browser-native-agent-tools";
+import { applyBrowserViewport } from "./browser-viewport";
 import type { BrowserSettingsStore } from "./browser-settings-store";
 
 export { appendBrowserPrompt };
@@ -128,6 +130,9 @@ export interface BrowserHostDeps {
 }
 
 interface SessionBrowser {
+  viewport?: BrowserViewport | undefined;
+  viewportError?: string | undefined;
+  viewportUpdate?: Promise<unknown> | undefined;
   id: string;
   webContents?: WebContents | undefined;
   pendingUrl?: string | undefined;
@@ -385,6 +390,17 @@ export class BrowserHost {
     this.pendingGuestByWebContentsId.set(guest.id, browser.id);
     this.ensurePartitionHandlers(scope.partition);
     this.wireGuestWebContents(scope, browser);
+    if (browser.viewport) {
+      void this.queueViewportUpdate(browser, async () => {
+        try {
+          await applyBrowserViewport(guest, browser.viewport ?? null);
+          browser.viewportError = undefined;
+        } catch (error) {
+          browser.viewportError = error instanceof Error ? error.message : String(error);
+        }
+        this.emit();
+      });
+    }
     let toLoad = browser.pendingUrl?.trim() || undefined;
     browser.pendingUrl = undefined;
     if (!toLoad) {
@@ -579,6 +595,8 @@ export class BrowserHost {
           focused: scope.focusedBrowserId === browser.id,
           source: browser.source,
           createdAt: browser.createdAt,
+          ...(browser.viewport ? { viewport: browser.viewport } : {}),
+          ...(browser.viewportError ? { viewportError: browser.viewportError } : {}),
         },
       ];
     });
@@ -1259,6 +1277,63 @@ export class BrowserHost {
     return out;
   }
 
+  private async queueViewportUpdate<T>(browser: SessionBrowser, update: () => Promise<T>): Promise<T> {
+    const previous = browser.viewportUpdate ?? Promise.resolve();
+    const pending = previous.catch(() => {}).then(update);
+    browser.viewportUpdate = pending;
+    try {
+      return await pending;
+    } finally {
+      if (browser.viewportUpdate === pending) browser.viewportUpdate = undefined;
+    }
+  }
+
+  async setViewport(browserId: string, input: unknown): Promise<BrowserViewState> {
+    const viewport = parseBrowserViewport(input);
+    const found = this.findBrowser(browserId);
+    if (!found) throw new Error(`Browser not found: ${browserId}`);
+    const { browser } = found;
+    await this.waitForGuestWebContents(browserId);
+    return this.queueViewportUpdate(browser, async () => {
+      const guest = browser.webContents;
+      if (!guest || guest.isDestroyed()) throw new Error("Browser guest is unavailable.");
+      try {
+        await applyBrowserViewport(guest, viewport);
+        browser.viewport = viewport ?? undefined;
+        browser.viewportError = undefined;
+      } catch (error) {
+        browser.viewportError = error instanceof Error ? error.message : String(error);
+        this.emit();
+        throw error;
+      }
+      this.emit();
+      return this.getState();
+    });
+  }
+
+  private async invokeNativeAgentBrowserViewport(
+    threadId: string,
+    args?: Record<string, unknown>,
+  ): Promise<AgentBrowserMcpToolResult> {
+    const browserId = this.getFocusedCdpTargetId(threadId);
+    if (args) await this.setViewport(browserId, args);
+    const found = this.findBrowser(browserId);
+    if (!found?.browser.webContents || found.scope.threadId !== threadId.trim())
+      throw new Error("Browser target is unavailable in this conversation.");
+    const browser = found.browser;
+    if (browser.viewportUpdate) await browser.viewportUpdate;
+    if (browser.viewportError) throw new Error(browser.viewportError);
+    const metrics = await browser.webContents!.executeJavaScript(`({
+      width: innerWidth, height: innerHeight,
+      deviceScaleFactor: devicePixelRatio,
+      screenWidth: screen.width, screenHeight: screen.height,
+      touchPoints: navigator.maxTouchPoints,
+      orientation: screen.orientation.type,
+      visualViewport: { width: visualViewport.width, height: visualViewport.height, scale: visualViewport.scale }
+    })`);
+    return agentBrowserTextResult(JSON.stringify({ browserId, viewport: browser.viewport ?? null, metrics }));
+  }
+
   /** Exact guest used by both native tools and the CLI connection. */
   private getFocusedCdpTargetId(threadId: string): string {
     const scope = this.scopes.get(threadId.trim());
@@ -1299,6 +1374,14 @@ export class BrowserHost {
     signal?.throwIfAborted();
     this.noteAgentPresenceForThread(threadId);
     switch (toolName) {
+      case "agent_browser_list_devices":
+        return agentBrowserTextResult(JSON.stringify({ devices: BROWSER_VIEWPORT_PRESETS }));
+      case "agent_browser_set_viewport":
+        await this.ensureScopeGuestsReady(threadId);
+        return this.invokeNativeAgentBrowserViewport(threadId, args);
+      case "agent_browser_get_viewport":
+        await this.ensureScopeGuestsReady(threadId);
+        return this.invokeNativeAgentBrowserViewport(threadId);
       case "agent_browser_tab_list":
         return this.invokeNativeAgentBrowserTabList(threadId);
       case "agent_browser_tab_new":

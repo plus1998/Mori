@@ -1,3 +1,4 @@
+import type { BrowserViewport } from "./browser-viewport";
 import { buildEcoMcpHubToolUsage, mergeEcoMcpHubPromptParts } from "./mcp-hub-tool-usage";
 
 /** Built-in Eco browser MCP server name (must stay sanitizable for MCP tool prefixes). */
@@ -172,6 +173,9 @@ export interface BrowserLoadError {
 }
 
 export interface BrowserInstanceView {
+  /** Fixed CSS viewport, independently scaled to fit the panel; absent means auto. */
+  viewport?: BrowserViewport;
+  viewportError?: string;
   id: string;
   threadId: string;
   /** Electron session partition for the renderer `<webview>` tag. */

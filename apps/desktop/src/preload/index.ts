@@ -63,6 +63,7 @@ import {
   type BrowserSettingsSnapshot,
   type BrowserSetUiScopeRequest,
   type BrowserSetVisibleRequest,
+  type BrowserSetViewportRequest,
   type BrowserViewState,
   type CandidateModelInput,
   type CandidateModelView,
@@ -1078,6 +1079,9 @@ const api = {
   },
   browserGoForward(browserId?: string): Promise<BrowserViewState> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserGoForward, browserId ? { browserId } : undefined);
+  },
+  browserSetViewport(request: BrowserSetViewportRequest): Promise<BrowserViewState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserSetViewport, request);
   },
   browserReload(browserId?: string): Promise<BrowserViewState> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserReload, browserId ? { browserId } : undefined);

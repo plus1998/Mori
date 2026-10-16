@@ -321,6 +321,7 @@ export const IPC_CHANNELS = {
   browserGoBack: "browser:go-back",
   browserGoForward: "browser:go-forward",
   browserReload: "browser:reload",
+  browserSetViewport: "browser:set-viewport",
   browserRegisterGuest: "browser:register-guest",
   browserSetVisible: "browser:set-visible",
   browserGetState: "browser:get-state",
@@ -3117,3 +3118,5 @@ export function isStorageCleanupRequest(
   }
   return true;
 }
+
+export type { BrowserSetViewportRequest } from "./browser-viewport";
