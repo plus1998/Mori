@@ -1422,6 +1422,9 @@ const api = {
   applyWorktree(threadId: string): Promise<WorktreeApplyResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.worktreeApply, threadId);
   },
+  searchComposerReferences(request: import("../shared/composer-references").ComposerReferenceSearchRequest): Promise<import("../shared/composer-references").ComposerReferenceSearchResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.composerReferencesSearch, request);
+  },
   listThreads(): Promise<ThreadSummary[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadList);
   },

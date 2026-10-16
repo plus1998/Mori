@@ -16,15 +16,19 @@ export function ComposerAbovePanel({
   triggerRef,
   className = "",
   label,
+  id,
   role = "dialog",
   onClose,
+  autoFocus = true,
   children,
 }: {
   anchorRef: RefObject<HTMLElement | null>;
   triggerRef?: RefObject<HTMLElement | null> | undefined;
   className?: string;
   label: string;
-  role?: "dialog" | "menu";
+  id?: string;
+  role?: "dialog" | "menu" | "listbox";
+  autoFocus?: boolean;
   onClose(): void;
   children: ReactNode;
 }) {
@@ -55,6 +59,7 @@ export function ComposerAbovePanel({
     };
   }, [anchorRef]);
   useEffect(() => {
+    if (!autoFocus) return;
     const panel = panelRef.current;
     const frame = requestAnimationFrame(() => {
       const preferred = panel?.querySelector<HTMLElement>("[data-panel-autofocus]");
@@ -66,7 +71,7 @@ export function ComposerAbovePanel({
       cancelAnimationFrame(frame);
       if (panel?.contains(document.activeElement)) triggerRef?.current?.focus();
     };
-  }, [triggerRef]);
+  }, [triggerRef, autoFocus]);
   useEffect(() => {
     const isNestedMenu = (target: EventTarget | null) =>
       target instanceof Element && target.closest(".composer-field-select-menu, .model-cascade-panel");
@@ -92,6 +97,7 @@ export function ComposerAbovePanel({
   return createPortal(
     <div
       ref={panelRef}
+      id={id}
       className={`composer-codex-popover composer-above-panel ${className}`}
       role={role}
       aria-label={label}

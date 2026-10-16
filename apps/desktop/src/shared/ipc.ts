@@ -126,6 +126,7 @@ export const IPC_CHANNELS = {
   subagentOrchestrationDelete: "subagent-orchestration:delete",
   threadStart: "thread:start",
   threadUpdateRuntimeConfig: "thread:update-runtime-config",
+  composerReferencesSearch: "composer-references:search",
   threadList: "thread:list",
   threadListInitial: "thread:list-initial",
   threadListMore: "thread:list-more",

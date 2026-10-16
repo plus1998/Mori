@@ -1,3 +1,7 @@
+import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
+import { ComposerReferenceService } from "./composer-reference-service";
+import { ContextReferenceMcpGateway } from "./context-reference-mcp-gateway";
+import { CONTEXT_MCP_SERVER, CONTEXT_REFERENCE_PROMPT, type ComposerReferenceSearchRequest } from "../shared/composer-references";
 import { WebChatProxyController } from "./web-chat-proxy";
 import { webChatSitePartition, webChatProxyConfig } from "../shared/web-chat-list";
 import { buildTtsPromptAppend, ECO_TTS_MCP_SERVER, isEcoTtsToolName, type TtsProfileSaveInput } from "../shared/tts";
@@ -1563,6 +1567,8 @@ let htmlHostStore: HtmlHostStore;
 let htmlHostGateway: HtmlHostMcpGateway;
 let schedulingService: SchedulingService;
 let schedulingGateway: SchedulingMcpGateway;
+let composerReferenceService: ComposerReferenceService;
+let contextReferenceGateway: ContextReferenceMcpGateway;
 let integratedWebSearchGateway: IntegratedWebSearchMcpGateway;
 let promptImageFileStore: PromptImageFileStore;
 
@@ -3559,6 +3565,21 @@ app
     initializeGitAutoFetcher();
     schedulingService = createSchedulingService(dbPath);
     schedulingGateway = new SchedulingMcpGateway(schedulingService);
+    composerReferenceService = new ComposerReferenceService({
+      listThreads: (query, limit) => conversationStore.searchThreadReferences(query, limit),
+      getThread: (id) => conversationStore.getThread(id),
+      listSsh: () => sshBookmarkStore.list(),
+      listBrowsers: () => requireBrowserHost().getState().allInstances,
+      listCapabilities: resolveComposerCapabilitiesForThread,
+      readHistory: (id, before, limit, includeTools) =>
+        conversationStore.conversationV2().transcriptPage(id, before, limit, includeTools),
+      readMessage: (id, messageId) => conversationStore.conversationV2().getMessage(id, messageId),
+      readTools: (id, runId, cursor, limit) =>
+        conversationStore.conversationV2().toolsPage(id, runId, cursor, limit, 128 * 1024),
+      browserTool: (id, action, args, signal) =>
+        requireBrowserHost().invokeReferencedBrowserTool(id, action, args, signal),
+    });
+    contextReferenceGateway = new ContextReferenceMcpGateway(composerReferenceService);
     registerIpcHandlers();
     schedulingService.start();
     if (centerServerClient.getSnapshot().settings.enabled) {
@@ -3720,6 +3741,7 @@ installApplicationShutdownHook(
       await imageDisplayGateway?.close();
       schedulingService?.stop();
       await schedulingGateway?.close();
+      await contextReferenceGateway?.close();
       await htmlHostGateway?.close();
     },
     closeIntegratedWebSearchGateway: async () => {
@@ -5397,6 +5419,7 @@ function registerIpcHandlers(): void {
     return workspace;
   });
 
+  registerDesktopCommand(IPC_CHANNELS.composerReferencesSearch, async (request: ComposerReferenceSearchRequest) => composerReferenceService.search(request));
   registerDesktopCommand(IPC_CHANNELS.threadList, async () =>
     attachThreadListCancelling(conversationStore.listThreads()),
   );
@@ -7684,52 +7707,7 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.integrationAvailabilityGet, async () => {
-    const browserSettings = browserSettingsStore.get();
-    const browserFeature = requireBrowserHost().isFeatureAvailable();
-    const computerUseSettings = computerUseSettingsStore.get();
-    const computerUseFeature = computerUseGateway.isFeatureAvailableQuick();
-    const ttsSettings = ttsStore.getSettings();
-    const ttsProfile = ttsSettings.profiles.find((profile) => profile.id === ttsSettings.activeProfileId);
-    const ttsReason = !ttsProfile?.hasApiKey
-      ? "当前语音生成 Profile 尚未配置 API Key。"
-      : !ttsSettings.apiKeyEncryptionAvailable
-        ? "系统加密不可用，无法读取语音生成 API Key。"
-        : undefined;
-    const imageSettings = imageGenerationStore.getSettings();
-    const activeImageProfile = imageSettings.profiles.find(
-      (profile) => profile.id === imageSettings.activeProfileId,
-    );
-    const imageAvailability = imageGenerationAvailability(imageSettings,
-      activeImageProfile?.provider === "codex" || activeImageProfile?.provider === "chatgpt_web" ? await codexImages.getAvailability(activeImageProfile.provider) : undefined);
-    return {
-      integrations: [
-        {
-          id: "browser" as const,
-          enabled: browserSettings.agentIntegrationEnabled,
-          available: browserFeature.available,
-          ...(browserFeature.reason ? { reason: browserFeature.reason } : {}),
-        },
-        {
-          id: "computerUse" as const,
-          enabled: computerUseSettings.agentIntegrationEnabled,
-          available: computerUseFeature.available,
-          ...(computerUseFeature.reason ? { reason: computerUseFeature.reason } : {}),
-        },
-        {
-          id: "tts" as const,
-          enabled: ttsSettings.enabled,
-          available: Boolean(ttsSettings.enabled && ttsProfile?.hasApiKey && !ttsReason),
-          ...(ttsReason ? { reason: ttsReason } : {}),
-          ...(ttsProfile ? { activeProfileName: ttsProfile.name } : {}),
-        },
-        {
-          id: "imageGeneration" as const,
-          enabled: imageSettings.enabled,
-          ...imageAvailability,
-          ...(activeImageProfile ? { activeProfileName: activeImageProfile.name } : {}),
-        },
-      ],
-    };
+    return resolveIntegrationAvailability();
   });
 
   registerDesktopCommand(IPC_CHANNELS.imageGenerationSettingsGet, async () =>
@@ -9940,6 +9918,7 @@ function registerRemainingDesktopCommands(): void {
       errorMessage,
       cancel: async ({ threadId, worktreeDisposition }) => {
         schedulingGateway.disposeThread(threadId);
+        contextReferenceGateway.revokeThread(threadId);
         schedulingService.pauseAutomaticMessages(threadId);
         // Explicit Stop revokes an earlier Guide; cleanup must pause queued rows.
         pendingEscalatedFollowUpDrain.delete(threadId);
@@ -11073,7 +11052,7 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
       const prepared = await resolvePiSessionResourcesForThread(threadId, workspacePath);
       return toAcpMcpServers(prepared.mcpServers);
     },
-    resolveAcpSystemPromptAppend: ({ threadId }) => mcpHubGateway.getThreadPromptAppend(threadId),
+    resolveAcpSystemPromptAppend: ({ threadId }) => appendBrowserPrompt(mcpHubGateway.getThreadPromptAppend(threadId), CONTEXT_REFERENCE_PROMPT),
     resolvePromptImagesForMainContext,
     resolveAcpCreatePlanHandler: ({ threadId, workspacePath, userPrompt }) => {
       return async (request) => {
@@ -11760,6 +11739,7 @@ async function startCodexThreadRun(
               );
             }
             append = appendBrowserPrompt(append, SCHEDULING_PROMPT);
+            append = appendBrowserPrompt(append, CONTEXT_REFERENCE_PROMPT);
             append = appendBrowserPrompt(append, buildImageViewPromptAppend());
             append = appendBrowserPrompt(append, buildImageDisplayPromptAppend());
             if (centerServerClient.getHtmlHostingCapability().available) {
@@ -11875,6 +11855,7 @@ async function startCodexThreadRun(
             }
             const schedulingInject = await schedulingGateway.resolveInjection(input.thread.id);
             registerBuiltin(SCHEDULING_MCP_SERVER, schedulingInject.sdkEntry);
+            registerBuiltin(CONTEXT_MCP_SERVER, (await contextReferenceGateway.resolveInjection(input.thread.id)).sdkEntry);
             const imageViewInject = await imageViewGateway.resolveInjection(input.thread.id);
             registerBuiltin(ECO_IMAGE_VIEW_MCP_SERVER, imageViewInject.sdkEntry);
             const imageDisplayInject = await imageDisplayGateway.resolveInjection(input.thread.id);
@@ -12266,6 +12247,8 @@ async function resolvePiSessionResourcesForThread(
     ...(browserSkillDirectory ? { browserSkillDirectory } : {}),
   });
 
+  mcpSession.mcpServers[CONTEXT_MCP_SERVER] = (await contextReferenceGateway.resolveInjection(threadId)).sdkEntry;
+  mcpSession.appendSystemPrompt.push(CONTEXT_REFERENCE_PROMPT);
   mcpSession.mcpServers[SCHEDULING_MCP_SERVER] = schedulingInject.sdkEntry;
   mcpSession.appendSystemPrompt.push(SCHEDULING_PROMPT);
   const globalMcpConfig = mcpStore.buildSdkConfig();
@@ -14112,6 +14095,7 @@ async function tryDeliverFollowUpViaMidTurn(
   const isCodex = thread.coreKind === "codex";
   const isPi = thread.coreKind === "pi";
   const midTurnLabel = isCodex ? "Codex turn/steer" : isPi ? "PI steer" : "Claude streamInput";
+  let runtimePrompt = "";
   const claimed = await withThreadFollowUpLock(thread.id, async () => {
     const currentThread = conversationStore.getThread(thread.id);
     if (!currentThread) throw new Error("Thread was not found.");
@@ -14156,6 +14140,7 @@ async function tryDeliverFollowUpViaMidTurn(
     }
 
     const excludeFollowUpId = editingFollowUpClaimExclusion(thread.id);
+    runtimePrompt = await composerReferenceService.resolvePrompt(thread.id, currentFollowUp.prompt.trim());
     return conversationStore.claimThreadFollowUpStreamingPush(thread.id, followUp.id, {
       ...(excludeFollowUpId ? { excludeFollowUpId } : {}),
     });
@@ -14176,12 +14161,12 @@ async function tryDeliverFollowUpViaMidTurn(
   }
 
   const push = isCodex
-    ? await codexMidTurnPorts.tryPushUserText(thread.id, claimed.prompt.trim(), {
+    ? await codexMidTurnPorts.tryPushUserText(thread.id, runtimePrompt, {
         clientUserMessageId: followUp.id,
       })
     : isPi
-      ? await pushPiMidTurnSteer(thread.id, claimed.prompt.trim())
-      : await claudeMidTurnPorts.tryPushUserText(thread.id, claimed.prompt.trim(), {
+      ? await pushPiMidTurnSteer(thread.id, runtimePrompt)
+      : await claudeMidTurnPorts.tryPushUserText(thread.id, runtimePrompt, {
           uuid: followUp.id,
         });
 
@@ -15790,6 +15775,7 @@ function buildDesktopSdkRunInput(
     globalUserRules = appendBrowserPrompt(globalUserRules, buildTtsPromptAppend(config));
   }
   globalUserRules = appendBrowserPrompt(globalUserRules, SCHEDULING_PROMPT);
+  globalUserRules = appendBrowserPrompt(globalUserRules, CONTEXT_REFERENCE_PROMPT);
   globalUserRules = appendBrowserPrompt(globalUserRules, buildImageViewPromptAppend());
   globalUserRules = appendBrowserPrompt(globalUserRules, buildImageDisplayPromptAppend());
   if (threadId) {
@@ -16041,6 +16027,7 @@ async function cleanupThreadExternalState(threadId: string): Promise<void> {
   imageDisplayGateway.disposeThread(threadId);
   htmlHostGateway.disposeThread(threadId);
   schedulingGateway.disposeThread(threadId);
+  contextReferenceGateway.disposeThread(threadId);
   computerUseGateway.disposeThread(threadId);
   integratedWebSearchGateway.disposeThread(threadId);
   disposeAcpThread(threadId);
@@ -17961,6 +17948,96 @@ function isSkillCatalogInstallRequest(value: unknown): value is SkillCatalogInst
   );
 }
 
+async function resolveComposerCapabilitiesForThread(threadId: string) {
+  const thread = conversationStore.getThread(threadId);
+  if (!thread) throw new Error("会话不存在或已删除。");
+  const config = ensureThreadRuntimeConfig(thread).runtimeConfig;
+  if (!config) throw new Error("会话缺少运行配置。");
+  const settings = getModelSettingsSnapshot();
+  const snapshot =
+    thread.coreKind === "acp" ? undefined : resolveThreadOrchestrationSnapshot(settings, config);
+  const routes = snapshot ? roleRoutesForThreadConfig(settings, config) : [];
+  const servers = mcpStore.listServers();
+  const enabledMcp = new Set(
+    resolveThreadRuntimeMcpServerKeys({
+      runtimeConfig: config,
+      settings,
+      availableMcpServerKeys: listEnabledGlobalMcpServerKeys(servers),
+    }),
+  );
+  return buildComposerCapabilityReferences({
+    availability: await resolveIntegrationAvailability(),
+    integrationsEnabled: config.integrationsEnabled ?? {},
+    mcpServers: servers,
+    mcpServersEnabled: Object.fromEntries([...enabledMcp].map((key) => [key, true])),
+    agents: (snapshot?.agents ?? []).map((agent) => ({
+      agentKey: agent.agentKey,
+      name:
+        agent.displayName?.trim() ||
+        settings.agentTemplates.find((template) => template.id === agent.templateId)?.name ||
+        agent.agentKey,
+      modelId: routes.find((route) => route.role === agent.agentKey)?.modelId ?? "",
+      enabled:
+        agent.enabled &&
+        (!Object.hasOwn(config.subagentEnabled, agent.agentKey) ||
+          config.subagentEnabled[agent.agentKey as keyof typeof config.subagentEnabled] === true),
+    })),
+  });
+}
+
+async function resolveIntegrationAvailability() {
+  const browserSettings = browserSettingsStore.get();
+  const browserFeature = requireBrowserHost().isFeatureAvailable();
+  const computerUseSettings = computerUseSettingsStore.get();
+  const computerUseFeature = computerUseGateway.isFeatureAvailableQuick();
+  const ttsSettings = ttsStore.getSettings();
+  const ttsProfile = ttsSettings.profiles.find((profile) => profile.id === ttsSettings.activeProfileId);
+  const ttsReason = !ttsProfile?.hasApiKey
+    ? "当前语音生成 Profile 尚未配置 API Key。"
+    : !ttsSettings.apiKeyEncryptionAvailable
+      ? "系统加密不可用，无法读取语音生成 API Key。"
+      : undefined;
+  const imageSettings = imageGenerationStore.getSettings();
+  const activeImageProfile = imageSettings.profiles.find(
+    (profile) => profile.id === imageSettings.activeProfileId,
+  );
+  const imageAvailability = imageGenerationAvailability(
+    imageSettings,
+    activeImageProfile?.provider === "codex" || activeImageProfile?.provider === "chatgpt_web"
+      ? await codexImages.getAvailability(activeImageProfile.provider)
+      : undefined,
+  );
+  return {
+    integrations: [
+      {
+        id: "browser" as const,
+        enabled: browserSettings.agentIntegrationEnabled,
+        available: browserFeature.available,
+        ...(browserFeature.reason ? { reason: browserFeature.reason } : {}),
+      },
+      {
+        id: "computerUse" as const,
+        enabled: computerUseSettings.agentIntegrationEnabled,
+        available: computerUseFeature.available,
+        ...(computerUseFeature.reason ? { reason: computerUseFeature.reason } : {}),
+      },
+      {
+        id: "tts" as const,
+        enabled: ttsSettings.enabled,
+        available: Boolean(ttsSettings.enabled && ttsProfile?.hasApiKey && !ttsReason),
+        ...(ttsReason ? { reason: ttsReason } : {}),
+        ...(ttsProfile ? { activeProfileName: ttsProfile.name } : {}),
+      },
+      {
+        id: "imageGeneration" as const,
+        enabled: imageSettings.enabled,
+        ...imageAvailability,
+        ...(activeImageProfile ? { activeProfileName: activeImageProfile.name } : {}),
+      },
+    ],
+  };
+}
+
 async function buildSdkSessionOptions(
   threadId: string,
   prompt?: string,
@@ -18082,6 +18159,7 @@ async function buildSdkSessionOptions(
   withWebSearchMcp.mcpServers[SCHEDULING_MCP_SERVER] = (
     await schedulingGateway.resolveInjection(threadId)
   ).sdkEntry;
+  withWebSearchMcp.mcpServers[CONTEXT_MCP_SERVER] = (await contextReferenceGateway.resolveInjection(threadId)).sdkEntry;
   const hubBuiltinKeys = Object.keys(withWebSearchMcp.mcpServers).filter(
     (key) => key.startsWith("eco_") && key !== "eco_mcp",
   );
@@ -19533,7 +19611,7 @@ async function resolvePromptImagesForMainContext(input: {
 }): Promise<string> {
   imageViewGateway.noteThreadPrompt(input.threadId, input.prompt);
   return buildPromptWithImageReferences({
-    prompt: input.prompt,
+    prompt: await composerReferenceService.resolvePrompt(input.threadId, input.prompt),
     ...(input.attachments ? { attachments: input.attachments } : {}),
   });
 }

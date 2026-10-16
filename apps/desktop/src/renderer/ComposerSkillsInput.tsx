@@ -4,11 +4,13 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
   useState,
 } from "react";
+import { parsePromptSegments } from "./composer-skills";
 import type { SkillInfo } from "../shared/skills";
 import { ComposerContextMenu, type ComposerContextMenuAnchor } from "./ComposerContextMenu";
 import { copyTextToClipboard } from "./clipboard";
@@ -38,6 +40,7 @@ export interface ComposerSkillsInputHandle {
 
 interface ComposerSkillsInputProps {
   value: string;
+  referencePopup?: { activeIndex: number } | undefined;
   onChange: (value: string) => void;
   skillsByName: ReadonlyMap<string, SkillInfo>;
   disabled?: boolean | undefined;
@@ -54,6 +57,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
   function ComposerSkillsInput(
     {
       value,
+      referencePopup,
       onChange,
       skillsByName,
       disabled,
@@ -72,6 +76,22 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
     const skillsByNameRef = useRef(skillsByName);
     skillsByNameRef.current = skillsByName;
     const [contextMenu, setContextMenu] = useState<ComposerContextMenuAnchor | undefined>(undefined);
+
+    useEffect(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const syncReferenceSelection = () => {
+        const selection = window.getSelection();
+        const range = selection?.rangeCount && !selection.isCollapsed &&
+          editor.contains(selection.anchorNode) && editor.contains(selection.focusNode)
+          ? selection.getRangeAt(0) : undefined;
+        for (const chip of editor.querySelectorAll("[data-reference-token]")) {
+          chip.classList.toggle("is-selected", Boolean(range?.intersectsNode(chip)));
+        }
+      };
+      document.addEventListener("selectionchange", syncReferenceSelection);
+      return () => document.removeEventListener("selectionchange", syncReferenceSelection);
+    }, []);
 
     const fitHeight = useCallback(
       (editor: HTMLDivElement) => {
@@ -92,8 +112,8 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
       }
       const next = serializeEditable(editor);
       const needsChipUpgrade =
-        (next.includes("$") || next.includes("@file{")) &&
-        !editor.querySelector("[data-skill], [data-file-path]");
+        parsePromptSegments(next).filter(segment => segment.type !== "text").length >
+        editor.querySelectorAll("[data-skill], [data-file-path], [data-reference-token]").length;
       if (needsChipUpgrade) {
         const cursor = getCursorOffset(editor);
         renderEditablePrompt(editor, next, skillsByNameRef.current);
@@ -145,8 +165,8 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
           return;
         }
         const serialized = serializeEditable(editor);
-        const hasChipTokens = value.includes("$") || value.includes("@file{");
-        const domHasChips = Boolean(editor.querySelector("[data-skill], [data-file-path]"));
+        const hasChipTokens = parsePromptSegments(value).some(segment => segment.type !== "text");
+        const domHasChips = Boolean(editor.querySelector("[data-skill], [data-file-path], [data-reference-token]"));
         // Plain-text token strings can serialize equal to `value` while chips are
         // still missing (e.g. Playwright fill / paste of `@file{...}`).
         if (serialized === value && !(hasChipTokens && !domHasChips)) {
@@ -179,7 +199,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
       if (
         !editor ||
         isComposingRef.current ||
-        (!value.includes("$") && !value.includes("@file{"))
+        !parsePromptSegments(value).some(segment => segment.type !== "text")
       ) {
         return;
       }
@@ -377,6 +397,10 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
           className="composer-skill-input-control"
           contentEditable={disabled ? false : true}
           suppressContentEditableWarning
+          aria-autocomplete={referencePopup ? "list" : undefined}
+          aria-expanded={referencePopup ? true : undefined}
+          aria-controls={referencePopup ? "composer-references-listbox" : undefined}
+          aria-activedescendant={referencePopup && referencePopup.activeIndex >= 0 ? `composer-reference-option-${referencePopup.activeIndex}` : undefined}
           role="textbox"
           aria-multiline="true"
           data-placeholder={placeholder}

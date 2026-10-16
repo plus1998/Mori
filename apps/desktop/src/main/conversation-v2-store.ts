@@ -2732,6 +2732,47 @@ export class ConversationV2Store {
     });
   }
 
+  /**
+   * Bounded agent-facing transcript, independent of tool/attachment payload size.
+   * Every older row remains reachable by cursor; long bodies have a separate chunk reader.
+   * See https://github.com/openclaw/openclaw/issues/22920 for the failure mode of dropping rows to fit a budget.
+   */
+  transcriptPage(conversationId: string, beforeCursor?: string, limit = 20, includeTools = false) {
+    return this.readTransaction(() => {
+      const stream = this.requireExistingStream(conversationId);
+      const cursor = beforeCursor ? decodeConversationCursor(beforeCursor, "messages") : undefined;
+      this.validateCursor(cursor, stream);
+      const params: Array<string | number> = [conversationId];
+      let where = "conversation_id = ? AND is_deleted = 0 AND role IN ('user', 'assistant') AND channel IN ('answer', 'commentary')";
+      if (cursor) {
+        where += " AND (created_seq < ? OR (created_seq = ? AND message_id < ?))";
+        params.push(cursor.createdSeq, cursor.createdSeq, cursor.id);
+      }
+      const rows = this.db.prepare(`SELECT message_id, role, channel, status, occurred_at, created_seq, run_id,
+        substr(body, 1, 4000) AS excerpt, length(body) AS total_characters
+        FROM conversation_messages_v2 WHERE ${where} ORDER BY created_seq DESC, message_id DESC LIMIT ?`)
+        .all(...params, normalizeLimit(limit, 50) + 1) as Array<{
+          message_id: string; role: string; channel: string; status: string; occurred_at: string | null;
+          created_seq: number; run_id: string | null; excerpt: string; total_characters: number;
+        }>;
+      const hasMore = rows.length > limit;
+      const selected = rows.slice(0, limit);
+      const last = selected.at(-1);
+      const runIds = [...new Set(selected.flatMap(row => row.run_id ? [row.run_id] : []))];
+      return {
+        historyRevision: stream.history_revision,
+        messages: selected.reverse().map(row => ({ messageId: row.message_id, role: row.role, channel: row.channel,
+          body: row.excerpt, status: row.status, ...(row.run_id ? { runId: row.run_id } : {}),
+          ...(row.occurred_at ? { occurredAt: row.occurred_at } : {}), truncated: row.total_characters > 4000,
+          totalCharacters: row.total_characters })),
+        hasMore,
+        ...(hasMore && last ? { nextCursor: encodeConversationCursor({ kind: "messages", storeEpoch: stream.store_epoch,
+          historyRevision: stream.history_revision, createdSeq: last.created_seq, id: last.message_id }) } : {}),
+        ...(includeTools ? { tools: this.listToolSummaries(conversationId, runIds, 50), toolResults: "bounded_summaries; use read_conversation_tools with runId for pagination" } : {}),
+      };
+    });
+  }
+
   messagesPage(
     conversationId: string,
     beforeCursor?: string,

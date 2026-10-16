@@ -8717,6 +8717,13 @@ export class ConversationStore {
     return value || undefined;
   }
 
+  /** Lightweight cross-project @ picker rows; never loads prompts or runtime config. */
+  searchThreadReferences(query: string, limit: number): Array<Pick<ThreadSummary, "id" | "title" | "workspacePath" | "updatedAt">> {
+    return this.db.prepare(`SELECT id, title, workspace_path AS workspacePath, updated_at AS updatedAt
+      FROM threads WHERE instr(lower(title || ' ' || workspace_path), lower(?)) > 0
+      ORDER BY updated_at DESC, id DESC LIMIT ?`).all(query, limit) as Array<Pick<ThreadSummary, "id" | "title" | "workspacePath" | "updatedAt">>;
+  }
+
   listThreads(): ThreadSummary[] {
     const rows = this.db
       .prepare(

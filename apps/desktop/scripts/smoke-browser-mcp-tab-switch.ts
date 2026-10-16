@@ -1,7 +1,7 @@
 /**
  * Real Electron guests + BrowserHost + HTTP MCP + bundled agent-browser.
- * bun build scripts/smoke-browser-mcp-tab-switch.ts --target=node --external electron --outfile .tmp/browser-mcp-tab-switch.mjs
- * node_modules/.bin/electron .tmp/browser-mcp-tab-switch.mjs
+ * bun build scripts/smoke-browser-mcp-tab-switch.ts --target=node --external electron --outfile /tmp/browser-mcp-tab-switch.mjs
+ * node_modules/.bin/electron /tmp/browser-mcp-tab-switch.mjs
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -119,6 +119,28 @@ async function main() {
     await call("click", { ref: `@${ref}` });
     assert.match(await call("eval", { script: "document.body.dataset.clicked" }), /"yes"/);
     console.log("PASS: t1 → t3, same-URL pages, eval/snapshot/click target the third guest");
+
+    await c.guest.executeJavaScript("document.body.dataset.clicked='no'");
+    const referenced = await host.invokeReferencedBrowserTool(c.id, "agent_browser_snapshot", {});
+    assert.ok(!referenced.isError, JSON.stringify(referenced));
+    const referencedSnapshot = referenced.content.map(item => item.text).join("\n");
+    assert.match(referencedSnapshot, /Third tab/);
+    const referenceRef = referencedSnapshot.match(/button "Click me" \[ref=(\w+)\]/)?.[1];
+    assert.ok(referenceRef, referencedSnapshot);
+    const referenceClick = await host.invokeReferencedBrowserTool(c.id, "agent_browser_click", { ref: `@${referenceRef}` });
+    assert.ok(!referenceClick.isError, JSON.stringify(referenceClick));
+    assert.equal(await c.guest.executeJavaScript("document.body.dataset.clicked"), "yes");
+    assert.equal(await a.guest.executeJavaScript("document.body.dataset.clicked"), undefined);
+    const [referenceA, referenceC] = await Promise.all([
+      host.invokeReferencedBrowserTool(a.id, "agent_browser_get_text", { selector: "h1" }),
+      host.invokeReferencedBrowserTool(c.id, "agent_browser_get_text", { selector: "h1" }),
+    ]);
+    assert.match(referenceA.content[0]!.text, /admin/);
+    assert.match(referenceC.content[0]!.text, /Third tab/);
+    await assert.rejects(host.invokeReferencedBrowserTool(c.id, "agent_browser_tab_switch", { tabId: "t1" }));
+    await assert.rejects(host.invokeReferencedBrowserTool(c.id, "agent_browser_read", { url: "https://example.com" }));
+    console.log("PASS: explicit browser references keep snapshot refs and actions on the exact page, including concurrent same-URL targets");
+
 
     host.closeBrowser(a.id);
     await call("tab_switch", { tabId: "t1" }); // formerly t2

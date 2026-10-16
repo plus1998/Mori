@@ -39,7 +39,7 @@ import {
 import { BROWSER_VIEWPORT_PRESETS, type BrowserViewport, parseBrowserViewport } from "../shared/browser-viewport";
 import type { McpSdkConfig } from "../shared/mcp";
 import type { AgentBrowserMcpToolResult } from "./agent-browser-cli-bridge";
-import { resolveAgentBrowserTabIndex } from "./agent-browser-cli-bridge";
+import { callAgentBrowserToolViaCli, resolveAgentBrowserTabIndex } from "./agent-browser-cli-bridge";
 import { resolveAgentBrowserBinary } from "./agent-browser-resolve";
 import { type BrowserCdpProxy, type BrowserCdpTarget, assertBrowserGuestWebContents, startMultiBrowserCdpProxy } from "./browser-cdp-proxy";
 import { writeBrowserHtmlPreviewTempFile } from "./browser-html-preview";
@@ -174,6 +174,8 @@ interface ThreadBrowserScope {
  * Renderer `<webview>` guests supply WebContents; main process owns CDP + agent MCP.
  */
 export class BrowserHost {
+  private readonly referenceProxies = new Map<string, Promise<BrowserCdpProxy>>();
+  private readonly referenceCalls = new Map<string, Promise<unknown>>();
   private readonly scopes = new Map<string, ThreadBrowserScope>();
   private uiScopeId: string = ECO_BROWSER_PERSONAL_SCOPE_ID;
   /** Task panel is presenting a browser tab (used for soft reveal; not native visibility). */
@@ -966,6 +968,16 @@ export class BrowserHost {
   }
 
   private destroyBrowser(scope: ThreadBrowserScope, browser: SessionBrowser): void {
+    const proxy = this.referenceProxies.get(browser.id);
+    this.referenceProxies.delete(browser.id);
+    if (proxy) void proxy.then(async value => {
+      try {
+        const binary = resolveAgentBrowserBinary();
+        if (binary.binaryPath) await callAgentBrowserToolViaCli({ binaryPath: binary.binaryPath, cdpPort: value.port,
+          sessionKey: browserAgentSessionKey(`reference:${browser.id}`), env: ensureAgentBrowserRuntimeEnv(value.port, `reference:${browser.id}`),
+          toolName: "agent_browser_close", args: {}, timeoutMs: 3000 });
+      } finally { await value.close(); }
+    }).catch(() => {});
     if (browser.guestLoadTimer) {
       clearTimeout(browser.guestLoadTimer);
       browser.guestLoadTimer = undefined;
@@ -1354,6 +1366,44 @@ export class BrowserHost {
       visualViewport: { width: visualViewport.width, height: visualViewport.height, scale: visualViewport.scale }
     })`);
     return agentBrowserTextResult(JSON.stringify({ browserId, viewport: browser.viewport ?? null, metrics }));
+  }
+
+  /** User-selected references have their own single-page CDP target and CLI session. */
+  async invokeReferencedBrowserTool(browserId: string, action: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<AgentBrowserMcpToolResult> {
+    const allowed = new Set(["snapshot", "read", "click", "fill", "type", "press", "check", "uncheck", "select", "scroll", "get_text", "get_url", "get_title", "screenshot", "wait_for_selector", "wait_for_text", "wait_for_load", "reload", "back", "forward"]);
+    if (!action.startsWith("agent_browser_") || !allowed.has(action.slice("agent_browser_".length))) throw new Error("该操作不适用于网页引用。");
+    if (["url", "href", "session", "cdp", "tabId", "browserId", "targetId", "extraArgs"].some(key => Object.hasOwn(args, key))) throw new Error("网页引用不能改用其他地址、会话或标签页。");
+    const previous = this.referenceCalls.get(browserId) ?? Promise.resolve();
+    const call = previous.catch(() => {}).then(async () => {
+      signal?.throwIfAborted();
+      const found = this.findBrowser(browserId);
+      if (!found || !shouldSurfaceBrowserInstance({ url: this.resolveBrowserTabUrl(found.browser), surfacePlaceholder: found.browser.surfacePlaceholder })) throw new Error("引用的网页已关闭。");
+      const guest = await this.waitForGuestWebContents(browserId);
+      this.noteAgentPresence(browserId);
+      if (action === "agent_browser_screenshot") {
+        const output = resolveAgentBrowserScreenshotPath(args);
+        return agentBrowserTextResult(await captureGuestScreenshot(guest, output, isFullPageScreenshot(args)));
+      }
+      let pending = this.referenceProxies.get(browserId);
+      if (!pending) {
+        pending = startMultiBrowserCdpProxy({
+          getTargets: () => { const wc = this.findBrowser(browserId)?.browser.webContents; return wc && !wc.isDestroyed() ? [{ id: browserId, webContents: wc }] : []; },
+          onPrepareGuestKeyboardInput: () => this.blurMainRendererForGuestKeyboardInput(),
+          onClientActivity: () => this.noteAgentPresence(browserId),
+          isForbiddenWebContents: wc => wc.id === this.deps.getMainWindow()?.webContents.id,
+        });
+        this.referenceProxies.set(browserId, pending);
+        pending.catch(() => { if (this.referenceProxies.get(browserId) === pending) this.referenceProxies.delete(browserId); });
+      }
+      const proxy = await pending;
+      const binary = resolveAgentBrowserBinary();
+      if (!binary.available || !binary.binaryPath) throw new Error(binary.reason ?? "agent-browser 不可用");
+      const sessionId = `reference:${browserId}`;
+      return callAgentBrowserToolViaCli({ binaryPath: binary.binaryPath, cdpPort: proxy.port, cdpTargetId: browserId,
+        sessionKey: browserAgentSessionKey(sessionId), env: ensureAgentBrowserRuntimeEnv(proxy.port, sessionId), toolName: action, args, ...(signal ? { signal } : {}) });
+    });
+    this.referenceCalls.set(browserId, call);
+    try { return await call; } finally { if (this.referenceCalls.get(browserId) === call) this.referenceCalls.delete(browserId); }
   }
 
   /** Exact guest used by both native tools and the CLI connection. */

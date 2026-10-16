@@ -1,3 +1,6 @@
+import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
+import { ComposerReferencesMenu } from "./ComposerReferencesMenu";
+import { useComposerReferences } from "./use-composer-references";
 import { ACP_IMAGE_ONLY_PROMPT } from "@eco/runtime/acp-prompt";
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import {
@@ -6733,6 +6736,65 @@ function App() {
   const lastActivityFeedLayoutScrollAtRef = useRef(0);
   const activityUserMessageJumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const composerRef = useRef<ComposerSkillsInputHandle>(null);
+  const composerCapabilityReferences = useMemo(
+    () =>
+      buildComposerCapabilityReferences({
+        availability: integrationAvailability,
+        integrationsEnabled: composerIntegrationSettings,
+        integrationLabels: {
+          browser: t("settings.browser"),
+          imageGeneration: t("settings.imageGeneration.title"),
+          tts: t("settings.tts.title"),
+          computerUse: t("settings.computerUse"),
+        },
+        mcpServers: mcpSettings.servers,
+        mcpServersEnabled: composerMcpSettings,
+        agents:
+          composerCoreKind === "acp" || !selectedOrchestrationSnapshot
+            ? []
+            : agentModelLabels
+                .filter((agent) => !agent.main)
+                .map((agent) => ({
+                  agentKey: agent.role,
+                  name: agent.displayName,
+                  modelId: activeRoutes.find((route) => route.role === agent.role)?.modelId ?? "",
+                  enabled:
+                    selectedOrchestrationSnapshot.agents.some(
+                      (entry) => entry.agentKey === agent.role && entry.enabled,
+                    ) &&
+                    (!agent.subagentRole ||
+                      (composerRuntimeConfig?.subagentEnabled ?? defaultSubagentAvailability())[
+                        agent.subagentRole
+                      ] === true),
+                })),
+      }),
+    [
+      integrationAvailability,
+      composerIntegrationSettings,
+      mcpSettings.servers,
+      composerMcpSettings,
+      composerCoreKind,
+      selectedOrchestrationSnapshot,
+      agentModelLabels,
+      activeRoutes,
+      composerRuntimeConfig?.subagentEnabled,
+      t,
+    ],
+  );
+  const composerReferencesMenu = useComposerReferences({
+    prompt,
+    cursor: composerCursor,
+    inputRef: composerRef,
+    onChange: setPrompt,
+    capabilities: composerCapabilityReferences,
+  });
+  useEffect(() => {
+    if (composerReferencesMenu.open) {
+      setComposerPlusMenuOpen(false);
+      setComposerRoutePopoverOpen(false);
+      setScheduledMessageEditor(undefined);
+    }
+  }, [composerReferencesMenu.open]);
   const COMPOSER_TEXTAREA_MAX_HEIGHT = 200;
   const runProjectionLayoutSignature = useMemo(() => {
     if (!runProjection?.sourceEventCount) {
@@ -10865,6 +10927,7 @@ function App() {
   }
 
   function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (composerReferencesMenu.onKeyDown(event)) return;
     if (composerSkillPopoverOpen) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
@@ -11718,8 +11781,19 @@ function App() {
                 onDragOver={handleComposerDragOver}
                 onDrop={handleComposerDrop}
               >
+                {composerReferencesMenu.open ? <ComposerReferencesMenu
+                  anchorRef={composerAnchorRef}
+                  items={composerReferencesMenu.items}
+                  activeIndex={composerReferencesMenu.activeIndex}
+                  loading={composerReferencesMenu.loading}
+                  error={composerReferencesMenu.error}
+                  hasMore={composerReferencesMenu.hasMore}
+                  onActiveIndexChange={composerReferencesMenu.setActiveIndex}
+                  onSelect={composerReferencesMenu.select}
+                  onClose={composerReferencesMenu.close}
+                /> : null}
                 <ComposerSkillsSlashMenu
-                  open={composerSkillPopoverOpen}
+                  open={composerSkillPopoverOpen && !composerReferencesMenu.open}
                   query={composerSkillSlash?.query ?? ""}
                   skills={slashPickerSkills}
                   matches={composerSkillMatches}
@@ -11783,6 +11857,7 @@ function App() {
                   ) : null}
                   <ComposerSkillsInput
                     ref={composerRef}
+                    referencePopup={composerReferencesMenu.open ? { activeIndex: composerReferencesMenu.items.length ? composerReferencesMenu.activeIndex : -1 } : undefined}
                     value={prompt}
                     onChange={(next) => {
                       composerPromptRef.current = next;
