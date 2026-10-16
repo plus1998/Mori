@@ -1,3 +1,5 @@
+import { WebChatProxyController } from "./web-chat-proxy";
+import { webChatSitePartition, webChatProxyConfig } from "../shared/web-chat-list";
 import { buildTtsPromptAppend, ECO_TTS_MCP_SERVER, isEcoTtsToolName, type TtsProfileSaveInput } from "../shared/tts";
 import { createTtsStore, type TtsStore } from "./tts-store";
 import { TtsMcpGateway } from "./tts-mcp-gateway";
@@ -1539,6 +1541,13 @@ let browserSettingsStore: BrowserSettingsStore;
 let computerUseSettingsStore: ComputerUseSettingsStore;
 let computerUseGateway: ComputerUseMcpGateway;
 let webChatListStore: WebChatListStore;
+const webChatProxyControllers = new Map<ReturnType<typeof session.fromPartition>, WebChatProxyController>();
+function webChatProxyControllerFor(siteId: string): WebChatProxyController {
+  const siteSession = session.fromPartition(webChatSitePartition(siteId));
+  let controller = webChatProxyControllers.get(siteSession);
+  if (!controller) { controller = new WebChatProxyController(siteSession); webChatProxyControllers.set(siteSession, controller); }
+  return controller;
+}
 let sshBookmarkStore: SshBookmarkStore;
 let notificationSettingsStore: NotificationSettingsStore;
 let browserHost: BrowserHost | undefined;
@@ -2643,6 +2652,15 @@ app
     computerUseSettingsStore = await createComputerUseSettingsStore(dbPath);
     computerUseGateway = new ComputerUseMcpGateway(() => computerUseSettingsStore.get());
     webChatListStore = await createWebChatListStore(dbPath);
+    app.on("web-contents-created", (_event, contents) => {
+      contents.on("login", (event, _details, authInfo, callback) => {
+        const credentials = webChatProxyControllers.get(contents.session)?.credentials(authInfo);
+        if (!credentials) return;
+        event.preventDefault();
+        callback(...credentials);
+      });
+    });
+    app.once("before-quit", () => { for (const controller of webChatProxyControllers.values()) controller.dispose(); });
     sshBookmarkStore = await createSshBookmarkStore(dbPath, createLocalSecretCodec());
     notificationSettingsStore = await createNotificationSettingsStore(dbPath);
     browserHost = new BrowserHost({
@@ -7890,7 +7908,24 @@ function registerIpcHandlers(): void {
     if (!isWebChatListSnapshot(payload)) {
       throw new Error("Invalid web chat list.");
     }
-    return webChatListStore.save(normalizeWebChatListSnapshot(payload));
+    const next = normalizeWebChatListSnapshot(payload);
+    const previous = webChatListStore.getSnapshot();
+    const items = webChatListStore.get().items;
+    for (const proxy of Object.values(next.siteProxies ?? {})) webChatProxyConfig(proxy);
+    const applied: string[] = [];
+    try {
+      for (const item of items) {
+        const siteSession = session.fromPartition(webChatSitePartition(item.id));
+        const controller = webChatProxyControllers.get(siteSession);
+        if (!controller) continue;
+        await controller.apply(next.siteProxies?.[item.id]);
+        applied.push(item.id);
+      }
+      return webChatListStore.save(next);
+    } catch (error) {
+      for (const siteId of applied) await webChatProxyControllerFor(siteId).apply(previous.siteProxies?.[siteId]);
+      throw error;
+    }
   });
 
   registerDesktopCommand(IPC_CHANNELS.sshBookmarksGet, async () => sshBookmarkStore.list());
@@ -8061,7 +8096,14 @@ function registerIpcHandlers(): void {
     const url =
       typeof request.url === "string" ? request.url : typeof payload === "string" ? payload : undefined;
     const htmlContent = typeof request.htmlContent === "string" ? request.htmlContent : undefined;
+    if (request.webChatSiteId) {
+      const siteId = request.webChatSiteId;
+      const site = webChatListStore.get().items.find((item) => item.id === siteId);
+      if (!site || site.url !== url) throw new Error("无效的聊天站点");
+      await webChatProxyControllerFor(siteId).apply(webChatListStore.getSnapshot().siteProxies?.[siteId]);
+    }
     return requireBrowserHost().openSharedSession({
+      ...(request.webChatSiteId ? { webChatSiteId: request.webChatSiteId } : {}),
       revealUi: request.reveal !== false,
       ...(url && url.trim() && url !== "about:blank" ? { url } : {}),
       ...(htmlContent && htmlContent.trim() ? { htmlContent: htmlContent.trim() } : {}),

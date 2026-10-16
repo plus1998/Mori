@@ -1,4 +1,4 @@
-import { normalizeBrowserNavigateUrl } from "./browser";
+import { normalizeBrowserNavigateUrl, partitionForBrowserWorkspace } from "./browser";
 
 export interface WebChatItem {
   id: string;
@@ -11,10 +11,14 @@ export interface WebChatItem {
 /** Persisted shape — only user-added entries (builtins always come from code). */
 export interface WebChatListSnapshot {
   customs: WebChatItem[];
+  proxy?: string | undefined;
+  siteProxies?: Record<string, string> | undefined;
 }
 
 export interface WebChatListView {
   items: WebChatItem[];
+  proxy?: string | undefined;
+  siteProxies?: Record<string, string> | undefined;
 }
 
 const BUILTIN_WEB_CHATS: ReadonlyArray<Omit<WebChatItem, "builtin" | "order">> = [
@@ -23,7 +27,7 @@ const BUILTIN_WEB_CHATS: ReadonlyArray<Omit<WebChatItem, "builtin" | "order">> =
   { id: "gemini", title: "Gemini", url: "https://gemini.google.com/app" },
   { id: "deepseek", title: "DeepSeek", url: "https://chat.deepseek.com" },
   { id: "kimi", title: "Kimi", url: "https://kimi.moonshot.cn" },
-  { id: "perplexity", title: "Perplexity", url: "https://www.perplexity.ai" },
+  { id: "doubao", title: "豆包", url: "https://www.doubao.com/chat/" },
 ];
 
 export function builtinWebChatItems(): WebChatItem[] {
@@ -113,7 +117,18 @@ export function normalizeWebChatListSnapshot(value: unknown): WebChatListSnapsho
     customs.push(item);
   }
   customs.sort((a, b) => a.order - b.order || a.title.localeCompare(b.title));
-  return { customs };
+  const proxy = typeof record.proxy === "string" ? record.proxy.trim() : "";
+  const sites = [...builtinWebChatItems(), ...customs];
+  const siteProxies: Record<string, string> = {};
+  if (record.siteProxies && typeof record.siteProxies === "object" && !Array.isArray(record.siteProxies)) {
+    for (const item of sites) {
+      const value = (record.siteProxies as Record<string, unknown>)[item.id];
+      if (typeof value === "string") siteProxies[item.id] = value.trim();
+    }
+  } else if (proxy) {
+    for (const item of sites) siteProxies[item.id] = proxy;
+  }
+  return { customs, ...(proxy ? { proxy } : {}), ...(record.siteProxies !== undefined || Object.keys(siteProxies).length ? { siteProxies } : {}) };
 }
 
 export function isWebChatListSnapshot(value: unknown): value is WebChatListSnapshot {
@@ -124,6 +139,7 @@ export function isWebChatListSnapshot(value: unknown): value is WebChatListSnaps
   if (!Array.isArray(record.customs)) {
     return false;
   }
+  if (record.siteProxies !== undefined && (!record.siteProxies || typeof record.siteProxies !== "object" || Array.isArray(record.siteProxies) || Object.values(record.siteProxies).some((value) => typeof value !== "string"))) return false;
   for (const entry of record.customs) {
     if (!normalizeCustomWebChatItem(entry, 0)) {
       return false;
@@ -139,7 +155,8 @@ export function mergeWebChatList(snapshot: WebChatListSnapshot): WebChatListView
     ...item,
     order: builtins.length + index,
   }));
-  return { items: [...builtins, ...customs] };
+  const normalized = normalizeWebChatListSnapshot(snapshot);
+  return { items: [...builtins, ...customs], ...(snapshot.proxy ? { proxy: snapshot.proxy } : {}), ...(normalized.siteProxies ? { siteProxies: normalized.siteProxies } : {}) };
 }
 
 export function webChatHostname(url: string): string {
@@ -185,13 +202,53 @@ export function createCustomWebChatItem(
   return {
     ok: true,
     item,
-    next: { customs: [...snapshot.customs, item] },
+    next: { ...snapshot, customs: [...snapshot.customs, item] },
   };
 }
 
 export function removeCustomWebChatItem(id: string, existing: WebChatListSnapshot): WebChatListSnapshot {
   const snapshot = normalizeWebChatListSnapshot(existing);
   return {
+    ...snapshot,
     customs: snapshot.customs.filter((item) => item.id !== id),
   };
+}
+
+/** Empty uses system settings; direct explicitly disables proxies. */
+export function webChatProxyConfig(proxy?: string): { mode: "system" | "direct" | "fixed_servers"; proxyRules?: string } {
+  if (!proxy?.trim()) return { mode: "system" };
+  if (proxy === "direct") return { mode: "direct" };
+  let url: URL;
+  try { url = new URL(proxy); } catch { throw new Error("请输入有效的代理地址"); }
+  if (!["http:", "https:", "socks4:", "socks5:"].includes(url.protocol) || !url.hostname || url.pathname !== "" && url.pathname !== "/" || url.search || url.hash) {
+    throw new Error("代理须为 http/https/socks4/socks5://主机:端口");
+  }
+  if (url.protocol === "socks4:" && (url.username || url.password)) {
+    throw new Error("SOCKS4 不支持账号密码认证，请使用 SOCKS5 或 HTTP/HTTPS 代理");
+  }
+  try { decodeURIComponent(url.username); decodeURIComponent(url.password); }
+  catch { throw new Error("代理账号密码编码无效"); }
+  return { mode: "fixed_servers", proxyRules: `${url.protocol}//${url.host}` };
+}
+
+export function splitWebChatProxy(proxy?: string): { address: string; username: string; password: string } {
+  if (!proxy || proxy === "direct") return { address: "", username: "", password: "" };
+  webChatProxyConfig(proxy);
+  const url = new URL(proxy);
+  return { address: `${url.protocol}//${url.host}`, username: decodeURIComponent(url.username), password: decodeURIComponent(url.password) };
+}
+
+export function buildWebChatProxy(address: string, username: string, password: string): string {
+  webChatProxyConfig(address);
+  const url = new URL(address);
+  url.username = encodeURIComponent(username);
+  url.password = encodeURIComponent(password);
+  webChatProxyConfig(url.toString());
+  return url.toString();
+}
+
+/** Each entry shares its login across workspaces, with its own network session. */
+export function webChatSitePartition(siteId: string): string {
+  if (!siteId.trim()) throw new Error("缺少聊天站点 ID");
+  return partitionForBrowserWorkspace(siteId).replace("persist:eco-browser-w-", "persist:eco-web-chat-site-");
 }

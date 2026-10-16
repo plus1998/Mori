@@ -1,3 +1,4 @@
+import { webChatSitePartition } from "../shared/web-chat-list";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -101,6 +102,7 @@ export type AgentBrowserMcpInjection = {
 };
 
 export interface SharedBrowserOpenOptions {
+  webChatSiteId?: string;
   url?: string;
   htmlContent?: string;
   revealUi?: boolean;
@@ -130,6 +132,7 @@ export interface BrowserHostDeps {
 }
 
 interface SessionBrowser {
+  partition?: string | undefined;
   viewport?: BrowserViewport | undefined;
   viewportError?: string | undefined;
   viewportUpdate?: Promise<unknown> | undefined;
@@ -576,7 +579,7 @@ export class BrowserHost {
         {
           id: browser.id,
           threadId: scope.threadId,
-          partition: scope.partition,
+          partition: browser.partition ?? scope.partition,
           url,
           title: alive ? wc.getTitle() || "" : "",
           ...(faviconUrl ? { faviconUrl } : {}),
@@ -606,7 +609,7 @@ export class BrowserHost {
     const out: Array<{ id: string; partition: string }> = [];
     for (const scope of this.scopes.values()) {
       for (const browser of scope.browsers.values()) {
-        out.push({ id: browser.id, partition: scope.partition });
+        out.push({ id: browser.id, partition: browser.partition ?? scope.partition });
       }
     }
     return out;
@@ -619,7 +622,7 @@ export class BrowserHost {
     }
     return [...scope.browsers.values()].map((browser) => ({
       id: browser.id,
-      partition: scope.partition,
+      partition: browser.partition ?? scope.partition,
     }));
   }
 
@@ -707,6 +710,7 @@ export class BrowserHost {
       if (isBrowserHttpUrl(url)) {
         try {
           const created = this.createBrowserInScope(scope, browser.source);
+          created.partition = browser.partition;
           scope.focusedBrowserId = created.id;
           this.requestReveal(created.id);
           created.pendingUrl = url;
@@ -863,7 +867,12 @@ export class BrowserHost {
 
     const scope = this.ensureScope(scopeId, options.workspacePath);
     let browser: SessionBrowser | undefined;
-    if (options.browserId) {
+    if (options.webChatSiteId) {
+      this.ensurePartitionHandlers(webChatSitePartition(options.webChatSiteId));
+      browser = this.createBrowserInScope(scope, source);
+      browser.partition = webChatSitePartition(options.webChatSiteId);
+    }
+    if (!browser && options.browserId) {
       browser = scope.browsers.get(options.browserId);
     }
     if (!browser && options.newBrowser) {

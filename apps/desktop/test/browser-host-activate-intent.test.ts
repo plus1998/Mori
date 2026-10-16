@@ -204,3 +204,30 @@ test("concurrent viewport changes are applied in order and failed changes are vi
     host.dispose();
   }
 });
+
+test("web AI pages share storage across threads while ordinary pages keep workspace storage", async () => {
+  const host = createTestHost();
+  try {
+    await host.openSharedSession({ threadId: "a", workspacePath: "/tmp/a", webChatSiteId: "chatgpt" });
+    await host.openSharedSession({ threadId: "b", workspacePath: "/tmp/b", webChatSiteId: "chatgpt" });
+    await host.openSharedSession({ threadId: "b", newBrowser: true });
+    const guests = host.getState().allGuestInstances;
+    expect(guests).toHaveLength(3);
+    expect(guests.filter((guest) => guest.partition.startsWith("persist:eco-web-chat-site-"))).toHaveLength(2);
+    expect(guests.filter((guest) => guest.partition.startsWith("persist:eco-browser-w-"))).toHaveLength(1);
+  } finally {
+    host.dispose();
+  }
+});
+
+
+test("different Chat AI sites keep independent sessions within the same thread", async () => {
+  const host = createTestHost();
+  try {
+    await host.openSharedSession({ threadId: "a", workspacePath: "/tmp/a", webChatSiteId: "chatgpt" });
+    await host.openSharedSession({ threadId: "a", webChatSiteId: "doubao" });
+    const guests = host.getState().allGuestInstances;
+    expect(guests).toHaveLength(2);
+    expect(guests[0]!.partition).not.toBe(guests[1]!.partition);
+  } finally { host.dispose(); }
+});

@@ -268,6 +268,7 @@ export interface BrowserNavigateRequest {
 }
 
 export interface BrowserOpenRequest {
+  webChatSiteId?: string;
   url?: string;
   /** Inline HTML opened as a temp preview page when too large for a data URL. */
   htmlContent?: string;

@@ -6183,7 +6183,7 @@ function App() {
   }, []);
 
   const openBrowserTaskPanel = useCallback(
-    (options?: string | { browserId?: string; url?: string }) => {
+    (options?: string | { browserId?: string; url?: string; webChatSiteId?: string }) => {
       if (!currentProjectPath) {
         return;
       }
@@ -6210,6 +6210,7 @@ function App() {
         ?.browserOpen?.({
           reveal: true,
           newBrowser: true,
+          ...(resolved.webChatSiteId ? { webChatSiteId: resolved.webChatSiteId } : {}),
           ...(resolved.url ? { url: resolved.url } : {}),
           ...(activeThread?.id ? { threadId: activeThread.id } : { workspacePath: currentProjectPath }),
         })
@@ -6222,9 +6223,10 @@ function App() {
               revealTaskPanel();
             }
           }
-        });
+        })
+        .catch((error) => showAppMessageError(error instanceof Error ? error.message : String(error)));
     },
-    [activeThread?.id, currentProjectPath, revealTaskPanel, selectBrowserTaskTab],
+    [activeThread?.id, currentProjectPath, revealTaskPanel, selectBrowserTaskTab, showAppMessageError],
   );
 
   const navigateNewTaskPanelTab = useCallback(
@@ -6298,7 +6300,7 @@ function App() {
 
   const openWebChatItem = useCallback(
     (item: WebChatItem) => {
-      openBrowserTaskPanel({ url: item.url });
+      openBrowserTaskPanel({ url: item.url, webChatSiteId: item.id });
     },
     [openBrowserTaskPanel],
   );
@@ -11049,6 +11051,7 @@ function App() {
           <WebChatListPopover
             open={webChatListOpen}
             items={webChatList.items}
+            siteProxies={webChatList.siteProxies}
             anchorRef={webChatListAnchorRef}
             onClose={() => setWebChatListOpen(false)}
             onSelect={openWebChatItem}
