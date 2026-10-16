@@ -27386,8 +27386,8 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   font-size: 10px;
   font-weight: 600;
   color: var(--accent-text);
-  background: color-mix(in srgb, #6b8afd 14%, transparent);
-  border: 1px solid color-mix(in srgb, #6b8afd 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: 999px;
   padding: 2px 8px;
 }
@@ -27552,7 +27552,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 
 .model-spec-field-input:focus {
   outline: none;
-  border-color: color-mix(in srgb, #6b8afd 55%, var(--border-subtle) 45%);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-subtle) 45%);
 }
 
 .model-spec-field-input:disabled {
@@ -27583,7 +27583,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 }
 
 .model-spec-segmented-btn.is-active {
-  border-color: color-mix(in srgb, #6b8afd 55%, var(--border-subtle) 45%);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-subtle) 45%);
   color: var(--accent-text);
   background: var(--accent-soft);
 }
@@ -27616,9 +27616,9 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 }
 
 .model-manual-spec-tristate-btn.active {
-  border-color: #6b8afd;
-  color: #93c5fd;
-  background: color-mix(in srgb, #6b8afd 12%, transparent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .model-manual-spec-tristate-btn:disabled {
@@ -27930,6 +27930,500 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   transform: rotate(180deg);
 }
 
+/* ─── Candidate Model Editor（编辑候选模型时接管服务商表单区域）─────────── */
+
+/* 服务商表单只是让位，DOM 保留（React 状态不丢），因此用 display:none 而非卸载。 */
+.settings-modal-provider-editor.is-candidate-editing .provider-modal-form-main {
+  display: none;
+}
+
+.candidate-editor {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  animation: candidate-editor-in 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes candidate-editor-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.candidate-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 24px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.candidate-editor-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.candidate-editor-eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.candidate-editor-model-id {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-heading);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candidate-editor-body {
+  container-type: inline-size;
+  container-name: cand-editor;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px 24px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.candidate-editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.candidate-editor-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.candidate-editor-section-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.candidate-editor-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.candidate-editor-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.candidate-editor-reset-all {
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    color 0.14s ease,
+    background-color 0.14s ease;
+}
+
+.candidate-editor-reset-all:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--nav-hover);
+}
+
+.candidate-editor-reset-all:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.candidate-editor-subtitle {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.candidate-editor-grid {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.candidate-editor-grid--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.candidate-editor-grid--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.candidate-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease;
+}
+
+/* 已覆盖：只靠 accent 边框 + reload 图标表达，不写“已覆盖”文字 */
+.candidate-editor-field.is-overridden {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border-subtle) 68%);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.candidate-editor-field.is-invalid {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border-subtle) 55%);
+}
+
+.candidate-editor-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 20px;
+}
+
+.candidate-editor-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.candidate-editor-required {
+  color: var(--danger);
+}
+
+.candidate-editor-input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-input, var(--bg-elevated));
+  color: var(--text-primary);
+  font-size: 13px;
+  transition:
+    border-color 0.14s ease,
+    box-shadow 0.14s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.candidate-editor-input.is-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.candidate-editor-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--search-focus-ring);
+}
+
+.candidate-editor-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.candidate-editor-input.has-prefix {
+  padding-left: 22px;
+}
+
+.candidate-editor-input-prefix {
+  position: absolute;
+  left: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.candidate-editor-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.candidate-editor-preset {
+  padding: 2px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    color 0.14s ease,
+    border-color 0.14s ease,
+    background-color 0.14s ease;
+}
+
+.candidate-editor-preset:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--border-subtle) 55%, var(--text-muted) 45%);
+}
+
+.candidate-editor-preset.is-on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-subtle) 60%);
+  background: var(--accent-soft);
+}
+
+.candidate-editor-caption {
+  display: block;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.candidate-editor-error {
+  display: block;
+  font-size: 11px;
+  color: var(--danger);
+}
+
+.candidate-editor-caps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.candidate-editor-cap-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.candidate-editor-cap-row.is-overridden {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border-subtle) 68%);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.candidate-editor-cap-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.candidate-editor-cap-title {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.candidate-editor-cap-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.candidate-editor-seg {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-main);
+}
+
+.candidate-editor-seg-btn {
+  min-width: 44px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    color 0.14s ease,
+    background-color 0.14s ease;
+}
+
+.candidate-editor-seg-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.candidate-editor-seg-btn.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 500;
+}
+
+.candidate-editor-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    transform 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.candidate-editor-reset-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.candidate-editor-reset-btn:active:not(:disabled) {
+  transform: rotate(-120deg);
+}
+
+.candidate-editor-mult-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-main);
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.candidate-editor-mult-banner.is-overridden {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border-subtle) 68%);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.candidate-editor-mult-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.candidate-editor-mult-left .candidate-editor-field-head {
+  min-height: 0;
+  gap: 8px;
+}
+
+.candidate-editor-mult-input {
+  width: 72px;
+  padding-inline: 8px;
+}
+
+.candidate-editor-mult-times {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.candidate-editor-mult-caption {
+  text-align: right;
+}
+
+.candidate-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+
+.candidate-editor-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.candidate-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .candidate-editor {
+    animation: none;
+  }
+
+  .candidate-editor-reset-btn:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* 窄窗口（小屏 / 列表未动而弹窗收窄）下网格降列，避免定价四列挤到换行 */
+@container cand-editor (max-width: 520px) {
+  .candidate-editor-grid--4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container cand-editor (max-width: 400px) {
+  .candidate-editor-grid--2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .candidate-editor-mult-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .candidate-editor-mult-caption {
+    text-align: left;
+  }
+}
+
 /* ─── Candidate Panel (Right Sidebar) ────────────────────────────────── */
 
 .candidate-panel {
@@ -28058,9 +28552,15 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   background: var(--bg-elevated);
 }
 
+/* 正在编辑的候选模型：accent 边框 + 铅笔高亮，不加“编辑中”文字 */
 .candidate-model-card.is-editing {
-  border-color: var(--border-strong);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-subtle) 55%);
   background: var(--bg-elevated);
+}
+
+.candidate-model-card.is-editing .candidate-model-edit-btn {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .candidate-model-summary {
@@ -28255,197 +28755,6 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 .candidate-model-actions .candidate-model-delete:hover:not(:disabled) {
   color: var(--danger);
   background: var(--danger-soft);
-}
-
-.candidate-model-edit {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.candidate-model-edit-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--bg-main) 82%, var(--bg-elevated) 18%);
-}
-
-.candidate-model-edit-title {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.candidate-model-edit-title .candidate-model-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.candidate-model-edit-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.candidate-model-edit-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.candidate-model-save-btn {
-  min-height: 30px;
-  padding-inline: 12px;
-  font-size: 12px;
-}
-
-.candidate-model-edit-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  padding: 20px 16px;
-  container-type: inline-size;
-}
-
-.candidate-model-edit-id-fields {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
-}
-
-.candidate-model-edit-field {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.candidate-model-edit-field-label {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: var(--text-muted);
-}
-
-.candidate-model-edit-input {
-  box-sizing: border-box;
-  min-width: 0;
-  width: 100%;
-  min-height: 32px;
-  padding: 6px 10px;
-  font-size: 13px;
-  line-height: 1.3;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--bg-main);
-  color: var(--text-primary);
-  transition:
-    border-color 0.14s ease,
-    box-shadow 0.14s ease;
-}
-
-.candidate-model-edit-input:focus {
-  outline: none;
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-subtle) 55%);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.candidate-model-edit-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.candidate-model-edit-section-title {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0;
-  color: var(--text-muted);
-}
-
-.candidate-model-edit .model-manual-spec-body {
-  gap: 24px;
-}
-
-.candidate-model-edit .model-spec-form-section {
-  gap: 12px;
-  padding-top: 18px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.candidate-model-edit .model-spec-form-section-title {
-  font-size: 12px;
-  color: var(--text-primary);
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.candidate-model-edit .model-spec-form-grid {
-  gap: 16px 12px;
-}
-
-.candidate-model-edit .model-spec-field-input {
-  min-height: 34px;
-}
-
-.candidate-model-edit .model-spec-field-tristate {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 5px 12px;
-}
-
-.candidate-model-edit .model-spec-field-tristate .model-spec-field-caption {
-  grid-column: 1;
-}
-
-.candidate-model-edit .model-spec-field-tristate .model-spec-segmented {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  width: 174px;
-}
-
-.candidate-model-edit .model-spec-segmented-btn {
-  min-height: 30px;
-  white-space: nowrap;
-}
-
-.candidate-model-edit .model-manual-spec-catalog-ref-header {
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.candidate-model-edit .model-manual-spec-catalog-ref-mapping {
-  margin-left: 0;
-  max-width: 100%;
-}
-
-@container (max-width: 270px) {
-  .candidate-model-edit .model-spec-form-grid {
-    grid-template-columns: 1fr;
-  }
-  .candidate-model-edit .model-spec-field-tristate {
-    display: flex;
-    align-items: stretch;
-  }
-  .candidate-model-edit .model-spec-field-tristate .model-spec-segmented {
-    width: 100%;
-  }
-}
-
-.candidate-model-edit-section .model-cascade-hint {
-  font-size: 11px;
-  line-height: 1.45;
 }
 
 .candidate-models-section {
@@ -40390,8 +40699,8 @@ body,
   color: var(--danger, #f87171);
 }
 
-/* Candidate model edit section: the cascade field spans the row */
-.candidate-model-edit-section .model-cascade {
+/* 候选模型编辑区：级联选择器整行铺满 */
+.candidate-editor-section .model-cascade {
   width: 100%;
 }
 

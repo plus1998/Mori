@@ -53,7 +53,8 @@ import { EndpointCompatSelect, type EndpointCompatOption } from "./EndpointCompa
 import { AppMessage, formatDurationMs, useAppMessage, type AppMessageKind } from "./AppMessage";
 import { buildAgentTemplateCapabilityOptions } from "./agent-template-form";
 import { AgentThemeColorField } from "./agent-theme-color-field";
-import { CandidateModelPanel, type CandidateModelPanelHandle } from "./CandidateModelListSection";
+import { CandidateModelPanel } from "./CandidateModelListSection";
+import { CandidateModelEditor, type CandidateModelEditorHandle } from "./CandidateModelEditor";
 import { ComposerFieldSelect } from "./ComposerFieldSelect";
 import { CreateMainAgentConfigPromptDialog } from "./CreateMainAgentConfigPromptDialog";
 import { ModelCascadeSelect } from "./ModelCascadeSelect";
@@ -1309,9 +1310,12 @@ function ProviderEditorModal({
   // Editing starts with the candidate panel visible; creating starts form-only
   // and reveals the panel right after the first save.
   const [candidatesPanelOpen, setCandidatesPanelOpen] = useState(() => Boolean(form.id));
+  // 编辑候选模型时，左侧服务商表单让位给编辑区（DOM 保留，只靠 CSS 收起）。
+  const [editingCandidate, setEditingCandidate] = useState<CandidateModelView | null>(null);
+  const [candidateRefreshToken, setCandidateRefreshToken] = useState(0);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [candidateSaveError, setCandidateSaveError] = useState<string | undefined>(undefined);
-  const candidatePanelRef = useRef<CandidateModelPanelHandle>(null);
+  const candidateEditorRef = useRef<CandidateModelEditorHandle>(null);
   const prefersReducedMotion = useReducedMotion();
   const activePreset = selectedPresetId ? getProviderPresetById(selectedPresetId) : undefined;
   const apiCompat = form.apiCompat ?? "anthropic";
@@ -1321,7 +1325,7 @@ function ProviderEditorModal({
     setCandidateSaveError(undefined);
     try {
       if (isEditing && form.id) {
-        await candidatePanelRef.current?.savePendingEdits();
+        await candidateEditorRef.current?.savePendingEdits();
       }
       // On create: save and stay open so candidate models can be added immediately.
       // On edit: save and close.
@@ -1384,7 +1388,9 @@ function ProviderEditorModal({
         disabled={busy}
       />
       <div
-        className={`settings-modal settings-modal-provider-editor${candidatesPanelOpen ? " is-candidates-open" : ""}`}
+        className={`settings-modal settings-modal-provider-editor${candidatesPanelOpen ? " is-candidates-open" : ""}${
+          editingCandidate ? " is-candidate-editing" : ""
+        }`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="provider-modal-title"
@@ -1398,7 +1404,12 @@ function ProviderEditorModal({
               <button
                 type="button"
                 className={`candidate-panel-toggle${candidatesPanelOpen ? " is-open" : ""}`}
-                onClick={() => setCandidatesPanelOpen((v) => !v)}
+                onClick={() => {
+                  if (candidatesPanelOpen) {
+                    setEditingCandidate(null);
+                  }
+                  setCandidatesPanelOpen((v) => !v);
+                }}
                 aria-expanded={candidatesPanelOpen}
                 title={
                   candidatesPanelOpen
@@ -1424,7 +1435,10 @@ function ProviderEditorModal({
         </header>
 
         <div className="provider-modal-layout">
-          <div className="provider-modal-form-main settings-modal-body mcp-editor-form models-editor-form">
+          <div
+            className="provider-modal-form-main settings-modal-body mcp-editor-form models-editor-form"
+            inert={editingCandidate ? true : undefined}
+          >
             <section className="provider-form-section">
               <h3 className="provider-form-section-title">{t("settings.models.provider.basicInfo")}</h3>
               <div className="mcp-field models-provider-preset-field">
@@ -1644,20 +1658,52 @@ function ProviderEditorModal({
             ) : null}
           </div>
 
-          {/* Keep the panel mounted once a provider exists: collapsing only hides it,
-              so in-progress candidate edits survive and save on submit. */}
-          {form.id ? (
-            <CandidateModelPanel
-              ref={candidatePanelRef}
+          {/* 候选模型编辑区：服务商表单让位（不卸载，表单状态不丢），列表保持原位可切换。 */}
+          {form.id && editingCandidate ? (
+            <CandidateModelEditor
+              key={editingCandidate.id}
+              ref={candidateEditorRef}
               providerId={form.id}
-              models={models}
-              modelsLoading={modelsLoading}
+              candidate={editingCandidate}
               modelsDevOptions={modelsDevOptions}
               modelsDevLoading={modelsDevLoading}
               busy={busy}
+              onClose={() => setEditingCandidate(null)}
+              onSaved={() => {
+                setEditingCandidate(null);
+                setCandidateRefreshToken((v) => v + 1);
+              }}
+              onError={(message) => setCandidateSaveError(message)}
+            />
+          ) : null}
+          {form.id ? (
+            <CandidateModelPanel
+              providerId={form.id}
+              models={models}
+              modelsLoading={modelsLoading}
+              busy={busy}
               testingModelKey={testingModelKey}
+              refreshToken={candidateRefreshToken}
+              editingCandidateId={editingCandidate?.id ?? null}
               onRefreshModels={onRefreshModels}
               onTestModel={onTestCandidate}
+              onEditCandidate={(candidate) => {
+                setCandidateSaveError(undefined);
+                if (!editingCandidate) {
+                  setEditingCandidate(candidate);
+                  return;
+                }
+                // 切换编辑对象前先把当前编辑区的修改落盘，避免静默丢改动。
+                void candidateEditorRef.current
+                  ?.savePendingEdits()
+                  .catch((error) => {
+                    setCandidateSaveError(error instanceof Error ? error.message : String(error));
+                  })
+                  .finally(() => setEditingCandidate(candidate));
+              }}
+              onCandidateDeleted={(candidateId) => {
+                setEditingCandidate((current) => (current?.id === candidateId ? null : current));
+              }}
             />
           ) : null}
         </div>

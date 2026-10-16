@@ -1,548 +1,234 @@
 import { Activity, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type {
-  CandidateModelInput,
-  CandidateModelView,
-  ModelsDevMapping,
-  ModelsDevModelOption,
-  RouteCapabilityHint,
-  RoutePricingHint,
-  RuntimeRoleRouteConfig,
-  UpstreamModelOption,
-} from "../shared/ipc";
-import type { ManualSpecFormFields } from "./agent-resource-manual-spec-form";
-import {
-  emptyManualSpecForm,
-  prefillManualSpecFormFromCandidate,
-  prefillManualSpecFormFromHints,
-  tryFormToManualSpec,
-} from "./agent-resource-manual-spec-form";
-import { ModelCascadeSelect } from "./ModelCascadeSelect";
-import { ModelManualSpecPanel } from "./ModelManualSpecPanel";
+import type { CandidateModelView, UpstreamModelOption } from "../shared/ipc";
 import { CandidateModelSpecTable } from "./ModelSpecSummary";
 
 interface CandidateModelPanelProps {
   providerId: string;
   models: UpstreamModelOption[];
   modelsLoading: boolean;
-  modelsDevOptions: readonly ModelsDevModelOption[];
-  modelsDevLoading: boolean;
   busy: boolean | undefined;
   testingModelKey?: string | null | undefined;
+  /** 编辑区保存后递增，让列表重新拉取最新 spec */
+  refreshToken?: number | undefined;
+  /** 编辑区里打开的候选模型；列表只负责标出它，表单本身在弹窗另一侧 */
+  editingCandidateId?: string | null | undefined;
   onRefreshModels: () => void;
   onTestModel?: ((modelId: string) => void) | undefined;
+  onEditCandidate?: ((candidate: CandidateModelView) => void) | undefined;
+  /** 候选模型被删除时通知外层（编辑区正在编辑它时要关掉） */
+  onCandidateDeleted?: ((candidateId: string) => void) | undefined;
   /** Fired after candidate models are successfully imported (bulk add). */
   onCandidatesAdded?: ((candidates: CandidateModelView[]) => void) | undefined;
 }
 
-export interface CandidateModelPanelHandle {
-  hasPendingEdits: () => boolean;
-  savePendingEdits: () => Promise<void>;
-}
+export function CandidateModelPanel({
+  providerId,
+  models,
+  modelsLoading,
+  busy,
+  testingModelKey,
+  refreshToken,
+  editingCandidateId,
+  onRefreshModels,
+  onTestModel,
+  onEditCandidate,
+  onCandidateDeleted,
+  onCandidatesAdded,
+}: CandidateModelPanelProps) {
+  const { t } = useTranslation();
+  const [candidates, setCandidates] = useState<CandidateModelView[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerTab, setPickerTab] = useState<"list" | "manual">("list");
 
-async function lookupCandidateRouteHints(
-  providerId: string,
-  modelId: string,
-  mapping?: ModelsDevMapping,
-): Promise<{ capability?: RouteCapabilityHint; pricing?: RoutePricingHint }> {
-  const route: RuntimeRoleRouteConfig = {
-    role: "planner",
-    providerId,
-    modelId,
-    ...(mapping ? { modelsDevMapping: mapping } : {}),
-  };
-  const [capabilities, pricing] = await Promise.all([
-    window.eco!.getRouteCapabilities([route]),
-    window.eco!.getRoutePricing([route]),
-  ]);
-  return {
-    ...(capabilities[0] ? { capability: capabilities[0] } : {}),
-    ...(pricing[0] ? { pricing: pricing[0] } : {}),
-  };
-}
+  const loadCandidates = useCallback(async () => {
+    if (!providerId) return;
+    setLoading(true);
+    try {
+      const result = await window.eco!.listCandidateModels(providerId);
+      setCandidates(result);
+    } catch {
+      setCandidates([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [providerId]);
 
-export const CandidateModelPanel = forwardRef<CandidateModelPanelHandle, CandidateModelPanelProps>(
-  function CandidateModelPanel(
-    {
-      providerId,
-      models,
-      modelsLoading,
-      modelsDevOptions,
-      modelsDevLoading,
-      busy,
-      testingModelKey,
-      onRefreshModels,
-      onTestModel,
-      onCandidatesAdded,
-    },
-    ref,
-  ) {
-    const { t } = useTranslation();
-    const [candidates, setCandidates] = useState<CandidateModelView[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [pickerOpen, setPickerOpen] = useState(false);
-    const [pickerTab, setPickerTab] = useState<"list" | "manual">("list");
-    const [editingId, setEditingId] = useState<string | null>(null);
-    const [editingModelId, setEditingModelId] = useState<string>("");
-    const [editingDisplayName, setEditingDisplayName] = useState<string>("");
-    const [editingForm, setEditingForm] = useState<ManualSpecFormFields>(emptyManualSpecForm());
-    const [editingMapping, setEditingMapping] = useState<ModelsDevMapping | undefined>(undefined);
-    const [editingAutoCapability, setEditingAutoCapability] = useState<RouteCapabilityHint | undefined>(
-      undefined,
-    );
-    const [editingAutoPricing, setEditingAutoPricing] = useState<RoutePricingHint | undefined>(undefined);
-    const editingIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    loadCandidates();
+  }, [loadCandidates, refreshToken]);
 
-    const devMappingCascadeOptions = useMemo(
-      () =>
-        modelsDevOptions.map((option) => ({
-          key: `${option.providerKey}::${option.modelId}`,
-          providerId: option.providerKey,
-          providerName: option.providerKey,
-          modelId: option.modelId,
-          label: option.displayName,
-          description: option.modelId,
-        })),
-      [modelsDevOptions],
-    );
-
-    const loadCandidates = useCallback(async () => {
-      if (!providerId) return;
-      setLoading(true);
-      try {
-        const result = await window.eco!.listCandidateModels(providerId);
-        setCandidates(result);
-      } catch {
-        setCandidates([]);
-      } finally {
-        setLoading(false);
-      }
-    }, [providerId]);
-
-    useEffect(() => {
-      loadCandidates();
-    }, [loadCandidates]);
-
-    const handleAddModels = async (selectedModelIds: string[]) => {
-      if (!providerId || selectedModelIds.length === 0) return;
-      try {
-        const imported = await window.eco!.bulkImportCandidateModels(providerId, selectedModelIds);
-        await loadCandidates();
-        setPickerOpen(false);
-        if (imported.length > 0) {
-          onCandidatesAdded?.(imported);
-        }
-      } catch (error) {
-        console.error("Failed to import candidate models:", error);
-        setPickerOpen(false);
-      }
-    };
-
-    const handleManualAdd = async (modelId: string, displayName?: string) => {
-      if (!providerId || !modelId.trim()) return;
-      try {
-        await window.eco!.saveCandidateModel({
-          providerId,
-          modelId: modelId.trim(),
-          ...(displayName ? { displayName: displayName.trim() } : {}),
-        });
-        await loadCandidates();
-        setPickerOpen(false);
-      } catch (error) {
-        console.error("Failed to add candidate model:", error);
-      }
-    };
-
-    const handleDelete = async (id: string) => {
-      try {
-        await window.eco!.deleteCandidateModel(id);
-        await loadCandidates();
-        if (editingId === id) {
-          setEditingId(null);
-          editingIdRef.current = null;
-        }
-      } catch (error) {
-        console.error("Failed to delete candidate model:", error);
-      }
-    };
-
-    const refreshEditingCatalogHints = useCallback(
-      async (
-        candidate: CandidateModelView,
-        mapping?: ModelsDevMapping,
-        options?: { replaceForm?: boolean },
-      ) => {
-        const targetId = candidate.id;
-        try {
-          const hints = await lookupCandidateRouteHints(providerId, candidate.modelId, mapping);
-          if (editingIdRef.current !== targetId) {
-            return;
-          }
-          setEditingAutoCapability(hints.capability);
-          setEditingAutoPricing(hints.pricing);
-          if (options?.replaceForm) {
-            setEditingForm(prefillManualSpecFormFromHints(hints.capability, hints.pricing));
-          }
-        } catch (error) {
-          console.error("Failed to resolve candidate model hints:", error);
-        }
-      },
-      [providerId],
-    );
-
-    const handleStartEdit = async (candidate: CandidateModelView) => {
-      const targetId = candidate.id;
-      editingIdRef.current = targetId;
-      setEditingId(targetId);
-      setEditingModelId(candidate.modelId);
-      setEditingDisplayName(candidate.displayName ?? "");
-      setEditingMapping(candidate.modelsDevMapping);
-      setEditingForm(prefillManualSpecFormFromCandidate(candidate));
-      setEditingAutoCapability(undefined);
-      setEditingAutoPricing(undefined);
-      await refreshEditingCatalogHints(candidate, candidate.modelsDevMapping, {
-        replaceForm: !candidate.manualSpec,
-      });
-    };
-
-    const handleMappingChange = async (
-      candidate: CandidateModelView,
-      mapping: ModelsDevMapping | undefined,
-    ) => {
-      setEditingMapping(mapping);
-      await refreshEditingCatalogHints(candidate, mapping, { replaceForm: true });
-    };
-
-    const handleSaveEdit = useCallback(async () => {
-      if (!editingId || !providerId) return;
-      const candidate = candidates.find((c) => c.id === editingId);
-      if (!candidate) return;
-      const trimmedModelId = editingModelId.trim();
-      if (!trimmedModelId) return;
-      const input: CandidateModelInput = {
-        id: editingId,
-        providerId,
-        modelId: trimmedModelId,
-        sortOrder: candidate.sortOrder,
-      };
-      const trimmedDisplayName = editingDisplayName.trim();
-      if (trimmedDisplayName) input.displayName = trimmedDisplayName;
-      if (editingMapping) input.modelsDevMapping = editingMapping;
-      const manualSpecResult = tryFormToManualSpec(editingForm);
-      if (manualSpecResult) input.manualSpec = manualSpecResult;
-      await window.eco!.saveCandidateModel(input);
+  const handleAddModels = async (selectedModelIds: string[]) => {
+    if (!providerId || selectedModelIds.length === 0) return;
+    try {
+      const imported = await window.eco!.bulkImportCandidateModels(providerId, selectedModelIds);
       await loadCandidates();
-      setEditingId(null);
-      editingIdRef.current = null;
-    }, [candidates, editingForm, editingId, editingMapping, editingModelId, editingDisplayName, loadCandidates, providerId]);
+      setPickerOpen(false);
+      if (imported.length > 0) {
+        onCandidatesAdded?.(imported);
+      }
+    } catch (error) {
+      console.error("Failed to import candidate models:", error);
+      setPickerOpen(false);
+    }
+  };
 
-    useImperativeHandle(
-      ref,
-      () => ({
-        hasPendingEdits: () => editingIdRef.current !== null,
-        savePendingEdits: async () => {
-          if (editingIdRef.current === null) {
-            return;
-          }
-          await handleSaveEdit();
-        },
-      }),
-      [handleSaveEdit],
-    );
+  const handleManualAdd = async (modelId: string, displayName?: string) => {
+    if (!providerId || !modelId.trim()) return;
+    try {
+      await window.eco!.saveCandidateModel({
+        providerId,
+        modelId: modelId.trim(),
+        ...(displayName ? { displayName: displayName.trim() } : {}),
+      });
+      await loadCandidates();
+      setPickerOpen(false);
+    } catch (error) {
+      console.error("Failed to add candidate model:", error);
+    }
+  };
 
-    const alreadyAddedModelIds = new Set(candidates.map((c) => c.modelId));
-    const availableModels = models.filter((m) => !alreadyAddedModelIds.has(m.id));
+  const handleDelete = async (candidate: CandidateModelView) => {
+    try {
+      await window.eco!.deleteCandidateModel(candidate.id);
+      await loadCandidates();
+      onCandidateDeleted?.(candidate.id);
+    } catch (error) {
+      console.error("Failed to delete candidate model:", error);
+    }
+  };
 
-    return (
-      <aside className="candidate-panel">
-        <div className="candidate-panel-header">
-          <div className="candidate-panel-title-row">
-            <span className="candidate-panel-title">{t("settings.models.candidateModels")}</span>
-            {candidates.length > 0 ? (
-              <span className="candidate-panel-count" aria-hidden="true">
-                {candidates.length}
-              </span>
-            ) : null}
-          </div>
-          <div className="candidate-panel-header-actions">
-            <button
-              type="button"
-              className="mcp-icon-button candidate-panel-icon-btn"
-              disabled={busy || loading}
-              onClick={loadCandidates}
-              title={t("common.refresh")}
-              aria-label={t("common.refresh")}
-            >
-              <RefreshCw size={14} className={loading ? "model-refresh-spin" : undefined} />
-            </button>
-            <button
-              type="button"
-              className="mcp-icon-button candidate-panel-icon-btn"
-              disabled={busy || modelsLoading}
-              onClick={() => setPickerOpen(true)}
-              title={t("candidateModels.add")}
-              aria-label={t("candidateModels.add")}
-            >
-              <Plus size={14} />
-            </button>
-          </div>
+  const alreadyAddedModelIds = new Set(candidates.map((c) => c.modelId));
+  const availableModels = useMemo(
+    () => models.filter((m) => !alreadyAddedModelIds.has(m.id)),
+    [models, candidates],
+  );
+
+  return (
+    <aside className="candidate-panel">
+      <div className="candidate-panel-header">
+        <div className="candidate-panel-title-row">
+          <span className="candidate-panel-title">{t("settings.models.candidateModels")}</span>
+          {candidates.length > 0 ? (
+            <span className="candidate-panel-count" aria-hidden="true">
+              {candidates.length}
+            </span>
+          ) : null}
         </div>
+        <div className="candidate-panel-header-actions">
+          <button
+            type="button"
+            className="mcp-icon-button candidate-panel-icon-btn"
+            disabled={busy || loading}
+            onClick={loadCandidates}
+            title={t("common.refresh")}
+            aria-label={t("common.refresh")}
+          >
+            <RefreshCw size={14} className={loading ? "model-refresh-spin" : undefined} />
+          </button>
+          <button
+            type="button"
+            className="mcp-icon-button candidate-panel-icon-btn"
+            disabled={busy || modelsLoading}
+            onClick={() => setPickerOpen(true)}
+            title={t("candidateModels.add")}
+            aria-label={t("candidateModels.add")}
+          >
+            <Plus size={14} />
+          </button>
+        </div>
+      </div>
 
-        <div className="candidate-panel-body">
-          {candidates.length === 0 ? (
-            <p className="candidate-models-empty">{t("candidateModels.empty")}</p>
-          ) : (
-            <div className="candidate-models-list">
-              {candidates.map((candidate) => (
-                <div
-                  key={candidate.id}
-                  className={`candidate-model-card${editingId === candidate.id ? " is-editing" : ""}`}
-                >
-                  {editingId === candidate.id ? (
-                    <div className="candidate-model-edit">
-                      <div className="candidate-model-edit-header">
-                        <div className="candidate-model-edit-title">
-                          <span className="candidate-model-edit-label">{t("common.edit")}</span>
-                          <span className="candidate-model-name" title={candidate.modelId}>{candidate.modelId}</span>
-                        </div>
-                        <div className="candidate-model-edit-actions">
-                          <button
-                            type="button"
-                            className="settings-secondary-button candidate-model-save-btn"
-                            onClick={() => {
-                              void handleSaveEdit().catch((error) => {
-                                console.error("Failed to save candidate model:", error);
-                              });
-                            }}
-                          >
-                            {t("common.save")}
-                          </button>
-                          <button
-                            type="button"
-                            className="mcp-icon-button"
-                            aria-label={t("candidateModels.cancelEdit")}
-                            onClick={() => {
-                              setEditingId(null);
-                              editingIdRef.current = null;
-                            }}
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      </div>
-                      <div className="candidate-model-edit-fields">
-                        <section className="candidate-model-edit-section">
-                          <div className="candidate-model-edit-id-fields">
-                            <label className="candidate-model-edit-field">
-                              <span className="candidate-model-edit-field-label">Model ID</span>
-                              <input
-                                className="mcp-field-input candidate-model-edit-input"
-                                value={editingModelId}
-                                disabled={busy}
-                                onChange={(e) => setEditingModelId(e.target.value)}
-                              />
-                            </label>
-                            <label className="candidate-model-edit-field">
-                              <span className="candidate-model-edit-field-label">{t("candidateModels.displayName")}</span>
-                              <input
-                                className="mcp-field-input candidate-model-edit-input"
-                                value={editingDisplayName}
-                                placeholder={editingModelId}
-                                disabled={busy}
-                                onChange={(e) => setEditingDisplayName(e.target.value)}
-                              />
-                            </label>
-                          </div>
-                        </section>
-                        <section className="candidate-model-edit-section">
-                          <h4 className="candidate-model-edit-section-title">
-                            {t("modelSpec.modelsDevMapping")}
-                          </h4>
-                          {(() => {
-                            const autoResolved =
-                              !editingMapping && Boolean(editingAutoCapability?.resolvedModelsDevMapping);
-                            const autoResolvedMapping = editingAutoCapability?.resolvedModelsDevMapping;
-                            const autoResolvedLabel = editingAutoCapability?.resolvedModelsDevLabel;
-                            const autoMatchSummary =
-                              autoResolved && autoResolvedMapping
-                                ? (autoResolvedLabel ??
-                                  `${autoResolvedMapping.providerKey}/${autoResolvedMapping.modelId}`)
-                                : undefined;
-                            const autoMatchedKey = autoResolvedMapping
-                              ? `${autoResolvedMapping.providerKey}::${autoResolvedMapping.modelId}`
-                              : undefined;
-                            const manualOption = editingMapping
-                              ? devMappingCascadeOptions.find(
-                                  (option) =>
-                                    option.providerId === editingMapping.providerKey &&
-                                    option.modelId === editingMapping.modelId,
-                                )
-                              : undefined;
-                            const manualLabel = editingMapping
-                              ? manualOption
-                                ? `${manualOption.label} · ${editingMapping.providerKey}/${editingMapping.modelId}`
-                                : `${editingMapping.providerKey}/${editingMapping.modelId}`
-                              : undefined;
-                            return (
-                              <ModelCascadeSelect
-                                value={
-                                  editingMapping
-                                    ? {
-                                        key: `${editingMapping.providerKey}::${editingMapping.modelId}`,
-                                        providerId: editingMapping.providerKey,
-                                        modelId: editingMapping.modelId,
-                                      }
-                                    : undefined
-                                }
-                                secondaryValue={
-                                  autoResolved && autoResolvedMapping
-                                    ? {
-                                        key: `${autoResolvedMapping.providerKey}::${autoResolvedMapping.modelId}`,
-                                        providerId: autoResolvedMapping.providerKey,
-                                        modelId: autoResolvedMapping.modelId,
-                                      }
-                                    : undefined
-                                }
-                                options={devMappingCascadeOptions}
-                                loading={modelsDevLoading}
-                                disabled={busy}
-                                clearable
-                                clearLabel={
-                                  autoMatchSummary
-                                    ? `${t("modelsDevSelect.auto")}${t("modelsDevSelect.currentMatch", { model: autoMatchSummary })}`
-                                    : `${t("modelsDevSelect.auto")}${t("modelsDevSelect.inferFromId")}`
-                                }
-                                placeholder={t("modelsDevSelect.placeholder")}
-                                renderExtra={
-                                  autoMatchedKey && !editingMapping
-                                    ? (option) =>
-                                        option.key === autoMatchedKey ? (
-                                          <span className="model-cascade-model-extra">
-                                            {t("modelsDevSelect.autoMatchedSuffix")}
-                                          </span>
-                                        ) : null
-                                    : undefined
-                                }
-                                footer={
-                                  manualLabel ? (
-                                    <p className="model-cascade-hint">
-                                      {t("modelsDevSelect.manualMapping", { model: manualLabel })}
-                                    </p>
-                                  ) : autoMatchSummary ? (
-                                    <p className="model-cascade-hint">
-                                      {t("modelsDevSelect.autoMatch", { model: autoMatchSummary })}
-                                    </p>
-                                  ) : (
-                                    <p className="model-cascade-hint is-unresolved">
-                                      {t("modelsDevSelect.unresolved")}
-                                    </p>
-                                  )
-                                }
-                                onChange={(selection) =>
-                                  void handleMappingChange(
-                                    candidate,
-                                    selection
-                                      ? {
-                                          providerKey: selection.providerId,
-                                          modelId: selection.modelId,
-                                        }
-                                      : undefined,
-                                  )
-                                }
-                              />
-                            );
-                          })()}
-                        </section>
-                        <ModelManualSpecPanel
-                          variant="sidebar"
-                          value={editingForm}
-                          {...(editingAutoCapability ? { autoCapability: editingAutoCapability } : {})}
-                          {...(editingAutoPricing ? { autoPricing: editingAutoPricing } : {})}
-                          {...(editingMapping ? { mapping: editingMapping } : {})}
-                          {...(busy !== undefined ? { disabled: busy } : {})}
-                          onChange={(patch) => setEditingForm((prev) => ({ ...prev, ...patch }))}
-                        />
-                      </div>
+      <div className="candidate-panel-body">
+        {candidates.length === 0 ? (
+          <p className="candidate-models-empty">{t("candidateModels.empty")}</p>
+        ) : (
+          <div className="candidate-models-list">
+            {candidates.map((candidate) => (
+              <div
+                key={candidate.id}
+                className={`candidate-model-card${editingCandidateId === candidate.id ? " is-editing" : ""}`}
+              >
+                <div className="candidate-model-summary">
+                  <div className="candidate-model-summary-header">
+                    <div className="candidate-model-summary-main">
+                      <span
+                        className="candidate-model-display-name"
+                        title={candidate.displayName || candidate.modelsDevLabel || candidate.modelId}
+                      >
+                        {candidate.displayName || candidate.modelsDevLabel || candidate.modelId}
+                      </span>
+                      <span className="candidate-model-id" title={candidate.modelId}>
+                        {candidate.modelId}
+                      </span>
                     </div>
-                  ) : (
-                    <div className="candidate-model-summary">
-                      <div className="candidate-model-summary-header">
-                        <div className="candidate-model-summary-main">
-                          <span className="candidate-model-display-name" title={candidate.displayName || candidate.modelsDevLabel || candidate.modelId}>
-                            {candidate.displayName || candidate.modelsDevLabel || candidate.modelId}
-                          </span>
-                          <span className="candidate-model-id" title={candidate.modelId}>{candidate.modelId}</span>
-                        </div>
-                        <div className="candidate-model-actions">
-                          {onTestModel ? (
-                            <button
-                              type="button"
-                              className="mcp-icon-button"
-                              title={t("settings.models.testConnectivity", {
-                                name: candidate.modelId,
-                              })}
-                              aria-label={t("settings.models.testConnectivity", {
-                                name: candidate.modelId,
-                              })}
-                              disabled={busy || Boolean(testingModelKey)}
-                              onClick={() => onTestModel(candidate.modelId)}
-                            >
-                              {testingModelKey === `${providerId}::${candidate.modelId}` ? (
-                                <RefreshCw size={14} className="model-refresh-spin" />
-                              ) : (
-                                <Activity size={14} />
-                              )}
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="mcp-icon-button"
-                            title={t("common.edit")}
-                            disabled={busy}
-                            onClick={() => handleStartEdit(candidate)}
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className="mcp-icon-button candidate-model-delete"
-                            title={t("common.delete")}
-                            disabled={busy}
-                            onClick={() => handleDelete(candidate.id)}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
-                      <CandidateModelSpecTable candidate={candidate} />
+                    <div className="candidate-model-actions">
+                      {onTestModel ? (
+                        <button
+                          type="button"
+                          className="mcp-icon-button"
+                          title={t("settings.models.testConnectivity", { name: candidate.modelId })}
+                          aria-label={t("settings.models.testConnectivity", { name: candidate.modelId })}
+                          disabled={busy || Boolean(testingModelKey)}
+                          onClick={() => onTestModel(candidate.modelId)}
+                        >
+                          {testingModelKey === `${providerId}::${candidate.modelId}` ? (
+                            <RefreshCw size={14} className="model-refresh-spin" />
+                          ) : (
+                            <Activity size={14} />
+                          )}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="mcp-icon-button candidate-model-edit-btn"
+                        title={t("common.edit")}
+                        aria-label={t("common.edit")}
+                        disabled={busy}
+                        onClick={() => onEditCandidate?.(candidate)}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="mcp-icon-button candidate-model-delete"
+                        title={t("common.delete")}
+                        aria-label={t("common.delete")}
+                        disabled={busy}
+                        onClick={() => void handleDelete(candidate)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
-                  )}
+                  </div>
+                  <CandidateModelSpecTable candidate={candidate} />
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {pickerOpen && (
-          <CandidateModelPickerModal
-            models={availableModels}
-            loading={modelsLoading}
-            tab={pickerTab}
-            onTabChange={setPickerTab}
-            onClose={() => {
-              setPickerOpen(false);
-              setPickerTab("list");
-            }}
-            onConfirm={handleAddModels}
-            onManualAdd={handleManualAdd}
-            onRefreshModels={onRefreshModels}
-          />
+              </div>
+            ))}
+          </div>
         )}
-      </aside>
-    );
-  },
-);
+      </div>
+
+      {pickerOpen && (
+        <CandidateModelPickerModal
+          models={availableModels}
+          loading={modelsLoading}
+          tab={pickerTab}
+          onTabChange={setPickerTab}
+          onClose={() => {
+            setPickerOpen(false);
+            setPickerTab("list");
+          }}
+          onConfirm={handleAddModels}
+          onManualAdd={handleManualAdd}
+          onRefreshModels={onRefreshModels}
+        />
+      )}
+    </aside>
+  );
+}
 
 interface CandidateModelPickerModalProps {
   models: UpstreamModelOption[];

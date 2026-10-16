@@ -212,7 +212,7 @@ export function countManualOverrides(form: ManualSpecFormFields): number {
   if (form.supportsImageInput !== "auto") count += 1;
   if (form.supportsReasoning !== "auto") count += 1;
   if (!form.supportsNativeWebSearch) count += 1;
-  if (isPriceMultiplierOverride(form.priceMultiplier)) count += 1;
+  if (isPriceMultiplierOverrideValue(form.priceMultiplier)) count += 1;
   if (form.inputPerM.trim()) count += 1;
   if (form.outputPerM.trim()) count += 1;
   if (form.cacheReadPerM.trim()) count += 1;
@@ -227,7 +227,7 @@ export function listManualOverrideFields(form: ManualSpecFormFields): Set<Manual
   if (form.supportsImageInput !== "auto") fields.add("supportsImageInput");
   if (form.supportsReasoning !== "auto") fields.add("supportsReasoning");
   if (!form.supportsNativeWebSearch) fields.add("supportsNativeWebSearch");
-  if (isPriceMultiplierOverride(form.priceMultiplier)) fields.add("priceMultiplier");
+  if (isPriceMultiplierOverrideValue(form.priceMultiplier)) fields.add("priceMultiplier");
   if (form.inputPerM.trim()) fields.add("inputPerM");
   if (form.outputPerM.trim()) fields.add("outputPerM");
   if (form.cacheReadPerM.trim()) fields.add("cacheReadPerM");
@@ -484,13 +484,27 @@ function hasManualPricingOverride(spec?: RouteManualSpec): boolean {
   );
 }
 
-function isPriceMultiplierOverride(value: string): boolean {
+export function isPriceMultiplierOverrideValue(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed || trimmed === "1") {
     return false;
   }
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) && parsed >= 0;
+}
+
+/** 表单值是否为可接受的 token（空 = 自动）。 */
+export function isTokenFormValueValid(value: string): boolean {
+  const trimmed = value.trim().replace(/[_,\s]/g, "");
+  if (!trimmed) return true;
+  return /^\d+$/.test(trimmed) || /^\d+(\.\d+)?[km]$/i.test(trimmed);
+}
+
+/** 表单值是否为可接受的价格（空 = 自动）。 */
+export function isRateFormValueValid(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  return /^\d+(\.\d+)?$/.test(trimmed);
 }
 
 function parsePriceMultiplierInput(
