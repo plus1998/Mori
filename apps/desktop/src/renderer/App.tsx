@@ -1583,6 +1583,7 @@ function App() {
     useState<IntegratedWebSearchSettingsSnapshot | null>(null);
   const [isSavingProxyBridgeSettings, setIsSavingProxyBridgeSettings] = useState(false);
   const [isSavingIntegratedWebSearchSettings, setIsSavingIntegratedWebSearchSettings] = useState(false);
+  const [composerPlusMenuOpen, setComposerPlusMenuOpen] = useState(false);
   const [composerRoutePopoverOpen, setComposerRoutePopoverOpen] = useState(false);
   const [composerRouteAnchor, setComposerRouteAnchor] = useState<"plus" | "model-empty">("plus");
   const [modelsSettingsTab, setModelsSettingsTab] = useState<ModelsSettingsTab>("subagents");
@@ -4673,9 +4674,9 @@ function App() {
   }, [currentProjectPath]);
 
   useEffect(() => {
-    if (activeThread) {
-      setComposerRoutePopoverOpen(false);
-    }
+    setComposerPlusMenuOpen(false);
+    setComposerRoutePopoverOpen(false);
+    setScheduledMessageEditor(undefined);
   }, [activeThread?.id, currentProjectPath]);
 
   // Cursor ACP is available when CLI probe succeeds (legacy acpAgentsEnabled switch has no UI).
@@ -6656,11 +6657,10 @@ function App() {
       if (!canOpenComposerRoute) {
         return;
       }
+      setComposerPlusMenuOpen(false);
+      setScheduledMessageEditor(undefined);
       setComposerRouteAnchor(anchor);
-      // Defer open so the originating click is not treated as an outside dismiss.
-      window.setTimeout(() => {
-        setComposerRoutePopoverOpen(true);
-      }, 0);
+      setComposerRoutePopoverOpen(true);
     },
     [canOpenComposerRoute],
   );
@@ -11443,6 +11443,7 @@ function App() {
 
   useEffect(() => {
     if (!asrSession.active) return;
+    setComposerPlusMenuOpen(false);
     if (composerRoutePopoverOpen) setComposerRoutePopoverOpen(false);
   }, [asrSession.active, composerRoutePopoverOpen]);
 
@@ -11456,7 +11457,9 @@ function App() {
       showOrchestration={composerNeedsOrchestration}
       invalidFields={invalidOrchestrationFields}
       orchestrationIssues={orchestrationIssues}
-      anchorRef={composerRouteAnchor === "model-empty" ? composerModelEmptyTriggerRef : composerPlusButtonRef}
+      anchorRef={composerAnchorRef}
+      triggerRef={composerPlusButtonRef}
+      onBack={() => { setComposerRoutePopoverOpen(false); setComposerPlusMenuOpen(true); }}
       runtimeConfig={composerRuntimeConfig ?? undefined}
       onClose={() => setComposerRoutePopoverOpen(false)}
       onSelectMainAgentConfig={selectComposerMainAgentConfig}
@@ -11801,6 +11804,9 @@ function App() {
                     <div className="composer-footer-row composer-footer-config-row">
                       <ComposerPlusMenu
                         buttonRef={composerPlusButtonRef}
+                        anchorRef={composerAnchorRef}
+                        open={composerPlusMenuOpen}
+                        panelActive={composerPlusMenuOpen || composerRoutePopoverOpen || Boolean(scheduledMessageEditor && scheduledMessageEditor.threadId === activeThread?.id)}
                         sessionMode={composerRuntimeConfig?.sessionMode ?? "agent"}
                         canEditMode={canEditComposerConfig}
                         canOpenRoute={canOpenComposerRoute}
@@ -11817,9 +11823,9 @@ function App() {
                           openComposerRoutePopover("plus");
                         }}
                         onOpenChange={(open) => {
-                          if (open) {
-                            setComposerRoutePopoverOpen(false);
-                          }
+                          setComposerPlusMenuOpen(open);
+                          setComposerRoutePopoverOpen(false);
+                          setScheduledMessageEditor(undefined);
                         }}
                       />
                       {composerRuntimeConfig &&
@@ -12758,6 +12764,9 @@ function App() {
               key={scheduledMessageEditor.definition?.id ?? scheduledMessageEditor.threadId}
               thread={threads.find((thread) => thread.id === scheduledMessageEditor.threadId)!}
               definition={scheduledMessageEditor.definition}
+              anchorRef={scheduledMessageEditor.threadId === activeThread?.id ? composerAnchorRef : undefined}
+              triggerRef={composerPlusButtonRef}
+              onBack={() => { setScheduledMessageEditor(undefined); setComposerPlusMenuOpen(true); }}
               occurrences={scheduling.snapshot.occurrences}
               onClose={() => setScheduledMessageEditor(undefined)}
               onSaved={() => {
@@ -12768,6 +12777,7 @@ function App() {
                   requestId: Date.now(),
                 });
                 setScheduledMessageEditor(undefined);
+                if (scheduledMessageEditor.threadId === activeThread?.id) setComposerPlusMenuOpen(true);
               }}
             />
           </SuspensePanel>

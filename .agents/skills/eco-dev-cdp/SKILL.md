@@ -43,6 +43,10 @@ bun run cdp:shot -- --filename .smoke-artifacts/step.png
 - 不要用 9222
 - 不要一次写长脚本代替逐步 `cdp:snap` / `cdp:click`
 
+## 验证后断开连接
+
+完成验证后必须运行 `bun run playwright-cli -- detach`，保留 dev App 运行。`playwright-cli` 连接期间会拦截文件选择事件，用户点击「图片」时不会弹出原生文件选择框；不要把这个现象误判为 Composer 点击失效，也不要遗留连接干扰用户操作。
+
 ## 查 Eco 会话里 agent 做了什么
 
 用户要重放某条会话检查 Feed、停止/处理中状态、滚动或发送渲染卡顿时，使用项目内的 [eco-feed-replay](../eco-feed-replay/SKILL.md)。它只读导出 V2 事件并在真实 dev App 中隔离回放，不重新请求模型或执行原会话工具。

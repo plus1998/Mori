@@ -1,14 +1,18 @@
-import { ChevronDown, Clock3, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, ChevronDown, Clock3, X } from "lucide-react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type { ThreadSummary } from "../shared/ipc";
 import type { ScheduleCreateInput, ScheduleDefinition, ScheduleOccurrence } from "../shared/scheduling";
 import { initialScheduledMessageForm, scheduledMessageLatenessFor, scheduledMessageName, scheduledMessageTriggerFor, type ScheduledMessageForm } from "./scheduled-message-form";
+import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { ScheduleDurationField } from "./ScheduleDurationField";
 import "./scheduling.css";
 
-export function ScheduledMessageDialog({ thread, definition, occurrences, onClose, onSaved }: {
+export function ScheduledMessageDialog({ thread, definition, occurrences, onClose, onSaved, anchorRef, triggerRef, onBack }: {
   thread: ThreadSummary;
+  anchorRef?: RefObject<HTMLElement | null> | undefined;
+  triggerRef?: RefObject<HTMLElement | null> | undefined;
+  onBack?: (() => void) | undefined;
   definition?: ScheduleDefinition | undefined;
   occurrences: readonly ScheduleOccurrence[];
   onClose(): void;
@@ -61,26 +65,25 @@ export function ScheduledMessageDialog({ thread, definition, occurrences, onClos
   }
 
   const history = definition ? occurrences.filter(item => item.scheduleId === definition.id).slice(0, 5) : [];
-  return <div className="scheduling-backdrop" onClick={() => { if (!busy) onClose(); }}>
-    <div className="scheduling-panel scheduled-message-dialog" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="scheduled-message-title" onClick={event => event.stopPropagation()}
+  const content = <div className="scheduling-panel scheduled-message-dialog" ref={dialogRef} role={anchorRef ? undefined : "dialog"} aria-modal={anchorRef ? undefined : true} aria-labelledby="scheduled-message-title" onClick={event => event.stopPropagation()}
       onKeyDown={event => {
-        if (event.key === "Escape" && !busy) { event.stopPropagation(); onClose(); }
-        if (event.key !== "Tab") return;
+        if (!anchorRef && event.key === "Escape" && !busy) { event.stopPropagation(); onClose(); }
+        if (anchorRef || event.key !== "Tab") return;
         const nodes = dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)');
         const first = nodes?.[0], last = nodes?.[nodes.length - 1];
         if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
       }}>
-      <header className="scheduling-header"><div>
+      <header className="scheduling-header">
+        {anchorRef && onBack ? <button type="button" disabled={busy} className="scheduling-icon" aria-label={t("composer.plus.back")} onClick={onBack}><ArrowLeft size={18}/></button> : null}
+        <div>
         <h2 id="scheduled-message-title"><Clock3 size={20}/>{t(definition ? "scheduling.editMessage" : "scheduling.addMessage")}</h2>
-        <p>{thread.title}</p>
       </div><button disabled={busy} className="scheduling-icon" onClick={onClose} aria-label={t("common.close")}><X size={20}/></button></header>
       <main className="scheduling-detail">
-        <p className="scheduling-hint">{t("scheduling.messageHint")}</p>
         {error && <p className="scheduling-error" role="alert">{error}</p>}
-        <form onSubmit={event => { event.preventDefault(); void save(); }}>
+        <form id="scheduled-message-form" onSubmit={event => { event.preventDefault(); void save(); }}>
           <fieldset disabled={busy}>
-            <label>{t("scheduling.messageContent")}<textarea ref={promptRef} required rows={4} value={form.prompt} placeholder={t("scheduling.messagePlaceholder")} onChange={event => update({ prompt: event.target.value })}/></label>
+            <label>{t("scheduling.messageContent")}<textarea data-panel-autofocus ref={promptRef} required rows={anchorRef ? 3 : 4} value={form.prompt} placeholder={t("scheduling.messagePlaceholder")} onChange={event => update({ prompt: event.target.value })}/></label>
             <label>{t("scheduling.sendTiming")}<select value={form.timingMode} onChange={event => {
               const timingMode = event.target.value as ScheduledMessageForm["timingMode"];
               update({ timingMode });
@@ -109,10 +112,11 @@ export function ScheduledMessageDialog({ thread, definition, occurrences, onClos
                 <strong>{formatTime(item.scheduledAt)}</strong><span className="scheduling-badge">{t(`scheduling.status.${item.status}`)}</span>{item.error && <p>{item.error}</p>}
               </div></div>)}</section>}
             </div>}
-            <div className="scheduling-form-actions"><button className="scheduling-primary" type="submit">{t(busy ? "scheduling.saving" : definition ? "scheduling.save" : "scheduling.scheduleSend")}</button></div>
           </fieldset>
         </form>
       </main>
-    </div>
-  </div>;
+      <footer className="scheduling-form-actions"><button disabled={busy} form="scheduled-message-form" className="scheduling-primary" type="submit">{t(busy ? "scheduling.saving" : definition ? "scheduling.save" : "scheduling.scheduleSend")}</button></footer>
+    </div>;
+  return anchorRef ? <ComposerAbovePanel anchorRef={anchorRef} triggerRef={triggerRef} className="composer-schedule-panel" label={t(definition ? "scheduling.editMessage" : "scheduling.addMessage")} onClose={() => { if (!busy) onClose(); }}>{content}</ComposerAbovePanel>
+    : <div className="scheduling-backdrop" onClick={() => { if (!busy) onClose(); }}>{content}</div>;
 }

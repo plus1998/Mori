@@ -20583,8 +20583,7 @@ a.run-log-web-search-detail-result-url:focus-visible {
   cursor: pointer;
 }
 
-.composer-plus-trigger:hover,
-.composer-plus-trigger.is-active {
+.composer-plus-trigger:hover {
   background: var(--composer-toolbar-hover-bg);
   color: var(--composer-toolbar-hover-text);
 }
@@ -41070,4 +41069,77 @@ body,
 .workspace-scheduled-message-actions button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* Composer menu and subviews share the width and upper edge of the input card. */
+.composer-plus-trigger {
+  border-radius: 50%;
+  background: transparent;
+  transition: background-color .16s ease, color .16s ease, transform .16s ease;
+}
+.composer-plus-trigger svg { transition: transform .2s ease; }
+.composer-plus-trigger.is-active svg { transform: rotate(45deg); }
+.composer-plus-trigger:active { transform: scale(.95); }
+.composer-plus-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.composer-usage-pills .composer-usage-pill-minimal.thread-info-float-pill-cost:not(.is-empty) {
+  color: var(--success, #059669);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 500;
+}
+.composer-above-panel {
+  container-type: inline-size;
+  padding: 10px;
+  border-radius: 16px;
+  box-shadow: 0 8px 28px -6px rgba(0, 0, 0, .12), 0 2px 6px rgba(0, 0, 0, .04);
+  background: var(--bg-main);
+  transform-origin: bottom center;
+  animation: composer-above-in .2s cubic-bezier(.16, 1, .3, 1) both;
+}
+@keyframes composer-above-in {
+  from { opacity: 0; transform: translateY(10px) scale(.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.composer-above-panel .composer-plus-menu-list { overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+.composer-plus-menu-section { padding: 8px 10px 4px; color: var(--popover-muted); font-size: 11px; font-weight: 500; }
+.composer-plus-menu-section:first-child { padding-top: 4px; }
+.composer-above-panel .composer-plus-menu-item {
+  width: 100%;
+  margin: 2px 0;
+  padding: 8px 10px;
+  gap: 10px;
+  border-radius: 999px;
+  line-height: 1.4;
+}
+.composer-above-panel .composer-plus-menu-item:focus-visible { outline: none; background: var(--popover-hover); box-shadow: inset 0 0 0 1px var(--popover-border); }
+.composer-above-panel .composer-plus-menu-item-label { flex: 0 0 auto; font-size: 13px; }
+.composer-plus-menu-item-description { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--popover-muted); font-size: 12px; font-weight: 400; }
+.composer-above-panel .composer-plus-menu-item-check { align-items: center; gap: 4px; font-size: 11px; color: var(--popover-muted); white-space: nowrap; }
+.composer-plus-menu-item-chevron { flex: none; margin-left: auto; color: var(--popover-muted); }
+.composer-above-panel .composer-route-popover-header { padding: 0 0 8px; flex-shrink: 0; border-bottom: 1px solid var(--border-subtle); }
+.composer-above-panel .composer-codex-popover-title { color: var(--text-primary); font-size: 14px; font-weight: 600; }
+.composer-route-column-toggle { border: 0; background: transparent; color: var(--popover-muted); padding: 6px 8px; border-radius: 8px; font: inherit; font-size: 12px; cursor: pointer; }
+.composer-route-column-toggle:hover { background: var(--popover-hover); color: var(--popover-text); }
+.composer-above-panel .composer-route-composition-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-height: 300px;
+  padding: 2px;
+}
+.composer-above-panel.is-single-column .composer-route-composition-controls { grid-template-columns: minmax(0, 1fr); }
+.composer-above-panel .composer-route-prompt-control { min-width: 0; }
+.composer-above-panel .composer-route-prompt-label { font-size: 11px; }
+.composer-above-panel .composer-field-select-trigger,
+.composer-above-panel .model-cascade-trigger { min-height: 34px; border-radius: 9px; }
+@container (max-width: 540px) {
+  .composer-above-panel .composer-route-composition-controls { grid-template-columns: minmax(0, 1fr); }
+  .composer-route-column-toggle { display: none; }
+  .composer-plus-menu-item-description { font-size: 12px; }
+}
+@container (max-width: 360px) {
+  .composer-plus-menu-item-description { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-above-panel { animation: none; }
+  .composer-plus-trigger, .composer-plus-trigger svg { transition: none; }
 }

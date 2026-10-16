@@ -1,15 +1,10 @@
-import { ChevronDown, LayoutTemplate, RotateCcw, Settings2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, LayoutTemplate, RotateCcw, Settings2, X } from "lucide-react";
 import {
-  type CSSProperties,
   type RefObject,
-  useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type {
   ApprovalModelSelection,
@@ -22,7 +17,7 @@ import type {
   VisionModelSelection,
 } from "../shared/ipc";
 import { ComposerFieldSelect } from "./ComposerFieldSelect";
-import { clampComposerFloatingLeft, composerFloatingAvailableWidth } from "./composer-floating";
+import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { COMPOSER_TOOLBAR_ICON_PX, COMPOSER_TOOLBAR_ICON_STROKE } from "./composer-icon-metrics";
 import { ModelCascadeSelect } from "./ModelCascadeSelect";
 import {
@@ -34,10 +29,6 @@ import {
 import type { OrchestrationFieldIssue, OrchestrationFieldKey } from "./orchestration-readiness";
 import { orchestrationIssueDetailKey } from "./orchestration-readiness";
 
-const POPOVER_WIDTH = 340;
-const VIEWPORT_MARGIN = 8;
-const ANCHOR_GAP = 8;
-const MIN_POPOVER_HEIGHT = 120;
 const BUILTIN_PROMPT_VALUE = "builtin";
 const SUBAGENTS_NONE_VALUE = "__none__";
 
@@ -64,21 +55,6 @@ function subagentSelectionValue(selection: SubagentSelection | undefined): strin
   return selection.orchestrationId;
 }
 
-function popoverStyleForAnchor(anchor: HTMLElement): CSSProperties {
-  const rect = anchor.getBoundingClientRect();
-  const width = Math.min(POPOVER_WIDTH, composerFloatingAvailableWidth(VIEWPORT_MARGIN));
-  const spaceAbove = rect.top - VIEWPORT_MARGIN;
-  const maxHeight = Math.max(MIN_POPOVER_HEIGHT, spaceAbove - ANCHOR_GAP);
-  return {
-    position: "fixed",
-    left: clampComposerFloatingLeft(rect.left, width, VIEWPORT_MARGIN),
-    bottom: window.innerHeight - rect.top + ANCHOR_GAP,
-    width,
-    maxHeight,
-    zIndex: 10000,
-  };
-}
-
 interface ComposerRoutePopoverProps extends CompositionControlHandlers {
   open: boolean;
   settings: ModelSettingsSnapshot;
@@ -95,6 +71,8 @@ interface ComposerRoutePopoverProps extends CompositionControlHandlers {
   orchestrationIssues?: readonly OrchestrationFieldIssue[] | undefined;
   coreKind?: string | undefined;
   anchorRef: RefObject<HTMLElement | null>;
+  triggerRef?: RefObject<HTMLElement | null> | undefined;
+  onBack: () => void;
   onClose: () => void;
   onResetToGlobalSettings: () => void | Promise<void>;
   onOpenFullSettings: () => void;
@@ -125,6 +103,8 @@ export function ComposerRoutePopover({
   orchestrationIssues,
   coreKind,
   anchorRef,
+  triggerRef,
+  onBack,
   onClose,
   onResetToGlobalSettings,
   onSelectMainAgentConfig,
@@ -136,88 +116,14 @@ export function ComposerRoutePopover({
   onOpenFullSettings,
 }: ComposerRoutePopoverProps) {
   const { t } = useTranslation();
-  const panelRef = useRef<HTMLDivElement>(null);
-  const [panelStyle, setPanelStyle] = useState<CSSProperties>(() => ({ visibility: "hidden" }));
-
-  const updatePanelPosition = useCallback(() => {
-    const anchor = anchorRef.current;
-    if (!anchor) {
-      return;
-    }
-    setPanelStyle(popoverStyleForAnchor(anchor));
-  }, [anchorRef]);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setPanelStyle({ visibility: "hidden" });
-      return;
-    }
-    updatePanelPosition();
-    // Re-measure after paint in case the anchor ref attaches a frame late.
-    const raf = window.requestAnimationFrame(() => updatePanelPosition());
-    window.addEventListener("resize", updatePanelPosition);
-    window.addEventListener("scroll", updatePanelPosition, true);
-    return () => {
-      window.cancelAnimationFrame(raf);
-      window.removeEventListener("resize", updatePanelPosition);
-      window.removeEventListener("scroll", updatePanelPosition, true);
-    };
-  }, [open, updatePanelPosition]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    function onPointerDownOutside(event: MouseEvent) {
-      const target = event.target as Node;
-      if (panelRef.current?.contains(target) || anchorRef.current?.contains(target)) {
-        return;
-      }
-      // Nested ComposerFieldSelect / ModelCascadeSelect menus portal to
-      // document.body; treat them as inside so selecting an option does not
-      // dismiss this popover before the value can commit.
-      if (target instanceof Element && target.closest(".composer-field-select-menu, .model-cascade-panel")) {
-        return;
-      }
-      onClose();
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        // Portaled nested menus own their own Escape handling (clear search / close menu).
-        const target = event.target as HTMLElement | null;
-        if (target?.closest?.(".model-cascade-panel, .composer-field-select-menu")) {
-          return;
-        }
-        onClose();
-      }
-    }
-    // Defer so the opening click cannot immediately dismiss the popover.
-    const listenerTimer = window.setTimeout(() => {
-      document.addEventListener("mousedown", onPointerDownOutside);
-    }, 0);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.clearTimeout(listenerTimer);
-      document.removeEventListener("mousedown", onPointerDownOutside);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open, onClose, anchorRef]);
-
-  if (!open) {
-    return null;
-  }
-
-  return createPortal(
-    <div
-      ref={panelRef}
-      className="composer-codex-popover composer-route-popover"
-      role="dialog"
-      aria-label={t("composer.route.switch")}
-      style={panelStyle}
-    >
+  const [singleColumn, setSingleColumn] = useState(false);
+  if (!open) return null;
+  return <ComposerAbovePanel anchorRef={anchorRef} triggerRef={triggerRef} className={`composer-route-popover${singleColumn ? " is-single-column" : ""}`} label={t("composer.route.profiles")} onClose={onClose}>
       <header className="composer-route-popover-header">
+        <button type="button" className="composer-route-builder-button" onClick={onBack} aria-label={t("composer.plus.back")}><ArrowLeft size={18}/></button>
         <p className="composer-codex-popover-title">{t("composer.route.profiles")}</p>
         <div className="composer-route-popover-actions">
+          <button type="button" className="composer-route-column-toggle" onClick={() => setSingleColumn(value => !value)}>{t(singleColumn ? "composer.plus.twoColumns" : "composer.plus.oneColumn")}</button>
           <button
             type="button"
             className="composer-route-builder-button"
@@ -241,6 +147,7 @@ export function ComposerRoutePopover({
           >
             <Settings2 size={15} strokeWidth={1.75} aria-hidden />
           </button>
+          <button type="button" className="composer-route-builder-button" onClick={onClose} aria-label={t("common.close")}><X size={18}/></button>
         </div>
       </header>
       <ComposerRouteCompositionControls
@@ -259,9 +166,7 @@ export function ComposerRoutePopover({
         onSelectApprovalModel={onSelectApprovalModel}
         onSelectVisionModel={onSelectVisionModel}
       />
-    </div>,
-    document.body,
-  );
+    </ComposerAbovePanel>;
 }
 
 export function ComposerRouteCardBody({
