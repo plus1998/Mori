@@ -28045,7 +28045,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 
 .candidate-model-card {
   border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--bg-elevated);
   transition:
@@ -28056,7 +28056,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 
 .candidate-model-card:hover {
   border-color: color-mix(in srgb, var(--border-subtle) 55%, var(--text-muted) 45%);
-  background: var(--bg-elevated-hover);
+  background: var(--bg-elevated);
 }
 
 .candidate-model-card.is-editing {
@@ -28066,16 +28066,133 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 
 .candidate-model-summary {
   display: flex;
+  flex-direction: column;
+  container-type: inline-size;
+  padding: 10px 12px;
+  gap: 8px;
+}
+
+.candidate-model-summary-header {
+  display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 14px 16px;
   gap: 12px;
+}
+
+.candidate-spec-table {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.candidate-spec-line {
+  display: grid;
+  align-items: center;
+  margin: 0;
+  padding-top: 4px;
+  border-top: 1px solid var(--nav-hover);
+}
+
+.candidate-spec-line--primary {
+  grid-template-columns: 76px 76px repeat(3, minmax(0, 1fr));
+  padding-bottom: 4px;
+}
+
+.candidate-spec-line--pricing {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.candidate-spec-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.candidate-spec-field {
+  min-width: 0;
+  cursor: help;
+}
+
+.candidate-spec-field dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.candidate-spec-field dd svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.candidate-spec-field dd span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candidate-spec-line--primary .candidate-spec-field:nth-child(n + 3) {
+  padding-left: 8px;
+}
+
+.candidate-spec-line--primary .candidate-spec-field:nth-child(3) {
+  border-left: 1px solid var(--nav-hover);
+}
+
+.candidate-spec-line--pricing dd {
+  gap: 4px;
+}
+
+.candidate-spec-field dd.is-muted {
+  color: var(--text-muted);
+}
+
+.candidate-spec-field dd.is-manual {
+  color: var(--accent-text);
+}
+
+.candidate-model-display-name,
+.candidate-model-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candidate-model-display-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--text-primary);
+}
+
+.candidate-model-id {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-muted);
+}
+
+@container (max-width: 290px) {
+  .candidate-spec-line--primary {
+    grid-template-columns: repeat(2, minmax(0, 1.3fr)) repeat(3, minmax(0, 1fr));
+  }
 }
 
 .candidate-model-summary-main {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 0;
   min-width: 0;
   flex: 1;
 }
@@ -28120,8 +28237,8 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 }
 
 .candidate-model-actions .mcp-icon-button {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
 }
 
 .candidate-model-card:hover .candidate-model-actions,
@@ -28130,19 +28247,15 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 }
 
 .candidate-model-delete {
-  opacity: 0;
-  pointer-events: none;
   transition:
-    opacity 0.18s ease,
     background-color 0.14s ease,
     color 0.14s ease,
     transform 0.1s ease-out;
 }
 
-.candidate-model-card:hover .candidate-model-delete,
-.candidate-model-card:focus-within .candidate-model-delete {
-  opacity: 1;
-  pointer-events: auto;
+.candidate-model-actions .candidate-model-delete:hover:not(:disabled) {
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .candidate-model-edit {

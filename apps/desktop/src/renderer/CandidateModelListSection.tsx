@@ -1,4 +1,4 @@
-import { Link as LinkIcon, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Activity, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -20,12 +20,7 @@ import {
 } from "./agent-resource-manual-spec-form";
 import { ModelCascadeSelect } from "./ModelCascadeSelect";
 import { ModelManualSpecPanel } from "./ModelManualSpecPanel";
-import {
-  candidateCapabilityHint,
-  candidateOverrideFields,
-  candidatePricingHint,
-  ModelSpecSummary,
-} from "./ModelSpecSummary";
+import { CandidateModelSpecTable } from "./ModelSpecSummary";
 
 interface CandidateModelPanelProps {
   providerId: string;
@@ -65,24 +60,6 @@ async function lookupCandidateRouteHints(
     ...(capabilities[0] ? { capability: capabilities[0] } : {}),
     ...(pricing[0] ? { pricing: pricing[0] } : {}),
   };
-}
-
-function CandidateModelInlineSpec({ candidate }: { candidate: CandidateModelView }) {
-  const { t } = useTranslation();
-  const capability = candidateCapabilityHint(candidate);
-  const pricing = candidatePricingHint(candidate);
-  const overriddenFields = candidateOverrideFields(candidate);
-  if (!capability && !pricing) {
-    return <span className="candidate-model-spec-empty">{t("candidateModels.noSpec")}</span>;
-  }
-  return (
-    <ModelSpecSummary
-      compact
-      {...(capability ? { capability } : {})}
-      {...(pricing ? { pricing } : {})}
-      {...(overriddenFields ? { overriddenFields } : {})}
-    />
-  );
 }
 
 export const CandidateModelPanel = forwardRef<CandidateModelPanelHandle, CandidateModelPanelProps>(
@@ -490,55 +467,55 @@ export const CandidateModelPanel = forwardRef<CandidateModelPanelHandle, Candida
                     </div>
                   ) : (
                     <div className="candidate-model-summary">
-                      <div className="candidate-model-summary-main">
-                        <span className="candidate-model-name">
-                          {candidate.displayName || candidate.modelId}
-                        </span>
-                        {candidate.modelsDevLabel ? (
-                          <span className="candidate-model-dev-label">{candidate.modelsDevLabel}</span>
-                        ) : null}
-                        <CandidateModelInlineSpec candidate={candidate} />
-                      </div>
-                      <div className="candidate-model-actions">
-                        {onTestModel ? (
+                      <div className="candidate-model-summary-header">
+                        <div className="candidate-model-summary-main">
+                          <span className="candidate-model-display-name" title={candidate.displayName || candidate.modelsDevLabel || candidate.modelId}>
+                            {candidate.displayName || candidate.modelsDevLabel || candidate.modelId}
+                          </span>
+                          <span className="candidate-model-id" title={candidate.modelId}>{candidate.modelId}</span>
+                        </div>
+                        <div className="candidate-model-actions">
+                          {onTestModel ? (
+                            <button
+                              type="button"
+                              className="mcp-icon-button"
+                              title={t("settings.models.testConnectivity", {
+                                name: candidate.modelId,
+                              })}
+                              aria-label={t("settings.models.testConnectivity", {
+                                name: candidate.modelId,
+                              })}
+                              disabled={busy || Boolean(testingModelKey)}
+                              onClick={() => onTestModel(candidate.modelId)}
+                            >
+                              {testingModelKey === `${providerId}::${candidate.modelId}` ? (
+                                <RefreshCw size={14} className="model-refresh-spin" />
+                              ) : (
+                                <Activity size={14} />
+                              )}
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             className="mcp-icon-button"
-                            title={t("settings.models.testConnectivity", {
-                              name: candidate.modelId,
-                            })}
-                            aria-label={t("settings.models.testConnectivity", {
-                              name: candidate.modelId,
-                            })}
-                            disabled={busy || Boolean(testingModelKey)}
-                            onClick={() => onTestModel(candidate.modelId)}
+                            title={t("common.edit")}
+                            disabled={busy}
+                            onClick={() => handleStartEdit(candidate)}
                           >
-                            {testingModelKey === `${providerId}::${candidate.modelId}` ? (
-                              <RefreshCw size={14} className="model-refresh-spin" />
-                            ) : (
-                              <LinkIcon size={14} />
-                            )}
+                            <Pencil size={14} />
                           </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="mcp-icon-button"
-                          title={t("common.edit")}
-                          disabled={busy}
-                          onClick={() => handleStartEdit(candidate)}
-                        >
-                          <Pencil size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          className="mcp-icon-button candidate-model-delete"
-                          title={t("common.delete")}
-                          disabled={busy}
-                          onClick={() => handleDelete(candidate.id)}
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                          <button
+                            type="button"
+                            className="mcp-icon-button candidate-model-delete"
+                            title={t("common.delete")}
+                            disabled={busy}
+                            onClick={() => handleDelete(candidate.id)}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
+                      <CandidateModelSpecTable candidate={candidate} />
                     </div>
                   )}
                 </div>

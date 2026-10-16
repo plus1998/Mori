@@ -399,3 +399,50 @@ export function CandidateModelSpecPanel({ candidate }: { candidate?: CandidateMo
     </div>
   );
 }
+
+/** Two fixed rows mirror the compact model-card design. */
+export function CandidateModelSpecTable({ candidate }: { candidate: CandidateModelView }) {
+  const { t } = useTranslation();
+  const overrides = candidateOverrideFields(candidate);
+  const tokenValue = (value: number | undefined) =>
+    value !== undefined && value > 0 ? formatTokenCount(value) : "—";
+  const rateValue = (value: number | undefined) =>
+    value !== undefined ? formatRatePerMillion(value) : "—";
+  const supportValue = (value: boolean | undefined) =>
+    value === undefined ? "—" : value ? "✓" : "×";
+  type Field = { key: ManualSpecOverrideField; label: string; value: string; icon: typeof Layers };
+  const capacityAndCapabilities: Field[] = [
+    { key: "contextTokens", label: t("modelSpec.contextWindow"), value: tokenValue(candidate.resolvedContextTokens), icon: Layers },
+    { key: "maxOutputTokens", label: t("modelSpec.maxOutput"), value: tokenValue(candidate.resolvedMaxOutputTokens), icon: Maximize2 },
+    { key: "supportsImageInput", label: t("modelSpec.multimodal"), value: supportValue(candidate.resolvedSupportsImageInput), icon: Image },
+    { key: "supportsReasoning", label: t("modelSpec.reasoning"), value: supportValue(candidate.resolvedSupportsReasoning), icon: Brain },
+    { key: "supportsNativeWebSearch", label: t("modelSpec.nativeWebSearch"), value: supportValue(candidate.resolvedSupportsNativeWebSearch), icon: Globe },
+  ];
+  const pricing: Field[] = [
+    { key: "inputPerM", label: t("modelSpec.inputPrice"), value: rateValue(candidate.resolvedInputPerM), icon: ArrowUp },
+    { key: "outputPerM", label: t("modelSpec.outputPrice"), value: rateValue(candidate.resolvedOutputPerM), icon: ArrowDown },
+    { key: "cacheReadPerM", label: t("modelSpec.cacheReadPrice"), value: rateValue(candidate.resolvedCacheReadPerM), icon: HardDrive },
+    { key: "cacheWritePerM", label: t("modelSpec.cacheWritePrice"), value: rateValue(candidate.resolvedCacheWritePerM), icon: Save },
+  ];
+  function renderField({ key, label, value, icon: Icon }: Field) {
+    const manual = overrides?.has(key) === true;
+    const description = value === "✓" ? t("modelSpec.supported") : value === "×" ? t("modelSpec.unsupported") : value;
+    const source = value === "—" ? t("modelSpec.notProvided") : t(manual ? "modelSpec.manual" : "modelSpec.defaultSource");
+    const tooltip = `${label}: ${description} (${source})`;
+    return (
+      <div className="candidate-spec-field" key={key} title={tooltip}>
+        <dt className="candidate-spec-sr-only">{label}</dt>
+        <dd className={`${value === "×" || value === "—" ? "is-muted" : ""}${manual ? " is-manual" : ""}`} aria-label={tooltip}>
+          <Icon size={14} aria-hidden />
+          <span>{value}</span>
+        </dd>
+      </div>
+    );
+  }
+  return (
+    <div className="candidate-spec-table">
+      <dl className="candidate-spec-line candidate-spec-line--primary">{capacityAndCapabilities.map(renderField)}</dl>
+      <dl className="candidate-spec-line candidate-spec-line--pricing">{pricing.map(renderField)}</dl>
+    </div>
+  );
+}
