@@ -1447,7 +1447,12 @@ test("ActivityLogView appends turn-style duration to completed thinking summary"
     }),
   );
 
-  expect(html).toContain("已思考 5s");
+  expect(html).toContain("已思考");
+  // The duration is the same small faint number tool rows use, not part of the 13px/500 summary.
+  expect(html).toContain('<span class="run-log-thinking-elapsed">5s</span>');
+  expect(styles).toMatch(
+    /\.run-log-thinking-elapsed\s*\{[^}]*font-size:\s*12px;[^}]*font-weight:\s*400;[\s\S]*?\}/,
+  );
   expect(html).not.toContain("带耗时的思考内容。");
 });
 
@@ -1478,7 +1483,8 @@ test("ActivityLogView appends live duration while thinking streams", () => {
     }),
   );
 
-  expect(html).toContain("正在思考 4s");
+  expect(html).toContain("正在思考");
+  expect(html).toContain('<span class="run-log-thinking-elapsed">4s</span>');
   expect(html).toContain("正在输出的思考内容");
 });
 

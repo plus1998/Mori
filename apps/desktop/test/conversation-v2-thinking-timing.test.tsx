@@ -65,10 +65,10 @@ test("thinking duration survives provider conversion, live sync, reload and read
         createElement(ActivityLogView, { conversationV2: completed, thinkingDisplayMode: "collapsed" }),
         "zh-CN",
       ),
-    ).toContain("已思考 8s");
-    expect(renderFeed(store)).toContain("已思考 8s");
+    ).toContain('已思考<span class="run-log-thinking-elapsed">8s</span>');
+    expect(renderFeed(store)).toContain('已思考<span class="run-log-thinking-elapsed">8s</span>');
     store.rebuildReadModels(conversationId);
-    expect(renderFeed(store)).toContain("已思考 8s");
+    expect(renderFeed(store)).toContain('已思考<span class="run-log-thinking-elapsed">8s</span>');
     store.validateIntegrity(conversationId);
   } finally {
     db.close();
@@ -115,7 +115,7 @@ test("old databases recover the recorded thinking interval without changing even
     const reopened = new ConversationV2Store(db);
     reopened.initialize();
     expect(reopened.getMessage(conversationId, "thinking")?.startedAt).toBe(firstContent);
-    expect(renderFeed(reopened)).toContain("已思考 6s");
+    expect(renderFeed(reopened)).toContain('已思考<span class="run-log-thinking-elapsed">6s</span>');
     expect(db.prepare("SELECT effect_hash FROM conversation_sync_effects_v2 ORDER BY seq").all()).toEqual(
       hashes,
     );
@@ -148,7 +148,7 @@ test("a final-only thinking message without recorded start does not borrow the r
     expect(row?.metadata?.thinkingStartedAt).toBe(end);
     const markup = renderFeed(store);
     expect(markup).toContain("已思考");
-    expect(markup).not.toContain("已思考 8s");
+    expect(markup).not.toContain("run-log-thinking-elapsed");
   } finally {
     db.close();
   }

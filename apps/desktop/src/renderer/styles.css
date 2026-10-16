@@ -14191,6 +14191,16 @@ button.default-agent-option:focus-visible {
   letter-spacing: 0.02em;
 }
 
+/* 思考秒数跟工具行的耗时用同一套小字，不能跟着 13px/500 的摘要走。 */
+.run-log-thinking-elapsed {
+  margin-left: 6px;
+  color: var(--codex-log-faint, #737373);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
 .run-log-thinking-icon {
   flex: 0 0 auto;
   color: #737373;

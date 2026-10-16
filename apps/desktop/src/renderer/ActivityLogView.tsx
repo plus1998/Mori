@@ -5969,8 +5969,8 @@ function ThinkingBlock({
 
   const isExpanded = displayOpen;
   const baseLabel = activelyStreaming ? i18n.t("activity.thinking") : i18n.t("activity.deepThinkingDone");
+  // 秒数单独成 span：跟工具行的耗时一样是小字 faint 数字，而不是跟着 13px/500 的摘要走。
   const durationLabel = formatDuration(durationMs);
-  const label = durationLabel ? `${baseLabel} ${durationLabel}` : baseLabel;
 
   return (
     <div
@@ -6009,7 +6009,8 @@ function ThinkingBlock({
       >
         <Sparkles size={14} className="run-log-thinking-icon" aria-hidden />
         <span className="run-log-thinking-summary">
-          {activelyStreaming ? <ShimmerText>{label}</ShimmerText> : label}
+          {activelyStreaming ? <ShimmerText>{baseLabel}</ShimmerText> : baseLabel}
+          {durationLabel ? <span className="run-log-thinking-elapsed">{durationLabel}</span> : null}
         </span>
         {hasBody ? (
           <ChevronRight
