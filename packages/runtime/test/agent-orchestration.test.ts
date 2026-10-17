@@ -111,6 +111,16 @@ test("createAgentDefinitionsFromOrchestration builds enabled SDK agent definitio
   expect(definition.description).toContain("Use when: Need sourced findings or external context");
 });
 
+test("orchestration forwards the optional Claude compaction policy into the SDK agent definition", () => {
+  const configured = {
+    ...orchestration,
+    agents: orchestration.agents.map((agent) => ({ ...agent, claudeAutoCompactWindow: 128_000 })),
+  };
+  const result = createAgentDefinitionsFromOrchestration(configured, [researchTemplate]);
+  expect(result.definitions.eco_researcher).toMatchObject({ autoCompactWindow: 128_000 });
+  expect(result.definitions).not.toHaveProperty("eco_disabled");
+});
+
 test("createAgentDefinitionsFromOrchestration swaps native WebSearch for Integrated MCP", () => {
   const resolved = createAgentDefinitionsFromOrchestration(orchestration, [researchTemplate], {
     integratedWebSearch: {

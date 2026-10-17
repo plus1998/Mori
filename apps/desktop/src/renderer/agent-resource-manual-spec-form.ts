@@ -21,6 +21,7 @@ export interface ManualSpecFormFields {
   supportsReasoning: ManualTriState;
   /** Default true; only persisted as false when user disables native web search. */
   supportsNativeWebSearch: boolean;
+  supportsRemoteCompaction: boolean;
   priceMultiplier: string;
   inputPerM: string;
   outputPerM: string;
@@ -34,6 +35,7 @@ export type ManualSpecOverrideField =
   | "supportsImageInput"
   | "supportsReasoning"
   | "supportsNativeWebSearch"
+  | "supportsRemoteCompaction"
   | "priceMultiplier"
   | "inputPerM"
   | "outputPerM"
@@ -47,6 +49,7 @@ export function emptyManualSpecForm(): ManualSpecFormFields {
     supportsImageInput: "auto",
     supportsReasoning: "auto",
     supportsNativeWebSearch: true,
+    supportsRemoteCompaction: false,
     priceMultiplier: "1",
     inputPerM: "",
     outputPerM: "",
@@ -77,6 +80,7 @@ export function manualSpecToForm(spec?: RouteManualSpec): ManualSpecFormFields {
     supportsImageInput: booleanToTriState(spec?.supportsImageInput),
     supportsReasoning: booleanToTriState(spec?.supportsReasoning),
     supportsNativeWebSearch: spec?.supportsNativeWebSearch !== false,
+    supportsRemoteCompaction: spec?.supportsRemoteCompaction === true,
     ...pricingFieldsFromManual(spec),
   };
 }
@@ -88,6 +92,7 @@ export interface CandidateResolvedSpecSource {
   resolvedSupportsImageInput?: boolean;
   resolvedSupportsReasoning?: boolean;
   resolvedSupportsNativeWebSearch?: boolean;
+  resolvedSupportsRemoteCompaction?: boolean;
   resolvedInputPerM?: number;
   resolvedOutputPerM?: number;
   resolvedCacheReadPerM?: number;
@@ -104,6 +109,7 @@ export function prefillManualSpecFormFromCandidate(
     candidate.resolvedSupportsImageInput !== undefined ||
     candidate.resolvedSupportsReasoning !== undefined ||
     candidate.resolvedSupportsNativeWebSearch !== undefined ||
+    candidate.resolvedSupportsRemoteCompaction !== undefined ||
     candidate.resolvedInputPerM !== undefined ||
     candidate.resolvedOutputPerM !== undefined ||
     candidate.resolvedCacheReadPerM !== undefined ||
@@ -119,6 +125,8 @@ export function prefillManualSpecFormFromCandidate(
     supportsImageInput: booleanToTriState(candidate.resolvedSupportsImageInput),
     supportsReasoning: booleanToTriState(candidate.resolvedSupportsReasoning),
     supportsNativeWebSearch: candidate.resolvedSupportsNativeWebSearch !== false,
+    supportsRemoteCompaction:
+      (candidate.resolvedSupportsRemoteCompaction ?? candidate.manualSpec?.supportsRemoteCompaction) === true,
     ...pricingFieldsFromManual(candidate.manualSpec),
   };
 }
@@ -141,6 +149,7 @@ export function prefillManualSpecFormFromHints(
     supportsImageInput: booleanToTriState(supportsImageInput),
     supportsReasoning: booleanToTriState(supportsReasoning),
     supportsNativeWebSearch: true,
+    supportsRemoteCompaction: false,
     priceMultiplier: "1",
     inputPerM: formatManualRateValue(catalogPrice?.rates?.inputPerM),
     outputPerM: formatManualRateValue(catalogPrice?.rates?.outputPerM),
@@ -191,6 +200,7 @@ export function formToManualSpec(
     ...(supportsImageInput !== undefined && { supportsImageInput }),
     ...(supportsReasoning !== undefined && { supportsReasoning }),
     ...(form.supportsNativeWebSearch === false && { supportsNativeWebSearch: false }),
+    ...(form.supportsRemoteCompaction === true && { supportsRemoteCompaction: true }),
     ...(priceMultiplier !== undefined && { priceMultiplier }),
     ...(inputPerM !== undefined && { inputPerM }),
     ...(outputPerM !== undefined && { outputPerM }),
@@ -212,6 +222,7 @@ export function countManualOverrides(form: ManualSpecFormFields): number {
   if (form.supportsImageInput !== "auto") count += 1;
   if (form.supportsReasoning !== "auto") count += 1;
   if (!form.supportsNativeWebSearch) count += 1;
+  if (form.supportsRemoteCompaction) count += 1;
   if (isPriceMultiplierOverrideValue(form.priceMultiplier)) count += 1;
   if (form.inputPerM.trim()) count += 1;
   if (form.outputPerM.trim()) count += 1;
@@ -227,6 +238,7 @@ export function listManualOverrideFields(form: ManualSpecFormFields): Set<Manual
   if (form.supportsImageInput !== "auto") fields.add("supportsImageInput");
   if (form.supportsReasoning !== "auto") fields.add("supportsReasoning");
   if (!form.supportsNativeWebSearch) fields.add("supportsNativeWebSearch");
+  if (form.supportsRemoteCompaction) fields.add("supportsRemoteCompaction");
   if (isPriceMultiplierOverrideValue(form.priceMultiplier)) fields.add("priceMultiplier");
   if (form.inputPerM.trim()) fields.add("inputPerM");
   if (form.outputPerM.trim()) fields.add("outputPerM");
@@ -256,6 +268,8 @@ export function mergeEffectiveCapabilityHint(
     providerName: auto?.providerName ?? "",
     supportsImageInput,
     supportsReasoning,
+    supportsNativeWebSearch: manualSpec?.supportsNativeWebSearch ?? auto?.supportsNativeWebSearch ?? true,
+    supportsRemoteCompaction: manualSpec?.supportsRemoteCompaction ?? auto?.supportsRemoteCompaction ?? false,
     capabilitiesResolved,
     contextLimitResolved,
     ...(contextTokens !== undefined && { contextTokens }),
@@ -470,6 +484,7 @@ function countManualCapabilityOverrides(spec?: RouteManualSpec): number {
   if (spec.supportsImageInput !== undefined) count += 1;
   if (spec.supportsReasoning !== undefined) count += 1;
   if (spec.supportsNativeWebSearch !== undefined) count += 1;
+  if (spec.supportsRemoteCompaction !== undefined) count += 1;
   return count;
 }
 

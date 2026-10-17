@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createProviderStore } from "../src/main/provider-store";
+import { removeTempDirectory } from "./helpers/temp-directory";
 
 const sqliteAvailable = await (async () => {
   try {
@@ -12,6 +13,74 @@ const sqliteAvailable = await (async () => {
     return false;
   }
 })();
+
+test.skipIf(!sqliteAvailable)(
+  "candidate remote compaction migrates as off and persists per model",
+  async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-candidate-remote-compaction-"));
+    const filename = path.join(dir, "eco.sqlite");
+    let store = await createProviderStore(filename);
+    const provider = store.saveProvider({
+      name: "Responses",
+      baseUrl: "https://example.test",
+      apiKey: "test",
+      defaultModel: "legacy",
+      enabled: true,
+      apiCompat: "openai_responses",
+    });
+    const legacy = store.saveCandidateModel({
+      providerId: provider.id,
+      modelId: "legacy",
+      manualSpec: { contextTokens: 128_000, supportsNativeWebSearch: false },
+    });
+    const db = new DatabaseSync(filename);
+    try {
+      // Simulate the pre-upgrade schema with a real candidate row.
+      db.exec("ALTER TABLE provider_candidate_models DROP COLUMN manual_supports_remote_compaction");
+      store = await createProviderStore(filename);
+      expect(store.listCandidateModels(provider.id)[0]?.manualSpec).toEqual(legacy.manualSpec);
+      const remote = store.saveCandidateModel({
+        providerId: provider.id,
+        modelId: "remote",
+        manualSpec: { supportsRemoteCompaction: true },
+      });
+      store = await createProviderStore(filename);
+      expect(
+        store.listCandidateModels(provider.id).find((model) => model.id === remote.id)?.manualSpec
+          ?.supportsRemoteCompaction,
+      ).toBe(true);
+      expect(
+        store.listCandidateModels(provider.id).find((model) => model.id === legacy.id)?.manualSpec
+          ?.supportsRemoteCompaction,
+      ).toBeUndefined();
+      store.syncCandidateModels(provider.id, [
+        { id: "remote", displayName: "Remote" },
+        { id: "added", displayName: "Added" },
+      ]);
+      expect(
+        store.listCandidateModels(provider.id).find((model) => model.id === remote.id)?.manualSpec
+          ?.supportsRemoteCompaction,
+      ).toBe(true);
+      expect(
+        store.listCandidateModels(provider.id).find((model) => model.modelId === "added")?.manualSpec,
+      ).toBeUndefined();
+      store.saveCandidateModel({ ...remote, manualSpec: { supportsRemoteCompaction: false } });
+      expect(
+        store.listCandidateModels(provider.id).find((model) => model.id === remote.id)?.manualSpec
+          ?.supportsRemoteCompaction,
+      ).toBe(false);
+      const { manualSpec: _manualSpec, ...withoutManual } = remote;
+      store.saveCandidateModel(withoutManual);
+      expect(
+        store.listCandidateModels(provider.id).find((model) => model.id === remote.id)?.manualSpec,
+      ).toBeUndefined();
+    } finally {
+      db.close();
+      await removeTempDirectory(dir);
+    }
+  },
+);
 
 test.skipIf(!sqliteAvailable)("provider version defaults to v1 and persists custom value", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-version-"));
@@ -59,49 +128,52 @@ test.skipIf(!sqliteAvailable)("fresh provider store does not auto-seed providers
   expect(settings.routeProfiles).toHaveLength(0);
 });
 
-test.skipIf(!sqliteAvailable)("provider lookup and partial saves preserve subscription authentication", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-subscription-auth-"));
-  const store = await createProviderStore(path.join(dir, "eco-coding.sqlite"));
-  const input = {
-    id: "eco-coding-chatgpt",
-    name: "ChatGPT OAuth",
-    baseUrl: "https://api.openai.com",
-    apiCompat: "openai_responses" as const,
-    tokenCountMode: "openai_responses" as const,
-    authMethod: "chatgpt_subscription" as const,
-    credentialPoolId: "chatgpt-default",
-    apiKey: "",
-    defaultModel: "gpt-6-astra",
-    enabled: true,
-  };
-  const saved = store.saveProvider(input);
-  expect(saved.authMethod).toBe(input.authMethod);
-  expect(saved.credentialPoolId).toBe(input.credentialPoolId);
-
-  // Settings reads must see the same authentication as the provider list;
-  // otherwise the built-in provider migration emits settings.updated on every read.
-  for (let read = 0; read < 3; read += 1) {
-    expect(store.getProviderWithSecret(input.id)).toEqual({
-      ...store.listProviders()[0],
+test.skipIf(!sqliteAvailable)(
+  "provider lookup and partial saves preserve subscription authentication",
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-subscription-auth-"));
+    const store = await createProviderStore(path.join(dir, "eco-coding.sqlite"));
+    const input = {
+      id: "eco-coding-chatgpt",
+      name: "ChatGPT OAuth",
+      baseUrl: "https://api.openai.com",
+      apiCompat: "openai_responses" as const,
+      tokenCountMode: "openai_responses" as const,
+      authMethod: "chatgpt_subscription" as const,
+      credentialPoolId: "chatgpt-default",
       apiKey: "",
-    });
-    expect(store.getProviderWithSecret(input.id)?.updatedAt).toBe(saved.updatedAt);
-  }
+      defaultModel: "gpt-6-astra",
+      enabled: true,
+    };
+    const saved = store.saveProvider(input);
+    expect(saved.authMethod).toBe(input.authMethod);
+    expect(saved.credentialPoolId).toBe(input.credentialPoolId);
 
-  // An edit that omits auth fields must retain the existing subscription binding.
-  const edited = store.saveProvider({
-    id: input.id,
-    name: input.name,
-    baseUrl: input.baseUrl,
-    apiKey: "",
-    defaultModel: input.defaultModel,
-    enabled: true,
-  });
-  expect(edited.authMethod).toBe(input.authMethod);
-  expect(edited.credentialPoolId).toBe(input.credentialPoolId);
-  expect(store.listProviders()[0]?.authMethod).toBe(input.authMethod);
-  expect(store.listProviders()[0]?.credentialPoolId).toBe(input.credentialPoolId);
-});
+    // Settings reads must see the same authentication as the provider list;
+    // otherwise the built-in provider migration emits settings.updated on every read.
+    for (let read = 0; read < 3; read += 1) {
+      expect(store.getProviderWithSecret(input.id)).toEqual({
+        ...store.listProviders()[0],
+        apiKey: "",
+      });
+      expect(store.getProviderWithSecret(input.id)?.updatedAt).toBe(saved.updatedAt);
+    }
+
+    // An edit that omits auth fields must retain the existing subscription binding.
+    const edited = store.saveProvider({
+      id: input.id,
+      name: input.name,
+      baseUrl: input.baseUrl,
+      apiKey: "",
+      defaultModel: input.defaultModel,
+      enabled: true,
+    });
+    expect(edited.authMethod).toBe(input.authMethod);
+    expect(edited.credentialPoolId).toBe(input.credentialPoolId);
+    expect(store.listProviders()[0]?.authMethod).toBe(input.authMethod);
+    expect(store.listProviders()[0]?.credentialPoolId).toBe(input.credentialPoolId);
+  },
+);
 
 test.skipIf(!sqliteAvailable)("route profiles have no active flag semantics", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-profiles-"));
@@ -238,43 +310,46 @@ test.skipIf(!sqliteAvailable)("candidate model manual pricing preserves zero val
   expect(store.listCandidateModels(provider.id)[0]?.manualSpec).toEqual(saved.manualSpec);
 });
 
-test.skipIf(!sqliteAvailable)("upstream model sync adds candidates without overwriting manual metadata", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-candidate-sync-"));
-  const store = await createProviderStore(path.join(dir, "eco-coding.sqlite"));
-  const provider = store.saveProvider({
-    id: "eco-coding-chatgpt",
-    name: "ChatGPT OAuth",
-    baseUrl: "https://api.openai.com",
-    apiKey: "",
-    authMethod: "chatgpt_subscription",
-    defaultModel: "gpt-5",
-    enabled: true,
-  });
+test.skipIf(!sqliteAvailable)(
+  "upstream model sync adds candidates without overwriting manual metadata",
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-candidate-sync-"));
+    const store = await createProviderStore(path.join(dir, "eco-coding.sqlite"));
+    const provider = store.saveProvider({
+      id: "eco-coding-chatgpt",
+      name: "ChatGPT OAuth",
+      baseUrl: "https://api.openai.com",
+      apiKey: "",
+      authMethod: "chatgpt_subscription",
+      defaultModel: "gpt-5",
+      enabled: true,
+    });
 
-  const first = store.syncCandidateModels(provider.id, [
-    { id: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" },
-  ]);
-  expect(first.changed).toBe(true);
-  expect(first.models[0]?.displayName).toBe("GPT-5.6 Luna");
+    const first = store.syncCandidateModels(provider.id, [
+      { id: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" },
+    ]);
+    expect(first.changed).toBe(true);
+    expect(first.models[0]?.displayName).toBe("GPT-5.6 Luna");
 
-  store.saveCandidateModel({
-    id: first.models[0]!.id,
-    providerId: provider.id,
-    modelId: "gpt-5.6-luna",
-    displayName: "我的模型",
-    manualSpec: { contextTokens: 12345 },
-  });
-  const second = store.syncCandidateModels(provider.id, [
-    { id: "gpt-5.6-luna", displayName: "官方名称" },
-    { id: "gpt-5.6-mini", displayName: "GPT-5.6 Mini" },
-  ]);
-  expect(second.changed).toBe(true);
-  expect(second.models).toHaveLength(2);
-  expect(second.models.find((model) => model.modelId === "gpt-5.6-luna")).toMatchObject({
-    displayName: "我的模型",
-    manualSpec: { contextTokens: 12345 },
-  });
-});
+    store.saveCandidateModel({
+      id: first.models[0]!.id,
+      providerId: provider.id,
+      modelId: "gpt-5.6-luna",
+      displayName: "我的模型",
+      manualSpec: { contextTokens: 12345 },
+    });
+    const second = store.syncCandidateModels(provider.id, [
+      { id: "gpt-5.6-luna", displayName: "官方名称" },
+      { id: "gpt-5.6-mini", displayName: "GPT-5.6 Mini" },
+    ]);
+    expect(second.changed).toBe(true);
+    expect(second.models).toHaveLength(2);
+    expect(second.models.find((model) => model.modelId === "gpt-5.6-luna")).toMatchObject({
+      displayName: "我的模型",
+      manualSpec: { contextTokens: 12345 },
+    });
+  },
+);
 
 test.skipIf(!sqliteAvailable)("deletes the only unreferenced provider and its candidate models", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-delete-only-"));

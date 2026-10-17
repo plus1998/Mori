@@ -1,12 +1,3 @@
-import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
-import { ComposerReferenceService } from "./composer-reference-service";
-import { ContextReferenceMcpGateway } from "./context-reference-mcp-gateway";
-import { CONTEXT_MCP_SERVER, CONTEXT_REFERENCE_PROMPT, type ComposerReferenceSearchRequest } from "../shared/composer-references";
-import { WebChatProxyController } from "./web-chat-proxy";
-import { webChatSitePartition, webChatProxyConfig } from "../shared/web-chat-list";
-import { buildTtsPromptAppend, ECO_TTS_MCP_SERVER, isEcoTtsToolName, type TtsProfileSaveInput } from "../shared/tts";
-import { createTtsStore, type TtsStore } from "./tts-store";
-import { TtsMcpGateway } from "./tts-mcp-gateway";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -15,6 +6,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
+import {
+  CONTEXT_MCP_SERVER,
+  CONTEXT_REFERENCE_PROMPT,
+  type ComposerReferenceSearchRequest,
+} from "../shared/composer-references";
 import {
   SCHEDULING_MCP_SERVER,
   SCHEDULING_PROMPT,
@@ -24,14 +21,27 @@ import {
   type ScheduleTrigger,
   type ScheduleUpdateInput,
 } from "../shared/scheduling";
+import {
+  buildTtsPromptAppend,
+  ECO_TTS_MCP_SERVER,
+  isEcoTtsToolName,
+  type TtsProfileSaveInput,
+} from "../shared/tts";
+import { webChatProxyConfig, webChatSitePartition } from "../shared/web-chat-list";
+import { ComposerReferenceService } from "./composer-reference-service";
+import { ContextReferenceMcpGateway } from "./context-reference-mcp-gateway";
 import { ConversationRecoveryGate } from "./conversation-recovery-gate";
 import { finalizeAcceptedConversationV2Messages } from "./conversation-v2-accepted-finalization";
+import { createMcpHubNestedToolPermissionHandler } from "./mcp-hub-permission";
 import { previewSchedule } from "./schedule-time";
 import { inspectScheduledRun } from "./scheduling-inspection";
 import { SchedulingMcpGateway } from "./scheduling-mcp-gateway";
 import { freezeSchedulingProfile } from "./scheduling-profile";
 import { SchedulingService } from "./scheduling-service";
 import { SchedulingStore } from "./scheduling-store";
+import { TtsMcpGateway } from "./tts-mcp-gateway";
+import { createTtsStore, type TtsStore } from "./tts-store";
+import { WebChatProxyController } from "./web-chat-proxy";
 
 const execFileAsync = promisify(execFile);
 
@@ -131,8 +141,8 @@ import {
   powerMonitor,
   powerSaveBlocker,
   protocol,
-  screen,
   safeStorage,
+  screen,
   session,
   shell,
   type WebContents,
@@ -250,9 +260,10 @@ import {
   isWebSearchApprovalToolName,
 } from "../shared/integrated-web-search";
 import { integrationEnabled } from "../shared/integrations";
+import type { ThreadForkFromMessageRequest } from "../shared/ipc";
 import {
-  type AgentRole,
   type AddCodexCatalogModelRequest,
+  type AgentRole,
   type AgentTemplate,
   type AgentTemplateExportRequest,
   applyBusyMutableRuntimeConfigFields,
@@ -510,7 +521,11 @@ import {
   runtimeRouteToProxyRoute,
   startAnthropicModelProxy,
 } from "./anthropic-proxy";
-import { attachMainWindowQuitGuard, installApplicationShutdownHook, isApplicationQuitting } from "./application-shutdown";
+import {
+  attachMainWindowQuitGuard,
+  installApplicationShutdownHook,
+  isApplicationQuitting,
+} from "./application-shutdown";
 import {
   type ApplicationShutdownDeps,
   collectRunningWorkSummary,
@@ -518,7 +533,6 @@ import {
 } from "./application-shutdown-work";
 import { resolveApprovalModelRoute } from "./approval-model-route";
 import { transcribeAsr } from "./asr-client";
-import { isCodexAuthCompletionPageText } from "./codex-browser-login";
 import { type AsrSecretCodec, type AsrSettingsStore, createAsrSettingsStore } from "./asr-settings-store";
 import { resolveAuxiliaryModelRoute } from "./auxiliary-model-route";
 import { BackgroundTerminalTaskRegistry } from "./background-terminal-tasks";
@@ -592,11 +606,18 @@ import {
   prepareAsyncClarificationReply,
   releasePendingClarification,
 } from "./codex-async-question-bridge";
+import { isCodexAuthCompletionPageText } from "./codex-browser-login";
 import {
   CodexGatewayUsageDeduplicator,
   resolveCodexGatewayUsageBilling,
 } from "./codex-gateway-usage-billing";
 import { CodexGatewayUsagePendingBuffer } from "./codex-gateway-usage-pending";
+import { connectCodexImageAccount, disposeCodexImageConnections } from "./codex-image-electron-transport";
+import { CodexImageService } from "./codex-image-service";
+import {
+  CodexRemoteModelCatalogService,
+  resolveCodexModelCatalogCachePath,
+} from "./codex-model-catalog-remote";
 import {
   getGlobalCodexRuntimeLifecycle,
   setCodexAccountProxyUrlGetter,
@@ -653,12 +674,14 @@ import {
   executeFollowUpMutationCommand,
   failInterruptedFollowUpCommands,
 } from "./conversation-follow-up-command";
+import { ConversationForkCommands } from "./conversation-fork-command";
 import {
   executeBashApprovalResolutionCommand,
   executeClarificationResolutionCommand,
   failInterruptedInteractionCommands,
   recoverAsyncClarificationCommands,
 } from "./conversation-interaction-command";
+import { cleanupNativeConversationFork, forkNativeConversation } from "./conversation-native-fork";
 import {
   executeNonRewindRetryCommand,
   resolveNonRewindRetryUserMessage,
@@ -702,13 +725,12 @@ import {
   removeClaudeUserEcoAgentBrowserSkill,
   resolveEcoAgentBrowserSkillFileForCodex,
 } from "./eco-agent-browser-skill";
+import { type ApprovalHostEvidence, collectApprovalHostEvidence } from "./eco-approval-local-evidence";
 import {
   buildThreadApprovalEnvelope,
   type EcoApprovalReviewResult,
   reviewEcoApproval,
 } from "./eco-approval-reviewer";
-import { collectApprovalHostEvidence, type ApprovalHostEvidence } from "./eco-approval-local-evidence";
-import { resolveSdkHintPermission } from "./sdk-hint-approval";
 import { logEcoDiag, logEcoDiagThrottled, shortAgentId, shortThreadId } from "./eco-diag-log";
 import {
   configureEcoGatewayLifecycle,
@@ -758,10 +780,8 @@ import { HtmlHostMcpGateway } from "./html-host-mcp-gateway";
 import { HtmlHostStore } from "./html-host-store";
 import { ImageDisplayMcpGateway } from "./image-display-mcp-gateway";
 import { createImageDisplayStore, ImageDisplayError, type ImageDisplayStore } from "./image-display-store";
-import { ImageGenerationMcpGateway } from "./image-generation-mcp-gateway";
-import { CodexImageService } from "./codex-image-service";
 import { imageGenerationAvailability } from "./image-generation-availability";
-import { connectCodexImageAccount, disposeCodexImageConnections } from "./codex-image-electron-transport";
+import { ImageGenerationMcpGateway } from "./image-generation-mcp-gateway";
 import {
   createImageGenerationStore,
   type ImageGenerationSecretCodec,
@@ -781,10 +801,6 @@ import { McpHubGateway } from "./mcp-hub-gateway";
 import { prepareCodexGlobalMcpServerPool, prepareMcpSdkConfigForRuntime } from "./mcp-runtime";
 import { createMcpStore, type McpStore } from "./mcp-store";
 import { ModelsDevPricingCache } from "./models-dev-pricing-cache";
-import {
-  CodexRemoteModelCatalogService,
-  resolveCodexModelCatalogCachePath,
-} from "./codex-model-catalog-remote";
 import {
   createNotificationSettingsStore,
   isNotificationSettingsSnapshot,
@@ -877,6 +893,7 @@ import { resolveCommandExecutable } from "./resolve-command-executable";
 import { resolveThreadWebSearchPlan } from "./resolve-thread-web-search";
 import { reconcileSdkAgentTerminalEvent } from "./sdk-agent-terminal-reconciliation";
 import type { resolveSdkEventUsageBilling, SdkRunUsageBillingInput } from "./sdk-event-usage-billing";
+import { resolveSdkHintPermission } from "./sdk-hint-approval";
 import { resolveSdkRunBillingResolution } from "./sdk-run-billing-resolution";
 import { consumeSdkRunEvents } from "./sdk-run-event-loop";
 import { type BuildSdkRunInput, buildSdkRunInput, sdkRunPhaseFromMode } from "./sdk-run-input";
@@ -1068,8 +1085,8 @@ import {
 } from "./workspace-file-browser";
 import { prepareWorkspaceGit } from "./workspace-git-setup";
 import { WorkspaceGitStatusPublisher } from "./workspace-git-status-publisher";
-import { WorkspaceReviewService } from "./workspace-review-service";
 import { inspectWorkspace, resolveGitExecutable } from "./workspace-inspect";
+import { WorkspaceReviewService } from "./workspace-review-service";
 import {
   type ApprovedPlanArtifact,
   type ApprovedPlanSnapshot,
@@ -1081,10 +1098,6 @@ import {
   verifyApprovedPlanArtifact,
   writeApprovedPlanSnapshot,
 } from "./worktree-lifecycle";
-
-import { ConversationForkCommands } from "./conversation-fork-command";
-import { cleanupNativeConversationFork, forkNativeConversation } from "./conversation-native-fork";
-import type { ThreadForkFromMessageRequest } from "../shared/ipc";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
@@ -1235,7 +1248,10 @@ function watchCodexAuthCompletionPage(authWindow: BrowserWindow, onDetected: () 
 }
 
 /** Keep the OAuth window open after provider-side success until app-server confirms the callback. */
-function installCodexAuthCompletionGuard(authWindow: BrowserWindow, cancelLogin: () => void): {
+function installCodexAuthCompletionGuard(
+  authWindow: BrowserWindow,
+  cancelLogin: () => void,
+): {
   allowClose: () => void;
   dispose: () => void;
 } {
@@ -1464,12 +1480,22 @@ const workspaceReviewService = new WorkspaceReviewService(runGitCommand, (event)
   desktopEventCenter.publishGitDiffChanged(event);
   if (!event.error) workspaceGitStatusPublisher.schedule(event.workspacePath);
 });
-const workspaceGitStatusPublisher = new WorkspaceGitStatusPublisher(runGitCommand, (summary) => {
-  desktopEventCenter.publishGitStatusChanged(summary);
-}, undefined, async (workspacePath) => {
-  const diff = await workspaceReviewService.getSummary(workspacePath);
-  return { workspacePath, dirtyFileCount: diff.fileCount, insertions: diff.totalAdditions, deletions: diff.totalDeletions };
-});
+const workspaceGitStatusPublisher = new WorkspaceGitStatusPublisher(
+  runGitCommand,
+  (summary) => {
+    desktopEventCenter.publishGitStatusChanged(summary);
+  },
+  undefined,
+  async (workspacePath) => {
+    const diff = await workspaceReviewService.getSummary(workspacePath);
+    return {
+      workspacePath,
+      dirtyFileCount: diff.fileCount,
+      insertions: diff.totalAdditions,
+      deletions: diff.totalDeletions,
+    };
+  },
+);
 let gitAutoFetcher: GitAutoFetcher | undefined;
 let activeGitOperations = 0;
 const gitWorktrees = new GitWorktreeService(gitRunner);
@@ -1549,7 +1575,10 @@ const webChatProxyControllers = new Map<ReturnType<typeof session.fromPartition>
 function webChatProxyControllerFor(siteId: string): WebChatProxyController {
   const siteSession = session.fromPartition(webChatSitePartition(siteId));
   let controller = webChatProxyControllers.get(siteSession);
-  if (!controller) { controller = new WebChatProxyController(siteSession); webChatProxyControllers.set(siteSession, controller); }
+  if (!controller) {
+    controller = new WebChatProxyController(siteSession);
+    webChatProxyControllers.set(siteSession, controller);
+  }
   return controller;
 }
 let sshBookmarkStore: SshBookmarkStore;
@@ -2666,7 +2695,9 @@ app
         callback(...credentials);
       });
     });
-    app.once("before-quit", () => { for (const controller of webChatProxyControllers.values()) controller.dispose(); });
+    app.once("before-quit", () => {
+      for (const controller of webChatProxyControllers.values()) controller.dispose();
+    });
     sshBookmarkStore = await createSshBookmarkStore(dbPath, createLocalSecretCodec());
     notificationSettingsStore = await createNotificationSettingsStore(dbPath);
     browserHost = new BrowserHost({
@@ -2722,8 +2753,7 @@ app
         conversationStore.getThread(threadId)?.workspacePath,
       onArtifactChanged: (artifact) => {
         BrowserWindow.getAllWindows().forEach((window) => {
-          if (!window.isDestroyed())
-            window.webContents.send(IPC_CHANNELS.ttsArtifactChanged, artifact);
+          if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.ttsArtifactChanged, artifact);
         });
       },
     });
@@ -3165,6 +3195,9 @@ app
                             supportsImageInput: model.manualSpec.supportsImageInput,
                           }
                         : {}),
+                      ...(model.manualSpec.supportsRemoteCompaction !== undefined
+                        ? { supportsRemoteCompaction: model.manualSpec.supportsRemoteCompaction }
+                        : {}),
                     },
                   }
                 : {}),
@@ -3391,6 +3424,8 @@ app
       getWorktreePath: (threadId) => activeRunRuntimeState.worktreePlan(threadId)?.worktreePath,
       getPlannerAgentId: (threadId) => agentLifecycle.usagePlannerAgentId(threadId),
       getMcpHubServerName: (threadId) => mcpHubGateway.getThreadCodexServerName(threadId),
+      getMcpToolApprovalTarget: (server, tool) => mcpStore.getToolApprovalTarget(server, tool),
+      isMcpToolApproved: (target) => mcpStore.isToolApproved(target),
       getApprovalMode: (threadId) => {
         const thread = conversationStore.getThread(threadId);
         return thread
@@ -3910,7 +3945,10 @@ function getCodexModelCatalogService(): CodexRemoteModelCatalogService {
 function codexCatalogCandidateViews(models: readonly CodexCatalogModelView[]): CandidateModelView[] {
   const timestamps = new Date().toISOString();
   return models.map((model, index) => ({
-    id: `cand-openai-${model.modelId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`,
+    id: `cand-openai-${model.modelId
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "")}`,
     providerId: "openai",
     modelId: model.modelId,
     displayName: model.displayName,
@@ -4440,7 +4478,8 @@ function registerDesktopCommand<Args extends unknown[], Result>(
 }
 
 async function resolveTtsArtifactAudio(payload: unknown) {
-  if (!isRecord(payload) || typeof payload.artifactId !== "string" || !Number.isInteger(payload.audioIndex)) throw new Error("音频产物参数无效。");
+  if (!isRecord(payload) || typeof payload.artifactId !== "string" || !Number.isInteger(payload.audioIndex))
+    throw new Error("音频产物参数无效。");
   const artifact = ttsStore.getArtifact(payload.artifactId);
   const audio = artifact.audio[payload.audioIndex as number];
   if (!audio) throw new Error("音频产物索引不存在。");
@@ -5420,7 +5459,10 @@ function registerIpcHandlers(): void {
     return workspace;
   });
 
-  registerDesktopCommand(IPC_CHANNELS.composerReferencesSearch, async (request: ComposerReferenceSearchRequest) => composerReferenceService.search(request));
+  registerDesktopCommand(
+    IPC_CHANNELS.composerReferencesSearch,
+    async (request: ComposerReferenceSearchRequest) => composerReferenceService.search(request),
+  );
   registerDesktopCommand(IPC_CHANNELS.threadList, async () =>
     attachThreadListCancelling(conversationStore.listThreads()),
   );
@@ -6977,17 +7019,26 @@ function registerIpcHandlers(): void {
     return quota;
   });
 
-  codexImages = new CodexImageService({
-    listAccounts: async () => (await getOpenAIAccountService()).listAccounts(),
-    getAccountDetails: async (id) => (await getOpenAIAccountService()).getAccountDetails(id),
-    saveImageQuota: async (id, authJson, quota) => (await getOpenAIAccountService()).saveImageQuota(id, authJson, quota),
-  }, connectCodexImageAccount);
-  app.once("before-quit", () => { void disposeCodexImageConnections(); });
-
-  registerDesktopCommand(IPC_CHANNELS.openAIAccountsImageEnabled, async (payload: { accountId: string; enabled: boolean }) => {
-    if (typeof payload.enabled !== "boolean") throw new Error("生图开关值无效。");
-    await (await getOpenAIAccountService()).setImageGenerationEnabled(payload.accountId, payload.enabled);
+  codexImages = new CodexImageService(
+    {
+      listAccounts: async () => (await getOpenAIAccountService()).listAccounts(),
+      getAccountDetails: async (id) => (await getOpenAIAccountService()).getAccountDetails(id),
+      saveImageQuota: async (id, authJson, quota) =>
+        (await getOpenAIAccountService()).saveImageQuota(id, authJson, quota),
+    },
+    connectCodexImageAccount,
+  );
+  app.once("before-quit", () => {
+    void disposeCodexImageConnections();
   });
+
+  registerDesktopCommand(
+    IPC_CHANNELS.openAIAccountsImageEnabled,
+    async (payload: { accountId: string; enabled: boolean }) => {
+      if (typeof payload.enabled !== "boolean") throw new Error("生图开关值无效。");
+      await (await getOpenAIAccountService()).setImageGenerationEnabled(payload.accountId, payload.enabled);
+    },
+  );
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsImageQuota, async (payload: { accountId: string }) => {
     return codexImages.queryQuota(payload.accountId);
   });
@@ -7761,9 +7812,7 @@ function registerIpcHandlers(): void {
     const { resolvedPath } = resolveImageGenerationArtifactImage(payload);
     shell.showItemInFolder(resolvedPath);
   });
-  registerDesktopCommand(IPC_CHANNELS.ttsSettingsGet, async () =>
-    ttsStore.getSettings(),
-  );
+  registerDesktopCommand(IPC_CHANNELS.ttsSettingsGet, async () => ttsStore.getSettings());
   registerDesktopCommand(IPC_CHANNELS.ttsSettingsSave, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.enabled !== "boolean") {
       throw new Error("语音生成设置无效。");
@@ -7905,7 +7954,8 @@ function registerIpcHandlers(): void {
       }
       return webChatListStore.save(next);
     } catch (error) {
-      for (const siteId of applied) await webChatProxyControllerFor(siteId).apply(previous.siteProxies?.[siteId]);
+      for (const siteId of applied)
+        await webChatProxyControllerFor(siteId).apply(previous.siteProxies?.[siteId]);
       throw error;
     }
   });
@@ -8346,13 +8396,17 @@ function registerIpcHandlers(): void {
     return status;
   });
 
-  registerDesktopCommand(IPC_CHANNELS.gitGetWorkspaceDiff, async (workspacePath: unknown, options: unknown) => {
-    if (typeof workspacePath !== "string" || !workspacePath.trim()) {
-      throw new Error("Workspace path is required.");
-    }
-    const refresh = !!options && typeof options === "object" && (options as { refresh?: unknown }).refresh === true;
-    return workspaceReviewService.getSummary(workspacePath.trim(), refresh);
-  });
+  registerDesktopCommand(
+    IPC_CHANNELS.gitGetWorkspaceDiff,
+    async (workspacePath: unknown, options: unknown) => {
+      if (typeof workspacePath !== "string" || !workspacePath.trim()) {
+        throw new Error("Workspace path is required.");
+      }
+      const refresh =
+        !!options && typeof options === "object" && (options as { refresh?: unknown }).refresh === true;
+      return workspaceReviewService.getSummary(workspacePath.trim(), refresh);
+    },
+  );
 
   registerDesktopCommand(IPC_CHANNELS.gitGetWorkspaceFileDiff, async (payload: unknown) => {
     if (!payload || typeof payload !== "object") {
@@ -8880,6 +8934,7 @@ function registerIpcHandlers(): void {
         v2: conversationStore.conversationV2(),
         getPending: getPendingBashApprovalByToolUseId,
         resolve: resolvePendingBashApproval,
+        rememberMcpToolApproval: (target) => mcpStore.rememberToolApproval(target),
         errorMessage,
       },
     );
@@ -8887,6 +8942,7 @@ function registerIpcHandlers(): void {
       // Response-loss retry of the same durable command.
       return { ok: true as const, alreadyResolved: true as const };
     }
+    if (payload.decision === "approved_remember_mcp_tool") emitSettingsUpdated();
     const threadPatch = buildResolvedBashApprovalThreadPatch(payload.decision);
     patchThreadSummary(outcome.request.threadId, threadPatch);
     desktopEventCenter.publishThreadLiveEvent({
@@ -9532,10 +9588,9 @@ function enqueueThreadFollowUpCommand(
           text: request.prompt,
           ...(persistedAttachments?.length ? { attachments: persistedAttachments } : {}),
         });
-        const isAsyncAnswer = conversationStore.conversationV2().isAsyncClarificationAnswer(
-          thread.id,
-          acceptedMessage.messageId,
-        );
+        const isAsyncAnswer = conversationStore
+          .conversationV2()
+          .isAsyncClarificationAnswer(thread.id, acceptedMessage.messageId);
         const existingAcceptedFollowUp = conversationStore
           .listThreadFollowUps(thread.id)
           .find((candidate) => candidate.conversationMessageId === acceptedMessage.messageId);
@@ -9888,7 +9943,9 @@ function registerRemainingDesktopCommands(): void {
           }
           const persistedAttachments = request.attachments?.length
             ? await promptImageFileStore.persistMessageAttachments(
-                thread.id, `follow-up-edit:${request.clientCommandId}`, request.attachments,
+                thread.id,
+                `follow-up-edit:${request.clientCommandId}`,
+                request.attachments,
               )
             : undefined;
           const followUp = conversationStore.updateThreadFollowUp(request.threadId, request.followUpId, {
@@ -10546,7 +10603,10 @@ async function drainPreparedNextQueuedThreadFollowUp(
       } else if (!conversationStore.getThread(threadId)?.followUpQueuePaused) {
         void drainQueuedThreadFollowUpsAfterRun(threadId);
       }
-      if (!activeRunRuntimeState.hasRun(threadId) && conversationStore.getThread(threadId)?.status === "running") {
+      if (
+        !activeRunRuntimeState.hasRun(threadId) &&
+        conversationStore.getThread(threadId)?.status === "running"
+      ) {
         updateThread(threadId, { status: "idle", message: "" });
       }
       return;
@@ -11056,7 +11116,8 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
       const prepared = await resolvePiSessionResourcesForThread(threadId, workspacePath);
       return toAcpMcpServers(prepared.mcpServers);
     },
-    resolveAcpSystemPromptAppend: ({ threadId }) => appendBrowserPrompt(mcpHubGateway.getThreadPromptAppend(threadId), CONTEXT_REFERENCE_PROMPT),
+    resolveAcpSystemPromptAppend: ({ threadId }) =>
+      appendBrowserPrompt(mcpHubGateway.getThreadPromptAppend(threadId), CONTEXT_REFERENCE_PROMPT),
     resolvePromptImagesForMainContext,
     resolveAcpCreatePlanHandler: ({ threadId, workspacePath, userPrompt }) => {
       return async (request) => {
@@ -11737,10 +11798,7 @@ async function startCodexThreadRun(
               );
             }
             if (sessionTtsEnabled) {
-              append = appendBrowserPrompt(
-                append,
-                buildTtsPromptAppend(ttsStore.getActiveClientConfig()),
-              );
+              append = appendBrowserPrompt(append, buildTtsPromptAppend(ttsStore.getActiveClientConfig()));
             }
             append = appendBrowserPrompt(append, SCHEDULING_PROMPT);
             append = appendBrowserPrompt(append, CONTEXT_REFERENCE_PROMPT);
@@ -11859,7 +11917,10 @@ async function startCodexThreadRun(
             }
             const schedulingInject = await schedulingGateway.resolveInjection(input.thread.id);
             registerBuiltin(SCHEDULING_MCP_SERVER, schedulingInject.sdkEntry);
-            registerBuiltin(CONTEXT_MCP_SERVER, (await contextReferenceGateway.resolveInjection(input.thread.id)).sdkEntry);
+            registerBuiltin(
+              CONTEXT_MCP_SERVER,
+              (await contextReferenceGateway.resolveInjection(input.thread.id)).sdkEntry,
+            );
             const imageViewInject = await imageViewGateway.resolveInjection(input.thread.id);
             registerBuiltin(ECO_IMAGE_VIEW_MCP_SERVER, imageViewInject.sdkEntry);
             const imageDisplayInject = await imageDisplayGateway.resolveInjection(input.thread.id);
@@ -12158,8 +12219,7 @@ async function resolvePiSessionResourcesForThread(
     imageGenerationStore.getSettings().enabled &&
     integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "imageGeneration");
   const sessionTtsEnabled =
-    ttsStore.getSettings().enabled &&
-    integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "tts");
+    ttsStore.getSettings().enabled && integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "tts");
 
   const browserInject = await requireBrowserHost().resolveAgentBrowserMcpInjection({
     threadId,
@@ -12251,7 +12311,9 @@ async function resolvePiSessionResourcesForThread(
     ...(browserSkillDirectory ? { browserSkillDirectory } : {}),
   });
 
-  mcpSession.mcpServers[CONTEXT_MCP_SERVER] = (await contextReferenceGateway.resolveInjection(threadId)).sdkEntry;
+  mcpSession.mcpServers[CONTEXT_MCP_SERVER] = (
+    await contextReferenceGateway.resolveInjection(threadId)
+  ).sdkEntry;
   mcpSession.appendSystemPrompt.push(CONTEXT_REFERENCE_PROMPT);
   mcpSession.mcpServers[SCHEDULING_MCP_SERVER] = schedulingInject.sdkEntry;
   mcpSession.appendSystemPrompt.push(SCHEDULING_PROMPT);
@@ -13135,7 +13197,9 @@ async function scheduleAcceptedConversationMessage(
   // may consume it.
   if (!thread) return { state: "unknown", message: "对话不存在，回答未确认投递。" };
   const currentMessage = conversationStore.conversationV2().getMessage(input.conversationId, input.messageId);
-  const isAsyncAnswer = conversationStore.conversationV2().isAsyncClarificationAnswer(thread.id, input.messageId);
+  const isAsyncAnswer = conversationStore
+    .conversationV2()
+    .isAsyncClarificationAnswer(thread.id, input.messageId);
   const terminalDelivery = terminalAcceptedMessageDelivery(currentMessage, thread.coreKind === "codex");
   if (terminalDelivery) return { ...terminalDelivery, followUpMessageId: input.messageId };
 
@@ -14067,8 +14131,10 @@ function threadAcceptsLiveFollowUp(
 
 function isAsyncClarificationAnswerFollowUp(followUp: ThreadPendingFollowUp): boolean {
   return Boolean(
-    followUp.conversationMessageId && conversationStore.conversationV2()
-      .isAsyncClarificationAnswer(followUp.threadId, followUp.conversationMessageId),
+    followUp.conversationMessageId &&
+      conversationStore
+        .conversationV2()
+        .isAsyncClarificationAnswer(followUp.threadId, followUp.conversationMessageId),
   );
 }
 
@@ -15552,7 +15618,10 @@ async function handleRunCancelled(
   // "queued" state here and is force-drained right after — auto-pausing would
   // flash "排队发送已暂停" and then send the message anyway, and the paused
   // state would linger for the rest of the queue.
-  if (!pendingEscalatedFollowUpDrain.has(threadId) && threadFollowUpQueueControl.shouldPauseCancelledRun(threadId)) {
+  if (
+    !pendingEscalatedFollowUpDrain.has(threadId) &&
+    threadFollowUpQueueControl.shouldPauseCancelledRun(threadId)
+  ) {
     autoPauseFollowUpQueueWhenQueuedRemain(threadId);
   }
   const explicit = takePendingCancelDisposition(pendingCancelDisposition, threadId);
@@ -17852,10 +17921,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function requireConversationV2Thread(
-  conversationId: string,
-  options: { repairOnLoad?: boolean } = {},
-): void {
+function requireConversationV2Thread(conversationId: string, options: { repairOnLoad?: boolean } = {}): void {
   const id = conversationId.trim();
   conversationRecoveryGate.assertReady(id);
   if (!conversationStore.getThread(id)) {
@@ -18072,8 +18138,7 @@ async function buildSdkSessionOptions(
     imageGenerationStore.getSettings().enabled &&
     integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "imageGeneration");
   const sessionTtsEnabled =
-    ttsStore.getSettings().enabled &&
-    integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "tts");
+    ttsStore.getSettings().enabled && integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "tts");
   const browserInject = await requireBrowserHost().resolveAgentBrowserMcpInjection({
     threadId,
     sessionEnabled: sessionEcoBrowserEnabled,
@@ -18168,7 +18233,9 @@ async function buildSdkSessionOptions(
   withWebSearchMcp.mcpServers[SCHEDULING_MCP_SERVER] = (
     await schedulingGateway.resolveInjection(threadId)
   ).sdkEntry;
-  withWebSearchMcp.mcpServers[CONTEXT_MCP_SERVER] = (await contextReferenceGateway.resolveInjection(threadId)).sdkEntry;
+  withWebSearchMcp.mcpServers[CONTEXT_MCP_SERVER] = (
+    await contextReferenceGateway.resolveInjection(threadId)
+  ).sdkEntry;
   const hubBuiltinKeys = Object.keys(withWebSearchMcp.mcpServers).filter(
     (key) => key.startsWith("eco_") && key !== "eco_mcp",
   );
@@ -18608,7 +18675,8 @@ function maybeRevealBrowserFromAgentTool(input: {
   const toolName = (input.toolName ?? fromPayload ?? fromMessage ?? "").trim();
   if (toolName && isEcoTtsToolName(toolName)) {
     const threadId = input.threadId?.trim();
-    if (threadId) ttsGateway.noteUpcomingTool(threadId, toolName, resolveToolUseIdFromActivityPayload(input.payload));
+    if (threadId)
+      ttsGateway.noteUpcomingTool(threadId, toolName, resolveToolUseIdFromActivityPayload(input.payload));
   }
   if (toolName && isEcoImageGenerationToolName(toolName)) {
     const threadId = input.threadId?.trim();
@@ -18670,7 +18738,11 @@ function maybeRevealBrowserFromThreadRunEvent(event: {
     resolveToolNameFromActivityPayload({ message: event.message });
   const name = (toolName ?? "").trim();
   if (name && isEcoTtsToolName(name)) {
-    ttsGateway.noteUpcomingTool(event.threadId, name, typeof metaTool?.toolUseId === "string" ? metaTool.toolUseId.trim() : undefined);
+    ttsGateway.noteUpcomingTool(
+      event.threadId,
+      name,
+      typeof metaTool?.toolUseId === "string" ? metaTool.toolUseId.trim() : undefined,
+    );
   }
   if (name && isEcoImageGenerationToolName(name)) {
     const toolUseId = typeof metaTool?.toolUseId === "string" ? metaTool.toolUseId.trim() : undefined;
@@ -19904,36 +19976,6 @@ function createThreadToolPermissionHandler(
   );
 }
 
-function createMcpHubNestedToolPermissionHandler(
-  handlers: readonly ((request: SdkToolPermissionRequest) => Promise<SdkToolPermissionDecision>)[],
-): (request: SdkToolPermissionRequest) => Promise<SdkToolPermissionDecision> {
-  const delegate = composeCanUseToolHandlers(...handlers);
-  return async (request) => {
-    if (
-      request.toolName !== "mcp__eco_mcp__call_tool" &&
-      request.toolName !== "eco_mcp_call_tool" &&
-      !request.toolName.endsWith("__eco_mcp__call_tool")
-    ) {
-      return { behavior: "allow", updatedInput: request.input };
-    }
-    const toolId = typeof request.input.name === "string" ? request.input.name.trim() : "";
-    const nested = isRecord(request.input.arguments) ? request.input.arguments : {};
-    const separator = toolId.indexOf(":");
-    if (separator <= 0 || !toolId.slice(separator + 1).trim()) {
-      return {
-        behavior: "deny",
-        message: "Eco MCP Hub call_tool 缺少有效的已搜索工具 ID。",
-        interrupt: false,
-      };
-    }
-    return delegate({
-      ...request,
-      toolName: `mcp__${toolId.slice(0, separator)}__${toolId.slice(separator + 1)}`,
-      input: nested,
-    });
-  };
-}
-
 function createWebSearchToolPermissionHandler(
   threadId: string,
 ): (request: SdkToolPermissionRequest) => Promise<SdkToolPermissionDecision> {
@@ -20303,6 +20345,11 @@ async function requestSdkHintApproval(
 ): Promise<SdkToolPermissionDecision> {
   if (sdkHintApprovalsHandled.has(request.toolUseId))
     return { behavior: "allow", updatedInput: request.input };
+  const mcpToolApproval = mcpStore.resolveToolApprovalTarget(request.toolName);
+  if (!request.suppressAlwaysAllowRule && mcpToolApproval && mcpStore.isToolApproved(mcpToolApproval)) {
+    sdkHintApprovalsHandled.add(request.toolUseId);
+    return { behavior: "allow", updatedInput: request.input };
+  }
   const thread = conversationStore.getThread(threadId);
   const agentId = resolveThreadBashApprovalAgentId(threadId, request);
   if (!thread || !agentId)
@@ -20317,6 +20364,14 @@ async function requestSdkHintApproval(
     riskScore: 50,
     riskLevel: "medium",
     filesystemTool: request.toolName,
+    ...(mcpToolApproval
+      ? {
+          mcpToolApproval,
+          kind: "mcp" as const,
+          filesystemTool: "MCP",
+          filesystemPath: `${mcpToolApproval.serverName}/mcp__${mcpToolApproval.serverName}__${mcpToolApproval.toolName}`,
+        }
+      : {}),
     ...sdkPermissionApprovalHints(request),
     ...(request.description && { description: request.description }),
   };
@@ -20777,7 +20832,10 @@ async function reviewThreadToolApproval(
     policyMatches: review.policyMatches,
     diagnostics: review.diagnostics,
     targetExtractionComplete: hostEvidence.targetExtractionComplete,
-    evidenceLimitations: [...hostEvidence.limitations, ...hostEvidence.paths.flatMap((entry) => entry.limitations)],
+    evidenceLimitations: [
+      ...hostEvidence.limitations,
+      ...hostEvidence.paths.flatMap((entry) => entry.limitations),
+    ],
   });
   if (review.action === "allow" && (tool.sdkHints?.defaultToNo || tool.sdkHints?.suppressAlwaysAllowRule)) {
     sdkHintApprovalsHandled.add(request.toolUseId);
@@ -20903,6 +20961,7 @@ function isBashApprovalResolvePayload(value: unknown): value is BashApprovalReso
     payload.toolUseId.trim().length > 0 &&
     (payload.decision === "approved" ||
       payload.decision === "approved_remember_prefix" ||
+      payload.decision === "approved_remember_mcp_tool" ||
       payload.decision === "approved_for_session" ||
       payload.decision === "approved_execpolicy_amendment" ||
       payload.decision === "approved_network_policy_amendment" ||
@@ -20929,7 +20988,7 @@ function isBashApprovalGranted(
   if (!resolved) {
     return false;
   }
-  if (resolved.decision === "approved") {
+  if (resolved.decision === "approved" || resolved.decision === "approved_remember_mcp_tool") {
     return true;
   }
   if (resolved.decision === "approved_remember_prefix") {
@@ -21149,6 +21208,7 @@ function startRuntimeProxy(
           return runtimeRouteToProxyRoute(route, {
             globalMaxOutputTokens: workflowSettingsStore.get().maxOutputLimitTokens,
             ...(contextTokens !== undefined && { contextTokens }),
+            contextTokensResolved: (route.manualSpec?.contextTokens ?? 0) > 0 || (catalog?.limits.contextTokens ?? 0) > 0,
             ...(catalog?.limits.maxOutputTokens !== undefined && {
               catalogMaxOutputTokens: catalog.limits.maxOutputTokens,
             }),
@@ -21205,6 +21265,7 @@ async function resolveCandidateModels(
           view.resolvedSupportsReasoning = manual.supportsReasoning;
       }
       view.resolvedSupportsNativeWebSearch = manual?.supportsNativeWebSearch !== false;
+      view.resolvedSupportsRemoteCompaction = manual?.supportsRemoteCompaction === true;
       if (pricingLookup) {
         const rates = resolveRatesForRoute(pricingLookup, manual);
         if (rates) {

@@ -368,8 +368,7 @@ export const i18nCatalogs = {
       "settings.maxOutput.fixed": "固定上限",
       "settings.maxOutput.dynamicSubtitle":
         "根据每次请求的输入长度自动留出输出空间，不超过模型自身的输出上限。",
-      "settings.maxOutput.subtitle":
-        "所有请求的输出一律不超过该值，也不超过模型自身的输出上限。",
+      "settings.maxOutput.subtitle": "所有请求的输出一律不超过该值，也不超过模型自身的输出上限。",
       "settings.maxOutput.tokens": "{{tokens}} tokens",
       "settings.agentLibrary": "智能体库",
       "settings.orchestrationComponents": "运行配置",
@@ -560,7 +559,8 @@ export const i18nCatalogs = {
       "task.tts.openInFileViewer": "在文件浏览器中播放",
       "task.tts.reveal": "在文件夹中显示",
       "settings.imageGeneration.title": "创意绘画",
-      "settings.imageGeneration.pageDesc": "配置创意绘画供应商或 Codex 登录账号。会话可单独开启创意绘画工具。",
+      "settings.imageGeneration.pageDesc":
+        "配置创意绘画供应商或 Codex 登录账号。会话可单独开启创意绘画工具。",
       "settings.imageGeneration.masterTitle": "允许会话使用创意绘画",
       "settings.imageGeneration.masterHint": "使用激活的供应商配置进行创意绘画；每次调用都需要确认",
       "settings.imageGeneration.encryptionUnavailable": "系统安全存储不可用，无法保存或读取 API Key。",
@@ -685,6 +685,9 @@ export const i18nCatalogs = {
       "settings.mcp.headers": "请求头（JSON）",
       "settings.mcp.advanced": "高级选项",
       "settings.mcp.allowedTools": "允许的工具（留空则 mcp__名称__*）",
+      "settings.mcp.rememberedTools": "已设为不再询问的工具（本机所有会话）",
+      "settings.mcp.resetToolApprovals": "恢复询问所有工具",
+      "settings.mcp.resetToolApprovalsPending": "保存后将恢复询问这些工具。",
       "settings.mcp.checking": "检测中",
       "settings.mcp.handshaking": "正在启动并握手...",
       "settings.mcp.protocol": "协议 {{version}}",
@@ -838,10 +841,13 @@ export const i18nCatalogs = {
       "settings.models.providerConfigure": "配置",
       "settings.models.providerDefaultModel": "默认模型：{{model}}",
       "settings.models.providerEndpointType": "端口类型：{{protocol}}",
-      "settings.models.subscriptionAuthHint": "这是系统自动管理的 ChatGPT 账号连接。请在“ChatGPT 账号”页完成登录；这里不填写 API Key。",
+      "settings.models.subscriptionAuthHint":
+        "这是系统自动管理的 ChatGPT 账号连接。请在“ChatGPT 账号”页完成登录；这里不填写 API Key。",
       "settings.models.subscriptionFixedEndpoint": "官方 Responses API",
-      "settings.models.subscriptionFixedEndpointHint": "连接地址由系统固定管理。账号代理在 ChatGPT 账号页单独配置。",
-      "settings.models.subscriptionProxyHint": "ChatGPT 使用账号级代理。请到 ChatGPT 账号页为每个账号分别设置。",
+      "settings.models.subscriptionFixedEndpointHint":
+        "连接地址由系统固定管理。账号代理在 ChatGPT 账号页单独配置。",
+      "settings.models.subscriptionProxyHint":
+        "ChatGPT 使用账号级代理。请到 ChatGPT 账号页为每个账号分别设置。",
       "settings.models.testConnectivity": "连通性测试：{{name}}",
       "settings.models.copyNamed": "复制 {{name}}",
       "settings.models.editNamed": "编辑 {{name}}",
@@ -954,6 +960,16 @@ export const i18nCatalogs = {
       "settings.models.editor.guidancePlaceholder":
         "例如：仅在需要代码探索时调用 Explore，复杂实现交给 Coder。",
       "settings.models.editor.v4aTeaching": "V4A 教学",
+      "settings.models.editor.claudeCompactionAdvanced": "Claude 压缩设置",
+      "settings.models.editor.claudeCompactionWindow": "子代理压缩窗口（tokens）",
+      "settings.models.editor.claudeCompactionAuto": "按所选模型自动设置",
+      "settings.models.editor.claudeCompactionHint":
+        "留空时跟随所选模型；填写 100000～1000000 的整数可提前压缩。实际窗口还受主会话、全局上限和回退模型限制，仅对 Claude 子代理生效。修改在下次运行时应用。",
+      "settings.models.editor.claudeCompactionModelWindow":
+        "按模型及当前设置计算：{{tokens}} tokens，启动时还会应用主会话和全局上限。",
+      "settings.models.editor.claudeCompactionUnsupported":
+        "模型上下文只有 {{tokens}} tokens，低于 Claude 独立压缩窗口的最小值 100000，无法启用此子代理。",
+      "settings.models.editor.claudeCompactionUnknown": "模型上下文长度尚未确认，请先补全候选模型参数。",
       "settings.models.editor.v4aTeachingHint":
         "在 Agent 提示词中追加 Codex V4A apply_patch 格式教学。默认关闭。GPT、DeepSeek 不需要开启。",
       "settings.models.editor.advancedSettings": "高级设置",
@@ -991,6 +1007,10 @@ export const i18nCatalogs = {
       "settings.models.node.mainPrompt": "主 Agent 提示词",
       "settings.models.node.templateReference": "引用模板：{{id}}",
       "settings.models.node.themeColor": "主题色",
+      "settings.models.node.themeColorPresets": "{{label}}预设色",
+      "settings.models.node.themeColorSelect": "选择 {{color}}",
+      "settings.models.node.themeColorCustom": "自定义",
+      "settings.models.node.themeColorInvalid": "请使用 #RRGGBB 格式。",
       "settings.models.provider.editTitle": "编辑 {{name}}",
       "settings.models.provider.createTitle": "新建模型服务商",
       "settings.models.provider.basicInfo": "基本信息",
@@ -1178,7 +1198,8 @@ export const i18nCatalogs = {
       "settings.chatgptAccounts.lastSuccess": "最近成功 {{time}}",
       "settings.chatgptAccounts.authFailed": "ChatGPT 授权失败",
       "settings.chatgptAccounts.clipboardUnsupported": "当前环境不支持复制到剪贴板，请使用内置授权窗口",
-      "settings.chatgptAccounts.linkCopied": "授权链接已复制，请在已登录 ChatGPT 的浏览器中打开；完成授权后返回 Eco Coding。",
+      "settings.chatgptAccounts.linkCopied":
+        "授权链接已复制，请在已登录 ChatGPT 的浏览器中打开；完成授权后返回 Eco Coding。",
       "settings.chatgptAccounts.authUrlGenerateFailed": "授权链接生成失败",
       "settings.chatgptAccounts.testServiceUnavailable": "测试服务不可用",
       "settings.chatgptAccounts.clearedUnavailable": "已清除本地不可用状态，可以重新测试账号。",
@@ -1188,7 +1209,8 @@ export const i18nCatalogs = {
       "settings.chatgptAccounts.reauthorize": "重新授权",
       "settings.chatgptAccounts.startAuthorization": "开始授权",
       "settings.chatgptAccounts.proxyGlobal": "全局代理",
-      "settings.chatgptAccounts.notEligibleWarning": "当前账号不具备订阅共享资格，可在 ChatGPT 中检查套餐与工作区，或通过更多操作重新检测。",
+      "settings.chatgptAccounts.notEligibleWarning":
+        "当前账号不具备订阅共享资格，可在 ChatGPT 中检查套餐与工作区，或通过更多操作重新检测。",
       "settings.chatgptAccounts.copyAuthorizationUrl": "复制授权链接",
       "settings.chatgptAccounts.recheck": "重新检测",
       "settings.chatgptAccounts.disableAccount": "停用账号",
@@ -1199,7 +1221,8 @@ export const i18nCatalogs = {
       "settings.chatgptAccounts.fetchingModels": "获取模型中…",
       "settings.chatgptAccounts.chooseModel": "请选择模型",
       "settings.chatgptAccounts.refetchModels": "重新获取模型",
-      "settings.chatgptAccounts.notEligibleTestNotice": "此账号上次被官方判定为订阅共享资格不可用。本次测试会直接向官方接口验证。",
+      "settings.chatgptAccounts.notEligibleTestNotice":
+        "此账号上次被官方判定为订阅共享资格不可用。本次测试会直接向官方接口验证。",
       "settings.chatgptAccounts.testing": "测试中…",
       "settings.chatgptAccounts.sendHi": "发送 hi",
       "settings.chatgptAccounts.addDialogTitle": "添加 ChatGPT 订阅账号",
@@ -2402,6 +2425,8 @@ export const i18nCatalogs = {
       "approval.bash.options": "工具授权选项",
       "approval.bash.approve": "同意",
       "approval.bash.rememberPrefix": "同意，且对于以后续内容开头的命令不再询问 ",
+      "approval.mcp.rememberTool": "允许此工具，下次不再询问 ",
+      "approval.mcp.rememberScope": "适用于此电脑上的所有会话，可在 MCP 设置中恢复询问。",
       "approval.bash.deny": "拒绝",
       "approval.bash.otherPlaceholder": "其他（填写后按回车）",
       "approval.bash.feedbackAria": "其他说明，填写后按回车提交",
@@ -2651,6 +2676,10 @@ export const i18nCatalogs = {
       "modelSpec.reasoning": "推理",
       "modelSpec.nativeWebSearch": "原始WebSearch",
       "modelSpec.nativeWebSearchOff": "原始WebSearch已关闭",
+      "modelSpec.remoteCompaction": "远程压缩",
+      "modelSpec.remoteCompactionOff": "远程压缩已关闭",
+      "modelSpec.remoteCompactionHint":
+        "仅用于 Codex。确认该模型的 Responses 接口支持远程上下文压缩后开启。默认关闭；原生子代理与主模型的设置需一致。",
       "modelSpec.manual": "手动",
       "modelSpec.defaultSource": "系统默认",
       "modelSpec.notProvided": "未提供",
@@ -2696,7 +2725,8 @@ export const i18nCatalogs = {
       "modelSpec.resetAllAuto": "全部恢复自动",
       "modelSpec.overriddenAria": "已手动覆盖",
       "modelSpec.pricingPerM": "定价 ($ / M tokens)",
-      "modelSpec.effectiveCaption": "catalog 输入 {{input}} / 输出 {{output}} → 生效 {{effectiveInput}} / {{effectiveOutput}}",
+      "modelSpec.effectiveCaption":
+        "catalog 输入 {{input}} / 输出 {{output}} → 生效 {{effectiveInput}} / {{effectiveOutput}}",
       "modelSpec.shortcutHint": "⌘/Ctrl + S 保存 · Esc 取消",
       "modelSpec.tokenInvalid": "请输入正整数或带 k/m 后缀的有效值（如 128k、1m）",
       "modelSpec.rateInvalid": "需为非负小数",
@@ -3615,7 +3645,8 @@ export const i18nCatalogs = {
       "browser.viewportDpr": "Device pixel ratio",
       "browser.viewportApply": "Apply",
       "browser.viewportRotate": "Rotate viewport",
-      "browser.viewportResizeHint": "Drag an edge to resize; use arrow keys for fine adjustments, Shift for larger steps",
+      "browser.viewportResizeHint":
+        "Drag an edge to resize; use arrow keys for fine adjustments, Shift for larger steps",
       "browser.viewportResize.right": "Resize viewport width",
       "browser.viewportResize.bottom": "Resize viewport height",
       "browser.viewportResize.corner": "Resize viewport",
@@ -3665,6 +3696,9 @@ export const i18nCatalogs = {
       "settings.mcp.headers": "Request headers (JSON)",
       "settings.mcp.advanced": "Advanced options",
       "settings.mcp.allowedTools": "Allowed tools (blank means mcp__name__*)",
+      "settings.mcp.rememberedTools": "Tools approved without asking (all conversations on this device)",
+      "settings.mcp.resetToolApprovals": "Ask again for all tools",
+      "settings.mcp.resetToolApprovalsPending": "Saving will restore approval prompts for these tools.",
       "settings.mcp.checking": "Checking",
       "settings.mcp.handshaking": "Starting and performing handshake...",
       "settings.mcp.protocol": "Protocol {{version}}",
@@ -3821,10 +3855,13 @@ export const i18nCatalogs = {
       "settings.models.providerConfigure": "Configure",
       "settings.models.providerDefaultModel": "Default model: {{model}}",
       "settings.models.providerEndpointType": "Endpoint type: {{protocol}}",
-      "settings.models.subscriptionAuthHint": "This ChatGPT account connection is managed automatically. Sign in on the ChatGPT accounts page; no API Key is needed here.",
+      "settings.models.subscriptionAuthHint":
+        "This ChatGPT account connection is managed automatically. Sign in on the ChatGPT accounts page; no API Key is needed here.",
       "settings.models.subscriptionFixedEndpoint": "Official Responses API",
-      "settings.models.subscriptionFixedEndpointHint": "The endpoint is fixed by the system. Per-account proxies are configured on the ChatGPT accounts page.",
-      "settings.models.subscriptionProxyHint": "ChatGPT uses per-account proxies. Configure each account on the ChatGPT accounts page.",
+      "settings.models.subscriptionFixedEndpointHint":
+        "The endpoint is fixed by the system. Per-account proxies are configured on the ChatGPT accounts page.",
+      "settings.models.subscriptionProxyHint":
+        "ChatGPT uses per-account proxies. Configure each account on the ChatGPT accounts page.",
       "settings.models.testConnectivity": "Connectivity test: {{name}}",
       "settings.models.copyNamed": "Copy {{name}}",
       "settings.models.editNamed": "Edit {{name}}",
@@ -3945,6 +3982,17 @@ export const i18nCatalogs = {
       "settings.models.editor.guidancePlaceholder":
         "E.g. Only use Explore when code exploration is needed, delegate complex implementation to Coder.",
       "settings.models.editor.v4aTeaching": "V4A teaching",
+      "settings.models.editor.claudeCompactionAdvanced": "Claude compaction settings",
+      "settings.models.editor.claudeCompactionWindow": "Subagent compaction window (tokens)",
+      "settings.models.editor.claudeCompactionAuto": "Automatic from selected model",
+      "settings.models.editor.claudeCompactionHint":
+        "Leave blank to follow the model, or enter an integer from 100000 to 1000000 to compact earlier. The parent, global cap and fallback models also constrain the window. Applies to Claude subagents on the next run.",
+      "settings.models.editor.claudeCompactionModelWindow":
+        "Window in tokens, based on the model and setting: {{tokens}}. Parent and global limits also apply at launch.",
+      "settings.models.editor.claudeCompactionUnsupported":
+        "Model context window (tokens): {{tokens}}; Claude requires at least 100000. This subagent cannot run.",
+      "settings.models.editor.claudeCompactionUnknown":
+        "The model context window is unconfirmed. Complete its candidate model settings first.",
       "settings.models.editor.v4aTeachingHint":
         "Append Codex V4A apply_patch format teaching to agent instructions. Off by default. GPT and DeepSeek do not need this enabled.",
       "settings.models.editor.advancedSettings": "Advanced settings",
@@ -3985,6 +4033,10 @@ export const i18nCatalogs = {
       "settings.models.node.mainPrompt": "Main Agent prompt",
       "settings.models.node.templateReference": "Referenced template: {{id}}",
       "settings.models.node.themeColor": "Theme color",
+      "settings.models.node.themeColorPresets": "{{label}} presets",
+      "settings.models.node.themeColorSelect": "Select {{color}}",
+      "settings.models.node.themeColorCustom": "Custom",
+      "settings.models.node.themeColorInvalid": "Use the #RRGGBB format.",
       "settings.models.provider.editTitle": "Edit {{name}}",
       "settings.models.provider.createTitle": "New model provider",
       "settings.models.provider.basicInfo": "General",
@@ -4063,7 +4115,8 @@ export const i18nCatalogs = {
       "settings.openaiAccounts.filterMissing": "Needs sign-in",
       "settings.openaiAccounts.listLoadFailed": "Failed to load the account list",
       "settings.openaiAccounts.filterEmpty": "No accounts in this category",
-      "settings.openaiAccounts.noAccountsHint": "Codex Agent can use an account only once it is added and signed in.",
+      "settings.openaiAccounts.noAccountsHint":
+        "Codex Agent can use an account only once it is added and signed in.",
       "settings.openaiAccounts.pendingCredentialsBadge": "Credentials pending",
       "settings.openaiAccounts.pendingSwitchBadge": "Switch pending",
       "settings.openaiAccounts.pendingDeactivateBadge": "Deactivation pending",
@@ -4182,7 +4235,8 @@ export const i18nCatalogs = {
         "Authorization link copied. Open it in a browser already signed in to ChatGPT, then return to Eco Coding.",
       "settings.chatgptAccounts.authUrlGenerateFailed": "Failed to generate the authorization link",
       "settings.chatgptAccounts.testServiceUnavailable": "Test service unavailable",
-      "settings.chatgptAccounts.clearedUnavailable": "Cleared the local unavailable state; you can test the account again.",
+      "settings.chatgptAccounts.clearedUnavailable":
+        "Cleared the local unavailable state; you can test the account again.",
       "settings.chatgptAccounts.defaultAccountName": "ChatGPT account {{index}}",
       "settings.chatgptAccounts.emailUnbound": "No email linked",
       "settings.chatgptAccounts.testConnection": "Test connection",
@@ -4208,18 +4262,23 @@ export const i18nCatalogs = {
       "settings.chatgptAccounts.addDialogTitle": "Add ChatGPT subscription account",
       "settings.chatgptAccounts.deleteDialogTitle": "Delete ChatGPT subscription account",
       "settings.chatgptAccounts.displayNameField": "Account display name",
-      "settings.chatgptAccounts.addDialogHint": "The official OAuth window opens after the account is created.",
+      "settings.chatgptAccounts.addDialogHint":
+        "The official OAuth window opens after the account is created.",
       "settings.chatgptAccounts.proxyFieldLabel": "Account proxy",
       "settings.chatgptAccounts.optionalSuffix": "optional",
       "settings.chatgptAccounts.proxyPlaceholder": "Leave blank to use the global proxy",
-      "settings.chatgptAccounts.proxyFormatHint": "HTTP, HTTPS and SOCKS5 are supported, including user and password.",
-      "settings.chatgptAccounts.deleteConfirm": "Delete the authorization and local credentials for “{{name}}”?",
-      "settings.chatgptAccounts.deleteConfirmHint": "You will need to sign in again before this account can be used.",
+      "settings.chatgptAccounts.proxyFormatHint":
+        "HTTP, HTTPS and SOCKS5 are supported, including user and password.",
+      "settings.chatgptAccounts.deleteConfirm":
+        "Delete the authorization and local credentials for “{{name}}”?",
+      "settings.chatgptAccounts.deleteConfirmHint":
+        "You will need to sign in again before this account can be used.",
       "settings.chatgptAccounts.addAndCopyLink": "Add and copy link",
       "settings.chatgptAccounts.processing": "Working…",
       "settings.chatgptAccounts.addAndLogin": "Add and sign in",
       "settings.chatgptAccounts.proxyUrlField": "Proxy URL",
-      "settings.chatgptAccounts.proxyModalHint": "Official authorization and API requests for this account use this proxy.",
+      "settings.chatgptAccounts.proxyModalHint":
+        "Official authorization and API requests for this account use this proxy.",
       "settings.chatgptAccounts.saveProxy": "Save proxy",
       "settings.models.provider.oauthDeviceCodeLabel": "Enter this code in the browser to complete login:",
       "settings.models.provider.keepKey": "Leave blank to keep the saved Key",
@@ -4643,8 +4702,10 @@ export const i18nCatalogs = {
       "fileBrowser.zoomIn": "Zoom in",
       "fileBrowser.zoomOut": "Zoom out",
       "fileBrowser.pdfPage": "{{name}}, page {{page}}",
-      "fileBrowser.tableLimit": "Table preview shows up to {{rows}} rows and {{columns}} columns. Switch to source to view more.",
-      "fileBrowser.mediaPlaybackError": "Unable to display or play this file. The format or codec may be unsupported, or the file may have changed.",
+      "fileBrowser.tableLimit":
+        "Table preview shows up to {{rows}} rows and {{columns}} columns. Switch to source to view more.",
+      "fileBrowser.mediaPlaybackError":
+        "Unable to display or play this file. The format or codec may be unsupported, or the file may have changed.",
       "fileBrowser.htmlStaticPreview": "Static preview: scripts and external network resources are disabled.",
       "fileBrowser.partialContent": "Loaded {{loaded}} / {{total}} KiB",
       "fileBrowser.loadMore": "Load next chunk",
@@ -5037,7 +5098,8 @@ export const i18nCatalogs = {
       "codexSwitch.hours": "{{count}}-hour quota",
       "codexSwitch.remaining": "{{percent}}% left",
       "codexSwitch.empty": "No available accounts",
-      "codexSwitch.emptyHint": "Check that another account is signed in and has remaining quota, then refresh.",
+      "codexSwitch.emptyHint":
+        "Check that another account is signed in and has remaining quota, then refresh.",
       "codexSwitch.failed": "Account switch failed. Please try again.",
       "codexSwitch.unavailable": "This account is unavailable or out of quota. Choose another account.",
       "codexSwitch.queryFailed": "Quota checks failed for {{count}} accounts. They are hidden.",
@@ -5291,7 +5353,8 @@ export const i18nCatalogs = {
       "app.webChat.proxyUsername": "Username",
       "app.webChat.proxyPassword": "Password",
       "app.webChat.optional": "Optional",
-      "app.webChat.proxyCustomHint": "HTTP, HTTPS and SOCKS5 support authentication. SOCKS4 supports unauthenticated connections only.",
+      "app.webChat.proxyCustomHint":
+        "HTTP, HTTPS and SOCKS5 support authentication. SOCKS4 supports unauthenticated connections only.",
       "app.webChat.proxySystemHint": "Use your system proxy configuration.",
       "app.webChat.proxyDirectHint": "Connect directly without a proxy.",
       "app.webChat.proxyRequired": "Enter a proxy address.",
@@ -5450,6 +5513,8 @@ export const i18nCatalogs = {
       "approval.bash.options": "Tool authorization options",
       "approval.bash.approve": "Approve",
       "approval.bash.rememberPrefix": "Approve, and don't ask again for commands beginning with ",
+      "approval.mcp.rememberTool": "Allow this tool without asking again ",
+      "approval.mcp.rememberScope": "Applies to all conversations on this computer. Reset in MCP settings.",
       "approval.bash.deny": "Deny",
       "approval.bash.otherPlaceholder": "Other (type and press Enter)",
       "approval.bash.feedbackAria": "Other feedback; press Enter to submit",
@@ -5587,7 +5652,8 @@ export const i18nCatalogs = {
       "composer.plus.twoColumns": "Two columns",
       "composer.references.choose": "Choose reference",
       "composer.references.loading": "Searching…",
-      "composer.references.empty": "No references found. Search SSH, pages, conversations, integrations, subagents, or MCP.",
+      "composer.references.empty":
+        "No references found. Search SSH, pages, conversations, integrations, subagents, or MCP.",
       "composer.references.ssh": "SSH bookmarks",
       "composer.references.web": "Pages",
       "composer.references.conversation": "Conversations",
@@ -5708,6 +5774,10 @@ export const i18nCatalogs = {
       "modelSpec.reasoning": "Reasoning",
       "modelSpec.nativeWebSearch": "Native WebSearch",
       "modelSpec.nativeWebSearchOff": "Native WebSearch off",
+      "modelSpec.remoteCompaction": "Remote compaction",
+      "modelSpec.remoteCompactionOff": "Remote compaction off",
+      "modelSpec.remoteCompactionHint":
+        "Codex only. Enable when this model's Responses endpoint supports remote context compaction. Off by default; native subagents must match the main model's setting.",
       "modelSpec.manual": "Manual",
       "modelSpec.defaultSource": "Default",
       "modelSpec.notProvided": "Not provided",
@@ -5754,7 +5824,8 @@ export const i18nCatalogs = {
       "modelSpec.resetAllAuto": "Reset all to auto",
       "modelSpec.overriddenAria": "Manually overridden",
       "modelSpec.pricingPerM": "Pricing ($ / M tokens)",
-      "modelSpec.effectiveCaption": "catalog in {{input}} / out {{output}} → effective {{effectiveInput}} / {{effectiveOutput}}",
+      "modelSpec.effectiveCaption":
+        "catalog in {{input}} / out {{output}} → effective {{effectiveInput}} / {{effectiveOutput}}",
       "modelSpec.shortcutHint": "⌘/Ctrl + S to save · Esc to cancel",
       "modelSpec.tokenInvalid": "Enter a positive integer, or use a k/m suffix (e.g. 128k, 1m)",
       "modelSpec.rateInvalid": "Must be a non-negative number",
@@ -6023,8 +6094,10 @@ export const i18nCatalogs = {
       "assistant.filledNamed": "{{name}} filled",
       "assistant.fillNeedsLoginPage": "Open this account's sign-in page in Eco before using Fill",
       "assistant.fillNoInput": "The sign-in page has no {{name}} field to fill. Move to the matching step.",
-      "assistant.error.invalidBase32": "The 2FA secret is not valid Base32. Edit the account profile and try again.",
-      "assistant.error.invalidLength": "The 2FA secret length or trailing bits are invalid. Check what you imported.",
+      "assistant.error.invalidBase32":
+        "The 2FA secret is not valid Base32. Edit the account profile and try again.",
+      "assistant.error.invalidLength":
+        "The 2FA secret length or trailing bits are invalid. Check what you imported.",
     },
   },
 } as const;

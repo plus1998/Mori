@@ -9,7 +9,7 @@ export const ECO_PROXY_BILLING_HEADERS = {
 } as const;
 
 /**
- * Claude Agent SDK / Claude Code (≥2.1.139; Eco bundles 0.3.289) stamps these on
+ * Claude Agent SDK / Claude Code (≥2.1.139; Eco bundles 0.3.301) stamps these on
  * in-process subagent/teammate requests when agentContext.agentId is set.
  * Main-session and some Workflow spawn paths may omit them — treat absence as a
  * real gap (pending/unattributed), never invent from role alone.

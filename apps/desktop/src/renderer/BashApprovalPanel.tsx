@@ -68,8 +68,9 @@ export function BashApprovalPanel({
           suppressAlwaysAllowRule: request.suppressAlwaysAllowRule,
         }),
         includeRememberPrefix: !request.filesystemTool && request.kind !== "image_generation",
+        includeRememberMcpTool: Boolean(request.mcpToolApproval),
       }).map((choice) => ({ choice })),
-    [request.filesystemTool, request.kind, request.suppressAlwaysAllowRule],
+    [request.filesystemTool, request.kind, request.suppressAlwaysAllowRule, request.mcpToolApproval],
   );
 
   function resolveChoice(choice: BashApprovalChoice) {
@@ -82,6 +83,10 @@ export function BashApprovalPanel({
     }
     if (choice === "approve_remember_prefix") {
       onResolve({ decision: "approved_remember_prefix" });
+      return;
+    }
+    if (choice === "approve_remember_mcp_tool") {
+      onResolve({ decision: "approved_remember_mcp_tool" });
       return;
     }
     if (choice === "deny") {
@@ -204,7 +209,9 @@ export function BashApprovalPanel({
       );
     }
 
-    if (option.choice === "approve_remember_prefix") {
+    if (option.choice === "approve_remember_prefix" || option.choice === "approve_remember_mcp_tool") {
+      const mcp = option.choice === "approve_remember_mcp_tool" ? request.mcpToolApproval : undefined;
+      const preview = mcp ? `${mcp.serverName} · ${mcp.toolName}` : rememberCommand;
       return (
         <li key={option.choice}>
           <button
@@ -224,11 +231,18 @@ export function BashApprovalPanel({
             <span className="bash-approval-option-index" aria-hidden>
               {CIRCLED_OPTION_MARKERS[optionIndex] ?? `${optionIndex + 1}.`}
             </span>
-            <span className="bash-approval-option-label bash-approval-option-remember">
-              <span className="bash-approval-option-remember-intro">{t("approval.bash.rememberPrefix")}</span>
-              <span className="bash-approval-option-remember-command" title={rememberCommand}>
-                {rememberCommandPreview}
+            <span
+              className={`bash-approval-option-label bash-approval-option-remember${mcp ? " bash-approval-option-remember-mcp" : ""}`}
+            >
+              <span className="bash-approval-option-remember-intro">
+                {t(mcp ? "approval.mcp.rememberTool" : "approval.bash.rememberPrefix")}
               </span>
+              <span className="bash-approval-option-remember-command" title={preview}>
+                {mcp ? preview : rememberCommandPreview}
+              </span>
+              {mcp && (
+                <span className="bash-approval-option-remember-scope">{t("approval.mcp.rememberScope")}</span>
+              )}
             </span>
           </button>
         </li>

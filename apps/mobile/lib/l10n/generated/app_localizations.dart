@@ -4352,6 +4352,12 @@ abstract class AppLocalizations {
   /// **'Yes, and don\'t ask again for commands beginning with '**
   String get bashApprovalRememberPrefix;
 
+  /// No description provided for @mcpApprovalRememberTool.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow this tool without asking again (all conversations on this computer) '**
+  String get mcpApprovalRememberTool;
+
   /// No description provided for @bashApprovalDenyAdjust.
   ///
   /// In en, this message translates to:

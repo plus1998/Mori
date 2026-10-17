@@ -21,12 +21,15 @@ export interface ScriptedTurn {
   /** Tool call for this turn, or a text answer when `text` is set. */
   tool?: string;
   input?: Record<string, unknown>;
+  rawArguments?: string;
   id?: string;
   text?: string;
 }
 
 export interface ProbeSessionOptions {
   signal?: AbortSignal;
+  /** Observe a running session without aborting its outer request signal. */
+  onEvent?: (event: AgentEvent, abort: () => Promise<void>) => void;
   workspace: string;
   agentDir: string;
   threadId: string;
@@ -93,7 +96,10 @@ function sse(res: http.ServerResponse, payload: ScriptedTurn, options?: ProbeSes
         },
       },
     ],
-    ["content_block_start", { type: "content_block_start", index: 0, content_block: isText ? {type: "text", text: ""} : block }],
+    [
+      "content_block_start",
+      { type: "content_block_start", index: 0, content_block: isText ? { type: "text", text: "" } : block },
+    ],
     [
       "content_block_delta",
       {
@@ -101,7 +107,10 @@ function sse(res: http.ServerResponse, payload: ScriptedTurn, options?: ProbeSes
         index: 0,
         delta: isText
           ? { type: "text_delta", text: payload.text }
-          : { type: "input_json_delta", partial_json: JSON.stringify(payload.input ?? {}) },
+          : {
+              type: "input_json_delta",
+              partial_json: payload.rawArguments ?? JSON.stringify(payload.input ?? {}),
+            },
       },
     ],
     ["content_block_stop", { type: "content_block_stop", index: 0 }],
@@ -251,10 +260,15 @@ export async function runScriptedPiSession(options: ProbeSessionOptions): Promis
 
   const events: AgentEvent[] = [];
   try {
-    for await (const event of driver.run(input)) events.push(event);
+    for await (const event of driver.run(input)) {
+      events.push(event);
+      options.onEvent?.(event, () => registry.abort(options.threadId));
+    }
   } catch (error) {
     await registry.deleteThread(options.threadId);
-    await new Promise<void>((resolve, reject) => server.close(failure => failure ? reject(failure) : resolve()));
+    await new Promise<void>((resolve, reject) =>
+      server.close((failure) => (failure ? reject(failure) : resolve())),
+    );
     throw error;
   }
   let disposal: Promise<void> | undefined;
@@ -268,7 +282,11 @@ export async function runScriptedPiSession(options: ProbeSessionOptions): Promis
       const next: AgentEvent[] = [];
       for await (const event of driver.run({
         ...input,
-        piSession: { ...input.piSession, ...(mcpServers ? { mcpServers } : {}), ...(promptActivityLineId ? { promptActivityLineId } : {}) },
+        piSession: {
+          ...input.piSession,
+          ...(mcpServers ? { mcpServers } : {}),
+          ...(promptActivityLineId ? { promptActivityLineId } : {}),
+        },
       }))
         next.push(event);
       return next;

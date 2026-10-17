@@ -23,7 +23,7 @@ def main():
     parser.add_argument('--account-db', type=Path)
     parser.add_argument('--account-id')
     parser.add_argument('--generate', action='store_true')
-    parser.add_argument('--model', default='gpt-5.5', help='参考项目的 Responses 模型，可显式覆盖')
+    parser.add_argument('--model', default='gpt-6.1-sol', help='Codex Responses 编排模型，可显式覆盖')
     parser.add_argument('--output-dir', type=Path, default=Path('/tmp/eco-image-probe'))
     args = parser.parse_args()
     if args.account_db:

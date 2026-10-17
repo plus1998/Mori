@@ -86,6 +86,8 @@ export function createAttributedAgentEvent(
     type: AgentEvent["type"];
     payload: Record<string, unknown>;
     messageParentToolUseId?: string | null;
+    /** SDK 0.3.292+ assistant/user envelope identity, authoritative across resumed runs. */
+    nativeAgentId?: string;
   },
   streamCtx?: SdkStreamContext,
 ): AgentEvent {
@@ -94,6 +96,7 @@ export function createAttributedAgentEvent(
       role: input.role,
       sessionId: input.sessionId,
       payload: input.payload,
+      ...(input.nativeAgentId && { nativeAgentId: input.nativeAgentId }),
       ...(input.messageParentToolUseId !== undefined
         ? { messageParentToolUseId: input.messageParentToolUseId }
         : {}),
@@ -126,10 +129,24 @@ export function applySubagentUsageAttribution(
      * Omit only for legacy callers that have no message-level signal.
      */
     messageParentToolUseId?: string | null;
+    nativeAgentId?: string;
   },
   streamCtx?: SdkStreamContext,
 ): { agentId: string; payload: Record<string, unknown> } {
   const explicit = input.messageParentToolUseId;
+  const nativeAgentId = input.nativeAgentId?.trim();
+  if (nativeAgentId && nativeAgentId !== input.sessionId) {
+    const parentToolUseId = typeof explicit === "string" ? explicit.trim() : undefined;
+    return {
+      agentId: nativeAgentId,
+      payload: {
+        ...input.payload,
+        agent_id: nativeAgentId,
+        subagentAgentId: nativeAgentId,
+        ...(parentToolUseId && { parent_tool_use_id: parentToolUseId }),
+      },
+    };
+  }
   if (explicit === null) {
     return { agentId: input.sessionId, payload: input.payload };
   }

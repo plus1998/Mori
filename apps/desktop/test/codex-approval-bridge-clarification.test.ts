@@ -191,6 +191,7 @@ test("Codex Hub elicitation unwraps the started call before showing MCP approval
     getThread: () => ({ prompt: "创建 issue", workspacePath: "/workspace" }),
     getWorktreePath: () => undefined,
     getPlannerAgentId: () => "planner-hub-approval",
+    getMcpHubServerName: () => "eco_mcp_abc123",
     getRoutesJson: () => "[]",
     savePendingPlan: () => undefined,
     emitThreadLive: (event) => events.push(event),

@@ -1350,6 +1350,8 @@ class BashApprovalRequest {
     this.agentId,
     this.defaultToNo = false,
     this.suppressAlwaysAllowRule = false,
+    this.mcpToolServerName,
+    this.mcpToolName,
   });
 
   factory BashApprovalRequest.fromJson(Map<String, dynamic> json) =>
@@ -1368,6 +1370,12 @@ class BashApprovalRequest {
         agentId: json['agentId'] as String?,
         defaultToNo: json['defaultToNo'] == true,
         suppressAlwaysAllowRule: json['suppressAlwaysAllowRule'] == true,
+        mcpToolServerName:
+            (json['mcpToolApproval'] as Map<String, dynamic>?)?['serverName']
+                as String?,
+        mcpToolName:
+            (json['mcpToolApproval'] as Map<String, dynamic>?)?['toolName']
+                as String?,
       );
 
   final String toolUseId;
@@ -1384,6 +1392,8 @@ class BashApprovalRequest {
   final String? agentId;
   final bool defaultToNo;
   final bool suppressAlwaysAllowRule;
+  final String? mcpToolServerName;
+  final String? mcpToolName;
 }
 
 class ThreadPendingFollowUp {

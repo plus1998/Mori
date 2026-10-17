@@ -13,6 +13,7 @@ import {
   CODEX_BUILT_IN_OPENAI_PROVIDER_ID,
   type CodexAgentRoleForConfigSync,
   type CodexMcpServerForConfigSync,
+  type CodexRemoteCompactionSupport,
   type EcoProviderForCodexConfig,
 } from "./codex-config-sync.js";
 import { resolveCodexMultiAgentVersion } from "./codex-model-catalog-sync.js";
@@ -71,6 +72,7 @@ export interface CodexMcpServerVisibilityOverride {
 }
 
 export interface CodexThreadConfigOverrides extends Record<string, unknown> {
+  model_providers?: Record<string, { capabilities: { remote_compaction: CodexRemoteCompactionSupport } }>;
   features?: {
     multi_agent: boolean;
     hooks: boolean;
@@ -82,6 +84,20 @@ export interface CodexThreadConfigOverrides extends Record<string, unknown> {
     config: Array<{ path: string; enabled: boolean }>;
   };
   mcp_servers: Record<string, CodexMcpServerVisibilityOverride>;
+}
+
+export function withCodexRemoteCompaction(
+  config: CodexThreadConfigOverrides,
+  providerId: string,
+  support: CodexRemoteCompactionSupport = "unsupported",
+): CodexThreadConfigOverrides {
+  // The built-in subscription provider has no candidate entry or generated provider table.
+  if (providerId.trim() === CODEX_BUILT_IN_OPENAI_PROVIDER_ID) return { ...config };
+  const slug = buildCodexModelProviderSlug(providerId);
+  return {
+    ...config,
+    model_providers: { ...config.model_providers, [slug]: { capabilities: { remote_compaction: support } } },
+  };
 }
 
 export function withCodexSkillConfig(
@@ -386,15 +402,6 @@ export function assertCodexRoleProvidersAvailable(
     if (!provider) {
       throw new Error(
         `Codex role '${role.roleId}' requires provider '${providerId}' (model '${modelId}'), but it is missing or disabled in Settings. Enable the provider or update the orchestration modelRef.`,
-      );
-    }
-    if (
-      provider.compactionMode === "responses-native" &&
-      role.apiCompat !== undefined &&
-      role.apiCompat !== "openai_responses"
-    ) {
-      throw new Error(
-        `Codex role '${role.roleId}' cannot override provider '${providerId}' to apiCompat=${role.apiCompat} because the provider uses responses-native compaction. Use openai_responses or switch the provider to codex-local compaction.`,
       );
     }
   }

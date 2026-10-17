@@ -1136,6 +1136,7 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
       promptActivityLineId?: string,
     ): AsyncIterable<AgentEvent> {
       let sawSettled = false;
+      let settledAborted = false;
       let assistantError: string | undefined;
       let promptBound = false;
 
@@ -1187,7 +1188,10 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
               }
               const mapped = mapPiSessionEventToAgentEvents(event as PiSessionEventLike, mapCtx);
               if (mapped.length > 0) push(mapped);
-              if ((event as { type?: string }).type === "agent_settled") sawSettled = true;
+              if (event.type === "agent_settled") {
+                sawSettled = true;
+                settledAborted ||= event.aborted;
+              }
               assistantError = applyPiAssistantErrorTracker(event as PiSessionEventLike, assistantError);
             });
             const unsubscribeSide = sideEventBus?.subscribe((event) => push([event]));
@@ -1213,7 +1217,7 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
         // Only real agent_settled may complete. prompt promise done alone is not settle.
         const terminal = decidePiPromptRunTerminal({
           sawAgentSettled: sawSettled,
-          aborted: Boolean(signal?.aborted),
+          aborted: settledAborted || Boolean(signal?.aborted),
           ...(runError
             ? {
                 errorMessage: runError instanceof Error ? runError.message : String(runError),

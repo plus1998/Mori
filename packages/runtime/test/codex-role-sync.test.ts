@@ -18,6 +18,7 @@ import {
   sanitizeCodexRoleId,
   syncOrchestrationAgentsToCodexRoles,
   withCodexNativeImageView,
+  withCodexRemoteCompaction,
   withCodexSkillConfig,
 } from "../src/codex-role-sync";
 
@@ -349,33 +350,15 @@ test("role TOML carries an explicit apiCompat override in the V1 gateway alias",
   );
 });
 
-test("responses-native providers reject non-Responses role overrides", async () => {
-  const ecoDataDir = await makeTempEcoDataDir();
-  const roleSync = await syncOrchestrationAgentsToCodexRoles({
-    codexHomeDir: resolveCodexHomeDir(ecoDataDir),
-    orchestration: buildOrchestration({
-      agents: [
-        exploreAgent({
-          providerId: "native",
-          modelId: "chat-model",
-          apiCompat: "anthropic",
-        }),
-      ],
-    }),
-    templates: [],
-  });
-
-  expect(() =>
-    assertCodexRoleProvidersAvailable(roleSync.roles, [
-      {
-        id: "native",
-        name: "Native Responses",
-        enabled: true,
-        apiCompat: "openai_responses",
-        compactionMode: "responses-native",
-      },
-    ]),
-  ).toThrow(/cannot override provider 'native' to apiCompat=anthropic/);
+test("thread remote compaction changes do not mutate other threads or MCP policy", () => {
+  const config = { mcp_servers: { eco_mcp: { enabled: true } } };
+  const remote = withCodexRemoteCompaction(config, "vendor", "v2");
+  const local = withCodexRemoteCompaction(remote, "vendor", "unsupported");
+  expect(remote.model_providers?.eco_vendor?.capabilities.remote_compaction).toBe("v2");
+  expect(local.model_providers?.eco_vendor?.capabilities.remote_compaction).toBe("unsupported");
+  expect(local.mcp_servers).toEqual(config.mcp_servers);
+  expect(config).not.toHaveProperty("model_providers");
+  expect(withCodexRemoteCompaction(config, "openai", "unsupported")).toEqual(config);
 });
 
 test("role sync rejects unknown apiCompat values", async () => {

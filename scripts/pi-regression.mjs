@@ -5,13 +5,13 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 /**
- * One entry point for the PI 1.0.3 upgrade regression.
+ * One entry point for the PI 1.3.0 upgrade regression.
  *
  * The upgrade spans four things that fail independently: the pinned dependency
  * graph, the deterministic adapter/session contracts, the real PI session against
  * a real MCP Hub, and the version each entry point actually loads at runtime.
  * Running them separately is how a green `bun test` hides a harness that resolves
- * a stale pre-1.0.3 build, so they are reported together and any red one fails the
+ * a stale pre-1.3.0 build, so they are reported together and any red one fails the
  * command.
  *
  * Usage:
@@ -27,9 +27,9 @@ const only = [...args].find((arg) => arg.startsWith("--only="))?.slice("--only="
 
 /** Versions the upgrade pins. A mismatch means the workspace resolved something else. */
 const EXPECTED_VERSIONS = {
-  "@earendil-works/pi-coding-agent": "1.0.3",
-  "@earendil-works/pi-ai": "1.0.3",
-  "@earendil-works/pi-mcp": "1.0.3",
+  "@earendil-works/pi-coding-agent": "1.3.0",
+  "@earendil-works/pi-ai": "1.3.0",
+  "@earendil-works/pi-mcp": "1.3.0",
   typebox: "1.3.27",
   "pi-web-search": "1.6.0",
 };
@@ -46,7 +46,7 @@ function record(name, status, detail) {
 /**
  * Declared versions come from the runtime manifest, installed ones from the tree
  * that package actually resolves. Checking both is the point: a manifest that says
- * 1.0.3 while the installed copy is older is exactly the state this guards against.
+ * 1.3.0 while the installed copy is older is exactly the state this guards against.
  */
 function checkVersions() {
   const declared = JSON.parse(readFileSync(join(runtimeDir, "package.json"), "utf8")).dependencies;
@@ -127,6 +127,7 @@ function checkDeterministicTests() {
       ...[
         "pi-core",
         "pi-codemode-sandbox",
+        "pi-codemode-capacity",
         "pi-session-mode",
         "pi-session-restore",
         "pi-session-dispose",
@@ -135,6 +136,7 @@ function checkDeterministicTests() {
         "pi-subagent",
         "pi-tool-approval",
         "pi-mid-turn",
+        "pi-stop-native",
         "pi-finalize-plan",
         "pi-session-settings",
         "pi-web-search-config",
@@ -212,8 +214,11 @@ function checkLegacyReplay() {
       } catch {
         // Preserve raw child output when it is not a JSON error report.
       }
-      const execution = result.error?.message ?? (result.signal ? `signal=${result.signal}` : `exit=${result.status}`);
-      failures.push(`${label}: ${execution}, ${summary ? `${summary[1]} pass, ${summary[3]} fail` : "no test summary"}\n        ${detail || "child process returned no output"}`);
+      const execution =
+        result.error?.message ?? (result.signal ? `signal=${result.signal}` : `exit=${result.status}`);
+      failures.push(
+        `${label}: ${execution}, ${summary ? `${summary[1]} pass, ${summary[3]} fail` : "no test summary"}\n        ${detail || "child process returned no output"}`,
+      );
     }
   }
   if (failures.length > 0) {
@@ -240,8 +245,6 @@ for (const [, run] of selected) {
 if (args.has("--json")) {
   console.log(JSON.stringify({ steps, failed }, null, 2));
 } else {
-  console.log(
-    `\nPI 回归：${steps.length - failed} 通过，${failed} 失败${only ? `（--only=${only}）` : ""}`,
-  );
+  console.log(`\nPI 回归：${steps.length - failed} 通过，${failed} 失败${only ? `（--only=${only}）` : ""}`);
 }
 process.exit(failed > 0 ? 1 : 0);

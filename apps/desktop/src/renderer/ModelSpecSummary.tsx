@@ -53,7 +53,8 @@ export function candidateCapabilityHint(
     candidate.resolvedMaxOutputTokens !== undefined ||
     candidate.resolvedSupportsImageInput !== undefined ||
     candidate.resolvedSupportsReasoning !== undefined ||
-    candidate.resolvedSupportsNativeWebSearch !== undefined;
+    candidate.resolvedSupportsNativeWebSearch !== undefined ||
+    candidate.resolvedSupportsRemoteCompaction !== undefined;
   if (!hasCapability) {
     return undefined;
   }
@@ -64,6 +65,7 @@ export function candidateCapabilityHint(
     supportsImageInput: candidate.resolvedSupportsImageInput ?? false,
     supportsReasoning: candidate.resolvedSupportsReasoning ?? false,
     supportsNativeWebSearch: candidate.resolvedSupportsNativeWebSearch !== false,
+    supportsRemoteCompaction: candidate.resolvedSupportsRemoteCompaction === true,
     capabilitiesResolved:
       candidate.resolvedSupportsImageInput !== undefined || candidate.resolvedSupportsReasoning !== undefined,
     contextLimitResolved: candidate.resolvedContextTokens !== undefined,
@@ -150,13 +152,22 @@ export function ModelSpecSummary({
   const hasImage = cap?.supportsImageInput;
   const hasReasoning = cap?.supportsReasoning;
   const nativeWebSearchEnabled = cap?.supportsNativeWebSearch !== false;
+  const remoteCompactionEnabled = cap?.supportsRemoteCompaction === true;
   const showNativeWebSearchChip =
     nativeWebSearchEnabled || (overrides?.has("supportsNativeWebSearch") ?? false);
   const rates = pricing?.rates;
   const hasPricing = rates && rates.inputPerM > 0 && rates.outputPerM > 0;
   const hasCache = rates && (rates.cacheReadPerM !== undefined || rates.cacheWritePerM !== undefined);
 
-  if (!hasContext && !hasImage && !hasPricing && !hasOutput && !hasReasoning && !showNativeWebSearchChip) {
+  if (
+    !hasContext &&
+    !hasImage &&
+    !hasPricing &&
+    !hasOutput &&
+    !hasReasoning &&
+    !showNativeWebSearchChip &&
+    !remoteCompactionEnabled
+  ) {
     return null;
   }
 
@@ -228,6 +239,24 @@ export function ModelSpecSummary({
             </span>
           ) : null}
           {overrides.has("supportsNativeWebSearch") ? (
+            <span className="model-spec-chip-badge">{t("modelSpec.manual")}</span>
+          ) : null}
+        </span>
+      ) : null}
+      {remoteCompactionEnabled ? (
+        <span
+          className={chipClass(
+            "model-spec-chip model-spec-chip-capability",
+            "supportsRemoteCompaction",
+            overrides,
+          )}
+          title={t("modelSpec.remoteCompactionHint")}
+        >
+          <Layers size={13} strokeWidth={2} />
+          {!compact ? (
+            <span className="model-spec-chip-caption">{t("modelSpec.remoteCompaction")}</span>
+          ) : null}
+          {overrides.has("supportsRemoteCompaction") ? (
             <span className="model-spec-chip-badge">{t("modelSpec.manual")}</span>
           ) : null}
         </span>
@@ -406,33 +435,87 @@ export function CandidateModelSpecTable({ candidate }: { candidate: CandidateMod
   const overrides = candidateOverrideFields(candidate);
   const tokenValue = (value: number | undefined) =>
     value !== undefined && value > 0 ? formatTokenCount(value) : "—";
-  const rateValue = (value: number | undefined) =>
-    value !== undefined ? formatRatePerMillion(value) : "—";
-  const supportValue = (value: boolean | undefined) =>
-    value === undefined ? "—" : value ? "✓" : "×";
+  const rateValue = (value: number | undefined) => (value !== undefined ? formatRatePerMillion(value) : "—");
+  const supportValue = (value: boolean | undefined) => (value === undefined ? "—" : value ? "✓" : "×");
   type Field = { key: ManualSpecOverrideField; label: string; value: string; icon: typeof Layers };
   const capacityAndCapabilities: Field[] = [
-    { key: "contextTokens", label: t("modelSpec.contextWindow"), value: tokenValue(candidate.resolvedContextTokens), icon: Layers },
-    { key: "maxOutputTokens", label: t("modelSpec.maxOutput"), value: tokenValue(candidate.resolvedMaxOutputTokens), icon: Maximize2 },
-    { key: "supportsImageInput", label: t("modelSpec.multimodal"), value: supportValue(candidate.resolvedSupportsImageInput), icon: Image },
-    { key: "supportsReasoning", label: t("modelSpec.reasoning"), value: supportValue(candidate.resolvedSupportsReasoning), icon: Brain },
-    { key: "supportsNativeWebSearch", label: t("modelSpec.nativeWebSearch"), value: supportValue(candidate.resolvedSupportsNativeWebSearch), icon: Globe },
+    {
+      key: "contextTokens",
+      label: t("modelSpec.contextWindow"),
+      value: tokenValue(candidate.resolvedContextTokens),
+      icon: Layers,
+    },
+    {
+      key: "maxOutputTokens",
+      label: t("modelSpec.maxOutput"),
+      value: tokenValue(candidate.resolvedMaxOutputTokens),
+      icon: Maximize2,
+    },
+    {
+      key: "supportsImageInput",
+      label: t("modelSpec.multimodal"),
+      value: supportValue(candidate.resolvedSupportsImageInput),
+      icon: Image,
+    },
+    {
+      key: "supportsReasoning",
+      label: t("modelSpec.reasoning"),
+      value: supportValue(candidate.resolvedSupportsReasoning),
+      icon: Brain,
+    },
+    {
+      key: "supportsNativeWebSearch",
+      label: t("modelSpec.nativeWebSearch"),
+      value: supportValue(candidate.resolvedSupportsNativeWebSearch),
+      icon: Globe,
+    },
+    {
+      key: "supportsRemoteCompaction",
+      label: t("modelSpec.remoteCompaction"),
+      value: supportValue(candidate.resolvedSupportsRemoteCompaction),
+      icon: Layers,
+    },
   ];
   const pricing: Field[] = [
-    { key: "inputPerM", label: t("modelSpec.inputPrice"), value: rateValue(candidate.resolvedInputPerM), icon: ArrowUp },
-    { key: "outputPerM", label: t("modelSpec.outputPrice"), value: rateValue(candidate.resolvedOutputPerM), icon: ArrowDown },
-    { key: "cacheReadPerM", label: t("modelSpec.cacheReadPrice"), value: rateValue(candidate.resolvedCacheReadPerM), icon: HardDrive },
-    { key: "cacheWritePerM", label: t("modelSpec.cacheWritePrice"), value: rateValue(candidate.resolvedCacheWritePerM), icon: Save },
+    {
+      key: "inputPerM",
+      label: t("modelSpec.inputPrice"),
+      value: rateValue(candidate.resolvedInputPerM),
+      icon: ArrowUp,
+    },
+    {
+      key: "outputPerM",
+      label: t("modelSpec.outputPrice"),
+      value: rateValue(candidate.resolvedOutputPerM),
+      icon: ArrowDown,
+    },
+    {
+      key: "cacheReadPerM",
+      label: t("modelSpec.cacheReadPrice"),
+      value: rateValue(candidate.resolvedCacheReadPerM),
+      icon: HardDrive,
+    },
+    {
+      key: "cacheWritePerM",
+      label: t("modelSpec.cacheWritePrice"),
+      value: rateValue(candidate.resolvedCacheWritePerM),
+      icon: Save,
+    },
   ];
   function renderField({ key, label, value, icon: Icon }: Field) {
     const manual = overrides?.has(key) === true;
-    const description = value === "✓" ? t("modelSpec.supported") : value === "×" ? t("modelSpec.unsupported") : value;
-    const source = value === "—" ? t("modelSpec.notProvided") : t(manual ? "modelSpec.manual" : "modelSpec.defaultSource");
+    const description =
+      value === "✓" ? t("modelSpec.supported") : value === "×" ? t("modelSpec.unsupported") : value;
+    const source =
+      value === "—" ? t("modelSpec.notProvided") : t(manual ? "modelSpec.manual" : "modelSpec.defaultSource");
     const tooltip = `${label}: ${description} (${source})`;
     return (
       <div className="candidate-spec-field" key={key} title={tooltip}>
         <dt className="candidate-spec-sr-only">{label}</dt>
-        <dd className={`${value === "×" || value === "—" ? "is-muted" : ""}${manual ? " is-manual" : ""}`} aria-label={tooltip}>
+        <dd
+          className={`${value === "×" || value === "—" ? "is-muted" : ""}${manual ? " is-manual" : ""}`}
+          aria-label={tooltip}
+        >
           <Icon size={14} aria-hidden />
           <span>{value}</span>
         </dd>
@@ -441,7 +524,9 @@ export function CandidateModelSpecTable({ candidate }: { candidate: CandidateMod
   }
   return (
     <div className="candidate-spec-table">
-      <dl className="candidate-spec-line candidate-spec-line--primary">{capacityAndCapabilities.map(renderField)}</dl>
+      <dl className="candidate-spec-line candidate-spec-line--primary">
+        {capacityAndCapabilities.map(renderField)}
+      </dl>
       <dl className="candidate-spec-line candidate-spec-line--pricing">{pricing.map(renderField)}</dl>
     </div>
   );

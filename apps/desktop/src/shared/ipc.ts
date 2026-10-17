@@ -1,4 +1,3 @@
-import type { TtsArtifact, TtsArtifactListRequest, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSaveInput, TtsSettingsSnapshot } from "./tts";
 import type {
   ThreadRunProjectionRequestSpan,
   ThreadRunProjectionSnapshot,
@@ -16,6 +15,16 @@ import type {
 import type { IntegrationAvailabilitySnapshot, IntegrationsEnabledSettings } from "./integrations";
 import type { McpSettingsSnapshot } from "./mcp";
 import type { ThreadRunToolMetadata } from "./thread-run-events";
+import type {
+  TtsArtifact,
+  TtsArtifactListRequest,
+  TtsArtifactReadRequest,
+  TtsArtifactReadResult,
+  TtsProfileSaveInput,
+  TtsProfileSnapshot,
+  TtsSettingsSaveInput,
+  TtsSettingsSnapshot,
+} from "./tts";
 
 export const IPC_CHANNELS = {
   schedulingList: "scheduling:list",
@@ -1027,7 +1036,6 @@ export interface WorkflowSettingsSnapshot {
 }
 
 export type {
-  TtsArtifact, TtsArtifactListRequest, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSaveInput, TtsSettingsSnapshot,
   ImageGenerationArtifact,
   ImageGenerationArtifactListRequest,
   ImageGenerationArtifactReadRequest,
@@ -1037,6 +1045,14 @@ export type {
   ImageGenerationSettingsSaveInput,
   ImageGenerationSettingsSnapshot,
   IntegrationAvailabilitySnapshot,
+  TtsArtifact,
+  TtsArtifactListRequest,
+  TtsArtifactReadRequest,
+  TtsArtifactReadResult,
+  TtsProfileSaveInput,
+  TtsProfileSnapshot,
+  TtsSettingsSaveInput,
+  TtsSettingsSnapshot,
 };
 
 export interface GhAvailabilityView {
@@ -1461,6 +1477,8 @@ export interface RouteManualSpec {
   supportsReasoning?: boolean;
   /** When false, PI uses Integrated web search instead of provider-native pi-web-search. Default true when omitted. */
   supportsNativeWebSearch?: boolean;
+  /** Opt in to Codex remote compaction (Responses compaction_trigger). Default false. */
+  supportsRemoteCompaction?: boolean;
   /** USD per million input tokens. */
   inputPerM?: number;
   /** USD per million output tokens. */
@@ -1496,6 +1514,8 @@ export interface CandidateModelView {
   resolvedSupportsReasoning?: boolean;
   /** Default true when manualSpec omits supportsNativeWebSearch. */
   resolvedSupportsNativeWebSearch?: boolean;
+  /** Default false; only enabled explicitly on the candidate model. */
+  resolvedSupportsRemoteCompaction?: boolean;
   resolvedInputPerM?: number;
   resolvedOutputPerM?: number;
   resolvedCacheReadPerM?: number;
@@ -2262,6 +2282,7 @@ export interface BashApprovalNetworkPolicyAmendment {
 }
 
 export interface BashApprovalRequest {
+  mcpToolApproval?: import("./mcp").McpToolApprovalTarget;
   defaultToNo?: boolean;
   suppressAlwaysAllowRule?: boolean;
   mcpServer?: { name: string; source: string };
@@ -2288,6 +2309,7 @@ export interface BashApprovalRequest {
 export type BashApprovalDecision =
   | "approved"
   | "approved_remember_prefix"
+  | "approved_remember_mcp_tool"
   | "approved_for_session"
   | "approved_execpolicy_amendment"
   | "approved_network_policy_amendment"
@@ -2575,6 +2597,8 @@ export interface RouteCapabilityHint {
   supportsReasoning: boolean;
   /** PI provider-native web search; default true when omitted from manualSpec. */
   supportsNativeWebSearch?: boolean;
+  /** Codex remote compaction; default false when omitted from manualSpec. */
+  supportsRemoteCompaction?: boolean;
   capabilitiesResolved: boolean;
   contextTokens?: number;
   maxOutputTokens?: number;

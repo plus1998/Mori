@@ -2502,6 +2502,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Yes, and don\'t ask again for commands beginning with ';
 
   @override
+  String get mcpApprovalRememberTool =>
+      'Allow this tool without asking again (all conversations on this computer) ';
+
+  @override
   String get bashApprovalDenyAdjust => 'No, tell Eco how to adjust';
 
   @override

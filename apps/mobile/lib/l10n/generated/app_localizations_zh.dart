@@ -2376,6 +2376,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get bashApprovalRememberPrefix => '是，且对于以后续内容开头的命令不再询问 ';
 
   @override
+  String get mcpApprovalRememberTool => '允许此工具，下次不再询问（此电脑所有会话） ';
+
+  @override
   String get bashApprovalDenyAdjust => '否，请告知 Eco 如何调整';
 
   @override

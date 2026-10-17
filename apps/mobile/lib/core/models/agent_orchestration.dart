@@ -305,6 +305,7 @@ class AgentInstanceConfig {
     this.mcpServers = const [],
     this.skills = const [],
     this.enabled = true,
+    this.claudeAutoCompactWindow,
   });
 
   factory AgentInstanceConfig.fromJson(Map<String, dynamic> json) =>
@@ -324,6 +325,8 @@ class AgentInstanceConfig {
             .map((entry) => entry.toString())
             .toList(growable: false),
         enabled: json['enabled'] as bool? ?? true,
+        claudeAutoCompactWindow: (json['claudeAutoCompactWindow'] as num?)
+            ?.toInt(),
       );
 
   final String agentKey;
@@ -335,6 +338,7 @@ class AgentInstanceConfig {
   final List<String> mcpServers;
   final List<String> skills;
   final bool enabled;
+  final int? claudeAutoCompactWindow;
 }
 
 class OrchestrationStrategy {
@@ -502,6 +506,8 @@ class ResolvedOrchestrationSnapshot {
             'mcpServers': agent.mcpServers,
             'skills': agent.skills,
             'enabled': agent.enabled,
+            if (agent.claudeAutoCompactWindow != null)
+              'claudeAutoCompactWindow': agent.claudeAutoCompactWindow,
           },
         )
         .toList(growable: false),

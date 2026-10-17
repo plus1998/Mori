@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   configureEcoGatewayLifecycle,
-  ensureGlobalEcoGateway,
   EcoGatewayLifecycle,
+  ensureGlobalEcoGateway,
   formatBridgePortInUseError,
   resetGlobalEcoGatewayForTests,
   stopGlobalEcoGateway,
@@ -21,9 +21,8 @@ describe("eco-gateway ensure single-flight", () => {
   });
 
   test("concurrent ensureRunning only binds bridge once", async () => {
-    const port = 18_760 + Math.floor(Math.random() * 200);
     const lifecycle = new EcoGatewayLifecycle({
-      gatewayPort: port,
+      gatewayPort: 0,
       listProviders: () => [
         {
           id: "p1",
@@ -48,7 +47,8 @@ describe("eco-gateway ensure single-flight", () => {
       expect(a).toHaveLength(1);
       expect(b).toHaveLength(1);
       expect(c).toHaveLength(1);
-      expect(lifecycle.baseUrl).toBe(`http://127.0.0.1:${port}`);
+      expect(lifecycle.port).toBeGreaterThan(0);
+      expect(lifecycle.baseUrl).toBe(`http://127.0.0.1:${lifecycle.port}`);
       const health = await fetch(`${lifecycle.baseUrl}/health`);
       expect(health.ok).toBe(true);
       // Serial re-entry after start must not re-listen (still healthy).
@@ -61,9 +61,8 @@ describe("eco-gateway ensure single-flight", () => {
   });
 
   test("stopGlobalEcoGateway keeps lifecycle so ensure can restart without reconfigure", async () => {
-    const port = 18_760 + Math.floor(Math.random() * 200);
     configureEcoGatewayLifecycle({
-      gatewayPort: port,
+      gatewayPort: 0,
       listProviders: () => [
         {
           id: "p1",

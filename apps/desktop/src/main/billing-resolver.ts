@@ -402,6 +402,7 @@ export async function lookupRouteCapabilityHints(
       providerName: route.provider.name,
       supportsImageInput: effectiveCapabilities.supportsImageInput,
       supportsReasoning: effectiveCapabilities.supportsReasoning,
+      supportsRemoteCompaction: route.manualSpec?.supportsRemoteCompaction === true,
       capabilitiesResolved: effectiveCapabilities.capabilitiesResolved,
       ...(capabilities.capabilitiesResolved && {
         catalogSupportsImageInput: capabilities.supportsImageInput,

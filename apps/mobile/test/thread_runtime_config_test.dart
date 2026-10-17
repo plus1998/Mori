@@ -92,6 +92,45 @@ ThreadRuntimeConfig _runtimeConfig({
 }
 
 void main() {
+  test('Claude subagent window survives mobile snapshot round trip', () {
+    final snapshot = ResolvedOrchestrationSnapshot.fromJson({
+      'selection': {
+        'mainAgentConfigId': 'main-1',
+        'mainPrompt': {'mode': 'builtin'},
+        'subagents': {'mode': 'none'},
+      },
+      'mainAgent': {
+        'agentKey': 'main',
+        'name': 'Main',
+        'modelRef': <String, dynamic>{},
+        'tools': <String, dynamic>{},
+      },
+      'agents': [
+        {
+          'agentKey': 'worker',
+          'templateId': 'worker',
+          'modelRef': <String, dynamic>{},
+          'tools': <String, dynamic>{},
+          'enabled': true,
+          'claudeAutoCompactWindow': 128000,
+        },
+      ],
+      'strategy': {'kind': 'autonomous'},
+    });
+    expect(snapshot.agents.single.claudeAutoCompactWindow, 128000);
+    final encoded = snapshot.toJson();
+    expect(
+      (encoded['agents'] as List).single['claudeAutoCompactWindow'],
+      128000,
+    );
+    expect(
+      ResolvedOrchestrationSnapshot.fromJson(
+        encoded,
+      ).agents.single.claudeAutoCompactWindow,
+      128000,
+    );
+  });
+
   test(
     'deriveSubagentEnabledFromSnapshot disables roles missing from snapshot',
     () {
@@ -445,18 +484,24 @@ void main() {
     expect(settings.mainAgentConfigs.single.modelRef.providerId, 'provider-1');
   });
 
-  test('workflow settings keep loading when orchestration map is dynamic-keyed', () {
-    final workflow = WorkflowSettingsSnapshot.fromJson({
-      'sessionMode': 'agent',
-      'defaultOrchestrationSelection': <dynamic, dynamic>{
-        'mainAgentConfigId': 'main-1',
-        'mainPrompt': <dynamic, dynamic>{'mode': 'builtin'},
-        'subagents': <dynamic, dynamic>{'mode': 'none'},
-      },
-    });
+  test(
+    'workflow settings keep loading when orchestration map is dynamic-keyed',
+    () {
+      final workflow = WorkflowSettingsSnapshot.fromJson({
+        'sessionMode': 'agent',
+        'defaultOrchestrationSelection': <dynamic, dynamic>{
+          'mainAgentConfigId': 'main-1',
+          'mainPrompt': <dynamic, dynamic>{'mode': 'builtin'},
+          'subagents': <dynamic, dynamic>{'mode': 'none'},
+        },
+      });
 
-    expect(workflow.defaultOrchestrationSelection?.mainAgentConfigId, 'main-1');
-  });
+      expect(
+        workflow.defaultOrchestrationSelection?.mainAgentConfigId,
+        'main-1',
+      );
+    },
+  );
 
   test('temporary model options follow desktop candidate behavior', () {
     const provider = ModelProviderView(
@@ -618,53 +663,59 @@ void main() {
     expect(resolveCommitMainAgentConfigId(config), 'main-1');
   });
 
-  test('ACP runtime config round-trips CLI model and workflow model defaults', () {
-    const auxiliaryModel = AuxiliaryModelSelection(
-      providerId: 'provider-2',
-      modelId: 'fast-model',
-      candidateModelId: 'candidate-fast',
-    );
-    const visionModel = VisionModelSelection(
-      providerId: 'provider-3',
-      modelId: 'vision-model',
-      candidateModelId: 'candidate-vision',
-    );
-    final config = buildDefaultRuntimeConfig(
-      modelSettings: _settings(),
-      workflow: const WorkflowSettingsSnapshot(
-        sessionMode: 'agent',
-        defaultCoreKind: 'acp',
-        acpCursorModelId: '  auto  ',
-        defaultAuxiliaryModel: auxiliaryModel,
-        defaultVisionModel: visionModel,
-      ),
-      orchestrationSelection: _selection(),
-      coreKind: 'acp',
-    );
+  test(
+    'ACP runtime config round-trips CLI model and workflow model defaults',
+    () {
+      const auxiliaryModel = AuxiliaryModelSelection(
+        providerId: 'provider-2',
+        modelId: 'fast-model',
+        candidateModelId: 'candidate-fast',
+      );
+      const visionModel = VisionModelSelection(
+        providerId: 'provider-3',
+        modelId: 'vision-model',
+        candidateModelId: 'candidate-vision',
+      );
+      final config = buildDefaultRuntimeConfig(
+        modelSettings: _settings(),
+        workflow: const WorkflowSettingsSnapshot(
+          sessionMode: 'agent',
+          defaultCoreKind: 'acp',
+          acpCursorModelId: '  auto  ',
+          defaultAuxiliaryModel: auxiliaryModel,
+          defaultVisionModel: visionModel,
+        ),
+        orchestrationSelection: _selection(),
+        coreKind: 'acp',
+      );
 
-    expect(config.cursorModelId, 'auto');
-    expect(config.orchestrationSelection, isNull);
-    expect(config.resolvedOrchestrationSnapshot, isNull);
-    expect(config.mainAgentModelOverride, isNull);
-    expect(config.auxiliaryModel?.candidateModelId, 'candidate-fast');
-    expect(config.visionModel?.candidateModelId, 'candidate-vision');
+      expect(config.cursorModelId, 'auto');
+      expect(config.orchestrationSelection, isNull);
+      expect(config.resolvedOrchestrationSnapshot, isNull);
+      expect(config.mainAgentModelOverride, isNull);
+      expect(config.auxiliaryModel?.candidateModelId, 'candidate-fast');
+      expect(config.visionModel?.candidateModelId, 'candidate-vision');
 
-    final wire = config.toJson();
-    expect(wire['cursorModelId'], 'auto');
-    expect(wire.containsKey('orchestrationSelection'), isFalse);
-    expect(wire.containsKey('resolvedOrchestrationSnapshot'), isFalse);
-    expect(wire.containsKey('mainAgentModelOverride'), isFalse);
-    expect(wire['auxiliaryModel'], auxiliaryModel.toJson());
-    expect(wire['visionModel'], visionModel.toJson());
+      final wire = config.toJson();
+      expect(wire['cursorModelId'], 'auto');
+      expect(wire.containsKey('orchestrationSelection'), isFalse);
+      expect(wire.containsKey('resolvedOrchestrationSnapshot'), isFalse);
+      expect(wire.containsKey('mainAgentModelOverride'), isFalse);
+      expect(wire['auxiliaryModel'], auxiliaryModel.toJson());
+      expect(wire['visionModel'], visionModel.toJson());
 
-    final decoded = ThreadRuntimeConfig.fromJson(wire);
-    expect(decoded.cursorModelId, 'auto');
-    expect(decoded.orchestrationSelection, isNull);
-    expect(decoded.resolvedOrchestrationSnapshot, isNull);
-    expect(decoded.auxiliaryModel?.modelId, 'fast-model');
-    expect(decoded.visionModel?.modelId, 'vision-model');
-    expect(isThreadRuntimeConfigReady(null, decoded, coreKind: 'acp'), isTrue);
-  });
+      final decoded = ThreadRuntimeConfig.fromJson(wire);
+      expect(decoded.cursorModelId, 'auto');
+      expect(decoded.orchestrationSelection, isNull);
+      expect(decoded.resolvedOrchestrationSnapshot, isNull);
+      expect(decoded.auxiliaryModel?.modelId, 'fast-model');
+      expect(decoded.visionModel?.modelId, 'vision-model');
+      expect(
+        isThreadRuntimeConfigReady(null, decoded, coreKind: 'acp'),
+        isTrue,
+      );
+    },
+  );
 
   test(
     'buildGlobalSettingsRuntimeConfig keeps orchestration when default core is ACP',

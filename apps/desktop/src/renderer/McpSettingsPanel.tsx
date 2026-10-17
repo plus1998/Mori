@@ -229,6 +229,7 @@ export function McpSettingsPanel({ servers, busy, onSave, onDelete, onCheck }: M
       return;
     }
     const nextForm: McpServerConfigInput = { ...input };
+    if (form.resetToolApprovals) nextForm.resetToolApprovals = true;
     if (form.id) {
       nextForm.id = form.id;
     }
@@ -246,6 +247,7 @@ export function McpSettingsPanel({ servers, busy, onSave, onDelete, onCheck }: M
       return { error: describeParseFailure(jsonParse, t) };
     }
     const payload: McpServerConfigInput = { ...input };
+    if (form.resetToolApprovals) payload.resetToolApprovals = true;
     if (form.id) {
       payload.id = form.id;
     }
@@ -308,6 +310,7 @@ export function McpSettingsPanel({ servers, busy, onSave, onDelete, onCheck }: M
     return (
       <McpServerEditor
         form={form}
+        rememberedTools={servers.find((server) => server.id === form.id)?.rememberedTools ?? []}
         setForm={setForm}
         args={args}
         setArgs={setArgs}
@@ -440,6 +443,7 @@ export function McpSettingsPanel({ servers, busy, onSave, onDelete, onCheck }: M
 
 function McpServerEditor({
   form,
+  rememberedTools,
   setForm,
   args,
   setArgs,
@@ -461,6 +465,7 @@ function McpServerEditor({
   onRegenerateJson,
 }: {
   form: McpServerConfigInput;
+  rememberedTools: string[];
   setForm: Dispatch<SetStateAction<McpServerConfigInput>>;
   args: string[];
   setArgs: Dispatch<SetStateAction<string[]>>;
@@ -695,6 +700,25 @@ function McpServerEditor({
               />
             </label>
           </>
+        )}
+
+        {rememberedTools.length > 0 && (
+          <div className="mcp-field">
+            <span className="mcp-field-label">{t("settings.mcp.rememberedTools")}</span>
+            <p>
+              {form.resetToolApprovals
+                ? t("settings.mcp.resetToolApprovalsPending")
+                : rememberedTools.join(" · ")}
+            </p>
+            <button
+              type="button"
+              className="mcp-secondary-button"
+              disabled={busy || form.resetToolApprovals}
+              onClick={() => setForm((current) => ({ ...current, resetToolApprovals: true }))}
+            >
+              {t("settings.mcp.resetToolApprovals")}
+            </button>
+          </div>
         )}
 
         {mode === "form" && (

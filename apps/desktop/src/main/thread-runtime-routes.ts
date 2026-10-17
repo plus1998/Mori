@@ -116,6 +116,9 @@ export function buildDriverRoutes(routes: readonly AnthropicProxyResolvedRoute[]
       capabilities: ["messages_api", "streaming", "tool_use", "subagent_compatible"],
       enabled: route.provider.enabled,
       ...(route.contextTokens !== undefined && { contextWindow: route.contextTokens }),
+      ...(route.contextTokensResolved !== undefined && {
+        contextWindowResolved: route.contextTokensResolved,
+      }),
     },
     fallbacks: [],
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),

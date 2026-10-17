@@ -191,6 +191,8 @@ export interface OrchestrationResourceBundle {
 }
 
 export interface AgentInstanceConfig {
+  /** Omitted: derive from the selected model. Only lowers Claude's inherited window. */
+  claudeAutoCompactWindow?: number;
   agentKey: string;
   templateId: string;
   displayName?: string;
@@ -723,6 +725,9 @@ function cloneOrchestrationStrategy(strategy: OrchestrationStrategy): Orchestrat
 
 function cloneAgentInstance(agent: AgentInstanceConfig): AgentInstanceConfig {
   return {
+    ...(agent.claudeAutoCompactWindow !== undefined && {
+      claudeAutoCompactWindow: agent.claudeAutoCompactWindow,
+    }),
     agentKey: agent.agentKey,
     templateId: agent.templateId,
     ...(agent.displayName ? { displayName: agent.displayName } : {}),

@@ -148,6 +148,7 @@ test.skipIf(process.env.ECO_CLAUDE_NATIVE_SMOKE !== "1")(
     let call = 0;
     let mcpCalls = 0;
     let permissionCalls = 0;
+    const permissionTools = new Set<string>();
     let hookCalls = 0;
     const server = Bun.serve({
       port: 0,
@@ -259,20 +260,40 @@ test.skipIf(process.env.ECO_CLAUDE_NATIVE_SMOKE !== "1")(
           model: "claude-sonnet-4-20250514",
           permissionMode: "default",
           tools: ["Bash"],
-          allowedTools: [],
+          allowedTools: ["mcp__native_smoke__echo"],
           includePartialMessages: true,
           systemPrompt: { type: "preset", preset: "claude_code", snapshot: false },
-          mcpServers: { native_smoke: mcpServer },
-          canUseTool: async (_name, input) => {
+          mcpServers: {
+            native_smoke: {
+              ...mcpServer,
+              tools: [{ name: "echo", permission_policy: "always_ask" }],
+            },
+          },
+          canUseTool: async (name, input) => {
             permissionCalls += 1;
+            permissionTools.add(name);
+            expect(input).not.toHaveProperty("eco_unknown_argument");
+            if (name === "Bash") expect(input.command).toContain("ECO_NATIVE_HOOK_NORMALIZED");
             return { behavior: "allow", updatedInput: input };
           },
           hooks: {
             PreToolUse: [
               {
                 hooks: [
-                  async () => {
+                  async (input) => {
                     hookCalls += 1;
+                    if (input.hook_event_name === "PreToolUse" && input.tool_name === "Bash") {
+                      return {
+                        hookSpecificOutput: {
+                          hookEventName: "PreToolUse" as const,
+                          updatedInput: {
+                            ...input.tool_input,
+                            command: "node -e 'process.stdout.write(\"ECO_NATIVE_HOOK_NORMALIZED\")'",
+                            eco_unknown_argument: "must be stripped before approval and execution",
+                          },
+                        },
+                      };
+                    }
                     return {};
                   },
                 ],
@@ -309,6 +330,7 @@ test.skipIf(process.env.ECO_CLAUDE_NATIVE_SMOKE !== "1")(
     try {
       const first = await run();
       expect(permissionCalls).toBeGreaterThan(0);
+      expect([...permissionTools].sort()).toEqual(["Bash", "mcp__native_smoke__echo"]);
       expect(hookCalls).toBe(2);
       expect(mcpCalls).toBe(1);
       const resumed = await run(first.session_id as string);

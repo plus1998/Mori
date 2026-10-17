@@ -7,8 +7,8 @@ import type {
 } from "../shared/ipc";
 import type { BashApprovalResolution } from "./bash-approval-bridge";
 import { assertBashApprovalResolutionAllowed } from "./bash-approval-bridge";
-import type { ConversationCommandJob, ConversationV2Store } from "./conversation-v2-store";
 import type { AcceptedConversationMessageSchedule } from "./conversation-v2-request";
+import type { ConversationCommandJob, ConversationV2Store } from "./conversation-v2-store";
 
 export interface ClarificationResolutionCommandInput {
   principalId: string;
@@ -62,6 +62,7 @@ export interface BashApprovalResolutionCommandDeps {
   v2: ConversationV2Store;
   getPending: (toolUseId: string) => BashApprovalRequest | undefined;
   resolve: (toolUseId: string, resolution: BashApprovalResolution) => boolean;
+  rememberMcpToolApproval?: (target: import("../shared/mcp").McpToolApprovalTarget) => void;
   errorMessage: (error: unknown) => string;
 }
 
@@ -251,6 +252,10 @@ export function executeBashApprovalResolutionCommand(
       ...(input.feedback ? { feedback: input.feedback } : {}),
     };
     assertBashApprovalResolutionAllowed(pending, resolution);
+    if (resolution.decision === "approved_remember_mcp_tool") {
+      if (!deps.rememberMcpToolApproval) throw new Error("MCP tool approval persistence is not configured.");
+      deps.rememberMcpToolApproval(pending.mcpToolApproval!);
+    }
     if (!deps.resolve(input.toolUseId, resolution)) {
       throw new ConversationV2Error(
         CONVERSATION_V2_ERROR.integrityFailure,

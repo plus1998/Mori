@@ -80,6 +80,8 @@ export type SdkTodoUpdatedKind = "task_started" | "task_updated" | "task_progres
 export interface SdkTodoUpdatedPayload {
   sdkKind: SdkTodoUpdatedKind;
   task_id: string;
+  run_id?: string;
+  parent_task_id?: string;
   description?: string;
   subagent_type?: string;
   task_type?: string;
@@ -126,6 +128,9 @@ export function buildSdkTodoUpdatedPayload(message: Record<string, unknown>): Sd
     sdkKind: subtype,
     task_id: taskId,
   };
+  if (typeof message.run_id === "string" && message.run_id.trim()) payload.run_id = message.run_id.trim();
+  if (typeof message.parent_task_id === "string" && message.parent_task_id.trim())
+    payload.parent_task_id = message.parent_task_id.trim();
 
   if (typeof message.description === "string" && message.description.trim()) {
     payload.description = message.description.trim();

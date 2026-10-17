@@ -158,7 +158,9 @@ function TokenPresetField({
   const inputId = useId();
   return (
     <div className="model-spec-field">
-      <label className="model-spec-field-label" htmlFor={inputId}>{label}</label>
+      <label className="model-spec-field-label" htmlFor={inputId}>
+        {label}
+      </label>
       <input
         id={inputId}
         className="model-spec-field-input"
@@ -182,7 +184,9 @@ function TokenPresetField({
         }}
       />
       <datalist id={presetsId}>
-        {presets.map((preset) => <option key={preset} value={preset} label={formatTokenPresetLabel(preset)} />)}
+        {presets.map((preset) => (
+          <option key={preset} value={preset} label={formatTokenPresetLabel(preset)} />
+        ))}
       </datalist>
       {caption ? <span className="model-spec-field-caption">{caption}</span> : null}
     </div>
@@ -410,6 +414,7 @@ export function ModelManualSpecPanel({
 }: ModelManualSpecPanelProps) {
   const { t } = useTranslation();
   const nativeWebSearchLabelId = useId();
+  const remoteCompactionLabelId = useId();
   const isSidebar = variant === "sidebar";
   const overrideCount = countManualOverrides(value);
   const [expanded, setExpanded] = useState(() => isSidebar || overrideCount > 0);
@@ -526,6 +531,24 @@ export function ModelManualSpecPanel({
               <span className="mcp-toggle-track" aria-hidden />
             </span>
           </label>
+          <label
+            className="model-spec-field model-spec-field-checkbox"
+            title={t("modelSpec.remoteCompactionHint")}
+          >
+            <span className="model-spec-field-label" id={remoteCompactionLabelId}>
+              {t("modelSpec.remoteCompaction")}
+            </span>
+            <span className="mcp-toggle mcp-toggle-sm">
+              <input
+                type="checkbox"
+                checked={value.supportsRemoteCompaction}
+                disabled={disabled}
+                aria-labelledby={remoteCompactionLabelId}
+                onChange={(event) => onChange({ supportsRemoteCompaction: event.target.checked })}
+              />
+              <span className="mcp-toggle-track" aria-hidden />
+            </span>
+          </label>
         </div>
       </section>
 
@@ -626,9 +649,7 @@ export function ModelManualSpecPanel({
           value={value.contextTokens}
           presets={CONTEXT_PRESETS}
           placeholder={autoContextHint ?? "tokens"}
-          {...(autoContextHint
-            ? { catalogHint: t("modelSpec.catalogHint", { hint: autoContextHint }) }
-            : {})}
+          {...(autoContextHint ? { catalogHint: t("modelSpec.catalogHint", { hint: autoContextHint }) } : {})}
           hint={t("candidateModels.tokenSuffixHint")}
           errorText={t("modelSpec.tokenInvalid")}
           resetLabel={t("modelSpec.resetAuto")}
@@ -641,9 +662,7 @@ export function ModelManualSpecPanel({
           value={value.maxOutputTokens}
           presets={OUTPUT_PRESETS}
           placeholder={autoOutputHint ?? "tokens"}
-          {...(autoOutputHint
-            ? { catalogHint: t("modelSpec.catalogHint", { hint: autoOutputHint }) }
-            : {})}
+          {...(autoOutputHint ? { catalogHint: t("modelSpec.catalogHint", { hint: autoOutputHint }) } : {})}
           errorText={t("modelSpec.tokenInvalid")}
           resetLabel={t("modelSpec.resetAuto")}
           {...(disabled !== undefined ? { disabled } : {})}
@@ -656,9 +675,7 @@ export function ModelManualSpecPanel({
       <div className="candidate-editor-caps">
         <EditorCapabilityRow
           title={t("modelSpec.multimodal")}
-          {...(autoImageHint
-            ? { catalogHint: t("modelSpec.catalogHint", { hint: autoImageHint }) }
-            : {})}
+          {...(autoImageHint ? { catalogHint: t("modelSpec.catalogHint", { hint: autoImageHint }) } : {})}
           overridden={value.supportsImageInput !== "auto"}
           resetLabel={t("modelSpec.resetAuto")}
           {...(disabled !== undefined ? { disabled } : {})}
@@ -691,25 +708,42 @@ export function ModelManualSpecPanel({
         <EditorCapabilityRow
           title={t("modelSpec.nativeWebSearch")}
           catalogHint={
-            value.supportsNativeWebSearch
-              ? t("modelSpec.defaultSource")
-              : t("modelSpec.nativeWebSearchOff")
+            value.supportsNativeWebSearch ? t("modelSpec.defaultSource") : t("modelSpec.nativeWebSearchOff")
           }
           overridden={!value.supportsNativeWebSearch}
           resetLabel={t("modelSpec.resetAuto")}
           {...(disabled !== undefined ? { disabled } : {})}
           onReset={() => onChange({ supportsNativeWebSearch: true })}
         >
-          <span className="mcp-toggle mcp-toggle-sm">
+          <label className="mcp-toggle mcp-toggle-sm">
             <input
               type="checkbox"
               checked={value.supportsNativeWebSearch}
               disabled={disabled}
-              aria-labelledby={nativeWebSearchLabelId}
+              aria-label={t("modelSpec.nativeWebSearch")}
               onChange={(event) => onChange({ supportsNativeWebSearch: event.target.checked })}
             />
             <span className="mcp-toggle-track" aria-hidden />
-          </span>
+          </label>
+        </EditorCapabilityRow>
+        <EditorCapabilityRow
+          title={t("modelSpec.remoteCompaction")}
+          catalogHint={t("modelSpec.remoteCompactionHint")}
+          overridden={value.supportsRemoteCompaction}
+          resetLabel={t("modelSpec.resetAuto")}
+          {...(disabled !== undefined ? { disabled } : {})}
+          onReset={() => onChange({ supportsRemoteCompaction: false })}
+        >
+          <label className="mcp-toggle mcp-toggle-sm">
+            <input
+              type="checkbox"
+              checked={value.supportsRemoteCompaction}
+              disabled={disabled}
+              aria-label={t("modelSpec.remoteCompaction")}
+              onChange={(event) => onChange({ supportsRemoteCompaction: event.target.checked })}
+            />
+            <span className="mcp-toggle-track" aria-hidden />
+          </label>
         </EditorCapabilityRow>
       </div>
 
@@ -787,12 +821,13 @@ export function ModelManualSpecPanel({
           </span>
         </div>
         <span className="candidate-editor-caption candidate-editor-mult-caption">
-          {multiplierCaption ?? t("modelSpec.multiplierCaption", {
-            catalogInput: catalogRates?.inputPerM ?? "—",
-            catalogOutput: catalogRates?.outputPerM ?? "—",
-            effectiveInput: formatRateHint(effectiveInputPerM),
-            effectiveOutput: formatRateHint(effectiveOutputPerM),
-          })}
+          {multiplierCaption ??
+            t("modelSpec.multiplierCaption", {
+              catalogInput: catalogRates?.inputPerM ?? "—",
+              catalogOutput: catalogRates?.outputPerM ?? "—",
+              effectiveInput: formatRateHint(effectiveInputPerM),
+              effectiveOutput: formatRateHint(effectiveOutputPerM),
+            })}
         </span>
       </div>
     </section>

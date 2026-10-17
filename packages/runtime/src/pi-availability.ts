@@ -6,9 +6,9 @@ export interface PiCoreAvailability {
 
 /**
  * The PI release Eco is built against. Eco drives the official MCP extension and
- * the codemode sandbox, both of which landed in 1.0.0.
+ * the codemode sandbox, including 1.3's native cancellation and worker lifecycle.
  */
-export const PI_MINIMUM_VERSION = "1.0.3";
+export const PI_MINIMUM_VERSION = "1.3.0";
 
 /** Exports the driver calls directly; a missing one means a pre-1.0.3 install. */
 const PI_REQUIRED_EXPORTS = ["createAgentSession", "createMcpExtension", "createCodemodeExtension"] as const;

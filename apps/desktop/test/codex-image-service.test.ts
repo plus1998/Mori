@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import {
+  type CodexImageAccountPort,
   CodexImageBatchError,
   CodexImageService,
   readCodexImageResponse,
-  type CodexImageAccountPort,
 } from "../src/main/codex-image-service";
 import type {
   OpenAIAccount,
@@ -118,7 +118,7 @@ test("each image rotates enabled paid accounts and disabling an account takes ef
   await h.service.generate({ prompt: "leaf" }, []);
   expect(h.selected.at(-1)).toBe("B");
   expect(h.bodies[0]).toMatchObject({
-    model: "gpt-5.5",
+    model: "gpt-6.1-sol",
     store: false,
     stream: true,
     tools: [{ type: "image_generation", model: "gpt-image-2", action: "generate" }],

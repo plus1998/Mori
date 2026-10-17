@@ -829,6 +829,7 @@
   "followUpEmptyGuidance": "Empty guidance message",
   "subagentElapsed": "Elapsed {duration}",
   "bashApprovalRememberPrefix": "Yes, and don't ask again for commands beginning with ",
+  "mcpApprovalRememberTool": "Allow this tool without asking again (all conversations on this computer) ",
   "bashApprovalDenyAdjust": "No, tell Eco how to adjust",
   "projectMoreThreads": "{count} more",
   "projectAwaitingApproval": "Awaiting approval",

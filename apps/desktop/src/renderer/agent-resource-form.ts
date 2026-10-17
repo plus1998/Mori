@@ -1,3 +1,4 @@
+import { validateClaudeSubagentCompactWindow } from "@eco/shared";
 import {
   type AgentConfigSource,
   type AgentInstanceConfig,
@@ -22,6 +23,7 @@ import {
 export type AgentResourceAgentCapabilityFields = Omit<ToolCapabilityFieldValues, "allowDelegation">;
 
 export interface AgentResourceAgentFormState extends AgentResourceAgentCapabilityFields {
+  claudeAutoCompactWindow?: string;
   agentKey: string;
   templateId: string;
   displayName: string;
@@ -331,6 +333,7 @@ export function createResourceAgentFormFromTemplate(
     enabled: true,
     candidateModelId: "",
     v4aTeachingEnabled: false,
+    claudeAutoCompactWindow: "",
     ...agentCapabilityToAgentForm(capability),
   };
 }
@@ -458,6 +461,7 @@ function agentInstanceToForm(agent: AgentInstanceConfig): AgentResourceAgentForm
     enabled: agent.enabled,
     candidateModelId: agent.modelRef.candidateModelId ?? "",
     v4aTeachingEnabled: isV4aTeachingEnabled(agent),
+    claudeAutoCompactWindow: agent.claudeAutoCompactWindow?.toString() ?? "",
     ...agentCapabilityToAgentForm(capability),
   };
 }
@@ -493,6 +497,10 @@ function buildAgentsFromForm(
     }
     const existingAgent = existingAgentByKey.get(agentForm.agentKey.trim());
     const displayName = agentForm.displayName.trim() || existingAgent?.displayName || template.name;
+    const compactText = agentForm.claudeAutoCompactWindow?.trim() ?? "";
+    const claudeAutoCompactWindow = compactText ? Number(compactText) : undefined;
+    if (claudeAutoCompactWindow !== undefined)
+      validateClaudeSubagentCompactWindow(claudeAutoCompactWindow, displayName);
     if (agentForm.enabled) {
       assertCandidateModelSelected(displayName, agentForm.candidateModelId);
     }
@@ -507,6 +515,7 @@ function buildAgentsFromForm(
     });
     return {
       agentKey,
+      ...(claudeAutoCompactWindow !== undefined && { claudeAutoCompactWindow }),
       templateId: template.id,
       displayName,
       ...(themeColor && { themeColor }),

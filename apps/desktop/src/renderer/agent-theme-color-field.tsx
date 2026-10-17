@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { useTranslation } from "react-i18next";
 import {
   defaultThemeColorForAgentKey,
   isValidThemeColorHex,
@@ -20,6 +21,7 @@ export function AgentThemeColorField({
   disabled,
   onChange,
 }: AgentThemeColorFieldProps) {
+  const { t } = useTranslation();
   const inputId = useId();
   const resolvedValue = value.trim() || defaultThemeColorForAgentKey(agentKey);
   const invalid = value.trim().length > 0 && !isValidThemeColorHex(value);
@@ -28,7 +30,11 @@ export function AgentThemeColorField({
     <div className="mcp-field models-agent-theme-color-field">
       <span className="mcp-field-label">{label}</span>
       <div className="models-agent-theme-color-row">
-        <div className="models-agent-theme-color-swatches" role="list" aria-label={`${label} 预设色`}>
+        <div
+          className="models-agent-theme-color-swatches"
+          role="list"
+          aria-label={t("settings.models.node.themeColorPresets", { label })}
+        >
           {SUBAGENT_PRESET_THEME_COLORS.map((preset) => {
             const active = resolvedValue.toUpperCase() === preset.toUpperCase();
             return (
@@ -39,7 +45,7 @@ export function AgentThemeColorField({
                 className={`models-agent-theme-color-swatch${active ? " is-active" : ""}`}
                 style={{ backgroundColor: preset }}
                 disabled={disabled}
-                aria-label={`选择 ${preset}`}
+                aria-label={t("settings.models.node.themeColorSelect", { color: preset })}
                 aria-pressed={active}
                 onClick={() => onChange(preset)}
               />
@@ -47,7 +53,9 @@ export function AgentThemeColorField({
           })}
         </div>
         <label className="models-agent-theme-color-custom" htmlFor={inputId}>
-          <span className="models-agent-theme-color-custom-label">自定义</span>
+          <span className="models-agent-theme-color-custom-label">
+            {t("settings.models.node.themeColorCustom")}
+          </span>
           <input
             id={inputId}
             className={`models-agent-theme-color-input${invalid ? " is-invalid" : ""}`}
@@ -68,7 +76,9 @@ export function AgentThemeColorField({
           />
         </label>
       </div>
-      {invalid ? <p className="models-agent-theme-color-error">请使用 #RRGGBB 格式。</p> : null}
+      {invalid ? (
+        <p className="models-agent-theme-color-error">{t("settings.models.node.themeColorInvalid")}</p>
+      ) : null}
     </div>
   );
 }

@@ -84,6 +84,7 @@ interface CandidateModelRow {
   manual_supports_image_input: number | null;
   manual_supports_reasoning: number | null;
   manual_supports_native_web_search: number | null;
+  manual_supports_remote_compaction: number | null;
   manual_input_per_m: number | null;
   manual_output_per_m: number | null;
   manual_cache_read_per_m: number | null;
@@ -632,7 +633,9 @@ export class ProviderStore {
     if (!columns.some((column) => column.name === "credential_pool_id")) {
       this.db.exec(`ALTER TABLE provider_configs ADD COLUMN credential_pool_id TEXT NOT NULL DEFAULT ''`);
     }
-    this.db.exec(`UPDATE provider_configs SET auth_method = 'api_key' WHERE auth_method IS NULL OR TRIM(auth_method) = ''`);
+    this.db.exec(
+      `UPDATE provider_configs SET auth_method = 'api_key' WHERE auth_method IS NULL OR TRIM(auth_method) = ''`,
+    );
     this.db.exec(`UPDATE provider_configs SET credential_pool_id = '' WHERE credential_pool_id IS NULL`);
   }
 
@@ -689,6 +692,14 @@ export class ProviderStore {
         "ALTER TABLE provider_candidate_models ADD COLUMN manual_supports_native_web_search INTEGER",
       );
     }
+    if (
+      candidateColumns.length > 0 &&
+      !candidateColumns.some((column) => column.name === "manual_supports_remote_compaction")
+    ) {
+      this.db.exec(
+        "ALTER TABLE provider_candidate_models ADD COLUMN manual_supports_remote_compaction INTEGER",
+      );
+    }
   }
 
   // ─── Candidate Models ───────────────────────────────────────────────────────
@@ -731,6 +742,7 @@ export class ProviderStore {
                manual_context_tokens, manual_max_output_tokens,
                manual_supports_image_input, manual_supports_reasoning,
                manual_supports_native_web_search,
+               manual_supports_remote_compaction,
                manual_input_per_m, manual_output_per_m,
                manual_cache_read_per_m, manual_cache_write_per_m, manual_price_multiplier,
                sort_order, created_at, updated_at
@@ -760,10 +772,11 @@ export class ProviderStore {
           manual_context_tokens, manual_max_output_tokens,
           manual_supports_image_input, manual_supports_reasoning,
           manual_supports_native_web_search,
+          manual_supports_remote_compaction,
           manual_input_per_m, manual_output_per_m,
           manual_cache_read_per_m, manual_cache_write_per_m, manual_price_multiplier,
           sort_order, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(provider_id, model_id) DO UPDATE SET
           display_name = excluded.display_name,
           models_dev_provider_key = excluded.models_dev_provider_key,
@@ -773,6 +786,7 @@ export class ProviderStore {
           manual_supports_image_input = excluded.manual_supports_image_input,
           manual_supports_reasoning = excluded.manual_supports_reasoning,
           manual_supports_native_web_search = excluded.manual_supports_native_web_search,
+          manual_supports_remote_compaction = excluded.manual_supports_remote_compaction,
           manual_input_per_m = excluded.manual_input_per_m,
           manual_output_per_m = excluded.manual_output_per_m,
           manual_cache_read_per_m = excluded.manual_cache_read_per_m,
@@ -793,6 +807,7 @@ export class ProviderStore {
         triStateToNullableInt(manual?.supportsImageInput),
         triStateToNullableInt(manual?.supportsReasoning),
         nativeWebSearchToNullableInt(manual?.supportsNativeWebSearch),
+        triStateToNullableInt(manual?.supportsRemoteCompaction),
         manual?.inputPerM ?? null,
         manual?.outputPerM ?? null,
         manual?.cacheReadPerM ?? null,
@@ -890,15 +905,17 @@ export class ProviderStore {
       this.db
         .prepare("SELECT * FROM provider_candidate_models WHERE provider_id = ?")
         .all(providerId)
-        .map((row) => [
-          (row as unknown as CandidateModelRow).model_id,
-          row as unknown as CandidateModelRow,
-        ] as const),
+        .map(
+          (row) =>
+            [(row as unknown as CandidateModelRow).model_id, row as unknown as CandidateModelRow] as const,
+        ),
     );
     let nextSortOrder =
-      ((this.db
-        .prepare("SELECT MAX(sort_order) as max_sort FROM provider_candidate_models WHERE provider_id = ?")
-        .get(providerId) as { max_sort: number | null } | undefined)?.max_sort ?? -1) + 1;
+      ((
+        this.db
+          .prepare("SELECT MAX(sort_order) as max_sort FROM provider_candidate_models WHERE provider_id = ?")
+          .get(providerId) as { max_sort: number | null } | undefined
+      )?.max_sort ?? -1) + 1;
     let changed = false;
     const seenModelIds = new Set<string>();
 
@@ -919,10 +936,11 @@ export class ProviderStore {
               manual_context_tokens, manual_max_output_tokens,
               manual_supports_image_input, manual_supports_reasoning,
               manual_supports_native_web_search,
+              manual_supports_remote_compaction,
               manual_input_per_m, manual_output_per_m,
               manual_cache_read_per_m, manual_cache_write_per_m, manual_price_multiplier,
               sort_order, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?)
           `)
           .run(id, providerId, modelId, displayName, nextSortOrder++, now, now);
         changed = true;
@@ -1161,7 +1179,9 @@ function validateProviderInput(input: ProviderConfigInput): void {
   }
 }
 
-function normalizeProviderAuthMethod(value: string | undefined): "api_key" | "oauth" | "auth_json" | "chatgpt_subscription" {
+function normalizeProviderAuthMethod(
+  value: string | undefined,
+): "api_key" | "oauth" | "auth_json" | "chatgpt_subscription" {
   switch (value) {
     case "oauth":
     case "auth_json":
@@ -1235,6 +1255,8 @@ function candidateRowToView(row: CandidateModelRow): CandidateModelView {
       ? undefined
       : row.manual_supports_reasoning === 1;
   const supportsNativeWebSearch = nullableIntToNativeWebSearch(row.manual_supports_native_web_search);
+  const supportsRemoteCompaction =
+    row.manual_supports_remote_compaction == null ? undefined : row.manual_supports_remote_compaction === 1;
   const hasManualSpec =
     contextTokens !== undefined ||
     maxOutputTokens !== undefined ||
@@ -1245,7 +1267,8 @@ function candidateRowToView(row: CandidateModelRow): CandidateModelView {
     priceMultiplier !== undefined ||
     supportsImageInput !== undefined ||
     supportsReasoning !== undefined ||
-    supportsNativeWebSearch !== undefined;
+    supportsNativeWebSearch !== undefined ||
+    supportsRemoteCompaction !== undefined;
   const manualSpec: RouteManualSpec | undefined = hasManualSpec
     ? {
         ...(contextTokens !== undefined && { contextTokens }),
@@ -1253,6 +1276,7 @@ function candidateRowToView(row: CandidateModelRow): CandidateModelView {
         ...(supportsImageInput !== undefined && { supportsImageInput }),
         ...(supportsReasoning !== undefined && { supportsReasoning }),
         ...(supportsNativeWebSearch !== undefined && { supportsNativeWebSearch }),
+        ...(supportsRemoteCompaction !== undefined && { supportsRemoteCompaction }),
         ...(inputPerM !== undefined && { inputPerM }),
         ...(outputPerM !== undefined && { outputPerM }),
         ...(cacheReadPerM !== undefined && { cacheReadPerM }),

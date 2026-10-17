@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { OpenAIAccount, OpenAIAccountDetails, OpenAIAccountImageQuota } from "../shared/openai-account";
 import {
   IMAGE_GENERATION_REQUEST_TIMEOUT_MS,
   ImageGenerationError,
   type ImageGenerationToolInput,
 } from "../shared/image-generation";
-import type { ImagePayload, LoadedInputImage } from "./image-generation-client";
+import type { OpenAIAccount, OpenAIAccountDetails, OpenAIAccountImageQuota } from "../shared/openai-account";
 import { generateChatGptWebImage } from "./chatgpt-web-image-client";
+import type { ImagePayload, LoadedInputImage } from "./image-generation-client";
 
 export interface CodexImageAccountPort {
   listAccounts(): Promise<OpenAIAccount[]>;
@@ -194,7 +194,7 @@ export class CodexImageService {
             headers: headers(token, path),
             signal: requestSignal,
             body: JSON.stringify({
-              model: "gpt-5.5",
+              model: "gpt-6.1-sol",
               instructions:
                 "Use the image_generation tool to create exactly one image for the user's request. Return the generated image result.",
               store: false,

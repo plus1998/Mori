@@ -842,6 +842,37 @@ test("agent_end is not run terminal; agent_settled is settle-only", () => {
   expect(settled.some((e) => e.type === "run.terminal")).toBe(false);
 });
 
+test("PI keeps native tool duration and arbitrary MCP structured JSON", () => {
+  for (const structuredContent of [null, [1, "two"], false, 42, "value"]) {
+    const event = mapPiSessionEventToAgentEvents(
+      {
+        type: "tool_execution_end",
+        toolCallId: "mcp-result",
+        toolName: "mcp__example__read",
+        durationMs: 0,
+        result: { content: [], structuredContent },
+      },
+      makeCtx(),
+    )[0];
+    expect(event?.payload).toMatchObject({ structuredContent, durationMs: 0 });
+  }
+  const failed = mapPiSessionEventToAgentEvents(
+    {
+      type: "tool_execution_end",
+      toolCallId: "failed",
+      toolName: "bash",
+      isError: true,
+      durationMs: 12.5,
+      result: { content: [{ type: "text", text: "capacity exceeded" }] },
+    },
+    makeCtx(),
+  )[0];
+  expect(failed).toMatchObject({
+    type: "tool.failed",
+    payload: { durationMs: 12.5, message: "capacity exceeded" },
+  });
+});
+
 test("decidePiPromptRunTerminal: only agent_settled may complete", () => {
   expect(
     decidePiPromptRunTerminal({

@@ -234,7 +234,7 @@ export function mapPiSessionEventToAgentEvents(
           id: `${ctx.threadId}:pi:${seq}:agent_settled`,
           ...base,
           type: "agent.settled",
-          payload: { source: "pi", sessionId: ctx.sessionId },
+          payload: { source: "pi", sessionId: ctx.sessionId, aborted: event.aborted === true },
         }),
       ];
     }
@@ -625,6 +625,10 @@ export function mapPiSessionEventToAgentEvents(
       const parentToolCallId = readPiParentToolCallId(event) ?? pending?.parentToolCallId;
       const structuredContent = readPiStructuredContent(event.result);
       const codemodeDetails = readPiCodemodeDetails(event.result);
+      const durationMs =
+        typeof event.durationMs === "number" && Number.isFinite(event.durationMs) && event.durationMs >= 0
+          ? event.durationMs
+          : undefined;
       return [
         createAgentEvent({
           id: `${ctx.threadId}:pi:${seq}:tool_end:${toolCallId}`,
@@ -637,6 +641,7 @@ export function mapPiSessionEventToAgentEvents(
                 tool_use_id: toolCallId,
                 input,
                 message: resultText || "Tool execution failed.",
+                ...(durationMs !== undefined && { durationMs }),
                 ...piNestedToolCallPayload(parentToolCallId),
                 ...(codemodeDetails ? { codemodeDetails } : {}),
               }
@@ -646,6 +651,7 @@ export function mapPiSessionEventToAgentEvents(
                 tool_use_id: toolCallId,
                 input,
                 content: resultText,
+                ...(durationMs !== undefined && { durationMs }),
                 ...(structuredContent !== undefined && { structuredContent }),
                 ...piNestedToolCallPayload(parentToolCallId),
                 ...(codemodeDetails ? { codemodeDetails } : {}),

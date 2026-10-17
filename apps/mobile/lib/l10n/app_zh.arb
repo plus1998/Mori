@@ -784,6 +784,7 @@
   "followUpEmptyGuidance": "空引导消息",
   "subagentElapsed": "用时 {duration}",
   "bashApprovalRememberPrefix": "是，且对于以后续内容开头的命令不再询问 ",
+  "mcpApprovalRememberTool": "允许此工具，下次不再询问（此电脑所有会话） ",
   "bashApprovalDenyAdjust": "否，请告知 Eco 如何调整",
   "projectMoreThreads": "还有 {count} 条",
   "projectAwaitingApproval": "待批准",

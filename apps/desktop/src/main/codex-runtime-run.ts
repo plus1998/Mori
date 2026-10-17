@@ -53,6 +53,7 @@ import {
   syncOrchestrationAgentsToCodexRoles,
   transferAppliedCodexThreadConfig,
   withCodexNativeImageView,
+  withCodexRemoteCompaction,
   withCodexSkillConfig,
 } from "@eco/runtime";
 import { resolveUpstreamApiCompat } from "../shared/api-compat";
@@ -66,6 +67,11 @@ import {
   createCodexApprovalBridge,
 } from "./codex-approval-bridge";
 import { waitForCodexConfigReload } from "./codex-config-reload-wait";
+import {
+  assertCodexSubagentCompactionCompatible,
+  createCodexRemoteCompactionResolver,
+  fingerprintCodexProviderConfig,
+} from "./codex-model-capability-config";
 import { CodexModelCatalogService } from "./codex-model-catalog";
 import {
   CodexRuntimeLifecycle,
@@ -236,6 +242,8 @@ export interface PrepareCodexRuntimeInput {
   requiredProviderIds?: readonly string[];
   /** Main thread's selected provider (the built-in `openai` route retains native image viewing). */
   mainProviderId?: string;
+  mainModelId?: string;
+  mainApiCompat?: EcoProviderForCodexConfig["apiCompat"];
   mainSupportsImageInput?: boolean;
   /**
    * Global MCP pool for `config.toml` `[mcp_servers.*]` (settings-enabled servers).
@@ -1035,6 +1043,10 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
 
   const codexHomeDir = resolveCodexHomeDir(runtimeDeps.ecoDataDir);
   const providers = [...runtimeDeps.listProviders()];
+  const resolveModelRemoteCompaction = createCodexRemoteCompactionResolver(
+    providers,
+    input.requiredCatalogRoutes,
+  );
   const mcpServers = input.mcpServers ?? (await runtimeDeps.listGlobalMcpServers?.()) ?? [];
   const globalUserRules =
     [runtimeDeps.getGlobalUserRules?.()?.trim(), input.systemPromptAppend?.trim()]
@@ -1100,6 +1112,22 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     : baseThreadConfig;
   const mainProviderId =
     input.mainProviderId ?? input.agentRegistry?.orchestration.mainAgent.modelRef.providerId;
+  const mainModelId = input.mainModelId ?? input.agentRegistry?.orchestration.mainAgent.modelRef.modelId;
+  const mainRemoteCompaction =
+    mainProviderId && mainModelId
+      ? resolveModelRemoteCompaction({
+          providerId: mainProviderId,
+          modelId: mainModelId,
+          ...(input.mainApiCompat ? { apiCompat: input.mainApiCompat } : {}),
+        })
+      : "unsupported";
+  if (mainProviderId && mainModelId) {
+    assertCodexSubagentCompactionCompatible(
+      mainRemoteCompaction,
+      roleSync?.roles ?? [],
+      resolveModelRemoteCompaction,
+    );
+  }
   const prepared: PreparedCodexRuntime = {
     ...(orchestrationAppend ? { orchestrationAppend } : {}),
     ...(orchestrationToolPolicy ? { orchestrationToolPolicy } : {}),
@@ -1109,18 +1137,30 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     ),
     threadConfig: withCodexSkillConfig(
       mainProviderId
-        ? withCodexNativeImageView(threadConfigWithWebSearch, mainProviderId, input.mainSupportsImageInput)
+        ? withCodexRemoteCompaction(
+            withCodexNativeImageView(threadConfigWithWebSearch, mainProviderId, input.mainSupportsImageInput),
+            mainProviderId,
+            mainRemoteCompaction,
+          )
         : threadConfigWithWebSearch,
       input.skillConfig ?? [],
     ),
     roleThreadConfigs: Object.fromEntries(
-      Object.entries(roleSync?.roleThreadConfigs ?? {}).map(([role, config]) => [
-        role,
-        withCodexSkillConfig(
-          input.webSearchOverride ? { ...config, web_search: input.webSearchOverride } : config,
-          input.skillConfig ?? [],
-        ),
-      ]),
+      Object.entries(roleSync?.roleThreadConfigs ?? {}).map(([role, config]) => {
+        const definition = roleSync?.roles.find((entry) => entry.roleId === role);
+        if (!definition) throw new Error(`Missing Codex role definition: ${role}`);
+        return [
+          role,
+          withCodexSkillConfig(
+            withCodexRemoteCompaction(
+              input.webSearchOverride ? { ...config, web_search: input.webSearchOverride } : config,
+              definition.providerId,
+              mainRemoteCompaction,
+            ),
+            input.skillConfig ?? [],
+          ),
+        ];
+      }),
     ),
   };
 
@@ -1270,7 +1310,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     catalogSync.aliasSlugs,
   );
 
-  const globalConfigFingerprint = createHash("sha256").update(configToml).digest("hex");
+  const globalConfigFingerprint = fingerprintCodexProviderConfig(configToml, providers);
   // A save that races catalog/config generation is intentionally coalesced before
   // restart. It is safe to rewrite files while all threads are idle; only the
   // final desired revision may restart the shared app-server.
@@ -1698,6 +1738,9 @@ export async function runThreadRequestWithRuntimeProxy(
                 ...(route.manualSpec.supportsImageInput !== undefined
                   ? { supportsImageInput: route.manualSpec.supportsImageInput }
                   : {}),
+                ...(route.manualSpec.supportsRemoteCompaction !== undefined
+                  ? { supportsRemoteCompaction: route.manualSpec.supportsRemoteCompaction }
+                  : {}),
               },
             }
           : {}),
@@ -1719,6 +1762,15 @@ export async function runThreadRequestWithRuntimeProxy(
       ...(subagentAvailability ? { subagentAvailability } : {}),
       requiredProviderIds,
       ...(selectedRoute ? { mainProviderId: selectedRoute.provider.id } : {}),
+      ...(selectedRoute
+        ? {
+            mainModelId: selectedRoute.modelId,
+            mainApiCompat: resolveUpstreamApiCompat(
+              selectedRoute.apiCompat,
+              selectedRoute.provider.apiCompat,
+            ),
+          }
+        : {}),
       ...(selectedRoute?.manualSpec?.supportsImageInput !== undefined
         ? { mainSupportsImageInput: selectedRoute.manualSpec.supportsImageInput }
         : {}),

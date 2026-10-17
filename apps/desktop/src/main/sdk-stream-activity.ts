@@ -811,6 +811,7 @@ function resolveSdkToolSummaryMetadata(payload: unknown): ThreadRunToolMetadata 
     ...(webSearch && { webSearch }),
     ...(parentToolCallId && { parentToolCallId }),
     ...(codemode && { codemode }),
+    ...readSdkToolDuration(record),
     status: "completed",
   };
 }
@@ -881,8 +882,15 @@ function resolveSdkToolFailedMetadata(payload: unknown): ThreadRunToolMetadata |
     ...(nonExecutionKind && { nonExecutionKind }),
     ...(parentToolCallId && { parentToolCallId }),
     ...(failedCodemode && { codemode: failedCodemode }),
+    ...readSdkToolDuration(record),
     status: "failed",
   };
+}
+
+function readSdkToolDuration(record: Record<string, unknown>): { durationMs?: number } {
+  return typeof record.durationMs === "number" && Number.isFinite(record.durationMs) && record.durationMs >= 0
+    ? { durationMs: record.durationMs }
+    : {};
 }
 
 export function isSdkToolInputPlaceholder(payload: unknown): boolean {

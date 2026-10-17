@@ -41,7 +41,6 @@ const HARDCODED_COPY_BASELINE: Record<string, number> = {
   "src/renderer/ComposerPlanModeToggle.tsx": 3,
   "src/renderer/ApiCompatToggle.tsx": 2,
   "src/renderer/RoutePricingDisplay.tsx": 2,
-  "src/renderer/agent-theme-color-field.tsx": 2,
   "src/renderer/ComposerSkillsSlashMenu.tsx": 1,
   "src/renderer/SubagentSettingsSection.tsx": 1,
   "src/renderer/components/CodexOAuthLogin.tsx": 1,

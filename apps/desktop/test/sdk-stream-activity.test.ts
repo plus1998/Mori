@@ -36,6 +36,35 @@ function sdkBlockKey(activity: CapturedActivity): string | undefined {
   return typeof key === "string" ? key : undefined;
 }
 
+test("native PI tool durations reach completed and failed Feed metadata", () => {
+  for (const failed of [false, true]) {
+    const tools: Array<Record<string, unknown>> = [];
+    const bridge = new SdkStreamActivityBridge();
+    bridge.handleEvent(
+      "thr_native_duration",
+      {
+        type: failed ? "tool.failed" : "tool.completed",
+        role: "planner",
+        agentId: "pi-session",
+        payload: {
+          type: failed ? "tool_result_error" : "tool_result",
+          tool_name: "Bash",
+          tool_use_id: "native-tool",
+          input: { command: "echo ok" },
+          content: "ok",
+          message: "failed",
+          durationMs: 12.5,
+        },
+      },
+      (_threadId, _type, _message, _role, _stream, _agentId, extras) => {
+        if (extras?.tool) tools.push(extras.tool as unknown as Record<string, unknown>);
+      },
+    );
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toMatchObject({ durationMs: 12.5, status: failed ? "failed" : "completed" });
+  }
+});
+
 test("preserves repeated numeric and phrase deltas in text and thinking streams", () => {
   for (const blockKind of ["text", "thinking"] as const) {
     for (const chunks of [

@@ -11,6 +11,7 @@ import {
   DEFAULT_ECO_GATEWAY_PORT,
   parseCodexGatewayModelAlias,
   resolveCodexHomeDir,
+  resolveCodexRemoteCompaction,
   resolveEcoGatewayBaseUrl,
   resolveEcoGatewayPort,
   syncCodexConfigFromEcoProviders,
@@ -153,7 +154,7 @@ test("syncCodexConfigFromEcoProviders does not report built-in OpenAI as a Gatew
   });
 });
 
-test("buildCodexConfigToml selects the Codex remote compaction protocol only explicitly", () => {
+test("global provider config leaves remote compaction disabled for per-model thread overrides", () => {
   const toml = buildCodexConfigToml({
     ecoDataDir: "/data",
     providers: [
@@ -162,36 +163,29 @@ test("buildCodexConfigToml selects the Codex remote compaction protocol only exp
         name: "Vendor Native",
         enabled: true,
         apiCompat: "openai_responses",
-        compactionMode: "responses-native",
       },
       {
         id: "display-openai",
         name: "OpenAI",
         enabled: true,
         apiCompat: "openai_chat_completions",
-        compactionMode: "codex-local",
       },
     ],
   });
 
-  expect(toml).toContain('[model_providers.eco_native]\nname = "OpenAI"');
-  expect(toml).toContain('[model_providers.eco_display-openai]\nname = "Eco Gateway (eco_display-openai)"');
-  expect(toml.match(/name = "OpenAI"/g)).toHaveLength(1);
-
-  expect(() =>
-    buildCodexConfigToml({
-      ecoDataDir: "/data",
-      providers: [
-        {
-          id: "invalid-chat",
-          name: "Invalid",
-          enabled: true,
-          apiCompat: "openai_chat_completions",
-          compactionMode: "responses-native",
-        },
-      ],
-    }),
-  ).toThrow("responses-native compaction only with apiCompat=openai_responses");
+  const parsed = Bun.TOML.parse(toml) as {
+    model_providers: Record<string, { name: string; capabilities: Record<string, unknown> }>;
+  };
+  expect(parsed.model_providers.eco_native).toMatchObject({
+    name: "Eco Gateway (eco_native)",
+    capabilities: { remote_compaction: "unsupported" },
+  });
+  expect(parsed.model_providers["eco_display-openai"]).toMatchObject({
+    name: "Eco Gateway (eco_display-openai)",
+    capabilities: { remote_compaction: "unsupported" },
+  });
+  expect(toml).not.toContain("external_web_access");
+  expect(toml).not.toContain('name = "OpenAI"');
 });
 
 test("buildCodexConfigToml enables multi-agent without leaking mutable global role definitions", () => {
@@ -501,4 +495,14 @@ test("syncCodexConfigFromEcoProviders persists model_catalog_json without secret
   const written = await fs.readFile(result.configPath, "utf8");
   expect(written).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
   expect(codexConfigContainsUpstreamSecret(written, [secret])).toBeUndefined();
+});
+
+test("remote compaction requires an explicit model capability and Responses protocol", () => {
+  const model = { providerId: "vendor", modelId: "model-a", apiCompat: "openai_responses" as const };
+  expect(resolveCodexRemoteCompaction(model)).toBe("unsupported");
+  expect(resolveCodexRemoteCompaction({ ...model, supportsRemoteCompaction: false })).toBe("unsupported");
+  expect(resolveCodexRemoteCompaction({ ...model, supportsRemoteCompaction: true })).toBe("v2");
+  expect(() =>
+    resolveCodexRemoteCompaction({ ...model, apiCompat: "anthropic", supportsRemoteCompaction: true }),
+  ).toThrow("请使用 OpenAI Responses 协议");
 });

@@ -110,7 +110,11 @@ export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, Candi
           setAutoCapability(hints.capability);
           setAutoPricing(hints.pricing);
           if (replaceForm) {
-            setForm(prefillManualSpecFormFromHints(hints.capability, hints.pricing));
+            setForm((current) => ({
+              ...prefillManualSpecFormFromHints(hints.capability, hints.pricing),
+              supportsNativeWebSearch: current.supportsNativeWebSearch,
+              supportsRemoteCompaction: current.supportsRemoteCompaction,
+            }));
           }
         } catch (error) {
           console.error("Failed to resolve candidate model hints:", error);

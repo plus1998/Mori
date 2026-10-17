@@ -649,10 +649,10 @@ function ResourceNodeCandidateModelFields({
             {providers
               .filter((provider) => provider.apiCompat !== "system_one")
               .map((provider) => (
-              <option key={provider.id} value={provider.id}>
-                {provider.name}
-              </option>
-            ))}
+                <option key={provider.id} value={provider.id}>
+                  {provider.name}
+                </option>
+              ))}
           </ComposerFieldSelect>
         </label>
         <CandidateModelSelectField
@@ -705,6 +705,18 @@ function SubagentRosterAgentConfigPanel({
   const { t } = useTranslation();
   const { candidates: nodeCandidates, loading: nodeCandidatesLoading } = useCandidateModels(agent.providerId);
   const selectedCandidate = nodeCandidates.find((candidate) => candidate.id === agent.candidateModelId);
+  const modelContextTokens =
+    selectedCandidate?.manualSpec?.contextTokens ?? selectedCandidate?.resolvedContextTokens;
+  const requestedCompactWindow = agent.claudeAutoCompactWindow?.trim()
+    ? Number(agent.claudeAutoCompactWindow)
+    : undefined;
+  const modelCompactWindow = modelContextTokens
+    ? Math.min(
+        modelContextTokens,
+        Number.isFinite(requestedCompactWindow) ? requestedCompactWindow! : Infinity,
+        1000000,
+      )
+    : undefined;
   const nodeTitle = t("settings.models.node.agentTitle", {
     name: template?.name ?? agent.displayName ?? agent.agentKey ?? t("settings.models.node.subagent"),
   });
@@ -797,6 +809,36 @@ function SubagentRosterAgentConfigPanel({
           {...(busy !== undefined ? { disabled: busy } : {})}
           onChange={(value) => onPatchAgent(agentIndex, { v4aTeachingEnabled: value })}
         />
+
+        <details className="mcp-advanced">
+          <summary>{t("settings.models.editor.claudeCompactionAdvanced")}</summary>
+          <label className="mcp-field">
+            <span className="mcp-field-label">{t("settings.models.editor.claudeCompactionWindow")}</span>
+            <input
+              className="mcp-field-input"
+              type="number"
+              min={100000}
+              max={1000000}
+              step={1}
+              value={agent.claudeAutoCompactWindow ?? ""}
+              placeholder={t("settings.models.editor.claudeCompactionAuto")}
+              disabled={busy}
+              onChange={(event) => onPatchAgent(agentIndex, { claudeAutoCompactWindow: event.target.value })}
+            />
+          </label>
+          <p className="models-subagent-card-desc">{t("settings.models.editor.claudeCompactionHint")}</p>
+          <p className="models-subagent-card-desc">
+            {modelContextTokens && modelContextTokens < 100000
+              ? t("settings.models.editor.claudeCompactionUnsupported", {
+                  tokens: modelContextTokens.toLocaleString(),
+                })
+              : modelCompactWindow
+                ? t("settings.models.editor.claudeCompactionModelWindow", {
+                    tokens: modelCompactWindow.toLocaleString(),
+                  })
+                : t("settings.models.editor.claudeCompactionUnknown")}
+          </p>
+        </details>
 
         <AgentThemeColorField
           label={t("settings.models.node.themeColor")}

@@ -5,12 +5,12 @@ import type {
   CoreAvailabilitySnapshot,
   GitSettingsSnapshot,
   GitWorkingTreeStatus,
+  IntegratedWebSearchSettingsSnapshot,
   McpSettingsSnapshot,
   ModelSettingsSnapshot,
   PersonalizationSettingsSnapshot,
   ProviderConfigView,
   ProxyBridgeSettingsSnapshot,
-  IntegratedWebSearchSettingsSnapshot,
   RouteProfileView,
   ThreadBillingSnapshot,
   ThreadContextSnapshot,
@@ -507,8 +507,8 @@ export const demoSubagentMetrics: ThreadSubagentMetricsSummary[] = [
 ];
 
 export const demoCoreAvailability: CoreAvailabilitySnapshot = {
-  codex: { available: true, version: "0.160.1" },
-  claude: { available: true, version: "0.3.289" },
+  codex: { available: true, version: "0.163.0" },
+  claude: { available: true, version: "0.3.301" },
   pi: { available: true, version: "2.23.0" },
   cursor: { available: false, reason: "演示模式未启用 Cursor ACP" },
 };

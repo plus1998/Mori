@@ -25,7 +25,7 @@ if (!/import\s+\w+\s+from\s+["']electron-updater["']/.test(bundle)) {
 if (!/["']@earendil-works\/pi-coding-agent["']/.test(bundle)) {
   throw new Error(
     "Main bundle no longer references @earendil-works/pi-coding-agent as an external specifier. " +
-      "The PI SDK must stay external so the packaged app loads the shipped 1.0.3 build.",
+      "The PI SDK must stay external so the packaged app loads the shipped 1.3.0 build.",
   );
 }
 // Native MCP checks transport class identity. Eco and the SDK must import the
