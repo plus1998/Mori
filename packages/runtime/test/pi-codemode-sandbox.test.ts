@@ -1,10 +1,39 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AgentEvent } from "../src";
 import { PI_CODEMODE_TOOL_NAME } from "../src/pi-codemode";
-import { runScriptedPiSession } from "./pi-session-events-probe";
+import type { ProbeSessionOptions, ProbeSessionResult } from "./pi-session-events-probe";
+
+/** Each scenario owns a process: SDK worker capacity is released on asynchronous worker exit. */
+async function runIsolatedProbe(
+  options: Pick<ProbeSessionOptions, "workspace" | "agentDir" | "threadId" | "turns">,
+): Promise<Pick<ProbeSessionResult, "events" | "requests" | "turnCount">> {
+  const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "pi-codemode-sandbox-probe.ts")], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  child.stdin.write(JSON.stringify(options));
+  child.stdin.end();
+  const timer = setTimeout(() => child.kill(), 50_000);
+  try {
+    const [stdout, stderr, exit] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(exit, stderr).toBe(0);
+    return JSON.parse(stdout.trim());
+  } finally {
+    clearTimeout(timer);
+    child.kill();
+    await child.exited;
+    await rm(options.workspace, { recursive: true, force: true });
+    await rm(options.agentDir, { recursive: true, force: true });
+  }
+}
 
 interface ToolEvent {
   type: string;
@@ -44,7 +73,7 @@ async function makeWorkspace(): Promise<{ workspace: string; agentDir: string }>
 
 test("codemode sandbox exposes exactly the session's tool allowlist, minus codemode itself", async () => {
   const { workspace, agentDir } = await makeWorkspace();
-  const result = await runScriptedPiSession({
+  const result = await runIsolatedProbe({
     workspace,
     agentDir,
     threadId: "thr_codemode_sandbox",
@@ -53,24 +82,20 @@ test("codemode sandbox exposes exactly the session's tool allowlist, minus codem
       { text: "done" },
     ],
   });
-  try {
-    // The model sees codemode plus the builtins...
-    expect(result.requests[0]?.toolNames).toEqual(["read", "bash", "edit", "write", PI_CODEMODE_TOOL_NAME]);
-    const completed = toolEvents(result.events).find(
-      (event) => event.type === "tool.completed" && event.payload.tool_use_id === "code_1",
-    );
-    // ...while the sandbox only reaches what the session already allowed, and
-    // cannot re-enter codemode from inside a script.
-    expect(completed?.payload.content).toContain('["read","bash","edit","write"]');
-    expect(result.turnCount).toBe(2);
-  } finally {
-    await result.dispose();
-  }
+  // The model sees codemode plus the builtins...
+  expect(result.requests[0]?.toolNames).toEqual(["read", "bash", "edit", "write", PI_CODEMODE_TOOL_NAME]);
+  const completed = toolEvents(result.events).find(
+    (event) => event.type === "tool.completed" && event.payload.tool_use_id === "code_1",
+  );
+  // ...while the sandbox only reaches what the session already allowed, and
+  // cannot re-enter codemode from inside a script.
+  expect(completed?.payload.content).toContain('["read","bash","edit","write"]');
+  expect(result.turnCount).toBe(2);
 }, 60_000);
 
 test("serial nested tool calls surface as their own events with <parent>/<n> ids", async () => {
   const { workspace, agentDir } = await makeWorkspace();
-  const result = await runScriptedPiSession({
+  const result = await runIsolatedProbe({
     workspace,
     agentDir,
     threadId: "thr_codemode_serial",
@@ -83,40 +108,36 @@ test("serial nested tool calls surface as their own events with <parent>/<n> ids
       { text: "done" },
     ],
   });
-  try {
-    const events = executedToolEvents(result.events);
-    expect(events.map((event) => `${event.type}:${event.payload.tool_use_id}`)).toEqual([
-      "tool.started:code_1",
-      "tool.started:code_1/1",
-      "tool.completed:code_1/1",
-      "tool.completed:code_1",
-    ]);
-    // The nested call keeps its parent link on both halves, so a consumer can tell
-    // it apart from a call the planner made itself instead of counting it twice.
-    const nestedStart = events.find(
-      (event) => event.type === "tool.started" && event.payload.tool_use_id === "code_1/1",
-    );
-    const nestedEnd = events.find(
-      (event) => event.type === "tool.completed" && event.payload.tool_use_id === "code_1/1",
-    );
-    expect(nestedStart?.payload.parent_tool_call_id).toBe("code_1");
-    expect(nestedEnd?.payload.parent_tool_call_id).toBe("code_1");
-    // The parent call is the model's own, so it carries no parent link.
-    expect(events[0]?.payload.parent_tool_call_id).toBeUndefined();
-    expect(
-      events.find((event) => event.payload.tool_use_id === "code_1" && event.type === "tool.completed")
-        ?.payload.parent_tool_call_id,
-    ).toBeUndefined();
-    expect(nestedEnd?.payload.input).toEqual({ path: "src/target.txt" });
-    expect(nestedEnd?.payload.content).toBe("NESTED-TARGET-CONTENT");
-  } finally {
-    await result.dispose();
-  }
+  const events = executedToolEvents(result.events);
+  expect(events.map((event) => `${event.type}:${event.payload.tool_use_id}`)).toEqual([
+    "tool.started:code_1",
+    "tool.started:code_1/1",
+    "tool.completed:code_1/1",
+    "tool.completed:code_1",
+  ]);
+  // The nested call keeps its parent link on both halves, so a consumer can tell
+  // it apart from a call the planner made itself instead of counting it twice.
+  const nestedStart = events.find(
+    (event) => event.type === "tool.started" && event.payload.tool_use_id === "code_1/1",
+  );
+  const nestedEnd = events.find(
+    (event) => event.type === "tool.completed" && event.payload.tool_use_id === "code_1/1",
+  );
+  expect(nestedStart?.payload.parent_tool_call_id).toBe("code_1");
+  expect(nestedEnd?.payload.parent_tool_call_id).toBe("code_1");
+  // The parent call is the model's own, so it carries no parent link.
+  expect(events[0]?.payload.parent_tool_call_id).toBeUndefined();
+  expect(
+    events.find((event) => event.payload.tool_use_id === "code_1" && event.type === "tool.completed")
+      ?.payload.parent_tool_call_id,
+  ).toBeUndefined();
+  expect(nestedEnd?.payload.input).toEqual({ path: "src/target.txt" });
+  expect(nestedEnd?.payload.content).toBe("NESTED-TARGET-CONTENT");
 }, 60_000);
 
 test("parallel nested tool calls each get a distinct index under the same parent", async () => {
   const { workspace, agentDir } = await makeWorkspace();
-  const result = await runScriptedPiSession({
+  const result = await runIsolatedProbe({
     workspace,
     agentDir,
     threadId: "thr_codemode_parallel",
@@ -131,23 +152,19 @@ test("parallel nested tool calls each get a distinct index under the same parent
       { text: "done" },
     ],
   });
-  try {
-    const started = executedToolEvents(result.events).filter((event) => event.type === "tool.started");
-    expect(started.map((event) => event.payload.tool_use_id)).toEqual(["code_2", "code_2/1", "code_2/2"]);
-    expect(started.map((event) => event.payload.parent_tool_call_id)).toEqual([
-      undefined,
-      "code_2",
-      "code_2",
-    ]);
-    expect(result.requests.length).toBe(2);
-  } finally {
-    await result.dispose();
-  }
+  const started = executedToolEvents(result.events).filter((event) => event.type === "tool.started");
+  expect(started.map((event) => event.payload.tool_use_id)).toEqual(["code_2", "code_2/1", "code_2/2"]);
+  expect(started.map((event) => event.payload.parent_tool_call_id)).toEqual([
+    undefined,
+    "code_2",
+    "code_2",
+  ]);
+  expect(result.requests.length).toBe(2);
 }, 60_000);
 
 test("a failed nested call keeps its parent link and reports the failure", async () => {
   const { workspace, agentDir } = await makeWorkspace();
-  const result = await runScriptedPiSession({
+  const result = await runIsolatedProbe({
     workspace,
     agentDir,
     threadId: "thr_codemode_nested_failure",
@@ -162,15 +179,11 @@ test("a failed nested call keeps its parent link and reports the failure", async
       { text: "done" },
     ],
   });
-  try {
-    const events = toolEvents(result.events);
-    const nestedFailure = events.find(
-      (event) => event.type === "tool.failed" && event.payload.tool_use_id === "code_3/1",
-    );
-    expect(nestedFailure?.payload.parent_tool_call_id).toBe("code_3");
-    expect(nestedFailure?.payload.type).toBe("tool_result_error");
-    expect(nestedFailure?.payload.message).toBeTruthy();
-  } finally {
-    await result.dispose();
-  }
+  const events = toolEvents(result.events);
+  const nestedFailure = events.find(
+    (event) => event.type === "tool.failed" && event.payload.tool_use_id === "code_3/1",
+  );
+  expect(nestedFailure?.payload.parent_tool_call_id).toBe("code_3");
+  expect(nestedFailure?.payload.type).toBe("tool_result_error");
+  expect(nestedFailure?.payload.message).toBeTruthy();
 }, 60_000);

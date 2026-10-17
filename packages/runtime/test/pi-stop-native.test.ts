@@ -50,6 +50,29 @@ async function removeWorkspace(workspace: string): Promise<void> {
   }
 }
 
+test("cancelling during the cwd check never spawns a shell", async () => {
+  const { createLocalShellOperations } = await import(
+    new URL("./core/tools/bash.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href
+  );
+  let spawnAttempted = false;
+  const operations = createLocalShellOperations("bash", () => ({
+    get shell() {
+      spawnAttempted = true;
+      throw new Error("cancelled operation attempted to spawn a shell");
+    },
+    args: ["-c"],
+  }));
+  const controller = new AbortController();
+  const running = operations.exec("must not execute", tmpdir(), {
+    signal: controller.signal,
+    onData: () => {},
+  });
+  // exec has entered fs.access but has not yet resumed to spawn the shell.
+  controller.abort("cancelled during cwd check");
+  await expect(running).rejects.toThrow("aborted");
+  expect(spawnAttempted).toBe(false);
+});
+
 test("PI Stop terminates a quiet Bash child before it can write again", async () => {
   const workspace = mkdtempSync(path.join(tmpdir(), "eco-pi-stop-"));
   const agentDir = path.join(workspace, "agent");
