@@ -1,9 +1,33 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { AgentEvent } from "../src";
 import { runScriptedPiSession } from "./pi-session-events-probe";
+
+function nodeChildCommand(workspace: string, script: string): string {
+  const target = path.join(workspace, "stop-child.cjs");
+  writeFileSync(target, script);
+  // Keep JavaScript out of the shell argument parser, including Git Bash on Windows.
+  return `node '${target.replace(/\\/g, "/")}'`;
+}
+
+function windowsProcessDiagnostics(): string {
+  if (process.platform !== "win32") return "";
+  const probe = spawnSync(
+    path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*eco-pi-*' } | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress",
+    ],
+    { encoding: "utf8", timeout: 5_000, windowsHide: true },
+  );
+  return `Windows child processes: ${probe.stdout || probe.stderr || probe.error?.message || "none"}`;
+}
 
 /** Call after session disposal; Windows can briefly retain a terminated child's cwd handle. */
 async function removeWorkspace(workspace: string): Promise<void> {
@@ -19,7 +43,7 @@ async function removeWorkspace(workspace: string): Promise<void> {
         !["EBUSY", "EPERM", "ENOTEMPTY"].includes(code ?? "") ||
         Date.now() >= deadline
       )
-        throw error;
+        throw new Error(`${String(error)}\n${windowsProcessDiagnostics()}`, { cause: error });
       // Do not swallow persistent locks: a child that outlives disposal must still fail CI.
       await Bun.sleep(50);
     }
@@ -32,6 +56,7 @@ test("PI Stop terminates a quiet Bash child before it can write again", async ()
   const startedFile = path.join(workspace, "started");
   const finishedFile = path.join(workspace, "finished");
   const controller = new AbortController();
+  const events: AgentEvent[] = [];
   const run = runScriptedPiSession({
     workspace,
     agentDir,
@@ -43,18 +68,25 @@ test("PI Stop terminates a quiet Bash child before it can write again", async ()
         tool: "bash",
         id: "stop-bash",
         input: {
-          // Paths are JavaScript string literals inside Bash's single-quoted Node script.
-          // JSON encoding preserves Windows backslashes instead of interpreting them as escapes.
-          command: `node -e 'require("fs").writeFileSync(${JSON.stringify(startedFile)}, "started"); setTimeout(() => require("fs").writeFileSync(${JSON.stringify(finishedFile)}, "finished"), 2500)'`,
+          command: nodeChildCommand(
+            workspace,
+            `require("fs").writeFileSync(${JSON.stringify(startedFile)}, "started"); setTimeout(() => require("fs").writeFileSync(${JSON.stringify(finishedFile)}, "finished"), 2500);`,
+          ),
         },
       },
       { text: "done" },
     ],
+    onEvent: (event) => events.push(event),
   });
   try {
     const deadline = Date.now() + 15_000;
     while (!existsSync(startedFile) && Date.now() < deadline) await Bun.sleep(25);
-    expect(existsSync(startedFile)).toBe(true);
+    expect(
+      existsSync(startedFile),
+      existsSync(startedFile)
+        ? undefined
+        : `PI Bash child did not start. Events: ${JSON.stringify(events.filter((event) => event.type.startsWith("tool.") || event.type === "run.terminal"))}\n${windowsProcessDiagnostics()}`,
+    ).toBe(true);
     const stoppedAt = Date.now();
     controller.abort("cancelled by user");
     const result = await run;
@@ -93,7 +125,11 @@ test("native session abort cancels the run even when the outer signal stays live
       signal: controller.signal,
       toolsAllowlist: ["bash"],
       turns: [
-        { tool: "bash", id: "native-stop", input: { command: "node -e 'setTimeout(() => {}, 20000)'" } },
+        {
+          tool: "bash",
+          id: "native-stop",
+          input: { command: nodeChildCommand(workspace, "setTimeout(() => {}, 20000);") },
+        },
         { text: "done" },
       ],
       onEvent: (event, abort) => {
