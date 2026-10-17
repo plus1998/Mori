@@ -12,6 +12,7 @@ import {
 } from "../shared/composer-references";
 import type { ThreadSummary } from "../shared/ipc";
 import type { SshBookmarkPublic } from "../shared/ssh-bookmarks";
+import type { BrowserSelectionService } from "./browser-selection-service";
 
 export interface ReferenceHistoryPage {
   messages: Array<{
@@ -29,6 +30,7 @@ export interface ReferenceHistoryPage {
   historyRevision: number;
 }
 export interface ComposerReferenceDeps {
+  selections?: Pick<BrowserSelectionService, "read" | "validate" | "screenshot">;
   listThreads(
     query: string,
     limit: number,
@@ -57,6 +59,7 @@ function endpoint(bookmark: SshBookmarkPublic): string {
 }
 export class ComposerReferenceService {
   private readonly browserGrants = new Map<string, Set<string>>();
+  private readonly selectionGrants = new Map<string, Set<string>>();
   constructor(private readonly deps: ComposerReferenceDeps) {}
   search(request: ComposerReferenceSearchRequest): ComposerReferenceSearchResult {
     if (!request || typeof request.query !== "string") throw new Error("引用搜索需要 query。");
@@ -123,6 +126,21 @@ export class ComposerReferenceService {
           port: ssh.port,
           authType: ssh.authType,
           ...(ssh.keySource === "path" && ssh.keyPath ? { keyPath: ssh.keyPath } : {}),
+        });
+      } else if (ref.kind === "web_selection") {
+        const selection = this.requireSelections().read(ref.id);
+        const grants = this.selectionGrants.get(threadId) ?? new Set<string>();
+        grants.add(selection.id);
+        this.selectionGrants.set(threadId, grants);
+        details.push({
+          type: "web_selection", selectionId: selection.id, browserId: selection.browserId,
+          title: selection.title, url: selection.url, capturedAt: selection.capturedAt,
+          kind: selection.kind, tag: selection.tag, role: selection.role, name: selection.name,
+          text: selection.text, context: selection.context, textTruncated: selection.textTruncated,
+          frameUrl: selection.frameUrl, selectorPath: selection.selectorPath,
+          screenshot: "read_browser_selection(includeScreenshot=true)",
+          tool: "eco_context.read_browser_selection",
+          liveTool: "eco_context.browser_reference (selectionId required; validates original document and element)",
         });
       } else if (ref.kind === "web") {
         const browser = this.deps.listBrowsers().find((item) => item.id === ref.id);
@@ -250,8 +268,14 @@ export class ComposerReferenceService {
     };
   }
   async browserTool(threadId: string, args: Record<string, unknown>, signal?: AbortSignal) {
-    if (typeof args.browserId !== "string" || !this.browserGrants.get(threadId)?.has(args.browserId))
-      throw new Error("只能操作用户在当前会话中明确引用的网页。");
+    if (typeof args.browserId !== "string") throw new Error("browserId 必须是字符串。");
+    if (args.selectionId !== undefined) {
+      const selection = this.requireGrantedSelection(threadId, args.selectionId);
+      if (selection.browserId !== args.browserId) throw new Error("网页内容引用与 browserId 不匹配。");
+      await this.requireSelections().validate(selection.id);
+    } else if (!this.browserGrants.get(threadId)?.has(args.browserId)) {
+      throw new Error("只能操作用户在当前会话中明确引用的网页；元素引用还需要 selectionId。");
+    }
     if (typeof args.action !== "string") throw new Error("action 必须是浏览器工具名称。");
     if (
       args.arguments !== undefined &&
@@ -267,5 +291,28 @@ export class ComposerReferenceService {
   }
   disposeThread(id: string) {
     this.browserGrants.delete(id);
+    this.selectionGrants.delete(id);
+  }
+  private requireSelections() {
+    if (!this.deps.selections) throw new Error("网页内容引用服务尚未连接。");
+    return this.deps.selections;
+  }
+  private requireGrantedSelection(threadId: string, id: unknown) {
+    if (typeof id !== "string" || !this.selectionGrants.get(threadId)?.has(id))
+      throw new Error("只能读取用户在当前会话中明确引用的网页内容。");
+    return this.requireSelections().read(id);
+  }
+  async readBrowserSelection(threadId: string, args: Record<string, unknown>) {
+    if (args.includeScreenshot !== undefined && typeof args.includeScreenshot !== "boolean")
+      throw new Error("includeScreenshot 必须是布尔值。");
+    const selection = this.requireGrantedSelection(threadId, args.selectionId);
+    let live: { available: boolean; reason?: string } = { available: true };
+    try { await this.requireSelections().validate(selection.id); }
+    catch (error) { live = { available: false, reason: error instanceof Error ? error.message : String(error) }; }
+    const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
+      { type: "text", text: JSON.stringify({ ...selection, screenshotScope: "page viewport at capture time", boundsCoordinateSpace: "selected frame viewport", live }) },
+    ];
+    if (args.includeScreenshot === true) content.push({ type: "image", data: this.requireSelections().screenshot(selection.id), mimeType: "image/png" });
+    return { content };
   }
 }

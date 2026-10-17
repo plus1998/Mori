@@ -10,14 +10,18 @@ import {
   RefreshCw,
   Smartphone,
   Terminal,
+  MousePointer2,
+  TextSelect,
 } from "lucide-react";
-import { type FormEvent, useEffect, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type BrowserViewState, normalizeBrowserNavigateUrl } from "../shared/browser";
 import { BrowserViewportControls } from "./BrowserViewportControls";
 import { BrowserWebviewViewportMarker } from "./BrowserWebviewViewportMarker";
 import { useBrowserInstanceIds } from "./browser-state-store";
 import type { TaskPanelHomeTool } from "./task-panel-tabs";
+import { insertBrowserSelection } from "./browser-selection-events";
+import { formatIpcInvokeError } from "./AppMessage";
 
 const ICON_SIZE = 15;
 
@@ -40,6 +44,9 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
   const [state, setState] = useState<BrowserViewState | undefined>();
   const [address, setAddress] = useState("");
   const [showViewportControls, setShowViewportControls] = useState<boolean | null>(null);
+  const [selecting, setSelecting] = useState<"element" | "text">();
+  const [selectionError, setSelectionError] = useState<string>();
+  const selectionRequest = useRef(0);
   const addressInputId = useId();
   /** Main drops a closed browser from its guest list — never focus a page that is gone. */
   const liveBrowserIds = useBrowserInstanceIds();
@@ -104,6 +111,34 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
     setAddress(shown === "about:blank" ? "" : shown);
   }
 
+  useEffect(() => {
+    if (!active) {
+      selectionRequest.current += 1;
+      setSelecting(undefined);
+      void window.eco?.browserCancelSelection(browserId);
+    }
+    return () => {
+      selectionRequest.current += 1;
+      void window.eco?.browserCancelSelection(browserId);
+    };
+  }, [active, browserId]);
+
+  async function captureSelection(kind: "element" | "text") {
+    if (selecting) { await window.eco?.browserCancelSelection(browserId); return; }
+    const request = ++selectionRequest.current;
+    setSelecting(kind);
+    setSelectionError(undefined);
+    try {
+      if (!window.eco) throw new Error(t("browser.selection.unavailable"));
+      const selection = await window.eco.browserCaptureSelection({ browserId, kind });
+      if (request === selectionRequest.current && selection) insertBrowserSelection(selection);
+    } catch (error) {
+      if (request === selectionRequest.current) setSelectionError(formatIpcInvokeError(error));
+    } finally {
+      if (request === selectionRequest.current) setSelecting(undefined);
+    }
+  }
+
   return (
     <div className="browser-panel" aria-label={t("browser.title")}>
       <div className="browser-panel-chrome">
@@ -157,6 +192,14 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
             autoComplete="off"
           />
         </form>
+        <button type="button" className={`browser-panel-icon-btn${selecting === "element" ? " is-active" : ""}`}
+          aria-label={t(selecting === "element" ? "browser.selection.cancel" : "browser.selection.element")}
+          title={t(selecting === "element" ? "browser.selection.cancel" : "browser.selection.element")}
+          aria-pressed={selecting === "element"} disabled={showToolHome || isLoading || selecting === "text"}
+          onClick={() => void captureSelection("element")}><MousePointer2 size={ICON_SIZE} /></button>
+        <button type="button" className="browser-panel-icon-btn" aria-label={t("browser.selection.text")} title={t("browser.selection.text")}
+          disabled={showToolHome || isLoading || Boolean(selecting)} onMouseDown={event => event.preventDefault()}
+          onClick={() => void captureSelection("text")}><TextSelect size={ICON_SIZE} /></button>
         <button
           type="button"
           className={`browser-panel-icon-btn${instance?.viewport ? " is-active" : ""}`}
@@ -181,6 +224,8 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
       {viewportControlsVisible ? (
         <BrowserViewportControls browserId={browserId} viewport={instance?.viewport} onChange={setState} />
       ) : null}
+      {selecting === "element" ? <div className="browser-selection-hint" role="status">{t("browser.selection.hint")}</div> : null}
+      {selectionError ? <div className="browser-viewport-error" role="alert">{selectionError}</div> : null}
       {instance?.viewportError ? (
         <div className="browser-viewport-error" role="alert">
           {instance.viewportError}

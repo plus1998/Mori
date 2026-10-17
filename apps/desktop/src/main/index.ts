@@ -29,6 +29,7 @@ import {
 } from "../shared/tts";
 import { webChatProxyConfig, webChatSitePartition } from "../shared/web-chat-list";
 import { ComposerReferenceService } from "./composer-reference-service";
+import { BrowserSelectionService } from "./browser-selection-service";
 import { ContextReferenceMcpGateway } from "./context-reference-mcp-gateway";
 import { ConversationRecoveryGate } from "./conversation-recovery-gate";
 import { finalizeAcceptedConversationV2Messages } from "./conversation-v2-accepted-finalization";
@@ -1597,6 +1598,7 @@ let htmlHostGateway: HtmlHostMcpGateway;
 let schedulingService: SchedulingService;
 let schedulingGateway: SchedulingMcpGateway;
 let composerReferenceService: ComposerReferenceService;
+let browserSelectionService: BrowserSelectionService;
 let contextReferenceGateway: ContextReferenceMcpGateway;
 let integratedWebSearchGateway: IntegratedWebSearchMcpGateway;
 let promptImageFileStore: PromptImageFileStore;
@@ -3600,7 +3602,12 @@ app
     initializeGitAutoFetcher();
     schedulingService = createSchedulingService(dbPath);
     schedulingGateway = new SchedulingMcpGateway(schedulingService);
+    browserSelectionService = new BrowserSelectionService({
+      directory: path.join(app.getPath("userData"), "browser-selections"),
+      getTarget: id => requireBrowserHost().getSelectionTarget(id),
+    });
     composerReferenceService = new ComposerReferenceService({
+      selections: browserSelectionService,
       listThreads: (query, limit) => conversationStore.searchThreadReferences(query, limit),
       getThread: (id) => conversationStore.getThread(id),
       listSsh: () => sshBookmarkStore.list(),
@@ -8065,6 +8072,32 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.browserGetState, async () => requireBrowserHost().getState());
+
+  registerDesktopCommand(IPC_CHANNELS.browserCaptureSelection, async (payload: unknown) => {
+    const request = payload as { browserId?: unknown; kind?: unknown };
+    if (typeof request?.browserId !== "string" || !request.browserId.trim() || !["element", "text"].includes(String(request.kind)))
+      throw new Error("网页选择需要 browserId 和 element/text 类型。");
+    const host = requireBrowserHost();
+    const { instance } = host.getSelectionTarget(request.browserId);
+    if (instance.threadId !== host.getState().uiScopeId) throw new Error("只能选择当前会话中的网页内容。");
+    return browserSelectionService.capture(request.browserId, request.kind as "element" | "text");
+  });
+  registerDesktopCommand(IPC_CHANNELS.browserCancelSelection, async (payload: unknown) => {
+    const id = (payload as { browserId?: unknown })?.browserId;
+    if (typeof id !== "string") throw new Error("取消网页选择需要 browserId。");
+    browserSelectionService.cancel(id);
+  });
+  registerDesktopCommand(IPC_CHANNELS.browserReadSelection, async (payload: unknown) => {
+    const id = (payload as { id?: unknown })?.id;
+    if (typeof id !== "string") throw new Error("读取网页内容引用需要 id。");
+    return browserSelectionService.preview(id);
+  });
+  registerDesktopCommand(IPC_CHANNELS.browserRevealSelection, async (payload: unknown) => {
+    const id = (payload as { id?: unknown })?.id;
+    if (typeof id !== "string") throw new Error("定位网页内容引用需要 id。");
+    const selection = await browserSelectionService.validate(id, true);
+    return requireBrowserHost().focusBrowser(selection.browserId, { reveal: true });
+  });
 
   registerDesktopCommand(IPC_CHANNELS.browserDevPrepareAgentCdp, async (payload: unknown) => {
     const { isDevRuntime } = await import("../shared/dev-cdp");

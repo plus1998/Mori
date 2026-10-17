@@ -7,6 +7,9 @@ const ICONS = {
     ["circle", { cx: "12", cy: "12", r: "9" }],
     ["path", { d: "M3 12h18M12 3a18 18 0 0 1 0 18 18 18 0 0 1 0-18" }],
   ],
+  web_selection: [
+    ["path", { d: "M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3M21 16v3a2 2 0 0 1-2 2h-3M8 8h8v8H8z" }],
+  ],
   conversation: [["path", { d: "M21 15a3 3 0 0 1-3 3H8l-5 3V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3z" }]],
   subagent: [
     [

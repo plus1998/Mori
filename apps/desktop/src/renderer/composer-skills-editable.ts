@@ -1,5 +1,6 @@
 import { composerReferenceIconNodes, composerReferenceTitle } from "./composer-reference-presentation";
 import { composerReferenceToken, type ComposerReference } from "../shared/composer-references";
+import { i18n } from "./i18n";
 import type { SkillInfo } from "../shared/skills";
 import { getMaterialIconUrl, resolveMaterialIconName } from "./material-file-icon";
 import { formatSkillDisplayName, parsePromptSegments, skillToken } from "./composer-skills";
@@ -399,6 +400,7 @@ function appendReferenceChip(root: HTMLElement, reference: ComposerReference): v
   span.contentEditable = "false";
   span.dataset.referenceToken = composerReferenceToken(reference);
   span.dataset.referenceKind = reference.kind;
+  span.dataset.referenceId = reference.id;
   span.title = composerReferenceTitle(reference);
   const icon = document.createElement("span");
   icon.className = "composer-reference-inline-icon";
@@ -411,13 +413,27 @@ function appendReferenceChip(root: HTMLElement, reference: ComposerReference): v
   }
   icon.append(svg);
   icon.setAttribute("aria-hidden", "true");
-  const label = document.createElement("span");
+  const label = document.createElement(reference.kind === "web_selection" ? "button" : "span");
   label.className = "composer-reference-inline-label";
+  if (reference.kind === "web_selection") {
+    (label as HTMLButtonElement).type = "button";
+    label.classList.add("composer-reference-open");
+  }
   const at = document.createElement("span");
   at.className = "composer-reference-at";
   at.textContent = "@";
   label.append(at, reference.label);
   span.append(icon, label);
+  if (reference.kind === "web_selection") {
+    span.classList.add("composer-browser-selection");
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "composer-reference-remove";
+    remove.dataset.referenceRemove = "true";
+    remove.setAttribute("aria-label", i18n.t("browser.selection.remove"));
+    remove.textContent = "×";
+    span.append(remove);
+  }
   root.appendChild(span);
 }
 

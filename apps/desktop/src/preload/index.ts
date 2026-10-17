@@ -1089,6 +1089,18 @@ const api = {
   browserOpenExternal(browserId?: string): Promise<{ ok: true }> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserOpenExternal, browserId ? { browserId } : undefined);
   },
+  browserCaptureSelection(request: import("../shared/browser-selection").BrowserSelectionRequest): Promise<import("../shared/browser-selection").BrowserSelection | null> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserCaptureSelection, request);
+  },
+  browserCancelSelection(browserId: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserCancelSelection, { browserId });
+  },
+  browserReadSelection(id: string): Promise<import("../shared/browser-selection").BrowserSelectionPreview> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserReadSelection, { id });
+  },
+  browserRevealSelection(id: string): Promise<BrowserViewState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserRevealSelection, { id });
+  },
   onBrowserStateChanged(callback: (state: BrowserViewState) => void): () => void {
     const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
       if (payload && typeof payload === "object") {

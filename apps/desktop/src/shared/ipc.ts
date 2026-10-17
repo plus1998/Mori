@@ -338,6 +338,10 @@ export const IPC_CHANNELS = {
   /** Dev-only: mint thread-scoped browser CDP for smoke/probe scripts. */
   browserDevPrepareAgentCdp: "browser:dev-prepare-agent-cdp",
   browserOpenExternal: "browser:open-external",
+  browserCaptureSelection: "browser:capture-selection",
+  browserCancelSelection: "browser:cancel-selection",
+  browserReadSelection: "browser:read-selection",
+  browserRevealSelection: "browser:reveal-selection",
   browserStateChanged: "browser:state-changed",
   /** Agent operating the built-in browser (rainbow edge / synthetic cursor). */
   browserAgentPresence: "browser:agent-presence",

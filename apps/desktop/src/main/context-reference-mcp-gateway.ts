@@ -51,9 +51,15 @@ export const contextReferenceTools = [
     ["conversationId", "runId"],
   ),
   tool(
+    "read_browser_selection",
+    "Read the immutable text/element snapshot explicitly selected and referenced by the user. Returns captured text, surrounding context, exact browserId, frame URL, selector path, timestamp and current live availability. includeScreenshot adds the captured viewport image. Works after tab closure; a stale snapshot cannot authorize live actions.",
+    { selectionId: string, includeScreenshot: { type: "boolean" } },
+    ["selectionId"],
+  ),
+  tool(
     "browser_reference",
     "Read or interact with the exact existing browserId explicitly referenced by the user in this conversation. action is an agent_browser_* tool (snapshot, read, click, fill, type, press, check, uncheck, select, scroll, get_text, get_url, get_title, screenshot, wait_for_selector/text/load, reload, back, forward). Use snapshot first. No new tabs or URL substitution. Page state and snapshot refs stay bound to browserId.",
-    { browserId: string, action: string, arguments: { type: "object", additionalProperties: true } },
+    { browserId: string, selectionId: string, action: string, arguments: { type: "object", additionalProperties: true } },
     ["browserId", "action"],
     false,
   ),
@@ -112,6 +118,8 @@ export class ContextReferenceMcpGateway {
                 throw new Error("工具参数包含不允许的字段。");
               if (name === "browser_reference")
                 return (await this.service.browserTool(threadId, args, signal)) as McpToolCallResult;
+              if (name === "read_browser_selection")
+                return await this.service.readBrowserSelection(threadId, args);
               const result =
                 name === "read_conversation"
                   ? this.service.readConversation(args)

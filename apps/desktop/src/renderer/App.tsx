@@ -1,6 +1,10 @@
 import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
 import { ComposerReferencesMenu } from "./ComposerReferencesMenu";
 import { useComposerReferences } from "./use-composer-references";
+import { composerReferenceToken } from "../shared/composer-references";
+import { browserSelectionReference, type BrowserSelection } from "../shared/browser-selection";
+import { BrowserSelectionPreview } from "./BrowserSelectionPreview";
+import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "./browser-selection-events";
 import { ACP_IMAGE_ONLY_PROMPT } from "@eco/runtime/acp-prompt";
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import {
@@ -80,7 +84,7 @@ import { I18nextProvider, useTranslation } from "react-i18next";
 import { isAcpSubagentAgentId } from "../shared/acp-subagent";
 import { type BashReviewMode, normalizeBashReviewMode } from "../shared/bash-review-ui";
 import { enrichBillingDisplaySource } from "../shared/billing-display-source";
-import type { BrowserSettingsSnapshot } from "../shared/browser";
+import type { BrowserSettingsSnapshot, BrowserViewState } from "../shared/browser";
 import {
   browserPersonalScopeId,
   browserTaskTabId,
@@ -11423,6 +11427,44 @@ function App() {
                   ? t("thread.composer.unavailable")
                   : t("thread.composer.placeholder");
   const composerDisabled = Boolean(activeThread && !threadAcceptsInput && !composerFollowUpMode);
+
+  useEffect(() => {
+    const insert = (event: Event) => {
+      const selection = (event as CustomEvent<BrowserSelection>).detail;
+      if (!selection || selection.scopeId !== browserScopeIdRef.current) return;
+      if (composerDisabled) { showAppMessageError(t("browser.selection.composerDisabled")); return; }
+      const current = composerPromptRef.current;
+      const offset = Math.max(0, Math.min(composerCursor, current.length));
+      const token = `${composerReferenceToken(browserSelectionReference(selection))} `;
+      const next = current.slice(0, offset) + token + current.slice(offset);
+      composerPromptRef.current = next;
+      setPrompt(next);
+      const cursor = offset + token.length;
+      window.requestAnimationFrame(() => {
+        if (browserScopeIdRef.current !== selection.scopeId || composerPromptRef.current !== next) return;
+        composerRef.current?.focus();
+        composerRef.current?.setCursor(cursor);
+        composerRef.current?.fitHeight();
+        setComposerCursor(cursor);
+      });
+    };
+    const reveal = (event: Event) => {
+      const state = (event as CustomEvent<BrowserViewState>).detail;
+      if (state?.uiScopeId !== browserScopeIdRef.current || !state.focusedBrowserId) return;
+      const tabId = browserTaskTabId(state.focusedBrowserId);
+      setOpenTaskPanelTabIds(current => addOpenTaskPanelTab(current, tabId));
+      setTaskPanelActiveTab(tabId);
+      setTaskPanelFullscreen(false);
+      setSelectedSubagentAgentId(undefined);
+      revealTaskPanel();
+    };
+    window.addEventListener(BROWSER_SELECTION_INSERT_EVENT, insert);
+    window.addEventListener(BROWSER_SELECTION_REVEAL_EVENT, reveal);
+    return () => {
+      window.removeEventListener(BROWSER_SELECTION_INSERT_EVENT, insert);
+      window.removeEventListener(BROWSER_SELECTION_REVEAL_EVENT, reveal);
+    };
+  }, [composerCursor, composerDisabled, revealTaskPanel, showAppMessageError, t]);
   const composerActionMode = editingFollowUpId
     ? "save-follow-up"
     : canStopThread
@@ -13288,7 +13330,7 @@ function App() {
       )}
     </main>
   );
-  return <AppRenderContent render={renderAppLayout} />;
+  return <><AppRenderContent render={renderAppLayout} /><BrowserSelectionPreview /></>;
 }
 
 async function loadConversationV2RendererState(

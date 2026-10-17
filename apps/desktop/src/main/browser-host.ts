@@ -1368,6 +1368,16 @@ export class BrowserHost {
     return agentBrowserTextResult(JSON.stringify({ browserId, viewport: browser.viewport ?? null, metrics }));
   }
 
+  /** Resolve a real guest for human-selected content, never the Eco main window. */
+  getSelectionTarget(browserId: string): { guest: WebContents; instance: BrowserInstanceView } {
+    const found = this.findBrowser(browserId);
+    const instance = this.getState().allInstances.find(item => item.id === browserId);
+    if (!found?.browser.webContents || !instance || found.browser.webContents.isDestroyed())
+      throw new Error("引用的网页已关闭或尚未就绪。");
+    assertBrowserGuestWebContents(found.browser.webContents);
+    return { guest: found.browser.webContents, instance };
+  }
+
   /** User-selected references have their own single-page CDP target and CLI session. */
   async invokeReferencedBrowserTool(browserId: string, action: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<AgentBrowserMcpToolResult> {
     const allowed = new Set(["snapshot", "read", "click", "fill", "type", "press", "check", "uncheck", "select", "scroll", "get_text", "get_url", "get_title", "screenshot", "wait_for_selector", "wait_for_text", "wait_for_load", "reload", "back", "forward"]);

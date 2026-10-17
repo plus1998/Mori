@@ -2,6 +2,7 @@ import { ComposerReferenceIcon } from "./ComposerReferenceIcon";
 import { parsePromptSegments, skillToken } from "./composer-skills";
 import { MaterialFileIcon } from "./MaterialFileIcon";
 import { dispatchWorkspaceFileReference, workspaceFileReferenceBasename } from "./workspace-file-reference";
+import { previewBrowserSelection } from "./browser-selection-events";
 
 /** Render user-prompt text with `@file{abs}` chips; other tokens stay literal. */
 export function UserPromptBodyContent({ text }: { text: string }) {
@@ -21,6 +22,12 @@ export function UserPromptBodyContent({ text }: { text: string }) {
         }
         if (segment.type === "reference") {
           const ref = segment.reference;
+          if (ref.kind === "web_selection") return (
+            <button key={`r-${index}`} type="button" className="markdown-file-ref run-log-user-prompt-file-ref composer-reference-display"
+              title={`${ref.label} · ${ref.detail}`} onClick={() => previewBrowserSelection(ref.id)}>
+              <ComposerReferenceIcon reference={ref} size={14} /><span>@{ref.label}</span>
+            </button>
+          );
           return (
             <span
               key={`r-${index}`}

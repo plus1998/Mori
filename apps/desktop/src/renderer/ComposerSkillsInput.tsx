@@ -15,6 +15,7 @@ import type { SkillInfo } from "../shared/skills";
 import { ComposerContextMenu, type ComposerContextMenuAnchor } from "./ComposerContextMenu";
 import { copyTextToClipboard } from "./clipboard";
 import { readComposerClipboard } from "./composer-clipboard-paste";
+import { previewBrowserSelection } from "./browser-selection-events";
 import {
   getCursorOffset,
   getSelectionOffsets,
@@ -250,6 +251,13 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
       ) {
         return;
       }
+      const referenceButton = event.target instanceof Element
+        ? event.target.closest<HTMLButtonElement>('[data-reference-kind="web_selection"] button') : null;
+      if (referenceButton && (event.key === "Enter" || event.key === " ")) {
+        event.preventDefault();
+        referenceButton.click();
+        return;
+      }
       const editor = editorRef.current;
       if (editor && (event.key === "Backspace" || event.key === "Delete")) {
         const deletion = handleFileChipDeletion(
@@ -408,7 +416,18 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
           onInput={handleInput}
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
-          onClick={syncCursor}
+          onClick={event => {
+            const target = event.target instanceof Element ? event.target : null;
+            const chip = target?.closest<HTMLElement>('[data-reference-kind="web_selection"]');
+            if (chip && editorRef.current?.contains(chip)) {
+              if (target?.closest("[data-reference-remove]")) {
+                if (!disabled) { chip.remove(); commitEditorValue(); }
+              }
+              else if (chip.dataset.referenceId) previewBrowserSelection(chip.dataset.referenceId);
+              return;
+            }
+            syncCursor();
+          }}
           onKeyUp={syncCursor}
           onPaste={handlePaste}
           onContextMenu={handleContextMenu}
