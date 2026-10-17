@@ -2184,8 +2184,8 @@ function App() {
     setImageGalleryOpen(true);
   }, []);
 
-  const advanceImageGallery = useCallback(() => {
-    setImageGalleryQueue((current) => advanceImageGalleryQueue(current));
+  const advanceImageGallery = useCallback((item: ImageGalleryQueueItem) => {
+    setImageGalleryQueue((current) => advanceImageGalleryQueue(current, item.key));
   }, []);
 
   const closeImageGallery = useCallback(() => {

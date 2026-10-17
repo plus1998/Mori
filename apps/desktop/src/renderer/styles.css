@@ -16833,6 +16833,10 @@ a.run-log-web-search-detail-result-url:focus-visible {
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
 }
 
+.run-log-image-view-lightbox-content:focus {
+  outline: none;
+}
+
 .run-log-image-view-lightbox-bar {
   display: flex;
   min-width: 0;
@@ -41015,7 +41019,32 @@ body,
   animation: eco-spin 1s linear infinite;
 }
 
-/* hover 时浮现的操作图标：关闭（右上角）+ 预览（居中） */
+/* 操作集中在右上角；hover 与键盘 focus 都可唤出。 */
+.image-gallery-card-actions {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(15, 17, 21, 0.72);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(12px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+
+.image-gallery-card-actions-divider {
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
 .image-gallery-card-overlay {
   position: absolute;
   z-index: 3;
@@ -41040,9 +41069,9 @@ body,
     background-color 0.16s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-.image-gallery-card-overlay--close {
-  top: 10px;
-  right: 10px;
+.image-gallery-card-actions .image-gallery-card-overlay {
+  position: relative;
+  background: transparent;
 }
 
 .image-gallery-card-overlay--preview {
@@ -41053,22 +41082,142 @@ body,
   transform: translate(-50%, -50%) scale(0.9);
 }
 
-.image-gallery-card--current:hover .image-gallery-card-overlay {
+.image-gallery-card--current:hover .image-gallery-card-overlay,
+.image-gallery-card--current:focus-within .image-gallery-card-overlay,
+.image-gallery-card--current:hover .image-gallery-card-actions,
+.image-gallery-card--current:focus-within .image-gallery-card-actions,
+.image-gallery-card--current:has(.image-gallery-card-media--error) .image-gallery-card-actions,
+.image-gallery-card--current:has(.image-gallery-card-media--error)
+  .image-gallery-card-actions
+  .image-gallery-card-overlay {
   opacity: 1;
   pointer-events: auto;
 }
 
-.image-gallery-card--current:hover .image-gallery-card-overlay--preview {
+.image-gallery-card--current:hover .image-gallery-card-overlay--preview,
+.image-gallery-card--current:focus-within .image-gallery-card-overlay--preview {
   transform: translate(-50%, -50%) scale(1);
 }
 
-.image-gallery-card-overlay:hover {
+.image-gallery-card-overlay:hover,
+.image-gallery-card-actions .image-gallery-card-overlay:hover {
   background: rgba(15, 17, 21, 0.72);
 }
 
 .image-gallery-card-overlay:focus-visible {
   outline: 2px solid var(--focus-ring, #fff);
   outline-offset: 2px;
+}
+
+.image-gallery-navigation {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.image-gallery-navigation-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(15, 17, 21, 0.78);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.16);
+}
+
+.image-gallery-navigation-pill button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 0.16s ease;
+}
+
+.image-gallery-navigation-pill button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.image-gallery-navigation-pill button:focus-visible {
+  outline: 2px solid var(--focus-ring, #fff);
+  outline-offset: 2px;
+}
+
+.image-gallery-navigation-pill button:disabled,
+.run-log-image-view-lightbox-close:disabled,
+.lightbox-zoom-percent:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.image-gallery-position {
+  min-width: 44px;
+  text-align: center;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.image-gallery-position > span {
+  opacity: 0.45;
+}
+
+.image-gallery-keyboard-hint {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.lightbox-gallery-navigation {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+  margin-right: auto;
+}
+
+.lightbox-gallery-message {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 10px;
+  padding: 24px;
+  color: var(--lightbox-panel-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-gallery-float,
+  .image-gallery-card-overlay,
+  .image-gallery-card-actions,
+  .image-gallery-navigation-pill button {
+    transition: none;
+  }
+
+  .image-gallery-card-spinner {
+    animation: none;
+  }
+}
+
+@media (hover: none) {
+  .image-gallery-card--current .image-gallery-card-actions,
+  .image-gallery-card--current .image-gallery-card-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .provider-fixed-connection {

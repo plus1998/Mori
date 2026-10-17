@@ -1,10 +1,14 @@
 import { motion, useReducedMotion } from "framer-motion";
-import { LoaderCircle, Maximize2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, LoaderCircle, Maximize2, X, XCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ImageGalleryQueueItem } from "./image-gallery-float-state";
-import { createImageObjectUrlFromBase64, revokeImageObjectUrl, revokeImageObjectUrls } from "./image-object-url";
 import { ImageLightbox } from "./image-lightbox";
+import {
+  createImageObjectUrlFromBase64,
+  revokeImageObjectUrl,
+  revokeImageObjectUrls,
+} from "./image-object-url";
 
 /** 竖直画廊最多同时展示的层数：当前一张 + 下方两张排队预览。 */
 const GALLERY_LAYER_COUNT = 3;
@@ -36,32 +40,39 @@ function galleryLayerTransform(layer: number): {
 function GalleryCard({
   item,
   layer,
+  image,
   onLoaded,
+  onError,
   onPreview,
   onAdvance,
+  onCloseAll,
 }: {
   item: ImageGalleryQueueItem;
   layer: number;
+  image: LoadedImage | undefined;
   onLoaded: (item: ImageGalleryQueueItem, image: LoadedImage) => void;
+  onError: (item: ImageGalleryQueueItem, error: string) => void;
   onPreview: (item: ImageGalleryQueueItem) => void;
   onAdvance: (item: ImageGalleryQueueItem) => void;
+  onCloseAll: () => void;
 }) {
   const { t } = useTranslation();
+  const reducedMotion = useReducedMotion();
   const isCurrent = layer === 0;
-  const [src, setSrc] = useState<string>();
-  const [fileName, setFileName] = useState<string>();
+  const src = image?.src;
+  const fileName = image?.fileName;
   const [error, setError] = useState<string>();
 
   useEffect(() => {
+    if (image) return;
     let cancelled = false;
     let objectUrl: string | undefined;
     let handedOff = false;
-    setSrc(undefined);
-    setFileName(undefined);
     setError(undefined);
     const bridge = window.eco;
     if (!bridge) {
       setError(t("imageGallery.loadError"));
+      onError(item, t("imageGallery.loadError"));
       return;
     }
     void (async () => {
@@ -85,8 +96,6 @@ function GalleryCard({
           return;
         }
         objectUrl = url;
-        setFileName(result.fileName);
-        setSrc(objectUrl);
         handedOff = true;
         onLoaded(item, { src: objectUrl, fileName: result.fileName, path: result.path });
         return;
@@ -102,11 +111,14 @@ function GalleryCard({
         return;
       }
       objectUrl = url;
-      setSrc(objectUrl);
       handedOff = true;
       onLoaded(item, { src: objectUrl, path: result.path });
     })().catch((caught) => {
-      if (!cancelled) setError(caught instanceof Error ? caught.message : String(caught));
+      if (!cancelled) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        setError(message);
+        onError(item, message);
+      }
     });
     return () => {
       cancelled = true;
@@ -114,19 +126,19 @@ function GalleryCard({
         revokeImageObjectUrl(objectUrl);
       }
     };
-  }, [item, t, onLoaded]);
+  }, [item, image, t, onLoaded, onError]);
 
   const alt =
     item.kind === "display"
       ? t("activity.imageDisplay.previewAlt", { name: fileName ?? t("task.imageDisplay.emptyTitle") })
       : t("task.image.title");
   const transform = galleryLayerTransform(layer);
-  const showOverlays = isCurrent && !error;
 
   return (
     <motion.div
       className={isCurrent ? "image-gallery-card image-gallery-card--current" : "image-gallery-card"}
       aria-hidden={!isCurrent}
+      inert={!isCurrent}
       initial={false}
       animate={{
         y: transform.y,
@@ -134,7 +146,9 @@ function GalleryCard({
         opacity: transform.opacity,
         zIndex: transform.zIndex,
       }}
-      transition={{ type: "spring", stiffness: 280, damping: 28, mass: 0.9 }}
+      transition={
+        reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 280, damping: 28, mass: 0.9 }
+      }
       style={{ pointerEvents: isCurrent ? "auto" : "none" }}
     >
       <div className="image-gallery-card-frame">
@@ -158,24 +172,41 @@ function GalleryCard({
             <span>{t("imageGallery.loading")}</span>
           </div>
         )}
-        {showOverlays ? (
+        {isCurrent ? (
           <>
-            <button
-              type="button"
-              className="image-gallery-card-overlay image-gallery-card-overlay--preview"
-              onClick={src ? () => onPreview(item) : undefined}
-              aria-label={t("imageGallery.preview")}
-            >
-              <Maximize2 size={20} aria-hidden />
-            </button>
-            <button
-              type="button"
-              className="image-gallery-card-overlay image-gallery-card-overlay--close"
-              onClick={() => onAdvance(item)}
-              aria-label={t("imageGallery.closeCurrent")}
-            >
-              <X size={16} aria-hidden />
-            </button>
+            {src ? (
+              <button
+                type="button"
+                className="image-gallery-card-overlay image-gallery-card-overlay--preview"
+                onClick={() => onPreview(item)}
+                aria-label={t("imageGallery.preview")}
+                title={t("imageGallery.preview")}
+              >
+                <Maximize2 size={20} aria-hidden />
+              </button>
+            ) : null}
+            <div className="image-gallery-card-actions">
+              <button
+                type="button"
+                className="image-gallery-card-overlay image-gallery-card-overlay--close"
+                onClick={() => onAdvance(item)}
+                aria-label={t("imageGallery.closeCurrent")}
+                title={t("imageGallery.closeCurrent")}
+              >
+                <X size={16} aria-hidden />
+              </button>
+              <span className="image-gallery-card-actions-divider" aria-hidden />
+              <button
+                type="button"
+                className="image-gallery-card-overlay image-gallery-card-overlay--close-all"
+                onClick={onCloseAll}
+                aria-label={t("imageGallery.closeAll")}
+                title={`${t("imageGallery.closeAll")} (Esc)`}
+                aria-keyshortcuts="Escape"
+              >
+                <XCircle size={17} aria-hidden />
+              </button>
+            </div>
           </>
         ) : null}
       </div>
@@ -186,9 +217,8 @@ function GalleryCard({
 /**
  * 图片画廊悬浮窗：渲染在 Feed 列内（activity-workspace-shell），只在 Feed 上展示，
  * 不覆盖右侧 task 面板；cards 面板打开时由 avoidCards 向左偏移避开。
- * 竖直方向排队展示展示图片 / 创意绘画工具产出的图片。
- * 纯图片无边框；hover 当前图片时右上角显示关闭图标、居中显示预览图标，点击预览图标直接打开弹窗预览。
- * 关闭当前一张即切换到下一张；队列清空或按 Esc 整体关闭后回到 workspace cards。
+ * 保留竖直叠图，用方向键或分页按钮前后浏览；关闭当前张只移除这一张。
+ * hover / 键盘聚焦时显示图片操作；关闭全部或 Esc 收起画廊，产物仍保留在 cards 中。
  */
 export function ImageGalleryFloat({
   items,
@@ -204,12 +234,39 @@ export function ImageGalleryFloat({
   const { t } = useTranslation();
   const reducedMotion = useReducedMotion();
   const [loadedImages, setLoadedImages] = useState<Record<string, LoadedImage>>({});
+  const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
   const loadedImagesRef = useRef(loadedImages);
   loadedImagesRef.current = loadedImages;
-  const [previewItem, setPreviewItem] = useState<ImageGalleryQueueItem | null>(null);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const activeIndex = Math.max(
+    0,
+    items.findIndex((item) => item.key === activeKey),
+  );
+  const currentItem = items[activeIndex];
 
-  const closeCurrent = useCallback((item: ImageGalleryQueueItem) => onAdvance(item), [onAdvance]);
+  const closeCurrent = useCallback(
+    (item: ImageGalleryQueueItem) => {
+      setActiveKey((items[activeIndex + 1] ?? items[activeIndex - 1])?.key ?? null);
+      onAdvance(item);
+    },
+    [items, activeIndex, onAdvance],
+  );
+  const previous = useCallback(() => {
+    const item = items[activeIndex - 1];
+    if (item) setActiveKey(item.key);
+  }, [items, activeIndex]);
+  const next = useCallback(() => {
+    const item = items[activeIndex + 1];
+    if (item) setActiveKey(item.key);
+  }, [items, activeIndex]);
   const handleLoaded = useCallback((item: ImageGalleryQueueItem, image: LoadedImage) => {
+    setLoadErrors((prev) => {
+      if (!(item.key in prev)) return prev;
+      const next = { ...prev };
+      delete next[item.key];
+      return next;
+    });
     setLoadedImages((prev) => {
       const existing = prev[item.key];
       if (existing?.src === image.src) {
@@ -221,10 +278,14 @@ export function ImageGalleryFloat({
       return { ...prev, [item.key]: image };
     });
   }, []);
-  const handlePreview = useCallback((item: ImageGalleryQueueItem) => {
-    setPreviewItem(item);
+  const handleError = useCallback((item: ImageGalleryQueueItem, error: string) => {
+    setLoadErrors((prev) => ({ ...prev, [item.key]: error }));
   }, []);
-  const closePreview = useCallback(() => setPreviewItem(null), []);
+  const handlePreview = useCallback((item: ImageGalleryQueueItem) => {
+    setActiveKey(item.key);
+    setPreviewOpen(true);
+  }, []);
+  const closePreview = useCallback(() => setPreviewOpen(false), []);
 
   useEffect(() => {
     const liveKeys = new Set(items.map((item) => item.key));
@@ -251,15 +312,39 @@ export function ImageGalleryFloat({
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      // 弹窗预览打开时由 ImageLightbox 处理 Esc（只关预览，不关整个画廊）。
-      if (event.key === "Escape" && !previewItem) {
+      // 弹窗接管自己的键盘操作，输入框、其他弹窗和菜单继续使用原有按键。
+      if (
+        previewOpen ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey
+      )
+        return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest(
+          'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="slider"]',
+        )
+      )
+        return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
         onCloseAll();
+      } else if (items.length > 1 && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        event.preventDefault();
+        if (event.key === "ArrowLeft") previous();
+        else next();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onCloseAll, previewItem]);
+  }, [onCloseAll, previewOpen, items.length, previous, next]);
 
+  const previewItem = currentItem;
   const previewLoaded = previewItem ? loadedImages[previewItem.key] : undefined;
   const previewTitle = previewItem
     ? previewItem.kind === "display"
@@ -292,25 +377,69 @@ export function ImageGalleryFloat({
       exit={reducedMotion ? { opacity: 0 } : { opacity: 0, x: 48, scale: 0.98 }}
       transition={{ type: "spring", stiffness: 320, damping: 30, mass: 0.9 }}
     >
-      <div className="image-gallery-float-stack" aria-live="polite">
-        {items.slice(0, GALLERY_LAYER_COUNT).map((item, layer) => (
+      <div className="image-gallery-float-stack">
+        {items.slice(activeIndex, activeIndex + GALLERY_LAYER_COUNT).map((item, layer) => (
           <GalleryCard
             key={item.key}
             item={item}
             layer={layer}
+            image={loadedImages[item.key]}
             onLoaded={handleLoaded}
+            onError={handleError}
             onPreview={handlePreview}
             onAdvance={closeCurrent}
+            onCloseAll={onCloseAll}
           />
         ))}
       </div>
-      {previewItem && previewLoaded ? (
+      {items.length > 1 ? (
+        <div className="image-gallery-navigation">
+          <nav className="image-gallery-navigation-pill" aria-label={t("imageGallery.keyboardHint")}>
+            <button
+              type="button"
+              onClick={previous}
+              disabled={activeIndex === 0}
+              aria-label={t("imageGallery.previous")}
+              title={`${t("imageGallery.previous")} (←)`}
+              aria-keyshortcuts="ArrowLeft"
+            >
+              <ChevronLeft size={16} aria-hidden />
+            </button>
+            <span
+              className="image-gallery-position"
+              role="status"
+              aria-label={t("imageGallery.position", { current: activeIndex + 1, total: items.length })}
+            >
+              {activeIndex + 1}
+              <span aria-hidden> / </span>
+              {items.length}
+            </span>
+            <button
+              type="button"
+              onClick={next}
+              disabled={activeIndex === items.length - 1}
+              aria-label={t("imageGallery.next")}
+              title={`${t("imageGallery.next")} (→)`}
+              aria-keyshortcuts="ArrowRight"
+            >
+              <ChevronRight size={16} aria-hidden />
+            </button>
+          </nav>
+          <span className="image-gallery-keyboard-hint">{t("imageGallery.keyboardHint")}</span>
+        </div>
+      ) : null}
+      {previewOpen && previewItem ? (
         <ImageLightbox
-          src={previewLoaded.src}
+          src={previewLoaded?.src ?? ""}
+          loading={!previewLoaded && !loadErrors[previewItem.key]}
+          error={loadErrors[previewItem.key]}
           alt={previewAlt}
           title={previewTitle}
           dialogLabel={t("imageGallery.preview")}
-          {...(previewLoaded.path ? { onOpenFolder: revealPreviewFolder } : {})}
+          {...(previewLoaded?.path ? { onOpenFolder: revealPreviewFolder } : {})}
+          {...(items.length > 1
+            ? { navigation: { index: activeIndex, count: items.length, onPrevious: previous, onNext: next } }
+            : {})}
           onClose={closePreview}
         />
       ) : null}
