@@ -30,6 +30,7 @@ import {
 import { webChatProxyConfig, webChatSitePartition } from "../shared/web-chat-list";
 import { ComposerReferenceService } from "./composer-reference-service";
 import { BrowserSelectionService } from "./browser-selection-service";
+import { authorizeBrowserDownloadAccess } from "./browser-download-approval";
 import { ContextReferenceMcpGateway } from "./context-reference-mcp-gateway";
 import { ConversationRecoveryGate } from "./conversation-recovery-gate";
 import { finalizeAcceptedConversationV2Messages } from "./conversation-v2-accepted-finalization";
@@ -2723,6 +2724,28 @@ app
         });
       },
       resolveWorkspacePath: (threadId) => conversationStore.getThread(threadId)?.workspacePath,
+      authorizeDownloadAccess: input => authorizeBrowserDownloadAccess(input, {
+        context: threadId => {
+          const thread = conversationStore.getThread(threadId);
+          const agentId = agentLifecycle.usagePlannerAgentId(threadId);
+          if (!thread || !agentId) throw new Error("Cannot attribute browser download access to an active conversation agent.");
+          return {
+            agentId,
+            cwd: activeRunRuntimeState.worktreePlan(threadId)?.worktreePath || thread.sdkCwd || thread.workspacePath,
+            mode: ensureThreadRuntimeConfig(thread).runtimeConfig?.bashReviewMode ?? "always",
+          };
+        },
+        review: (request, toolInput) => reviewThreadToolApproval(input.threadId, request, {
+          toolName: "BrowserDownload", toolInput,
+        }, "browser"),
+        requestHuman: request => registerPendingBashApproval(input.threadId, request),
+        cancel: toolUseId => { resolvePendingBashApproval(toolUseId, { decision: "cancelled" }); },
+        emit: (request, decision) => {
+          const type = `bash_approval.${decision}` as const;
+          const label = decision === "requested" ? "等待确认下载文件访问" : decision === "approved" ? "已允许下载文件访问" : "已拒绝下载文件访问";
+          emitThreadEvent(input.threadId, type, `${label}：${input.file.name}`, "tool", false, bashApprovalEventExtras(request, type));
+        },
+      }),
     });
     const imageSecretCodec: ImageGenerationSecretCodec = {
       isAvailable: () => safeStorage.isEncryptionAvailable(),
@@ -8258,6 +8281,28 @@ function registerIpcHandlers(): void {
         : undefined;
     await requireBrowserHost().openExternalCurrent(browserId);
     return { ok: true as const };
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.browserDownloadAction, async (payload: unknown) => {
+    const request = payload as import("../shared/browser-downloads").BrowserDownloadActionRequest;
+    if (!request || typeof request.browserId !== "string" || typeof request.fileId !== "string" ||
+      !["save", "reveal", "cancel"].includes(request.action)) throw new Error("Invalid download action.");
+    const host = requireBrowserHost();
+    if (request.action === "cancel") {
+      host.cancelDownloadForUi(request.browserId, request.fileId);
+      return { cancelled: false };
+    }
+    const file = host.getDownloadForUi(request.browserId, request.fileId);
+    if (request.action === "reveal") {
+      shell.showItemInFolder(file.path);
+      return { cancelled: false };
+    }
+    const chosen = await dialog.showSaveDialog({ defaultPath: path.join(app.getPath("downloads"), file.name) });
+    if (chosen.canceled || !chosen.filePath) return { cancelled: true };
+    // Revalidate after the native dialog, because closing the tab deletes its temporary files.
+    const current = host.getDownloadForUi(request.browserId, request.fileId);
+    await fs.copyFile(current.path, chosen.filePath);
+    return { cancelled: false };
   });
 
   registerDesktopCommand(IPC_CHANNELS.asrSettingsGet, async () => asrSettingsStore.get());

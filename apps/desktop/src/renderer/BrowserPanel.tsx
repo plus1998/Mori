@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ExternalLink,
+  Download,
   FolderOpen,
   Globe,
   KeyRound,
@@ -17,6 +18,7 @@ import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type BrowserViewState, normalizeBrowserNavigateUrl } from "../shared/browser";
 import { BrowserViewportControls } from "./BrowserViewportControls";
+import { BrowserDownloadsPanel } from "./BrowserDownloadsPanel";
 import { BrowserWebviewViewportMarker } from "./BrowserWebviewViewportMarker";
 import { useBrowserInstanceIds } from "./browser-state-store";
 import type { TaskPanelHomeTool } from "./task-panel-tabs";
@@ -46,12 +48,14 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
   const [showViewportControls, setShowViewportControls] = useState<boolean | null>(null);
   const [selecting, setSelecting] = useState<"element" | "text">();
   const [selectionError, setSelectionError] = useState<string>();
+  const [showDownloads, setShowDownloads] = useState(false);
   const selectionRequest = useRef(0);
   const addressInputId = useId();
   /** Main drops a closed browser from its guest list — never focus a page that is gone. */
   const liveBrowserIds = useBrowserInstanceIds();
 
   const instance = state?.instances.find((item) => item.id === browserId);
+  const downloads = instance?.downloads;
   const viewportControlsVisible = showViewportControls ?? Boolean(instance?.viewport);
   const displayUrl = instance?.url ?? "about:blank";
   const canGoBack = instance?.canGoBack ?? false;
@@ -212,6 +216,17 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
         </button>
         <button
           type="button"
+          className="browser-panel-icon-btn browser-downloads-toggle"
+          aria-label={t("browser.downloads.title")}
+          title={t("browser.downloads.title")}
+          aria-expanded={showDownloads}
+          onClick={() => setShowDownloads(value => !value)}
+        >
+          <Download size={ICON_SIZE} />
+          {downloads?.length ? <span>{downloads.length}</span> : null}
+        </button>
+        <button
+          type="button"
           className="browser-panel-icon-btn"
           disabled={!displayUrl || displayUrl === "about:blank"}
           onClick={() => void window.eco?.browserOpenExternal?.(browserId)}
@@ -221,6 +236,7 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
           <ExternalLink size={ICON_SIZE} />
         </button>
       </div>
+      {showDownloads ? <BrowserDownloadsPanel browserId={browserId} files={downloads ?? []} /> : null}
       {viewportControlsVisible ? (
         <BrowserViewportControls browserId={browserId} viewport={instance?.viewport} onChange={setState} />
       ) : null}

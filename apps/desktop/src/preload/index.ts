@@ -1089,6 +1089,9 @@ const api = {
   browserOpenExternal(browserId?: string): Promise<{ ok: true }> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserOpenExternal, browserId ? { browserId } : undefined);
   },
+  browserDownloadAction(request: import("../shared/browser-downloads").BrowserDownloadActionRequest): Promise<{ cancelled: boolean }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserDownloadAction, request);
+  },
   browserCaptureSelection(request: import("../shared/browser-selection").BrowserSelectionRequest): Promise<import("../shared/browser-selection").BrowserSelection | null> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserCaptureSelection, request);
   },

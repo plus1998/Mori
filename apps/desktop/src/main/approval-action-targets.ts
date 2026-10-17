@@ -44,6 +44,11 @@ export function extractApprovalActionTargets(input: {
     }
     result.targets.push({ path: path.resolve(input.cwd, expanded), operation });
   };
+  if (input.toolName === "BrowserDownload") {
+    if (typeof input.toolInput.path === "string") add(input.toolInput.path, "read");
+    else { result.complete = false; result.limitations.push("download_path_missing"); }
+    return result;
+  }
   const filePath = ["file_path", "filePath", "path", "notebook_path", "notebookPath"]
     .map((key) => input.toolInput[key])
     .find((value) => typeof value === "string");

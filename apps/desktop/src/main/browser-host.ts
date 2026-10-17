@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { CodexMcpServerForConfigSync } from "@eco/runtime";
-import type { WebContents } from "electron";
+import type { DownloadItem, WebContents } from "electron";
 import { session, shell, webContents } from "electron";
 import {
   appendBrowserPrompt,
@@ -53,6 +53,8 @@ import {
 } from "./browser-native-agent-tools";
 import { applyBrowserViewport } from "./browser-viewport";
 import type { BrowserSettingsStore } from "./browser-settings-store";
+import { BrowserDownloads } from "./browser-downloads";
+import type { BrowserDownload } from "../shared/browser-downloads";
 
 export { appendBrowserPrompt };
 
@@ -131,6 +133,11 @@ export interface BrowserHostDeps {
   /** Lightweight Agent presence overlays (rainbow edge / synthetic cursor). */
   broadcastAgentPresence?: (event: BrowserAgentPresenceEvent) => void;
   resolveWorkspacePath: (threadId: string) => string | undefined;
+  authorizeDownloadAccess?: (input: {
+    threadId: string;
+    file: BrowserDownload & { path: string };
+    signal?: AbortSignal;
+  }) => Promise<void>;
 }
 
 interface SessionBrowser {
@@ -185,7 +192,16 @@ export class BrowserHost {
   /** Browser id that should force task-panel tab switch (user-initiated opens). */
   private activateBrowserId: string | undefined;
   private browserMcpGateway: BrowserMcpGateway | undefined;
-  private readonly partitionHandlers = new Set<string>();
+  private readonly partitionHandlers = new Map<string, () => void>();
+  private downloadEmitTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly downloadAccessControllers = new Map<string, Set<AbortController>>();
+  private readonly downloads = new BrowserDownloads(() => {
+    if (this.disposed || this.downloadEmitTimer) return;
+    this.downloadEmitTimer = setTimeout(() => {
+      this.downloadEmitTimer = undefined;
+      if (!this.disposed) this.emit();
+    }, 200);
+  });
   /** will-attach-webview browser id → guest webContents id after did-attach. */
   private readonly pendingGuestByBrowserId = new Map<string, number>();
   private readonly pendingGuestByWebContentsId = new Map<number, string>();
@@ -395,7 +411,7 @@ export class BrowserHost {
       browser.guestEventsWired = false;
     }
     this.pendingGuestByWebContentsId.set(guest.id, browser.id);
-    this.ensurePartitionHandlers(scope.partition);
+    this.ensurePartitionHandlers(browser.partition ?? scope.partition);
     this.wireGuestWebContents(scope, browser);
     if (browser.viewport) {
       void this.queueViewportUpdate(browser, async () => {
@@ -602,6 +618,7 @@ export class BrowserHost {
           focused: scope.focusedBrowserId === browser.id,
           source: browser.source,
           createdAt: browser.createdAt,
+          downloads: this.downloads.list(browser.id),
           ...(browser.viewport ? { viewport: browser.viewport } : {}),
           ...(browser.viewportError ? { viewportError: browser.viewportError } : {}),
         },
@@ -669,7 +686,22 @@ export class BrowserHost {
     guestSession.setPermissionRequestHandler((_wc, _permission, callback) => {
       callback(false);
     });
-    this.partitionHandlers.add(partition);
+    const download = (event: Electron.Event, item: DownloadItem, source: WebContents) => {
+      if (!source) return;
+      const found = [...this.scopes.values()].flatMap(scope => [...scope.browsers.values()])
+        .find(browser => browser.webContents?.id === source.id);
+      if (!found) return;
+      try {
+        this.downloads.capture(found.id, item);
+      } catch (error) {
+        // Cancel synchronously: storage errors must not open an unattended native save dialog.
+        item.cancel();
+        event.preventDefault();
+        console.error("[browser] Cannot retain download", error);
+      }
+    };
+    guestSession.on("will-download", download);
+    this.partitionHandlers.set(partition, () => guestSession.off("will-download", download));
   }
 
   private resolveScopeId(threadId?: string | null, workspacePath?: string): string {
@@ -968,6 +1000,9 @@ export class BrowserHost {
   }
 
   private destroyBrowser(scope: ThreadBrowserScope, browser: SessionBrowser): void {
+    for (const controller of this.downloadAccessControllers.get(browser.id) ?? []) controller.abort(new Error("Browser tab was closed."));
+    this.downloadAccessControllers.delete(browser.id);
+    void this.downloads.removeBrowser(browser.id).catch(error => console.error("[browser] Download cleanup failed", error));
     const proxy = this.referenceProxies.get(browser.id);
     this.referenceProxies.delete(browser.id);
     if (proxy) void proxy.then(async value => {
@@ -1368,6 +1403,19 @@ export class BrowserHost {
     return agentBrowserTextResult(JSON.stringify({ browserId, viewport: browser.viewport ?? null, metrics }));
   }
 
+  /** Human download actions stay scoped to the tab currently exposed by the UI. */
+  getDownloadForUi(browserId: string, fileId: string): BrowserDownload & { path: string } {
+    const found = this.findBrowser(browserId);
+    if (!found || found.scope.threadId !== this.uiScopeId) throw new Error("Browser is not in the current UI scope.");
+    return this.downloads.getCompleted(browserId, fileId);
+  }
+
+  cancelDownloadForUi(browserId: string, fileId: string): void {
+    const found = this.findBrowser(browserId);
+    if (!found || found.scope.threadId !== this.uiScopeId) throw new Error("Browser is not in the current UI scope.");
+    this.downloads.cancel(browserId, fileId);
+  }
+
   /** Resolve a real guest for human-selected content, never the Eco main window. */
   getSelectionTarget(browserId: string): { guest: WebContents; instance: BrowserInstanceView } {
     const found = this.findBrowser(browserId);
@@ -1456,6 +1504,37 @@ export class BrowserHost {
     signal?.throwIfAborted();
     this.noteAgentPresenceForThread(threadId);
     switch (toolName) {
+      case "agent_browser_files_list":
+      case "agent_browser_files_get": {
+        const scope = this.scopes.get(threadId);
+        if (args.browserId !== undefined && (typeof args.browserId !== "string" || !args.browserId.trim())) throw new Error("browserId must be a non-empty string.");
+        if (args.tabId !== undefined && (typeof args.tabId !== "string" || !args.tabId.trim())) throw new Error("tabId must be a non-empty string.");
+        if (args.browserId !== undefined && args.tabId !== undefined) throw new Error("Use either tabId or browserId, not both.");
+        const browserId = typeof args.browserId === "string" ? args.browserId : typeof args.tabId === "string" && scope
+          ? this.orderedBrowsersInScope(scope)[resolveAgentBrowserTabIndex({ tabId: args.tabId }, scope.browsers.size)]?.id
+          : scope?.focusedBrowserId;
+        if (!browserId || !scope?.browsers.has(browserId)) throw new Error("Browser tab does not belong to this conversation.");
+        if (toolName === "agent_browser_files_list") {
+          return agentBrowserTextResult(JSON.stringify({ browserId, files: this.downloads.list(browserId) }));
+        }
+        if (typeof args.fileId !== "string" || !args.fileId.trim()) throw new Error("fileId is required.");
+        const file = this.downloads.getCompleted(browserId, args.fileId);
+        if (!this.deps.authorizeDownloadAccess) throw new Error("Browser download file-access review is unavailable.");
+        const controller = new AbortController();
+        const accessSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+        let controllers = this.downloadAccessControllers.get(browserId);
+        if (!controllers) { controllers = new Set(); this.downloadAccessControllers.set(browserId, controllers); }
+        controllers.add(controller);
+        try {
+          await this.deps.authorizeDownloadAccess({ threadId, file, signal: accessSignal });
+          accessSignal.throwIfAborted();
+          // The tab or retained file may have disappeared while approval was pending.
+          return agentBrowserTextResult(JSON.stringify(this.downloads.getCompleted(browserId, args.fileId)));
+        } finally {
+          controllers.delete(controller);
+          if (!controllers.size) this.downloadAccessControllers.delete(browserId);
+        }
+      }
       case "agent_browser_list_devices":
         return agentBrowserTextResult(JSON.stringify({ devices: BROWSER_VIEWPORT_PRESETS }));
       case "agent_browser_set_viewport":
@@ -1823,6 +1902,9 @@ export class BrowserHost {
 
   dispose(): void {
     this.disposed = true;
+    if (this.downloadEmitTimer) clearTimeout(this.downloadEmitTimer);
+    for (const remove of this.partitionHandlers.values()) remove();
+    this.partitionHandlers.clear();
     this.revealBrowserId = undefined;
     void this.browserMcpGateway?.close();
     this.browserMcpGateway = undefined;
@@ -1833,6 +1915,7 @@ export class BrowserHost {
       }
     }
     this.scopes.clear();
+    void this.downloads.dispose().catch(error => console.error("[browser] Download cleanup failed", error));
   }
 }
 

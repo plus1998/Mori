@@ -203,6 +203,8 @@ export interface BrowserInstanceView {
   focused: boolean;
   source: BrowserInstanceSource;
   createdAt: number;
+  /** Downloads retained by this tab; paths are only exposed after file-access review. */
+  downloads?: import("./browser-downloads").BrowserDownload[];
 }
 
 /** Renderer `<webview>` guest for every logical browser (includes hidden CDP warmup shells). */

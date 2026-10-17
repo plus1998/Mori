@@ -32,6 +32,8 @@ export const AGENT_BROWSER_CORE_TOOL_NAMES = [
   "agent_browser_wait_for_text",
   "agent_browser_wait_for_load",
   "agent_browser_screenshot",
+  "agent_browser_files_list",
+  "agent_browser_files_get",
   "agent_browser_get_text",
   "agent_browser_get_url",
   "agent_browser_get_title",
@@ -75,6 +77,21 @@ const TOOL_DEFINITIONS: Record<
   (typeof AGENT_BROWSER_CORE_TOOL_NAMES)[number],
   { description: string; inputSchema: JsonSchema }
 > = {
+  agent_browser_files_list: {
+    description: "List this browser tab's downloads and their pending/completed/failed/cancelled states. Download clicks do not imply completion. Local paths are not exposed by this tool.",
+    inputSchema: objectSchema({ properties: {
+      tabId: { type: "string", description: "Optional tab label from tab_list, e.g. t1. Does not change UI focus." },
+      browserId: { type: "string", description: "Optional exact browser ID returned by files_list. Cannot be combined with tabId. Defaults to the focused tab." },
+    } }),
+  },
+  agent_browser_files_get: {
+    description: "Request reviewed access to one completed download from this tab. Returns its local temporary file path. Files are removed when the tab closes; copy needed files before closing it. Never re-fetch a download URL to bypass review.",
+    inputSchema: objectSchema({ required: ["fileId"], properties: {
+      fileId: { type: "string", minLength: 1, description: "Exact completed file ID returned by files_list." },
+      tabId: { type: "string", description: "Optional tab label from tab_list, e.g. t1. Does not change UI focus." },
+      browserId: { type: "string", description: "Optional exact browser ID returned by files_list. Cannot be combined with tabId. Defaults to the focused tab." },
+    } }),
+  },
   agent_browser_tools_profiles: {
     description: "List Eco built-in browser tool profiles / skills.",
     inputSchema: emptyObjectSchema,
