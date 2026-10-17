@@ -136,21 +136,11 @@ export function buildForcedPlanDelegationTask(input: { plan: string; additionalM
 }
 
 /**
- * Instruction injected into the parent agent's turn so it delegates the approved
- * plan to the chosen subagent. The actual task body is injected by the host hooks
- * (prompt rewriting), so the parent must not restate the plan itself.
+ * User instruction for the parent, using the chosen subagent's callable runtime
+ * name. The approved plan body is supplied separately by the host hooks.
  */
-export function buildForcedPlanDelegationContract(input: { agentKey: string; displayName?: string }): string {
-  const label = input.displayName?.trim() || input.agentKey;
-  return [
-    "用户已经批准了一个待执行的计划，并指定由子代理执行。",
-    "",
-    `你必须在本次回合调用 Agent 工具，把实现工作委派给子代理「${label}」(agentKey: ${input.agentKey}) 一次。`,
-    "- 只允许委派给该子代理，并且只能委派一次。",
-    "- 计划执行由该子代理负责。你不得自己调用 Bash、读写文件或运行其他工具，也不得委派给其他子代理。",
-    "- 委派任务的正文由系统注入：调用 Agent 工具时，任务描述写「执行已批准的计划」即可，不要复制或概述计划内容。",
-    "- 子代理返回后，根据其执行结果和证据向用户答复。只有获批计划明确要求主代理验收时，才执行对应的验收步骤；不得自行追加工作区检查、git status/diff 或其他命令。",
-  ].join("\n");
+export function buildForcedPlanDelegationContract(input: { agentKey: string }): string {
+  return `用户要求使用子代理「${input.agentKey}」执行已批准的计划。`;
 }
 
 export type ForcedPlanDelegationErrorCode =

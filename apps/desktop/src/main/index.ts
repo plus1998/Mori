@@ -82,8 +82,10 @@ import {
   resolveCodexHomeDir,
   resolveCursorAgentExecutable,
   resolveEffectiveContextLimit,
+  sanitizeCodexRoleId,
   SDK_GENERAL_PURPOSE_AGENT_KEY,
   SDK_PLAN_AGENT_KEY,
+  sdkAgentKeyForOrchestrationAgent,
   type SdkAskUserQuestionRequest,
   type SdkToolPermissionDecision,
   type SdkToolPermissionRequest,
@@ -9051,13 +9053,14 @@ function registerIpcHandlers(): void {
             }
             forcedTarget = validation.target as Extract<PlanExecutionTarget, { kind: "subagent" }>;
           }
-          const forcedTargetDisplayName = forcedTarget
-            ? delegationAgents.find((agent) => agent.agentKey === forcedTarget?.agentKey)?.displayName
-            : undefined;
           const forcedContract = forcedTarget
             ? buildForcedPlanDelegationContract({
-                agentKey: forcedTarget.agentKey,
-                ...(forcedTargetDisplayName ? { displayName: forcedTargetDisplayName } : {}),
+                agentKey:
+                  approvalThread.coreKind === "claude"
+                    ? sdkAgentKeyForOrchestrationAgent(forcedTarget.agentKey)
+                    : approvalThread.coreKind === "codex"
+                      ? sanitizeCodexRoleId(forcedTarget.agentKey)
+                      : forcedTarget.agentKey,
               })
             : undefined;
 

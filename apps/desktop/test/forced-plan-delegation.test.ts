@@ -16,11 +16,10 @@ const WRITE_TOOLS = {
 
 const PLAN = "1. 修改 A\n2. 验证 B";
 
-test("forced plan parent contract prevents validation work outside the approved plan", () => {
-  const contract = buildForcedPlanDelegationContract({ agentKey: "coder", displayName: "Coder" });
-  expect(contract).toContain("你不得自己调用 Bash、读写文件或运行其他工具");
-  expect(contract).toContain("只有获批计划明确要求主代理验收时，才执行对应的验收步骤");
-  expect(contract).toContain("不得自行追加工作区检查、git status/diff 或其他命令");
+test("forced plan parent contract states the user request with the callable agent name", () => {
+  expect(buildForcedPlanDelegationContract({ agentKey: "eco_coder" })).toBe(
+    "用户要求使用子代理「eco_coder」执行已批准的计划。",
+  );
 });
 
 test("buildForcedPlanDelegationTask embeds the plan verbatim", () => {
