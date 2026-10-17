@@ -115,6 +115,45 @@ describe("tool write announcement", () => {
     expect(observed.map((entry) => entry.callId)).toEqual(["call_a", "call_b"]);
   });
 
+  test.each([
+    "request_user_input",
+    "update_plan",
+    "apply_patch",
+  ])("%s ends its writing state when its arguments are complete", (name) => {
+    const { announcer, observed } = collect();
+    const item = { type: "function_call", id: "item", call_id: "call", name };
+    announcer.observeEvent({ type: "response.output_item.added", item });
+    announcer.observeEvent({ type: "response.output_item.done", item });
+    announcer.observeEvent({ type: "response.output_item.done", item });
+    announcer.observeEvent({ type: "response.output_item.added", item });
+    announcer.pushArguments({ itemId: "item", name, text: '{"command":"late"}' });
+    expect(observed.map((entry) => entry.state)).toEqual(["writing", "ready"]);
+    expect(observed[1]).toMatchObject({
+      codexThreadId: CODEX_TURN.threadId,
+      turnId: CODEX_TURN.turnId,
+      callId: "call",
+      toolName: name,
+    });
+  });
+
+  test("completing one call leaves concurrent argument streams open", () => {
+    const { announcer, observed } = collect();
+    announcer.observeEvent(itemAdded({ call_id: "call_a" }));
+    announcer.observeEvent(itemAdded({ call_id: "call_b" }));
+    announcer.observeEvent({
+      type: "response.output_item.done",
+      item: { type: "custom_tool_call", call_id: "call_a", name: "apply_patch" },
+    });
+    announcer.observeEvent(patchDelta("*** Add File: /tmp/active.md\n", "call_b"));
+    expect(observed.map((entry) => [entry.callId, entry.state])).toEqual([
+      ["call_a", "writing"],
+      ["call_b", "writing"],
+      ["call_a", "ready"],
+      ["call_b", "writing"],
+    ]);
+    expect(observed[3]?.target).toBe("/tmp/active.md");
+  });
+
   test("a provider-side item with no tool name is still a write in progress", () => {
     // Codex reports a web search as an item with no function name. The Feed says something is
     // being built rather than showing a still timeline.

@@ -758,7 +758,10 @@ test("history invalidation hides provider identities and rejects late resurrecti
  * durable enough for the projection to read, but it is not a tool. If it ever landed as a
  * tool row the Feed would show an empty card for a call that has not been made yet.
  */
-test("a tool-writing fact persists for the projection without inventing a tool row", () => {
+test.each([
+  "tool.writing",
+  "tool.writing.completed",
+] as const)("%s persists without inventing a tool row", (eventType) => {
   const { db, v2, writer } = setup();
   try {
     writer.append({
@@ -766,20 +769,22 @@ test("a tool-writing fact persists for the projection without inventing a tool r
       id: "writing-fact",
       runAttemptId: "run",
       requestId: "req_1",
-      eventType: "tool.writing",
+      eventType,
       scope: "main",
       role: "tool",
       streamState: "none",
       message: "create_file",
       observedAt: "2026-09-18T00:00:01Z",
-      metadata: { liveType: "tool.writing" },
+      metadata: { liveType: eventType },
     });
 
     // Readable back as a runtime source, which is what the projection consumes.
     const sources = db
       .prepare("SELECT event_type, message FROM conversation_provider_events_v2 ORDER BY sequence ASC")
       .all() as unknown as Array<{ event_type: string; message: string }>;
-    expect(sources).toEqual([{ event_type: "tool.writing", message: "create_file" }]);
+    expect(sources).toEqual([{ event_type: eventType, message: "create_file" }]);
+    const effects = v2.sync("thread", v2.head("thread").storeEpoch, 1).effects;
+    expect(effects.some((item) => isConversationV2ProjectionRefreshEffect(item.effect))).toBe(true);
 
     // No tool summary, no message body, nothing the Feed can render as a card.
     expect(db.prepare("SELECT tool_call_id FROM conversation_tool_calls_v2").all()).toEqual([]);
@@ -797,13 +802,13 @@ test("a tool-writing fact persists for the projection without inventing a tool r
         id: "writing-fact",
         runAttemptId: "run",
         requestId: "req_1",
-        eventType: "tool.writing",
+        eventType,
         scope: "main",
         role: "tool",
         streamState: "none",
         message: "create_file",
         observedAt: "2026-09-18T00:00:01Z",
-        metadata: { liveType: "tool.writing" },
+        metadata: { liveType: eventType },
       }).duplicate,
     ).toBe(true);
     expect(db.prepare("SELECT * FROM conversation_provider_events_v2").all()).toHaveLength(1);

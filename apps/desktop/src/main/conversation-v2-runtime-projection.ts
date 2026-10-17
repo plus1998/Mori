@@ -615,6 +615,7 @@ function applyToolWritingState(
   }
   const agentsByParentToolUseId = buildAgentsByParentToolUseId(agents);
   const attachedByOwner = new Map<string | undefined, MutableRequestSpan>();
+  const callIdsByOwner = new Map<string | undefined, string>();
   const resolveTarget = (event: ThreadRunEvent): MutableRequestSpan | undefined => {
     if (event.requestId) {
       return spans.get(event.requestId);
@@ -631,44 +632,70 @@ function applyToolWritingState(
     return ordered ? latestSpanStartedBy(ordered, event.observedAt, event.runAttemptId) : undefined;
   };
   for (const event of events) {
+    const target = resolveTarget(event);
+    if (!target || orderedByOwner.get(target.ownerAgentId)?.at(-1) !== target) continue;
     if (event.eventType === "tool.writing") {
       const writing = resolveToolWritingActivity(event);
       if (!writing) {
         continue;
       }
-      const target = resolveTarget(event);
       // Gateway argument deltas can arrive after cancellation. A later running
       // turn must not revive that old request's waiting line (or inherit it).
       // Completed narrative streams remain eligible: the model may write its
       // tool arguments after closing the text block.
-      if (!target || target.status === "cancelled" || target.status === "failed") {
+      if (target.status === "cancelled" || target.status === "failed") {
         continue;
-      }
-      const attached = attachedByOwner.get(target.ownerAgentId);
-      if (attached && attached !== target) {
-        delete attached.writingTool;
       }
       target.writingTool = { ...writing, since: event.observedAt };
       attachedByOwner.set(target.ownerAgentId, target);
+      const callId = toolWritingCallId(event);
+      if (callId) callIdsByOwner.set(target.ownerAgentId, callId);
+      else callIdsByOwner.delete(target.ownerAgentId);
       continue;
     }
-    if (
-      event.eventType === "tool.started" ||
-      event.eventType === "tool.completed" ||
-      event.eventType === "tool.failed"
-    ) {
-      // A tool row ends only its owner's wait; concurrent agents keep their writing state.
-      const target = resolveTarget(event);
-      if (!target) {
+    const attached = attachedByOwner.get(target.ownerAgentId);
+    if (!attached?.writingTool) continue;
+    if (event.eventType === "thinking.delta" || event.eventType === "thinking.final") {
+      const startedAt =
+        typeof event.metadata?.thinkingStartedAt === "string"
+          ? event.metadata.thinkingStartedAt
+          : event.observedAt;
+      if (startedAt < attached.writingTool.since) continue;
+    } else if (event.eventType !== "request.completed") {
+      const tool = event.metadata?.tool;
+      const status =
+        tool && typeof tool === "object" && !Array.isArray(tool)
+          ? (tool as Record<string, unknown>).status
+          : undefined;
+      if (
+        event.eventType !== "tool.writing.completed" &&
+        event.eventType !== "tool.started" &&
+        event.eventType !== "tool.completed" &&
+        event.eventType !== "tool.failed" &&
+        status !== "started" &&
+        status !== "completed" &&
+        status !== "failed"
+      )
         continue;
-      }
-      const attached = attachedByOwner.get(target.ownerAgentId);
-      if (attached) {
-        delete attached.writingTool;
-        attachedByOwner.delete(target.ownerAgentId);
-      }
+      const callId = toolWritingCallId(event);
+      const writingCallId = callIdsByOwner.get(target.ownerAgentId);
+      if (callId && writingCallId && callId !== writingCallId) continue;
     }
+    if (event.observedAt < attached.writingTool.since) continue;
+    delete attached.writingTool;
+    attachedByOwner.delete(target.ownerAgentId);
+    callIdsByOwner.delete(target.ownerAgentId);
   }
+}
+
+function toolWritingCallId(event: ThreadRunEvent): string | undefined {
+  const tool = event.metadata?.tool;
+  const toolUseId =
+    tool && typeof tool === "object" && !Array.isArray(tool)
+      ? (tool as Record<string, unknown>).toolUseId
+      : undefined;
+  const callId = event.metadata?.toolCallId ?? toolUseId ?? event.streamKey;
+  return typeof callId === "string" && callId.trim() ? callId.trim() : undefined;
 }
 
 const ACTIVE_THREAD_STATUSES = new Set(["running", "queued"]);
@@ -754,7 +781,6 @@ function applyPendingThinkingState(
           : event.observedAt;
       pending.add(target);
       target.pendingThinkingMessageId = legacyMessageId(event);
-      if (target.writingTool && target.writingTool.since <= event.observedAt) delete target.writingTool;
       continue;
     }
     if (

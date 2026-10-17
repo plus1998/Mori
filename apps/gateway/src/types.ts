@@ -252,6 +252,7 @@ export type GatewayRequestLifecycleObserver = (event: GatewayRequestLifecycleEve
  * item lands milliseconds after the last text), so the gateway forwards it.
  */
 export interface GatewayToolWriteObservation {
+  state: "writing" | "ready";
   /** Client thread identity from `x-codex-turn-metadata`. */
   codexThreadId: string;
   turnId?: string;

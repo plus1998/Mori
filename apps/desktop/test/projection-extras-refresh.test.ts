@@ -15,6 +15,7 @@ const ready = {
 
 test("native thinking boundaries force projection refresh while token appends stay throttled", () => {
   expect(isConversationV2ProjectionRefreshEffect({ type: "noop", reason: "runtime.thinking.changed" })).toBe(true);
+  expect(isConversationV2ProjectionRefreshEffect({ type: "noop", reason: "runtime.tool_writing.changed" })).toBe(true);
   expect(isConversationV2ProjectionRefreshEffect({ type: "noop", reason: "runtime.input" })).toBe(false);
   expect(isConversationV2ProjectionRefreshEffect({
     type: "message.append", messageId: "thought", baseContentVersion: 0,
@@ -50,7 +51,7 @@ test("a forced fetch still waits for an in-flight one and needs a thread to fetc
 test("the tool-writing fact and everything that ends it force a fetch", () => {
   // If `tool.writing` drops out of this set the feature dies silently: the write window emits
   // nothing else, so the throttled path never sees the fact at all.
-  for (const type of ["tool.writing", "tool.started", "tool.completed", "tool.failed"]) {
+  for (const type of ["tool.writing", "tool.writing.completed", "tool.started", "tool.completed", "tool.failed"]) {
     expect(TOOL_WRITING_REFRESH_LIVE_TYPES.has(type)).toBe(true);
   }
   for (const type of [

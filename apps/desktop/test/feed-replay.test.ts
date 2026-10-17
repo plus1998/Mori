@@ -245,6 +245,45 @@ describe("replay export", () => {
     expect(() => exportFeedReplay(source.path, id)).toThrow("Missing source message");
     source.db.close();
   });
+
+  test("replaces a thinking placeholder in the source index when nonempty content arrives", () => {
+    const source = database([run(1, "running"), event(2), event(3), event(4)]);
+    const recorded: ThreadRunEvent = {
+      id: "thinking",
+      threadId: id,
+      sequence: 0,
+      eventType: "thinking.delta",
+      scope: "main",
+      requestId: "request",
+      streamState: "placeholder",
+      message: "",
+      observedAt: timestamp,
+    };
+    source.db
+      .query("UPDATE conversation_events_v2 SET payload_json=? WHERE seq=2")
+      .run(JSON.stringify({ source: recorded }));
+    source.db
+      .query("UPDATE conversation_events_v2 SET payload_json=? WHERE seq=3")
+      .run(JSON.stringify({ source: { ...recorded, streamState: "streaming", message: "继续分析" } }));
+    source.db.query("UPDATE conversation_events_v2 SET payload_json=? WHERE seq=4").run(
+      JSON.stringify({
+        source: {
+          ...recorded,
+          id: "writing",
+          eventType: "tool.writing",
+          streamState: "none",
+          message: "Plan",
+          observedAt: "2026-10-01T00:00:01.000Z",
+          metadata: { liveType: "tool.writing" },
+        },
+      }),
+    );
+    const exported = exportFeedReplay(source.path, id);
+    expect(exported.events[1]?.requestSpans?.[0]?.pendingThinkingSince).toBeDefined();
+    expect(exported.events[2]?.requestSpans?.[0]?.pendingThinkingSince).toBeUndefined();
+    expect(exported.events[3]?.requestSpans?.[0]?.writingTool?.name).toBe("Plan");
+    source.db.close();
+  });
 });
 
 describe("replay session", () => {

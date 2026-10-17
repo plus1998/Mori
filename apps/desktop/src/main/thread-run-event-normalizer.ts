@@ -48,7 +48,7 @@ export function isMetricsOnlyThreadLiveEvent(liveType: string): boolean {
  * `tool.writing` is a fact about the current request (the model is writing a tool call),
  * not a row: the tool card itself appears when its arguments are complete.
  */
-const PROJECTION_ONLY_THREAD_LIVE_TYPES = new Set(["tool.writing"]);
+const PROJECTION_ONLY_THREAD_LIVE_TYPES = new Set(["tool.writing", "tool.writing.completed"]);
 
 /** Status live types that skip run-event persist (still need feed projection refresh). */
 export function isThreadStatusLiveTypeOmittedFromFeed(liveType: string): boolean {
@@ -225,6 +225,9 @@ function resolveThreadRunEventType(input: BuildThreadRunEventFromLiveInput): Thr
   }
   if (input.liveType === "tool.writing") {
     return "tool.writing";
+  }
+  if (input.liveType === "tool.writing.completed") {
+    return "tool.writing.completed";
   }
   if (input.liveType === "tool.started") {
     return "tool.started";

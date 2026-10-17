@@ -43,6 +43,7 @@ export type ThreadRunEventType =
   | "thinking.final"
   | "tool.started"
   | "tool.writing"
+  | "tool.writing.completed"
   | "tool.completed"
   | "tool.failed"
   | "api.error"

@@ -3,7 +3,8 @@ import type { ConversationEffect } from "@eco/shared";
 /** Block starts and first content must not wait for the per-token refresh throttle. */
 export function isConversationV2ProjectionRefreshEffect(effect: ConversationEffect): boolean {
   return (
-    (effect.type === "noop" && effect.reason === "runtime.thinking.changed") ||
+    (effect.type === "noop" &&
+      (effect.reason === "runtime.thinking.changed" || effect.reason === "runtime.tool_writing.changed")) ||
     effect.type === "message.create" ||
     effect.type === "tool.summary.upsert" ||
     (effect.type === "run.upsert" && effect.run.status !== "running" && effect.run.status !== "queued")
@@ -33,6 +34,7 @@ export function shouldRefreshConversationV2ProjectionExtras(input: {
  */
 export const TOOL_WRITING_REFRESH_LIVE_TYPES: ReadonlySet<string> = new Set([
   "tool.writing",
+  "tool.writing.completed",
   "tool.started",
   "tool.completed",
   "tool.failed",

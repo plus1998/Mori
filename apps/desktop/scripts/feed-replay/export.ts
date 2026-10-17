@@ -80,7 +80,6 @@ export function exportFeedReplay(databasePath: string, conversationId: string): 
     const sources = new Map<string, ThreadRunEvent>();
     const messageBodies = new Map<string, string>();
     const agents = new Map<string, AgentInstanceRecord>();
-    const seenStreams = new Set<string>();
     let status: ThreadSummary["status"] = "idle";
     const events: FeedReplayEvent[] = rows.map((row, index) => {
       if (
@@ -156,15 +155,8 @@ export function exportFeedReplay(databasePath: string, conversationId: string): 
           ...(agent.parentToolCallId ? { parentToolUseId: agent.parentToolCallId } : {}),
         });
       }
-      const streamKey = source && `${source.requestId}:${source.eventType}:${source.streamKey}`;
-      const firstStream = source && streamTypes.has(source.eventType) && !seenStreams.has(streamKey!);
-      if (firstStream) seenStreams.add(streamKey!);
-      const relevantSource =
-        source &&
-        (firstStream ||
-          source.eventType.startsWith("request.") ||
-          ["tool.writing", "tool.started", "tool.completed", "tool.failed"].includes(source.eventType));
-      if (relevantSource) {
+      let relevantSource = false;
+      if (source) {
         // New V2 receipts reference the message already materialized by preceding effects.
         // Read its body at this sequence, never the final body from the current messages table.
         const message =
@@ -173,6 +165,12 @@ export function exportFeedReplay(databasePath: string, conversationId: string): 
           (row.message_id ? messageBodies.get(row.message_id) : undefined);
         if (typeof message !== "string")
           throw new Error(`Missing source message for ${source.id} at sequence ${row.seq}.`);
+        const previous = sources.get(source.id);
+        relevantSource =
+          !previous ||
+          !streamTypes.has(source.eventType) ||
+          previous.streamState !== source.streamState ||
+          Boolean(previous.message.trim()) !== Boolean(message.trim());
         sources.set(source.id, { ...source, sequence: row.seq, message });
       }
       if (relevantSource || effect.type === "run.upsert" || effect.type === "agent.upsert") {

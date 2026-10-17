@@ -26,6 +26,7 @@ interface ToolWriteCall {
   announcedName: string | undefined;
   announcedTarget: string | undefined;
   announced: boolean;
+  completed: boolean;
 }
 
 /**
@@ -57,6 +58,10 @@ export class GatewayToolWriteAnnouncer {
     }
     if (event.type === "response.output_item.added") {
       this.observeCallStart(event.item);
+      return;
+    }
+    if (event.type === "response.output_item.done") {
+      this.observeCallCompleted(event.item);
       return;
     }
     if (
@@ -97,11 +102,39 @@ export class GatewayToolWriteAnnouncer {
     const callId = readString(record.call_id);
     const key = this.callKey(itemId ?? callId, name);
     const call = this.callFor(key);
+    if (call.completed) return;
     if (name) {
       call.name = name;
       call.target.setToolName(name);
     }
     this.announce(key, call, callId ?? itemId);
+  }
+
+  private observeCallCompleted(item: unknown): void {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return;
+    const record = item as Record<string, unknown>;
+    const itemId = readItemId(record);
+    const name = readString(record.name);
+    const call = this.calls.get(this.callKey(itemId, name));
+    if (!call?.announced || call.completed) return;
+    call.completed = true;
+    const codexThreadId = this.codexThreadId();
+    if (!codexThreadId || !this.observer) return;
+    const turnId = readString(this.codexTurnMetadata?.turnId);
+    const callId = readString(record.call_id) ?? itemId;
+    observeToolWrite(
+      this.observer,
+      {
+        state: "ready",
+        codexThreadId,
+        kind: call.name ? classifyToolWriteKind(call.name) : "tool",
+        observedAt: new Date().toISOString(),
+        ...(call.name && { toolName: call.name }),
+        ...(turnId && { turnId }),
+        ...(callId && { callId }),
+      },
+      this.onLog,
+    );
   }
 
   /** Argument fragments: the first one that names a target upgrades the announcement. */
@@ -111,6 +144,7 @@ export class GatewayToolWriteAnnouncer {
     }
     const key = this.callKey(input.itemId ?? input.callId, input.name);
     const call = this.callFor(key);
+    if (call.completed) return;
     if (input.name && !call.name) {
       call.name = input.name;
       call.target.setToolName(input.name);
@@ -140,6 +174,7 @@ export class GatewayToolWriteAnnouncer {
     observeToolWrite(
       this.observer as GatewayToolWriteObserver,
       {
+        state: "writing",
         codexThreadId,
         kind: call.name ? classifyToolWriteKind(call.name) : "tool",
         observedAt: new Date().toISOString(),
@@ -160,6 +195,7 @@ export class GatewayToolWriteAnnouncer {
     const created: ToolWriteCall = {
       argumentsText: "",
       announced: false,
+      completed: false,
       announcedName: undefined,
       announcedTarget: undefined,
       target: new ToolWriteTargetTracker(""),

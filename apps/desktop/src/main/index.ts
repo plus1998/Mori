@@ -18791,14 +18791,16 @@ function maybeRevealBrowserFromThreadRunEvent(event: {
  * gateway forwards it and it lands in the same Feed slot the SDK cores use.
  */
 function emitCodexToolWriteActivity(observation: {
+  state: "writing" | "ready";
   codexThreadId: string;
+  turnId?: string;
+  callId?: string;
   toolName?: string;
   kind: ToolWritingActivity["kind"];
   target?: string;
 }): void {
-  const ecoThreadId =
-    codexThreadMap.getEcoThreadId(observation.codexThreadId) ??
-    resolveCodexThreadAttribution(codexThreadMap, observation.codexThreadId)?.ecoThreadId;
+  const attribution = resolveCodexThreadAttribution(codexThreadMap, observation.codexThreadId);
+  const ecoThreadId = attribution?.ecoThreadId;
   if (!ecoThreadId) {
     return;
   }
@@ -18812,9 +18814,24 @@ function emitCodexToolWriteActivity(observation: {
   };
   // The Feed reads the fact from `toolWriting`; the message is the closest thing to a label for
   // any consumer that still reads one (empty for a provider-side call with neither name nor target).
-  emitThreadEvent(ecoThreadId, "tool.writing", toolName ?? observation.target ?? "", "tool", false, {
-    metadata: { activityOrigin: "gateway.codex_tool_writing", toolWriting: writing },
-  });
+  emitThreadEvent(
+    ecoThreadId,
+    observation.state === "ready" ? "tool.writing.completed" : "tool.writing",
+    toolName ?? observation.target ?? "",
+    "tool",
+    false,
+    {
+      ...(attribution?.agentId && { agentId: attribution.agentId }),
+      ...(observation.turnId && { requestId: observation.turnId }),
+      metadata: {
+        activityOrigin: "gateway.codex_tool_writing",
+        toolWriting: writing,
+        codexThreadId: observation.codexThreadId,
+        ...(observation.turnId && { turnId: observation.turnId }),
+        ...(observation.callId && { toolCallId: observation.callId }),
+      },
+    },
+  );
 }
 
 function emitThreadEvent(
