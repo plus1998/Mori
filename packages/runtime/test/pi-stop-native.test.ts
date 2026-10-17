@@ -1,8 +1,30 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runScriptedPiSession } from "./pi-session-events-probe";
+
+/** Call after session disposal; Windows can briefly retain a terminated child's cwd handle. */
+async function removeWorkspace(workspace: string): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    try {
+      await rm(workspace, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (
+        process.platform !== "win32" ||
+        !["EBUSY", "EPERM", "ENOTEMPTY"].includes(code ?? "") ||
+        Date.now() >= deadline
+      )
+        throw error;
+      // Do not swallow persistent locks: a child that outlives disposal must still fail CI.
+      await Bun.sleep(50);
+    }
+  }
+}
 
 test("PI Stop terminates a quiet Bash child before it can write again", async () => {
   const workspace = mkdtempSync(path.join(tmpdir(), "eco-pi-stop-"));
@@ -21,7 +43,9 @@ test("PI Stop terminates a quiet Bash child before it can write again", async ()
         tool: "bash",
         id: "stop-bash",
         input: {
-          command: `node -e 'require("fs").writeFileSync("${startedFile}", "started"); setTimeout(() => require("fs").writeFileSync("${finishedFile}", "finished"), 2500)'`,
+          // Paths are JavaScript string literals inside Bash's single-quoted Node script.
+          // JSON encoding preserves Windows backslashes instead of interpreting them as escapes.
+          command: `node -e 'require("fs").writeFileSync(${JSON.stringify(startedFile)}, "started"); setTimeout(() => require("fs").writeFileSync(${JSON.stringify(finishedFile)}, "finished"), 2500)'`,
         },
       },
       { text: "done" },
@@ -34,25 +58,26 @@ test("PI Stop terminates a quiet Bash child before it can write again", async ()
     const stoppedAt = Date.now();
     controller.abort("cancelled by user");
     const result = await run;
-    try {
-      const elapsedMs = Date.now() - stoppedAt;
-      console.log(`Native PI Bash Stop settled in ${elapsedMs}ms`);
-      expect(elapsedMs).toBeLessThan(1500);
-      await Bun.sleep(2700);
-      expect(existsSync(finishedFile)).toBe(false);
-      expect(result.turnCount).toBe(1);
-      expect(
-        result.events.some(
-          (event) =>
-            event.type === "run.terminal" && (event.payload as { status?: string }).status === "cancelled",
-        ),
-      ).toBe(true);
-    } finally {
-      await result.dispose();
-    }
+    const elapsedMs = Date.now() - stoppedAt;
+    console.log(`Native PI Bash Stop settled in ${elapsedMs}ms`);
+    expect(elapsedMs).toBeLessThan(1500);
+    await Bun.sleep(2700);
+    expect(existsSync(finishedFile)).toBe(false);
+    expect(result.turnCount).toBe(1);
+    expect(
+      result.events.some(
+        (event) =>
+          event.type === "run.terminal" && (event.payload as { status?: string }).status === "cancelled",
+      ),
+    ).toBe(true);
   } finally {
     controller.abort("test cleanup");
-    rmSync(workspace, { recursive: true, force: true });
+    try {
+      // Also settle and dispose when the startup or Stop assertions fail.
+      await (await run).dispose();
+    } finally {
+      await removeWorkspace(workspace);
+    }
   }
 }, 30_000);
 
@@ -95,7 +120,7 @@ test("native session abort cancels the run even when the outer signal stays live
       await result.dispose();
     }
   } finally {
-    rmSync(workspace, { recursive: true, force: true });
+    await removeWorkspace(workspace);
   }
 }, 30_000);
 
@@ -138,6 +163,6 @@ test("malformed final tool arguments fail without executing their partially pars
       await result.dispose();
     }
   } finally {
-    rmSync(workspace, { recursive: true, force: true });
+    await removeWorkspace(workspace);
   }
 }, 30_000);
