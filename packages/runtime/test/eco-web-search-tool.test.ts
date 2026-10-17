@@ -1,8 +1,16 @@
 import { expect, test } from "bun:test";
-import {
-  parseEcoWebSearchToolOutput,
-  readEcoWebSearchQuery,
-} from "../src/eco-web-search-tool.ts";
+import { parseEcoWebSearchToolOutput, readEcoWebSearchQuery } from "../src/eco-web-search-tool.ts";
+import { formatIntegratedWebSearchResults } from "../src/pi-integrated-web-search.ts";
+
+test("DeepSeek formatted search results round-trip for the conversation feed", () => {
+  const results = [{ title: "DeepSeek", url: "https://example.com", description: "Long summary" }];
+  const text = formatIntegratedWebSearchResults("deepseek", "DeepSeek news", results);
+  expect(parseEcoWebSearchToolOutput(text)).toMatchObject({
+    provider: "deepseek",
+    query: "DeepSeek news",
+    results,
+  });
+});
 
 test("readEcoWebSearchQuery reads query from MCP args", () => {
   expect(readEcoWebSearchQuery({ query: " shanghai weather " })).toBe("shanghai weather");
@@ -13,7 +21,9 @@ test("parseEcoWebSearchToolOutput reads structuredContent from Codex Ok wrapper"
   const parsed = parseEcoWebSearchToolOutput({
     result: {
       Ok: {
-        content: [{ type: "text", text: 'Doubao Search results for "q":\n\n1. A\n   https://a.test\n   desc' }],
+        content: [
+          { type: "text", text: 'Doubao Search results for "q":\n\n1. A\n   https://a.test\n   desc' },
+        ],
         structuredContent: {
           provider: "doubao",
           query: "q",

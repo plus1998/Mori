@@ -1,4 +1,4 @@
-export type IntegratedWebSearchProvider = "brave" | "tavily" | "doubao";
+export type IntegratedWebSearchProvider = "brave" | "tavily" | "doubao" | "deepseek";
 
 export interface IntegratedWebSearchResult {
   title: string;
@@ -53,6 +53,7 @@ export interface DoubaoGlobalSearchResponse {
 const BRAVE_WEB_SEARCH_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
 const TAVILY_SEARCH_ENDPOINT = "https://api.tavily.com/search";
 const DOUBAO_GLOBAL_SEARCH_ENDPOINT = "https://open.feedcoopapi.com/search_api/global_search";
+const DEEPSEEK_SEARCH_ENDPOINT = "https://api.deepseek.com/v1/tools/search";
 const DEFAULT_RESULT_COUNT = 5;
 const DOUBAO_DEFAULT_SNIPPET_LENGTH = 1000;
 
@@ -63,12 +64,13 @@ export function integratedWebSearchProviderLabel(provider: IntegratedWebSearchPr
   if (provider === "doubao") {
     return "Doubao";
   }
+  if (provider === "deepseek") {
+    return "DeepSeek";
+  }
   return "Brave";
 }
 
-function extractDoubaoGlobalSnippet(
-  snippets: Array<{ Type?: string; Text?: string }> | undefined,
-): string {
+function extractDoubaoGlobalSnippet(snippets: Array<{ Type?: string; Text?: string }> | undefined): string {
   if (!Array.isArray(snippets)) {
     return "";
   }
@@ -232,6 +234,70 @@ export async function searchDoubaoWeb(
     .filter((entry) => entry.title || entry.url || entry.description);
 }
 
+/** DeepSeek returns a model-oriented summary without fetching the full page. */
+export async function searchDeepSeekWeb(
+  query: string,
+  apiKey: string,
+  options?: { count?: number; signal?: AbortSignal },
+): Promise<IntegratedWebSearchResult[]> {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) {
+    throw new Error("web_search requires a non-empty query.");
+  }
+  if (Array.from(trimmedQuery).length > 128) {
+    throw new Error("DeepSeek Search query must contain at most 128 Unicode characters.");
+  }
+  const key = apiKey.trim();
+  if (!key) {
+    throw new Error("DeepSeek Search API key is not configured.");
+  }
+  const count = options?.count ?? DEFAULT_RESULT_COUNT;
+  if (!Number.isInteger(count) || count < 1 || count > 50) {
+    throw new Error("DeepSeek Search count must be an integer between 1 and 50.");
+  }
+
+  const response = await fetch(DEEPSEEK_SEARCH_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({ query: trimmedQuery, count, need_content: false }),
+    ...(options?.signal ? { signal: options.signal } : {}),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    const detail = body.trim() ? `: ${body.trim().slice(0, 240)}` : "";
+    throw new Error(`DeepSeek Search request failed (${response.status})${detail}`);
+  }
+
+  const payload = (await response.json()) as { results?: unknown } | null;
+  if (!payload || !Array.isArray(payload.results)) {
+    throw new Error("DeepSeek Search returned an invalid response: expected a results array.");
+  }
+  return payload.results.map((entry: unknown) => {
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      !("title" in entry) ||
+      typeof entry.title !== "string" ||
+      !("url" in entry) ||
+      typeof entry.url !== "string" ||
+      !("summary" in entry) ||
+      typeof entry.summary !== "string"
+    ) {
+      throw new Error("DeepSeek Search returned an invalid result: expected title, url and summary strings.");
+    }
+    return {
+      title: entry.title.trim(),
+      url: entry.url.trim(),
+      description: entry.summary.trim(),
+    };
+  });
+}
+
 export async function searchIntegratedWeb(
   provider: IntegratedWebSearchProvider,
   query: string,
@@ -243,6 +309,9 @@ export async function searchIntegratedWeb(
   }
   if (provider === "doubao") {
     return searchDoubaoWeb(query, apiKey, options);
+  }
+  if (provider === "deepseek") {
+    return searchDeepSeekWeb(query, apiKey, options);
   }
   return searchBraveWeb(query, apiKey, options);
 }

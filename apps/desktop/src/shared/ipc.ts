@@ -1341,7 +1341,7 @@ export interface ProxyBridgeSettingsSnapshot {
   upstreamProxyUrl?: string;
 }
 
-export type IntegratedWebSearchProvider = "brave" | "tavily" | "doubao";
+export type IntegratedWebSearchProvider = "brave" | "tavily" | "doubao" | "deepseek";
 
 export interface IntegratedWebSearchSettingsSnapshot {
   enabled: boolean;

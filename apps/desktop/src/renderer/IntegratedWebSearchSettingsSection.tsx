@@ -34,6 +34,11 @@ const PROVIDERS: readonly {
     iconSrc: "./provider-icons/doubao.png",
   },
   {
+    id: "deepseek",
+    apiKeyUrl: "https://platform.deepseek.com/api_keys",
+    iconSrc: "./provider-icons/deepseek.ico",
+  },
+  {
     id: "brave",
     apiKeyUrl: "https://api-dashboard.search.brave.com/",
     iconSrc: "./provider-icons/brave.svg",

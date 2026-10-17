@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import {
   formatIntegratedWebSearchResults,
+  searchDeepSeekWeb,
   searchDoubaoWeb,
   searchIntegratedWeb,
   searchTavilyWeb,
@@ -32,9 +33,7 @@ test("searchTavilyWeb maps Tavily results", async () => {
   }) as typeof fetch;
 
   const results = await searchTavilyWeb("weather shanghai", "tvly-test-key");
-  expect(results).toEqual([
-    { title: "Example", url: "https://example.com", description: "Snippet text" },
-  ]);
+  expect(results).toEqual([{ title: "Example", url: "https://example.com", description: "Snippet text" }]);
   expect(capturedInit?.method).toBe("POST");
   const headers = capturedInit?.headers as Record<string, string> | undefined;
   expect(headers?.Authorization).toBe("Bearer tvly-test-key");
@@ -149,10 +148,10 @@ test("searchIntegratedWeb dispatches doubao", async () => {
   globalThis.fetch = (async (_input, init) => {
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     expect(body.Query).toBe("hello");
-    return new Response(
-      JSON.stringify({ Result: { Documents: [], ErrorCode: 0, ErrorMsg: "" } }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ Result: { Documents: [], ErrorCode: 0, ErrorMsg: "" } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   }) as typeof fetch;
 
   await searchIntegratedWeb("doubao", "hello", "doubao-key");
@@ -163,4 +162,100 @@ test("formatIntegratedWebSearchResults labels Doubao", () => {
     { title: "A", url: "https://a.test", description: "d" },
   ]);
   expect(text).toContain("Doubao Search results");
+});
+
+test("DeepSeek dispatch preserves query operators, authenticates and uses model summaries", async () => {
+  const signal = new AbortController().signal;
+  globalThis.fetch = (async (input, init) => {
+    expect(String(input)).toBe("https://api.deepseek.com/v1/tools/search");
+    expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer sk-test");
+    expect(new Headers(init?.headers).get("Content-Type")).toBe("application/json");
+    expect(init?.signal).toBe(signal);
+    expect(JSON.parse(String(init?.body))).toEqual({
+      query: "DeepSeek site:github.com lang:zh after:2025",
+      count: 5,
+      need_content: false,
+    });
+    return Response.json({
+      results: [
+        {
+          title: " DeepSeek ",
+          url: " https://example.com/deepseek ",
+          summary: " Model-oriented summary ",
+          snippet: "Short UI snippet",
+          content: "",
+        },
+      ],
+    });
+  }) as typeof fetch;
+
+  const results = await searchIntegratedWeb(
+    "deepseek",
+    " DeepSeek site:github.com lang:zh after:2025 ",
+    " sk-test ",
+    { signal },
+  );
+  expect(results).toEqual([
+    {
+      title: "DeepSeek",
+      url: "https://example.com/deepseek",
+      description: "Model-oriented summary",
+    },
+  ]);
+  expect(formatIntegratedWebSearchResults("deepseek", "q", results)).toContain("DeepSeek Search results");
+});
+
+test("DeepSeek accepts 128 Unicode code points and an empty result set", async () => {
+  globalThis.fetch = (async (_input, init) => {
+    expect(JSON.parse(String(init?.body))).toMatchObject({ query: "🔍".repeat(128), count: 50 });
+    return Response.json({ results: [] });
+  }) as typeof fetch;
+  const results = await searchDeepSeekWeb("🔍".repeat(128), "key", { count: 50 });
+  expect(results).toEqual([]);
+  expect(formatIntegratedWebSearchResults("deepseek", "q", results)).toBe(
+    'No DeepSeek Search results for "q".',
+  );
+});
+
+test("DeepSeek rejects invalid requests before fetching", async () => {
+  globalThis.fetch = (async () => {
+    throw new Error("fetch must not be called");
+  }) as typeof fetch;
+  await expect(searchDeepSeekWeb("  ", "key")).rejects.toThrow("non-empty query");
+  await expect(searchDeepSeekWeb("🔍".repeat(129), "key")).rejects.toThrow("128 Unicode characters");
+  await expect(searchDeepSeekWeb("q", " ")).rejects.toThrow("API key is not configured");
+  for (const count of [0, 51, 1.5, Number.NaN]) {
+    await expect(searchDeepSeekWeb("q", "key", { count })).rejects.toThrow("integer between 1 and 50");
+  }
+});
+
+test.each([401, 402, 429, 500])("DeepSeek surfaces upstream HTTP %s errors", async (status) => {
+  globalThis.fetch = (async () =>
+    Response.json({ error: { message: "upstream detail" } }, { status })) as typeof fetch;
+  await expect(searchDeepSeekWeb("q", "key")).rejects.toThrow(`DeepSeek Search request failed (${status})`);
+  await expect(searchDeepSeekWeb("q", "key")).rejects.toThrow("upstream detail");
+});
+
+test.each([
+  null,
+  {},
+  { results: {} },
+  { results: [null] },
+  { results: [{ title: "A", url: "https://a.test" }] },
+])("DeepSeek rejects malformed successful responses: %j", async (payload) => {
+  globalThis.fetch = (async () => Response.json(payload)) as typeof fetch;
+  await expect(searchDeepSeekWeb("q", "key")).rejects.toThrow("DeepSeek Search returned an invalid");
+});
+
+test("DeepSeek preserves cancellation errors", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  globalThis.fetch = (async (_input, init) => {
+    init?.signal?.throwIfAborted();
+    throw new Error("expected an aborted signal");
+  }) as typeof fetch;
+  await expect(searchIntegratedWeb("deepseek", "q", "key", { signal: controller.signal })).rejects.toBe(
+    controller.signal.reason,
+  );
 });

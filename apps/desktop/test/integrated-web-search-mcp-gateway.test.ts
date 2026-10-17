@@ -115,3 +115,48 @@ test("always_ask web search approval drops the tool from allowedTools", async ()
     await gateway.close();
   }
 });
+
+test("DeepSeek search runs through the shared MCP gateway with structured results", async () => {
+  const originalFetch = globalThis.fetch;
+  let upstreamCalls = 0;
+  globalThis.fetch = (async (input, init) => {
+    if (String(input) !== "https://api.deepseek.com/v1/tools/search") {
+      return originalFetch(input, init);
+    }
+    upstreamCalls++;
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer sk-test");
+    expect(JSON.parse(String(init?.body)).query).toBe("DeepSeek news");
+    return Response.json({
+      results: [{ title: "DeepSeek", url: "https://example.com", summary: "Search summary" }],
+    });
+  }) as typeof fetch;
+  const gateway = new IntegratedWebSearchMcpGateway({
+    store: {
+      get: () => ({ enabled: true, provider: "deepseek", hasApiKey: true, approvalMode: "always_allow" }),
+    } as never,
+    getApiKey: () => "sk-test",
+  });
+  try {
+    const injection = await gateway.resolveInjection({ threadId: "deepseek-thread", sessionEnabled: true });
+    expect(injection.promptAppend).toContain("Active search provider: DeepSeek");
+    const server = injection.codexServer!;
+    const response = await originalFetch(new URL("/v1/tools/call", server.url), {
+      method: "POST",
+      headers: { ...server.httpHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "search", arguments: { query: "DeepSeek news" } }),
+    });
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.result.structuredContent).toEqual({
+      provider: "deepseek",
+      query: "DeepSeek news",
+      resultCount: 1,
+      results: [{ title: "DeepSeek", url: "https://example.com", description: "Search summary" }],
+    });
+    expect(payload.result.content[0].text).toContain("DeepSeek Search results");
+    expect(upstreamCalls).toBe(1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await gateway.close();
+  }
+});

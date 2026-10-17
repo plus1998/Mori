@@ -126,7 +126,7 @@ function parseJsonEcoWebSearch(text: string): EcoWebSearchToolResult | undefined
 
 function parseFormattedEcoWebSearch(text: string): EcoWebSearchToolResult | undefined {
   const firstLine = text.split(/\r?\n/u, 1)[0] ?? "";
-  const header = firstLine.match(/^(Brave|Tavily|Doubao)\s+Search results for\s+"([\s\S]*?)":\s*$/iu);
+  const header = firstLine.match(/^(Brave|Tavily|Doubao|DeepSeek)\s+Search results for\s+"([\s\S]*?)":\s*$/iu);
   if (!header?.[1] || header[2] === undefined) {
     return undefined;
   }

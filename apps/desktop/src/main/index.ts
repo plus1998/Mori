@@ -70,6 +70,7 @@ import {
   isCoreKind,
   isPiThreadMidTurnAccepting,
   isReadFilesystemTool,
+  integratedWebSearchProviderLabel,
   isWriteFilesystemTool,
   materializeEcoToolPolicy,
   normalizeSdkSubagentType,
@@ -11847,11 +11848,7 @@ async function startCodexThreadRun(
               append = appendBrowserPrompt(
                 append,
                 buildIntegratedWebSearchPromptAppend(
-                  integratedWebSearchSettingsStore.get().provider === "tavily"
-                    ? "Tavily"
-                    : integratedWebSearchSettingsStore.get().provider === "doubao"
-                      ? "Doubao Search"
-                      : "Brave Search",
+                  integratedWebSearchProviderLabel(integratedWebSearchSettingsStore.get().provider),
                 ),
               );
             }
@@ -15913,7 +15910,7 @@ function buildDesktopSdkRunInput(
       globalUserRules = appendBrowserPrompt(
         globalUserRules,
         buildIntegratedWebSearchPromptAppend(
-          provider === "tavily" ? "Tavily" : provider === "doubao" ? "Doubao Search" : "Brave Search",
+          integratedWebSearchProviderLabel(provider),
         ),
       );
     }

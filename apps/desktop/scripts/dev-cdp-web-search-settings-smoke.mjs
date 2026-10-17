@@ -3,11 +3,10 @@
  */
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 
 const cdpUrl = process.env.ECO_DEV_CDP_URL ?? "http://127.0.0.1:9344";
-const outDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", ".smoke-artifacts");
+const outDir = "/tmp/eco-web-search-settings-smoke";
 mkdirSync(outDir, { recursive: true });
 
 const failures = [];
@@ -48,8 +47,9 @@ try {
   assert(
     ipc.settings?.provider === "brave" ||
       ipc.settings?.provider === "tavily" ||
-      ipc.settings?.provider === "doubao",
-    "integrated provider is brave, tavily, or doubao",
+      ipc.settings?.provider === "doubao" ||
+      ipc.settings?.provider === "deepseek",
+    "integrated provider is brave, tavily, doubao, or deepseek",
   );
   assert(typeof ipc.settings?.enabled === "boolean", "integrated settings has enabled boolean");
   assert(typeof ipc.settings?.hasApiKey === "boolean", "integrated settings has hasApiKey boolean");

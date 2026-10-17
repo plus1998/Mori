@@ -1452,6 +1452,15 @@ test("computeDomainSyncStatuses tracks personalization domain", async () => {
 test("normalizeEcoSyncedProxyBridgeSettings preserves integrated web search", async () => {
   const { normalizeEcoSyncedProxyBridgeSettings } = await import("../src/main/supabase-settings-sync");
 
+  const deepseekSettings = {
+    integratedWebSearch: { enabled: true, provider: "deepseek", approvalMode: "always_ask" },
+  } as const;
+  expect(normalizeEcoSyncedProxyBridgeSettings(deepseekSettings).integratedWebSearch)
+    .toEqual(deepseekSettings.integratedWebSearch);
+  expect(isEcoSyncedSettingsPayload({
+    ...emptyEcoSyncedSettingsPayload(), proxyBridge: deepseekSettings,
+  })).toBe(true);
+
   expect(
     normalizeEcoSyncedProxyBridgeSettings({
       upstreamUserAgent: "EcoAgent/1",

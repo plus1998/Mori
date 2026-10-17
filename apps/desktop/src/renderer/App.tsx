@@ -1468,7 +1468,7 @@ function App() {
             id: "integratedWebSearch",
             label: t("settings.integratedWebSearch.title"),
             icon: Search,
-            keywords: ["web search", "tavily", "brave", "doubao", "网络搜索", "Integrated Web Search"],
+            keywords: ["web search", "tavily", "brave", "doubao", "deepseek", "网络搜索", "Integrated Web Search"],
           },
         ],
       },

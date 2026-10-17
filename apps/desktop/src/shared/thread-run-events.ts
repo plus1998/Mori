@@ -274,7 +274,7 @@ export interface ThreadRunWebSearchMetadata {
   queries?: string[];
   /** Distinguishes search vs page fetch when name alone is ambiguous. */
   mode?: "search" | "fetch";
-  /** Integrated search provider label when known (doubao / tavily / brave). */
+  /** Integrated search provider label when known (doubao / tavily / deepseek / brave). */
   provider?: string;
   /** Public SERP hits for Feed cards (Eco Integrated / MCP search). */
   results?: ThreadRunWebSearchResultHit[];

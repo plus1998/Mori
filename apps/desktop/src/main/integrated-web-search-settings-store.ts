@@ -1,10 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
-import {
-  isWebSearchApprovalMode,
-  type WebSearchApprovalMode,
-} from "../shared/integrated-web-search";
+import { isWebSearchApprovalMode, type WebSearchApprovalMode } from "../shared/integrated-web-search";
 import type {
   IntegratedWebSearchProvider,
   IntegratedWebSearchSettingsSaveInput,
@@ -149,7 +146,7 @@ export class IntegratedWebSearchSettingsStore {
 }
 
 export function normalizeIntegratedWebSearchProvider(value: unknown): IntegratedWebSearchProvider {
-  if (value === "brave" || value === "tavily" || value === "doubao") {
+  if (value === "brave" || value === "tavily" || value === "doubao" || value === "deepseek") {
     return value;
   }
   return "tavily";
@@ -181,7 +178,8 @@ export function isIntegratedWebSearchSettingsSaveInput(
     record.provider !== undefined &&
     record.provider !== "brave" &&
     record.provider !== "tavily" &&
-    record.provider !== "doubao"
+    record.provider !== "doubao" &&
+    record.provider !== "deepseek"
   ) {
     return false;
   }
@@ -204,7 +202,12 @@ export function isIntegratedWebSearchSettingsSnapshot(
   if (typeof record.enabled !== "boolean") {
     return false;
   }
-  if (record.provider !== "brave" && record.provider !== "tavily" && record.provider !== "doubao") {
+  if (
+    record.provider !== "brave" &&
+    record.provider !== "tavily" &&
+    record.provider !== "doubao" &&
+    record.provider !== "deepseek"
+  ) {
     return false;
   }
   if (typeof record.hasApiKey !== "boolean") {
