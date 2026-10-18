@@ -1,12 +1,13 @@
 import { createReplayApi, type ReplayCall } from "./sandbox";
 import { FeedReplaySession, type ReplayPlayOptions } from "./session";
 import { type FeedReplayFixture, validateReplayFixture } from "./types";
+import { DEV_FEED_REPLAY_FIXTURE_PREFIX } from "../../src/shared/dev-feed-replay";
 
 const params = new URLSearchParams(location.search);
 const fixturePath = params.get("fixture");
 if (!fixturePath) throw new Error("Missing replay fixture URL.");
 const fixtureUrl = new URL(fixturePath, location.origin);
-if (fixtureUrl.origin !== location.origin || !fixtureUrl.pathname.startsWith("/.smoke-artifacts/")) {
+if (fixtureUrl.origin !== location.origin || !fixtureUrl.pathname.startsWith(DEV_FEED_REPLAY_FIXTURE_PREFIX)) {
   throw new Error("Replay fixtures must be local dev artifacts.");
 }
 if (window.parent === window || !window.parent.eco)

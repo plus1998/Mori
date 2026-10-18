@@ -495,6 +495,32 @@ export function mergeConversationV2ToolPage(
   return { ...state, tools, toolSummaryCounts };
 }
 
+interface EffectMap<T> {
+  get(key: string): T | undefined;
+  set(key: string, value: T): void;
+  clear(): void;
+  snapshot(): ReadonlyMap<string, T>;
+}
+
+/** Copy only a collection that an effect actually changes, at most once per batch. */
+function effectMap<T>(source: ReadonlyMap<string, T>): EffectMap<T> {
+  let changed: Map<string, T> | undefined;
+  return {
+    get: (key) => (changed ?? source).get(key),
+    set(key, value) {
+      if ((changed ?? source).get(key) === value) return;
+      changed ??= new Map(source);
+      changed.set(key, value);
+    },
+    clear() {
+      if ((changed ?? source).size === 0) return;
+      // A list replacement discards the old rows; do not copy them first.
+      changed = new Map();
+    },
+    snapshot: () => changed ?? source,
+  };
+}
+
 export function applyConversationV2Effects(
   state: ConversationV2RendererState,
   effects: readonly ConversationSyncEffect[],
@@ -503,15 +529,14 @@ export function applyConversationV2Effects(
     return state;
   }
 
-  // A sync page can contain hundreds of effects. Clone the renderer maps once
-  // for the page instead of once per effect; the previous implementation made
-  // a 157k-event history repeatedly copy its accumulated hash map.
-  const messages = new Map(state.messages);
-  const runs = new Map(state.runs);
-  const agents = new Map(state.agents);
-  const todos = new Map(state.todos);
-  const tools = new Map(state.tools);
-  const details = new Map(state.details);
+  // Provider receipts/noops still advance the verified cursor, but must not
+  // copy every historical entity or invalidate the Feed's content projection.
+  const messages = effectMap(state.messages);
+  const runs = effectMap(state.runs);
+  const agents = effectMap(state.agents);
+  const todos = effectMap(state.todos);
+  const tools = effectMap(state.tools);
+  const details = effectMap(state.details);
   const effectHashes = new Map(state.effectHashes);
   let appliedSeq = state.appliedSeq;
   let historyRevision = state.historyRevision;
@@ -552,16 +577,17 @@ export function applyConversationV2Effects(
     rememberEffectHash(effectHashes, envelope.seq, envelope.effectHash);
   }
 
+  if (appliedSeq === state.appliedSeq) return state;
   return {
     ...state,
     appliedSeq,
     historyRevision,
-    messages,
-    runs,
-    agents,
-    todos,
-    tools,
-    details,
+    messages: messages.snapshot(),
+    runs: runs.snapshot(),
+    agents: agents.snapshot(),
+    todos: todos.snapshot(),
+    tools: tools.snapshot(),
+    details: details.snapshot(),
     effectHashes,
   };
 }
@@ -570,59 +596,7 @@ export function applyConversationV2Effect(
   state: ConversationV2RendererState,
   envelope: ConversationSyncEffect,
 ): ConversationV2RendererState {
-  validateConversationV2EffectEnvelope(envelope);
-  if (envelope.effectHash !== stableHash(envelope.effect)) {
-    throw new Error(`Conversation V2 renderer effect hash mismatch at sequence ${envelope.seq}.`);
-  }
-  if (envelope.seq <= state.appliedSeq) {
-    const knownHash = state.effectHashes.get(envelope.seq);
-    if (knownHash && knownHash !== envelope.effectHash) {
-      throw new ConversationV2RendererConflictError(envelope.seq);
-    }
-    return state;
-  }
-  if (envelope.seq !== state.appliedSeq + 1) {
-    throw new ConversationV2RendererGapError(state.appliedSeq + 1, envelope.seq);
-  }
-
-  const messages = new Map(state.messages);
-  const runs = new Map(state.runs);
-  const agents = new Map(state.agents);
-  const todos = new Map(state.todos);
-  const tools = new Map(state.tools);
-  const details = new Map(state.details);
-  let historyRevision = state.historyRevision;
-  applyEffect(
-    envelope.effect,
-    envelope.seq,
-    state.conversationId,
-    messages,
-    runs,
-    agents,
-    todos,
-    tools,
-    details,
-    (revision) => {
-      if (revision < historyRevision) {
-        throw new Error("Conversation V2 renderer history revision regressed.");
-      }
-      historyRevision = revision;
-    },
-  );
-  const effectHashes = new Map(state.effectHashes);
-  rememberEffectHash(effectHashes, envelope.seq, envelope.effectHash);
-  return {
-    ...state,
-    appliedSeq: envelope.seq,
-    historyRevision,
-    messages,
-    runs,
-    agents,
-    todos,
-    tools,
-    details,
-    effectHashes,
-  };
+  return applyConversationV2Effects(state, [envelope]);
 }
 
 function validateConversationV2EffectEnvelope(envelope: ConversationSyncEffect): void {
@@ -642,7 +616,9 @@ function validateConversationV2EffectEnvelope(envelope: ConversationSyncEffect):
   }
 }
 
-export function orderedConversationV2Messages(state: ConversationV2RendererState): ConversationMessage[] {
+export function orderedConversationV2Messages(
+  state: Pick<ConversationV2RendererState, "messages">,
+): ConversationMessage[] {
   return [...state.messages.values()]
     .filter((message) => !message.isDeleted && message.status !== "deleted")
     .sort(
@@ -654,12 +630,12 @@ function applyEffect(
   effect: ConversationEffect,
   seq: number,
   conversationId: string,
-  messages: Map<string, ConversationMessage>,
-  runs: Map<string, ConversationRun>,
-  agents: Map<string, ConversationAgent>,
-  todos: Map<string, ConversationTodo>,
-  tools: Map<string, ConversationToolCall>,
-  details: Map<string, ConversationDetailItem>,
+  messages: EffectMap<ConversationMessage>,
+  runs: EffectMap<ConversationRun>,
+  agents: EffectMap<ConversationAgent>,
+  todos: EffectMap<ConversationTodo>,
+  tools: EffectMap<ConversationToolCall>,
+  details: EffectMap<ConversationDetailItem>,
   onHistoryInvalidation: (revision: number) => void,
 ): void {
   switch (effect.type) {
@@ -1407,7 +1383,7 @@ function sameDetail(left: ConversationDetailItem, right: ConversationDetailItem)
 }
 
 function requireMessage(
-  messages: ReadonlyMap<string, ConversationMessage>,
+  messages: Pick<ReadonlyMap<string, ConversationMessage>, "get">,
   messageId: string,
   conversationId: string,
 ): ConversationMessage {

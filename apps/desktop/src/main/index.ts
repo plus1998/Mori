@@ -44,6 +44,7 @@ import { SchedulingStore } from "./scheduling-store";
 import { TtsMcpGateway } from "./tts-mcp-gateway";
 import { createTtsStore, type TtsStore } from "./tts-store";
 import { WebChatProxyController } from "./web-chat-proxy";
+import { isDevFeedReplayFrameUrl } from "../shared/dev-feed-replay";
 
 const execFileAsync = promisify(execFile);
 
@@ -2357,7 +2358,8 @@ async function createMainWindow(
     if (
       !event.isMainFrame &&
       !event.url.startsWith("eco-workspace://") &&
-      !/^about:(?:blank|srcdoc)(?:#.*)?$/.test(event.url)
+      !/^about:(?:blank|srcdoc)(?:#.*)?$/.test(event.url) &&
+      !isDevFeedReplayFrameUrl(event.url, { packaged: app.isPackaged, devServerUrl: process.env.VITE_DEV_SERVER_URL })
     ) {
       event.preventDefault();
     }

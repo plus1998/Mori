@@ -733,17 +733,23 @@ function latestSpanStartedBy(
   at: string,
   runAttemptId?: string,
 ): MutableRequestSpan | undefined {
-  let found: MutableRequestSpan | undefined;
-  for (const span of orderedSpans) {
-    if (span.startedAt > at) {
-      break;
-    }
+  // Tool facts repeatedly resolve the latest request of their owner. Walking
+  // every earlier request for each fact makes a long session quadratic.
+  let low = 0;
+  let high = orderedSpans.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (orderedSpans[middle]!.startedAt <= at) low = middle + 1;
+    else high = middle;
+  }
+  for (let index = low - 1; index >= 0; index -= 1) {
+    const span = orderedSpans[index]!;
     if (runAttemptId && span.runAttemptId && span.runAttemptId !== runAttemptId) {
       continue;
     }
-    found = span;
+    return span;
   }
-  return found;
+  return undefined;
 }
 
 /** Keep an empty thinking start as request state, never as an unfinished V2 message. */

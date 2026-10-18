@@ -10,7 +10,7 @@
   "include": [
     "scripts/feed-replay.ts",
     "scripts/feed-replay/**/*.ts",
-    "test/feed-replay.test.ts",
+    "test/feed-replay*.test.ts",
     "src/renderer/global.d.ts"
   ]
 }

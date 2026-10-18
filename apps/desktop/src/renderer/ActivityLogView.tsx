@@ -896,7 +896,17 @@ function buildConversationV2RunMessagePositions(
  * a V2 gap, not a legacy feature.
  */
 export function buildConversationV2OnlyProjection(
-  conversationV2: ConversationV2RendererState,
+  conversationV2: Pick<
+    ConversationV2RendererState,
+    | "conversationId"
+    | "messages"
+    | "runs"
+    | "agents"
+    | "tools"
+    | "details"
+    | "projectionExtras"
+    | "historyRevision"
+  >,
   thread?: Pick<ThreadSummary, "createdAt" | "status">,
 ): ThreadRunProjectionSnapshot {
   const at = thread?.createdAt ?? "1970-01-01T00:00:00.000Z";
@@ -5627,6 +5637,7 @@ function isProjectionRequestWaitingForFirstToken(span: ThreadRunProjectionReques
 }
 
 function isReasoningStageItem(item: ThreadRunProjectionTimelineItem): boolean {
+  if (item.eventType !== "thinking.delta" && item.eventType !== "thinking.final") return false;
   return projectionItemToDetailBlock(item)?.kind === "reasoning-stage";
 }
 
@@ -5651,6 +5662,7 @@ function resolveLiveReasoningStageLabel(
     if (entry.kind !== "timeline" && entry.kind !== "agent-echo") {
       continue;
     }
+    if (entry.item.eventType !== "thinking.delta" && entry.item.eventType !== "thinking.final") continue;
     const block = projectionItemToDetailBlock(entry.item);
     if (block?.kind !== "reasoning-stage") {
       continue;

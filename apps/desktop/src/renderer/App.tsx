@@ -5269,12 +5269,41 @@ function App() {
   const showBashApproval = Boolean(pendingBashApproval);
   const composerHasContent = Boolean(prompt.trim() || composerAttachments.length > 0);
   const activeConversationV2 = activeThread ? conversationV2ByThread[activeThread.id] : undefined;
+  // A verified sync cursor can advance without any Feed content changing.
+  // Pass the projector's content fields so receipt-only batches reuse it.
   const v2RunProjection = useMemo(
     () =>
-      activeConversationV2
-        ? buildConversationV2OnlyProjection(activeConversationV2, activeThread)
+      activeConversationV2?.conversationId !== undefined
+        ? buildConversationV2OnlyProjection(
+            {
+              conversationId: activeConversationV2.conversationId,
+              messages: activeConversationV2.messages,
+              runs: activeConversationV2.runs,
+              agents: activeConversationV2.agents,
+              tools: activeConversationV2.tools,
+              details: activeConversationV2.details,
+              historyRevision: activeConversationV2.historyRevision,
+              ...(activeConversationV2.projectionExtras
+                ? { projectionExtras: activeConversationV2.projectionExtras }
+                : {}),
+            },
+            activeThread?.createdAt !== undefined
+              ? { createdAt: activeThread.createdAt, status: activeThread.status }
+              : undefined,
+          )
         : undefined,
-    [activeConversationV2, activeThread?.createdAt, activeThread?.status],
+    [
+      activeConversationV2?.conversationId,
+      activeConversationV2?.messages,
+      activeConversationV2?.runs,
+      activeConversationV2?.agents,
+      activeConversationV2?.tools,
+      activeConversationV2?.details,
+      activeConversationV2?.projectionExtras,
+      activeConversationV2?.historyRevision,
+      activeThread?.createdAt,
+      activeThread?.status,
+    ],
   );
   // V2 is the only renderer projection source. A missing V2 state is a visible
   // bootstrap/recovery condition; it never falls back to a legacy projection or

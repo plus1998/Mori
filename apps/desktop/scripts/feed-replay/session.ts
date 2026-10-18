@@ -137,9 +137,16 @@ export class FeedReplaySession {
     const status = replayThreadStatus(latest?.status);
     this.state = state;
     this.index = next;
+    let spans: Map<string, ThreadRunProjectionRequestSpan> | undefined;
     for (const event of batch) {
       if (event.requestSpans) this.requestSpans = event.requestSpans;
+      if (event.requestSpanChanges) {
+        spans ??= new Map(this.requestSpans.map((span) => [span.requestId, span]));
+        for (const id of event.requestSpanChanges.removed) spans.delete(id);
+        for (const span of event.requestSpanChanges.upserts) spans.set(span.requestId, span);
+      }
     }
+    if (spans) this.requestSpans = [...spans.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
     this.onTime?.(batch.at(-1)!.at);
     const firstUser = [...state.messages.values()]
       .filter((message) => message.role === "user" && !message.isDeleted)

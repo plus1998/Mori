@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
+import { feedReplayArtifactsPlugin } from "./scripts/feed-replay/vite-plugin";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const materialIconsSrc = path.resolve(rootDir, "node_modules/material-icon-theme/icons");
@@ -118,7 +119,7 @@ function pdfPreviewAssetsPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), materialIconsPlugin(), pdfPreviewAssetsPlugin()],
+  plugins: [react(), materialIconsPlugin(), pdfPreviewAssetsPlugin(), feedReplayArtifactsPlugin()],
   root: ".",
   // Relative paths so loadFile(file://...) resolves assets next to index.html in packaged app.
   base: "./",
