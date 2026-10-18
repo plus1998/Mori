@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { buildSidebarSearchResults, type SidebarSearchProject } from "../src/renderer/SidebarSearchDialog";
+import { buildProjectSearchTerms } from "../src/shared/project-pinyin";
 import type { ThreadSummary } from "../src/shared/ipc";
 import type { ScheduleDefinition } from "../src/shared/scheduling";
 
@@ -39,6 +40,19 @@ test("sidebar search matches thread titles and project names separately", () => 
   expect(buildSidebarSearchResults(threads, projects, "eco-coding").map((result) => result.key)).toEqual([
     "project:/workspace/eco-coding",
   ]);
+});
+
+test("sidebar search finds a Chinese project name through its stored pinyin", () => {
+  const pinyinProjects: SidebarSearchProject[] = [
+    { path: "/workspace/chat", name: "会话存档", searchTerms: buildProjectSearchTerms("会话存档") },
+    { path: "/workspace/eco-coding", name: "eco-coding" },
+  ];
+  for (const query of ["huihua", "huihuacundang", "cundang", "hhcd", "会话"]) {
+    expect(buildSidebarSearchResults(threads, pinyinProjects, query).map((result) => result.key)).toEqual([
+      "project:/workspace/chat",
+    ]);
+  }
+  expect(buildSidebarSearchResults(threads, pinyinProjects, "huihuacundangg").length).toBe(0);
 });
 
 test("empty sidebar search lists recent threads before projects", () => {

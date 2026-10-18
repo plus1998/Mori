@@ -192,6 +192,12 @@ import {
 } from "../shared/notification-settings";
 import { type SessionMode, withSessionMode } from "../shared/plan-mode-ui";
 import {
+  loadProjectPinyin,
+  planProjectSearchTermIndex,
+  projectSearchTermPlanChanged,
+  type ProjectSearchTermIndex,
+} from "../shared/project-pinyin-search";
+import {
   formatPromptCacheConfigDriftHint,
   resolvePromptCacheConfigDrift,
   resolvePromptCacheOrchestrationLabel,
@@ -618,6 +624,7 @@ const unreadThreadsStorageKey = "eco.sidebar.unread-threads";
 const collapsedProjectsStorageKey = "eco.sidebar.collapsed-projects";
 const hiddenProjectsStorageKey = "eco.sidebar.hidden-projects";
 const customProjectNamesStorageKey = "eco.sidebar.custom-project-names";
+const customProjectSearchTermsStorageKey = "eco.sidebar.custom-project-search-terms";
 const compactSidebarMediaQuery = MAIN_SHELL_MEDIA_QUERIES.sidebarOverlay;
 const taskPanelNarrowMediaQuery = MAIN_SHELL_MEDIA_QUERIES.taskOverlay;
 const sidebarThreadsCollapsed = 5;
@@ -627,6 +634,37 @@ interface RecentProject {
   name: string;
   /** Set once when the project is first opened in the app; used for stable sidebar order. */
   importedAt: string;
+  /** Pinyin spellings of a Chinese display name, used to widen sidebar search. */
+  searchTerms?: string[];
+}
+
+/** Pinyin index persisted for Chinese project names, keyed by project path. */
+function readStoredProjectSearchTerms(): ProjectSearchTermIndex {
+  const saved = window.localStorage.getItem(customProjectSearchTermsStorageKey);
+  if (!saved) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(saved) as unknown;
+    if (!isRecordValue(parsed)) {
+      return {};
+    }
+    const index: ProjectSearchTermIndex = {};
+    for (const [projectPath, value] of Object.entries(parsed)) {
+      if (!isRecordValue(value)) {
+        continue;
+      }
+      const name = value.name;
+      const terms = value.terms;
+      if (typeof name === "string" && Array.isArray(terms) && terms.every((item) => typeof item === "string")) {
+        index[projectPath] = { name, terms: terms as string[] };
+      }
+    }
+    return index;
+  } catch {
+    window.localStorage.removeItem(customProjectSearchTermsStorageKey);
+    return {};
+  }
 }
 
 type SettingsSectionId =
@@ -1504,6 +1542,8 @@ function App() {
   const [unreadThreadIds, setUnreadThreadIds] = useState<Set<string>>(() => new Set());
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [customProjectNames, setCustomProjectNames] = useState<Record<string, string>>({});
+  const [customProjectSearchTerms, setCustomProjectSearchTerms] =
+    useState<ProjectSearchTermIndex>(readStoredProjectSearchTerms);
   const [homeProjectPath, setHomeProjectPath] = useState<string>();
   const [projectOrder, setProjectOrder] = useState<string[]>([]);
   const projectOrderInitializedRef = useRef(false);
@@ -3358,14 +3398,27 @@ function App() {
   }, []);
 
   function setCustomProjectName(projectPath: string, name: string | undefined) {
+    const trimmed = name?.trim();
     setCustomProjectNames((current) => {
       const next = { ...current };
-      if (name === undefined) {
+      if (!trimmed) {
         delete next[projectPath];
       } else {
-        next[projectPath] = name;
+        next[projectPath] = trimmed;
       }
       window.localStorage.setItem(customProjectNamesStorageKey, JSON.stringify(next));
+      return next;
+    });
+    // A Chinese name is stored together with its pinyin spelling, so the project
+    // stays searchable as "huihua" after the rename. Dropping the entry here lets
+    // the search-term effect regenerate it for the new name.
+    setCustomProjectSearchTerms((current) => {
+      if (!current[projectPath]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[projectPath];
+      window.localStorage.setItem(customProjectSearchTermsStorageKey, JSON.stringify(next));
       return next;
     });
   }
@@ -3506,17 +3559,54 @@ function App() {
         });
       }
     }
-    return [...merged.values()].filter(
-      (project) =>
-        !hiddenProjectPaths.has(project.path) ||
-        (homeProjectPath !== undefined && isHomeProjectPath(project.path, homeProjectPath)),
-    );
-  }, [customProjectNames, hiddenProjectPaths, homeProjectPath, recentProjects, threads, workspace]);
+    return [...merged.values()]
+      .filter(
+        (project) =>
+          !hiddenProjectPaths.has(project.path) ||
+          (homeProjectPath !== undefined && isHomeProjectPath(project.path, homeProjectPath)),
+      )
+      .map((project) => ({
+        ...project,
+        searchTerms: customProjectSearchTerms[project.path]?.terms ?? [],
+      }));
+  }, [customProjectNames, customProjectSearchTerms, hiddenProjectPaths, homeProjectPath, recentProjects, threads, workspace]);
 
   const projects = useMemo(
     () => ensureHomeProjectFirst(sortProjectsByOrder(mergedProjects, projectOrder), homeProjectPath),
     [homeProjectPath, mergedProjects, projectOrder],
   );
+
+  // Chinese project names keep a pinyin spelling in storage ("会话存档" -> "huihua").
+  // Renames and first-time backfills generate it off the startup path, because the
+  // pinyin dictionary is a separate chunk.
+  useEffect(() => {
+    const plan = planProjectSearchTermIndex(projects, customProjectSearchTerms);
+    if (!projectSearchTermPlanChanged(plan, customProjectSearchTerms)) {
+      return;
+    }
+    const persist = (index: ProjectSearchTermIndex) => {
+      setCustomProjectSearchTerms(index);
+      window.localStorage.setItem(customProjectSearchTermsStorageKey, JSON.stringify(index));
+    };
+    if (plan.pending.length === 0) {
+      persist(plan.kept);
+      return;
+    }
+    let cancelled = false;
+    void loadProjectPinyin().then(({ buildProjectSearchTerms }) => {
+      if (cancelled) {
+        return;
+      }
+      const index = { ...plan.kept };
+      for (const project of plan.pending) {
+        index[project.path] = { name: project.name, terms: buildProjectSearchTerms(project.name) };
+      }
+      persist(index);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [customProjectSearchTerms, projects]);
 
   useEffect(() => {
     if (projectOrderInitializedRef.current || mergedProjects.length === 0) {
