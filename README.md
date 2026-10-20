@@ -141,6 +141,7 @@ Eco Coding 把“模型聚合”和“任务分工”连接起来：主代理可
 - [技术文档](docs/TECHNICAL.md)：架构、运行时、协议网关、上下文、计费、存储和发布机制
 - [Supabase 部署（Cloud）](docs/supabase-deploy.md)：云项目初次部署与增量更新
 - [Supabase 自托管](docs/supabase-self-host.md)：Docker 自建栈 + Eco schema/函数（人与 Agent 可执行）
+- [火山引擎 Supabase（实验性）](docs/supabase-volcengine.md)：Workspace + CLI 手工部署
 
 ## 仓库结构
 

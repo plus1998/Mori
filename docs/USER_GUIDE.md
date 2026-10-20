@@ -225,6 +225,7 @@ PI Core 额外支持会话私有 Skills 目录（`pi-agent/<threadId>/skills`）
 
 - 云托管：[supabase-deploy.md](supabase-deploy.md)
 - 自托管 Docker：[supabase-self-host.md](supabase-self-host.md)
+- 火山引擎 Supabase（实验性手工部署）：[supabase-volcengine.md](supabase-volcengine.md)
 
 云托管摘要：
 

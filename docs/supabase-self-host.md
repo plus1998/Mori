@@ -235,12 +235,13 @@ bun run supabase:deploy -- --platform self-host --compose-dir <COMPOSE_DIR>
 
 ---
 
-## F. 与 Cloud / 本地开发的关系
+## F. 与 Cloud / 火山引擎 / 本地开发的关系
 
 | 场景 | 文档 / 命令 |
 | --- | --- |
 | Supabase Cloud | [supabase-deploy.md](supabase-deploy.md) → `--platform cloud` |
 | 自托管 Docker | **本文** → `--platform self-host` |
+| 火山引擎 Supabase（实验性） | [supabase-volcengine.md](supabase-volcengine.md) → `byted-supabase-cli` 手工部署 |
 | 开发者本机 | `npx supabase start`（CLI 本地栈，不是生产自托管） |
 
-两种客户端填写方式相同：**URL + anon**。
+各平台客户端填写方式相同：**URL + anon**。

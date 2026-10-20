@@ -141,6 +141,7 @@ A cache anomaly shows that the request prefix or upstream cache behavior changed
 - [Technical Documentation](docs/TECHNICAL.en.md): architecture, runtimes, gateway, context, billing, storage, and releases
 - [Supabase deploy (Cloud)](docs/supabase-deploy.md): first-time and incremental cloud deploy
 - [Supabase self-host](docs/supabase-self-host.md): Docker self-host + Eco schema/functions (human and agent runnable)
+- [Volcengine Supabase (experimental)](docs/supabase-volcengine.md): manual Workspace and CLI deploy
 
 ## Repository layout
 

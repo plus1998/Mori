@@ -161,6 +161,7 @@ After Center is connected and the html-host functions are deployed, the agent ca
 
 - Cloud: [supabase-deploy.md](supabase-deploy.md)
 - Self-host Docker: [supabase-self-host.md](supabase-self-host.md)
+- Volcengine Supabase (experimental manual deploy): [supabase-volcengine.md](supabase-volcengine.md)
 
 Cloud summary:
 
