@@ -12168,7 +12168,9 @@ function App() {
                       </button>
                     </div>
                   </div>
-                  {!composerRoutesReady && !composerFollowUpMode && (
+                  {!composerRoutesReady &&
+                  !composerFollowUpMode &&
+                  composerModelAvailability !== "no-orchestration" && (
                     <p className="composer-hint">
                       {composerModelAvailability === "no-provider" ? (
                         <>
