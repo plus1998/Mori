@@ -1,4 +1,7 @@
-import { OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID } from "../shared/agent-orchestration";
+import {
+  CHATGPT_SUBSCRIPTION_MAIN_AGENT_CONFIG_ID,
+  OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID,
+} from "../shared/agent-orchestration";
 import type {
   AgentTemplate,
   MainAgentConfigResource,
@@ -46,7 +49,7 @@ const OPENAI_OFFICIAL_PROVIDER: ProviderConfigView = {
 
 function createChatGptSubscriptionMainAgentConfig(modelId: string): MainAgentConfigResource {
   return {
-    id: "__chatgpt_subscription__",
+    id: CHATGPT_SUBSCRIPTION_MAIN_AGENT_CONFIG_ID,
     name: "ChatGPT 订阅",
     agentKey: "chatgpt-subscription",
     modelRef: { providerId: "eco-coding-chatgpt", modelId, thinkingEffort: "medium" },

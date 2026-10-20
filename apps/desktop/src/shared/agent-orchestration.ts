@@ -9,6 +9,7 @@ import type {
 } from "./ipc";
 
 export const OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID = "__openai_official__";
+export const CHATGPT_SUBSCRIPTION_MAIN_AGENT_CONFIG_ID = "__chatgpt_subscription__";
 
 export type AgentConfigSource = "built_in" | "user" | "project" | "derived";
 
