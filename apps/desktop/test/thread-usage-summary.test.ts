@@ -3,7 +3,7 @@ import type { ThreadBillingSnapshot } from "../src/shared/ipc";
 import {
   buildFallbackContextSnapshot,
   buildThreadUsageSummary,
-  contextCardPlaceholder,
+  contextCardPlaceholderKey,
   shouldShowBillingUsagePanel,
   shouldShowContextUsagePanel,
   shouldShowThreadUsagePanels,
@@ -84,10 +84,11 @@ test("buildThreadUsageSummary preserves dynamic orchestration context roles", ()
   });
 });
 
-test("contextCardPlaceholder differs for awaiting_plan vs idle", () => {
-  expect(contextCardPlaceholder("awaiting_plan")).toContain("计划");
-  expect(contextCardPlaceholder("running")).toContain("模型响应");
-  expect(contextCardPlaceholder("completed")).toContain("暂无");
+test("contextCardPlaceholderKey selects localized hints for each state", () => {
+  expect(contextCardPlaceholderKey("awaiting_plan")).toBe("context.emptyHint.planning");
+  expect(contextCardPlaceholderKey("running")).toBe("context.emptyHint.accumulating");
+  expect(contextCardPlaceholderKey("completed")).toBe("context.emptyHint.noData");
+  expect(contextCardPlaceholderKey()).toBe("context.empty");
 });
 
 test("shouldShowContextUsagePanel and billing panel honor hostUiFeatures", () => {
