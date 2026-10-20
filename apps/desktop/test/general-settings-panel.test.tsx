@@ -172,7 +172,7 @@ test("preferences panel renders the Composer billing toggle", () => {
   expect(markup).toContain("显示计费");
   expect(markup).toContain("在 Composer 中显示会话累计用量和费用。");
   expect(markup).toContain("模型吞吐");
-  expect(markup).toContain("显示首字时间与总吞吐。");
+  expect(markup).toContain("显示首字时间（TTFT）与总吞吐。");
   expect(markup).toContain(">隐藏<");
   expect(markup).toContain(">吞吐<");
   expect(markup).toContain(">详细<");
