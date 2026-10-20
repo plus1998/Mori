@@ -159,6 +159,8 @@ class ConversationV2SessionController
   bool _disposed = false;
   int _commandSequence = 0;
   int _reloadGeneration = 0;
+  Future<void>? _pushReloadInFlight;
+  bool _pushReloadRequested = false;
 
   Future<void> start() async {
     if (_disposed || !enabled) return;
@@ -193,8 +195,7 @@ class ConversationV2SessionController
         envelope,
         conversationId: conversationId,
       );
-      await _reload();
-      await _hydratePendingDetails();
+      await _reloadAfterPush();
     } catch (error) {
       state = state.copyWith(syncState: _engine.state, error: error);
     }
@@ -455,6 +456,30 @@ class ConversationV2SessionController
         clearError: syncState != ConversationV2SyncState.error,
       ),
     );
+  }
+
+  Future<void> _reloadAfterPush() {
+    _pushReloadRequested = true;
+    final pending = _pushReloadInFlight;
+    if (pending != null) return pending;
+    final operation =
+        () async {
+          do {
+            // Every effect is committed in order by the engine. Coalesce only the
+            // presentation reads so a token burst does not re-read six tables and
+            // rebuild the entire feed once per effect.
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+            if (_disposed) return;
+            _pushReloadRequested = false;
+            await _reload();
+            await _hydratePendingDetails();
+          } while (_pushReloadRequested && !_disposed);
+        }().whenComplete(() async {
+          _pushReloadInFlight = null;
+          if (_pushReloadRequested && !_disposed) await _reloadAfterPush();
+        });
+    _pushReloadInFlight = operation;
+    return operation;
   }
 
   Future<void> _hydratePendingDetails({bool force = false}) async {

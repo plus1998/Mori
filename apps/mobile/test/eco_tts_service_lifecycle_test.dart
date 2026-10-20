@@ -7,6 +7,18 @@ import 'package:flutter_tts/flutter_tts.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('stopping idle playback does not notify every feed listener', () async {
+    final engine = _DelayedStopFlutterTts();
+    final service = EcoTtsService(engine: engine);
+    var notifications = 0;
+    service.addListener(() => notifications++);
+    final stop = service.stop();
+    engine.completeStop();
+    await stop;
+    expect(notifications, 0);
+    service.dispose();
+  });
+
   test('late native stop completion does not notify after dispose', () async {
     final engine = _DelayedStopFlutterTts();
     final service = EcoTtsService(engine: engine);

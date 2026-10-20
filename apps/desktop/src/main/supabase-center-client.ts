@@ -129,6 +129,7 @@ interface SupabaseRealtimeRpcOptions {
   log: (message: string) => void;
   now: () => Date;
   onTransportUnhealthy?: (error: Error) => void;
+  onBindingsChanged?: () => void | Promise<void>;
 }
 
 interface CenterRealtimeTransport {
@@ -182,6 +183,8 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
   private realtime: CenterRealtimeTransport | undefined;
   private readonly remotePublisher: MobileRemoteEventPublisher;
   private bindingsRefreshTimer: ReturnType<typeof setInterval> | undefined;
+  private bindingsRefreshInFlight: Promise<void> | undefined;
+  private bindingsRefreshRequested = false;
   private deviceSessionRefreshTimer: ReturnType<typeof setInterval> | undefined;
   private vaultClaimsRefreshTimer: ReturnType<typeof setInterval> | undefined;
   private intentionallyStopped = true;
@@ -1423,6 +1426,10 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
         onTransportUnhealthy: (transportError) => {
           this.handleRealtimeTransportUnhealthy(transportError, realtime);
         },
+        onBindingsChanged: async () => {
+          if (this.realtime !== realtime) return;
+          await this.refreshRealtimeBindings();
+        },
       });
       this.realtime = realtime;
       await realtime.start({ userId, deviceId });
@@ -2042,7 +2049,24 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
     });
   }
 
-  private async refreshRealtimeBindings(): Promise<void> {
+  private refreshRealtimeBindings(): Promise<void> {
+    this.bindingsRefreshRequested = true;
+    if (this.bindingsRefreshInFlight) return this.bindingsRefreshInFlight;
+    const operation = (async () => {
+      while (this.bindingsRefreshRequested) {
+        this.bindingsRefreshRequested = false;
+        await this.refreshRealtimeBindingsOnce();
+      }
+    })().finally(() => {
+      if (this.bindingsRefreshInFlight === operation) {
+        this.bindingsRefreshInFlight = undefined;
+      }
+    });
+    this.bindingsRefreshInFlight = operation;
+    return operation;
+  }
+
+  private async refreshRealtimeBindingsOnce(): Promise<void> {
     if (!this.realtime || !this.supabase || this.intentionallyStopped) {
       return;
     }
@@ -2050,11 +2074,15 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
     if (!settings.deviceId) {
       return;
     }
-    await this.ensureAccessToken(settings, this.supabase);
-    const bindings = await this.fetchBindingsForDesktop(this.supabase, settings.deviceId, {
+    const client = this.supabase;
+    const realtime = this.realtime;
+    await this.ensureAccessToken(settings, client);
+    const bindings = await this.fetchBindingsForDesktop(client, settings.deviceId, {
       activeOnly: true,
     });
-    await this.realtime.syncBindings(bindings);
+    if (!this.intentionallyStopped && this.realtime === realtime && this.supabase === client) {
+      await realtime.syncBindings(bindings);
+    }
   }
 
   private async fetchBindingsForDesktop(
@@ -2074,7 +2102,20 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
     if (error) {
       throw new Error(error.message);
     }
-    return (data ?? []).map(parseBindingRow);
+    const bindings = (data ?? []).map(parseBindingRow);
+    if (!options.activeOnly || bindings.length === 0) return bindings;
+    // A disabled mobile can leave an unrevoked binding behind. Realtime RLS
+    // correctly refuses that topic; do not let it tear down every healthy
+    // channel on this desktop during connection or periodic refresh.
+    const { data: mobiles, error: devicesError } = await client
+      .from("devices_public")
+      .select("id")
+      .eq("kind", "mobile")
+      .is("disabled_at", null)
+      .in("id", bindings.map((binding) => binding.mobileDeviceId));
+    if (devicesError) throw new Error(devicesError.message);
+    const activeMobileIds = new Set((mobiles ?? []).map((device) => device.id));
+    return bindings.filter((binding) => activeMobileIds.has(binding.mobileDeviceId));
   }
 
   private failConnection(message: string): void {

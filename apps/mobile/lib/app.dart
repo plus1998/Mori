@@ -285,6 +285,7 @@ class EcoApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(appForegroundProvider);
     ref.watch(appSessionProvider);
     ref.watch(globalSettingsSyncBootstrapProvider);
     ref.watch(desktopSwitchBootstrapProvider);

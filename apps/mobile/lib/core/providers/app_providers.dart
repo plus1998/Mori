@@ -29,6 +29,11 @@ final appForegroundProvider = Provider<bool>((ref) {
   }
 
   final observer = _LifecycleObserver(handleLifecycle);
+  final initialState = WidgetsBinding.instance.lifecycleState;
+  if (initialState != null) {
+    AppLifecycleTracker.update(initialState);
+    foreground = AppLifecycleTracker.isForeground;
+  }
   WidgetsBinding.instance.addObserver(observer);
   ref.onDispose(() => WidgetsBinding.instance.removeObserver(observer));
   return foreground;
@@ -43,7 +48,6 @@ class _LifecycleObserver extends Object with WidgetsBindingObserver {
     _onStateChange(state);
   }
 }
-
 
 final credentialStoreProvider = Provider<CredentialStore>((ref) {
   return CredentialStore();

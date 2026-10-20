@@ -5,6 +5,26 @@ import 'package:eco_mobile/core/storage/credential_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('repeated initialize does not rebroadcast unchanged connection state', () async {
+    final client = EcoCenterClient(store: _MemoryCredentialStore());
+    final states = <EcoConnectionState>[];
+    final subscription = client.connectionStatus.listen((s) => states.add(s.state));
+    await client.initialize();
+    await client.initialize();
+    await client.initialize();
+    await Future<void>.delayed(Duration.zero);
+    expect(states, [EcoConnectionState.disconnected]);
+    await subscription.cancel();
+    await client.dispose();
+  });
+
+  test('Realtime reconnect backs off and caps repeated failures', () {
+    expect(
+      List.generate(8, (attempt) => ecoRealtimeReconnectDelayMs(3000, attempt)),
+      [3000, 6000, 12000, 24000, 48000, 60000, 60000, 60000],
+    );
+  });
+
   group('normalizeSupabaseProjectUrl', () {
     test('strips trailing slash', () {
       expect(

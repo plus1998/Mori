@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -34,6 +35,7 @@ class EcoTtsService extends ChangeNotifier {
   String? _requestId;
   int _generation = 0;
   bool _disposed = false;
+  bool _notificationScheduled = false;
   Future<void>? _preferences;
   Future<void> _stopping = Future.value();
 
@@ -233,6 +235,10 @@ class EcoTtsService extends ChangeNotifier {
 
   Future<void> stop() {
     ++_generation;
+    final changed =
+        _state != TtsPlaybackState.idle ||
+        _activeEntryId != null ||
+        _lastError != null;
     final remote = _activeRemote;
     final requestId = _requestId;
     _activeRemote = null;
@@ -240,7 +246,7 @@ class EcoTtsService extends ChangeNotifier {
     _state = TtsPlaybackState.idle;
     _activeEntryId = null;
     _lastError = null;
-    _notify();
+    if (changed) _notify();
     if (remote != null && requestId != null) {
       unawaited(
         remote.cancelReadAloud(requestId).catchError((Object _) {
@@ -254,7 +260,17 @@ class EcoTtsService extends ChangeNotifier {
   }
 
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (_disposed || _notificationScheduled) return;
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      _notificationScheduled = true;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        _notificationScheduled = false;
+        if (!_disposed) notifyListeners();
+      });
+      return;
+    }
+    notifyListeners();
   }
 
   @override

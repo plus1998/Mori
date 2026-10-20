@@ -110,6 +110,8 @@ export type {
   ParsedEcoRealtimeTopic,
 } from "./realtime-topics";
 export {
+  ECO_REALTIME_BINDINGS_CHANGED_EVENT,
+  ECO_REALTIME_BINDING_READY_EVENT,
   buildEcoBindTopic,
   buildEcoUserTopic,
   buildEcoVaultTopic,

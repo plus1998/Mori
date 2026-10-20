@@ -11,6 +11,8 @@ import {
   buildEcoJsonRpcSuccess,
   buildEcoUserTopic,
   ECO_REALTIME_BROADCAST_EVENT,
+  ECO_REALTIME_BINDINGS_CHANGED_EVENT,
+  ECO_REALTIME_BINDING_READY_EVENT,
   ECO_RPC_ERROR,
   ECO_RPC_METHODS,
   type EcoJsonRpcMessage,
@@ -38,6 +40,7 @@ export interface SupabaseRealtimeRpcOptions {
   requestTimeoutMs?: number;
   /** Notify the owner after an already-subscribed channel becomes unhealthy. */
   onTransportUnhealthy?: (error: Error) => void;
+  onBindingsChanged?: () => void | Promise<void>;
 }
 
 export interface SupabaseRealtimeRpcStartInput {
@@ -55,6 +58,8 @@ export interface EcoPresenceDeviceState {
 
 interface BindChannelEntry {
   channel: RealtimeChannel;
+  mobileDeviceId: string;
+  ready: Promise<void>;
   capabilities: string[];
 }
 
@@ -108,6 +113,7 @@ export class SupabaseRealtimeRpc {
   private readonly now: () => Date;
   private readonly requestTimeoutMs: number;
   private readonly onTransportUnhealthy: ((error: Error) => void) | undefined;
+  private readonly onBindingsChanged: (() => void | Promise<void>) | undefined;
 
   private userId: string | undefined;
   private deviceId: string | undefined;
@@ -124,6 +130,7 @@ export class SupabaseRealtimeRpc {
     this.now = options.now ?? (() => new Date());
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.onTransportUnhealthy = options.onTransportUnhealthy;
+    this.onBindingsChanged = options.onBindingsChanged;
   }
 
   async start(input: SupabaseRealtimeRpcStartInput): Promise<void> {
@@ -148,6 +155,13 @@ export class SupabaseRealtimeRpc {
     });
     channel.on("presence", { event: "leave" }, () => {
       this.refreshPresenceFromChannel(channel);
+    });
+    channel.on("broadcast", { event: ECO_REALTIME_BINDINGS_CHANGED_EVENT }, ({ payload }) => {
+      if (this.started && payload?.desktopDeviceId === this.deviceId) {
+        void this.acknowledgeBindingReady(channel, payload).catch((error) => {
+          this.log(`[eco] binding discovery failed: ${errorMessage(error)}\n`);
+        });
+      }
     });
 
     this.userChannel = channel;
@@ -218,6 +232,8 @@ export class SupabaseRealtimeRpc {
       const existing = this.bindChannels.get(binding.id);
       if (existing) {
         existing.capabilities = [...binding.capabilities];
+        existing.mobileDeviceId = binding.mobileDeviceId;
+        await existing.ready;
         continue;
       }
       await this.subscribeBindChannel(binding);
@@ -236,6 +252,11 @@ export class SupabaseRealtimeRpc {
     const entry = this.bindChannels.get(bindingId);
     if (!entry) {
       throw new Error(`No active Realtime bind channel for binding ${bindingId}.`);
+    }
+    // RPC replies require the live socket. SDK HTTP Broadcast would hide a
+    // disconnected channel and publish data with no return path.
+    if (entry.channel.state !== "joined" || !this.client.realtime.isConnected()) {
+      throw new Error(`Realtime bind channel ${bindingId} is not connected.`);
     }
 
     const isRequest = isEcoJsonRpcRequest(message);
@@ -276,7 +297,10 @@ export class SupabaseRealtimeRpc {
   /** Fan-out `eco.event` notifications to bind channels with `events:read`. */
   publishNotification(notification: EventCenterJsonRpcNotification): void {
     for (const [bindingId, entry] of this.bindChannels) {
-      if (!bindingHasEventsRead(entry.capabilities)) {
+      if (
+        !bindingHasEventsRead(entry.capabilities) ||
+        !this.onlineDeviceIds.has(entry.mobileDeviceId)
+      ) {
         continue;
       }
       void this.sendOnBinding(bindingId, notification).catch((error) => {
@@ -309,13 +333,17 @@ export class SupabaseRealtimeRpc {
       void this.handleBindBroadcast(binding.id, payload);
     });
 
-    this.bindChannels.set(binding.id, {
+    const entry: BindChannelEntry = {
       channel,
+      mobileDeviceId: binding.mobileDeviceId,
       capabilities: [...binding.capabilities],
-    });
+      ready: Promise.resolve(),
+    };
+    this.bindChannels.set(binding.id, entry);
 
     try {
-      await this.subscribeChannel(channel, topic);
+      entry.ready = this.subscribeChannel(channel, topic);
+      await entry.ready;
     } catch (error) {
       this.bindChannels.delete(binding.id);
       await this.client.removeChannel(channel).catch((removeError) => {
@@ -323,6 +351,23 @@ export class SupabaseRealtimeRpc {
       });
       throw error;
     }
+  }
+
+  private async acknowledgeBindingReady(channel: RealtimeChannel, payload: Record<string, unknown>): Promise<void> {
+    await this.onBindingsChanged?.();
+    const bindingId = payload.bindingId;
+    const requestId = payload.requestId;
+    if (typeof bindingId !== "string" || typeof requestId !== "string") return;
+    const entry = this.bindChannels.get(bindingId);
+    if (!entry || entry.mobileDeviceId !== payload.mobileDeviceId) return;
+    await entry.ready;
+    if (!this.started || channel !== this.userChannel || channel.state !== "joined" ||
+      !this.client.realtime.isConnected() || this.bindChannels.get(bindingId) !== entry) return;
+    const result = await channel.send({
+      type: "broadcast", event: ECO_REALTIME_BINDING_READY_EVENT,
+      payload: { desktopDeviceId: this.deviceId, mobileDeviceId: entry.mobileDeviceId, bindingId, requestId },
+    });
+    if (result !== "ok") throw new Error(`Binding readiness acknowledgement failed: ${result}`);
   }
 
   private subscribeChannel(
@@ -380,6 +425,12 @@ export class SupabaseRealtimeRpc {
         const failure = new Error(
           `Realtime channel ${topic} status=${status}${error ? `: ${error.message}` : ""}`,
         );
+        // removeChannel emits CLOSED too. A deliberately removed binding must
+        // not trigger full transport recovery for the remaining devices.
+        if (initialSettled && channel !== this.userChannel &&
+          ![...this.bindChannels.values()].some((entry) => entry.channel === channel)) {
+          return;
+        }
         if (!subscribed && settleInitialFailure(failure)) {
           return;
         }
@@ -504,7 +555,7 @@ export class SupabaseRealtimeRpc {
   private refreshPresenceFromChannel(channel: RealtimeChannel): void {
     this.onlineDeviceIds.clear();
     for (const device of collectPresenceDevices(channel.presenceState())) {
-      if (device.deviceId) {
+      if (device.deviceId && device.online !== false) {
         this.onlineDeviceIds.add(device.deviceId);
       }
     }

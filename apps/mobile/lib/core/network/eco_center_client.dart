@@ -98,15 +98,18 @@ class EcoCenterClient {
   bool _intentionallyStopped = true;
   bool _presenceOnlyMode = false;
   int _rpcCounter = 0;
+  int _reconnectAttempts = 0;
 
   final _connectionController =
       StreamController<CenterServerConnectionStatus>.broadcast();
   final _eventController = StreamController<EcoEventEnvelope>.broadcast();
   final Map<String, Completer<dynamic>> _pendingInvokes = {};
+  final Map<String, Completer<void>> _pendingBindingReady = {};
 
   CenterServerConnectionStatus _status = const CenterServerConnectionStatus(
     state: EcoConnectionState.disconnected,
   );
+  CenterServerConnectionStatus? _lastEmittedStatus;
 
   Stream<CenterServerConnectionStatus> get connectionStatus =>
       _connectionController.stream;
@@ -660,6 +663,11 @@ class EcoCenterClient {
 
   Future<void> connect() async {
     _intentionallyStopped = false;
+    if (_status.state == EcoConnectionState.connected &&
+        hasActiveBindingChannel &&
+        _presenceChannel?.canPush == true) {
+      return;
+    }
 
     // Let an in-flight picker Presence handshake finish before promoting the
     // transport to a full bind/RPC session.
@@ -799,7 +807,7 @@ class EcoCenterClient {
 
   /// Sends `eco.ping` on the bind channel and waits for a JSON-RPC response.
   Future<void> ping({int timeoutMs = 10000}) async {
-    if (_bindChannel == null || _status.state != EcoConnectionState.connected) {
+    if (_bindChannel == null) {
       throw EcoCenterException.app(EcoCenterErrorKind.websocketDisconnected);
     }
     final id = 'ping_${++_rpcCounter}';
@@ -835,7 +843,7 @@ class EcoCenterClient {
 
   Future<void> dispose() async {
     disconnect();
-    await _authSub?.cancel();
+    await _resetSupabaseClient();
     await _connectionController.close();
     await _eventController.close();
   }
@@ -925,6 +933,7 @@ class EcoCenterClient {
   }
 
   Future<void> _resetSupabaseClient() async {
+    final client = _supabase;
     _teardownBindChannel();
     _teardownPresenceChannel();
     await _authSub?.cancel();
@@ -932,6 +941,7 @@ class EcoCenterClient {
     _supabase = null;
     _clientUrl = null;
     _clientAnonKey = null;
+    await client?.dispose();
   }
 
   Future<String> _ensureUserAccessToken() async {
@@ -1044,6 +1054,7 @@ class EcoCenterClient {
           ),
         );
       }
+      _reconnectAttempts = 0;
     } catch (error) {
       _teardownPresenceChannel();
       if (_intentionallyStopped) {
@@ -1117,6 +1128,14 @@ class EcoCenterClient {
       if (_intentionallyStopped) {
         throw EcoCenterException.app(EcoCenterErrorKind.connectionAborted);
       }
+      // A subscribed mobile channel does not prove that the desktop has joined
+      // the newly created binding. Verify the bidirectional RPC before exposing
+      // connected to providers and starting their initial request burst.
+      await ping(timeoutMs: 8000);
+      if (_intentionallyStopped) {
+        throw EcoCenterException.app(EcoCenterErrorKind.connectionAborted);
+      }
+      _reconnectAttempts = 0;
       _emitStatus(
         CenterServerConnectionStatus(
           state: EcoConnectionState.connected,
@@ -1203,6 +1222,43 @@ class EcoCenterClient {
     await _awaitChannelSubscription(channel, topic);
     _bindChannel = channel;
     _subscribedBindingId = bindingId;
+    final presence = _presenceChannel;
+    if (presence == null || !presence.canPush) {
+      throw EcoCenterException.app(EcoCenterErrorKind.websocketDisconnected);
+    }
+    final requestId = 'binding_${++_rpcCounter}';
+    final ready = Completer<void>();
+    unawaited(
+      ready.future.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    );
+    _pendingBindingReady[requestId] = ready;
+    try {
+      final notified = await sendEcoRealtimeBroadcast(
+        presence,
+        event: EcoRealtimeTopics.bindingsChangedEvent,
+        payload: {
+          'desktopDeviceId': _credentials.selectedDesktopId,
+          'mobileDeviceId': _credentials.deviceId,
+          'bindingId': bindingId,
+          'requestId': requestId,
+        },
+      );
+      if (notified != ChannelResponse.ok) {
+        throw EcoCenterException.native(
+          'Failed to notify desktop of binding ($notified).',
+        );
+      }
+      await ready.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw EcoCenterException.native(
+            'Desktop did not acknowledge its binding subscription within 10 seconds.',
+          );
+        },
+      );
+    } finally {
+      _pendingBindingReady.remove(requestId);
+    }
   }
 
   void _teardownBindChannel() {
@@ -1220,6 +1276,14 @@ class EcoCenterClient {
       }
     }
     _pendingInvokes.clear();
+    for (final ready in _pendingBindingReady.values) {
+      if (!ready.isCompleted) {
+        ready.completeError(
+          EcoCenterException.app(EcoCenterErrorKind.websocketDisconnected),
+        );
+      }
+    }
+    _pendingBindingReady.clear();
   }
 
   Future<void> _subscribeUserPresence() async {
@@ -1240,6 +1304,20 @@ class EcoCenterClient {
       opts: RealtimeChannelConfig(private: true, key: deviceId, enabled: true),
     );
     final presenceSynced = Completer<void>();
+    channel.onBroadcast(
+      event: EcoRealtimeTopics.bindingReadyEvent,
+      callback: (event) {
+        final raw = event['payload'] ?? event;
+        if (raw is! Map ||
+            raw['desktopDeviceId'] != _credentials.selectedDesktopId ||
+            raw['mobileDeviceId'] != _credentials.deviceId ||
+            raw['bindingId'] != _credentials.bindingId) {
+          return;
+        }
+        final ready = _pendingBindingReady[raw['requestId']];
+        if (ready != null && !ready.isCompleted) ready.complete();
+      },
+    );
     void refreshPresence() => _refreshPresenceState(channel);
     channel
       ..onPresenceSync((_) {
@@ -1377,7 +1455,8 @@ class EcoCenterClient {
       throw EcoCenterException.app(EcoCenterErrorKind.websocketDisconnected);
     }
     final envelope = wrapEcoRpcForBroadcast(message);
-    final result = await channel.sendBroadcastMessage(
+    final result = await sendEcoRealtimeBroadcast(
+      channel,
       event: EcoRealtimeTopics.broadcastEvent,
       payload: envelope,
     );
@@ -1428,8 +1507,16 @@ class EcoCenterClient {
 
   void _scheduleReconnect() {
     _clearReconnectTimer();
-    _reconnectTimer = Timer(Duration(milliseconds: reconnectDelayMs), () {
+    final delay = ecoRealtimeReconnectDelayMs(
+      reconnectDelayMs,
+      _reconnectAttempts++,
+    );
+    _reconnectTimer = Timer(Duration(milliseconds: delay), () {
       if (!_intentionallyStopped) {
+        if (!AppLifecycleTracker.isForeground) {
+          _scheduleReconnect();
+          return;
+        }
         if (_presenceOnlyMode) {
           unawaited(connectPresence().catchError((Object _) {}));
         } else {
@@ -1509,7 +1596,7 @@ class EcoCenterClient {
   }
 
   Future<void> _refreshDeviceSessionAuthorization() async {
-    if (_intentionallyStopped) return;
+    if (_intentionallyStopped || !AppLifecycleTracker.isForeground) return;
     try {
       final accessToken = await _ensureUserAccessToken();
       await _registerDeviceSession(accessToken);
@@ -1528,6 +1615,15 @@ class EcoCenterClient {
 
   void _emitStatus(CenterServerConnectionStatus status) {
     _status = status;
+    final previous = _lastEmittedStatus;
+    if (previous != null &&
+        previous.state == status.state &&
+        previous.connectedAt == status.connectedAt &&
+        previous.lastError == status.lastError &&
+        previous.authRecovery == status.authRecovery) {
+      return;
+    }
+    _lastEmittedStatus = status;
     if (!_connectionController.isClosed) {
       _connectionController.add(status);
     }

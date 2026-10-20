@@ -368,7 +368,19 @@ test("supabase center client reconnects and rebuilds bindings after transport fa
           created_at: "2030-01-01T00:00:00.000Z",
           revoked_at: null,
         },
+        {
+          id: "e4eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+          user_id: USER_ID,
+          desktop_device_id: DEVICE_ID,
+          mobile_device_id: "disabled_mobile",
+          capabilities: ["rpc:invoke", "events:read"],
+          created_at: "2030-01-01T00:00:00.000Z",
+          revoked_at: null,
+        },
       ]);
+    }
+    if (url.includes("/rest/v1/devices_public")) {
+      return jsonResponse([{ id: "d3eebc99-9c0b-4ef8-bb6d-6bb9bd380a11" }]);
     }
     throw new Error(`Unexpected fetch: ${url}`);
   };
@@ -376,6 +388,7 @@ test("supabase center client reconnects and rebuilds bindings after transport fa
     stopped: boolean;
     syncedBindingIds: string[];
     fail(error: Error): void;
+    bindingsChanged(): void;
   }> = [];
   const reconnects: Array<{
     callback: () => void;
@@ -405,6 +418,9 @@ test("supabase center client reconnects and rebuilds bindings after transport fa
         fail(error: Error) {
           options.onTransportUnhealthy?.(error);
         },
+        bindingsChanged() {
+          options.onBindingsChanged?.();
+        },
       };
       transports.push(transport);
       return transport as never;
@@ -426,6 +442,9 @@ test("supabase center client reconnects and rebuilds bindings after transport fa
   expect(transports[0]?.syncedBindingIds).toEqual([bindingId]);
   expect(bindingFetches).toBe(1);
 
+  transports[0]?.bindingsChanged();
+  await waitFor(() => bindingFetches === 2);
+
   transports[0]?.fail(new Error("presence channel token expired"));
   expect(client.getSnapshot().status).toMatchObject({
     state: "error",
@@ -436,7 +455,7 @@ test("supabase center client reconnects and rebuilds bindings after transport fa
   expect(reconnects[0]?.delayMs).toBe(1000);
 
   reconnects[0]?.callback();
-  await waitFor(() => transports.length === 2 && bindingFetches === 2);
+  await waitFor(() => transports.length === 2 && bindingFetches === 3);
   expect(client.getSnapshot().status.state).toBe("connected");
   expect(transports[1]?.syncedBindingIds).toEqual([bindingId]);
 

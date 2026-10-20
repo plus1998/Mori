@@ -216,6 +216,7 @@ class ConversationV2SyncEngine {
   ConversationV2SyncState _state = ConversationV2SyncState.uninitialized;
   int _generation = 0;
   bool _disposed = false;
+  ConversationV2Capabilities? _capabilities;
 
   ConversationV2SyncState get state => _state;
   Stream<ConversationV2SyncState> get states => _stateController.stream;
@@ -238,6 +239,7 @@ class ConversationV2SyncEngine {
         _setState(ConversationV2SyncState.incompatible);
         throw StateError('Conversation V2 capabilities are unsupported.');
       }
+      _capabilities = capabilities;
       final bootstrap = await _remote.bootstrap(
         conversationId,
         pageSize: 30,
@@ -287,6 +289,7 @@ class ConversationV2SyncEngine {
         _setState(ConversationV2SyncState.incompatible);
         throw StateError('Conversation V2 capabilities are unsupported.');
       }
+      _capabilities = capabilities;
       final current = await _cache.state(conversationId);
       if (current == null || current.storeEpoch != capabilities.storeEpoch) {
         final bootstrap = await _remote.bootstrap(
@@ -352,7 +355,9 @@ class ConversationV2SyncEngine {
       await _refresh(conversationId);
       return;
     }
-    final capabilities = await _remote.capabilities();
+    // Negotiate at bootstrap/reconnect, not once per streamed delta. The push
+    // envelope still validates epoch, version, sequence and content hash.
+    final capabilities = _capabilities ?? await _remote.capabilities();
     if (!_isCompatible(capabilities) ||
         capabilities.storeEpoch != current.storeEpoch) {
       _setState(ConversationV2SyncState.incompatible);
@@ -364,6 +369,7 @@ class ConversationV2SyncEngine {
       _setState(ConversationV2SyncState.incompatible);
       throw StateError('Conversation V2 push effect version is unsupported.');
     }
+    _capabilities = capabilities;
     if (effect.seq <= current.appliedSeq) {
       await _verifyDuplicatePush(
         effect,

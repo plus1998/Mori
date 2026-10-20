@@ -8,6 +8,27 @@ import 'package:eco_mobile/core/utils/conversation_v2_hash.dart';
 
 void main() {
   test(
+    'negotiates capabilities once for a burst, and again on refresh',
+    () async {
+      final cache = _FakeCache();
+      final remote = _FakeRemote();
+      final engine = ConversationV2SyncEngine(cache: cache, remote: remote);
+      await engine.start('thread_1');
+      final before = remote.capabilitiesCalls;
+      for (var seq = 3; seq <= 102; seq++) {
+        await engine.acceptPush(_effect(seq), 'thread_1');
+      }
+      expect(cache.current?.appliedSeq, 102);
+      expect(remote.capabilitiesCalls - before, 0);
+      // Reconnect/refresh must still negotiate with the authoritative desktop.
+      remote.headSeq = 102;
+      await engine.refresh('thread_1');
+      expect(remote.capabilitiesCalls, before + 1);
+      await engine.dispose();
+    },
+  );
+
+  test(
     'bootstraps, catches up and only becomes live after a contiguous range',
     () async {
       final cache = _FakeCache();
@@ -411,20 +432,24 @@ class _FaultReplayRemote extends _FakeRemote {
 }
 
 class _FakeRemote implements ConversationV2Remote {
+  int capabilitiesCalls = 0;
+  int headSeq = 2;
   int syncCalls = 0;
   int messageGetCalls = 0;
   ConversationV2Message? repair;
 
   @override
-  Future<ConversationV2Capabilities> capabilities() async =>
-      const ConversationV2Capabilities(
-        protocolVersion: 2,
-        eventSchemaVersion: 1,
-        effectVersion: 1,
-        maxEvents: 100,
-        maxBytes: 512 * 1024,
-        storeEpoch: 'epoch_1',
-      );
+  Future<ConversationV2Capabilities> capabilities() async {
+    capabilitiesCalls += 1;
+    return const ConversationV2Capabilities(
+      protocolVersion: 2,
+      eventSchemaVersion: 1,
+      effectVersion: 1,
+      maxEvents: 100,
+      maxBytes: 512 * 1024,
+      storeEpoch: 'epoch_1',
+    );
+  }
 
   @override
   Future<ConversationV2Bootstrap> bootstrap(
@@ -510,11 +535,11 @@ class _FakeRemote implements ConversationV2Remote {
 
   @override
   Future<ConversationV2Head> head(String conversationId) async =>
-      const ConversationV2Head(
+      ConversationV2Head(
         protocolVersion: 2,
         storeEpoch: 'epoch_1',
         conversationId: 'thread_1',
-        lastSeq: 2,
+        lastSeq: headSeq,
         historyRevision: 0,
       );
 

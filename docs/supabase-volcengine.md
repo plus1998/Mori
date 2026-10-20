@@ -274,4 +274,10 @@ byted-supabase-cli projects api-keys --reveal \
 | 函数返回 401 | `verify_jwt`、access token 和 anon key 是否来自同一 Workspace |
 | 函数报缺少 `SUPABASE_*` | 检查 `secrets list`；补齐 Secrets 后重新部署或重启函数 |
 | Realtime 私有频道无消息 | 确认 `realtime.messages` 的 RLS 策略、频道使用 `private: true`，并检查控制台 public access 设置 |
+| 手机订阅成功但首个 RPC 超时 | 频道订阅只证明手机已加入；新绑定的桌面订阅也必须完成。新版通过用户私有频道请求刷新绑定，等待 `eco.binding.ready` 回执后再做双向 ping，最后发布 connected 状态；Desktop 与 Mobile 需一起更新 |
+| 已禁用手机导致桌面 Realtime 反复断线 | 禁用设备可能保留未撤销的绑定，但 Realtime RLS 会拒绝该 topic。桌面仅订阅设备仍有效的绑定，主动移除绑定产生的 CLOSED 不触发整条连接重建 |
+| 没有手机在线仍出现大量会话广播 | 桌面按绑定对应手机的 Presence 在线状态过滤事件；重连后由 V2 bootstrap/range sync 补齐。正常的 WebSocket 心跳、授权复核和绑定查询仍会发生 |
+| 手机流式输出时请求与刷新密集 | V2 能力在 bootstrap/refresh 时协商，同一 epoch 的连续推送复用协商结果；增量仍逐条校验并落库，界面快照读取按 50ms 窗口合并。前后台追踪需由根组件挂载，后台跳过轮询和授权复核 |
 | HTML 外链显示为纯文本 | 检查函数端点的 `Content-Type` 和火山引擎域名/网关的重写行为 |
+
+2026-10-20 客户端回归已验证：私有频道的显式绑定握手和双向 RPC 可用；手机离线时 250 条测试事件发出 0 条，上线后 10 条全部收到。iOS 模拟器正常应用绑定下，已完成会话静置 20 秒产生 1 帧、0 次业务 RPC；集成测试滚动的 P95 构建耗时约 0.6ms、光栅耗时约 3ms。`fullyLive` 集成测试绑定本身会持续调度帧，不能直接用它的静置 CPU 或帧数推断产品耗电。这些结果不构成真机温度验证；冒烟日志、截图与采样仅保存在 `/tmp`。
