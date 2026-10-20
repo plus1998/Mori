@@ -9496,11 +9496,13 @@ button.integrated-web-search-clear-key:disabled {
   color: var(--danger, #ff3b30);
 }
 .codex-account-action-menu {
-  width: 180px;
+  width: min(220px, calc(100vw - 16px));
   z-index: 12000;
 }
 .codex-account-action-menu .account-action-item {
-  white-space: nowrap;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .codex-account-sync-error,
 .codex-account-sync-conflict {

@@ -30,6 +30,9 @@ import { CodexModelCatalogSection } from "./CodexModelCatalogSection";
 
 type Translate = TFunction<"translation", undefined>;
 
+const CODEX_ACCOUNT_ACTION_MENU_WIDTH = 220;
+const MENU_VIEWPORT_MARGIN = 8;
+
 function formatResetTime(window: OpenAIAccountQuotaWindow, fetchedAt: number, t: Translate): string {
   const resetAt = window.resetAt > 0 ? window.resetAt * 1_000 : fetchedAt + window.resetAfterSeconds * 1_000;
   return formatQuotaResetTime(resetAt, t);
@@ -894,14 +897,21 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                         menuTriggerRef.current = event.currentTarget;
                         const rect =
                           event.currentTarget.getBoundingClientRect();
+                        const menuWidth = Math.min(
+                          CODEX_ACCOUNT_ACTION_MENU_WIDTH,
+                          window.innerWidth - MENU_VIEWPORT_MARGIN * 2,
+                        );
                         setMenuPos({
                           top: Math.max(
                             8,
                             Math.min(rect.bottom + 4, window.innerHeight - 260),
                           ),
                           left: Math.max(
-                            8,
-                            Math.min(rect.right - 180, window.innerWidth - 188),
+                            MENU_VIEWPORT_MARGIN,
+                            Math.min(
+                              rect.right - menuWidth,
+                              window.innerWidth - menuWidth - MENU_VIEWPORT_MARGIN,
+                            ),
                           ),
                         });
                         setMenuOpenId(account.id);
