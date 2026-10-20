@@ -180,15 +180,21 @@ export function contextCardPlaceholder(status?: ThreadStatus): string {
   return "上下文 — 有模型请求后显示";
 }
 
-export function billingEmptyHint(status?: ThreadStatus): string {
+export type BillingEmptyHintKey =
+  | "billing.emptyHint.accumulating"
+  | "billing.emptyHint.planning"
+  | "billing.emptyHint.noRecords"
+  | "billing.emptyHint.notStarted";
+
+export function billingEmptyHintKey(status?: ThreadStatus): BillingEmptyHintKey {
   if (status === "running" || status === "queued") {
-    return "费用累计中…";
+    return "billing.emptyHint.accumulating";
   }
   if (status === "awaiting_plan") {
-    return "计划阶段已产生的 token 与费用将显示在此处。";
+    return "billing.emptyHint.planning";
   }
   if (shouldShowThreadUsagePanels(status)) {
-    return "暂无累计 token 或费用记录。";
+    return "billing.emptyHint.noRecords";
   }
-  return "费用 — 有模型请求后显示";
+  return "billing.emptyHint.notStarted";
 }

@@ -1969,9 +1969,28 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
 }
 
 .chat-item.nested {
+  position: relative;
   padding-left: 28px;
   color: var(--sidebar-thread-text);
   font-size: var(--ui-font-size);
+}
+
+.chat-item-core-icon {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 0.12s ease;
+}
+
+.chat-item-row:hover .chat-item-core-icon,
+.chat-item-row:focus-within .chat-item-core-icon {
+  opacity: 1;
 }
 
 .chat-item-title {

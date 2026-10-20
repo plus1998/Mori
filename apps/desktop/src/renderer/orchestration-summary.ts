@@ -13,6 +13,7 @@ import { SUBAGENT_ROLES } from "../shared/ipc";
 import { resolveThreadOrchestrationSnapshot } from "../shared/thread-runtime-config";
 import { type AgentTemplatePermissionChip, buildAgentTemplatePermissionChips } from "./agent-template-form";
 import { i18n } from "./i18n";
+import { localizeMainAgentConfigName } from "./main-agent-config-display";
 
 export interface OrchestrationMainSummary {
   name: string;
@@ -70,7 +71,9 @@ export function buildOrchestrationSummary(
   const mainRiskLabels = summarizeToolRiskLabels(snapshot.mainAgent.tools);
   const mainModelRef = snapshot.mainAgent.modelRef;
   const main: OrchestrationMainSummary = {
-    name: snapshot.mainAgent.name.trim() || i18n.t("settings.models.mainAgent"),
+    name:
+      localizeMainAgentConfigName(snapshot.selection.mainAgentConfigId, snapshot.mainAgent.name) ||
+      i18n.t("settings.models.mainAgent"),
     modelLabel: formatModelLabel(mainModelRef.providerId, mainModelRef.modelId, mainModelRef),
     modelId: mainModelRef.modelId,
     ...(mainModelRef.thinkingEffort ? { thinkingEffort: mainModelRef.thinkingEffort } : {}),
@@ -99,7 +102,10 @@ export function buildOrchestrationSummary(
 }
 
 export function formatOrchestrationDisplayName(snapshot: ResolvedOrchestrationSnapshot): string {
-  const parts = [snapshot.mainAgentConfigName.trim(), snapshot.mainPromptDisplayName.trim()].filter(Boolean);
+  const parts = [
+    localizeMainAgentConfigName(snapshot.selection.mainAgentConfigId, snapshot.mainAgentConfigName),
+    snapshot.mainPromptDisplayName.trim(),
+  ].filter(Boolean);
   if (snapshot.subagentOrchestrationDisplayName?.trim()) {
     parts.push(snapshot.subagentOrchestrationDisplayName.trim());
   }

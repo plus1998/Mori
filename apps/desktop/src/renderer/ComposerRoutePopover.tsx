@@ -28,6 +28,7 @@ import {
 } from "./model-cascade-options";
 import type { OrchestrationFieldIssue, OrchestrationFieldKey } from "./orchestration-readiness";
 import { orchestrationIssueDetailKey } from "./orchestration-readiness";
+import { localizeMainAgentConfigName } from "./main-agent-config-display";
 
 const BUILTIN_PROMPT_VALUE = "builtin";
 const SUBAGENTS_NONE_VALUE = "__none__";
@@ -413,7 +414,7 @@ function ComposerRouteCompositionControls({
           >
             {mainAgentConfigs.map((config) => (
               <option key={config.id} value={config.id}>
-                {config.name} ({config.modelRef.modelId})
+                {localizeMainAgentConfigName(config.id, config.name)} ({config.modelRef.modelId})
               </option>
             ))}
           </ComposerFieldSelect>

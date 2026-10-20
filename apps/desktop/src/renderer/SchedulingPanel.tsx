@@ -15,6 +15,7 @@ import { mapAcpModelOptions, resolveAcpVendorNames } from "./model-cascade-optio
 import { resolveProviderAccentColor } from "../shared/commit-model-options";
 import { formatIpcInvokeError } from "./AppMessage";
 import { messageDurationFromSeconds } from "./scheduled-message-form";
+import { localizeMainAgentConfigName } from "./main-agent-config-display";
 import { localScheduleDate as localDate, scheduleCatchUpSeconds, scheduleIntervalDuration, scheduleIntervalLabel, scheduleTriggerFor as triggerFor, type ScheduleTimingForm } from "./schedule-form";
 import "./scheduling.css";
 
@@ -250,7 +251,11 @@ export function SchedulingPanel(props: Props) {
                 <ComposerFieldSelect value={form.profile?.runtimeConfig.orchestrationSelection?.mainAgentConfigId ?? ""}
                   showPlaceholder placeholder={t("scheduling.chooseConfig")} searchable
                   searchPlaceholder={t("composer.fieldSelect.searchMainAgent")} onChange={setMainConfig}>
-                  {props.settings.mainAgentConfigs.map(config => <option key={config.id} value={config.id}>{config.name}</option>)}
+                  {props.settings.mainAgentConfigs.map((config) => (
+                    <option key={config.id} value={config.id}>
+                      {localizeMainAgentConfigName(config.id, config.name)}
+                    </option>
+                  ))}
                 </ComposerFieldSelect>
               </div>}
             </div>

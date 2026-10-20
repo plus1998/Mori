@@ -5,6 +5,7 @@ import type {
   RuntimeRoleRouteConfig,
 } from "../shared/ipc";
 import { resolveMainAgentModelOverrideForProvider } from "../shared/thread-runtime-config";
+import { localizeMainAgentConfigName } from "./main-agent-config-display";
 
 type ProviderView = ModelSettingsSnapshot["providers"][number];
 
@@ -78,12 +79,14 @@ export function diagnoseOrchestrationSnapshotReadiness(
     ) ?? snapshot.mainAgent.modelRef;
   const mainIssue = diagnoseModelRef(effectiveMainModel, providersById);
   if (mainIssue) {
+    const mainAgentConfigName = localizeMainAgentConfigName(
+      snapshot.selection.mainAgentConfigId,
+      snapshot.mainAgentConfigName,
+    );
     issues.push({
       field: "mainAgent",
       ...mainIssue,
-      ...(snapshot.mainAgentConfigName.trim()
-        ? { mainAgentConfigName: snapshot.mainAgentConfigName.trim() }
-        : {}),
+      ...(mainAgentConfigName ? { mainAgentConfigName } : {}),
     });
   }
 

@@ -29,7 +29,7 @@ import type {
   WorkspaceInfo,
 } from "../shared/ipc";
 import {
-  billingEmptyHint,
+  billingEmptyHintKey,
   contextCardPlaceholder,
   shouldShowBillingUsagePanel,
   shouldShowContextUsagePanel,
@@ -412,7 +412,7 @@ function BillingFloatingCard({
           ) : null}
         </div>
       ) : (
-        <BillingEmptyState hint={billingEmptyHint(threadStatus)} />
+        <BillingEmptyState hint={t(billingEmptyHintKey(threadStatus))} />
       )}
 
       {showBilling && billing ? (

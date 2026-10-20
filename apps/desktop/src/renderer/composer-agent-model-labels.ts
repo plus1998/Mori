@@ -9,6 +9,7 @@ import type {
 import { AGENT_ROLES, SUBAGENT_ROLES } from "../shared/ipc";
 import { pickDisplayModelId } from "../shared/model-id";
 import { i18n } from "./i18n";
+import { localizeMainAgentConfigName } from "./main-agent-config-display";
 
 const LEGACY_ROLE_LABEL_KEYS: Record<AgentRole, Parameters<typeof i18n.t>[0]> = {
   planner: "agent.role.planner",
@@ -94,7 +95,11 @@ function snapshotDisplayNames(
 ): Map<string, string> {
   const templateById = new Map(templates.map((template) => [template.id, template]));
   const names = new Map<string, string>();
-  names.set("planner", snapshot.mainAgent.name.trim() || i18n.t("agent.role.mainAgent"));
+  names.set(
+    "planner",
+    localizeMainAgentConfigName(snapshot.selection.mainAgentConfigId, snapshot.mainAgent.name) ||
+      i18n.t("agent.role.mainAgent"),
+  );
   for (const agent of snapshot.agents) {
     const template = templateById.get(agent.templateId);
     names.set(agent.agentKey, agent.displayName?.trim() || template?.name || agent.agentKey);

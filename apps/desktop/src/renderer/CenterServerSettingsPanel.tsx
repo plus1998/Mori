@@ -1622,7 +1622,14 @@ function AccountEditor({
         </p>
       </header>
 
-      <div className="cs-form">
+      <form
+        className="cs-form"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+      >
         {!registered ? (
           <div className="cs-tabs" role="tablist" aria-label={t("settings.center.accountActions")}>
             <button
@@ -1691,10 +1698,9 @@ function AccountEditor({
         {error ? <p className="cs-error">{error}</p> : null}
 
         <button
-          type="button"
+          type="submit"
           className="cs-btn cs-btn--block"
           disabled={busy || !email.trim() || !password.trim()}
-          onClick={onSubmit}
         >
           {busy ? (
             <>
@@ -1707,7 +1713,7 @@ function AccountEditor({
             t("settings.center.signinBind")
           )}
         </button>
-      </div>
+      </form>
     </>
   );
 }

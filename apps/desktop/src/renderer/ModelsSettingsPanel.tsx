@@ -1,5 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LazyOpenAIAccountsPanel } from "./lazy-app-panels";
+import { localizeMainAgentConfigName } from "./main-agent-config-display";
 import { ChatGPTSubscriptionAccountsPanel } from "./ChatGPTSubscriptionAccountsPanel";
 import {
   ChevronDown,
@@ -1118,7 +1119,7 @@ export function ModelsSettingsPanel({
                     ) : null}
                     {settings.mainAgentConfigs.map((config) => (
                       <option key={config.id} value={config.id}>
-                        {config.name} ({config.modelRef.modelId})
+                        {localizeMainAgentConfigName(config.id, config.name)} ({config.modelRef.modelId})
                       </option>
                     ))}
                   </ComposerFieldSelect>

@@ -1,3 +1,4 @@
+import { OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID } from "../shared/agent-orchestration";
 import type {
   AgentTemplate,
   MainAgentConfigResource,
@@ -16,7 +17,7 @@ export interface AgentRegistrySettingsSource {
 
 /** Virtual built-in main agent config for Codex Auth (CODEX_HOME/auth.json). */
 const OPENAI_OFFICIAL_MAIN_AGENT_CONFIG: MainAgentConfigResource = {
-  id: "__openai_official__",
+  id: OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID,
   name: "Codex 登录",
   agentKey: "openai-official",
   modelRef: { providerId: "openai", modelId: "gpt-5.6-luna", thinkingEffort: "medium" },

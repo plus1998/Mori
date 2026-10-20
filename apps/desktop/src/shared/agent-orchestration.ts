@@ -8,6 +8,8 @@ import type {
   ThinkingEffort,
 } from "./ipc";
 
+export const OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID = "__openai_official__";
+
 export type AgentConfigSource = "built_in" | "user" | "project" | "derived";
 
 export function isV4aTeachingEnabled(

@@ -5330,7 +5330,7 @@ function App() {
             composerMainAgentModelOverride,
           )
         : [],
-    [composerMainAgentModelOverride, providerById, selectedOrchestrationSnapshot],
+    [composerMainAgentModelOverride, providerById, selectedOrchestrationSnapshot, t],
   );
   const invalidOrchestrationFields = useMemo(
     () => invalidOrchestrationFieldsFromIssues(orchestrationIssues),
@@ -5812,7 +5812,7 @@ function App() {
   }, [activeSubagentMetrics]);
   const activeRuntimeAgentDisplayNames = useMemo(
     () => buildRuntimeAgentDisplayNames(settings, activeThread?.runtimeConfig),
-    [settings, activeThread?.runtimeConfig],
+    [settings, activeThread?.runtimeConfig, t],
   );
   const activeRuntimeAgentThemes = useMemo(
     () => buildRuntimeAgentThemes(settings, activeThread?.runtimeConfig),
@@ -6818,7 +6818,7 @@ function App() {
         snapshot: selectedOrchestrationSnapshot,
         templates: settings.agentTemplates,
       }),
-    [activeRoutes, selectedOrchestrationSnapshot, settings.agentTemplates, threadModelByRole],
+    [activeRoutes, selectedOrchestrationSnapshot, settings.agentTemplates, threadModelByRole, t],
   );
   const activityModelByRole = useMemo(() => {
     const configured: Record<string, string> = {};
