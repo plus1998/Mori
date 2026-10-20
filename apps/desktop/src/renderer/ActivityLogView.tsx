@@ -2038,10 +2038,13 @@ function ConversationV2ProjectionActivityLogViewImpl({
   );
   const allowUserMessageRewrite = supportsHistoryRewrite(thread?.coreKind);
   const forkStatus = thread?.status ?? projection.thread.status;
+  const hideMessageActions =
+    forkStatus === "running" || forkStatus === "queued" || Boolean(thread?.cancelling);
   const forkDisabledReason =
-    forkStatus === "running" || forkStatus === "queued" || thread?.cancelling
+    hideMessageActions
       ? i18n.t("activity.forkWait", { defaultValue: "等待当前执行结束，或停止后再分叉" })
       : undefined;
+  const showMessageActions = !hideMessageActions;
   const conversationActive = !isThreadStoppedForFinalSummary(projection.thread.status);
   const pendingThinking = projection.requestSpans.some(
     (span) => !span.ownerAgentId && isPendingThinkingWithoutContent(span, projection.timeline),
@@ -2292,11 +2295,12 @@ function ConversationV2ProjectionActivityLogViewImpl({
     ...(onOpenImageDisplayArtifact && { onOpenImageDisplayArtifact }),
     ...(agentDisplayNames && { agentDisplayNames }),
     ...(agentThemes && { agentThemes }),
-    // ACP/Pi have no history rewrite; omit restore+edit handlers so Reply/Pencil icons stay hidden.
-    ...(onRestorePrompt && allowUserMessageRewrite && { onRestorePrompt }),
-    ...(onLoadUserMessageEdit && allowUserMessageRewrite && { onLoadUserMessageEdit }),
-    ...(onRewriteUserMessage && allowUserMessageRewrite && { onRewriteUserMessage }),
-    ...(onForkMessage && { onForkMessage }),
+    // ACP/Pi have no history rewrite; active runs also omit the message-action handlers so
+    // Reply/Pencil/Fork icons stay hidden until the conversation settles.
+    ...(showMessageActions && onRestorePrompt && allowUserMessageRewrite && { onRestorePrompt }),
+    ...(showMessageActions && onLoadUserMessageEdit && allowUserMessageRewrite && { onLoadUserMessageEdit }),
+    ...(showMessageActions && onRewriteUserMessage && allowUserMessageRewrite && { onRewriteUserMessage }),
+    ...(showMessageActions && onForkMessage && { onForkMessage }),
     ...(forkDisabledReason && { forkDisabledReason }),
     ...(onRetryFailedRequest && { onRetryFailedRequest }),
     ...(thread?.coreKind === "codex" && onSwitchCodexAccount && { onSwitchCodexAccount }),
@@ -2352,10 +2356,10 @@ function ConversationV2ProjectionActivityLogViewImpl({
                     text={thread.prompt}
                     anchorId={`thread:${thread.id}`}
                     {...(thread.createdAt ? { createdAt: thread.createdAt } : {})}
-                    {...(onRestorePrompt && { onRestorePrompt })}
-                    {...(onLoadUserMessageEdit && { onLoadUserMessageEdit })}
-                    {...(onRewriteUserMessage && { onRewriteUserMessage })}
-                    {...(onForkMessage && { onForkMessage })}
+                    {...(showMessageActions && onRestorePrompt && { onRestorePrompt })}
+                    {...(showMessageActions && onLoadUserMessageEdit && { onLoadUserMessageEdit })}
+                    {...(showMessageActions && onRewriteUserMessage && { onRewriteUserMessage })}
+                    {...(showMessageActions && onForkMessage && { onForkMessage })}
                     {...(forkDisabledReason && { forkDisabledReason })}
                     allowUserMessageRewrite={allowUserMessageRewrite}
                     historyRevision={projection.historyRevision ?? 0}

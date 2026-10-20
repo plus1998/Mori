@@ -139,7 +139,7 @@ test("first-node fork renders an idle empty history without an endless loading i
 
 for (const coreKind of ["claude", "codex", "pi"] as const) {
   for (const status of ["running", "queued"] as const) {
-    test(`${coreKind} ${status} keeps the visible fork action disabled with a reason`, () => {
+    test(`${coreKind} ${status} hides message edit and fork actions`, () => {
       const html = renderToStaticMarkup(
         createElement(ActivityLogView, {
           conversationV2: state(),
@@ -154,16 +154,21 @@ for (const coreKind of ["claude", "codex", "pi"] as const) {
             createdAt: "2026-10-15T00:00:00Z",
             updatedAt: "2026-10-15T00:00:00Z",
           },
+          onRestorePrompt: () => {},
+          onLoadUserMessageEdit: async () => {
+            throw new Error("must not run");
+          },
+          onRewriteUserMessage: async () => {
+            throw new Error("must not run");
+          },
           onForkMessage: async () => {
             throw new Error("must not run");
           },
         }),
       );
-      const button = html.match(/<button[^>]*run-log-fork-button[^>]*>/)?.[0];
-      expect(button).toContain('aria-label="从此处分叉"');
-      expect(button).toContain('disabled=""');
-      expect(button).toContain('title="等待当前执行结束，或停止后再分叉"');
-      expect(html).toContain("run-log-message-meta--sticky");
+      expect(html).not.toContain('aria-label="从此处分叉"');
+      expect(html).not.toContain("run-log-fork-button");
+      expect(html).not.toContain('aria-label="编辑消息"');
     });
   }
 }
