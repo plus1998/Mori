@@ -612,6 +612,7 @@ import {
   prepareAsyncClarificationReply,
   releasePendingClarification,
 } from "./codex-async-question-bridge";
+import { normalizeCodexAppServerUsage } from "./codex-app-server-usage-billing";
 import { isCodexAuthCompletionPageText } from "./codex-browser-login";
 import {
   CodexGatewayUsageDeduplicator,
@@ -17429,13 +17430,7 @@ async function handleCodexAppServerTurnUsage(input: {
     return;
   }
   const usage: ParsedUsage = {
-    inputTokens: appServerTokenUsage.inputTokens,
-    outputTokens: appServerTokenUsage.outputTokens,
-    cacheReadTokens: appServerTokenUsage.cachedInputTokens,
-    cacheCreationTokens: 0,
-    ...(appServerTokenUsage.reasoningOutputTokens > 0
-      ? { reasoningTokens: appServerTokenUsage.reasoningOutputTokens }
-      : {}),
+    ...normalizeCodexAppServerUsage(appServerTokenUsage),
     modelId: roleRoute.modelId,
   };
   if (
