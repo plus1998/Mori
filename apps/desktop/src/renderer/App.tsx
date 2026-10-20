@@ -12180,23 +12180,6 @@ function App() {
                           </button>{" "}
                           {t("composer.hint.noProviderSuffix")}
                         </>
-                      ) : composerModelAvailability === "no-orchestration" ? (
-                        <>
-                          {t("composer.hint.noOrchestrationPrefix")}{" "}
-                          <button
-                            type="button"
-                            className="link-button"
-                            disabled={!canOpenComposerRoute}
-                            onClick={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              openComposerOrchestrationChooser();
-                            }}
-                          >
-                            {t("composer.hint.noOrchestrationAction")}
-                          </button>
-                          {t("composer.hint.noOrchestrationSuffix")}
-                        </>
                       ) : (
                         <>
                           {t("composer.hint.fixOrchestrationPrefix")}{" "}
