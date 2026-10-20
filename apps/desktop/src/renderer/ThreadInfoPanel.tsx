@@ -30,7 +30,7 @@ import type {
 } from "../shared/ipc";
 import {
   billingEmptyHintKey,
-  contextCardPlaceholder,
+  contextCardPlaceholderKey,
   shouldShowBillingUsagePanel,
   shouldShowContextUsagePanel,
   shouldShowThreadUsagePanels,
@@ -909,7 +909,7 @@ export function ThreadInfoPanel({
           plannerLabel={plannerLabel}
           showBilling={showBilling}
           {...(usageSummary?.context !== undefined && { context: usageSummary.context })}
-          contextPlaceholder={contextCardPlaceholder(threadStatus)}
+          contextPlaceholder={t(contextCardPlaceholderKey(threadStatus))}
           contextCompactionInFlight={contextCompactionInFlight}
           autoCompactSuspended={autoCompactSuspended}
           promptCacheInvalidated={promptCacheInvalidated}

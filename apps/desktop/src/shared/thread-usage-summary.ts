@@ -167,17 +167,23 @@ export function shouldShowBillingUsagePanel(
   return shouldShowThreadUsagePanels(status) && isAcpHostUiFeatureVisible(features, "billing");
 }
 
-export function contextCardPlaceholder(status?: ThreadStatus): string {
+export type ContextCardPlaceholderKey =
+  | "context.emptyHint.accumulating"
+  | "context.emptyHint.planning"
+  | "context.emptyHint.noData"
+  | "context.empty";
+
+export function contextCardPlaceholderKey(status?: ThreadStatus): ContextCardPlaceholderKey {
   if (status === "running" || status === "queued") {
-    return "用量随每轮模型响应更新";
+    return "context.emptyHint.accumulating";
   }
   if (status === "awaiting_plan") {
-    return "计划阶段用量将随模型响应更新";
+    return "context.emptyHint.planning";
   }
   if (status === "completed" || status === "idle" || status === "failed" || status === "blocked") {
-    return "暂无上下文数据";
+    return "context.emptyHint.noData";
   }
-  return "上下文 — 有模型请求后显示";
+  return "context.empty";
 }
 
 export type BillingEmptyHintKey =
