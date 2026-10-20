@@ -98,6 +98,60 @@ abstract class AppLocalizations {
     Locale('zh'),
   ];
 
+  /// No description provided for @readAloudTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Read aloud'**
+  String get readAloudTitle;
+
+  /// No description provided for @readAloudEngine.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading engine (this device)'**
+  String get readAloudEngine;
+
+  /// No description provided for @readAloudOnline.
+  ///
+  /// In en, this message translates to:
+  /// **'Online TTS'**
+  String get readAloudOnline;
+
+  /// No description provided for @readAloudOnlineHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Uses the connected computer’s TTS settings. The computer must be online.'**
+  String get readAloudOnlineHint;
+
+  /// No description provided for @readAloudSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'System TTS'**
+  String get readAloudSystem;
+
+  /// No description provided for @readAloudSystemHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Uses this device’s system voices.'**
+  String get readAloudSystemHint;
+
+  /// No description provided for @readAloudDesktopConfig.
+  ///
+  /// In en, this message translates to:
+  /// **'Computer reading configuration'**
+  String get readAloudDesktopConfig;
+
+  /// No description provided for @readAloudVoice.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice'**
+  String get readAloudVoice;
+
+  /// No description provided for @readAloudConfigHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit the voice, style and provider in Speech Generation settings on your computer.'**
+  String get readAloudConfigHint;
+
   /// No description provided for @appTitle.
   ///
   /// In en, this message translates to:

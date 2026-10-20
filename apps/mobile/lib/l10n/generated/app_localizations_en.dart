@@ -9,6 +9,35 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get readAloudTitle => 'Read aloud';
+
+  @override
+  String get readAloudEngine => 'Reading engine (this device)';
+
+  @override
+  String get readAloudOnline => 'Online TTS';
+
+  @override
+  String get readAloudOnlineHint =>
+      'Uses the connected computer’s TTS settings. The computer must be online.';
+
+  @override
+  String get readAloudSystem => 'System TTS';
+
+  @override
+  String get readAloudSystemHint => 'Uses this device’s system voices.';
+
+  @override
+  String get readAloudDesktopConfig => 'Computer reading configuration';
+
+  @override
+  String get readAloudVoice => 'Voice';
+
+  @override
+  String get readAloudConfigHint =>
+      'Edit the voice, style and provider in Speech Generation settings on your computer.';
+
+  @override
   String get appTitle => 'Eco';
 
   @override

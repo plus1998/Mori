@@ -49,10 +49,56 @@ export async function generateSpeechToWorkspace(input: {
   signal?: AbortSignal;
 }): Promise<GeneratedAudioFile[]> {
   const args = normalizeTtsToolInput(input.toolInput);
-  const { config } = input;
   if (!/^thread-[a-f0-9]+$/.test(input.threadDirectory))
     throw new TtsError("invalid_output_path", "语音会话目录无效。");
   const root = await fs.realpath(input.generationRoot);
+  const { bytes, mimeType } = await synthesizeSpeech(input);
+  function ensureActive(): void {
+    if (input.signal?.aborted) throw new TtsError("cancelled", "语音生成已取消。");
+  }
+  ensureActive();
+  const tempSuffix = `.${randomUUID()}.tmp`;
+  let tempPath: string | undefined;
+  try {
+    let realDir = root;
+    for (const segment of [".eco", "generated-audio", input.threadDirectory]) {
+      const directory = path.join(realDir, segment);
+      await fs.mkdir(directory, { recursive: true });
+      realDir = await fs.realpath(directory);
+      if (!realDir.startsWith(`${root}${path.sep}`))
+        throw new TtsError("invalid_output_path", "语音输出目录逃逸了工作目录。");
+    }
+    const absolutePath = path.join(
+      realDir,
+      `${args.output_name ?? "speech"}-${randomUUID()}.${mimeType === "audio/wav" ? "wav" : "mp3"}`,
+    );
+    tempPath = `${absolutePath}${tempSuffix}`;
+    await fs.writeFile(tempPath, bytes, { flag: "wx" });
+    ensureActive();
+    await fs.rename(tempPath, absolutePath);
+    return [{ absolutePath, relativePath: path.relative(root, absolutePath), mimeType, bytes: bytes.length }];
+  } catch (error) {
+    if (tempPath) await fs.rm(tempPath, { force: true });
+    if (error instanceof TtsError) throw error;
+    throw new TtsError(
+      "write_failed",
+      `保存语音失败：${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+export interface SynthesizedSpeech {
+  bytes: Buffer;
+  mimeType: string;
+}
+
+export async function synthesizeSpeech(input: {
+  config: TtsClientConfig;
+  toolInput: TtsToolInput;
+  signal?: AbortSignal;
+}): Promise<SynthesizedSpeech> {
+  const args = normalizeTtsToolInput(input.toolInput);
+  const { config } = input;
   const signal = AbortSignal.any([
     AbortSignal.timeout(TTS_REQUEST_TIMEOUT_MS),
     ...(input.signal ? [input.signal] : []),
@@ -221,34 +267,7 @@ export async function generateSpeechToWorkspace(input: {
     );
   }
   ensureActive();
-  const tempSuffix = `.${randomUUID()}.tmp`;
-  let tempPath: string | undefined;
-  try {
-    let realDir = root;
-    for (const segment of [".eco", "generated-audio", input.threadDirectory]) {
-      const directory = path.join(realDir, segment);
-      await fs.mkdir(directory, { recursive: true });
-      realDir = await fs.realpath(directory);
-      if (!realDir.startsWith(`${root}${path.sep}`))
-        throw new TtsError("invalid_output_path", "语音输出目录逃逸了工作目录。");
-    }
-    const absolutePath = path.join(
-      realDir,
-      `${args.output_name ?? "speech"}-${randomUUID()}.${mimeType === "audio/wav" ? "wav" : "mp3"}`,
-    );
-    tempPath = `${absolutePath}${tempSuffix}`;
-    await fs.writeFile(tempPath, bytes, { flag: "wx" });
-    ensureActive();
-    await fs.rename(tempPath, absolutePath);
-    return [{ absolutePath, relativePath: path.relative(root, absolutePath), mimeType, bytes: bytes.length }];
-  } catch (error) {
-    if (tempPath) await fs.rm(tempPath, { force: true });
-    if (error instanceof TtsError) throw error;
-    throw new TtsError(
-      "write_failed",
-      `保存语音失败：${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+  return { bytes, mimeType };
 }
 
 async function readBoundedBody(response: Response, limit: number): Promise<Buffer> {

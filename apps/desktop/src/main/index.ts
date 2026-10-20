@@ -1,3 +1,4 @@
+import { TtsReadAloudService } from "./tts-read-aloud";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -1593,6 +1594,7 @@ let notificationSettingsStore: NotificationSettingsStore;
 let browserHost: BrowserHost | undefined;
 let ttsStore: TtsStore;
 let ttsGateway: TtsMcpGateway;
+let ttsReadAloud: TtsReadAloudService;
 let imageGenerationStore: ImageGenerationStore;
 let imageGenerationGateway: ImageGenerationMcpGateway;
 let codexImages: CodexImageService;
@@ -2775,6 +2777,7 @@ app
       },
     });
     ttsStore = await createTtsStore(dbPath, imageSecretCodec);
+    ttsReadAloud = new TtsReadAloudService(ttsStore);
     ttsGateway = new TtsMcpGateway({
       store: ttsStore,
       resolveWorkspacePath: (threadId) => conversationStore.getThread(threadId)?.workspacePath,
@@ -3802,6 +3805,7 @@ installApplicationShutdownHook(
     },
     stopAllPiRuntimes: disposeAllPiSessions,
     closeImageGenerationGateway: async () => {
+      ttsReadAloud?.close();
       await imageGenerationGateway?.close();
       await ttsGateway?.close();
     },
@@ -7848,6 +7852,19 @@ function registerIpcHandlers(): void {
     const { resolvedPath } = resolveImageGenerationArtifactImage(payload);
     shell.showItemInFolder(resolvedPath);
   });
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudStatus, () => ttsReadAloud.status());
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudSettingsGet, () => ttsStore.getReadAloudSettings());
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudSettingsSave, (payload: unknown) => {
+    if (!isRecord(payload)) throw new Error("正文朗读配置无效。");
+    return ttsStore.saveReadAloudSettings(payload as unknown as import("../shared/tts").ReadAloudSettingsInput);
+  });
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudStart, (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.threadId !== "string" || !conversationStore.getThread(payload.threadId)) throw new Error("朗读会话不存在。");
+    return ttsReadAloud.start(payload as unknown as import("../shared/tts").ReadAloudStartInput);
+  });
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudSegment, (payload: unknown) => ttsReadAloud.segment(payload as import("../shared/tts").ReadAloudSegmentInput));
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudRead, (payload: unknown) => ttsReadAloud.read(payload as import("../shared/tts").ReadAloudReadInput));
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudCancel, (payload: unknown) => ttsReadAloud.cancel((payload as { requestId: string })?.requestId));
   registerDesktopCommand(IPC_CHANNELS.ttsSettingsGet, async () => ttsStore.getSettings());
   registerDesktopCommand(IPC_CHANNELS.ttsSettingsSave, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.enabled !== "boolean") {

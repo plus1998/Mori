@@ -1,3 +1,4 @@
+import { ReadAloudControls, ReadAloudThreadContext } from "./ReadAloud";
 import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
 import { ComposerReferencesMenu } from "./ComposerReferencesMenu";
 import { useComposerReferences } from "./use-composer-references";
@@ -12570,6 +12571,13 @@ function App() {
                         onError={showAppMessageError}
                       />
                       <h2 title={activeThread.title}>{activeThread.title}</h2>
+                      <ReadAloudControls
+                        threadId={activeThread.id}
+                        onOpenSettings={() => {
+                          setSettingsSection("tts");
+                          setSettingsOpen(true);
+                        }}
+                      />
                       {canRegenerateThreadTitle(
                         activeThread.title,
                         titleGeneratingThreadIds.has(activeThread.id),
@@ -12675,6 +12683,7 @@ function App() {
                             >
                               {activityFeedBootReady ? (
                                 <SuspensePanel>
+                                  <ReadAloudThreadContext value={activeThread?.id ?? ""}>
                                   <OpenTtsArtifactContext value={openTtsArtifact}>
                                   <TtsArtifactsContext
                                     value={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}
@@ -12720,6 +12729,7 @@ function App() {
                                     />
                                   </TtsArtifactsContext>
                                   </OpenTtsArtifactContext>
+                                  </ReadAloudThreadContext>
                                 </SuspensePanel>
                               ) : null}
                               <div ref={activityEndRef} className="activity-scroll-anchor" aria-hidden />

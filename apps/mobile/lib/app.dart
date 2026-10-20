@@ -30,6 +30,7 @@ import 'features/settings/settings_max_output_page.dart';
 import 'features/settings/settings_models_page.dart';
 import 'features/settings/settings_orchestration_page.dart';
 import 'features/settings/settings_screen.dart';
+import 'features/settings/settings_read_aloud_page.dart';
 import 'features/settings/settings_theme_page.dart';
 import 'features/settings/settings_thinking_content_page.dart';
 import 'features/threads/thread_providers.dart';
@@ -169,6 +170,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 path: '/settings',
                 builder: (context, state) => const SettingsScreen(),
                 routes: [
+                  GoRoute(path: 'read-aloud', parentNavigatorKey: _rootNavigatorKey, builder: (context, state) => const SettingsReadAloudPage()),
                   GoRoute(
                     path: 'theme',
                     parentNavigatorKey: _rootNavigatorKey,

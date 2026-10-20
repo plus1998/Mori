@@ -1,4 +1,13 @@
 {
+  "readAloudTitle": "Read aloud",
+  "readAloudEngine": "Reading engine (this device)",
+  "readAloudOnline": "Online TTS",
+  "readAloudOnlineHint": "Uses the connected computer’s TTS settings. The computer must be online.",
+  "readAloudSystem": "System TTS",
+  "readAloudSystemHint": "Uses this device’s system voices.",
+  "readAloudDesktopConfig": "Computer reading configuration",
+  "readAloudVoice": "Voice",
+  "readAloudConfigHint": "Edit the voice, style and provider in Speech Generation settings on your computer.",
   "@@locale": "en",
   "appTitle": "Eco",
   "navSessions": "Sessions",

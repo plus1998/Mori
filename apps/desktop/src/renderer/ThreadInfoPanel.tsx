@@ -412,7 +412,7 @@ function BillingFloatingCard({
           ) : null}
         </div>
       ) : (
-        <BillingEmptyState hint={t(billingEmptyHintKey(threadStatus))} />
+        <BillingEmptyState hint={i18n.t(billingEmptyHintKey(threadStatus))} />
       )}
 
       {showBilling && billing ? (

@@ -1756,6 +1756,8 @@ class _ActivityFeedView extends ConsumerWidget {
 
     return ActivityFeedAutoReadListener(
       threadId: threadId,
+      running: isRunning,
+      ready: conversationV2.syncState == ConversationV2SyncState.live,
       entries: displayFeedEntries,
       child: ActivityFeedList(
         entries: displayFeedEntries,

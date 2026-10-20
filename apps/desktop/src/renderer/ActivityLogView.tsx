@@ -1,3 +1,4 @@
+import { ReadAloudButton, useReadAloudAutoRead } from "./ReadAloud";
 import { isSubagentMissionEnvelope, resolveMissionDisplayText } from "@eco/runtime/agent-mission";
 import { isSkillActivityLabel } from "@eco/runtime/skill-display";
 import {
@@ -392,6 +393,7 @@ function MessageForkButton({
 function RunLogMessageMeta({
   createdAt,
   copyText,
+  readAloud,
   restorePrompt,
   editUserMessage,
   align = "start",
@@ -401,6 +403,7 @@ function RunLogMessageMeta({
 }: {
   createdAt?: string;
   copyText?: string;
+  readAloud?: { entryId: string; sourceText: string };
   restorePrompt?: {
     text: string;
     rewindTarget: ThreadActivityRewindTarget;
@@ -470,6 +473,7 @@ function RunLogMessageMeta({
           <Copy size={13} />
         </button>
       ) : null}
+      {readAloud ? <ReadAloudButton {...readAloud} /> : null}
       {forkAction ? <MessageForkButton {...forkAction} /> : null}
       {time ? (
         <time className="run-log-message-meta-time" dateTime={time.dateTime} title={time.title}>
@@ -2160,6 +2164,23 @@ function ConversationV2ProjectionActivityLogViewImpl({
     }
     return itemId;
   }, [finalSummaryItemIds, viewModel.mainFeedEntries]);
+  // A completed turn can be followed immediately by another queued turn.
+  // Auto-read observes final outputs independently from the meta row's layout policy.
+  let readAloudCandidate: { id: string; text: string; runId: string } | undefined;
+  for (const section of feedSections) {
+    if (section.kind !== "turn" || section.attempt.status !== "completed" || section.finalEntry?.kind !== "timeline") continue;
+    const item = section.finalEntry.item;
+    if (item.contentLoaded !== false && item.runAttemptId && item.text.trim()) {
+      readAloudCandidate = { id: item.id, text: item.text, runId: item.runAttemptId };
+    }
+  }
+  useReadAloudAutoRead(
+    projection.thread.threadId,
+    !isThreadStoppedForFinalSummary(projection.thread.status),
+    readAloudCandidate,
+    projection.thread.currentAttemptId ?? projection.attempts.find((attempt) => attempt.status === "running")?.attemptId,
+  );
+
   const layoutSignature = useMemo(
     () =>
       [
@@ -8147,6 +8168,7 @@ function RunLogNarrative({
         <RunLogMessageMeta
           align="start"
           copyText={text}
+          {...(item && { readAloud: { entryId: item.id, sourceText: text } })}
           {...(forkAction && { forkAction })}
           sticky={showStickyMessageMeta}
           {...(createdAt && { createdAt })}

@@ -140,6 +140,8 @@ class SettingsScreen extends ConsumerWidget {
                         topSpacing: 28,
                         child: Column(
                           children: [
+                            SettingsDisclosureRow(title: l10n.readAloudTitle, onTap: () => context.push('/settings/read-aloud')),
+                            const EcoGroupedDivider(),
                             SettingsDisclosureRow(
                               title: l10n.settingsTheme,
                               value: themeValue,

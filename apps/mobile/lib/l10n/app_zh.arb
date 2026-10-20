@@ -1,4 +1,13 @@
 {
+  "readAloudTitle": "正文朗读",
+  "readAloudEngine": "朗读引擎（此设备）",
+  "readAloudOnline": "在线 TTS",
+  "readAloudOnlineHint": "使用已连接电脑的 TTS 配置，电脑需要在线。",
+  "readAloudSystem": "系统 TTS",
+  "readAloudSystemHint": "使用此设备的系统音色。",
+  "readAloudDesktopConfig": "电脑上的朗读配置",
+  "readAloudVoice": "音色",
+  "readAloudConfigHint": "音色、风格和供应商请在电脑的语音生成设置中修改。",
   "@@locale": "zh",
   "appTitle": "Eco",
   "navSessions": "会话",

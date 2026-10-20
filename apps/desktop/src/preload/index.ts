@@ -1,3 +1,4 @@
+import type { ReadAloudSettingsInput, ReadAloudSettingsSnapshot, ReadAloudStatus, ReadAloudStartInput, ReadAloudStartResult, ReadAloudSegmentInput, ReadAloudSegmentResult, ReadAloudReadInput, ReadAloudReadResult } from "../shared/tts";
 import type { TtsArtifact, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSnapshot } from "../shared/tts";
 import type { ScheduleCreateInput, ScheduleUpdateInput, ScheduleTrigger, ScheduleDefinition, ScheduleOccurrence, SchedulingSnapshot } from "../shared/scheduling";
 import type {
@@ -935,6 +936,13 @@ const api = {
   revealImageGenerationArtifact(request: ImageGenerationArtifactReadRequest): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationArtifactReveal, request);
   },
+  getReadAloudStatus(): Promise<ReadAloudStatus> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudStatus); },
+  getReadAloudSettings(): Promise<ReadAloudSettingsSnapshot> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudSettingsGet); },
+  saveReadAloudSettings(input: ReadAloudSettingsInput): Promise<ReadAloudSettingsSnapshot> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudSettingsSave, input); },
+  startReadAloud(input: ReadAloudStartInput): Promise<ReadAloudStartResult> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudStart, input); },
+  synthesizeReadAloudSegment(input: ReadAloudSegmentInput): Promise<ReadAloudSegmentResult> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudSegment, input); },
+  readReadAloudChunk(input: ReadAloudReadInput): Promise<ReadAloudReadResult> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudRead, input); },
+  cancelReadAloud(requestId: string): Promise<void> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudCancel, { requestId }); },
   getTtsSettings(): Promise<TtsSettingsSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.ttsSettingsGet);
   },

@@ -9,6 +9,33 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get readAloudTitle => '正文朗读';
+
+  @override
+  String get readAloudEngine => '朗读引擎（此设备）';
+
+  @override
+  String get readAloudOnline => '在线 TTS';
+
+  @override
+  String get readAloudOnlineHint => '使用已连接电脑的 TTS 配置，电脑需要在线。';
+
+  @override
+  String get readAloudSystem => '系统 TTS';
+
+  @override
+  String get readAloudSystemHint => '使用此设备的系统音色。';
+
+  @override
+  String get readAloudDesktopConfig => '电脑上的朗读配置';
+
+  @override
+  String get readAloudVoice => '音色';
+
+  @override
+  String get readAloudConfigHint => '音色、风格和供应商请在电脑的语音生成设置中修改。';
+
+  @override
   String get appTitle => 'Eco';
 
   @override
