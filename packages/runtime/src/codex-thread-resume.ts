@@ -232,7 +232,7 @@ function requireColdCodexThreadForConfigReload(threadId: string, status: CodexTh
     `Codex cannot prove resume config reload while thread '${threadId}' is ${status}.`,
     {
       nextAction:
-        "Restart the Codex app-server so the thread is notLoaded, then retry the configured resume.",
+        "Keep this loaded thread's static configuration, or apply the changed configuration to a new thread.",
     },
   );
 }

@@ -135,8 +135,15 @@ test("syncOrchestrationAgentsToCodexRoles writes role toml for explore and enabl
   await expect(fs.stat(path.join(result.agentsDir, "architect.toml"))).rejects.toThrow();
 });
 
-test("full access propagates to every generated Codex role", async () => {
+test("execution mode changes per-turn role policy without changing immutable role configs", async () => {
   const ecoDataDir = await makeTempEcoDataDir();
+  const initial = await syncOrchestrationAgentsToCodexRoles({
+    codexHomeDir: resolveCodexHomeDir(ecoDataDir),
+    orchestration: buildOrchestration(),
+    templates: [researchTemplate, codingTemplate],
+    executionConfirmationMode: "always",
+  });
+  const initialFiles = await Promise.all(initial.roles.map((role) => fs.readFile(role.rolePath, "utf8")));
   const result = await syncOrchestrationAgentsToCodexRoles({
     codexHomeDir: resolveCodexHomeDir(ecoDataDir),
     orchestration: buildOrchestration(),
@@ -147,10 +154,21 @@ test("full access propagates to every generated Codex role", async () => {
   for (const role of result.roles) {
     expect(role.toolPolicy.sandboxMode).toBe("danger-full-access");
     expect(role.toolPolicy.approvalPolicy).toBe("never");
-    const toml = await fs.readFile(role.rolePath, "utf8");
-    expect(toml).toContain('sandbox_mode = "danger-full-access"');
-    expect(toml).toContain('approval_policy = "never"');
   }
+  expect(result.agentsDir).toBe(initial.agentsDir);
+  expect(result.threadConfig).toEqual(initial.threadConfig);
+  expect(result.roleThreadConfigs).toEqual(initial.roleThreadConfigs);
+  expect(await Promise.all(result.roles.map((role) => fs.readFile(role.rolePath, "utf8")))).toEqual(
+    initialFiles,
+  );
+  const restored = await syncOrchestrationAgentsToCodexRoles({
+    codexHomeDir: resolveCodexHomeDir(ecoDataDir),
+    orchestration: buildOrchestration(),
+    templates: [researchTemplate, codingTemplate],
+    executionConfirmationMode: "auto",
+  });
+  expect(restored.threadConfig).toEqual(initial.threadConfig);
+  expect(restored.roles.every((role) => role.toolPolicy.approvalPolicy === "on-request")).toBe(true);
 });
 
 test("syncOrchestrationAgentsToCodexRoles appends V4A teaching to role developer instructions when enabled", async () => {

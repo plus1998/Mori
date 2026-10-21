@@ -8,18 +8,19 @@ import { fileURLToPath } from "node:url";
 import { CodexAppServerClient } from "../src/codex-app-server-client";
 import { syncCodexConfigFromEcoProviders } from "../src/codex-config-sync";
 import { buildCodexRoleToml, withCodexRemoteCompaction } from "../src/codex-role-sync";
+import { recordAppliedCodexThreadConfig } from "../src/codex-thread-config-fingerprint";
 import { resumeCodexThread } from "../src/codex-thread-resume";
 
 // Opt in because this launches the installed native Codex binary. No account/API access.
 test.skipIf(process.env.ECO_CODEX_NATIVE_SMOKE !== "1")(
-  "native Codex scopes root compaction, inherits it in children, and applies cold resume changes",
+  "native Codex inherits turn permissions without restart, scopes compaction, and applies cold config changes",
   async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-remote-compaction-native-"));
     const requests: Array<{
       input?: Array<{ type?: string; call_id?: string; output?: string }>;
       model?: string;
     }> = [];
-    let spawned = false;
+    const spawned = new Set<string>();
     const api = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -39,12 +40,15 @@ test.skipIf(process.env.ECO_CODEX_NATIVE_SMOKE !== "1")(
                 content: [{ type: "output_text", text: "Local summary", annotations: [] }],
               },
             ];
-        if (body.model === "eco-parent-spawn-probe" && !spawned) {
-          spawned = true;
+        const mode =
+          [...JSON.stringify(body.input).matchAll(/MODE_(FULL|RESTORED)/g)].at(-1)?.[1] ?? "initial";
+        if (body.model === "eco-parent-spawn-probe" && !spawned.has(mode)) {
+          spawned.add(mode);
+          const callId = mode === "initial" ? "call_spawn" : `call_spawn_${mode}`;
           output.splice(0, output.length, {
             type: "function_call",
-            id: "fc_spawn",
-            call_id: "call_spawn",
+            id: `fc_${callId}`,
+            call_id: callId,
             name: "spawn_agent",
             namespace: "multi_agent_v1",
             arguments: JSON.stringify({ agent_type: "compact_child", message: "Reply with a short line." }),
@@ -143,6 +147,7 @@ test.skipIf(process.env.ECO_CODEX_NATIVE_SMOKE !== "1")(
           sandbox: "read-only",
         });
         const threadId = result.thread.id;
+        recordAppliedCodexThreadConfig(client, threadId, config);
         await complete("turn/start", {
           threadId,
           input: [{ type: "text", text: "Reply with a short line." }],
@@ -184,11 +189,12 @@ test.skipIf(process.env.ECO_CODEX_NATIVE_SMOKE !== "1")(
           },
         }),
       );
-      await startThread("eco-parent-spawn-probe", {
+      const parentConfig = {
         ...remoteConfig,
         features: { multi_agent: true, hooks: true, multi_agent_v2: false },
         agents: { compact_child: { description: "Compaction fixture child", config_file: rolePath } },
-      });
+      };
+      const parentThread = await startThread("eco-parent-spawn-probe", parentConfig);
       const spawnResult = requests
         .flatMap((request) => request.input ?? [])
         .find((item) => item.type === "function_call_output" && item.call_id === "call_spawn")?.output;
@@ -214,13 +220,77 @@ test.skipIf(process.env.ECO_CODEX_NATIVE_SMOKE !== "1")(
           .slice(before)
           .some((request) => request.input?.some((item) => item.type === "compaction_trigger")),
       ).toBe(true);
+      const originalPid = child.pid;
+      const readLastTurnContext = async (threadId: string) => {
+        const sessions = path.join(config.codexHomeDir, "sessions");
+        const paths = await fs.readdir(sessions, { recursive: true });
+        const rollout = paths.find((entry) => entry.endsWith(`${threadId}.jsonl`));
+        if (!rollout) throw new Error(`No persisted rollout for ${threadId}`);
+        const entries = (await fs.readFile(path.join(sessions, rollout), "utf8"))
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line));
+        const context = entries.filter((entry) => entry.type === "turn_context").at(-1)?.payload;
+        if (!context) throw new Error(`No persisted turn context for ${threadId}`);
+        return context;
+      };
+      for (const mode of [
+        {
+          name: "FULL",
+          approvalPolicy: "never",
+          sandboxPolicy: { type: "dangerFullAccess" },
+          persistedSandbox: "danger-full-access",
+        },
+        {
+          name: "RESTORED",
+          approvalPolicy: "on-request",
+          sandboxPolicy: { type: "workspaceWrite", writableRoots: [], networkAccess: false },
+          persistedSandbox: "workspace-write",
+        },
+      ]) {
+        const resumed = await resumeCodexThread(client, {
+          threadId: parentThread,
+          config: parentConfig,
+          configAlreadyApplied: true,
+        });
+        expect(resumed.thread.id).toBe(parentThread);
+        await complete("turn/start", {
+          threadId: parentThread,
+          input: [{ type: "text", text: `MODE_${mode.name}: spawn a child and reply briefly.` }],
+          approvalPolicy: mode.approvalPolicy,
+          sandboxPolicy: mode.sandboxPolicy,
+        });
+        const output = requests
+          .flatMap((request) => request.input ?? [])
+          .find(
+            (item) => item.type === "function_call_output" && item.call_id === `call_spawn_${mode.name}`,
+          )?.output;
+        const spawnedThreadId = JSON.parse(output ?? "{}").agent_id as string | undefined;
+        if (!spawnedThreadId) throw new Error(`Permission probe failed to spawn: ${output}`);
+        await client.request("thread/resume", { threadId: spawnedThreadId });
+        const deadline = Date.now() + 5_000;
+        while (true) {
+          const snapshot = await client.request<{ thread: { status: { type: string } } }>("thread/read", {
+            threadId: spawnedThreadId,
+          });
+          if (snapshot.thread.status.type === "idle") break;
+          if (Date.now() >= deadline) throw new Error("Permission probe child did not finish.");
+          await Bun.sleep(10);
+        }
+        for (const threadId of [parentThread, spawnedThreadId]) {
+          const context = await readLastTurnContext(threadId);
+          expect(context.approval_policy).toBe(mode.approvalPolicy);
+          expect(context.sandbox_policy.type).toBe(mode.persistedSandbox);
+        }
+        expect(child.pid).toBe(originalPid);
+      }
       await expect(
         resumeCodexThread(client, {
           threadId: remoteThread,
           modelProvider: "eco_vendor",
           config: localConfig,
         }),
-      ).rejects.toThrow("Restart the Codex app-server");
+      ).rejects.toThrow("new thread");
       await stopProcess();
       child = spawnProcess();
       client = createClient();

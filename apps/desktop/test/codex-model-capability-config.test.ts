@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { buildCodexConfigToml } from "@eco/runtime";
 import {
   assertCodexSubagentCompactionCompatible,
   createCodexRemoteCompactionResolver,
@@ -33,19 +34,25 @@ test("Codex resolves candidate remote compaction independently for models sharin
   ).toThrow("候选模型中关闭远程压缩");
 });
 
-test("changing candidate remote compaction refreshes the global runtime even if catalog/TOML are unchanged", () => {
-  const initial = fingerprintCodexProviderConfig("same config", providers);
+test("candidate-only capabilities do not invalidate the process launch config", () => {
+  const fingerprint = (candidates: readonly EcoProviderForCodexCatalog[]) =>
+    fingerprintCodexProviderConfig(
+      buildCodexConfigToml({
+        ecoDataDir: "/tmp/eco-launch-config-test",
+        providers: candidates,
+        mcpServers: [],
+      }),
+    );
+  const initial = fingerprint(providers);
   const reordered = [{ ...providers[0]!, models: [...providers[0]!.models!].reverse() }];
-  expect(fingerprintCodexProviderConfig("same config", reordered)).toBe(initial);
+  expect(fingerprint(reordered)).toBe(initial);
   const disabled = [
     { ...providers[0]!, models: [{ modelId: "remote", manualSpec: { supportsRemoteCompaction: false } }] },
   ];
   const removed = [{ ...providers[0]!, models: [{ modelId: "remote" }] }];
-  expect(fingerprintCodexProviderConfig("same config", disabled)).not.toBe(initial);
-  expect(fingerprintCodexProviderConfig("same config", removed)).toBe(
-    fingerprintCodexProviderConfig("same config", disabled),
-  );
-  expect(fingerprintCodexProviderConfig("changed config", providers)).not.toBe(initial);
+  expect(fingerprint(disabled)).toBe(initial);
+  expect(fingerprint(removed)).toBe(initial);
+  expect(fingerprintCodexProviderConfig("changed launch config")).not.toBe(initial);
 });
 
 test("Codex rejects mixed native subagent compaction settings instead of inheriting the wrong capability", () => {

@@ -93,6 +93,8 @@ export interface SyncEcoCodexModelCatalogInput {
 export interface SyncEcoCodexModelCatalogResult {
   catalogPath: string;
   fingerprint: string;
+  /** Model behavior only; display labels must not restart the app-server. */
+  runtimeFingerprint: string;
   aliasSlugs: string[];
   nativeModelCount: number;
   changed: boolean;
@@ -136,6 +138,14 @@ export function resolveEcoModelCatalogPath(ecoDataDir: string): string {
 
 export function fingerprintEcoModelCatalog(document: EcoCodexModelCatalogDocument): string {
   return createHash("sha256").update(stableCatalogJson(document)).digest("hex");
+}
+
+export function fingerprintEcoModelCatalogRuntime(document: EcoCodexModelCatalogDocument): string {
+  return fingerprintEcoModelCatalog({
+    models: document.models.map(
+      ({ display_name: _name, description: _description, ...runtimeModel }) => runtimeModel,
+    ),
+  });
 }
 
 /**
@@ -551,6 +561,7 @@ export async function syncEcoCodexModelCatalog(
   return {
     catalogPath,
     fingerprint: written.fingerprint,
+    runtimeFingerprint: fingerprintEcoModelCatalogRuntime(document),
     aliasSlugs: [...new Set(aliasSlugs)].sort(),
     nativeModelCount: nativeModels.length,
     changed: written.changed,

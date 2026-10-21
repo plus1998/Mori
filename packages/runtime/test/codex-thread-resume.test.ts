@@ -111,7 +111,7 @@ test("resumeCodexThread refuses configured idle resume because config reload is 
     result: { thread: { id: "codex-thread-idle", status: { type: "idle" } } },
   });
 
-  await expect(resume).rejects.toThrow(/Restart the Codex app-server/);
+  await expect(resume).rejects.toThrow(/new thread/);
   expect(drainPassThroughText(stdin)).not.toContain(CODEX_RESUME_METHOD);
   expect(diagnostics).toHaveLength(1);
   expect(diagnostics[0]).toMatchObject({
@@ -247,7 +247,7 @@ test("resumeCodexThread rejects a claimed config proof when its fingerprint was 
     result: { thread: { id: "codex-thread-unproved", status: { type: "systemError" } } },
   });
 
-  await expect(resume).rejects.toThrow(/Restart the Codex app-server/);
+  await expect(resume).rejects.toThrow(/new thread/);
   expect(drainPassThroughText(stdin)).not.toContain(CODEX_RESUME_METHOD);
   expect(diagnostics[0]).toMatchObject({
     status: "systemError",
@@ -315,9 +315,7 @@ test("resumeCodexThread maps zero-turn missing rollout to CodexResumeNotAvailabl
 
 test("isCodexZeroTurnRolloutMissingError detects Codex #42099 message", () => {
   expect(
-    isCodexZeroTurnRolloutMissingError(
-      new Error("thread/resume failed: no rollout found for thread id abc"),
-    ),
+    isCodexZeroTurnRolloutMissingError(new Error("thread/resume failed: no rollout found for thread id abc")),
   ).toBe(true);
   expect(isCodexZeroTurnRolloutMissingError(new Error("other failure"))).toBe(false);
 });

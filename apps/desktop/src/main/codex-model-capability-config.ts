@@ -54,22 +54,6 @@ export function assertCodexSubagentCompactionCompatible(
   }
 }
 
-export function fingerprintCodexProviderConfig(
-  configToml: string,
-  providers: readonly EcoProviderForCodexCatalog[],
-): string {
-  // Thread provider overrides cannot be changed while loaded. Refresh the shared
-  // runtime after active turns finish when a candidate's capability changes.
-  const remoteModels = providers
-    .filter((provider) => provider.enabled)
-    .flatMap((provider) =>
-      (provider.models ?? [])
-        .filter((model) => model.manualSpec?.supportsRemoteCompaction === true)
-        .map((model) => [provider.id, model.modelId] as const),
-    )
-    .sort(
-      ([leftProvider, leftModel], [rightProvider, rightModel]) =>
-        leftProvider.localeCompare(rightProvider) || leftModel.localeCompare(rightModel),
-    );
-  return createHash("sha256").update(configToml).update(JSON.stringify(remoteModels)).digest("hex");
+export function fingerprintCodexProviderConfig(configToml: string): string {
+  return createHash("sha256").update(configToml).digest("hex");
 }

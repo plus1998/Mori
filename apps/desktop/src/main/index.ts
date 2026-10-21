@@ -646,7 +646,7 @@ import {
   ensureCodexControlPlaneClient,
   forkCodexThreadForEcoThread,
   getCodexTurnRouteRegistry,
-  invalidateGlobalCodexRuntimeFingerprints,
+  requestCodexAccountRuntimeRestart,
   isCodexCliAvailable,
   queryCodexThreadStatusForEcoThread,
   registerResolvedCodexGatewayTurnRoute,
@@ -2946,7 +2946,6 @@ app
       eventCenter: desktopEventCenter,
       log: (message) => process.stderr.write(message),
       onStatusChange: emitCenterServerStatus,
-      onHtmlHostingCapabilityChange: () => scheduleCodexGlobalRuntimeRefresh(),
     });
     centerServerClient.setSettingsSyncHooks(
       createDesktopSettingsSyncHooks({
@@ -6939,7 +6938,7 @@ function registerIpcHandlers(): void {
   );
 
   const scheduleOpenAIAccountTransition = (service: OpenAIAccountService) => {
-    invalidateGlobalCodexRuntimeFingerprints();
+    requestCodexAccountRuntimeRestart("account");
     scheduleCodexGlobalRuntimeRefresh({
       beforePrepare: async () => {
         try {
@@ -7206,7 +7205,7 @@ function registerIpcHandlers(): void {
       payload.accountId === (await svc.getActiveAccountId())
     ) {
       // Proxy env vars are baked into the app-server at spawn time.
-      invalidateGlobalCodexRuntimeFingerprints();
+      requestCodexAccountRuntimeRestart("account_proxy");
       scheduleCodexGlobalRuntimeRefresh();
     }
     return result;
@@ -7929,25 +7928,21 @@ function registerIpcHandlers(): void {
       throw new Error("创意绘画设置无效。");
     }
     const saved = imageGenerationStore.setEnabled(payload.enabled);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.imageGenerationProfileSave, async (payload: unknown) => {
     if (!isRecord(payload)) throw new Error("创意绘画 Profile 无效。");
     const saved = imageGenerationStore.saveProfile(payload as unknown as ImageGenerationProfileSaveInput);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.imageGenerationProfileDelete, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.id !== "string") throw new Error("创意绘画 Profile ID 无效。");
     const saved = imageGenerationStore.deleteProfile(payload.id);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.imageGenerationProfileActivate, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.id !== "string") throw new Error("创意绘画 Profile ID 无效。");
     const saved = imageGenerationStore.activateProfile(payload.id);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.imageGenerationArtifactsList, async (payload: unknown) => {
@@ -7987,25 +7982,21 @@ function registerIpcHandlers(): void {
       throw new Error("语音生成设置无效。");
     }
     const saved = ttsStore.setEnabled(payload.enabled);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.ttsProfileSave, async (payload: unknown) => {
     if (!isRecord(payload)) throw new Error("语音生成 Profile 无效。");
     const saved = ttsStore.saveProfile(payload as unknown as TtsProfileSaveInput);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.ttsProfileDelete, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.id !== "string") throw new Error("语音生成 Profile ID 无效。");
     const saved = ttsStore.deleteProfile(payload.id);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.ttsProfileActivate, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.id !== "string") throw new Error("语音生成 Profile ID 无效。");
     const saved = ttsStore.activateProfile(payload.id);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.ttsArtifactsList, async (payload: unknown) => {
@@ -8196,12 +8187,10 @@ function registerIpcHandlers(): void {
         });
         throw new Error(`无法启用内置浏览器 Agent 能力：${feature.reason ?? "未知原因"}`);
       }
-      scheduleCodexGlobalRuntimeRefresh();
       return saved;
     }
     await removeClaudeUserEcoAgentBrowserSkill();
     const saved = browserSettingsStore.save(next);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
 
@@ -8216,11 +8205,9 @@ function registerIpcHandlers(): void {
         throw new Error(`无法启用电脑操控 Agent 能力：${feature.reason ?? "未知原因"}`);
       }
       const saved = computerUseSettingsStore.save(next);
-      scheduleCodexGlobalRuntimeRefresh();
       return saved;
     }
     const saved = computerUseSettingsStore.save(next);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
 
@@ -12144,26 +12131,12 @@ async function startCodexThreadRun(
               const htmlHostInject = await htmlHostGateway.resolveInjection(input.thread.id);
               registerBuiltin(ECO_HTML_HOST_MCP_SERVER, htmlHostInject.sdkEntry);
             }
-            const hadCodexHub = mcpHubGateway
-              .listThreadCodexServers()
-              .some((server) => server.name === codexHubName);
             const hubInjection = await mcpHubGateway.prepareThreadFromSdkConfig({
               threadId: input.thread.id,
               config: configuredMcp,
               allowedServers: [...hubMcpKeys, ...builtinHubServers],
               runtimeName: codexHubName,
             });
-            // The descriptor is thread-scoped now, so a newly registered thread
-            // must not trigger a global idle wait/restart. Only an already
-            // registered thread whose descriptor changes (or is removed) needs
-            // the shared app-server recycled: Codex ignores thread config for
-            // loaded threads, so the stale descriptor would otherwise live on.
-            // Forcing the fingerprint invalid makes the deferred refresh
-            // actually restart the server once every active turn is idle.
-            if (hadCodexHub && (hubInjection?.codexServerChanged || !hubInjection)) {
-              invalidateGlobalCodexRuntimeFingerprints();
-              scheduleCodexGlobalRuntimeRefresh();
-            }
             return hubInjection ? [hubInjection.codexServer] : [];
           },
           resolveEnabledMcpServerKeys: async () => {

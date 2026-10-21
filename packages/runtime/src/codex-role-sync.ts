@@ -281,9 +281,7 @@ export async function syncOrchestrationAgentsToCodexRoles(
 
   if (includeExplore) {
     const exploreToolPolicy = applyCodexWebSearchOverride(
-      input.executionConfirmationMode
-        ? applyCodexExecutionConfirmation(BUILTIN_EXPLORE_TOOL_POLICY, input.executionConfirmationMode)
-        : BUILTIN_EXPLORE_TOOL_POLICY,
+      BUILTIN_EXPLORE_TOOL_POLICY,
       input.webSearchOverride,
     );
     const mcpVisibility = buildActorMcpVisibility({
@@ -318,12 +316,7 @@ export async function syncOrchestrationAgentsToCodexRoles(
       throw new Error(`Missing agent template for ${agent.agentKey}: ${agent.templateId}`);
     }
     const configuredToolPolicy = resolveEffectiveAgentToolPolicy(agent, template);
-    const toolPolicy = applyCodexWebSearchOverride(
-      input.executionConfirmationMode
-        ? applyCodexExecutionConfirmation(configuredToolPolicy, input.executionConfirmationMode)
-        : configuredToolPolicy,
-      input.webSearchOverride,
-    );
+    const toolPolicy = applyCodexWebSearchOverride(configuredToolPolicy, input.webSearchOverride);
     const mcpVisibility = buildActorMcpVisibility({
       actor: roleId,
       mcpScope,
@@ -371,7 +364,12 @@ export async function syncOrchestrationAgentsToCodexRoles(
       providerId: draft.providerId,
       ...(draft.apiCompat && { apiCompat: draft.apiCompat }),
       sandboxMode: draft.sandboxMode,
-      toolPolicy: cloneEcoToolPolicy(draft.toolPolicy),
+      // Native children inherit the live parent turn's sandbox/approval policy.
+      // Keep role files stable across composer mode switches; only resumed
+      // child turns need the current mode in their per-turn runtime policy.
+      toolPolicy: input.executionConfirmationMode
+        ? applyCodexExecutionConfirmation(draft.toolPolicy, input.executionConfirmationMode)
+        : cloneEcoToolPolicy(draft.toolPolicy),
     });
   }
 

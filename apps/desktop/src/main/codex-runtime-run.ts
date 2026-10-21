@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +7,7 @@ import type { ResolvedModelRoute } from "@eco/model-router";
 import {
   applyCodexExecutionConfirmation,
   assertCodexRoleProvidersAvailable,
+  buildCodexConfigToml,
   buildCodexGatewayModelAlias,
   buildCodexMainAgentOrchestrationAppend,
   buildCodexSubagentFollowupPrompt,
@@ -142,7 +142,7 @@ export interface RunThreadRequestWithRuntimeProxyInput {
   onPrepared?: (prepared: PreparedCodexRuntime) => void | Promise<void>;
   /** Reports active Codex turns that temporarily prevent an app-server config reload. */
   onConfigReloadWait?: (input: {
-    reason: "model_catalog" | "global_runtime";
+    reason: CodexRuntimeRestartReason;
     activeThreadIds: readonly string[];
   }) => void;
   recordRouteFingerprint: (threadId: string, routes: readonly RuntimeRoute[]) => void;
@@ -277,6 +277,9 @@ export interface PrepareCodexRuntimeInput {
   globalRuntimeRevision?: number;
 }
 
+/** Exhaustive process-only restart reasons; thread settings must never enter this path. */
+export type CodexRuntimeRestartReason = "account" | "account_proxy" | "model_catalog" | "launch_config";
+
 export interface PreparedCodexRuntime {
   orchestrationAppend?: string;
   orchestrationToolPolicy?: CodexToolPolicy;
@@ -306,6 +309,7 @@ let globalRuntimeRefreshShuttingDown = false;
 let globalRefreshIdleAbortController = new AbortController();
 let beforeGlobalRuntimeRefresh: (() => Promise<void>) | undefined;
 let globalRefreshActiveThreadIds: readonly string[] = [];
+let forcedRuntimeRestart: "account" | "account_proxy" | undefined;
 let loadedModelCatalogAliases: readonly string[] = [];
 let loadedGlobalMcpServerNames: readonly string[] = [];
 
@@ -359,6 +363,7 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
   globalRefreshIdleAbortController = new AbortController();
   beforeGlobalRuntimeRefresh = undefined;
   globalRefreshActiveThreadIds = [];
+  forcedRuntimeRestart = undefined;
   loadedModelCatalogAliases = [];
   loadedGlobalMcpServerNames = [];
   // Role declarations remain thread-scoped, but the shared runtime always needs
@@ -912,9 +917,11 @@ export function clearCodexModelCatalogCache(): void {
  * so the fingerprint gate in prepareCodexRuntime cannot detect those changes
  * on its own.
  */
-export function invalidateGlobalCodexRuntimeFingerprints(): void {
-  lastPreparedModelCatalogFingerprint = "";
-  lastPreparedGlobalConfigFingerprint = "";
+export function requestCodexAccountRuntimeRestart(reason: "account" | "account_proxy"): void {
+  if (reason !== "account" && reason !== "account_proxy") {
+    throw new Error("Only account credentials or account proxy changes may force a Codex runtime restart.");
+  }
+  forcedRuntimeRestart = reason;
 }
 
 /** Queue a settings-driven refresh without interrupting active Codex turns. */
@@ -931,22 +938,29 @@ export function scheduleCodexGlobalRuntimeRefresh(options?: { beforePrepare?: ()
     do {
       const revision = desiredGlobalRuntimeRevision;
       try {
-        // Do not write a new catalog/config while another turn is active. The
-        // active app-server continues using the complete loaded baseline.
-        await waitForGlobalCodexRuntimeIdle(globalRefreshIdleAbortController.signal);
-        if (globalRuntimeRefreshShuttingDown) return;
-        // Coalesce every save observed while waiting into the newest snapshot.
-        if (revision !== desiredGlobalRuntimeRevision) {
-          continue;
-        }
         const beforePrepare = beforeGlobalRuntimeRefresh;
+        // Account credentials must not be published while the old account is
+        // running. Ordinary saves first compare actual launch/catalog content;
+        // a no-op refresh must never queue behind unrelated active turns.
+        if (beforePrepare) {
+          if (forcedRuntimeRestart !== "account") {
+            throw new Error("A Codex account transition requires the explicit account restart reason.");
+          }
+          await waitForGlobalCodexRuntimeIdle(globalRefreshIdleAbortController.signal);
+          if (globalRuntimeRefreshShuttingDown) return;
+          if (revision !== desiredGlobalRuntimeRevision) continue;
+        }
         beforeGlobalRuntimeRefresh = undefined;
         await beforePrepare?.();
         if (globalRuntimeRefreshShuttingDown) return;
         if (revision !== desiredGlobalRuntimeRevision) {
           continue;
         }
-        await prepareCodexRuntime({ globalOnly: true, globalRuntimeRevision: revision });
+        await prepareCodexRuntime({
+          globalOnly: true,
+          globalRuntimeRevision: revision,
+          signal: globalRefreshIdleAbortController.signal,
+        });
         globalRefreshError = undefined;
       } catch (error) {
         if (globalRuntimeRefreshShuttingDown && error === globalRefreshIdleAbortController.signal.reason)
@@ -994,7 +1008,7 @@ export async function prepareCodexRuntime(
       if (globalRefreshActiveThreadIds.length > 0) {
         input.onConfigReloadWait?.({
           reason: catalogRoutesAreAvailable(input.requiredCatalogRoutes ?? [], loadedModelCatalogAliases)
-            ? "global_runtime"
+            ? "launch_config"
             : "model_catalog",
           activeThreadIds: globalRefreshActiveThreadIds,
         });
@@ -1242,13 +1256,14 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     `[eco-codex] model catalog path=${catalogSync.catalogPath} aliases=${catalogSync.aliasSlugs.length} native=${catalogSync.nativeModelCount} changed=${catalogSync.changed}`,
   );
 
-  const configSync = await syncCodexConfigFromEcoProviders({
+  const globalConfigInput = {
     ecoDataDir: runtimeDeps.ecoDataDir,
     providers,
     mcpServers: globalMcpServers,
     modelCatalogJsonPath: catalogSync.catalogPath,
     ...(globalMultiAgentSupportRequired ? { enableMultiAgent: true } : {}),
-  });
+  };
+  const configSync = await syncCodexConfigFromEcoProviders(globalConfigInput);
 
   const configToml = fs.readFileSync(configSync.configPath, "utf8");
   if (!configToml.includes("model_catalog_json =")) {
@@ -1332,7 +1347,11 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     catalogSync.aliasSlugs,
   );
 
-  const globalConfigFingerprint = fingerprintCodexProviderConfig(configToml, providers);
+  // Global MCP has a native reload RPC; candidate capabilities are thread
+  // overrides. Neither belongs in the process-launch restart fingerprint.
+  const globalConfigFingerprint = fingerprintCodexProviderConfig(
+    buildCodexConfigToml({ ...globalConfigInput, mcpServers: [] }),
+  );
   // A save that races catalog/config generation is intentionally coalesced before
   // restart. It is safe to rewrite files while all threads are idle; only the
   // final desired revision may restart the shared app-server.
@@ -1343,26 +1362,33 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
   ) {
     return prepared;
   }
-  const catalogNeedsRestart = catalogSync.fingerprint !== lastPreparedModelCatalogFingerprint;
-  const configNeedsRestart = globalConfigFingerprint !== lastPreparedGlobalConfigFingerprint;
+  const catalogNeedsRestart = catalogSync.runtimeFingerprint !== lastPreparedModelCatalogFingerprint;
+  const configNeedsRestart =
+    globalConfigFingerprint !== lastPreparedGlobalConfigFingerprint || forcedRuntimeRestart !== undefined;
   if (catalogNeedsRestart || configNeedsRestart) {
-    await ensureIdleCodexAppServerRestartForCatalog(
+    await ensureCodexRuntimeRestart(
       runtimeDeps,
       codexExecutable,
       catalogSync.aliasSlugs,
       configSync.mcpServerNames,
-      catalogSync.fingerprint,
+      catalogSync.runtimeFingerprint,
       globalConfigFingerprint,
       baselineInput,
-      catalogNeedsRestart ? "model_catalog" : "global_runtime",
+      forcedRuntimeRestart ?? (catalogNeedsRestart ? "model_catalog" : "launch_config"),
     );
   }
+  if (
+    input.globalOnly &&
+    input.globalRuntimeRevision !== undefined &&
+    input.globalRuntimeRevision !== desiredGlobalRuntimeRevision
+  )
+    return prepared;
 
   if (input.globalOnly && !getGlobalCodexRuntimeLifecycle()?.getClient()) {
     markLoadedGlobalRuntimeBaseline(
       catalogSync.aliasSlugs,
       configSync.mcpServerNames,
-      catalogSync.fingerprint,
+      catalogSync.runtimeFingerprint,
       globalConfigFingerprint,
       baselineInput,
     );
@@ -1379,7 +1405,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     markLoadedGlobalRuntimeBaseline(
       catalogSync.aliasSlugs,
       configSync.mcpServerNames,
-      catalogSync.fingerprint,
+      catalogSync.runtimeFingerprint,
       globalConfigFingerprint,
       baselineInput,
     );
@@ -1516,7 +1542,7 @@ function assertThreadMcpServersAvailable(
     ...new Set(enabledServerNames.map((name) => name.trim()).filter((name) => name && !available.has(name))),
   ];
   throw new Error(
-    `Selected MCP servers are not registered in the loaded global Codex runtime: ${missing.join(", ")}. Save the related MCP or integration settings, then wait for the global runtime refresh to finish.`,
+    `Selected MCP servers have no thread connection descriptor: ${missing.join(", ")}. Check the selected MCP or integration settings before retrying.`,
   );
 }
 
@@ -1535,6 +1561,7 @@ function markLoadedGlobalRuntimeBaseline(
   loadedGlobalMcpServerNames = [...new Set(mcpServerNames.map((name) => name.trim()).filter(Boolean))].sort();
   lastPreparedModelCatalogFingerprint = catalogFingerprint;
   lastPreparedGlobalConfigFingerprint = configFingerprint;
+  forcedRuntimeRestart = undefined;
   if (input.globalOnly) {
     loadedGlobalRuntimeRevision = input.globalRuntimeRevision ?? desiredGlobalRuntimeRevision;
     refreshPending = loadedGlobalRuntimeRevision !== desiredGlobalRuntimeRevision;
@@ -1549,7 +1576,7 @@ function markLoadedGlobalRuntimeBaseline(
  * Catalog content is only reloaded by app-server process start.
  * Wait when a loaded thread is active so we never silently keep a stale catalog or lose the request.
  */
-async function ensureIdleCodexAppServerRestartForCatalog(
+async function ensureCodexRuntimeRestart(
   runtimeDeps: CodexRuntimeRunDeps,
   codexExecutable: string,
   nextAliases: readonly string[],
@@ -1560,7 +1587,7 @@ async function ensureIdleCodexAppServerRestartForCatalog(
     PrepareCodexRuntimeInput,
     "signal" | "onConfigReloadWait" | "globalOnly" | "globalRuntimeRevision"
   >,
-  reason: "model_catalog" | "global_runtime",
+  reason: CodexRuntimeRestartReason,
 ): Promise<void> {
   const lifecycle = getGlobalCodexRuntimeLifecycle();
   const client = lifecycle?.getClient();
@@ -1576,20 +1603,36 @@ async function ensureIdleCodexAppServerRestartForCatalog(
     return;
   }
 
-  await waitForCodexConfigReload({
-    ...(waitOptions.signal ? { signal: waitOptions.signal } : {}),
-    check: async () => {
-      const loadedThreadIds = await listLoadedCodexThreadIds(client);
-      const activeThreadIds = await filterActiveCodexThreadIds(client, loadedThreadIds);
-      return activeThreadIds.length > 0 ? { kind: "busy", activeThreadIds } : { kind: "ready" };
-    },
-    onWaiting: (activeThreadIds) => {
-      runtimeDeps.onStderr?.(
-        `[eco-codex] waiting to reload global runtime; active threads=${activeThreadIds.join(",")}`,
-      );
-      waitOptions.onConfigReloadWait?.({ reason, activeThreadIds });
-    },
-  });
+  await awaitGlobalRuntimeRefresh(
+    waitForCodexConfigReload({
+      ...(waitOptions.signal ? { signal: waitOptions.signal } : {}),
+      check: async () => {
+        if (
+          waitOptions.globalOnly &&
+          waitOptions.globalRuntimeRevision !== undefined &&
+          waitOptions.globalRuntimeRevision !== desiredGlobalRuntimeRevision
+        )
+          return { kind: "skip" };
+        const loadedThreadIds = await listLoadedCodexThreadIds(client);
+        waitOptions.signal?.throwIfAborted();
+        const activeThreadIds = await filterActiveCodexThreadIds(client, loadedThreadIds);
+        return activeThreadIds.length > 0 ? { kind: "busy", activeThreadIds } : { kind: "ready" };
+      },
+      onWaiting: (activeThreadIds) => {
+        runtimeDeps.onStderr?.(
+          `[eco-codex] waiting to reload global runtime; active threads=${activeThreadIds.join(",")}`,
+        );
+        waitOptions.onConfigReloadWait?.({ reason, activeThreadIds });
+      },
+    }).then(() => undefined),
+    waitOptions.signal,
+  );
+  if (
+    waitOptions.globalOnly &&
+    waitOptions.globalRuntimeRevision !== undefined &&
+    waitOptions.globalRuntimeRevision !== desiredGlobalRuntimeRevision
+  )
+    return;
 
   runtimeDeps.onStderr?.(
     `[eco-codex] cold restart app-server for ${reason} catalog=${nextCatalogFingerprint.slice(0, 12)}`,

@@ -18,26 +18,26 @@ test("Codex global MCP pool stays empty so threads load their own Hub descriptor
   expect(source).toContain("mcpHubGateway.prepareThreadFromSdkConfig");
   expect(source).toContain("runtimeName: codexHubName");
   expect(source).toContain("function codexHubServerName(threadId: string)");
-  expect(source).toContain("const hadCodexHub = mcpHubGateway");
 });
 
-test("a first-time thread Hub registration does not schedule a global refresh", () => {
-  // Only an already-registered thread whose descriptor changes (or disappears)
-  // recycles the shared app-server; new threads load their own config.
-  expect(source).toContain("if (hadCodexHub && (hubInjection?.codexServerChanged || !hubInjection)) {");
-  // A thread-scoped descriptor change cannot be detected by the global config
-  // fingerprint, so the refresh must be forced to actually restart.
-  expect(source).toMatch(
-    /if \(hadCodexHub && \(hubInjection\?\.codexServerChanged \|\| !hubInjection\)\) \{\s*invalidateGlobalCodexRuntimeFingerprints\(\);\s*scheduleCodexGlobalRuntimeRefresh\(\);/,
-  );
-  expect(source).not.toContain("hubInjection?.codexServerChanged || (!hubInjection && hadCodexHub)");
+test("thread Hub registration and descriptor changes never restart the shared runtime", () => {
+  const start = source.indexOf("resolveMcpServers: async () => {");
+  const end = source.indexOf("resolveEnabledMcpServerKeys:", start);
+  const handler = source.slice(start, end);
+  expect(handler).toContain("mcpHubGateway.prepareThreadFromSdkConfig");
+  expect(handler).not.toContain("requestCodexAccountRuntimeRestart");
+  expect(handler).not.toContain("scheduleCodexGlobalRuntimeRefresh");
 });
 
-test("saving browser integration settings schedules a Codex global runtime refresh", () => {
-  const start = source.indexOf("IPC_CHANNELS.browserSettingsSave");
+test("saving browser, computer, image, and speech settings never queues a runtime restart", () => {
+  const start = source.indexOf("IPC_CHANNELS.imageGenerationSettingsGet");
   const end = source.indexOf("IPC_CHANNELS.notificationSettingsGet", start);
   const handler = source.slice(start, end);
-  expect(handler).toContain("scheduleCodexGlobalRuntimeRefresh()");
+  expect(handler).toContain("IPC_CHANNELS.browserSettingsSave");
+  expect(handler).toContain("IPC_CHANNELS.computerUseSettingsSave");
+  expect(handler).toContain("IPC_CHANNELS.ttsSettingsSave");
+  expect(handler).not.toContain("scheduleCodexGlobalRuntimeRefresh");
+  expect(source).not.toContain("onHtmlHostingCapabilityChange: () => scheduleCodexGlobalRuntimeRefresh()");
 });
 
 test("Codex system prompt rewrites fixed Hub tool names to the per-thread registered server", () => {

@@ -11,6 +11,7 @@ import {
   type CodexGatewayCatalogRoute,
   collectCodexGatewayCatalogRoutes,
   fingerprintEcoModelCatalog,
+  fingerprintEcoModelCatalogRuntime,
   mergeCodexGatewayCatalogRoutes,
   parseBundledCodexModelCatalog,
   resolveCodexMultiAgentVersion,
@@ -363,6 +364,32 @@ test("buildEcoCodexModelCatalogDocument applies an explicit global cap after man
     context_window: 131_072,
     max_context_window: 131_072,
   });
+});
+
+test("runtime catalog fingerprint ignores display labels and retains model behavior changes", () => {
+  const document = { models: nativeModelsFixture() };
+  const baseline = fingerprintEcoModelCatalogRuntime(document);
+  const renamed = {
+    models: document.models.map((model) => ({
+      ...model,
+      display_name: "New label",
+      description: "New model picker description",
+    })),
+  };
+  expect(fingerprintEcoModelCatalog(renamed)).not.toBe(fingerprintEcoModelCatalog(document));
+  expect(fingerprintEcoModelCatalogRuntime(renamed)).toBe(baseline);
+  for (const changes of [
+    { context_window: 32_768 },
+    { apply_patch_tool_type: "function" },
+    { input_modalities: ["text"] },
+    { slug: "new-model-id" },
+  ]) {
+    expect(
+      fingerprintEcoModelCatalogRuntime({
+        models: document.models.map((model) => ({ ...model, ...changes })),
+      }),
+    ).not.toBe(baseline);
+  }
 });
 
 test("writeEcoCodexModelCatalog is atomic and reports unchanged fingerprints", async () => {
