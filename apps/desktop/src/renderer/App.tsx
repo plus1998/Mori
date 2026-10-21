@@ -7508,7 +7508,7 @@ function App() {
     activityFeedScrollTopRef.current = container.scrollTop;
     let scrollbarDragging = false;
     let userScrollUntil = 0;
-    let touchY: number | undefined;
+    let touchStartY: number | undefined;
     const onScroll = () => {
       if (programmaticActivityFeedScrollRef.current) {
         return;
@@ -7540,8 +7540,12 @@ function App() {
         }
       } else if (
         distanceFromBottom <= ACTIVITY_FEED_STICK_THRESHOLD_PX &&
-        (scrollbarDragging || performance.now() < userScrollUntil)
+        (scrollbarDragging || performance.now() < userScrollUntil) &&
+        activityFeedUserScrollDirectionRef.current !== "up"
       ) {
+        // A trackpad can report an upward gesture as a sequence of 1px scroll
+        // events. The wheel handler has already recorded that intent, so do not
+        // interpret the sub-threshold movement as a return to the bottom.
         userDetachedFromBottomRef.current = false;
         activityFeedUserScrollDirectionRef.current = null;
         setActivityFeedDetachedAnchor(false);
@@ -7566,7 +7570,13 @@ function App() {
     };
     const onWheel = (event: WheelEvent) => {
       userScrollUntil = performance.now() + 500;
-      if (event.deltaY >= 0) {
+      if (event.deltaY > 0) {
+        if (userDetachedFromBottomRef.current) {
+          activityFeedUserScrollDirectionRef.current = "down";
+        }
+        return;
+      }
+      if (event.deltaY === 0) {
         return;
       }
       // Detach before virtualization ResizeObserver can snap stick-to-bottom mid-gesture.
@@ -7599,7 +7609,7 @@ function App() {
     };
     const onPointerDown = (event: PointerEvent) => {
       if (event.pointerType === "touch") {
-        touchY = event.clientY;
+        touchStartY = event.clientY;
       } else if (
         event.target === container &&
         event.clientX >= container.getBoundingClientRect().right - 20
@@ -7608,14 +7618,18 @@ function App() {
       }
     };
     const onPointerMove = (event: PointerEvent) => {
-      if (touchY === undefined) return;
+      if (touchStartY === undefined) return;
       userScrollUntil = performance.now() + 500;
-      if (event.clientY > touchY + 2) detachForInput();
-      touchY = event.clientY;
+      const deltaY = event.clientY - touchStartY;
+      if (deltaY > 2) {
+        detachForInput();
+      } else if (deltaY < -2 && userDetachedFromBottomRef.current) {
+        activityFeedUserScrollDirectionRef.current = "down";
+      }
     };
     const onPointerUp = () => {
       scrollbarDragging = false;
-      touchY = undefined;
+      touchStartY = undefined;
     };
     container.addEventListener("scroll", onScroll, { passive: true });
     container.addEventListener("wheel", onWheel, { passive: true });

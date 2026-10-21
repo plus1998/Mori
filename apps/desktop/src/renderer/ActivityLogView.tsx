@@ -65,6 +65,7 @@ import {
   Fragment,
   type KeyboardEvent,
   memo,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -173,6 +174,7 @@ import {
   type ThreadRunProjectionTimelineFeedEntry,
   type ThreadRunProjectionToolGroupFeedEntry,
 } from "./conversation-v2-projection-view";
+import { FeedTextContextMenu, type FeedTextContextMenuAnchor } from "./FeedTextContextMenu";
 import {
   type ConversationV2RendererState,
   orderedConversationV2Messages,
@@ -2239,6 +2241,39 @@ function ConversationV2ProjectionActivityLogViewImpl({
 
   const runLogRef = useRef<HTMLDivElement>(null);
   const feedHeaderRef = useRef<HTMLDivElement>(null);
+  const [feedTextContextMenu, setFeedTextContextMenu] = useState<FeedTextContextMenuAnchor>();
+  const closeFeedTextContextMenu = useCallback(() => {
+    setFeedTextContextMenu(undefined);
+  }, []);
+  const handleFeedContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) {
+      return;
+    }
+    const selection = window.getSelection();
+    const anchorNode = selection?.anchorNode;
+    const focusNode = selection?.focusNode;
+    if (
+      !selection ||
+      selection.isCollapsed ||
+      selection.rangeCount === 0 ||
+      !anchorNode ||
+      !focusNode ||
+      !event.currentTarget.contains(anchorNode) ||
+      !event.currentTarget.contains(focusNode)
+    ) {
+      return;
+    }
+    const selectedText = selection.toString();
+    if (!selectedText.trim()) {
+      return;
+    }
+    event.preventDefault();
+    setFeedTextContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      selectedText,
+    });
+  }, []);
   /*
     `latestContentIsToolGroup` keeps 「正在思考」 and Summary tips from stacking under a tool
     row — that row owns the slot. It must not swallow the one state that outlives it: a
@@ -2357,6 +2392,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
         <div
           ref={runLogRef}
           className={["run-log", feedVirtualized ? "run-log--virtualized" : ""].filter(Boolean).join(" ")}
+          onContextMenu={handleFeedContextMenu}
         >
           <div ref={feedHeaderRef} className="run-log-virtual-header">
             {showThreadPrompt && thread?.prompt
@@ -2402,6 +2438,12 @@ function ConversationV2ProjectionActivityLogViewImpl({
             ))
           )}
         </div>
+        {feedTextContextMenu ? (
+          <FeedTextContextMenu
+            anchor={feedTextContextMenu}
+            onClose={closeFeedTextContextMenu}
+          />
+        ) : null}
       </ActivityFeedLayoutContext.Provider>
     </RequestSpansContext.Provider>
   );
