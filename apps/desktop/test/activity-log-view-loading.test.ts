@@ -1334,6 +1334,64 @@ test("mid-turn prompts keep one running heading while every continuation remains
   }
 });
 
+test("late-finalized image prompts do not create a completed compaction-only turn", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "completed",
+        attempts: [
+          {
+            attemptId: "attempt-image-follow-up",
+            status: "completed",
+            startedAt: "2026-01-01T00:00:01.000Z",
+            endedAt: "2026-01-01T00:00:08.000Z",
+          },
+        ],
+        timeline: [
+          item({
+            id: "user-initial",
+            eventType: "thread.status",
+            sequence: 1,
+            role: "user",
+            text: "先分析这个问题",
+            at: "2026-01-01T00:00:00.500Z",
+            metadata: { liveType: "thread.user_prompt" },
+          }),
+          item({
+            id: "compaction",
+            eventType: "context.compaction.completed",
+            sequence: 5,
+            text: "上下文已压缩",
+            runAttemptId: "attempt-image-follow-up",
+            at: "2026-01-01T00:00:04.000Z",
+          }),
+          item({
+            id: "final",
+            eventType: "message.final",
+            sequence: 6,
+            text: "第一轮处理完成。",
+            runAttemptId: "attempt-image-follow-up",
+            at: "2026-01-01T00:00:07.000Z",
+          }),
+          item({
+            id: "late-image-prompt",
+            eventType: "thread.status",
+            sequence: 4,
+            role: "user",
+            text: "请查看并分析我附上的图片。",
+            at: "2026-01-01T00:00:09.000Z",
+            metadata: { liveType: "thread.user_prompt" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html.match(/class="run-log-turn-toggle"/g)?.length).toBe(1);
+  expect(html.match(/run-log-turn-status">已处理/g)?.length).toBe(1);
+  expect(html.indexOf("第一轮处理完成。")).toBeLessThan(html.indexOf("请查看并分析我附上的图片。"));
+});
+
 test("a new follow-up attempt keeps its own running heading", () => {
   const html = renderToStaticMarkup(
     createElement(ProjectionActivityLogView, {
