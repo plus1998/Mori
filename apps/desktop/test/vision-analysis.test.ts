@@ -16,7 +16,7 @@ const ATTACHMENT: PromptImageAttachment = {
 
 function fakeRoute(overrides: Partial<RuntimeRoute> = {}): RuntimeRoute {
   return {
-    role: "planner",
+    role: "main",
     provider: {
       id: "provider-1",
       name: "Provider",

@@ -13,22 +13,22 @@ import type { ModelSettingsSnapshot } from "../src/shared/ipc";
 test("resolvePublicModelId maps SDK alias to upstream model id", () => {
   const provider = createProvider();
   const routes = [
-    { role: "planner" as const, provider, modelId: "claude-opus-4-7" },
+    { role: "main" as const, provider, modelId: "claude-opus-4-7" },
     { role: "coder" as const, provider, modelId: "claude-haiku-4-5" },
   ];
-  const alias = createModelAlias("planner", provider.id, "claude-opus-4-7");
-  expect(resolvePublicModelId("planner", alias, routes)).toBe("claude-opus-4-7");
-  expect(resolvePublicModelId("planner", undefined, routes)).toBe("claude-opus-4-7");
+  const alias = createModelAlias("main", provider.id, "claude-opus-4-7");
+  expect(resolvePublicModelId("main", alias, routes)).toBe("claude-opus-4-7");
+  expect(resolvePublicModelId("main", undefined, routes)).toBe("claude-opus-4-7");
 });
 
 test("resolveUsageRoute maps eco alias to route", () => {
   const provider = createProvider();
   const routes = [
-    { role: "planner" as const, provider, modelId: "sonnet" },
+    { role: "main" as const, provider, modelId: "sonnet" },
     { role: "coder" as const, provider, modelId: "haiku" },
   ];
   const alias = createModelAlias("coder", provider.id, "haiku");
-  const resolved = resolveUsageRoute("planner", alias, routes);
+  const resolved = resolveUsageRoute("main", alias, routes);
   expect(resolved?.role).toBe("coder");
   expect(resolved?.modelId).toBe("haiku");
 });
@@ -36,7 +36,7 @@ test("resolveUsageRoute maps eco alias to route", () => {
 test("resolveUsageRoute prefers role route when SDK reports planner model id for eco role", () => {
   const provider = createProvider();
   const routes = [
-    { role: "planner" as const, provider, modelId: "claude-opus-4-7" },
+    { role: "main" as const, provider, modelId: "claude-opus-4-7" },
     { role: "coder" as const, provider, modelId: "claude-haiku-4-5" },
   ];
   const resolved = resolveUsageRoute("coder", "claude-opus-4-7", routes);
@@ -47,7 +47,7 @@ test("resolveUsageRoute prefers role route when SDK reports planner model id for
 test("resolveUsageRoute unique model id still resolves correctly", () => {
   const provider = createProvider();
   const routes = [
-    { role: "planner" as const, provider, modelId: "claude-opus-4-7" },
+    { role: "main" as const, provider, modelId: "claude-opus-4-7" },
     { role: "coder" as const, provider, modelId: "claude-haiku-4-5" },
   ];
   const resolved = resolveUsageRoute("coder", "claude-haiku-4-5", routes);
@@ -58,10 +58,10 @@ test("resolveUsageRoute unique model id still resolves correctly", () => {
 test("resolveUsageRoute maps unique explore model when SDK result role is planner", () => {
   const provider = createProvider();
   const routes = [
-    { role: "planner" as const, provider, modelId: "claude-opus-4-7" },
+    { role: "main" as const, provider, modelId: "claude-opus-4-7" },
     { role: "explore" as const, provider, modelId: "claude-haiku-4-5" },
   ];
-  const resolved = resolveUsageRoute("planner", "claude-haiku-4-5", routes);
+  const resolved = resolveUsageRoute("main", "claude-haiku-4-5", routes);
   expect(resolved?.role).toBe("explore");
   expect(resolved?.modelId).toBe("claude-haiku-4-5");
 });
@@ -69,11 +69,11 @@ test("resolveUsageRoute maps unique explore model when SDK result role is planne
 test("resolveUsageRoute maps explore eco alias when SDK result role is planner", () => {
   const provider = createProvider();
   const routes = [
-    { role: "planner" as const, provider, modelId: "claude-opus-4-7" },
+    { role: "main" as const, provider, modelId: "claude-opus-4-7" },
     { role: "explore" as const, provider, modelId: "claude-haiku-4-5" },
   ];
   const alias = createModelAlias("explore", provider.id, "claude-haiku-4-5");
-  const resolved = resolveUsageRoute("planner", alias, routes);
+  const resolved = resolveUsageRoute("main", alias, routes);
   expect(resolved?.role).toBe("explore");
   expect(resolved?.modelId).toBe("claude-haiku-4-5");
 });
@@ -81,7 +81,7 @@ test("resolveUsageRoute maps explore eco alias when SDK result role is planner",
 test("resolveUsageRoute preserves models.dev mapping for billing", () => {
   const provider = createProvider();
   const routes = [
-    { role: "planner" as const, provider, modelId: "vendor-model" },
+    { role: "main" as const, provider, modelId: "vendor-model" },
     {
       role: "coder" as const,
       provider,
@@ -90,7 +90,7 @@ test("resolveUsageRoute preserves models.dev mapping for billing", () => {
     },
   ];
   const alias = createModelAlias("coder", provider.id, "custom-alias");
-  const resolved = resolveUsageRoute("planner", alias, routes);
+  const resolved = resolveUsageRoute("main", alias, routes);
   expect(resolved?.role).toBe("coder");
   expect(resolved?.modelsDevMapping).toEqual({
     providerKey: "anthropic",
@@ -256,7 +256,7 @@ test("resolveRuntimeRoutesFromSettings preserves manualSpec and modelsDevMapping
     [provider],
     [
       {
-        role: "planner",
+        role: "main",
         providerId: provider.id,
         modelId: "vendor-model",
         modelsDevMapping: { providerKey: "anthropic", modelId: "claude-sonnet-4" },

@@ -1,7 +1,7 @@
-import type { ToolWriteKind } from "@eco/shared";
+import { isMainAgentId, type ToolWriteKind } from "@eco/shared";
 import type { ThreadRunEventScope, ThreadRunEventType } from "./thread-run-events";
 
-export type ThreadRunProjectionAgentKind = "planner" | "subagent";
+export type ThreadRunProjectionAgentKind = "main" | "subagent";
 
 export type ThreadRunProjectionAgentStatus = "launching" | "active" | "stopped" | "abandoned";
 
@@ -227,7 +227,7 @@ export interface ThreadRunProjectionDetailResult {
 }
 
 export function isPlannerProjectionAgentId(agentId: string): boolean {
-  return agentId.startsWith("planner:");
+  return isMainAgentId(agentId);
 }
 
 /** Resolve agent metadata when detail merge mints a row missing from the feed skeleton. */
@@ -247,8 +247,8 @@ export function resolveProjectionDetailMergedAgent(
   }
   if (isPlannerProjectionAgentId(agentId)) {
     return {
-      role: "planner",
-      kind: "planner",
+      role: "main",
+      kind: "main",
       status: "stopped",
       startedAt: incoming[0]?.at ?? "",
       durationMs: 0,

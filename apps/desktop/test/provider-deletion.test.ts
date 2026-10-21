@@ -15,7 +15,7 @@ test("collects current editable configurations but ignores legacy route profiles
         id: "profile-a",
         name: "Profile A",
         routes: [
-          { role: "planner", providerId: PROVIDER_ID, modelId: "model-a" },
+          { role: "main", providerId: PROVIDER_ID, modelId: "model-a" },
           { role: "coder", providerId: PROVIDER_ID, modelId: "model-a" },
         ],
       },

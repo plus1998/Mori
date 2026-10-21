@@ -149,7 +149,7 @@ export function resolveSdkLateBindAttribution(
   const parentToolUseId = readSdkPayloadParentToolUseId(event.payload);
 
   if (plannerSessionId && eventAgentId === plannerSessionId && !parentToolUseId) {
-    return { agentId: plannerSessionId, role: "planner" };
+    return { agentId: plannerSessionId, role: "main" };
   }
 
   const activityAgentId = resolveActivityAgentId(
@@ -259,7 +259,7 @@ export function resolveLiveRequestIdForEvent(
   }
   if (input.role === "thinking") {
     const plannerRequestId = registry.resolve(threadId, {
-      role: "planner",
+      role: "main",
       ...(input.agentId && { agentId: input.agentId }),
     });
     if (plannerRequestId) {

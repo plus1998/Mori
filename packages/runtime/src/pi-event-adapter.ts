@@ -156,7 +156,7 @@ export function mapPiSessionEventToAgentEvents(
   const base = {
     threadId: ctx.threadId,
     agentId: ctx.agentId?.trim() || ctx.sessionId,
-    role: ctx.role?.trim() || "planner",
+    role: ctx.role?.trim() || "main",
   };
   const state = ctx.state;
 
@@ -877,7 +877,7 @@ function closeOpenStreams(ctx: PiEventAdapterContext, seq: number, reason: strin
   const base = {
     threadId: ctx.threadId,
     agentId: ctx.sessionId,
-    role: "planner" as const,
+    role: "main" as const,
   };
   if (state.openThinking) {
     const reasoningDisplay =
@@ -945,7 +945,7 @@ function usageEventFromAssistantMessage(
     id: `${ctx.threadId}:pi:${seq}:usage`,
     threadId: ctx.threadId,
     agentId: ctx.sessionId,
-    role: "planner",
+    role: "main",
     type: "usage.recorded",
     payload: {
       source: "pi",

@@ -36,5 +36,5 @@ function resolveCodexBillingRole(agentRole: string | undefined, isSubagentThread
   if (normalized) {
     return normalized as RuntimeAgentRole;
   }
-  return isSubagentThread ? "subagent" : "planner";
+  return isSubagentThread ? "subagent" : "main";
 }

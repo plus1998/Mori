@@ -36,7 +36,7 @@ test("uses the currently selected main agent model in billing tips", () => {
       billing,
       [
         {
-          role: "planner",
+          role: "main",
           displayName: "Main agent",
           modelId: "openai/gpt-5.6-sol",
           title: "Main agent · openai/gpt-5.6-sol",

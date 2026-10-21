@@ -145,13 +145,13 @@ test("planner-route pending usage is rebound to the exact general-purpose role a
     eventId: "evt_planner_route",
     messageId: "resp_general_exact",
   });
-  event.role = "planner";
+  event.role = "main";
   event.metadata = {
     ...event.metadata,
-    [USAGE_LEDGER_ROUTE_ROLE_METADATA_KEY]: "planner",
-    [USAGE_LEDGER_BILLING_ROLE_METADATA_KEY]: "planner",
+    [USAGE_LEDGER_ROUTE_ROLE_METADATA_KEY]: "main",
+    [USAGE_LEDGER_BILLING_ROLE_METADATA_KEY]: "main",
     [USAGE_LEDGER_CONTEXT_UPDATE_METADATA_KEY]: {
-      role: "planner",
+      role: "main",
       modelId: "claude-sonnet",
       providerBaseUrl: "https://api.example.test",
     },
@@ -160,8 +160,8 @@ test("planner-route pending usage is rebound to the exact general-purpose role a
   coordinator.registerProxyPendingAttribution(threadId, {
     eventId: event.id,
     requestKey: event.requestKey ?? event.sourceEventId,
-    routeRole: "planner",
-    billingRole: "planner",
+    routeRole: "main",
+    billingRole: "main",
     observedAt: event.observedAt,
     messageId: "resp_general_exact",
   });
@@ -181,7 +181,7 @@ test("planner-route pending usage is rebound to the exact general-purpose role a
     parentToolUseId: "call_general_exact",
     attribution: { status: "attributed", agentId: "agent_general_exact" },
     metadata: {
-      [USAGE_LEDGER_ROUTE_ROLE_METADATA_KEY]: "planner",
+      [USAGE_LEDGER_ROUTE_ROLE_METADATA_KEY]: "main",
       [USAGE_LEDGER_BILLING_ROLE_METADATA_KEY]: "general-purpose",
       [USAGE_LEDGER_CONTEXT_UPDATE_METADATA_KEY]: { role: "general-purpose" },
     },

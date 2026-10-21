@@ -35,7 +35,7 @@ function snapshot(body: string, final = false): ThreadRunEventInput {
     runAttemptId: "run",
     streamKey: "stream",
     eventType: final ? "message.final" : "message.delta",
-    role: "planner",
+    role: "main",
     scope: "main",
     streamState: final ? "final" : "delta",
     message: body,

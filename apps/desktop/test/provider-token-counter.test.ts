@@ -268,7 +268,7 @@ test("Anthropic proxy uses the provider's explicit token count adapter", async (
 
   const proxy = await startAnthropicModelProxy([
     {
-      role: "planner",
+      role: "main",
       provider: provider({
         baseUrl,
         tokenCountMode: "anthropic_messages",

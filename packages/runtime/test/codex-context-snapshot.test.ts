@@ -11,7 +11,7 @@ import { DEFAULT_CONTEXT_LIMIT } from "../src/models-dev-limits.js";
 
 const MAIN_ATTRIBUTION = {
   ecoThreadId: "thr_eco_main",
-  billingRole: "planner" as const,
+  billingRole: "main" as const,
 };
 
 const SUB_ATTRIBUTION = {
@@ -136,12 +136,12 @@ test("buildCodexThreadUsageSummary maps ThreadUsageSnapshot fields from last usa
 
   const summary = buildCodexThreadUsageSummary({
     context: resolved!.context,
-    billingRole: "planner",
+    billingRole: "main",
     last: parseCodexThreadTokenUsage(tokenUsagePayload().tokenUsage)!.last,
   });
 
   expect(summary.contextTokens).toBe(48_000);
-  expect(summary.usageByRole?.planner).toEqual({
+  expect(summary.usageByRole?.main).toEqual({
     inputTokens: 12_400,
     outputTokens: 1_200,
     cacheReadTokens: 640,

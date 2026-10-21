@@ -69,7 +69,7 @@ test("agent orchestration is hidden when the snapshot only has the main agent", 
   const markup = renderToStaticMarkup(
     createElement(WorkspaceFloatingCards, {
       hasActiveThread: true,
-      agentModelLabels: [label("planner", true)],
+      agentModelLabels: [label("main", true)],
     }),
   );
 

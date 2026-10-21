@@ -180,7 +180,7 @@ function* readReplayRecords(databasePath: string, conversationId: string): Gener
           threadId: conversationId,
           agentId: agent.agentId,
           role: agent.role as AgentInstanceRecord["role"],
-          kind: agent.kind === "planner" ? "planner" : "subagent",
+          kind: agent.kind === "main" ? "main" : "subagent",
           status: ["active", "running"].includes(agent.status)
             ? "active"
             : ["queued", "launching"].includes(agent.status)

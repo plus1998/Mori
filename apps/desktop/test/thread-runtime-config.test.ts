@@ -34,7 +34,7 @@ const presetBundle = buildResourcesFromRouteProfile(
     id: "coding-default",
     name: "Default coding",
     routes: [
-      { role: "planner", providerId: "p1", modelId: "m1" },
+      { role: "main", providerId: "p1", modelId: "m1" },
       { role: "explore", providerId: "p1", modelId: "m1" },
       { role: "architect", providerId: "p1", modelId: "m1" },
       { role: "coder", providerId: "p1", modelId: "m1" },
@@ -225,7 +225,7 @@ test("runtimeRoleRoutesFromOrchestrationSnapshot includes planner and enabled ag
     subagentOrchestrations: settings.subagentOrchestrations,
   });
   const routes = runtimeRoleRoutesFromOrchestrationSnapshot(snapshot);
-  expect(routes.some((route) => route.role === "planner")).toBe(true);
+  expect(routes.some((route) => route.role === "main")).toBe(true);
   expect(routes.some((route) => route.role === "coder")).toBe(true);
 });
 

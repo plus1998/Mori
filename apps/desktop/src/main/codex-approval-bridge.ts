@@ -341,7 +341,7 @@ async function handleCommandExecutionRequestApproval(
   const command = resolveCommandExecutionLabel(params);
   const cwd = readString(params, "cwd") ?? deps.getWorktreePath(ecoThreadId) ?? thread.workspacePath;
   const reason = readString(params, "reason") ?? "Codex requires your approval before running this command.";
-  const plannerAgentId = deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:planner`;
+  const plannerAgentId = deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`;
   const isNetwork = Boolean(params.networkApprovalContext);
   const proposedExecpolicyAmendment = readStringArray(
     params.proposedExecpolicyAmendment ?? params.proposed_execpolicy_amendment,
@@ -411,7 +411,7 @@ async function handleFileChangeRequestApproval(
   const reason = readString(params, "reason") ?? "Codex requires your approval before applying file changes.";
   const filesystemPath = grantRoot ?? thread.workspacePath;
   const command = grantRoot ? `write under ${grantRoot}` : "apply file changes";
-  const plannerAgentId = deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:planner`;
+  const plannerAgentId = deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`;
   let approvalRequest: BashApprovalRequest = {
     toolUseId: itemId,
     threadId: ecoThreadId,
@@ -499,7 +499,7 @@ async function handlePermissionsRequestApproval(
     reason,
     riskScore: networkRequested ? 75 : 65,
     riskLevel: "high",
-    agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:planner`,
+    agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`,
     description: reason,
     kind: networkRequested ? "network" : "file_change",
     filesystemTool: "PermissionGrant",
@@ -631,7 +631,7 @@ async function handleMcpServerElicitationRequest(
       reason: `Agent 请求调用 MCP 工具 ${serverName}/${toolName}。`,
       riskScore: 60,
       riskLevel: "medium",
-      agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:planner`,
+      agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`,
       description: message.trim() || `调用 MCP 工具 ${serverName}/${toolName}`,
       kind: "mcp",
       ...(mcpToolApproval ? { mcpToolApproval } : {}),
@@ -762,7 +762,7 @@ async function handleMcpServerElicitationRequest(
       reason: `Agent 请求调用 MCP 工具 ${serverName}/${parsedToolName}。`,
       riskScore: 60,
       riskLevel: "medium",
-      agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:planner`,
+      agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`,
       description: message.trim() || `调用 MCP 工具 ${serverName}/${parsedToolName}`,
       kind: "mcp",
       ...(mcpToolApproval ? { mcpToolApproval } : {}),
@@ -808,7 +808,7 @@ async function handleMcpServerElicitationRequest(
       reason: "Agent 请求调用当前启用的创意绘画供应商。",
       riskScore: 50,
       riskLevel: "medium",
-      agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:planner`,
+      agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`,
       description: message.trim() || "创建图片",
       kind: "image_generation",
     };
@@ -957,8 +957,8 @@ async function handleToolRequestUserInput(
   deps.emitThreadLive({
     threadId: ecoThreadId,
     type: "clarification.requested",
-    message: isBlocking ? "Planner 需要你回答几个问题。" : "Codex 需要你回答几个问题（任务可继续）。",
-    role: "planner",
+    message: isBlocking ? "主代理需要你回答几个问题。" : "Codex 需要你回答几个问题（任务可继续）。",
+    role: "main",
     clarification: clarificationRequest,
     tool: buildClarificationToolMetadata(itemId, "started"),
   });
@@ -980,7 +980,7 @@ async function handleToolRequestUserInput(
     threadId: ecoThreadId,
     type: "clarification.answered",
     message: formatClarificationAnswersSummary(mappedClarification.request, answers),
-    role: "planner",
+    role: "main",
     tool: buildClarificationToolMetadata(itemId, "completed"),
   });
   return mapClarificationAnswersToCodexToolResponse(mappedClarification, answers);
@@ -1034,7 +1034,7 @@ function handlePlanItemCompleted(deps: CodexApprovalBridgeDeps, params: Record<s
           threadId: event.threadId,
           type: "thread.awaiting_plan",
           message: event.message,
-          role: "planner",
+          role: "main",
           plan: event.plan,
         });
       },
@@ -1054,7 +1054,7 @@ function handlePlanItemCompleted(deps: CodexApprovalBridgeDeps, params: Record<s
     threadId: ecoThreadId,
     type: "plan_approval.requested",
     message: "计划已提交，等待你确认。",
-    role: "planner",
+    role: "main",
     plan: planPayload,
     planApproval: approvalRequest,
   });

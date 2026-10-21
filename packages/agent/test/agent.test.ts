@@ -22,7 +22,7 @@ const profiles: ModelProfile[] = [
 
 const roleRoutes: AgentRoleRoute[] = [
   {
-    role: "planner",
+    role: "main",
     primaryModelId: "sonnet",
     fallbackModelIds: [],
     requiredCapabilities: ["messages_api"],
@@ -30,7 +30,7 @@ const roleRoutes: AgentRoleRoute[] = [
 ];
 
 test("resolves requested role routes before starting workers", () => {
-  const routes = resolveRoutes(["planner"], roleRoutes, profiles);
+  const routes = resolveRoutes(["main"], roleRoutes, profiles);
   expect(routes[0]?.primary.modelId).toBe("claude-sonnet");
 });
 
@@ -46,7 +46,7 @@ test("starts thread worker in workspace without isolated worktree", async () => 
     title: "Test",
     workspacePath: REPO,
     prompt: "do work",
-    roles: ["planner"],
+    roles: ["main"],
     roleRoutes,
     modelProfiles: profiles,
   });

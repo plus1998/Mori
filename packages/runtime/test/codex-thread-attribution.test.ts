@@ -9,7 +9,7 @@ test("main Codex threads default to planner attribution", () => {
     }),
   ).toEqual({
     ecoThreadId: "thr_eco_main",
-    billingRole: "planner",
+    billingRole: "main",
   });
 });
 

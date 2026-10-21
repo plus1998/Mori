@@ -1,3 +1,4 @@
+import { normalizeAgentRole } from "@eco/shared";
 import type {
   CandidateModelView,
   CommitModelPricingHint,
@@ -120,7 +121,7 @@ export function listCommitMessageCandidateRoutes(
   enabledRoles: ReadonlySet<SubagentRole>,
 ): RuntimeRoleRouteConfig[] {
   return routes.filter(
-    (route) => route.role !== "planner" && isSubagentRole(route.role) && enabledRoles.has(route.role),
+    (route) => route.role !== "main" && isSubagentRole(route.role) && enabledRoles.has(route.role),
   );
 }
 
@@ -173,7 +174,7 @@ export function resolveLegacyCommitMessageCandidateModel(
   if (!savedRole || savedRole === "auto") {
     return undefined;
   }
-  const route = routes.find((entry) => entry.role === savedRole);
+  const route = routes.find((entry) => normalizeAgentRole(entry.role) === normalizeAgentRole(savedRole));
   if (!route) {
     return undefined;
   }

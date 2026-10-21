@@ -30,7 +30,7 @@ const provider = {
 };
 
 const routes = [
-  { role: "planner" as const, provider, modelId: "sonnet", apiCompat: "anthropic" as const },
+  { role: "main" as const, provider, modelId: "sonnet", apiCompat: "anthropic" as const },
   { role: "coder" as const, provider, modelId: "haiku", apiCompat: "anthropic" as const },
 ];
 

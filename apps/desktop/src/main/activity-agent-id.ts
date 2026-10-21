@@ -42,7 +42,7 @@ function readBillingRole(role: string): RuntimeAgentRole | undefined {
 }
 
 function isReservedActivityRole(role: string): boolean {
-  return ["assistant", "main", "planner", "system", "thinking", "tool", "user"].includes(role);
+  return ["assistant", "main", "main", "system", "thinking", "tool", "user"].includes(role);
 }
 
 function readDistinctSubagentSessionId(
@@ -144,7 +144,7 @@ export function activityStreamKey(
   } else if (parentToolUseId?.trim()) {
     key = `${threadId}:parent:${parentToolUseId.trim()}`;
   } else {
-    key = `${threadId}:${role ?? "planner"}`;
+    key = `${threadId}:${role ?? "main"}`;
   }
   // Scope unkeyed narrative streams per Eco run attempt so ACP/PI block
   // generations (message:0) cannot collide across turns in persisted streamKey.

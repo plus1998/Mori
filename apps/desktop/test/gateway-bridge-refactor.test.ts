@@ -336,7 +336,7 @@ describe("1B: 辅助 HTTP 只打 Bridge，不直连 provider baseUrl", () => {
       stream: unknown;
     }> = [];
     const route: AnthropicProxyRoute = {
-      role: "planner",
+      role: "main",
       provider: providerSecret({ baseUrl: providerBase }),
       modelId: "real-model",
       apiCompat: "anthropic",
@@ -386,7 +386,7 @@ describe("1B: 辅助 HTTP 只打 Bridge，不直连 provider baseUrl", () => {
   test("H3 ChatGPT 订阅辅助请求使用 stream:true", async () => {
     let seenBody: Record<string, unknown> | undefined;
     const route: AnthropicProxyRoute = {
-      role: "planner",
+      role: "main",
       provider: providerSecret({
         baseUrl: "https://api.openai.com",
         authMethod: "chatgpt_subscription",
@@ -494,7 +494,7 @@ describe("4A: Anthropic 精确 count 走内嵌 Gateway", () => {
     });
     const proxy = await startAnthropicModelProxy([
       {
-        role: "planner",
+        role: "main",
         provider: providerSecret({ baseUrl, tokenCountMode: "anthropic_messages" }),
         modelId: "real-model",
       },

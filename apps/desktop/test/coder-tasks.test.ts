@@ -62,7 +62,7 @@ test("rehydrates tasks from planner activity lines", () => {
   const tasks = extractCoderTasksFromActivity([
     { role: "tool", message: "Tool: Read · foo.ts" },
     {
-      role: "planner",
+      role: "main",
       message: "## Coder Tasks\n1. title: Wire IPC\n   scope: preload",
     },
   ]);

@@ -1096,7 +1096,7 @@ function handleItemCompleted(ctx: AdapterContext, params: Record<string, unknown
       codexThreadId,
       turnId,
       itemId,
-      role: "planner",
+      role: "main",
       message: "计划已生成，等待确认。",
       streamState: "finalized",
       metadata: {

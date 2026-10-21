@@ -240,7 +240,7 @@ export function getPiCodingAgentDriver(ecoDataDir: string): PiCodingAgentDriver 
         const selectedRole = role?.trim();
         const bindingRoute = selectedRole
           ? armed.binding.routes.find((entry) => entry.role === selectedRole)
-          : (armed.binding.routes.find((entry) => entry.role === "planner") ?? armed.binding.routes[0]);
+          : (armed.binding.routes.find((entry) => entry.role === "main") ?? armed.binding.routes[0]);
         if (!bindingRoute) {
           throw new Error(
             selectedRole
@@ -378,7 +378,7 @@ export async function startPiThreadRun(
             resolvePiSkipExecutionApprovals(bashReviewMode),
           );
           const enabledSubagents = listEnabledPiSubagents(input.agentRegistry);
-          const plannerRoute = config.routes.find((route) => route.role === "planner");
+          const plannerRoute = config.routes.find((route) => route.role === "main");
           const integratedWebSearch = deps.getIntegratedWebSearchRuntime();
           const webSearchSession = buildPiWebSearchSessionFields({
             ...(plannerRoute?.manualSpec ? { plannerManualSpec: plannerRoute.manualSpec } : {}),

@@ -13,7 +13,7 @@ function codingRouteProfile(): RouteProfileView {
     id: "coding-default",
     name: "默认编程",
     routes: [
-      { role: "planner", providerId: "p1", modelId: "planner-model", thinkingEffort: "high" },
+      { role: "main", providerId: "p1", modelId: "planner-model", thinkingEffort: "high" },
       { role: "explore", providerId: "p1", modelId: "explore-model" },
       { role: "architect", providerId: "p1", modelId: "architect-model" },
       { role: "coder", providerId: "p1", modelId: "coder-model" },

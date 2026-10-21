@@ -104,7 +104,7 @@ test.skipIf(process.env.ECO_CLAUDE_NATIVE_SMOKE !== "1")(
         workspacePath: workspace,
         worktreePath: workspace,
         routes: [
-          { role: "planner", primary: { provider: "anthropic", modelId: "claude-sonnet-4-20250514" } },
+          { role: "main", primary: { provider: "anthropic", modelId: "claude-sonnet-4-20250514" } },
         ],
         signal: controller.signal,
       })) {
@@ -385,7 +385,7 @@ test.skipIf(process.env.ECO_CLAUDE_NATIVE_SMOKE !== "1")(
           worktreePath: workspace,
           routes: [
             {
-              role: "planner",
+              role: "main",
               primary: { provider: "anthropic", modelId: "claude-sonnet-4-20250514", contextWindow: 200_000 },
             },
           ],
@@ -553,7 +553,7 @@ test.skipIf(process.env.ECO_CLAUDE_NATIVE_SMOKE !== "1")(
           worktreePath: workspace,
           routes: [
             {
-              role: "planner",
+              role: "main",
               primary: { provider: "anthropic", modelId: "claude-sonnet-4-20250514", contextWindow: 200_000 },
             },
           ],

@@ -12,7 +12,7 @@ const pendingPlan: ThreadPendingPlanInternal = {
   plan: "1. Capture usage\n2. Project billing",
   workspacePath: "/repo",
   worktreePath: "/repo/.worktrees/thr_plan",
-  routesJson: '{"planner":"sonnet"}',
+  routesJson: '{"main":"sonnet"}',
 };
 
 test("buildThreadPendingPlanView returns undefined without a pending plan", () => {

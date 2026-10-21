@@ -83,7 +83,7 @@ describe("resolveClaudeSessionUsageRoute", () => {
 
   const routes: AnthropicProxyResolvedRoute[] = [
     {
-      role: "planner",
+      role: "main",
       provider,
       modelId: "model-a",
       aliasModelId: "eco-planner-aaaaaaaaaaaa",
@@ -97,7 +97,7 @@ describe("resolveClaudeSessionUsageRoute", () => {
       requestedModel: "eco-planner-aaaaaaaaaaaa",
       upstreamModelId: "model-a",
     });
-    expect(route?.role).toBe("planner");
+    expect(route?.role).toBe("main");
   });
 
   test("matches by provider + upstream when alias already rewritten", () => {

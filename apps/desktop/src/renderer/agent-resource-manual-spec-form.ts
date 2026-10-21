@@ -263,7 +263,7 @@ export function mergeEffectiveCapabilityHint(
     countManualCapabilityOverrides(manualSpec) > 0 || auto?.capabilitiesResolved === true;
 
   return {
-    role: auto?.role ?? ("planner" as const),
+    role: auto?.role ?? ("main" as const),
     modelId: auto?.modelId ?? "",
     providerName: auto?.providerName ?? "",
     supportsImageInput,
@@ -321,7 +321,7 @@ export function mergeEffectivePricingHint(
   }
 
   return {
-    role: auto?.role ?? ("planner" as const),
+    role: auto?.role ?? ("main" as const),
     modelId: auto?.modelId ?? "",
     providerName: auto?.providerName ?? "",
     ...(rates && {

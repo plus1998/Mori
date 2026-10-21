@@ -236,9 +236,9 @@ describe("thread feed skeleton store", () => {
       [
         {
           threadId: "thr_1",
-          agentId: "planner:attempt_execution_0",
-          role: "planner",
-          kind: "planner",
+          agentId: "main:attempt_execution_0",
+          role: "main",
+          kind: "main",
           status: "stopped",
           startedAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:00:00.000Z",
@@ -249,8 +249,8 @@ describe("thread feed skeleton store", () => {
 
     expect(healed).toHaveLength(1);
     expect(healed[0]).toMatchObject({
-      agentId: "planner:attempt_execution_0",
-      kind: "planner",
+      agentId: "main:attempt_execution_0",
+      kind: "main",
       timeline: [],
     });
   });

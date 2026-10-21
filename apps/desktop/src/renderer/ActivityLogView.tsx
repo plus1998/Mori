@@ -1,3 +1,4 @@
+import { isMainAgentRole, normalizeAgentRole } from "@eco/shared";
 import { ReadAloudButton, useReadAloudAutoRead } from "./ReadAloud";
 import { isSubagentMissionEnvelope, resolveMissionDisplayText } from "@eco/runtime/agent-mission";
 import { isSkillActivityLabel } from "@eco/runtime/skill-display";
@@ -725,11 +726,11 @@ function conversationV2MessageToTimelineItem(
             ? "message.delta"
             : "message.final",
     scope: "main",
-    // The Feed asks the row's role who wrote it (`role === "planner"` marks a turn's
+    // The Feed asks the row's role who wrote it (`role === "main"` marks a turn's
     // final output) and normalizing it to the channel role left V2 unable to answer.
     // The provider's own label is carried on the row; the channel role is the fallback
     // for rows written before it was recorded.
-    role: message.providerRole?.trim() || (isThinking ? "thinking" : message.role),
+    role: normalizeAgentRole(message.providerRole?.trim() || (isThinking ? "thinking" : message.role)),
     ...(agentId ? { agentId } : {}),
     ...(message.runId ? { runAttemptId: message.runId } : {}),
     streamKey: message.messageId,
@@ -1041,7 +1042,7 @@ export function buildConversationV2OnlyProjection(
     agents.push({
       agentId,
       role: record.role,
-      kind: record.kind === "planner" ? "planner" : "subagent",
+      kind: isMainAgentRole(record.kind) ? "main" : "subagent",
       status: agentProjectionStatus(record.status),
       startedAt,
       durationMs,

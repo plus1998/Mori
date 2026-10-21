@@ -37,7 +37,7 @@ test("prefers planner display while retaining subagent role snapshots", async ()
   await monitor.updateFromUsage(
     "t1",
     { inputTokens: 500_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
-    { role: "planner" },
+    { role: "main" },
   );
   await monitor.updateFromUsage(
     "t1",
@@ -46,8 +46,8 @@ test("prefers planner display while retaining subagent role snapshots", async ()
   );
   const snapshot = monitor.getSnapshot("t1");
   expect(snapshot?.occupied).toBe(500_000);
-  expect(snapshot?.displayRole).toBe("planner");
-  expect(snapshot?.roles.map((role) => role.role)).toEqual(["planner", "coder"]);
+  expect(snapshot?.displayRole).toBe("main");
+  expect(snapshot?.roles.map((role) => role.role)).toEqual(["main", "coder"]);
   expect(snapshot?.roles.find((role) => role.role === "coder")?.occupied).toBe(80_000);
 });
 
@@ -56,7 +56,7 @@ test("tracks dynamic orchestration context roles and instances", async () => {
   await monitor.updateFromUsage(
     "t1",
     { inputTokens: 40_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
-    { role: "planner" },
+    { role: "main" },
   );
   await monitor.updateFromUsage(
     "t1",
@@ -70,8 +70,8 @@ test("tracks dynamic orchestration context roles and instances", async () => {
   );
 
   const snapshot = monitor.getSnapshot("t1");
-  expect(snapshot?.displayRole).toBe("planner");
-  expect(snapshot?.roles.map((role) => role.role)).toEqual(["planner", "researcher"]);
+  expect(snapshot?.displayRole).toBe("main");
+  expect(snapshot?.roles.map((role) => role.role)).toEqual(["main", "researcher"]);
   expect(snapshot?.roles.find((role) => role.role === "researcher")?.occupied).toBe(60_000);
   expect(snapshot?.instances?.[0]).toMatchObject({
     agentId: "source-agent-1",
@@ -85,7 +85,7 @@ test("resolves context limits per role model", async () => {
   await monitor.updateFromUsage(
     "t1",
     { inputTokens: 20_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
-    { role: "planner", modelId: "planner-model", providerBaseUrl: "https://api.example" },
+    { role: "main", modelId: "planner-model", providerBaseUrl: "https://api.example" },
   );
   await monitor.updateFromUsage(
     "t1",
@@ -93,7 +93,7 @@ test("resolves context limits per role model", async () => {
     { role: "coder", modelId: "coder-model", providerBaseUrl: "https://api.example" },
   );
   const snapshot = monitor.getSnapshot("t1");
-  expect(snapshot?.roles.find((role) => role.role === "planner")?.limit).toBe(100_000);
+  expect(snapshot?.roles.find((role) => role.role === "main")?.limit).toBe(100_000);
   expect(snapshot?.roles.find((role) => role.role === "coder")?.limit).toBe(40_000);
 });
 
@@ -103,12 +103,12 @@ test("caps resolved and SDK-reported context windows with the global limit", asy
   await monitor.updateFromUsage(
     "t1",
     { inputTokens: 20_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
-    { role: "planner", modelId: "large-model", providerBaseUrl: "https://api.example" },
+    { role: "main", modelId: "large-model", providerBaseUrl: "https://api.example" },
   );
   expect(monitor.getSnapshot("t1")?.limit).toBe(262_144);
 
   globalLimit = 131_072;
-  await monitor.updateOccupied("t1", "planner", 30_000, { limit: 1_048_576 });
+  await monitor.updateOccupied("t1", "main", 30_000, { limit: 1_048_576 });
   expect(monitor.getSnapshot("t1")?.limit).toBe(131_072);
 });
 
@@ -118,7 +118,7 @@ test("does not let a lower Codex catalog window overwrite models.dev limits", as
     "t1",
     { inputTokens: 20_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
     {
-      role: "planner",
+      role: "main",
       modelId: "gpt-5.6-luna",
       providerBaseUrl: "https://api.example",
     },
@@ -126,7 +126,7 @@ test("does not let a lower Codex catalog window overwrite models.dev limits", as
   expect(monitor.getSnapshot("t1")?.limit).toBe(262_144);
 
   // Codex unknown-model catalog default (128k) * effective percent ≈ 121600
-  await monitor.updateOccupied("t1", "planner", 13_157, { limit: 121_600 });
+  await monitor.updateOccupied("t1", "main", 13_157, { limit: 121_600 });
   expect(monitor.getSnapshot("t1")?.limit).toBe(262_144);
   expect(monitor.getSnapshot("t1")?.occupied).toBe(13_157);
 });
@@ -136,7 +136,7 @@ test("preserves a model window smaller than the global limit", async () => {
   await monitor.updateFromUsage(
     "t1",
     { inputTokens: 20_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
-    { role: "planner", modelId: "small-model", providerBaseUrl: "https://api.example" },
+    { role: "main", modelId: "small-model", providerBaseUrl: "https://api.example" },
   );
   expect(monitor.getSnapshot("t1")?.limit).toBe(128_000);
 });
@@ -146,7 +146,7 @@ test("clearSubagentRoles preserves planner and drops stale child windows", async
   await monitor.updateFromUsage(
     "t1",
     { inputTokens: 10_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
-    { role: "planner" },
+    { role: "main" },
   );
   await monitor.updateFromUsage(
     "t1",
@@ -161,7 +161,7 @@ test("clearSubagentRoles preserves planner and drops stale child windows", async
 
   const snapshot = monitor.clearSubagentRoles("t1");
 
-  expect(snapshot?.roles.map((role) => role.role)).toEqual(["planner"]);
+  expect(snapshot?.roles.map((role) => role.role)).toEqual(["main"]);
   expect(snapshot?.occupied).toBe(10_000);
   expect(snapshot?.instances).toEqual([]);
 });
@@ -173,11 +173,11 @@ test("restores multi-role context snapshots", () => {
     limit: 100_000,
     occupancyPct: 10,
     limitsResolved: true,
-    displayRole: "planner",
+    displayRole: "main",
     segments: [],
     roles: [
       {
-        role: "planner",
+        role: "main",
         occupied: 10_000,
         limit: 100_000,
         occupancyPct: 10,
@@ -210,7 +210,7 @@ test("restores multi-role context snapshots", () => {
     updatedAt: Date.now(),
   });
   const snapshot = monitor.getSnapshot("t1");
-  expect(snapshot?.displayRole).toBe("planner");
+  expect(snapshot?.displayRole).toBe("main");
   expect(snapshot?.roles.find((role) => role.role === "coder")?.modelId).toBe("coder-model");
   expect(snapshot?.instances?.[0]?.agentId).toBe("coder-agent-1");
 });
@@ -287,10 +287,10 @@ test("updateOccupied sets planner occupancy from /context header", async () => {
   await monitor.updateFromUsage(
     "t1",
     { inputTokens: 36_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
-    { role: "planner", modelId: "planner-model", providerBaseUrl: "https://api.example" },
+    { role: "main", modelId: "planner-model", providerBaseUrl: "https://api.example" },
   );
-  await monitor.updateOccupied("t1", "planner", 76_000);
-  expect(monitor.getSnapshot("t1")?.roles.find((role) => role.role === "planner")?.occupied).toBe(76_000);
+  await monitor.updateOccupied("t1", "main", 76_000);
+  expect(monitor.getSnapshot("t1")?.roles.find((role) => role.role === "main")?.occupied).toBe(76_000);
 });
 
 test("updateOccupied can restore subagent instance occupancy by agentId", async () => {

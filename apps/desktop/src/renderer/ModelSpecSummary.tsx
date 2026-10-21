@@ -59,7 +59,7 @@ export function candidateCapabilityHint(
     return undefined;
   }
   return {
-    role: "planner",
+    role: "main",
     providerName: "",
     modelId: candidate.modelId,
     supportsImageInput: candidate.resolvedSupportsImageInput ?? false,
@@ -111,7 +111,7 @@ export function candidatePricingHint(
     }),
   };
   return {
-    role: "planner",
+    role: "main",
     providerName: "",
     modelId: candidate.modelId,
     rates,

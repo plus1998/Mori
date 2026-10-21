@@ -105,7 +105,7 @@ test("resolveAgentId maps parent tool_use_id even when event role is planner", (
   });
   expect(
     registry.resolveAgentId(threadId, {
-      role: "planner",
+      role: "main",
       parentToolUseId: "toolu_task_2",
     }),
   ).toBe("agent_explore_b");
@@ -186,10 +186,10 @@ test("resolveAgentId does not match queued parent tool_use ids by role", () => {
   registry.onSubagentStart(threadId, { agentId: "agent_explore_a", role: "explore" });
 
   expect(
-    registry.resolveAgentId(threadId, { role: "planner", parentToolUseId: "toolu_task_coder" }),
+    registry.resolveAgentId(threadId, { role: "main", parentToolUseId: "toolu_task_coder" }),
   ).toBeUndefined();
   expect(
-    registry.resolveAgentId(threadId, { role: "planner", parentToolUseId: "toolu_task_explore" }),
+    registry.resolveAgentId(threadId, { role: "main", parentToolUseId: "toolu_task_explore" }),
   ).toBeUndefined();
 });
 

@@ -2185,7 +2185,7 @@ test("ignores self-parent subAgentActivity so planner thinking stays on main sco
         }
         return {
           ecoThreadId: ECO_THREAD,
-          billingRole: "planner",
+          billingRole: "main",
         };
       },
     });
@@ -2905,7 +2905,7 @@ test("dispatch maps plan item completed to thread.status plan.ready", () => {
 
   expect(events).toHaveLength(1);
   expect(events[0]?.eventType).toBe("thread.status");
-  expect(events[0]?.role).toBe("planner");
+  expect(events[0]?.role).toBe("main");
   expect(events[0]?.message).toBe("计划已生成，等待确认。");
   expect(events[0]?.metadata?.liveType).toBe("plan.ready");
   expect(events[0]?.metadata?.plan).toEqual({

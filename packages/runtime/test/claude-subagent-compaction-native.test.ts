@@ -145,7 +145,7 @@ test.skipIf(process.env.ECO_CLAUDE_NATIVE_SMOKE !== "1")(
       },
     });
     const routes: ResolvedModelRoute[] = [
-      ["planner", 1_000_000],
+      ["main", 1_000_000],
       ["small", 128_000],
       ["large", 200_000],
     ].map(([role, contextWindow]) => ({
@@ -155,7 +155,7 @@ test.skipIf(process.env.ECO_CLAUDE_NATIVE_SMOKE !== "1")(
         provider: "custom",
         displayName: String(role),
         baseUrl: server.url.origin,
-        modelId: role === "planner" ? "eco-parent[1m]" : `eco-${role}`,
+        modelId: role === "main" ? "eco-parent[1m]" : `eco-${role}`,
         capabilities: ["messages_api"],
         enabled: true,
         contextWindow: Number(contextWindow),

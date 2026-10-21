@@ -523,7 +523,7 @@ export class SdkStreamActivityBridge {
       const previousStreamKey = activityStreamKey(
         input.threadId,
         input.activityAgentId,
-        current.channel === "thinking" ? "thinking" : "planner",
+        current.channel === "thinking" ? "thinking" : "main",
         input.parentToolUseId,
         `${current.channel}:${current.generation}`,
         input.runAttemptId,
@@ -544,7 +544,7 @@ export class SdkStreamActivityBridge {
   }): string[] {
     return [
       ...new Set(
-        (["thinking", "planner"] as const).map((role) =>
+        (["thinking", "main"] as const).map((role) =>
           activityStreamKey(
             input.threadId,
             input.activityAgentId,

@@ -42,7 +42,7 @@ test("resolveActivityAgentId omits ACP root-turn UUIDs when coreKind is acp", ()
       "thr_acp",
       {
         type: "message.delta",
-        role: "planner",
+        role: "main",
         agentId: "e5c5801d-e0ad-495c-abc3-fdf0fd4645e5",
         payload: { type: "eco_stream", text: "hello" },
       },
@@ -79,7 +79,7 @@ test("resolveActivityAgentId falls back to parent tool use mapping", () => {
     "thr_1",
     {
       type: "message.delta",
-      role: "planner",
+      role: "main",
       agentId: "session_planner",
       payload: {
         type: "eco_stream",
@@ -99,7 +99,7 @@ test("resolveActivityAgentId falls back to parent tool use mapping", () => {
   expect(
     inferActivityRole({
       type: "message.delta",
-      role: "planner",
+      role: "main",
       payload: {
         type: "eco_stream",
         blockKind: "text",
@@ -112,12 +112,12 @@ test("resolveActivityAgentId falls back to parent tool use mapping", () => {
 test("activityStreamKey isolates parallel subagent streams", () => {
   expect(activityStreamKey("thr_1", "agent_a", "coder")).toBe("thr_1:agent_a");
   expect(activityStreamKey("thr_1", undefined, "coder", "toolu_parent")).toBe("thr_1:parent:toolu_parent");
-  expect(activityStreamKey("thr_1", undefined, "planner")).toBe("thr_1:planner");
+  expect(activityStreamKey("thr_1", undefined, "main")).toBe("thr_1:main");
   expect(activityStreamKey("thr_1", "agent_a", "coder", undefined, "text:2")).toBe(
     "thr_1:agent_a:block:text:2",
   );
-  expect(activityStreamKey("thr_1", undefined, "planner", undefined, "message:0", "attempt_1")).toBe(
-    "thr_1:planner:attempt:attempt_1:block:message:0",
+  expect(activityStreamKey("thr_1", undefined, "main", undefined, "message:0", "attempt_1")).toBe(
+    "thr_1:main:attempt:attempt_1:block:message:0",
   );
 });
 

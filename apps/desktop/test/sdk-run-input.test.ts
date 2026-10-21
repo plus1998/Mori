@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { ResolvedModelRoute } from "@eco/model-router";
 import { buildSdkRunInput, sdkRunPhaseFromMode } from "../src/main/sdk-run-input";
 
-function route(role: ResolvedModelRoute["role"] = "planner"): ResolvedModelRoute {
+function route(role: ResolvedModelRoute["role"] = "main"): ResolvedModelRoute {
   return {
     role,
     primary: {
@@ -19,7 +19,7 @@ function route(role: ResolvedModelRoute["role"] = "planner"): ResolvedModelRoute
 }
 
 test("buildSdkRunInput keeps required SDK driver fields", () => {
-  const routes = [route("planner")];
+  const routes = [route("main")];
   const signal = new AbortController().signal;
 
   const input = buildSdkRunInput({

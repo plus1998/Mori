@@ -217,7 +217,7 @@ class ConversationV2Message {
   /// place a message between the two tools of its own turn.
   final String? occurredAt;
 
-  /// The provider's own label for the row (`planner`, `coder`, ...), kept separate from
+  /// The provider's own label for the row (`main`, `coder`, ...), kept separate from
   /// [role]. `role` is the normalized channel role; this is the fact the Feed uses to
   /// pick a turn's final output.
   final String? providerRole;

@@ -39,7 +39,7 @@ const provider: ProviderConfigSecret = {
 };
 
 const routes: RuntimeRoute[] = [
-  { role: "planner", provider, modelId: "sonnet", apiCompat: "anthropic" },
+  { role: "main", provider, modelId: "sonnet", apiCompat: "anthropic" },
   { role: "coder", provider, modelId: "haiku", apiCompat: "anthropic" },
 ];
 
@@ -104,12 +104,12 @@ test("recordLegacySingleUsageBilling does not let a vision-only proxy source rep
 
   const mainArtifacts = await resolveSingleUsageBillingArtifacts({
     threadId: "thr_legacy_vision",
-    role: "planner",
+    role: "main",
     source: "sdk",
     usage: usage(403),
     runtimeRoutes: routes,
     lookupPricing,
-    requestKey: "sdk:planner:req_1",
+    requestKey: "sdk:main:req_1",
   });
   const result = recordLegacySingleUsageBilling(accumulator, {
     threadId: "thr_legacy_vision",
@@ -162,12 +162,12 @@ test("recordLegacySingleUsageBilling skips synthetic SDK primary outside subagen
   const accumulator = new ThreadUsageAccumulator();
   const artifacts = await resolveSingleUsageBillingArtifacts({
     threadId: "thr_legacy_no_fill",
-    role: "planner",
+    role: "main",
     source: "proxy",
     usage: usage(2_000),
     runtimeRoutes: routes,
     lookupPricing,
-    requestKey: "proxy:planner:req_1",
+    requestKey: "proxy:main:req_1",
   });
 
   const result = recordLegacySingleUsageBilling(accumulator, {
@@ -205,7 +205,7 @@ test("resolveSyntheticSdkPrimaryFill reports audit-friendly skip reasons", () =>
   expect(
     resolveSyntheticSdkPrimaryFill({
       requested: true,
-      role: "planner",
+      role: "main",
       hasAgent: true,
       alreadySeen: false,
     }),

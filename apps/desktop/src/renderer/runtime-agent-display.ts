@@ -14,7 +14,7 @@ export function buildRuntimeAgentDisplayNames(
   }
   const names: RuntimeAgentDisplayNames = {};
   addAgentDisplayName(names, "main", summary.main.name);
-  addAgentDisplayName(names, "planner", summary.main.name);
+  addAgentDisplayName(names, "main", summary.main.name);
   for (const agent of summary.agents) {
     addAgentDisplayName(names, agent.agentKey, agent.name);
   }

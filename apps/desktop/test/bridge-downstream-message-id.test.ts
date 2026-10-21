@@ -70,7 +70,7 @@ test("proxy billing writes downstream message id into sdkMessageId input", () =>
   const resolved = resolveProxyUsageBilling({
     info: {
       threadId: "thread_1",
-      role: "planner",
+      role: "main",
       providerId: "provider_1",
       providerName: "Provider",
       providerBaseUrl: "https://api.example.com",

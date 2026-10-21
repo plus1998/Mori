@@ -2549,7 +2549,7 @@ test("seeds the agent registry from legacy instances and keeps it readable", () 
       (thread_id, agent_id, role, kind, status, run_attempt_id, parent_agent_id,
        parent_tool_use_id, mission_key, todo_id, started_at, ended_at)
       VALUES ('thr_seed', 'coder_a', 'coder', 'subagent', 'stopped', 'attempt_1',
-              'planner:attempt_1', 'toolu_a', 'api', NULL,
+              'main:attempt_1', 'toolu_a', 'api', NULL,
               '2026-01-01T00:00:01.000Z', '2026-01-01T00:00:04.000Z');
     -- The card's own text: the provider's task name and the delegation it was handed.
     -- Both only ever lived on this row outside the registry.
@@ -2576,7 +2576,7 @@ test("seeds the agent registry from legacy instances and keeps it readable", () 
       kind: "subagent",
       status: "stopped",
       runId: "attempt_1",
-      parentAgentInstanceId: "planner:attempt_1",
+      parentAgentInstanceId: "main:attempt_1",
       parentToolCallId: "toolu_a",
       startedAt: "2026-01-01T00:00:01.000Z",
       endedAt: "2026-01-01T00:00:04.000Z",

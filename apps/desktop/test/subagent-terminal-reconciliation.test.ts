@@ -287,7 +287,7 @@ test.skipIf(!sqliteAvailable)(
       threadId: "thr_terminal_feed",
       eventType: "message.final",
       scope: "main",
-      role: "planner",
+      role: "main",
       streamState: "finalized",
       message: "Other",
       metadata: { sdkMessageId: "msg_other" },
@@ -351,7 +351,7 @@ test.skipIf(!sqliteAvailable)(
     });
     expect(events.find((event) => event.id === "tre:feed:other")).toMatchObject({
       scope: "main",
-      role: "planner",
+      role: "main",
     });
   },
 );

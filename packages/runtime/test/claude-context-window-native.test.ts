@@ -98,7 +98,7 @@ test.skipIf(process.env.ECO_CLAUDE_NATIVE_SMOKE !== "1")(
             worktreePath: workspace,
             routes: [
               {
-                role: "planner",
+                role: "main",
                 primary: {
                   id: "custom",
                   provider: "custom",

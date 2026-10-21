@@ -322,6 +322,7 @@ import {
   resolveComposerAfterFollowUpEdit,
 } from "./composer-follow-up-edit-draft";
 import { buildComposerGlobalRuntimeConfig } from "./composer-global-runtime-config";
+import { buildEffectiveComposerRuntimeConfig } from "./composer-runtime-config";
 import {
   composerRequiresOrchestration,
   composerShowsRouteConfig,
@@ -5092,19 +5093,19 @@ function App() {
   );
   const effectiveComposerRuntimeConfig = useMemo(
     () =>
-      composerRuntimeConfig
-        ? {
-            ...composerRuntimeConfig,
-            ...(Object.keys(composerSkillsEnabled).length > 0
-              ? { skillsEnabled: composerSkillsEnabled }
-              : {}),
-            ...(Object.keys(composerMcpSettings).length > 0
-              ? { mcpServersEnabled: composerMcpSettings }
-              : {}),
-            integrationsEnabled: composerIntegrationSettings,
-          }
-        : null,
-    [composerRuntimeConfig, composerIntegrationSettings, composerMcpSettings, composerSkillsEnabled],
+      buildEffectiveComposerRuntimeConfig(composerRuntimeConfig, {
+        hasThread: Boolean(activeThread),
+        skillsEnabled: composerSkillsEnabled,
+        mcpServersEnabled: composerMcpSettings,
+        integrationsEnabled: composerIntegrationSettings,
+      }),
+    [
+      activeThread?.id,
+      composerRuntimeConfig,
+      composerIntegrationSettings,
+      composerMcpSettings,
+      composerSkillsEnabled,
+    ],
   );
   const resolveComposerRuntimeConfigForSend = useCallback((): ThreadRuntimeConfig | null => {
     const base = effectiveComposerRuntimeConfig ?? composerRuntimeConfig;
@@ -5213,7 +5214,7 @@ function App() {
       return undefined;
     }
     const route = runtimeRoleRoutesFromOrchestrationSnapshot(selectedOrchestrationSnapshot).find(
-      (candidate) => candidate.role === "planner",
+      (candidate) => candidate.role === "main",
     );
     if (!route) {
       return undefined;
@@ -5308,7 +5309,7 @@ function App() {
       return;
     }
     void window.eco.getRouteCapabilities(activeRoutes).then((hints) => {
-      setPlannerCapability(hints.find((hint) => hint.role === "planner"));
+      setPlannerCapability(hints.find((hint) => hint.role === "main"));
     });
   }, [activeRoutes, settings.providers]);
   const providerById = useMemo(
@@ -9584,15 +9585,19 @@ function App() {
   async function persistComposerRuntimeConfig(
     next: ThreadRuntimeConfig,
     options?: { persistWhileRunning?: boolean },
-  ): Promise<void> {
-    setComposerRuntimeConfig(next);
-    if (!activeThread || !window.eco) {
-      return;
+  ): Promise<boolean> {
+    if (!activeThread) {
+      setComposerRuntimeConfig(next);
+      return true;
+    }
+    if (!window.eco) {
+      setError("当前会话配置保存不可用。");
+      return false;
     }
     const isRunning = activeThread.status === "running" || activeThread.status === "queued";
     const canPersist = canEditComposerConfig || (options?.persistWhileRunning === true && isRunning);
     if (!canPersist) {
-      return;
+      return false;
     }
     setIsSavingSettings(true);
     setError(undefined);
@@ -9605,8 +9610,10 @@ function App() {
       setThreads((current) =>
         current.map((thread) => (thread.id === result.thread.id ? result.thread : thread)),
       );
+      return true;
     } catch (caught) {
       setError(errorMessage(caught));
+      return false;
     } finally {
       setIsSavingSettings(false);
     }
@@ -9877,7 +9884,7 @@ function App() {
       ...composerRuntimeConfig,
       mcpServersEnabled: nextMcpServersEnabled,
     };
-    await persistComposerRuntimeConfig(next, { persistWhileRunning: true });
+    if (!(await persistComposerRuntimeConfig(next, { persistWhileRunning: true }))) return;
     if (!window.eco) {
       return;
     }
@@ -9895,10 +9902,11 @@ function App() {
   async function toggleComposerIntegration(integrationId: IntegrationId, enabled: boolean) {
     if (!composerRuntimeConfig || !currentProjectPath || !window.eco) return;
     const nextEnabled = { ...composerIntegrationSettings, [integrationId]: enabled };
-    await persistComposerRuntimeConfig(
+    const persisted = await persistComposerRuntimeConfig(
       { ...composerRuntimeConfig, integrationsEnabled: nextEnabled },
       { persistWhileRunning: true },
     );
+    if (!persisted) return;
     try {
       const saved = await window.eco.saveProjectIntegrationsSettings({
         workspacePath: currentProjectPath,
@@ -9913,10 +9921,11 @@ function App() {
   async function toggleComposerSkill(settingsKey: string, enabled: boolean) {
     if (!composerRuntimeConfig || !currentProjectPath) return;
     const nextSkillsEnabled = { ...composerSkillsEnabled, [settingsKey]: enabled };
-    await persistComposerRuntimeConfig(
+    const persisted = await persistComposerRuntimeConfig(
       { ...composerRuntimeConfig, skillsEnabled: nextSkillsEnabled },
       { persistWhileRunning: true },
     );
+    if (!persisted) return;
     if (!window.eco) return;
     try {
       const saved = await window.eco.saveProjectSkillsSettings({
@@ -9934,7 +9943,7 @@ function App() {
       return;
     }
     const next: ThreadRuntimeConfig = withSessionMode(composerRuntimeConfig, sessionMode);
-    await persistComposerRuntimeConfig(next);
+    if (!(await persistComposerRuntimeConfig(next))) return;
     if (!window.eco?.saveWorkflowSettings) {
       return;
     }

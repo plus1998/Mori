@@ -1,3 +1,4 @@
+import { isMainAgentRole } from "@eco/shared";
 import {
   isSubagentMissionEnvelope,
   parseSubagentMissionMessage,
@@ -1792,7 +1793,7 @@ function timelineLookup(timeline: readonly ThreadRunProjectionTimelineItem[]): T
     lookup.thinkingBoundaryCounts[index + 1] =
       lookup.thinkingBoundaryCounts[index]! + Number(user || tool || final);
     if (user) userBoundary = index;
-    if (user || item.eventType === "thinking.final" || (item.eventType === "message.final" && item.role === "planner"))
+    if (user || item.eventType === "thinking.final" || (item.eventType === "message.final" && isMainAgentRole(item.role)))
       turnBoundary = index;
     if (final && isExplicitStreamBlockItem(item)) {
       const key = JSON.stringify([item.eventType, item.text.trim()]);
@@ -2616,7 +2617,7 @@ function resolveExpectedStreamRequestRole(item: ThreadRunProjectionTimelineItem)
     item.eventType === "thinking.delta" ||
     item.eventType === "thinking.final"
   ) {
-    return "planner";
+    return "main";
   }
   const role = item.role?.trim();
   if (!role || role === "tool" || role === "system" || role === "user") {
@@ -2711,10 +2712,10 @@ function resolveNearestPlannerRequestId(
     if (!requestId) {
       continue;
     }
-    if (entry.eventType === "request.started" && entry.role === "planner") {
+    if (entry.eventType === "request.started" && isMainAgentRole(entry.role)) {
       return requestId;
     }
-    if (entry.role === "planner" && requestSpansById?.has(requestId)) {
+    if (isMainAgentRole(entry.role) && requestSpansById?.has(requestId)) {
       return requestId;
     }
   }
@@ -2727,10 +2728,10 @@ function resolveNearestPlannerRequestId(
     if (!requestId) {
       continue;
     }
-    if (entry.eventType === "request.started" && entry.role === "planner") {
+    if (entry.eventType === "request.started" && isMainAgentRole(entry.role)) {
       return requestId;
     }
-    if (entry.role === "planner" && requestSpansById?.has(requestId)) {
+    if (isMainAgentRole(entry.role) && requestSpansById?.has(requestId)) {
       return requestId;
     }
   }

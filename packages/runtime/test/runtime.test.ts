@@ -10,7 +10,7 @@ const request: ThreadStartRequest = {
   prompt: "do work",
   routes: [
     {
-      role: "planner",
+      role: "main",
       primary: {
         id: "sonnet",
         provider: "anthropic",
@@ -37,8 +37,8 @@ test("runs one worker per thread and stores emitted events", async () => {
       yield createAgentEvent({
         id: "evt_agent",
         threadId: "thr_1",
-        agentId: "planner",
-        role: "planner",
+        agentId: "main",
+        role: "main",
         type: "agent.started",
         payload: {},
       });
@@ -65,8 +65,8 @@ test("cancels a running thread through the abort signal", async () => {
       yield createAgentEvent({
         id: "evt_waiting",
         threadId: "thr_1",
-        agentId: "planner",
-        role: "planner",
+        agentId: "main",
+        role: "main",
         type: "agent.started",
         payload: {},
       });
@@ -83,5 +83,5 @@ test("cancels a running thread through the abort signal", async () => {
 });
 
 test("builds model map for Claude Agent SDK role prompts", () => {
-  expect(buildRoleModelMap(request.routes)).toEqual({ planner: "claude-sonnet" });
+  expect(buildRoleModelMap(request.routes)).toEqual({ main: "claude-sonnet" });
 });

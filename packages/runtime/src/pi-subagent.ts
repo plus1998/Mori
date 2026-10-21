@@ -58,7 +58,7 @@ export function listEnabledPiSubagents(registry: EcoAgentRuntimeConfig | undefin
       continue;
     }
     const agentKey = agent.agentKey.trim();
-    if (!agentKey || agentKey === "planner") {
+    if (!agentKey || agentKey === "main") {
       continue;
     }
     const template = templateById.get(agent.templateId);

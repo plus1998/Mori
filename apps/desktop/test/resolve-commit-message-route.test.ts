@@ -9,7 +9,7 @@ import {
 const routes: RuntimeRoleRouteConfig[] = [
   { role: "explore", providerId: "p1", modelId: "haiku" },
   { role: "coder", providerId: "p1", modelId: "sonnet" },
-  { role: "planner", providerId: "p1", modelId: "opus" },
+  { role: "main", providerId: "p1", modelId: "opus" },
 ];
 
 const hints: RoutePricingHint[] = [

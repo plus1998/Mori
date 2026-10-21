@@ -20,7 +20,7 @@ test("applyThreadPlanReadyEffects persists plan and emits awaiting event", () =>
     },
     workspacePath: "/repo",
     worktreePath: "/repo/.worktrees/thr_plan_ready",
-    routesJson: '{"planner":"model_planner"}',
+    routesJson: '{"main":"model_planner"}',
     awaitingPlanMessage: "",
     effects: {
       savePendingPlan: (plan) => {
@@ -41,7 +41,7 @@ test("applyThreadPlanReadyEffects persists plan and emits awaiting event", () =>
       plan: "1. Capture usage events\n2. Project billing",
       workspacePath: "/repo",
       worktreePath: "/repo/.worktrees/thr_plan_ready",
-      routesJson: '{"planner":"model_planner"}',
+      routesJson: '{"main":"model_planner"}',
       deferredExitPlanToolUseId: "tool_exit_deferred",
     },
   });

@@ -143,7 +143,7 @@ export function replayPiSdkEvents(input: {
       threadId,
       sessionId,
       agentId: sessionId,
-      role: "planner",
+      role: "main",
       state,
       nextSeq: () => seq++,
     });

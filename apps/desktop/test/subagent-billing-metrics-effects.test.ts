@@ -55,13 +55,13 @@ test("resolveSubagentBillingMetricsContext uses the matching instance snapshot",
 test("resolveSubagentBillingMetricsContext supports any resolved agent role and skips missing agents", () => {
   expect(
     resolveSubagentBillingMetricsContext({
-      role: "planner",
+      role: "main",
       agentId: "agent_planner",
       snapshot: snapshotWithInstance(),
       fallbackUsage: usage,
     }),
   ).toEqual({
-    role: "planner",
+    role: "main",
     agentId: "agent_planner",
     contextOccupied: 1_250,
   });

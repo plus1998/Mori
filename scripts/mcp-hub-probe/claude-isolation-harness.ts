@@ -17,7 +17,7 @@ function input(
     workspacePath: process.cwd(),
     worktreePath: process.cwd(),
     routes: [{
-      role: "planner",
+      role: "main",
       primary: {
         id: "local-probe",
         provider: "anthropic",

@@ -20,7 +20,7 @@ function route(role: string, contextWindow?: number): ResolvedModelRoute {
 }
 
 test("each Claude child gets its own model window while the parent and input definitions stay unchanged", () => {
-  const routes = [route("planner", 1_000_000), route("small", 128_000), route("large", 524_288)];
+  const routes = [route("main", 1_000_000), route("small", 128_000), route("large", 524_288)];
   const definitions = {
     eco_small: { model: "eco-small", prompt: "small" },
     eco_large: { model: "eco-large", prompt: "large" },
@@ -33,7 +33,7 @@ test("each Claude child gets its own model window while the parent and input def
 });
 
 test("custom windows only lower the model and inherited parent ceiling", () => {
-  const routes = [route("planner", 200_000), route("child", 1_000_000)];
+  const routes = [route("main", 200_000), route("child", 1_000_000)];
   const definitions = { eco_child: { model: "eco-child", autoCompactWindow: 150_000 } };
   expect(applyClaudeSubagentCompactionWindows(definitions, routes).eco_child).toMatchObject({
     autoCompactWindow: 150_000,
@@ -51,7 +51,7 @@ test("custom windows only lower the model and inherited parent ceiling", () => {
 });
 
 test("fallback routes use the smallest available window, including parent fallbacks", () => {
-  const parent = route("planner", 1_000_000),
+  const parent = route("main", 1_000_000),
     child = route("child", 500_000);
   child.fallbacks = [route("fallback", 128_000).primary];
   expect(
@@ -71,7 +71,7 @@ test("unknown, assumed or sub-100K windows fail before making a model request", 
   for (const window of [undefined, 64_000, 0, NaN, Infinity, 100_000.5]) {
     expect(() =>
       applyClaudeSubagentCompactionWindows({ eco_child: { model: "eco-child" } }, [
-        route("planner", 1_000_000),
+        route("main", 1_000_000),
         route("child", window),
       ]),
     ).toThrow();
@@ -80,18 +80,18 @@ test("unknown, assumed or sub-100K windows fail before making a model request", 
   assumed.primary.contextWindowResolved = false;
   expect(() =>
     applyClaudeSubagentCompactionWindows({ eco_child: { model: "eco-child" } }, [
-      route("planner", 1_000_000),
+      route("main", 1_000_000),
       assumed,
     ]),
   ).toThrow("缺少已确认");
-  expect(applyClaudeSubagentCompactionWindows({}, [route("planner", 64_000)])).toEqual({});
+  expect(applyClaudeSubagentCompactionWindows({}, [route("main", 64_000)])).toEqual({});
 });
 
 test("SDK range validation rejects invalid explicit windows rather than omitting them", () => {
   for (const autoCompactWindow of [64_000, 1_000_001, NaN, Infinity, 100_000.5, "128000"]) {
     expect(() =>
       applyClaudeSubagentCompactionWindows({ eco_child: { model: "eco-child", autoCompactWindow } }, [
-        route("planner", 1_000_000),
+        route("main", 1_000_000),
         route("child", 200_000),
       ]),
     ).toThrow("100000～1000000");
@@ -101,11 +101,11 @@ test("SDK range validation rejects invalid explicit windows rather than omitting
 test("new runs recompute window after model changes and preserve the per-agent request", () => {
   const definitions = { eco_child: { model: "eco-child", autoCompactWindow: 150_000 } };
   expect(
-    applyClaudeSubagentCompactionWindows(definitions, [route("planner", 1_000_000), route("child", 200_000)])
+    applyClaudeSubagentCompactionWindows(definitions, [route("main", 1_000_000), route("child", 200_000)])
       .eco_child,
   ).toMatchObject({ autoCompactWindow: 150_000 });
   expect(
-    applyClaudeSubagentCompactionWindows(definitions, [route("planner", 1_000_000), route("child", 128_000)])
+    applyClaudeSubagentCompactionWindows(definitions, [route("main", 1_000_000), route("child", 128_000)])
       .eco_child,
   ).toMatchObject({ autoCompactWindow: 128_000 });
   expect(definitions.eco_child.autoCompactWindow).toBe(150_000);

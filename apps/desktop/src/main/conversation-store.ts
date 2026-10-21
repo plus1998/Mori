@@ -10,8 +10,9 @@ import {
   mergeStreamText,
   resolveAcpHostUiFeatures,
 } from "@eco/runtime";
-import { CONVERSATION_V2_ERROR, ConversationV2Error, stableHash } from "@eco/shared";
+import { CONVERSATION_V2_ERROR, ConversationV2Error, normalizeAgentRole, stableHash } from "@eco/shared";
 import { logSuspiciousActivityLine, repairActivityText } from "../shared/activity-text";
+import { normalizeBillingSnapshotRoles, normalizeContextSnapshotRoles } from "../shared/agent-role-snapshots";
 import type { ThreadRunProjectionSnapshot } from "../shared/conversation-v2-projection";
 import { parseThreadRunFileChangeMetadata } from "../shared/file-change.js";
 import type {
@@ -871,10 +872,18 @@ export class ConversationStore {
       requestSpans: derivedRequestSpans,
       ledgerEvents: this.listConversationV2UsageLedgerEventViews(id, derivedRequestSpans),
       ...(billing !== undefined
-        ? { billing: billing as NonNullable<ConversationV2ProjectionExtras["billing"]> }
+        ? {
+            billing: normalizeBillingSnapshotRoles(
+              billing as NonNullable<ConversationV2ProjectionExtras["billing"]>,
+            ),
+          }
         : {}),
       ...(context !== undefined
-        ? { context: context as NonNullable<ConversationV2ProjectionExtras["context"]> }
+        ? {
+            context: normalizeContextSnapshotRoles(
+              context as NonNullable<ConversationV2ProjectionExtras["context"]>,
+            ),
+          }
         : {}),
       ...(subagentTimings !== undefined
         ? {
@@ -2568,7 +2577,9 @@ export class ConversationStore {
       return {
         threadId,
         ...(usageState !== undefined ? { accumulator: usageState as SerializedThreadUsageState } : {}),
-        ...(context !== undefined ? { context: context as ThreadContextSnapshot } : {}),
+        ...(context !== undefined
+          ? { context: normalizeContextSnapshotRoles(context as ThreadContextSnapshot) }
+          : {}),
         updatedAt: new Date().toISOString(),
       };
     }
@@ -3025,7 +3036,9 @@ export class ConversationStore {
     const now = new Date().toISOString();
     const draft = {
       prompt: history.target.role === "user" ? history.target.body : "",
-      attachments: (history.target.role === "user" ? history.target.attachments ?? [] : []) as PromptImageAttachment[],
+      attachments: (history.target.role === "user"
+        ? (history.target.attachments ?? [])
+        : []) as PromptImageAttachment[],
     };
     const results: ConversationAppendResult[] = [];
     this.db.exec("BEGIN IMMEDIATE");
@@ -3763,15 +3776,17 @@ export class ConversationStore {
     try {
       if (message && !message.isDeleted && message.status === "queued") {
         const sourceEventKey = `desktop:user:follow-up-abandoned:${threadId}:${message.messageId}:follow-up-cancelled`;
-        results.push(this.v2.appendInCurrentTransaction({
-          conversationId: threadId,
-          eventId: `desktop_v2_follow_up_abandoned_${stableHash(sourceEventKey)}`,
-          sourceEventKey,
-          type: "history.deleted",
-          occurredAt: new Date().toISOString(),
-          messageId: message.messageId,
-          payload: { reason: "follow-up-cancelled", affectedMessageIds: [message.messageId] },
-        }));
+        results.push(
+          this.v2.appendInCurrentTransaction({
+            conversationId: threadId,
+            eventId: `desktop_v2_follow_up_abandoned_${stableHash(sourceEventKey)}`,
+            sourceEventKey,
+            type: "history.deleted",
+            occurredAt: new Date().toISOString(),
+            messageId: message.messageId,
+            payload: { reason: "follow-up-cancelled", affectedMessageIds: [message.messageId] },
+          }),
+        );
       }
       const cancelled = this.updateThreadFollowUpStatus(threadId, followUpId, { status: "cancelled" });
       this.db.exec("COMMIT");
@@ -3814,25 +3829,27 @@ export class ConversationStore {
     try {
       if (message) {
         const sourceEventKey = `desktop:user:follow-up-edit:${threadId}:${followUpId}:${message.contentVersion + 1}`;
-        results.push(this.v2.appendInCurrentTransaction({
-          conversationId: threadId,
-          eventId: `desktop_v2_follow_up_edit_${stableHash(sourceEventKey)}`,
-          sourceEventKey,
-          type: "message.replaced",
-          occurredAt: now,
-          messageId: message.messageId,
-          payload: {
-            body: prompt,
-            baseContentVersion: message.contentVersion,
-            nextContentVersion: message.contentVersion + 1,
-            attachments: (attachments ?? []).map(({ mediaType, contentRef, byteLength, data }) => ({
-              mediaType,
-              ...(contentRef ? { contentRef } : {}),
-              ...(!contentRef && data ? { data } : {}),
-              ...(byteLength !== undefined ? { byteLength } : {}),
-            })),
-          },
-        }));
+        results.push(
+          this.v2.appendInCurrentTransaction({
+            conversationId: threadId,
+            eventId: `desktop_v2_follow_up_edit_${stableHash(sourceEventKey)}`,
+            sourceEventKey,
+            type: "message.replaced",
+            occurredAt: now,
+            messageId: message.messageId,
+            payload: {
+              body: prompt,
+              baseContentVersion: message.contentVersion,
+              nextContentVersion: message.contentVersion + 1,
+              attachments: (attachments ?? []).map(({ mediaType, contentRef, byteLength, data }) => ({
+                mediaType,
+                ...(contentRef ? { contentRef } : {}),
+                ...(!contentRef && data ? { data } : {}),
+                ...(byteLength !== undefined ? { byteLength } : {}),
+              })),
+            },
+          }),
+        );
       }
       this.db
         .prepare(
@@ -7144,7 +7161,7 @@ export class ConversationStore {
         typeof payload.startedAt !== "string" ||
         typeof payload.role !== "string" ||
         !["launching", "active", "stopped", "abandoned"].includes(String(payload.status)) ||
-        !["planner", "subagent"].includes(String(payload.kind)) ||
+        !["main", "subagent"].includes(normalizeAgentRole(String(payload.kind))) ||
         (payload.metadata !== undefined &&
           (!payload.metadata || typeof payload.metadata !== "object" || Array.isArray(payload.metadata)))
       ) {
@@ -7156,8 +7173,8 @@ export class ConversationStore {
       return {
         threadId: id,
         agentId: row.agent_id ?? row.agent_instance_id,
-        role: payload.role as RuntimeAgentRole,
-        kind: payload.kind as AgentInstanceKind,
+        role: normalizeAgentRole(payload.role),
+        kind: normalizeAgentRole(String(payload.kind)) as AgentInstanceKind,
         status: payload.status as AgentInstanceStatus,
         startedAt: payload.startedAt,
         updatedAt: payload.updatedAt,
@@ -7197,7 +7214,7 @@ export class ConversationStore {
       row.thread_id !== threadId ||
       !row.agent_id.trim() ||
       !row.role.trim() ||
-      !["planner", "subagent"].includes(row.kind) ||
+      !["main", "subagent"].includes(normalizeAgentRole(row.kind)) ||
       !status ||
       !row.started_at.trim() ||
       !row.updated_at.trim() ||
@@ -7211,8 +7228,8 @@ export class ConversationStore {
     return {
       threadId,
       agentId: row.agent_id,
-      role: row.role,
-      kind: row.kind as AgentInstanceKind,
+      role: normalizeAgentRole(row.role),
+      kind: normalizeAgentRole(row.kind) as AgentInstanceKind,
       status,
       startedAt: row.started_at,
       updatedAt: row.updated_at,
@@ -7538,9 +7555,9 @@ export class ConversationStore {
     if (!options.historyOrder) return sources;
     // Identity/attribution patches advance version_seq, but must never move
     // an earlier prompt past later work in a destructive history boundary.
-    const firstRows = this.db.prepare(
-      `SELECT input_id, first_seq FROM conversation_provider_inputs_v2 WHERE conversation_id = ?`,
-    ).all(threadId) as Array<{ input_id: string; first_seq: number }>;
+    const firstRows = this.db
+      .prepare(`SELECT input_id, first_seq FROM conversation_provider_inputs_v2 WHERE conversation_id = ?`)
+      .all(threadId) as Array<{ input_id: string; first_seq: number }>;
     const firstSequences = new Map(firstRows.map((row) => [row.input_id, row.first_seq]));
     return sources
       .map((source) => ({ ...source, sequence: firstSequences.get(source.id)! }))
@@ -8755,8 +8772,12 @@ export class ConversationStore {
   }
 
   /** Lightweight cross-project @ picker rows; never loads prompts or runtime config. */
-  searchThreadReferences(query: string, limit: number): Array<Pick<ThreadSummary, "id" | "title" | "workspacePath" | "updatedAt">> {
-    return this.db.prepare(`SELECT id, title, workspace_path AS workspacePath, updated_at AS updatedAt
+  searchThreadReferences(
+    query: string,
+    limit: number,
+  ): Array<Pick<ThreadSummary, "id" | "title" | "workspacePath" | "updatedAt">> {
+    return this.db
+      .prepare(`SELECT id, title, workspace_path AS workspacePath, updated_at AS updatedAt
       FROM threads WHERE instr(lower(title || ' ' || workspace_path), lower(?)) > 0
       ORDER BY updated_at DESC, id DESC LIMIT ?`).all(query, limit) as Array<Pick<ThreadSummary, "id" | "title" | "workspacePath" | "updatedAt">>;
   }
@@ -9808,7 +9829,7 @@ function rowToThreadMetrics(row: {
     threadId: row.thread_id,
     updatedAt: row.updated_at,
     ...(accumulator && { accumulator }),
-    ...(context && { context }),
+    ...(context && { context: normalizeContextSnapshotRoles(context) }),
   };
 }
 
@@ -9846,7 +9867,7 @@ function rowToUsageLedgerEvent(row: UsageLedgerEventRow): UsageLedgerEvent {
     source: row.source as UsageLedgerSource,
     sourceEventId: row.source_event_id,
     usageKind: row.usage_kind as UsageLedgerKind,
-    role: row.role as RuntimeAgentRole,
+    role: normalizeAgentRole(row.role),
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
     cacheReadTokens: row.cache_read_tokens,

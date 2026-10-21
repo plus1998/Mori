@@ -280,6 +280,7 @@ bool _isStreamNarrativeFeedEntry(ActivityFeedEntry entry) {
   return entry.kind == ActivityFeedKind.assistant ||
       entry.kind == ActivityFeedKind.thinking ||
       entry.kind == ActivityFeedKind.reasoningStage ||
+      entry.kind == ActivityFeedKind.toolWriting ||
       entry.kind == ActivityFeedKind.subagentMission;
 }
 
@@ -1338,7 +1339,7 @@ int _resolveTurnBoundaryIndex(
     if (_isProjectionUserPromptItem(entry)) {
       return index;
     }
-    if (entry.eventType == 'message.final' && entry.role == 'planner') {
+    if (entry.eventType == 'message.final' && entry.role == 'main') {
       return index;
     }
     if (entry.eventType == 'thinking.final') {
@@ -1380,7 +1381,7 @@ String? _resolveExpectedStreamRequestRole(
   if (item.role == 'thinking' ||
       item.eventType == 'thinking.delta' ||
       item.eventType == 'thinking.final') {
-    return 'planner';
+    return 'main';
   }
   final role = item.role?.trim();
   if (role == null ||
@@ -1484,10 +1485,10 @@ String? _resolveNearestPlannerRequestId(
     if (requestId == null || requestId.isEmpty) {
       continue;
     }
-    if (entry.eventType == 'request.started' && entry.role == 'planner') {
+    if (entry.eventType == 'request.started' && entry.role == 'main') {
       return requestId;
     }
-    if (entry.role == 'planner' && requestSpansById.containsKey(requestId)) {
+    if (entry.role == 'main' && requestSpansById.containsKey(requestId)) {
       return requestId;
     }
   }
@@ -1497,10 +1498,10 @@ String? _resolveNearestPlannerRequestId(
     if (requestId == null || requestId.isEmpty) {
       continue;
     }
-    if (entry.eventType == 'request.started' && entry.role == 'planner') {
+    if (entry.eventType == 'request.started' && entry.role == 'main') {
       return requestId;
     }
-    if (entry.role == 'planner' && requestSpansById.containsKey(requestId)) {
+    if (entry.role == 'main' && requestSpansById.containsKey(requestId)) {
       return requestId;
     }
   }

@@ -43,7 +43,7 @@ async function lookupCandidateRouteHints(
   mapping?: ModelsDevMapping,
 ): Promise<{ capability?: RouteCapabilityHint; pricing?: RoutePricingHint }> {
   const route: RuntimeRoleRouteConfig = {
-    role: "planner",
+    role: "main",
     providerId,
     modelId,
     ...(mapping ? { modelsDevMapping: mapping } : {}),

@@ -49,7 +49,7 @@ function formatLedgerEventAgentLabel(event: ThreadUsageLedgerEventView): string 
   if (!agentId) {
     return undefined;
   }
-  if (agentId === event.billingRole || agentId === "planner") {
+  if (agentId === event.billingRole || agentId === "main") {
     return i18n.t("usage.mainSession");
   }
   return agentId.slice(-8);

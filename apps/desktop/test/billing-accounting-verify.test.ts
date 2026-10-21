@@ -34,14 +34,14 @@ const provider = {
 };
 
 const routes = [
-  { role: "planner" as const, provider, modelId: "sonnet", apiCompat: "anthropic" as const },
+  { role: "main" as const, provider, modelId: "sonnet", apiCompat: "anthropic" as const },
   { role: "coder" as const, provider, modelId: "haiku", apiCompat: "anthropic" as const },
 ];
 
 function lookupPricing(role: string) {
   return Promise.resolve({
     displayName: role,
-    rates: role === "planner" ? sonnetRates : haikuRates,
+    rates: role === "main" ? sonnetRates : haikuRates,
   });
 }
 
@@ -52,7 +52,7 @@ function usage(inputTokens = 10_000): ParsedUsage {
 async function appendProxyUsage(
   coordinator: UsageLedgerCoordinator,
   threadId: string,
-  role: "planner" | "coder",
+  role: "main" | "coder",
   modelId: string,
   requestId: string,
   inputTokens: number,
@@ -113,7 +113,7 @@ test("verifyBillingAccounting: proxy planner+coder events match snapshot and bre
   });
   const threadId = "thr_accounting";
 
-  await appendProxyUsage(coordinator, threadId, "planner", "sonnet", "req_planner", 12_000);
+  await appendProxyUsage(coordinator, threadId, "main", "sonnet", "req_planner", 12_000);
   await appendProxyUsage(coordinator, threadId, "coder", "haiku", "req_coder", 8_000);
 
   const billing = coordinator.projectBillingSnapshot(threadId);
@@ -151,7 +151,7 @@ test("verifyBillingAccounting: direct projector path matches event sum", () => {
   const event = ledger.appendUsageEvent({
     threadId,
     source: "proxy",
-    role: "planner",
+    role: "main",
     inputTokens: 3000,
     outputTokens: 300,
     cacheReadTokens: 0,

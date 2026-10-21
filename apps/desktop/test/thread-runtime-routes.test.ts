@@ -30,13 +30,13 @@ function provider(id: string, enabled = true): ProviderConfigSecret {
 }
 
 function routes(providerId = "p1"): RoleRouteConfig[] {
-  const roles: AgentRole[] = ["planner", "explore", "architect", "coder", "reviewer", "tester"];
+  const roles: AgentRole[] = ["main", "explore", "architect", "coder", "reviewer", "tester"];
   return roles.map((role) => ({
     role,
     providerId,
     modelId: `${role}-model`,
     apiCompat: "anthropic",
-    ...(role === "planner" ? { thinkingEffort: "high" as const } : {}),
+    ...(role === "main" ? { thinkingEffort: "high" as const } : {}),
   }));
 }
 
@@ -58,17 +58,40 @@ test("resolveThreadRuntimeConfig validates full role routes and keeps route meta
   if (!resolved.ok) return;
   expect(resolved.routes).toHaveLength(6);
   expect(resolved.routes[0]).toMatchObject({
-    role: "planner",
-    modelId: "planner-model",
+    role: "main",
+    modelId: "main-model",
     apiCompat: "anthropic",
     thinkingEffort: "high",
   });
   expect(roleRoutesFromRuntime(resolved.routes)[0]).toMatchObject({
-    role: "planner",
+    role: "main",
     providerId: "p1",
-    modelId: "planner-model",
+    modelId: "main-model",
     thinkingEffort: "high",
   });
+});
+
+test("persisted planner routes resolve as main without changing the saved model", () => {
+  const legacyRoutes = routes().map((route) => ({
+    ...route,
+    role: route.role === "main" ? "planner" : route.role,
+  }));
+  const resolved = resolveThreadRuntimeConfig(
+    {
+      providers: [],
+      routeProfiles: [],
+      agentTemplates: [],
+      mainAgentConfigs: [],
+      mainAgentPrompts: [],
+      subagentOrchestrations: [],
+    },
+    [provider("p1")],
+    legacyRoutes,
+  );
+  expect(resolved.ok).toBe(true);
+  if (!resolved.ok) throw new Error(resolved.reason);
+  expect(resolved.routes[0]).toMatchObject({ role: "main", modelId: "main-model", thinkingEffort: "high" });
+  expect(legacyRoutes[0]!.role).toBe("planner");
 });
 
 test("resolveThreadRuntimeConfig reports missing providers and disabled providers", () => {
@@ -101,7 +124,7 @@ test("resolveThreadRuntimeConfig reports missing providers and disabled provider
     ),
   ).toEqual({
     ok: false,
-    reason: 'Provider "Provider p1" for planner is disabled.',
+    reason: 'Provider "Provider p1" for main is disabled.',
   });
 });
 
@@ -116,14 +139,14 @@ test("resolveThreadRuntimeConfig accepts partial routes for generic orchestratio
       subagentOrchestrations: [],
     },
     [provider("p1")],
-    [{ role: "planner", providerId: "p1", modelId: "research-model" }],
+    [{ role: "main", providerId: "p1", modelId: "research-model" }],
     { requireCompleteCodingRoutes: false },
   );
 
   expect(resolved.ok).toBe(true);
   if (!resolved.ok) return;
   expect(resolved.routes).toHaveLength(1);
-  expect(resolved.routes[0]?.role).toBe("planner");
+  expect(resolved.routes[0]?.role).toBe("main");
 
   expect(
     resolveThreadRuntimeConfig(
@@ -157,7 +180,7 @@ test("resolveThreadRuntimeConfig preserves dynamic runtime roles for generic orc
     },
     [provider("p1")],
     [
-      { role: "planner", providerId: "p1", modelId: "main-model" },
+      { role: "main", providerId: "p1", modelId: "main-model" },
       { role: "researcher", providerId: "p1", modelId: "research-model" },
     ],
     { requireCompleteCodingRoutes: false },
@@ -165,11 +188,8 @@ test("resolveThreadRuntimeConfig preserves dynamic runtime roles for generic orc
 
   expect(resolved.ok).toBe(true);
   if (!resolved.ok) return;
-  expect(resolved.routes.map((route) => route.role)).toEqual(["planner", "researcher"]);
-  expect(roleRoutesFromRuntime(resolved.routes).map((route) => route.role)).toEqual([
-    "planner",
-    "researcher",
-  ]);
+  expect(resolved.routes.map((route) => route.role)).toEqual(["main", "researcher"]);
+  expect(roleRoutesFromRuntime(resolved.routes).map((route) => route.role)).toEqual(["main", "researcher"]);
   expect(buildDriverRoutesFromRuntime(resolved.routes)[1]).toMatchObject({
     role: "researcher",
     upstreamModelId: "research-model",
@@ -191,7 +211,7 @@ test("resolveThreadRuntimeConfig still requires full coding routes by default", 
         subagentOrchestrations: [],
       },
       [provider("p1")],
-      [{ role: "planner", providerId: "p1", modelId: "planner-model" }],
+      [{ role: "main", providerId: "p1", modelId: "main-model" }],
     ),
   ).toEqual({
     ok: false,
@@ -224,10 +244,10 @@ test("buildDriverRoutes and buildDriverRoutesFromRuntime both expose eco aliases
 
   expect(buildDriverRoutes(proxyRoutes)[0]?.primary.modelId).toBe(expectedAlias);
   expect(buildDriverRoutesFromRuntime(resolved.routes)[0]?.primary.modelId).toBe(expectedAlias);
-  expect(buildDriverRoutesFromRuntime(resolved.routes, { planner: 1_000_000 })[0]?.primary.modelId).toBe(
+  expect(buildDriverRoutesFromRuntime(resolved.routes, { main: 1_000_000 })[0]?.primary.modelId).toBe(
     `${expectedAlias}[1m]`,
   );
-  expect(buildDriverRoutesFromRuntime(resolved.routes)[0]?.upstreamModelId).toBe("planner-model");
+  expect(buildDriverRoutesFromRuntime(resolved.routes)[0]?.upstreamModelId).toBe("main-model");
 });
 
 test("buildDriverRoutes copies contextTokens onto primary.contextWindow", () => {
@@ -249,9 +269,9 @@ test("buildDriverRoutes copies contextTokens onto primary.contextWindow", () => 
   const proxyRoutes = resolved.routes.map((route) => ({
     ...route,
     aliasModelId: createModelAlias(route.role, route.provider.id, route.modelId),
-    contextTokens: route.role === "planner" ? 262_144 : 128_000,
+    contextTokens: route.role === "main" ? 262_144 : 128_000,
     contextTokensResolved: route.role !== "reviewer",
-    maxOutputTokens: route.role === "planner" ? 128_000 : 64_000,
+    maxOutputTokens: route.role === "main" ? 128_000 : 64_000,
   }));
   const driverRoutes = buildDriverRoutes(proxyRoutes);
   expect(driverRoutes[0]?.primary.contextWindow).toBe(262_144);
@@ -282,7 +302,7 @@ test("resolveContextTokensByRole caps catalog windows to the global limit", asyn
     throw new Error("expected runtime config");
   }
   const byRole = await resolveContextTokensByRole(resolved.routes, cache, 262_144);
-  expect(byRole.planner).toBe(262_144);
+  expect(byRole.main).toBe(262_144);
   expect(byRole.coder).toBe(262_144);
 });
 
@@ -306,5 +326,5 @@ test("resolveContextTokensByRole keeps a model window smaller than the global ca
     throw new Error("expected runtime config");
   }
   const byRole = await resolveContextTokensByRole(resolved.routes, cache, 262_144);
-  expect(byRole.planner).toBe(128_000);
+  expect(byRole.main).toBe(128_000);
 });

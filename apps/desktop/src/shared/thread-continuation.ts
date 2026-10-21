@@ -241,7 +241,7 @@ export function buildActivityContextForPrompt(
     const roleLabel =
       line.role === "user"
         ? "用户"
-        : line.role === "planner"
+        : line.role === "main"
           ? "主代理"
           : line.role === "explore"
             ? "探索"
@@ -284,7 +284,7 @@ export function buildAgentPromptWithContext(
 
 /** UI: show planner session context, not max across all subagents. */
 export function pickDisplayContextTokens(usageByRole: Record<string, { contextTokens: number }>): number {
-  const planner = usageByRole.planner?.contextTokens ?? 0;
+  const planner = usageByRole.main?.contextTokens ?? 0;
   if (planner > 0) {
     return planner;
   }
@@ -320,7 +320,7 @@ export function resolveCodexContinueStrategy(input: {
 }
 
 const AGENT_OUTPUT_ROLES = new Set([
-  "planner",
+  "main",
   "explore",
   "architect",
   "coder",

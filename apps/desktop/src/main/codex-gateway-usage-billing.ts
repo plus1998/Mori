@@ -179,7 +179,7 @@ export function resolveCodexGatewayUsageBilling(
   const plannerAgentId =
     input.plannerAgentId?.(threadId) ??
     (!subagentAgentId && turnMetadata.requestKind !== "turn"
-      ? `planner:codex-control:${threadId}`
+      ? `main:codex-control:${threadId}`
       : undefined);
   const providerRequestId = input.event.providerRequestId ?? input.event.responseId;
 

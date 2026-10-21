@@ -35,7 +35,7 @@ test("registers and resolves pending Bash approvals", async () => {
     reason: "Eco requires user confirmation before running Bash.",
     riskScore: 5,
     riskLevel: "low",
-    agentId: "planner:attempt_execution_0",
+    agentId: "main:attempt_execution_0",
   });
 
   expect(getPendingBashApprovalForThread("thread_1")?.command).toBe("date");
@@ -54,7 +54,7 @@ test("SDK suppressed persistent rules cannot be granted by desktop or mobile res
     reason: "SDK requires one-time approval",
     riskScore: 50,
     riskLevel: "medium",
-    agentId: "planner",
+    agentId: "main",
     defaultToNo: true,
     suppressAlwaysAllowRule: true,
   });
@@ -78,7 +78,7 @@ test("idempotent resolve succeeds twice without throwing (PC/mobile race)", asyn
     reason: "race",
     riskScore: 5,
     riskLevel: "low",
-    agentId: "planner:race",
+    agentId: "main:race",
   });
 
   const first = resolveBashApprovalIdempotent("tool_race_1", { decision: "approved" });
@@ -105,7 +105,7 @@ test("cancels pending Bash approvals for a thread", async () => {
     reason: "Eco requires user confirmation before running Bash.",
     riskScore: 5,
     riskLevel: "low",
-    agentId: "planner:attempt_execution_0",
+    agentId: "main:attempt_execution_0",
   });
 
   cancelBashApprovalsForThread("thread_2", "cancelled by user");
@@ -122,7 +122,7 @@ test("approveAllPendingBashApprovalsForThread flushes only the target thread", a
     reason: "keep",
     riskScore: 5,
     riskLevel: "low",
-    agentId: "planner:keep",
+    agentId: "main:keep",
   });
   const first = registerPendingBashApproval("thread_flush", {
     toolUseId: "tool_flush_1",
@@ -132,7 +132,7 @@ test("approveAllPendingBashApprovalsForThread flushes only the target thread", a
     reason: "flush",
     riskScore: 5,
     riskLevel: "low",
-    agentId: "planner:flush",
+    agentId: "main:flush",
   });
   const second = registerPendingBashApproval("thread_flush", {
     toolUseId: "tool_flush_2",
@@ -142,7 +142,7 @@ test("approveAllPendingBashApprovalsForThread flushes only the target thread", a
     reason: "flush",
     riskScore: 5,
     riskLevel: "low",
-    agentId: "planner:flush",
+    agentId: "main:flush",
   });
 
   expect(listPendingBashApprovalsForThread("thread_flush")).toHaveLength(2);

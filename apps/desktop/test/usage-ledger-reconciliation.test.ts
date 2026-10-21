@@ -106,12 +106,12 @@ test("reconcileUsageLedgerWithBilling reports token mismatches", () => {
 test("reconcileUsageLedgerWithBilling counts sdk request total once for multi-model rows", () => {
   const events = buildSdkUsageLedgerEvents({
     threadId: "thr_reconcile",
-    role: "planner",
+    role: "main",
     requestKey: "sdk-result:multi",
     totalCostUsd: 1.23,
     models: [
       {
-        role: "planner",
+        role: "main",
         modelId: "planner-model",
         usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 1, cacheCreationTokens: 0 },
       },
@@ -136,12 +136,12 @@ test("reconcileUsageLedgerWithBilling counts sdk request total once for multi-mo
 test("reconcileUsageLedgerWithBilling prefers per-model reported cost over sdk request metadata", () => {
   const events = buildSdkUsageLedgerEvents({
     threadId: "thr_reconcile",
-    role: "planner",
+    role: "main",
     requestKey: "sdk-result:multi",
     totalCostUsd: 9.99,
     models: [
       {
-        role: "planner",
+        role: "main",
         modelId: "planner-model",
         usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheCreationTokens: 0 },
         sdkCostUsd: 0.25,

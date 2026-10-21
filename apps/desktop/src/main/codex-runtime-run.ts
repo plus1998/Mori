@@ -1747,7 +1747,7 @@ export async function runThreadRequestWithRuntimeProxy(
       });
     }
     const systemPromptAppend = input.resolveSystemPromptAppend?.()?.trim();
-    const plannerRoute = freshConfig.routes.find((route) => route.role === "planner");
+    const plannerRoute = freshConfig.routes.find((route) => route.role === "main");
     const selectedRoute = plannerRoute ?? freshConfig.routes[0];
     const webSearchOverride = input.resolveWebSearchOverride?.();
     const prepared = await prepareCodexRuntime({
@@ -1796,7 +1796,7 @@ export async function runThreadRequestWithRuntimeProxy(
   }
 
   const routes = buildDriverRoutesFromRuntime(freshConfig.routes);
-  const plannerRoute = freshConfig.routes.find((route) => route.role === "planner");
+  const plannerRoute = freshConfig.routes.find((route) => route.role === "main");
   const attempt: CodexRuntimeAttempt = {
     routes,
     ...(plannerRoute && { plannerRoute: { modelId: plannerRoute.modelId } }),

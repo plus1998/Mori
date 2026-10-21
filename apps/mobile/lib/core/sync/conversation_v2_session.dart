@@ -8,6 +8,19 @@ import '../models/thread_models.dart';
 import '../storage/conversation_v2_cache.dart';
 import 'conversation_v2_sync_engine.dart';
 
+/// Thinking/tool-writing starts have no visible message body. Refresh their
+/// presentation facts at boundaries without adding an RPC for every token.
+bool _refreshesProjectionExtras(Map effect) {
+  final type = effect['type'];
+  if (type == 'noop') {
+    return effect['reason'] == 'runtime.thinking.changed' ||
+        effect['reason'] == 'runtime.tool_writing.changed';
+  }
+  return type == 'message.create' ||
+      type == 'tool.summary.upsert' ||
+      type == 'run.upsert';
+}
+
 /// Existing thread actions exposed to the V2 session without duplicating the
 /// desktop command implementation. The provider wires these callbacks to the
 /// mature ThreadSessionNotifier methods during the migration window.
@@ -161,6 +174,7 @@ class ConversationV2SessionController
   int _reloadGeneration = 0;
   Future<void>? _pushReloadInFlight;
   bool _pushReloadRequested = false;
+  bool _projectionExtrasReloadRequested = false;
 
   Future<void> start() async {
     if (_disposed || !enabled) return;
@@ -195,6 +209,16 @@ class ConversationV2SessionController
         envelope,
         conversationId: conversationId,
       );
+      final payload = envelope['payload'];
+      if (envelope['kind'] == 'conversation.sync_effect' &&
+          payload is Map &&
+          payload['conversationId'] == conversationId) {
+        final receipt = payload['effect'];
+        final effect = receipt is Map ? receipt['effect'] : null;
+        if (effect is Map && _refreshesProjectionExtras(effect)) {
+          _projectionExtrasReloadRequested = true;
+        }
+      }
       await _reloadAfterPush();
     } catch (error) {
       state = state.copyWith(syncState: _engine.state, error: error);
@@ -472,6 +496,10 @@ class ConversationV2SessionController
             if (_disposed) return;
             _pushReloadRequested = false;
             await _reload();
+            if (_projectionExtrasReloadRequested) {
+              _projectionExtrasReloadRequested = false;
+              await reloadProjectionExtras();
+            }
             await _hydratePendingDetails();
           } while (_pushReloadRequested && !_disposed);
         }().whenComplete(() async {

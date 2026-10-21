@@ -243,7 +243,7 @@ export function mergeSkillNames(...lists: readonly (readonly string[])[]): strin
   return merged.sort((a, b) => a.localeCompare(b));
 }
 
-const LEGACY_AGENT_SKILL_ROLES = ["planner", "explore", "architect", "coder", "reviewer", "tester"] as const;
+const LEGACY_AGENT_SKILL_ROLES = ["main", "explore", "architect", "coder", "reviewer", "tester"] as const;
 
 export function buildRuntimeAgentSkillAssignments(
   skills: readonly string[],

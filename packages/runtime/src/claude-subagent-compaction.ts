@@ -28,7 +28,7 @@ export function applyClaudeSubagentCompactionWindows(
   routes: readonly ResolvedModelRoute[],
 ): Record<string, unknown> {
   if (Object.keys(definitions).length === 0) return definitions;
-  const parent = routes.find((route) => route.role === "planner") ?? routes[0];
+  const parent = routes.find((route) => route.role === "main") ?? routes[0];
   if (!parent) throw new Error("Claude 子代理压缩缺少主会话模型路由。");
   const parentWindow = routeContext(parent, "主代理");
   return Object.fromEntries(

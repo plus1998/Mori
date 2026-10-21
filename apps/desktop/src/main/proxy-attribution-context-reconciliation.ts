@@ -44,7 +44,7 @@ export async function reconcileProxyAttributionContexts(
     };
     const usage = usageFromLedgerEvent(settlement.event);
     const messageId = settlement.messageId ?? settlement.event.sdkMessageId;
-    const plannerSettlement = settlement.role === "planner";
+    const plannerSettlement = settlement.role === "main";
     const contextUpdated = await services.context.applyUpdate({
       threadId,
       usage,

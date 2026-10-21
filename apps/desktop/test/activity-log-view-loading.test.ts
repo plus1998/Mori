@@ -61,7 +61,7 @@ function item(
     sequence: input.sequence ?? 1,
     eventType: input.eventType ?? "tool.started",
     scope: input.scope ?? "main",
-    role: input.role ?? "planner",
+    role: input.role ?? "main",
     text: input.text ?? "Tool: Write",
     at: input.at ?? "2026-01-01T00:00:00.000Z",
     ...(input.runAttemptId && { runAttemptId: input.runAttemptId }),
@@ -105,7 +105,7 @@ test("running turn heading switches to stopping while cancelling", async () => {
 test("an active thread summary restores running during a provisional idle V2 projection", () => {
   const snapshot = projection({
     status: "idle",
-    timeline: [item({ id: "message", eventType: "message.delta", role: "planner", text: "正在准备下一步" })],
+    timeline: [item({ id: "message", eventType: "message.delta", role: "main", text: "正在准备下一步" })],
   });
 
   expect(reconcileActivityProjectionThreadStatus(snapshot, { status: "running" }).thread.status).toBe(
@@ -139,7 +139,7 @@ test("a streaming thinking row on the tail owns the Feed's own live indicator", 
   expect(
     isTailThinkingStreamingLive([
       timelineEntry(
-        item({ id: "narrative", eventType: "message.delta", role: "planner", text: "让我读取代码：" }),
+        item({ id: "narrative", eventType: "message.delta", role: "main", text: "让我读取代码：" }),
       ),
     ]),
   ).toBe(false);
@@ -667,7 +667,7 @@ test("ActivityLogView removes the waiting indicator after the first stream outpu
             sequence: 2,
             eventType: "message.delta",
             requestId: "req-streaming",
-            role: "planner",
+            role: "main",
             text: "",
             streamKey: "stream:req-streaming",
           }),
@@ -676,7 +676,7 @@ test("ActivityLogView removes the waiting indicator after the first stream outpu
             sequence: 3,
             eventType: "message.delta",
             requestId: "req-streaming",
-            role: "planner",
+            role: "main",
             text: "首个输出",
             streamKey: "stream:req-streaming",
           }),
@@ -807,7 +807,7 @@ test("ActivityLogView replaces answered clarification waiting with its question 
             id: "clarification-answer",
             sequence: 2,
             eventType: "message.final",
-            role: "planner",
+            role: "main",
             text: "澄清回答：应该使用哪种部署方式？ → 蓝绿部署",
             metadata: { liveType: "clarification.answered" },
           }),
@@ -940,7 +940,7 @@ test("ActivityLogView does not resurrect thinking for a terminal V2 projection",
             id: "final-agent-message",
             sequence: 3,
             eventType: "message.final",
-            role: "planner",
+            role: "main",
             text: "已经完成。",
           }),
         ],
@@ -1093,7 +1093,7 @@ test("ActivityLogView does not duplicate turn headings for skeleton subagent car
             id: "final",
             sequence: 4,
             eventType: "message.final",
-            role: "planner",
+            role: "main",
             runAttemptId: "attempt-1",
             text: "全部完成。",
             at: "2026-01-01T00:00:45.000Z",
@@ -1901,7 +1901,7 @@ test("ActivityLogView stops playing the ephemeral reasoning tip once the convers
           item({
             id: "agent-interrupted",
             eventType: "agent.interrupted",
-            role: "planner",
+            role: "main",
             sequence: 2,
             text: "",
           }),

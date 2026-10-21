@@ -1184,7 +1184,7 @@ export class ConversationV2Store {
       // The provider's own role label is the same kind of fact: the read table learned
       // it from the event that produced the row, so a table that predates the column is
       // filled from the legacy log by recomputing each row's identity. A Feed identifies
-      // a turn's final output by `role === "planner"`; without the label that question
+      // a turn's final output by `role === "main"`; without the label that question
       // cannot be answered at all.
       if (addedColumns.includes("provider_role")) {
         this.backfillProviderRole(table);
@@ -4602,7 +4602,7 @@ export class ConversationV2Store {
     const agentInstanceId =
       optionalText(record.agentInstanceId) ??
       optionalPayloadText(record.payload.agentInstanceId, "agentInstanceId");
-    // The provider's own label for this row (`planner`, `coder`, ...). It is not a
+    // The provider's own label for this row (`main`, `coder`, ...). It is not a
     // rendering of `role`: `role` is the normalized channel role a client switches on,
     // while this is the fact the Feed uses to tell a turn's final output from any other
     // assistant text. The two are stored separately so neither has to guess the other.
@@ -5033,7 +5033,7 @@ export class ConversationV2Store {
     const kind =
       payloadString(record.payload.kind, "kind") ??
       existing?.kind ??
-      (role === "planner" ? "planner" : "subagent");
+      (role === "main" ? "main" : "subagent");
     const status = payloadString(record.payload.status, "status") ?? agentStatusForEvent(record.type);
     const terminal = AGENT_TERMINAL_STATUSES.has(status);
     const startedAt =

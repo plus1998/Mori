@@ -146,7 +146,7 @@ function resolvePlannerOccupancyPct(context?: ThreadContextSnapshot): number | u
   if (!context) {
     return undefined;
   }
-  const planner = context.roles?.find((role) => role.role === "planner");
+  const planner = context.roles?.find((role) => role.role === "main");
   return planner?.occupancyPct ?? context.occupancyPct;
 }
 

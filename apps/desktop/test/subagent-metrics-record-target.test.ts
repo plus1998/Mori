@@ -32,7 +32,7 @@ function resolver(
 test("resolveSubagentMetricsRecordTarget returns resolved subagent role and agent", () => {
   const target = resolveSubagentMetricsRecordTarget({
     threadId: "thr_metrics_target",
-    role: "planner",
+    role: "main",
     resolver: resolver({
       resolve: () => "agent_coder",
       roleFor: () => "coder",

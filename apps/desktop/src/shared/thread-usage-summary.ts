@@ -41,7 +41,7 @@ export function buildFallbackContextSnapshot(options: {
   }
 
   const roles = buildFallbackRoleSnapshots(options.usageByRole, options.plannerUsage);
-  const displayRole = roles.find((role) => role.role === "planner")?.role ?? roles[0]?.role;
+  const displayRole = roles.find((role) => role.role === "main")?.role ?? roles[0]?.role;
   const active = roles.find((role) => role.role === displayRole);
   const occupied = active?.occupied ?? options.contextTokens ?? options.plannerUsage?.contextTokens ?? 0;
   if (occupied <= 0) {
@@ -70,7 +70,7 @@ export function buildThreadUsageSummary(input: ThreadUsageSummaryInput): ThreadU
   const showContext = isAcpHostUiFeatureVisible(input.hostUiFeatures, "contextUsage");
   const showBilling = isAcpHostUiFeatureVisible(input.hostUiFeatures, "billing");
   const contextTokens = input.usageByRole ? pickDisplayContextTokens(input.usageByRole) : 0;
-  const plannerUsage = input.usageByRole?.planner;
+  const plannerUsage = input.usageByRole?.main;
   const context = showContext
     ? buildFallbackContextSnapshot({
         ...(input.context && { context: input.context }),
@@ -93,7 +93,7 @@ function buildFallbackRoleSnapshots(
   plannerUsage: ThreadUsageSnapshot | undefined,
 ): ThreadRoleContextSnapshot[] {
   const snapshots: ThreadRoleContextSnapshot[] = [];
-  const source = usageByRole ?? (plannerUsage ? { planner: plannerUsage } : undefined);
+  const source = usageByRole ?? (plannerUsage ? { main: plannerUsage } : undefined);
   if (!source) {
     return snapshots;
   }

@@ -515,7 +515,7 @@ function resolveReplayCodexThreadAttribution(
     return undefined;
   }
   if (trimmed === context.mainCodexThreadId) {
-    return { ecoThreadId, billingRole: "planner" };
+    return { ecoThreadId, billingRole: "main" };
   }
 
   let current = trimmed;

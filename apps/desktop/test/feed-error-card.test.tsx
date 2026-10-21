@@ -19,7 +19,7 @@ function timelineItem(
     sequence,
     eventType: input.eventType ?? "api.error",
     scope: input.scope ?? "main",
-    role: input.role ?? "planner",
+    role: input.role ?? "main",
     text: input.text ?? "Model request failed",
     at: input.at ?? `2026-01-01T00:00:0${sequence}.000Z`,
     ...(input.metadata && { metadata: input.metadata }),

@@ -147,7 +147,7 @@ test("buildRuntimeAgentSkillAssignments includes dynamic orchestration agent key
       ],
     }),
   ).toMatchObject({
-    planner: ["project", "main"],
+    main: ["project", "main"],
     coder: ["project", "main"],
     "research lead": ["project", "main"],
     eco_research_lead: ["project", "main"],

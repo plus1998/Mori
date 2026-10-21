@@ -13,7 +13,7 @@ export function normalizeRunAttemptPhase(value: unknown): RunAttemptPhase | unde
   return undefined;
 }
 export type RunAttemptStatus = "running" | "completed" | "failed" | "cancelled";
-export type AgentInstanceKind = "planner" | "subagent";
+export type AgentInstanceKind = "main" | "subagent";
 export type AgentInstanceStatus = "launching" | "active" | "stopped" | "abandoned";
 export type UsageLedgerSource = "sdk" | "proxy" | "codex" | "pi";
 export type UsageLedgerKind =

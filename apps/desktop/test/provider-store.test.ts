@@ -188,7 +188,7 @@ test.skipIf(!sqliteAvailable)("route profiles have no active flag semantics", as
   });
 
   const routes = (modelId: string) => [
-    { role: "planner" as const, providerId: provider.id, modelId },
+    { role: "main" as const, providerId: provider.id, modelId },
     { role: "explore" as const, providerId: provider.id, modelId },
     { role: "architect" as const, providerId: provider.id, modelId },
     { role: "coder" as const, providerId: provider.id, modelId },
@@ -229,7 +229,7 @@ test.skipIf(!sqliteAvailable)(
     store.saveRouteProfile({
       name: "默认编程",
       routes: [
-        { role: "planner", providerId: provider.id, modelId: "planner-model" },
+        { role: "main", providerId: provider.id, modelId: "planner-model" },
         { role: "explore", providerId: provider.id, modelId: "explore-model" },
         { role: "architect", providerId: provider.id, modelId: "architect-model" },
         { role: "coder", providerId: provider.id, modelId: "coder-model" },
@@ -393,7 +393,7 @@ test.skipIf(!sqliteAvailable)(
     store.saveRouteProfile({
       name: "Uses provider",
       routes: [
-        { role: "planner", providerId: provider.id, modelId: "m1" },
+        { role: "main", providerId: provider.id, modelId: "m1" },
         { role: "explore", providerId: provider.id, modelId: "m1" },
         { role: "architect", providerId: provider.id, modelId: "m1" },
         { role: "coder", providerId: provider.id, modelId: "m1" },
@@ -431,7 +431,7 @@ test.skipIf(!sqliteAvailable)("deleting an unreferenced provider does not rewrit
   store.saveRouteProfile({
     name: "Retained routes",
     routes: [
-      { role: "planner", providerId: retained.id, modelId: "planner-model" },
+      { role: "main", providerId: retained.id, modelId: "planner-model" },
       { role: "explore", providerId: retained.id, modelId: "explore-model" },
       { role: "architect", providerId: retained.id, modelId: "architect-model" },
       { role: "coder", providerId: retained.id, modelId: "coder-model" },

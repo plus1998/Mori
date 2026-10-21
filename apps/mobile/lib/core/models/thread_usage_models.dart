@@ -1,3 +1,5 @@
+import '../utils/agent_role.dart';
+
 class ContextBreakdownSegment {
   const ContextBreakdownSegment({
     required this.key,
@@ -33,7 +35,7 @@ class ThreadRoleContextSnapshot {
 
   factory ThreadRoleContextSnapshot.fromJson(Map<String, dynamic> json) =>
       ThreadRoleContextSnapshot(
-        role: json['role'] as String? ?? 'planner',
+        role: normalizeAgentRole(json['role'] as String? ?? 'main'),
         occupied: (json['occupied'] as num?)?.toInt() ?? 0,
         limit: (json['limit'] as num?)?.toInt() ?? 0,
         occupancyPct: (json['occupancyPct'] as num?)?.toInt() ?? 0,
@@ -72,7 +74,7 @@ class ThreadContextInstanceSnapshot {
   factory ThreadContextInstanceSnapshot.fromJson(Map<String, dynamic> json) =>
       ThreadContextInstanceSnapshot(
         agentId: json['agentId'] as String? ?? '',
-        role: json['role'] as String? ?? 'coder',
+        role: normalizeAgentRole(json['role'] as String? ?? 'coder'),
         occupied: (json['occupied'] as num?)?.toInt() ?? 0,
         limit: (json['limit'] as num?)?.toInt() ?? 0,
         occupancyPct: (json['occupancyPct'] as num?)?.toInt() ?? 0,
@@ -117,7 +119,9 @@ class ThreadContextSnapshot {
     limit: (json['limit'] as num?)?.toInt() ?? 0,
     occupancyPct: (json['occupancyPct'] as num?)?.toInt() ?? 0,
     limitsResolved: json['limitsResolved'] as bool? ?? false,
-    displayRole: json['displayRole'] as String?,
+    displayRole: json['displayRole'] == null
+        ? null
+        : normalizeAgentRole(json['displayRole'] as String),
     modelId: json['modelId'] as String?,
     segments: (json['segments'] as List<dynamic>? ?? [])
         .map(
@@ -167,7 +171,8 @@ class ThreadBillingModelSnapshot {
       ThreadBillingModelSnapshot(
         modelId: json['modelId'] as String? ?? '',
         roles: (json['roles'] as List<dynamic>? ?? [])
-            .map((entry) => entry as String)
+            .map((entry) => normalizeAgentRole(entry as String))
+            .toSet()
             .toList(),
         inputTokens: (json['inputTokens'] as num?)?.toInt() ?? 0,
         outputTokens: (json['outputTokens'] as num?)?.toInt() ?? 0,

@@ -105,7 +105,7 @@ test("V2 rewind uses original receipt order after a late UUID bind and tombstone
       threadId,
       eventType: user ? "thread.status" : "message.final",
       scope: "main",
-      role: user ? "user" : "planner",
+      role: user ? "user" : "main",
       runAttemptId: "run_rewind",
       streamState: "finalized",
       streamKey: id,
@@ -142,7 +142,7 @@ const presetBundle = buildResourcesFromRouteProfile(
     id: "profile-a",
     name: "方案 A",
     routes: [
-      { role: "planner", providerId: "p1", modelId: "m1" },
+      { role: "main", providerId: "p1", modelId: "m1" },
       { role: "explore", providerId: "p1", modelId: "m1" },
       { role: "architect", providerId: "p1", modelId: "m1" },
       { role: "coder", providerId: "p1", modelId: "m1" },
@@ -169,7 +169,7 @@ const settings: ModelSettingsSnapshot = {
       id: "profile-a",
       name: "方案 A",
       routes: [
-        { role: "planner", providerId: "p1", modelId: "m1" },
+        { role: "main", providerId: "p1", modelId: "m1" },
         { role: "explore", providerId: "p1", modelId: "m1" },
         { role: "architect", providerId: "p1", modelId: "m1" },
         { role: "coder", providerId: "p1", modelId: "m1" },
@@ -838,7 +838,7 @@ test.skipIf(!sqliteAvailable)("rewindThreadToActivityLine prunes target and late
     observedAt: "2024-01-01T00:00:02.000Z",
   });
   store.bindLatestUserActivityToSdkMessage(thread.id, "user-target");
-  store.appendActivityLine(thread.id, { id: "act_future", role: "planner", message: "future" });
+  store.appendActivityLine(thread.id, { id: "act_future", role: "main", message: "future" });
   store.appendThreadRunEvent({
     id: "evt_future",
     threadId: thread.id,
@@ -898,7 +898,7 @@ test.skipIf(!sqliteAvailable)("rewindThreadToActivityLine prunes target and late
     source: "sdk",
     sourceEventId: "evt_usage_future",
     usageKind: "request_final",
-    role: "planner",
+    role: "main",
     inputTokens: 1,
     outputTokens: 2,
     cacheReadTokens: 0,
@@ -1725,7 +1725,7 @@ test.skipIf(!sqliteAvailable)(
       streamState: "final",
       message: "Requesting model…",
       observedAt: "2026-01-01T00:00:01.000Z",
-      role: "planner",
+      role: "main",
       requestId: "req_local_placeholder",
     });
     store.appendThreadRunEvent({
@@ -1736,7 +1736,7 @@ test.skipIf(!sqliteAvailable)(
       streamState: "partial",
       message: "Hello",
       observedAt: "2026-01-01T00:00:02.000Z",
-      role: "planner",
+      role: "main",
       requestId: "req_local_placeholder",
     });
 

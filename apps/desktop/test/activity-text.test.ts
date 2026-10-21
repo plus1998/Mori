@@ -42,8 +42,8 @@ test("logSuspiciousActivityLine dedupes by thread and line id", () => {
     const { suspicious } = repairActivityText("I need to Fix The Code");
     expect(suspicious).toBe(true);
 
-    logSuspiciousActivityLine("thr_1", { id: "act_2", role: "planner", message: "I need to Fix The Code" });
-    logSuspiciousActivityLine("thr_1", { id: "act_2", role: "planner", message: "I need to Fix The Code" });
+    logSuspiciousActivityLine("thr_1", { id: "act_2", role: "main", message: "I need to Fix The Code" });
+    logSuspiciousActivityLine("thr_1", { id: "act_2", role: "main", message: "I need to Fix The Code" });
     void message;
   } finally {
     console.warn = original;

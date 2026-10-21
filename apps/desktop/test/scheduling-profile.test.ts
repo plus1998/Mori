@@ -5,7 +5,7 @@ import { materializeThreadOrchestrationSnapshot, buildAcpThreadRuntimeConfig, no
 import type { ModelSettingsSnapshot } from "../src/shared/ipc";
 
 test("freezes effective main-model override and stays fixed when global configuration changes", () => {
-  const bundle = buildResourcesFromRouteProfile({ id: "base", name: "Base", routes: (["planner", "explore", "architect", "coder", "reviewer", "tester"] as const).map(role => ({ role, providerId: "provider", modelId: "expensive" })), createdAt: "2026-10-08T00:00:00Z", updatedAt: "2026-10-08T00:00:00Z" }, { mainAgentConfigId: "main", subagentOrchestrationId: "unused" });
+  const bundle = buildResourcesFromRouteProfile({ id: "base", name: "Base", routes: (["main", "explore", "architect", "coder", "reviewer", "tester"] as const).map(role => ({ role, providerId: "provider", modelId: "expensive" })), createdAt: "2026-10-08T00:00:00Z", updatedAt: "2026-10-08T00:00:00Z" }, { mainAgentConfigId: "main", subagentOrchestrationId: "unused" });
   const settings: ModelSettingsSnapshot = { providers: [], routeProfiles: [], agentTemplates: [], mainAgentConfigs: [bundle.mainAgentConfig], mainAgentPrompts: [], subagentOrchestrations: [] };
   const selection = { mainAgentConfigId: "main", mainPrompt: { mode: "builtin" as const }, subagents: { mode: "none" as const } };
   const config = normalizeThreadRuntimeConfig({ ...buildAcpThreadRuntimeConfig(), ...materializeThreadOrchestrationSnapshot(settings, selection), mainAgentModelOverride: { providerId: "provider", modelId: "cheap", candidateModelId: "candidate" } });

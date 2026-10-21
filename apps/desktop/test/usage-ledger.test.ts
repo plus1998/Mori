@@ -60,7 +60,7 @@ test("projectUsageLedger aggregates totals by role agent and model", () => {
       id: "evt_2",
       sourceEventId: "proxy:req-2",
       source: "proxy",
-      role: "planner",
+      role: "main",
       agentId: "planner_session",
       attribution: { status: "attributed", agentId: "planner_session" },
       inputTokens: 50,
@@ -78,7 +78,7 @@ test("projectUsageLedger aggregates totals by role agent and model", () => {
   expect(projection.total.outputTokens).toBe(30);
   expect(projection.total.reportedCostUsd).toBeCloseTo(0.03);
   expect(projection.byRole.coder?.inputTokens).toBe(100);
-  expect(projection.byRole.planner?.inputTokens).toBe(50);
+  expect(projection.byRole.main?.inputTokens).toBe(50);
   expect(projection.byAgent.agent_coder_a?.cacheReadTokens).toBe(5);
   expect(projection.byModel["planner-model"]?.outputTokens).toBe(10);
 });

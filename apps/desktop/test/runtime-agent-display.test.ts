@@ -15,7 +15,7 @@ const routeProfile: RouteProfileView = {
   id: "coding-default",
   name: "Default Coding",
   routes: [
-    { role: "planner", providerId: "openai", modelId: "gpt-5-codex" },
+    { role: "main", providerId: "openai", modelId: "gpt-5-codex" },
     { role: "explore", providerId: "openai", modelId: "gpt-5-mini" },
     { role: "architect", providerId: "openai", modelId: "gpt-5" },
     { role: "coder", providerId: "openai", modelId: "gpt-5-codex" },
@@ -59,7 +59,7 @@ function runtimeConfig(sessionMode: "agent" | "plan"): ThreadRuntimeConfig {
 test("buildRuntimeAgentDisplayNames maps snapshot agents to runtime roles", () => {
   const names = buildRuntimeAgentDisplayNames(settings, runtimeConfig("plan"));
 
-  expect(names.planner).toBe("Default Coding Main Config");
+  expect(names.main).toBe("Default Coding Main Config");
   expect(names.main).toBe("Default Coding Main Config");
   expect(names.explore).toBe("Explore");
   expect(names.eco_explore).toBe("Explore");

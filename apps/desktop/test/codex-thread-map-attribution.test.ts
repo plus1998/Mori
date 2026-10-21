@@ -31,7 +31,7 @@ test("eco-mapped root stays planner even with a corrupted parent link", () => {
 
   expect(resolveCodexThreadAttribution(map, MAIN)).toEqual({
     ecoThreadId: ECO,
-    billingRole: "planner",
+    billingRole: "main",
   });
   expect(resolveCodexThreadAttribution(map, CHILD)).toMatchObject({
     ecoThreadId: ECO,

@@ -490,7 +490,7 @@ export class PiCodingAgentDriver implements AgentRuntimeDriver {
         id: `${input.threadId}:pi:no-route`,
         threadId: input.threadId,
         agentId: "system",
-        role: "planner",
+        role: "main",
         type: "thread.failed",
         payload: { message: "PI Core 需要至少一条可用模型路由。" },
       });
@@ -771,7 +771,7 @@ export class PiCodingAgentDriver implements AgentRuntimeDriver {
       id: `${input.threadId}:pi:session.captured`,
       threadId: input.threadId,
       agentId: activeSession.sessionId,
-      role: "planner",
+      role: "main",
       type: "session.captured",
       payload: {
         sessionId: activeSession.sessionId,
@@ -1068,7 +1068,7 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
   let routeFingerprint = input.routeFingerprint;
   let bindingId = input.bindingId;
   let apiCompat = input.apiCompat;
-  const eventRole = input.eventRole?.trim() || "planner";
+  const eventRole = input.eventRole?.trim() || "main";
   const eventAgentId = input.eventAgentId?.trim() || sessionId;
   const sideEventBus = input.sideEventBus;
   let abortWork: Promise<void> | undefined;

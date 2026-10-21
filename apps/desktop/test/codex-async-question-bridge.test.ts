@@ -161,7 +161,7 @@ test("an async question message registers a non-blocking panel and emits one req
   expect([...state.pending.keys()]).toEqual(["item-1"]);
   expect(state.pending.get("item-1")?.delivery).toBe("async");
   expect(state.events.map((event) => event.type)).toEqual(["clarification.requested"]);
-  expect(state.events[0]?.role).toBe("planner");
+  expect(state.events[0]?.role).toBe("main");
   expect(state.events[0]?.message).toContain("本轮会继续执行");
 });
 

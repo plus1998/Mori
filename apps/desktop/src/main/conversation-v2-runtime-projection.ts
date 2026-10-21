@@ -1,3 +1,4 @@
+import { normalizeAgentRole } from "@eco/shared";
 import type {
   ThreadBillingSnapshot,
   ThreadContextSnapshot,
@@ -309,7 +310,7 @@ export function eventToTimelineItem(
     scope: event.scope,
     text: event.message,
     at: event.observedAt,
-    ...(event.role && { role: event.role }),
+    ...(event.role && { role: normalizeAgentRole(event.role) }),
     ...(resolvedAgentId || event.agentId ? { agentId: resolvedAgentId ?? event.agentId } : {}),
     ...(event.runAttemptId && { runAttemptId: event.runAttemptId }),
     ...(event.requestId && { requestId: event.requestId }),
@@ -431,7 +432,7 @@ function agentRecordFromStartedEvent(event: ThreadRunEvent): AgentInstanceRecord
   return {
     threadId: event.threadId,
     agentId: event.agentId,
-    role: event.role ?? "coder",
+    role: normalizeAgentRole(event.role) ?? "coder",
     kind: "subagent",
     status: "active",
     startedAt: event.observedAt,
@@ -458,7 +459,7 @@ function agentRecordFromDelegationLink(
   return {
     threadId: event.threadId,
     agentId,
-    role: event.role ?? "coder",
+    role: normalizeAgentRole(event.role) ?? "coder",
     kind: "subagent",
     status: "active",
     startedAt: event.observedAt,
@@ -953,7 +954,7 @@ function createRequestSpan(event: ThreadRunEvent, requestId: string): MutableReq
     requestId,
     ...(event.runAttemptId && { runAttemptId: event.runAttemptId }),
     ...(event.agentId && { ownerAgentId: event.agentId }),
-    ...(event.role && { role: event.role }),
+    ...(event.role && { role: normalizeAgentRole(event.role) }),
     ...(typeof event.metadata?.source === "string" && { source: event.metadata.source }),
     status: "waiting_first_token",
     startedAt: event.observedAt,
@@ -1015,7 +1016,7 @@ function applyEventToRequestSpan(
     span.ownerAgentId = event.agentId;
   }
   if (!span.role && event.role) {
-    span.role = event.role;
+    span.role = normalizeAgentRole(event.role);
   }
   const providerRequestId = readProviderRequestId(event);
   if (providerRequestId) {

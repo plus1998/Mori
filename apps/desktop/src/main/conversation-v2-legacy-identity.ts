@@ -17,7 +17,7 @@ import type { ThreadRunEvent, ThreadRunEventInput } from "../shared/thread-run-e
  * as a backfill that matches nothing.
  */
 
-/** The provider's own role label (`planner`, `coder`, `explore`, `thinking`, ...). */
+/** The provider's own role label (`main`, `coder`, `explore`, `thinking`, ...). */
 export function legacyProviderRole(event: ThreadRunEventInput): string | undefined {
   const role = event.role?.trim();
   return role ? role : undefined;

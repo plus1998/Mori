@@ -165,18 +165,18 @@ test("resolveProxyUsageBilling keeps request key role stable when registry role 
 
 test("resolveProxyUsageBilling leaves planner proxy usage unattributed", () => {
   const resolved = resolveProxyUsageBilling({
-    info: { ...proxyUsage({ role: "planner" }), threadId: "thr_proxy" },
+    info: { ...proxyUsage({ role: "main" }), threadId: "thr_proxy" },
     resolver: resolver({
-      agentByRole: { planner: "planner_should_not_be_used" },
-      roleByAgent: { planner_should_not_be_used: "planner" },
+      agentByRole: { main: "planner_should_not_be_used" },
+      roleByAgent: { planner_should_not_be_used: "main" },
     }),
   });
 
-  expect(resolved.billingRole).toBe("planner");
+  expect(resolved.billingRole).toBe("main");
   expect(resolved.subagentAgentId).toBeUndefined();
   expect(resolved.observation.agentId).toBeUndefined();
   expect(resolved.billingInput).toMatchObject({
-    role: "planner",
+    role: "main",
     reconciliationOnly: true,
     fillSdkPrimaryForSubagent: false,
     apiCompat: "anthropic",
@@ -186,7 +186,7 @@ test("resolveProxyUsageBilling leaves planner proxy usage unattributed", () => {
 test("resolveProxyUsageBilling carries OpenAI-compat apiCompat for planner context routing", () => {
   const resolved = resolveProxyUsageBilling({
     info: {
-      ...proxyUsage({ role: "planner", apiCompat: "openai_chat_completions" }),
+      ...proxyUsage({ role: "main", apiCompat: "openai_chat_completions" }),
       threadId: "thr_proxy",
     },
     resolver: resolver(),
@@ -199,7 +199,7 @@ test("resolveProxyUsageBilling keeps planner-route message usage pending without
   const resolved = resolveProxyUsageBilling({
     info: {
       ...proxyUsage({
-        role: "planner",
+        role: "main",
         downstreamMessageId: "resp_general_purpose",
       }),
       threadId: "thr_proxy",
@@ -208,11 +208,11 @@ test("resolveProxyUsageBilling keeps planner-route message usage pending without
     resolver: resolver(),
   });
 
-  expect(resolved.billingRole).toBe("planner");
+  expect(resolved.billingRole).toBe("main");
   expect(resolved.subagentAgentId).toBeUndefined();
   expect(resolved.attributionPending).toBe(true);
   expect(resolved.billingInput).toMatchObject({
-    role: "planner",
+    role: "main",
     messageId: "resp_general_purpose",
     plannerAgentId: "planner_attempt_1",
     attributionPending: true,

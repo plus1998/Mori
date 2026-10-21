@@ -56,13 +56,13 @@ test("buildThreadUsageLedgerEventView exposes routeRole billingRole and attribut
 test("buildThreadUsageLedgerEventView surfaces gateway timing metadata", () => {
   const event = buildSingleUsageLedgerEvent({
     threadId: "thr_view_timing",
-    role: "planner",
+    role: "main",
     source: "proxy",
-    sourceEventId: "proxy:planner:req_7",
+    sourceEventId: "proxy:main:req_7",
     usage: { inputTokens: 500, outputTokens: 120, cacheReadTokens: 0, cacheCreationTokens: 0 },
-    attribution: { status: "attributed", agentId: "planner" },
+    attribution: { status: "attributed", agentId: "main" },
     modelId: "haiku",
-    requestKey: "proxy:planner:req_7",
+    requestKey: "proxy:main:req_7",
     metadata: {
       ttftMs: 250.7,
       generationMs: 4200.3,
@@ -79,13 +79,13 @@ test("buildThreadUsageLedgerEventView surfaces gateway timing metadata", () => {
 test("buildThreadUsageLedgerEventView omits timing fields when metadata has none", () => {
   const event = buildSingleUsageLedgerEvent({
     threadId: "thr_view_timing_none",
-    role: "planner",
+    role: "main",
     source: "sdk",
-    sourceEventId: "sdk:planner:req_8",
+    sourceEventId: "sdk:main:req_8",
     usage: { inputTokens: 500, outputTokens: 120, cacheReadTokens: 0, cacheCreationTokens: 0 },
     attribution: { status: "unattributed", reason: "agent_id_missing" },
     modelId: "haiku",
-    requestKey: "sdk:planner:req_8",
+    requestKey: "sdk:main:req_8",
   });
 
   const view = buildThreadUsageLedgerEventView(event);

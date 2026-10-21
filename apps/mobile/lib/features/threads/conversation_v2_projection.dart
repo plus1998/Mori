@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../../core/models/conversation_v2_models.dart';
 import '../../core/models/conversation_v2_projection_models.dart';
 import '../../core/utils/activity_display.dart';
+import '../../core/utils/agent_role.dart';
 import '../../core/utils/file_change.dart';
 
 /// Converts the V2 read models into the presentation projection consumed by
@@ -43,14 +44,15 @@ ThreadRunProjectionSnapshot buildConversationV2Projection({
   // `message.accepted` is the durable receipt for a queued follow-up. Until the
   // runtime finalizes it, the queue bar is its only visible representation;
   // rendering it here makes the same prompt look both queued and already sent.
-  final sortedMessages = messages
-      .where(
-        (message) =>
-            !(message.role == 'user' &&
-                message.status == ConversationV2MessageStatus.queued),
-      )
-      .toList()
-    ..sort(_compareMessages);
+  final sortedMessages =
+      messages
+          .where(
+            (message) =>
+                !(message.role == 'user' &&
+                    message.status == ConversationV2MessageStatus.queued),
+          )
+          .toList()
+        ..sort(_compareMessages);
   final sortedTools = [...tools]
     ..sort((left, right) {
       final time = _compareRowTime(left.occurredAt, right.occurredAt);
@@ -217,10 +219,10 @@ ThreadRunProjectionTimelineItem? _messageTimelineItem(
     eventType: eventType,
     scope: agentId == null ? 'main' : 'agent',
     // The Feed asks a row's role who wrote it (a turn's final output is the row with
-    // `role == 'planner'`), so the provider's own label travels with the row. The channel
+    // `role == 'main'`), so the provider's own label travels with the row. The channel
     // role is the fallback for rows written before the label was recorded.
     role: message.providerRole?.trim().isNotEmpty == true
-        ? message.providerRole!.trim()
+        ? normalizeAgentRole(message.providerRole!.trim())
         : (isUser ? 'user' : 'assistant'),
     agentId: agentId ?? message.agentId,
     text: message.body,
@@ -250,7 +252,7 @@ ThreadRunProjectionTimelineItem _toolTimelineItem(
     },
     scope: agentId == null ? 'main' : 'agent',
     role: tool.providerRole?.trim().isNotEmpty == true
-        ? tool.providerRole!.trim()
+        ? normalizeAgentRole(tool.providerRole!.trim())
         : 'tool',
     agentId: agentId ?? tool.agentId,
     runAttemptId: tool.runId,
@@ -319,8 +321,8 @@ ThreadRunProjectionAgent _buildAgent(
       : ended.difference(started).inMilliseconds;
   return ThreadRunProjectionAgent(
     agentId: agentId,
-    role: registered?.role ?? 'subagent',
-    kind: registered?.kind ?? 'subagent',
+    role: normalizeAgentRole(registered?.role ?? 'subagent'),
+    kind: normalizeAgentRole(registered?.kind ?? 'subagent'),
     // The projection's own vocabulary, mapped from the registry exactly as the desktop maps
     // it: the card's status is a rendering decision ("is this agent still going"), and the two
     // ends have to reach the same one from the same registry row.

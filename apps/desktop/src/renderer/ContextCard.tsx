@@ -86,7 +86,7 @@ function contextRoles(context: ThreadContextSnapshot): ThreadRoleContextSnapshot
   }
   return [
     {
-      role: context.displayRole ?? "planner",
+      role: context.displayRole ?? "main",
       occupied: context.occupied,
       limit: context.limit,
       occupancyPct: context.occupancyPct,
@@ -102,12 +102,12 @@ function resolvePlannerSnapshot(
   context: ThreadContextSnapshot,
   roles: ThreadRoleContextSnapshot[],
 ): ThreadRoleContextSnapshot {
-  const fromRoles = roles.find((role) => role.role === "planner");
+  const fromRoles = roles.find((role) => role.role === "main");
   if (fromRoles) {
     return fromRoles;
   }
   return {
-    role: "planner",
+    role: "main",
     occupied: context.occupied,
     limit: context.limit,
     occupancyPct: context.occupancyPct,
@@ -141,7 +141,7 @@ function buildFlatSubagentRows(
   agentDisplayNames?: RuntimeAgentDisplayNames,
 ): FlatSubagentRow[] {
   const instances = [...(instanceEntries ?? [])]
-    .filter((instance) => instance.role !== "planner" && instance.occupied > 0)
+    .filter((instance) => instance.role !== "main" && instance.occupied > 0)
     .sort((left, right) => right.occupied - left.occupied);
 
   if (instances.length > 0) {
@@ -371,7 +371,7 @@ export function ContextCard({
 
   const roles = contextRoles(context);
   const planner = resolvePlannerSnapshot(context, roles);
-  const subagentRoles = roles.filter((role) => role.role !== "planner");
+  const subagentRoles = roles.filter((role) => role.role !== "main");
   const flatSubagents = buildFlatSubagentRows(context.instances, subagentRoles, agentDisplayNames);
   const plannerDetailed = hasDetailedBreakdown(planner);
   const hasSubagents = flatSubagents.length > 0;

@@ -1498,7 +1498,7 @@ test("Node SQLite attributeThreadRunEventsByLogicalRequestId role conflict fail 
     threadId,
     eventType: "request.started",
     scope: "main",
-    role: "planner",
+    role: "main",
     requestId: logicalRequestId,
     streamState: "finalized",
     message: "Requesting model…",

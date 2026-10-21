@@ -79,7 +79,7 @@ test("formatUpstreamProxyCallLog renders human-readable multiline text", () => {
     at: "2026-06-03T00:00:00.000Z",
     ok: true,
     elapsedMs: 120,
-    role: "planner",
+    role: "main",
     provider: { id: "p1", name: "Provider" },
     model: { sdk: "eco-planner-x", upstream: "claude-sonnet-4", alias: "eco-planner-x" },
     operation: "messages",
@@ -97,7 +97,7 @@ test("formatUpstreamProxyCallLog renders human-readable multiline text", () => {
   });
 
   expect(text).toContain("proxy-call 成功");
-  expect(text).toContain("角色 planner");
+  expect(text).toContain("角色 main");
   expect(text).toContain("提供商 Provider");
   expect(text).toContain("SDK eco-planner-x");
   expect(text).toContain("上游 claude-sonnet-4");
@@ -156,7 +156,7 @@ test("logUpstreamProxyCall writes formatted text to stderr", () => {
       at: "2026-06-03T00:00:00.000Z",
       ok: true,
       elapsedMs: 120,
-      role: "planner",
+      role: "main",
       provider: { id: "p1", name: "Provider" },
       model: { upstream: "claude-sonnet-4", alias: "eco-planner-x" },
       operation: "messages",
@@ -171,7 +171,7 @@ test("logUpstreamProxyCall writes formatted text to stderr", () => {
 
   const text = chunks.join("");
   expect(text).toContain("[eco-upstream] proxy-call 成功");
-  expect(text).toContain("  角色 planner");
+  expect(text).toContain("  角色 main");
 });
 
 test("debugBodyFromRaw parses JSON or truncates text", () => {
@@ -196,7 +196,7 @@ test("logUpstreamProxyCall batches count_tokens into one line unless verbose", (
     at: "2026-06-03T00:00:00.000Z",
     ok: true,
     elapsedMs: 0,
-    role: "planner",
+    role: "main",
     provider: { id: "p1", name: "Provider" },
     model: { upstream: "claude-sonnet-4", alias: "eco-planner-x" },
     operation: "count_tokens" as const,
@@ -225,7 +225,7 @@ test("logUpstreamProxyCall batches count_tokens into one line unless verbose", (
   const text = chunks.join("");
   expect(text).not.toContain("proxy-call 成功 0ms");
   expect(text).toContain("count_tokens-stub ×3");
-  expect(text).toContain("role=planner");
+  expect(text).toContain("role=main");
   expect(text).toContain("99k");
 });
 

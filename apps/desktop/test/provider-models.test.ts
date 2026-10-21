@@ -795,7 +795,7 @@ describe("testRoleRoutes", () => {
       store,
       {
         routes: [
-          { role: "planner", providerId: "p1", modelId: "shared-model" },
+          { role: "main", providerId: "p1", modelId: "shared-model" },
           { role: "explore", providerId: "p1", modelId: "shared-model" },
           { role: "coder", providerId: "p1", modelId: "shared-model" },
           { role: "reviewer", providerId: "p1", modelId: "other-model" },
@@ -846,7 +846,7 @@ describe("testRoleRoutes", () => {
       store,
       {
         routes: [
-          { role: "planner", providerId: "p1", modelId: "model-a", thinkingEffort: "off" },
+          { role: "main", providerId: "p1", modelId: "model-a", thinkingEffort: "off" },
           { role: "coder", providerId: "p1", modelId: "model-b", thinkingEffort: "off" },
         ],
       },

@@ -163,7 +163,7 @@ test("duplicate/conflicting agentId or role fail closed", () => {
       threadId,
       logicalRequestId: snapshot.logicalRequestId,
       agentId: "agent_a",
-      role: "planner",
+      role: "main",
     }),
   ).toEqual({ ok: false, reason: "role_conflict" });
 
@@ -218,7 +218,7 @@ test("main agent and subagent late-bind stay independent via resolveSdkLateBindA
     threadId,
     {
       type: "usage.recorded",
-      role: "planner",
+      role: "main",
       agentId: "session_main",
       payload: { request_id: "req_main" },
     },
@@ -235,7 +235,7 @@ test("main agent and subagent late-bind stay independent via resolveSdkLateBindA
     { plannerSessionId: "session_main", metricsRegistry: metrics },
   );
 
-  expect(main).toEqual({ agentId: "session_main", role: "planner" });
+  expect(main).toEqual({ agentId: "session_main", role: "main" });
   expect(sub).toEqual({ agentId: "agent_sub", role: "coder" });
 });
 
@@ -244,7 +244,7 @@ test("main agent and subagent late-bind stay independent", () => {
   const threadId = "thr_main_sub";
   const main = handleBridgeMessagesRequest(registry, {
     threadId,
-    role: "planner",
+    role: "main",
     emitTimelineActivity: true,
   });
   const sub = handleBridgeMessagesRequest(registry, {
@@ -257,7 +257,7 @@ test("main agent and subagent late-bind stay independent", () => {
     threadId,
     logicalRequestId: main.logicalRequestId,
     agentId: "session_main",
-    role: "planner",
+    role: "main",
   });
   bindLogicalRequestAgentId(registry, {
     threadId,

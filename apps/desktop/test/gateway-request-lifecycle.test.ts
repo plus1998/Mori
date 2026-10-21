@@ -53,7 +53,7 @@ describe("gateway-request-lifecycle desktop bridge", () => {
         apiCompat: "anthropic",
       },
       {
-        role: "planner",
+        role: "main",
         provider: providerSecret("pb"),
         modelId: "model-b",
         aliasModelId: "alias-b",
@@ -96,7 +96,7 @@ describe("gateway-request-lifecycle desktop bridge", () => {
         apiCompat: "anthropic",
       },
       {
-        role: "planner",
+        role: "main",
         provider: providerSecret("pa"),
         modelId: "shared-model",
         aliasModelId: "alias-planner",
@@ -124,7 +124,7 @@ describe("gateway-request-lifecycle desktop bridge", () => {
         onLogicalCompleted: (input) => roles.push(input.role),
       },
     );
-    expect(roles).toEqual(["planner"]);
+    expect(roles).toEqual(["main"]);
   });
 
   test("ambiguous concrete model match does not invoke lifecycle handlers", () => {
@@ -137,7 +137,7 @@ describe("gateway-request-lifecycle desktop bridge", () => {
         apiCompat: "anthropic",
       },
       {
-        role: "planner",
+        role: "main",
         provider: providerSecret("pa"),
         modelId: "shared-model",
         aliasModelId: "alias-planner",

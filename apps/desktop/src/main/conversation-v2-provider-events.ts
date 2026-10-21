@@ -232,9 +232,9 @@ export function appendProviderEventToConversationV2(
       ? store.getMessage(event.threadId, messageId)
       : undefined;
     const role = messageRole(event.role);
-    // The provider's own label (`planner`, `coder`, `explore`, ...) is a fact about
+    // The provider's own label (`main`, `coder`, `explore`, ...) is a fact about
     // the row, not a display preference: the Feed identifies a turn's final output by
-    // `role === "planner"`. Normalizing it away here left the V2-only projection
+    // `role === "main"`. Normalizing it away here left the V2-only projection
     // unable to answer that question, so the label travels with the row.
     const providerRole = legacyProviderRole(event);
     const channel =
@@ -298,7 +298,7 @@ export function appendProviderEventToConversationV2(
       // from. They only ever existed on the legacy row, so a V2 record that drops them
       // forces every consumer to invent them (or read the legacy table again).
       ...(event.role ? { role: event.role } : {}),
-      ...(event.role ? { kind: event.role === "planner" ? "planner" : "subagent" } : {}),
+      ...(event.role ? { kind: event.role === "main" ? "main" : "subagent" } : {}),
       ...(missionKey ? { mission: missionKey } : {}),
       ...(delegationPrompt ? { delegationPrompt } : {}),
       ...(delegationSummary ? { delegationSummary } : {}),

@@ -101,7 +101,7 @@ test("shouldClearReconnectTimelineItem treats successful agent output as recover
     shouldClearReconnectTimelineItem({
       eventType: "message.final",
       text: "已根据你的需求完成修改。",
-      role: "planner",
+      role: "main",
     }),
   ).toBe(true);
   expect(

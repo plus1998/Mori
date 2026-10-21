@@ -10,6 +10,8 @@ import {
   type TokenCostBreakdown,
   tokenTotalsFromUsage,
 } from "@eco/runtime";
+import { normalizeAgentRole } from "@eco/shared";
+import { normalizeAgentRoleMap } from "../shared/agent-role-snapshots";
 import type {
   BillingUsageSource,
   RuntimeAgentRole,
@@ -241,15 +243,15 @@ export class ThreadUsageAccumulator {
   restoreState(threadId: string, data: SerializedThreadUsageState): void {
     const legacy = data as SerializedThreadUsageState & { otelCostUsd?: number };
     this.states.set(threadId, {
-      byRole: data.byRole,
+      byRole: normalizeAgentRoleMap(data.byRole, mergeUsageTotals),
       total: data.total,
       sourceReportedCostUsd: data.sourceReportedCostUsd ?? legacy.otelCostUsd ?? 0,
       plannerTokenCostUsd: data.plannerTokenCostUsd,
       ecoCostUsd: data.ecoCostUsd,
       ecoCostBreakdown: data.ecoCostBreakdown,
       plannerCostBreakdown: data.plannerCostBreakdown,
-      roleEcoCostUsd: data.roleEcoCostUsd,
-      roleModelIds: data.roleModelIds,
+      roleEcoCostUsd: normalizeAgentRoleMap(data.roleEcoCostUsd, (previous, current) => previous + current),
+      roleModelIds: normalizeAgentRoleMap(data.roleModelIds, (_previous, current) => current),
       sources: restoreSourceStates(data.sources),
       seenRequestKeys: new Set(data.seenRequestKeys),
       pricingResolved: data.pricingResolved,
@@ -453,7 +455,18 @@ function restoreSourceStates(
     restored[source] = {
       ...createEmptySourceState(),
       ...state,
-      byModel: state.byModel ?? {},
+      byRole: normalizeAgentRoleMap(state.byRole, mergeUsageTotals),
+      roleEcoCostUsd: normalizeAgentRoleMap(state.roleEcoCostUsd, (previous, current) => previous + current),
+      roleModelIds: normalizeAgentRoleMap(state.roleModelIds, (_previous, current) => current),
+      byModel: Object.fromEntries(
+        Object.entries(state.byModel ?? {}).map(([key, model]) => [
+          key,
+          {
+            ...model,
+            roles: [...new Set(model.roles.map((role) => normalizeAgentRole(role)))],
+          },
+        ]),
+      ),
     };
   }
   return restored;

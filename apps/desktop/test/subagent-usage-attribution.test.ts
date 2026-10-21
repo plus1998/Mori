@@ -26,12 +26,12 @@ test("resolveSubagentUsageAttribution skips planner without explicit subagent co
 
   const attribution = resolveSubagentUsageAttribution({
     threadId: "thr_attr",
-    role: "planner",
+    role: "main",
     resolver: resolver({ calls }),
   });
 
   expect(calls).toEqual([]);
-  expect(attribution).toEqual({ billingRole: "planner", attempted: false });
+  expect(attribution).toEqual({ billingRole: "main", attempted: false });
 });
 
 test("resolveSubagentUsageAttribution resolves subagent billing role by role", () => {
@@ -60,7 +60,7 @@ test("resolveSubagentUsageAttribution lets explicit subagent context resolve fro
 
   const attribution = resolveSubagentUsageAttribution({
     threadId: "thr_attr",
-    role: "planner",
+    role: "main",
     resolver: resolver({
       calls,
       resolve: (_role, subagentAgentId) => subagentAgentId,
@@ -80,7 +80,7 @@ test("resolveSubagentUsageAttribution lets explicit subagent context resolve fro
 test("resolveSubagentUsageAttribution resolves parent tool use before role fallback", () => {
   const attribution = resolveSubagentUsageAttribution({
     threadId: "thr_attr",
-    role: "planner",
+    role: "main",
     resolver: resolver({
       resolve: (_role, _subagentAgentId, parentToolUseId) =>
         parentToolUseId === "tool_parent" ? "agent_architect" : undefined,
@@ -102,12 +102,12 @@ test("resolveSubagentUsageAttribution applies registry role for resolved agents"
     role: "coder",
     resolver: resolver({
       resolve: () => "agent_planner_like",
-      roleFor: () => "planner",
+      roleFor: () => "main",
     }),
   });
 
   expect(attribution).toEqual({
-    billingRole: "planner",
+    billingRole: "main",
     attempted: true,
     subagentAgentId: "agent_planner_like",
   });

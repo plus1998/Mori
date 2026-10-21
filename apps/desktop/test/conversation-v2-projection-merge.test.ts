@@ -22,7 +22,7 @@ function makeProjection(
       id: `evt_${index}`,
       kind: "narrative" as const,
       text: `line ${index}`,
-      role: "planner" as const,
+      role: "main" as const,
       observedAt: new Date().toISOString(),
     }));
   return {
@@ -50,7 +50,7 @@ test("mergeThreadRunProjectionUpdate keeps fuller timeline for an older update w
       id: `evt_${i}`,
       kind: "narrative" as const,
       text: `line ${i}`,
-      role: "planner" as const,
+      role: "main" as const,
       observedAt: new Date().toISOString(),
     })),
   });
@@ -61,7 +61,7 @@ test("mergeThreadRunProjectionUpdate keeps fuller timeline for an older update w
       id: `evt_${i + 40}`,
       kind: "narrative" as const,
       text: `line ${i + 40}`,
-      role: "planner" as const,
+      role: "main" as const,
       observedAt: new Date().toISOString(),
     })),
   });
@@ -223,7 +223,7 @@ test("mergeThreadRunProjectionUpdate merges trimmed newer feed without dropping 
       id: `evt_${i}`,
       kind: "narrative" as const,
       text: `line ${i}`,
-      role: "planner" as const,
+      role: "main" as const,
       observedAt: new Date().toISOString(),
     })),
   });
@@ -233,7 +233,7 @@ test("mergeThreadRunProjectionUpdate merges trimmed newer feed without dropping 
       id: `evt_${i + 40}`,
       kind: "narrative" as const,
       text: `updated ${i + 40}`,
-      role: "planner" as const,
+      role: "main" as const,
       observedAt: new Date().toISOString(),
     })),
   });
@@ -653,7 +653,7 @@ test("mergeThreadRunProjectionDetail keeps planner attempt echoes as planner age
         eventType: "message.final",
         scope: "agent",
         role: "tool",
-        agentId: "planner:attempt_execution_0",
+        agentId: "main:attempt_execution_0",
         text: "辅助模型已允许 Fetch：Fetch https://example.com/provider.ts",
         at: "2026-01-01T00:02:00.000Z",
         runAttemptId: "attempt_execution_0",
@@ -663,9 +663,9 @@ test("mergeThreadRunProjectionDetail keeps planner attempt echoes as planner age
 
   expect(merged.agents).toHaveLength(1);
   expect(merged.agents[0]).toMatchObject({
-    agentId: "planner:attempt_execution_0",
-    role: "planner",
-    kind: "planner",
+    agentId: "main:attempt_execution_0",
+    role: "main",
+    kind: "main",
   });
 });
 

@@ -242,7 +242,7 @@ export interface ConversationMessage {
   /** First observed thinking start, retained when finalization updates occurredAt. */
   startedAt?: string;
   /**
-   * The provider's own label for the row (`planner`, `coder`, `explore`, ...), kept
+   * The provider's own label for the row (`main`, `coder`, `explore`, ...), kept
    * separate from `role`. `role` is the normalized channel role a client switches on;
    * this is the fact a Feed uses to pick a turn's final output and to attribute a row to
    * the role that wrote it. Normalizing it away makes those questions unanswerable.

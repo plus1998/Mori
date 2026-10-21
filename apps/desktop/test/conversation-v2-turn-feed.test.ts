@@ -13,7 +13,7 @@ function item(
     sequence: input.sequence ?? 1,
     eventType: input.eventType ?? "message.final",
     scope: input.scope ?? "main",
-    role: input.role ?? "planner",
+    role: input.role ?? "main",
     text,
     at: input.at ?? "2026-01-01T00:00:02.000Z",
     ...(input.runAttemptId && { runAttemptId: input.runAttemptId }),

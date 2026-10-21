@@ -2414,6 +2414,54 @@ abstract class AppLocalizations {
   /// **'Writing'**
   String get activityWriting;
 
+  /// No description provided for @activityWritingFileTarget.
+  ///
+  /// In en, this message translates to:
+  /// **'Writing {target}'**
+  String activityWritingFileTarget(Object target);
+
+  /// No description provided for @activityWritingFile.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing to write a file'**
+  String get activityWritingFile;
+
+  /// No description provided for @activityWritingReadTarget.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading {target}'**
+  String activityWritingReadTarget(Object target);
+
+  /// No description provided for @activityWritingRead.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing to read a file'**
+  String get activityWritingRead;
+
+  /// No description provided for @activityWritingCommandTarget.
+  ///
+  /// In en, this message translates to:
+  /// **'Running {target}'**
+  String activityWritingCommandTarget(Object target);
+
+  /// No description provided for @activityWritingCommand.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing to write a command'**
+  String get activityWritingCommand;
+
+  /// No description provided for @activityWritingTool.
+  ///
+  /// In en, this message translates to:
+  /// **'Calling {tool}'**
+  String activityWritingTool(Object tool);
+
+  /// No description provided for @activityWritingUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing a tool call'**
+  String get activityWritingUnknown;
+
   /// No description provided for @activityWrote.
   ///
   /// In en, this message translates to:

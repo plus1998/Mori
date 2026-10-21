@@ -961,8 +961,8 @@ void mainSessionRunningClocks() {
           role: 'assistant',
           channel: 'answer',
           runId: 'run_1',
-          agentId: 'planner:attempt_1',
-          agentInstanceId: 'planner:attempt_1',
+          agentId: 'main:attempt_1',
+          agentInstanceId: 'main:attempt_1',
           createdSeq: 5,
           versionSeq: 6,
           contentVersion: 1,
@@ -986,7 +986,7 @@ void mainSessionRunningClocks() {
           toolCallId: 'tool_1',
           conversationId: 'thread_1',
           runId: 'run_1',
-          agentId: 'planner:attempt_1',
+          agentId: 'main:attempt_1',
           name: 'Grep',
           status: 'completed',
           createdSeq: 3,
@@ -1003,7 +1003,7 @@ void mainSessionRunningClocks() {
       isNot(contains('message_agent')),
     );
     final agent = projection.agents.single;
-    expect(agent.agentId, 'planner:attempt_1');
+    expect(agent.agentId, 'main:attempt_1');
     expect(agent.timeline.map((item) => item.id), contains('message_agent'));
     expect(
       agent.timeline.firstWhere((item) => item.id == 'message_agent').scope,
@@ -1013,7 +1013,7 @@ void mainSessionRunningClocks() {
 
   test('carries the provider role and the row time the Feed reads', () {
     // Two facts the desktop Feed has and mobile used to drop: the provider's own role
-    // label (the turn's final output is the row with `role == 'planner'`) and when a row
+    // label (the turn's final output is the row with `role == 'main'`) and when a row
     // happened (mobile derived a clock from the sequence number, so a row could not be
     // placed between the two tools of its own turn).
     final projection = buildConversationV2Projection(
@@ -1024,7 +1024,7 @@ void mainSessionRunningClocks() {
           conversationId: 'thread_1',
           turnId: 'turn_1',
           role: 'assistant',
-          providerRole: 'planner',
+          providerRole: 'main',
           agentId: 'agent_orphan',
           agentInstanceId: 'agent_instance_1',
           channel: 'answer',
@@ -1068,8 +1068,8 @@ void mainSessionRunningClocks() {
         ConversationV2Agent(
           agentId: 'agent_orphan',
           conversationId: 'thread_1',
-          role: 'planner',
-          kind: 'planner',
+          role: 'main',
+          kind: 'main',
           status: 'completed',
           versionSeq: 9,
         ),
@@ -1079,7 +1079,7 @@ void mainSessionRunningClocks() {
     final answer = projection.timeline.singleWhere(
       (item) => item.id == 'message_plan',
     );
-    expect(answer.role, 'planner');
+    expect(answer.role, 'main');
     expect(answer.agentId, 'agent_orphan');
     expect(answer.streamKey, 'message_plan');
     expect(answer.at, '2026-01-01T00:00:07.000Z');
@@ -1177,7 +1177,7 @@ void mainSessionRunningClocks() {
             role: 'assistant',
             channel: 'answer',
             runId: 'run_1',
-            agentId: 'planner:missing_card',
+            agentId: 'main:missing_card',
             createdSeq: 5,
             versionSeq: 6,
             contentVersion: 1,

@@ -27,7 +27,7 @@ if (tables.includes("provider_configs")) {
 }
 
 if (tables.includes("role_routes")) {
-  const routes = db.prepare("SELECT role, provider_id, model_id, api_compat, thinking_effort FROM role_routes WHERE role='planner' LIMIT 10").all();
+  const routes = db.prepare("SELECT role, provider_id, model_id, api_compat, thinking_effort FROM role_routes WHERE role='main' LIMIT 10").all();
   console.log("\nplanner routes:", JSON.stringify(routes, null, 2));
 }
 

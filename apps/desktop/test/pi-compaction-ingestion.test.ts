@@ -7,7 +7,7 @@ function piEvent(type: AgentEvent["type"], payload: unknown): AgentEvent {
     id: `thr_pi:pi:1:${type}`,
     threadId: "thr_pi",
     agentId: "sess_1",
-    role: "planner",
+    role: "main",
     type,
     timestamp: "2026-01-01T00:00:00.000Z",
     payload,

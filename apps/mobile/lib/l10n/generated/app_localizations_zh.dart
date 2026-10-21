@@ -1328,6 +1328,38 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activityWriting => '正在写入';
 
   @override
+  String activityWritingFileTarget(Object target) {
+    return '正在写入 $target';
+  }
+
+  @override
+  String get activityWritingFile => '正在准备写入文件';
+
+  @override
+  String activityWritingReadTarget(Object target) {
+    return '正在读取 $target';
+  }
+
+  @override
+  String get activityWritingRead => '正在准备读取文件';
+
+  @override
+  String activityWritingCommandTarget(Object target) {
+    return '正在调用 $target';
+  }
+
+  @override
+  String get activityWritingCommand => '正在准备写入命令';
+
+  @override
+  String activityWritingTool(Object tool) {
+    return '正在调用 $tool';
+  }
+
+  @override
+  String get activityWritingUnknown => '正在准备调用工具';
+
+  @override
   String get activityWrote => '已写入';
 
   @override

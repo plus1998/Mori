@@ -68,7 +68,7 @@ export async function makeStack(protocol: Protocol, core: string, native = false
       requestedOutput: counted.get(body.model)!.requestedOutput,
       ...(sdkRequested.has(body.model) && { sdkRequestedOutput: sdkRequested.get(body.model)! }),
     });
-    if (native && role === "planner") {
+    if (native && role === "main") {
       const results = (body.messages ?? []).flatMap((m: any) =>
         Array.isArray(m.content) ? m.content.filter((b: any) => b.type === "tool_result") : [],
       );
@@ -79,7 +79,7 @@ export async function makeStack(protocol: Protocol, core: string, native = false
     const tool = tools.find((t) => (core === "codex" ? /spawn_agent$/.test(t.name) : t.name === "Agent"));
     if (
       native &&
-      role === "planner" &&
+      role === "main" &&
       tool &&
       JSON.stringify(body).includes("MATRIX_DELEGATE_ALL") &&
       mainTurns++ === 0
@@ -119,7 +119,7 @@ export async function makeStack(protocol: Protocol, core: string, native = false
     baseUrl: upstreamBaseUrl,
     apiKey: "local-output-test",
     apiCompat: compatFor[protocol],
-    defaultModel: `${protocol}__planner`,
+    defaultModel: `${protocol}__main`,
     enabled: true,
     hasApiKey: true,
     version: "v1",
@@ -198,7 +198,7 @@ export async function makeStack(protocol: Protocol, core: string, native = false
     })),
     orchestration: {
       mainAgent: {
-        agentKey: "planner",
+        agentKey: "main",
         name: "Main",
         systemPromptPreset: "core_native",
         prompt: "Use each configured subagent once.",

@@ -12,7 +12,7 @@ import type { ThreadRunProjectionSnapshot } from "../../src/shared/ipc";
  *
  * A row's identity is what it says, which role wrote it and when it happened. Text alone
  * missed the provider's own role disappearing (the Feed picks a turn's final output by
- * `role === "planner"`), and it missed a row landing at the wrong time — which is what
+ * `role === "main"`), and it missed a row landing at the wrong time — which is what
  * puts a message between the two tools of its own turn.
  */
 export interface RowShape {

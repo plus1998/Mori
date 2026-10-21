@@ -1,3 +1,4 @@
+import { normalizeAgentRole } from "@eco/shared";
 import type { UpstreamApiCompat } from "./api-compat";
 import type {
   ModelsDevMapping,
@@ -391,8 +392,8 @@ export function buildResourcesFromRouteProfile(
     updatedAt?: string;
   },
 ): OrchestrationResourceBundle {
-  const routeByRole = new Map(routeProfile.routes.map((route) => [route.role, route]));
-  const plannerRoute = requireRoute(routeByRole, "planner", routeProfile.id);
+  const routeByRole = new Map(routeProfile.routes.map((route) => [normalizeAgentRole(route.role), route]));
+  const plannerRoute = requireRoute(routeByRole, "main", routeProfile.id);
   const exploreRoute = requireRoute(routeByRole, "explore", routeProfile.id);
   const updatedAt = options.updatedAt ?? routeProfile.updatedAt;
   const mainAgentConfig: MainAgentConfigResource = {

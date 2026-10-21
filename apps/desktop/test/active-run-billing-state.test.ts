@@ -46,7 +46,7 @@ test("ActiveRunBillingStateStore tracks request sequences and proxy context cach
   });
   expect(store.proxyRequestSeq("thr_state")).toBe(1);
   expect(store.proxyContextOccupied("thr_state", "coder")).toBe(12_000);
-  expect(store.proxyContextOccupied("thr_state", "planner")).toBeUndefined();
+  expect(store.proxyContextOccupied("thr_state", "main")).toBeUndefined();
 });
 
 test("ActiveRunBillingStateStore restarts with fresh billing state", () => {

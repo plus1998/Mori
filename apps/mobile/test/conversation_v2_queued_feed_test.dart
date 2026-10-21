@@ -22,7 +22,7 @@ ConversationV2Message _message(
   turnId: 'turn_$id',
   runId: user ? null : 'run_$id',
   role: user ? 'user' : 'assistant',
-  providerRole: user ? null : 'planner',
+  providerRole: user ? null : 'main',
   channel: 'answer',
   createdSeq: sequence,
   versionSeq: versionSeq ?? sequence,

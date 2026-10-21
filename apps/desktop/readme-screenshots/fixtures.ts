@@ -80,7 +80,7 @@ function timelineItem(
     sequence: input.sequence ?? 1,
     eventType: input.eventType ?? "tool.started",
     scope: input.scope ?? "main",
-    role: input.role ?? "planner",
+    role: input.role ?? "main",
     text: input.text ?? "",
     at: input.at ?? "2026-08-10T10:00:00.000Z",
     ...(input.runAttemptId && { runAttemptId: input.runAttemptId }),
@@ -176,7 +176,7 @@ export const demoProductOverviewProjection: ThreadRunProjectionSnapshot = {
       id: "planner-summary",
       sequence: 2,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       runAttemptId: "attempt_demo_1",
       text: "我会先让 Explore 梳理认证与配对链路，再并行委派 Coder 实现 UI、Tester 补 smoke。完成后统一验收 diff 与测试结果。",
     }),
@@ -184,7 +184,7 @@ export const demoProductOverviewProjection: ThreadRunProjectionSnapshot = {
       id: "planner-final",
       sequence: 3,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       runAttemptId: "attempt_demo_1",
       text: "三个子代理已完成：Explore 列出配对链路，Coder 更新 Center 设置页，Tester 补 smoke。可以开始验收。",
     }),
@@ -210,7 +210,7 @@ export const demoBillingSnapshot: ThreadBillingSnapshot = {
   primarySource: "proxy",
   displaySource: "proxy",
   byRole: {
-    planner: {
+    main: {
       inputTokens: 18_000,
       outputTokens: 2_200,
       cacheReadTokens: 48_000,
@@ -281,7 +281,7 @@ export const demoBillingSnapshot: ThreadBillingSnapshot = {
 };
 
 export const demoAgentDisplayNames = {
-  planner: "Main agent",
+  main: "Main agent",
   explore: "Explore",
   coder: "Coder",
   tester: "Tester",

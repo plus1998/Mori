@@ -139,7 +139,7 @@ test("prefillManualSpecFormFromCandidate fills resolved values for editing", () 
 test("prefillManualSpecFormFromHints fills catalog capabilities and pricing", () => {
   const form = prefillManualSpecFormFromHints(
     {
-      role: "planner",
+      role: "main",
       modelId: "gpt-4o",
       providerName: "OpenAI",
       supportsImageInput: true,
@@ -152,7 +152,7 @@ test("prefillManualSpecFormFromHints fills catalog capabilities and pricing", ()
       catalogSupportsReasoning: false,
     },
     {
-      role: "planner",
+      role: "main",
       modelId: "gpt-4o",
       providerName: "OpenAI",
       pricingResolved: true,
@@ -171,7 +171,7 @@ test("prefillManualSpecFormFromHints fills catalog capabilities and pricing", ()
 test("mergeEffectivePricingHint applies price multiplier to catalog rates", () => {
   const merged = mergeEffectivePricingHint(
     {
-      role: "planner",
+      role: "main",
       modelId: "gpt-4o",
       providerName: "OpenAI",
       pricingResolved: true,
@@ -187,7 +187,7 @@ test("mergeEffectivePricingHint applies price multiplier to catalog rates", () =
 test("mergeEffectivePricingHint treats price multiplier zero as free", () => {
   const merged = mergeEffectivePricingHint(
     {
-      role: "planner",
+      role: "main",
       modelId: "gpt-4o",
       providerName: "OpenAI",
       pricingResolved: true,

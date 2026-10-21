@@ -34,7 +34,7 @@ test("creates timestamped agent events", () => {
     id: "evt_1",
     threadId: "thr_1",
     agentId: "agt_1",
-    role: "planner",
+    role: "main",
     type: "agent.started",
     payload: { modelId: "sonnet" },
   });

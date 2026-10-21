@@ -141,7 +141,7 @@ export function areCodingRoutesReady(
   routes: readonly RuntimeRoleRouteConfig[],
   providersById: ReadonlyMap<string, ProviderView>,
 ): boolean {
-  if (!routes.some((route) => route.role === "planner")) {
+  if (!routes.some((route) => route.role === "main")) {
     return false;
   }
   return routes.every((route) => {

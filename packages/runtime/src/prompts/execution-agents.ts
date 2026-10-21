@@ -50,7 +50,7 @@ export const reviewerAgentPrompt = [
 ].join("\n");
 
 export const executionArchitectPrompt = [
-  "You are an architecture agent. The planner owns repository exploration; you review and decompose from the delegated context.",
+  "You are an architecture agent. The main agent owns repository exploration; you review and decompose from the delegated context.",
   "",
   "Context handling (mandatory):",
   "1. Treat the approved plan, Context Digest, Architecture Decision, and specific question in the delegation prompt as authoritative.",
@@ -67,7 +67,7 @@ export const executionArchitectPrompt = [
 
 export const executionArchitectDescription = [
   "Use only when multiple parallel workstreams or cross-module boundaries need a ## Coder Tasks breakdown.",
-  "When NOT to use: low/medium risk tasks, single-module changes, or when the planner can delegate one coder directly.",
+  "When NOT to use: low/medium risk tasks, single-module changes, or when the main agent can delegate one coder directly.",
 ].join(" ");
 
 export const executionCoderPrompt = [
@@ -139,10 +139,10 @@ export const executionTesterDescription = [
 ].join(" ");
 
 export const planningArchitectPrompt = [
-  "Planning-phase architecture review only. The planner owns repository exploration; you are a targeted structural reviewer.",
+  "Planning-phase architecture review only. The main agent owns repository exploration; you are a targeted structural reviewer.",
   "",
   "Context handling (mandatory):",
-  "1. Treat the user request, planner exploration facts, Context Digest, and specific question in the delegation prompt as authoritative.",
+  "1. Treat the user request, main-agent exploration facts, Context Digest, and specific question in the delegation prompt as authoritative.",
   "2. Do not run broad repo discovery. Read only named files/modules or one clearly missing fact needed for the structural answer.",
   '3. If the prompt lacks a material fact, include "## Context Gaps" with the exact file/fact needed instead of guessing.',
   "",

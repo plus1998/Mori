@@ -84,7 +84,7 @@ test("Codex Luna turn usage stays consistent through ledger, totals and event di
     turns.map((turn, index) =>
       resolveSingleUsageBillingArtifacts({
         threadId: "thr_codex_luna_billing",
-        role: "planner",
+        role: "main",
         source: "codex",
         providerId: "openai",
         modelId: "gpt-6-luna",
@@ -92,7 +92,7 @@ test("Codex Luna turn usage stays consistent through ledger, totals and event di
         runtimeRoutes: [],
         lookupPricing: async () => null,
         requestKey: `codex-turn-usage:thread:turn-${index}`,
-        plannerAgentId: `planner:attempt-${index}`,
+        plannerAgentId: `main:attempt-${index}`,
       }),
     ),
   );
@@ -122,7 +122,7 @@ test("Codex Luna turn usage stays consistent through ledger, totals and event di
 test("unknown direct OpenAI models cannot produce a resolved Astra estimate", async () => {
   const result = await resolveSingleUsageBillingArtifacts({
     threadId: "thr_unknown_codex_model",
-    role: "planner",
+    role: "main",
     source: "codex",
     providerId: "openai",
     modelId: "gpt-6-unknown",

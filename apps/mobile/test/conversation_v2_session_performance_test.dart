@@ -11,6 +11,98 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 void main() {
   sqfliteFfiInit();
   test(
+    'push boundaries refresh tool-writing and thinking without token RPCs',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'eco-v2-live-slot-',
+      );
+      final cache = _CountingCache('${directory.path}/cache.sqlite');
+      final remote = _Remote();
+      final controller = ConversationV2SessionController(
+        conversationId: 'burst',
+        cache: cache,
+        remote: remote,
+      );
+      addTearDown(() async {
+        await controller.close();
+        controller.dispose();
+        await directory.delete(recursive: true);
+      });
+      await controller.start();
+      final before = remote.projectionExtrasCalls;
+      var sequence = 0;
+      Future<void> push(String reason) {
+        final effect = {'type': 'noop', 'reason': reason};
+        return controller.acceptPushEnvelope({
+          'kind': 'conversation.sync_effect',
+          'payload': {
+            'conversationId': 'burst',
+            'storeEpoch': 'epoch',
+            'effect': {
+              'seq': ++sequence,
+              'effectVersion': 1,
+              'effectHash': conversationV2StableHash(effect),
+              'effect': effect,
+            },
+          },
+        });
+      }
+
+      remote.extras = ConversationV2ProjectionExtras.fromJson({
+        'requestSpans': [
+          {
+            'requestId': 'main-request',
+            'status': 'completed',
+            'startedAt': '2026-10-21T00:00:00Z',
+            'writingTool': {
+              'kind': 'file',
+              'target': 'src/main.ts',
+              'since': '2026-10-21T00:00:01Z',
+            },
+          },
+        ],
+      });
+      await push('runtime.tool_writing.changed');
+      expect(
+        controller
+            .state
+            .projectionExtras
+            ?.requestSpans
+            .single
+            .writingTool
+            ?.target,
+        'src/main.ts',
+      );
+      remote.extras = const ConversationV2ProjectionExtras();
+      await push('runtime.tool_writing.changed');
+      expect(controller.state.projectionExtras?.requestSpans, isEmpty);
+      remote.extras = ConversationV2ProjectionExtras.fromJson({
+        'requestSpans': [
+          {
+            'requestId': 'main-request',
+            'status': 'streaming',
+            'startedAt': '2026-10-21T00:00:00Z',
+            'pendingThinkingSince': '2026-10-21T00:00:02Z',
+            'pendingThinkingMessageId': 'thinking-message',
+          },
+        ],
+      });
+      await push('runtime.thinking.changed');
+      expect(
+        controller
+            .state
+            .projectionExtras
+            ?.requestSpans
+            .single
+            .pendingThinkingMessageId,
+        'thinking-message',
+      );
+      expect(remote.projectionExtrasCalls - before, 3);
+      await push('unrelated-token');
+      expect(remote.projectionExtrasCalls - before, 3);
+    },
+  );
+  test(
     'a burst commits every effect while coalescing presentation reads',
     () async {
       final directory = await Directory.systemTemp.createTemp('eco-v2-burst-');
@@ -76,6 +168,9 @@ class _CountingCache extends ConversationV2Cache {
 
 class _Remote implements ConversationV2Remote {
   int capabilityCalls = 0;
+  int projectionExtrasCalls = 0;
+  ConversationV2ProjectionExtras extras =
+      const ConversationV2ProjectionExtras();
   @override
   Future<ConversationV2Capabilities> capabilities() async {
     capabilityCalls++;
@@ -118,7 +213,11 @@ class _Remote implements ConversationV2Remote {
   @override
   Future<ConversationV2ProjectionExtras> projectionExtras(
     String conversationId,
-  ) async => const ConversationV2ProjectionExtras();
+  ) async {
+    projectionExtrasCalls++;
+    return extras;
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('$invocation');

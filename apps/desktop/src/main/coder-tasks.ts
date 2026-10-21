@@ -45,7 +45,7 @@ export function extractCoderTasksFromActivity(
   lines: ReadonlyArray<{ role: string; message: string }>,
 ): CoderTaskDraft[] {
   const transcript = lines
-    .filter((line) => line.role === "planner" || line.role === "architect")
+    .filter((line) => line.role === "main" || line.role === "architect")
     .map((line) => line.message)
     .join("\n");
   return extractCoderTasksFromText(transcript);

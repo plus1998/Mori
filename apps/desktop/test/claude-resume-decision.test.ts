@@ -16,7 +16,7 @@ function route(
 
 describe("decideClaudeResume", () => {
   const baseRoutes = snapshotClaudeResumeRoutes([
-    route({ role: "planner", providerId: "p1", modelId: "m1", apiCompat: "anthropic" }),
+    route({ role: "main", providerId: "p1", modelId: "m1", apiCompat: "anthropic" }),
   ]);
 
   test("unchanged routes resume", () => {
@@ -48,7 +48,7 @@ describe("decideClaudeResume", () => {
 
   test("model/provider switch resumes", () => {
     const next = snapshotClaudeResumeRoutes([
-      route({ role: "planner", providerId: "p2", modelId: "m2", apiCompat: "anthropic" }),
+      route({ role: "main", providerId: "p2", modelId: "m2", apiCompat: "anthropic" }),
     ]);
     expect(
       decideClaudeResume({
@@ -65,7 +65,7 @@ describe("decideClaudeResume", () => {
   test("apiCompat change still resumes (Gateway translates; SDK stays on /messages)", () => {
     const next = snapshotClaudeResumeRoutes([
       route({
-        role: "planner",
+        role: "main",
         providerId: "p1",
         modelId: "m1",
         apiCompat: "openai_responses",
@@ -126,7 +126,7 @@ describe("decideClaudeResume", () => {
   test("modelId with colon still resumes across provider drift", () => {
     const withColon = snapshotClaudeResumeRoutes([
       route({
-        role: "planner",
+        role: "main",
         providerId: "p1",
         modelId: "org/model:v1",
         apiCompat: "anthropic",
@@ -134,7 +134,7 @@ describe("decideClaudeResume", () => {
     ]);
     const switchedProvider = snapshotClaudeResumeRoutes([
       route({
-        role: "planner",
+        role: "main",
         providerId: "p2",
         modelId: "org/model:v2",
         apiCompat: "anthropic",

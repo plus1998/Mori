@@ -60,7 +60,7 @@ void main() {
       'limitsResolved': true,
       'roles': [
         {
-          'role': 'planner',
+          'role': 'main',
           'occupied': 120000,
           'limit': 200000,
           'occupancyPct': 60,
@@ -74,7 +74,7 @@ void main() {
   });
 
   test('roleDisplayLabel uses Main Agent for planner', () {
-    expect(roleDisplayLabel('planner', _zh), 'Main Agent');
+    expect(roleDisplayLabel('main', _zh), 'Main Agent');
     expect(roleDisplayLabel('explore', _zh), '探索');
   });
 
@@ -169,7 +169,7 @@ void main() {
       'byModel': [
         {
           'modelId': 'anthropic/claude-sonnet-4',
-          'roles': ['planner', 'coder'],
+          'roles': ['main', 'coder'],
           'inputTokens': 80,
           'outputTokens': 20,
           'cacheReadTokens': 0,

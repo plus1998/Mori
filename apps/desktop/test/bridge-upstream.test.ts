@@ -806,7 +806,7 @@ test("forwardMessagesViaBridge retries openai responses after dropping unsupport
       response,
       {
         route: {
-          role: "planner",
+          role: "main",
           provider: {
             id: "p1",
             name: "Provider",

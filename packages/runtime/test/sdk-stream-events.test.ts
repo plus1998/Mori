@@ -91,7 +91,7 @@ test("maps eco subagent stream metadata to the role", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u_eco",
     ctx,
   );
@@ -113,7 +113,7 @@ test("maps dynamic eco subagent stream metadata to the role", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u_dynamic",
     ctx,
   );
@@ -135,7 +135,7 @@ test("maps general-purpose stream metadata to the role", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u_general",
     ctx,
   );
@@ -157,7 +157,7 @@ test("maps Plan stream metadata to the role", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u_plan",
     ctx,
   );
@@ -186,7 +186,7 @@ test("attributes dynamic subagent stream usage through resolver", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u_usage",
     ctx,
   );
@@ -215,7 +215,7 @@ test("does not attribute main-session stream usage to a stale subagent context",
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u_sub",
     ctx,
   );
@@ -230,14 +230,14 @@ test("does not attribute main-session stream usage to a stale subagent context",
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u_main",
     ctx,
   );
 
   expect(calls).toHaveLength(0);
   expect(mainEvents[0]?.agentId).toBe("sess");
-  expect(mainEvents[0]?.role).toBe("planner");
+  expect(mainEvents[0]?.role).toBe("main");
   expect((mainEvents[0]?.payload as Record<string, unknown>).parent_tool_use_id).toBeUndefined();
 });
 
@@ -258,7 +258,7 @@ test("keeps parent_tool_use_id on usage payload when runtime resolution fails", 
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u_unresolved",
     ctx,
   );
@@ -280,7 +280,7 @@ test("keeps per-subagent roles when parallel streams interleave", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u_a1",
     ctx,
   );
@@ -295,7 +295,7 @@ test("keeps per-subagent roles when parallel streams interleave", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u_b1",
     ctx,
   );
@@ -311,7 +311,7 @@ test("keeps per-subagent roles when parallel streams interleave", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u_a2",
     ctx,
   );
@@ -332,7 +332,7 @@ test("suppresses text_delta while inside tool block", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u1",
     ctx,
   );
@@ -348,7 +348,7 @@ test("suppresses text_delta while inside tool block", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u2",
     ctx,
   );
@@ -387,7 +387,7 @@ test("emits thinking placeholder and finalize stream events", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u2",
     ctx,
   );
@@ -421,7 +421,7 @@ test("attaches stable stream block keys from content block index", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u1",
     ctx,
   );
@@ -438,7 +438,7 @@ test("attaches stable stream block keys from content block index", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u2",
     ctx,
   );
@@ -451,7 +451,7 @@ test("attaches stable stream block keys from content block index", () => {
     },
     "thr_1",
     "sess",
-    "planner",
+    "main",
     "u3",
     ctx,
   );
@@ -555,7 +555,7 @@ test("assistant tool_use without message parent stays unresolved instead of inhe
   expect(events[0]).toMatchObject({
     agentId: "sess",
     type: "tool.started",
-    role: "planner",
+    role: "main",
   });
   expect(events[0]?.payload).toMatchObject({
     messageId: "msg_unresolved",
@@ -586,7 +586,7 @@ test("task_progress without tool_use_id does not inherit stale stream identity",
   expect(events[0]).toMatchObject({
     agentId: "session_1",
     type: "todo.updated",
-    role: "planner",
+    role: "main",
   });
   expect((events[0]?.payload as Record<string, unknown>).parent_tool_use_id).toBeUndefined();
 });
@@ -816,7 +816,7 @@ test("message_start propagates one exact message id to streamed text, thinking, 
     },
     "thr_stream_exact",
     "session_planner",
-    "planner",
+    "main",
     "stream_start",
     ctx,
   );
@@ -830,7 +830,7 @@ test("message_start propagates one exact message id to streamed text, thinking, 
     },
     "thr_stream_exact",
     "session_planner",
-    "planner",
+    "main",
     "stream_text",
     ctx,
   );
@@ -847,7 +847,7 @@ test("message_start propagates one exact message id to streamed text, thinking, 
     },
     "thr_stream_exact",
     "session_planner",
-    "planner",
+    "main",
     "stream_thinking",
     ctx,
   );
@@ -864,7 +864,7 @@ test("message_start propagates one exact message id to streamed text, thinking, 
     },
     "thr_stream_exact",
     "session_planner",
-    "planner",
+    "main",
     "stream_tool",
     ctx,
   );
@@ -877,7 +877,7 @@ test("message_start propagates one exact message id to streamed text, thinking, 
     },
     "thr_stream_exact",
     "session_planner",
-    "planner",
+    "main",
     "stream_usage",
     ctx,
   );

@@ -718,7 +718,7 @@ test("replays a legacy tool descriptor as tool.updated when an older V2 row is s
     1,
     "tool.completed",
     "main",
-    "planner",
+    "main",
     null,
     "run_tool_repair",
     "request_tool_repair",

@@ -223,7 +223,7 @@ export class ThreadSupervisor {
         id: `${request.threadId}:thread-started`,
         threadId: request.threadId,
         agentId: "system",
-        role: "planner",
+        role: "main",
         type: "thread.started",
         payload: { title: request.title, workspacePath: request.workspacePath },
       }),
@@ -252,7 +252,7 @@ export class ThreadSupervisor {
           id: `${request.threadId}:thread-failed`,
           threadId: request.threadId,
           agentId: "system",
-          role: "planner",
+          role: "main",
           type: "thread.failed",
           payload: { message: error instanceof Error ? error.message : String(error) },
         }),
@@ -283,7 +283,7 @@ export class ThreadSupervisor {
         id: `${request.threadId}:thread-${status}`,
         threadId: request.threadId,
         agentId: "system",
-        role: "planner",
+        role: "main",
         type:
           status === "completed"
             ? "thread.completed"

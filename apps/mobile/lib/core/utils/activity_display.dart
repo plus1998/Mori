@@ -22,7 +22,7 @@ const subagentDisplayRoles = {
 const _nonAgentActivityRoles = {
   'assistant',
   'main',
-  'planner',
+  'planner', // Historical main-agent role.
   'system',
   'thinking',
   'tool',
@@ -1081,7 +1081,7 @@ bool isAgentDisplayRole(String role) {
 
 bool shouldShowLineInMainFeed({required String role}) {
   if (role == 'user') return true;
-  if (role == 'planner' || role == 'thinking') return true;
+  if (role == 'main' || role == 'thinking') return true;
   if (isAgentDisplayRole(role)) return false;
   return true;
 }

@@ -697,7 +697,7 @@ async function runClaudeProbe(hub: RunningHub, token: string) {
       worktreePath: process.cwd(),
       routes: [
         {
-          role: "planner",
+          role: "main",
           primary: {
             id: "probe",
             provider: "anthropic",

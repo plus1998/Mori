@@ -34,7 +34,7 @@ test("buildFallbackContextSnapshot uses planner usage when no /context cache", (
 test("buildThreadUsageSummary always includes context when tokens known", () => {
   const summary = buildThreadUsageSummary({
     usageByRole: {
-      planner: {
+      main: {
         inputTokens: 10,
         outputTokens: 5,
         cacheReadTokens: 0,
@@ -56,7 +56,7 @@ test("buildThreadUsageSummary always includes context when tokens known", () => 
     },
   });
   expect(summary.context?.occupied).toBe(12_000);
-  expect(summary.context?.displayRole).toBe("planner");
+  expect(summary.context?.displayRole).toBe("main");
   expect(summary.context?.roles?.find((role) => role.role === "coder")?.occupied).toBe(80_000);
 });
 
@@ -111,7 +111,7 @@ test("buildThreadUsageSummary omits hidden context and billing instead of fabric
       totalTokens: { input: 10, output: 10, cacheRead: 0, cacheCreation: 0 },
     } as ThreadBillingSnapshot,
     usageByRole: {
-      planner: {
+      main: {
         inputTokens: 10,
         outputTokens: 5,
         cacheReadTokens: 0,

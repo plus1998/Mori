@@ -21,7 +21,7 @@ function bundle(id: string): OrchestrationResourceBundle {
       id: "coding-default",
       name: "Default coding",
       routes: [
-        { role: "planner", providerId: "p1", modelId: "m1" },
+        { role: "main", providerId: "p1", modelId: "m1" },
         { role: "explore", providerId: "p1", modelId: "m1" },
         { role: "architect", providerId: "p1", modelId: "m1" },
         { role: "coder", providerId: "p1", modelId: "m1" },

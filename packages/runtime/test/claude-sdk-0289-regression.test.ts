@@ -166,7 +166,7 @@ test("coalesced user UUIDs settle all inputs while an interim background result 
     worktreePath: "/tmp",
     routes: [
       {
-        role: "planner",
+        role: "main",
         primary: { provider: "anthropic", modelId: "claude-sonnet-4", contextWindow: 200_000 },
       },
     ],
@@ -225,7 +225,7 @@ test("a startup failure without init retains its error and cannot advance cumula
     resume: { resumeSessionId: "missing-session" },
     routes: [
       {
-        role: "planner",
+        role: "main",
         primary: { provider: "anthropic", modelId: "claude-sonnet-4", contextWindow: 200_000 },
       },
     ],
@@ -276,7 +276,7 @@ test("a post-clear API failure resumes its persisted user turn on retry", async 
     resume: { newSessionId: "reset-id" },
     routes: [
       {
-        role: "planner",
+        role: "main",
         primary: { provider: "anthropic", modelId: "claude-sonnet-4", contextWindow: 200_000 },
       },
     ],

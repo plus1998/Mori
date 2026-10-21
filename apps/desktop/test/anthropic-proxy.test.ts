@@ -49,11 +49,11 @@ test("resolveProxyRoute maps canonical gpt-5.4 to unique gpt-5.4-mini explore ro
     aliasModelId: createModelAlias("explore", provider.id, "gpt-5.4-mini"),
   };
   const plannerRoute: AnthropicProxyResolvedRoute = {
-    role: "planner",
+    role: "main",
     provider,
     modelId: "gpt-5.5",
     apiCompat: "anthropic",
-    aliasModelId: createModelAlias("planner", provider.id, "gpt-5.5"),
+    aliasModelId: createModelAlias("main", provider.id, "gpt-5.5"),
   };
   expect(resolveProxyRoute([exploreRoute, plannerRoute], "gpt-5.4")).toEqual(exploreRoute);
   expect(resolveProxyRoute([exploreRoute, plannerRoute], "gpt-5.4-mini")).toEqual(exploreRoute);
@@ -155,11 +155,11 @@ test("resolveProxyRoute does not guess SDK built-in Explore model ids", () => {
     aliasModelId: createModelAlias("explore", provider.id, "claude-haiku-4-5-20251001"),
   };
   const plannerRoute: AnthropicProxyResolvedRoute = {
-    role: "planner",
+    role: "main",
     provider,
     modelId: "claude-sonnet-4-6",
     apiCompat: "anthropic",
-    aliasModelId: createModelAlias("planner", provider.id, "claude-sonnet-4-6"),
+    aliasModelId: createModelAlias("main", provider.id, "claude-sonnet-4-6"),
   };
   expect(resolveProxyRoute([exploreRoute, plannerRoute], "gpt-5.4")).toBeUndefined();
 });
@@ -174,11 +174,11 @@ test("resolveProxyRoute does not guess SDK default Claude models", () => {
     aliasModelId: createModelAlias("explore", provider.id, "gpt-5.4-mini"),
   };
   const plannerRoute: AnthropicProxyResolvedRoute = {
-    role: "planner",
+    role: "main",
     provider,
     modelId: "gpt-5.5",
     apiCompat: "anthropic",
-    aliasModelId: createModelAlias("planner", provider.id, "gpt-5.5"),
+    aliasModelId: createModelAlias("main", provider.id, "gpt-5.5"),
   };
   expect(resolveProxyRoute([exploreRoute, plannerRoute], "claude-haiku-4-5-20251001")).toBeUndefined();
   expect(resolveProxyRoute([exploreRoute, plannerRoute], "claude-sonnet-4-6")).toBeUndefined();
@@ -186,9 +186,9 @@ test("resolveProxyRoute does not guess SDK default Claude models", () => {
 
 test("resolveProxyRoute matches alias with [1m] suffix stripped", () => {
   const provider = createProvider("anthropic", "Anthropic", "provider-secret");
-  const baseAlias = createModelAlias("planner", provider.id, "claude-opus-4-8");
+  const baseAlias = createModelAlias("main", provider.id, "claude-opus-4-8");
   const route: AnthropicProxyResolvedRoute = {
-    role: "planner",
+    role: "main",
     provider,
     modelId: "claude-opus-4-8",
     apiCompat: "anthropic",
@@ -227,11 +227,11 @@ test("createModelAlias includes explore role", () => {
 test("lists alias ids for SDK model discovery", () => {
   const provider = createProvider("qwen", "Qwen Anthropic", "provider-secret");
   const route: AnthropicProxyResolvedRoute = {
-    role: "planner",
+    role: "main",
     provider,
     modelId: "qwen-planner",
     apiCompat: "anthropic",
-    aliasModelId: createModelAlias("planner", provider.id, "qwen-planner"),
+    aliasModelId: createModelAlias("main", provider.id, "qwen-planner"),
   };
 
   const response = buildModelsListResponse([route]);
@@ -473,7 +473,7 @@ beforeEach(() => {
 test("runtimeRouteToProxyRoute carries disabled vision into the request binding", () => {
   expect(
     runtimeRouteToProxyRoute({
-      role: "planner",
+      role: "main",
       provider: createProvider("local", "Local", "key"),
       modelId: "text-model",
       manualSpec: { supportsImageInput: false },
@@ -524,7 +524,7 @@ test("bridge rejects images locally on every API face without consuming pending 
     const binding = globalClaudeBridgeBindingRegistry.create({
       routes: [
         {
-          role: "planner",
+          role: "main",
           provider: createProvider("local", "Local", "key"),
           modelId: "text-model",
           aliasModelId: "text-alias",
@@ -561,7 +561,7 @@ test("Messages rejects pending attachments before injecting or consuming them", 
   const binding = globalClaudeBridgeBindingRegistry.create({
     routes: [
       {
-        role: "planner",
+        role: "main",
         provider: createProvider("local", "Local", "key"),
         modelId: "text-model",
         aliasModelId: "text-alias",
@@ -589,12 +589,12 @@ test("Messages rejects pending attachments before injecting or consuming them", 
 
 test("prepareGatewayBindingForwardRequest allows openai_chat_completions route on responses face", async () => {
   const provider = createProvider("deepseek", "DeepSeek", "secret");
-  const alias = createModelAlias("planner", provider.id, "deepseek-chat");
+  const alias = createModelAlias("main", provider.id, "deepseek-chat");
   const binding = globalClaudeBridgeBindingRegistry.create({
     threadId: "thr_pi",
     routes: [
       {
-        role: "planner",
+        role: "main",
         provider,
         modelId: "deepseek-chat",
         aliasModelId: alias,
@@ -620,12 +620,12 @@ test("prepareGatewayBindingForwardRequest allows openai_chat_completions route o
 
 test("prepareGatewayBindingForwardRequest allows anthropic route on responses face", async () => {
   const provider = createProvider("anthropic", "Anthropic", "secret");
-  const alias = createModelAlias("planner", provider.id, "claude-sonnet");
+  const alias = createModelAlias("main", provider.id, "claude-sonnet");
   const binding = globalClaudeBridgeBindingRegistry.create({
     threadId: "thr_pi",
     routes: [
       {
-        role: "planner",
+        role: "main",
         provider,
         modelId: "claude-sonnet",
         aliasModelId: alias,
@@ -650,12 +650,12 @@ test("prepareGatewayBindingForwardRequest allows anthropic route on responses fa
 
 test("prepareGatewayBindingForwardRequest still rejects non-chat route on chat_completions face", async () => {
   const provider = createProvider("openai", "OpenAI", "secret");
-  const alias = createModelAlias("planner", provider.id, "gpt-5.2");
+  const alias = createModelAlias("main", provider.id, "gpt-5.2");
   const binding = globalClaudeBridgeBindingRegistry.create({
     threadId: "thr_pi",
     routes: [
       {
-        role: "planner",
+        role: "main",
         provider,
         modelId: "gpt-5.2",
         aliasModelId: alias,

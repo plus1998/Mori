@@ -1410,6 +1410,38 @@ class AppLocalizationsEn extends AppLocalizations {
   String get activityWriting => 'Writing';
 
   @override
+  String activityWritingFileTarget(Object target) {
+    return 'Writing $target';
+  }
+
+  @override
+  String get activityWritingFile => 'Preparing to write a file';
+
+  @override
+  String activityWritingReadTarget(Object target) {
+    return 'Reading $target';
+  }
+
+  @override
+  String get activityWritingRead => 'Preparing to read a file';
+
+  @override
+  String activityWritingCommandTarget(Object target) {
+    return 'Running $target';
+  }
+
+  @override
+  String get activityWritingCommand => 'Preparing to write a command';
+
+  @override
+  String activityWritingTool(Object tool) {
+    return 'Calling $tool';
+  }
+
+  @override
+  String get activityWritingUnknown => 'Preparing a tool call';
+
+  @override
   String get activityWrote => 'Wrote';
 
   @override

@@ -81,7 +81,7 @@ const RESERVED_AGENT_KEYS = new Set([
   "general-purpose",
   "main",
   "plan",
-  "planner",
+  "main",
   "statusline-setup",
   "system",
   "thinking",

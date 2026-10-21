@@ -41,7 +41,7 @@ export class ContextSnapshotScheduler {
         tokens: segment.tokens,
       })),
     });
-    void this.options.monitor.updateOccupied(threadId, "planner", parsed.occupied, {
+    void this.options.monitor.updateOccupied(threadId, "main", parsed.occupied, {
       limit: parsed.limit,
     });
     if (parsed.segments.length > 0) {
@@ -71,7 +71,7 @@ export class ContextSnapshotScheduler {
   }
 
   restoreSnapshot(threadId: string, snapshot: ThreadContextSnapshot): void {
-    const plannerRole = snapshot.roles?.find((role) => role.role === "planner");
+    const plannerRole = snapshot.roles?.find((role) => role.role === "main");
     const plannerSegments =
       plannerRole?.segments.filter((segment) => segment.tokens > 0) ?? snapshot.segments;
     if (plannerSegments.length > 0) {
@@ -92,7 +92,7 @@ export class ContextSnapshotScheduler {
 
   clearSubagentState(threadId: string): void {
     const emitted = this.lastEmitted.get(threadId);
-    const plannerRole = emitted?.roles?.find((role) => role.role === "planner");
+    const plannerRole = emitted?.roles?.find((role) => role.role === "main");
     if (!emitted || !plannerRole) {
       this.lastEmitted.delete(threadId);
       return;
@@ -103,7 +103,7 @@ export class ContextSnapshotScheduler {
       limit: plannerRole.limit,
       occupancyPct: plannerRole.occupancyPct,
       limitsResolved: plannerRole.limitsResolved,
-      displayRole: "planner",
+      displayRole: "main",
       segments: plannerRole.segments,
       roles: [plannerRole],
       instances: [],
@@ -140,7 +140,7 @@ export class ContextSnapshotScheduler {
 
   private buildRoleSnapshot(threadId: string, role: ContextMonitorRoleSnapshot): ThreadRoleContextSnapshot {
     const segments =
-      role.role === "planner"
+      role.role === "main"
         ? this.plannerSegmentsForRole(threadId, role.occupied)
         : role.occupied > 0
           ? [fallbackSegment(role.occupied)]

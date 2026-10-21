@@ -16,7 +16,7 @@ test("isSubagentBillingRole accepts dynamic runtime agents and excludes non-agen
   expect(isSubagentBillingRole("coder")).toBe(true);
   expect(isSubagentBillingRole("researcher")).toBe(true);
   expect(isSubagentBillingRole("source_verifier")).toBe(true);
-  expect(isSubagentBillingRole("planner")).toBe(false);
+  expect(isSubagentBillingRole("main")).toBe(false);
   expect(isSubagentBillingRole("system")).toBe(false);
   expect(isSubagentBillingRole("tool")).toBe(false);
   expect(isSubagentBillingRole("bad role")).toBe(false);
@@ -75,9 +75,9 @@ test("shouldBillAssistantSubagentUsage requires subagent role and no matching au
   ).toBe(true);
   expect(
     shouldBillAssistantSubagentUsage({
-      role: "planner",
+      role: "main",
       messageId: "msg_1",
-      agentId: "planner",
+      agentId: "main",
     }),
   ).toBe(false);
 });
@@ -137,10 +137,10 @@ test("buildAssistantUsageRequestKey is stable per message", () => {
 
 test("shouldUpdateContextFromUsageSource accepts SDK and proxy subagent usage", () => {
   expect(shouldUpdateContextFromUsageSource("sdk")).toBe(true);
-  expect(shouldUpdateContextFromUsageSource("sdk", "planner")).toBe(true);
+  expect(shouldUpdateContextFromUsageSource("sdk", "main")).toBe(true);
   expect(shouldUpdateContextFromUsageSource("proxy", "explore")).toBe(true);
   expect(shouldUpdateContextFromUsageSource("proxy", "researcher")).toBe(true);
-  expect(shouldUpdateContextFromUsageSource("proxy", "planner")).toBe(true);
+  expect(shouldUpdateContextFromUsageSource("proxy", "main")).toBe(true);
   expect(shouldUpdateContextFromUsageSource("proxy")).toBe(false);
 });
 
@@ -151,10 +151,10 @@ test("buildUsageSnapshotForRole uses the matching role window instead of display
     ratio: 0.9,
     occupancyPct: 90,
     limitsResolved: true,
-    displayRole: "planner",
+    displayRole: "main",
     roles: [
       {
-        role: "planner",
+        role: "main",
         occupied: 90_000,
         limit: 100_000,
         ratio: 0.9,
@@ -186,7 +186,7 @@ test("buildUsageSnapshotForRole uses the matching role window instead of display
 
 test("buildUsageSnapshotForRole can suppress aggregate SDK context fallback", () => {
   const snapshot = buildUsageSnapshotForRole({
-    role: "planner",
+    role: "main",
     usage: { inputTokens: 20_000, outputTokens: 1000, cacheReadTokens: 30_000, cacheCreationTokens: 0 },
     fallbackContext: "none",
   });
@@ -203,13 +203,13 @@ test("SDK incremental billing attributes subagent role separately from planner",
 
   accumulator.recordUsage({
     threadId: "t1",
-    role: "planner",
+    role: "main",
     delta: { inputTokens: 10_000, outputTokens: 1_000, cacheReadTokens: 0, cacheCreationTokens: 0 },
     sourceReportedCostUsd: 0.5,
     actualRates: sonnetRates,
     plannerRates: sonnetRates,
     requestKey: buildUsageRequestKey({
-      role: "planner",
+      role: "main",
       inputTokens: 10_000,
       outputTokens: 1_000,
       cacheReadTokens: 0,
@@ -239,9 +239,9 @@ test("SDK incremental billing attributes subagent role separately from planner",
 
   const billing = accumulator.getSnapshot("t1");
   expect(billing?.sourceReportedCostUsd).toBeCloseTo(2.6);
-  expect(billing?.byRole?.planner?.inputTokens).toBe(10_000);
+  expect(billing?.byRole?.main?.inputTokens).toBe(10_000);
   expect(billing?.byRole?.coder?.inputTokens).toBe(50_000);
-  expect(billing?.ecoCostUsd).toBeGreaterThan(billing?.byRole?.planner?.ecoCostUsd ?? 0);
+  expect(billing?.ecoCostUsd).toBeGreaterThan(billing?.byRole?.main?.ecoCostUsd ?? 0);
 });
 
 test("proxy and SDK result tokens stay separate without doubling headline totals", () => {
@@ -269,11 +269,11 @@ test("proxy and SDK result tokens stay separate without doubling headline totals
 
   accumulator.recordRunUsage({
     threadId: "t1",
-    role: "planner",
+    role: "main",
     requestKey: "sdk-result:run-1",
     models: [
       {
-        role: "planner",
+        role: "main",
         modelId: "claude-opus-4",
         usage: proxyDelta,
         actualRates: sonnetRates,
@@ -319,5 +319,5 @@ test("assistant subagent fallback bills when authoritative SDK usage is missing"
 
   const billing = accumulator.getSnapshot("t1");
   expect(billing?.byRole?.explore?.inputTokens).toBe(20_000);
-  expect(billing?.byRole?.planner).toBeUndefined();
+  expect(billing?.byRole?.main).toBeUndefined();
 });

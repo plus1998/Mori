@@ -315,5 +315,5 @@ test("parseUsagePayload reads total_cost_usd from result payload", () => {
 
 test("formatRoleModelLabel uses Chinese label for explore", () => {
   expect(formatRoleModelLabel("explore", "claude-opus-4-7")).toBe("探索 · claude-opus-4-7");
-  expect(formatRoleModelLabel("planner", "claude-opus-4-7")).toBe("主代理 · claude-opus-4-7");
+  expect(formatRoleModelLabel("main", "claude-opus-4-7")).toBe("主代理 · claude-opus-4-7");
 });

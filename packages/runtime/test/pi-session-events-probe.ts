@@ -235,7 +235,7 @@ export async function runScriptedPiSession(options: ProbeSessionOptions): Promis
     worktreePath: options.workspace,
     routes: [
       {
-        role: "planner" as const,
+        role: "main" as const,
         primary: {
           id: "probe",
           provider: "anthropic",

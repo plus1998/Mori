@@ -194,7 +194,7 @@ export function buildSdkTodoUpdatedPayload(message: Record<string, unknown>): Sd
 }
 
 function isAgentRole(value: string): value is AgentRole {
-  return ["planner", "explore", "architect", "coder", "reviewer", "tester"].includes(value);
+  return ["main", "explore", "architect", "coder", "reviewer", "tester"].includes(value);
 }
 
 function resolveActivitySubagentRole(value: string): ActivityDisplayRole | undefined {
@@ -405,7 +405,7 @@ export function inferActivityRole(event: Pick<AgentEvent, "type" | "payload" | "
 }
 
 function isRuntimeAgentActivityRole(role: RuntimeAgentRole): boolean {
-  return role !== "planner" && role !== "system" && role !== "thinking" && role !== "tool" && role !== "user";
+  return role !== "main" && role !== "system" && role !== "thinking" && role !== "tool" && role !== "user";
 }
 
 export function isThinkingPayload(payload: unknown): boolean {
@@ -676,7 +676,7 @@ export function formatSubagentLabel(role: string): string {
   if (isSubagentRole(role)) {
     return SUBAGENT_ROLE_LABELS[role];
   }
-  if (isAgentRole(role) && role !== "planner") {
+  if (isAgentRole(role) && role !== "main") {
     return role;
   }
   return role;

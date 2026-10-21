@@ -4362,7 +4362,7 @@ function resolveRuntimeRoutesForThread(
       // Fall through to planner clone when the saved vision selection is stale.
     }
   }
-  const plannerRoute = routes.find((route) => route.role === "planner");
+  const plannerRoute = routes.find((route) => route.role === "main");
   if (!plannerRoute) {
     return routes;
   }
@@ -10349,7 +10349,7 @@ function captureThreadPlanReady(input: {
         conversationStore.savePendingPlan(plan);
       },
       emitAwaitingPlan: (event) => {
-        emitThreadEvent(event.threadId, "thread.awaiting_plan", event.message, "planner", false, {
+        emitThreadEvent(event.threadId, "thread.awaiting_plan", event.message, "main", false, {
           plan: event.plan,
         });
       },
@@ -11253,7 +11253,7 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
           payload: planPayload,
         });
         updateThread(threadId, { status: "awaiting_plan", message: "" });
-        emitThreadEvent(threadId, "plan_approval.requested", "计划已提交，等待你确认。", "planner", false, {
+        emitThreadEvent(threadId, "plan_approval.requested", "计划已提交，等待你确认。", "main", false, {
           plan: planPayload,
           planApproval: approvalRequest,
         });
@@ -11277,7 +11277,7 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
           updateThread(threadId, { status: "running", message: "" });
         },
         emit: (type, message, clarification, toolStatus) => {
-          emitThreadEvent(threadId, type, message, "planner", false, {
+          emitThreadEvent(threadId, type, message, "main", false, {
             ...(type === "clarification.requested" ? { clarification } : {}),
             tool: buildClarificationToolMetadata(clarification.toolUseId, toolStatus),
           });
@@ -11579,12 +11579,12 @@ function onPiUsageRecordedEvent(threadId: string, event: AgentEventLike & { id: 
   }
   const billingRequest: SingleUsageBillingRequest = {
     threadId,
-    role: typeof event.role === "string" && event.role.trim() ? event.role.trim() : "planner",
+    role: typeof event.role === "string" && event.role.trim() ? event.role.trim() : "main",
     source: "pi",
     usage,
     sourceEventId: event.id,
     updateContext: true,
-    ...(typeof event.agentId === "string" && event.agentId.trim() && event.role && event.role !== "planner"
+    ...(typeof event.agentId === "string" && event.agentId.trim() && event.role && event.role !== "main"
       ? { agentId: event.agentId.trim() }
       : {}),
   };
@@ -11602,7 +11602,7 @@ function onPiUsageRecordedEvent(threadId: string, event: AgentEventLike & { id: 
   if (plannerAgentId) {
     billingRequest.plannerAgentId = plannerAgentId;
   }
-  const billingRole = typeof event.role === "string" && event.role.trim() ? event.role.trim() : "planner";
+  const billingRole = typeof event.role === "string" && event.role.trim() ? event.role.trim() : "main";
   const logicalRequestId = resolvePiUsageLogicalRequestId(threadLiveRequestRegistry, threadId, {
     role: billingRole,
     ...(typeof event.agentId === "string" && event.agentId.trim() ? { agentId: event.agentId.trim() } : {}),
@@ -11850,7 +11850,7 @@ async function startCodexThreadRun(
       integrationEnabled(threadRuntimeForIntegrations?.integrationsEnabled, "tts");
     const codexAgentRegistry = resolveAgentRuntimeConfigForThreadId(input.thread.id);
     const codexPlannerRoute = resolveRoleRoutesForThread(input.thread.id).find(
-      (route) => route.role === "planner",
+      (route) => route.role === "main",
     );
     const integratedWebSearchSettings = integratedWebSearchSettingsStore.get();
     const integratedWebSearchApiKey = integratedWebSearchSettings.enabled
@@ -15957,7 +15957,7 @@ function buildDesktopSdkRunInput(
   }
   if (threadId) {
     const agentRegistry = resolveAgentRuntimeConfigForThreadId(threadId);
-    const plannerRoute = resolveRoleRoutesForThread(threadId).find((route) => route.role === "planner");
+    const plannerRoute = resolveRoleRoutesForThread(threadId).find((route) => route.role === "main");
     const integratedWebSearchSettings = integratedWebSearchSettingsStore.get();
     const integratedWebSearchApiKey = integratedWebSearchSettings.enabled
       ? integratedWebSearchSettingsStore.getApiKey()
@@ -16021,7 +16021,7 @@ function createSdkDriver(
           agentId && agentId !== agentLifecycle.usagePlannerAgentId(threadId)
             ? (subagentMetricsRegistry.roleForAgentId(threadId, agentId) ??
               normalizeSdkSubagentType(agentType ?? ""))
-            : "planner";
+            : "main";
         if (!actorRole) throw new Error("无法确认 Agent 的模型视觉配置，已禁止直接读图。");
         const routes = resolveRoleRoutesForThread(threadId);
         const route = routes.find((entry) => entry.role === actorRole);
@@ -17666,7 +17666,7 @@ async function processUsageBilling(
 }
 
 function maybeEmitPromptCacheHitDrop(input: SingleUsageBillingRequest): void {
-  if (input.reconciliationOnly || input.role !== "planner") {
+  if (input.reconciliationOnly || input.role !== "main") {
     return;
   }
   const detection = threadCacheHitMonitor.observePlannerUsage(input.threadId, {
@@ -18266,7 +18266,7 @@ async function buildSdkSessionOptions(
     ? await htmlHostGateway.resolveInjection(threadId)
     : undefined;
   const agentRegistry = resolveAgentRuntimeConfigForThreadId(threadId);
-  const plannerRoute = resolveRoleRoutesForThread(threadId).find((route) => route.role === "planner");
+  const plannerRoute = resolveRoleRoutesForThread(threadId).find((route) => route.role === "main");
   const integratedWebSearchSettings = integratedWebSearchSettingsStore.get();
   const integratedWebSearchApiKey = integratedWebSearchSettings.enabled
     ? integratedWebSearchSettingsStore.getApiKey()
@@ -19755,7 +19755,7 @@ function createThreadImageViewHost(runAttemptId?: string): ImageViewHost {
           if (!runtime.ok) {
             throw new Error(runtime.reason);
           }
-          const sourceRoute = runtime.routes.find((route) => route.role === "planner") ?? runtime.routes[0];
+          const sourceRoute = runtime.routes.find((route) => route.role === "main") ?? runtime.routes[0];
           if (!sourceRoute) {
             throw new Error("image_view 缺少可用的模型路由。");
           }
@@ -19817,7 +19817,7 @@ async function handleThreadAskUserQuestion(
     questions: parsed.questions,
   };
   const answersPromise = registerPendingClarification(threadId, parsed.toolUseId, parsed);
-  emitThreadEvent(threadId, "clarification.requested", "Planner 需要你回答几个问题。", "planner", false, {
+  emitThreadEvent(threadId, "clarification.requested", "主代理需要你回答几个问题。", "main", false, {
     clarification: clarificationRequest,
     tool: buildClarificationToolMetadata(parsed.toolUseId, "started"),
   });
@@ -19830,7 +19830,7 @@ async function handleThreadAskUserQuestion(
       { toolUseId: parsed.toolUseId, threadId, questions: parsed.questions },
       answers,
     ),
-    "planner",
+    "main",
     false,
     {
       tool: buildClarificationToolMetadata(parsed.toolUseId, "completed"),
@@ -19894,7 +19894,7 @@ function createThreadHookContext(threadId: string): EcoHookContext {
         },
       });
       updateThread(threadId, { status: "awaiting_plan", message: "" });
-      emitThreadEvent(threadId, "plan_approval.requested", "计划已提交，等待你确认。", "planner", false, {
+      emitThreadEvent(threadId, "plan_approval.requested", "计划已提交，等待你确认。", "main", false, {
         plan: planPayload,
         planApproval: approvalRequest,
       });

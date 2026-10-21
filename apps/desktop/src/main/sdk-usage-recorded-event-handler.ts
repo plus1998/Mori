@@ -80,7 +80,7 @@ export function handleSdkUsageRecordedEvent(input: {
   ) {
     const exactAgentId =
       resolved.subagentAgentId ??
-      (resolved.billingRole === "planner" && !resolved.parentToolUseId ? plannerAgentId : undefined);
+      (resolved.billingRole === "main" && !resolved.parentToolUseId ? plannerAgentId : undefined);
     if (exactAgentId) {
       services.noteAssistantMessageIdentity({
         threadId,

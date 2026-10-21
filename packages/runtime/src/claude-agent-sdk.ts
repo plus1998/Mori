@@ -676,7 +676,7 @@ export function resolveSdkSessionOptions(session?: EcoSdkSessionOptions): {
   skills: EcoSdkSessionOptions["skills"];
   mcpServers: Record<string, unknown>;
 } {
-  const plannerSkills = readAgentSkillAssignment(session?.agentSkills, "planner") ?? session?.skills;
+  const plannerSkills = readAgentSkillAssignment(session?.agentSkills, "main") ?? session?.skills;
   return {
     settingSources: session?.settingSources ?? [...defaultSettingSources],
     skills: plannerSkills === undefined ? undefined : [...plannerSkills],
@@ -704,7 +704,7 @@ export function resolveAgentSkills(
   if (fromRole !== undefined) {
     return [...fromRole];
   }
-  if (role === "planner" && sessionSkills !== undefined) {
+  if (role === "main" && sessionSkills !== undefined) {
     return [...sessionSkills];
   }
   return [];
@@ -745,7 +745,7 @@ function agentSkillLookupKeys(role: RuntimeAgentRole): string[] {
   }
   const unprefixed = trimmed.startsWith("eco_") ? trimmed.slice(4) : trimmed;
   const prefixed = trimmed.startsWith("eco_") ? trimmed : `eco_${trimmed}`;
-  return [...new Set([trimmed, unprefixed, prefixed])];
+  return [...new Set([trimmed, unprefixed, prefixed, ...(unprefixed === "main" ? ["planner", "eco_planner"] : [])])];
 }
 
 export type EcoRunPhase = "analyze" | "plan" | "execute" | "answer";
@@ -1027,7 +1027,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
   ): AsyncGenerator<AgentEvent, { transcript: string; finalizedPlan?: FinalizePlanPayload }> {
     input.signal.throwIfAborted();
     const sdk = await sdkWorkOrAbort(this.loadSdk(), input.signal);
-    const plannerRoute = findRoute(input.routes, "planner") ?? input.routes[0];
+    const plannerRoute = findRoute(input.routes, "main") ?? input.routes[0];
     if (!plannerRoute) {
       throw new Error("At least one model route is required to start Claude Agent SDK");
     }
@@ -1739,7 +1739,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
             id: `${crypto.randomUUID()}:run-terminal-cancelled`,
             threadId: input.threadId,
             agentId: activeSessionId,
-            role: "planner",
+            role: "main",
             type: "run.terminal",
             payload: {
               status: "cancelled",
@@ -1751,7 +1751,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
             id: `${crypto.randomUUID()}:run-terminal-incomplete`,
             threadId: input.threadId,
             agentId: activeSessionId,
-            role: "planner",
+            role: "main",
             type: "run.terminal",
             payload: {
               status: "incomplete",
@@ -1811,7 +1811,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
         usage: usage as unknown as Record<string, unknown>,
         timing: "on_result",
       });
-      const role: AgentRole = "planner";
+      const role: AgentRole = "main";
       return [
         createAgentEvent({
           id: `${crypto.randomUUID()}:sdk-context-usage`,
@@ -2596,7 +2596,7 @@ export function createFileCheckpointEvent(threadId: string, userMessageId: strin
     id: `file-checkpoint:${userMessageId}`,
     type: "file.checkpoint",
     threadId,
-    role: "planner",
+    role: "main",
     agentId: "eco-checkpoint",
     payload: { userMessageId },
   });
@@ -2623,7 +2623,7 @@ export function createSessionCapturedEvent(
     id: `${threadId}:session:${sessionId}`,
     threadId,
     agentId: sessionId,
-    role: "planner",
+    role: "main",
     type: "session.captured",
     payload: { sessionId, cwd, ...(state?.resetPending && { resetPending: true }) },
   });
@@ -2639,7 +2639,7 @@ export function createToolPermissionDeniedEvent(
     id: `${threadId}:tool-permission-denied:${decision.toolUseId}:${uuidFactory()}`,
     threadId,
     agentId: decision.agentId ?? decision.sessionId ?? decision.actor,
-    role: subagentRole ?? "planner",
+    role: subagentRole ?? "main",
     type: "tool.failed",
     payload: {
       type: "tool_permission_denied",
@@ -2678,7 +2678,7 @@ export function createPhaseBoundaryEvent(threadId: string, phase: EcoRunPhase, l
     id: `${threadId}:eco-phase-${phase}-${crypto.randomUUID()}`,
     threadId,
     agentId: "eco-orchestrator",
-    role: "planner",
+    role: "main",
     type: "agent.started",
     payload: { ecoPhase: phase, label },
   });
@@ -2873,7 +2873,7 @@ export function createPlanReadyEvent(threadId: string, payload: PlanReadyPayload
     id: `${threadId}:plan-ready-${crypto.randomUUID()}`,
     threadId,
     agentId: "eco-orchestrator",
-    role: "planner",
+    role: "main",
     type: "plan.ready",
     payload,
   });
@@ -3203,7 +3203,7 @@ function resolveSdkMessageStreamRole(
     return linkedRole;
   }
   const fromMessage = inferRole(message);
-  return fromMessage !== "planner" ? fromMessage : fallback;
+  return fromMessage !== "main" ? fromMessage : fallback;
 }
 
 function readSdkMessageAgentId(message: Record<string, unknown>): string | undefined {
@@ -4101,11 +4101,11 @@ function inferRole(message: Record<string, unknown>): RuntimeAgentRole {
       return message.agent_type;
     }
   }
-  return "planner";
+  return "main";
 }
 
 function isAgentRole(value: string): value is AgentRole {
-  return ["planner", "explore", "architect", "coder", "reviewer", "tester"].includes(value);
+  return ["main", "explore", "architect", "coder", "reviewer", "tester"].includes(value);
 }
 
 function resolveActivitySubagentRole(value: string): ActivityDisplayRole | undefined {
@@ -4320,7 +4320,7 @@ export function inferActivityRole(event: Pick<AgentEvent, "type" | "payload" | "
 }
 
 function isRuntimeAgentActivityRole(role: RuntimeAgentRole): boolean {
-  return role !== "planner" && role !== "system" && role !== "thinking" && role !== "tool" && role !== "user";
+  return role !== "main" && role !== "system" && role !== "thinking" && role !== "tool" && role !== "user";
 }
 
 export function isThinkingPayload(payload: unknown): boolean {
@@ -4606,7 +4606,7 @@ export function formatSubagentLabel(role: string): string {
   if (isSubagentRole(role)) {
     return SUBAGENT_ROLE_LABELS[role];
   }
-  if (isAgentRole(role) && role !== "planner") {
+  if (isAgentRole(role) && role !== "main") {
     return role;
   }
   return role;

@@ -29,7 +29,7 @@ export const SUBAGENT_ROLES = new Set(Object.keys(SUBAGENT_ROLE_SHORT));
 const NON_AGENT_ACTIVITY_ROLES = new Set([
   "assistant",
   "main",
-  "planner",
+  "planner", // Historical main-agent role, never a custom subagent.
   "system",
   "thinking",
   "tool",

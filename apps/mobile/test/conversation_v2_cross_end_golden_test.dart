@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eco_mobile/core/models/conversation_v2_models.dart';
 import 'package:eco_mobile/core/models/conversation_v2_projection_models.dart';
 import 'package:eco_mobile/core/preferences/thinking_display_preferences.dart';
+import 'package:eco_mobile/core/utils/agent_role.dart';
 import 'package:eco_mobile/core/utils/subagent_projection_feed.dart';
 import 'package:eco_mobile/features/threads/activity_feed.dart';
 import 'package:eco_mobile/features/threads/conversation_v2_projection.dart';
@@ -68,9 +69,28 @@ void main() {
       final bootstrap =
           jsonDecode(File('$fixtures/v2-bootstrap/$id.json').readAsStringSync())
               as Map<String, dynamic>;
-      final golden =
+      final historical =
           jsonDecode(File('$fixtures/v2-render/$id.json').readAsStringSync())
               as Map<String, dynamic>;
+      // Preserve the recorded events/identities; only canonicalize the renamed role.
+      Map<String, dynamic> row(dynamic item) => {
+        ...item as Map<String, dynamic>,
+        'role': item['role'] == null
+            ? null
+            : normalizeAgentRole(item['role'] as String),
+      };
+      final golden = {
+        ...historical,
+        'feed': (historical['feed'] as List).map(row).toList(),
+        'cards': [
+          for (final card in historical['cards'] as List)
+            {
+              ...card as Map<String, dynamic>,
+              'role': normalizeAgentRole(card['role'] as String),
+              'rows': (card['rows'] as List).map(row).toList(),
+            },
+        ],
+      };
       final actual = mobileCrossEndShape(bootstrap);
       if (Platform.environment['ECO_CROSS_END_IDS'] == '1') {
         final debug = mobileCrossEndDebug(bootstrap);

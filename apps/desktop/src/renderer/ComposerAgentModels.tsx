@@ -17,9 +17,9 @@ import type { ComposerAgentModelLabel } from "./composer-agent-model-labels";
 import { composerFloatingStyleForAnchor } from "./composer-floating";
 import { COMPOSER_TOOLBAR_ICON_PX, COMPOSER_TOOLBAR_ICON_STROKE } from "./composer-icon-metrics";
 
-function rowClassName(options: { subagent: boolean; enabled: boolean; planner: boolean }): string {
+function rowClassName(options: { subagent: boolean; enabled: boolean; main: boolean }): string {
   const parts = ["composer-agent-row"];
-  if (options.planner) {
+  if (options.main) {
     parts.push("is-main", "is-active");
     return parts.join(" ");
   }
@@ -133,7 +133,7 @@ function AgentModelRows({
         const enabled = subagentRole && subagentSettings ? subagentSettings[subagentRole] : true;
         const clickable = Boolean(canEditSubagents && subagentRole && subagentSettings && onToggleSubagent);
         const modelShort = modelId?.trim() ? formatModelDisplayName(modelId) : t("common.notConfigured");
-        const className = rowClassName({ subagent, enabled, planner: main });
+        const className = rowClassName({ subagent, enabled, main: main });
         const switchControl = subagentRole ? (
           <label
             className="composer-switch"

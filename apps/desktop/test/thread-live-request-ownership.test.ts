@@ -33,7 +33,7 @@ test("thinking.final does not end the live request; message.final can still reso
 
   const { logicalRequestId } = handleBridgeMessagesRequest(registry, {
     threadId,
-    role: "planner",
+    role: "main",
     emitTimelineActivity: true,
   });
   markBridgeRequestStartedPersisted(threadId, logicalRequestId);
@@ -54,14 +54,14 @@ test("thinking.final does not end the live request; message.final can still reso
 
   const messageDeltaResolved = resolveLiveRequestIdForEvent(registry, threadId, {
     type: "message.delta",
-    role: "planner",
+    role: "main",
     stream: true,
   });
   expect(messageDeltaResolved).toBe(logicalRequestId);
 
   const messageFinalResolved = resolveLiveRequestIdForEvent(registry, threadId, {
     type: "message.final",
-    role: "planner",
+    role: "main",
     stream: false,
   });
   expect(messageFinalResolved).toBe(logicalRequestId);
@@ -130,7 +130,7 @@ test("SDK request.started before Bridge registration does not create orphan entr
 
   const sdkFirst = resolveLiveRequestIdForEvent(registry, threadId, {
     type: "request.started",
-    role: "planner",
+    role: "main",
     stream: false,
   });
   expect(sdkFirst).toBeUndefined();
@@ -138,7 +138,7 @@ test("SDK request.started before Bridge registration does not create orphan entr
 
   const bridgeEntry = handleBridgeMessagesRequest(registry, {
     threadId,
-    role: "planner",
+    role: "main",
     emitTimelineActivity: true,
   });
   expect(registry.listActive(threadId)).toHaveLength(1);

@@ -162,7 +162,7 @@ test("handleSdkUsageRecordedEvent passes authoritative observations into assista
   const result = handleSdkUsageRecordedEvent({
     threadId: "thr_sdk",
     event: event({
-      role: "planner",
+      role: "main",
       payload: {
         messageId: "msg_1",
         model: "haiku",
@@ -216,7 +216,7 @@ test("handleSdkUsageRecordedEvent binds an exact main-session message to the pla
   const result = handleSdkUsageRecordedEvent({
     threadId: "thr_sdk",
     event: event({
-      role: "planner",
+      role: "main",
       payload: {
         messageId: "resp_planner_exact",
         model: "sonnet",
@@ -242,7 +242,7 @@ test("handleSdkUsageRecordedEvent binds an exact main-session message to the pla
       threadId: "thr_sdk",
       messageId: "resp_planner_exact",
       agentId: "planner_attempt_1",
-      role: "planner",
+      role: "main",
     },
   ]);
 });

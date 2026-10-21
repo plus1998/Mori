@@ -32,7 +32,7 @@ test("ThreadUsageAccumulator deduplicates by requestKey", () => {
   const accumulator = new ThreadUsageAccumulator();
   const input = {
     threadId: "t1",
-    role: "planner" as const,
+    role: "main" as const,
     delta: { inputTokens: 1000, outputTokens: 100, cacheReadTokens: 0, cacheCreationTokens: 0 },
     sourceReportedCostUsd: 0.01,
     actualRates: sonnetRates,
@@ -51,7 +51,7 @@ test("ThreadUsageAccumulator serialize and restore round-trip", () => {
   const sonnetRates = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
   accumulator.recordUsage({
     threadId: "t1",
-    role: "planner",
+    role: "main",
     delta: { inputTokens: 1000, outputTokens: 200, cacheReadTokens: 0, cacheCreationTokens: 0 },
     actualRates: sonnetRates,
     plannerRates: sonnetRates,
@@ -70,11 +70,45 @@ test("ThreadUsageAccumulator serialize and restore round-trip", () => {
   expect(billing?.plannerModelLabel).toBe("opus · Anthropic");
 });
 
+test("restoring mixed planner/main usage merges both aliases and preserves totals", () => {
+  const accumulator = new ThreadUsageAccumulator();
+  for (const [role, inputTokens] of [
+    ["planner", 10],
+    ["main", 20],
+  ] as const) {
+    accumulator.recordUsage({
+      threadId: "old",
+      role,
+      delta: { inputTokens, outputTokens: 1, cacheReadTokens: 2, cacheCreationTokens: 3 },
+      actualRates: sonnetRates,
+      plannerRates: sonnetRates,
+      modelId: "same-model",
+      requestKey: role,
+    });
+  }
+  const serialized = accumulator.serializeState("old")!;
+  const original = JSON.stringify(serialized);
+  const restored = new ThreadUsageAccumulator();
+  restored.restoreState("old", serialized);
+  const billing = restored.getSnapshot("old")!;
+  expect(billing.totalTokens).toEqual({ input: 30, output: 2, cacheRead: 4, cacheCreation: 6 });
+  expect(billing.byRole?.main).toMatchObject({
+    inputTokens: 30,
+    outputTokens: 2,
+    cacheReadTokens: 4,
+    cacheCreationTokens: 6,
+  });
+  expect(billing.byRole?.planner).toBeUndefined();
+  expect(billing.byModel?.[0]?.roles).toEqual(["main"]);
+  expect(restored.serializeState("old")?.byRole.planner).toBeUndefined();
+  expect(JSON.stringify(serialized)).toBe(original);
+});
+
 test("ThreadUsageAccumulator recordRunUsage bills cache at models.dev rates", () => {
   const accumulator = new ThreadUsageAccumulator();
   accumulator.recordRunUsage({
     threadId: "t1",
-    role: "planner",
+    role: "main",
     requestKey: "sdk-result:run-1",
     models: [
       {
@@ -104,7 +138,7 @@ test("ThreadUsageAccumulator recordRunUsage attributes per-model role", () => {
 
   accumulator.recordRunUsage({
     threadId: "t1",
-    role: "planner",
+    role: "main",
     requestKey: "sdk-result:run-explore",
     models: [
       {
@@ -119,7 +153,7 @@ test("ThreadUsageAccumulator recordRunUsage attributes per-model role", () => {
 
   const billing = accumulator.getSnapshot("t1");
   expect(billing?.byRole?.explore?.inputTokens).toBe(10_000);
-  expect(billing?.byRole?.planner).toBeUndefined();
+  expect(billing?.byRole?.main).toBeUndefined();
   expect(billing?.ecoCostUsd).toBeCloseTo(0.012, 4);
   expect(billing?.plannerTokenCostUsd).toBeCloseTo(0.045, 4);
 });
@@ -193,19 +227,19 @@ test("ThreadUsageAccumulator byModel keeps two models under one role", () => {
 
   accumulator.recordRunUsage({
     threadId: "t1",
-    role: "planner",
+    role: "main",
     source: "sdk",
     requestKey: "sdk:multi-model",
     models: [
       {
-        role: "planner",
+        role: "main",
         modelId: "sonnet",
         usage: { inputTokens: 10_000, outputTokens: 1_000, cacheReadTokens: 0, cacheCreationTokens: 0 },
         actualRates: sonnetRates,
         plannerRates: sonnetRates,
       },
       {
-        role: "planner",
+        role: "main",
         modelId: "haiku",
         usage: { inputTokens: 20_000, outputTokens: 2_000, cacheReadTokens: 0, cacheCreationTokens: 0 },
         actualRates: haikuRates,
@@ -215,7 +249,7 @@ test("ThreadUsageAccumulator byModel keeps two models under one role", () => {
   });
 
   const billing = accumulator.getSnapshot("t1");
-  expect(billing?.byRole?.planner?.modelId).toBe("haiku");
+  expect(billing?.byRole?.main?.modelId).toBe("haiku");
   expect(billing?.byModel?.map((entry) => entry.modelId).sort()).toEqual(["haiku", "sonnet"]);
   expect(billing?.byModel?.find((entry) => entry.modelId === "sonnet")?.ecoCostUsd).toBeCloseTo(0.045);
   expect(billing?.byModel?.find((entry) => entry.modelId === "haiku")?.ecoCostUsd).toBeCloseTo(0.024);
