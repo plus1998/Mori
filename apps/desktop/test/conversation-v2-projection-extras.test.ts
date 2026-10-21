@@ -5,6 +5,91 @@ import { buildThreadRunProjectionRequestSpans } from "../src/main/conversation-v
 import { projectUsageLedger } from "../src/main/usage-ledger";
 import type { ThreadRunEventInput } from "../src/shared/thread-run-events";
 
+for (const storageMode of ["legacy_compat", "v2_only"] as const) {
+  test(`${storageMode} restores missing billing panels from the surviving Codex ledger after rewind`, () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      const store = new ConversationStore(db, { freshStorageMode: storageMode });
+      store.initialize();
+      store.saveThread({
+        id: "codex-billing",
+        title: "Codex billing",
+        prompt: "first",
+        workspacePath: "/tmp/project",
+        status: "completed",
+        message: "",
+        coreKind: "codex",
+        createdAt: "2026-10-21T00:00:00.000Z",
+        updatedAt: "2026-10-21T00:00:00.000Z",
+      });
+      const appendPrompt = (id: string, observedAt: string) => {
+        store.appendConversationRuntimeEvent({
+          id,
+          threadId: "codex-billing",
+          eventType: "thread.status",
+          scope: "main",
+          role: "user",
+          streamState: "none",
+          streamKey: `sdk:${id}`,
+          message: id,
+          observedAt,
+          metadata: {
+            liveType: "thread.user_prompt",
+            rewindTarget: { activityLineId: `sdk:${id}`, userMessageId: id },
+          },
+        });
+      };
+      const appendUsage = (id: string, observedAt: string, cost: number) => {
+        store.appendUsageLedgerEvent({
+          id,
+          idempotencyKey: id,
+          threadId: "codex-billing",
+          role: "main",
+          source: "codex",
+          sourceEventId: id,
+          requestKey: id,
+          usageKind: "request_final",
+          modelId: "gpt-6.1-sol",
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadTokens: 50,
+          cacheCreationTokens: 0,
+          observedAt,
+          attribution: { status: "unattributed", reason: "test" },
+          metadata: {
+            computedBilling: { ecoCostUsd: cost, plannerTokenCostUsd: cost, pricingResolved: true },
+          },
+        });
+      };
+      appendPrompt("first", "2026-10-21T00:00:00.000Z");
+      appendUsage("first-usage", "2026-10-21T00:00:01.000Z", 0.25);
+      appendPrompt("target", "2026-10-21T00:00:02.000Z");
+      appendUsage("target-usage", "2026-10-21T00:00:03.000Z", 0.5);
+
+      store.rewindThreadToActivityLine("codex-billing", "sdk:target");
+      expect(store.conversationV2().getProjectionSnapshot("codex-billing")?.billing).toBeUndefined();
+      expect(store.listUsageLedgerEvents("codex-billing").map((event) => event.id)).toEqual(["first-usage"]);
+
+      // This also covers existing databases whose history rewrite already cleared the panel cache.
+      const extras = store.getConversationV2ProjectionExtras("codex-billing")!;
+      expect(extras.billing).toMatchObject({
+        primarySource: "codex",
+        ecoCostUsd: 0.25,
+        plannerTokenCostUsd: 0.25,
+        pricingResolved: true,
+        totalTokens: { input: 100, output: 10, cacheRead: 50, cacheCreation: 0 },
+      });
+      expect(extras.ledgerEvents).toHaveLength(1);
+      expect(extras.context).toBeUndefined();
+
+      store.rewindThreadToActivityLine("codex-billing", "sdk:first");
+      expect(store.getConversationV2ProjectionExtras("codex-billing")?.billing).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+}
+
 test("historical planner reads as main without rewriting ledger identities or snapshots", () => {
   const db = new DatabaseSync(":memory:");
   try {

@@ -58,6 +58,8 @@ import { keepsOutputPreview, projectThreadRunToolMetadata } from "../shared/thre
 import { parseThreadRuntimeConfigJson, serializeThreadRuntimeConfig } from "../shared/thread-runtime-config";
 import { parseThreadRunGrepToolTarget, parseThreadRunReadToolTarget } from "../shared/tool-target.js";
 import { upgradeLegacyCursorCore } from "../shared/upgrade-legacy-cursor-core";
+import { withBillingDiagnostics } from "./billing-diagnostics";
+import { projectBillingFromUsageLedger } from "./billing-projector";
 import {
   classifyHistoryCommandRecovery,
   type HistoryCommandRecoveryDecision,
@@ -853,24 +855,35 @@ export class ConversationStore {
       }
       return value;
     };
-    const billing = readSnapshotValue("billing");
+    let billing = readSnapshotValue("billing");
     const context = readSnapshotValue("context");
     const subagentTimings = readSnapshotValue("subagentTimings", true);
     const subagentMetrics = readSnapshotValue("subagentMetrics", true);
     const thread = this.getThread(id);
     if (!thread) return undefined;
+    const ledgerEvents = this.listUsageLedgerEvents(id);
+    const agents = this.listAgentInstances(id);
+    // History rewrites clear the mutable panel cache but retain earlier ledger
+    // rows. Rebuild their billing instead of waiting for the next completed turn
+    // to repopulate the panel (direct Codex login only settles at turn end).
+    if (billing === undefined && ledgerEvents.length > 0) {
+      const projection = projectBillingFromUsageLedger({ events: ledgerEvents, agents });
+      if (projection.snapshot) {
+        billing = withBillingDiagnostics(projection.snapshot, { ledgerEvents });
+      }
+    }
     // Request spans are derived from the V2 provider event index at read time.
     // This keeps streaming state current without a second write for every token
     // delta, and never consults the legacy event/projection tables.
     const derivedRequestSpans = buildThreadRunProjectionRequestSpans({
       events: this.listConversationRequestSpanSources(id),
       threadStatus: thread.status,
-      agents: this.listAgentInstances(id),
+      agents,
       historyComplete: true,
     });
     return {
       requestSpans: derivedRequestSpans,
-      ledgerEvents: this.listConversationV2UsageLedgerEventViews(id, derivedRequestSpans),
+      ledgerEvents: this.listConversationV2UsageLedgerEventViews(ledgerEvents, derivedRequestSpans),
       ...(billing !== undefined
         ? {
             billing: normalizeBillingSnapshotRoles(
@@ -903,12 +916,10 @@ export class ConversationStore {
   }
 
   private listConversationV2UsageLedgerEventViews(
-    threadId: string,
+    events: readonly UsageLedgerEvent[],
     spans: readonly ThreadRunProjectionRequestSpan[],
   ): ThreadUsageLedgerEventView[] {
-    const views = attachPeerGatewayTimingToLedgerEventViews(
-      this.listUsageLedgerEvents(threadId).map(buildThreadUsageLedgerEventView),
-    );
+    const views = attachPeerGatewayTimingToLedgerEventViews(events.map(buildThreadUsageLedgerEventView));
     if (views.length === 0) {
       return views;
     }
