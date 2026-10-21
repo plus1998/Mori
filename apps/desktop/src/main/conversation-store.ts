@@ -5715,7 +5715,7 @@ export class ConversationStore {
     }
 
     const indexedRuntimeSources = this.v2.hasConversation(threadId)
-      ? this.listConversationRuntimeSources(threadId)
+      ? this.listConversationRuntimeSources(threadId, { historyOrder: true })
       : [];
     const hasNativeProviderSources = indexedRuntimeSources.length > 0;
     const runtimeSources = hasNativeProviderSources
@@ -5865,7 +5865,7 @@ export class ConversationStore {
     command?: ThreadHistoryCommandContext,
   ): ThreadActivityRewindSummary {
     const indexedRuntimeSources = this.v2.hasConversation(threadId)
-      ? this.listConversationRuntimeSources(threadId)
+      ? this.listConversationRuntimeSources(threadId, { historyOrder: true })
       : [];
     const hasNativeProviderSources = indexedRuntimeSources.length > 0;
     const runtimeSources = hasNativeProviderSources
@@ -6025,7 +6025,7 @@ export class ConversationStore {
       return this.rewriteV2OnlyHistory(threadId, id, "history.deleted", command);
     }
     const indexedRuntimeSources = this.v2.hasConversation(threadId)
-      ? this.listConversationRuntimeSources(threadId)
+      ? this.listConversationRuntimeSources(threadId, { historyOrder: true })
       : [];
     const hasNativeProviderSources = indexedRuntimeSources.length > 0;
     const runtimeSources = hasNativeProviderSources
@@ -7488,9 +7488,14 @@ export class ConversationStore {
 
   private listLegacyV2MessageIdsFromRunEvents(threadId: string, minimumSequence: number): string[] {
     const indexed = this.v2.hasConversation(threadId) ? this.listConversationRuntimeSources(threadId) : [];
-    const rows = (indexed.length > 0 ? indexed : this.listThreadRunEvents(threadId)).filter(
-      (event) => event.sequence >= minimumSequence,
-    );
+    // Existing desktop databases can remain in legacy_compat while new turns
+    // already use native V2 receipts. Those receipts own the normalized ids:
+    // empty thinking placeholders have none, and accepted user messages use
+    // their explicit ids rather than a legacy stream hash.
+    if (indexed.length > 0) {
+      return this.listV2MessageIdsFromHistorySequence(threadId, minimumSequence);
+    }
+    const rows = this.listThreadRunEvents(threadId).filter((event) => event.sequence >= minimumSequence);
     return [
       ...new Set(
         rows
@@ -7501,7 +7506,7 @@ export class ConversationStore {
   }
 
   private listRuntimeSourceIdsFromSequence(threadId: string, minimumSequence: number): string[] {
-    return this.listConversationRuntimeSources(threadId)
+    return this.listConversationRuntimeSources(threadId, { historyOrder: true })
       .filter((event) => event.sequence >= minimumSequence)
       .map((event) => event.id)
       .filter(Boolean);
