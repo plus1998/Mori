@@ -160,9 +160,11 @@ class _CountingCache extends ConversationV2Cache {
       );
   int messageReads = 0;
   @override
-  Future<List<ConversationV2Message>> messages(String conversationId) {
+  Future<ConversationV2PresentationSnapshot> presentationSnapshot(
+    String conversationId,
+  ) {
     messageReads++;
-    return super.messages(conversationId);
+    return super.presentationSnapshot(conversationId);
   }
 }
 

@@ -37,7 +37,7 @@ StreamingMarkdownPartition partitionStreamingMarkdown(
     return StreamingMarkdownPartition(stable: text, tail: '');
   }
 
-  final holdFrom = _findStructuredEditHoldFrom(text);
+  final holdFrom = structuredEditHoldStart(text);
   if (holdFrom != null) {
     final prefix = text.substring(0, holdFrom);
     final held = text.substring(holdFrom);
@@ -56,7 +56,7 @@ StreamingMarkdownPartition partitionStreamingMarkdown(
 
 bool isStructuralStreamingTail(String tail) {
   if (tail.isEmpty) return false;
-  if (_findStructuredEditHoldFrom(tail) != null) return true;
+  if (structuredEditHoldStart(tail) != null) return true;
 
   final lines = _splitMarkdownLines(tail);
   for (final line in lines) {
@@ -225,7 +225,8 @@ int _findMutableMarkdownStart(String text) {
   );
 }
 
-int? _findStructuredEditHoldFrom(String text) {
+/// The start of a still-open SEARCH/REPLACE or conflict region.
+int? structuredEditHoldStart(String text) {
   final searchReplaceOpen = text.lastIndexOf('<<<<<<< SEARCH');
   if (searchReplaceOpen >= 0 &&
       !text.substring(searchReplaceOpen).contains('>>>>>>> REPLACE')) {

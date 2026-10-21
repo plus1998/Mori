@@ -21,6 +21,7 @@ class ProgressiveBlur extends StatefulWidget {
     this.maxSigma = 18,
     this.direction = ProgressiveBlurDirection.topToBottom,
     this.falloff = 1.2,
+
     /// Keep full sigma for this fraction of the strong→weak path (0–0.95),
     /// then dissolve over the remaining band only.
     this.solidFraction = 0.0,
@@ -60,6 +61,16 @@ class _ProgressiveBlurState extends State<ProgressiveBlur> {
   Offset? _origin;
   Size? _size;
   var _originCallbackPending = false;
+  ui.ImageFilter? _filter;
+  ({
+    double sigma,
+    double falloff,
+    double direction,
+    Offset origin,
+    Size size,
+    double solid,
+  })?
+  _filterInputs;
 
   @override
   void initState() {
@@ -122,6 +133,17 @@ class _ProgressiveBlurState extends State<ProgressiveBlur> {
     final sizePx = size * dpr;
     final sigmaPx = widget.maxSigma * dpr;
     final solid = widget.solidFraction.clamp(0.0, 0.95);
+    final inputs = (
+      sigma: sigmaPx,
+      falloff: widget.falloff,
+      direction: _directionIndex,
+      origin: originPx,
+      size: sizePx,
+      solid: solid,
+    );
+    // Feed updates do not change the blur geometry. Reuse its two shaders and
+    // composed filter until a uniform actually changes.
+    if (inputs == _filterInputs) return _filter;
 
     ui.FragmentShader pass({required double axis}) {
       final shader = program.fragmentShader();
@@ -138,7 +160,8 @@ class _ProgressiveBlurState extends State<ProgressiveBlur> {
       return shader;
     }
 
-    return ui.ImageFilter.compose(
+    _filterInputs = inputs;
+    return _filter = ui.ImageFilter.compose(
       outer: ui.ImageFilter.shader(pass(axis: 1)),
       inner: ui.ImageFilter.shader(pass(axis: 0)),
     );
@@ -157,10 +180,7 @@ class _ProgressiveBlurState extends State<ProgressiveBlur> {
     late final Widget filtered;
     if (filter != null) {
       filtered = ClipRect(
-        child: BackdropFilter(
-          filter: filter,
-          child: const SizedBox.expand(),
-        ),
+        child: BackdropFilter(filter: filter, child: const SizedBox.expand()),
       );
     } else {
       final sigma = widget.maxSigma > 0 ? widget.maxSigma * 0.55 : 0.0;

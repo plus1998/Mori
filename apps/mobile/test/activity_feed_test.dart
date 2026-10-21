@@ -21,6 +21,7 @@ import 'package:eco_mobile/core/theme/eco_theme.dart';
 import 'package:eco_mobile/core/theme/subagent_theme.dart';
 import 'package:eco_mobile/core/utils/subagent_projection_feed.dart';
 import 'package:eco_mobile/core/widgets/eco_markdown.dart';
+import 'package:eco_mobile/core/widgets/shimmer_text.dart';
 import 'package:eco_mobile/features/threads/activity_feed.dart';
 
 /// Test-only adapter for the legacy projection fixture shape. Production detail
@@ -4665,6 +4666,56 @@ void main() {
 
     expect(find.textContaining('读取了'), findsNWidgets(2));
     expect(find.textContaining('Use read or an allowlisted'), findsWidgets);
+  });
+
+  testWidgets('running tools and subagents use intermittent status sweeps', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    addTearDown(scrollController.dispose);
+    Widget feed({required bool running}) => _localizedMaterialApp(
+      theme: buildEcoDarkTheme(),
+      home: Scaffold(
+        body: ActivityFeedList(
+          scrollController: scrollController,
+          entries: [
+            ActivityFeedEntry(
+              id: 'waiting-tool',
+              kind: ActivityFeedKind.action,
+              text: '运行检查',
+              toolName: 'Bash',
+              actionIcon: ActivityActionIcon.terminal,
+              lifecycle: running
+                  ? ToolActionLifecycle.running
+                  : ToolActionLifecycle.completed,
+            ),
+            ActivityFeedEntry(
+              id: 'waiting-agent',
+              kind: ActivityFeedKind.subagentMission,
+              text: '检查修改',
+              subagentRole: 'worker',
+              running: running,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpWidget(feed(running: true));
+    await tester.pump();
+    final labels = tester
+        .widgetList<ShimmerText>(find.byType(ShimmerText))
+        .toList();
+    expect(labels, hasLength(2));
+    for (final label in labels) {
+      expect(label.duration, const Duration(milliseconds: 1800));
+      expect(label.pauseDuration, const Duration(milliseconds: 4200));
+    }
+    await tester.pump(const Duration(milliseconds: 1800));
+    await tester.pumpWidget(feed(running: false));
+    await tester.pumpAndSettle();
+    expect(find.byType(ShimmerText), findsNothing);
+    await tester.pump(const Duration(seconds: 7));
+    expect(tester.binding.hasScheduledFrame, isFalse);
   });
 
   testWidgets('V2 tool details request continuation only after loading more', (

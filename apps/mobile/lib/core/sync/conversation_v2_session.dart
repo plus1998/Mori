@@ -458,23 +458,18 @@ class ConversationV2SessionController
   Future<void> _reload({ConversationV2SyncState? syncState}) async {
     if (_disposed) return;
     final generation = ++_reloadGeneration;
-    final cacheState = await _cache.state(conversationId);
-    final messages = await _cache.messages(conversationId);
-    final runs = await _cache.runs(conversationId);
-    final tools = await _cache.tools(conversationId);
-    final agents = await _cache.agents(conversationId);
-    final todos = await _cache.todos(conversationId);
+    final snapshot = await _cache.presentationSnapshot(conversationId);
     if (_disposed || generation != _reloadGeneration) return;
     _update(
       state.copyWith(
-        messages: messages,
-        runs: runs,
-        tools: tools,
-        agents: agents,
-        todos: todos,
+        messages: snapshot.messages,
+        runs: snapshot.runs,
+        tools: snapshot.tools,
+        agents: snapshot.agents,
+        todos: snapshot.todos,
         syncState: syncState ?? _engine.state,
-        hasOlder: cacheState?.hasOlder ?? false,
-        historyRevision: cacheState?.historyRevision ?? 0,
+        hasOlder: snapshot.cacheState?.hasOlder ?? false,
+        historyRevision: snapshot.cacheState?.historyRevision ?? 0,
         clearDetails: true,
         clearPendingInteractions: true,
         clearError: syncState != ConversationV2SyncState.error,

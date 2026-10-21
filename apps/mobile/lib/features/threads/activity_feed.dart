@@ -31,6 +31,7 @@ import '../../core/utils/thread_status.dart';
 import '../../core/widgets/activity_feed_block.dart';
 import '../../core/widgets/activity_feed_speak_button.dart';
 import '../../core/widgets/eco_markdown.dart';
+import '../../core/widgets/streaming_eco_markdown.dart';
 import '../../core/widgets/eco_surface_card.dart';
 import '../../core/widgets/image_memory_lightbox.dart';
 import '../../core/widgets/paced_stream_text.dart';
@@ -47,6 +48,7 @@ const activityFeedLoadEarlierThreshold = 160.0;
 const activityFeedLoadingIndicatorSize = 24.0;
 const _scrollToBottomButtonSize = 36.0;
 const _scrollToBottomButtonAlignedBottomGap = 6.0;
+const _toolWaitShimmerPause = Duration(milliseconds: 4200);
 
 typedef ActivityFeedEntryCallback = void Function(ActivityFeedEntry entry);
 typedef ActivityFeedToolDetailLoader =
@@ -2906,35 +2908,17 @@ class _StreamingFeedMarkdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final partition = partitionStreamingMarkdown(text, streaming: true);
-    final structuralTail = isStructuralStreamingTail(partition.tail);
     final tailStyle = activityFeedBodyStyle(
       context,
       color: color ?? ecoColors(context).textMuted,
       height: compact ? 1.45 : 1.55,
     );
-    if (!structuralTail) {
-      return EcoMarkdown(
-        text: text,
-        compact: compact,
-        muted: muted,
-        selectable: false,
-        fontSizeScale: activityFeedBodyFontScale,
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (partition.stable.trim().isNotEmpty)
-          EcoMarkdown(
-            text: partition.stable,
-            compact: compact,
-            muted: muted,
-            selectable: false,
-            fontSizeScale: activityFeedBodyFontScale,
-          ),
-        if (partition.tail.isNotEmpty) Text(partition.tail, style: tailStyle),
-      ],
+    return StreamingEcoMarkdown(
+      text: text,
+      compact: compact,
+      muted: muted,
+      fontSizeScale: activityFeedBodyFontScale,
+      tailStyle: tailStyle,
     );
   }
 }
@@ -4387,6 +4371,7 @@ class _ActionSummaryLine extends StatelessWidget {
                 child: lifecycle == ToolActionLifecycle.running
                     ? ShimmerText(
                         text: label,
+                        pauseDuration: _toolWaitShimmerPause,
                         baseColor: eco.textMuted,
                         highlightColor: eco.textSecondary,
                         style: activityFeedBodyStyle(
@@ -5114,6 +5099,7 @@ class _SubagentMissionTileState extends State<_SubagentMissionTile> {
                       child: widget.running
                           ? ShimmerText(
                               text: title,
+                              pauseDuration: _toolWaitShimmerPause,
                               baseColor: eco.textMuted,
                               highlightColor: eco.textSecondary,
                               style: titleStyle,

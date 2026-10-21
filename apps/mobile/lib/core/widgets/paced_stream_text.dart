@@ -1,4 +1,5 @@
-import 'package:flutter/scheduler.dart';
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 
 import '../utils/stream_text.dart';
@@ -23,20 +24,27 @@ class PacedStreamText extends StatefulWidget {
 }
 
 class _PacedStreamTextState extends State<PacedStreamText>
-    with SingleTickerProviderStateMixin {
+    with WidgetsBindingObserver {
   late String _displayText;
   late String _targetText;
-  late final Ticker _ticker;
-  late Duration _lastTickTime;
+  Timer? _revealTimer;
+  bool _visible = true;
+  bool _reduceMotion = false;
 
   @override
   void initState() {
     super.initState();
     _targetText = widget.text;
     _displayText = _targetText;
-    _lastTickTime = Duration.zero;
-    _ticker = createTicker(_onTick);
-    _scheduleTicker();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _visible = TickerMode.valuesOf(context).enabled;
+    _reduceMotion = MediaQuery.disableAnimationsOf(context);
+    _syncReveal();
   }
 
   @override
@@ -49,21 +57,29 @@ class _PacedStreamTextState extends State<PacedStreamText>
         _targetText = widget.text;
       }
     }
-    if (!widget.streaming) {
+    _syncReveal();
+  }
+
+  void _syncReveal() {
+    if (!widget.streaming || _reduceMotion) {
       // 已定稿或不再是逐字目标：直接补齐全量。
-      _ticker.stop();
+      _cancelReveal();
       if (_displayText != _targetText) {
         _displayText = _targetText;
       }
       return;
     }
-    _scheduleTicker();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (!_visible ||
+        (lifecycle != null && lifecycle != AppLifecycleState.resumed)) {
+      _cancelReveal();
+      return;
+    }
+    _scheduleReveal();
   }
 
-  void _onTick(Duration elapsed) {
-    final delta = elapsed - _lastTickTime;
-    if (delta < pacedStreamInterval) return;
-    _lastTickTime = elapsed;
+  void _onTick() {
+    _revealTimer = null;
     final nextText = revealPacedStreamText(
       _displayText,
       _targetText,
@@ -72,20 +88,26 @@ class _PacedStreamTextState extends State<PacedStreamText>
     if (nextText != _displayText && mounted) {
       setState(() => _displayText = nextText);
     }
-    if (_displayText == _targetText) {
-      _ticker.stop();
-    }
+    _scheduleReveal();
   }
 
-  void _scheduleTicker() {
-    if (_displayText == _targetText || _ticker.isActive) return;
-    _lastTickTime = Duration.zero;
-    _ticker.start();
+  void _scheduleReveal() {
+    if (_displayText == _targetText || _revealTimer != null) return;
+    _revealTimer = Timer(pacedStreamInterval, _onTick);
+  }
+
+  void _cancelReveal() {
+    _revealTimer?.cancel();
+    _revealTimer = null;
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) => _syncReveal();
+
+  @override
   void dispose() {
-    _ticker.dispose();
+    _cancelReveal();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
