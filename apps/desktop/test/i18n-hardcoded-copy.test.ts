@@ -35,8 +35,6 @@ const UI_ATTRIBUTE_NAMES = new Set([
  * lowering its number in the same change, and new code must never add one.
  */
 const HARDCODED_COPY_BASELINE: Record<string, number> = {
-  "src/renderer/TtsSettingsPanel.tsx": 15,
-  "src/renderer/ImageGenerationSettingsPanel.tsx": 13,
   "src/renderer/CommitModelPricingCompact.tsx": 3,
   "src/renderer/ComposerPlanModeToggle.tsx": 3,
   "src/renderer/ApiCompatToggle.tsx": 2,

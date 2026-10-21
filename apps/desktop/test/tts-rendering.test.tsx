@@ -147,34 +147,40 @@ test("compact cards show playback progress and open details in the sidebar witho
 });
 
 test("settings expose the Gemini model and custom Base URL; integration selection preserves TTS", () => {
-  const markup = renderLocalized(
-    createElement(TtsSettingsPanel, {
-      settings: {
-        enabled: false,
-        activeProfileId: "p1",
-        profiles: [
-          {
-            id: "p1",
-            name: "Gemini TTS",
-            provider: "gemini",
-            model: "gemini-3.8-flash-tts",
-            baseUrl: "https://custom.example/v1beta",
-            hasApiKey: false,
-            createdAt: artifact.createdAt,
-            updatedAt: artifact.updatedAt,
-          },
-        ],
-        apiKeyEncryptionAvailable: true,
-      },
-      onChange: () => {},
-      onError: () => {},
-    }),
-    "zh-CN",
-  );
+  const panel = createElement(TtsSettingsPanel, {
+    settings: {
+      enabled: false,
+      activeProfileId: "p1",
+      profiles: [
+        {
+          id: "p1",
+          name: "Gemini TTS",
+          provider: "gemini",
+          model: "gemini-3.8-flash-tts",
+          baseUrl: "https://custom.example/v1beta",
+          hasApiKey: false,
+          createdAt: artifact.createdAt,
+          updatedAt: artifact.updatedAt,
+        },
+      ],
+      apiKeyEncryptionAvailable: true,
+    },
+    onChange: () => {},
+    onError: () => {},
+  });
+  const markup = renderLocalized(panel, "zh-CN");
   expect(markup).toContain("语音生成");
   expect(markup).toContain("gemini-3.8-flash-tts");
   expect(markup).toContain("https://custom.example/v1beta");
   expect(markup).not.toContain("图片编辑");
+  const englishMarkup = renderLocalized(panel, "en-US");
+  expect(englishMarkup).toContain("Speech Generation");
+  expect(englishMarkup).toContain("Provider profiles");
+  expect(englishMarkup).toContain("Add profile");
+  expect(englishMarkup).toContain("1 profile");
+  expect(englishMarkup).toContain("1 active");
+  expect(englishMarkup).toContain("In use");
+  expect(englishMarkup).not.toMatch(/[\u3400-\u9fff]/u);
   expect(normalizeIntegrationsEnabled({ tts: true, browser: false })).toEqual({ tts: true, browser: false });
   expect(resolveActionKind({ toolName: "mcp__eco_tts__create_speech" }).kind).toBe("speechCreate");
   expect(

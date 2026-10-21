@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import { Pencil, Plus, Trash2, Volume2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -28,10 +29,10 @@ function formFromProfile(profile: TtsProfileSnapshot): TtsProfileSaveInput {
   };
 }
 
-function imageProviderLabel(provider: TtsProvider): string {
+function providerLabel(provider: TtsProvider, t: TFunction): string {
   if (provider === "gemini") return "Gemini";
-  if (provider === "doubao") return "豆包";
-  return "OpenAI 兼容";
+  if (provider === "doubao") return t("settings.tts.providerDoubaoShort");
+  return t("settings.tts.providerOpenAiCompatibleShort");
 }
 
 export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
@@ -93,7 +94,7 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
         </div>
         <span className={`image-generation-enabled-badge ${settings.enabled ? "is-enabled" : "is-disabled"}`}>
           <i />
-          {settings.enabled ? "已启用" : "未启用"}
+          {t(settings.enabled ? "settings.tts.status.enabled" : "settings.tts.status.disabled")}
         </span>
         <label className="composer-switch browser-settings-switch">
           <input
@@ -121,20 +122,21 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
           <div>
             <strong>{t("settings.tts.profiles")}</strong>
             <span>
-              {settings.profiles.length} 个配置{settings.activeProfileId ? " · 1 个当前使用" : ""}
+              {t("settings.tts.profileCount", { count: settings.profiles.length })}
+              {settings.activeProfileId ? t("settings.tts.profileActiveSuffix") : ""}
             </span>
           </div>
           <button type="button" className="settings-primary-button" disabled={busy} onClick={startNewProfile}>
             <Plus size={15} aria-hidden />
-            添加配置
+            {t("settings.tts.addProfile")}
           </button>
         </div>
 
         {settings.profiles.length === 0 ? (
           <div className="image-generation-profile-empty">
             <Volume2 size={22} />
-            <strong>还没有供应商配置</strong>
-            <small>添加一个配置后才能使用语音生成。</small>
+            <strong>{t("settings.tts.emptyTitle")}</strong>
+            <small>{t("settings.tts.emptyHint")}</small>
             <button
               type="button"
               className="settings-primary-button"
@@ -142,7 +144,7 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
               onClick={startNewProfile}
             >
               <Plus size={15} />
-              添加配置
+              {t("settings.tts.addProfile")}
             </button>
           </div>
         ) : (
@@ -171,7 +173,7 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                     <div className="image-generation-profile-card-identity">
                       <strong title={profile.name}>{profile.name}</strong>
                       <span>
-                        {imageProviderLabel(profile.provider)} · {profile.model}
+                        {providerLabel(profile.provider, t)} · {profile.model}
                       </span>
                     </div>
                     <button
@@ -179,8 +181,8 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                       className={`image-generation-profile-status${active ? " is-active" : ""}`}
                       aria-pressed={active}
                       disabled={active || busy}
-                      title={active ? "当前使用" : "设为启用"}
-                      aria-label={active ? "当前使用" : "设为启用"}
+                      title={t(active ? "settings.tts.status.active" : "settings.tts.activate")}
+                      aria-label={t(active ? "settings.tts.status.active" : "settings.tts.activate")}
                       onClick={() =>
                         void run(async () => {
                           if (!window.eco) throw new Error(t("settings.tts.desktopOnly"));
@@ -189,7 +191,7 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                       }
                     >
                       <i aria-hidden />
-                      {active ? "当前使用" : "未启用"}
+                      {t(active ? "settings.tts.status.active" : "settings.tts.status.disabled")}
                     </button>
                     <div className="image-generation-profile-card-actions">
                       <button
@@ -199,7 +201,7 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                         onClick={() => choose(profile)}
                       >
                         <Pencil size={14} />
-                        编辑
+                        {t("common.edit")}
                       </button>
                     </div>
                   </div>
@@ -219,7 +221,7 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
               <button
                 type="button"
                 className="settings-modal-backdrop-close"
-                aria-label="关闭"
+                aria-label={t("common.close")}
                 disabled={busy}
                 onClick={() => setEditorOpen(false)}
                 tabIndex={-1}
@@ -244,16 +246,16 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                 <header className="settings-modal-header">
                   <div>
                     <h2 className="settings-modal-title" id="image-generation-profile-title">
-                      {selected ? "编辑语音生成配置" : "添加语音生成配置"}
+                      {t(selected ? "settings.tts.editProfileTitle" : "settings.tts.addProfileTitle")}
                     </h2>
                     <p className="image-generation-profile-modal-subtitle">
-                      配置渠道、模型、Base URL 和 API Key。
+                      {t("settings.tts.editorSubtitle")}
                     </p>
                   </div>
                   <button
                     type="button"
                     className="mcp-icon-button"
-                    aria-label="关闭"
+                    aria-label={t("common.close")}
                     disabled={busy}
                     onClick={() => setEditorOpen(false)}
                   >
@@ -287,9 +289,9 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                         });
                       }}
                     >
-                      <option value="gemini">Gemini 原生 (Interactions)</option>
-                      <option value="openai_compatible">OpenAI 兼容 (OpenRouter / 其他)</option>
-                      <option value="doubao">豆包 (Doubao TTS 2.0)</option>
+                      <option value="gemini">{t("settings.tts.providerGemini")}</option>
+                      <option value="openai_compatible">{t("settings.tts.providerOpenAiCompatible")}</option>
+                      <option value="doubao">{t("settings.tts.providerDoubao")}</option>
                     </select>
                   </label>
                   <label className="settings-form-field">
@@ -314,8 +316,7 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                     />
                     {form.provider === "doubao" ? (
                       <small className="image-generation-profile-modal-subtitle">
-                        豆包填写资源 ID：seed-tts-2.0（合成 2.0）、seed-tts-1.0（合成 1.0）或
-                        seed-icl-2.0（声音复刻 2.0）。
+                        {t("settings.tts.doubaoModelHint")}
                       </small>
                     ) : null}
                   </label>
@@ -338,7 +339,7 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                     disabled={busy}
                     onClick={() => setEditorOpen(false)}
                   >
-                    取消
+                    {t("common.cancel")}
                   </button>
                   <div className="settings-modal-footer-actions">
                     {selected ? (
@@ -358,11 +359,11 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                         }
                       >
                         <Trash2 size={14} />
-                        删除
+                        {t("common.delete")}
                       </button>
                     ) : null}
                     <button type="submit" className="settings-primary-button" disabled={busy}>
-                      {busy ? "保存中…" : t("common.save")}
+                      {t(busy ? "settings.tts.saving" : "common.save")}
                     </button>
                   </div>
                 </footer>

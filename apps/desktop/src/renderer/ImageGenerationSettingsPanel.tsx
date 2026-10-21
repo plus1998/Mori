@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import { Image, Palette, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -37,12 +38,12 @@ function formFromProfile(profile: ImageGenerationProfileSnapshot): ImageGenerati
   };
 }
 
-function imageProviderLabel(provider: ImageGenerationProvider): string {
-  if (provider === "chatgpt_web") return "GPT网页生图";
-  if (provider === "codex") return "Codex 登录账号";
+function providerLabel(provider: ImageGenerationProvider, t: TFunction): string {
+  if (provider === "chatgpt_web") return t("settings.imageGeneration.providerChatgptWebShort");
+  if (provider === "codex") return t("settings.imageGeneration.providerCodexShort");
   if (provider === "openai") return "OpenAI";
   if (provider === "gemini") return "Gemini";
-  return "OpenAI 兼容";
+  return t("settings.imageGeneration.providerOpenAiCompatible");
 }
 
 export function ImageGenerationSettingsPanel({
@@ -118,7 +119,11 @@ export function ImageGenerationSettingsPanel({
         </div>
         <span className={`image-generation-enabled-badge ${settings.enabled ? "is-enabled" : "is-disabled"}`}>
           <i />
-          {settings.enabled ? "已启用" : "未启用"}
+          {t(
+            settings.enabled
+              ? "settings.imageGeneration.status.enabled"
+              : "settings.imageGeneration.status.disabled",
+          )}
         </span>
         <label className="composer-switch browser-settings-switch">
           <input
@@ -146,20 +151,21 @@ export function ImageGenerationSettingsPanel({
           <div>
             <strong>{t("settings.imageGeneration.profiles")}</strong>
             <span>
-              {settings.profiles.length} 个配置{settings.activeProfileId ? " · 1 个当前使用" : ""}
+              {t("settings.imageGeneration.profileCount", { count: settings.profiles.length })}
+              {settings.activeProfileId ? t("settings.imageGeneration.profileActiveSuffix") : ""}
             </span>
           </div>
           <button type="button" className="settings-primary-button" disabled={busy} onClick={startNewProfile}>
             <Plus size={15} aria-hidden />
-            添加配置
+            {t("settings.imageGeneration.addProfile")}
           </button>
         </div>
 
         {settings.profiles.length === 0 ? (
           <div className="image-generation-profile-empty">
             <Image size={22} />
-            <strong>还没有供应商配置</strong>
-            <small>添加一个配置后才能使用创意绘画。</small>
+            <strong>{t("settings.imageGeneration.emptyTitle")}</strong>
+            <small>{t("settings.imageGeneration.emptyHint")}</small>
             <button
               type="button"
               className="settings-primary-button"
@@ -167,7 +173,7 @@ export function ImageGenerationSettingsPanel({
               onClick={startNewProfile}
             >
               <Plus size={15} />
-              添加配置
+              {t("settings.imageGeneration.addProfile")}
             </button>
           </div>
         ) : (
@@ -196,7 +202,7 @@ export function ImageGenerationSettingsPanel({
                     <div className="image-generation-profile-card-identity">
                       <strong title={profile.name}>{profile.name}</strong>
                       <span>
-                        {imageProviderLabel(profile.provider)} · {profile.model}
+                        {providerLabel(profile.provider, t)} · {profile.model}
                       </span>
                     </div>
                     <button
@@ -204,8 +210,16 @@ export function ImageGenerationSettingsPanel({
                       className={`image-generation-profile-status${active ? " is-active" : ""}`}
                       aria-pressed={active}
                       disabled={active || busy}
-                      title={active ? "当前使用" : "设为启用"}
-                      aria-label={active ? "当前使用" : "设为启用"}
+                      title={t(
+                        active
+                          ? "settings.imageGeneration.status.active"
+                          : "settings.imageGeneration.activate",
+                      )}
+                      aria-label={t(
+                        active
+                          ? "settings.imageGeneration.status.active"
+                          : "settings.imageGeneration.activate",
+                      )}
                       onClick={() =>
                         void run(async () => {
                           if (!window.eco) throw new Error(t("settings.imageGeneration.desktopOnly"));
@@ -214,7 +228,11 @@ export function ImageGenerationSettingsPanel({
                       }
                     >
                       <i aria-hidden />
-                      {active ? "当前使用" : "未启用"}
+                      {t(
+                        active
+                          ? "settings.imageGeneration.status.active"
+                          : "settings.imageGeneration.status.disabled",
+                      )}
                     </button>
                     <div className="image-generation-profile-card-actions">
                       <button
@@ -224,17 +242,23 @@ export function ImageGenerationSettingsPanel({
                         onClick={() => choose(profile)}
                       >
                         <Pencil size={14} />
-                        编辑
+                        {t("common.edit")}
                       </button>
                     </div>
                   </div>
                   <div className="image-generation-profile-card-meta">
                     <span>
                       {profile.provider === "codex" || profile.provider === "chatgpt_web"
-                        ? "轮流使用已勾选「用于创意绘画」的账号"
-                        : `Base URL：${profile.endpoint}`}
+                        ? t("settings.imageGeneration.accountPoolHint")
+                        : t("settings.imageGeneration.baseUrlValue", { url: profile.endpoint })}
                     </span>
-                    <span>{profile.supportsImageToImage ? "支持图片编辑" : "仅支持文生图"}</span>
+                    <span>
+                      {t(
+                        profile.supportsImageToImage
+                          ? "settings.imageGeneration.profileSupportsImageToImage"
+                          : "settings.imageGeneration.profileTextToImageOnly",
+                      )}
+                    </span>
                   </div>
                 </article>
               );
@@ -249,7 +273,7 @@ export function ImageGenerationSettingsPanel({
               <button
                 type="button"
                 className="settings-modal-backdrop-close"
-                aria-label="关闭"
+                aria-label={t("common.close")}
                 disabled={busy}
                 onClick={() => setEditorOpen(false)}
                 tabIndex={-1}
@@ -274,18 +298,24 @@ export function ImageGenerationSettingsPanel({
                 <header className="settings-modal-header">
                   <div>
                     <h2 className="settings-modal-title" id="image-generation-profile-title">
-                      {selected ? "编辑创意绘画配置" : "添加创意绘画配置"}
+                      {t(
+                        selected
+                          ? "settings.imageGeneration.editProfileTitle"
+                          : "settings.imageGeneration.addProfileTitle",
+                      )}
                     </h2>
                     <p className="image-generation-profile-modal-subtitle">
-                      {form.provider === "codex" || form.provider === "chatgpt_web"
-                        ? "生成图片，或基于参考图进行编辑。"
-                        : "配置渠道、模型、Base URL 和 API Key。"}
+                      {t(
+                        form.provider === "codex" || form.provider === "chatgpt_web"
+                          ? "settings.imageGeneration.editorSubtitleAccount"
+                          : "settings.imageGeneration.editorSubtitle",
+                      )}
                     </p>
                   </div>
                   <button
                     type="button"
                     className="mcp-icon-button"
-                    aria-label="关闭"
+                    aria-label={t("common.close")}
                     disabled={busy}
                     onClick={() => setEditorOpen(false)}
                   >
@@ -323,14 +353,16 @@ export function ImageGenerationSettingsPanel({
                     >
                       <option value="openai">OpenAI</option>
                       <option value="gemini">Gemini</option>
-                      <option value="openai_compatible">OpenAI-compatible</option>
-                      <option value="codex">Codex 登录账号（轮询）</option>
-                      <option value="chatgpt_web">GPT网页生图</option>
+                      <option value="openai_compatible">
+                        {t("settings.imageGeneration.providerOpenAiCompatible")}
+                      </option>
+                      <option value="codex">{t("settings.imageGeneration.providerCodex")}</option>
+                      <option value="chatgpt_web">{t("settings.imageGeneration.providerChatgptWeb")}</option>
                     </select>
                   </label>
                   {form.provider === "codex" || form.provider === "chatgpt_web" ? (
                     <p className="settings-form-hint">
-                      在账号的「更多操作」菜单中勾选「用于创意绘画」。无需 API Key。
+                      {t("settings.imageGeneration.accountDrawingEnabledHint")}
                     </p>
                   ) : null}
                   <label className="settings-form-field">
@@ -393,7 +425,7 @@ export function ImageGenerationSettingsPanel({
                     disabled={busy}
                     onClick={() => setEditorOpen(false)}
                   >
-                    取消
+                    {t("common.cancel")}
                   </button>
                   <div className="settings-modal-footer-actions">
                     {selected ? (
@@ -413,11 +445,11 @@ export function ImageGenerationSettingsPanel({
                         }
                       >
                         <Trash2 size={14} />
-                        删除
+                        {t("common.delete")}
                       </button>
                     ) : null}
                     <button type="submit" className="settings-primary-button" disabled={busy}>
-                      {busy ? "保存中…" : t("common.save")}
+                      {t(busy ? "settings.imageGeneration.saving" : "common.save")}
                     </button>
                   </div>
                 </footer>
