@@ -17,6 +17,7 @@ import '../../core/utils/center_server_auth.dart';
 import '../../core/utils/device_display.dart';
 import '../../core/widgets/adaptive_glass_action_button.dart';
 import '../../core/widgets/adaptive_toolbar_icon.dart';
+import '../../core/widgets/app_error_state.dart';
 import '../../core/widgets/eco_android_glass.dart';
 import '../../core/widgets/eco_grouped_list.dart';
 import '../pairing/pairing_scan_screen.dart';
@@ -1142,7 +1143,13 @@ class _SelectPcStep extends ConsumerWidget {
     }
 
     if (presenceAsync.hasError && presenceAsync.valueOrNull == null) {
-      return Text(presenceAsync.error.toString());
+      return AppErrorState(
+        title: context.l10n.setupConnectionError,
+        message: localizedConnectionError(presenceAsync.error!, context.l10n),
+        retryLabel: context.l10n.commonRetry,
+        onRetry: () =>
+            ref.read(desktopPresenceProvider.notifier).refresh(force: true),
+      );
     }
 
     if (!overview.hasActiveBinding) {

@@ -98,6 +98,26 @@ String localizedAppError(Object error, AppLocalizations l10n) {
   return error.toString();
 }
 
+/// Returns a safe message for connectivity-dependent content.
+///
+/// Unlike [localizedAppError], this deliberately does not expose arbitrary
+/// native SDK or HTTP exception text. Recovery actions are shown when known;
+/// unknown failures receive a stable generic message.
+String localizedConnectionError(Object error, AppLocalizations l10n) {
+  if (error is EcoCenterException) {
+    final recovery =
+        error.recovery ??
+        classifyCenterServerAuthError(error.nativeMessage ?? error.message);
+    if (recovery != CenterServerAuthRecovery.unknown) {
+      return localizedCenterServerRecovery(recovery, l10n);
+    }
+    if (error.kind != null) {
+      return localizedAppError(error, l10n);
+    }
+  }
+  return l10n.authUnknown;
+}
+
 String localizedEcoCenterNotice(EcoCenterNotice notice, AppLocalizations l10n) {
   return switch (notice.kind) {
     EcoCenterNoticeKind.deviceInactive => l10n.authDeviceInactive,
