@@ -86,6 +86,8 @@ Every thread stores an independent runtime configuration including enabled MCP s
 
 MCP servers are registered globally and enabled per session or agent template, with optional tool allowlists. This isolation describes Eco's configuration and injection boundary; it is not an operating-system sandbox for third-party MCP processes.
 
+For Codex, the MCP transport descriptor (`url` / `http_headers`, or `command` / `env`) is part of the thread config and is sent through `thread/start` / `thread/resume`. `CODEX_HOME/config.toml` keeps no `[mcp_servers.*]` entries. A new thread therefore never restarts the shared app-server or waits for every other thread to go idle, so independent threads can load concurrently. Each thread carries only its own Eco MCP Hub descriptor and bearer token, and the Hub filters the visible tools per session. Loaded threads cannot change thread config in place; a descriptor change (for example toggling creative drawing or speech generation, which changes the tool timeout) takes effect only after every turn is idle and the app-server restarts.
+
 ## 7. Context management
 
 Context control has three layers, aligned with Codex semantics but implemented per Core:

@@ -608,16 +608,17 @@ test("role MCP policy follows Composer thread selection for all actors", async (
     threadEnabledMcpServers: ["browser", "github"],
   });
 
+  // Transport fields travel with the thread config; visibility still wins.
   expect(result.threadConfig.mcp_servers).toEqual({
-    browser: { enabled: true, enabled_tools: ["open", "search"] },
-    github: { enabled: true, enabled_tools: ["read", "write"] },
-    sources: { enabled: false },
+    browser: { command: "node", enabled: true, enabled_tools: ["open", "search"] },
+    github: { command: "node", enabled: true, enabled_tools: ["read", "write"] },
+    sources: { command: "node", enabled: false },
   });
   const researcherConfig = result.roleThreadConfigs.researcher;
   expect(researcherConfig?.mcp_servers).toEqual({
-    browser: { enabled: true, enabled_tools: ["open", "search"] },
-    github: { enabled: true, enabled_tools: ["read", "write"] },
-    sources: { enabled: false },
+    browser: { command: "node", enabled: true, enabled_tools: ["open", "search"] },
+    github: { command: "node", enabled: true, enabled_tools: ["read", "write"] },
+    sources: { command: "node", enabled: false },
   });
 
   const researcherToml = await fs.readFile(
@@ -646,8 +647,8 @@ test("main actor inherits Composer-selected MCP regardless of orchestration MCP 
   });
 
   expect(result.threadConfig.mcp_servers).toEqual({
-    browser: { enabled: false },
-    mongo: { enabled: true },
+    browser: { command: "node", enabled: false },
+    mongo: { command: "node", enabled: true },
   });
 });
 
@@ -670,7 +671,9 @@ test("legacy empty orchestration MCP policy no longer denies Composer-selected M
     threadEnabledMcpServers: ["mongo"],
   });
 
-  expect(result.threadConfig.mcp_servers).toEqual({ mongo: { enabled: true } });
+  expect(result.threadConfig.mcp_servers).toEqual({
+    mongo: { command: "node", enabled: true },
+  });
 });
 
 test("content-addressed role bundles survive a concurrent Orchestration preparation", async () => {
@@ -734,8 +737,52 @@ test("role sync shares Composer MCP scope between main and subagents", async () 
     mcpServers: [{ name: "browser", transport: "stdio", command: "node" }],
     threadEnabledMcpServers: ["browser"],
   });
-  expect(result.threadConfig.mcp_servers).toEqual({ browser: { enabled: true } });
-  expect(result.roleThreadConfigs.researcher?.mcp_servers).toEqual({ browser: { enabled: true } });
+  expect(result.threadConfig.mcp_servers).toEqual({
+    browser: { command: "node", enabled: true },
+  });
+  expect(result.roleThreadConfigs.researcher?.mcp_servers).toEqual({
+    browser: { command: "node", enabled: true },
+  });
+});
+
+test("concurrent threads keep independent thread MCP definitions", async () => {
+  const ecoDataDir = await makeTempEcoDataDir();
+  const codexHomeDir = resolveCodexHomeDir(ecoDataDir);
+  const orchestration = buildOrchestration({ agents: [] });
+  const [first, second] = await Promise.all(
+    ["a", "b"].map((suffix) =>
+      syncOrchestrationAgentsToCodexRoles({
+        codexHomeDir,
+        orchestration,
+        templates: [],
+        mcpServers: [
+          {
+            name: `eco_mcp_${suffix}`,
+            transport: "http" as const,
+            url: `http://127.0.0.1:19${suffix === "a" ? 1 : 2}/mcp`,
+            httpHeaders: { Authorization: `Bearer ${suffix}` },
+          },
+        ],
+      }),
+    ),
+  );
+
+  // Each thread carries only its own Hub descriptor, so one thread's cache
+  // refresh can never redirect another thread's MCP calls.
+  expect(first.threadConfig.mcp_servers).toEqual({
+    eco_mcp_a: {
+      url: "http://127.0.0.1:191/mcp",
+      http_headers: { Authorization: "Bearer a" },
+      enabled: true,
+    },
+  });
+  expect(second.threadConfig.mcp_servers).toEqual({
+    eco_mcp_b: {
+      url: "http://127.0.0.1:192/mcp",
+      http_headers: { Authorization: "Bearer b" },
+      enabled: true,
+    },
+  });
 });
 
 function toolPolicy(overrides: Partial<EcoToolPolicy> = {}): EcoToolPolicy {

@@ -138,6 +138,8 @@ Core 适配层统一描述以下能力：
 
 个人 Skills 不会整棵目录无条件注入；只有显式选择且满足 Core 约束的 Skills 会进入会话。MCP 在全局设置中登记，在 Composer 或 Agent 模板中按会话启用，并可以配置工具 allowlist。
 
+对 Codex 而言，MCP 的传输描述（`url` / `http_headers` 或 `command` / `env`）同样属于线程配置，经 `thread/start` / `thread/resume` 的 `config` 下发，`CODEX_HOME/config.toml` 不保留 `[mcp_servers.*]`。因此共享 app-server 不会因为新线程启用 MCP 而整体重启或等待所有线程空闲，多个线程可以并行加载；每个线程只持有自己的 Eco MCP Hub 描述与 bearer token，可见工具再由 Hub 按会话过滤。已经加载的线程无法热改线程配置，描述变化（例如开关创意绘画/语音生成改变 tool timeout）需要等所有回合空闲后重启 app-server 才会生效。
+
 “隔离”表示 Eco 控制的会话配置与注入边界，不代表第三方 MCP 进程自身具备操作系统级沙箱。第三方工具仍应按其实际权限审查。对 PI 而言，Skills 注入同样是可见性边界：共享 workspace 内的 skill 文件仍可能被 `read`/`bash` 读到。
 
 ## 7. 上下文管理

@@ -3,10 +3,12 @@ import fs from "node:fs";
 
 const source = fs.readFileSync(new URL("../src/main/index.ts", import.meta.url), "utf8");
 
-test("Codex global MCP runtime is populated only with thread-scoped Hub descriptors", () => {
+test("Codex global MCP pool stays empty so threads load their own Hub descriptor", () => {
   expect(source).toContain("listGlobalMcpServers: resolveCodexGlobalMcpServers");
-  expect(source).toContain("configuredServers: mcpHubGateway.listThreadCodexServers()");
-  expect(source).toContain("builtinServerResolvers: []");
+  expect(source).toMatch(
+    /function resolveCodexGlobalMcpServers\(\)[^{]*\{\s*(?:\/\/[^\n]*\n\s*)*return \[\];/,
+  );
+  expect(source).not.toContain("configuredServers: mcpHubGateway.listThreadCodexServers()");
   expect(source).not.toContain("buildCodexMcpServersForConfigSync(mcpStore.listServers()");
   expect(source).toMatch(
     /resolveMcpServers:\s*async \(\) => \{\s*const configuredMcp = mcpStore\.buildSdkConfig\(\)/,
@@ -17,6 +19,18 @@ test("Codex global MCP runtime is populated only with thread-scoped Hub descript
   expect(source).toContain("runtimeName: codexHubName");
   expect(source).toContain("function codexHubServerName(threadId: string)");
   expect(source).toContain("const hadCodexHub = mcpHubGateway");
+});
+
+test("a first-time thread Hub registration does not schedule a global refresh", () => {
+  // Only an already-registered thread whose descriptor changes (or disappears)
+  // recycles the shared app-server; new threads load their own config.
+  expect(source).toContain("if (hadCodexHub && (hubInjection?.codexServerChanged || !hubInjection)) {");
+  // A thread-scoped descriptor change cannot be detected by the global config
+  // fingerprint, so the refresh must be forced to actually restart.
+  expect(source).toMatch(
+    /if \(hadCodexHub && \(hubInjection\?\.codexServerChanged \|\| !hubInjection\)\) \{\s*invalidateGlobalCodexRuntimeFingerprints\(\);\s*scheduleCodexGlobalRuntimeRefresh\(\);/,
+  );
+  expect(source).not.toContain("hubInjection?.codexServerChanged || (!hubInjection && hadCodexHub)");
 });
 
 test("saving browser integration settings schedules a Codex global runtime refresh", () => {

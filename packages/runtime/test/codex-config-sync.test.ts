@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   buildCodexConfigToml,
   buildCodexGatewayModelAlias,
+  buildCodexMcpServerOverride,
   buildCodexModelProviderSlug,
   codexConfigContainsUpstreamSecret,
   DEFAULT_DEV_ECO_GATEWAY_PORT,
@@ -258,6 +259,41 @@ test("buildCodexConfigToml writes only selected MCP servers", () => {
   expect(toml).toContain('url = "https://example.com/mcp"');
   expect(toml).toContain('enabled_tools = ["search"]');
   expect(toml).not.toContain("[mcp_servers.browser]");
+});
+
+test("buildCodexMcpServerOverride mirrors the TOML descriptor for thread-scoped config", () => {
+  expect(
+    buildCodexMcpServerOverride({
+      name: "eco_mcp_abc",
+      transport: "http",
+      url: "http://127.0.0.1:9/mcp",
+      httpHeaders: { Authorization: "Bearer t" },
+      startupTimeoutSec: 60,
+      toolTimeoutSec: 600,
+      toolOutputTokenLimits: { snapshot: 1200 },
+    }),
+  ).toEqual({
+    url: "http://127.0.0.1:9/mcp",
+    http_headers: { Authorization: "Bearer t" },
+    startup_timeout_sec: 60,
+    tool_timeout_sec: 600,
+    tools: { snapshot: { output_token_limit: 1200 } },
+    enabled: true,
+  });
+  expect(
+    buildCodexMcpServerOverride({
+      name: "local",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "server"],
+      env: { TOKEN: "x" },
+    }),
+  ).toEqual({
+    command: "npx",
+    args: ["-y", "server"],
+    env: { TOKEN: "x" },
+    enabled: true,
+  });
 });
 
 test("buildCodexConfigToml writes startup_timeout_sec for prepared MCP servers", () => {

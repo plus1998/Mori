@@ -8,6 +8,7 @@ import type {
 } from "./agent-orchestration.js";
 import {
   buildCodexGatewayModelAlias,
+  buildCodexMcpServerOverride,
   buildCodexMcpServerTomlLines,
   buildCodexModelProviderSlug,
   CODEX_BUILT_IN_OPENAI_PROVIDER_ID,
@@ -71,6 +72,22 @@ export interface CodexMcpServerVisibilityOverride {
   enabled_tools?: string[];
 }
 
+/**
+ * Thread-level MCP server definition. Codex accepts the same fields as a
+ * `[mcp_servers.*]` config table, so a thread can carry its own descriptor
+ * without touching the process-global `config.toml`.
+ */
+export interface CodexMcpServerThreadDefinition extends Partial<CodexMcpServerVisibilityOverride> {
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  http_headers?: Record<string, string>;
+  startup_timeout_sec?: number;
+  tool_timeout_sec?: number;
+  tools?: Record<string, { output_token_limit: number }>;
+}
+
 export interface CodexThreadConfigOverrides extends Record<string, unknown> {
   model_providers?: Record<string, { capabilities: { remote_compaction: CodexRemoteCompactionSupport } }>;
   features?: {
@@ -83,7 +100,44 @@ export interface CodexThreadConfigOverrides extends Record<string, unknown> {
   skills?: {
     config: Array<{ path: string; enabled: boolean }>;
   };
-  mcp_servers: Record<string, CodexMcpServerVisibilityOverride>;
+  mcp_servers: Record<string, CodexMcpServerThreadDefinition>;
+}
+
+/** Full thread-level definitions keyed by Codex server name. */
+export function buildCodexMcpServerDefinitions(
+  servers: readonly CodexMcpServerForConfigSync[] | undefined,
+): Record<string, CodexMcpServerThreadDefinition> {
+  const definitions: Record<string, CodexMcpServerThreadDefinition> = {};
+  for (const server of servers ?? []) {
+    const name = sanitizeMcpServerName(server.name);
+    if (!name) continue;
+    definitions[name] = buildCodexMcpServerOverride(server) as CodexMcpServerThreadDefinition;
+  }
+  return definitions;
+}
+
+/**
+ * Merge full server definitions under the actor-specific visibility override.
+ * Visibility wins for `enabled` / `enabled_tools`; transport fields survive.
+ */
+export function withCodexMcpServerDefinitions(
+  config: CodexThreadConfigOverrides,
+  servers: readonly CodexMcpServerForConfigSync[] | undefined,
+): CodexThreadConfigOverrides {
+  const definitions = buildCodexMcpServerDefinitions(servers);
+  const names = new Set([...Object.keys(definitions), ...Object.keys(config.mcp_servers ?? {})]);
+  if (names.size === 0) {
+    return { ...config };
+  }
+  return {
+    ...config,
+    mcp_servers: Object.fromEntries(
+      [...names].map((name) => [
+        name,
+        { ...(definitions[name] ?? {}), ...(config.mcp_servers?.[name] ?? {}) },
+      ]),
+    ),
+  };
 }
 
 export function withCodexRemoteCompaction(
@@ -322,20 +376,26 @@ export async function syncOrchestrationAgentsToCodexRoles(
   }
 
   const commonThreadConfig = buildThreadAgentConfig(roles, input.orchestration.mainAgent.modelRef.modelId);
-  const threadConfig: CodexThreadConfigOverrides = {
-    ...commonThreadConfig,
-    mcp_servers: cloneMcpVisibility(mainMcpVisibility),
-  };
+  const threadConfig: CodexThreadConfigOverrides = withCodexMcpServerDefinitions(
+    {
+      ...commonThreadConfig,
+      mcp_servers: cloneMcpVisibility(mainMcpVisibility),
+    },
+    input.mcpServers,
+  );
   const roleThreadConfigs = Object.fromEntries(
     drafts.map((draft) => [
       draft.roleId,
-      withCodexNativeImageView(
-        {
-          ...commonThreadConfig,
-          mcp_servers: cloneMcpVisibility(draft.mcpVisibility),
-        },
-        draft.providerId,
-        input.resolveSupportsImageInput?.(draft),
+      withCodexMcpServerDefinitions(
+        withCodexNativeImageView(
+          {
+            ...commonThreadConfig,
+            mcp_servers: cloneMcpVisibility(draft.mcpVisibility),
+          },
+          draft.providerId,
+          input.resolveSupportsImageInput?.(draft),
+        ),
+        input.mcpServers,
       ),
     ]),
   );

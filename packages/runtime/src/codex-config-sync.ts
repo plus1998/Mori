@@ -341,6 +341,78 @@ function tomlInlineTable(entries: Record<string, string>): string {
   return `{ ${parts.join(", ")} }`;
 }
 
+/**
+ * Codex thread `config` override shape for one MCP server.
+ * `thread/start` and `thread/resume` accept arbitrary config layers, so the
+ * descriptor can live on the thread instead of the process-global config.toml.
+ */
+export function buildCodexMcpServerOverride(server: CodexMcpServerForConfigSync): Record<string, unknown> {
+  const name = server.name.trim();
+  if (!name) {
+    throw new Error("Codex MCP server name is required.");
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+    throw new Error(`Invalid Codex MCP server name: ${name}`);
+  }
+
+  const override: Record<string, unknown> = {};
+  if (server.transport === "stdio") {
+    const command = server.command?.trim();
+    if (!command) {
+      throw new Error(`Codex MCP server "${name}" requires a stdio command.`);
+    }
+    override.command = command;
+    if (server.args && server.args.length > 0) {
+      override.args = [...server.args];
+    }
+    if (server.env && Object.keys(server.env).length > 0) {
+      override.env = { ...server.env };
+    }
+  } else if (server.transport === "http") {
+    const url = server.url?.trim();
+    if (!url) {
+      throw new Error(`Codex MCP server "${name}" requires an HTTP URL.`);
+    }
+    override.url = url;
+    if (server.httpHeaders && Object.keys(server.httpHeaders).length > 0) {
+      override.http_headers = { ...server.httpHeaders };
+    }
+  } else {
+    throw new Error(`Unsupported Codex MCP transport for "${name}".`);
+  }
+
+  if (server.enabledTools && server.enabledTools.length > 0) {
+    override.enabled_tools = [...server.enabledTools];
+  }
+  if (
+    typeof server.startupTimeoutSec === "number" &&
+    Number.isFinite(server.startupTimeoutSec) &&
+    server.startupTimeoutSec > 0
+  ) {
+    override.startup_timeout_sec = Math.ceil(server.startupTimeoutSec);
+  }
+  if (
+    typeof server.toolTimeoutSec === "number" &&
+    Number.isFinite(server.toolTimeoutSec) &&
+    server.toolTimeoutSec > 0
+  ) {
+    override.tool_timeout_sec = Math.ceil(server.toolTimeoutSec);
+  }
+  const tools: Record<string, { output_token_limit: number }> = {};
+  for (const [toolName, limit] of Object.entries(server.toolOutputTokenLimits ?? {})) {
+    const trimmedTool = toolName.trim();
+    if (!trimmedTool || !Number.isFinite(limit) || limit <= 0) {
+      continue;
+    }
+    tools[trimmedTool] = { output_token_limit: Math.ceil(limit) };
+  }
+  if (Object.keys(tools).length > 0) {
+    override.tools = tools;
+  }
+  override.enabled = true;
+  return override;
+}
+
 export function buildCodexMcpServerTomlLines(server: CodexMcpServerForConfigSync): string[] {
   const name = server.name.trim();
   if (!name) {

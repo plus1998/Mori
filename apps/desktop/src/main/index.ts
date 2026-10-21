@@ -56,6 +56,7 @@ import {
   acpSessionIdToDelete,
   type CodexAsyncQuestionsInput,
   type CodexGatewayCatalogRoute,
+  type CodexMcpServerForConfigSync,
   type CodexTurnTokenUsageBreakdown,
   codexToolDisplayName,
   composeCanUseToolHandlers,
@@ -807,7 +808,7 @@ import { InteractiveTerminalManager } from "./interactive-terminal-manager";
 import { createLocalSecretCodec } from "./local-secret-codec";
 import { checkMcpServerConnection } from "./mcp-checker";
 import { McpHubGateway } from "./mcp-hub-gateway";
-import { prepareCodexGlobalMcpServerPool, prepareMcpSdkConfigForRuntime } from "./mcp-runtime";
+import { prepareMcpSdkConfigForRuntime } from "./mcp-runtime";
 import { createMcpStore, type McpStore } from "./mcp-store";
 import { ModelsDevPricingCache } from "./models-dev-pricing-cache";
 import {
@@ -1619,14 +1620,14 @@ function requireBrowserHost(): BrowserHost {
   return browserHost;
 }
 
-async function resolveCodexGlobalMcpServers() {
-  // Codex must see only the thread-scoped Hub descriptors. Direct stdio/HTTP
-  // entries and built-in Eco gateways would create a second dispatch path and
-  // could retain credentials outside the Hub session binding.
-  return prepareCodexGlobalMcpServerPool({
-    configuredServers: mcpHubGateway.listThreadCodexServers(),
-    builtinServerResolvers: [],
-  });
+async function resolveCodexGlobalMcpServers(): Promise<CodexMcpServerForConfigSync[]> {
+  // Eco exposes every MCP server through the per-thread Hub descriptor, and
+  // that descriptor travels in the thread's own `thread/start` config. Keeping
+  // `config.toml` free of `[mcp_servers.*]` lets independent threads load
+  // concurrently instead of forcing a whole-file fingerprint change plus an
+  // idle wait for each new thread. Direct stdio/HTTP entries and built-in Eco
+  // gateways would also create a second dispatch path outside the Hub binding.
+  return [];
 }
 
 function codexHubServerName(threadId: string): string {
@@ -12089,7 +12090,15 @@ async function startCodexThreadRun(
               allowedServers: [...hubMcpKeys, ...builtinHubServers],
               runtimeName: codexHubName,
             });
-            if (hubInjection?.codexServerChanged || (!hubInjection && hadCodexHub)) {
+            // The descriptor is thread-scoped now, so a newly registered thread
+            // must not trigger a global idle wait/restart. Only an already
+            // registered thread whose descriptor changes (or is removed) needs
+            // the shared app-server recycled: Codex ignores thread config for
+            // loaded threads, so the stale descriptor would otherwise live on.
+            // Forcing the fingerprint invalid makes the deferred refresh
+            // actually restart the server once every active turn is idle.
+            if (hadCodexHub && (hubInjection?.codexServerChanged || !hubInjection)) {
+              invalidateGlobalCodexRuntimeFingerprints();
               scheduleCodexGlobalRuntimeRefresh();
             }
             return hubInjection ? [hubInjection.codexServer] : [];
@@ -16260,12 +16269,9 @@ async function cleanupPendingClaudeFork(threadId: string): Promise<void> {
 async function cleanupThreadExternalState(threadId: string): Promise<void> {
   await cleanupPendingClaudeFork(threadId);
   await deleteThreadSdkSession(threadId);
-  if (mcpHubGateway.revokeThread(threadId)) {
-    // Removing a thread-scoped Codex descriptor changes the process-global
-    // pool. Defer the reload through the existing idle coordinator so a
-    // running turn never loses its MCP connection mid-call.
-    scheduleCodexGlobalRuntimeRefresh();
-  }
+  // Thread-scoped Hub descriptors live in that thread's own config, not in
+  // `config.toml`, so revoking one never changes the shared runtime baseline.
+  mcpHubGateway.revokeThread(threadId);
   await disposePiThreadSession(threadId);
   await removePiThreadAgentDir(app.getPath("userData"), threadId);
   imageGenerationGateway.disposeThread(threadId);
