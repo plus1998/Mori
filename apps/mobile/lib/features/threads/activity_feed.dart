@@ -2733,7 +2733,7 @@ class _ClarificationAnswerTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rows = parseClarificationAnswersSummary(text) ?? const [];
+    final rows = parseClarificationAnswers(text) ?? const [];
     final eco = ecoColors(context);
 
     return Align(

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -34,6 +35,12 @@ List<ActivityFeedEntry> _toolActions(List<ActivityFeedEntry> entries) => [
     else if (entry.kind == ActivityFeedKind.actionGroup)
       ...entry.actionChildren,
 ];
+
+String _codexAsyncQuestionReplyEnvelope(Iterable<Map<String, String>> rows) {
+  return '<send_user_message_question_reply>'
+      '${jsonEncode(rows.toList())}'
+      '</send_user_message_question_reply>';
+}
 
 ThreadRunProjectionSnapshot _projectionDetailSnapshot({
   required String threadId,
@@ -5686,6 +5693,39 @@ void main() {
     expect(parseClarificationAnswersSummary('普通助手回复'), isNull);
   });
 
+  test('parseClarificationAnswers decodes Codex async question replies', () {
+    final envelope = _codexAsyncQuestionReplyEnvelope([
+      {
+        'questionItemId': '["request_user_input_async","item-1",0]',
+        'question': '手机端主要在哪种状态下明显发热？',
+        'answer': '模型回复或工具运行时',
+      },
+      {
+        'questionItemId': '["request_user_input_async","item-1",1]',
+        'question': '补充说明',
+        'answer': '第一行\n第二行；仍属于同一答案 → 保持原样',
+      },
+    ]);
+
+    final rows = parseClarificationAnswers(envelope);
+
+    expect(rows, isNotNull);
+    expect(rows, hasLength(2));
+    expect(rows![0].question, '手机端主要在哪种状态下明显发热？');
+    expect(rows[0].answer, '模型回复或工具运行时');
+    expect(rows[1].question, '补充说明');
+    expect(rows[1].answer, '第一行\n第二行；仍属于同一答案 → 保持原样');
+    expect(parseClarificationAnswers('请看示例：$envelope'), isNull);
+    expect(
+      parseClarificationAnswers(
+        '<send_user_message_question_reply>'
+        '[{"questionItemId":"q1","question":"问题","answer":42}]'
+        '</send_user_message_question_reply>',
+      ),
+      isNull,
+    );
+  });
+
   test(
     'buildActivityFeed renders clarification answers as right-aligned cards',
     () {
@@ -5716,6 +5756,54 @@ void main() {
           .where((entry) => entry.kind == ActivityFeedKind.clarificationAnswer)
           .toList();
       expect(answers, hasLength(1));
+      expect(
+        feed.any((entry) => entry.kind == ActivityFeedKind.assistant),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'buildActivityFeed renders Codex async question replies as clarification answers',
+    () {
+      final reply = _codexAsyncQuestionReplyEnvelope([
+        {
+          'questionItemId': '["request_user_input_async","item-1",0]',
+          'question': '手机端主要在哪种状态下明显发热？',
+          'answer': '模型回复或工具运行时',
+        },
+      ]);
+      final feed = buildActivityFeed(
+        threadPrompt: '',
+        threadId: 't1',
+        runProjection: ThreadRunProjectionSnapshot(
+          threadId: 't1',
+          status: 'running',
+          generatedAt: '2026-01-01T00:00:00.000Z',
+          sourceEventCount: 1,
+          agents: const [],
+          timeline: [
+            ThreadRunProjectionTimelineItem(
+              id: 'clarification-reply',
+              sequence: 1,
+              eventType: 'thread.status',
+              scope: 'main',
+              role: 'user',
+              text: reply,
+              at: '2026-01-01T00:00:01.000Z',
+              metadata: const {'liveType': 'thread.user_prompt'},
+            ),
+          ],
+        ),
+      );
+
+      expect(
+        feed.where(
+          (entry) => entry.kind == ActivityFeedKind.clarificationAnswer,
+        ),
+        hasLength(1),
+      );
+      expect(feed.any((entry) => entry.kind == ActivityFeedKind.user), isFalse);
       expect(
         feed.any((entry) => entry.kind == ActivityFeedKind.assistant),
         isFalse,
@@ -5903,6 +5991,49 @@ void main() {
         decoration.color,
         ecoColors(tester.element(find.text('自动启用'))).userBubble,
       );
+    },
+  );
+
+  testWidgets(
+    'ActivityFeedList hides the Codex async reply protocol and shows answer rows',
+    (tester) async {
+      final scrollController = ScrollController();
+      addTearDown(scrollController.dispose);
+      final reply = _codexAsyncQuestionReplyEnvelope([
+        {
+          'questionItemId': '["request_user_input_async","item-1",0]',
+          'question': '手机端主要在哪种状态下明显发热？',
+          'answer': '模型回复或工具运行时',
+        },
+      ]);
+
+      await tester.pumpWidget(
+        _localizedMaterialApp(
+          theme: buildEcoDarkTheme(),
+          home: Scaffold(
+            body: ActivityFeedList(
+              entries: [
+                ActivityFeedEntry(
+                  id: 'clarification-answer',
+                  kind: ActivityFeedKind.clarificationAnswer,
+                  text: reply,
+                ),
+              ],
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('询问回答'), findsOneWidget);
+      expect(find.text('手机端主要在哪种状态下明显发热？'), findsOneWidget);
+      expect(find.text('模型回复或工具运行时'), findsOneWidget);
+      expect(
+        find.textContaining('send_user_message_question_reply'),
+        findsNothing,
+      );
+      expect(find.textContaining('questionItemId'), findsNothing);
     },
   );
 

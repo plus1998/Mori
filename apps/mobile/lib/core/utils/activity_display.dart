@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ui' show Color;
 
 import '../../l10n/generated/app_localizations.dart';
@@ -1016,12 +1017,64 @@ bool isRecordedUserPromptLiveEvent(String? liveType) {
 }
 
 const clarificationAnswerPrefix = '澄清回答：';
+const _codexAsyncQuestionReplyOpen = '<send_user_message_question_reply>';
+const _codexAsyncQuestionReplyClose = '</send_user_message_question_reply>';
 
 class ClarificationAnswerRow {
   const ClarificationAnswerRow({required this.question, required this.answer});
 
   final String question;
   final String answer;
+}
+
+/// Decode the complete Codex async-question reply envelope.
+///
+/// The envelope is a user-visible protocol payload. Only a full, valid array
+/// becomes answer rows so malformed examples remain visible instead of being
+/// silently discarded.
+List<ClarificationAnswerRow>? parseCodexAsyncQuestionReplyRows(String text) {
+  final trimmed = text.trim();
+  if (!trimmed.startsWith(_codexAsyncQuestionReplyOpen) ||
+      !trimmed.endsWith(_codexAsyncQuestionReplyClose)) {
+    return null;
+  }
+
+  Object? decoded;
+  try {
+    decoded = jsonDecode(
+      trimmed.substring(
+        _codexAsyncQuestionReplyOpen.length,
+        trimmed.length - _codexAsyncQuestionReplyClose.length,
+      ),
+    );
+  } on FormatException {
+    return null;
+  }
+  if (decoded is! List<dynamic> || decoded.isEmpty) return null;
+
+  final rows = <ClarificationAnswerRow>[];
+  for (final value in decoded) {
+    if (value is! Map<String, dynamic>) return null;
+    final questionItemId = value['questionItemId'];
+    final question = value['question'];
+    final answer = value['answer'];
+    if (questionItemId is! String ||
+        questionItemId.trim().isEmpty ||
+        question is! String ||
+        question.trim().isEmpty ||
+        answer is! String ||
+        answer.trim().isEmpty) {
+      return null;
+    }
+    rows.add(ClarificationAnswerRow(question: question, answer: answer));
+  }
+  return rows;
+}
+
+/// Parse either the current Codex reply protocol or Eco's legacy summary.
+List<ClarificationAnswerRow>? parseClarificationAnswers(String text) {
+  return parseCodexAsyncQuestionReplyRows(text) ??
+      parseClarificationAnswersSummary(text);
 }
 
 List<ClarificationAnswerRow>? parseClarificationAnswersSummary(String text) {
