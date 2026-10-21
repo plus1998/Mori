@@ -38,13 +38,13 @@ test("Cursor ACP display name is Cursor; ACP is a separate tag", async () => {
   }
 });
 
-test("runtime core list never includes ACP; ACP lives in its own region", () => {
+test("Harness list never includes ACP; ACP lives in its own region", () => {
   expect(runtimeCoreOptions().some((option) => option.kind === "acp")).toBe(false);
   expect(visibleCoreOptions(true).some((option) => option.kind === "acp")).toBe(false);
   expect(visibleCoreOptions(false).map((option) => option.kind)).toEqual(["codex", "claude", "pi"]);
 });
 
-test("open menu partitions runtime cores and ACP as matching lists", () => {
+test("open menu partitions Harnesses and ACP as matching lists", () => {
   const markup = renderLocalized(
     createElement(SidebarCoreSelector, {
       coreKind: "claude",
@@ -62,7 +62,7 @@ test("open menu partitions runtime cores and ACP as matching lists", () => {
     "zh-CN",
   );
 
-  expect(markup).toContain("集成核心");
+  expect(markup).toContain("Harness");
   expect(markup).toContain(">ACP<");
   expect(markup).toContain("sidebar-core-menu-region-label");
   expect(markup).toContain("sidebar-core-acp-tag");
@@ -74,7 +74,7 @@ test("open menu partitions runtime cores and ACP as matching lists", () => {
   expect(markup).not.toContain("运行核心");
   expect(markup).not.toContain("Cursor · ACP");
   expect(markup).toMatch(
-    /sidebar-core-menu-region-label[\s\S]*集成核心[\s\S]*sidebar-core-menu-region-label[\s\S]*>ACP</,
+    /sidebar-core-menu-region-label[\s\S]*Harness[\s\S]*sidebar-core-menu-region-label[\s\S]*>ACP</,
   );
   expect(markup).toContain("sidebar-core-menu-name");
   expect(markup).not.toMatch(/menuitemradio[\s\S]*Cursor[\s\S]*disabled/);
@@ -144,10 +144,10 @@ test("Core display names match the product labels in both locales", async () => 
     expect(coreDisplayName("claude")).toBe("Claude Code");
 
     await i18n.changeLanguage("zh-CN");
-    expect(coreDisplayName(undefined)).toBe("Core 未知");
+    expect(coreDisplayName(undefined)).toBe("Harness 未知");
 
     await i18n.changeLanguage("en-US");
-    expect(coreDisplayName(undefined)).toBe("Unknown core");
+    expect(coreDisplayName(undefined)).toBe("Unknown Harness");
   } finally {
     await i18n.changeLanguage(previousLanguage);
   }

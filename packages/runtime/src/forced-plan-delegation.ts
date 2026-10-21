@@ -174,7 +174,7 @@ export function validatePlanExecutionTarget(input: {
     return {
       ok: false,
       code: "unsupported_core",
-      reason: `当前内核（${input.coreKind ?? "unknown"}）不支持指定子代理执行计划。`,
+      reason: `当前 Harness（${input.coreKind ?? "unknown"}）不支持指定子代理执行计划。`,
     };
   }
 

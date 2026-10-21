@@ -12150,7 +12150,7 @@ button.default-agent-option:focus-visible {
   word-break: break-all;
 }
 
-/* 每个 Agent Core 一个 UA 字段：图标 + 名称 */
+/* 每个 Harness 一个 UA 字段：图标 + 名称 */
 .gateway-core-ua-label {
   display: inline-flex;
   align-items: center;

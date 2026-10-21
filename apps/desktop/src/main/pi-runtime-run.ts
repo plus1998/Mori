@@ -308,7 +308,7 @@ export async function startPiThreadRun(
 
   const availability = await probePiCoreAvailability();
   if (!availability.available) {
-    throw new Error(availability.reason ?? "PI Core is unavailable.");
+    throw new Error(availability.reason ?? "PI Harness is unavailable.");
   }
 
   const controller = new AbortController();

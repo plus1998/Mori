@@ -35,7 +35,7 @@ test("CoreRegistry rejects duplicate adapters and fails explicitly for missing C
 
   expect(registry.require("claude")).toBe(claude);
   expect(registry.has("codex")).toBe(false);
-  expect(() => registry.require("codex")).toThrow("Core adapter is not registered: codex");
+  expect(() => registry.require("codex")).toThrow("Harness adapter is not registered: codex");
   expect(() => registry.register(adapter("claude"))).toThrow("already registered");
 });
 

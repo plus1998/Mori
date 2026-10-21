@@ -381,7 +381,7 @@ void main() {
     ]);
   });
 
-  test('startThread forwards the ACP runtime core', () async {
+  test('startThread forwards the ACP Harness', () async {
     final client = _RecordingEcoCenterClient();
     final rpc = DesktopRpc(client, 'desktop_1');
     const runtimeConfig = ThreadRuntimeConfig(

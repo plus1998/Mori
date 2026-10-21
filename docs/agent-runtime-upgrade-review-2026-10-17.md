@@ -4,7 +4,7 @@
 
 ## 版本结论
 
-| 内核 | Eco 当前依赖 | 建议目标 | 发布通道与日期 |
+| Harness | Eco 当前依赖 | 建议目标 | 发布通道与日期 |
 | --- | --- | --- | --- |
 | Codex CLI / app-server | `@openai/codex@0.160.1` | `0.163.0` | npm `latest`，2026-10-15 UTC |
 | Claude Code / Agent SDK | `@anthropic-ai/claude-agent-sdk@0.3.289`，对应 Claude Code `2.1.289` | SDK `0.3.301`，对应 Code `2.1.301` | npm `latest`，2026-10-15 UTC |
@@ -153,7 +153,7 @@ Eco 已显式设置 `permissionMode`，因此更早版本的“未指定模式�
 
 | 优先级 | 工作 | 主要文件 |
 | --- | --- | --- |
-| P0 | 同步三个内核、Codex 六个平台 alias、Claude 现有四个平台包、Pi overrides 与 lockfile | 根及 desktop / runtime `package.json`、`bun.lock` |
+| P0 | 同步三个 Harness、Codex 六个平台 alias、Claude 现有四个平台包、Pi overrides 与 lockfile | 根及 desktop / runtime `package.json`、`bun.lock` |
 | P0 | 保留 Pi aborted 并参与终态；检查工具参数校验失败和取消后的卡片闭合 | `pi-event-adapter.ts`、`pi-coding-agent-driver.ts` |
 | P0 | Claude Hook 改参、SDK MCP 审批、后台 result/通知顺序回归 | `eco-sdk-hooks.ts`、`claude-agent-sdk.ts`、桌面 SDK ingestion / replay |
 | P0 | Codex 恢复权限、steer / interrupt / 嵌套工具取消回归 | app-server driver、approval bridge、mid-turn port |
@@ -166,19 +166,19 @@ Eco 已显式设置 `permissionMode`，因此更早版本的“未指定模式�
 
 ### 必须通过的验证
 
-1. 基础对话：三内核的文本、图片、thinking、工具成功及失败；流结束后没有残留 running / writing。
-2. 会话恢复与分叉：旧版本会话在新内核中继续；压缩前后、停止后、工具调用中及含 MCP 的历史；不丢用户消息、不重跑已结束轮次。
+1. 基础对话：三种 Harness 的文本、图片、thinking、工具成功及失败；流结束后没有残留 running / writing。
+2. 会话恢复与分叉：旧版本会话在新 Harness 中继续；压缩前后、停止后、工具调用中及含 MCP 的历史；不丢用户消息、不重跑已结束轮次。
 3. 审批：Ask / Plan / Agent、拒绝、一次允许、会话允许、浏览器/联网及子代理；Hook 改参有效，恢复不改变 Eco 模式权限。
 4. 中途操作：steer、排队、取消排队、停止、关闭窗口；运行中 MCP / Codemode / Bash 均有明确终态，停止后不再发新工具请求。
 5. 多会话与用量：相同模型不同角色、子代理恢复、多次 run；请求归属和增量 usage 只记录一次。Pi Codemode 第三个并行脚本的容量行为明确可见。
 6. Gateway：原生 Responses、Anthropic、Chat Completions 三条路径；混合思考流、坏 JSON 参数、大 MCP 结果、结构化数组/null、429/过载；压缩能力只在确实支持的路由启用。
-7. 打包：四个现有发布目标的内核版本与原生可执行文件匹配；Pi 官方扩展、Worker、QuickJS / photon wasm 可加载，并额外检查取消后的实际 Worker 生命周期。
+7. 打包：四个现有发布目标的 Harness 版本与原生可执行文件匹配；Pi 官方扩展、Worker、QuickJS / photon wasm 可加载，并额外检查取消后的实际 Worker 生命周期。
 
 测试入口包括 `packages/runtime/test` 的 Claude / Codex / Pi 系列，`apps/gateway/test/responses-compact.test.ts`、桌面审批及 replay 测试，`bun run pi:regression` 和 `smoke:packaged-pi`。实际执行情况如下。
 
 ## 升级实施与回归结果
 
-已先在 `beta` 分支执行 `git pull --ff-only`，快进到 `3c365555`，再进行本次修改。三个内核、Codex 六个平台 alias、Claude 四个现有平台包和 Pi 六项 overrides 已同步到表中的目标版本，删除了不再需要的 chord override，并重新生成 `bun.lock`。
+已先在 `beta` 分支执行 `git pull --ff-only`，快进到 `3c365555`，再进行本次修改。三个 Harness、Codex 六个平台 alias、Claude 四个现有平台包和 Pi 六项 overrides 已同步到表中的目标版本，删除了不再需要的 chord override，并重新生成 `bun.lock`。
 
 已实施的适配：
 
@@ -208,11 +208,11 @@ Eco 已显式设置 `permissionMode`，因此更早版本的“未指定模式�
 | 手机子代理配置 | `thread_runtime_config_test.dart`、`subagent_theme_test.dart` 合计 30 通过，相关模型及配置测试静态分析无问题；验证自定义窗口字段往返保留 |
 | 子代理压缩 CDP 冒烟 | 真实 dev 窗口挂载产品编排编辑器夹具，经真实保存接口验证默认自动、保存 120000、持久回读及重新加载、清空恢复自动；99999 明确报错且未保存。临时编排和夹具均已删除，页面无 console error，已 detach 并保留 dev App 运行 |
 | `CODEX_EXECUTABLE=apps/desktop/node_modules/.bin/codex bun scripts/mcp-hub-probe/codex-app-server-real-harness.ts` | 真正的 Codex 0.163.0，两个独立 app-server、新能力配置、MCP 隔离、重启恢复通过 |
-| `ECO_CODEX_NATIVE_SMOKE=1 bun test packages/runtime/test/codex-remote-compaction-native.test.ts` | 真实 0.163.0、本地 Responses 服务，1 通过、18 项断言；验证两个根会话的压缩能力隔离、原生子代理继承限制，以及重启内核后按新配置恢复原 thread |
+| `ECO_CODEX_NATIVE_SMOKE=1 bun test packages/runtime/test/codex-remote-compaction-native.test.ts` | 真实 0.163.0、本地 Responses 服务，1 通过、18 项断言；验证两个根会话的压缩能力隔离、原生子代理继承限制，以及重启 Harness 后按新配置恢复原 thread |
 | 候选模型定向回归 | 105 项通过；包含旧 SQLite 增列迁移、同一提供商不同模型能力、原生子代理冲突拒绝、配置指纹及表单往返。Worker 容量用例改用可中断的 VM 死循环，避免原生字符串长操作的耗时干扰退出判断；Gateway 并发测试改由系统分配端口，避免碰撞已运行应用 |
 | `bun run typecheck`、`bun run build` | 通过；主进程确认 Pi SDK 保持 external |
-| Mac ARM64 `electron-builder --mac dir`，输出到 `/tmp` | 内核升级阶段打包成功（早于候选模型开关补充）；产物里的 Codex / Claude 可执行文件分别报告 0.163.0 / 2.1.301 |
-| 以 Electron Node 运行 `verify-packaged-pi-runtime.mjs` | 内核升级阶段的包验证 6 项通过：七个 Pi 包版本、两个 wasm、扩展导出、真实嵌套工具、超时及两个 Worker 实际退出 |
+| Mac ARM64 `electron-builder --mac dir`，输出到 `/tmp` | Harness 升级阶段打包成功（早于候选模型开关补充）；产物里的 Codex / Claude 可执行文件分别报告 0.163.0 / 2.1.301 |
+| 以 Electron Node 运行 `verify-packaged-pi-runtime.mjs` | Harness 升级阶段的包验证 6 项通过：七个 Pi 包版本、两个 wasm、扩展导出、真实嵌套工具、超时及两个 Worker 实际退出 |
 | dev App 9333 CDP | 候选模型远程压缩默认关闭；实际点击开关、保存、重新打开及关闭后回读均通过，已删除临时测试提供商。Shell 连接并检查实际版本 0.3.301 / 0.163.0 / 1.3.0；Codex / Pi / Claude 切换正常，页面无 console error，已恢复原先 Claude 选择并 detach，dev App 保持运行 |
 
 26 项条件跳过包含需额外环境的原生二进制、网络和服务测试，不等于这些测试已通过；上表列明了另行实际执行的原生测试。Flutter 只运行了上表所列定向测试；Windows、Linux 和 Mac Intel 的真实平台执行仍需各平台 CI，本机仅完成 Mac ARM64 打包和执行。

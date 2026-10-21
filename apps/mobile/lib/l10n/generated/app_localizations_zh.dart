@@ -2241,7 +2241,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerVisionModelHintAcp => '用于看图；未配置时使用 Cursor 模型';
 
   @override
-  String get composerCoreKind => '运行核心';
+  String get composerCoreKind => 'Harness';
 
   @override
   String get auxiliaryModelRequiredForAutoReview => '尚未配置审批模型，无法启用自动审查';
@@ -2280,10 +2280,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerSessionOnly => '配置仅作用于当前会话';
 
   @override
-  String get composerRuntimeCore => '运行核心';
+  String get composerRuntimeCore => 'Harness';
 
   @override
-  String get composerRuntimeCoreLocked => '当前会话的运行核心已锁定';
+  String get composerRuntimeCoreLocked => '当前会话的 Harness 已锁定';
 
   @override
   String get composerOrchestrationLocked => '当前会话不可编辑编排';
@@ -2458,7 +2458,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get threadNpmScripts => 'npm scripts';
 
   @override
-  String get composerAgent => '运行核心';
+  String get composerAgent => 'Harness';
 
   @override
   String get composerMcp => 'MCP';

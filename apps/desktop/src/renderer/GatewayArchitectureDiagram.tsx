@@ -21,7 +21,7 @@ export interface AgentCoreNode {
   readonly protocol: string;
 }
 
-/** Single source of truth for the three agent cores (diagram + settings fields). */
+/** Single source of truth for the three Harnesses (diagram + settings fields). */
 export const AGENT_CORE_META: Record<UpstreamAgentCore, Omit<AgentCoreNode, "core">> = {
   codex: { name: "Codex", icon: "./agent-icons/codex.ico", protocol: "/v1/responses" },
   claude: {

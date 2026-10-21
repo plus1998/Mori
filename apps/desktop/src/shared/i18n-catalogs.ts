@@ -391,7 +391,7 @@ export const i18nCatalogs = {
       "asr.error.empty": "没有录到声音，请重试。",
       "asr.error.emptyResult": "识别结果为空。",
       "asr.error.transcribe": "语音处理失败。",
-      "settings.defaultAgent": "运行核心",
+      "settings.defaultAgent": "Harness",
       "settings.contextWindow": "上下文",
       "settings.contextWindow.pageDesc": "设置所有会话共用的上下文窗口上限与最大输出。",
       "settings.contextWindow.limit": "全局上下文上限",
@@ -465,7 +465,7 @@ export const i18nCatalogs = {
       "settings.loadingModels": "正在加载模型与工作流配置…",
       "settings.defaultAgent.new": "新会话 Agent",
       "settings.defaultAgent.subtitle": "新建对话时默认使用的编码 Agent。",
-      "settings.defaultAgent.runtimeSection": "集成核心",
+      "settings.defaultAgent.runtimeSection": "Harness",
       "settings.defaultAgent.runtimeSubtitle": "深度集成以获得更佳体验",
       "settings.defaultAgent.acpSection": "ACP",
       "settings.defaultAgent.acpSubtitle": "按 Agent Client Protocol 接入的外挂 Agent。",
@@ -474,7 +474,7 @@ export const i18nCatalogs = {
       "settings.defaultAgent.claudeDescription":
         "Claude Code 是智能体编程工具，能阅读代码库、编辑文件、运行命令，并接入你的开发工具。",
       "settings.defaultAgent.codexDescription": "ChatGPT 中的 Codex 是智能体编程的指挥中心。",
-      "settings.defaultAgent.piDescription": "Pi 是一套极简的 Agent 运行框架。",
+      "settings.defaultAgent.piDescription": "Pi 是一套极简的 Harness。",
       "settings.defaultAgent.cursorDescription": "Cursor 是智能体编程助手，能理解项目代码并协助编写与修改。",
       "settings.defaultAgent.acpLabel": "ACP",
       "settings.defaultAgent.cursorProbeFailed": "Cursor ACP 探测失败，无法启用。",
@@ -882,7 +882,7 @@ export const i18nCatalogs = {
       "settings.gateway.tab.headers": "请求头",
       "settings.gateway.headers.other": "其他（未识别来源）",
       "settings.gateway.arch.subtitle":
-        "三个 Agent 核心都只请求本机网关；协议转换、凭据、出站代理和请求头都发生在网关 → 上游这一段。",
+        "三个 Harness 都只请求本机网关；协议转换、凭据、出站代理和请求头都发生在网关 → 上游这一段。",
       "settings.gateway.arch.core": "本机网关",
       "settings.gateway.arch.protocols": "协议入口",
       "settings.gateway.arch.credentials": "凭据",
@@ -1039,7 +1039,7 @@ export const i18nCatalogs = {
       "settings.models.resources.mainPrompt": "主提示词",
       "settings.models.resources.mainPromptAdd": "新增提示词",
       "settings.models.resources.mainPromptEmpty":
-        "暂无自定义提示词。「跟随核心内置提示词」不是持久化资源，请在 Composer 中选择内置模式。",
+        "暂无自定义提示词。「跟随 Harness 内置提示词」不是持久化资源，请在 Composer 中选择内置模式。",
       "settings.models.resources.subagentOrchestration": "子代理编排",
       "settings.models.resources.subagentOrchestrationAdd": "新增子代理编排",
       "settings.models.resources.subagentOrchestrationEmpty":
@@ -1815,7 +1815,7 @@ export const i18nCatalogs = {
       "capability.delegate": "继续委派",
       "capability.delegateDescription": "调用其他子代理（Agent、Task 等）。",
       "capability.skill": "加载 Skill",
-      "capability.skillDescription": "加载当前 Core 已配置的 Skill。",
+      "capability.skillDescription": "加载当前 Harness 已配置的 Skill。",
       "capability.ask": "询问用户",
       "capability.askDescription": "向用户发起选择题或补充信息请求。",
       "capability.noMcpServers": "当前模板库没有可选连接器。",
@@ -2606,10 +2606,10 @@ export const i18nCatalogs = {
       "todo.details": "详情",
       "todo.progress": "进度",
       "todo.count": "{{count}} 项",
-      "sidebar.unknownCore": "Core 未知",
-      "sidebar.currentCore": "当前 Core：{{core}}，点击切换",
-      "sidebar.selectCore": "选择 Core",
-      "sidebar.runtimeCoresSection": "集成核心",
+      "sidebar.unknownCore": "Harness 未知",
+      "sidebar.currentCore": "当前 Harness：{{core}}，点击切换",
+      "sidebar.selectCore": "选择 Harness",
+      "sidebar.runtimeCoresSection": "Harness",
       "sidebar.acpSection": "ACP",
       "sidebar.acpLabel": "ACP",
       "sidebar.acpEnableCursor": "启用 Cursor",
@@ -3019,7 +3019,7 @@ export const i18nCatalogs = {
       "time.years": "{{count}} 年",
       "native.openProject": "打开项目文件夹",
       "native.codexUnavailable": "未找到可执行的 Codex CLI。请安装工作区依赖或设置 CODEX_EXECUTABLE。",
-      "native.piUnavailable": "PI Core 不可用：无法加载 @earendil-works/pi-coding-agent。",
+      "native.piUnavailable": "PI Harness 不可用：无法加载 @earendil-works/pi-coding-agent。",
       "native.cursorUnavailable":
         "未找到 Cursor Agent CLI（agent）。请安装 Cursor Agent CLI 或设置 CURSOR_AGENT_EXECUTABLE。",
       "native.cursorModelsUnavailable": "无法从 Cursor Agent CLI 读取模型列表{{detail}}。",
@@ -3526,7 +3526,7 @@ export const i18nCatalogs = {
       "asr.error.empty": "No audio was recorded. Please try again.",
       "asr.error.emptyResult": "The voice result was empty.",
       "asr.error.transcribe": "Voice processing failed.",
-      "settings.defaultAgent": "Runtime Core",
+      "settings.defaultAgent": "Harness",
       "settings.contextWindow": "Context",
       "settings.contextWindow.pageDesc":
         "Set the context window limit and maximum output shared by your sessions.",
@@ -3605,7 +3605,7 @@ export const i18nCatalogs = {
       "settings.loadingModels": "Loading model and workflow settings…",
       "settings.defaultAgent.new": "New thread Agent",
       "settings.defaultAgent.subtitle": "The coding Agent used by default for new threads.",
-      "settings.defaultAgent.runtimeSection": "Integrated cores",
+      "settings.defaultAgent.runtimeSection": "Harness",
       "settings.defaultAgent.runtimeSubtitle": "Deeper integration for a better experience",
       "settings.defaultAgent.acpSection": "ACP",
       "settings.defaultAgent.acpSubtitle": "Agents connected over Agent Client Protocol.",
@@ -3615,7 +3615,7 @@ export const i18nCatalogs = {
       "settings.defaultAgent.claudeDescription":
         "Claude Code is an agentic coding tool that reads your codebase, edits files, runs commands, and integrates with your development tools.",
       "settings.defaultAgent.codexDescription": "Codex in ChatGPT is a command center for agentic coding.",
-      "settings.defaultAgent.piDescription": "Pi is a minimal agent harness.",
+      "settings.defaultAgent.piDescription": "Pi is a minimal Harness.",
       "settings.defaultAgent.cursorDescription":
         "Cursor is an agentic coding assistant that understands your project and helps you write and edit code.",
       "settings.defaultAgent.acpLabel": "ACP",
@@ -4040,7 +4040,7 @@ export const i18nCatalogs = {
       "settings.gateway.tab.headers": "Headers",
       "settings.gateway.headers.other": "Other (unidentified)",
       "settings.gateway.arch.subtitle":
-        "All three agent cores call only the local gateway; protocol conversion, credentials, outbound proxy and request headers all happen on the gateway → upstream leg.",
+        "All three Harnesses call only the local gateway; protocol conversion, credentials, outbound proxy and request headers all happen on the gateway → upstream leg.",
       "settings.gateway.arch.core": "Local gateway",
       "settings.gateway.arch.protocols": "Protocol endpoints",
       "settings.gateway.arch.credentials": "Credentials",
@@ -4203,7 +4203,7 @@ export const i18nCatalogs = {
       "settings.models.resources.mainPrompt": "Main prompts",
       "settings.models.resources.mainPromptAdd": "Add prompt",
       "settings.models.resources.mainPromptEmpty":
-        'No custom prompts yet. "Follow core built-in prompt" is not a persisted resource; select built-in mode in the Composer instead.',
+        'No custom prompts yet. "Follow Harness built-in prompt" is not a persisted resource; select built-in mode in the Composer instead.',
       "settings.models.resources.subagentOrchestration": "Subagent orchestrations",
       "settings.models.resources.subagentOrchestrationAdd": "Add subagent orchestration",
       "settings.models.resources.subagentOrchestrationEmpty":
@@ -5026,7 +5026,7 @@ export const i18nCatalogs = {
       "capability.delegate": "Continue delegation",
       "capability.delegateDescription": "Call other subagents (Agent, Task, and others).",
       "capability.skill": "Load Skill",
-      "capability.skillDescription": "Load a Skill configured for the current Core.",
+      "capability.skillDescription": "Load a Skill configured for the current Harness.",
       "capability.ask": "Ask user",
       "capability.askDescription": "Request a choice or additional information from the user.",
       "capability.noMcpServers": "No MCP Servers are available in the current template library.",
@@ -5843,10 +5843,10 @@ export const i18nCatalogs = {
       "todo.details": "Details",
       "todo.progress": "Progress",
       "todo.count": "{{count}} items",
-      "sidebar.unknownCore": "Unknown core",
-      "sidebar.currentCore": "Current core: {{core}}. Click to switch.",
-      "sidebar.selectCore": "Select core",
-      "sidebar.runtimeCoresSection": "Integrated cores",
+      "sidebar.unknownCore": "Unknown Harness",
+      "sidebar.currentCore": "Current Harness: {{core}}. Click to switch.",
+      "sidebar.selectCore": "Select Harness",
+      "sidebar.runtimeCoresSection": "Harness",
       "sidebar.acpSection": "ACP",
       "sidebar.acpLabel": "ACP",
       "sidebar.acpEnableCursor": "Enable Cursor",
@@ -6272,7 +6272,7 @@ export const i18nCatalogs = {
       "native.openProject": "Open project folder",
       "native.codexUnavailable":
         "No executable Codex CLI was found. Install workspace dependencies or set CODEX_EXECUTABLE.",
-      "native.piUnavailable": "PI Core is unavailable: could not load @earendil-works/pi-coding-agent.",
+      "native.piUnavailable": "PI Harness is unavailable: could not load @earendil-works/pi-coding-agent.",
       "native.cursorUnavailable":
         "Cursor Agent CLI (agent) was not found. Install it or set CURSOR_AGENT_EXECUTABLE.",
       "native.cursorModelsUnavailable": "Unable to list models from Cursor Agent CLI{{detail}}.",
@@ -6612,7 +6612,7 @@ export function expectedIpcErrorKey(message: string): I18nKey | undefined {
   if (message === "一次性项目已到期，请设置新的未来时间。") {
     return "native.error.scheduleExpiredOneShot";
   }
-  if (message === "Codex Core 不可用：未找到可执行的 Codex CLI。请安装工作区依赖或设置 CODEX_EXECUTABLE。") {
+  if (message === "Codex Harness 不可用：未找到可执行的 Codex CLI。请安装工作区依赖或设置 CODEX_EXECUTABLE。") {
     return "native.codexUnavailable";
   }
   return undefined;

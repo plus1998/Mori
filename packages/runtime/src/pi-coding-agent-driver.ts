@@ -492,7 +492,7 @@ export class PiCodingAgentDriver implements AgentRuntimeDriver {
         agentId: "system",
         role: "main",
         type: "thread.failed",
-        payload: { message: "PI Core 需要至少一条可用模型路由。" },
+        payload: { message: "PI Harness 需要至少一条可用模型路由。" },
       });
       return;
     }

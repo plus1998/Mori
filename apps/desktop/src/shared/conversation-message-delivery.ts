@@ -33,7 +33,7 @@ export function scheduledAcceptedMessageDelivery(
   ) {
     return terminal;
   }
-  return { state: "queued", message: "回答已记录，正在等待内核接收。" };
+  return { state: "queued", message: "回答已记录，正在等待 Harness 接收。" };
 }
 
 export function describeFollowUpDelivery(followUp: ThreadPendingFollowUp): ClarificationAsyncDelivery {

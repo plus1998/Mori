@@ -29,7 +29,7 @@ export function resolveThreadApprovePlanRoute(input: {
       return { kind: "bridge" };
     }
     throw new Error(
-      `CORE_ROUTE_MISMATCH: plan approval bridge is not supported for core "${core || "unknown"}".`,
+      `CORE_ROUTE_MISMATCH: plan approval bridge is not supported for Harness "${core || "unknown"}".`,
     );
   }
   if (core === "acp" || core === "cursor") {

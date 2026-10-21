@@ -31,7 +31,7 @@ export interface EcoGatewayServer {
   setCredentialResolver: (resolver: GatewayConfig["resolveCredential"]) => void;
   setCredentialReporter: (reporter: GatewayConfig["reportCredentialResult"]) => void;
   setUpstreamUserAgent: (upstreamUserAgent: string | undefined) => void;
-  /** Per agent core UA overrides + Eco fallback UA (live update). */
+  /** Per Harness UA overrides + Eco fallback UA (live update). */
   setUpstreamUserAgents: (
     upstreamUserAgents: Partial<Record<GatewayAgentCore, string>> | undefined,
     userAgentDefault: string | undefined,

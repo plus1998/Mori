@@ -13,8 +13,7 @@ test("default Agent settings renders Claude Code and Codex choices", () => {
     "zh-CN",
   );
 
-  expect(markup).toContain("运行核心");
-  expect(markup).toContain("集成核心");
+  expect(markup).toContain("Harness");
   expect(markup).toContain("深度集成以获得更佳体验");
   expect(markup).toContain("Claude Code");
   expect(markup).toContain("Codex");
@@ -22,7 +21,7 @@ test("default Agent settings renders Claude Code and Codex choices", () => {
     "Claude Code 是智能体编程工具，能阅读代码库、编辑文件、运行命令，并接入你的开发工具。",
   );
   expect(markup).toContain("ChatGPT 中的 Codex 是智能体编程的指挥中心。");
-  expect(markup).toContain("Pi 是一套极简的 Agent 运行框架。");
+  expect(markup).toContain("Pi 是一套极简的 Harness。");
   expect(markup).not.toContain("新会话默认使用");
   expect(markup).not.toContain("按会话注入");
   expect(markup).toContain('role="radiogroup"');
@@ -57,7 +56,7 @@ test("ACP section is a core list without an enable checkbox", () => {
     "zh-CN",
   );
 
-  expect(markup).toContain("运行核心");
+  expect(markup).toContain("Harness");
   expect(markup).toContain("ACP");
   expect(markup).not.toContain("目前仅 Cursor");
   expect(markup).not.toContain("仅限 Cursor");

@@ -65,7 +65,7 @@ export class ConversationForkCommands {
     try {
       const source = store.getThread(request.threadId);
       if (!source || !["claude", "codex", "pi"].includes(source.coreKind ?? ""))
-        throw new Error("该内核暂不支持原生会话分叉。");
+        throw new Error("该 Harness 暂不支持原生会话分叉。");
       if (source.status === "running" || source.status === "queued" || this.deps.hasActiveRun?.(source.id))
         throw new Error("请等待当前执行结束后再分叉。");
       const thread = this.deps.ensureThreadRuntimeConfig(source);

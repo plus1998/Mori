@@ -185,7 +185,7 @@ export async function handlePostMessages(
   );
 
   let response: Response;
-  // UA: per agent core override → global override → SDK UA → Eco fallback.
+  // UA: per Harness override → global override → SDK UA → Eco fallback.
   const upstreamUserAgent = resolveUpstreamUserAgent(request.headers, {
     override: config.upstreamUserAgent,
     byCore: config.upstreamUserAgents,

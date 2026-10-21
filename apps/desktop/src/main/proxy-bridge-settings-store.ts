@@ -166,7 +166,7 @@ export function resolveUpstreamUserAgentOverride(settings: ProxyBridgeSettingsSn
 }
 
 /**
- * 按 Agent Core 解析出的 UA 覆盖表；空表返回 undefined。
+ * 按 Harness 解析出的 UA 覆盖表；空表返回 undefined。
  * 单个 core 缺省（或清空）= 该项目使用 SDK 自己的 UA。
  */
 export function resolveUpstreamUserAgentOverrides(

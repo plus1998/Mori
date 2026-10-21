@@ -4097,7 +4097,7 @@ abstract class AppLocalizations {
   /// No description provided for @composerCoreKind.
   ///
   /// In en, this message translates to:
-  /// **'Runtime core'**
+  /// **'Harness'**
   String get composerCoreKind;
 
   /// No description provided for @auxiliaryModelRequiredForAutoReview.
@@ -4175,13 +4175,13 @@ abstract class AppLocalizations {
   /// No description provided for @composerRuntimeCore.
   ///
   /// In en, this message translates to:
-  /// **'Runtime core'**
+  /// **'Harness'**
   String get composerRuntimeCore;
 
   /// No description provided for @composerRuntimeCoreLocked.
   ///
   /// In en, this message translates to:
-  /// **'The runtime core is locked for this session'**
+  /// **'The Harness is locked for this session'**
   String get composerRuntimeCoreLocked;
 
   /// No description provided for @composerOrchestrationLocked.
@@ -4499,7 +4499,7 @@ abstract class AppLocalizations {
   /// No description provided for @composerAgent.
   ///
   /// In en, this message translates to:
-  /// **'Runtime'**
+  /// **'Harness'**
   String get composerAgent;
 
   /// No description provided for @composerMcp.

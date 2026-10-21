@@ -58,7 +58,7 @@ After the first launch, add API credentials under Settings → Model Providers, 
 
 | Area | Capability |
 | --- | --- |
-| Agent Core | Codex, Claude Code, and PI; selected per session |
+| Harness | Codex, Claude Code, and PI; selected per session |
 | Orchestration | Custom lead config, subagent roster, models, and tool policies |
 | Model routing | Multiple providers; Responses / Messages / Chat Completions |
 | Session modes | Agent, Plan, Ask |
@@ -78,7 +78,7 @@ After the first launch, add API credentials under Settings → Model Providers, 
 
 ## Highlights
 
-- **Three Agent Cores**: choose Codex, Claude Code, or PI per session; run different cores in the same project.
+- **Three Harnesses**: choose Codex, Claude Code, or PI per session; run different Harnesses in the same project.
 - **Session-scoped isolation**: enable MCP, Skills, browser, and image generation per session; auto-discover project Skills.
 - **Multi-protocol gateway**: OpenAI Responses, Anthropic Messages, Chat Completions, and local compatible endpoints.
 - **Dedicated vision and integrations**: separate vision models; image-generation APIs and mobile ASR.
@@ -152,7 +152,7 @@ apps/
   mobile/                     Flutter mobile client
 supabase/                     User-owned Supabase: migrations + Edge Functions
 packages/
-  runtime/                    Agent Cores, context, and orchestration runtime
+  runtime/                    Harnesses, context, and orchestration runtime
   shared/                     Cross-client contracts and shared types
   openai-anthropic-bridge/    OpenAI / Anthropic protocol conversion
   model-router/               Model routing

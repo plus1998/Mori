@@ -2955,7 +2955,7 @@ export class ConversationStore {
     const now = new Date().toISOString();
     const coreKind = thread.coreKind ?? "claude";
     if (!isCoreKind(coreKind)) {
-      throw new Error(`Unsupported thread Core: ${String(coreKind)}`);
+      throw new Error(`Unsupported thread Harness: ${String(coreKind)}`);
     }
     const coreLockedAt = thread.coreLockedAt ?? now;
     const acpAgentId = coreKind === "acp" ? resolveAcpThreadAgentId(thread) : null;
@@ -3187,17 +3187,17 @@ export class ConversationStore {
       throw new Error(`Thread not found: ${threadId}`);
     }
     if (existing.core_locked_at) {
-      throw new Error(`Thread Core is locked: ${threadId}`);
+      throw new Error(`Thread Harness is locked: ${threadId}`);
     }
     const session = this.getThreadCoreSession(threadId);
     if (session) {
-      throw new Error(`Unlocked thread has an existing Core session: ${threadId}`);
+      throw new Error(`Unlocked thread has an existing Harness session: ${threadId}`);
     }
     const update = this.db
       .prepare(`UPDATE threads SET core_kind = ?, updated_at = ? WHERE id = ? AND core_locked_at IS NULL`)
       .run(coreKind, new Date().toISOString(), threadId);
     if (Number(update.changes ?? 0) !== 1) {
-      throw new Error(`Thread Core lock changed while updating: ${threadId}`);
+      throw new Error(`Thread Harness lock changed while updating: ${threadId}`);
     }
   }
 
@@ -3218,7 +3218,7 @@ export class ConversationStore {
       });
       if (upgraded.coreKind !== coreKind) {
         throw new Error(
-          `Thread Core mismatch: ${threadId} is ${existing.core_kind ?? "unknown"}, requested ${coreKind}`,
+          `Thread Harness mismatch: ${threadId} is ${existing.core_kind ?? "unknown"}, requested ${coreKind}`,
         );
       }
       if (existing.core_kind === "cursor" && coreKind === "acp") {
@@ -3256,7 +3256,7 @@ export class ConversationStore {
     const externalSessionId = input.externalSessionId.trim();
     const cwd = input.cwd.trim();
     if (!externalSessionId || !cwd) {
-      throw new Error(`Core session requires a session id and cwd: ${input.threadId}`);
+      throw new Error(`Harness session requires a session id and cwd: ${input.threadId}`);
     }
     const now = new Date().toISOString();
     this.db.exec("BEGIN IMMEDIATE");
@@ -3305,11 +3305,11 @@ export class ConversationStore {
     const sessionCoreKind = sessionUpgraded.coreKind;
     const threadCoreKind = threadUpgraded.coreKind;
     if (!sessionCoreKind) {
-      throw new Error(`Unsupported persisted Core: ${row.core_kind}`);
+      throw new Error(`Unsupported persisted Harness: ${row.core_kind}`);
     }
     if (threadCoreKind !== sessionCoreKind) {
       throw new Error(
-        `Core session mismatch: ${row.thread_id} is ${row.thread_core_kind ?? "unknown"}, binding is ${row.core_kind}`,
+        `Harness session mismatch: ${row.thread_id} is ${row.thread_core_kind ?? "unknown"}, binding is ${row.core_kind}`,
       );
     }
     if (row.core_kind === "cursor" || row.thread_core_kind === "cursor") {
@@ -4189,7 +4189,7 @@ export class ConversationStore {
     const effectiveCoreKind = upgraded.coreKind;
     if (effectiveCoreKind !== coreKind) {
       throw new Error(
-        `Thread Core mismatch: ${threadId} is ${row.core_kind ?? "unknown"}, requested ${coreKind}`,
+        `Thread Harness mismatch: ${threadId} is ${row.core_kind ?? "unknown"}, requested ${coreKind}`,
       );
     }
     if (row.core_kind === "cursor" && coreKind === "acp") {
@@ -4225,7 +4225,7 @@ export class ConversationStore {
       .get(input.threadId) as { core_kind: string } | undefined;
     if (existing && existing.core_kind !== input.coreKind) {
       throw new Error(
-        `Core session mismatch: ${input.threadId} has ${existing.core_kind}, requested ${input.coreKind}`,
+        `Harness session mismatch: ${input.threadId} has ${existing.core_kind}, requested ${input.coreKind}`,
       );
     }
     this.db
@@ -10807,10 +10807,10 @@ function parseCoreSessionMetadata(
   try {
     parsed = JSON.parse(value);
   } catch {
-    throw new Error(`Core session metadata JSON is invalid: ${threadId}`);
+    throw new Error(`Harness session metadata JSON is invalid: ${threadId}`);
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`Core session metadata must be an object: ${threadId}`);
+    throw new Error(`Harness session metadata must be an object: ${threadId}`);
   }
   return parsed as Record<string, unknown>;
 }

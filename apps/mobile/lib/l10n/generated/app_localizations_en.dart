@@ -2354,7 +2354,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Used by the image_view tool; falls back to the Cursor model when unset';
 
   @override
-  String get composerCoreKind => 'Runtime core';
+  String get composerCoreKind => 'Harness';
 
   @override
   String get auxiliaryModelRequiredForAutoReview =>
@@ -2395,11 +2395,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get composerSessionOnly => 'Settings apply only to this session';
 
   @override
-  String get composerRuntimeCore => 'Runtime core';
+  String get composerRuntimeCore => 'Harness';
 
   @override
   String get composerRuntimeCoreLocked =>
-      'The runtime core is locked for this session';
+      'The Harness is locked for this session';
 
   @override
   String get composerOrchestrationLocked =>
@@ -2587,7 +2587,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get threadNpmScripts => 'npm scripts';
 
   @override
-  String get composerAgent => 'Runtime';
+  String get composerAgent => 'Harness';
 
   @override
   String get composerMcp => 'MCP';

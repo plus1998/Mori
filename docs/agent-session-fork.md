@@ -1,6 +1,6 @@
 # 从指定节点 fork 新会话：实现与 Claude / Codex / Pi 原生接口调查
 
-调查时间：2026-10-15。范围是项目三个主要内核 Claude、Codex、Pi；另有 Cursor/ACP，未纳入本次三内核结论。
+调查时间：2026-10-15。范围是项目三个主要 Harness Claude、Codex、Pi；另有 Cursor/ACP，未纳入本次三种 Harness 结论。
 
 **已接通桌面端 Claude、Codex、Pi 的“从此处分叉”。** 在已发送用户消息上选择分叉，新会话保留该消息之前的历史，该消息文本和图片进入新会话草稿；分叉本身不会请求模型。源会话和原生绑定保持独立。实现与测试说明见 [验收记录](agent-session-fork-test-report.md)。
 
@@ -8,7 +8,7 @@
 
 以 `packages/runtime/package.json`、`apps/desktop/package.json` 和实际加载的包/可执行文件为准，不能用根目录残留的旧 SDK 或全局 Codex 代替验证。
 
-| 内核 | Eco 锁定并实测的版本 | 原生分叉入口 | 原生边界 | 新身份 |
+| Harness | Eco 锁定并实测的版本 | 原生分叉入口 | 原生边界 | 新身份 |
 | --- | --- | --- | --- | --- |
 | Claude | `@anthropic-ai/claude-agent-sdk` **0.3.289** | `forkSession(sessionId, { dir, upToMessageId })` | 包含指定消息 UUID | 返回新 `sessionId`；历史消息 UUID 会重写 |
 | Codex | `@openai/codex` **0.160.1** | app-server `thread/fork` | `lastTurnId` 包含整个 turn；`beforeTurnId` 排除目标 turn | 返回 `thread.id`、`forkedFromId` |
@@ -156,7 +156,7 @@ Pi 1.0.3 还提供 `AgentSessionRuntime.fork(entryId, { position: "before" | "at
 1. `thread:fork-from-message` IPC 和远端命令路由接收 source、用户节点、`expectedHistoryRevision`、principal、`clientCommandId`。Pi 的按钮独立于编辑重发能力。
 2. `ConversationForkCommands` 先冻结当前有效历史，按 provider 首次派发顺序确定边界。排队接收时间和用户行携带的上一轮 run ID 不用于猜轮次；实际执行内容跨越节点时拒绝。
 3. Claude 解析原生 JSONL UUID 与压缩边界；Codex 优先用持久化 turn ID，允许原生 read 重建 item ID；Pi 按精确 entry ID 查 root 路径。映射缺失或边界不一致时直接失败。
-4. Codex 使用独立、短命 app-server 创建原生 child，关闭后才供产品继续执行，以便首次 cold resume 加载 child 自己的 MCP/配置。Pi JSONL 写入 child 专属目录。三个内核都不改变 source 原生绑定。
+4. Codex 使用独立、短命 app-server 创建原生 child，关闭后才供产品继续执行，以便首次 cold resume 加载 child 自己的 MCP/配置。Pi JSONL 写入 child 专属目录。三个 Harness 都不改变 source 原生绑定。
 5. 本地事务同时创建 child thread、core binding、历史投影、草稿和完成回执。message/turn/run/tool/agent/detail ID 重新命名，保留引用关系及已结束状态；排除 tombstone、待审批/澄清、待发送队列、pending plan、运行实例与计费账本。
 6. 原生身份立即写入 checkpoint，完整验证后再记录 durable verification。重启只提交已验证的同一个 child；无法确认原生结果时明确失败，不重新发起一次 fork。历史在异步请求期间变化则回滚本地提交并清理原生分支，清理失败也进入错误回执。
 7. child 保留独立 lineage 和图片内容引用。删除 source 不删除仍被分支依赖的原始图片目录；这是保守保留，暂未实现最后一个分支删除后再回收已删除 source 目录的机制。
@@ -168,7 +168,7 @@ Pi 1.0.3 还提供 `AgentSessionRuntime.fork(entryId, { position: "before" | "at
 
 ## 7. 验证结果与复现
 
-本次执行环境：macOS arm64、Bun 1.4.2；原生版本为表格中的项目锁定版本。原生 probe 在新建临时目录完成并清理。Claude/Pi 的原生文件测试使用合成 JSONL；另用真实 SDK/CLI 或 driver 加本机模型 mock 验证三内核续跑的实际模型输入。桌面 CDP 验收从已有完成会话创建了两个测试分支，没有修改源历史或发送模型请求。
+本次执行环境：macOS arm64、Bun 1.4.2；原生版本为表格中的项目锁定版本。原生 probe 在新建临时目录完成并清理。Claude/Pi 的原生文件测试使用合成 JSONL；另用真实 SDK/CLI 或 driver 加本机模型 mock 验证三种 Harness 续跑的实际模型输入。桌面 CDP 验收从已有完成会话创建了两个测试分支，没有修改源历史或发送模型请求。
 
 ```sh
 bun scripts/agent-session-fork/sdk-probe.ts
@@ -186,7 +186,7 @@ bun scripts/agent-session-fork/claude-model-probe.ts
 | Codex `lastTurnId`、新 thread、lineage、后续轮排除 | 通过 |
 | Codex child 下一轮模型请求无 source 后续轮、父子分别继续不混写 | 通过 |
 | Codex `beforeTurnId` 第一轮之前得到空历史 | 通过，启用了 experimentalApi |
-| 三个内核未知锚点拒绝 | 通过 |
+| 三个 Harness 未知锚点拒绝 | 通过 |
 
 生产适配器、事务、重启恢复、图片引用和界面验收的覆盖见 [验收记录](agent-session-fork-test-report.md)。尚未验证真实收费服务、所有压缩格式、原生活跃子 Agent 跨分支边界、手机界面和桌面/手机端到端同步。本次没有新增手机分叉按钮。
 

@@ -79,7 +79,7 @@ export interface EcoGatewayLifecycleOptions {
   listProviders: () => readonly EcoProviderForGateway[] | Promise<readonly EcoProviderForGateway[]>;
   /** Global Proxy Bridge User-Agent override; undefined = passthrough / Eco default. */
   getUpstreamUserAgent?: () => string | undefined;
-  /** Per agent core (codex/claude/pi) User-Agent overrides; empty = SDK UA. */
+  /** Per Harness (codex/claude/pi) User-Agent overrides; empty = SDK UA. */
   getUpstreamUserAgents?: () => Partial<Record<UpstreamAgentCore, string>> | undefined;
   /** Eco fallback UA (`Eco-Coding/<version> (<platform> <release>; <arch>)`). */
   getDefaultUpstreamUserAgent?: () => string | undefined;

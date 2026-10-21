@@ -40,7 +40,7 @@ Recommended setup order:
 2. Add a provider under Settings -> Model Providers.
 3. Add at least one candidate model and run the connection test.
 4. Create a lead config, optional prompt, and subagent orchestration under Runtime Configuration.
-5. Select Codex or Claude Code as the default Core for new sessions.
+5. Select Codex or Claude Code as the default Harness for new sessions.
 6. Return to the project, create a session, and choose Agent, Plan, or Ask.
 
 API keys use system secure storage. If secure storage is unavailable, Eco reports the limitation instead of pretending the key was stored securely.
@@ -66,7 +66,7 @@ Do not duplicate full `/v1/messages`, `/v1/responses`, or `/v1/chat/completions`
 
 Run a connection test after saving. A successful test confirms the selected address, protocol, key, and model can complete the test request; it does not prove support for every tool, vision, or long-context feature.
 
-## 4. Choose an Agent Core
+## 4. Choose a Harness
 
 - **Codex** uses the OpenAI Codex runtime.
 - **Claude Code** uses the Claude Agent SDK / Claude Code runtime.
@@ -74,7 +74,7 @@ Run a connection test after saving. A successful test confirms the selected addr
 
 Mid-turn steer: follow-ups sent while a PI session is running are injected into the current turn via `AgentSession.steer()` (delivered before the next model call). When the session is idle or the run ends right as delivery lands, the message stays queued and is sent as a fresh turn after the run — Eco never pretends it was injected.
 
-Set a default for new sessions or choose per session. Switching Core changes native tools, approvals, and resume semantics. Existing running sessions do not switch when the global default changes.
+Set a default for new sessions or choose per session. Switching Harness changes native tools, approvals, and resume semantics. Existing running sessions do not switch when the global default changes.
 
 ## 5. Build an Agent Team
 
@@ -86,7 +86,7 @@ Choose the provider, model, reasoning effort, tools, and Skills. The lead agent 
 
 ### Lead prompt
 
-Following the Core's built-in prompt is the recommended default. Add a custom prompt only for team-specific behavior. Repository coding rules belong in project files such as `AGENTS.md` or `CLAUDE.md`.
+Following the Harness's built-in prompt is the recommended default. Add a custom prompt only for team-specific behavior. Repository coding rules belong in project files such as `AGENTS.md` or `CLAUDE.md`.
 
 ### Subagent orchestration
 
@@ -110,7 +110,7 @@ A practical starting point is a quality-first lead, low-latency Explore and Test
 - **Plan:** native planning followed by Eco plan approval and continuation.
 - **Ask:** explicit read-only explanation and analysis.
 
-The Composer can select Core, runtime configuration, lead and vision models, MCP servers, Skills, browser/image integrations, Bash Review, and planning behavior for the current session. These choices are stored with the session instead of being injected into every project.
+The Composer can select Harness, runtime configuration, lead and vision models, MCP servers, Skills, browser/image integrations, Bash Review, and planning behavior for the current session. These choices are stored with the session instead of being injected into every project.
 
 ## 7. MCP and Skills
 
@@ -131,9 +131,9 @@ Eco discovers project Skills from:
 .pi/skills/<name>/SKILL.md
 ```
 
-Compatible Skills can also be browsed and installed from the Skills UI. Project Skills belong to the current project; personal Skills require explicit selection. Core-specific readiness and required links are shown in the UI.
+Compatible Skills can also be browsed and installed from the Skills UI. Project Skills belong to the current project; personal Skills require explicit selection. Harness-specific readiness and required links are shown in the UI.
 
-PI Core also loads session-private skills from `pi-agent/<threadId>/skills` and user-level `~/.pi/agent/skills`. Session transcripts live under the same thread tree at `pi-agent/<threadId>/sessions/` and can be metered/cleared in Settings → Storage; **All PI sessions** deletes those Eco chats from the sidebar, not only the on-disk files. Session toggles control injection visibility only; skill files in a shared workspace may still be readable via `read`/`bash` — this is not OS-level isolation.
+PI Harness also loads session-private skills from `pi-agent/<threadId>/skills` and user-level `~/.pi/agent/skills`. Session transcripts live under the same thread tree at `pi-agent/<threadId>/sessions/` and can be metered/cleared in Settings → Storage; **All PI sessions** deletes those Eco chats from the sidebar, not only the on-disk files. Session toggles control injection visibility only; skill files in a shared workspace may still be readable via `read`/`bash` — this is not OS-level isolation.
 
 ## 8. Vision, image generation, and ASR
 
@@ -257,6 +257,6 @@ Confirm both devices use the same Supabase project, the binding is active, and R
 
 ## 14. Getting help
 
-An actionable Issue includes the Eco version, operating system, Agent Core, provider protocol, redacted model ID, reproduction steps, relevant errors, and whether a fresh session/minimal project reproduces the problem.
+An actionable Issue includes the Eco version, operating system, Harness, provider protocol, redacted model ID, reproduction steps, relevant errors, and whether a fresh session/minimal project reproduces the problem.
 
 Never submit API keys, access tokens, private source code, or a full database containing personal data.

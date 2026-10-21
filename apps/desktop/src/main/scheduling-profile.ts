@@ -8,7 +8,7 @@ export function freezeSchedulingProfile(
   settings: ModelSettingsSnapshot,
   resolveRoutes: (config: ThreadRuntimeConfig) => RuntimeRoleRouteConfig[],
 ): ScheduleExecutionProfile {
-  if (!profile || !isCoreKind(profile.coreKind)) throw new Error("请选择有效的 AgentCore。");
+  if (!profile || !isCoreKind(profile.coreKind)) throw new Error("请选择有效的 Harness。");
   if (!profile.runtimeConfig || typeof profile.runtimeConfig !== "object") throw new Error("任务缺少运行配置。");
   const config = normalizeThreadRuntimeConfig(profile.runtimeConfig);
   if (profile.coreKind === "acp") {

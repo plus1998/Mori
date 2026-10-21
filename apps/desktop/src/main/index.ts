@@ -13539,7 +13539,7 @@ function pinSchedulingProfile(profile: ScheduleExecutionProfile): ScheduleExecut
 }
 
 function validateSchedulingProfile(profile: ScheduleExecutionProfile): void {
-  if (!profile || !isCoreKind(profile.coreKind)) throw new Error("AgentCore 不可用。");
+  if (!profile || !isCoreKind(profile.coreKind)) throw new Error("Harness 不可用。");
   if (profile.coreKind === "acp") {
     if (!profile.runtimeConfig.cursorModelId?.trim()) throw new Error("Cursor 任务缺少固定模型。");
     return;
@@ -13702,15 +13702,15 @@ async function startNewThread(
   const attachmentsForHandOff = attachments.length ? await loadPromptAttachmentsForRuntime(attachments) : [];
   const coreKind = payload.coreKind ?? "claude";
   if (!isCoreKind(coreKind)) {
-    throw new Error(`Unsupported Core: ${String(payload.coreKind)}`);
+    throw new Error(`Unsupported Harness: ${String(payload.coreKind)}`);
   }
   if (coreKind === "codex" && !isCodexCliAvailable()) {
-    throw new Error("Codex Core 不可用：未找到可执行的 Codex CLI。请安装工作区依赖或设置 CODEX_EXECUTABLE。");
+    throw new Error("Codex Harness 不可用：未找到可执行的 Codex CLI。请安装工作区依赖或设置 CODEX_EXECUTABLE。");
   }
   if (coreKind === "pi") {
     const pi = await probePiCoreAvailability();
     if (!pi.available) {
-      throw new Error(pi.reason ?? "PI Core 不可用。");
+      throw new Error(pi.reason ?? "PI Harness 不可用。");
     }
   }
   if (coreKind === "acp") {
@@ -13856,7 +13856,7 @@ async function startPreparedThreadContinuation(
     throw new Error("Thread was not found.");
   }
   if (!thread.coreKind) {
-    throw new Error(`Thread ${thread.id} has unknown Core ownership.`);
+    throw new Error(`Thread ${thread.id} has unknown Harness ownership.`);
   }
   // Pause means new prompts join the queue; do not start a run ahead of it.
   // Rewind is allowed (explicit edit of history) and still must not drain while paused.
@@ -15320,7 +15320,7 @@ async function getThreadUserMessageEdit(
       capability: {
         status: "unavailable",
         reasonCode: "unsupported_core",
-        reason: "当前核心不支持历史消息改写。",
+        reason: "当前 Harness 不支持历史消息改写。",
       },
     };
   }
@@ -15403,7 +15403,7 @@ async function retryThreadFromFailedRequest(input: {
     throw new Error("Thread was not found.");
   }
   if (!supportsOneClickRequestRetry(thread.coreKind)) {
-    throw new Error("当前核心不支持一键重试失败请求。");
+    throw new Error("当前 Harness 不支持一键重试失败请求。");
   }
   if (input.continueInterrupted && (thread.coreKind !== "codex" || !input.sourceAttemptId?.trim())) {
     throw new Error("Codex 继续需要有效的原执行标识。");

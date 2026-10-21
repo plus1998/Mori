@@ -90,7 +90,7 @@ export function ProxySettingsPanel({
     }
   }
 
-  // 逐个 Agent Core 保存；清空某个 core 即回退到该项目 SDK 自己的 User-Agent。
+  // 逐个 Harness 保存；清空某个 core 即回退到该项目 SDK 自己的 User-Agent。
   function commitCoreUserAgents() {
     const next: Partial<Record<UpstreamAgentCore, string>> = {};
     for (const core of UPSTREAM_AGENT_CORES) {

@@ -27,10 +27,10 @@ flowchart LR
 | Path | Responsibility |
 | --- | --- |
 | `apps/desktop` | Electron main, preload, React UI, local agent execution, packaging |
-| `apps/gateway` | Routes or converts Agent Core traffic to supported upstream protocols |
+| `apps/gateway` | Routes or converts Harness traffic to supported upstream protocols |
 | `supabase/` | User-owned Auth, devices/pairing, Realtime RPC, settings sync |
 | `apps/mobile` | Flutter remote client; it does not edit code on the phone |
-| `packages/runtime` | Core adapters, session modes, context, billing, subagent runtime |
+| `packages/runtime` | Harness adapters, session modes, context, billing, subagent runtime |
 | `packages/shared` | Cross-client protocol constants and shared types |
 | `packages/openai-anthropic-bridge` | OpenAI / Anthropic request and stream conversion |
 | `packages/model-router` | Model and role routing |
@@ -38,24 +38,24 @@ flowchart LR
 
 ## 2. Desktop process boundaries
 
-The React Renderer owns projects, conversations, settings, activity feeds, approvals, diffs, and usage views. It does not read secrets or spawn model processes directly. A context-isolated preload exposes typed IPC, and Electron Main owns all privileged operations: Core workers, model routing, Git, terminals, persistence, integrations, device RPC, and updates. Rewind truncates conversation history only; Eco does not snapshot or restore workspace files.
+The React Renderer owns projects, conversations, settings, activity feeds, approvals, diffs, and usage views. It does not read secrets or spawn model processes directly. A context-isolated preload exposes typed IPC, and Electron Main owns all privileged operations: Harness workers, model routing, Git, terminals, persistence, integrations, device RPC, and updates. Rewind truncates conversation history only; Eco does not snapshot or restore workspace files.
 
-## 3. Agent Cores
+## 3. Harnesses
 
-`ThreadRuntimeCoordinator` dispatches `claude`, `codex`, and `pi` cores (`CoreKind`). Every conversation persists its own `coreKind`, so one project can contain sessions backed by different runtimes.
+`ThreadRuntimeCoordinator` dispatches `claude`, `codex`, and `pi` Harnesses (`CoreKind`). Every conversation persists its own `coreKind`, so one project can contain sessions backed by different runtimes.
 
 **PI (v1) boundary:** in-process `@earendil-works/pi-coding-agent` **1.0.3** SDK + Eco Gateway models; Eco Agent-tool subagents from the thread orchestration snapshot (capability=`eco`); tool approval capability=`eco` (`tool_call` → `createThreadToolPermissionHandler`); session modes Agent/Plan/Ask; plan approval capability=`eco` (`finalize_plan` → `plan.ready` persists a pending plan, the turn ends, user approves asynchronously then a new Agent turn runs; quit does not clear pending plans); Ask/Plan use read-only tools + read-only bash allowlist (not an OS sandbox; `read` goes through Eco workspace-scope policy — allow inside, ask outside; read-only bash remains mode-layer allowlisted); **not wired:** optional Windows `powershell` tool (community optional escape hatch when Git Bash is missing; Eco has no PS read-only Ask/Plan policy yet); **not wired:** `SessionManager.inMemory(entries)` restore (parent/child sessions stay on disk JSONL); **not enabled:** `compat.supportsMidConvoEffort` (pi docs require a faithful Anthropic Messages Claude transport; Eco Bridge/Gateway is not that); `ui_prompt_*` / `session_compact_failed` extension events are not bridged separately (approvals use Eco tool permissions; compaction failures already map from session `compaction_end`). No Eco compact/rewind handoff (PI native `compaction.enabled` owns compact; `pi-smart-compact` is not installed; 0.84.4+ compacts large tool results in-turn before the next provider call). Skills and MCP are Eco-injected per session (`skills: "eco"` / `mcp: "eco"`): discover `.agents/skills` and `.pi/skills` (plus `~/.agents/skills` / `~/.pi/agent/skills`), filter by thread `skillsEnabled`, and pass paths into the PI `ResourceLoader` with `includeDefaults: false`. MCP uses the **official** `createMcpExtension` fed from an in-memory snapshot with Composer-selected servers plus built-in integrations (browser/image) — `mcp.json` / `~/.pi` are neither read nor merged, and `updateConfig` fails loudly instead of pretending to write back (Eco owns no file to write to). Server tools surface under the official `mcp__<server>__<tool>` names; Eco hands the model only the Hub's `mcp__eco_mcp__search_tools` / `mcp__eco_mcp__call_tool` and sets exposure to `direct` (the official default, `codemode`, would hide the Hub behind a sandbox). Millisecond timeouts are converted to the official seconds, and SSE servers stay in the Eco MCP Hub. **Codemode** is registered via the official `createCodemodeExtension({ mode: "on", models: false })`; the tool is named `codemode` and appears only in the Agent allowlist. The sandbox reaches exactly the tools the session already allowed (minus `codemode` itself, so a script cannot re-enter it). Nested calls a script makes are flagged by PI with `parentToolCallId` (ids look like `<parent id>/<n>`), and the event bridge keeps that as `parent_tool_call_id` — deliberately **not** `parent_tool_use_id`, which means subagent ownership everywhere in Eco; a nested call carrying it would be treated as a subagent row and dropped from the timeline. `structuredContent` on a tool result is carried through as well. The pre-0.85.1 `mcp` / `mcpScript` tool names survive only on the replay-parsing path; new turns never emit them. Settings → Personalization global rules are injected into the parent session via `appendSystemPrompt` (before browser/image guidance); they are written into the ResourceLoader only when a session is created or rebuilt, so hot reuse does not refresh them when rules change; subagents use template prompts and do not receive global rules. Subagents are isolated `AgentSession`s under `pi-agent/<threadId>/subagents/<agentId>/` (empty history, no nesting) using that agent's Gateway model alias with no planner fallback. Each thread owns `ecoDataDir/pi-agent/<threadId>/` (private skill mounts, persisted `sessions/*.jsonl`, auth/models cache); Eco does **not** use the `~/.pi` default session directory. The in-process registry reuses the same `AgentSession` on the hot path; cold start opens the JSONL via `SessionManager.open` when identity + MCP fingerprints match. MCP set or cwd/provider/model/apiCompat/routes changes recreate an empty session and prune that thread's old jsonl files. Route `thinkingEffort` maps to PI `thinkingLevel` (`off`/`low`/`medium`/`high`/`xhigh`/`max` 1:1; unset or unknown fail-closes to `off`); `model.reasoning=true` and the identity fingerprint includes `:te=` only when not `off`, otherwise PI does not send thinking fields and the fingerprint stays compatible with older sessions. Eco has no PI `minimal` level and never emits it. Deleting a thread removes its `pi-agent/<threadId>` tree; Storage → All PI sessions deletes those Eco chats (they leave the sidebar) and clears `pi-agent/` (running/queued PI threads are skipped). Idle sessions hot-reload skills on the next run via `AgentSession.reload`; running sessions still block config edits. This is **visibility isolation**, not OS filesystem isolation — PI still has `read`/`bash`, so skill files in a shared workspace may remain readable. Built-in tools resolve paths against session `ctx.cwd` (PI 0.85.0+; multi-session in-process no longer uses stale create-time cwd).
 
 **PI mid-turn steer:** follow-ups sent while a PI thread is running are injected into the current turn via `AgentSession.steer()` (delivered before the next model call, without starting a new turn). It is accepted only while the in-process parent session is streaming; when the session is idle, or when the run ends right before delivery, `createPiMidTurnHandle` reclaims the orphaned queue entry and fails closed, so Eco keeps the queued row and the post-run drain sends it as a fresh turn. Subagent sessions never answer thread-level steer.
 
-The adapter layer describes Agent / Plan / Ask modes, compaction, conversation rewind (workspace files are not restored), approvals, MCP, Skills, and subagents. Eco preserves native Core behavior where possible and explicitly labels capabilities implemented by Eco or unavailable instead of presenting them as native.
+The adapter layer describes Agent / Plan / Ask modes, compaction, conversation rewind (workspace files are not restored), approvals, MCP, Skills, and subagents. Eco preserves native Harness behavior where possible and explicitly labels capabilities implemented by Eco or unavailable instead of presenting them as native.
 
 ## 4. Multi-agent orchestration
 
 A runtime configuration consists of:
 
 1. `MainAgentConfigResource`: lead model, tools, Skills, and capability policy.
-2. `MainAgentPromptResource`: optional appended prompt; the default follows the Core preset.
+2. `MainAgentPromptResource`: optional appended prompt; the default follows the Harness preset.
 3. `SubagentOrchestrationResource`: subagent roster, models, MCP, Skills, and guidance.
 
 These resources resolve into a `ResolvedOrchestrationSnapshot` when a session is created or switched. Running sessions use the snapshot so later template edits do not silently change active work.
@@ -90,27 +90,27 @@ For Codex, the MCP transport descriptor (`url` / `http_headers`, or `command` / 
 
 ## 7. Context management
 
-Context control has three layers, aligned with Codex semantics but implemented per Core:
+Context control has three layers, aligned with Codex semantics but implemented per Harness:
 
 ### 7.1 Tool-output history pruning (Codex TruncationPolicy)
 
 - **Default limit**: about `10_000` tokens, with a ×`1.2` serialization budget (same as Codex `ContextManager::record_items`).
 - **Shape**: middle-truncate plus a `Warning: truncated output…` header (`codex-output-truncation` in `@eco/runtime`).
-- **Claude Core**: a `PostToolUse` hook rewrites oversized results via `updatedToolOutput` before they enter the SDK transcript / model context.
+- **Claude Harness**: a `PostToolUse` hook rewrites oversized results via `updatedToolOutput` before they enter the SDK transcript / model context.
 - **Bridge defense**: upstream Anthropic `tool_result` blocks (and Responses `function_call_output`) are pruned again for old sessions and non-hook paths.
 - **UI previews** (for example Bash 8k-character previews) are separate from model-history pruning and do not share the same budget.
 
-### 7.2 Semantic compaction (owned by each Core)
+### 7.2 Semantic compaction (owned by each Harness)
 
-Eco **does not run semantic compact**. Each Core uses its own local auto-compaction. Eco only projects occupancy and compact events, and blocks upstream cloud compact APIs that custom models do not implement.
+Eco **does not run semantic compact**. Each Harness uses its own local auto-compaction. Eco only projects occupancy and compact events, and blocks upstream cloud compact APIs that custom models do not implement.
 
-| Core | Auto-compact | Eco's role |
+| Harness | Auto-compact | Eco's role |
 |---|---|---|
 | Claude | Agent SDK `autoCompactEnabled` + `autoCompactWindow=min(model, global)`: in-process summary + `compact_boundary`, same session | Enable the flag and write the effective window; `[1m]` aliases also follow the effective window; strip `compact_20260112`; Bridge does not forward `/v1/responses/compact` |
 | Codex | app-server local compact (custom provider name, not remote `/responses/compact`) | Catalog `context_window` already mins the global cap; project `contextCompaction`; Gateway translates summary requests to third-party models |
 | PI | SDK native `compaction.enabled`; trigger is `contextTokens > contextWindow - reserveTokens` | `Model.contextWindow = min(model, global)`; does not install `pi-smart-compact` |
 
-The manual compact control is removed. The occupancy meter displays Core-reported occupied/limit; Eco no longer schedules compaction at an 85% threshold.
+The manual compact control is removed. The occupancy meter displays Harness-reported occupied/limit; Eco no longer schedules compaction at an 85% threshold.
 
 ### 7.3 Upstream compact shields
 

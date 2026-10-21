@@ -61,7 +61,7 @@ export async function probePiCoreAvailability(): Promise<PiCoreAvailability> {
     const message = error instanceof Error ? error.message : String(error);
     cached = {
       available: false,
-      reason: `PI Core 不可用：无法加载 @earendil-works/pi-coding-agent（${message}）。`,
+      reason: `PI Harness 不可用：无法加载 @earendil-works/pi-coding-agent（${message}）。`,
     };
     return cached;
   }

@@ -145,7 +145,7 @@ function resolveAgentCore(
 }
 
 /**
- * Stamp which agent core issued this request so the gateway can pick a per-core
+ * Stamp which Harness issued this request so the gateway can pick a per-core
  * upstream User-Agent (Codex / Claude Code / PI).
  */
 function stampAgentCoreHeader(headers: Headers, face: "responses" | "messages" | "chat_completions"): void {
@@ -280,7 +280,7 @@ async function forwardWithResolvedRoute(
 
   const model = typeof body.model === "string" ? body.model : undefined;
   const headers = new Headers(request.headers);
-  // Stamp the issuing agent core so the gateway can apply a per-core User-Agent.
+  // Stamp the issuing Harness so the gateway can apply a per-core User-Agent.
   stampAgentCoreHeader(headers, face);
   let clientModel = model?.trim();
 

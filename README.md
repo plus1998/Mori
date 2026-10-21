@@ -58,7 +58,7 @@ bun run dev
 
 | 领域 | 能力 |
 | --- | --- |
-| Agent Core | Codex、Claude Code、PI；每个会话独立选择 |
+| Harness | Codex、Claude Code、PI；每个会话独立选择 |
 | 编排 | 自定义主代理、子代理 roster、模型和工具策略 |
 | 模型路由 | 多服务商；Responses / Messages / Chat Completions |
 | 会话模式 | Agent、Plan、Ask |
@@ -78,7 +78,7 @@ bun run dev
 
 ## 特点
 
-- **三 Agent Core**：Codex、Claude Code、PI 按会话选择；同一项目可并行跑不同内核。
+- **三种 Harness**：Codex、Claude Code、PI 按会话选择；同一项目可并行跑不同 Harness。
 - **会话级隔离**：MCP、Skills、浏览器、创意绘画按会话开启；自动发现项目级 Skills。
 - **多协议网关**：OpenAI Responses、Anthropic Messages、Chat Completions 及本地兼容接口。
 - **独立视觉与集成**：视觉任务单独指定模型；支持创意绘画 API 与移动端 ASR。
@@ -152,7 +152,7 @@ apps/
   mobile/                     Flutter 移动端
 supabase/                     用户自建 Supabase：migration + Edge Functions
 packages/
-  runtime/                    Agent Core、上下文与编排运行时
+  runtime/                    Harness、上下文与编排运行时
   shared/                     跨端协议和共享类型
   openai-anthropic-bridge/    OpenAI / Anthropic 协议转换
   model-router/               模型路由

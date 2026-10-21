@@ -13497,7 +13497,7 @@ function App() {
                             delete merged.upstreamProxyUrl;
                           }
                         }
-                        // 按 Agent Core 单独覆盖：空串 = 清除该 core，回退到 SDK 自己的 UA。
+                        // 按 Harness 单独覆盖：空串 = 清除该 core，回退到 SDK 自己的 UA。
                         if (next.upstreamUserAgents !== undefined) {
                           const perCore: Partial<Record<UpstreamAgentCore, string>> = {};
                           for (const core of UPSTREAM_AGENT_CORES) {

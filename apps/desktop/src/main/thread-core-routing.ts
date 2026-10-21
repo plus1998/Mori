@@ -8,7 +8,7 @@ export function requireThreadCore(
 ): void {
   if (!thread.coreKind) {
     throw new Error(
-      `CORE_MIGRATION_UNKNOWN: Thread ${thread.id} has no reliable Core ownership; cannot ${operation}.`,
+      `CORE_MIGRATION_UNKNOWN: Thread ${thread.id} has no reliable Harness ownership; cannot ${operation}.`,
     );
   }
   if (thread.coreKind !== expectedCore) {
