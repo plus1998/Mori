@@ -71,12 +71,15 @@ export function withDynamicOutputBudget(
       if (!Number.isSafeInteger(count.tokens) || count.tokens < 0) {
         throw new Error("Dynamic max output requires a valid current input token count.");
       }
-      const remaining = window - count.tokens - 1;
+      // Character estimates can undercount substantially; reserve headroom based on
+      // the counter's actual precision rather than treating it as an exact tokenizer.
+      const reserve = count.precision === "heuristic" ? Math.max(8_192, Math.ceil(window / 10)) : 1_024;
+      const remaining = window - count.tokens - reserve;
       if (remaining < 1) {
         return Response.json(
           {
             error: {
-              message: `Context window exhausted: window=${window}, input=${count.tokens}, reserve=1. Compact the input before retrying.`,
+              message: `Context window exhausted: window=${window}, input=${count.tokens}, reserve=${reserve}. Compact the input before retrying.`,
               type: "invalid_request_error",
               code: "context_length_exceeded",
             },
@@ -116,7 +119,7 @@ export function withDynamicOutputBudget(
         );
       }
       onLog(
-        `dynamic output provider=${route.provider.id} model=${route.upstreamModelId} window=${window} input=${count.tokens} precision=${count.precision} source=${count.source} remaining=${remaining} applied=${body[field]}`,
+        `dynamic output provider=${route.provider.id} model=${route.upstreamModelId} window=${window} input=${count.tokens} precision=${count.precision} source=${count.source} reserve=${reserve} remaining=${remaining} applied=${body[field]}`,
       );
       return fetcher(url, { ...init, body: JSON.stringify(body) });
     } catch (error) {

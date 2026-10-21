@@ -113,7 +113,7 @@ await fs.writeFile(
     {
       kind: "real SDK/CLI; deterministic local upstream; no remote model calls",
       formula:
-        "min(effective window - current full input tokens - 1, model output ceiling); replaces SDK request defaults",
+        "min(effective window - current full input tokens - reserve, model output ceiling); heuristic reserve=max(8192, ceil(window/10)), exact reserve=1024; replaces SDK request defaults",
       inputCounting: "Production local_heuristic provider mode; estimates are not exact tokenizer counts",
       ok: report.every((c) => c.ok),
       cells: report,
@@ -130,7 +130,7 @@ await fs.writeFile(
   [
     "# 每次请求动态输出验证",
     "",
-    "公式：min(有效窗口 − 本次完整输入 tokens − 1, 模型输出上限)。有效窗口为 min(模型窗口, 全局上下文上限)。动态模式覆盖 SDK 请求中的缺省输出值。",
+    "公式：min(有效窗口 − 本次完整输入 tokens − 安全预留, 模型输出上限)。估算计数预留 max(8192, ceil(有效窗口/10))，精确计数预留 1024。有效窗口为 min(模型窗口, 全局上下文上限)。动态模式覆盖 SDK 请求中的缺省输出值。",
     "",
     "真实 Claude SDK/CLI、Codex app-server、PI SDK；每组都实际启动并验证五个子 agent 完成。上游为本地模拟服务。输入计数使用生产 local_heuristic 模式，属于估算。",
     "",

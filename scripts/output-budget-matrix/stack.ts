@@ -255,7 +255,8 @@ export function assertTraceBudgets(traces: Trace[]) {
       contextTokens: windows[i]!,
       modelMaxOutputTokens: modelOutputs[i]!,
     });
-    const expected = Math.min(ceiling, windows[i]! - trace.input - 1);
+    const reserve = trace.precision === "heuristic" ? Math.max(8_192, Math.ceil(windows[i]! / 10)) : 1_024;
+    const expected = Math.min(ceiling, windows[i]! - trace.input - reserve);
     if (typeof trace.output !== "number" || trace.output !== expected || trace.output < 1)
       throw new Error(
         `${trace.role}/${trace.protocol}: expected ${expected} with input=${trace.input}, received ${trace.output}`,
