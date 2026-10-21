@@ -8213,20 +8213,16 @@ function App() {
   ) {
     if (!activeThread || isStarting || !window.eco) return;
     const threadId = activeThread.id;
-    const expectedHistoryRevision = displayProjection?.historyRevision ?? 0;
     setIsStarting(true);
     setError(undefined);
     try {
-      const result = await window.eco.continueCodexThread({
-        principalId: "desktop-local",
-        clientCommandId: `codex_continue_${stableHash({ threadId, sourceAttemptId: target.sourceAttemptId })}`,
-        threadId,
+      const command = await buildV2CommandEnvelope(threadId, "codex_continue", {
         activityLineId: target.activityLineId,
         prompt: target.prompt,
         hasImages: target.hasImages,
         sourceAttemptId: target.sourceAttemptId,
-        expectedHistoryRevision,
       });
+      const result = await window.eco.continueCodexThread(command);
       setThreads((current) =>
         current.map((thread) => (thread.id === result.thread.id ? result.thread : thread)),
       );
@@ -8254,7 +8250,6 @@ function App() {
       return;
     }
     const threadId = activeThread.id;
-    const historyRevision = displayProjection?.historyRevision ?? 0;
     const useRewrite = usesRewindOnRequestRetry(activeThread.coreKind);
     setError(undefined);
     requestActivityFeedForceScroll();
@@ -8262,21 +8257,12 @@ function App() {
     }
     setIsStarting(true);
     try {
-      const result = await window.eco.retryThreadFromMessage({
-        principalId: "desktop-local",
-        clientCommandId: `history_retry_${stableHash({
-          threadId,
-          activityLineId: target.activityLineId,
-          prompt: target.prompt,
-          hasImages: target.hasImages,
-          expectedHistoryRevision: historyRevision,
-        })}`,
-        threadId,
+      const command = await buildV2CommandEnvelope(threadId, "history_retry", {
         activityLineId: target.activityLineId,
         prompt: target.prompt,
         hasImages: target.hasImages,
-        expectedHistoryRevision: historyRevision,
       });
+      const result = await window.eco.retryThreadFromMessage(command);
       setThreads((current) =>
         current.map((thread) => (thread.id === result.thread.id ? result.thread : thread)),
       );

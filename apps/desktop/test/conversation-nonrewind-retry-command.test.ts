@@ -10,6 +10,7 @@ import {
   resolveNonRewindRetryUserMessage,
 } from "../src/main/conversation-nonrewind-retry-command";
 import { ConversationV2Store } from "../src/main/conversation-v2-store";
+import { buildConversationV2CommandEnvelope } from "../src/renderer/conversation-v2-command-envelope";
 import type { ThreadSummary } from "../src/shared/ipc";
 
 function harness(coreKind: "codex" | "acp" = "codex") {
@@ -53,8 +54,8 @@ function harness(coreKind: "codex" | "acp" = "codex") {
       starts += 1;
       expect(startInput.skipRecordUserPrompt).toBe(true);
       expect(startInput.preparedRuntimeDispatch.commandDispatch).toMatchObject({
-        principalId: input.principalId,
-        clientCommandId: input.clientCommandId,
+        principalId: startInput.historyCommand.principalId,
+        clientCommandId: startInput.historyCommand.clientCommandId,
       });
       return { thread: { ...thread, status: "running" as const } };
     },
@@ -173,6 +174,44 @@ describe("non-rewind retry command", () => {
     });
     state.db.close();
   });
+
+  for (const continueInterrupted of [false, true]) {
+    test(`a new ${continueInterrupted ? "continuation" : "retry"} after cancellation dispatches again at the same history revision`, async () => {
+      const state = harness();
+      const command = async () => ({
+        ...state.input,
+        ...(continueInterrupted ? { continueInterrupted: true, sourceAttemptId: "same_failed_attempt" } : {}),
+        ...(await buildConversationV2CommandEnvelope({
+          threadId: state.thread.id,
+          operation: continueInterrupted ? "codex_continue" : "history_retry",
+          payload: {},
+          getHead: async (threadId) => state.v2.head(threadId),
+        })),
+      });
+      try {
+        const first = await command();
+        await executeNonRewindRetryCommand(first, state.deps);
+        state.v2.failCommand(first.principalId, first.threadId, first.clientCommandId, {
+          code: "runtime_cancelled",
+          status: "cancelled",
+        });
+        await expect(executeNonRewindRetryCommand(first, state.deps)).rejects.toThrow("runtime_cancelled");
+        expect(state.starts()).toBe(1);
+
+        const next = await command();
+        expect(next.clientCommandId).not.toBe(first.clientCommandId);
+        expect(next.expectedHistoryRevision).toBe(first.expectedHistoryRevision);
+        await executeNonRewindRetryCommand(next, state.deps);
+        await executeNonRewindRetryCommand(next, state.deps);
+        expect(state.starts()).toBe(2);
+        expect(state.v2.getCommandJob(next.principalId, next.threadId, next.clientCommandId)).toMatchObject({
+          status: "running",
+        });
+      } finally {
+        state.db.close();
+      }
+    });
+  }
 
   test("rejects the same command id with changed client input", async () => {
     const state = harness("acp");

@@ -640,7 +640,12 @@ function openaiChatErrorResponse(input: {
       body.error.message,
     ].join(" · ");
   }
+  const headers = new Headers();
+  if (typeof body.error.code === "string" && body.error.code.trim()) {
+    headers.set("x-eco-upstream-error-code", body.error.code.trim());
+  }
   return Response.json(body, {
     status: input.status >= 400 && input.status < 600 ? input.status : 502,
+    headers,
   });
 }

@@ -113,14 +113,17 @@ export function upstreamErrorResponse(input: {
   bodyText: string;
 }): Response {
   const message = formatUpstreamHttpError(input);
-  const errorCode = extractUpstreamErrorCode(input.bodyText);
+  const errorInfo = extractUpstreamErrorInfo(input.bodyText);
+  const errorCode = errorInfo?.code;
   const headers = new Headers({ "content-type": "application/json" });
   if (errorCode) headers.set("x-eco-upstream-error-code", errorCode);
   return Response.json(
     {
       error: {
         message,
-        type: "upstream_error",
+        type: errorInfo?.type ?? "upstream_error",
+        ...(errorCode ? { code: errorCode } : {}),
+        ...(errorInfo?.param ? { param: errorInfo.param } : {}),
         providerId: input.route.provider.id,
         model: input.route.upstreamModelId,
         url: input.upstreamUrl,

@@ -28,10 +28,7 @@ import {
   reportLogicalUpstreamFailure,
   tryEmitLogicalCompleted,
 } from "../request-lifecycle.js";
-import {
-  credentialResolutionErrorResponse,
-  resolveRouteCredential,
-} from "../route-credentials.js";
+import { credentialResolutionErrorResponse, resolveRouteCredential } from "../route-credentials.js";
 import type { GatewayLogFn } from "../server.js";
 import {
   codexToolArgumentFailureCircuitBreaker,
@@ -52,8 +49,10 @@ import { fetchUpstreamWithRetry } from "../upstream/fetch-with-retry.js";
 import { forwardOpenAIChat } from "../upstream/openai-chat.js";
 import { readUpstreamRequestId } from "../upstream/request-id-headers.js";
 import { forwardResponsesPassthrough } from "../upstream/responses-passthrough.js";
+import { responsesFailedSse } from "../upstream/responses-stream-errors.js";
 import {
   extractUpstreamErrorInfo,
+  extractUpstreamErrorMessage,
   formatUpstreamHttpError,
   upstreamErrorResponse,
 } from "../upstream/upstream-error.js";
@@ -236,6 +235,25 @@ export async function handlePostResponses(
       const _exhaustive: never = route.upstreamKind;
       return _exhaustive;
     }
+  }
+  // Codex classifies a JSON HTTP 400 as an opaque transport failure, even when
+  // its body carries context_length_exceeded. A failed Responses event reaches
+  // native compaction's input-reduction path; keep the original failed lifecycle.
+  if (
+    body.stream === true &&
+    upstreamResponse.status === 400 &&
+    upstreamResponse.headers.get("x-eco-upstream-error-code") === "context_length_exceeded"
+  ) {
+    const message = extractUpstreamErrorMessage(await upstreamResponse.text());
+    const headers = new Headers(upstreamResponse.headers);
+    headers.set("content-type", "text/event-stream");
+    headers.set("cache-control", "no-cache");
+    headers.delete("content-length");
+    onLog(`responses context overflow delivered as response.failed provider=${route.provider.id}`);
+    return new Response(responsesFailedSse(message, "context_length_exceeded"), {
+      status: 200,
+      headers,
+    });
   }
   return normalizeResponsesToolArgumentResponse(upstreamResponse, hubNamespace);
 }
