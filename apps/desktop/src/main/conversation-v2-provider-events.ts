@@ -718,6 +718,7 @@ function mergeLegacyToolMetadata(
   const metadataKeys = [
     "detail",
     "description",
+    "processId",
     "readTarget",
     "grepTarget",
     "fileChange",

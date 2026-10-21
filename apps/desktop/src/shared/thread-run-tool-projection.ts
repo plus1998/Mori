@@ -93,6 +93,7 @@ export function projectThreadRunToolMetadata(
         outputPreviewTruncated: true,
       }),
     ...(tool.toolUseId?.trim() && { toolUseId: tool.toolUseId.trim() }),
+    ...(tool.processId?.trim() && { processId: tool.processId.trim() }),
     ...(tool.durationMs !== undefined && Number.isFinite(tool.durationMs) && { durationMs: tool.durationMs }),
     ...(tool.exitCode !== undefined && Number.isFinite(tool.exitCode) && { exitCode: tool.exitCode }),
     ...(isThreadRunToolStatus(tool.status) && { status: tool.status }),

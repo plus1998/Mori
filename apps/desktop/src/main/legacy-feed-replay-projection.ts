@@ -119,6 +119,7 @@ function trimToolMetadata(value: unknown): unknown {
     "name",
     "detail",
     "toolUseId",
+    "processId",
     "durationMs",
     "status",
     "description",

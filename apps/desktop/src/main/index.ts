@@ -303,6 +303,7 @@ import {
   isBackgroundTerminalStartRequest,
   isBackgroundTerminalStopRequest,
   isBusyMutableOnlyRuntimeConfigUpdate,
+  isCodexBackgroundTerminalTerminateRequest,
   isGitCommitRequest,
   isGitFetchRequest,
   isGitGenerateCommitMessageRequest,
@@ -546,6 +547,7 @@ import { type AsrSecretCodec, type AsrSettingsStore, createAsrSettingsStore } fr
 import { resolveAuxiliaryModelRoute } from "./auxiliary-model-route";
 import { BackgroundTerminalTaskRegistry } from "./background-terminal-tasks";
 import { resolveBashApprovalAgentId } from "./bash-approval-agent-id.js";
+import { CodexBackgroundTerminalService } from "./codex-background-terminals";
 import {
   approveAllPendingBashApprovalsForThread,
   type BashApprovalResolution,
@@ -1448,6 +1450,7 @@ function broadcastPackageScriptTerminalLaunch(payload: {
   });
 }
 let backgroundTerminalTaskRegistry: BackgroundTerminalTaskRegistry;
+let codexBackgroundTerminalService: CodexBackgroundTerminalService | undefined;
 const systemSleepBlocker = new SystemSleepBlocker(powerSaveBlocker);
 let applicationShutdownDeps: ApplicationShutdownDeps | undefined;
 
@@ -1483,6 +1486,21 @@ backgroundTerminalTaskRegistry = new BackgroundTerminalTaskRegistry(
   interactiveTerminalManager,
   syncSystemSleepBlocker,
 );
+
+function getCodexBackgroundTerminalService(): CodexBackgroundTerminalService {
+  return (codexBackgroundTerminalService ??= new CodexBackgroundTerminalService({
+    getClient: () => getGlobalCodexRuntimeLifecycle()?.getClient(),
+    resolveEcoThreadId: (codexThreadId) => {
+      const mapped = codexThreadMap?.getEcoThreadId(codexThreadId);
+      if (mapped) {
+        return mapped;
+      }
+      return codexThreadMap
+        ? resolveCodexThreadAttribution(codexThreadMap, codexThreadId)?.ecoThreadId
+        : undefined;
+    },
+  }));
+}
 const packageJsonWatcher = new PackageJsonWatcher((workspacePath) => {
   desktopEventCenter.publishPackageJsonChanged(workspacePath);
 });
@@ -5483,6 +5501,17 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid background terminal stop request.");
     }
     return backgroundTerminalTaskRegistry.stop(payload.taskId);
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.codexBackgroundTerminalList, async () => {
+    return getCodexBackgroundTerminalService().list();
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.codexBackgroundTerminalTerminate, async (payload: unknown) => {
+    if (!isCodexBackgroundTerminalTerminateRequest(payload)) {
+      throw new Error("Invalid Codex background terminal termination request.");
+    }
+    return getCodexBackgroundTerminalService().terminate(payload);
   });
 
   registerDesktopCommand(IPC_CHANNELS.terminalList, async (payload: unknown) => {

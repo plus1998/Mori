@@ -10268,6 +10268,7 @@ function isRicherThreadRunToolMetadata(
     return Boolean(
       incoming.detail ||
         incoming.toolUseId ||
+        incoming.processId ||
         incoming.durationMs !== undefined ||
         incoming.exitCode !== undefined ||
         incoming.status ||
@@ -10293,6 +10294,7 @@ function isRicherThreadRunToolMetadata(
       (incoming.outputPreview && incoming.outputPreview !== existing.outputPreview) ||
       (incoming.outputPreviewTruncated && !existing.outputPreviewTruncated) ||
       (incoming.toolUseId && incoming.toolUseId !== existing.toolUseId) ||
+      (incoming.processId && incoming.processId !== existing.processId) ||
       (incoming.durationMs !== undefined && incoming.durationMs !== existing.durationMs) ||
       (incoming.exitCode !== undefined && incoming.exitCode !== existing.exitCode) ||
       (incoming.status && incoming.status !== existing.status) ||
@@ -10341,6 +10343,8 @@ function readThreadRunToolMetadata(
       raw.outputPreview.trim() && { outputPreview: raw.outputPreview.trim() }),
     ...(raw.outputPreviewTruncated === true && { outputPreviewTruncated: true }),
     ...(typeof raw.toolUseId === "string" && raw.toolUseId.trim() && { toolUseId: raw.toolUseId.trim() }),
+    ...(typeof raw.processId === "string" &&
+      raw.processId.trim() && { processId: raw.processId.trim() }),
     ...(typeof raw.durationMs === "number" &&
       Number.isFinite(raw.durationMs) && { durationMs: raw.durationMs }),
     ...(typeof raw.exitCode === "number" && Number.isFinite(raw.exitCode) && { exitCode: raw.exitCode }),

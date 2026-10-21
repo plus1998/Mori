@@ -58,6 +58,8 @@ export interface ThreadRunToolMetadata {
   outputPreview?: string;
   outputPreviewTruncated?: boolean;
   toolUseId?: string;
+  /** Codex Unified Exec process identity returned on commandExecution items. */
+  processId?: string;
   durationMs?: number;
   exitCode?: number;
   status?: "started" | "completed" | "failed";

@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { type BrowserInstanceView, isPersonalBrowserScopeId } from "../shared/browser";
 import { pathToName } from "../shared/home-project";
+import type { CodexBackgroundTerminal } from "../shared/ipc";
 import { browserStateStore, useBrowserStateSelector } from "./browser-state-store";
 import { collectRunningTerminals, type RunningTerminal } from "./running-resources";
 import type { TerminalWorkspaceState } from "./terminal-panel-storage";
@@ -15,6 +16,11 @@ interface RunningResourcesPopoverProps {
   threads: readonly { id: string; title: string }[];
   projects: readonly { path: string; name: string }[];
   terminalByProject: TerminalWorkspaceState;
+  codexTerminals: readonly CodexBackgroundTerminal[];
+  codexTerminalError?: string;
+  onTerminateCodexTerminal: (
+    terminal: Pick<CodexBackgroundTerminal, "codexThreadId" | "processId">,
+  ) => Promise<void>;
   onClose: () => void;
   onTerminalClosed: (terminal: RunningTerminal) => void;
 }
@@ -31,6 +37,9 @@ export function RunningResourcesPopover({
   threads,
   projects,
   terminalByProject,
+  codexTerminals,
+  codexTerminalError,
+  onTerminateCodexTerminal,
   onClose,
   onTerminalClosed,
 }: RunningResourcesPopoverProps) {
@@ -116,8 +125,8 @@ export function RunningResourcesPopover({
           api.listBackgroundTerminalTasks(),
         ]);
         if (!cancelled) {
-          setTerminals(collectRunningTerminals(sessions, tasks));
-          setTerminalError("");
+          setTerminals(collectRunningTerminals(sessions, tasks, codexTerminals));
+          setTerminalError(codexTerminalError ?? "");
         }
       } catch (error) {
         if (!cancelled) setTerminalError(String(error));
@@ -137,7 +146,7 @@ export function RunningResourcesPopover({
       unsubscribe?.();
       window.clearInterval(timer);
     };
-  }, [refreshEpoch]);
+  }, [codexTerminalError, codexTerminals, refreshEpoch]);
 
   const threadLabel = (threadId: string) =>
     isPersonalBrowserScopeId(threadId)
@@ -173,7 +182,12 @@ export function RunningResourcesPopover({
   const closeTerminal = (terminal: RunningTerminal) =>
     void closeResource(terminal.sessionId, terminal.label || terminal.sessionId, async () => {
       const api = requireDesktopApi();
-      if (terminal.taskId) {
+      if (terminal.codexThreadId && terminal.codexProcessId) {
+        await onTerminateCodexTerminal({
+          codexThreadId: terminal.codexThreadId,
+          processId: terminal.codexProcessId,
+        });
+      } else if (terminal.taskId) {
         await api.stopBackgroundTerminalTask({ taskId: terminal.taskId });
       } else {
         await api.killTerminal(terminal.sessionId);
@@ -294,6 +308,17 @@ export function RunningResourcesPopover({
                 terminal.label ||
                 tab?.label ||
                 t(terminal.kind === "ssh" ? "app.running.ssh" : "app.terminalFallback");
+              const processDetail = [
+                terminal.osPid !== undefined ? `PID ${terminal.osPid}` : undefined,
+                terminal.cpuPercent !== undefined
+                  ? t("app.running.processCpu", { value: terminal.cpuPercent.toFixed(1) })
+                  : undefined,
+                terminal.rssKb !== undefined
+                  ? t("app.running.processMemory", { value: Math.max(1, Math.round(terminal.rssKb / 1024)) })
+                  : undefined,
+              ]
+                .filter(Boolean)
+                .join(" · ");
               return (
                 <li
                   key={terminal.sessionId}
@@ -310,13 +335,21 @@ export function RunningResourcesPopover({
                   </span>
                   <div
                     className="running-resources-item"
-                    title={`${terminal.workspacePath}\n${terminal.endpoint || terminal.sessionId}`}
+                    title={[
+                      terminal.workspacePath,
+                      terminal.codexProcessId ? `processId ${terminal.codexProcessId}` : undefined,
+                      terminal.endpoint || terminal.sessionId,
+                    ].filter(Boolean).join("\n")}
                   >
                     <span className="running-resources-title-line">
                       <span className="running-resources-item-title">{label}</span>
-                      {terminal.kind === "ssh" || terminal.taskId ? (
+                      {terminal.kind === "ssh" || terminal.taskId || terminal.codexProcessId ? (
                         <span className="running-resources-tag">
-                          {terminal.kind === "ssh" ? "SSH" : t("app.running.background")}
+                          {terminal.kind === "ssh"
+                            ? "SSH"
+                            : terminal.codexProcessId
+                              ? t("app.running.agentBash")
+                              : t("app.running.background")}
                         </span>
                       ) : null}
                     </span>
@@ -335,6 +368,12 @@ export function RunningResourcesPopover({
                         <>
                           <span className="running-resources-meta-divider" aria-hidden />
                           <span className="running-resources-endpoint">{terminal.endpoint}</span>
+                        </>
+                      ) : null}
+                      {processDetail ? (
+                        <>
+                          <span className="running-resources-meta-divider" aria-hidden />
+                          <span className="running-resources-endpoint">{processDetail}</span>
                         </>
                       ) : null}
                     </span>

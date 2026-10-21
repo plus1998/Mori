@@ -127,6 +127,7 @@ import {
   type CenterServerSyncDomain,
   type ClarificationRequest,
   type CoderTodoItem,
+  type CodexBackgroundTerminal,
   type CoreAvailabilitySnapshot,
   type CursorAgentsListResult,
   type CursorModelOption,
@@ -2199,6 +2200,8 @@ function App() {
     open: boolean;
   }>();
   const [backgroundTerminalTasks, setBackgroundTerminalTasks] = useState<BackgroundTerminalTask[]>([]);
+  const [codexBackgroundTerminals, setCodexBackgroundTerminals] = useState<CodexBackgroundTerminal[]>([]);
+  const [codexBackgroundTerminalError, setCodexBackgroundTerminalError] = useState<string>();
   const [imageArtifactsByThread, setImageArtifactsByThread] = useState<
     Record<string, ImageGenerationArtifact[]>
   >({});
@@ -4321,6 +4324,37 @@ function App() {
   useEffect(() => {
     void refreshBackgroundTerminalTasks();
   }, [refreshBackgroundTerminalTasks]);
+
+  const refreshCodexBackgroundTerminals = useCallback(async () => {
+    if (!window.eco?.listCodexBackgroundTerminals) {
+      setCodexBackgroundTerminals([]);
+      setCodexBackgroundTerminalError(undefined);
+      return;
+    }
+    try {
+      setCodexBackgroundTerminals(await window.eco.listCodexBackgroundTerminals());
+      setCodexBackgroundTerminalError(undefined);
+    } catch (error) {
+      setCodexBackgroundTerminalError(String(error));
+    }
+  }, []);
+
+  const stopCodexBackgroundTerminal = useCallback(
+    async (terminal: Pick<CodexBackgroundTerminal, "codexThreadId" | "processId">) => {
+      if (!window.eco?.terminateCodexBackgroundTerminal) {
+        throw new Error(t("app.running.terminateUnavailable"));
+      }
+      const result = await window.eco.terminateCodexBackgroundTerminal({
+        codexThreadId: terminal.codexThreadId,
+        processId: terminal.processId,
+      });
+      if (!result.terminated) {
+        throw new Error(t("app.running.terminateUnavailable"));
+      }
+      await refreshCodexBackgroundTerminals();
+    },
+    [refreshCodexBackgroundTerminals, t],
+  );
 
   const handleRunningTerminalClosed = useCallback((terminal: RunningTerminal) => {
     const closedTabIds = new Set(
@@ -11138,6 +11172,25 @@ function App() {
   }, [showLanding]);
   const workspaceCardsLayoutMode = workspacePanelLayoutForMode(activityWorkspaceLayoutMode);
   const workspaceCardsPanelOpen = Boolean(showWorkspacePanel && workspacePanelResolvedOpen);
+  const codexBackgroundTerminalsForCurrentWorkspace = useMemo(
+    () =>
+      currentProjectPath
+        ? codexBackgroundTerminals.filter((terminal) => terminal.workspacePath === currentProjectPath)
+        : [],
+    [codexBackgroundTerminals, currentProjectPath],
+  );
+  useEffect(() => {
+    if (!workspaceCardsPanelOpen && !runningResourcesOpen) {
+      return;
+    }
+    void refreshCodexBackgroundTerminals();
+    const timer = window.setInterval(() => {
+      void refreshCodexBackgroundTerminals();
+    }, 2000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [refreshCodexBackgroundTerminals, runningResourcesOpen, workspaceCardsPanelOpen]);
   useEffect(() => {
     if (showWorkspacePanel) {
       void refreshGitStatus();
@@ -11273,6 +11326,9 @@ function App() {
               threads={threads}
               projects={projects}
               terminalByProject={terminalByProject}
+              codexTerminals={codexBackgroundTerminals}
+              {...(codexBackgroundTerminalError && { codexTerminalError: codexBackgroundTerminalError })}
+              onTerminateCodexTerminal={stopCodexBackgroundTerminal}
               onClose={() => setRunningResourcesOpen(false)}
               onTerminalClosed={handleRunningTerminalClosed}
             />
@@ -12822,6 +12878,12 @@ function App() {
                 }
               >
                 <WorkspaceFloatingCards
+                  codexBackgroundTerminals={codexBackgroundTerminalsForCurrentWorkspace}
+                  {...(codexBackgroundTerminalError && {
+                    codexBackgroundTerminalError,
+                  })}
+                  onStopCodexBackgroundTerminal={stopCodexBackgroundTerminal}
+                  onCodexBackgroundTerminalError={(message) => showAppMessageErrorRef.current(message)}
                   todos={activeThread ? coderTodos : []}
                   hasActiveThread={Boolean(activeThread)}
                   scheduledMessages={

@@ -79,6 +79,7 @@ interface CodexCommandExecutionFields {
   command: string;
   description?: string;
   status?: CodexCommandExecutionStatus;
+  processId?: string;
   aggregatedOutput?: string;
   exitCode?: number;
   durationMs?: number;
@@ -1448,6 +1449,7 @@ function emitCommandExecutionToolEvent(
         ...(fields.description ? { description: fields.description } : {}),
         toolUseId: itemId,
         status: toolStatus,
+        ...(fields.processId ? { processId: fields.processId } : {}),
         ...(outputPreview?.text ? { outputPreview: outputPreview.text } : {}),
         ...(outputPreview?.truncated ? { outputPreviewTruncated: true } : {}),
         ...(commandProjection.readTarget ? { readTarget: commandProjection.readTarget } : {}),
@@ -1865,6 +1867,7 @@ function readCommandExecutionFields(item: Record<string, unknown>): CodexCommand
   const command = readString(item, "command") ?? "";
   const description = formatCodexCommandActions(item.commandActions);
   const status = readCommandExecutionStatus(item);
+  const processId = readString(item, "processId") ?? readString(item, "process_id");
   const aggregatedOutput = readOptionalString(item, "aggregatedOutput");
   const exitCode = readNumber(item, "exitCode");
   const durationMs = readNumber(item, "durationMs");
@@ -1872,6 +1875,7 @@ function readCommandExecutionFields(item: Record<string, unknown>): CodexCommand
     command,
     ...(description && { description }),
     ...(status && { status }),
+    ...(processId && { processId }),
     ...(aggregatedOutput && { aggregatedOutput }),
     ...(exitCode !== undefined && { exitCode }),
     ...(durationMs !== undefined && { durationMs }),

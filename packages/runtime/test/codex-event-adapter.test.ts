@@ -2752,6 +2752,7 @@ test("dispatch maps commandExecution lifecycle to tool.started and tool.complete
       item: {
         type: "commandExecution",
         id: "item_bash_001",
+        processId: "process-bash-001",
         command: "git status",
         cwd: "/repo",
         commandActions: [{ type: "listFiles", command: "git status", path: "/repo" }],
@@ -2764,6 +2765,7 @@ test("dispatch maps commandExecution lifecycle to tool.started and tool.complete
       item: {
         type: "commandExecution",
         id: "item_bash_001",
+        processId: "process-bash-001",
         command: "git status",
         commandActions: [{ type: "listFiles", command: "git status", path: "/repo" }],
         status: "completed",
@@ -2781,6 +2783,7 @@ test("dispatch maps commandExecution lifecycle to tool.started and tool.complete
     detail: "git status",
     description: "列出文件 · /repo",
     toolUseId: "item_bash_001",
+    processId: "process-bash-001",
     status: "started",
   });
   expect(events[1]?.metadata?.tool).toMatchObject({
@@ -2788,6 +2791,7 @@ test("dispatch maps commandExecution lifecycle to tool.started and tool.complete
     detail: "git status",
     description: "列出文件 · /repo",
     toolUseId: "item_bash_001",
+    processId: "process-bash-001",
     status: "completed",
     exitCode: 0,
     durationMs: 12,

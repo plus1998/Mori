@@ -56,3 +56,36 @@ test("includes starting tasks and excludes finished task history across all work
     ).map((terminal) => terminal.sessionId),
   ).toEqual(["starting", "background"]);
 });
+
+test("includes Codex Unified Exec processes as Agent Bash resources", () => {
+  const [terminal] = collectRunningTerminals(
+    [],
+    [],
+    [
+      {
+        codexThreadId: "codex-thread",
+        threadId: "thread-owner",
+        itemId: "item-bash",
+        processId: "process-bash",
+        workspacePath: "/workspace/agent",
+        command: "bun run dev\nVITE ready",
+        osPid: 56282,
+        cpuPercent: 2.5,
+        rssKb: 208320,
+      },
+    ],
+  );
+
+  expect(terminal).toMatchObject({
+    sessionId: "codex:codex-thread:process-bash",
+    workspacePath: "/workspace/agent",
+    kind: "command",
+    label: "bun run dev",
+    threadId: "thread-owner",
+    codexThreadId: "codex-thread",
+    codexProcessId: "process-bash",
+    osPid: 56282,
+    cpuPercent: 2.5,
+    rssKb: 208320,
+  });
+});

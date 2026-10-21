@@ -81,6 +81,8 @@ export const IPC_CHANNELS = {
   backgroundTerminalStart: "background-terminal:start",
   backgroundTerminalOpen: "background-terminal:open",
   backgroundTerminalStop: "background-terminal:stop",
+  codexBackgroundTerminalList: "codex-background-terminal:list",
+  codexBackgroundTerminalTerminate: "codex-background-terminal:terminate",
   workspacePrepareGit: "workspace:prepare-git",
   modelSettingsGet: "model-settings:get",
   settingsDigest: "settings:digest",
@@ -920,6 +922,31 @@ export interface BackgroundTerminalStopRequest {
 export interface BackgroundTerminalStopResult {
   stopped: boolean;
   task?: BackgroundTerminalTask;
+}
+
+/**
+ * A live Unified Exec process owned by Codex. Runtime state comes from
+ * `thread/backgroundTerminals/list`; processId and osPid are deliberately separate.
+ */
+export interface CodexBackgroundTerminal {
+  codexThreadId: string;
+  threadId: string;
+  itemId: string;
+  processId: string;
+  workspacePath: string;
+  command: string;
+  osPid?: number;
+  cpuPercent?: number;
+  rssKb?: number;
+}
+
+export interface CodexBackgroundTerminalTerminateRequest {
+  codexThreadId: string;
+  processId: string;
+}
+
+export interface CodexBackgroundTerminalTerminateResult {
+  terminated: boolean;
 }
 
 export interface TerminalSpawnRequest {
@@ -2991,6 +3018,21 @@ export function isBackgroundTerminalStopRequest(value: unknown): value is Backgr
   }
   const record = value as Record<string, unknown>;
   return typeof record.taskId === "string";
+}
+
+export function isCodexBackgroundTerminalTerminateRequest(
+  value: unknown,
+): value is CodexBackgroundTerminalTerminateRequest {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.codexThreadId === "string" &&
+    Boolean(record.codexThreadId.trim()) &&
+    typeof record.processId === "string" &&
+    Boolean(record.processId.trim())
+  );
 }
 
 export function isTerminalSpawnRequest(value: unknown): value is TerminalSpawnRequest {

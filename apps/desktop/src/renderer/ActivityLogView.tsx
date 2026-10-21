@@ -1272,6 +1272,7 @@ function conversationV2ToolPresentation(tool: ConversationToolCall): {
     "htmlHost",
     "mcpDiscovery",
     "sendMessage",
+    "processId",
     "nonExecutionKind",
     "bashApproval",
     "clarification",

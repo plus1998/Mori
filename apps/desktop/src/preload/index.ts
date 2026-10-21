@@ -97,6 +97,9 @@ import {
   type ClarificationSubmitResult,
   type ClipboardReadImageResult,
   type ClipboardWriteImageRequest,
+  type CodexBackgroundTerminal,
+  type CodexBackgroundTerminalTerminateRequest,
+  type CodexBackgroundTerminalTerminateResult,
   type CodexModelCatalogSnapshot,
   type ComposerDraftDeleteRequest,
   type ComposerDraftDeleteResult,
@@ -505,6 +508,14 @@ const api = {
   },
   stopBackgroundTerminalTask(request: BackgroundTerminalStopRequest): Promise<BackgroundTerminalStopResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.backgroundTerminalStop, request);
+  },
+  listCodexBackgroundTerminals(): Promise<CodexBackgroundTerminal[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexBackgroundTerminalList);
+  },
+  terminateCodexBackgroundTerminal(
+    request: CodexBackgroundTerminalTerminateRequest,
+  ): Promise<CodexBackgroundTerminalTerminateResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexBackgroundTerminalTerminate, request);
   },
   listTerminalSessions(request?: TerminalListRequest): Promise<TerminalSessionView[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.terminalList, request ?? {});

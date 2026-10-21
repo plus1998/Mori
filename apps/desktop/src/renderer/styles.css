@@ -6654,6 +6654,7 @@ button.sidebar-settings-meta {
 }
 
 .workspace-browser-card-trigger:hover .workspace-browser-card-close,
+.workspace-agent-bash-card-trigger:hover .workspace-agent-bash-card-close,
 .workspace-browser-card-close:focus-visible {
   width: 22px;
   margin-left: 0;
@@ -6664,6 +6665,55 @@ button.sidebar-settings-meta {
 .workspace-browser-card-close:hover {
   background: color-mix(in srgb, var(--text-primary) 10%, transparent);
   color: var(--text-primary);
+}
+
+.workspace-agent-bash-card-trigger {
+  padding: 5px 2px 5px 4px;
+}
+
+.workspace-agent-bash-icon {
+  position: relative;
+}
+
+.workspace-agent-bash-live-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--bg-elevated);
+  border-radius: 999px;
+  background: #34d399;
+  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.14);
+}
+
+.workspace-agent-bash-main {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.workspace-agent-bash-meta {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-agent-bash-card-close:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.workspace-agent-bash-error {
+  margin: 0 4px 6px;
+  color: var(--danger, #f87171);
+  font-size: 11.5px;
+  line-height: 1.35;
 }
 
 /* Approved-plan card in the workspace panel: open the full plan + copy its text. */

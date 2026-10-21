@@ -303,6 +303,49 @@ test("native tools require explicit run ownership and never invent synthetic run
   }
 });
 
+test("Codex Unified Exec process identity persists on the normalized tool call", () => {
+  const { db, v2, writer } = setup();
+  try {
+    writer.append({
+      threadId: "thread",
+      id: "codex-bash-start",
+      runAttemptId: "run",
+      eventType: "tool.started",
+      role: "tool",
+      scope: "main",
+      streamState: "streaming",
+      message: "Tool: Bash · bun run dev",
+      observedAt: "2026-09-18T00:00:01Z",
+      metadata: {
+        tool: {
+          toolUseId: "process-bash",
+          name: "Bash",
+          detail: "bun run dev",
+          processId: "process-bash",
+          status: "started",
+        },
+      },
+    });
+
+    const row = db
+      .prepare(
+        `SELECT input_json FROM conversation_tool_calls_v2
+         WHERE conversation_id = ? AND tool_call_id = ?`,
+      )
+      .get("thread", "process-bash") as { input_json: string };
+    expect(JSON.parse(row.input_json)).toMatchObject({
+      command: "bun run dev",
+      processId: "process-bash",
+    });
+    expect(v2.findTool("thread", "process-bash")?.input).toMatchObject({
+      command: "bun run dev",
+      processId: "process-bash",
+    });
+  } finally {
+    db.close();
+  }
+});
+
 test("a codemode script's own calls keep the script as their parent tool", () => {
   const { db, v2, writer } = setup();
   try {
