@@ -7,6 +7,8 @@ import { browserSelectionReference, type BrowserSelection } from "../shared/brow
 import { BrowserSelectionPreview } from "./BrowserSelectionPreview";
 import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "./browser-selection-events";
 import { ACP_IMAGE_ONLY_PROMPT } from "@eco/runtime/acp-prompt";
+import { OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID } from "../shared/agent-orchestration";
+import { CodexQuotaReminder } from "./CodexQuotaReminder";
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import {
   listPlanDelegationAgents,
@@ -9758,8 +9760,11 @@ function App() {
         orchestrationSelection: nextSelection,
         mcpServers: mcpSettings.servers,
       });
+    const { mainAgentModelOverride, ...baseConfig } = bootstrapped;
+    const mainAgentChanged = current.mainAgentConfigId !== nextSelection.mainAgentConfigId;
     const next: ThreadRuntimeConfig = {
-      ...bootstrapped,
+      ...baseConfig,
+      ...(!mainAgentChanged && mainAgentModelOverride ? { mainAgentModelOverride } : {}),
       ...materialized,
       subagentEnabled: deriveSubagentEnabledFromSnapshot(
         snapshot,
@@ -9940,7 +9945,26 @@ function App() {
       ...baseRuntimeConfig,
       ...(override ? { mainAgentModelOverride: override } : {}),
     };
-    await persistComposerRuntimeConfig(next);
+    if (!(await persistComposerRuntimeConfig(next))) return;
+    if (
+      next.orchestrationSelection?.mainAgentConfigId === OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID &&
+      templateMainModel?.providerId === "openai" &&
+      window.eco
+    ) {
+      try {
+        const model = override ?? templateMainModel;
+        const codexAuthModel: MainAgentModelOverride = {
+          providerId: model.providerId,
+          modelId: model.modelId,
+          ...(model.thinkingEffort ? { thinkingEffort: model.thinkingEffort } : {}),
+          ...(model.candidateModelId ? { candidateModelId: model.candidateModelId } : {}),
+        };
+        const saved = await window.eco.saveWorkflowSettings({ ...workflowSettings, codexAuthModel });
+        setWorkflowSettings(saved);
+      } catch (caught) {
+        setError(errorMessage(caught));
+      }
+    }
   }
 
   async function toggleComposerSubagent(role: SubagentRole, enabled: boolean) {
@@ -12523,50 +12547,53 @@ function App() {
             </div>
           </div>
 
-          <div className="sidebar-settings">
-            <button
-              type="button"
-              className="sidebar-settings-action"
-              onClick={openSettings}
-              aria-label={
-                centerServerRegistered
-                  ? `${sidebarCenterDeviceName} · ${sidebarCenterPresenceLabel} · ${t("nav.settings")}`
-                  : t("nav.settings")
-              }
-              title={
-                centerServerRegistered
-                  ? `${sidebarCenterDeviceName} · ${sidebarCenterPresenceLabel}`
-                  : t("nav.settings")
-              }
-            >
-              <Cog size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
-              {centerServerRegistered ? (
-                <>
-                  <span className="sidebar-settings-action-label">{sidebarCenterDeviceName}</span>
-                  <span
-                    className={`cs-dot cs-dot--${sidebarCenterPresenceDot} sidebar-settings-presence-dot`}
-                    aria-hidden
-                  />
-                </>
-              ) : (
-                <span className="sidebar-settings-action-label">{t("nav.settings")}</span>
-              )}
-            </button>
-            <SidebarSettingsUpdateControl
-              state={desktopUpdateState}
-              onCheck={() => {
-                void window.eco?.checkDesktopForUpdates();
-              }}
-              onDownload={() => {
-                void window.eco?.downloadDesktopUpdate();
-              }}
-              onInstall={() => {
-                void window.eco?.installDesktopUpdate();
-              }}
-              onOpenRelease={() => {
-                void window.eco?.openDesktopReleasePage();
-              }}
-            />
+          <div className="sidebar-settings-footer">
+            <CodexQuotaReminder threads={threads} onSwitchAccount={openCodexAccountSwitch} />
+            <div className="sidebar-settings">
+              <button
+                type="button"
+                className="sidebar-settings-action"
+                onClick={openSettings}
+                aria-label={
+                  centerServerRegistered
+                    ? `${sidebarCenterDeviceName} · ${sidebarCenterPresenceLabel} · ${t("nav.settings")}`
+                    : t("nav.settings")
+                }
+                title={
+                  centerServerRegistered
+                    ? `${sidebarCenterDeviceName} · ${sidebarCenterPresenceLabel}`
+                    : t("nav.settings")
+                }
+              >
+                <Cog size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
+                {centerServerRegistered ? (
+                  <>
+                    <span className="sidebar-settings-action-label">{sidebarCenterDeviceName}</span>
+                    <span
+                      className={`cs-dot cs-dot--${sidebarCenterPresenceDot} sidebar-settings-presence-dot`}
+                      aria-hidden
+                    />
+                  </>
+                ) : (
+                  <span className="sidebar-settings-action-label">{t("nav.settings")}</span>
+                )}
+              </button>
+              <SidebarSettingsUpdateControl
+                state={desktopUpdateState}
+                onCheck={() => {
+                  void window.eco?.checkDesktopForUpdates();
+                }}
+                onDownload={() => {
+                  void window.eco?.downloadDesktopUpdate();
+                }}
+                onInstall={() => {
+                  void window.eco?.installDesktopUpdate();
+                }}
+                onOpenRelease={() => {
+                  void window.eco?.openDesktopReleasePage();
+                }}
+              />
+            </div>
           </div>
         </div>
       </aside>

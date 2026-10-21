@@ -37,6 +37,8 @@ export interface OpenAIAccountQuota {
   fetchedAt: number;
 }
 
+export type CodexQuotaResetOutcome = "reset" | "alreadyRedeemed" | "nothingToReset" | "noCredit";
+
 /** The image_gen balance queried by chatgpt2api, not a verified Codex-only balance. */
 export interface OpenAIAccountImageQuota {
   source: "chatgpt_image_gen";

@@ -1,0 +1,135 @@
+.sidebar-settings-footer {
+  flex-shrink: 0;
+  width: 100%;
+  margin-top: auto;
+  -webkit-app-region: no-drag;
+}
+
+.codex-quota-reminder {
+  margin: 8px 0;
+  padding: 13px;
+  border: 1px solid var(--border-sidebar);
+  border-radius: 14px;
+  background: var(--sidebar-control-hover-bg);
+  color: var(--sidebar-item-active-text);
+  font-size: 12px;
+  -webkit-app-region: no-drag;
+}
+
+.codex-quota-reminder-heading,
+.codex-quota-reminder-window-label,
+.codex-quota-reminder-actions,
+.codex-quota-refresh-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.codex-quota-reminder-heading strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.codex-quota-reminder-heading > button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--sidebar-item-text);
+  cursor: pointer;
+}
+.codex-quota-reminder-heading > button:hover {
+  background: var(--sidebar-control-hover-bg);
+}
+.codex-quota-reminder-account {
+  margin: 2px 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--sidebar-item-text);
+  font-size: 11px;
+}
+.codex-quota-reminder-window + .codex-quota-reminder-window {
+  margin-top: 12px;
+}
+.codex-quota-reminder-window-label > span:last-child {
+  color: var(--sidebar-item-text);
+}
+.codex-quota-reminder-track {
+  height: 6px;
+  margin: 7px 0;
+  overflow: hidden;
+  border-radius: 99px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.codex-quota-reminder-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: currentColor;
+}
+.codex-quota-reminder p {
+  margin: 0;
+  color: var(--sidebar-item-text);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.codex-quota-reminder .codex-quota-reminder-error {
+  margin-top: 10px;
+  color: var(--status-error, #c46258);
+  overflow-wrap: anywhere;
+}
+.codex-quota-reminder .codex-quota-reset-count {
+  margin-top: 9px;
+}
+.codex-quota-reminder-actions {
+  margin-top: 13px;
+}
+.codex-quota-reminder-actions > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  gap: 5px;
+  min-height: 29px;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 99px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.codex-quota-reminder-actions > button:last-child {
+  background: var(--sidebar-item-active-text);
+  color: var(--bg-sidebar);
+  border-color: transparent;
+}
+.codex-quota-reminder-actions > button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.codex-quota-reminder button:focus-visible,
+.codex-quota-refresh-error button:focus-visible {
+  outline: 2px solid var(--sidebar-item-active-text);
+  outline-offset: 2px;
+}
+.codex-quota-refresh-error {
+  margin: 8px 4px;
+  color: var(--sidebar-item-text);
+  font-size: 11px;
+}
+.codex-quota-refresh-error button {
+  border: 0;
+  padding: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}

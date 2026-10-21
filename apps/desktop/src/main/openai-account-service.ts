@@ -762,6 +762,28 @@ export class OpenAIAccountService {
     return this.getStore().getActiveAccountId();
   }
 
+  /** Keep auth.json bound to the requested account for an explicit account operation. */
+  async withActiveAccount<T>(accountId: string, operation: () => Promise<T>): Promise<T> {
+    const work = this.authSyncQueue.then(async () => {
+      await this.reconcileMainAuth();
+      if (
+        this.getStore().getActiveAccountId() !== accountId ||
+        this.getPendingAccountId() !== undefined ||
+        this.syncStatus.state !== "ok"
+      ) {
+        throw new Error("当前使用账号已变更或正在切换，请刷新后重试。");
+      }
+      if (!(await this.getActiveStatus()).isLoggedIn) throw new Error("当前使用账号尚未登录。");
+      return operation();
+    });
+    // An operation error is not an auth synchronization error.
+    this.authSyncQueue = work.then(
+      () => undefined,
+      () => undefined,
+    );
+    return work;
+  }
+
   /** Request a deferred switch; the runtime scheduler commits it once Codex is idle. */
   async setActiveAccount(accountId: string | null): Promise<void> {
     if (accountId) await this.requireAccount(accountId);

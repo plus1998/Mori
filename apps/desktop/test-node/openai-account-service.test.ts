@@ -79,6 +79,41 @@ function quotaResponse(usedPercent = 24): Response {
   });
 }
 
+test("explicit account operations reject mismatches and hold account publication until completion", async (t) => {
+  const { root, service } = await makeService(t);
+  const a = await service.createAccount("A");
+  const b = await service.createAccount("B");
+  for (const account of [a, b]) {
+    await service.setAuthJson(account.id, authJson({ accountId: account.id, refreshToken: account.id, stamp: "2026-10-21" }));
+  }
+  await service.setActiveAccount(a.id);
+  await service.applyPendingTransition();
+  await assert.rejects(service.withActiveAccount(b.id, async () => assert.fail("wrong account")), /当前使用账号已变更/u);
+  let finish!: () => void;
+  let entered!: () => void;
+  const ready = new Promise<void>((resolve) => { entered = resolve; });
+  const pending = new Promise<void>((resolve) => { finish = resolve; });
+  const operation = service.withActiveAccount(a.id, async () => { entered(); await pending; });
+  await ready;
+  await service.setActiveAccount(b.id);
+  const transition = service.applyPendingTransition();
+  await Promise.resolve();
+  assert.equal(await service.getActiveAccountId(), a.id);
+  const main = JSON.parse(await fs.readFile(path.join(root, "codex/auth.json"), "utf8"));
+  assert.equal(main.tokens.account_id, a.id);
+  finish();
+  await operation;
+  await transition;
+  assert.equal(await service.getActiveAccountId(), b.id);
+  await assert.rejects(service.withActiveAccount(b.id, async () => { throw new Error("reset offline"); }), /reset offline/u);
+  assert.equal(service.getSyncStatus().state, "ok");
+  await fs.writeFile(path.join(root, "codex/auth.json"), authJson({
+    accountId: "unexpected-account", refreshToken: "unexpected", stamp: "2026-10-22",
+  }));
+  await assert.rejects(service.withActiveAccount(b.id, async () => assert.fail("mismatched auth file")), /当前使用账号已变更/u);
+  assert.equal(service.getSyncStatus().state, "conflict");
+});
+
 async function waitFor(predicate: () => Promise<boolean>, timeoutMs = 3_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

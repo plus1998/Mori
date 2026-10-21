@@ -684,6 +684,12 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsQueryQuota, { accountId });
   },
 
+  openAIAccountsResetQuota(accountId: string, idempotencyKey: string): Promise<{
+    outcome: import("../shared/openai-account").CodexQuotaResetOutcome;
+  }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsResetQuota, { accountId, idempotencyKey });
+  },
+
   openAIAccountsSetImageEnabled(accountId: string, enabled: boolean): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsImageEnabled, { accountId, enabled });
   },

@@ -730,7 +730,7 @@ function isMainAgentSystemPromptPreset(value: unknown): value is MainAgentSystem
   return value === "core_native" || value === "custom_append";
 }
 
-function isMainAgentModelOverride(value: unknown): value is MainAgentModelOverride {
+export function isMainAgentModelOverride(value: unknown): value is MainAgentModelOverride {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
@@ -746,7 +746,7 @@ function isMainAgentModelOverride(value: unknown): value is MainAgentModelOverri
   );
 }
 
-function normalizeMainAgentModelOverride(override: MainAgentModelOverride): MainAgentModelOverride {
+export function normalizeMainAgentModelOverride(override: MainAgentModelOverride): MainAgentModelOverride {
   const candidateModelId = override.candidateModelId?.trim();
   return {
     providerId: override.providerId.trim(),

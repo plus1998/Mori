@@ -112,6 +112,7 @@ export const IPC_CHANNELS = {
   openAIAccountsGetActive: "openai-accounts:get-active",
   openAIAccountsSetAuthJson: "openai-accounts:set-auth-json",
   openAIAccountsQueryQuota: "openai-accounts:query-quota",
+  openAIAccountsResetQuota: "openai-accounts:reset-quota",
   openAIAccountsImageEnabled: "openai-accounts:image-enabled",
   openAIAccountsImageQuota: "openai-accounts:image-quota",
   openAIAccountsUpdate: "openai-accounts:update",
@@ -1092,6 +1093,8 @@ export interface WorkflowSettingsSnapshot {
   defaultAuxiliaryModel?: import("./auxiliary-model").AuxiliaryModelSelection;
   defaultApprovalModel?: import("./approval-model").ApprovalModelSelection;
   defaultVisionModel?: import("./vision-model").VisionModelSelection;
+  /** Last model and reasoning choice made with the built-in Codex Auth config. */
+  codexAuthModel?: import("./thread-runtime-config").MainAgentModelOverride;
   mcpServersEnabled?: Record<string, boolean>;
   integrationsEnabled?: IntegrationsEnabledSettings;
 }

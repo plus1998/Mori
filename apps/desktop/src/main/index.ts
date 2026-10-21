@@ -628,6 +628,7 @@ import {
 import { CodexGatewayUsagePendingBuffer } from "./codex-gateway-usage-pending";
 import { connectCodexImageAccount, disposeCodexImageConnections } from "./codex-image-electron-transport";
 import { CodexImageService } from "./codex-image-service";
+import { consumeCodexQuotaReset } from "./codex-quota-reset";
 import {
   CodexRemoteModelCatalogService,
   resolveCodexModelCatalogCachePath,
@@ -3956,10 +3957,12 @@ function getModelSettingsSnapshot(): ModelSettingsSnapshot {
     /* app not ready yet */
   }
   const chatGptSubscriptionModelId = providerStore.listCandidateModels("eco-coding-chatgpt")[0]?.modelId;
+  const codexAuthModel = workflowSettingsStore.getCodexAuthModel();
   return {
     ...mergeAgentRegistrySettings(providerStore.getSettings(), agentOrchestrationStore, {
       openAiAccountActive,
       ...(chatGptSubscriptionModelId ? { chatGptSubscriptionModelId } : {}),
+      ...(codexAuthModel ? { codexAuthModel } : {}),
     }),
     mcpSettings: mcpStore.getSettings(),
   };
@@ -7155,6 +7158,19 @@ function registerIpcHandlers(): void {
     return quota;
   });
 
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsResetQuota, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.accountId !== "string" || !payload.accountId.trim() ||
+      typeof payload.idempotencyKey !== "string" || !/^[0-9a-f-]{36}$/i.test(payload.idempotencyKey)) {
+      throw new Error("额度重置参数无效。");
+    }
+    const { accountId, idempotencyKey } = payload;
+    const svc = await getOpenAIAccountService();
+    return svc.withActiveAccount(accountId, async () => {
+      const client = await ensureCodexControlPlaneClient();
+      return consumeCodexQuotaReset(client, idempotencyKey);
+    });
+  });
+
   codexImages = new CodexImageService(
     {
       listAccounts: async () => (await getOpenAIAccountService()).listAccounts(),
@@ -7775,6 +7791,10 @@ function registerIpcHandlers(): void {
     // Legacy acpAgentsEnabled.cursor is no longer a user-facing gate; Cursor ACP
     // is allowed whenever the CLI probe succeeds (checked below for default=acp).
     const gated: typeof normalized = { ...normalized };
+    // Older clients omit this device preference when saving other workflow settings.
+    if (!("codexAuthModel" in payload) && previous.codexAuthModel) {
+      gated.codexAuthModel = previous.codexAuthModel;
+    }
     delete gated.acpAgentsEnabled;
     // The Cursor ACP API key is a device-local secret that partial-update callers
     // (e.g. the mobile `workflow-settings:save`) omit. Preserve it unless the payload

@@ -10,6 +10,7 @@ import type {
   ProviderConfigView,
   SubagentOrchestrationResource,
 } from "../shared/ipc";
+import type { MainAgentModelOverride } from "../shared/thread-runtime-config";
 
 export interface AgentRegistrySettingsSource {
   listAgentTemplates(): AgentTemplate[];
@@ -64,11 +65,18 @@ function createChatGptSubscriptionMainAgentConfig(modelId: string): MainAgentCon
 export function mergeAgentRegistrySettings(
   base: ModelSettingsSnapshot,
   registry: AgentRegistrySettingsSource,
-  options?: { openAiAccountActive?: boolean; chatGptSubscriptionModelId?: string },
+  options?: {
+    openAiAccountActive?: boolean;
+    chatGptSubscriptionModelId?: string;
+    codexAuthModel?: MainAgentModelOverride;
+  },
 ): ModelSettingsSnapshot {
   const mainAgentConfigs = registry.listMainAgentConfigs();
+  const codexAuthConfig = options?.codexAuthModel
+    ? { ...OPENAI_OFFICIAL_MAIN_AGENT_CONFIG, modelRef: options.codexAuthModel }
+    : OPENAI_OFFICIAL_MAIN_AGENT_CONFIG;
   const withBuiltInConfigs = options?.openAiAccountActive
-    ? [OPENAI_OFFICIAL_MAIN_AGENT_CONFIG, ...mainAgentConfigs]
+    ? [codexAuthConfig, ...mainAgentConfigs]
     : mainAgentConfigs;
   const chatGptModelId = options?.chatGptSubscriptionModelId?.trim();
   const withChatGptSubscription = chatGptModelId
