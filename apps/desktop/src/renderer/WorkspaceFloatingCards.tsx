@@ -33,6 +33,7 @@ import type {
 import type { HtmlHostArtifact } from "../shared/html-host";
 import type {
   CoderTodoItem,
+  ClaudeBackgroundTask,
   CodexBackgroundTerminal,
   CursorAgentInfo,
   CursorBuiltinSubagentType,
@@ -164,6 +165,12 @@ export interface WorkspaceFloatingCardsProps {
     terminal: Pick<CodexBackgroundTerminal, "codexThreadId" | "processId">,
   ) => Promise<void>;
   onCodexBackgroundTerminalError?: (message: string) => void;
+  claudeBackgroundTasks?: readonly ClaudeBackgroundTask[];
+  claudeBackgroundTaskError?: string;
+  onStopClaudeBackgroundTask?: (
+    task: Pick<ClaudeBackgroundTask, "threadId" | "taskId">,
+  ) => Promise<void>;
+  onClaudeBackgroundTaskError?: (message: string) => void;
 }
 
 /** Open built-in browser surfaces listed in the workspace cards panel. */
@@ -415,6 +422,77 @@ function CodexBackgroundTerminalsCardBody({
               type="button"
               className="workspace-browser-card-close workspace-agent-bash-card-close"
               onClick={() => void stopTerminal(terminal)}
+              disabled={busy || !onStop}
+              title={t("workspaceCards.stopAgentBash")}
+              aria-label={t("workspaceCards.stopAgentBash")}
+            >
+              {busy ? (
+                <Loader2 size={13} className="is-spinning" aria-hidden />
+              ) : (
+                <Square size={10} fill="currentColor" aria-hidden />
+              )}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ClaudeBackgroundTasksCardBody({
+  tasks,
+  onStop,
+  onError,
+}: {
+  tasks: readonly ClaudeBackgroundTask[];
+  onStop?: (task: Pick<ClaudeBackgroundTask, "threadId" | "taskId">) => Promise<void>;
+  onError?: (message: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [stopping, setStopping] = useState<Set<string>>(() => new Set());
+
+  async function stopTask(task: ClaudeBackgroundTask) {
+    if (!onStop || stopping.has(task.taskId)) {
+      return;
+    }
+    setStopping((current) => new Set(current).add(task.taskId));
+    try {
+      await onStop(task);
+    } catch (error) {
+      onError?.(String(error));
+    } finally {
+      setStopping((current) => {
+        const next = new Set(current);
+        next.delete(task.taskId);
+        return next;
+      });
+    }
+  }
+
+  return (
+    <div className="workspace-resource-list workspace-agent-bash-list">
+      {tasks.map((task) => {
+        const busy = stopping.has(task.taskId);
+        return (
+          <div
+            key={task.taskId}
+            className="workspace-resource-row workspace-agent-bash-card-trigger"
+            title={`${task.workspacePath}\ntaskId ${task.taskId}\n${task.label}`}
+          >
+            <span className="workspace-resource-row-icon workspace-agent-bash-icon" aria-hidden>
+              <Terminal size={16} strokeWidth={1.75} />
+              <span className="workspace-agent-bash-live-dot" />
+            </span>
+            <span className="workspace-agent-bash-main">
+              <span className="workspace-resource-row-title">{task.label}</span>
+              <span className="workspace-agent-bash-meta">
+                taskId {task.taskId} · {task.taskType}
+              </span>
+            </span>
+            <button
+              type="button"
+              className="workspace-browser-card-close workspace-agent-bash-card-close"
+              onClick={() => void stopTask(task)}
               disabled={busy || !onStop}
               title={t("workspaceCards.stopAgentBash")}
               aria-label={t("workspaceCards.stopAgentBash")}
@@ -756,6 +834,10 @@ export function WorkspaceFloatingCards({
   codexBackgroundTerminalError,
   onStopCodexBackgroundTerminal,
   onCodexBackgroundTerminalError,
+  claudeBackgroundTasks = [],
+  claudeBackgroundTaskError,
+  onStopClaudeBackgroundTask,
+  onClaudeBackgroundTaskError,
 }: WorkspaceFloatingCardsProps) {
   const { t } = useTranslation();
   const storedBrowserInstances = useBrowserTaskInstances();
@@ -876,6 +958,36 @@ export function WorkspaceFloatingCards({
               })}
               {...(onCodexBackgroundTerminalError && {
                 onError: onCodexBackgroundTerminalError,
+              })}
+            />
+          </WorkspacePanelSection>
+        ) : null}
+
+        {claudeBackgroundTasks.length > 0 || claudeBackgroundTaskError ? (
+          <WorkspacePanelSection
+            id="workspace-claude-bash"
+            title={t("workspaceCards.claudeBash")}
+            defaultExpanded
+            summary={
+              <>
+                <Terminal size={14} aria-hidden />
+                <span>{claudeBackgroundTasks.length}</span>
+              </>
+            }
+            maxBodyHeight={240}
+          >
+            {claudeBackgroundTaskError ? (
+              <p className="workspace-agent-bash-error" role="alert">
+                {t("app.running.loadFailed", { detail: claudeBackgroundTaskError })}
+              </p>
+            ) : null}
+            <ClaudeBackgroundTasksCardBody
+              tasks={claudeBackgroundTasks}
+              {...(onStopClaudeBackgroundTask && {
+                onStop: onStopClaudeBackgroundTask,
+              })}
+              {...(onClaudeBackgroundTaskError && {
+                onError: onClaudeBackgroundTaskError,
               })}
             />
           </WorkspacePanelSection>

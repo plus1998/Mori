@@ -1,5 +1,6 @@
 import type {
   BackgroundTerminalTask,
+  ClaudeBackgroundTask,
   CodexBackgroundTerminal,
   TerminalSessionView,
 } from "../shared/ipc";
@@ -12,6 +13,25 @@ export interface RunningTerminal extends TerminalSessionView {
   osPid?: number;
   cpuPercent?: number;
   rssKb?: number;
+  claudeTaskId?: string;
+}
+
+export function selectCodexBackgroundTerminalsForThread(
+  terminals: readonly CodexBackgroundTerminal[],
+  threadId?: string,
+): CodexBackgroundTerminal[] {
+  const normalizedThreadId = threadId?.trim();
+  return normalizedThreadId
+    ? terminals.filter((terminal) => terminal.threadId === normalizedThreadId)
+    : [];
+}
+
+export function selectClaudeBackgroundTasksForThread(
+  tasks: readonly ClaudeBackgroundTask[],
+  threadId?: string,
+): ClaudeBackgroundTask[] {
+  const normalizedThreadId = threadId?.trim();
+  return normalizedThreadId ? tasks.filter((task) => task.threadId === normalizedThreadId) : [];
 }
 
 /** A background task and its PTY describe the same running terminal. */
@@ -19,6 +39,7 @@ export function collectRunningTerminals(
   sessions: readonly TerminalSessionView[],
   tasks: readonly BackgroundTerminalTask[],
   codexTerminals: readonly CodexBackgroundTerminal[] = [],
+  claudeTasks: readonly ClaudeBackgroundTask[] = [],
 ): RunningTerminal[] {
   const terminals = new Map<string, RunningTerminal>(
     sessions.map((session) => [session.sessionId, { ...session }]),
@@ -49,6 +70,17 @@ export function collectRunningTerminals(
       ...(terminal.osPid !== undefined && { osPid: terminal.osPid }),
       ...(terminal.cpuPercent !== undefined && { cpuPercent: terminal.cpuPercent }),
       ...(terminal.rssKb !== undefined && { rssKb: terminal.rssKb }),
+    });
+  }
+  for (const task of claudeTasks) {
+    const key = `claude:${task.threadId}:${task.taskId}`;
+    terminals.set(key, {
+      sessionId: key,
+      workspacePath: task.workspacePath,
+      kind: "command",
+      label: task.label,
+      threadId: task.threadId,
+      claudeTaskId: task.taskId,
     });
   }
   return [...terminals.values()];

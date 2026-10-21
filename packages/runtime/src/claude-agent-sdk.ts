@@ -138,6 +138,18 @@ export type SdkQueryHandle = AsyncIterable<unknown> & {
   getContextUsage?: (opts?: { detail?: "summary" | "full" }) => Promise<Record<string, unknown>>;
 };
 
+export interface ClaudeBackgroundTaskSnapshot {
+  taskId: string;
+  taskType: string;
+  description: string;
+}
+
+export interface ClaudeBackgroundTasksChangedInput {
+  threadId: string;
+  query: SdkQueryHandle;
+  tasks: readonly ClaudeBackgroundTaskSnapshot[];
+}
+
 type SdkQuery = (input: {
   prompt: string | AsyncIterable<SdkUserMessage>;
   options: Record<string, unknown>;
@@ -771,6 +783,10 @@ export interface ClaudeAgentSdkDriverOptions {
   onContextProbe?: (phase: string, detail: Record<string, unknown>) => void;
   /** Record raw SDK messages for offline replay fixtures (tests / conversation-round). */
   onSdkMessage?: (message: unknown) => void;
+  /** Live background-task level signal owned by the current Claude Query. */
+  onBackgroundTasksChanged?: (input: ClaudeBackgroundTasksChangedInput) => void;
+  /** Clears producer-owned task handles when the Query closes. */
+  onBackgroundTasksClosed?: (input: { threadId: string; query: SdkQueryHandle }) => void;
   /** Override SDK control/drain deadlines for constrained runtimes and deterministic tests. */
   queryControlDeadlineMs?: number;
   /** Override mid-turn streamInput deadline (tests / constrained runtimes). */
@@ -1679,6 +1695,14 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
         }
 
         this.options.onSdkMessage?.(message);
+        const backgroundTasks = readClaudeBackgroundTasksChanged(message);
+        if (backgroundTasks) {
+          this.options.onBackgroundTasksChanged?.({
+            threadId: input.threadId,
+            query,
+            tasks: backgroundTasks,
+          });
+        }
 
         const mappedMessage =
           isRecord(message) && message.type === "result"
@@ -1770,23 +1794,27 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       heldPromptCloseGate.cancel();
       await notifyClosing();
       promptStream.close();
-      const teardown = await teardownClaudeQueryHandle(handle, {
-        iterator,
-        ...(pendingIteratorNext ? { pendingNext: pendingIteratorNext } : {}),
-        shouldInterrupt: input.signal.aborted,
-        interruptDeadlineMs: this.options.queryControlDeadlineMs ?? CLAUDE_QUERY_CONTROL_DEADLINE_MS,
-        drainDeadlineMs: this.options.queryControlDeadlineMs ?? CLAUDE_QUERY_DRAIN_DEADLINE_MS,
-        cancelQueued: this.options.cancelQueuedOnInterrupt ?? true,
-        onProbe: (probePhase, detail) => this.options.onContextProbe?.(probePhase, detail),
-        clearSubagentLimits: () => subagentRuntimeLimit.clear(),
-      });
       try {
-        await this.options.queryLifecycle?.onClosed?.(handle, {
-          stillQueued: teardown.stillQueued,
-          cancelled: teardown.cancelled,
+        const teardown = await teardownClaudeQueryHandle(handle, {
+          iterator,
+          ...(pendingIteratorNext ? { pendingNext: pendingIteratorNext } : {}),
+          shouldInterrupt: input.signal.aborted,
+          interruptDeadlineMs: this.options.queryControlDeadlineMs ?? CLAUDE_QUERY_CONTROL_DEADLINE_MS,
+          drainDeadlineMs: this.options.queryControlDeadlineMs ?? CLAUDE_QUERY_DRAIN_DEADLINE_MS,
+          cancelQueued: this.options.cancelQueuedOnInterrupt ?? true,
+          onProbe: (probePhase, detail) => this.options.onContextProbe?.(probePhase, detail),
+          clearSubagentLimits: () => subagentRuntimeLimit.clear(),
         });
-      } catch {
-        // Reconcile hooks must not suppress post-run cleanup callers.
+        try {
+          await this.options.queryLifecycle?.onClosed?.(handle, {
+            stillQueued: teardown.stillQueued,
+            cancelled: teardown.cancelled,
+          });
+        } catch {
+          // Reconcile hooks must not suppress post-run cleanup callers.
+        }
+      } finally {
+        this.options.onBackgroundTasksClosed?.({ threadId: input.threadId, query });
       }
     }
     for (const event of drainToolPermissionDecisionEvents(input.threadId, pendingToolPermissionDecisions)) {
@@ -2936,6 +2964,36 @@ export interface SdkTodoUpdatedPayload {
     description?: string;
     error?: string;
   };
+}
+
+export function readClaudeBackgroundTasksChanged(
+  message: unknown,
+): ClaudeBackgroundTaskSnapshot[] | undefined {
+  if (
+    !isRecord(message) ||
+    message.type !== "system" ||
+    message.subtype !== "background_tasks_changed" ||
+    !Array.isArray(message.tasks)
+  ) {
+    return undefined;
+  }
+  return message.tasks.flatMap((task): ClaudeBackgroundTaskSnapshot[] => {
+    if (!isRecord(task)) {
+      return [];
+    }
+    const taskId = typeof task.task_id === "string" ? task.task_id.trim() : "";
+    const taskType = typeof task.task_type === "string" ? task.task_type.trim() : "";
+    if (!taskId || !taskType) {
+      return [];
+    }
+    return [
+      {
+        taskId,
+        taskType,
+        description: typeof task.description === "string" ? task.description.trim() : "",
+      },
+    ];
+  });
 }
 
 export function buildSdkTodoUpdatedPayload(message: Record<string, unknown>): SdkTodoUpdatedPayload | null {

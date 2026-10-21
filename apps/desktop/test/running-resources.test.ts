@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { collectRunningTerminals } from "../src/renderer/running-resources";
+import {
+  collectRunningTerminals,
+  selectClaudeBackgroundTasksForThread,
+  selectCodexBackgroundTerminalsForThread,
+} from "../src/renderer/running-resources";
 import type { BackgroundTerminalTask } from "../src/shared/ipc";
 
 function task(status: BackgroundTerminalTask["status"], sessionId = "background"): BackgroundTerminalTask {
@@ -87,5 +91,66 @@ test("includes Codex Unified Exec processes as Agent Bash resources", () => {
     osPid: 56282,
     cpuPercent: 2.5,
     rssKb: 208320,
+  });
+});
+
+test("selects Agent Bash processes for the active conversation, not the whole workspace", () => {
+  const terminals = [
+    {
+      codexThreadId: "codex-thread-a",
+      threadId: "thread-a",
+      itemId: "item-a",
+      processId: "process-a",
+      workspacePath: "/workspace/shared",
+      command: "bun run dev",
+    },
+    {
+      codexThreadId: "codex-thread-b",
+      threadId: "thread-b",
+      itemId: "item-b",
+      processId: "process-b",
+      workspacePath: "/workspace/shared",
+      command: "sleep 120",
+    },
+  ];
+
+  expect(selectCodexBackgroundTerminalsForThread(terminals, "thread-a").map((item) => item.itemId)).toEqual([
+    "item-a",
+  ]);
+  expect(selectCodexBackgroundTerminalsForThread(terminals, "thread-b").map((item) => item.itemId)).toEqual([
+    "item-b",
+  ]);
+  expect(selectCodexBackgroundTerminalsForThread(terminals, undefined)).toEqual([]);
+});
+
+test("includes Claude background Bash tasks and scopes them by conversation", () => {
+  const tasks = [
+    {
+      threadId: "thread-a",
+      taskId: "claude-task-a",
+      workspacePath: "/workspace/shared",
+      label: "bun run dev",
+      status: "running" as const,
+      taskType: "local_bash",
+    },
+    {
+      threadId: "thread-b",
+      taskId: "claude-task-b",
+      workspacePath: "/workspace/shared",
+      label: "sleep 120",
+      status: "running" as const,
+      taskType: "local_bash",
+    },
+  ];
+
+  expect(selectClaudeBackgroundTasksForThread(tasks, "thread-a")).toEqual([tasks[0]]);
+  const [terminal] = collectRunningTerminals([], [], [], [tasks[0]!]);
+  expect(terminal).toMatchObject({
+    sessionId: "claude:thread-a:claude-task-a",
+    threadId: "thread-a",
+    claudeTaskId: "claude-task-a",
+    workspacePath: "/workspace/shared",
+    label: "bun run dev",
+    kind: "command",
   });
 });

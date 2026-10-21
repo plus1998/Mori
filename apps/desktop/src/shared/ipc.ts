@@ -83,6 +83,8 @@ export const IPC_CHANNELS = {
   backgroundTerminalStop: "background-terminal:stop",
   codexBackgroundTerminalList: "codex-background-terminal:list",
   codexBackgroundTerminalTerminate: "codex-background-terminal:terminate",
+  claudeBackgroundTaskList: "claude-background-task:list",
+  claudeBackgroundTaskStop: "claude-background-task:stop",
   workspacePrepareGit: "workspace:prepare-git",
   modelSettingsGet: "model-settings:get",
   settingsDigest: "settings:digest",
@@ -947,6 +949,26 @@ export interface CodexBackgroundTerminalTerminateRequest {
 
 export interface CodexBackgroundTerminalTerminateResult {
   terminated: boolean;
+}
+
+/** A live Claude SDK background Bash task owned by an active Query. */
+export interface ClaudeBackgroundTask {
+  threadId: string;
+  taskId: string;
+  workspacePath: string;
+  label: string;
+  status: "running";
+  taskType: string;
+}
+
+export interface ClaudeBackgroundTaskStopRequest {
+  threadId: string;
+  taskId: string;
+}
+
+export interface ClaudeBackgroundTaskStopResult {
+  stopped: boolean;
+  mode?: "task" | "query";
 }
 
 export interface TerminalSpawnRequest {
@@ -3032,6 +3054,21 @@ export function isCodexBackgroundTerminalTerminateRequest(
     Boolean(record.codexThreadId.trim()) &&
     typeof record.processId === "string" &&
     Boolean(record.processId.trim())
+  );
+}
+
+export function isClaudeBackgroundTaskStopRequest(
+  value: unknown,
+): value is ClaudeBackgroundTaskStopRequest {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.threadId === "string" &&
+    Boolean(record.threadId.trim()) &&
+    typeof record.taskId === "string" &&
+    Boolean(record.taskId.trim())
   );
 }
 

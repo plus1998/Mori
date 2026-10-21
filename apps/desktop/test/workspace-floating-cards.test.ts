@@ -264,6 +264,30 @@ test("Agent Bash processes render as a stoppable workspace card", () => {
   expect(markup).toContain("workspace-agent-bash-card-trigger");
 });
 
+test("Claude background Bash tasks render as a stoppable workspace card", () => {
+  const markup = renderToStaticMarkup(
+    createElement(WorkspaceFloatingCards, {
+      claudeBackgroundTasks: [
+        {
+          threadId: "thr_1",
+          taskId: "claude-task-1",
+          workspacePath: "/repo",
+          label: "bun run dev",
+          status: "running",
+          taskType: "local_bash",
+        },
+      ],
+      onStopClaudeBackgroundTask: async () => {},
+    }),
+  );
+
+  expect(markup).toContain('aria-controls="workspace-claude-bash-body"');
+  expect(markup).toContain("Claude Bash");
+  expect(markup).toContain("bun run dev");
+  expect(markup).toContain("taskId claude-task-1");
+  expect(markup).toContain('aria-label="停止 Agent Bash 进程"');
+});
+
 test("image generation tasks render as a workspace card and open the task panel", () => {
   const artifact: ImageGenerationArtifact = {
     id: "image_1",

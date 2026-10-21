@@ -304,6 +304,7 @@ import {
   isBackgroundTerminalStopRequest,
   isBusyMutableOnlyRuntimeConfigUpdate,
   isCodexBackgroundTerminalTerminateRequest,
+  isClaudeBackgroundTaskStopRequest,
   isGitCommitRequest,
   isGitFetchRequest,
   isGitGenerateCommitMessageRequest,
@@ -548,6 +549,7 @@ import { resolveAuxiliaryModelRoute } from "./auxiliary-model-route";
 import { BackgroundTerminalTaskRegistry } from "./background-terminal-tasks";
 import { resolveBashApprovalAgentId } from "./bash-approval-agent-id.js";
 import { CodexBackgroundTerminalService } from "./codex-background-terminals";
+import { ClaudeBackgroundTaskRegistry } from "./claude-background-tasks";
 import {
   approveAllPendingBashApprovalsForThread,
   type BashApprovalResolution,
@@ -1451,6 +1453,7 @@ function broadcastPackageScriptTerminalLaunch(payload: {
 }
 let backgroundTerminalTaskRegistry: BackgroundTerminalTaskRegistry;
 let codexBackgroundTerminalService: CodexBackgroundTerminalService | undefined;
+const claudeBackgroundTaskRegistry = new ClaudeBackgroundTaskRegistry();
 const systemSleepBlocker = new SystemSleepBlocker(powerSaveBlocker);
 let applicationShutdownDeps: ApplicationShutdownDeps | undefined;
 
@@ -5512,6 +5515,17 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid Codex background terminal termination request.");
     }
     return getCodexBackgroundTerminalService().terminate(payload);
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.claudeBackgroundTaskList, async () => {
+    return claudeBackgroundTaskRegistry.list();
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.claudeBackgroundTaskStop, async (payload: unknown) => {
+    if (!isClaudeBackgroundTaskStopRequest(payload)) {
+      throw new Error("Invalid Claude background task stop request.");
+    }
+    return claudeBackgroundTaskRegistry.stop(payload.threadId, payload.taskId);
   });
 
   registerDesktopCommand(IPC_CHANNELS.terminalList, async (payload: unknown) => {
@@ -16174,6 +16188,29 @@ function createSdkDriver(
         claudeMidTurnPorts.close(threadId);
         recentStreamingPushFollowUpIds.delete(threadId);
       },
+    },
+    onBackgroundTasksChanged: ({ threadId, query, tasks }) => {
+      claudeBackgroundTaskRegistry.replaceThread({
+        threadId,
+        workspacePath: conversationStore.getThread(threadId)?.workspacePath ?? storedThread.workspacePath,
+        owner: query,
+        tasks,
+        stopTask: async (taskId) => {
+          if (typeof query.stopTask !== "function") {
+            throw new Error("Claude Agent SDK cannot stop this background task: stopTask is unavailable.");
+          }
+          await query.stopTask(taskId);
+        },
+        forceClose: () => {
+          if (typeof query.close !== "function") {
+            throw new Error("Claude Agent SDK cannot close the Query owning this background task.");
+          }
+          query.close();
+        },
+      });
+    },
+    onBackgroundTasksClosed: ({ threadId, query }) => {
+      claudeBackgroundTaskRegistry.clearThread(threadId, query as object);
     },
     onContextProbe: (phase, detail) => {
       onContextProbe?.(phase, detail);

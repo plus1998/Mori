@@ -127,6 +127,7 @@ import {
   type CenterServerSyncDomain,
   type ClarificationRequest,
   type CoderTodoItem,
+  type ClaudeBackgroundTask,
   type CodexBackgroundTerminal,
   type CoreAvailabilitySnapshot,
   type CursorAgentsListResult,
@@ -532,7 +533,11 @@ import { useStableCallback } from "./use-stable-callback";
 import { installVitePreloadRecovery } from "./vite-preload-recovery";
 import { WebChatListPopover } from "./WebChatListPopover";
 import { RunningResourcesPopover } from "./RunningResourcesPopover";
-import type { RunningTerminal } from "./running-resources";
+import {
+  selectClaudeBackgroundTasksForThread,
+  selectCodexBackgroundTerminalsForThread,
+  type RunningTerminal,
+} from "./running-resources";
 import { WorkspaceFloatingCards } from "./WorkspaceFloatingCards";
 import { isThreadActivelyViewed, subscribeToWindowFocus } from "./window-focus";
 import {
@@ -2202,6 +2207,8 @@ function App() {
   const [backgroundTerminalTasks, setBackgroundTerminalTasks] = useState<BackgroundTerminalTask[]>([]);
   const [codexBackgroundTerminals, setCodexBackgroundTerminals] = useState<CodexBackgroundTerminal[]>([]);
   const [codexBackgroundTerminalError, setCodexBackgroundTerminalError] = useState<string>();
+  const [claudeBackgroundTasks, setClaudeBackgroundTasks] = useState<ClaudeBackgroundTask[]>([]);
+  const [claudeBackgroundTaskError, setClaudeBackgroundTaskError] = useState<string>();
   const [imageArtifactsByThread, setImageArtifactsByThread] = useState<
     Record<string, ImageGenerationArtifact[]>
   >({});
@@ -4354,6 +4361,37 @@ function App() {
       await refreshCodexBackgroundTerminals();
     },
     [refreshCodexBackgroundTerminals, t],
+  );
+
+  const refreshClaudeBackgroundTasks = useCallback(async () => {
+    if (!window.eco?.listClaudeBackgroundTasks) {
+      setClaudeBackgroundTasks([]);
+      setClaudeBackgroundTaskError(undefined);
+      return;
+    }
+    try {
+      setClaudeBackgroundTasks(await window.eco.listClaudeBackgroundTasks());
+      setClaudeBackgroundTaskError(undefined);
+    } catch (error) {
+      setClaudeBackgroundTaskError(String(error));
+    }
+  }, []);
+
+  const stopClaudeBackgroundTask = useCallback(
+    async (task: Pick<ClaudeBackgroundTask, "threadId" | "taskId">) => {
+      if (!window.eco?.stopClaudeBackgroundTask) {
+        throw new Error(t("app.running.terminateUnavailable"));
+      }
+      const result = await window.eco.stopClaudeBackgroundTask({
+        threadId: task.threadId,
+        taskId: task.taskId,
+      });
+      if (!result.stopped) {
+        throw new Error(t("app.running.terminateUnavailable"));
+      }
+      await refreshClaudeBackgroundTasks();
+    },
+    [refreshClaudeBackgroundTasks, t],
   );
 
   const handleRunningTerminalClosed = useCallback((terminal: RunningTerminal) => {
@@ -11186,25 +11224,33 @@ function App() {
   }, [showLanding]);
   const workspaceCardsLayoutMode = workspacePanelLayoutForMode(activityWorkspaceLayoutMode);
   const workspaceCardsPanelOpen = Boolean(showWorkspacePanel && workspacePanelResolvedOpen);
-  const codexBackgroundTerminalsForCurrentWorkspace = useMemo(
-    () =>
-      currentProjectPath
-        ? codexBackgroundTerminals.filter((terminal) => terminal.workspacePath === currentProjectPath)
-        : [],
-    [codexBackgroundTerminals, currentProjectPath],
+  const codexBackgroundTerminalsForActiveThread = useMemo(
+    () => selectCodexBackgroundTerminalsForThread(codexBackgroundTerminals, activeThread?.id),
+    [activeThread?.id, codexBackgroundTerminals],
+  );
+  const claudeBackgroundTasksForActiveThread = useMemo(
+    () => selectClaudeBackgroundTasksForThread(claudeBackgroundTasks, activeThread?.id),
+    [activeThread?.id, claudeBackgroundTasks],
   );
   useEffect(() => {
     if (!workspaceCardsPanelOpen && !runningResourcesOpen) {
       return;
     }
     void refreshCodexBackgroundTerminals();
+    void refreshClaudeBackgroundTasks();
     const timer = window.setInterval(() => {
       void refreshCodexBackgroundTerminals();
+      void refreshClaudeBackgroundTasks();
     }, 2000);
     return () => {
       window.clearInterval(timer);
     };
-  }, [refreshCodexBackgroundTerminals, runningResourcesOpen, workspaceCardsPanelOpen]);
+  }, [
+    refreshClaudeBackgroundTasks,
+    refreshCodexBackgroundTerminals,
+    runningResourcesOpen,
+    workspaceCardsPanelOpen,
+  ]);
   useEffect(() => {
     if (showWorkspacePanel) {
       void refreshGitStatus();
@@ -11343,6 +11389,9 @@ function App() {
               codexTerminals={codexBackgroundTerminals}
               {...(codexBackgroundTerminalError && { codexTerminalError: codexBackgroundTerminalError })}
               onTerminateCodexTerminal={stopCodexBackgroundTerminal}
+              claudeTasks={claudeBackgroundTasks}
+              {...(claudeBackgroundTaskError && { claudeTaskError: claudeBackgroundTaskError })}
+              onStopClaudeTask={stopClaudeBackgroundTask}
               onClose={() => setRunningResourcesOpen(false)}
               onTerminalClosed={handleRunningTerminalClosed}
             />
@@ -12892,12 +12941,18 @@ function App() {
                 }
               >
                 <WorkspaceFloatingCards
-                  codexBackgroundTerminals={codexBackgroundTerminalsForCurrentWorkspace}
+                  codexBackgroundTerminals={codexBackgroundTerminalsForActiveThread}
                   {...(codexBackgroundTerminalError && {
                     codexBackgroundTerminalError,
                   })}
                   onStopCodexBackgroundTerminal={stopCodexBackgroundTerminal}
                   onCodexBackgroundTerminalError={(message) => showAppMessageErrorRef.current(message)}
+                  claudeBackgroundTasks={claudeBackgroundTasksForActiveThread}
+                  {...(claudeBackgroundTaskError && {
+                    claudeBackgroundTaskError,
+                  })}
+                  onStopClaudeBackgroundTask={stopClaudeBackgroundTask}
+                  onClaudeBackgroundTaskError={(message) => showAppMessageErrorRef.current(message)}
                   todos={activeThread ? coderTodos : []}
                   hasActiveThread={Boolean(activeThread)}
                   scheduledMessages={

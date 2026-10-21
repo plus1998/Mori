@@ -34,6 +34,7 @@ import {
   isCompactBoundarySdkMessage,
   isSdkInitMessage,
   mapSdkMessageToEvents,
+  readClaudeBackgroundTasksChanged,
   mergeAllowedTools,
   readSdkSessionId,
   readSdkUserMessageCheckpointId,
@@ -1799,6 +1800,44 @@ test("maps SDK task_started system messages to todo.updated with ambient fields"
     },
   });
   expect(formatAgentEventLine(events[0]!)).toBeNull();
+});
+
+test("reads the Claude background task level signal without inventing task identities", () => {
+  expect(
+    readClaudeBackgroundTasksChanged({
+      type: "system",
+      subtype: "background_tasks_changed",
+      tasks: [
+        {
+          task_id: "shell_1",
+          task_type: "local_bash",
+          description: "bun run dev",
+        },
+        {
+          task_id: "",
+          task_type: "local_bash",
+          description: "invalid",
+        },
+        {
+          task_id: "agent_1",
+          task_type: "local_agent",
+          description: "Explore code",
+        },
+      ],
+    }),
+  ).toEqual([
+    {
+      taskId: "shell_1",
+      taskType: "local_bash",
+      description: "bun run dev",
+    },
+    {
+      taskId: "agent_1",
+      taskType: "local_agent",
+      description: "Explore code",
+    },
+  ]);
+  expect(readClaudeBackgroundTasksChanged({ type: "system", subtype: "task_started" })).toBeUndefined();
 });
 
 test("maps task_notification with resource_links and ambient", () => {

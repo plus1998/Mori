@@ -100,6 +100,9 @@ import {
   type CodexBackgroundTerminal,
   type CodexBackgroundTerminalTerminateRequest,
   type CodexBackgroundTerminalTerminateResult,
+  type ClaudeBackgroundTask,
+  type ClaudeBackgroundTaskStopRequest,
+  type ClaudeBackgroundTaskStopResult,
   type CodexModelCatalogSnapshot,
   type ComposerDraftDeleteRequest,
   type ComposerDraftDeleteResult,
@@ -516,6 +519,14 @@ const api = {
     request: CodexBackgroundTerminalTerminateRequest,
   ): Promise<CodexBackgroundTerminalTerminateResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.codexBackgroundTerminalTerminate, request);
+  },
+  listClaudeBackgroundTasks(): Promise<ClaudeBackgroundTask[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.claudeBackgroundTaskList);
+  },
+  stopClaudeBackgroundTask(
+    request: ClaudeBackgroundTaskStopRequest,
+  ): Promise<ClaudeBackgroundTaskStopResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.claudeBackgroundTaskStop, request);
   },
   listTerminalSessions(request?: TerminalListRequest): Promise<TerminalSessionView[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.terminalList, request ?? {});
