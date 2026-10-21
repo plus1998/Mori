@@ -202,6 +202,37 @@ class EcoCenterClient {
     await setProjectConfig(supabaseUrl: normalized, anonKey: anon);
   }
 
+  /// Applies a Center QR's project details and verifies the resulting endpoint.
+  ///
+  /// Returns `null` when the QR cannot provide a complete project config, even
+  /// with an anon key already stored for the same project. Otherwise this
+  /// returns the health-check result so the connection wizard can leave its
+  /// server step immediately after a successful scan.
+  Future<bool?> applyPairingProjectConfig(PairingQrPayload payload) async {
+    final projectUrl = payload.projectUrl?.trim();
+    if (projectUrl == null || projectUrl.isEmpty) return null;
+
+    final anonFromQr = payload.anonKey?.trim();
+    final currentProject = _credentials.supabaseUrl.trim().isEmpty
+        ? null
+        : normalizeSupabaseProjectUrl(_credentials.supabaseUrl);
+    final sameProject =
+        currentProject == normalizeSupabaseProjectUrl(projectUrl);
+    final anon = anonFromQr != null && anonFromQr.isNotEmpty
+        ? anonFromQr
+        : sameProject
+        ? (_credentials.anonKey?.trim() ?? '')
+        : '';
+
+    if (anon.isEmpty) return null;
+    await setProjectConfig(supabaseUrl: projectUrl, anonKey: anon);
+
+    return testConnection(
+      _credentials.supabaseUrl,
+      anonKey: _credentials.anonKey,
+    );
+  }
+
   Future<void> setSelectedDesktop(
     String? desktopDeviceId, {
     String? knownBindingId,
