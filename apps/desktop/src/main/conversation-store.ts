@@ -7549,11 +7549,11 @@ export class ConversationStore {
       patch,
       reason,
     };
-    const result = options.inCurrentTransaction
+    // Standalone runtime patches publish all committed effects themselves. The
+    // surrounding transaction owns publication only for the current-transaction path.
+    return options.inCurrentTransaction
       ? this.v2.appendProviderInputPatchInCurrentTransaction(appendInput, options.onAppendResult)
-      : this.v2.appendProviderInputPatch(appendInput);
-    if (!options.inCurrentTransaction && !result.duplicate) this.v2.publishCommitted([result]);
-    return result;
+      : this.v2.appendRuntimeProviderInputPatch(appendInput);
   }
 
   /** Host source identities reconstructed from the V2 log, with current normalized text. */

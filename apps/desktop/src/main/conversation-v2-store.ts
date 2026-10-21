@@ -218,6 +218,16 @@ export interface ConversationAppendResult {
   duplicate: boolean;
 }
 
+export interface ConversationProviderInputPatchInput {
+  conversationId: string;
+  eventId: string;
+  sourceEventKey: string;
+  occurredAt: string;
+  inputIds: readonly string[];
+  patch: Record<string, unknown>;
+  reason: string;
+}
+
 export interface ConversationSendMessageInput {
   principalId: string;
   conversationId: string;
@@ -3542,45 +3552,32 @@ export class ConversationV2Store {
     return results;
   }
 
-  appendProviderInputPatch(input: {
-    conversationId: string;
-    eventId: string;
-    sourceEventKey: string;
-    occurredAt: string;
-    inputIds: readonly string[];
-    patch: Record<string, unknown>;
-    reason: string;
-  }): ConversationAppendResult {
-    return this.appendProviderInputPatchInternal(input, false);
+  /** Audit the existing history before a maintenance provider identity patch. */
+  appendProviderInputPatch(input: ConversationProviderInputPatchInput): ConversationAppendResult {
+    return this.appendProviderInputPatchInternal(input, "audited");
+  }
+
+  /**
+   * Patch live provider identities with the same incremental checks as appendRuntime().
+   * A Codex turn bind must not read and hash the entire history on the main thread.
+   * The patch and any history-target effects still commit atomically, and retries
+   * validate the exact stored event/effect and reject changed content.
+   */
+  appendRuntimeProviderInputPatch(input: ConversationProviderInputPatchInput): ConversationAppendResult {
+    return this.appendProviderInputPatchInternal(input, "runtime");
   }
 
   /** Append a provider identity patch while the caller owns the SQLite transaction. */
   appendProviderInputPatchInCurrentTransaction(
-    input: {
-      conversationId: string;
-      eventId: string;
-      sourceEventKey: string;
-      occurredAt: string;
-      inputIds: readonly string[];
-      patch: Record<string, unknown>;
-      reason: string;
-    },
+    input: ConversationProviderInputPatchInput,
     onAppendResult?: (result: ConversationAppendResult) => void,
   ): ConversationAppendResult {
-    return this.appendProviderInputPatchInternal(input, true, onAppendResult);
+    return this.appendProviderInputPatchInternal(input, "current-transaction", onAppendResult);
   }
 
   private appendProviderInputPatchInternal(
-    input: {
-      conversationId: string;
-      eventId: string;
-      sourceEventKey: string;
-      occurredAt: string;
-      inputIds: readonly string[];
-      patch: Record<string, unknown>;
-      reason: string;
-    },
-    inCurrentTransaction: boolean,
+    input: ConversationProviderInputPatchInput,
+    mode: "audited" | "runtime" | "current-transaction",
     onAppendResult?: (result: ConversationAppendResult) => void,
   ): ConversationAppendResult {
     const ids = [...new Set(input.inputIds.map((id) => requireText(id, "providerInputId")))].sort();
@@ -3618,7 +3615,7 @@ export class ConversationV2Store {
         payload: { historyTarget },
       };
     });
-    if (inCurrentTransaction) {
+    if (mode === "current-transaction") {
       const result = this.appendInCurrentTransaction(event);
       onAppendResult?.(result);
       for (const targetEvent of targetEvents) {
@@ -3626,7 +3623,7 @@ export class ConversationV2Store {
       }
       return result;
     }
-    return this.appendBatch([event, ...targetEvents], { verifyExistingIntegrity: true })[0]!;
+    return this.appendBatch([event, ...targetEvents], { verifyExistingIntegrity: mode === "audited" })[0]!;
   }
 
   private existingEventOccurredAt(

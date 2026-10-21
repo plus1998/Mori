@@ -25,6 +25,44 @@ function createStore(): { db: DatabaseSync; store: ConversationV2Store } {
   return { db, store };
 }
 
+function createProviderPatchStore() {
+  const { db, store } = createStore();
+  const conversationId = "thread_provider_patch_guard";
+  store.appendRuntime({
+    conversationId,
+    eventId: "message",
+    type: "message.created",
+    occurredAt: "2026-10-21T00:00:00.000Z",
+    messageId: "message",
+    turnId: "turn",
+    payload: { role: "user", body: "bind me" },
+  });
+  store.appendRuntime({
+    conversationId,
+    eventId: "receipt",
+    type: "noop",
+    occurredAt: "2026-10-21T00:00:01.000Z",
+    messageId: "message",
+    payload: {
+      reason: "runtime.input",
+      source: { id: "provider_input", threadId: conversationId },
+      message: "bind me",
+    },
+  });
+  const input = {
+    conversationId,
+    eventId: "patch",
+    sourceEventKey: "provider:patch:guard",
+    occurredAt: "2026-10-21T00:00:02.000Z",
+    inputIds: ["provider_input"],
+    patch: { metadataMerge: { rewindTarget: { activityLineId: "sdk:item", userMessageId: "item" } } },
+    reason: "codex-bind",
+  };
+  return { db, store, input };
+}
+
+const providerPatchMethods = ["appendProviderInputPatch", "appendRuntimeProviderInputPatch"] as const;
+
 describe("conversation storage V2", () => {
   test("hashes the persisted JSON snapshot and survives replay with optional SDK metadata", () => {
     const { db, store } = createStore();
@@ -505,7 +543,7 @@ describe("conversation storage V2", () => {
     db.close();
   });
 
-  test("provider identity patches emit a V2 history-target effect", () => {
+  test.each(providerPatchMethods)("%s emits history-target effects", (appendPatch) => {
     const { db, store } = createStore();
     store.append({
       conversationId: "thread_provider_patch",
@@ -532,7 +570,7 @@ describe("conversation storage V2", () => {
         message: "bind me",
       },
     });
-    store.appendProviderInputPatch({
+    store[appendPatch]({
       conversationId: "thread_provider_patch",
       eventId: "provider_patch_event",
       sourceEventKey: "provider:patch:1",
@@ -638,7 +676,7 @@ describe("conversation storage V2", () => {
     db.close();
   });
 
-  test("provider identity patch retries preserve the first timestamp and still reject changed content", () => {
+  test.each(providerPatchMethods)("%s preserves retry identity", (appendPatch) => {
     const { db, store } = createStore();
     store.append({
       conversationId: "thread_provider_patch_retry",
@@ -682,9 +720,9 @@ describe("conversation storage V2", () => {
       reason: "codex-bind",
     };
 
-    expect(store.appendProviderInputPatch(input).duplicate).toBe(false);
+    expect(store[appendPatch](input).duplicate).toBe(false);
     const committedHead = store.head(input.conversationId).lastSeq;
-    const retry = store.appendProviderInputPatch({ ...input, occurredAt: "2026-09-14T00:00:09.000Z" });
+    const retry = store[appendPatch]({ ...input, occurredAt: "2026-09-14T00:00:09.000Z" });
 
     expect(retry).toMatchObject({
       duplicate: true,
@@ -695,7 +733,7 @@ describe("conversation storage V2", () => {
       historyTarget: { activityLineId: "sdk:item_1", userMessageId: "item_1" },
     });
     expect(() =>
-      store.appendProviderInputPatch({
+      store[appendPatch]({
         ...input,
         occurredAt: "2026-09-14T00:00:10.000Z",
         patch: {
@@ -710,6 +748,76 @@ describe("conversation storage V2", () => {
     ).toThrow(expect.objectContaining({ code: CONVERSATION_V2_ERROR.idempotencyConflict }));
     expect(store.head(input.conversationId).lastSeq).toBe(committedHead);
     db.close();
+  });
+
+  test("runtime provider patches roll back the patch and publish nothing when a history target conflicts", () => {
+    const { db, store, input } = createProviderPatchStore();
+    try {
+      store.appendRuntime({
+        conversationId: input.conversationId,
+        eventId: "existing_target",
+        type: "message.history_targeted",
+        occurredAt: "2026-10-21T00:00:01.500Z",
+        messageId: "message",
+        payload: { historyTarget: { activityLineId: "sdk:original", userMessageId: "original" } },
+      });
+      const head = store.head(input.conversationId).lastSeq;
+      const readSource = () =>
+        db
+          .prepare(`SELECT source_json FROM conversation_provider_inputs_v2
+        WHERE conversation_id = ? AND input_id = ?`)
+          .get(input.conversationId, "provider_input");
+      const previousSource = readSource();
+      const committedSeqs: number[] = [];
+      store.onCommitted(({ event }) => committedSeqs.push(event.seq));
+
+      expect(() => store.appendRuntimeProviderInputPatch(input)).toThrow();
+      expect(store.head(input.conversationId).lastSeq).toBe(head);
+      expect(readSource()).toEqual(previousSource);
+      expect(committedSeqs).toEqual([]);
+      expect(store.validateIntegrity(input.conversationId).eventCount).toBe(head);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("runtime provider patch retries still verify the exact stored effect", () => {
+    const { db, store, input } = createProviderPatchStore();
+    try {
+      const first = store.appendRuntimeProviderInputPatch(input);
+      const head = store.head(input.conversationId).lastSeq;
+      db.prepare(`UPDATE conversation_sync_effects_v2 SET effect_hash = 'tampered'
+        WHERE conversation_id = ? AND seq = ?`).run(input.conversationId, first.event.seq);
+
+      expect(() => store.appendRuntimeProviderInputPatch(input)).toThrow(
+        expect.objectContaining({ code: CONVERSATION_V2_ERROR.integrityFailure }),
+      );
+      expect(store.head(input.conversationId).lastSeq).toBe(head);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("maintenance provider patches and explicit audits still reject damaged history", () => {
+    const { db, store, input } = createProviderPatchStore();
+    try {
+      const head = store.head(input.conversationId).lastSeq;
+      db.prepare(`UPDATE conversation_events_v2 SET payload_json = ?
+        WHERE conversation_id = ? AND seq = 1`).run(
+        '{"role":"user","body":"tampered"}',
+        input.conversationId,
+      );
+
+      expect(() => store.appendProviderInputPatch(input)).toThrow(
+        expect.objectContaining({ code: CONVERSATION_V2_ERROR.integrityFailure }),
+      );
+      expect(() => store.validateIntegrity(input.conversationId)).toThrow(
+        expect.objectContaining({ code: CONVERSATION_V2_ERROR.integrityFailure }),
+      );
+      expect(store.head(input.conversationId).lastSeq).toBe(head);
+    } finally {
+      db.close();
+    }
   });
 
   test("promotes an old Codex pending target once, while canonical targets remain immutable", () => {
