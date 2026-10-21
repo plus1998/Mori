@@ -2107,19 +2107,6 @@ function createStartupWindowUrl(): string {
         user-select: none;
         animation: app-boot-splash-breathe 1.6s ease-in-out infinite;
       }
-      #status {
-        position: fixed;
-        top: calc(50% + 60px);
-        left: 0;
-        width: 100%;
-        margin: 0;
-        color: rgba(128, 128, 128, 0.8);
-        font-family: "Segoe UI", system-ui, sans-serif;
-        font-size: 13px;
-        text-align: center;
-        -webkit-user-select: none;
-        user-select: none;
-      }
       @media (prefers-reduced-motion: reduce) {
         #splash-icon img { animation: none; }
       }
@@ -2131,7 +2118,6 @@ function createStartupWindowUrl(): string {
   </head>
   <body>
     <div id="splash-icon" aria-hidden="true"><img src="${iconDataUrl}" alt="" width="96" height="96" /></div>
-    <p id="status">正在启动…</p>
   </body>
 </html>`;
   return `data:text/html;charset=UTF-8,${encodeURIComponent(html)}`;
@@ -2536,26 +2522,6 @@ app
         logUpstream("desktop.startup-stage", fields);
       } else {
         logEcoDiag("desktop.startup-stage", fields);
-      }
-      const splashLabels: Record<string, string> = {
-        ready: "正在准备启动…",
-        "startup-window.ready": "正在恢复本地数据…",
-        "conversation-store.initialized": "正在恢复对话…",
-        "conversation-reconciliation.completed": "正在加载设置…",
-        "initial-settings.loaded": "正在恢复任务…",
-        "home-workspace.ready": "正在打开 Eco Coding…",
-        "main-window.ready": "即将完成…",
-      };
-      if (startupWindow && !startupWindow.isDestroyed()) {
-        try {
-          void startupWindow.webContents
-            .executeJavaScript(
-              `(() => { const status = document.getElementById("status"); if (status) status.textContent = ${JSON.stringify(splashLabels[stage] ?? "正在准备应用…")}; })();`,
-            )
-            .catch(() => undefined);
-        } catch {
-          // The splash may still be navigating while a startup stage completes.
-        }
       }
     };
 
