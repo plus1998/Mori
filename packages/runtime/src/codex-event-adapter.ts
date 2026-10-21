@@ -17,6 +17,7 @@
  */
 
 import { summarizeAgentObjective } from "./agent-mission.js";
+import { formatApiErrorUserMessage, type ThreadApiErrorInfo } from "./api-error.js";
 import {
   type CodexContextSnapshotResolution,
   parseCodexThreadTokenUsage,
@@ -445,7 +446,8 @@ function handleTurnCompleted(ctx: AdapterContext, params: Record<string, unknown
   // clears the route exactly once.
   const turnRoute = ctx.turnRouteRegistry?.consume(codexThreadId, turnId);
   const appServerTokenUsage = turnRoute?.appServerTokenUsage;
-  const errorMessage = readCodexTurnErrorMessage(params);
+  const turnApiError = readCodexTurnApiError(params);
+  const errorMessage = turnApiError?.message;
   const interrupted = status === "interrupted";
   const failed = status === "failed";
   const attribution = ctx.resolveThreadAttribution?.(codexThreadId);
@@ -524,7 +526,9 @@ function handleTurnCompleted(ctx: AdapterContext, params: Record<string, unknown
         turnId,
         status,
         apiError: {
-          message: errorMessage ?? `Codex turn ${status}`,
+          ...(turnApiError ?? { message: `Codex turn ${status}` }),
+          codexThreadId,
+          turnId,
         },
       },
     });
@@ -2727,7 +2731,9 @@ function readCodexTurnStatus(
   return status === "completed" || status === "failed" || status === "interrupted" ? status : undefined;
 }
 
-function readCodexTurnErrorMessage(params: Record<string, unknown>): string | undefined {
+function readCodexTurnApiError(
+  params: Record<string, unknown>,
+): ThreadApiErrorInfo | undefined {
   const turn = readTurnRecord(params);
   const error = turn && isRecord(turn.error) ? turn.error : undefined;
   if (!error) {
@@ -2735,10 +2741,21 @@ function readCodexTurnErrorMessage(params: Record<string, unknown>): string | un
   }
   const message = readString(error, "message");
   const details = readString(error, "additionalDetails");
-  if (message && details) {
-    return `${message}: ${details}`;
-  }
-  return message;
+  const code = readString(error, "code");
+  const param = readString(error, "param");
+  const codexErrorInfo = error.codexErrorInfo;
+  const draft: ThreadApiErrorInfo = {
+    message: message ?? details ?? "Codex turn failed",
+    ...(code ? { code } : {}),
+    ...(param ? { param } : {}),
+    ...(details ? { additionalDetails: details } : {}),
+    ...(codexErrorInfo !== undefined ? { codexErrorInfo } : {}),
+    rawTurnError: error,
+  };
+  return {
+    ...draft,
+    message: formatApiErrorUserMessage(draft),
+  };
 }
 
 function readUserMessageText(item: Record<string, unknown>): string {

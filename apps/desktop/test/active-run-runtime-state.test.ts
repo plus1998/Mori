@@ -57,3 +57,43 @@ test("ActiveRunRuntimeStateStore restarts with fresh runtime state", () => {
   expect(store.hasRun("thr_runtime")).toBe(true);
   expect(store.worktreePlan("thr_runtime")).toBeUndefined();
 });
+
+test("only the active Codex turn owns a failure without a runAttemptId", () => {
+  const store = new ActiveRunRuntimeStateStore();
+  const oldController = new AbortController();
+  store.startRun("thr_runtime", { controller: oldController });
+  expect(store.bindCodexTurn("thr_runtime", oldController, "turn_old")).toBe(true);
+  expect(store.ownsRequest("thr_runtime", { turnId: "turn_old" })).toBe(true);
+
+  const controller = new AbortController();
+  store.startRun("thr_runtime", { controller });
+  expect(store.ownsRequest("thr_runtime", { turnId: "turn_old" })).toBe(false);
+  expect(store.bindCodexTurn("thr_runtime", oldController, "turn_old")).toBe(false);
+  expect(store.bindCodexTurn("thr_runtime", controller, "turn_new")).toBe(true);
+  store.clearCodexTurn("thr_runtime", oldController, "turn_old");
+  expect(store.ownsRequest("thr_runtime", { turnId: "turn_old" })).toBe(false);
+  expect(store.ownsRequest("thr_runtime", {})).toBe(false);
+  expect(store.ownsRequest("other_thread", { turnId: "turn_new" })).toBe(false);
+  expect(controller.signal.aborted).toBe(false);
+  expect(store.ownsRequest("thr_runtime", { turnId: "turn_new" })).toBe(true);
+
+  store.clearCodexTurn("thr_runtime", controller, "turn_new");
+  expect(store.ownsRequest("thr_runtime", { turnId: "turn_new" })).toBe(false);
+});
+
+test("Bridge failures require a matching runAttemptId even if a turn matches", () => {
+  const store = new ActiveRunRuntimeStateStore();
+  const controller = new AbortController();
+  store.startRun("thr_runtime", { controller });
+  store.bindCodexTurn("thr_runtime", controller, "turn_current");
+  expect(store.ownsRequest("thr_runtime", {
+    runAttemptId: "run_old", currentRunAttemptId: "run_current", turnId: "turn_current",
+  })).toBe(false);
+  expect(store.ownsRequest("thr_runtime", { runAttemptId: "run_current" })).toBe(false);
+  expect(store.ownsRequest("thr_runtime", {
+    runAttemptId: "run_current", currentRunAttemptId: "run_current",
+  })).toBe(true);
+  store.abortRun("thr_runtime", "quota limit");
+  expect(store.ownsRequest("thr_runtime", { turnId: "turn_current" })).toBe(false);
+  expect(store.bindCodexTurn("thr_runtime", controller, "turn_late")).toBe(false);
+});

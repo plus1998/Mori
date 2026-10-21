@@ -25,6 +25,7 @@ export function statusLabel(account: Account, t: TFunction<"translation", undefi
   if (!account.enabled || account.status === "disabled") return t("settings.chatgptAccounts.statusDisabled");
   if (account.status === "ready") return t("settings.chatgptAccounts.statusReady");
   if (account.status === "refreshing") return t("settings.chatgptAccounts.statusRefreshing");
+  if (account.status === "subscription_usage_paused") return t("settings.chatgptAccounts.statusUsagePaused");
   if (account.status === "rate_limited") return t("settings.chatgptAccounts.statusRateLimited");
   if (account.status === "temporarily_unavailable") return t("settings.chatgptAccounts.statusTemporarilyUnavailable");
   if (account.status === "not_eligible") return t("settings.chatgptAccounts.statusNotEligible");
@@ -35,7 +36,7 @@ export function statusLabel(account: Account, t: TFunction<"translation", undefi
 function statusTone(account: Account): "ready" | "warning" | "muted" | "danger" {
   if (!account.enabled || account.status === "disabled") return "muted";
   if (account.status === "ready") return "ready";
-  if (account.status === "rate_limited" || account.status === "not_eligible" || account.status === "reauthorization_required") return "danger";
+  if (account.status === "rate_limited" || account.status === "subscription_usage_paused" || account.status === "not_eligible" || account.status === "reauthorization_required") return "danger";
   if (account.status === "temporarily_unavailable" || account.status === "refreshing") return "warning";
   return "muted";
 }
@@ -47,7 +48,13 @@ export function formatLastUsed(timestamp: number | undefined, t: TFunction<"tran
   });
 }
 
-export function ChatGPTSubscriptionAccountsPanel() {
+export function ChatGPTSubscriptionAccountsPanel({
+  initialAccountId,
+  onInitialAccountHandled,
+}: {
+  initialAccountId?: string;
+  onInitialAccountHandled?: () => void;
+} = {}) {
   const { t, i18n } = useTranslation();
   const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -67,6 +74,7 @@ export function ChatGPTSubscriptionAccountsPanel() {
   const menuRef = useRef<HTMLDivElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLFormElement>(null);
+  const handledInitialAccountIdRef = useRef<string | undefined>(undefined);
 
   const refresh = useCallback(async () => {
     if (!window.eco?.chatGptSubscriptionAccountsList) return;
@@ -79,12 +87,16 @@ export function ChatGPTSubscriptionAccountsPanel() {
     }
   }, []);
 
-  const refreshModels = useCallback(async () => {
+  const refreshModels = useCallback(async (accountId?: string) => {
     if (!window.eco?.listProviderModels) return;
     setModelsLoading(true);
     setModelsError(undefined);
     try {
-      const result = await window.eco.listProviderModels({ providerId: "eco-coding-chatgpt", authMethod: "chatgpt_subscription" });
+      const result = await window.eco.listProviderModels({
+        providerId: "eco-coding-chatgpt",
+        authMethod: "chatgpt_subscription",
+        ...(accountId ? { accountId } : {}),
+      });
       if (!result.ok) throw new Error(result.error);
       setModels(result.models as ModelOption[]);
       setSelectedModel((current) => result.models.some((model) => model.id === current) ? current : result.models[0]?.id ?? "");
@@ -100,13 +112,41 @@ export function ChatGPTSubscriptionAccountsPanel() {
   useEffect(() => {
     void (async () => {
       const next = await refresh();
-      if (next?.some((account) => account.enabled && account.hasCredentials && account.status === "ready")) await refreshModels();
+      if (
+        !initialAccountId &&
+        next?.some((account) => account.enabled && account.hasCredentials && account.status === "ready")
+      ) {
+        await refreshModels();
+      }
     })();
     return window.eco?.onChatGptSubscriptionLoginResult((result) => {
       setMessage(result.success ? undefined : result.message || t("settings.chatgptAccounts.authFailed"));
       void refresh().then(() => refreshModels());
     });
-  }, [refresh, refreshModels, t]);
+  }, [initialAccountId, refresh, refreshModels, t]);
+
+  useEffect(() => {
+    const targetAccountId = initialAccountId?.trim();
+    if (
+      !targetAccountId ||
+      handledInitialAccountIdRef.current === targetAccountId ||
+      accounts.length === 0
+    ) {
+      return;
+    }
+    const account = accounts.find((candidate) => candidate.accountId === targetAccountId);
+    if (!account) {
+      handledInitialAccountIdRef.current = targetAccountId;
+      setMessage(t("settings.chatgptAccounts.accountNotFound"));
+      onInitialAccountHandled?.();
+      return;
+    }
+    handledInitialAccountIdRef.current = targetAccountId;
+    setTestResult(undefined);
+    setTestDialog(account);
+    void refreshModels(account.accountId);
+    onInitialAccountHandled?.();
+  }, [accounts, initialAccountId, onInitialAccountHandled, refreshModels, t]);
 
   useEffect(() => {
     if (!dialog && !proxyAccount && !testDialog) return;
@@ -290,7 +330,7 @@ export function ChatGPTSubscriptionAccountsPanel() {
                 <div className="chatgpt-account-identity"><strong title={account.displayName}>{account.displayName}</strong><span title={account.email}>{account.email || t("settings.chatgptAccounts.emailUnbound")}</span></div>
                 <span className={`chatgpt-status-badge is-${tone}`}><i />{statusLabel(account, t)}</span>
                 <div className="chatgpt-account-actions">
-                  {account.hasCredentials && account.status !== "reauthorization_required" ? <button type="button" className="chatgpt-action-secondary" disabled={busy} onClick={() => { setTestResult(undefined); setTestDialog(account); if (!models.length && account.status === "ready") void refreshModels(); }}>{t("settings.chatgptAccounts.testConnection")}</button> : <button type="button" className="chatgpt-action-primary" disabled={busy} onClick={() => void login(account.accountId)}><KeyRound size={14} />{account.hasCredentials ? t("settings.chatgptAccounts.reauthorize") : t("settings.chatgptAccounts.startAuthorization")}</button>}
+                  {account.hasCredentials && account.status !== "reauthorization_required" ? <button type="button" className="chatgpt-action-secondary" disabled={busy} onClick={() => { setTestResult(undefined); setTestDialog(account); if (!models.length) void refreshModels(account.accountId); }}>{t("settings.chatgptAccounts.testConnection")}</button> : <button type="button" className="chatgpt-action-primary" disabled={busy} onClick={() => void login(account.accountId)}><KeyRound size={14} />{account.hasCredentials ? t("settings.chatgptAccounts.reauthorize") : t("settings.chatgptAccounts.startAuthorization")}</button>}
                   <button type="button" className="mcp-icon-button" aria-label={t("settings.openaiAccounts.moreActionsAria", { name: account.displayName })} aria-haspopup="menu" aria-expanded={menu?.account.accountId === account.accountId} disabled={busy} onClick={(event) => {
                     if (menu?.account.accountId === account.accountId) { setMenu(undefined); return; }
                     menuTriggerRef.current = event.currentTarget;
@@ -304,6 +344,7 @@ export function ChatGPTSubscriptionAccountsPanel() {
                 <span>{formatLastUsed(account.lastSuccessAt, t, locale)}</span>
               </div>
               {account.status === "not_eligible" ? <p className="chatgpt-account-warning">{t("settings.chatgptAccounts.notEligibleWarning")}</p> : null}
+              {account.status === "subscription_usage_paused" ? <p className="chatgpt-account-warning">{t("settings.chatgptAccounts.usagePausedWarning")} <a className="chatgpt-inline-link" href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer">{t("settings.chatgptAccounts.usageLink")} <ExternalLink size={12} /></a></p> : null}
             </article>;
           })}
         </div>
@@ -313,7 +354,7 @@ export function ChatGPTSubscriptionAccountsPanel() {
         <div ref={menuRef} className="account-action-menu chatgpt-action-menu" role="menu" aria-label={t("settings.openaiAccounts.accountActionsAria")} style={{ position: "fixed", top: menu.top, left: menu.left }}>
           <button type="button" role="menuitem" className="account-action-item" onClick={() => { setMenu(undefined); void login(menu.account.accountId); }}><KeyRound size={14} />{menu.account.hasCredentials ? t("settings.chatgptAccounts.reauthorize") : t("settings.chatgptAccounts.startAuthorization")}</button>
           <button type="button" role="menuitem" className="account-action-item" onClick={() => { setMenu(undefined); void copyAuthorizationUrl(menu.account); }}><Copy size={14} />{t("settings.chatgptAccounts.copyAuthorizationUrl")}</button>
-          {menu.account.hasCredentials && !["ready", "needs_login", "disabled"].includes(menu.account.status) ? <button type="button" role="menuitem" className="account-action-item" onClick={() => { setMenu(undefined); void resetAvailability(menu.account); }}><RefreshCw size={14} />{t("settings.chatgptAccounts.recheck")}</button> : null}
+          {menu.account.hasCredentials && !["ready", "needs_login", "disabled", "subscription_usage_paused"].includes(menu.account.status) ? <button type="button" role="menuitem" className="account-action-item" onClick={() => { setMenu(undefined); void resetAvailability(menu.account); }}><RefreshCw size={14} />{t("settings.chatgptAccounts.recheck")}</button> : null}
           <button type="button" role="menuitem" className="account-action-item" onClick={() => { setMenu(undefined); void setEnabled(menu.account); }}>{menu.account.enabled ? t("settings.chatgptAccounts.disableAccount") : t("settings.chatgptAccounts.enableAccount")}</button>
           <button type="button" role="menuitem" className="account-action-item danger" onClick={() => { setMenu(undefined); setMessage(undefined); setDialog(menu.account); }}><Trash2 size={14} />{t("settings.chatgptAccounts.deleteAccount")}</button>
         </div>, document.body,
@@ -328,7 +369,7 @@ export function ChatGPTSubscriptionAccountsPanel() {
               <p className="chatgpt-test-description">{t("settings.chatgptAccounts.testDescription", { name: testDialog.displayName })}</p>
               <div className="chatgpt-test-model-section">
                 <label className="mcp-field"><span className="mcp-field-label">{t("settings.chatgptAccounts.testModel")}</span><select className="mcp-field-input" value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)} disabled={busy || modelsLoading || !models.length} autoFocus><option value="">{modelsLoading ? t("settings.chatgptAccounts.fetchingModels") : t("settings.chatgptAccounts.chooseModel")}</option>{models.map((model) => <option key={model.id} value={model.id}>{model.displayName || model.id}</option>)}</select></label>
-                <button type="button" className="chatgpt-inline-link chatgpt-test-refresh-link" disabled={busy || modelsLoading} onClick={() => void refreshModels()}><RefreshCw size={13} />{t("settings.chatgptAccounts.refetchModels")}</button>
+                <button type="button" className="chatgpt-inline-link chatgpt-test-refresh-link" disabled={busy || modelsLoading} onClick={() => void refreshModels(testDialog.accountId)}><RefreshCw size={13} />{t("settings.chatgptAccounts.refetchModels")}</button>
               </div>
               {modelsError ? <p className="chatgpt-notice is-error" role="alert">{modelsError}</p> : null}
               {testDialog.status === "not_eligible" ? <p className="chatgpt-notice">{t("settings.chatgptAccounts.notEligibleTestNotice")}</p> : null}

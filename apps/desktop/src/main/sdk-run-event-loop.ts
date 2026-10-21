@@ -7,6 +7,7 @@ import {
   applyClaudeRunTerminal,
   type ClaudeRunTerminalState,
   isClaudeRunTerminalPayload,
+  resolveAbortReason,
   resolveClaudeRunAttemptFromTerminalState,
 } from "./claude-run-terminal";
 import type { RequestAttemptResult } from "./request-retry";
@@ -79,7 +80,11 @@ export async function consumeSdkRunEvents<TEvent extends SdkRunEventLike>(
 
   // Legacy path (PI / emitters without run.terminal).
   if (input.signal.aborted) {
-    return { ok: false, reason: "cancelled by user", aborted: true };
+    return {
+      ok: false,
+      reason: resolveAbortReason(input.signal.reason),
+      aborted: true,
+    };
   }
   if (legacyFailure) {
     return { ok: false, reason: legacyFailure };

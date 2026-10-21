@@ -13,7 +13,7 @@ export type ThreadRunOutcomeDecision =
   | { kind: "idle"; message: string };
 
 export function isRequestAttemptAborted(result: RequestAttemptResult): boolean {
-  return !result.ok && result.aborted === true;
+  return !result.ok && result.aborted === true && result.interruptFailed !== true;
 }
 
 export function runAttemptPhaseFromThreadMode(mode: ThreadRunMode): RunAttemptPhase {
@@ -107,8 +107,11 @@ function resolveInterruptedRunOutcome(
 ):
   | Extract<ThreadRunOutcomeDecision, { kind: "cancelled" | "failed" | "unstarted" | "incomplete" }>
   | undefined {
-  if (isRequestAttemptAborted(result)) {
-    return { kind: "cancelled", reason: "cancelled by user" };
+  if (!result.ok && isRequestAttemptAborted(result)) {
+    return {
+      kind: "cancelled",
+      reason: result.reason.trim() || "cancelled by user",
+    };
   }
   if (!result.ok && result.incomplete) {
     return { kind: "incomplete", reason: result.reason };

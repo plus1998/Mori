@@ -36,4 +36,15 @@ describe("applyClaudeRunTerminal last-wins", () => {
       aborted: true,
     });
   });
+
+  test("preserves an explicit abort reason for quota-driven interruption", () => {
+    const state = applyClaudeRunTerminal({ kind: "running" }, { status: "completed" });
+    const controller = new AbortController();
+    controller.abort("ChatGPT subscription usage limit exceeded");
+    expect(resolveClaudeRunAttemptFromTerminalState(state, controller.signal)).toEqual({
+      ok: false,
+      reason: "ChatGPT subscription usage limit exceeded",
+      aborted: true,
+    });
+  });
 });

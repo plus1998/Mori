@@ -1636,6 +1636,7 @@ function App() {
   const [composerRoutePopoverOpen, setComposerRoutePopoverOpen] = useState(false);
   const [composerRouteAnchor, setComposerRouteAnchor] = useState<"plus" | "model-empty">("plus");
   const [modelsSettingsTab, setModelsSettingsTab] = useState<ModelsSettingsTab>("subagents");
+  const [modelsSettingsChatGptAccountId, setModelsSettingsChatGptAccountId] = useState<string>();
   const [pendingCreateMainConfig, setPendingCreateMainConfig] = useState<PendingMainAgentConfigCreateSeed>();
   const composerPlusButtonRef = useRef<HTMLButtonElement>(null);
   const composerModelEmptyTriggerRef = useRef<HTMLButtonElement>(null);
@@ -9060,6 +9061,12 @@ function App() {
 
   const openCodexAccountSwitch = useCallback(() => setCodexAccountSwitchOpen(true), []);
   const closeCodexAccountSwitch = useCallback(() => setCodexAccountSwitchOpen(false), []);
+  const openChatGptSubscriptionAccounts = useCallback((accountId?: string) => {
+    setModelsSettingsChatGptAccountId(accountId?.trim() || undefined);
+    setModelsSettingsTab("chatgptAccounts");
+    setSettingsSection("agentLibrary");
+    setSettingsOpen(true);
+  }, []);
 
   function openSettings() {
     setSettingsSection("preferences");
@@ -12698,6 +12705,9 @@ function App() {
                                         : {})}
                                       onRetryFailedRequest={activityRetryFailedRequest}
                                       onSwitchCodexAccount={openCodexAccountSwitch}
+                                      onOpenChatGptSubscriptionAccounts={
+                                        openChatGptSubscriptionAccounts
+                                      }
                                       onPlannerLayoutChange={handleActivityPlannerLayoutChange}
                                       onComposerAgentSilenceChange={setComposerAgentSilenceVisible}
                                       onFeedEndAnchorChange={handleFeedEndAnchorChange}
@@ -13395,7 +13405,15 @@ function App() {
                       mcpServers={mcpSettings.servers}
                       skillsSnapshot={skillsSnapshot}
                       initialTab={
-                        settingsSection === "orchestrationComponents" ? "compositionParts" : "subagents"
+                        settingsSection === "orchestrationComponents"
+                          ? "compositionParts"
+                          : modelsSettingsTab
+                      }
+                      {...(modelsSettingsChatGptAccountId && {
+                        initialChatGptAccountId: modelsSettingsChatGptAccountId,
+                      })}
+                      onInitialChatGptAccountHandled={() =>
+                        setModelsSettingsChatGptAccountId(undefined)
                       }
                       mode="agentBuilder"
                       hideCategoryTabs

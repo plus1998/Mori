@@ -94,6 +94,7 @@ function asAnthropicRequest(body: Record<string, unknown>): AnthropicRequest {
 }
 
 async function postAnthropicWithRetry(
+  route: ResolvedProviderRoute,
   upstreamUrl: string,
   upstreamHeaders: Record<string, string>,
   body: AnthropicRequest,
@@ -111,6 +112,7 @@ async function postAnthropicWithRetry(
     },
     lifecycle,
     onLog,
+    httpFailureContext: { route, upstreamUrl },
   });
 }
 
@@ -147,6 +149,7 @@ export async function fetchWithThinkingRectifiers(
   let upstreamResponse: Response;
   try {
     upstreamResponse = await postAnthropicWithRetry(
+      route,
       upstreamUrl,
       upstreamHeaders,
       bodyForUpstream,
@@ -189,6 +192,7 @@ export async function fetchWithThinkingRectifiers(
       );
       try {
         const retryResponse = await postAnthropicWithRetry(
+          route,
           upstreamUrl,
           upstreamHeaders,
           asAnthropicRequest(rectified),
@@ -250,6 +254,7 @@ export async function fetchWithThinkingRectifiers(
       );
       try {
         const retryResponse = await postAnthropicWithRetry(
+          route,
           upstreamUrl,
           upstreamHeaders,
           asAnthropicRequest(rectified),

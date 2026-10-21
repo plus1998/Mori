@@ -2720,6 +2720,17 @@ export interface ThreadApiErrorInfo {
   code?: string;
   message: string;
   model?: string;
+  codexErrorInfo?: unknown;
+  additionalDetails?: string;
+  rawTurnError?: unknown;
+  param?: string;
+  logicalRequestId?: string;
+  providerRequestId?: string;
+  responseId?: string;
+  accountId?: string;
+  threadId?: string;
+  turnId?: string;
+  runAttemptId?: string;
 }
 
 export interface ThreadActivityLine {

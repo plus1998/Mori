@@ -78,8 +78,14 @@ export function enrichResolvedRouteWithCodexTurnIdentity(
   codexTurnMetadata?: GatewayCodexTurnMetadata,
 ): ResolvedProviderRoute {
   const turnId = codexTurnMetadata?.turnId?.trim();
-  if (!turnId || route.logicalRequestId?.trim()) {
+  const threadId = codexTurnMetadata?.threadId?.trim();
+  if (!turnId && !threadId) {
     return route;
   }
-  return { ...route, logicalRequestId: turnId };
+  return {
+    ...route,
+    ...(route.logicalRequestId?.trim() ? {} : turnId ? { logicalRequestId: turnId } : {}),
+    ...(turnId ? { turnId } : {}),
+    ...(threadId && !route.threadId?.trim() ? { threadId } : {}),
+  };
 }

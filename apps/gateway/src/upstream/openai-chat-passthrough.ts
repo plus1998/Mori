@@ -105,6 +105,7 @@ export async function forwardOpenAIChatPassthrough(
       },
       lifecycle,
       onLog,
+      httpFailureContext: { route, upstreamUrl },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

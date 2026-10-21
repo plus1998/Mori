@@ -50,7 +50,7 @@ const okAnthropicBody = {
 };
 
 describe("fetchUpstreamWithRetry", () => {
-  test("retries 429 then succeeds without logical.failed", async () => {
+  test("retries 429 then succeeds with one terminal per attempt", async () => {
     const { events, observer } = collectLifecycle(() => undefined);
     const lifecycle = buildRequestLifecycleContext(anthropicRoute, "messages", () => undefined, observer);
     let calls = 0;
@@ -81,7 +81,9 @@ describe("fetchUpstreamWithRetry", () => {
     expect(response.status).toBe(200);
     expect(calls).toBe(2);
     expect(logs.some((line) => line.includes("upstream retry attempt=1 status=429"))).toBe(true);
-    expect(events.filter((event) => event.type === "upstream.failed")).toHaveLength(0);
+    const failed = events.filter((event) => event.type === "upstream.failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ attemptIndex: 0, statusCode: 429 });
     expect(events.filter((event) => event.type === "logical.failed")).toHaveLength(0);
     const started = events.filter((event) => event.type === "upstream.started");
     expect(started.map((event) => event.attemptIndex)).toEqual([0, 1]);
@@ -110,10 +112,41 @@ describe("fetchUpstreamWithRetry", () => {
     expect(response.status).toBe(401);
     expect(calls).toBe(1);
     expect(events.filter((event) => event.type === "upstream.started")).toHaveLength(1);
-    expect(events.filter((event) => event.type === "upstream.failed")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "upstream.failed")).toHaveLength(1);
   });
 
-  test("exhausts 429 and caller reports failure once", async () => {
+  test("does not retry an explicit subscription usage-limit response", async () => {
+    const { events, observer } = collectLifecycle(() => undefined);
+    const lifecycle = buildRequestLifecycleContext(anthropicRoute, "messages", () => undefined, observer);
+    let calls = 0;
+    const response = await fetchUpstreamWithRetry({
+      fetchImpl: async () => {
+        calls += 1;
+        return Response.json(
+          {
+            error: {
+              code: "subscription_sharing_usage_limit_exceeded",
+              message: "Usage limit exceeded",
+            },
+          },
+          { status: 429, headers: { "retry-after": "0", "x-request-id": "req_quota_429" } },
+        );
+      },
+      url: "https://mock.anthropic.test/v1/messages",
+      init: { method: "POST", body: "{}" },
+      lifecycle,
+      maxAttempts: 5,
+      baseDelayMs: 0,
+      maxDelayMs: 0,
+    });
+
+    expect(response.status).toBe(429);
+    expect(calls).toBe(1);
+    expect(events.filter((event) => event.type === "upstream.failed")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "upstream.started")).toHaveLength(1);
+  });
+
+  test("exhausts 429 and records exactly one failure per attempt", async () => {
     const { events, observer } = collectLifecycle(() => undefined);
     const lifecycle = buildRequestLifecycleContext(anthropicRoute, "messages", () => undefined, observer);
     let calls = 0;
@@ -142,7 +175,11 @@ describe("fetchUpstreamWithRetry", () => {
       statusCode: 429,
       providerRequestId: "req_3",
     });
-    expect(events.filter((event) => event.type === "upstream.failed")).toHaveLength(1);
+    expect(
+      events
+        .filter((event) => event.type === "upstream.failed")
+        .map((event) => event.attemptIndex),
+    ).toEqual([0, 1, 2]);
     expect(events.filter((event) => event.type === "logical.failed")).toHaveLength(1);
     expect(events.filter((event) => event.type === "upstream.started").map((e) => e.attemptIndex)).toEqual([
       0, 1, 2,
@@ -182,7 +219,7 @@ describe("fetchUpstreamWithRetry", () => {
 
     expect(response.status).toBe(200);
     expect(calls).toBe(2);
-    expect(events.filter((event) => event.type === "upstream.failed")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "upstream.failed")).toHaveLength(1);
     expect(events.filter((event) => event.type === "logical.failed")).toHaveLength(0);
     expect(events.some((event) => event.type === "logical.completed")).toBe(true);
     expect(

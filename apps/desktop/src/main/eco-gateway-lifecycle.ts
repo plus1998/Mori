@@ -1,5 +1,6 @@
 import {
   type EcoGatewayServer,
+  type GatewayCredentialResult,
   type GatewayConfig,
   type GatewayProvider,
   type GatewayRequestLifecycleObserver,
@@ -91,12 +92,7 @@ export interface EcoGatewayLifecycleOptions {
       }) => Promise<{ accessToken: string; accountId?: string; upstreamProxyUrl?: string }>)
     | undefined;
   getGatewayCredentialReporter?: () =>
-    | ((input: {
-        provider: GatewayProvider;
-        accountId?: string;
-        statusCode: number;
-        errorCode?: string;
-      }) => void | Promise<void>)
+    | ((input: GatewayCredentialResult) => void | Promise<void>)
     | undefined;
   /** Fixed ceiling or per-request remaining-window budget. */
   getGlobalMaxOutputTokens?: () => GlobalMaxOutputTokens;

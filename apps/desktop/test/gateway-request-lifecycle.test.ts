@@ -86,6 +86,70 @@ describe("gateway-request-lifecycle desktop bridge", () => {
     expect(requestIds).toEqual([]);
   });
 
+  test("missing bridge binding fails closed instead of treating the request as main", () => {
+    const failed: Array<{ role: RuntimeAgentRole; runAttemptId?: string }> = [];
+    handleGatewayRequestLifecycleEvent(
+      {
+        type: "logical.failed",
+        source: "messages",
+        providerId: "pa",
+        requestedModel: "alias-a",
+        upstreamModelId: "model-a",
+        bridgeBindingId: "cbb_missing",
+        threadId: "thread-1",
+        logicalRequestId: "lr_missing_binding",
+        attemptIndex: 0,
+        error: "failed",
+        observedAt: new Date().toISOString(),
+      },
+      {
+        onUpstreamRequestId: () => {},
+        onUpstreamConnectionError: () => {},
+        onLogicalFailed: (input) =>
+          failed.push({ role: input.role, runAttemptId: input.runAttemptId }),
+      },
+    );
+
+    expect(failed).toEqual([]);
+  });
+
+  test("bridge lifecycle inherits its run attempt for scoped interruption", () => {
+    const binding = createBinding([
+      {
+        role: "coder",
+        provider: providerSecret("pa"),
+        modelId: "model-a",
+        aliasModelId: "alias-a",
+        apiCompat: "anthropic",
+      },
+    ]);
+    const failed: Array<{ role: RuntimeAgentRole; runAttemptId?: string }> = [];
+
+    handleGatewayRequestLifecycleEvent(
+      {
+        type: "logical.failed",
+        source: "messages",
+        providerId: "pa",
+        requestedModel: "alias-a",
+        upstreamModelId: "model-a",
+        bridgeBindingId: binding.bindingId,
+        threadId: "thread-1",
+        logicalRequestId: "lr_inherit_attempt",
+        attemptIndex: 0,
+        error: "failed",
+        observedAt: new Date().toISOString(),
+      },
+      {
+        onUpstreamRequestId: () => {},
+        onUpstreamConnectionError: () => {},
+        onLogicalFailed: (input) =>
+          failed.push({ role: input.role, runAttemptId: input.runAttemptId }),
+      },
+    );
+
+    expect(failed).toEqual([{ role: "coder", runAttemptId: "attempt-1" }]);
+  });
+
   test("requested alias selects correct role when routes share provider and concrete model", () => {
     const binding = createBinding([
       {

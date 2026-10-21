@@ -721,6 +721,60 @@ describe("responses passthrough", () => {
     expect(result).toEqual({ body, converted: 0, encrypted: 0 });
   });
 
+  for (const partialNextFrame of [false, true]) {
+    test(`waits for real completion after a normal tool-frame gap (partial next frame: ${partialNextFrame})`, async () => {
+      const provider: GatewayProvider = {
+        id: "delayed-terminal",
+        name: "Delayed Responses mock",
+        upstreamKind: "responses",
+        baseUrl: "https://mock.responses.test",
+        apiKey: "test-key",
+        upstreamModelId: "gpt-5",
+        models: ["gpt-5"],
+      };
+      const toolFrame = 'data: {"type":"response.output_item.done","item":{"type":"function_call","id":"item_1","call_id":"call_1","name":"exec","arguments":"{}"}}\n\n';
+      const nextFrame = 'data: {"type":"response.output_text.delta","delta":"after tool"}\n\n';
+      const completion = 'data: {"type":"response.completed","response":{"id":"resp_real","status":"completed","output":[],"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}}}\n\n';
+      const prefixLength = 24;
+      let realTerminalSent = false;
+      let cancelledEarly = false;
+      let timer: ReturnType<typeof setTimeout>;
+      const usageEvents: GatewayUsageEvent[] = [];
+      const upstream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(toolFrame + (partialNextFrame ? nextFrame.slice(0, prefixLength) : "")));
+          timer = setTimeout(() => {
+            realTerminalSent = true;
+            controller.enqueue(new TextEncoder().encode((partialNextFrame ? nextFrame.slice(prefixLength) : "") + completion));
+            controller.close();
+          }, 250);
+        },
+        cancel() {
+          cancelledEarly = !realTerminalSent;
+          clearTimeout(timer);
+        },
+      });
+      const handler = createTestGatewayFetchHandler(
+        { host: "127.0.0.1", port: 0, providers: [provider] },
+        async () => new Response(upstream, { headers: { "content-type": "text/event-stream" } }),
+        () => undefined,
+        (event) => { usageEvents.push(event); },
+      );
+      const response = await handler(new Request("http://127.0.0.1/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "gpt-5", stream: true, input: [] }),
+      }));
+      const body = await response.text();
+      expect(cancelledEarly).toBe(false);
+      expect(body).toContain('"id":"resp_real"');
+      expect(body).toContain('"total_tokens":10');
+      expect(body.match(/"type":"response.completed"/g)).toHaveLength(1);
+      expect(usageEvents).toHaveLength(1);
+      expect(usageEvents[0]?.usage).toMatchObject({ inputTokens: 7, outputTokens: 3 });
+    });
+  }
+
   test("synthesizes response.completed with tool outputs after post-tool stall", async () => {
     const provider: GatewayProvider = {
       id: "mygrok-stall",

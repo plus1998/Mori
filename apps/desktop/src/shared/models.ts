@@ -53,6 +53,8 @@ import type { UpstreamApiCompat } from "./api-compat";
 
 export interface ListUpstreamModelsRequest {
   providerId?: string;
+  /** Explicit OAuth account, including a usage-paused account used for manual testing. */
+  accountId?: string;
   authMethod?: "api_key" | "oauth" | "auth_json" | "chatgpt_subscription";
   baseUrl?: string;
   /** Service path prefix, e.g. `/zen` or `/anthropic` (not full `/v1/chat/completions`). */

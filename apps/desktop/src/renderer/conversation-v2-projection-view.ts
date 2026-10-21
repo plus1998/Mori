@@ -3410,6 +3410,7 @@ export function projectionItemToDetailBlock(
       ...(apiError?.title && { title: apiError.title }),
       ...(apiError?.statusCode !== undefined && { statusCode: apiError.statusCode }),
       ...(apiError?.code && { code: apiError.code }),
+      ...(apiError?.accountId && { accountId: apiError.accountId }),
       ...(subagent && { subagent }),
       ...(item.agentId && { agentId: item.agentId }),
     };
@@ -3773,7 +3774,13 @@ function isProjectionTodoToolActionItem(item: ThreadRunProjectionTimelineItem): 
 
 function readProjectionApiError(
   item: ThreadRunProjectionTimelineItem,
-): { message: string; title?: string; statusCode?: number; code?: string } | undefined {
+): {
+  message: string;
+  title?: string;
+  statusCode?: number;
+  code?: string;
+  accountId?: string;
+} | undefined {
   const raw = item.metadata?.apiError;
   if (!raw || typeof raw !== "object") {
     return undefined;
@@ -3788,6 +3795,8 @@ function readProjectionApiError(
     ...(typeof record.title === "string" && record.title.trim() && { title: record.title.trim() }),
     ...(typeof record.statusCode === "number" && { statusCode: record.statusCode }),
     ...(typeof record.code === "string" && record.code.trim() && { code: record.code.trim() }),
+    ...(typeof record.accountId === "string" &&
+      record.accountId.trim() && { accountId: record.accountId.trim() }),
   };
 }
 

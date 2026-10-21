@@ -73,6 +73,12 @@
   min-width: 0;
 }
 
+.feed-error-card-message a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .feed-error-card-detail {
   max-height: 180px;
   margin: 8px 0 0;

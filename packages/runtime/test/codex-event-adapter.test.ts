@@ -784,7 +784,16 @@ test("dispatch emits api.error when turn/completed status is failed", () => {
         id: "turn_fail_001",
         items: [],
         status: "failed",
-        error: { message: "Model provider eco_custom not found" },
+        error: {
+          message: "Model provider eco_custom not found",
+          code: "provider_error",
+          param: "model_provider",
+          codexErrorInfo: {
+            type: "http_connection_failed",
+            httpStatusCode: 503,
+          },
+          additionalDetails: "The provider process exited.",
+        },
       },
     });
   });
@@ -793,6 +802,25 @@ test("dispatch emits api.error when turn/completed status is failed", () => {
   expect(events[1]?.message).toBe("Model provider eco_custom not found");
   expect(events[1]?.metadata?.apiError).toEqual({
     message: "Model provider eco_custom not found",
+    code: "provider_error",
+    param: "model_provider",
+    codexErrorInfo: {
+      type: "http_connection_failed",
+      httpStatusCode: 503,
+    },
+    additionalDetails: "The provider process exited.",
+    rawTurnError: {
+      message: "Model provider eco_custom not found",
+      code: "provider_error",
+      param: "model_provider",
+      codexErrorInfo: {
+        type: "http_connection_failed",
+        httpStatusCode: 503,
+      },
+      additionalDetails: "The provider process exited.",
+    },
+    codexThreadId: "thr_codex_fixture_001",
+    turnId: "turn_fail_001",
   });
 });
 

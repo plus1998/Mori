@@ -71,6 +71,7 @@ import {
   evaluateFilesystemWriteConfirmation,
   isAcpProviderExhaustionMessage,
   isCoreKind,
+  isCodexTurnInterruptFailed,
   isPiThreadMidTurnAccepting,
   isReadFilesystemTool,
   integratedWebSearchProviderLabel,
@@ -1963,6 +1964,23 @@ function startActiveRun(threadId: string, run: ActiveRunRuntimeStateInput): void
   }
 }
 
+function resolveAbortedRunReason(signal: AbortSignal, error?: unknown): string {
+  if (
+    error instanceof Error &&
+    (error.name === "CodexTurnInterruptFailed" ||
+      /turn\/interrupt.*failed|interrupt failed/i.test(error.message))
+  ) {
+    return `停止当前 Codex turn 失败：${error.message}`;
+  }
+  if (signal.reason instanceof Error && signal.reason.message.trim()) {
+    return signal.reason.message.trim();
+  }
+  if (typeof signal.reason === "string" && signal.reason.trim()) {
+    return signal.reason.trim();
+  }
+  return "cancelled by user";
+}
+
 function finishActiveRun(threadId: string): void {
   threadFollowUpQueueControl.finished(threadId);
   clearThreadCancelling(threadId);
@@ -3018,13 +3036,9 @@ app
         },
       getGatewayCredentialReporter:
         () =>
-        async ({ accountId, statusCode, errorCode }) => {
+        async (result) => {
           const service = await getChatGptSubscriptionService();
-          await service.reportCredentialResult({
-            ...(accountId ? { accountId } : {}),
-            statusCode,
-            ...(errorCode ? { errorCode } : {}),
-          });
+          await service.reportCredentialResult(result);
         },
       getTurnRouteRegistry: () => getCodexTurnRouteRegistry(),
       resolveEcoThreadIdFromCodex: (codexThreadId) =>
@@ -3132,21 +3146,59 @@ app
         await handleCodexGatewayUsage(event);
       },
       onRequestLifecycle: (event) => {
-        handleGatewayRequestLifecycleEvent(event, {
+        const lifecycleEvent = event.threadId
+          ? {
+              ...event,
+              threadId:
+                codexThreadMap.getEcoThreadId(event.threadId) ??
+                event.threadId,
+            }
+          : event;
+        handleGatewayRequestLifecycleEvent(lifecycleEvent, {
           onUpstreamRequestId: ({ threadId, role, requestId, logicalRequestId }) => {
             adoptLiveProviderRequestId(threadId, logicalRequestId, requestId);
           },
           onUpstreamConnectionError: (input) => {
+            if (input.errorInfo?.code === "subscription_sharing_usage_limit_exceeded") {
+              return;
+            }
             emitUpstreamConnectionErrorActivity(input);
           },
           onLogicalCompleted: ({ threadId, role, logicalRequestId }) => {
             emitLogicalRequestTerminal(threadId, role, logicalRequestId, "completed");
           },
-          onLogicalFailed: ({ threadId, role, error, statusCode, logicalRequestId }) => {
+          onLogicalFailed: ({
+            threadId,
+            role,
+            error,
+            statusCode,
+            logicalRequestId,
+            accountId,
+            providerRequestId,
+            responseId,
+            turnId,
+            runAttemptId,
+            errorInfo,
+          }) => {
             // Keep the upstream reason. Collapsing to `HTTP <code>` loses the provider
             // body (for example "Context window exhausted") and leaves users with a
             // bare status code and no explanation.
             const detail = error.trim() || (statusCode !== undefined ? `HTTP ${statusCode}` : "");
+            if (errorInfo?.code === "subscription_sharing_usage_limit_exceeded") {
+              const handled = handleSubscriptionUsageLimitFailure({
+                threadId,
+                role,
+                logicalRequestId,
+                errorInfo,
+                ...(turnId ? { turnId } : {}),
+                ...(runAttemptId ? { runAttemptId } : {}),
+                ...(accountId ? { accountId } : {}),
+                ...(providerRequestId ? { providerRequestId } : {}),
+                ...(responseId ? { responseId } : {}),
+                ...(statusCode !== undefined ? { statusCode } : {}),
+              });
+              if (!handled) return;
+            }
             emitLogicalRequestTerminal(threadId, role, logicalRequestId, "failed", detail);
           },
           onLogicalCancelled: ({ threadId, role, reason, logicalRequestId }) => {
@@ -6360,7 +6412,7 @@ function registerIpcHandlers(): void {
       if (provider.authMethod === "chatgpt_subscription" || payload.authMethod === "chatgpt_subscription") {
         try {
           const service = await getChatGptSubscriptionService();
-          const models = await service.listModels();
+          const models = await service.listModels(payload.accountId);
           syncChatGptSubscriptionModels(models);
           return { ok: true, models } as const;
         } catch (error) {
@@ -6375,7 +6427,7 @@ function registerIpcHandlers(): void {
     } else if (payload.authMethod === "chatgpt_subscription") {
       try {
         const service = await getChatGptSubscriptionService();
-        const models = await service.listModels();
+        const models = await service.listModels(payload.accountId);
         syncChatGptSubscriptionModels(models);
         return { ok: true, models } as const;
       } catch (error) {
@@ -12116,6 +12168,9 @@ async function startCodexThreadRun(
             const driver = createCodexRuntimeDriver(input.thread.id, mode, {
               enableMidTurnPort: true,
               onTurnBound: ({ ecoThreadId, codexThreadId, turnId }) => {
+                if (!activeRunRuntimeState.bindCodexTurn(ecoThreadId, controller, turnId)) {
+                  return;
+                }
                 const client = getGlobalCodexRuntimeLifecycle()?.getClient();
                 if (!client) {
                   return;
@@ -12129,7 +12184,10 @@ async function startCodexThreadRun(
               onTurnClosing: async ({ ecoThreadId }) => {
                 await codexMidTurnPorts.closeIngress(ecoThreadId);
               },
-              onTurnClosed: ({ ecoThreadId }) => {
+              onTurnClosed: ({ ecoThreadId, turnId }) => {
+                if (turnId) {
+                  activeRunRuntimeState.clearCodexTurn(ecoThreadId, controller, turnId);
+                }
                 codexMidTurnPorts.close(ecoThreadId);
               },
             });
@@ -12164,12 +12222,18 @@ async function startCodexThreadRun(
                 }
               }
               return controller.signal.aborted
-                ? { ok: false, reason: "cancelled by user", aborted: true }
+                ? { ok: false, reason: resolveAbortedRunReason(controller.signal), aborted: true }
                 : { ok: true };
             } catch (error) {
-              return controller.signal.aborted
-                ? { ok: false, reason: "cancelled by user", aborted: true }
-                : { ok: false, reason: errorMessage(error) };
+              if (controller.signal.aborted) {
+                return {
+                  ok: false,
+                  reason: resolveAbortedRunReason(controller.signal, error),
+                  aborted: true,
+                  ...(isCodexTurnInterruptFailed(error) && { interruptFailed: true }),
+                };
+              }
+              return { ok: false, reason: errorMessage(error) };
             } finally {
               driver.dispose();
             }
@@ -12185,11 +12249,23 @@ async function startCodexThreadRun(
       if (forcedDelegationActive) {
         settleForcedPlanDelegation(input.thread.id, {
           ok: false,
-          reason: outcome.aborted ? "cancelled by user" : outcome.reason,
+          reason: outcome.reason,
         });
       }
-      if (outcome.aborted) {
-        await handleRunCancelled(input.thread.id, worktreePlan);
+      if (outcome.interruptFailed) {
+        const message = `本轮停止失败：${formatUserFacingRequestError(outcome.reason)}`;
+        emitThreadEvent(input.thread.id, "thread.api_error", message, "system", false, {
+          metadata: {
+            activityOrigin: "codex.turn_interrupt_failed",
+            apiError: {
+              code: "codex_turn_interrupt_failed",
+              message,
+            },
+          },
+        });
+        markThreadInterrupted(input.thread.id, message);
+      } else if (outcome.aborted) {
+        await handleRunCancelled(input.thread.id, worktreePlan, outcome.reason);
       } else {
         markThreadInterrupted(input.thread.id, outcome.reason);
       }
@@ -12564,7 +12640,7 @@ async function runAskThread(
               if (controller.signal.aborted) {
                 return {
                   ok: false,
-                  reason: "cancelled by user",
+                  reason: resolveAbortedRunReason(controller.signal, error),
                   aborted: true,
                 };
               }
@@ -12731,7 +12807,7 @@ async function runPlanThread(
               if (controller.signal.aborted) {
                 return {
                   ok: false,
-                  reason: "cancelled by user",
+                  reason: resolveAbortedRunReason(controller.signal, error),
                   aborted: true,
                 };
               }
@@ -12949,7 +13025,7 @@ async function runCodingThreadAutonomous(
               if (controller.signal.aborted) {
                 return {
                   ok: false,
-                  reason: "cancelled by user",
+                  reason: resolveAbortedRunReason(controller.signal, error),
                   aborted: true,
                 };
               }
@@ -13163,7 +13239,7 @@ async function runCodingThreadExecution(
               if (controller.signal.aborted) {
                 return {
                   ok: false,
-                  reason: "cancelled by user",
+                  reason: resolveAbortedRunReason(controller.signal, error),
                   aborted: true,
                 };
               }
@@ -17014,7 +17090,7 @@ async function runThreadContinuation(
               if (controller.signal.aborted) {
                 return {
                   ok: false,
-                  reason: "cancelled by user",
+                  reason: resolveAbortedRunReason(controller.signal, error),
                   aborted: true,
                 };
               }
@@ -21396,4 +21472,75 @@ async function resolveCandidateModels(
       return view;
     }),
   );
+}
+
+function handleSubscriptionUsageLimitFailure(input: {
+  threadId: string;
+  role: RuntimeAgentRole;
+  logicalRequestId: string;
+  turnId?: string;
+  runAttemptId?: string;
+  accountId?: string;
+  providerRequestId?: string;
+  responseId?: string;
+  statusCode?: number;
+  errorInfo: import("@eco/gateway").GatewayUpstreamErrorInfo;
+}): boolean {
+  const message = "该账号的 ChatGPT 订阅用量受限，本轮已停止";
+  const currentRunAttemptId = resolveCurrentRunAttemptId(input.threadId);
+  if (!activeRunRuntimeState.ownsRequest(input.threadId, {
+    ...(input.runAttemptId ? { runAttemptId: input.runAttemptId } : {}),
+    ...(currentRunAttemptId ? { currentRunAttemptId } : {}),
+    ...(input.turnId ? { turnId: input.turnId } : {}),
+  })) {
+    logEcoDiag("gateway.subscription_usage_limit.unowned_request", {
+      threadId: shortThreadId(input.threadId),
+      eventRunAttemptId: input.runAttemptId,
+      currentRunAttemptId,
+      eventTurnId: input.turnId,
+    });
+    return false;
+  }
+
+  emitThreadEvent(input.threadId, "thread.api_error", message, input.role, false, {
+    requestId: input.logicalRequestId,
+    apiError: {
+      statusCode: input.statusCode ?? 200,
+      ...(input.errorInfo.code ? { code: input.errorInfo.code } : {}),
+      message,
+      logicalRequestId: input.logicalRequestId,
+      ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+      ...(input.responseId ? { responseId: input.responseId } : {}),
+      ...(input.accountId ? { accountId: input.accountId } : {}),
+      threadId: input.threadId,
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+      ...(input.runAttemptId ? { runAttemptId: input.runAttemptId } : {}),
+      ...(input.errorInfo.param ? { param: input.errorInfo.param } : {}),
+    },
+    metadata: {
+      activityOrigin: "gateway.subscription_usage_limit",
+      logicalRequestId: input.logicalRequestId,
+      ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+      ...(input.responseId ? { responseId: input.responseId } : {}),
+      ...(input.accountId ? { accountId: input.accountId } : {}),
+      threadId: input.threadId,
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+      ...(input.runAttemptId ? { runAttemptId: input.runAttemptId } : {}),
+      upstreamStatusCode: input.statusCode,
+      upstreamError: input.errorInfo,
+    },
+  });
+
+  const aborted = activeRunRuntimeState.abortRun(
+    input.threadId,
+    `ChatGPT subscription usage limit exceeded; ${message}`,
+  );
+  if (!aborted) {
+    process.stderr.write(
+      `[eco-codex] subscription usage limit reached but no active run to interrupt ` +
+        `thread=${input.threadId} turn=${input.turnId ?? "(unknown)"} ` +
+        `logical=${input.logicalRequestId}\n`,
+    );
+  }
+  return true;
 }

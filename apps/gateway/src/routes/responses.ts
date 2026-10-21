@@ -30,7 +30,6 @@ import {
 } from "../request-lifecycle.js";
 import {
   credentialResolutionErrorResponse,
-  reportRouteCredentialResult,
   resolveRouteCredential,
 } from "../route-credentials.js";
 import type { GatewayLogFn } from "../server.js";
@@ -53,7 +52,11 @@ import { fetchUpstreamWithRetry } from "../upstream/fetch-with-retry.js";
 import { forwardOpenAIChat } from "../upstream/openai-chat.js";
 import { readUpstreamRequestId } from "../upstream/request-id-headers.js";
 import { forwardResponsesPassthrough } from "../upstream/responses-passthrough.js";
-import { formatUpstreamHttpError, upstreamErrorResponse } from "../upstream/upstream-error.js";
+import {
+  extractUpstreamErrorInfo,
+  formatUpstreamHttpError,
+  upstreamErrorResponse,
+} from "../upstream/upstream-error.js";
 import { applyUpstreamUserAgent, resolveUpstreamUserAgent } from "../upstream/user-agent.js";
 import { normalizeResponsesUsage } from "../usage-normalize.js";
 
@@ -170,7 +173,13 @@ export async function handlePostResponses(
     `route hit provider=${route.provider.id} kind=${route.upstreamKind} upstreamModel=${route.upstreamModelId} → ${upstreamUrl}`,
   );
 
-  const lifecycle = buildRequestLifecycleContext(route, "responses", onLog, onRequestLifecycle);
+  const lifecycle = buildRequestLifecycleContext(
+    route,
+    "responses",
+    onLog,
+    onRequestLifecycle,
+    config.reportCredentialResult,
+  );
 
   // UA: per agent core override → global override → SDK UA → Eco fallback.
   const upstreamUserAgent = resolveUpstreamUserAgent(request.headers, {
@@ -228,7 +237,6 @@ export async function handlePostResponses(
       return _exhaustive;
     }
   }
-  await reportRouteCredentialResult(route, config, upstreamResponse);
   return normalizeResponsesToolArgumentResponse(upstreamResponse, hubNamespace);
 }
 
@@ -325,7 +333,13 @@ export async function handlePostResponsesCompact(
     }),
   );
 
-  const lifecycle = buildRequestLifecycleContext(route, "responses", onLog, onRequestLifecycle);
+  const lifecycle = buildRequestLifecycleContext(
+    route,
+    "responses",
+    onLog,
+    onRequestLifecycle,
+    config.reportCredentialResult,
+  );
 
   onLog(
     `POST /v1/responses/compact provider=${route.provider.id} model=${route.upstreamModelId} → ${upstreamUrl}`,
@@ -343,6 +357,7 @@ export async function handlePostResponsesCompact(
       },
       lifecycle,
       onLog,
+      httpFailureContext: { route, upstreamUrl },
       ...(route.provider.upstreamProxyUrl ? { upstreamProxyUrl: route.provider.upstreamProxyUrl } : {}),
     });
   } catch (error) {
@@ -351,12 +366,11 @@ export async function handlePostResponsesCompact(
     return invalidCompactResponse(route, upstreamUrl, message);
   }
 
-  await reportRouteCredentialResult(route, config, upstreamResponse);
-
   onLog(`compact upstream ${upstreamUrl} status=${upstreamResponse.status}`);
 
   const responseText = await upstreamResponse.text();
   const providerRequestId = readUpstreamRequestId(upstreamResponse.headers);
+  const errorInfo = extractUpstreamErrorInfo(responseText, "http");
   if (!upstreamResponse.ok) {
     if (lifecycle) {
       reportLogicalUpstreamFailure(lifecycle, {
@@ -369,6 +383,7 @@ export async function handlePostResponsesCompact(
         }),
         statusCode: upstreamResponse.status,
         ...(providerRequestId ? { providerRequestId } : {}),
+        ...(errorInfo ? { errorInfo } : {}),
       });
     }
     return recreateResponse(upstreamResponse, responseText);

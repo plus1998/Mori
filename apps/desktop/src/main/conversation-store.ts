@@ -9684,6 +9684,25 @@ function parseStoredApiError(raw: string | null | undefined): ThreadApiErrorInfo
         ...(typeof parsed.statusCode === "number" && { statusCode: parsed.statusCode }),
         ...(typeof parsed.code === "string" && parsed.code.trim() && { code: parsed.code.trim() }),
         ...(typeof parsed.model === "string" && parsed.model.trim() && { model: parsed.model.trim() }),
+        ...(parsed.codexErrorInfo !== undefined && { codexErrorInfo: parsed.codexErrorInfo }),
+        ...(typeof parsed.additionalDetails === "string" &&
+          parsed.additionalDetails.trim() && { additionalDetails: parsed.additionalDetails }),
+        ...(parsed.rawTurnError !== undefined && { rawTurnError: parsed.rawTurnError }),
+        ...(typeof parsed.param === "string" && parsed.param.trim() && { param: parsed.param.trim() }),
+        ...(typeof parsed.logicalRequestId === "string" &&
+          parsed.logicalRequestId.trim() && { logicalRequestId: parsed.logicalRequestId.trim() }),
+        ...(typeof parsed.providerRequestId === "string" &&
+          parsed.providerRequestId.trim() && { providerRequestId: parsed.providerRequestId.trim() }),
+        ...(typeof parsed.responseId === "string" &&
+          parsed.responseId.trim() && { responseId: parsed.responseId.trim() }),
+        ...(typeof parsed.accountId === "string" &&
+          parsed.accountId.trim() && { accountId: parsed.accountId.trim() }),
+        ...(typeof parsed.threadId === "string" &&
+          parsed.threadId.trim() && { threadId: parsed.threadId.trim() }),
+        ...(typeof parsed.turnId === "string" &&
+          parsed.turnId.trim() && { turnId: parsed.turnId.trim() }),
+        ...(typeof parsed.runAttemptId === "string" &&
+          parsed.runAttemptId.trim() && { runAttemptId: parsed.runAttemptId.trim() }),
       };
     }
   } catch {

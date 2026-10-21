@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
-import { collectResponsesStream } from "../src/upstream/collect-responses-stream.js";
+import {
+  collectResponsesStream,
+  ResponsesStreamError,
+} from "../src/upstream/collect-responses-stream.js";
 
-test("SSE 聚合支持 incomplete 终态并保留停止原因", async () => {
+test("SSE 聚合拒绝 incomplete 终态并保留停止原因", async () => {
   const response = {
     id: "resp_1",
     output: [],
@@ -10,7 +13,20 @@ test("SSE 聚合支持 incomplete 终态并保留停止原因", async () => {
   };
   const body = new Response(`event: response.incomplete\ndata: ${JSON.stringify({ response })}`).body;
   if (!body) throw new Error("Missing fixture stream");
-  expect(await collectResponsesStream(body)).toEqual(response);
+  try {
+    await collectResponsesStream(body);
+    throw new Error("Expected incomplete response to fail");
+  } catch (error) {
+    expect(error).toBeInstanceOf(ResponsesStreamError);
+    expect(error).toMatchObject({
+      code: "response_incomplete",
+      responseId: "resp_1",
+      errorInfo: {
+        eventType: "response.incomplete",
+        rawEvent: { type: "response.incomplete", response },
+      },
+    });
+  }
 });
 
 test("SSE 聚合拒绝格式损坏或不完整的终态", async () => {

@@ -157,6 +157,7 @@ export type ActivityDetailBlock =
       title?: string;
       statusCode?: number;
       code?: string;
+      accountId?: string;
       subagent?: string;
       agentId?: string;
     }

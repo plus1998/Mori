@@ -43,7 +43,7 @@ const anthropicRoute: ResolvedProviderRoute = {
 };
 
 describe("gateway request lifecycle", () => {
-  test("rectifier first 4xx then success emits no upstream.failed", async () => {
+  test("rectifier first 4xx records its real failed terminal before success", async () => {
     const { events, observer } = collectLifecycle(() => undefined);
     let calls = 0;
     const anthropicBody: AnthropicRequest = {
@@ -104,7 +104,7 @@ describe("gateway request lifecycle", () => {
 
     expect(response.status).toBe(200);
     expect(calls).toBe(2);
-    expect(events.filter((event) => event.type === "upstream.failed")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "upstream.failed")).toHaveLength(1);
     expect(events.filter((event) => event.type === "logical.failed")).toHaveLength(0);
     expect(events.some((event) => event.type === "logical.completed")).toBe(true);
     const started = events.filter((event) => event.type === "upstream.started");
@@ -122,7 +122,7 @@ describe("gateway request lifecycle", () => {
     }
   });
 
-  test("unsupported param retry first 4xx then success emits no upstream.failed", async () => {
+  test("unsupported param retry first 4xx records its real failed terminal", async () => {
     const provider: GatewayProvider = {
       id: "resp",
       name: "Responses",
@@ -196,7 +196,7 @@ describe("gateway request lifecycle", () => {
 
     expect(response.status).toBe(200);
     expect(calls).toBe(2);
-    expect(events.filter((event) => event.type === "upstream.failed")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "upstream.failed")).toHaveLength(1);
     expect(events.some((event) => event.type === "logical.completed")).toBe(true);
     const started = events.filter((event) => event.type === "upstream.started");
     const headers = events.filter((event) => event.type === "upstream.headers");

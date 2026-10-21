@@ -95,6 +95,8 @@ interface ModelsSettingsPanelProps {
   skillsSnapshot?: SkillsListResult | undefined;
   busy?: boolean | undefined;
   initialTab?: ModelsSettingsTab | undefined;
+  initialChatGptAccountId?: string | undefined;
+  onInitialChatGptAccountHandled?: (() => void) | undefined;
   mode?: "agentBuilder" | "providerSettings" | undefined;
   hideCategoryTabs?: boolean | undefined;
   heading?: string | undefined;
@@ -213,6 +215,8 @@ export function ModelsSettingsPanel({
   skillsSnapshot,
   busy,
   initialTab = "subagents",
+  initialChatGptAccountId,
+  onInitialChatGptAccountHandled,
   mode = "agentBuilder",
   hideCategoryTabs = false,
   heading,
@@ -1025,7 +1029,12 @@ export function ModelsSettingsPanel({
 
       {activeTab === "openaiAccounts" && <LazyOpenAIAccountsPanel onError={showAppMessageError} />}
 
-      {activeTab === "chatgptAccounts" && <ChatGPTSubscriptionAccountsPanel />}
+      {activeTab === "chatgptAccounts" && (
+        <ChatGPTSubscriptionAccountsPanel
+          {...(initialChatGptAccountId && { initialAccountId: initialChatGptAccountId })}
+          {...(onInitialChatGptAccountHandled && { onInitialAccountHandled: onInitialChatGptAccountHandled })}
+        />
+      )}
 
 
       {activeTab === "compositionParts" && (

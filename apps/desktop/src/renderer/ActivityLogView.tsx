@@ -657,6 +657,7 @@ export interface ActivityLogViewProps {
   onForkMessage?: ForkMessageHandler;
   onRetryFailedRequest?: RetryFailedRequestHandler;
   onSwitchCodexAccount?: () => void;
+  onOpenChatGptSubscriptionAccounts?: (accountId?: string) => void;
   modelByRole?: Record<string, string>;
   usageByRole?: Record<string, ThreadUsageSnapshot>;
   context?: ThreadContextSnapshot;
@@ -1907,6 +1908,9 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
         onRetryFailedRequest: props.onRetryFailedRequest,
       })}
       {...(props.onSwitchCodexAccount && { onSwitchCodexAccount: props.onSwitchCodexAccount })}
+      {...(props.onOpenChatGptSubscriptionAccounts && {
+        onOpenChatGptSubscriptionAccounts: props.onOpenChatGptSubscriptionAccounts,
+      })}
       {...(props.selectedSubagentAgentId && {
         selectedSubagentAgentId: props.selectedSubagentAgentId,
       })}
@@ -1956,6 +1960,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
   onForkMessage,
   onRetryFailedRequest,
   onSwitchCodexAccount,
+  onOpenChatGptSubscriptionAccounts,
   onPlannerLayoutChange,
   onComposerAgentSilenceChange,
   onFeedEndAnchorChange,
@@ -1986,6 +1991,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
   onForkMessage?: ForkMessageHandler;
   onRetryFailedRequest?: RetryFailedRequestHandler;
   onSwitchCodexAccount?: () => void;
+  onOpenChatGptSubscriptionAccounts?: (accountId?: string) => void;
   onPlannerLayoutChange?: ActivityFeedLayoutChange;
   onComposerAgentSilenceChange?: (silent: boolean) => void;
   onFeedEndAnchorChange?: (endAnchored: boolean) => void;
@@ -2305,6 +2311,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
     ...(forkDisabledReason && { forkDisabledReason }),
     ...(onRetryFailedRequest && { onRetryFailedRequest }),
     ...(thread?.coreKind === "codex" && onSwitchCodexAccount && { onSwitchCodexAccount }),
+    ...(onOpenChatGptSubscriptionAccounts && { onOpenChatGptSubscriptionAccounts }),
     retryTargets,
     allowUserMessageRewrite,
     historyRevision: projection.historyRevision ?? 0,
@@ -2421,6 +2428,7 @@ type ProjectionFeedEntrySharedProps = {
   forkDisabledReason?: string;
   onRetryFailedRequest?: RetryFailedRequestHandler;
   onSwitchCodexAccount?: () => void;
+  onOpenChatGptSubscriptionAccounts?: (accountId?: string) => void;
   retryTargets?: Map<string, RequestFailureRetryTarget>;
   allowUserMessageRewrite?: boolean;
   historyRevision: number;
@@ -2833,6 +2841,7 @@ function ProjectionMainFeedEntry({
   forkDisabledReason,
   onRetryFailedRequest,
   onSwitchCodexAccount,
+  onOpenChatGptSubscriptionAccounts,
   retryTargets,
   allowUserMessageRewrite,
   historyRevision,
@@ -2860,6 +2869,7 @@ function ProjectionMainFeedEntry({
   forkDisabledReason?: string;
   onRetryFailedRequest?: RetryFailedRequestHandler;
   onSwitchCodexAccount?: () => void;
+  onOpenChatGptSubscriptionAccounts?: (accountId?: string) => void;
   retryTargets?: Map<string, RequestFailureRetryTarget>;
   allowUserMessageRewrite?: boolean;
   historyRevision: number;
@@ -2892,6 +2902,9 @@ function ProjectionMainFeedEntry({
         {...(forkDisabledReason && { forkDisabledReason })}
         {...(onRetryFailedRequest && { onRetryFailedRequest })}
         {...(onSwitchCodexAccount && { onSwitchCodexAccount })}
+        {...(onOpenChatGptSubscriptionAccounts && {
+          onOpenChatGptSubscriptionAccounts,
+        })}
         {...(retryTargets && { retryTargets })}
         allowUserMessageRewrite={Boolean(allowUserMessageRewrite)}
         historyRevision={historyRevision ?? 0}
@@ -4760,6 +4773,7 @@ function ProjectionTimelineEntry({
   forkDisabledReason,
   onRetryFailedRequest,
   onSwitchCodexAccount,
+  onOpenChatGptSubscriptionAccounts,
   retryTargets,
   allowUserMessageRewrite = false,
   historyRevision,
@@ -4785,6 +4799,7 @@ function ProjectionTimelineEntry({
   forkDisabledReason?: string;
   onRetryFailedRequest?: RetryFailedRequestHandler;
   onSwitchCodexAccount?: () => void;
+  onOpenChatGptSubscriptionAccounts?: (accountId?: string) => void;
   retryTargets?: Map<string, RequestFailureRetryTarget>;
   allowUserMessageRewrite?: boolean;
   historyRevision?: number;
@@ -4862,6 +4877,35 @@ function ProjectionTimelineEntry({
     failureMessage !== undefined &&
     (/\byou['’]ve hit your usage limit\b/iu.test(failureMessage) ||
       (block.kind === "api-error" && block.code === "usage_limit_reached"));
+  const subscriptionUsagePaused =
+    block.kind === "api-error" &&
+    block.code === "subscription_sharing_usage_limit_exceeded";
+  if (
+    !compact &&
+    item.scope !== "agent" &&
+    subscriptionUsagePaused &&
+    onOpenChatGptSubscriptionAccounts
+  ) {
+    return wrapRunLogFeedEntry(
+      <FeedErrorCard
+        message={
+          <>
+            {i18n.t("activity.chatgptUsagePaused")}{" "}
+            <a
+              className="feed-error-card-link"
+              href="https://chatgpt.com/settings/usage"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {i18n.t("activity.viewChatgptUsage")}
+            </a>
+          </>
+        }
+        actionLabel={i18n.t("activity.manualTestChatgptAccount")}
+        onAction={() => onOpenChatGptSubscriptionAccounts(block.accountId)}
+      />,
+    );
+  }
   if (!compact && item.scope !== "agent" && onSwitchCodexAccount && usageLimitReached) {
     return wrapRunLogFeedEntry(
       <FeedErrorCard

@@ -159,6 +159,7 @@ export async function forwardOpenAIChat(
       },
       lifecycle,
       onLog,
+      httpFailureContext: { route, upstreamUrl },
       ...(route.provider.upstreamProxyUrl ? { upstreamProxyUrl: route.provider.upstreamProxyUrl } : {}),
     });
   } catch (error) {

@@ -1261,6 +1261,7 @@ export const i18nCatalogs = {
       "settings.chatgptAccounts.statusDisabled": "已停用",
       "settings.chatgptAccounts.statusReady": "可用",
       "settings.chatgptAccounts.statusRefreshing": "刷新中",
+      "settings.chatgptAccounts.statusUsagePaused": "订阅用量受限",
       "settings.chatgptAccounts.statusRateLimited": "已限流",
       "settings.chatgptAccounts.statusTemporarilyUnavailable": "暂时不可用",
       "settings.chatgptAccounts.statusNotEligible": "订阅不可用",
@@ -1272,6 +1273,7 @@ export const i18nCatalogs = {
       "settings.chatgptAccounts.linkCopied":
         "授权链接已复制，请在已登录 ChatGPT 的浏览器中打开；完成授权后返回 Eco Coding。",
       "settings.chatgptAccounts.authUrlGenerateFailed": "授权链接生成失败",
+      "settings.chatgptAccounts.accountNotFound": "找不到触发本次额度限制的 ChatGPT 账号。",
       "settings.chatgptAccounts.testServiceUnavailable": "测试服务不可用",
       "settings.chatgptAccounts.clearedUnavailable": "已清除本地不可用状态，可以重新测试账号。",
       "settings.chatgptAccounts.defaultAccountName": "ChatGPT 账号 {{index}}",
@@ -1282,6 +1284,9 @@ export const i18nCatalogs = {
       "settings.chatgptAccounts.proxyGlobal": "全局代理",
       "settings.chatgptAccounts.notEligibleWarning":
         "当前账号不具备订阅共享资格，可在 ChatGPT 中检查套餐与工作区，或通过更多操作重新检测。",
+      "settings.chatgptAccounts.usagePausedWarning":
+        "该账号的 ChatGPT 订阅用量受限。自动选用已暂停；请在 Usage 页面确认后手动测试，只有真实完成的测试才恢复账号。",
+      "settings.chatgptAccounts.usageLink": "查看 Usage",
       "settings.chatgptAccounts.copyAuthorizationUrl": "复制授权链接",
       "settings.chatgptAccounts.recheck": "重新检测",
       "settings.chatgptAccounts.disableAccount": "停用账号",
@@ -2094,6 +2099,9 @@ export const i18nCatalogs = {
       "activity.noResidue": "未发现待清理的残留引用",
       "activity.commandOutput": "命令输出",
       "activity.switchAccount": "切换账号",
+      "activity.chatgptUsagePaused": "该账号的 ChatGPT 订阅用量受限，本轮已停止。",
+      "activity.viewChatgptUsage": "查看 Usage",
+      "activity.manualTestChatgptAccount": "手动测试账号",
       "codexSwitch.title": "切换 Codex 账号",
       "codexSwitch.description": "仅显示已登录且有剩余额度的其他账号，点击即可切换。",
       "codexSwitch.days": "{{count}} 天额度",
@@ -4374,6 +4382,7 @@ export const i18nCatalogs = {
       "settings.chatgptAccounts.statusDisabled": "Disabled",
       "settings.chatgptAccounts.statusReady": "Available",
       "settings.chatgptAccounts.statusRefreshing": "Refreshing",
+      "settings.chatgptAccounts.statusUsagePaused": "Subscription usage limited",
       "settings.chatgptAccounts.statusRateLimited": "Rate limited",
       "settings.chatgptAccounts.statusTemporarilyUnavailable": "Temporarily unavailable",
       "settings.chatgptAccounts.statusNotEligible": "Subscription not eligible",
@@ -4386,6 +4395,7 @@ export const i18nCatalogs = {
       "settings.chatgptAccounts.linkCopied":
         "Authorization link copied. Open it in a browser already signed in to ChatGPT, then return to Eco Coding.",
       "settings.chatgptAccounts.authUrlGenerateFailed": "Failed to generate the authorization link",
+      "settings.chatgptAccounts.accountNotFound": "The ChatGPT account that triggered this usage limit was not found.",
       "settings.chatgptAccounts.testServiceUnavailable": "Test service unavailable",
       "settings.chatgptAccounts.clearedUnavailable":
         "Cleared the local unavailable state; you can test the account again.",
@@ -4397,6 +4407,9 @@ export const i18nCatalogs = {
       "settings.chatgptAccounts.proxyGlobal": "Global proxy",
       "settings.chatgptAccounts.notEligibleWarning":
         "This account is not eligible for subscription sharing. Check Plans & workspace in ChatGPT, or re-check from More actions.",
+      "settings.chatgptAccounts.usagePausedWarning":
+        "This account’s ChatGPT subscription usage is limited. Automatic selection is paused; check Usage and run a manual test. Only a test that really completes restores the account.",
+      "settings.chatgptAccounts.usageLink": "View usage",
       "settings.chatgptAccounts.copyAuthorizationUrl": "Copy authorization link",
       "settings.chatgptAccounts.recheck": "Re-check",
       "settings.chatgptAccounts.disableAccount": "Disable account",
@@ -5248,6 +5261,10 @@ export const i18nCatalogs = {
       "activity.noResidue": "No residual references found",
       "activity.commandOutput": "Command output",
       "activity.switchAccount": "Switch account",
+      "activity.chatgptUsagePaused":
+        "This account’s ChatGPT subscription usage is limited, so this turn was stopped.",
+      "activity.viewChatgptUsage": "View usage",
+      "activity.manualTestChatgptAccount": "Test account manually",
       "codexSwitch.title": "Switch Codex account",
       "codexSwitch.description": "Choose another signed-in account with remaining quota to switch.",
       "codexSwitch.days": "{{count}}-day quota",

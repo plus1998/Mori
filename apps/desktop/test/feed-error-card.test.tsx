@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ConversationV2ProjectionActivityLogView as ActivityLogView } from "../src/renderer/ActivityLogView";
 import { FeedErrorCard } from "../src/renderer/FeedErrorCard";
+import { projectionItemToDetailBlock } from "../src/renderer/conversation-v2-projection-view";
 import type {
   ThreadRunProjectionSnapshot,
   ThreadRunProjectionTimelineItem,
@@ -62,7 +63,11 @@ const failedThread: ThreadSummary = {
 
 function renderFailure(
   failure: ThreadRunProjectionTimelineItem,
-  options: { coreKind?: ThreadSummary["coreKind"]; progress?: ThreadRunProjectionTimelineItem } = {},
+  options: {
+    coreKind?: ThreadSummary["coreKind"];
+    progress?: ThreadRunProjectionTimelineItem;
+    onOpenChatGptSubscriptionAccounts?: (accountId?: string) => void;
+  } = {},
 ): string {
   const projection = failedProjection(failure);
   if (options.progress) projection.timeline.splice(1, 0, options.progress);
@@ -71,6 +76,9 @@ function renderFailure(
       projection,
       thread: { ...failedThread, coreKind: options.coreKind ?? failedThread.coreKind },
       onSwitchCodexAccount: () => undefined,
+      ...(options.onOpenChatGptSubscriptionAccounts && {
+        onOpenChatGptSubscriptionAccounts: options.onOpenChatGptSubscriptionAccounts,
+      }),
       onRetryFailedRequest: () => undefined,
     }),
   );
@@ -251,6 +259,68 @@ test("Codex usage exhaustion recognizes the structured error code", () => {
   );
 
   expect(markup).toContain(">切换账号</button>");
+});
+
+test("subscription quota failures show the account-specific usage recovery card", () => {
+  const item = timelineItem("subscription-quota-limit", 2, {
+    text: "该账号的 ChatGPT 订阅用量受限，本轮已停止。",
+    metadata: {
+      apiError: {
+        statusCode: 200,
+        code: "subscription_sharing_usage_limit_exceeded",
+        message: "该账号的 ChatGPT 订阅用量受限，本轮已停止。",
+        accountId: "account-quota",
+        providerRequestId: "req_quota",
+        responseId: "resp_quota",
+      },
+    },
+  });
+  const markup = renderFailure(item, {
+    coreKind: "codex",
+    onOpenChatGptSubscriptionAccounts: () => undefined,
+  });
+
+  expect(markup).toContain("该账号的 ChatGPT 订阅用量受限，本轮已停止。");
+  expect(markup).toContain('href="https://chatgpt.com/settings/usage"');
+  expect(markup).toContain(">查看 Usage</a>");
+  expect(markup).toContain(">手动测试账号</button>");
+  expect(markup).not.toContain(">切换账号</button>");
+  expect(markup).not.toContain(">重试</button>");
+  expect(projectionItemToDetailBlock(item)).toMatchObject({
+    kind: "api-error",
+    code: "subscription_sharing_usage_limit_exceeded",
+    accountId: "account-quota",
+  });
+});
+
+test("ordinary usage and rate-limit codes do not enter subscription quota recovery", () => {
+  for (const apiError of [
+    {
+      statusCode: 200,
+      code: "usage_limit_reached",
+      message: "该账号的 ChatGPT 订阅用量受限，本轮已停止。",
+      accountId: "account-general",
+    },
+    {
+      statusCode: 429,
+      code: "rate_limit_exceeded",
+      message: "Too many requests, please try again later",
+      accountId: "account-general",
+    },
+  ]) {
+    const markup = renderFailure(
+      timelineItem(`non-quota-${apiError.code}`, 2, {
+        text: apiError.message,
+        metadata: { apiError },
+      }),
+      {
+        coreKind: "codex",
+        onOpenChatGptSubscriptionAccounts: () => undefined,
+      },
+    );
+    expect(markup).not.toContain(">手动测试账号</button>");
+    expect(markup).not.toContain('href="https://chatgpt.com/settings/usage"');
+  }
 });
 
 test("other cores and ordinary Codex rate limits retain their retry action", () => {

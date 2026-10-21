@@ -7,6 +7,7 @@ export interface ActiveRunRuntimeStateInput {
 
 interface ActiveRunRuntimeState {
   controller: AbortController;
+  codexTurnId?: string;
   worktreePlan?: WorktreePlan;
   bashRememberPrefixes: string[];
 }
@@ -28,6 +29,39 @@ export class ActiveRunRuntimeStateStore {
 
   hasRun(threadId: string): boolean {
     return this.runs.has(threadId);
+  }
+
+  bindCodexTurn(threadId: string, controller: AbortController, turnId: string): boolean {
+    const run = this.runs.get(threadId);
+    if (!run || run.controller !== controller || controller.signal.aborted || !turnId.trim()) {
+      return false;
+    }
+    run.codexTurnId = turnId.trim();
+    return true;
+  }
+
+  clearCodexTurn(threadId: string, controller: AbortController, turnId: string): void {
+    const run = this.runs.get(threadId);
+    if (run?.controller === controller && run.codexTurnId === turnId) {
+      delete run.codexTurnId;
+    }
+  }
+
+  ownsRequest(threadId: string, input: {
+    runAttemptId?: string;
+    currentRunAttemptId?: string;
+    turnId?: string;
+  }): boolean {
+    const run = this.runs.get(threadId);
+    if (!run || run.controller.signal.aborted) {
+      return false;
+    }
+    if (input.runAttemptId) {
+      return input.runAttemptId === input.currentRunAttemptId;
+    }
+    // Native Codex requests do not carry an Eco runAttemptId. Thread identity
+    // alone cannot distinguish a late failure from a previous turn.
+    return Boolean(input.turnId && run.codexTurnId === input.turnId);
   }
 
   abortRun(threadId: string, reason: string): boolean {

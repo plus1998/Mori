@@ -1,6 +1,13 @@
 export type RequestAttemptResult =
   | { ok: true }
-  | { ok: false; reason: string; aborted?: boolean; incomplete?: boolean; unstarted?: boolean };
+  | {
+      ok: false;
+      reason: string;
+      aborted?: boolean;
+      interruptFailed?: boolean;
+      incomplete?: boolean;
+      unstarted?: boolean;
+    };
 
 import {
   formatApiErrorUserMessage,
