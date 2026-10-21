@@ -18,6 +18,7 @@ import '../models/mcp_models.dart';
 import '../models/project_orchestration_settings.dart';
 import '../models/skill_models.dart';
 import '../models/thread_models.dart';
+import '../models/scheduling_models.dart';
 import '../network/eco_center_client.dart';
 import '../storage/conversation_v2_cache.dart';
 import '../utils/conversation_v2_hash.dart';
@@ -35,6 +36,43 @@ class PromptImageUploadResult {
 }
 
 class DesktopRpc implements ReadAloudRemote {
+  Future<SchedulingSnapshot> listSchedules() async =>
+      SchedulingSnapshot.fromJson(
+        Map<String, dynamic>.from(
+          await _client.invoke<dynamic>(desktopDeviceId, 'scheduling:list', [])
+              as Map,
+        ),
+      );
+
+  Future<void> createSchedule(Map<String, dynamic> input) async {
+    await _client.invoke<dynamic>(desktopDeviceId, 'scheduling:create', [
+      input,
+    ]);
+  }
+
+  Future<void> updateSchedule(Map<String, dynamic> input) async {
+    await _client.invoke<dynamic>(desktopDeviceId, 'scheduling:update', [
+      input,
+    ]);
+  }
+
+  Future<void> deleteSchedule(String id) async {
+    await _client.invoke<dynamic>(desktopDeviceId, 'scheduling:delete', [id]);
+  }
+
+  Future<void> runScheduleNow(String id, String requestId) async {
+    await _client.invoke<dynamic>(desktopDeviceId, 'scheduling:run-now', [
+      {'id': id, 'requestId': requestId},
+    ]);
+  }
+
+  Future<List<String>> previewSchedule(Map<String, dynamic> trigger) async =>
+      (await _client.invoke<dynamic>(desktopDeviceId, 'scheduling:preview', [
+                trigger,
+              ])
+              as List)
+          .cast<String>();
+
   DesktopRpc(
     this._client,
     this.desktopDeviceId, {

@@ -455,17 +455,30 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                       children: [
                         ComposerToolbarIconButton(
                           key: _plusMenuAnchorKey,
-                          onPressed: () => showComposerPlusMenu(
-                            context: context,
-                            ref: ref,
-                            anchorKey: _plusMenuAnchorKey,
-                            runtimeConfig: widget.runtimeConfig,
-                            threadId: widget.threadId,
-                            canEdit: canEditConfig,
-                            onChanged: widget.onRuntimeConfigChanged,
-                            onPickImage: widget.onPickImage,
-                            workspacePath: widget.workspacePath,
-                          ),
+                          onPressed: () {
+                            final scheduledDraft = widget.controller.text;
+                            unawaited(
+                              showComposerPlusMenu(
+                                context: context,
+                                ref: ref,
+                                anchorKey: _plusMenuAnchorKey,
+                                runtimeConfig: widget.runtimeConfig,
+                                threadId: widget.threadId,
+                                canEdit: canEditConfig,
+                                onChanged: widget.onRuntimeConfigChanged,
+                                onPickImage: widget.onPickImage,
+                                workspacePath: widget.workspacePath,
+                                initialPrompt: scheduledDraft,
+                                onMessageScheduled: () {
+                                  if (mounted &&
+                                      widget.controller.text ==
+                                          scheduledDraft) {
+                                    widget.controller.clear();
+                                  }
+                                },
+                              ),
+                            );
+                          },
                           tooltip: context.l10n.composerPlusMenu,
                           icon: ComposerToolbarIcon(
                             icon: EcoIcons.add,
@@ -499,7 +512,8 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                               runtimeConfig: widget.runtimeConfig,
                               threadId: widget.threadId,
                               canEdit: canEditConfig,
-                              canEditStatelessModels: canEditStatelessModelConfig,
+                              canEditStatelessModels:
+                                  canEditStatelessModelConfig,
                               onChanged: widget.onRuntimeConfigChanged,
                               billing: widget.billing,
                               contextSnapshot: widget.contextSnapshot,
@@ -589,11 +603,7 @@ class _PendingImagePreview extends StatelessWidget {
     }
     if (images.isEmpty) return;
     final start = indexes.indexOf(index).clamp(0, images.length - 1);
-    await showImageMemoryLightbox(
-      context,
-      images: images,
-      initialIndex: start,
-    );
+    await showImageMemoryLightbox(context, images: images, initialIndex: start);
   }
 
   @override
@@ -627,8 +637,9 @@ class _PendingImagePreview extends StatelessWidget {
                         fit: BoxFit.cover,
                         gaplessPlayback: true,
                         filterQuality: FilterQuality.medium,
-                        errorBuilder: (_, _, _) =>
-                            const Center(child: Icon(Icons.broken_image_outlined)),
+                        errorBuilder: (_, _, _) => const Center(
+                          child: Icon(Icons.broken_image_outlined),
+                        ),
                       ),
                     ),
                   ),

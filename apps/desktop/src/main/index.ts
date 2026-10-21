@@ -13680,9 +13680,7 @@ function createSchedulingService(dbPath: string): SchedulingService {
     inspect: inspectScheduledOccurrence,
     onChanged: () => {
       syncSystemSleepBlocker();
-      BrowserWindow.getAllWindows().forEach((window) => {
-        if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.schedulingChanged);
-      });
+      desktopEventCenter.publish({ kind: "scheduling.changed", payload: {}, aggregateKey: "scheduling:global" });
     },
     onError: (error) => logEcoDiag("scheduling.error", { error: errorMessage(error) }),
   });

@@ -11,6 +11,8 @@ Flutter 远程客户端，通过用户自建的 **Supabase Center** 操控已绑
 - Plan / Bash / Clarification 审批
 - Plan Mode、Bash Review、Agent Profile 运行时配置
 - Workflow 全局 Plan Mode 开关
+- 输入框「+」定时发送消息，会话更多菜单查看和管理定时消息
+- 会话列表时钟入口新增、编辑、暂停、启用、删除或立即执行定时任务，查看执行记录并打开运行会话；支持一次性、固定间隔和 Cron，执行仍由保持运行且唤醒的电脑完成
 
 ## 前置条件
 

@@ -377,7 +377,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Prompt'), findsOneWidget);
       expect(find.text('Subagents'), findsOneWidget);
-      expect(find.text('Runtime'), findsOneWidget);
+      expect(find.text('Harness'), findsOneWidget);
       expect(find.text('Aux'), findsOneWidget);
       expect(find.text('Vision'), findsOneWidget);
       expect(find.text('None'), findsWidgets);
@@ -386,7 +386,7 @@ void main() {
       expect(find.text('Fast'), findsNothing);
       expect(find.text('Claude Code'), findsNothing);
       expect(
-        tester.getTopLeft(find.text('Runtime')).dy,
+        tester.getTopLeft(find.text('Harness')).dy,
         lessThan(tester.getTopLeft(find.text('Prompt')).dy),
       );
       expect(

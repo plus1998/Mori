@@ -16,11 +16,13 @@ import '../../core/widgets/eco_android_glass.dart';
 import '../../core/widgets/eco_pressable.dart';
 import 'composer_controls.dart';
 import 'composer_toolbar_icon.dart';
+import '../scheduling/schedule_editor.dart';
 
 enum ComposerPlusMenuAction {
   plan,
   ask,
   image,
+  schedule,
   integrations,
   skills,
   mcp,
@@ -38,6 +40,8 @@ Future<void> showComposerPlusMenu({
   required ValueChanged<ThreadRuntimeConfigInput> onChanged,
   required VoidCallback onPickImage,
   required String workspacePath,
+  String initialPrompt = '',
+  VoidCallback? onMessageScheduled,
 }) {
   final box = anchorKey.currentContext?.findRenderObject() as RenderBox?;
   if (box == null || !box.hasSize) return Future<void>.value();
@@ -60,6 +64,7 @@ Future<void> showComposerPlusMenu({
         anchorRect: anchorRect,
         runtimeConfig: runtimeConfig,
         canEdit: canEdit,
+        canSchedule: threadId.isNotEmpty,
         onDismiss: dismiss,
         onAction: (action) {
           dismiss();
@@ -76,6 +81,8 @@ Future<void> showComposerPlusMenu({
               onChanged: onChanged,
               onPickImage: onPickImage,
               workspacePath: workspacePath,
+              initialPrompt: initialPrompt,
+              onMessageScheduled: onMessageScheduled,
             );
           });
         },
@@ -97,8 +104,21 @@ void _handlePlusMenuAction({
   required ValueChanged<ThreadRuntimeConfigInput> onChanged,
   required VoidCallback onPickImage,
   required String workspacePath,
+  required String initialPrompt,
+  required VoidCallback? onMessageScheduled,
 }) {
   switch (action) {
+    case ComposerPlusMenuAction.schedule:
+      if (threadId.isEmpty) return;
+      unawaited(
+        showScheduleEditor(
+          context,
+          threadId: threadId,
+          initialPrompt: initialPrompt,
+        ).then((saved) {
+          if (saved == true && context.mounted) onMessageScheduled?.call();
+        }),
+      );
     case ComposerPlusMenuAction.plan:
       if (!canEdit) return;
       if (runtimeConfig.sessionMode == 'plan') return;
@@ -175,6 +195,7 @@ class _ComposerPlusMenuOverlay extends StatefulWidget {
     required this.anchorRect,
     required this.runtimeConfig,
     required this.canEdit,
+    required this.canSchedule,
     required this.onDismiss,
     required this.onAction,
   });
@@ -182,6 +203,7 @@ class _ComposerPlusMenuOverlay extends StatefulWidget {
   final Rect anchorRect;
   final ThreadRuntimeConfigInput runtimeConfig;
   final bool canEdit;
+  final bool canSchedule;
   final VoidCallback onDismiss;
   final ValueChanged<ComposerPlusMenuAction> onAction;
 
@@ -241,7 +263,7 @@ class _ComposerPlusMenuOverlayState extends State<_ComposerPlusMenuOverlay>
     final viewPadding = media.viewPadding;
     final screen = media.size;
     final modeRows = 2;
-    final toolRows = 4;
+    final toolRows = 6;
     final menuHeight =
         modeRows * _rowHeight +
         _sectionGap +
@@ -338,6 +360,13 @@ class _ComposerPlusMenuOverlayState extends State<_ComposerPlusMenuOverlay>
                               context,
                             ).borderSubtle.withValues(alpha: 0.7),
                           ),
+                        ),
+                        _PlusMenuRow(
+                          icon: Icons.schedule,
+                          label: l10n.schedulingNewMessage,
+                          enabled: widget.canSchedule,
+                          onTap: () =>
+                              widget.onAction(ComposerPlusMenuAction.schedule),
                         ),
                         _PlusMenuRow(
                           icon: EcoIcons.image,

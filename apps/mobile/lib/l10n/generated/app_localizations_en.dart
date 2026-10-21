@@ -2864,4 +2864,174 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get composerApprovalModelHintAcp =>
       'Used for automatic tool reviews; supports chat models and SystemOne (Jev)';
+
+  @override
+  String get schedulingTitle => 'Scheduled tasks';
+
+  @override
+  String get schedulingMessages => 'Scheduled messages';
+
+  @override
+  String get schedulingNewTask => 'New scheduled task';
+
+  @override
+  String get schedulingNewMessage => 'Add scheduled message';
+
+  @override
+  String get schedulingEdit => 'Edit schedule';
+
+  @override
+  String get schedulingEmpty => 'No schedules yet';
+
+  @override
+  String get schedulingHint =>
+      'Runs on the connected computer. Keep Eco running and the computer awake.';
+
+  @override
+  String get schedulingTaskHint =>
+      'Each run starts a new conversation. Include all context and expected results.';
+
+  @override
+  String get schedulingMessageHint =>
+      'Sends to this conversation at the scheduled time, waiting for the current turn if busy.';
+
+  @override
+  String get schedulingName => 'Name';
+
+  @override
+  String get schedulingOptionalName => 'Name (optional, uses the first line)';
+
+  @override
+  String get schedulingPrompt => 'Instructions / message';
+
+  @override
+  String get schedulingWorkspace => 'Project directory';
+
+  @override
+  String get schedulingOtherProject => 'Other directory';
+
+  @override
+  String get schedulingRuntime => 'Runtime configuration and model';
+
+  @override
+  String get schedulingTrigger => 'Repeat';
+
+  @override
+  String get schedulingOnce => 'Once';
+
+  @override
+  String get schedulingInterval => 'Fixed interval';
+
+  @override
+  String get schedulingCron => 'Cron';
+
+  @override
+  String get schedulingDelay => 'After a delay';
+
+  @override
+  String get schedulingAt => 'At a specific time';
+
+  @override
+  String get schedulingDelayMinutes => 'Delay (minutes)';
+
+  @override
+  String get schedulingIntervalMinutes => 'Repeat interval (minutes)';
+
+  @override
+  String get schedulingLocalTime => 'First run (phone local timezone)';
+
+  @override
+  String get schedulingCronExpression => 'Cron (minute hour day month weekday)';
+
+  @override
+  String get schedulingTimezone => 'IANA timezone, e.g. Asia/Shanghai';
+
+  @override
+  String get schedulingCatchUp => 'Catch-up window (minutes, 0–1440)';
+
+  @override
+  String get schedulingPreview => 'Preview next 5 runs';
+
+  @override
+  String get schedulingEnabled => 'Enabled';
+
+  @override
+  String get schedulingPaused => 'Paused / expired';
+
+  @override
+  String get schedulingPause => 'Pause';
+
+  @override
+  String get schedulingResume => 'Enable';
+
+  @override
+  String get schedulingRunNow => 'Run now';
+
+  @override
+  String get schedulingSendNow => 'Send now';
+
+  @override
+  String get schedulingHistory => 'Run history';
+
+  @override
+  String get schedulingNoHistory => 'No runs yet';
+
+  @override
+  String get schedulingNext => 'Next run';
+
+  @override
+  String get schedulingOpenThread => 'Open conversation';
+
+  @override
+  String get schedulingDeleteConfirm =>
+      'Delete this schedule? Conversations already started will continue.';
+
+  @override
+  String get schedulingRunConfirm =>
+      'Run this schedule now? This consumes the scheduled time for a one-time schedule.';
+
+  @override
+  String get schedulingExpired =>
+      'This one-time schedule has expired. Edit it and choose a future time.';
+
+  @override
+  String get schedulingRequired =>
+      'Enter the content, valid timing, and a task name and project directory.';
+
+  @override
+  String get schedulingConfigRequired =>
+      'Choose a complete runtime configuration and an explicit model.';
+
+  @override
+  String get schedulingPending => 'Pending';
+
+  @override
+  String get schedulingDispatching => 'Starting';
+
+  @override
+  String get schedulingRunning => 'Running';
+
+  @override
+  String get schedulingWaitingUser => 'Waiting for you';
+
+  @override
+  String get schedulingCompleted => 'Completed';
+
+  @override
+  String get schedulingFailed => 'Failed';
+
+  @override
+  String get schedulingSkipped => 'Skipped';
+
+  @override
+  String get schedulingUnknown => 'Unknown';
+
+  @override
+  String get schedulingCancelled => 'Cancelled';
+
+  @override
+  String get schedulingLoadFailed => 'Unable to load schedules';
+
+  @override
+  String get schedulingSaved => 'Schedule saved';
 }

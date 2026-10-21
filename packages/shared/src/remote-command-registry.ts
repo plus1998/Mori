@@ -27,6 +27,18 @@ const RPC_INVOKE = ["rpc:invoke"] as const;
 const APPROVAL_DECIDE = ["rpc:invoke", "approval:decide"] as const;
 
 export const REMOTE_COMMAND_DEFINITIONS = [
+  command("scheduling:list", "List schedules", "read", RPC_INVOKE, []),
+  command("scheduling:create", "Create schedule", "write_safe", RPC_INVOKE, [
+    objectArg(["requestId", "kind", "name", "prompt", "trigger"]),
+  ]),
+  command("scheduling:update", "Update schedule", "write_safe", RPC_INVOKE, [
+    objectArg(["id", "expectedRevision"]),
+  ]),
+  command("scheduling:delete", "Delete schedule", "write_safe", RPC_INVOKE, [stringArg()]),
+  command("scheduling:run-now", "Run schedule now", "execute", RPC_INVOKE, [
+    objectArg(["id", "requestId"]),
+  ]),
+  command("scheduling:preview", "Preview schedule", "read", RPC_INVOKE, [objectArg(["type"])]),
   command("thread:list", "List threads", "read", RPC_INVOKE, []),
   command("thread:list-initial", "List initial threads", "read", RPC_INVOKE, []),
   command("thread:list-more", "List more threads", "read", RPC_INVOKE, [

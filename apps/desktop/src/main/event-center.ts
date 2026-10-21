@@ -343,6 +343,9 @@ export function createElectronEventSink(
   return {
     publish(envelope, _notification) {
       switch (envelope.kind) {
+        case "scheduling.changed":
+          send(IPC_CHANNELS.schedulingChanged, undefined);
+          return;
         case "workspace.terminal":
           send(IPC_CHANNELS.terminalEvent, envelope.payload);
           return;

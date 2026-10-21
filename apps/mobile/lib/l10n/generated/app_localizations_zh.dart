@@ -2710,4 +2710,166 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get composerApprovalModelHintAcp =>
       '用于工具自动审批，支持普通模型及 SystemOne（Jev）决策模型';
+
+  @override
+  String get schedulingTitle => '定时任务';
+
+  @override
+  String get schedulingMessages => '定时消息';
+
+  @override
+  String get schedulingNewTask => '新建定时任务';
+
+  @override
+  String get schedulingNewMessage => '添加定时消息';
+
+  @override
+  String get schedulingEdit => '编辑安排';
+
+  @override
+  String get schedulingEmpty => '暂无定时安排';
+
+  @override
+  String get schedulingHint => '由已连接的电脑执行，Eco 需保持运行且电脑处于唤醒状态。';
+
+  @override
+  String get schedulingTaskHint => '每次在新会话运行，请填写完整背景和预期结果。';
+
+  @override
+  String get schedulingMessageHint => '到时间后发送到当前会话；会话忙碌时等待当前轮结束。';
+
+  @override
+  String get schedulingName => '名称';
+
+  @override
+  String get schedulingOptionalName => '名称（可选，默认使用正文首行）';
+
+  @override
+  String get schedulingPrompt => '指令 / 消息正文';
+
+  @override
+  String get schedulingWorkspace => '项目目录';
+
+  @override
+  String get schedulingOtherProject => '其他目录';
+
+  @override
+  String get schedulingRuntime => '运行配置与模型';
+
+  @override
+  String get schedulingTrigger => '重复规则';
+
+  @override
+  String get schedulingOnce => '一次性';
+
+  @override
+  String get schedulingInterval => '固定间隔';
+
+  @override
+  String get schedulingCron => 'Cron';
+
+  @override
+  String get schedulingDelay => '延迟发送';
+
+  @override
+  String get schedulingAt => '指定时间';
+
+  @override
+  String get schedulingDelayMinutes => '延迟（分钟）';
+
+  @override
+  String get schedulingIntervalMinutes => '重复间隔（分钟）';
+
+  @override
+  String get schedulingLocalTime => '首次执行时间（手机本地时区）';
+
+  @override
+  String get schedulingCronExpression => 'Cron（分 时 日 月 周）';
+
+  @override
+  String get schedulingTimezone => 'IANA 时区，例如 Asia/Shanghai';
+
+  @override
+  String get schedulingCatchUp => '错过后允许补跑（分钟，0–1440）';
+
+  @override
+  String get schedulingPreview => '预览接下来 5 次';
+
+  @override
+  String get schedulingEnabled => '已启用';
+
+  @override
+  String get schedulingPaused => '已暂停 / 到期';
+
+  @override
+  String get schedulingPause => '暂停';
+
+  @override
+  String get schedulingResume => '启用';
+
+  @override
+  String get schedulingRunNow => '立即执行';
+
+  @override
+  String get schedulingSendNow => '立即发送';
+
+  @override
+  String get schedulingHistory => '执行记录';
+
+  @override
+  String get schedulingNoHistory => '暂无执行记录';
+
+  @override
+  String get schedulingNext => '下次执行';
+
+  @override
+  String get schedulingOpenThread => '打开会话';
+
+  @override
+  String get schedulingDeleteConfirm => '删除此安排？已经开始的会话会继续运行。';
+
+  @override
+  String get schedulingRunConfirm => '现在执行此安排？一次性安排执行后将消耗原定时间。';
+
+  @override
+  String get schedulingExpired => '一次性安排已过期，请编辑并设置新的未来时间。';
+
+  @override
+  String get schedulingRequired => '请填写正文、有效时间以及任务名称和项目目录。';
+
+  @override
+  String get schedulingConfigRequired => '请选择完整的运行配置和明确的模型。';
+
+  @override
+  String get schedulingPending => '等待执行';
+
+  @override
+  String get schedulingDispatching => '正在启动';
+
+  @override
+  String get schedulingRunning => '执行中';
+
+  @override
+  String get schedulingWaitingUser => '等待用户处理';
+
+  @override
+  String get schedulingCompleted => '已完成';
+
+  @override
+  String get schedulingFailed => '失败';
+
+  @override
+  String get schedulingSkipped => '已跳过';
+
+  @override
+  String get schedulingUnknown => '状态不确定';
+
+  @override
+  String get schedulingCancelled => '已取消';
+
+  @override
+  String get schedulingLoadFailed => '无法加载定时安排';
+
+  @override
+  String get schedulingSaved => '已保存定时安排';
 }

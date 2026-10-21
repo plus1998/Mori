@@ -4981,6 +4981,330 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Used for automatic tool reviews; supports chat models and SystemOne (Jev)'**
   String get composerApprovalModelHintAcp;
+
+  /// No description provided for @schedulingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Scheduled tasks'**
+  String get schedulingTitle;
+
+  /// No description provided for @schedulingMessages.
+  ///
+  /// In en, this message translates to:
+  /// **'Scheduled messages'**
+  String get schedulingMessages;
+
+  /// No description provided for @schedulingNewTask.
+  ///
+  /// In en, this message translates to:
+  /// **'New scheduled task'**
+  String get schedulingNewTask;
+
+  /// No description provided for @schedulingNewMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Add scheduled message'**
+  String get schedulingNewMessage;
+
+  /// No description provided for @schedulingEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit schedule'**
+  String get schedulingEdit;
+
+  /// No description provided for @schedulingEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No schedules yet'**
+  String get schedulingEmpty;
+
+  /// No description provided for @schedulingHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Runs on the connected computer. Keep Eco running and the computer awake.'**
+  String get schedulingHint;
+
+  /// No description provided for @schedulingTaskHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Each run starts a new conversation. Include all context and expected results.'**
+  String get schedulingTaskHint;
+
+  /// No description provided for @schedulingMessageHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Sends to this conversation at the scheduled time, waiting for the current turn if busy.'**
+  String get schedulingMessageHint;
+
+  /// No description provided for @schedulingName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get schedulingName;
+
+  /// No description provided for @schedulingOptionalName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name (optional, uses the first line)'**
+  String get schedulingOptionalName;
+
+  /// No description provided for @schedulingPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Instructions / message'**
+  String get schedulingPrompt;
+
+  /// No description provided for @schedulingWorkspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Project directory'**
+  String get schedulingWorkspace;
+
+  /// No description provided for @schedulingOtherProject.
+  ///
+  /// In en, this message translates to:
+  /// **'Other directory'**
+  String get schedulingOtherProject;
+
+  /// No description provided for @schedulingRuntime.
+  ///
+  /// In en, this message translates to:
+  /// **'Runtime configuration and model'**
+  String get schedulingRuntime;
+
+  /// No description provided for @schedulingTrigger.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat'**
+  String get schedulingTrigger;
+
+  /// No description provided for @schedulingOnce.
+  ///
+  /// In en, this message translates to:
+  /// **'Once'**
+  String get schedulingOnce;
+
+  /// No description provided for @schedulingInterval.
+  ///
+  /// In en, this message translates to:
+  /// **'Fixed interval'**
+  String get schedulingInterval;
+
+  /// No description provided for @schedulingCron.
+  ///
+  /// In en, this message translates to:
+  /// **'Cron'**
+  String get schedulingCron;
+
+  /// No description provided for @schedulingDelay.
+  ///
+  /// In en, this message translates to:
+  /// **'After a delay'**
+  String get schedulingDelay;
+
+  /// No description provided for @schedulingAt.
+  ///
+  /// In en, this message translates to:
+  /// **'At a specific time'**
+  String get schedulingAt;
+
+  /// No description provided for @schedulingDelayMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'Delay (minutes)'**
+  String get schedulingDelayMinutes;
+
+  /// No description provided for @schedulingIntervalMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat interval (minutes)'**
+  String get schedulingIntervalMinutes;
+
+  /// No description provided for @schedulingLocalTime.
+  ///
+  /// In en, this message translates to:
+  /// **'First run (phone local timezone)'**
+  String get schedulingLocalTime;
+
+  /// No description provided for @schedulingCronExpression.
+  ///
+  /// In en, this message translates to:
+  /// **'Cron (minute hour day month weekday)'**
+  String get schedulingCronExpression;
+
+  /// No description provided for @schedulingTimezone.
+  ///
+  /// In en, this message translates to:
+  /// **'IANA timezone, e.g. Asia/Shanghai'**
+  String get schedulingTimezone;
+
+  /// No description provided for @schedulingCatchUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Catch-up window (minutes, 0–1440)'**
+  String get schedulingCatchUp;
+
+  /// No description provided for @schedulingPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview next 5 runs'**
+  String get schedulingPreview;
+
+  /// No description provided for @schedulingEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Enabled'**
+  String get schedulingEnabled;
+
+  /// No description provided for @schedulingPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused / expired'**
+  String get schedulingPaused;
+
+  /// No description provided for @schedulingPause.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get schedulingPause;
+
+  /// No description provided for @schedulingResume.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable'**
+  String get schedulingResume;
+
+  /// No description provided for @schedulingRunNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Run now'**
+  String get schedulingRunNow;
+
+  /// No description provided for @schedulingSendNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Send now'**
+  String get schedulingSendNow;
+
+  /// No description provided for @schedulingHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Run history'**
+  String get schedulingHistory;
+
+  /// No description provided for @schedulingNoHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'No runs yet'**
+  String get schedulingNoHistory;
+
+  /// No description provided for @schedulingNext.
+  ///
+  /// In en, this message translates to:
+  /// **'Next run'**
+  String get schedulingNext;
+
+  /// No description provided for @schedulingOpenThread.
+  ///
+  /// In en, this message translates to:
+  /// **'Open conversation'**
+  String get schedulingOpenThread;
+
+  /// No description provided for @schedulingDeleteConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this schedule? Conversations already started will continue.'**
+  String get schedulingDeleteConfirm;
+
+  /// No description provided for @schedulingRunConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Run this schedule now? This consumes the scheduled time for a one-time schedule.'**
+  String get schedulingRunConfirm;
+
+  /// No description provided for @schedulingExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'This one-time schedule has expired. Edit it and choose a future time.'**
+  String get schedulingExpired;
+
+  /// No description provided for @schedulingRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the content, valid timing, and a task name and project directory.'**
+  String get schedulingRequired;
+
+  /// No description provided for @schedulingConfigRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a complete runtime configuration and an explicit model.'**
+  String get schedulingConfigRequired;
+
+  /// No description provided for @schedulingPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
+  String get schedulingPending;
+
+  /// No description provided for @schedulingDispatching.
+  ///
+  /// In en, this message translates to:
+  /// **'Starting'**
+  String get schedulingDispatching;
+
+  /// No description provided for @schedulingRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'Running'**
+  String get schedulingRunning;
+
+  /// No description provided for @schedulingWaitingUser.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for you'**
+  String get schedulingWaitingUser;
+
+  /// No description provided for @schedulingCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get schedulingCompleted;
+
+  /// No description provided for @schedulingFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get schedulingFailed;
+
+  /// No description provided for @schedulingSkipped.
+  ///
+  /// In en, this message translates to:
+  /// **'Skipped'**
+  String get schedulingSkipped;
+
+  /// No description provided for @schedulingUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get schedulingUnknown;
+
+  /// No description provided for @schedulingCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get schedulingCancelled;
+
+  /// No description provided for @schedulingLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load schedules'**
+  String get schedulingLoadFailed;
+
+  /// No description provided for @schedulingSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Schedule saved'**
+  String get schedulingSaved;
 }
 
 class _AppLocalizationsDelegate
