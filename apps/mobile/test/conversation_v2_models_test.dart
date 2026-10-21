@@ -71,6 +71,36 @@ void main() {
     expect(bootstrap.tools, isEmpty);
   });
 
+  test('parses compaction details from a V2 bootstrap response', () {
+    final bootstrap = ConversationV2Bootstrap.fromJson({
+      'protocolVersion': 2,
+      'storeEpoch': 'epoch_1',
+      'conversationId': 'thread_1',
+      'snapshotSeq': 4,
+      'historyRevision': 0,
+      'messages': const [],
+      'runs': const [],
+      'tools': const [],
+      'details': [
+        {
+          'itemId': 'compaction-1',
+          'conversationId': 'thread_1',
+          'runId': 'run_1',
+          'type': 'context.compaction.started',
+          'createdSeq': 3,
+          'versionSeq': 3,
+          'content':
+              '{"message":"正在压缩上下文","observedAt":"2026-10-21T00:00:03.000Z","scope":"main"}',
+        },
+      ],
+      'hasOlder': false,
+    });
+
+    expect(bootstrap.details, hasLength(1));
+    expect(bootstrap.details.single.itemId, 'compaction-1');
+    expect(bootstrap.details.single.type, 'context.compaction.started');
+  });
+
   test('identifies the invalid response list field', () {
     expect(
       () => ConversationV2Bootstrap.fromJson({

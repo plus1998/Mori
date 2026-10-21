@@ -480,6 +480,48 @@ class ConversationV2Cache
     return rows.map(_detailFromRow).toList(growable: false);
   }
 
+  /// Recent compaction lifecycle rows plus each owner's latest state.
+  ///
+  /// Context compaction is represented as V2 detail rows rather than tool
+  /// summaries. The Feed needs them even when the user never opens a detail
+  /// panel, so read a bounded projection view instead of hydrating every
+  /// detail owned by the conversation.
+  Future<List<ConversationV2Detail>> compactionDetails(
+    String conversationId,
+  ) async {
+    final current = await state(conversationId);
+    if (current == null) return const [];
+    final placeholders = List.filled(
+      conversationV2ContextCompactionTypes.length,
+      '?',
+    ).join(', ');
+    final rows = await (await _db()).rawQuery(
+      '''
+      WITH compaction AS (
+        SELECT *,
+          ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(agent_instance_id, agent_id, '')
+            ORDER BY created_seq DESC, item_id DESC
+          ) AS owner_rank,
+          ROW_NUMBER() OVER (
+            ORDER BY created_seq DESC, item_id DESC
+          ) AS recent_rank
+        FROM conversation_v2_details
+        WHERE ${_scopeWhere(current.storeEpoch)}
+          AND type IN ($placeholders)
+      )
+      SELECT * FROM compaction
+      WHERE owner_rank = 1 OR recent_rank <= 100
+      ORDER BY created_seq ASC, item_id ASC
+      ''',
+      [
+        ..._scopeArgs(current.storeEpoch, conversationId),
+        ...conversationV2ContextCompactionTypes,
+      ],
+    );
+    return rows.map(_detailFromRow).toList(growable: false);
+  }
+
   @override
   Future<void> installBootstrap(ConversationV2Bootstrap bootstrap) async {
     _validateBootstrap(bootstrap);
@@ -526,6 +568,9 @@ class ConversationV2Cache
       }
       for (final agent in bootstrap.agents) {
         await _upsertAgent(txn, bootstrap.storeEpoch, agent);
+      }
+      for (final detail in bootstrap.details) {
+        await _upsertDetail(txn, bootstrap.storeEpoch, detail);
       }
       if (!sameEpoch || current!.appliedSeq <= bootstrap.snapshotSeq) {
         await txn.delete(

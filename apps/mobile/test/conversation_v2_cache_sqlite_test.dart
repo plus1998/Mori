@@ -128,6 +128,66 @@ void main() {
     await reopened.close();
   });
 
+  test('installs compaction details from the bootstrap snapshot', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'eco-compaction-details-',
+    );
+    final databasePath = p.join(directory.path, 'conversation-v2.sqlite');
+    addTearDown(() async {
+      await databaseFactoryFfi.deleteDatabase(databasePath);
+      await directory.delete(recursive: true);
+    });
+    final cache = _cache(databasePath);
+
+    await cache.installBootstrap(
+      const ConversationV2Bootstrap(
+        protocolVersion: 2,
+        storeEpoch: _storeEpoch,
+        conversationId: _conversationId,
+        snapshotSeq: 3,
+        historyRevision: 0,
+        messages: [],
+        runs: [],
+        tools: [],
+        details: [
+          ConversationV2Detail(
+            itemId: 'compaction-started',
+            conversationId: _conversationId,
+            runId: 'run-1',
+            type: 'context.compaction.started',
+            createdSeq: 2,
+            versionSeq: 2,
+            content:
+                '{"message":"正在压缩上下文","observedAt":"2026-10-21T00:00:02.000Z"}',
+          ),
+          ConversationV2Detail(
+            itemId: 'compaction-completed',
+            conversationId: _conversationId,
+            runId: 'run-1',
+            type: 'context.compaction.completed',
+            createdSeq: 3,
+            versionSeq: 3,
+            content:
+                '{"message":"上下文已压缩","observedAt":"2026-10-21T00:00:03.000Z"}',
+          ),
+        ],
+        olderCursor: null,
+        hasOlder: false,
+      ),
+    );
+
+    final details = await cache.compactionDetails(_conversationId);
+    expect(details.map((detail) => detail.itemId), [
+      'compaction-started',
+      'compaction-completed',
+    ]);
+    expect(details.map((detail) => detail.type), [
+      'context.compaction.started',
+      'context.compaction.completed',
+    ]);
+    await cache.close();
+  });
+
   test('bootstrap at head can persist live state across reopen', () async {
     final directory = await Directory.systemTemp.createTemp(
       'eco-conversation-v2-live-cache-',

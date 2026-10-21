@@ -20,6 +20,7 @@ ThreadRunProjectionSnapshot buildConversationV2Projection({
   required List<ConversationV2Run> runs,
   required List<ConversationV2Tool> tools,
   List<ConversationV2Agent> agents = const [],
+  List<ConversationV2Detail> details = const [],
   ConversationV2ProjectionExtras? projectionExtras,
   bool hasEarlier = false,
   int historyRevision = 0,
@@ -61,6 +62,11 @@ ThreadRunProjectionSnapshot buildConversationV2Projection({
       return sequence != 0
           ? sequence
           : left.toolCallId.compareTo(right.toolCallId);
+    });
+  final sortedDetails = [...details]
+    ..sort((left, right) {
+      final sequence = left.createdSeq.compareTo(right.createdSeq);
+      return sequence != 0 ? sequence : left.itemId.compareTo(right.itemId);
     });
 
   final toolsByAgent = <String, List<ConversationV2Tool>>{};
@@ -117,6 +123,20 @@ ThreadRunProjectionSnapshot buildConversationV2Projection({
     mainTimeline.add(_toolTimelineItem(tool));
   }
 
+  for (final detail in sortedDetails) {
+    if (!isConversationV2ContextCompactionType(detail.type)) continue;
+    final ownerAgentId = detail.agentId?.trim().isNotEmpty == true
+        ? detail.agentId!.trim()
+        : detail.agentInstanceId?.trim();
+    final agentId = isCardOwner(ownerAgentId) ? ownerAgentId : null;
+    final item = _compactionDetailTimelineItem(detail, agentId: agentId);
+    if (agentId != null) {
+      messagesByAgent.putIfAbsent(agentId, () => []).add(item);
+    } else {
+      mainTimeline.add(item);
+    }
+  }
+
   final cardOwnerIds = <String>{
     ...cardAgentIds,
     if (registry.isEmpty)
@@ -141,20 +161,72 @@ ThreadRunProjectionSnapshot buildConversationV2Projection({
         ...messages.map((item) => item.versionSeq),
         ...runs.map((item) => item.versionSeq),
         ...tools.map((item) => item.versionSeq),
+        ...details.map((item) => item.versionSeq),
       ].fold<int>(0, (max, value) => value > max ? value : max),
     ),
     agents: cardAgents,
     // A live V2 session with no rows is still a ready projection. This keeps
     // the UI from silently switching to stale legacy data during bootstrap.
-    sourceEventCount: (messages.length + runs.length + tools.length).clamp(
-      1,
-      1 << 31,
-    ),
+    sourceEventCount:
+        (messages.length + runs.length + tools.length + details.length).clamp(
+          1,
+          1 << 31,
+        ),
     timeline: mainTimeline,
     requestSpans: projectionExtras?.requestSpans ?? const [],
     attempts: attempts,
     hasEarlier: hasEarlier,
     historyRevision: historyRevision,
+  );
+}
+
+ThreadRunProjectionTimelineItem _compactionDetailTimelineItem(
+  ConversationV2Detail detail, {
+  required String? agentId,
+}) {
+  final rawContent = detail.content?.trim();
+  Map<String, dynamic>? payload;
+  if (rawContent != null && rawContent.isNotEmpty) {
+    try {
+      payload = _mapValue(jsonDecode(rawContent));
+    } on FormatException {
+      payload = null;
+    }
+  }
+  final payloadMetadata = _mapValue(payload?['metadata']) ?? const {};
+  final scope = agentId == null ? 'main' : 'agent';
+  return ThreadRunProjectionTimelineItem(
+    id: detail.itemId,
+    sequence: detail.createdSeq,
+    eventType: detail.type,
+    scope: scope,
+    role: payload == null
+        ? 'main'
+        : _firstText(payload, const ['role']) ?? 'main',
+    agentId: agentId ?? detail.agentId,
+    runAttemptId: detail.runId,
+    requestId: payload == null
+        ? null
+        : _firstText(payload, const ['requestId']),
+    streamKey: payload == null
+        ? detail.itemId
+        : _firstText(payload, const ['streamKey']) ?? detail.itemId,
+    text: payload == null ? '' : _firstText(payload, const ['message']) ?? '',
+    at: _v2RowTime(
+      payload == null ? null : _firstText(payload, const ['observedAt']),
+      detail.createdSeq,
+    ),
+    metadata: <String, dynamic>{
+      'v2': true,
+      'liveType': detail.type,
+      'conversationV2DetailId': detail.itemId,
+      'conversationV2VersionSeq': detail.versionSeq,
+      'conversationV2RunId': detail.runId,
+      if (detail.agentId != null) 'conversationV2AgentId': detail.agentId,
+      if (detail.agentInstanceId != null)
+        'conversationV2AgentInstanceId': detail.agentInstanceId,
+      ...payloadMetadata,
+    },
   );
 }
 

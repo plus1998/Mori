@@ -13,6 +13,48 @@ import 'package:eco_mobile/features/threads/conversation_v2_projection.dart';
 void main() {
   mainSessionRunningClocks();
 
+  test('renders a running V2 context compaction detail in the feed', () {
+    final projection = buildConversationV2Projection(
+      conversationId: 'thread_compaction',
+      messages: const [],
+      runs: const [
+        ConversationV2Run(
+          runId: 'run_compaction',
+          conversationId: 'thread_compaction',
+          turnId: 'turn_compaction',
+          status: 'running',
+          versionSeq: 2,
+          timingQuality: 'recorded',
+        ),
+      ],
+      tools: const [],
+      details: const [
+        ConversationV2Detail(
+          itemId: 'compaction_started',
+          conversationId: 'thread_compaction',
+          runId: 'run_compaction',
+          type: 'context.compaction.started',
+          createdSeq: 2,
+          versionSeq: 2,
+          content:
+              '{"message":"正在压缩上下文","observedAt":"2026-10-21T00:00:02.000Z","scope":"main","role":"main"}',
+        ),
+      ],
+    );
+
+    final entries = buildActivityFeed(
+      runProjection: projection,
+      l10n: lookupAppLocalizations(const Locale('zh')),
+      groupTurns: false,
+    );
+
+    expect(entries, hasLength(1));
+    expect(entries.single.kind, ActivityFeedKind.phase);
+    expect(entries.single.text, '正在压缩上下文');
+    expect(entries.single.actionIcon, ActivityActionIcon.context);
+    expect(entries.single.lifecycle, ToolActionLifecycle.running);
+  });
+
   test('does not render an accepted queued follow-up as a sent user message', () {
     final projection = buildConversationV2Projection(
       conversationId: 'thread_queued_follow_up',

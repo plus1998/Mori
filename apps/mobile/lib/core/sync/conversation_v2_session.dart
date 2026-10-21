@@ -99,7 +99,6 @@ class ConversationV2SessionState {
     ClarificationRequest? pendingClarification,
     bool clearPendingInteractions = false,
     bool replacePendingInteractions = false,
-    bool clearDetails = false,
     Object? error,
     bool clearError = false,
   }) {
@@ -113,7 +112,7 @@ class ConversationV2SessionState {
       syncState: syncState ?? this.syncState,
       hasOlder: hasOlder ?? this.hasOlder,
       historyRevision: historyRevision ?? this.historyRevision,
-      details: clearDetails ? const [] : (details ?? this.details),
+      details: details ?? this.details,
       pendingBash: replacePendingInteractions
           ? pendingBash
           : clearPendingInteractions
@@ -459,6 +458,7 @@ class ConversationV2SessionController
     if (_disposed) return;
     final generation = ++_reloadGeneration;
     final snapshot = await _cache.presentationSnapshot(conversationId);
+    final compactionDetails = await _cache.compactionDetails(conversationId);
     if (_disposed || generation != _reloadGeneration) return;
     _update(
       state.copyWith(
@@ -470,7 +470,7 @@ class ConversationV2SessionController
         syncState: syncState ?? _engine.state,
         hasOlder: snapshot.cacheState?.hasOlder ?? false,
         historyRevision: snapshot.cacheState?.historyRevision ?? 0,
-        clearDetails: true,
+        details: compactionDetails,
         clearPendingInteractions: true,
         clearError: syncState != ConversationV2SyncState.error,
       ),
@@ -526,9 +526,15 @@ class ConversationV2SessionController
       conversationId,
       details,
     );
+    final visibleDetails = _mergeConversationV2Details(
+      state.details.where(
+        (detail) => isConversationV2ContextCompactionType(detail.type),
+      ),
+      details,
+    );
     _update(
       state.copyWith(
-        details: details,
+        details: visibleDetails,
         pendingBash: pending.bash,
         pendingPlan: pending.plan,
         pendingClarification: pending.clarification,
@@ -584,6 +590,20 @@ class ConversationV2SessionController
     if (_disposed) return;
     state = next;
   }
+}
+
+List<ConversationV2Detail> _mergeConversationV2Details(
+  Iterable<ConversationV2Detail> first,
+  Iterable<ConversationV2Detail> second,
+) {
+  final byId = <String, ConversationV2Detail>{
+    for (final detail in first) detail.itemId: detail,
+    for (final detail in second) detail.itemId: detail,
+  };
+  return byId.values.toList()..sort((left, right) {
+    final sequence = left.createdSeq.compareTo(right.createdSeq);
+    return sequence != 0 ? sequence : left.itemId.compareTo(right.itemId);
+  });
 }
 
 class ConversationV2PendingInteractions {
