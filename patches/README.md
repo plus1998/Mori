@@ -1,5 +1,11 @@
 # 依赖补丁说明
 
+## PI 取消与 Shell 启动竞态
+
+`@earendil-works%2Fpi-coding-agent@1.3.0.patch` 在异步工作目录检查结束后、创建 Shell 之前再次检查 `AbortSignal`。原实现只在检查目录前判断取消；若取消恰好发生在 `fs.access` 期间，仍会创建 Shell，再立即调用 `taskkill /T`。Windows 上 Shell 此时可能继续启动子进程，进程树枚举来不及覆盖它，导致会话已取消而 `node.exe` 仍持有工作目录。
+
+`packages/runtime/test/pi-stop-native.test.ts` 同时覆盖目录检查期间取消不创建 Shell，以及真实 PI 会话的静默子进程停止、原生取消和目录释放。升级 PI 时先确认上游在此异步边界后已检查取消，再移除补丁。
+
 ## React 开发版性能记录
 
 `react-dom@19.2.6.patch` 回移 React 上游 [#34803](https://github.com/react/react/pull/34803) 的性能记录清理行为，覆盖普通开发入口和 profiling 开发入口。通过局部 `measureAndClear` 函数让每次记录完成后立即按名称清理 User Timing 缓冲区；DevTools 仍能接收性能轨迹，业务的 Performance API 不受影响。

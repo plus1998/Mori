@@ -43,6 +43,7 @@ export type ThreadRunEventType =
   | "thinking.final"
   | "tool.started"
   | "tool.writing"
+  | "tool.writing.completed"
   | "tool.completed"
   | "tool.failed"
   | "api.error"
@@ -57,6 +58,8 @@ export interface ThreadRunToolMetadata {
   outputPreview?: string;
   outputPreviewTruncated?: boolean;
   toolUseId?: string;
+  /** Codex Unified Exec process identity returned on commandExecution items. */
+  processId?: string;
   durationMs?: number;
   exitCode?: number;
   status?: "started" | "completed" | "failed";
@@ -273,7 +276,7 @@ export interface ThreadRunWebSearchMetadata {
   queries?: string[];
   /** Distinguishes search vs page fetch when name alone is ambiguous. */
   mode?: "search" | "fetch";
-  /** Integrated search provider label when known (doubao / tavily / brave). */
+  /** Integrated search provider label when known (doubao / tavily / deepseek / brave). */
   provider?: string;
   /** Public SERP hits for Feed cards (Eco Integrated / MCP search). */
   results?: ThreadRunWebSearchResultHit[];

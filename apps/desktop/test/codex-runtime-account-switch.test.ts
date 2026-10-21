@@ -1,17 +1,23 @@
 import { afterEach, expect, test } from "bun:test";
 import {
+  type CodexRuntimeLifecycle,
+  setGlobalCodexRuntimeLifecycle,
+} from "../src/main/codex-runtime-lifecycle";
+import {
   configureCodexRuntimeRun,
   prepareCodexRuntime,
+  requestCodexAccountRuntimeRestart,
   scheduleCodexGlobalRuntimeRefresh,
   shutdownCodexGlobalRuntimeRefresh,
 } from "../src/main/codex-runtime-run";
-import {
-  setGlobalCodexRuntimeLifecycle,
-  type CodexRuntimeLifecycle,
-} from "../src/main/codex-runtime-lifecycle";
 import type { CodexThreadMap } from "../src/main/codex-thread-map";
 
 let releaseFakeActiveTurn: (() => void) | undefined;
+
+test("thread and integration settings cannot force a process restart", () => {
+  expect(() => requestCodexAccountRuntimeRestart("thread_runtime" as never)).toThrow("Only account");
+  expect(() => requestCodexAccountRuntimeRestart("mcp" as never)).toThrow("Only account");
+});
 
 afterEach(async () => {
   releaseFakeActiveTurn?.();
@@ -78,6 +84,7 @@ test("account transition waits for an active Codex turn and blocks new runtime p
     },
   });
 
+  requestCodexAccountRuntimeRestart("account");
   scheduleCodexGlobalRuntimeRefresh({
     beforePrepare: async () => {
       transitionRan = true;
@@ -107,7 +114,9 @@ test("shutdown interrupts the queued refresh while a Codex turn remains active",
   let active = true;
   let transitionRan = false;
   let markBusy!: () => void;
-  const busy = new Promise<void>((resolve) => { markBusy = resolve; });
+  const busy = new Promise<void>((resolve) => {
+    markBusy = resolve;
+  });
   const errors: string[] = [];
   const client = {
     isInitialized: true,
@@ -116,13 +125,20 @@ test("shutdown interrupts the queued refresh while a Codex turn remains active",
       return { thread: { status: { type: active ? "active" : "idle" } } };
     },
   };
-  releaseFakeActiveTurn = () => { active = false; };
+  releaseFakeActiveTurn = () => {
+    active = false;
+  };
   setGlobalCodexRuntimeLifecycle({ getClient: () => client } as unknown as CodexRuntimeLifecycle);
   configureRefreshTest((message) => {
     if (message.includes("waiting to refresh")) markBusy();
     if (message.includes("refresh failed")) errors.push(message);
   });
-  scheduleCodexGlobalRuntimeRefresh({ beforePrepare: async () => { transitionRan = true; } });
+  requestCodexAccountRuntimeRestart("account");
+  scheduleCodexGlobalRuntimeRefresh({
+    beforePrepare: async () => {
+      transitionRan = true;
+    },
+  });
   await busy;
   await expectShutdownToFinish(shutdownCodexGlobalRuntimeRefresh());
   expect(active).toBe(true);
@@ -134,8 +150,12 @@ test("shutdown interrupts the queued refresh while a Codex turn remains active",
 test("shutdown interrupts an idle check whose app-server request has not returned", async () => {
   let requestStarted!: () => void;
   let releaseRequest!: () => void;
-  const started = new Promise<void>((resolve) => { requestStarted = resolve; });
-  const request = new Promise<void>((resolve) => { releaseRequest = resolve; });
+  const started = new Promise<void>((resolve) => {
+    requestStarted = resolve;
+  });
+  const request = new Promise<void>((resolve) => {
+    releaseRequest = resolve;
+  });
   let statusRequests = 0;
   const client = {
     isInitialized: true,
@@ -153,7 +173,12 @@ test("shutdown interrupts an idle check whose app-server request has not returne
   releaseFakeActiveTurn = releaseRequest;
   setGlobalCodexRuntimeLifecycle({ getClient: () => client } as unknown as CodexRuntimeLifecycle);
   configureRefreshTest();
-  scheduleCodexGlobalRuntimeRefresh({ beforePrepare: async () => { transitionRan = true; } });
+  requestCodexAccountRuntimeRestart("account");
+  scheduleCodexGlobalRuntimeRefresh({
+    beforePrepare: async () => {
+      transitionRan = true;
+    },
+  });
   await started;
   try {
     await expectShutdownToFinish(shutdownCodexGlobalRuntimeRefresh());
@@ -168,17 +193,26 @@ test("shutdown interrupts an idle check whose app-server request has not returne
 test("shutdown still waits for an account transition already publishing credentials", async () => {
   let enteredTransition!: () => void;
   let releaseTransition!: () => void;
-  const entered = new Promise<void>((resolve) => { enteredTransition = resolve; });
-  const publication = new Promise<void>((resolve) => { releaseTransition = resolve; });
+  const entered = new Promise<void>((resolve) => {
+    enteredTransition = resolve;
+  });
+  const publication = new Promise<void>((resolve) => {
+    releaseTransition = resolve;
+  });
   releaseFakeActiveTurn = releaseTransition;
   configureRefreshTest();
-  scheduleCodexGlobalRuntimeRefresh({ beforePrepare: async () => {
-    enteredTransition();
-    await publication;
-  } });
+  requestCodexAccountRuntimeRestart("account");
+  scheduleCodexGlobalRuntimeRefresh({
+    beforePrepare: async () => {
+      enteredTransition();
+      await publication;
+    },
+  });
   await entered;
   let stopped = false;
-  const shutdown = shutdownCodexGlobalRuntimeRefresh().then(() => { stopped = true; });
+  const shutdown = shutdownCodexGlobalRuntimeRefresh().then(() => {
+    stopped = true;
+  });
   try {
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(stopped).toBe(false);

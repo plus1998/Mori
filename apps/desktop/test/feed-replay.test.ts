@@ -1,10 +1,10 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ConversationRun, type ConversationSyncEffect, stableHash } from "@eco/shared";
-import { exportFeedReplay, writeReplayFixture } from "../scripts/feed-replay/export";
+import { exportFeedReplay, exportFeedReplayToFile, writeReplayFixture } from "../scripts/feed-replay/export";
 import { createReplayApi, type ReplayCall } from "../scripts/feed-replay/sandbox";
 import { FeedReplaySession } from "../scripts/feed-replay/session";
 import {
@@ -129,6 +129,41 @@ function database(events: FeedReplayEvent[]) {
 }
 
 describe("replay export", () => {
+  test("streaming export stores only changed spans and publishes a complete private file atomically", () => {
+    const events = [run(1, "running")];
+    for (let index = 0; index < 100; index++) events.push(event(events.length + 1), event(events.length + 2));
+    const source = database(events);
+    for (let index = 1; index < events.length; index++) {
+      const item = events[index]!;
+      const recorded: ThreadRunEvent = {
+        id: `source_${item.seq}`, threadId: id, sequence: item.seq,
+        eventType: index % 2 ? "request.started" : "request.completed", scope: "main",
+        streamState: "none", requestId: `request_${Math.floor((index - 1) / 2)}`,
+        message: "", observedAt: new Date(item.at).toISOString(),
+      };
+      source.db.query("UPDATE conversation_events_v2 SET payload_json=? WHERE seq=?")
+        .run(JSON.stringify({ source: recorded }), item.seq);
+    }
+    const output = join(source.directory, "streamed.json");
+    const before = readFileSync(source.path);
+    const summary = exportFeedReplayToFile(source.path, id, output);
+    const streamed: FeedReplayFixture = JSON.parse(readFileSync(output, "utf8"));
+    expect(readFileSync(source.path).equals(before)).toBe(true);
+    validateReplayFixture(streamed);
+    expect(summary).toMatchObject({ formatVersion: 2, events: events.length, spanPatches: 200 });
+    expect(streamed.events.every((item) => item.requestSpans === undefined)).toBe(true);
+    expect(streamed.events.reduce((sum, item) => sum + (item.requestSpanChanges?.upserts.length ?? 0), 0)).toBe(200);
+    expect(new FeedReplaySession(streamed, events.length).requestSpans).toHaveLength(100);
+    expect(statSync(output).mode & 0o777).toBe(0o600);
+    expect(() => exportFeedReplayToFile(source.path, id, source.path)).toThrow("source database");
+    source.db.query("UPDATE conversation_sync_effects_v2 SET effect_hash='broken' WHERE seq=?").run(events.length);
+    writeFileSync(output, "previous complete export");
+    expect(() => exportFeedReplayToFile(source.path, id, output)).toThrow("hash mismatch");
+    expect(readFileSync(output, "utf8")).toBe("previous complete export");
+    expect(readdirSync(source.directory).some((name) => name.endsWith(".tmp"))).toBe(false);
+    source.db.close();
+  });
+
   test("exports a consistent recording without changing the source database, and saves private artifacts", () => {
     const source = database([user(1), run(2, "running"), run(3, "completed")]);
     source.db.close();
@@ -187,9 +222,9 @@ describe("replay export", () => {
         .run(JSON.stringify({ source: recorded }), seq);
     }
     const exported = exportFeedReplay(source.path, id);
-    expect(exported.events[1]?.requestSpans?.[0]?.status).toBe("waiting_first_token");
-    expect(exported.events[3]?.requestSpans?.[0]?.status).toBe("cancelled");
-    expect(exported.events[3]?.requestSpans?.[0]?.writingTool).toBeUndefined();
+    expect(new FeedReplaySession(exported, 1 + 1).requestSpans[0]?.status).toBe("waiting_first_token");
+    expect(new FeedReplaySession(exported, 3 + 1).requestSpans[0]?.status).toBe("cancelled");
+    expect(new FeedReplaySession(exported, 3 + 1).requestSpans[0]?.writingTool).toBeUndefined();
     source.db.close();
   });
 
@@ -238,16 +273,84 @@ describe("replay export", () => {
       "message_2",
     );
     const exported = exportFeedReplay(source.path, id);
-    expect(exported.events[2]?.requestSpans?.[0]?.pendingThinkingSince).toBe(timestamp);
-    expect(exported.events[4]?.requestSpans?.[0]?.pendingThinkingSince).toBeUndefined();
-    expect(exported.events[2]?.requestSpans?.[0]?.status).toBe("waiting_first_token");
+    expect(new FeedReplaySession(exported, 2 + 1).requestSpans[0]?.pendingThinkingSince).toBe(timestamp);
+    expect(new FeedReplaySession(exported, 4 + 1).requestSpans[0]?.pendingThinkingSince).toBeUndefined();
+    expect(new FeedReplaySession(exported, 2 + 1).requestSpans[0]?.status).toBe("waiting_first_token");
     source.db.query("UPDATE conversation_events_v2 SET message_id='missing' WHERE seq=3").run();
     expect(() => exportFeedReplay(source.path, id)).toThrow("Missing source message");
+    source.db.close();
+  });
+
+  test("replaces a thinking placeholder in the source index when nonempty content arrives", () => {
+    const source = database([run(1, "running"), event(2), event(3), event(4)]);
+    const recorded: ThreadRunEvent = {
+      id: "thinking",
+      threadId: id,
+      sequence: 0,
+      eventType: "thinking.delta",
+      scope: "main",
+      requestId: "request",
+      streamState: "placeholder",
+      message: "",
+      observedAt: timestamp,
+    };
+    source.db
+      .query("UPDATE conversation_events_v2 SET payload_json=? WHERE seq=2")
+      .run(JSON.stringify({ source: recorded }));
+    source.db
+      .query("UPDATE conversation_events_v2 SET payload_json=? WHERE seq=3")
+      .run(JSON.stringify({ source: { ...recorded, streamState: "streaming", message: "继续分析" } }));
+    source.db.query("UPDATE conversation_events_v2 SET payload_json=? WHERE seq=4").run(
+      JSON.stringify({
+        source: {
+          ...recorded,
+          id: "writing",
+          eventType: "tool.writing",
+          streamState: "none",
+          message: "Plan",
+          observedAt: "2026-10-01T00:00:01.000Z",
+          metadata: { liveType: "tool.writing" },
+        },
+      }),
+    );
+    const exported = exportFeedReplay(source.path, id);
+    expect(new FeedReplaySession(exported, 1 + 1).requestSpans[0]?.pendingThinkingSince).toBeDefined();
+    expect(new FeedReplaySession(exported, 2 + 1).requestSpans[0]?.pendingThinkingSince).toBeUndefined();
+    expect(new FeedReplaySession(exported, 3 + 1).requestSpans[0]?.writingTool?.name).toBe("Plan");
     source.db.close();
   });
 });
 
 describe("replay session", () => {
+  test("span deltas reconstruct checkpoints, replace cleared fields, and reject conflicting encodings", () => {
+    const recording = fixture([event(1), event(2), event(3)]);
+    recording.formatVersion = 2;
+    const first = { requestId: "first", status: "streaming" as const, startedAt: timestamp,
+      writingTool: { name: "Read", since: timestamp } };
+    recording.events[0]!.requestSpanChanges = { upserts: [first], removed: [] };
+    recording.events[1]!.requestSpanChanges = { upserts: [
+      { requestId: "first", status: "completed", startedAt: timestamp },
+      { requestId: "second", status: "streaming", startedAt: timestamp },
+    ], removed: [] };
+    recording.events[2]!.requestSpanChanges = { upserts: [], removed: ["first"] };
+    const session = new FeedReplaySession(recording, 1);
+    expect(session.requestSpans[0]?.writingTool).toBeDefined();
+    session.applyUntil(2);
+    expect(session.requestSpans[0]?.writingTool).toBeUndefined();
+    session.applyUntil(3);
+    expect(session.requestSpans.map((span) => span.requestId)).toEqual(["second"]);
+    expect(new FeedReplaySession(recording, 3).requestSpans).toEqual(session.requestSpans);
+    recording.events[2]!.requestSpanChanges!.removed.push("first");
+    expect(() => validateReplayFixture(recording)).toThrow("duplicate replay span removal");
+    recording.events[2]!.requestSpanChanges = { upserts: [
+      { requestId: "invalid", status: "completed", startedAt: "invalid" },
+    ], removed: [] };
+    expect(() => validateReplayFixture(recording)).toThrow("Invalid or duplicate replay span");
+    recording.events[2]!.requestSpanChanges = { upserts: [], removed: [] };
+    recording.events[2]!.requestSpans = [];
+    expect(() => validateReplayFixture(recording)).toThrow("encoding does not match");
+  });
+
   test("edited fixtures fail validation rather than masking a protocol or hash gap", () => {
     const recording = fixture([event(1)]);
     recording.events[0]!.effectHash = "tampered";
@@ -374,6 +477,40 @@ describe("replay session", () => {
 });
 
 describe("native isolation", () => {
+  test("explicit UI scenarios render a paused queue and terminal without native processes or input", async () => {
+    const recording = fixture([event(1)]);
+    recording.uiScenario = {
+      terminalHeight: 280,
+      pausedFollowUps: [{ id: "queued", threadId: id, prompt: "录制画面中的排队消息",
+        status: "queued", priority: "normal", deliveryMode: "queued", createdAt: timestamp, updatedAt: timestamp }],
+    };
+    const session = new FeedReplaySession(recording);
+    const forbidden = () => { throw new Error("Native must not execute"); };
+    const api = createReplayApi({ spawnTerminal: forbidden, resizeTerminal: forbidden,
+      listTerminalSessions: forbidden, writeTerminalInput: forbidden, onTerminalEvent: forbidden }, session, () => {});
+    const call = (name: string, ...args: unknown[]) =>
+      (api[name] as (...input: unknown[]) => Promise<any>)(...args);
+    expect(session.thread.followUpQueuePaused).toBe(true);
+    expect((await call("listThreadFollowUps", id)).followUps).toEqual(recording.uiScenario.pausedFollowUps);
+    await expect(call("listThreadFollowUps", "other")).rejects.toThrow("another conversation");
+    const terminals = await call("listTerminalSessions", { workspacePath: "/test" });
+    expect(terminals).toHaveLength(1);
+    await call("resizeTerminal", { sessionId: terminals[0].sessionId, cols: 80, rows: 24 });
+    const output: unknown[] = [];
+    const unsubscribe = (api.onTerminalEvent as (listener: (event: unknown) => void) => () => void)((event) => output.push(event));
+    session.writeTerminalOutput("synthetic output\r\n");
+    expect(output).toEqual([{ type: "output", sessionId: terminals[0].sessionId, data: "synthetic output\r\n" }]);
+    unsubscribe();
+    session.writeTerminalOutput("unsubscribed\r\n");
+    expect(output).toHaveLength(1);
+    await expect(call("writeTerminalInput", { sessionId: terminals[0].sessionId, data: "command" }))
+      .rejects.toThrow("Native execution is blocked");
+    recording.uiScenario.pausedFollowUps![0]!.threadId = "other";
+    expect(() => validateReplayFixture(recording)).toThrow("paused follow-ups");
+    recording.uiScenario = { terminalHeight: 0 };
+    expect(() => validateReplayFixture(recording)).toThrow("terminal height");
+  });
+
   test("Send/Stop are local; core probes, generation, writes and unknown get APIs never reach native", async () => {
     let nativeInvocations = 0;
     const forbidden = () => {

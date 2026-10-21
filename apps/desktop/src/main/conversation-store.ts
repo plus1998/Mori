@@ -10,8 +10,9 @@ import {
   mergeStreamText,
   resolveAcpHostUiFeatures,
 } from "@eco/runtime";
-import { CONVERSATION_V2_ERROR, ConversationV2Error, stableHash } from "@eco/shared";
+import { CONVERSATION_V2_ERROR, ConversationV2Error, normalizeAgentRole, stableHash } from "@eco/shared";
 import { logSuspiciousActivityLine, repairActivityText } from "../shared/activity-text";
+import { normalizeBillingSnapshotRoles, normalizeContextSnapshotRoles } from "../shared/agent-role-snapshots";
 import type { ThreadRunProjectionSnapshot } from "../shared/conversation-v2-projection";
 import { parseThreadRunFileChangeMetadata } from "../shared/file-change.js";
 import type {
@@ -28,10 +29,12 @@ import type {
   ThreadFollowUpPriority,
   ThreadFollowUpRunPhase,
   ThreadFollowUpStatus,
+  ThreadForkFromMessageResult,
   ThreadPendingFollowUp,
   ThreadPendingPlan,
   ThreadRunEvent,
   ThreadRunEventInput,
+  ThreadRunProjectionRequestSpan,
   ThreadRunToolMetadata,
   ThreadRuntimeConfig,
   ThreadStatus,
@@ -55,10 +58,14 @@ import { keepsOutputPreview, projectThreadRunToolMetadata } from "../shared/thre
 import { parseThreadRuntimeConfigJson, serializeThreadRuntimeConfig } from "../shared/thread-runtime-config";
 import { parseThreadRunGrepToolTarget, parseThreadRunReadToolTarget } from "../shared/tool-target.js";
 import { upgradeLegacyCursorCore } from "../shared/upgrade-legacy-cursor-core";
+import { withBillingDiagnostics } from "./billing-diagnostics";
+import { projectBillingFromUsageLedger } from "./billing-projector";
 import {
   classifyHistoryCommandRecovery,
   type HistoryCommandRecoveryDecision,
 } from "./conversation-command-recovery";
+import { buildForkHistoryEvents, type ConversationForkHistory } from "./conversation-fork-history";
+import type { NativeConversationFork } from "./conversation-native-fork";
 import { conversationV2AgentEvent } from "./conversation-v2-agent-events";
 import { migrateCodexCompactionDetails } from "./conversation-v2-compaction-migration";
 import {
@@ -768,18 +775,23 @@ export class ConversationStore {
   }
 
   /**
-   * Keep the desktop CAS reader scoped to the conversation or landing draft
-   * that supplied the reference. V2-only never falls back to retired V1 rows.
+   * Keep the desktop CAS reader scoped to the composer draft, conversation, or
+   * landing draft that supplied the reference. V2-only never falls back to
+   * retired V1 rows.
    */
   isPromptImageContentRefAuthorized(contextKey: string, contentRef: string): boolean {
     const key = contextKey.trim();
     const ref = contentRef.trim();
     if (!key || !isPromptImageContentRef(ref)) return false;
 
-    if (key.startsWith("landing:")) {
-      const draft = this.getComposerDraft(key);
-      return draft?.attachments?.some((attachment) => attachment.contentRef?.trim() === ref) === true;
+    // An unsent composer draft owns every image staged for its own context key, whether
+    // that is a landing surface or a thread the user has not sent the image in yet.
+    const draft = this.getComposerDraft(key);
+    if (draft?.attachments?.some((attachment) => attachment.contentRef?.trim() === ref) === true) {
+      return true;
     }
+
+    if (key.startsWith("landing:")) return false;
 
     if (!key.startsWith("thread:")) return false;
     const threadId = key.slice("thread:".length).trim();
@@ -843,29 +855,48 @@ export class ConversationStore {
       }
       return value;
     };
-    const billing = readSnapshotValue("billing");
+    let billing = readSnapshotValue("billing");
     const context = readSnapshotValue("context");
     const subagentTimings = readSnapshotValue("subagentTimings", true);
     const subagentMetrics = readSnapshotValue("subagentMetrics", true);
     const thread = this.getThread(id);
     if (!thread) return undefined;
+    const ledgerEvents = this.listUsageLedgerEvents(id);
+    const agents = this.listAgentInstances(id);
+    // History rewrites clear the mutable panel cache but retain earlier ledger
+    // rows. Rebuild their billing instead of waiting for the next completed turn
+    // to repopulate the panel (direct Codex login only settles at turn end).
+    if (billing === undefined && ledgerEvents.length > 0) {
+      const projection = projectBillingFromUsageLedger({ events: ledgerEvents, agents });
+      if (projection.snapshot) {
+        billing = withBillingDiagnostics(projection.snapshot, { ledgerEvents });
+      }
+    }
     // Request spans are derived from the V2 provider event index at read time.
     // This keeps streaming state current without a second write for every token
     // delta, and never consults the legacy event/projection tables.
     const derivedRequestSpans = buildThreadRunProjectionRequestSpans({
-      events: this.listConversationRuntimeSources(id),
+      events: this.listConversationRequestSpanSources(id),
       threadStatus: thread.status,
-      agents: this.listAgentInstances(id),
+      agents,
       historyComplete: true,
     });
     return {
       requestSpans: derivedRequestSpans,
-      ledgerEvents: this.listConversationV2UsageLedgerEventViews(id),
+      ledgerEvents: this.listConversationV2UsageLedgerEventViews(ledgerEvents, derivedRequestSpans),
       ...(billing !== undefined
-        ? { billing: billing as NonNullable<ConversationV2ProjectionExtras["billing"]> }
+        ? {
+            billing: normalizeBillingSnapshotRoles(
+              billing as NonNullable<ConversationV2ProjectionExtras["billing"]>,
+            ),
+          }
         : {}),
       ...(context !== undefined
-        ? { context: context as NonNullable<ConversationV2ProjectionExtras["context"]> }
+        ? {
+            context: normalizeContextSnapshotRoles(
+              context as NonNullable<ConversationV2ProjectionExtras["context"]>,
+            ),
+          }
         : {}),
       ...(subagentTimings !== undefined
         ? {
@@ -884,24 +915,58 @@ export class ConversationStore {
     };
   }
 
-  private listConversationV2UsageLedgerEventViews(threadId: string): ThreadUsageLedgerEventView[] {
-    const views = attachPeerGatewayTimingToLedgerEventViews(
-      this.listUsageLedgerEvents(threadId).map(buildThreadUsageLedgerEventView),
-    );
+  private listConversationV2UsageLedgerEventViews(
+    events: readonly UsageLedgerEvent[],
+    spans: readonly ThreadRunProjectionRequestSpan[],
+  ): ThreadUsageLedgerEventView[] {
+    const views = attachPeerGatewayTimingToLedgerEventViews(events.map(buildThreadUsageLedgerEventView));
     if (views.length === 0) {
       return views;
     }
-    const thread = this.getThread(threadId);
-    if (!thread) {
-      return views;
-    }
-    const spans = buildThreadRunProjectionRequestSpans({
-      events: this.listThreadRunEventsForProjection(threadId),
-      threadStatus: thread.status,
-      agents: this.listAgentInstances(threadId),
-      historyComplete: true,
-    });
     return spans.length > 0 ? attachSpanTimingToLedgerEventViews(views, spans) : views;
+  }
+
+  /**
+   * Timing needs event envelopes and ownership metadata, not every historical
+   * message body. Keep the full source reader for history operations; this
+   * projection reads text only where the span reducer actually consumes it.
+   * All rows remain present so terminal timestamps and ordering are unchanged.
+   */
+  private listConversationRequestSpanSources(threadId: string): ThreadRunEvent[] {
+    const rows = this.db
+      .prepare(`
+      SELECT p.input_id, p.conversation_id, p.version_seq, p.source_json,
+        CASE WHEN json_extract(p.source_json, '$.eventType') IN
+          ('thinking.delta', 'tool.writing', 'request.failed', 'api.error')
+          THEN CASE WHEN p.message_id IS NULL THEN p.message ELSE COALESCE(m.body, '') END
+          ELSE '' END AS message
+      FROM conversation_provider_inputs_v2 p
+      LEFT JOIN conversation_messages_v2 m
+        ON m.message_id = p.message_id AND m.conversation_id = p.conversation_id
+        AND json_extract(p.source_json, '$.eventType') IN
+          ('thinking.delta', 'tool.writing', 'request.failed', 'api.error')
+      WHERE p.conversation_id = ? AND p.visible = 1
+      ORDER BY p.version_seq ASC, p.input_id ASC
+    `)
+      .all(threadId) as Array<{
+      input_id: string;
+      conversation_id: string;
+      version_seq: number;
+      source_json: string;
+      message: string;
+    }>;
+    return rows.map((row) => {
+      // Decode the source once rather than repeatedly extracting every field
+      // through the full-text provider view. Preserve all ownership metadata.
+      const source = JSON.parse(row.source_json) as ThreadRunEventInput;
+      return withLegacyConversationV2MessageIdentity({
+        ...source,
+        id: row.input_id,
+        threadId: row.conversation_id,
+        sequence: row.version_seq,
+        message: repairActivityText(row.message).text,
+      });
+    });
   }
 
   /** Persist only the mutable panel facts owned by V2. */
@@ -2523,7 +2588,9 @@ export class ConversationStore {
       return {
         threadId,
         ...(usageState !== undefined ? { accumulator: usageState as SerializedThreadUsageState } : {}),
-        ...(context !== undefined ? { context: context as ThreadContextSnapshot } : {}),
+        ...(context !== undefined
+          ? { context: normalizeContextSnapshotRoles(context as ThreadContextSnapshot) }
+          : {}),
         updatedAt: new Date().toISOString(),
       };
     }
@@ -2899,7 +2966,7 @@ export class ConversationStore {
     const now = new Date().toISOString();
     const coreKind = thread.coreKind ?? "claude";
     if (!isCoreKind(coreKind)) {
-      throw new Error(`Unsupported thread Core: ${String(coreKind)}`);
+      throw new Error(`Unsupported thread Harness: ${String(coreKind)}`);
     }
     const coreLockedAt = thread.coreLockedAt ?? now;
     const acpAgentId = coreKind === "acp" ? resolveAcpThreadAgentId(thread) : null;
@@ -2967,6 +3034,162 @@ export class ConversationStore {
     }
   }
 
+  /** Commit the independent child, its references, draft and command receipt together. */
+  commitForkConversation(input: {
+    source: ThreadSummary;
+    history: ConversationForkHistory;
+    childThreadId: string;
+    native: NativeConversationFork;
+    principalId: string;
+    clientCommandId: string;
+  }): ThreadForkFromMessageResult {
+    const { source, history, childThreadId, native } = input;
+    const now = new Date().toISOString();
+    const draft = {
+      prompt: history.target.role === "user" ? history.target.body : "",
+      attachments: (history.target.role === "user"
+        ? (history.target.attachments ?? [])
+        : []) as PromptImageAttachment[],
+    };
+    const results: ConversationAppendResult[] = [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (this.v2.head(source.id).lastSeq !== history.sourceHeadSeq)
+        throw new Error("源会话在分叉期间已变化，请刷新后重试。");
+      const current = this.getThread(source.id);
+      if (!current || current.status === "running" || current.status === "queued")
+        throw new Error("源会话正在执行，无法提交分支。");
+      this.db
+        .prepare(`INSERT INTO threads (id, title, prompt, workspace_path, status, message, created_at, updated_at, core_kind, core_locked_at, runtime_config_json, sdk_session_id, sdk_cwd)
+        VALUES (?, ?, ?, ?, 'idle', '', ?, ?, ?, ?, ?, ?, ?)`)
+        .run(
+          childThreadId,
+          `${source.title} · 分支`,
+          history.messages.find((message) => message.role === "user")?.body ?? "",
+          source.workspacePath,
+          now,
+          now,
+          native.coreKind,
+          now,
+          source.runtimeConfig ? serializeThreadRuntimeConfig(source.runtimeConfig) : null,
+          native.coreKind === "claude" ? native.externalSessionId : null,
+          native.coreKind === "claude" ? native.cwd : null,
+        );
+      this.v2.ensureConversationInCurrentTransaction(childThreadId);
+      this.writeThreadCoreSessionRow(
+        {
+          threadId: childThreadId,
+          coreKind: native.coreKind,
+          externalSessionId: native.externalSessionId,
+          cwd: native.cwd,
+          metadata: {
+            ...native.metadata,
+            ...(native.coreKind === "claude" && native.empty ? { resetPending: true } : {}),
+            forkedFromThreadId: source.id,
+            sourceSessionId: this.getThreadCoreSession(source.id)?.externalSessionId,
+            sourceActivityLineId: history.target.historyTarget?.activityLineId ?? history.target.messageId,
+          },
+        },
+        now,
+      );
+      for (const event of buildForkHistoryEvents(history, childThreadId, native.userIds))
+        results.push(this.v2.appendInCurrentTransaction(event));
+      results.push(
+        this.v2.appendInCurrentTransaction({
+          conversationId: childThreadId,
+          eventId: `fork_lineage_${childThreadId}`,
+          sourceEventKey: `fork:lineage:${childThreadId}`,
+          type: "noop",
+          occurredAt: now,
+          payload: {
+            reason: "history.fork_created",
+            sourceThreadId: source.id,
+            sourceSessionId: this.getThreadCoreSession(source.id)?.externalSessionId,
+            sourceActivityLineId: history.target.historyTarget?.activityLineId ?? history.target.messageId,
+            sourceHistoryRevision: this.v2.head(source.id).historyRevision,
+            draftAttachments: draft.attachments,
+          },
+        }),
+      );
+      this.saveComposerDraft(`thread:${childThreadId}`, draft.prompt, draft.attachments);
+      const thread = this.getThread(childThreadId);
+      if (!thread) throw new Error("分支会话创建后不可读取。");
+      const result: ThreadForkFromMessageResult = { thread, sourceThreadId: source.id, draft };
+      this.v2.recordCommandCheckpointInCurrentTransaction({
+        principalId: input.principalId,
+        conversationId: source.id,
+        clientCommandId: input.clientCommandId,
+        name: "fork.committed",
+        payload: { childThreadId },
+      });
+      this.v2.finishCommandInCurrentTransaction({
+        principalId: input.principalId,
+        conversationId: source.id,
+        clientCommandId: input.clientCommandId,
+        status: "completed",
+        value: result,
+      });
+      this.db.exec("COMMIT");
+      this.v2.publishCommitted(results);
+      return result;
+    } catch (error) {
+      rollbackConversationTransaction(this.db);
+      throw error;
+    }
+  }
+
+  hasForkImageDependents(threadId: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1 FROM conversation_events_v2 WHERE type = 'noop' AND json_extract(payload_json, '$.reason') = 'history.fork_created' AND json_extract(payload_json, '$.sourceThreadId') = ? LIMIT 1`,
+        )
+        .get(threadId),
+    );
+  }
+
+  getForkVerification(threadId: string, childThreadId: string): NativeConversationFork | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT payload_json FROM conversation_events_v2 WHERE conversation_id = ? AND source_event_key = ?`,
+      )
+      .get(threadId, `fork:verified:${childThreadId}`) as { payload_json: string } | undefined;
+    if (!row) return undefined;
+    return (JSON.parse(row.payload_json) as { native: NativeConversationFork }).native;
+  }
+
+  bindPiPromptEntry(threadId: string, activityLineId: string, entryId: string): void {
+    const message = this.v2
+      .listUserMessages(threadId)
+      .find((item) => item.historyTarget?.activityLineId === activityLineId);
+    if (!message || !entryId.trim()) throw new Error("Pi 原生用户节点没有对应的已发送消息。");
+    this.v2.appendRuntime({
+      conversationId: threadId,
+      eventId: `pi_prompt_${crypto.createHash("sha256").update(`${threadId}:${message.messageId}:${entryId}`).digest("hex")}`,
+      sourceEventKey: `pi:prompt:${message.messageId}:${entryId}`,
+      type: "message.history_targeted",
+      messageId: message.messageId,
+      occurredAt: new Date().toISOString(),
+      payload: { historyTarget: { activityLineId, userMessageId: entryId } },
+    });
+  }
+
+  bindCodexForkTurn(threadId: string, userMessageId: string, turnId: string): void {
+    const source = this.listConversationRuntimeSources(threadId).find(
+      (source) =>
+        source.role === "user" &&
+        (source.metadata?.rewindTarget as { userMessageId?: string } | undefined)?.userMessageId ===
+          userMessageId,
+    );
+    if (!source) throw new Error("Codex 用户消息没有对应的已发送事件。");
+    this.appendV2ProviderPatch(
+      threadId,
+      [source.id],
+      { metadataMerge: { codexForkTurnId: turnId } },
+      `codex-fork-turn:${source.id}:${turnId}`,
+    );
+  }
+
   setThreadCoreForDraft(threadId: string, coreKind: CoreKind): void {
     const existing = this.db
       .prepare(`SELECT core_kind, core_locked_at FROM threads WHERE id = ?`)
@@ -2975,17 +3198,17 @@ export class ConversationStore {
       throw new Error(`Thread not found: ${threadId}`);
     }
     if (existing.core_locked_at) {
-      throw new Error(`Thread Core is locked: ${threadId}`);
+      throw new Error(`Thread Harness is locked: ${threadId}`);
     }
     const session = this.getThreadCoreSession(threadId);
     if (session) {
-      throw new Error(`Unlocked thread has an existing Core session: ${threadId}`);
+      throw new Error(`Unlocked thread has an existing Harness session: ${threadId}`);
     }
     const update = this.db
       .prepare(`UPDATE threads SET core_kind = ?, updated_at = ? WHERE id = ? AND core_locked_at IS NULL`)
       .run(coreKind, new Date().toISOString(), threadId);
     if (Number(update.changes ?? 0) !== 1) {
-      throw new Error(`Thread Core lock changed while updating: ${threadId}`);
+      throw new Error(`Thread Harness lock changed while updating: ${threadId}`);
     }
   }
 
@@ -3006,7 +3229,7 @@ export class ConversationStore {
       });
       if (upgraded.coreKind !== coreKind) {
         throw new Error(
-          `Thread Core mismatch: ${threadId} is ${existing.core_kind ?? "unknown"}, requested ${coreKind}`,
+          `Thread Harness mismatch: ${threadId} is ${existing.core_kind ?? "unknown"}, requested ${coreKind}`,
         );
       }
       if (existing.core_kind === "cursor" && coreKind === "acp") {
@@ -3044,7 +3267,7 @@ export class ConversationStore {
     const externalSessionId = input.externalSessionId.trim();
     const cwd = input.cwd.trim();
     if (!externalSessionId || !cwd) {
-      throw new Error(`Core session requires a session id and cwd: ${input.threadId}`);
+      throw new Error(`Harness session requires a session id and cwd: ${input.threadId}`);
     }
     const now = new Date().toISOString();
     this.db.exec("BEGIN IMMEDIATE");
@@ -3093,11 +3316,11 @@ export class ConversationStore {
     const sessionCoreKind = sessionUpgraded.coreKind;
     const threadCoreKind = threadUpgraded.coreKind;
     if (!sessionCoreKind) {
-      throw new Error(`Unsupported persisted Core: ${row.core_kind}`);
+      throw new Error(`Unsupported persisted Harness: ${row.core_kind}`);
     }
     if (threadCoreKind !== sessionCoreKind) {
       throw new Error(
-        `Core session mismatch: ${row.thread_id} is ${row.thread_core_kind ?? "unknown"}, binding is ${row.core_kind}`,
+        `Harness session mismatch: ${row.thread_id} is ${row.thread_core_kind ?? "unknown"}, binding is ${row.core_kind}`,
       );
     }
     if (row.core_kind === "cursor" || row.thread_core_kind === "cursor") {
@@ -3564,15 +3787,17 @@ export class ConversationStore {
     try {
       if (message && !message.isDeleted && message.status === "queued") {
         const sourceEventKey = `desktop:user:follow-up-abandoned:${threadId}:${message.messageId}:follow-up-cancelled`;
-        results.push(this.v2.appendInCurrentTransaction({
-          conversationId: threadId,
-          eventId: `desktop_v2_follow_up_abandoned_${stableHash(sourceEventKey)}`,
-          sourceEventKey,
-          type: "history.deleted",
-          occurredAt: new Date().toISOString(),
-          messageId: message.messageId,
-          payload: { reason: "follow-up-cancelled", affectedMessageIds: [message.messageId] },
-        }));
+        results.push(
+          this.v2.appendInCurrentTransaction({
+            conversationId: threadId,
+            eventId: `desktop_v2_follow_up_abandoned_${stableHash(sourceEventKey)}`,
+            sourceEventKey,
+            type: "history.deleted",
+            occurredAt: new Date().toISOString(),
+            messageId: message.messageId,
+            payload: { reason: "follow-up-cancelled", affectedMessageIds: [message.messageId] },
+          }),
+        );
       }
       const cancelled = this.updateThreadFollowUpStatus(threadId, followUpId, { status: "cancelled" });
       this.db.exec("COMMIT");
@@ -3615,25 +3840,27 @@ export class ConversationStore {
     try {
       if (message) {
         const sourceEventKey = `desktop:user:follow-up-edit:${threadId}:${followUpId}:${message.contentVersion + 1}`;
-        results.push(this.v2.appendInCurrentTransaction({
-          conversationId: threadId,
-          eventId: `desktop_v2_follow_up_edit_${stableHash(sourceEventKey)}`,
-          sourceEventKey,
-          type: "message.replaced",
-          occurredAt: now,
-          messageId: message.messageId,
-          payload: {
-            body: prompt,
-            baseContentVersion: message.contentVersion,
-            nextContentVersion: message.contentVersion + 1,
-            attachments: (attachments ?? []).map(({ mediaType, contentRef, byteLength, data }) => ({
-              mediaType,
-              ...(contentRef ? { contentRef } : {}),
-              ...(!contentRef && data ? { data } : {}),
-              ...(byteLength !== undefined ? { byteLength } : {}),
-            })),
-          },
-        }));
+        results.push(
+          this.v2.appendInCurrentTransaction({
+            conversationId: threadId,
+            eventId: `desktop_v2_follow_up_edit_${stableHash(sourceEventKey)}`,
+            sourceEventKey,
+            type: "message.replaced",
+            occurredAt: now,
+            messageId: message.messageId,
+            payload: {
+              body: prompt,
+              baseContentVersion: message.contentVersion,
+              nextContentVersion: message.contentVersion + 1,
+              attachments: (attachments ?? []).map(({ mediaType, contentRef, byteLength, data }) => ({
+                mediaType,
+                ...(contentRef ? { contentRef } : {}),
+                ...(!contentRef && data ? { data } : {}),
+                ...(byteLength !== undefined ? { byteLength } : {}),
+              })),
+            },
+          }),
+        );
       }
       this.db
         .prepare(
@@ -3973,7 +4200,7 @@ export class ConversationStore {
     const effectiveCoreKind = upgraded.coreKind;
     if (effectiveCoreKind !== coreKind) {
       throw new Error(
-        `Thread Core mismatch: ${threadId} is ${row.core_kind ?? "unknown"}, requested ${coreKind}`,
+        `Thread Harness mismatch: ${threadId} is ${row.core_kind ?? "unknown"}, requested ${coreKind}`,
       );
     }
     if (row.core_kind === "cursor" && coreKind === "acp") {
@@ -4009,7 +4236,7 @@ export class ConversationStore {
       .get(input.threadId) as { core_kind: string } | undefined;
     if (existing && existing.core_kind !== input.coreKind) {
       throw new Error(
-        `Core session mismatch: ${input.threadId} has ${existing.core_kind}, requested ${input.coreKind}`,
+        `Harness session mismatch: ${input.threadId} has ${existing.core_kind}, requested ${input.coreKind}`,
       );
     }
     this.db
@@ -5499,7 +5726,7 @@ export class ConversationStore {
     }
 
     const indexedRuntimeSources = this.v2.hasConversation(threadId)
-      ? this.listConversationRuntimeSources(threadId)
+      ? this.listConversationRuntimeSources(threadId, { historyOrder: true })
       : [];
     const hasNativeProviderSources = indexedRuntimeSources.length > 0;
     const runtimeSources = hasNativeProviderSources
@@ -5649,7 +5876,7 @@ export class ConversationStore {
     command?: ThreadHistoryCommandContext,
   ): ThreadActivityRewindSummary {
     const indexedRuntimeSources = this.v2.hasConversation(threadId)
-      ? this.listConversationRuntimeSources(threadId)
+      ? this.listConversationRuntimeSources(threadId, { historyOrder: true })
       : [];
     const hasNativeProviderSources = indexedRuntimeSources.length > 0;
     const runtimeSources = hasNativeProviderSources
@@ -5809,7 +6036,7 @@ export class ConversationStore {
       return this.rewriteV2OnlyHistory(threadId, id, "history.deleted", command);
     }
     const indexedRuntimeSources = this.v2.hasConversation(threadId)
-      ? this.listConversationRuntimeSources(threadId)
+      ? this.listConversationRuntimeSources(threadId, { historyOrder: true })
       : [];
     const hasNativeProviderSources = indexedRuntimeSources.length > 0;
     const runtimeSources = hasNativeProviderSources
@@ -6945,7 +7172,7 @@ export class ConversationStore {
         typeof payload.startedAt !== "string" ||
         typeof payload.role !== "string" ||
         !["launching", "active", "stopped", "abandoned"].includes(String(payload.status)) ||
-        !["planner", "subagent"].includes(String(payload.kind)) ||
+        !["main", "subagent"].includes(normalizeAgentRole(String(payload.kind))) ||
         (payload.metadata !== undefined &&
           (!payload.metadata || typeof payload.metadata !== "object" || Array.isArray(payload.metadata)))
       ) {
@@ -6957,8 +7184,8 @@ export class ConversationStore {
       return {
         threadId: id,
         agentId: row.agent_id ?? row.agent_instance_id,
-        role: payload.role as RuntimeAgentRole,
-        kind: payload.kind as AgentInstanceKind,
+        role: normalizeAgentRole(payload.role),
+        kind: normalizeAgentRole(String(payload.kind)) as AgentInstanceKind,
         status: payload.status as AgentInstanceStatus,
         startedAt: payload.startedAt,
         updatedAt: payload.updatedAt,
@@ -6998,7 +7225,7 @@ export class ConversationStore {
       row.thread_id !== threadId ||
       !row.agent_id.trim() ||
       !row.role.trim() ||
-      !["planner", "subagent"].includes(row.kind) ||
+      !["main", "subagent"].includes(normalizeAgentRole(row.kind)) ||
       !status ||
       !row.started_at.trim() ||
       !row.updated_at.trim() ||
@@ -7012,8 +7239,8 @@ export class ConversationStore {
     return {
       threadId,
       agentId: row.agent_id,
-      role: row.role,
-      kind: row.kind as AgentInstanceKind,
+      role: normalizeAgentRole(row.role),
+      kind: normalizeAgentRole(row.kind) as AgentInstanceKind,
       status,
       startedAt: row.started_at,
       updatedAt: row.updated_at,
@@ -7272,9 +7499,14 @@ export class ConversationStore {
 
   private listLegacyV2MessageIdsFromRunEvents(threadId: string, minimumSequence: number): string[] {
     const indexed = this.v2.hasConversation(threadId) ? this.listConversationRuntimeSources(threadId) : [];
-    const rows = (indexed.length > 0 ? indexed : this.listThreadRunEvents(threadId)).filter(
-      (event) => event.sequence >= minimumSequence,
-    );
+    // Existing desktop databases can remain in legacy_compat while new turns
+    // already use native V2 receipts. Those receipts own the normalized ids:
+    // empty thinking placeholders have none, and accepted user messages use
+    // their explicit ids rather than a legacy stream hash.
+    if (indexed.length > 0) {
+      return this.listV2MessageIdsFromHistorySequence(threadId, minimumSequence);
+    }
+    const rows = this.listThreadRunEvents(threadId).filter((event) => event.sequence >= minimumSequence);
     return [
       ...new Set(
         rows
@@ -7285,7 +7517,7 @@ export class ConversationStore {
   }
 
   private listRuntimeSourceIdsFromSequence(threadId: string, minimumSequence: number): string[] {
-    return this.listConversationRuntimeSources(threadId)
+    return this.listConversationRuntimeSources(threadId, { historyOrder: true })
       .filter((event) => event.sequence >= minimumSequence)
       .map((event) => event.id)
       .filter(Boolean);
@@ -7317,11 +7549,11 @@ export class ConversationStore {
       patch,
       reason,
     };
-    const result = options.inCurrentTransaction
+    // Standalone runtime patches publish all committed effects themselves. The
+    // surrounding transaction owns publication only for the current-transaction path.
+    return options.inCurrentTransaction
       ? this.v2.appendProviderInputPatchInCurrentTransaction(appendInput, options.onAppendResult)
-      : this.v2.appendProviderInputPatch(appendInput);
-    if (!options.inCurrentTransaction && !result.duplicate) this.v2.publishCommitted([result]);
-    return result;
+      : this.v2.appendRuntimeProviderInputPatch(appendInput);
   }
 
   /** Host source identities reconstructed from the V2 log, with current normalized text. */
@@ -7339,9 +7571,9 @@ export class ConversationStore {
     if (!options.historyOrder) return sources;
     // Identity/attribution patches advance version_seq, but must never move
     // an earlier prompt past later work in a destructive history boundary.
-    const firstRows = this.db.prepare(
-      `SELECT input_id, first_seq FROM conversation_provider_inputs_v2 WHERE conversation_id = ?`,
-    ).all(threadId) as Array<{ input_id: string; first_seq: number }>;
+    const firstRows = this.db
+      .prepare(`SELECT input_id, first_seq FROM conversation_provider_inputs_v2 WHERE conversation_id = ?`)
+      .all(threadId) as Array<{ input_id: string; first_seq: number }>;
     const firstSequences = new Map(firstRows.map((row) => [row.input_id, row.first_seq]));
     return sources
       .map((source) => ({ ...source, sequence: firstSequences.get(source.id)! }))
@@ -8555,6 +8787,17 @@ export class ConversationStore {
     return value || undefined;
   }
 
+  /** Lightweight cross-project @ picker rows; never loads prompts or runtime config. */
+  searchThreadReferences(
+    query: string,
+    limit: number,
+  ): Array<Pick<ThreadSummary, "id" | "title" | "workspacePath" | "updatedAt">> {
+    return this.db
+      .prepare(`SELECT id, title, workspace_path AS workspacePath, updated_at AS updatedAt
+      FROM threads WHERE instr(lower(title || ' ' || workspace_path), lower(?)) > 0
+      ORDER BY updated_at DESC, id DESC LIMIT ?`).all(query, limit) as Array<Pick<ThreadSummary, "id" | "title" | "workspacePath" | "updatedAt">>;
+  }
+
   listThreads(): ThreadSummary[] {
     const rows = this.db
       .prepare(
@@ -9457,6 +9700,25 @@ function parseStoredApiError(raw: string | null | undefined): ThreadApiErrorInfo
         ...(typeof parsed.statusCode === "number" && { statusCode: parsed.statusCode }),
         ...(typeof parsed.code === "string" && parsed.code.trim() && { code: parsed.code.trim() }),
         ...(typeof parsed.model === "string" && parsed.model.trim() && { model: parsed.model.trim() }),
+        ...(parsed.codexErrorInfo !== undefined && { codexErrorInfo: parsed.codexErrorInfo }),
+        ...(typeof parsed.additionalDetails === "string" &&
+          parsed.additionalDetails.trim() && { additionalDetails: parsed.additionalDetails }),
+        ...(parsed.rawTurnError !== undefined && { rawTurnError: parsed.rawTurnError }),
+        ...(typeof parsed.param === "string" && parsed.param.trim() && { param: parsed.param.trim() }),
+        ...(typeof parsed.logicalRequestId === "string" &&
+          parsed.logicalRequestId.trim() && { logicalRequestId: parsed.logicalRequestId.trim() }),
+        ...(typeof parsed.providerRequestId === "string" &&
+          parsed.providerRequestId.trim() && { providerRequestId: parsed.providerRequestId.trim() }),
+        ...(typeof parsed.responseId === "string" &&
+          parsed.responseId.trim() && { responseId: parsed.responseId.trim() }),
+        ...(typeof parsed.accountId === "string" &&
+          parsed.accountId.trim() && { accountId: parsed.accountId.trim() }),
+        ...(typeof parsed.threadId === "string" &&
+          parsed.threadId.trim() && { threadId: parsed.threadId.trim() }),
+        ...(typeof parsed.turnId === "string" &&
+          parsed.turnId.trim() && { turnId: parsed.turnId.trim() }),
+        ...(typeof parsed.runAttemptId === "string" &&
+          parsed.runAttemptId.trim() && { runAttemptId: parsed.runAttemptId.trim() }),
       };
     }
   } catch {
@@ -9602,7 +9864,7 @@ function rowToThreadMetrics(row: {
     threadId: row.thread_id,
     updatedAt: row.updated_at,
     ...(accumulator && { accumulator }),
-    ...(context && { context }),
+    ...(context && { context: normalizeContextSnapshotRoles(context) }),
   };
 }
 
@@ -9640,7 +9902,7 @@ function rowToUsageLedgerEvent(row: UsageLedgerEventRow): UsageLedgerEvent {
     source: row.source as UsageLedgerSource,
     sourceEventId: row.source_event_id,
     usageKind: row.usage_kind as UsageLedgerKind,
-    role: row.role as RuntimeAgentRole,
+    role: normalizeAgentRole(row.role),
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
     cacheReadTokens: row.cache_read_tokens,
@@ -10022,6 +10284,7 @@ function isRicherThreadRunToolMetadata(
     return Boolean(
       incoming.detail ||
         incoming.toolUseId ||
+        incoming.processId ||
         incoming.durationMs !== undefined ||
         incoming.exitCode !== undefined ||
         incoming.status ||
@@ -10047,6 +10310,7 @@ function isRicherThreadRunToolMetadata(
       (incoming.outputPreview && incoming.outputPreview !== existing.outputPreview) ||
       (incoming.outputPreviewTruncated && !existing.outputPreviewTruncated) ||
       (incoming.toolUseId && incoming.toolUseId !== existing.toolUseId) ||
+      (incoming.processId && incoming.processId !== existing.processId) ||
       (incoming.durationMs !== undefined && incoming.durationMs !== existing.durationMs) ||
       (incoming.exitCode !== undefined && incoming.exitCode !== existing.exitCode) ||
       (incoming.status && incoming.status !== existing.status) ||
@@ -10095,6 +10359,8 @@ function readThreadRunToolMetadata(
       raw.outputPreview.trim() && { outputPreview: raw.outputPreview.trim() }),
     ...(raw.outputPreviewTruncated === true && { outputPreviewTruncated: true }),
     ...(typeof raw.toolUseId === "string" && raw.toolUseId.trim() && { toolUseId: raw.toolUseId.trim() }),
+    ...(typeof raw.processId === "string" &&
+      raw.processId.trim() && { processId: raw.processId.trim() }),
     ...(typeof raw.durationMs === "number" &&
       Number.isFinite(raw.durationMs) && { durationMs: raw.durationMs }),
     ...(typeof raw.exitCode === "number" && Number.isFinite(raw.exitCode) && { exitCode: raw.exitCode }),
@@ -10557,10 +10823,10 @@ function parseCoreSessionMetadata(
   try {
     parsed = JSON.parse(value);
   } catch {
-    throw new Error(`Core session metadata JSON is invalid: ${threadId}`);
+    throw new Error(`Harness session metadata JSON is invalid: ${threadId}`);
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`Core session metadata must be an object: ${threadId}`);
+    throw new Error(`Harness session metadata must be an object: ${threadId}`);
   }
   return parsed as Record<string, unknown>;
 }

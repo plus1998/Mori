@@ -1,12 +1,17 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import {
   buildMcpSdkConfig,
+  buildMcpServerEntry,
   type McpSdkConfig,
   type McpServerConfigInput,
   type McpServerConfigView,
   type McpSettingsSnapshot,
+  type McpToolApprovalTarget,
+  parseAllowedToolPatterns,
+  sanitizeMcpServerName,
   validateMcpServerInput,
 } from "../shared/mcp";
 
@@ -52,6 +57,12 @@ export class McpStore {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS mcp_tool_approvals (
+        server_id TEXT NOT NULL,
+        configuration_revision TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        PRIMARY KEY (server_id, configuration_revision, tool_name)
+      );
     `);
   }
 
@@ -68,7 +79,15 @@ export class McpStore {
       )
       .all() as unknown as McpServerRow[];
 
-    return rows.map(rowToView);
+    return rows.map((row) => ({
+      ...rowToView(row),
+      rememberedTools: this.db
+        .prepare(
+          `SELECT tool_name FROM mcp_tool_approvals WHERE server_id = ? AND configuration_revision = ? ORDER BY tool_name`,
+        )
+        .all(row.id, configurationRevision(row))
+        .map((entry) => String(entry.tool_name)),
+    }));
   }
 
   saveServer(input: McpServerConfigInput): McpServerConfigView {
@@ -115,11 +134,94 @@ export class McpStore {
         now,
       );
 
-    return rowToView(this.getRow(id)!);
+    const saved = this.getRow(id)!;
+    if (
+      input.resetToolApprovals ||
+      (existing && configurationRevision(existing) !== configurationRevision(saved))
+    ) {
+      this.db.prepare(`DELETE FROM mcp_tool_approvals WHERE server_id = ?`).run(id);
+    }
+    return this.listServers().find((server) => server.id === id)!;
   }
 
   deleteServer(serverId: string): void {
+    this.db.prepare(`DELETE FROM mcp_tool_approvals WHERE server_id = ?`).run(serverId);
     this.db.prepare(`DELETE FROM mcp_servers WHERE id = ?`).run(serverId);
+  }
+
+  getToolApprovalTarget(serverName: string, toolName: string): McpToolApprovalTarget | undefined {
+    const servers = this.listServers().filter((server) => sanitizeMcpServerName(server.name) === serverName);
+    // Never bind an approval to an ambiguous normalized server name.
+    const server = servers.length === 1 ? servers[0] : undefined;
+    if (!server?.enabled) return undefined;
+    const prefix = `mcp__${serverName}__`;
+    const leaf = toolName.startsWith(prefix) ? toolName.slice(prefix.length) : toolName;
+    if (!leaf || leaf.includes("*") || (leaf.startsWith("mcp__") && !toolName.startsWith(prefix)))
+      return undefined;
+    const fullName = `${prefix}${leaf}`;
+    if (
+      !parseAllowedToolPatterns(server.allowedTools, serverName).some(
+        (pattern) =>
+          pattern === fullName || (pattern.endsWith("*") && fullName.startsWith(pattern.slice(0, -1))),
+      )
+    )
+      return undefined;
+    const row = this.getRow(server.id)!;
+    return {
+      serverId: server.id,
+      serverName,
+      toolName: leaf,
+      configurationRevision: configurationRevision(row),
+    };
+  }
+
+  resolveToolApprovalTarget(fullToolName: string): McpToolApprovalTarget | undefined {
+    const matches = this.listServers()
+      .flatMap((server) => {
+        const name = sanitizeMcpServerName(server.name);
+        return fullToolName.startsWith(`mcp__${name}__`) ? [name] : [];
+      })
+      .sort((a, b) => b.length - a.length);
+    return matches[0] ? this.getToolApprovalTarget(matches[0], fullToolName) : undefined;
+  }
+
+  isToolApproved(target: McpToolApprovalTarget): boolean {
+    const current = this.getToolApprovalTarget(
+      target.serverName,
+      `mcp__${target.serverName}__${target.toolName}`,
+    );
+    if (
+      !current ||
+      current.serverId !== target.serverId ||
+      current.configurationRevision !== target.configurationRevision
+    )
+      return false;
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1 FROM mcp_tool_approvals WHERE server_id = ? AND configuration_revision = ? AND tool_name = ?`,
+        )
+        .get(target.serverId, target.configurationRevision, target.toolName),
+    );
+  }
+
+  rememberToolApproval(target: McpToolApprovalTarget): void {
+    const current = this.getToolApprovalTarget(
+      target.serverName,
+      `mcp__${target.serverName}__${target.toolName}`,
+    );
+    if (
+      !current ||
+      current.serverId !== target.serverId ||
+      current.configurationRevision !== target.configurationRevision
+    ) {
+      throw new Error("MCP 服务器配置或工具权限已变化，请重新确认工具调用。");
+    }
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO mcp_tool_approvals (server_id, configuration_revision, tool_name) VALUES (?, ?, ?)`,
+      )
+      .run(target.serverId, target.configurationRevision, target.toolName);
   }
 
   buildSdkConfig(): McpSdkConfig {
@@ -143,6 +245,20 @@ export class McpStore {
       )
       .get(name) as McpServerRow | undefined;
   }
+}
+
+function configurationRevision(row: McpServerRow): string {
+  const server = rowToView(row);
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        sanitizeMcpServerName(server.name),
+        server.transport,
+        buildMcpServerEntry(server),
+        server.allowedTools,
+      ]),
+    )
+    .digest("hex");
 }
 
 function rowToView(row: McpServerRow): McpServerConfigView {

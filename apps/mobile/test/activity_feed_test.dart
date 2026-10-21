@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ import 'package:eco_mobile/core/theme/eco_theme.dart';
 import 'package:eco_mobile/core/theme/subagent_theme.dart';
 import 'package:eco_mobile/core/utils/subagent_projection_feed.dart';
 import 'package:eco_mobile/core/widgets/eco_markdown.dart';
+import 'package:eco_mobile/core/widgets/shimmer_text.dart';
 import 'package:eco_mobile/features/threads/activity_feed.dart';
 
 /// Test-only adapter for the legacy projection fixture shape. Production detail
@@ -33,6 +35,12 @@ List<ActivityFeedEntry> _toolActions(List<ActivityFeedEntry> entries) => [
     else if (entry.kind == ActivityFeedKind.actionGroup)
       ...entry.actionChildren,
 ];
+
+String _codexAsyncQuestionReplyEnvelope(Iterable<Map<String, String>> rows) {
+  return '<send_user_message_question_reply>'
+      '${jsonEncode(rows.toList())}'
+      '</send_user_message_question_reply>';
+}
 
 ThreadRunProjectionSnapshot _projectionDetailSnapshot({
   required String threadId,
@@ -753,7 +761,7 @@ void main() {
               sequence: 535,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               text: '我去查一下 Hugging Face 上常见开源 TTS 的部署形态和对外接口。',
               at: '2026-01-01T00:00:02.000Z',
             ),
@@ -1220,21 +1228,21 @@ void main() {
           id: 'thinking-1',
           kind: ActivityFeedKind.thinking,
           text: 'first',
-          role: 'planner',
+          role: 'main',
           at: '2026-01-01T00:00:01.000Z',
         ),
         ActivityFeedEntry(
           id: 'thinking-2',
           kind: ActivityFeedKind.thinking,
           text: 'second',
-          role: 'planner',
+          role: 'main',
           at: '2026-01-01T00:00:05.000Z',
         ),
       ]);
 
       expect(grouped, hasLength(1));
       expect(grouped.single.text, 'first\n\nsecond');
-      expect(grouped.single.role, 'planner');
+      expect(grouped.single.role, 'main');
       expect(grouped.single.at, '2026-01-01T00:00:05.000Z');
     },
   );
@@ -2416,7 +2424,7 @@ void main() {
             'sequence': 4,
             'eventType': 'message.final',
             'scope': 'main',
-            'role': 'planner',
+            'role': 'main',
             'runAttemptId': 'attempt-1',
             'text': '全部完成。',
             'at': '2026-01-01T00:00:45.000Z',
@@ -2491,7 +2499,7 @@ void main() {
               sequence: 3,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               runAttemptId: 'attempt-1',
               text: '可以，内置浏览器能打开网页。',
               at: '2026-01-01T00:00:05.000Z',
@@ -2511,7 +2519,7 @@ void main() {
               sequence: 12,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               runAttemptId: 'attempt-1',
               text: '好的，我来打开百度。',
               at: '2026-01-01T00:00:25.000Z',
@@ -2576,7 +2584,7 @@ void main() {
               sequence: 3,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               runAttemptId: 'attempt-midturn',
               text: '先检查代码。',
               at: '2026-01-01T00:00:02.000Z',
@@ -2597,7 +2605,7 @@ void main() {
               sequence: 5,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               runAttemptId: 'attempt-midturn',
               text: '继续检查第一条要求。',
               at: '2026-01-01T00:00:04.000Z',
@@ -2618,7 +2626,7 @@ void main() {
               sequence: 7,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               runAttemptId: 'attempt-midturn',
               text: '继续检查第二条要求。',
               at: '2026-01-01T00:00:06.000Z',
@@ -2736,7 +2744,7 @@ void main() {
               sequence: 50,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               runAttemptId: 'attempt-1',
               text: '这是跟在后续消息后面的回答。',
               at: '2026-01-01T00:00:25.000Z',
@@ -2811,7 +2819,7 @@ void main() {
               sequence: 3,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               runAttemptId: 'attempt-1',
               text: '登录页已改好。',
               at: '2026-01-01T00:00:05.000Z',
@@ -2831,7 +2839,7 @@ void main() {
               sequence: 12,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               runAttemptId: 'attempt-1',
               text: '注册也补上了。',
               at: '2026-01-01T00:00:25.000Z',
@@ -3980,7 +3988,7 @@ void main() {
             sequence: 4,
             eventType: 'message.final',
             scope: 'main',
-            role: 'planner',
+            role: 'main',
             text: '正在执行测试命令。',
             at: '2026-01-01T00:00:00.750Z',
           ),
@@ -4187,7 +4195,7 @@ void main() {
               sequence: 2,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               text: '正在执行测试命令。',
               at: '2026-01-01T00:00:00.500Z',
             ),
@@ -4667,6 +4675,56 @@ void main() {
     expect(find.textContaining('Use read or an allowlisted'), findsWidgets);
   });
 
+  testWidgets('running tools and subagents use intermittent status sweeps', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    addTearDown(scrollController.dispose);
+    Widget feed({required bool running}) => _localizedMaterialApp(
+      theme: buildEcoDarkTheme(),
+      home: Scaffold(
+        body: ActivityFeedList(
+          scrollController: scrollController,
+          entries: [
+            ActivityFeedEntry(
+              id: 'waiting-tool',
+              kind: ActivityFeedKind.action,
+              text: '运行检查',
+              toolName: 'Bash',
+              actionIcon: ActivityActionIcon.terminal,
+              lifecycle: running
+                  ? ToolActionLifecycle.running
+                  : ToolActionLifecycle.completed,
+            ),
+            ActivityFeedEntry(
+              id: 'waiting-agent',
+              kind: ActivityFeedKind.subagentMission,
+              text: '检查修改',
+              subagentRole: 'worker',
+              running: running,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpWidget(feed(running: true));
+    await tester.pump();
+    final labels = tester
+        .widgetList<ShimmerText>(find.byType(ShimmerText))
+        .toList();
+    expect(labels, hasLength(2));
+    for (final label in labels) {
+      expect(label.duration, const Duration(milliseconds: 1800));
+      expect(label.pauseDuration, const Duration(milliseconds: 4200));
+    }
+    await tester.pump(const Duration(milliseconds: 1800));
+    await tester.pumpWidget(feed(running: false));
+    await tester.pumpAndSettle();
+    expect(find.byType(ShimmerText), findsNothing);
+    await tester.pump(const Duration(seconds: 7));
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
+
   testWidgets('V2 tool details request continuation only after loading more', (
     tester,
   ) async {
@@ -5090,7 +5148,7 @@ void main() {
         agents: [
           ThreadRunProjectionAgent(
             agentId: 'agent_planner',
-            role: 'planner',
+            role: 'main',
             kind: 'main',
             status: 'active',
             startedAt: '2026-01-01T00:00:00.000Z',
@@ -5152,7 +5210,7 @@ void main() {
               sequence: 1,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               text: '主代理先说明计划。',
               at: '2026-01-01T00:00:02.000Z',
             ),
@@ -5355,7 +5413,7 @@ void main() {
               'sequence': 3,
               'eventType': 'message.final',
               'scope': 'main',
-              'role': 'planner',
+              'role': 'main',
               'text': '子代理完成后我继续总结。',
               'at': '2026-01-01T00:00:06.000Z',
             },
@@ -5635,6 +5693,39 @@ void main() {
     expect(parseClarificationAnswersSummary('普通助手回复'), isNull);
   });
 
+  test('parseClarificationAnswers decodes Codex async question replies', () {
+    final envelope = _codexAsyncQuestionReplyEnvelope([
+      {
+        'questionItemId': '["request_user_input_async","item-1",0]',
+        'question': '手机端主要在哪种状态下明显发热？',
+        'answer': '模型回复或工具运行时',
+      },
+      {
+        'questionItemId': '["request_user_input_async","item-1",1]',
+        'question': '补充说明',
+        'answer': '第一行\n第二行；仍属于同一答案 → 保持原样',
+      },
+    ]);
+
+    final rows = parseClarificationAnswers(envelope);
+
+    expect(rows, isNotNull);
+    expect(rows, hasLength(2));
+    expect(rows![0].question, '手机端主要在哪种状态下明显发热？');
+    expect(rows[0].answer, '模型回复或工具运行时');
+    expect(rows[1].question, '补充说明');
+    expect(rows[1].answer, '第一行\n第二行；仍属于同一答案 → 保持原样');
+    expect(parseClarificationAnswers('请看示例：$envelope'), isNull);
+    expect(
+      parseClarificationAnswers(
+        '<send_user_message_question_reply>'
+        '[{"questionItemId":"q1","question":"问题","answer":42}]'
+        '</send_user_message_question_reply>',
+      ),
+      isNull,
+    );
+  });
+
   test(
     'buildActivityFeed renders clarification answers as right-aligned cards',
     () {
@@ -5653,7 +5744,7 @@ void main() {
               sequence: 1,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               text: '澄清回答：是否自动分配？ → 自动启用',
               at: '2026-01-01T00:00:01.000Z',
             ),
@@ -5665,6 +5756,54 @@ void main() {
           .where((entry) => entry.kind == ActivityFeedKind.clarificationAnswer)
           .toList();
       expect(answers, hasLength(1));
+      expect(
+        feed.any((entry) => entry.kind == ActivityFeedKind.assistant),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'buildActivityFeed renders Codex async question replies as clarification answers',
+    () {
+      final reply = _codexAsyncQuestionReplyEnvelope([
+        {
+          'questionItemId': '["request_user_input_async","item-1",0]',
+          'question': '手机端主要在哪种状态下明显发热？',
+          'answer': '模型回复或工具运行时',
+        },
+      ]);
+      final feed = buildActivityFeed(
+        threadPrompt: '',
+        threadId: 't1',
+        runProjection: ThreadRunProjectionSnapshot(
+          threadId: 't1',
+          status: 'running',
+          generatedAt: '2026-01-01T00:00:00.000Z',
+          sourceEventCount: 1,
+          agents: const [],
+          timeline: [
+            ThreadRunProjectionTimelineItem(
+              id: 'clarification-reply',
+              sequence: 1,
+              eventType: 'thread.status',
+              scope: 'main',
+              role: 'user',
+              text: reply,
+              at: '2026-01-01T00:00:01.000Z',
+              metadata: const {'liveType': 'thread.user_prompt'},
+            ),
+          ],
+        ),
+      );
+
+      expect(
+        feed.where(
+          (entry) => entry.kind == ActivityFeedKind.clarificationAnswer,
+        ),
+        hasLength(1),
+      );
+      expect(feed.any((entry) => entry.kind == ActivityFeedKind.user), isFalse);
       expect(
         feed.any((entry) => entry.kind == ActivityFeedKind.assistant),
         isFalse,
@@ -5688,7 +5827,7 @@ void main() {
             sequence: 1,
             eventType: 'message.final',
             scope: 'main',
-            role: 'planner',
+            role: 'main',
             text: '计划已生成，等待确认。',
             at: '2026-01-01T00:00:01.000Z',
           ),
@@ -5697,7 +5836,7 @@ void main() {
             sequence: 2,
             eventType: 'message.final',
             scope: 'main',
-            role: 'planner',
+            role: 'main',
             text: '计划已生成，请确认是否执行。',
             at: '2026-01-01T00:00:02.000Z',
           ),
@@ -5706,7 +5845,7 @@ void main() {
             sequence: 3,
             eventType: 'thread.status',
             scope: 'main',
-            role: 'planner',
+            role: 'main',
             text: '计划已生成，请确认是否执行。',
             at: '2026-01-01T00:00:03.000Z',
             metadata: const {'liveType': 'plan.ready'},
@@ -5716,7 +5855,7 @@ void main() {
             sequence: 4,
             eventType: 'thread.status',
             scope: 'main',
-            role: 'planner',
+            role: 'main',
             text: '等待确认',
             at: '2026-01-01T00:00:04.000Z',
             metadata: const {'liveType': 'thread.awaiting_plan'},
@@ -5726,7 +5865,7 @@ void main() {
             sequence: 5,
             eventType: 'thread.status',
             scope: 'main',
-            role: 'planner',
+            role: 'main',
             text: '计划已提交，等待你确认。',
             at: '2026-01-01T00:00:05.000Z',
             metadata: const {'liveType': 'plan_approval.requested'},
@@ -5852,6 +5991,49 @@ void main() {
         decoration.color,
         ecoColors(tester.element(find.text('自动启用'))).userBubble,
       );
+    },
+  );
+
+  testWidgets(
+    'ActivityFeedList hides the Codex async reply protocol and shows answer rows',
+    (tester) async {
+      final scrollController = ScrollController();
+      addTearDown(scrollController.dispose);
+      final reply = _codexAsyncQuestionReplyEnvelope([
+        {
+          'questionItemId': '["request_user_input_async","item-1",0]',
+          'question': '手机端主要在哪种状态下明显发热？',
+          'answer': '模型回复或工具运行时',
+        },
+      ]);
+
+      await tester.pumpWidget(
+        _localizedMaterialApp(
+          theme: buildEcoDarkTheme(),
+          home: Scaffold(
+            body: ActivityFeedList(
+              entries: [
+                ActivityFeedEntry(
+                  id: 'clarification-answer',
+                  kind: ActivityFeedKind.clarificationAnswer,
+                  text: reply,
+                ),
+              ],
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('询问回答'), findsOneWidget);
+      expect(find.text('手机端主要在哪种状态下明显发热？'), findsOneWidget);
+      expect(find.text('模型回复或工具运行时'), findsOneWidget);
+      expect(
+        find.textContaining('send_user_message_question_reply'),
+        findsNothing,
+      );
+      expect(find.textContaining('questionItemId'), findsNothing);
     },
   );
 
@@ -6196,7 +6378,7 @@ void main() {
               sequence: 1,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               requestId: 'req_turn_1',
               streamKey: 'thr_view:planner',
               text: '第一轮回复。',
@@ -6217,7 +6399,7 @@ void main() {
               sequence: 3,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               requestId: 'req_turn_2',
               streamKey: 'thr_view:planner',
               text: '第二轮回复。',
@@ -6280,7 +6462,7 @@ void main() {
             sequence: 101,
             eventType: 'message.final',
             scope: 'main',
-            role: 'planner',
+            role: 'main',
             requestId: 'req_long',
             streamKey: 'thr_test:planner',
             text: '第一轮回复。',
@@ -6291,7 +6473,7 @@ void main() {
             sequence: 102,
             eventType: 'message.final',
             scope: 'main',
-            role: 'planner',
+            role: 'main',
             requestId: 'req_turn_2',
             streamKey: 'thr_test:planner',
             text: '第二轮回复。',
@@ -6334,9 +6516,9 @@ void main() {
               sequence: 1,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               requestId: 'req_planner',
-              streamKey: 'thr_view:planner:block:text:0',
+              streamKey: 'thr_view:main:block:text:0',
               text: '第一句正文。',
               at: '2026-01-01T00:00:02.000Z',
             ),
@@ -6345,9 +6527,9 @@ void main() {
               sequence: 2,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               requestId: 'req_planner',
-              streamKey: 'thr_view:planner:block:text:2',
+              streamKey: 'thr_view:main:block:text:2',
               text: '第二句正文。',
               at: '2026-01-01T00:00:04.000Z',
             ),
@@ -6380,14 +6562,14 @@ void main() {
             status: 'completed',
             startedAt: '2026-01-01T00:00:01.000Z',
             endedAt: '2026-01-01T00:00:05.000Z',
-            role: 'planner',
+            role: 'main',
           ),
           ThreadRunProjectionRequestSpan(
             requestId: 'req_turn_2',
             status: 'completed',
             startedAt: '2026-01-01T00:01:01.000Z',
             endedAt: '2026-01-01T00:01:05.000Z',
-            role: 'planner',
+            role: 'main',
           ),
         ],
         timeline: const [
@@ -6406,7 +6588,7 @@ void main() {
             sequence: 2,
             eventType: 'request.started',
             scope: 'main',
-            role: 'planner',
+            role: 'main',
             requestId: 'req_turn_1',
             text: '',
             at: '2026-01-01T00:00:01.000Z',
@@ -6427,8 +6609,8 @@ void main() {
             sequence: 4,
             eventType: 'message.final',
             scope: 'main',
-            role: 'planner',
-            streamKey: 'thr_view:planner:block:text:1',
+            role: 'main',
+            streamKey: 'thr_view:main:block:text:1',
             text: '第一轮回复。',
             at: '2026-01-01T00:00:04.000Z',
           ),
@@ -6447,7 +6629,7 @@ void main() {
             sequence: 6,
             eventType: 'request.started',
             scope: 'main',
-            role: 'planner',
+            role: 'main',
             requestId: 'req_turn_2',
             text: '',
             at: '2026-01-01T00:01:01.000Z',
@@ -6468,8 +6650,8 @@ void main() {
             sequence: 8,
             eventType: 'message.final',
             scope: 'main',
-            role: 'planner',
-            streamKey: 'thr_view:planner:block:text:1',
+            role: 'main',
+            streamKey: 'thr_view:main:block:text:1',
             text: '第二轮回复。',
             at: '2026-01-01T00:01:04.000Z',
           ),
@@ -6480,10 +6662,10 @@ void main() {
     expect(feed.map((entry) => entry.id).toList(), [
       'turn-1-user',
       'main:stream:thinking:sk:thr_view:thinking:block:thinking:0:req:req_turn_1',
-      'main:stream:message:sk:thr_view:planner:block:text:1:req:req_turn_1',
+      'main:stream:message:sk:thr_view:main:block:text:1:req:req_turn_1',
       'turn-2-user',
       'main:stream:thinking:sk:thr_view:thinking:block:thinking:0:req:req_turn_2',
-      'main:stream:message:sk:thr_view:planner:block:text:1:req:req_turn_2',
+      'main:stream:message:sk:thr_view:main:block:text:1:req:req_turn_2',
     ]);
     final assistantTexts = feed
         .where((entry) => entry.kind == ActivityFeedKind.assistant)
@@ -6538,7 +6720,7 @@ void main() {
             sequence: 3,
             eventType: 'message.final',
             scope: 'main',
-            role: 'planner',
+            role: 'main',
             requestId: 'req_planner',
             streamKey: 'thr_view:planner',
             text: '最终回复。',
@@ -6549,8 +6731,8 @@ void main() {
             sequence: 4,
             eventType: 'message.final',
             scope: 'main',
-            role: 'planner',
-            streamKey: 'thr_view:planner:block:text:1',
+            role: 'main',
+            streamKey: 'thr_view:main:block:text:1',
             text: '最终回复。',
             at: '2026-01-01T00:00:04.001Z',
           ),
@@ -6560,7 +6742,7 @@ void main() {
 
     expect(feed.map((entry) => entry.id).toList(), [
       'main:stream:thinking:sk:thr_view:thinking:block:thinking:0:req:req_planner',
-      'main:stream:message:sk:thr_view:planner:block:text:1:req:req_planner',
+      'main:stream:message:sk:thr_view:main:block:text:1:req:req_planner',
     ]);
     expect(feed.map((entry) => entry.text).toList(), ['旧思考。', '最终回复。']);
   });
@@ -6641,7 +6823,7 @@ void main() {
               status: 'completed',
               startedAt: '2026-01-01T00:00:01.000Z',
               endedAt: '2026-01-01T00:00:03.000Z',
-              role: 'planner',
+              role: 'main',
             ),
           ],
           timeline: const [
@@ -6650,9 +6832,9 @@ void main() {
               sequence: 1,
               eventType: 'message.delta',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               requestId: 'req_planner',
-              streamKey: 'thr_view:planner:block:text:1',
+              streamKey: 'thr_view:main:block:text:1',
               text: '已流式输出的正文。',
               at: '2026-01-01T00:00:02.000Z',
             ),
@@ -6661,8 +6843,8 @@ void main() {
               sequence: 2,
               eventType: 'message.final',
               scope: 'main',
-              role: 'planner',
-              streamKey: 'thr_view:planner:block:text:1',
+              role: 'main',
+              streamKey: 'thr_view:main:block:text:1',
               text: '已流式输出的正文。',
               at: '2026-01-01T00:00:02.001Z',
             ),
@@ -6673,7 +6855,7 @@ void main() {
       expect(feed.length, 1);
       expect(
         feed.first.id,
-        'main:stream:message:sk:thr_view:planner:block:text:1:req:req_planner',
+        'main:stream:message:sk:thr_view:main:block:text:1:req:req_planner',
       );
       expect(feed.first.kind, ActivityFeedKind.assistant);
       expect(feed.first.text, '已流式输出的正文。');
@@ -6704,9 +6886,9 @@ void main() {
             sequence: 1,
             eventType: 'message.delta',
             scope: 'main',
-            role: 'planner',
+            role: 'main',
             requestId: 'req_stream',
-            streamKey: 'thr_test:planner:block:text:1',
+            streamKey: 'thr_test:main:block:text:1',
             text: '第一批内容，',
             at: '2026-01-01T00:00:02.000Z',
           ),
@@ -6715,9 +6897,9 @@ void main() {
             sequence: 2,
             eventType: 'message.delta',
             scope: 'main',
-            role: 'planner',
+            role: 'main',
             requestId: 'req_stream',
-            streamKey: 'thr_test:planner:block:text:1',
+            streamKey: 'thr_test:main:block:text:1',
             text: '第二批内容。',
             at: '2026-01-01T00:00:03.000Z',
           ),
@@ -6760,9 +6942,9 @@ void main() {
               sequence: eventCount,
               eventType: 'message.delta',
               scope: 'main',
-              role: 'planner',
+              role: 'main',
               requestId: 'req_stream',
-              streamKey: 'thr_test:planner:block:text:1',
+              streamKey: 'thr_test:main:block:text:1',
               text: text,
               at: '2026-01-01T00:00:02.000Z',
             ),

@@ -30,7 +30,7 @@ function plannerRoute(
   } = {},
 ): ResolvedModelRoute {
   return {
-    role: "planner",
+    role: "main",
     providerId: overrides.providerId ?? "anthropic-main",
     upstreamModelId: overrides.upstreamModelId ?? "claude-sonnet-4",
     ...(overrides.thinkingEffort ? { thinkingEffort: overrides.thinkingEffort } : {}),
@@ -945,7 +945,7 @@ test("CodexAppServerDriver rejects routes that omit providerId", async () => {
         worktreePath: "/repo",
         routes: [
           {
-            role: "planner",
+            role: "main",
             upstreamModelId: "claude-sonnet-4",
             primary: {
               id: "sonnet",
@@ -987,7 +987,7 @@ test("CodexAppServerDriver rejects routes that omit upstreamModelId", async () =
         worktreePath: "/repo",
         routes: [
           {
-            role: "planner",
+            role: "main",
             providerId: "anthropic-main",
             primary: {
               id: "sonnet",

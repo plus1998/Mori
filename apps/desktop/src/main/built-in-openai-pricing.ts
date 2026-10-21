@@ -4,14 +4,12 @@ import type { ModelCostRates } from "@eco/runtime";
  * Default (public list) pricing for the built-in OpenAI provider — the virtual
  * "openai" provider backed by a ChatGPT auth.json login (Codex app-server).
  *
- * These models are NOT served through Eco's gateway and are not (reliably)
- * present in the models.dev catalog, so `lookupPricing` returns nothing and the
- * billing card would otherwise show $0 while still counting tokens. We fall back
- * to the official list prices below so the card can show a cost estimate.
+ * When models.dev has no matching model, use known public API list prices for
+ * an API-equivalent estimate. These are not ChatGPT subscription charges or
+ * measurements of the account's included usage allowance.
  *
- * Rates are USD per million tokens (ModelCostRates). Values mirror the public
- * list prices used by sub2api's fallback table
- * (sub2api backend/internal/service/billing_service.go, initFallbackPricing).
+ * Rates are USD per million tokens (ModelCostRates), Standard short-context:
+ * https://developers.openai.com/api/docs/pricing
  */
 export const BUILT_IN_OPENAI_DEFAULT_RATES: Readonly<Record<string, ModelCostRates>> = {
   // GPT-5.6 family (official USD/MTok; cache-write = 1.25× input).
@@ -20,6 +18,9 @@ export const BUILT_IN_OPENAI_DEFAULT_RATES: Readonly<Record<string, ModelCostRat
   "gpt-5.6-luna": { input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25 },
   // GPT-6.
   "gpt-6-astra": { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+  "gpt-6-sol": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+  "gpt-6.1-sol": { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+  "gpt-6-luna": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
   // GPT-5.5 family.
   "gpt-5.5-pro": { input: 30, output: 180, cacheRead: 30, cacheWrite: 30 },
   "gpt-5.5": { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 5 },
@@ -37,9 +38,7 @@ export const BUILT_IN_OPENAI_DEFAULT_RATES: Readonly<Record<string, ModelCostRat
  * `gpt-5.6-luna-high` → `gpt-5.6-luna`, and `gpt-6` → `gpt-6-astra`.
  * Returns null when the model has no known default price.
  */
-export function resolveBuiltInOpenAiDefaultRates(
-  modelId: string | undefined,
-): ModelCostRates | null {
+export function resolveBuiltInOpenAiDefaultRates(modelId: string | undefined): ModelCostRates | null {
   const raw = (modelId ?? "").trim().toLowerCase();
   if (!raw) {
     return null;
@@ -62,6 +61,10 @@ export function resolveBuiltInOpenAiDefaultRates(
 
   // Prefix matches for longer variant names not covered by the suffix strip.
   const prefixes: Array<[string, string]> = [
+    ["gpt-6-astra", "gpt-6-astra"],
+    ["gpt-6-sol", "gpt-6-sol"],
+    ["gpt-6.1-sol", "gpt-6.1-sol"],
+    ["gpt-6-luna", "gpt-6-luna"],
     ["gpt-5.6-sol", "gpt-5.6-sol"],
     ["gpt-5.6-terra", "gpt-5.6-terra"],
     ["gpt-5.6-luna", "gpt-5.6-luna"],
@@ -72,13 +75,13 @@ export function resolveBuiltInOpenAiDefaultRates(
     ["gpt-5.4", "gpt-5.4"],
   ];
   for (const [prefix, key] of prefixes) {
-    if (base.startsWith(prefix)) {
+    if (base === prefix || base.startsWith(`${prefix}-`)) {
       return BUILT_IN_OPENAI_DEFAULT_RATES[key] ?? null;
     }
   }
 
-  // gpt-6 / gpt-6-* → gpt-6-astra.
-  if (base === "gpt-6" || base.startsWith("gpt-6-")) {
+  // Keep the bare alias; unknown GPT-6 family members must remain unresolved.
+  if (base === "gpt-6") {
     return BUILT_IN_OPENAI_DEFAULT_RATES["gpt-6-astra"] ?? null;
   }
 

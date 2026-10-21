@@ -25,12 +25,12 @@ const pendingPlan: ThreadPendingPlanWithRoutes = {
   plan: "1. Capture usage\n2. Project billing",
   workspacePath: "/repo",
   worktreePath: "/repo/.worktrees/thr_approval",
-  routesJson: '{"planner":"sonnet"}',
+  routesJson: '{"main":"sonnet"}',
 };
 
 const roleRoutes: RoleRouteConfig[] = [
   {
-    role: "planner",
+    role: "main",
     providerId: "p1",
     modelId: "planner-model",
     apiCompat: "anthropic",

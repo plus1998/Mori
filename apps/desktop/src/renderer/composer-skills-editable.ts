@@ -1,3 +1,6 @@
+import { composerReferenceIconNodes, composerReferenceTitle } from "./composer-reference-presentation";
+import { composerReferenceToken, type ComposerReference } from "../shared/composer-references";
+import { i18n } from "./i18n";
 import type { SkillInfo } from "../shared/skills";
 import { getMaterialIconUrl, resolveMaterialIconName } from "./material-file-icon";
 import { formatSkillDisplayName, parsePromptSegments, skillToken } from "./composer-skills";
@@ -5,6 +8,9 @@ import { fileAttachmentToken, workspaceFileReferenceBasename } from "./workspace
 
 const SKILL_SELECTOR = "[data-skill]";
 const FILE_SELECTOR = "[data-file-path]";
+const REFERENCE_SELECTOR = "[data-reference-token]";
+function isReferenceElement(node: ChildNode): boolean { return node instanceof HTMLElement && node.matches(REFERENCE_SELECTOR); }
+function isReferenceOrFileElement(node: ChildNode): node is HTMLElement { return isFileElement(node) || isReferenceElement(node); }
 
 function isBlockElement(node: ChildNode): node is HTMLElement {
   return node instanceof HTMLElement && (node.tagName === "DIV" || node.tagName === "P");
@@ -19,7 +25,7 @@ function isFileElement(node: ChildNode): node is HTMLElement {
 }
 
 function isAtomicChipElement(node: ChildNode): node is HTMLElement {
-  return isSkillElement(node) || isFileElement(node);
+  return isSkillElement(node) || isReferenceOrFileElement(node);
 }
 
 type EditableChildRange = {
@@ -96,6 +102,7 @@ function serializeNode(node: ChildNode): string {
   if (node.tagName === "BR") {
     return "\n";
   }
+  if (isReferenceElement(node)) return node.dataset.referenceToken ?? "";
   if (isSkillElement(node)) {
     return skillToken(node.dataset.skill!);
   }
@@ -119,6 +126,7 @@ function serializedLength(node: ChildNode): number {
   if (node.tagName === "BR") {
     return 1;
   }
+  if (isReferenceElement(node)) return (node.dataset.referenceToken ?? "").length;
   if (isSkillElement(node)) {
     return skillTokenLength(node);
   }
@@ -262,7 +270,7 @@ export function handleFileChipDeletion(
   if (start !== end) {
     const selectedFile = ranges.find(
       ({ node, start: chipStart, end: chipEnd }) =>
-        isFileElement(node) &&
+        isReferenceOrFileElement(node) &&
         start === chipStart &&
         end >= chipEnd &&
         end <= serialized.length &&
@@ -282,7 +290,7 @@ export function handleFileChipDeletion(
   const adjacentFile = [...ranges]
     .reverse()
     .find(({ node, start: chipStart, end: chipEnd }) => {
-      if (!isFileElement(node)) {
+      if (!isReferenceOrFileElement(node)) {
         return false;
       }
       if (direction === "forward") {
@@ -386,6 +394,49 @@ function appendFileChip(root: HTMLElement, path: string): void {
   root.appendChild(span);
 }
 
+function appendReferenceChip(root: HTMLElement, reference: ComposerReference): void {
+  const span = document.createElement("span");
+  span.className = "composer-file-inline composer-reference-inline";
+  span.contentEditable = "false";
+  span.dataset.referenceToken = composerReferenceToken(reference);
+  span.dataset.referenceKind = reference.kind;
+  span.dataset.referenceId = reference.id;
+  span.title = composerReferenceTitle(reference);
+  const icon = document.createElement("span");
+  icon.className = "composer-reference-inline-icon";
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  for (const [name, value] of Object.entries({ width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.65", "stroke-linecap": "round", "stroke-linejoin": "round" })) svg.setAttribute(name, value);
+  for (const [tag, attributes] of composerReferenceIconNodes(reference)) {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
+    svg.append(node);
+  }
+  icon.append(svg);
+  icon.setAttribute("aria-hidden", "true");
+  const label = document.createElement(reference.kind === "web_selection" ? "button" : "span");
+  label.className = "composer-reference-inline-label";
+  if (reference.kind === "web_selection") {
+    (label as HTMLButtonElement).type = "button";
+    label.classList.add("composer-reference-open");
+  }
+  const at = document.createElement("span");
+  at.className = "composer-reference-at";
+  at.textContent = "@";
+  label.append(at, reference.label);
+  span.append(icon, label);
+  if (reference.kind === "web_selection") {
+    span.classList.add("composer-browser-selection");
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "composer-reference-remove";
+    remove.dataset.referenceRemove = "true";
+    remove.setAttribute("aria-label", i18n.t("browser.selection.remove"));
+    remove.textContent = "×";
+    span.append(remove);
+  }
+  root.appendChild(span);
+}
+
 export function renderEditablePrompt(
   root: HTMLElement,
   text: string,
@@ -404,7 +455,8 @@ export function renderEditablePrompt(
       appendSkillChip(root, segment.name, skillsByName);
       continue;
     }
-    appendFileChip(root, segment.path);
+    if (segment.type === "reference") appendReferenceChip(root, segment.reference);
+    else appendFileChip(root, segment.path);
   }
 }
 

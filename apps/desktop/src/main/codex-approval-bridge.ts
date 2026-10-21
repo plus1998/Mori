@@ -181,6 +181,11 @@ export interface CodexApprovalBridgeThread {
 }
 
 export interface CodexApprovalBridgeDeps {
+  getMcpToolApprovalTarget?: (
+    serverName: string,
+    toolName: string,
+  ) => import("../shared/mcp").McpToolApprovalTarget | undefined;
+  isMcpToolApproved?: (target: import("../shared/mcp").McpToolApprovalTarget) => boolean;
   resolveEcoThreadId: (codexThreadId: string) => string;
   getThread: (ecoThreadId: string) => CodexApprovalBridgeThread | undefined;
   getWorktreePath: (ecoThreadId: string) => string | undefined;
@@ -336,7 +341,7 @@ async function handleCommandExecutionRequestApproval(
   const command = resolveCommandExecutionLabel(params);
   const cwd = readString(params, "cwd") ?? deps.getWorktreePath(ecoThreadId) ?? thread.workspacePath;
   const reason = readString(params, "reason") ?? "Codex requires your approval before running this command.";
-  const plannerAgentId = deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:planner`;
+  const plannerAgentId = deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`;
   const isNetwork = Boolean(params.networkApprovalContext);
   const proposedExecpolicyAmendment = readStringArray(
     params.proposedExecpolicyAmendment ?? params.proposed_execpolicy_amendment,
@@ -406,7 +411,7 @@ async function handleFileChangeRequestApproval(
   const reason = readString(params, "reason") ?? "Codex requires your approval before applying file changes.";
   const filesystemPath = grantRoot ?? thread.workspacePath;
   const command = grantRoot ? `write under ${grantRoot}` : "apply file changes";
-  const plannerAgentId = deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:planner`;
+  const plannerAgentId = deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`;
   let approvalRequest: BashApprovalRequest = {
     toolUseId: itemId,
     threadId: ecoThreadId,
@@ -494,7 +499,7 @@ async function handlePermissionsRequestApproval(
     reason,
     riskScore: networkRequested ? 75 : 65,
     riskLevel: "high",
-    agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:planner`,
+    agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`,
     description: reason,
     kind: networkRequested ? "network" : "file_change",
     filesystemTool: "PermissionGrant",
@@ -578,8 +583,9 @@ async function handleMcpServerElicitationRequest(
     return { action: "accept", content: {} };
   }
   const nestedHubCall =
+    deps.getMcpHubServerName?.(ecoThreadId) === rawServerName &&
     rawToolName === parseMcpToolRunElicitationMessage(rawServerName, 'run tool "call_tool"')
-      ? resolvePendingHubCall(codexThreadId, rawServerName)
+      ? resolvePendingHubCall(codexThreadId, rawServerName, readString(params, "itemId"))
       : undefined;
   const serverName = nestedHubCall?.serverName ?? rawServerName;
   const message = nestedHubCall
@@ -587,6 +593,12 @@ async function handleMcpServerElicitationRequest(
     : rawMessage;
   const parsedToolName = mode === "form" ? parseMcpToolRunElicitationMessage(serverName, message) : undefined;
   const approvalMode = deps.getApprovalMode?.(ecoThreadId) ?? "always";
+  const mcpToolApproval = parsedToolName
+    ? deps.getMcpToolApprovalTarget?.(serverName, parsedToolName)
+    : undefined;
+  if (mcpToolApproval && deps.getThread(ecoThreadId) && deps.isMcpToolApproved?.(mcpToolApproval)) {
+    return { action: "accept", content: {} };
+  }
 
   // MCP tool-run confirmations are a separate Codex request category from
   // command/file approvals. Route the global Eco approval modes through the
@@ -619,9 +631,10 @@ async function handleMcpServerElicitationRequest(
       reason: `Agent 请求调用 MCP 工具 ${serverName}/${toolName}。`,
       riskScore: 60,
       riskLevel: "medium",
-      agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:planner`,
+      agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`,
       description: message.trim() || `调用 MCP 工具 ${serverName}/${toolName}`,
       kind: "mcp",
+      ...(mcpToolApproval ? { mcpToolApproval } : {}),
       filesystemTool: "MCP",
       filesystemPath: `${serverName}/${toolName}`,
     };
@@ -659,7 +672,11 @@ async function handleMcpServerElicitationRequest(
         text: ["MCP approval feedback:", resolution.feedback.trim()].join("\n"),
       });
     }
-    if (resolution.decision === "approved" || resolution.decision === "approved_for_session") {
+    if (
+      resolution.decision === "approved" ||
+      resolution.decision === "approved_for_session" ||
+      resolution.decision === "approved_remember_mcp_tool"
+    ) {
       return { action: "accept", content: {} };
     }
     return { action: "decline" };
@@ -745,9 +762,10 @@ async function handleMcpServerElicitationRequest(
       reason: `Agent 请求调用 MCP 工具 ${serverName}/${parsedToolName}。`,
       riskScore: 60,
       riskLevel: "medium",
-      agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:planner`,
+      agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`,
       description: message.trim() || `调用 MCP 工具 ${serverName}/${parsedToolName}`,
       kind: "mcp",
+      ...(mcpToolApproval ? { mcpToolApproval } : {}),
       filesystemTool: "MCP",
       filesystemPath: `${serverName}/${parsedToolName}`,
     };
@@ -762,7 +780,11 @@ async function handleMcpServerElicitationRequest(
         text: ["MCP approval feedback:", resolution.feedback.trim()].join("\n"),
       });
     }
-    if (resolution.decision === "approved" || resolution.decision === "approved_for_session") {
+    if (
+      resolution.decision === "approved" ||
+      resolution.decision === "approved_for_session" ||
+      resolution.decision === "approved_remember_mcp_tool"
+    ) {
       return { action: "accept", content: {} };
     }
     return { action: "decline" };
@@ -786,7 +808,7 @@ async function handleMcpServerElicitationRequest(
       reason: "Agent 请求调用当前启用的创意绘画供应商。",
       riskScore: 50,
       riskLevel: "medium",
-      agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:planner`,
+      agentId: deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`,
       description: message.trim() || "创建图片",
       kind: "image_generation",
     };
@@ -935,8 +957,8 @@ async function handleToolRequestUserInput(
   deps.emitThreadLive({
     threadId: ecoThreadId,
     type: "clarification.requested",
-    message: isBlocking ? "Planner 需要你回答几个问题。" : "Codex 需要你回答几个问题（任务可继续）。",
-    role: "planner",
+    message: isBlocking ? "主代理需要你回答几个问题。" : "Codex 需要你回答几个问题（任务可继续）。",
+    role: "main",
     clarification: clarificationRequest,
     tool: buildClarificationToolMetadata(itemId, "started"),
   });
@@ -958,7 +980,7 @@ async function handleToolRequestUserInput(
     threadId: ecoThreadId,
     type: "clarification.answered",
     message: formatClarificationAnswersSummary(mappedClarification.request, answers),
-    role: "planner",
+    role: "main",
     tool: buildClarificationToolMetadata(itemId, "completed"),
   });
   return mapClarificationAnswersToCodexToolResponse(mappedClarification, answers);
@@ -1012,7 +1034,7 @@ function handlePlanItemCompleted(deps: CodexApprovalBridgeDeps, params: Record<s
           threadId: event.threadId,
           type: "thread.awaiting_plan",
           message: event.message,
-          role: "planner",
+          role: "main",
           plan: event.plan,
         });
       },
@@ -1032,7 +1054,7 @@ function handlePlanItemCompleted(deps: CodexApprovalBridgeDeps, params: Record<s
     threadId: ecoThreadId,
     type: "plan_approval.requested",
     message: "计划已提交，等待你确认。",
-    role: "planner",
+    role: "main",
     plan: planPayload,
     planApproval: approvalRequest,
   });
@@ -2518,11 +2540,18 @@ function forgetPendingMcpToolCall(params: Record<string, unknown>): void {
 function resolvePendingHubCall(
   codexThreadId: string,
   wrapperServerName: string,
+  itemId?: string,
 ): { itemId: string; serverName: string; toolName: string; arguments: Record<string, unknown> } | undefined {
   if (!wrapperServerName.trim().toLowerCase().startsWith("eco_mcp")) {
     return undefined;
   }
-  const calls = pendingMcpToolCalls.get(codexThreadId) ?? [];
+  const calls = (pendingMcpToolCalls.get(codexThreadId) ?? []).filter(
+    (call) =>
+      call.serverName === wrapperServerName &&
+      call.toolName === "call_tool" &&
+      (!itemId || call.itemId === itemId),
+  );
+  if (calls.length !== 1) return undefined;
   for (let index = calls.length - 1; index >= 0; index -= 1) {
     const call = calls[index];
     if (!call || call.serverName.trim().toLowerCase() !== wrapperServerName.trim().toLowerCase()) {

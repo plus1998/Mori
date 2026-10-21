@@ -85,8 +85,8 @@ function terminalEvent(
   return {
     id: `${threadId}:acp:fake:${index}`,
     threadId,
-    agentId: "planner",
-    role: "planner",
+    agentId: "main",
+    role: "main",
     type: "run.terminal",
     payload,
   };

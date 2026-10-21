@@ -3,10 +3,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import {
+  DEFAULT_READ_ALOUD_STYLE,
+  defaultReadAloudVoice,
   defaultTtsEndpoint,
   defaultTtsModel,
   type GeneratedAudioFile,
   isTtsProvider,
+  type ReadAloudSettingsInput,
+  type ReadAloudSettingsSnapshot,
   type TtsArtifact,
   type TtsArtifactStatus,
   type TtsProfileSaveInput,
@@ -31,6 +35,8 @@ interface ProfileRow {
   baseUrl: string;
   model: string;
   encrypted_api_key: string;
+  read_aloud_voice: string;
+  read_aloud_style: string;
   created_at: string;
   updated_at: string;
 }
@@ -88,7 +94,7 @@ export class TtsStore {
       CREATE TABLE IF NOT EXISTS tts_profiles (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-        provider TEXT NOT NULL CHECK(provider IN ('gemini', 'openai_compatible')),
+        provider TEXT NOT NULL CHECK(provider IN ('gemini', 'openai_compatible', 'doubao')),
         baseUrl TEXT NOT NULL,
         model TEXT NOT NULL,
         encrypted_api_key TEXT NOT NULL DEFAULT '',
@@ -128,6 +134,27 @@ export class TtsStore {
         "UPDATE tts_artifacts SET status = 'failed', error_code = 'interrupted', error_message = ?, updated_at = ? WHERE status = 'running'",
       )
       .run("应用退出时语音生成尚未完成，请重新生成。", new Date().toISOString());
+    this.ensureDoubaoProvider();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const columns = this.db.prepare("PRAGMA table_info(tts_profiles)").all() as unknown as {
+        name: string;
+      }[];
+      if (!columns.some((column) => column.name === "read_aloud_voice")) {
+        this.db.exec("ALTER TABLE tts_profiles ADD COLUMN read_aloud_voice TEXT NOT NULL DEFAULT ''");
+        this.db.exec(
+          "UPDATE tts_profiles SET read_aloud_voice = CASE provider WHEN 'gemini' THEN 'Kore' WHEN 'doubao' THEN 'zh_female_vv_uranus_bigtts' ELSE '' END",
+        );
+      }
+      if (!columns.some((column) => column.name === "read_aloud_style")) {
+        this.db.exec("ALTER TABLE tts_profiles ADD COLUMN read_aloud_style TEXT NOT NULL DEFAULT ''");
+        this.db.prepare("UPDATE tts_profiles SET read_aloud_style = ?").run(DEFAULT_READ_ALOUD_STYLE);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
     const count = Number(
       (
         this.db.prepare("SELECT COUNT(*) AS count FROM tts_profiles").get() as
@@ -140,8 +167,8 @@ export class TtsStore {
       this.db
         .prepare(
           `INSERT INTO tts_profiles
-           (id, name, provider, baseUrl, model, encrypted_api_key, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, '', ?, ?)`,
+           (id, name, provider, baseUrl, model, encrypted_api_key, read_aloud_voice, read_aloud_style, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?)`,
         )
         .run(
           DEFAULT_TTS_PROFILE_ID,
@@ -149,6 +176,8 @@ export class TtsStore {
           "gemini",
           defaultTtsEndpoint("gemini"),
           defaultTtsModel("gemini"),
+          defaultReadAloudVoice("gemini"),
+          DEFAULT_READ_ALOUD_STYLE,
           now,
           now,
         );
@@ -172,13 +201,58 @@ export class TtsStore {
         )
         .run(first.id, new Date().toISOString());
     }
+    // Migrate the reader once, then keep its choice and delivery independent of Agent settings.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS tts_read_aloud_settings (
+        singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+        profile_id TEXT,
+        voice TEXT NOT NULL,
+        style TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(profile_id) REFERENCES tts_profiles(id) ON DELETE SET NULL
+      );
+      INSERT OR IGNORE INTO tts_read_aloud_settings (singleton, profile_id, voice, style, updated_at)
+        SELECT 1, p.id, p.read_aloud_voice, p.read_aloud_style, p.updated_at
+        FROM tts_profiles p JOIN tts_settings s ON s.active_profile_id = p.id WHERE s.singleton = 1;
+    `);
+  }
+
+  /** SQLite cannot alter CHECK constraints: rebuild tts_profiles to accept the doubao provider. */
+  private ensureDoubaoProvider(): void {
+    const row = this.db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tts_profiles'")
+      .get() as { sql: string } | undefined;
+    if (!row?.sql || row.sql.includes("'doubao'") || !row.sql.includes("'openai_compatible'")) return;
+    this.db.exec("PRAGMA foreign_keys = OFF");
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.exec(
+        row.sql
+          .replace(
+            /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?["`]?tts_profiles["`]?/i,
+            "CREATE TABLE tts_profiles_next",
+          )
+          .replace(/'openai_compatible'(?:,\s*'doubao')?/, "'openai_compatible', 'doubao'"),
+      );
+      this.db.exec(`INSERT INTO tts_profiles_next SELECT * FROM tts_profiles;
+        DROP TABLE tts_profiles;
+        ALTER TABLE tts_profiles_next RENAME TO tts_profiles;`);
+      if (this.db.prepare("PRAGMA foreign_key_check").all().length)
+        throw new Error("语音生成配置迁移外键校验失败。");
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    } finally {
+      this.db.exec("PRAGMA foreign_keys = ON");
+    }
   }
 
   getSettings(): TtsSettingsSnapshot {
     const settings = this.requireSettingsRow();
     const profiles = this.db
       .prepare(
-        `SELECT id, name, provider, baseUrl, model, encrypted_api_key, created_at, updated_at
+        `SELECT id, name, provider, baseUrl, model, encrypted_api_key, read_aloud_voice, read_aloud_style, created_at, updated_at
          FROM tts_profiles ORDER BY name COLLATE NOCASE, created_at, id`,
       )
       .all() as unknown as ProfileRow[];
@@ -275,6 +349,63 @@ export class TtsStore {
   getActiveClientConfig(): TtsClientConfig {
     const settings = this.requireSettingsRow();
     return this.requireClientConfig(this.readProfile(settings.active_profile_id));
+  }
+
+  getReadAloudSettings(): ReadAloudSettingsSnapshot {
+    const reader = this.readReadAloudSettingsRow();
+    return {
+      profileId: reader.profile_id ?? "",
+      voice: reader.voice,
+      style: reader.style,
+      profiles: this.getSettings().profiles.map(({ id, name, provider, model, hasApiKey }) => ({
+        id,
+        name,
+        provider,
+        model,
+        hasApiKey,
+      })),
+    };
+  }
+
+  saveReadAloudSettings(input: ReadAloudSettingsInput): ReadAloudSettingsSnapshot {
+    const profile = this.readProfile(normalizeUuid(input.profileId));
+    const voice = normalizeReadAloudField(input.voice, 256);
+    const style = normalizeReadAloudField(input.style, 4000);
+    if (!voice || !style) throw new Error("请填写朗读音色和风格。");
+    this.db
+      .prepare(
+        "UPDATE tts_read_aloud_settings SET profile_id = ?, voice = ?, style = ?, updated_at = ? WHERE singleton = 1",
+      )
+      .run(profile.id, voice, style, new Date().toISOString());
+    return this.getReadAloudSettings();
+  }
+
+  private readReadAloudSettingsRow(): {
+    profile_id: string | null;
+    voice: string;
+    style: string;
+    updated_at: string;
+  } {
+    const row = this.db
+      .prepare("SELECT profile_id, voice, style, updated_at FROM tts_read_aloud_settings WHERE singleton = 1")
+      .get() as { profile_id: string | null; voice: string; style: string; updated_at: string } | undefined;
+    if (!row) throw new Error("正文朗读设置缺失。");
+    return row;
+  }
+
+  getReadAloudConfig(): { config: TtsClientConfig; voice: string; style: string; version: string } {
+    const reader = this.readReadAloudSettingsRow();
+    if (!reader.profile_id) throw new Error("请在朗读面板中选择供应商。");
+    const row = this.readProfile(reader.profile_id);
+    const voice = reader.voice.trim();
+    const style = reader.style.trim();
+    if (!voice || !style) throw new Error("请在朗读面板中补齐音色和风格。");
+    return {
+      config: this.requireClientConfig(row),
+      voice,
+      style,
+      version: `${row.updated_at}:${reader.updated_at}`,
+    };
   }
 
   /** Decrypt every configured profile key for account snapshot sync. */
@@ -429,7 +560,7 @@ export class TtsStore {
   private readProfileOptional(id: string): ProfileRow | undefined {
     return this.db
       .prepare(
-        `SELECT id, name, provider, baseUrl, model, encrypted_api_key, created_at, updated_at
+        `SELECT id, name, provider, baseUrl, model, encrypted_api_key, read_aloud_voice, read_aloud_style, created_at, updated_at
          FROM tts_profiles WHERE id = ?`,
       )
       .get(id) as unknown as ProfileRow | undefined;
@@ -529,4 +660,10 @@ function toArtifact(row: ArtifactRow): TtsArtifact {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function normalizeReadAloudField(value: unknown, max: number): string {
+  if (typeof value !== "string" || value.length > max)
+    throw new Error(`正文朗读参数必须是字符串，且不能超过 ${max} 个字符。`);
+  return value.trim();
 }

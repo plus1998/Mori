@@ -1,14 +1,14 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, type Frame, type Page } from "@playwright/test";
-import { exportFeedReplay, writeReplayFixture } from "./feed-replay/export";
+import { exportFeedReplayToFile } from "./feed-replay/export";
+import { removeStagedReplayFixture, replayFixturePath, stageReplayFixture } from "./feed-replay/artifacts";
+import { DEV_FEED_REPLAY_PATH } from "../src/shared/dev-feed-replay";
 import type { ReplayPlayOptions } from "./feed-replay/session";
 import { validateReplayFixture } from "./feed-replay/types";
 
-const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const frameId = "eco-feed-replay-frame";
 const rawArgs = process.argv.slice(2);
 const { positionals, values } = parseArgs({
@@ -29,14 +29,7 @@ const { positionals, values } = parseArgs({
   },
 });
 const command = positionals[0];
-const fixtureDefault = (id: string) =>
-  path.join(
-    desktopRoot,
-    ".smoke-artifacts",
-    "feed-replay",
-    `thread-${encodeURIComponent(id)}`,
-    "fixture.json",
-  );
+const fixtureDefault = replayFixturePath;
 function fixturePath() {
   if (values.fixture) return path.resolve(values.fixture);
   if (values.thread) return fixtureDefault(values.thread);
@@ -80,7 +73,7 @@ async function getPage(): Promise<{ page: Page; disconnect: () => Promise<void> 
 function getFrame(page: Page): Frame {
   const frames = page
     .frames()
-    .filter((frame) => new URL(frame.url() || "about:blank").pathname === "/scripts/feed-replay/index.html");
+    .filter((frame) => frame.url().split("?")[0] === new URL(DEV_FEED_REPLAY_PATH, page.url()).href);
   if (frames.length !== 1)
     throw new Error(`Expected one replay frame, found ${frames.length}. Use open first.`);
   return frames[0]!;
@@ -137,28 +130,22 @@ Rewind with open --seq. Take cdp:snap before each UI action. Unsupported native 
     );
     if (!existsSync(database))
       throw new Error(`Database not found: ${database}. Provide --db; no new database will be created.`);
-    const fixture = exportFeedReplay(database, values.thread);
     const output = values.out ? path.resolve(values.out) : fixtureDefault(values.thread);
-    writeReplayFixture(output, fixture);
-    console.log(
-      JSON.stringify(
-        {
-          fixture: output,
-          events: fixture.events.length,
-          details: fixture.detailItems.length,
-          spanSnapshots: fixture.events.filter((event) => event.requestSpans).length,
-          coverage: fixture.coverage,
-        },
-        null,
-        2,
-      ),
-    );
+    const started = performance.now();
+    const summary = exportFeedReplayToFile(database, values.thread, output);
+    console.log(JSON.stringify({ ...summary, elapsedMs: Math.round(performance.now() - started) }, null, 2));
     return;
   }
   const { page, disconnect } = await getPage();
   try {
     if (command === "close") {
-      await page.evaluate((id) => document.getElementById(id)?.remove(), frameId);
+      const token = await page.evaluate((id) => {
+        const frame = document.getElementById(id);
+        const token = frame?.getAttribute("data-eco-replay-token");
+        frame?.remove();
+        return token;
+      }, frameId);
+      if (token) removeStagedReplayFixture(token);
       console.log("Replay removed; the native Eco page is restored.");
       return;
     }
@@ -166,27 +153,28 @@ Rewind with open --seq. Take cdp:snap before each UI action. Unsupported native 
       const file = fixturePath();
       const fixture: unknown = JSON.parse(readFileSync(file, "utf8"));
       validateReplayFixture(fixture);
-      const relative = path.relative(desktopRoot, file).split(path.sep).join("/");
-      if (!relative.startsWith(".smoke-artifacts/"))
-        throw new Error("Open requires a fixture inside apps/desktop/.smoke-artifacts/.");
       const seq = number("seq", 0);
       if (!Number.isSafeInteger(seq) || seq < 0 || seq > fixture.events.length)
         throw new Error("Checkpoint is outside this fixture.");
-      const url = new URL("/scripts/feed-replay/index.html", page.url());
-      url.searchParams.set("fixture", `/${relative}`);
+      const staged = stageReplayFixture(file);
+      const previousToken = await page.evaluate((id) => document.getElementById(id)?.getAttribute("data-eco-replay-token"), frameId);
+      if (previousToken) removeStagedReplayFixture(previousToken);
+      const url = new URL(DEV_FEED_REPLAY_PATH, page.url());
+      url.searchParams.set("fixture", staged.urlPath);
       url.searchParams.set("seq", String(seq));
       await page.evaluate(
-        ({ id, url }) => {
+        ({ id, url, token }) => {
           document.getElementById(id)?.remove();
           const frame = document.createElement("iframe");
           frame.id = id;
+          frame.setAttribute("data-eco-replay-token", token);
           frame.src = url;
           frame.title = "Eco Feed 离线回放";
           frame.style.cssText =
             "position:fixed;inset:0;width:100%;height:100%;z-index:100000;border:0;background:#212121";
           document.body.append(frame);
         },
-        { id: frameId, url: url.href },
+        { id: frameId, url: url.href, token: staged.token },
       );
       await page.waitForFunction(
         ({ id, expected }) => document.getElementById(id)?.getAttribute("src") === expected,
@@ -276,7 +264,7 @@ Rewind with open --seq. Take cdp:snap before each UI action. Unsupported native 
       );
       const measurement = await frame.evaluate(() => window.__ECO_FEED_REPLAY__!.sendMeasurement());
       const output = path.resolve(
-        values.out ?? path.join(desktopRoot, ".smoke-artifacts", "feed-replay", "send.json"),
+        values.out ?? path.join(path.dirname(fixtureDefault("measurements")), "send.json"),
       );
       privateJson(output, measurement);
       console.log(

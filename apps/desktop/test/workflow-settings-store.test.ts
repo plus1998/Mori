@@ -18,6 +18,30 @@ const sqliteAvailable = await (async () => {
   }
 })();
 
+test("workflow settings remember Codex Auth model and reasoning without accepting other providers", () => {
+  const codexAuthModel = {
+    providerId: " openai ",
+    modelId: " gpt-5.3-codex ",
+    thinkingEffort: "xhigh",
+  };
+  const saved = normalizeWorkflowSettingsSnapshot({ sessionMode: "agent", codexAuthModel });
+  expect(saved.codexAuthModel).toEqual({
+    providerId: "openai",
+    modelId: "gpt-5.3-codex",
+    thinkingEffort: "xhigh",
+  });
+  expect(isWorkflowSettingsSnapshot(saved)).toBe(true);
+  for (const invalid of [
+    { ...codexAuthModel, providerId: "custom-openai" },
+    { ...codexAuthModel, modelId: " " },
+    { ...codexAuthModel, thinkingEffort: "invalid" },
+  ]) {
+    const input = { sessionMode: "agent", codexAuthModel: invalid };
+    expect(isWorkflowSettingsSnapshot(input)).toBe(false);
+    expect(normalizeWorkflowSettingsSnapshot(input).codexAuthModel).toBeUndefined();
+  }
+});
+
 test("workflow settings preserve and normalize defaultBashReviewMode", () => {
   expect(
     normalizeWorkflowSettingsSnapshot({

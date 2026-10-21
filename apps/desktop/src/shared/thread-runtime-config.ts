@@ -166,10 +166,10 @@ export function runtimeRoleRoutesFromOrchestrationSnapshot(
   mainAgentModelOverride?: MainAgentModelOverride,
 ): RuntimeRoleRouteConfig[] {
   const routes = new Map<RuntimeAgentRole, RuntimeRoleRouteConfig>();
-  routes.set("planner", routeFromModelRef("planner", snapshot.mainAgent.modelRef));
+  routes.set("main", routeFromModelRef("main", snapshot.mainAgent.modelRef));
   for (const agent of snapshot.agents) {
     const role = agent.agentKey;
-    if (agent.enabled && role !== "planner" && !routes.has(role)) {
+    if (agent.enabled && role !== "main" && !routes.has(role)) {
       routes.set(role, routeFromModelRef(role, agent.modelRef));
     }
   }
@@ -184,7 +184,7 @@ export function applyMainAgentModelOverride(
     return routes.map((route) => ({ ...route }));
   }
   return routes.map((route) => {
-    if (route.role !== "planner") {
+    if (route.role !== "main") {
       return { ...route };
     }
     const applicableOverride = resolveMainAgentModelOverrideForProvider(route.providerId, override);
@@ -194,7 +194,7 @@ export function applyMainAgentModelOverride(
     const sameModel = route.modelId.trim() === applicableOverride.modelId.trim();
     return {
       ...(sameModel ? route : {}),
-      role: "planner",
+      role: "main",
       providerId: applicableOverride.providerId,
       modelId: applicableOverride.modelId,
       ...(applicableOverride.thinkingEffort !== undefined
@@ -730,7 +730,7 @@ function isMainAgentSystemPromptPreset(value: unknown): value is MainAgentSystem
   return value === "core_native" || value === "custom_append";
 }
 
-function isMainAgentModelOverride(value: unknown): value is MainAgentModelOverride {
+export function isMainAgentModelOverride(value: unknown): value is MainAgentModelOverride {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
@@ -746,7 +746,7 @@ function isMainAgentModelOverride(value: unknown): value is MainAgentModelOverri
   );
 }
 
-function normalizeMainAgentModelOverride(override: MainAgentModelOverride): MainAgentModelOverride {
+export function normalizeMainAgentModelOverride(override: MainAgentModelOverride): MainAgentModelOverride {
   const candidateModelId = override.candidateModelId?.trim();
   return {
     providerId: override.providerId.trim(),

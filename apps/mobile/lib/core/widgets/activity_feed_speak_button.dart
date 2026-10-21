@@ -6,6 +6,8 @@ import '../locale/app_localizations_ext.dart';
 import '../providers/app_providers.dart';
 import '../theme/eco_icons.dart';
 import '../theme/eco_theme.dart';
+import '../services/eco_tts_service.dart';
+import 'read_aloud_thread_scope.dart';
 
 const activityFeedMessageActionIconSize = 15.0;
 const activityFeedMessageActionGap = 2.0;
@@ -14,12 +16,15 @@ const activityFeedMessageActionTapSize = 30.0;
 TextStyle? activityFeedMetaLabelStyle(BuildContext context) {
   final eco = ecoColors(context);
   return Theme.of(context).textTheme.labelSmall?.copyWith(
-        color: eco.textMuted.withValues(alpha: 0.7),
-        height: 1.2,
-      );
+    color: eco.textMuted.withValues(alpha: 0.7),
+    height: 1.2,
+  );
 }
 
-ButtonStyle activityFeedMessageActionStyle(BuildContext context, {bool active = false}) {
+ButtonStyle activityFeedMessageActionStyle(
+  BuildContext context, {
+  bool active = false,
+}) {
   final eco = ecoColors(context);
   return IconButton.styleFrom(
     foregroundColor: active
@@ -53,10 +58,7 @@ class ActivityFeedCopyButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return IconButton(
       onPressed: onPressed,
-      icon: const Icon(
-        EcoIcons.copy,
-        size: activityFeedMessageActionIconSize,
-      ),
+      icon: const Icon(EcoIcons.copy, size: activityFeedMessageActionIconSize),
       tooltip: tooltip ?? context.l10n.activityCopyMessage,
       style: activityFeedMessageActionStyle(context),
     );
@@ -85,10 +87,11 @@ class ActivityFeedSpeakButton extends ConsumerWidget {
       entryId: entryId,
       sourceText: sourceText,
       locale: locale,
+      threadId: ReadAloudThreadScope.of(context),
     );
     if (!started && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.ttsUnavailable)),
+        SnackBar(content: Text(tts.lastError ?? context.l10n.ttsUnavailable)),
       );
     }
   }
@@ -100,10 +103,16 @@ class ActivityFeedSpeakButton extends ConsumerWidget {
 
     return IconButton(
       onPressed: () => _handleTap(context, ref),
-      icon: Icon(
-        speaking ? EcoIcons.speaking : EcoIcons.volume2,
-        size: activityFeedMessageActionIconSize,
-      ),
+      icon: speaking && tts.state == TtsPlaybackState.preparing
+          ? const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 1.5),
+            )
+          : Icon(
+              speaking ? EcoIcons.speaking : EcoIcons.volume2,
+              size: activityFeedMessageActionIconSize,
+            ),
       tooltip: speaking
           ? context.l10n.activityStopSpeaking
           : context.l10n.activitySpeakMessage,
@@ -143,10 +152,7 @@ class ActivityFeedMessageActions extends StatelessWidget {
         children: [
           ActivityFeedCopyButton(onPressed: () => _copy(context)),
           const SizedBox(width: activityFeedMessageActionGap),
-          ActivityFeedSpeakButton(
-            entryId: entryId,
-            sourceText: sourceText,
-          ),
+          ActivityFeedSpeakButton(entryId: entryId, sourceText: sourceText),
         ],
       ),
     );

@@ -37,7 +37,21 @@ export interface OpenAIAccountQuota {
   fetchedAt: number;
 }
 
+export type CodexQuotaResetOutcome = "reset" | "alreadyRedeemed" | "nothingToReset" | "noCredit";
+
+/** The image_gen balance queried by chatgpt2api, not a verified Codex-only balance. */
+export interface OpenAIAccountImageQuota {
+  source: "chatgpt_image_gen";
+  status: "available" | "error";
+  fetchedAt: number;
+  remaining?: number;
+  resetAt?: string;
+  error?: string;
+}
+
 export interface OpenAIAccount {
+  imageGenerationEnabled?: boolean;
+  imageQuota?: OpenAIAccountImageQuota;
   id: string;
   name: string;
   email?: string;
@@ -63,6 +77,8 @@ export interface OpenAIAccountAssistantState {
   hasTwoFactorSecret: boolean;
   code?: string;
   remainingSeconds?: number;
+  /** Seconds remaining before the active Codex OAuth login expires. */
+  loginRemainingSeconds?: number;
   codeError?: string;
   canFill: boolean;
   hasLoginWindow: boolean;
@@ -81,6 +97,8 @@ export interface OpenAIAccountAssistantActionResult {
 }
 
 export interface OpenAIAccountDetails extends OpenAIAccountProfile {
+  imageGenerationEnabled?: boolean;
+  imageQuota?: OpenAIAccountImageQuota;
   id: string;
   name: string;
   proxyUrl?: string;

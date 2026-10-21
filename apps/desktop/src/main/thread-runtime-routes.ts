@@ -1,5 +1,6 @@
 import type { ResolvedModelRoute } from "@eco/model-router";
 import { DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT, resolveEffectiveContextLimit } from "@eco/runtime";
+import { normalizeAgentRole } from "@eco/shared";
 import { resolveUpstreamApiCompat } from "../shared/api-compat";
 import {
   AGENT_ROLES,
@@ -40,7 +41,10 @@ export function resolveThreadRuntimeConfig(
       apiKey: "",
     } as ProviderConfigSecret);
   }
-  const activeRoutes = routesOverride ?? [];
+  const activeRoutes = (routesOverride ?? []).map((route) => ({
+    ...route,
+    role: normalizeAgentRole(route.role),
+  }));
   const routes = activeRoutes.map((route): RuntimeRoute | undefined => {
     const provider = providersById.get(route.providerId);
     if (!provider) return undefined;
@@ -116,6 +120,9 @@ export function buildDriverRoutes(routes: readonly AnthropicProxyResolvedRoute[]
       capabilities: ["messages_api", "streaming", "tool_use", "subagent_compatible"],
       enabled: route.provider.enabled,
       ...(route.contextTokens !== undefined && { contextWindow: route.contextTokens }),
+      ...(route.contextTokensResolved !== undefined && {
+        contextWindowResolved: route.contextTokensResolved,
+      }),
     },
     fallbacks: [],
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),

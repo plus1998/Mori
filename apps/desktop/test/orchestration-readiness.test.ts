@@ -122,7 +122,7 @@ test("areCodingRoutesReady accepts the actual configured coding roster", () => {
   expect(
     areCodingRoutesReady(
       [
-        { role: "planner", providerId: "p1", modelId: "main-model" },
+        { role: "main", providerId: "p1", modelId: "main-model" },
         { role: "coder", providerId: "p1", modelId: "coder-model" },
       ],
       providers,

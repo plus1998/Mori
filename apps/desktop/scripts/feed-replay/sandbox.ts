@@ -138,7 +138,10 @@ export function createReplayApi(
     getApprovedPlan: () => undefined,
     getPendingClarification: () => undefined,
     getPendingBashApproval: () => undefined,
-    listThreadFollowUps: () => ({ followUps: [] }),
+    listThreadFollowUps: (conversationId: string) => {
+      check(conversationId);
+      return { followUps: session.fixture.uiScenario?.pausedFollowUps ?? [] };
+    },
     getComposerDraft: (key: string) => drafts.get(key),
     saveComposerDraft: (request) => {
       const draft = {
@@ -156,11 +159,30 @@ export function createReplayApi(
     showThreadApprovalNotification: () => ({ shown: false, reason: "preference_disabled" }),
     showThreadClarificationNotification: () => ({ shown: false, reason: "preference_disabled" }),
   };
+  if (session.fixture.uiScenario?.terminalHeight !== undefined) {
+    // Render the real terminal panel without starting a shell or accepting input.
+    overrides.listTerminalSessions = (request?: { workspacePath?: string }) =>
+      !request?.workspacePath || request.workspacePath === session.thread.workspacePath
+        ? [{ sessionId: "feed-replay-terminal", workspacePath: session.thread.workspacePath, kind: "local" }]
+        : [];
+    overrides.spawnTerminal = ({ workspacePath }) => {
+      if (workspacePath !== session.thread.workspacePath) throw new Error("Unknown replay workspace.");
+      return { sessionId: "feed-replay-terminal" };
+    };
+    overrides.resizeTerminal = (request) => {
+      if (request.sessionId !== "feed-replay-terminal") throw new Error("Unknown replay terminal.");
+    };
+  }
   const api: Record<string, unknown> = {};
   const log = (name: string, kind: ReplayCallKind) =>
     record({ name, kind, wall: performance.now(), seq: session.state.appliedSeq });
   for (const name of new Set([...Object.keys(native), ...Object.keys(overrides)])) {
-    if (name === "onThreadEvent") {
+    if (name === "onTerminalEvent" && session.fixture.uiScenario?.terminalHeight !== undefined) {
+      api[name] = (listener: Parameters<typeof session.terminalListeners.add>[0]) => {
+        session.terminalListeners.add(listener);
+        return () => session.terminalListeners.delete(listener);
+      };
+    } else if (name === "onThreadEvent") {
       api[name] = (listener: (event: unknown) => void) => {
         session.listeners.add(listener);
         return () => session.listeners.delete(listener);

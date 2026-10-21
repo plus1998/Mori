@@ -67,7 +67,7 @@ const provider: ProviderConfigSecret = {
 };
 
 const routes: RuntimeRoute[] = [
-  { role: "planner", provider, modelId: "sonnet", apiCompat: "anthropic" },
+  { role: "main", provider, modelId: "sonnet", apiCompat: "anthropic" },
   { role: "coder", provider, modelId: "haiku", apiCompat: "anthropic" },
 ];
 
@@ -232,12 +232,12 @@ test("applySingleUsageBillingEffects requests verified ledger projection by defa
   };
   const artifacts = await resolveSingleUsageBillingArtifacts({
     threadId: "thr_effects_selection",
-    role: "planner",
+    role: "main",
     source: "sdk",
     usage: usage(),
     runtimeRoutes: routes,
     lookupPricing,
-    requestKey: "sdk:planner:req_1",
+    requestKey: "sdk:main:req_1",
   });
 
   await applySingleUsageBillingEffects(services, {
@@ -478,7 +478,7 @@ test("applySdkRunBillingEffects requests verified ledger projection by default",
     schedulePersistThreadMetrics: () => undefined,
   };
   const billingModels = await resolveSdkRunBillingModels({
-    role: "planner",
+    role: "main",
     models: [{ modelId: "sonnet", usage: usage(3_000), sdkCostUsd: 0.02 }],
     runtimeRoutes: routes,
     lookupPricing,
@@ -486,10 +486,10 @@ test("applySdkRunBillingEffects requests verified ledger projection by default",
 
   await applySdkRunBillingEffects(services, {
     threadId: "thr_sdk_effects_selection",
-    role: "planner",
+    role: "main",
     requestKey: "sdk-result:event_selection",
     models: billingModels.models,
-    billingRole: "planner",
+    billingRole: "main",
     contextUsage: usage(3_000),
     updateContext: true,
     totalCostUsd: 0.02,

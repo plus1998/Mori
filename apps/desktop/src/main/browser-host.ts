@@ -1,9 +1,10 @@
+import { webChatSitePartition } from "../shared/web-chat-list";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { CodexMcpServerForConfigSync } from "@eco/runtime";
-import type { WebContents } from "electron";
+import type { DownloadItem, WebContents } from "electron";
 import { session, shell, webContents } from "electron";
 import {
   appendBrowserPrompt,
@@ -12,6 +13,7 @@ import {
   type BrowserLoadError,
   type BrowserViewState,
   browserAgentSessionKey,
+  browserPersonalScopeId,
   buildEcoAgentBrowserPromptAppend,
   ECO_AGENT_BROWSER_ALLOWED_TOOL,
   ECO_AGENT_BROWSER_MCP_SERVER,
@@ -19,6 +21,7 @@ import {
   ECO_BROWSER_PERSONAL_SCOPE_ID,
   isBrowserHttpUrl,
   isBrowserPlaceholderUrl,
+  isPersonalBrowserScopeId,
   normalizeBrowserNavigateUrl,
   pickBrowserFaviconUrl,
   planAdoptPersonalBrowsersToThread,
@@ -33,9 +36,10 @@ import {
   type BrowserAgentPresenceEvent,
   isBrowserAgentPresencePointerType,
 } from "../shared/browser-agent-presence";
+import { BROWSER_VIEWPORT_PRESETS, type BrowserViewport, parseBrowserViewport } from "../shared/browser-viewport";
 import type { McpSdkConfig } from "../shared/mcp";
 import type { AgentBrowserMcpToolResult } from "./agent-browser-cli-bridge";
-import { resolveAgentBrowserTabIndex } from "./agent-browser-cli-bridge";
+import { callAgentBrowserToolViaCli, resolveAgentBrowserTabIndex } from "./agent-browser-cli-bridge";
 import { resolveAgentBrowserBinary } from "./agent-browser-resolve";
 import { type BrowserCdpProxy, type BrowserCdpTarget, assertBrowserGuestWebContents, startMultiBrowserCdpProxy } from "./browser-cdp-proxy";
 import { writeBrowserHtmlPreviewTempFile } from "./browser-html-preview";
@@ -47,7 +51,10 @@ import {
   isFullPageScreenshot,
   resolveAgentBrowserScreenshotPath,
 } from "./browser-native-agent-tools";
+import { applyBrowserViewport } from "./browser-viewport";
 import type { BrowserSettingsStore } from "./browser-settings-store";
+import { BrowserDownloads } from "./browser-downloads";
+import type { BrowserDownload } from "../shared/browser-downloads";
 
 export { appendBrowserPrompt };
 
@@ -99,6 +106,7 @@ export type AgentBrowserMcpInjection = {
 };
 
 export interface SharedBrowserOpenOptions {
+  webChatSiteId?: string;
   url?: string;
   htmlContent?: string;
   revealUi?: boolean;
@@ -125,9 +133,18 @@ export interface BrowserHostDeps {
   /** Lightweight Agent presence overlays (rainbow edge / synthetic cursor). */
   broadcastAgentPresence?: (event: BrowserAgentPresenceEvent) => void;
   resolveWorkspacePath: (threadId: string) => string | undefined;
+  authorizeDownloadAccess?: (input: {
+    threadId: string;
+    file: BrowserDownload & { path: string };
+    signal?: AbortSignal;
+  }) => Promise<void>;
 }
 
 interface SessionBrowser {
+  partition?: string | undefined;
+  viewport?: BrowserViewport | undefined;
+  viewportError?: string | undefined;
+  viewportUpdate?: Promise<unknown> | undefined;
   id: string;
   webContents?: WebContents | undefined;
   pendingUrl?: string | undefined;
@@ -164,6 +181,8 @@ interface ThreadBrowserScope {
  * Renderer `<webview>` guests supply WebContents; main process owns CDP + agent MCP.
  */
 export class BrowserHost {
+  private readonly referenceProxies = new Map<string, Promise<BrowserCdpProxy>>();
+  private readonly referenceCalls = new Map<string, Promise<unknown>>();
   private readonly scopes = new Map<string, ThreadBrowserScope>();
   private uiScopeId: string = ECO_BROWSER_PERSONAL_SCOPE_ID;
   /** Task panel is presenting a browser tab (used for soft reveal; not native visibility). */
@@ -173,7 +192,16 @@ export class BrowserHost {
   /** Browser id that should force task-panel tab switch (user-initiated opens). */
   private activateBrowserId: string | undefined;
   private browserMcpGateway: BrowserMcpGateway | undefined;
-  private readonly partitionHandlers = new Set<string>();
+  private readonly partitionHandlers = new Map<string, () => void>();
+  private downloadEmitTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly downloadAccessControllers = new Map<string, Set<AbortController>>();
+  private readonly downloads = new BrowserDownloads(() => {
+    if (this.disposed || this.downloadEmitTimer) return;
+    this.downloadEmitTimer = setTimeout(() => {
+      this.downloadEmitTimer = undefined;
+      if (!this.disposed) this.emit();
+    }, 200);
+  });
   /** will-attach-webview browser id → guest webContents id after did-attach. */
   private readonly pendingGuestByBrowserId = new Map<string, number>();
   private readonly pendingGuestByWebContentsId = new Map<number, string>();
@@ -192,6 +220,7 @@ export class BrowserHost {
         ensureCdpPort: (threadId) => this.ensureCdpPort(threadId),
         agentBrowserEnv: (cdpPort, threadId) => ensureAgentBrowserRuntimeEnv(cdpPort, threadId),
         ensureScopeGuestsReady: (threadId) => this.ensureScopeGuestsReady(threadId),
+        getFocusedTargetId: (threadId) => this.getFocusedCdpTargetId(threadId),
         afterAgentBrowserClose: (threadId) => this.disposeAllBrowsersInThread(threadId),
         onToolCall: (threadId) => this.noteAgentPresenceForThread(threadId),
         invokeNativeTool: (threadId, toolName, args, signal) =>
@@ -382,8 +411,19 @@ export class BrowserHost {
       browser.guestEventsWired = false;
     }
     this.pendingGuestByWebContentsId.set(guest.id, browser.id);
-    this.ensurePartitionHandlers(scope.partition);
+    this.ensurePartitionHandlers(browser.partition ?? scope.partition);
     this.wireGuestWebContents(scope, browser);
+    if (browser.viewport) {
+      void this.queueViewportUpdate(browser, async () => {
+        try {
+          await applyBrowserViewport(guest, browser.viewport ?? null);
+          browser.viewportError = undefined;
+        } catch (error) {
+          browser.viewportError = error instanceof Error ? error.message : String(error);
+        }
+        this.emit();
+      });
+    }
     let toLoad = browser.pendingUrl?.trim() || undefined;
     browser.pendingUrl = undefined;
     if (!toLoad) {
@@ -475,6 +515,9 @@ export class BrowserHost {
     return {
       uiScopeId: this.uiScopeId,
       instances,
+      allInstances: [...this.scopes.keys()].flatMap((scopeId) =>
+        scopeId === this.uiScopeId ? instances : this.listInstancesForScope(scopeId),
+      ),
       guestInstances,
       allGuestInstances,
       ...(focusedSurfaced && focusedId ? { focusedBrowserId: focusedId } : {}),
@@ -505,8 +548,8 @@ export class BrowserHost {
     };
   }
 
-  setUiScope(threadId: string | null): BrowserViewState {
-    const next = threadId?.trim() ? threadId.trim() : ECO_BROWSER_PERSONAL_SCOPE_ID;
+  setUiScope(threadId: string | null, workspacePath?: string): BrowserViewState {
+    const next = threadId?.trim() ? threadId.trim() : browserPersonalScopeId(workspacePath);
     if (next !== this.uiScopeId) {
       this.uiScopeId = next;
       this.revealBrowserId = undefined;
@@ -556,7 +599,7 @@ export class BrowserHost {
         {
           id: browser.id,
           threadId: scope.threadId,
-          partition: scope.partition,
+          partition: browser.partition ?? scope.partition,
           url,
           title: alive ? wc.getTitle() || "" : "",
           ...(faviconUrl ? { faviconUrl } : {}),
@@ -575,6 +618,9 @@ export class BrowserHost {
           focused: scope.focusedBrowserId === browser.id,
           source: browser.source,
           createdAt: browser.createdAt,
+          downloads: this.downloads.list(browser.id),
+          ...(browser.viewport ? { viewport: browser.viewport } : {}),
+          ...(browser.viewportError ? { viewportError: browser.viewportError } : {}),
         },
       ];
     });
@@ -584,7 +630,7 @@ export class BrowserHost {
     const out: Array<{ id: string; partition: string }> = [];
     for (const scope of this.scopes.values()) {
       for (const browser of scope.browsers.values()) {
-        out.push({ id: browser.id, partition: scope.partition });
+        out.push({ id: browser.id, partition: browser.partition ?? scope.partition });
       }
     }
     return out;
@@ -597,12 +643,12 @@ export class BrowserHost {
     }
     return [...scope.browsers.values()].map((browser) => ({
       id: browser.id,
-      partition: scope.partition,
+      partition: browser.partition ?? scope.partition,
     }));
   }
 
   private resolvePartition(scopeId: string, workspaceHint?: string | null): string {
-    if (scopeId === ECO_BROWSER_PERSONAL_SCOPE_ID) {
+    if (isPersonalBrowserScopeId(scopeId)) {
       return resolveBrowserScopePartition(scopeId, {
         ...(workspaceHint !== undefined ? { workspacePath: workspaceHint } : {}),
       });
@@ -640,15 +686,30 @@ export class BrowserHost {
     guestSession.setPermissionRequestHandler((_wc, _permission, callback) => {
       callback(false);
     });
-    this.partitionHandlers.add(partition);
+    const download = (event: Electron.Event, item: DownloadItem, source: WebContents) => {
+      if (!source) return;
+      const found = [...this.scopes.values()].flatMap(scope => [...scope.browsers.values()])
+        .find(browser => browser.webContents?.id === source.id);
+      if (!found) return;
+      try {
+        this.downloads.capture(found.id, item);
+      } catch (error) {
+        // Cancel synchronously: storage errors must not open an unattended native save dialog.
+        item.cancel();
+        event.preventDefault();
+        console.error("[browser] Cannot retain download", error);
+      }
+    };
+    guestSession.on("will-download", download);
+    this.partitionHandlers.set(partition, () => guestSession.off("will-download", download));
   }
 
-  private resolveScopeId(threadId?: string | null): string {
-    if (threadId === null) {
-      return ECO_BROWSER_PERSONAL_SCOPE_ID;
-    }
+  private resolveScopeId(threadId?: string | null, workspacePath?: string): string {
     if (typeof threadId === "string" && threadId.trim()) {
       return threadId.trim();
+    }
+    if (threadId === null || workspacePath?.trim()) {
+      return browserPersonalScopeId(workspacePath);
     }
     return this.uiScopeId;
   }
@@ -685,6 +746,7 @@ export class BrowserHost {
       if (isBrowserHttpUrl(url)) {
         try {
           const created = this.createBrowserInScope(scope, browser.source);
+          created.partition = browser.partition;
           scope.focusedBrowserId = created.id;
           this.requestReveal(created.id);
           created.pendingUrl = url;
@@ -828,7 +890,10 @@ export class BrowserHost {
 
   async openSharedSession(options: SharedBrowserOpenOptions = {}): Promise<BrowserViewState> {
     const revealUi = options.revealUi !== false;
-    const scopeId = this.resolveScopeId(options.threadId);
+    const scopeId = this.resolveScopeId(options.threadId, options.workspacePath);
+    if (options.browserId && !this.scopes.get(scopeId)?.browsers.has(options.browserId)) {
+      throw new Error(`Browser ${options.browserId} does not belong to scope ${scopeId}`);
+    }
     const source = options.source ?? "human";
     const updateUiFocus = options.updateUiFocus ?? source === "human";
     if (source !== "agent") {
@@ -841,7 +906,12 @@ export class BrowserHost {
 
     const scope = this.ensureScope(scopeId, options.workspacePath);
     let browser: SessionBrowser | undefined;
-    if (options.browserId) {
+    if (options.webChatSiteId) {
+      this.ensurePartitionHandlers(webChatSitePartition(options.webChatSiteId));
+      browser = this.createBrowserInScope(scope, source);
+      browser.partition = webChatSitePartition(options.webChatSiteId);
+    }
+    if (!browser && options.browserId) {
       browser = scope.browsers.get(options.browserId);
     }
     if (!browser && options.newBrowser) {
@@ -899,7 +969,9 @@ export class BrowserHost {
     if (!found) {
       throw new Error(`Browser not found: ${browserId}`);
     }
-    this.uiScopeId = found.scope.threadId;
+    if (found.scope.threadId !== this.uiScopeId) {
+      throw new Error(`Browser ${browserId} does not belong to the current UI scope`);
+    }
     found.scope.focusedBrowserId = browserId;
     if (options?.reveal !== false) {
       this.requestReveal(browserId);
@@ -928,6 +1000,19 @@ export class BrowserHost {
   }
 
   private destroyBrowser(scope: ThreadBrowserScope, browser: SessionBrowser): void {
+    for (const controller of this.downloadAccessControllers.get(browser.id) ?? []) controller.abort(new Error("Browser tab was closed."));
+    this.downloadAccessControllers.delete(browser.id);
+    void this.downloads.removeBrowser(browser.id).catch(error => console.error("[browser] Download cleanup failed", error));
+    const proxy = this.referenceProxies.get(browser.id);
+    this.referenceProxies.delete(browser.id);
+    if (proxy) void proxy.then(async value => {
+      try {
+        const binary = resolveAgentBrowserBinary();
+        if (binary.binaryPath) await callAgentBrowserToolViaCli({ binaryPath: binary.binaryPath, cdpPort: value.port,
+          sessionKey: browserAgentSessionKey(`reference:${browser.id}`), env: ensureAgentBrowserRuntimeEnv(value.port, `reference:${browser.id}`),
+          toolName: "agent_browser_close", args: {}, timeoutMs: 3000 });
+      } finally { await value.close(); }
+    }).catch(() => {});
     if (browser.guestLoadTimer) {
       clearTimeout(browser.guestLoadTimer);
       browser.guestLoadTimer = undefined;
@@ -959,6 +1044,9 @@ export class BrowserHost {
   setVisible(visible: boolean, browserId?: string): BrowserViewState {
     if (browserId) {
       const found = this.findBrowser(browserId);
+      if (!found || found.scope.threadId !== this.uiScopeId) {
+        throw new Error(`Browser ${browserId} does not belong to the current UI scope`);
+      }
       if (found && visible) {
         this.uiScopeId = found.scope.threadId;
         found.scope.focusedBrowserId = browserId;
@@ -1051,6 +1139,9 @@ export class BrowserHost {
       if (!found) {
         throw new Error(`Browser not found: ${browserId}`);
       }
+      if (found.scope.threadId !== this.uiScopeId) {
+        throw new Error(`Browser ${browserId} does not belong to the current UI scope`);
+      }
       return found.browser;
     }
     const scope = this.scopes.get(this.uiScopeId);
@@ -1115,7 +1206,7 @@ export class BrowserHost {
 
   async ensureCdpPort(threadId: string): Promise<number> {
     const scopeId = threadId.trim() || ECO_BROWSER_PERSONAL_SCOPE_ID;
-    if (scopeId === ECO_BROWSER_PERSONAL_SCOPE_ID) {
+    if (isPersonalBrowserScopeId(scopeId)) {
       throw new Error("Agent browser CDP requires a conversation thread id");
     }
     const scope = this.ensureScope(scopeId, this.resolveScopeWorkspacePath(scopeId));
@@ -1255,6 +1346,135 @@ export class BrowserHost {
     return out;
   }
 
+  private async queueViewportUpdate<T>(browser: SessionBrowser, update: () => Promise<T>): Promise<T> {
+    const previous = browser.viewportUpdate ?? Promise.resolve();
+    const pending = previous.catch(() => {}).then(update);
+    browser.viewportUpdate = pending;
+    try {
+      return await pending;
+    } finally {
+      if (browser.viewportUpdate === pending) browser.viewportUpdate = undefined;
+    }
+  }
+
+  async setViewport(browserId: string, input: unknown): Promise<BrowserViewState> {
+    const viewport = parseBrowserViewport(input);
+    const found = this.findBrowser(browserId);
+    if (!found) throw new Error(`Browser not found: ${browserId}`);
+    const { browser } = found;
+    await this.waitForGuestWebContents(browserId);
+    return this.queueViewportUpdate(browser, async () => {
+      const guest = browser.webContents;
+      if (!guest || guest.isDestroyed()) throw new Error("Browser guest is unavailable.");
+      try {
+        await applyBrowserViewport(guest, viewport);
+        browser.viewport = viewport ?? undefined;
+        browser.viewportError = undefined;
+      } catch (error) {
+        browser.viewportError = error instanceof Error ? error.message : String(error);
+        this.emit();
+        throw error;
+      }
+      this.emit();
+      return this.getState();
+    });
+  }
+
+  private async invokeNativeAgentBrowserViewport(
+    threadId: string,
+    args?: Record<string, unknown>,
+  ): Promise<AgentBrowserMcpToolResult> {
+    const browserId = this.getFocusedCdpTargetId(threadId);
+    if (args) await this.setViewport(browserId, args);
+    const found = this.findBrowser(browserId);
+    if (!found?.browser.webContents || found.scope.threadId !== threadId.trim())
+      throw new Error("Browser target is unavailable in this conversation.");
+    const browser = found.browser;
+    if (browser.viewportUpdate) await browser.viewportUpdate;
+    if (browser.viewportError) throw new Error(browser.viewportError);
+    const metrics = await browser.webContents!.executeJavaScript(`({
+      width: innerWidth, height: innerHeight,
+      deviceScaleFactor: devicePixelRatio,
+      screenWidth: screen.width, screenHeight: screen.height,
+      touchPoints: navigator.maxTouchPoints,
+      orientation: screen.orientation.type,
+      visualViewport: { width: visualViewport.width, height: visualViewport.height, scale: visualViewport.scale }
+    })`);
+    return agentBrowserTextResult(JSON.stringify({ browserId, viewport: browser.viewport ?? null, metrics }));
+  }
+
+  /** Human download actions stay scoped to the tab currently exposed by the UI. */
+  getDownloadForUi(browserId: string, fileId: string): BrowserDownload & { path: string } {
+    const found = this.findBrowser(browserId);
+    if (!found || found.scope.threadId !== this.uiScopeId) throw new Error("Browser is not in the current UI scope.");
+    return this.downloads.getCompleted(browserId, fileId);
+  }
+
+  cancelDownloadForUi(browserId: string, fileId: string): void {
+    const found = this.findBrowser(browserId);
+    if (!found || found.scope.threadId !== this.uiScopeId) throw new Error("Browser is not in the current UI scope.");
+    this.downloads.cancel(browserId, fileId);
+  }
+
+  /** Resolve a real guest for human-selected content, never the Eco main window. */
+  getSelectionTarget(browserId: string): { guest: WebContents; instance: BrowserInstanceView } {
+    const found = this.findBrowser(browserId);
+    const instance = this.getState().allInstances.find(item => item.id === browserId);
+    if (!found?.browser.webContents || !instance || found.browser.webContents.isDestroyed())
+      throw new Error("引用的网页已关闭或尚未就绪。");
+    assertBrowserGuestWebContents(found.browser.webContents);
+    return { guest: found.browser.webContents, instance };
+  }
+
+  /** User-selected references have their own single-page CDP target and CLI session. */
+  async invokeReferencedBrowserTool(browserId: string, action: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<AgentBrowserMcpToolResult> {
+    const allowed = new Set(["snapshot", "read", "click", "fill", "type", "press", "check", "uncheck", "select", "scroll", "get_text", "get_url", "get_title", "screenshot", "wait_for_selector", "wait_for_text", "wait_for_load", "reload", "back", "forward"]);
+    if (!action.startsWith("agent_browser_") || !allowed.has(action.slice("agent_browser_".length))) throw new Error("该操作不适用于网页引用。");
+    if (["url", "href", "session", "cdp", "tabId", "browserId", "targetId", "extraArgs"].some(key => Object.hasOwn(args, key))) throw new Error("网页引用不能改用其他地址、会话或标签页。");
+    const previous = this.referenceCalls.get(browserId) ?? Promise.resolve();
+    const call = previous.catch(() => {}).then(async () => {
+      signal?.throwIfAborted();
+      const found = this.findBrowser(browserId);
+      if (!found || !shouldSurfaceBrowserInstance({ url: this.resolveBrowserTabUrl(found.browser), surfacePlaceholder: found.browser.surfacePlaceholder })) throw new Error("引用的网页已关闭。");
+      const guest = await this.waitForGuestWebContents(browserId);
+      this.noteAgentPresence(browserId);
+      if (action === "agent_browser_screenshot") {
+        const output = resolveAgentBrowserScreenshotPath(args);
+        return agentBrowserTextResult(await captureGuestScreenshot(guest, output, isFullPageScreenshot(args)));
+      }
+      let pending = this.referenceProxies.get(browserId);
+      if (!pending) {
+        pending = startMultiBrowserCdpProxy({
+          getTargets: () => { const wc = this.findBrowser(browserId)?.browser.webContents; return wc && !wc.isDestroyed() ? [{ id: browserId, webContents: wc }] : []; },
+          onPrepareGuestKeyboardInput: () => this.blurMainRendererForGuestKeyboardInput(),
+          onClientActivity: () => this.noteAgentPresence(browserId),
+          isForbiddenWebContents: wc => wc.id === this.deps.getMainWindow()?.webContents.id,
+        });
+        this.referenceProxies.set(browserId, pending);
+        pending.catch(() => { if (this.referenceProxies.get(browserId) === pending) this.referenceProxies.delete(browserId); });
+      }
+      const proxy = await pending;
+      const binary = resolveAgentBrowserBinary();
+      if (!binary.available || !binary.binaryPath) throw new Error(binary.reason ?? "agent-browser 不可用");
+      const sessionId = `reference:${browserId}`;
+      return callAgentBrowserToolViaCli({ binaryPath: binary.binaryPath, cdpPort: proxy.port, cdpTargetId: browserId,
+        sessionKey: browserAgentSessionKey(sessionId), env: ensureAgentBrowserRuntimeEnv(proxy.port, sessionId), toolName: action, args, ...(signal ? { signal } : {}) });
+    });
+    this.referenceCalls.set(browserId, call);
+    try { return await call; } finally { if (this.referenceCalls.get(browserId) === call) this.referenceCalls.delete(browserId); }
+  }
+
+  /** Exact guest used by both native tools and the CLI connection. */
+  private getFocusedCdpTargetId(threadId: string): string {
+    const scope = this.scopes.get(threadId.trim());
+    const browserId = scope?.focusedBrowserId ?? scope?.browsers.keys().next().value;
+    const browser = browserId ? scope?.browsers.get(browserId) : undefined;
+    if (!browser?.webContents || browser.webContents.isDestroyed()) {
+      throw new Error("No browser target available in this session");
+    }
+    return browser.id;
+  }
+
   /** Wait for focused (or first) guest before page-level CDP tools run. */
   async ensureScopeGuestsReady(threadId: string): Promise<void> {
     const scopeId = threadId.trim() || ECO_BROWSER_PERSONAL_SCOPE_ID;
@@ -1284,6 +1504,45 @@ export class BrowserHost {
     signal?.throwIfAborted();
     this.noteAgentPresenceForThread(threadId);
     switch (toolName) {
+      case "agent_browser_files_list":
+      case "agent_browser_files_get": {
+        const scope = this.scopes.get(threadId);
+        if (args.browserId !== undefined && (typeof args.browserId !== "string" || !args.browserId.trim())) throw new Error("browserId must be a non-empty string.");
+        if (args.tabId !== undefined && (typeof args.tabId !== "string" || !args.tabId.trim())) throw new Error("tabId must be a non-empty string.");
+        if (args.browserId !== undefined && args.tabId !== undefined) throw new Error("Use either tabId or browserId, not both.");
+        const browserId = typeof args.browserId === "string" ? args.browserId : typeof args.tabId === "string" && scope
+          ? this.orderedBrowsersInScope(scope)[resolveAgentBrowserTabIndex({ tabId: args.tabId }, scope.browsers.size)]?.id
+          : scope?.focusedBrowserId;
+        if (!browserId || !scope?.browsers.has(browserId)) throw new Error("Browser tab does not belong to this conversation.");
+        if (toolName === "agent_browser_files_list") {
+          return agentBrowserTextResult(JSON.stringify({ browserId, files: this.downloads.list(browserId) }));
+        }
+        if (typeof args.fileId !== "string" || !args.fileId.trim()) throw new Error("fileId is required.");
+        const file = this.downloads.getCompleted(browserId, args.fileId);
+        if (!this.deps.authorizeDownloadAccess) throw new Error("Browser download file-access review is unavailable.");
+        const controller = new AbortController();
+        const accessSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+        let controllers = this.downloadAccessControllers.get(browserId);
+        if (!controllers) { controllers = new Set(); this.downloadAccessControllers.set(browserId, controllers); }
+        controllers.add(controller);
+        try {
+          await this.deps.authorizeDownloadAccess({ threadId, file, signal: accessSignal });
+          accessSignal.throwIfAborted();
+          // The tab or retained file may have disappeared while approval was pending.
+          return agentBrowserTextResult(JSON.stringify(this.downloads.getCompleted(browserId, args.fileId)));
+        } finally {
+          controllers.delete(controller);
+          if (!controllers.size) this.downloadAccessControllers.delete(browserId);
+        }
+      }
+      case "agent_browser_list_devices":
+        return agentBrowserTextResult(JSON.stringify({ devices: BROWSER_VIEWPORT_PRESETS }));
+      case "agent_browser_set_viewport":
+        await this.ensureScopeGuestsReady(threadId);
+        return this.invokeNativeAgentBrowserViewport(threadId, args);
+      case "agent_browser_get_viewport":
+        await this.ensureScopeGuestsReady(threadId);
+        return this.invokeNativeAgentBrowserViewport(threadId);
       case "agent_browser_tab_list":
         return this.invokeNativeAgentBrowserTabList(threadId);
       case "agent_browser_tab_new":
@@ -1353,7 +1612,6 @@ export class BrowserHost {
       throw new Error(`Tab t${index + 1} not found (${ordered.length} tab(s) open)`);
     }
     scope.focusedBrowserId = browser.id;
-    this.uiScopeId = scopeId;
     this.requestReveal(browser.id);
     await this.ensureScopeGuestsReady(scopeId);
     this.emit();
@@ -1447,7 +1705,7 @@ export class BrowserHost {
   /** agent_browser_close ends CLI session — also tear down Eco scope pages. */
   async disposeAllBrowsersInThread(threadId: string): Promise<void> {
     const scopeId = threadId.trim();
-    if (!scopeId || scopeId === ECO_BROWSER_PERSONAL_SCOPE_ID) {
+    if (!scopeId || isPersonalBrowserScopeId(scopeId)) {
       return;
     }
     const scope = this.scopes.get(scopeId);
@@ -1551,12 +1809,17 @@ export class BrowserHost {
 
   async adoptPersonalScopeToThread(threadId: string): Promise<BrowserViewState> {
     const targetId = threadId.trim();
-    if (!targetId || targetId === ECO_BROWSER_PERSONAL_SCOPE_ID) {
+    if (!targetId || isPersonalBrowserScopeId(targetId)) {
       throw new Error("adoptPersonalScopeToThread requires a real conversation thread id");
     }
 
-    const personal = this.scopes.get(ECO_BROWSER_PERSONAL_SCOPE_ID);
     const targetWorkspacePath = this.deps.resolveWorkspacePath(targetId);
+    if (!targetWorkspacePath?.trim()) {
+      throw new Error(`无法解析会话 workspacePath（scope=${targetId}），不能迁移项目浏览器`);
+    }
+    const personalScopeId = browserPersonalScopeId(targetWorkspacePath);
+    const personal = this.scopes.get(personalScopeId);
+    const followAdoption = () => this.uiScopeId === personalScopeId || this.uiScopeId === targetId;
     const plan = planAdoptPersonalBrowsersToThread({
       personalBrowserCount: personal?.browsers.size ?? 0,
       targetExists: this.scopes.has(targetId),
@@ -1565,17 +1828,17 @@ export class BrowserHost {
     });
 
     if (plan.kind === "noop") {
-      return this.setUiScope(targetId);
+      return followAdoption() ? this.setUiScope(targetId) : this.getState();
     }
 
     if (!personal) {
-      return this.setUiScope(targetId);
+      return followAdoption() ? this.setUiScope(targetId) : this.getState();
     }
 
     await this.tearDownScopeCdp(personal);
 
     if (plan.kind === "rename") {
-      this.scopes.delete(ECO_BROWSER_PERSONAL_SCOPE_ID);
+      this.scopes.delete(personalScopeId);
       personal.threadId = targetId;
       personal.partition = plan.partitionForFuture;
       this.scopes.set(targetId, personal);
@@ -1591,11 +1854,13 @@ export class BrowserHost {
       target.partition = plan.partitionForFuture;
       personal.browsers.clear();
       personal.focusedBrowserId = undefined;
-      this.scopes.delete(ECO_BROWSER_PERSONAL_SCOPE_ID);
+      this.scopes.delete(personalScopeId);
     }
 
-    this.uiScopeId = targetId;
-    this.revealBrowserId = undefined;
+    if (followAdoption()) {
+      this.uiScopeId = targetId;
+      this.revealBrowserId = undefined;
+    }
     this.emit();
     return this.getState();
   }
@@ -1637,6 +1902,9 @@ export class BrowserHost {
 
   dispose(): void {
     this.disposed = true;
+    if (this.downloadEmitTimer) clearTimeout(this.downloadEmitTimer);
+    for (const remove of this.partitionHandlers.values()) remove();
+    this.partitionHandlers.clear();
     this.revealBrowserId = undefined;
     void this.browserMcpGateway?.close();
     this.browserMcpGateway = undefined;
@@ -1647,6 +1915,7 @@ export class BrowserHost {
       }
     }
     this.scopes.clear();
+    void this.downloads.dispose().catch(error => console.error("[browser] Download cleanup failed", error));
   }
 }
 

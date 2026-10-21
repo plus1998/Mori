@@ -31,21 +31,31 @@ test("renders the right-docked gallery as a vertical queue of three layers at mo
   const markup = renderFloat(items);
   expect(markup).toContain('class="image-gallery-float"');
   expect(markup).toContain('aria-label="图片画廊"');
-  // 队列只显示前三张，第四张等前三张关闭后再出现。
+  // 只渲染当前张与后两张，其他图片随浏览进入视口。
   const frameCount = (markup.match(/class="image-gallery-card-frame"/g) ?? []).length;
   expect(frameCount).toBe(3);
-  // 只有当前一张带关闭 / 预览操作图标。
-  const closeIcons = (markup.match(/image-gallery-card-overlay--close/g) ?? []).length;
-  const previewIcons = (markup.match(/image-gallery-card-overlay--preview/g) ?? []).length;
+  // 只有当前张提供关闭操作，加载中不提供无效的预览按钮。
+  const closeIcons = (markup.match(/image-gallery-card-overlay--close"/g) ?? []).length;
+  const closeAllIcons = (markup.match(/image-gallery-card-overlay--close-all/g) ?? []).length;
   expect(closeIcons).toBe(1);
-  expect(previewIcons).toBe(1);
+  expect(closeAllIcons).toBe(1);
+  expect(markup).not.toContain("image-gallery-card-overlay--preview");
+  expect(markup).toContain('aria-label="第 1 张，共 4 张"');
+  expect(markup).toContain('aria-keyshortcuts="ArrowRight"');
 });
 
-test("the current card exposes close and preview icons, peek cards are inert", () => {
+test("loading cards can be dismissed and peek cards stay out of keyboard focus", () => {
   const markup = renderFloat([imageGalleryDisplayItem("art-1"), imageGalleryDisplayItem("art-2")]);
   expect(markup).toContain("image-gallery-card-media--loading");
   expect(markup).toContain('aria-label="关闭这张"');
-  expect(markup).toContain('aria-label="图片预览"');
-  const closeIcons = (markup.match(/image-gallery-card-overlay--close/g) ?? []).length;
+  expect(markup).toContain('aria-label="关闭全部图片"');
+  expect(markup).toContain('aria-hidden="true" inert=""');
+  const closeIcons = (markup.match(/image-gallery-card-overlay--close"/g) ?? []).length;
   expect(closeIcons).toBe(1);
+});
+
+test("a single image keeps close-all available without pagination", () => {
+  const markup = renderFloat([imageGalleryDisplayItem("art-only")]);
+  expect(markup).toContain('aria-label="关闭全部图片"');
+  expect(markup).not.toContain("image-gallery-navigation");
 });

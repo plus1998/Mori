@@ -15,7 +15,7 @@ const routeProfile: RouteProfileView = {
   id: "coding-default",
   name: "Default Coding",
   routes: [
-    { role: "planner", providerId: "openai", modelId: "gpt-5-codex" },
+    { role: "main", providerId: "openai", modelId: "gpt-5-codex" },
     { role: "explore", providerId: "openai", modelId: "gpt-5-mini" },
     { role: "architect", providerId: "openai", modelId: "gpt-5" },
     { role: "coder", providerId: "openai", modelId: "gpt-5-codex" },

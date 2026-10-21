@@ -94,6 +94,7 @@ export class CodexOAuthLoginService {
    */
   async startLogin(): Promise<{
     authUrl: string;
+    expiresAt: number;
     result: Promise<CodexOAuthLoginResult>;
     cancel: () => void;
   } | null> {

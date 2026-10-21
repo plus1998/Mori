@@ -8,6 +8,19 @@ import '../models/thread_models.dart';
 import '../storage/conversation_v2_cache.dart';
 import 'conversation_v2_sync_engine.dart';
 
+/// Thinking/tool-writing starts have no visible message body. Refresh their
+/// presentation facts at boundaries without adding an RPC for every token.
+bool _refreshesProjectionExtras(Map effect) {
+  final type = effect['type'];
+  if (type == 'noop') {
+    return effect['reason'] == 'runtime.thinking.changed' ||
+        effect['reason'] == 'runtime.tool_writing.changed';
+  }
+  return type == 'message.create' ||
+      type == 'tool.summary.upsert' ||
+      type == 'run.upsert';
+}
+
 /// Existing thread actions exposed to the V2 session without duplicating the
 /// desktop command implementation. The provider wires these callbacks to the
 /// mature ThreadSessionNotifier methods during the migration window.
@@ -86,7 +99,6 @@ class ConversationV2SessionState {
     ClarificationRequest? pendingClarification,
     bool clearPendingInteractions = false,
     bool replacePendingInteractions = false,
-    bool clearDetails = false,
     Object? error,
     bool clearError = false,
   }) {
@@ -100,7 +112,7 @@ class ConversationV2SessionState {
       syncState: syncState ?? this.syncState,
       hasOlder: hasOlder ?? this.hasOlder,
       historyRevision: historyRevision ?? this.historyRevision,
-      details: clearDetails ? const [] : (details ?? this.details),
+      details: details ?? this.details,
       pendingBash: replacePendingInteractions
           ? pendingBash
           : clearPendingInteractions
@@ -159,6 +171,9 @@ class ConversationV2SessionController
   bool _disposed = false;
   int _commandSequence = 0;
   int _reloadGeneration = 0;
+  Future<void>? _pushReloadInFlight;
+  bool _pushReloadRequested = false;
+  bool _projectionExtrasReloadRequested = false;
 
   Future<void> start() async {
     if (_disposed || !enabled) return;
@@ -193,8 +208,17 @@ class ConversationV2SessionController
         envelope,
         conversationId: conversationId,
       );
-      await _reload();
-      await _hydratePendingDetails();
+      final payload = envelope['payload'];
+      if (envelope['kind'] == 'conversation.sync_effect' &&
+          payload is Map &&
+          payload['conversationId'] == conversationId) {
+        final receipt = payload['effect'];
+        final effect = receipt is Map ? receipt['effect'] : null;
+        if (effect is Map && _refreshesProjectionExtras(effect)) {
+          _projectionExtrasReloadRequested = true;
+        }
+      }
+      await _reloadAfterPush();
     } catch (error) {
       state = state.copyWith(syncState: _engine.state, error: error);
     }
@@ -433,28 +457,52 @@ class ConversationV2SessionController
   Future<void> _reload({ConversationV2SyncState? syncState}) async {
     if (_disposed) return;
     final generation = ++_reloadGeneration;
-    final cacheState = await _cache.state(conversationId);
-    final messages = await _cache.messages(conversationId);
-    final runs = await _cache.runs(conversationId);
-    final tools = await _cache.tools(conversationId);
-    final agents = await _cache.agents(conversationId);
-    final todos = await _cache.todos(conversationId);
+    final snapshot = await _cache.presentationSnapshot(conversationId);
+    final compactionDetails = await _cache.compactionDetails(conversationId);
     if (_disposed || generation != _reloadGeneration) return;
     _update(
       state.copyWith(
-        messages: messages,
-        runs: runs,
-        tools: tools,
-        agents: agents,
-        todos: todos,
+        messages: snapshot.messages,
+        runs: snapshot.runs,
+        tools: snapshot.tools,
+        agents: snapshot.agents,
+        todos: snapshot.todos,
         syncState: syncState ?? _engine.state,
-        hasOlder: cacheState?.hasOlder ?? false,
-        historyRevision: cacheState?.historyRevision ?? 0,
-        clearDetails: true,
+        hasOlder: snapshot.cacheState?.hasOlder ?? false,
+        historyRevision: snapshot.cacheState?.historyRevision ?? 0,
+        details: compactionDetails,
         clearPendingInteractions: true,
         clearError: syncState != ConversationV2SyncState.error,
       ),
     );
+  }
+
+  Future<void> _reloadAfterPush() {
+    _pushReloadRequested = true;
+    final pending = _pushReloadInFlight;
+    if (pending != null) return pending;
+    final operation =
+        () async {
+          do {
+            // Every effect is committed in order by the engine. Coalesce only the
+            // presentation reads so a token burst does not re-read six tables and
+            // rebuild the entire feed once per effect.
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+            if (_disposed) return;
+            _pushReloadRequested = false;
+            await _reload();
+            if (_projectionExtrasReloadRequested) {
+              _projectionExtrasReloadRequested = false;
+              await reloadProjectionExtras();
+            }
+            await _hydratePendingDetails();
+          } while (_pushReloadRequested && !_disposed);
+        }().whenComplete(() async {
+          _pushReloadInFlight = null;
+          if (_pushReloadRequested && !_disposed) await _reloadAfterPush();
+        });
+    _pushReloadInFlight = operation;
+    return operation;
   }
 
   Future<void> _hydratePendingDetails({bool force = false}) async {
@@ -478,9 +526,15 @@ class ConversationV2SessionController
       conversationId,
       details,
     );
+    final visibleDetails = _mergeConversationV2Details(
+      state.details.where(
+        (detail) => isConversationV2ContextCompactionType(detail.type),
+      ),
+      details,
+    );
     _update(
       state.copyWith(
-        details: details,
+        details: visibleDetails,
         pendingBash: pending.bash,
         pendingPlan: pending.plan,
         pendingClarification: pending.clarification,
@@ -536,6 +590,20 @@ class ConversationV2SessionController
     if (_disposed) return;
     state = next;
   }
+}
+
+List<ConversationV2Detail> _mergeConversationV2Details(
+  Iterable<ConversationV2Detail> first,
+  Iterable<ConversationV2Detail> second,
+) {
+  final byId = <String, ConversationV2Detail>{
+    for (final detail in first) detail.itemId: detail,
+    for (final detail in second) detail.itemId: detail,
+  };
+  return byId.values.toList()..sort((left, right) {
+    final sequence = left.createdSeq.compareTo(right.createdSeq);
+    return sequence != 0 ? sequence : left.itemId.compareTo(right.itemId);
+  });
 }
 
 class ConversationV2PendingInteractions {

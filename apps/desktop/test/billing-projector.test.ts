@@ -21,12 +21,12 @@ test("projectBillingFromUsageLedger builds SDK primary without duplicating reque
   const haikuUsage = { inputTokens: 20_000, outputTokens: 2_000, cacheReadTokens: 0, cacheCreationTokens: 0 };
   const events = buildSdkUsageLedgerEvents({
     threadId: "thr_projector",
-    role: "planner",
+    role: "main",
     requestKey: "sdk-result:multi",
     totalCostUsd: 0.19,
     models: [
       {
-        role: "planner",
+        role: "main",
         modelId: "sonnet",
         usage: sonnetUsage,
         computedBilling: billingFor(sonnetUsage, sonnetRates),
@@ -77,7 +77,7 @@ test("projectBillingFromUsageLedger projects agent subagent and run attempt tota
       kind: "subagent",
       status: "stopped",
       runAttemptId: "attempt_1",
-      parentAgentId: "planner:attempt_1",
+      parentAgentId: "main:attempt_1",
       parentToolUseId: "toolu_parent",
       missionKey: "implement",
       todoId: "todo-1",
@@ -124,7 +124,7 @@ test("projectBillingFromUsageLedger preserves existing subagent contextOccupied"
       kind: "subagent",
       status: "stopped",
       runAttemptId: "attempt_1",
-      parentAgentId: "planner:attempt_1",
+      parentAgentId: "main:attempt_1",
       parentToolUseId: "toolu_parent",
       missionKey: "implement",
       todoId: "todo-1",
@@ -278,7 +278,7 @@ test("projectBillingFromUsageLedger keeps partial and context events out of bill
   });
   const context = buildSingleUsageLedgerEvent({
     threadId: "thr_projector",
-    role: "planner",
+    role: "main",
     source: "sdk",
     sourceEventId: "compact:1",
     usageKind: "context",
@@ -345,7 +345,7 @@ test("projectBillingFromUsageLedger does not let a vision-only proxy source repl
   });
   const sdkEvent = buildSingleUsageLedgerEvent({
     threadId: "thr_projector_vision",
-    role: "planner",
+    role: "main",
     source: "sdk",
     sourceEventId: "sdk-result:req_1",
     requestKey: "sdk-result:req_1",
@@ -401,13 +401,13 @@ test("projectBillingFromUsageLedger counts a duplicate same-source billable row 
   const makePiEvent = (sourceEventId: string) =>
     buildSingleUsageLedgerEvent({
       threadId: "thr_pi_dup",
-      role: "planner",
+      role: "main",
       source: "pi",
       sourceEventId,
-      requestKey: "usage:planner:3177:281:0:0:eco-planner-abc",
+      requestKey: "usage:main:3177:281:0:0:eco-planner-abc",
       usage,
       computedBilling: billingFor(usage),
-      agentId: "planner:attempt_1",
+      agentId: "main:attempt_1",
       modelId: "qwen",
     });
   const first = makePiEvent("thr_pi_dup:pi:289:usage");
@@ -418,32 +418,32 @@ test("projectBillingFromUsageLedger counts a duplicate same-source billable row 
   expect(projection.snapshot?.primarySource).toBe("pi");
   expect(projection.snapshot?.totalTokens.input).toBe(3_177);
   expect(projection.snapshot?.totalTokens.output).toBe(281);
-  expect(projection.snapshot?.byRole?.planner?.outputTokens).toBe(281);
+  expect(projection.snapshot?.byRole?.main?.outputTokens).toBe(281);
 });
 
 test("projectBillingFromUsageLedger keeps distinct calls that happen to share tokens when sources differ", () => {
   const usage = { inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, cacheCreationTokens: 0 };
   const piEvent = buildSingleUsageLedgerEvent({
     threadId: "thr_mix",
-    role: "planner",
+    role: "main",
     source: "pi",
     sourceEventId: "evt_pi",
-    requestKey: "usage:planner:100:10:0:0:eco-planner-abc",
+    requestKey: "usage:main:100:10:0:0:eco-planner-abc",
     usage,
     computedBilling: billingFor(usage),
-    agentId: "planner:attempt_1",
+    agentId: "main:attempt_1",
     modelId: "qwen",
   });
   const proxyEvent = buildSingleUsageLedgerEvent({
     threadId: "thr_mix",
-    role: "planner",
+    role: "main",
     source: "proxy",
-    sourceEventId: "proxy:planner:qwen:resp_1",
-    requestKey: "proxy:planner:qwen:resp_1:100:10:0:0",
+    sourceEventId: "proxy:main:qwen:resp_1",
+    requestKey: "proxy:main:qwen:resp_1:100:10:0:0",
     providerRequestId: "resp_1",
     usage,
     computedBilling: billingFor(usage),
-    agentId: "planner:attempt_2",
+    agentId: "main:attempt_2",
     modelId: "qwen",
   });
 

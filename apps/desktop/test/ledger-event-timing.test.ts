@@ -17,9 +17,9 @@ function makeView(
   overrides: Partial<ThreadUsageLedgerEventView> & Pick<ThreadUsageLedgerEventView, "id" | "source">,
 ): ThreadUsageLedgerEventView {
   return {
-    role: "planner",
-    routeRole: "planner",
-    billingRole: "planner",
+    role: "main",
+    routeRole: "main",
+    billingRole: "main",
     attributionStatus: "attributed",
     usageKind: "request_final",
     inputTokens: 1000,
@@ -67,7 +67,7 @@ test("attachSpanTimingToLedgerEventViews matches proxy requestKey segments to sp
     makeView({
       id: "sdk_2",
       source: "sdk",
-      requestKey: "proxy:planner:haiku:req_2:stamp",
+      requestKey: "proxy:main:haiku:req_2:stamp",
     }),
   ];
   const attached = attachSpanTimingToLedgerEventViews(views, [makeSpan("req_2")]);
@@ -111,7 +111,7 @@ test("attachSpanTimingToLedgerEventViews skips a row that matches two spans", ()
 });
 
 test("attachSpanTimingToLedgerEventViews keeps unmatched rows unchanged", () => {
-  const views = [makeView({ id: "sdk_d", source: "sdk", requestKey: "sdk:planner:other" })];
+  const views = [makeView({ id: "sdk_d", source: "sdk", requestKey: "sdk:main:other" })];
   const attached = attachSpanTimingToLedgerEventViews(views, [makeSpan("req_6")]);
   expect(attached[0]).toEqual(views[0]);
 });
@@ -141,7 +141,7 @@ test("attachPeerGatewayTimingToLedgerEventViews transfers gateway timing across 
 
 test("attachPeerGatewayTimingToLedgerEventViews leaves rows without a logicalRequestId unchanged", () => {
   const views = [
-    makeView({ id: "pi_2", source: "pi", requestKey: "usage:planner:10:5" }),
+    makeView({ id: "pi_2", source: "pi", requestKey: "usage:main:10:5" }),
     makeView({ id: "proxy_2", source: "proxy", logicalRequestId: "req_x", ttftMs: 100 }),
   ];
   const attached = attachPeerGatewayTimingToLedgerEventViews(views);

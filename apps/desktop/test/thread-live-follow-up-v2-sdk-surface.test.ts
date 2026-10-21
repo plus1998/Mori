@@ -24,7 +24,7 @@ test("installed Claude Agent SDK exposes the streaming input control surface Eco
   const sdkRuntime = readSdkFile("sdk.mjs");
 
   expect(packageJson.name).toBe("@anthropic-ai/claude-agent-sdk");
-  expect(packageJson.version).toBe("0.3.289");
+  expect(packageJson.version).toBe("0.3.301");
   expect(typeof packageJson.claudeCodeVersion).toBe("string");
   expectContainsAll(sdkTypes, [
     "prompt: string | AsyncIterable<SDKUserMessage>",

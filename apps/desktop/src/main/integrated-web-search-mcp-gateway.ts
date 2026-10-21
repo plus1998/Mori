@@ -195,7 +195,7 @@ export class IntegratedWebSearchMcpGateway {
         {
           serverName: ECO_WEB_SEARCH_MCP_SERVER,
           instructions:
-            "Eco Integrated Web Search (Tavily, Doubao, or Brave). Use when you need up-to-date information.",
+            "Eco Integrated Web Search (Tavily, Doubao, DeepSeek, or Brave). Use when you need up-to-date information.",
           listTools: async () => ({ tools: [webSearchToolDefinition()] }),
           callTool: async ({ name, arguments: args, authToken, signal }) =>
             this.executeToolCall(name, args, authToken, signal),
@@ -285,7 +285,7 @@ function webSearchToolDefinition(): McpToolDefinition {
   return {
     name: ECO_WEB_SEARCH_TOOL,
     description:
-      "Search the public web via Eco Integrated Web Search (Tavily, Doubao, or Brave). Use when you need up-to-date information.",
+      "Search the public web via Eco Integrated Web Search (Tavily, Doubao, DeepSeek, or Brave). Use when you need up-to-date information.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

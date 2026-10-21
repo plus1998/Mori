@@ -6,6 +6,8 @@
  * empty `properties: {}` caused Claude to omit `url` for agent_browser_open.
  */
 
+import { BROWSER_VIEWPORT_PRESETS } from "../shared/browser-viewport";
+
 export const AGENT_BROWSER_CORE_TOOL_NAMES = [
   "agent_browser_tools_profiles",
   "agent_browser_open",
@@ -14,6 +16,9 @@ export const AGENT_BROWSER_CORE_TOOL_NAMES = [
   "agent_browser_back",
   "agent_browser_forward",
   "agent_browser_reload",
+  "agent_browser_set_viewport",
+  "agent_browser_get_viewport",
+  "agent_browser_list_devices",
   "agent_browser_click",
   "agent_browser_fill",
   "agent_browser_type",
@@ -27,6 +32,8 @@ export const AGENT_BROWSER_CORE_TOOL_NAMES = [
   "agent_browser_wait_for_text",
   "agent_browser_wait_for_load",
   "agent_browser_screenshot",
+  "agent_browser_files_list",
+  "agent_browser_files_get",
   "agent_browser_get_text",
   "agent_browser_get_url",
   "agent_browser_get_title",
@@ -70,6 +77,21 @@ const TOOL_DEFINITIONS: Record<
   (typeof AGENT_BROWSER_CORE_TOOL_NAMES)[number],
   { description: string; inputSchema: JsonSchema }
 > = {
+  agent_browser_files_list: {
+    description: "List this browser tab's downloads and their pending/completed/failed/cancelled states. Download clicks do not imply completion. Local paths are not exposed by this tool.",
+    inputSchema: objectSchema({ properties: {
+      tabId: { type: "string", description: "Optional tab label from tab_list, e.g. t1. Does not change UI focus." },
+      browserId: { type: "string", description: "Optional exact browser ID returned by files_list. Cannot be combined with tabId. Defaults to the focused tab." },
+    } }),
+  },
+  agent_browser_files_get: {
+    description: "Request reviewed access to one completed download from this tab. Returns its local temporary file path. Files are removed when the tab closes; copy needed files before closing it. Never re-fetch a download URL to bypass review.",
+    inputSchema: objectSchema({ required: ["fileId"], properties: {
+      fileId: { type: "string", minLength: 1, description: "Exact completed file ID returned by files_list." },
+      tabId: { type: "string", description: "Optional tab label from tab_list, e.g. t1. Does not change UI focus." },
+      browserId: { type: "string", description: "Optional exact browser ID returned by files_list. Cannot be combined with tabId. Defaults to the focused tab." },
+    } }),
+  },
   agent_browser_tools_profiles: {
     description: "List Eco built-in browser tool profiles / skills.",
     inputSchema: emptyObjectSchema,
@@ -117,6 +139,47 @@ const TOOL_DEFINITIONS: Record<
   },
   agent_browser_reload: {
     description: "Reload the focused tab.",
+    inputSchema: emptyObjectSchema,
+  },
+  agent_browser_set_viewport: {
+    description:
+      "Set the focused tab's real CSS viewport for responsive testing; its on-screen preview scales to fit independently. Choose a named device (e.g. iphone-se or iphone-16-pro-max), a generic preset, or provide width and height. Call agent_browser_list_devices for names, IDs, dimensions and DPR. Use preset auto to restore panel size. Does not reload the page or change User-Agent/browser engine. Returns applied settings and page metrics. Tabs retain independent settings.",
+    inputSchema: objectSchema({
+      properties: {
+        preset: {
+          type: "string",
+          enum: ["auto", ...BROWSER_VIEWPORT_PRESETS.map((device) => device.preset), "custom"],
+        },
+        width: {
+          type: "integer",
+          minimum: 100,
+          maximum: 4096,
+          description: "CSS pixels; supply height too.",
+        },
+        height: { type: "integer", minimum: 100, maximum: 4096 },
+        deviceScaleFactor: {
+          type: "number",
+          minimum: 1,
+          maximum: 4,
+          description: "Device pixel ratio, independent of display scaling.",
+        },
+        mobile: { type: "boolean", description: "Enable mobile viewport/meta-viewport behavior." },
+        touch: { type: "boolean", description: "Emulate touch input and coarse pointer." },
+        landscape: {
+          type: "boolean",
+          description: "Orient the selected dimensions horizontally (true) or vertically (false).",
+        },
+      },
+    }),
+  },
+  agent_browser_get_viewport: {
+    description:
+      "Get the focused tab's viewport settings and actual page metrics (innerWidth/height, screen size, DPR, orientation, visual viewport, touch points). A null viewport means automatic panel size.",
+    inputSchema: emptyObjectSchema,
+  },
+  agent_browser_list_devices: {
+    description:
+      "List available device viewport presets, including a curated selection of iPhone SE/16/16 Pro Max, Pixel, Galaxy, iPad, Surface, Nest Hub Max and generic sizes. Foldable entries use cover-screen viewports without hinge/posture emulation. Returns stable preset IDs, names, groups, CSS width/height, DPR, mobile and touch settings. No open tab is required. Apply a returned preset ID with agent_browser_set_viewport.",
     inputSchema: emptyObjectSchema,
   },
   agent_browser_click: {

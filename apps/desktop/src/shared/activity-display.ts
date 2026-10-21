@@ -32,6 +32,26 @@ export interface ParsedReconnectActivity {
   failed?: boolean;
 }
 
+const RECONNECT_DETAIL_SEPARATORS = /^[\s：:·.\-—]+/;
+
+/**
+ * Upstream bodies that only repeat the HTTP status add nothing beyond the
+ * `连接失败 · HTTP <code>` summary, so they are not surfaced as detail.
+ */
+export function readReconnectDetail(detail: string | undefined): string | undefined {
+  const text = detail?.trim().replace(RECONNECT_DETAIL_SEPARATORS, "").trim();
+  if (!text) {
+    return undefined;
+  }
+  if (/^HTTP\s*\d{3}$/i.test(text)) {
+    return undefined;
+  }
+  if (/^Upstream returned HTTP\s*\d{3}$/i.test(text)) {
+    return undefined;
+  }
+  return text;
+}
+
 /** Auto-retry or upstream connection failure status — should replace prior line, not stack. */
 export function isReconnectActivityMessage(message: string): boolean {
   return parseReconnectActivityMessage(message) !== null;
@@ -44,17 +64,21 @@ export function parseReconnectActivityMessage(message: string): ParsedReconnectA
   const connectionFailed = trimmed.match(/^【连接失败】\s*([\s\S]*)$/);
   if (connectionFailed) {
     const body = connectionFailed[1]?.trim() ?? "";
-    const httpMatch = body.match(/^HTTP\s*(\d{3})\b/);
+    const httpMatch = body.match(/^HTTP\s*(\d{3})\b\s*([\s\S]*)$/);
     if (httpMatch?.[1]) {
+      const detail = readReconnectDetail(httpMatch[2]);
       return {
         summary: `连接失败 · HTTP ${httpMatch[1]}`,
+        ...(detail ? { detail } : {}),
         failed: true,
       };
     }
-    const colonSplit = body.match(/^([^：:]+)[：:]/);
+    const colonSplit = body.match(/^([^：:]+)[：:]([\s\S]*)$/);
     if (colonSplit?.[1]) {
+      const detail = readReconnectDetail(colonSplit[2]);
       return {
         summary: `连接失败 · ${colonSplit[1].trim()}`,
+        ...(detail ? { detail } : {}),
         failed: true,
       };
     }

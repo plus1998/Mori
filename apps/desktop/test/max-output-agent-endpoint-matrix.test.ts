@@ -16,7 +16,7 @@ for (const core of ["claude", "codex", "pi"] as const)
       try {
         for (const [i, role] of roles.entries())
           for (const stream of [false, true])
-            for (const input of [100, windows[i]! - 101])
+            for (const input of [100, windows[i]! - 1_124])
               for (const requested of [undefined, 128_000, 32_000, 1_600]) {
                 const route = stack.binding.routes.find((r) => r.role === role)!;
                 const face =
@@ -64,7 +64,7 @@ for (const core of ["claude", "codex", "pi"] as const)
                 expect(trace.path).toBe(
                   `/v1/${protocol === "anthropic" ? "messages" : protocol === "chat" ? "chat/completions" : "responses"}`,
                 );
-                const expected = Math.min(windows[i]! - input - 1, modelOutputs[i]!);
+                const expected = Math.min(windows[i]! - input - 1_024, modelOutputs[i]!);
                 expect(trace.output).toBe(expected);
                 expect(trace.input + Number(trace.output)).toBeLessThan(windows[i]!);
               }

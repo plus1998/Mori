@@ -36,6 +36,35 @@ function sdkBlockKey(activity: CapturedActivity): string | undefined {
   return typeof key === "string" ? key : undefined;
 }
 
+test("native PI tool durations reach completed and failed Feed metadata", () => {
+  for (const failed of [false, true]) {
+    const tools: Array<Record<string, unknown>> = [];
+    const bridge = new SdkStreamActivityBridge();
+    bridge.handleEvent(
+      "thr_native_duration",
+      {
+        type: failed ? "tool.failed" : "tool.completed",
+        role: "main",
+        agentId: "pi-session",
+        payload: {
+          type: failed ? "tool_result_error" : "tool_result",
+          tool_name: "Bash",
+          tool_use_id: "native-tool",
+          input: { command: "echo ok" },
+          content: "ok",
+          message: "failed",
+          durationMs: 12.5,
+        },
+      },
+      (_threadId, _type, _message, _role, _stream, _agentId, extras) => {
+        if (extras?.tool) tools.push(extras.tool as unknown as Record<string, unknown>);
+      },
+    );
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toMatchObject({ durationMs: 12.5, status: failed ? "failed" : "completed" });
+  }
+});
+
 test("preserves repeated numeric and phrase deltas in text and thinking streams", () => {
   for (const blockKind of ["text", "thinking"] as const) {
     for (const chunks of [
@@ -56,7 +85,7 @@ test("preserves repeated numeric and phrase deltas in text and thinking streams"
           "thr_repeated_deltas",
           {
             type: "message.delta",
-            role: "planner",
+            role: "main",
             payload: {
               type: "eco_stream",
               blockKind,
@@ -71,7 +100,7 @@ test("preserves repeated numeric and phrase deltas in text and thinking streams"
         "thr_repeated_deltas",
         {
           type: "message.delta",
-          role: "planner",
+          role: "main",
           payload: {
             type: "eco_stream",
             blockKind,
@@ -85,7 +114,7 @@ test("preserves repeated numeric and phrase deltas in text and thinking streams"
       const expected = chunks.join("");
       expect(emitted.map((activity) => activity.message)).toEqual([expected, expected]);
       expect(emitted.at(-1)?.stream).toBe(false);
-      expect(emitted.at(-1)?.role).toBe(blockKind === "thinking" ? "thinking" : "planner");
+      expect(emitted.at(-1)?.role).toBe(blockKind === "thinking" ? "thinking" : "main");
     }
   }
 });
@@ -99,7 +128,7 @@ test("preserves repeated numeric deltas from raw SDK stream events", () => {
       "thr_raw_repeated_deltas",
       {
         type: "message.delta",
-        role: "planner",
+        role: "main",
         payload: {
           type: "stream_event",
           event: { type: "content_block_delta", delta: { type: "text_delta", text } },
@@ -123,7 +152,7 @@ test("SDK informational, rate limit and requires-action events reach the activit
   ])
     bridge.handleEvent(
       "thr_notice",
-      { type: "agent.started", role: "planner", payload },
+      { type: "agent.started", role: "main", payload },
       captureActivity(emitted),
     );
   expect(emitted.map((event) => event.type)).toEqual([
@@ -150,7 +179,7 @@ test("throttles durable V2 stream updates while retaining the latest text", asyn
     "thr_continuous_stream",
     {
       type: "message.delta",
-      role: "planner",
+      role: "main",
       payload: {
         type: "eco_stream",
         blockKind: "text",
@@ -168,7 +197,7 @@ test("throttles durable V2 stream updates while retaining the latest text", asyn
       "thr_continuous_stream",
       {
         type: "message.delta",
-        role: "planner",
+        role: "main",
         payload: {
           type: "eco_stream",
           blockKind: "text",
@@ -197,7 +226,7 @@ test("persists summary thinking display metadata in the durable V2 event", () =>
     "thr_think_stamp",
     {
       type: "message.delta",
-      role: "planner",
+      role: "main",
       payload: {
         type: "eco_stream",
         blockKind: "thinking",
@@ -228,7 +257,7 @@ test("persists raw thinking display metadata in the durable V2 event", () => {
     "thr_think_raw",
     {
       type: "message.delta",
-      role: "planner",
+      role: "main",
       payload: {
         type: "eco_stream",
         blockKind: "thinking",
@@ -439,7 +468,7 @@ test("preserves useful TaskCreate and TaskUpdate input in tool metadata", () => 
     "thr_tasks",
     {
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "TaskCreate",
@@ -454,7 +483,7 @@ test("preserves useful TaskCreate and TaskUpdate input in tool metadata", () => 
     "thr_tasks",
     {
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "TaskUpdate",
@@ -523,7 +552,7 @@ test("perserves SendMessage resume payload in structured tool metadata", () => {
     "thr_send_message",
     {
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "SendMessage",
@@ -541,7 +570,7 @@ test("perserves SendMessage resume payload in structured tool metadata", () => {
     "thr_send_message",
     {
       type: "tool.completed",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_result",
         tool_name: "SendMessage",
@@ -651,7 +680,7 @@ test("preserves Bash description in structured tool metadata", () => {
     "thr_1",
     {
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "Bash",
@@ -718,7 +747,7 @@ test("emits permission denied tool failures with structured metadata", () => {
     "thr_1",
     {
       type: "tool.failed",
-      role: "planner",
+      role: "main",
       agentId: "agent_researcher",
       payload: {
         type: "tool_permission_denied",
@@ -811,7 +840,7 @@ test("emits completed Read results without file contents", () => {
     "thr_read",
     {
       type: "tool.completed",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_result",
         tool_name: "Read",
@@ -847,7 +876,7 @@ test("emits completed Bash results as a bounded display preview", () => {
     "thr_bash",
     {
       type: "tool.completed",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_result",
         tool_name: "Bash",
@@ -877,7 +906,7 @@ test("emits failed Bash results as a bounded display preview", () => {
     "thr_bash_failed",
     {
       type: "tool.failed",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_result_error",
         tool_name: "Bash",
@@ -907,7 +936,7 @@ test("treats PI tool_result is_error payloads as failed tool metadata", () => {
     "thr_pi_edit",
     {
       type: "tool.failed",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_result",
         tool_name: "edit",
@@ -941,7 +970,7 @@ test("emits failed Edit results with the original file change metadata", () => {
     "thr_edit",
     {
       type: "tool.failed",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_result_error",
         tool_name: "Edit",
@@ -1005,14 +1034,14 @@ test("defers streaming tool placeholder until input is complete", () => {
     tool_use_id: "toolu_plan",
     streaming: true,
   } as const;
-  bridge.handleEvent("thr_1", { type: "tool.started", role: "planner", payload: placeholder }, emit);
+  bridge.handleEvent("thr_1", { type: "tool.started", role: "main", payload: placeholder }, emit);
   // Providers stream one placeholder per argument fragment; the state changes once.
-  bridge.handleEvent("thr_1", { type: "tool.started", role: "planner", payload: placeholder }, emit);
+  bridge.handleEvent("thr_1", { type: "tool.started", role: "main", payload: placeholder }, emit);
   bridge.handleEvent(
     "thr_1",
     {
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "mcp__eco_plan__finalize_plan",
@@ -1055,7 +1084,7 @@ test("announces a second tool call in the same run after the first one started",
       "thr_1",
       {
         type: "tool.started",
-        role: "planner",
+        role: "main",
         payload: { type: "tool_use", tool_name: name, tool_use_id: id, streaming: true },
       },
       emit,
@@ -1077,7 +1106,7 @@ test("emits structured SDK tool metadata without parsing display text", () => {
     "thr_1",
     {
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "Skill",
@@ -1119,7 +1148,7 @@ test("emits Skill detail for alternate SDK skill input keys", () => {
     "thr_1",
     {
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "Skill",
@@ -1157,7 +1186,7 @@ test("labels pi Read of SKILL.md by skill name, not SKILL.md", () => {
     "thr_1",
     {
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "Read",
@@ -1366,14 +1395,14 @@ test("emits Requesting model status as request started activity", () => {
     "thr_1",
     {
       type: "agent.started",
-      role: "planner",
+      role: "main",
       payload: { type: "system", subtype: "status", status: "requesting" },
     },
     (_threadId, _type, message, role) => {
       emitted.push({ type: _type, message, role });
     },
   );
-  expect(emitted).toEqual([{ type: "request.started", message: "Requesting model…", role: "planner" }]);
+  expect(emitted).toEqual([{ type: "request.started", message: "Requesting model…", role: "main" }]);
 });
 
 test("emits SDK api retry status as request retry activity", () => {
@@ -1383,14 +1412,14 @@ test("emits SDK api retry status as request retry activity", () => {
     "thr_1",
     {
       type: "agent.started",
-      role: "planner",
+      role: "main",
       payload: { type: "system", subtype: "api_retry", attempt: 2, max_retries: 5 },
     },
     (_threadId, type, message, role) => {
       emitted.push({ type, message, role });
     },
   );
-  expect(emitted).toEqual([{ type: "request.retry_scheduled", message: "API retry 2/5…", role: "planner" }]);
+  expect(emitted).toEqual([{ type: "request.retry_scheduled", message: "API retry 2/5…", role: "main" }]);
 });
 
 test("emits finalize text when only an empty placeholder preceded it", () => {
@@ -1405,7 +1434,7 @@ test("emits finalize text when only an empty placeholder preceded it", () => {
     "thr_1",
     {
       type: "message.delta",
-      role: "planner",
+      role: "main",
       payload: { type: "eco_stream", blockKind: "text", streamPlaceholder: true },
     },
     emit,
@@ -1414,7 +1443,7 @@ test("emits finalize text when only an empty placeholder preceded it", () => {
     "thr_1",
     {
       type: "message.delta",
-      role: "planner",
+      role: "main",
       payload: {
         type: "eco_stream",
         blockKind: "text",
@@ -1426,8 +1455,8 @@ test("emits finalize text when only an empty placeholder preceded it", () => {
   );
 
   expect(emitted).toEqual([
-    { type: "message.delta", message: "", role: "planner", stream: true },
-    { type: "message.delta", message: "广州今天中雨，25-31C。", role: "planner", stream: false },
+    { type: "message.delta", message: "", role: "main", stream: true },
+    { type: "message.delta", message: "广州今天中雨，25-31C。", role: "main", stream: false },
   ]);
 });
 
@@ -1462,7 +1491,7 @@ test("carries SDK stream block key through activity metadata", () => {
     "thr_1",
     {
       type: "message.delta",
-      role: "planner",
+      role: "main",
       payload: {
         type: "eco_stream",
         blockKind: "text",
@@ -1476,7 +1505,7 @@ test("carries SDK stream block key through activity metadata", () => {
     "thr_1",
     {
       type: "message.delta",
-      role: "planner",
+      role: "main",
       payload: {
         type: "eco_stream",
         blockKind: "text",
@@ -1491,7 +1520,7 @@ test("carries SDK stream block key through activity metadata", () => {
     "thr_1",
     {
       type: "message.delta",
-      role: "planner",
+      role: "main",
       payload: {
         type: "eco_stream",
         blockKind: "text",
@@ -1581,7 +1610,7 @@ test("suppresses replayed SDK text blocks by message id when block indexes diffe
       messageId: "msg_replayed",
     },
   ]) {
-    bridge.handleEvent("thr_replayed", { type: "message.delta", role: "planner", payload }, emit);
+    bridge.handleEvent("thr_replayed", { type: "message.delta", role: "main", payload }, emit);
   }
 
   expect(emitted).toEqual([
@@ -1638,7 +1667,7 @@ test("flushPendingAndReset finalizes open narrative text instead of dropping it"
     "thr_flush",
     {
       type: "message.delta",
-      role: "planner",
+      role: "main",
       payload: {
         type: "eco_stream",
         blockKind: "text",
@@ -1665,7 +1694,7 @@ test("keeps unkeyed ACP thinking and text on separate durable V2 identities", ()
   const send = (payload: Record<string, unknown>) => {
     bridge.handleEvent(
       "thr_acp",
-      { type: "message.delta", role: "planner", payload },
+      { type: "message.delta", role: "main", payload },
       emit,
       undefined,
       options,
@@ -1690,7 +1719,7 @@ test("keeps unkeyed ACP thinking and text on separate durable V2 identities", ()
   const messageKeys = [
     ...new Set(
       emitted
-        .filter((item) => item.role === "planner")
+        .filter((item) => item.role === "main")
         .map(sdkBlockKey)
         .filter((key): key is string => Boolean(key)),
     ),
@@ -1723,7 +1752,7 @@ test("finalizes unkeyed ACP thinking when a tool starts and opens a new durable 
       "thr_acp_tool",
       {
         type: "message.delta",
-        role: "planner",
+        role: "main",
         payload: { type: "eco_stream", blockKind: "thinking", text },
       },
       emit,
@@ -1738,7 +1767,7 @@ test("finalizes unkeyed ACP thinking when a tool starts and opens a new durable 
     "thr_acp_tool",
     {
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "Read",
@@ -1788,7 +1817,7 @@ test("does not finalize keyed thinking streams on tool.started", () => {
     "thr_keyed",
     {
       type: "message.delta",
-      role: "planner",
+      role: "main",
       payload: {
         type: "eco_stream",
         blockKind: "thinking",
@@ -1804,7 +1833,7 @@ test("does not finalize keyed thinking streams on tool.started", () => {
     "thr_keyed",
     {
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "Read",
@@ -1833,7 +1862,7 @@ test("ACP thought chunks with the same messageId stay one durable thinking block
       "thr_acp_msgid",
       {
         type: "message.delta",
-        role: "planner",
+        role: "main",
         payload: { type: "eco_stream", blockKind: "thinking", text, messageId },
       },
       emit,
@@ -1862,7 +1891,7 @@ test("ACP thought chunks with different messageIds open a new durable thinking b
       "thr_acp_msgid_split",
       {
         type: "message.delta",
-        role: "planner",
+        role: "main",
         payload: { type: "eco_stream", blockKind: "thinking", text, messageId },
       },
       emit,
@@ -1895,7 +1924,7 @@ test("ACP thought chunk without messageId then with messageId stays one durable 
       "thr_acp_msgid_adopt",
       {
         type: "message.delta",
-        role: "planner",
+        role: "main",
         payload: {
           type: "eco_stream",
           blockKind: "thinking",
@@ -1929,7 +1958,7 @@ test("ACP thought with the same messageId after a tool opens a new durable block
       "thr_acp_msgid_tool",
       {
         type: "message.delta",
-        role: "planner",
+        role: "main",
         payload: { type: "eco_stream", blockKind: "thinking", text, messageId: "msg_thought_1" },
       },
       emit,
@@ -1943,7 +1972,7 @@ test("ACP thought with the same messageId after a tool opens a new durable block
     "thr_acp_msgid_tool",
     {
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "Read",
@@ -1989,7 +2018,7 @@ test("finalized ACP thinking keeps thinkingStartedAt from the first chunk", () =
     "thr_acp_timing",
     {
       type: "message.delta",
-      role: "planner",
+      role: "main",
       payload: { type: "eco_stream", blockKind: "thinking", text: "想一" },
     },
     emit,
@@ -2000,7 +2029,7 @@ test("finalized ACP thinking keeps thinkingStartedAt from the first chunk", () =
     "thr_acp_timing",
     {
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "Read",
@@ -2027,7 +2056,7 @@ test("unkeyed narrative streams are isolated per runAttemptId in the durable tai
       "thr_attempt",
       {
         type: "message.delta",
-        role: "planner",
+        role: "main",
         payload: { type: "eco_stream", text },
       },
       emit,
@@ -2066,7 +2095,7 @@ test("an image-view tool_result carries the prompt and the vision answer", () =>
     "thr_sdk_view_image",
     {
       type: "tool.completed",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_result",
         tool_name: "mcp__eco_image_view__view_image",
@@ -2114,7 +2143,7 @@ test("a PI mcp-proxy view_image keeps the prompt on both the start and the resul
     "thr_pi_view_image",
     {
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: { type: "tool_use", tool_name: "mcp", tool_use_id: "call_pi_1", input: piInput },
     },
     emit,
@@ -2125,7 +2154,7 @@ test("a PI mcp-proxy view_image keeps the prompt on both the start and the resul
     "thr_pi_view_image",
     {
       type: "tool.completed",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_result",
         tool_name: "mcp",
@@ -2173,7 +2202,7 @@ test("an image-view tool_result without a recorded prompt still keeps the answer
     "thr_sdk_view_image_no_prompt",
     {
       type: "tool.completed",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_result",
         tool_name: "mcp__eco_image_view__view_image",

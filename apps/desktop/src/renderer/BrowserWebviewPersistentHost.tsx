@@ -1,12 +1,17 @@
 import { type CSSProperties, useCallback, useEffect, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
+import { fitBrowserViewport, responsiveBrowserViewport } from "../shared/browser-viewport";
+import { BrowserViewportResizeFrame } from "./BrowserViewportResizeFrame";
 import { useBrowserStateSelector } from "./browser-state-store";
 import {
   BROWSER_WEBVIEW_OFFSCREEN_HEIGHT,
   BROWSER_WEBVIEW_OFFSCREEN_WIDTH,
   BROWSER_WEBVIEW_VISIBLE_Z_INDEX,
+  getBrowserWebviewDisplayScale,
+  isBrowserWebviewDeviceMode,
   registerBrowserWebviewHostSlot,
   resolveBrowserWebviewViewportRect,
+  setBrowserWebviewDisplayScale,
   subscribeBrowserWebviewViewportRect,
 } from "./browser-webview-layout";
 import { browserWebviewPool } from "./browser-webview-pool";
@@ -48,6 +53,13 @@ export function BrowserWebviewPersistentHost({ browserId }: BrowserWebviewPersis
   );
   const getRect = useCallback(() => resolveBrowserWebviewViewportRect(browserId), [browserId]);
   const rect = useSyncExternalStore(subscribeRect, getRect, getRect);
+  const getDeviceMode = useCallback(() => isBrowserWebviewDeviceMode(browserId), [browserId]);
+  const deviceMode = useSyncExternalStore(subscribeRect, getDeviceMode, getDeviceMode);
+  const getDisplayScale = useCallback(() => getBrowserWebviewDisplayScale(browserId), [browserId]);
+  const displayScale = useSyncExternalStore(subscribeRect, getDisplayScale, getDisplayScale);
+  const viewport = useBrowserStateSelector(
+    (state) => state?.allInstances.find((instance) => instance.id === browserId)?.viewport,
+  );
   const loadError = useBrowserStateSelector(
     (state) => state?.instances.find((instance) => instance.id === browserId)?.loadError,
   );
@@ -74,69 +86,117 @@ export function BrowserWebviewPersistentHost({ browserId }: BrowserWebviewPersis
   useEffect(() => {
     return () => {
       registerBrowserWebviewHostSlot(browserId, null);
+      setBrowserWebviewDisplayScale(browserId, undefined);
     };
   }, [browserId]);
 
   const hidden = !rect || rect.width < 8 || rect.height < 8;
-  const style: CSSProperties = hidden
-    ? {
-        position: "fixed",
-        left: -10000,
-        top: 0,
-        width: BROWSER_WEBVIEW_OFFSCREEN_WIDTH,
-        height: BROWSER_WEBVIEW_OFFSCREEN_HEIGHT,
-        visibility: "hidden",
-        pointerEvents: "none",
-        overflow: "hidden",
-      }
+  const viewSize = viewport ?? (rect && deviceMode ? responsiveBrowserViewport(rect) : undefined);
+  const fit = rect && viewSize ? fitBrowserViewport(rect, viewSize, displayScale) : undefined;
+  const wrapperStyle: CSSProperties = hidden
+    ? { position: "fixed", left: -10000, top: 0, visibility: "hidden", pointerEvents: "none" }
     : {
         position: "fixed",
         left: rect.left,
         top: rect.top,
         width: rect.width,
         height: rect.height,
+        overflow: "auto",
+        zIndex: BROWSER_WEBVIEW_VISIBLE_Z_INDEX,
+      };
+  const style: CSSProperties = hidden
+    ? {
+        position: "fixed",
+        left: -10000,
+        top: 0,
+        width: viewSize?.width ?? BROWSER_WEBVIEW_OFFSCREEN_WIDTH,
+        height: viewSize?.height ?? BROWSER_WEBVIEW_OFFSCREEN_HEIGHT,
+        visibility: "hidden",
+        pointerEvents: "none",
+        overflow: "hidden",
+      }
+    : {
+        position: "absolute",
+        left: fit?.left ?? 0,
+        top: fit?.top ?? 0,
+        width: viewSize?.width ?? rect.width,
+        height: viewSize?.height ?? rect.height,
+        transform: fit ? `scale(${fit.scale})` : undefined,
+        transformOrigin: "top left",
         zIndex: BROWSER_WEBVIEW_VISIBLE_Z_INDEX,
         overflow: "hidden",
         pointerEvents: "auto",
       };
 
   return (
-    <div
-      ref={hostRef}
-      className="browser-webview-host-slot"
-      data-browser-host
-      data-browser-id={browserId}
-      data-browser-host-hidden={hidden ? "true" : "false"}
-      data-browser-status={showStatus ? "true" : "false"}
-      data-browser-empty={showEmptyState ? "true" : "false"}
-      style={style}
-    >
-      {loadError ? (
-        <div className="browser-page-status" role="status">
-          <div className="browser-page-status-inner">
-            <BrowserStatusMark />
-            <h1>{t("browser.loadErrorTitle")}</h1>
-            <p className="browser-page-status-subtitle">
-              {t("browser.loadErrorSubtitle", { host: errorHost })}
-            </p>
-            <div className="browser-page-status-try">
-              <div>{t("browser.loadErrorTry")}</div>
-              <ul>
-                <li>{t("browser.loadErrorNetwork")}</li>
-                <li>{t("browser.loadErrorProxy")}</li>
-              </ul>
+    <div className="browser-viewport-scroll" style={wrapperStyle}>
+      <div
+        style={{
+          position: "relative",
+          width: fit && rect ? Math.max(rect.width, fit.width + 24) : rect?.width,
+          height: fit && rect ? Math.max(rect.height, fit.height + 24) : rect?.height,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          ref={hostRef}
+          className="browser-webview-host-slot"
+          data-browser-host
+          data-browser-id={browserId}
+          data-browser-device={viewport?.preset ?? "auto"}
+          data-browser-host-hidden={hidden ? "true" : "false"}
+          data-browser-status={showStatus ? "true" : "false"}
+          data-browser-empty={showEmptyState ? "true" : "false"}
+          style={style}
+        >
+          {loadError ? (
+            <div className="browser-page-status" role="status">
+              <div className="browser-page-status-inner">
+                <BrowserStatusMark />
+                <h1>{t("browser.loadErrorTitle")}</h1>
+                <p className="browser-page-status-subtitle">
+                  {t("browser.loadErrorSubtitle", { host: errorHost })}
+                </p>
+                <div className="browser-page-status-try">
+                  <div>{t("browser.loadErrorTry")}</div>
+                  <ul>
+                    <li>{t("browser.loadErrorNetwork")}</li>
+                    <li>{t("browser.loadErrorProxy")}</li>
+                  </ul>
+                </div>
+                <div className="browser-page-status-code">{loadError.description}</div>
+                <button
+                  type="button"
+                  className="browser-page-status-retry"
+                  onClick={() => void window.eco?.browserReload?.(browserId)}
+                >
+                  {t("browser.reload")}
+                </button>
+              </div>
             </div>
-            <div className="browser-page-status-code">{loadError.description}</div>
-            <button
-              type="button"
-              className="browser-page-status-retry"
-              onClick={() => void window.eco?.browserReload?.(browserId)}
-            >
-              {t("browser.reload")}
-            </button>
-          </div>
+          ) : null}
         </div>
-      ) : null}
+        {!hidden && deviceMode && fit && rect && viewSize ? (
+          <BrowserViewportResizeFrame
+            browserId={browserId}
+            viewport={{
+              ...viewSize,
+              deviceScaleFactor: viewport?.deviceScaleFactor ?? 1,
+              mobile: viewport?.mobile ?? false,
+              touch: viewport?.touch ?? false,
+            }}
+            scale={fit.scale}
+            centered={{ x: fit.width + 24 <= rect.width, y: fit.height + 24 <= rect.height }}
+            style={{
+              position: "absolute",
+              left: fit.left,
+              top: fit.top,
+              width: fit.width,
+              height: fit.height,
+            }}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

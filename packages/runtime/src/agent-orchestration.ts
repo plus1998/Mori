@@ -101,6 +101,8 @@ export interface EcoMainAgentConfig {
 }
 
 export interface EcoAgentInstanceConfig {
+  /** Omitted: derive from this agent's resolved route at query creation. */
+  claudeAutoCompactWindow?: number;
   agentKey: string;
   templateId: string;
   displayName?: string;
@@ -581,6 +583,7 @@ function buildSdkAgentDefinition(
   const skills = sessionSkills.length > 0 ? [...sessionSkills] : [];
   return {
     description: buildAgentDescription(agent, template),
+    ...(agent.claudeAutoCompactWindow !== undefined && { autoCompactWindow: agent.claudeAutoCompactWindow }),
     ...(tools.length > 0 ? { tools } : {}),
     ...(disallowedTools.length > 0 ? { disallowedTools } : {}),
     prompt: template.prompt,

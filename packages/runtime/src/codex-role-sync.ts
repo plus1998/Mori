@@ -8,11 +8,13 @@ import type {
 } from "./agent-orchestration.js";
 import {
   buildCodexGatewayModelAlias,
+  buildCodexMcpServerOverride,
   buildCodexMcpServerTomlLines,
   buildCodexModelProviderSlug,
   CODEX_BUILT_IN_OPENAI_PROVIDER_ID,
   type CodexAgentRoleForConfigSync,
   type CodexMcpServerForConfigSync,
+  type CodexRemoteCompactionSupport,
   type EcoProviderForCodexConfig,
 } from "./codex-config-sync.js";
 import { resolveCodexMultiAgentVersion } from "./codex-model-catalog-sync.js";
@@ -70,7 +72,24 @@ export interface CodexMcpServerVisibilityOverride {
   enabled_tools?: string[];
 }
 
+/**
+ * Thread-level MCP server definition. Codex accepts the same fields as a
+ * `[mcp_servers.*]` config table, so a thread can carry its own descriptor
+ * without touching the process-global `config.toml`.
+ */
+export interface CodexMcpServerThreadDefinition extends Partial<CodexMcpServerVisibilityOverride> {
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  http_headers?: Record<string, string>;
+  startup_timeout_sec?: number;
+  tool_timeout_sec?: number;
+  tools?: Record<string, { output_token_limit: number }>;
+}
+
 export interface CodexThreadConfigOverrides extends Record<string, unknown> {
+  model_providers?: Record<string, { capabilities: { remote_compaction: CodexRemoteCompactionSupport } }>;
   features?: {
     multi_agent: boolean;
     hooks: boolean;
@@ -81,7 +100,58 @@ export interface CodexThreadConfigOverrides extends Record<string, unknown> {
   skills?: {
     config: Array<{ path: string; enabled: boolean }>;
   };
-  mcp_servers: Record<string, CodexMcpServerVisibilityOverride>;
+  mcp_servers: Record<string, CodexMcpServerThreadDefinition>;
+}
+
+/** Full thread-level definitions keyed by Codex server name. */
+export function buildCodexMcpServerDefinitions(
+  servers: readonly CodexMcpServerForConfigSync[] | undefined,
+): Record<string, CodexMcpServerThreadDefinition> {
+  const definitions: Record<string, CodexMcpServerThreadDefinition> = {};
+  for (const server of servers ?? []) {
+    const name = sanitizeMcpServerName(server.name);
+    if (!name) continue;
+    definitions[name] = buildCodexMcpServerOverride(server) as CodexMcpServerThreadDefinition;
+  }
+  return definitions;
+}
+
+/**
+ * Merge full server definitions under the actor-specific visibility override.
+ * Visibility wins for `enabled` / `enabled_tools`; transport fields survive.
+ */
+export function withCodexMcpServerDefinitions(
+  config: CodexThreadConfigOverrides,
+  servers: readonly CodexMcpServerForConfigSync[] | undefined,
+): CodexThreadConfigOverrides {
+  const definitions = buildCodexMcpServerDefinitions(servers);
+  const names = new Set([...Object.keys(definitions), ...Object.keys(config.mcp_servers ?? {})]);
+  if (names.size === 0) {
+    return { ...config };
+  }
+  return {
+    ...config,
+    mcp_servers: Object.fromEntries(
+      [...names].map((name) => [
+        name,
+        { ...(definitions[name] ?? {}), ...(config.mcp_servers?.[name] ?? {}) },
+      ]),
+    ),
+  };
+}
+
+export function withCodexRemoteCompaction(
+  config: CodexThreadConfigOverrides,
+  providerId: string,
+  support: CodexRemoteCompactionSupport = "unsupported",
+): CodexThreadConfigOverrides {
+  // The built-in subscription provider has no candidate entry or generated provider table.
+  if (providerId.trim() === CODEX_BUILT_IN_OPENAI_PROVIDER_ID) return { ...config };
+  const slug = buildCodexModelProviderSlug(providerId);
+  return {
+    ...config,
+    model_providers: { ...config.model_providers, [slug]: { capabilities: { remote_compaction: support } } },
+  };
 }
 
 export function withCodexSkillConfig(
@@ -211,9 +281,7 @@ export async function syncOrchestrationAgentsToCodexRoles(
 
   if (includeExplore) {
     const exploreToolPolicy = applyCodexWebSearchOverride(
-      input.executionConfirmationMode
-        ? applyCodexExecutionConfirmation(BUILTIN_EXPLORE_TOOL_POLICY, input.executionConfirmationMode)
-        : BUILTIN_EXPLORE_TOOL_POLICY,
+      BUILTIN_EXPLORE_TOOL_POLICY,
       input.webSearchOverride,
     );
     const mcpVisibility = buildActorMcpVisibility({
@@ -248,12 +316,7 @@ export async function syncOrchestrationAgentsToCodexRoles(
       throw new Error(`Missing agent template for ${agent.agentKey}: ${agent.templateId}`);
     }
     const configuredToolPolicy = resolveEffectiveAgentToolPolicy(agent, template);
-    const toolPolicy = applyCodexWebSearchOverride(
-      input.executionConfirmationMode
-        ? applyCodexExecutionConfirmation(configuredToolPolicy, input.executionConfirmationMode)
-        : configuredToolPolicy,
-      input.webSearchOverride,
-    );
+    const toolPolicy = applyCodexWebSearchOverride(configuredToolPolicy, input.webSearchOverride);
     const mcpVisibility = buildActorMcpVisibility({
       actor: roleId,
       mcpScope,
@@ -301,25 +364,36 @@ export async function syncOrchestrationAgentsToCodexRoles(
       providerId: draft.providerId,
       ...(draft.apiCompat && { apiCompat: draft.apiCompat }),
       sandboxMode: draft.sandboxMode,
-      toolPolicy: cloneEcoToolPolicy(draft.toolPolicy),
+      // Native children inherit the live parent turn's sandbox/approval policy.
+      // Keep role files stable across composer mode switches; only resumed
+      // child turns need the current mode in their per-turn runtime policy.
+      toolPolicy: input.executionConfirmationMode
+        ? applyCodexExecutionConfirmation(draft.toolPolicy, input.executionConfirmationMode)
+        : cloneEcoToolPolicy(draft.toolPolicy),
     });
   }
 
   const commonThreadConfig = buildThreadAgentConfig(roles, input.orchestration.mainAgent.modelRef.modelId);
-  const threadConfig: CodexThreadConfigOverrides = {
-    ...commonThreadConfig,
-    mcp_servers: cloneMcpVisibility(mainMcpVisibility),
-  };
+  const threadConfig: CodexThreadConfigOverrides = withCodexMcpServerDefinitions(
+    {
+      ...commonThreadConfig,
+      mcp_servers: cloneMcpVisibility(mainMcpVisibility),
+    },
+    input.mcpServers,
+  );
   const roleThreadConfigs = Object.fromEntries(
     drafts.map((draft) => [
       draft.roleId,
-      withCodexNativeImageView(
-        {
-          ...commonThreadConfig,
-          mcp_servers: cloneMcpVisibility(draft.mcpVisibility),
-        },
-        draft.providerId,
-        input.resolveSupportsImageInput?.(draft),
+      withCodexMcpServerDefinitions(
+        withCodexNativeImageView(
+          {
+            ...commonThreadConfig,
+            mcp_servers: cloneMcpVisibility(draft.mcpVisibility),
+          },
+          draft.providerId,
+          input.resolveSupportsImageInput?.(draft),
+        ),
+        input.mcpServers,
       ),
     ]),
   );
@@ -386,15 +460,6 @@ export function assertCodexRoleProvidersAvailable(
     if (!provider) {
       throw new Error(
         `Codex role '${role.roleId}' requires provider '${providerId}' (model '${modelId}'), but it is missing or disabled in Settings. Enable the provider or update the orchestration modelRef.`,
-      );
-    }
-    if (
-      provider.compactionMode === "responses-native" &&
-      role.apiCompat !== undefined &&
-      role.apiCompat !== "openai_responses"
-    ) {
-      throw new Error(
-        `Codex role '${role.roleId}' cannot override provider '${providerId}' to apiCompat=${role.apiCompat} because the provider uses responses-native compaction. Use openai_responses or switch the provider to codex-local compaction.`,
       );
     }
   }

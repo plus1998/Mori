@@ -52,3 +52,14 @@ test("advanceImageGalleryQueue closes the current image and exposes the next", (
   ]);
   expect(advanceImageGalleryQueue(advanceImageGalleryQueue(advanceImageGalleryQueue(queue)))).toEqual([]);
 });
+
+test("closing a browsed image removes that image and preserves the others in order", () => {
+  const queue = [
+    imageGalleryDisplayItem("first"),
+    imageGalleryDisplayItem("second"),
+    imageGalleryDisplayItem("third"),
+  ];
+  expect(advanceImageGalleryQueue(queue, "display:second")).toEqual([queue[0], queue[2]]);
+  expect(advanceImageGalleryQueue(queue, "already-closed")).toEqual(queue);
+  expect(advanceImageGalleryQueue([])).toEqual([]);
+});

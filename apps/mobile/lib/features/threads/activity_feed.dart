@@ -26,9 +26,12 @@ import '../../core/utils/prompt_image_attachment.dart';
 import '../../core/utils/subagent_projection_feed.dart';
 import '../../core/utils/subagent_session_timing.dart'
     show formatSubagentDuration;
+import '../../core/utils/tool_writing_indicator.dart';
+import '../../core/utils/thread_status.dart';
 import '../../core/widgets/activity_feed_block.dart';
 import '../../core/widgets/activity_feed_speak_button.dart';
 import '../../core/widgets/eco_markdown.dart';
+import '../../core/widgets/streaming_eco_markdown.dart';
 import '../../core/widgets/eco_surface_card.dart';
 import '../../core/widgets/image_memory_lightbox.dart';
 import '../../core/widgets/paced_stream_text.dart';
@@ -45,6 +48,7 @@ const activityFeedLoadEarlierThreshold = 160.0;
 const activityFeedLoadingIndicatorSize = 24.0;
 const _scrollToBottomButtonSize = 36.0;
 const _scrollToBottomButtonAlignedBottomGap = 6.0;
+const _toolWaitShimmerPause = Duration(milliseconds: 4200);
 
 typedef ActivityFeedEntryCallback = void Function(ActivityFeedEntry entry);
 typedef ActivityFeedToolDetailLoader =
@@ -146,6 +150,7 @@ enum ActivityFeedKind {
   assistant,
   thinking,
   reasoningStage,
+  toolWriting,
   action,
   imageView,
   actionGroup,
@@ -237,7 +242,7 @@ class ActivityFeedEntry {
   final String? toolUseId;
   final bool reconnecting;
 
-  /// The provider's own label for the row (`planner`, `coder`, ...), from the timeline item
+  /// The provider's own label for the row (`main`, `coder`, ...), from the timeline item
   /// it came from.
   ///
   /// The Feed picks a turn's final output by this label, and the desktop Feed renders it, so
@@ -438,9 +443,121 @@ List<ActivityFeedEntry> buildActivityFeed({
   final groupedEphemeralTail = replaceLatestToolWithReasoningStage(
     groupedThinking,
   );
+  final liveEntries = resolveActivityFeedLiveSlot(
+    groupedEphemeralTail,
+    projection: runProjection,
+    isRunning:
+        conversationLive ??
+        !isThreadStoppedForMessageMeta(runProjection.status),
+    l10n: strings,
+  );
   return groupTurns
-      ? groupProjectionActivityFeedTurns(groupedEphemeralTail, runProjection)
-      : groupedEphemeralTail;
+      ? groupProjectionActivityFeedTurns(liveEntries, runProjection)
+      : liveEntries;
+}
+
+/// The main Feed has one live slot. Thinking, summary and writing replace each
+/// other; a genuinely running tool or compaction owns the row until it settles.
+/// Resolve before turn grouping so replacing a tool cannot leave a sibling
+/// waiting line outside the turn.
+List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
+  List<ActivityFeedEntry> entries, {
+  required ThreadRunProjectionSnapshot projection,
+  required bool isRunning,
+  required AppLocalizations l10n,
+}) {
+  if (!isRunning) return entries;
+  final writingSpan = resolveToolWritingSpan(projection.requestSpans);
+  ThreadRunProjectionRequestSpan? pendingThinking;
+  for (final span in projection.requestSpans) {
+    if (span.ownerAgentId != null || span.pendingThinkingSince == null) {
+      continue;
+    }
+    // The content can arrive before the refreshed extras clear the start fact.
+    if (span.pendingThinkingMessageId != null &&
+        projection.timeline.any(
+          (item) =>
+              item.metadata?['conversationV2MessageId'] ==
+                  span.pendingThinkingMessageId &&
+              item.text.trim().isNotEmpty,
+        )) {
+      continue;
+    }
+    if (pendingThinking == null ||
+        span.pendingThinkingSince!.compareTo(
+              pendingThinking.pendingThinkingSince!,
+            ) >
+            0) {
+      pendingThinking = span;
+    }
+  }
+
+  ActivityFeedEntry? summary;
+  ActivityFeedEntry? waiting;
+  final content = <ActivityFeedEntry>[];
+  for (final entry in entries) {
+    if (entry.kind == ActivityFeedKind.reasoningStage) {
+      summary = entry;
+    } else if (_isEmptyLiveThinkingStatus(entry)) {
+      waiting = entry;
+    } else {
+      content.add(entry);
+    }
+  }
+  if (content.any(_containsRunningTool) ||
+      content.any(_containsRunningContextCompaction)) {
+    return content;
+  }
+
+  final owner = content.lastOrNull;
+  final replacesTool = owner != null && _isToolAggregateEntry(owner);
+  if (replacesTool && writingSpan == null && pendingThinking == null) {
+    return content;
+  }
+
+  final ActivityFeedEntry? status;
+  if (writingSpan != null) {
+    status = ActivityFeedEntry(
+      id: 'active-tail',
+      kind: ActivityFeedKind.toolWriting,
+      text: toolWritingLabel(writingSpan.writingTool!, l10n),
+      streaming: true,
+      requestId: writingSpan.requestId,
+      runAttemptId: owner?.runAttemptId,
+      at: writingSpan.writingTool!.since,
+    );
+  } else if (pendingThinking != null) {
+    status = ActivityFeedEntry(
+      id: 'active-tail',
+      kind: ActivityFeedKind.thinking,
+      text: '',
+      streaming: true,
+      requestId: pendingThinking.requestId,
+      runAttemptId: owner?.runAttemptId,
+      at: pendingThinking.pendingThinkingSince,
+    );
+  } else {
+    status = summary ?? waiting;
+  }
+  if (status == null) return content;
+  if (replacesTool) {
+    return [
+      ...content.take(content.length - 1),
+      status.withIdAtSequence(
+        id: owner.id,
+        at: owner.at,
+        sequence: owner.sequence,
+      ),
+    ];
+  }
+  return [...content, status];
+}
+
+bool _isEmptyLiveThinkingStatus(ActivityFeedEntry entry) {
+  return (entry.kind == ActivityFeedKind.thinking ||
+          entry.kind == ActivityFeedKind.assistant) &&
+      entry.streaming &&
+      entry.text.trim().isEmpty;
 }
 
 /// Chooses the Feed rows for a live thread session.
@@ -981,7 +1098,13 @@ bool shouldAppendPendingAgentThinking({
   if (!isRunning) return false;
   if (entries.any(_containsRunningContextCompaction)) return false;
   if (entries.any(_containsRunningTool)) return false;
-  return !entries.any(_containsLiveThinkingStatus);
+  if (entries.any(_containsLiveThinkingStatus)) return false;
+  if (entries.isEmpty) return true;
+  final tail = _liveFeedTail(entries);
+  return tail.kind == ActivityFeedKind.user ||
+      (tail.kind == ActivityFeedKind.turn &&
+          tail.running &&
+          tail.processEntries.isEmpty);
 }
 
 ActivityFeedEntry _liveFeedTail(List<ActivityFeedEntry> entries) {
@@ -993,7 +1116,8 @@ ActivityFeedEntry _liveFeedTail(List<ActivityFeedEntry> entries) {
 }
 
 bool _isLiveThinkingStatus(ActivityFeedEntry entry) {
-  if (entry.kind == ActivityFeedKind.reasoningStage) {
+  if (entry.kind == ActivityFeedKind.reasoningStage ||
+      entry.kind == ActivityFeedKind.toolWriting) {
     return true;
   }
   return (entry.kind == ActivityFeedKind.assistant ||
@@ -1586,6 +1710,8 @@ class _ActivityFeedEntryTile extends StatelessWidget {
         );
       case ActivityFeedKind.reasoningStage:
         return _WaitingThinkingLine(label: entry.text);
+      case ActivityFeedKind.toolWriting:
+        return _WaitingThinkingLine(label: entry.text, writing: true);
       case ActivityFeedKind.action:
         return _ActionTile(
           label: entry.text,
@@ -2607,7 +2733,7 @@ class _ClarificationAnswerTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rows = parseClarificationAnswersSummary(text) ?? const [];
+    final rows = parseClarificationAnswers(text) ?? const [];
     final eco = ecoColors(context);
 
     return Align(
@@ -2782,35 +2908,17 @@ class _StreamingFeedMarkdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final partition = partitionStreamingMarkdown(text, streaming: true);
-    final structuralTail = isStructuralStreamingTail(partition.tail);
     final tailStyle = activityFeedBodyStyle(
       context,
       color: color ?? ecoColors(context).textMuted,
       height: compact ? 1.45 : 1.55,
     );
-    if (!structuralTail) {
-      return EcoMarkdown(
-        text: text,
-        compact: compact,
-        muted: muted,
-        selectable: false,
-        fontSizeScale: activityFeedBodyFontScale,
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (partition.stable.trim().isNotEmpty)
-          EcoMarkdown(
-            text: partition.stable,
-            compact: compact,
-            muted: muted,
-            selectable: false,
-            fontSizeScale: activityFeedBodyFontScale,
-          ),
-        if (partition.tail.isNotEmpty) Text(partition.tail, style: tailStyle),
-      ],
+    return StreamingEcoMarkdown(
+      text: text,
+      compact: compact,
+      muted: muted,
+      fontSizeScale: activityFeedBodyFontScale,
+      tailStyle: tailStyle,
     );
   }
 }
@@ -2818,20 +2926,22 @@ class _StreamingFeedMarkdown extends StatelessWidget {
 /// Empty/live thinking status — same shell for "正在思考" and ephemeral
 /// reasoning summary.
 class _WaitingThinkingLine extends StatelessWidget {
-  const _WaitingThinkingLine({required this.label});
+  const _WaitingThinkingLine({required this.label, this.writing = false});
 
   final String label;
+  final bool writing;
 
   @override
   Widget build(BuildContext context) {
-    return _ThinkingSummaryCarousel(label: label);
+    return _ThinkingSummaryCarousel(label: label, writing: writing);
   }
 }
 
 class _ThinkingSummaryCarousel extends StatefulWidget {
-  const _ThinkingSummaryCarousel({required this.label});
+  const _ThinkingSummaryCarousel({required this.label, this.writing = false});
 
   final String label;
+  final bool writing;
 
   @override
   State<_ThinkingSummaryCarousel> createState() =>
@@ -2843,7 +2953,9 @@ class _ThinkingSummaryCarouselState extends State<_ThinkingSummaryCarousel> {
   var _activeIndex = 0;
   var _linesKey = '';
 
-  List<String> get _lines => splitThinkingCarouselLines(widget.label);
+  List<String> get _lines => widget.writing
+      ? [widget.label]
+      : splitThinkingCarouselLines(widget.label);
 
   @override
   void initState() {
@@ -2892,40 +3004,58 @@ class _ThinkingSummaryCarouselState extends State<_ThinkingSummaryCarousel> {
       child: SizedBox(
         key: const ValueKey('activity-waiting-thinking'),
         height: lineHeight,
-        child: ClipRect(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 260),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeIn,
-            layoutBuilder: (current, previous) => Stack(
-              alignment: Alignment.topLeft,
-              children: [...previous, ?current],
+        child: Row(
+          children: [
+            if (widget.writing) ...[
+              SizedBox(
+                key: const ValueKey('activity-tool-writing-spinner'),
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5,
+                  color: ecoColors(context).textMuted,
+                ),
+              ),
+              const SizedBox(width: 7),
+            ],
+            Expanded(
+              child: ClipRect(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 260),
+                  switchInCurve: Curves.easeOut,
+                  switchOutCurve: Curves.easeIn,
+                  layoutBuilder: (current, previous) => Stack(
+                    alignment: Alignment.topLeft,
+                    children: [...previous, ?current],
+                  ),
+                  transitionBuilder: (child, animation) {
+                    final isIncoming = child.key == ValueKey(activeText);
+                    final offset = isIncoming
+                        ? Tween<Offset>(
+                            begin: const Offset(0, 1),
+                            end: Offset.zero,
+                          ).animate(animation)
+                        : Tween<Offset>(
+                            begin: const Offset(0, -1),
+                            end: Offset.zero,
+                          ).animate(animation);
+                    return ClipRect(
+                      child: SlideTransition(position: offset, child: child),
+                    );
+                  },
+                  child: ShimmerText(
+                    key: ValueKey(activeText),
+                    text: activeText,
+                    style: style,
+                    baseColor: ecoColors(context).textMuted,
+                    highlightColor: ecoColors(context).textSecondary,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
             ),
-            transitionBuilder: (child, animation) {
-              final isIncoming = child.key == ValueKey(activeText);
-              final offset = isIncoming
-                  ? Tween<Offset>(
-                      begin: const Offset(0, 1),
-                      end: Offset.zero,
-                    ).animate(animation)
-                  : Tween<Offset>(
-                      begin: const Offset(0, -1),
-                      end: Offset.zero,
-                    ).animate(animation);
-              return ClipRect(
-                child: SlideTransition(position: offset, child: child),
-              );
-            },
-            child: ShimmerText(
-              key: ValueKey(activeText),
-              text: activeText,
-              style: style,
-              baseColor: ecoColors(context).textMuted,
-              highlightColor: ecoColors(context).textSecondary,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
+          ],
         ),
       ),
     );
@@ -4241,6 +4371,7 @@ class _ActionSummaryLine extends StatelessWidget {
                 child: lifecycle == ToolActionLifecycle.running
                     ? ShimmerText(
                         text: label,
+                        pauseDuration: _toolWaitShimmerPause,
                         baseColor: eco.textMuted,
                         highlightColor: eco.textSecondary,
                         style: activityFeedBodyStyle(
@@ -4968,6 +5099,7 @@ class _SubagentMissionTileState extends State<_SubagentMissionTile> {
                       child: widget.running
                           ? ShimmerText(
                               text: title,
+                              pauseDuration: _toolWaitShimmerPause,
                               baseColor: eco.textMuted,
                               highlightColor: eco.textSecondary,
                               style: titleStyle,

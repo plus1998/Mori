@@ -65,6 +65,7 @@ const STRUCTURAL_METADATA_KEYS = new Set([
   "sdkTaskKind",
   "status",
   "streamKey",
+  "thinkingStartedAt",
   "todoId",
   "toolName",
   "toolUseId",

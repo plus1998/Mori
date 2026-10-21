@@ -383,7 +383,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
         id: `${input.threadId}:codex-thread-resumed`,
         threadId: input.threadId,
         agentId: "system",
-        role: "planner",
+        role: "main",
         type: "agent.started",
         payload: { codexThreadId, resumed: true },
       });
@@ -410,7 +410,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
         id: `${input.threadId}:codex-thread-started`,
         threadId: input.threadId,
         agentId: "system",
-        role: "planner",
+        role: "main",
         type: "agent.started",
         payload: { codexThreadId },
       });
@@ -483,8 +483,8 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
       yield createAgentEvent({
         id: `${input.threadId}:codex-turn-started`,
         threadId: input.threadId,
-        agentId: "planner",
-        role: "planner",
+        agentId: "main",
+        role: "main",
         type: "message.delta",
         payload: { text: "" },
       });
@@ -500,8 +500,8 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
       yield createAgentEvent({
         id: `${input.threadId}:codex-turn-completed`,
         threadId: input.threadId,
-        agentId: "planner",
-        role: "planner",
+        agentId: "main",
+        role: "main",
         type: "agent.completed",
         payload: { codexThreadId, turn: completed },
       });

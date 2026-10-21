@@ -13,6 +13,10 @@ export const ECO_REALTIME_TOPIC_PREFIX = {
   vault: "eco:vault:",
 } as const;
 
+/** A mobile bind subscription asks its desktop to discover committed bindings. */
+export const ECO_REALTIME_BINDINGS_CHANGED_EVENT = "eco.bindings.changed";
+export const ECO_REALTIME_BINDING_READY_EVENT = "eco.binding.ready";
+
 export type EcoRealtimeTopicKind = keyof typeof ECO_REALTIME_TOPIC_PREFIX;
 
 export type EcoRealtimeTopic = `eco:user:${string}` | `eco:bind:${string}` | `eco:vault:${string}`;

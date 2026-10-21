@@ -49,12 +49,12 @@ test("AgentLifecycleService rehydrates in-flight attempt after history prune wip
 
   // Simulate rewind prune deleting the DB row while lifecycle still holds it.
   store.attempts.delete(`thr_rehydrate:${attempt.attemptId}`);
-  store.agents.delete(`thr_rehydrate:planner:${attempt.attemptId}`);
+  store.agents.delete(`thr_rehydrate:main:${attempt.attemptId}`);
   expect(store.getAttempt("thr_rehydrate", attempt.attemptId)).toBeUndefined();
 
   expect(service.rehydrateCurrentRunAttempt("thr_rehydrate")).toBe(true);
   expect(store.getAttempt("thr_rehydrate", attempt.attemptId)?.startedAt).toBe("2026-01-01T00:00:01.000Z");
-  expect(store.getAgent("thr_rehydrate", `planner:${attempt.attemptId}`)?.status).toBe("active");
+  expect(store.getAgent("thr_rehydrate", `main:${attempt.attemptId}`)?.status).toBe("active");
 
   expect(service.rehydrateCurrentRunAttempt("thr_rehydrate", "2026-01-01T00:00:05.000Z")).toBe(true);
   expect(store.getAttempt("thr_rehydrate", attempt.attemptId)?.startedAt).toBe("2026-01-01T00:00:05.000Z");
@@ -71,15 +71,15 @@ test("AgentLifecycleService records run attempts and planner agent lifecycle", (
   });
   expect(attempt.attemptId).toBe("attempt_execution_0");
   expect(service.currentRunAttemptId("thr_lifecycle")).toBe("attempt_execution_0");
-  expect(service.currentPlannerAgentId("thr_lifecycle")).toBe("planner:attempt_execution_0");
+  expect(service.currentPlannerAgentId("thr_lifecycle")).toBe("main:attempt_execution_0");
 
   service.finishRunAttempt("thr_lifecycle", "completed");
 
   expect(store.getAttempt("thr_lifecycle", "attempt_execution_0")?.status).toBe("completed");
-  expect(store.getAgent("thr_lifecycle", "planner:attempt_execution_0")?.status).toBe("stopped");
+  expect(store.getAgent("thr_lifecycle", "main:attempt_execution_0")?.status).toBe("stopped");
   expect(service.currentRunAttemptId("thr_lifecycle")).toBeUndefined();
   expect(service.usageRunAttemptId("thr_lifecycle")).toBe("attempt_execution_0");
-  expect(service.usagePlannerAgentId("thr_lifecycle")).toBe("planner:attempt_execution_0");
+  expect(service.usagePlannerAgentId("thr_lifecycle")).toBe("main:attempt_execution_0");
 });
 
 test("AgentLifecycleService persists a caller-planned command attempt identity", () => {
@@ -136,7 +136,7 @@ test("AgentLifecycleService requires explicit parent tool use for interleaved su
   const explore = store.getAgent("thr_lifecycle", "agent_explore");
   expect(coder?.parentToolUseId).toBe("toolu_coder");
   expect(coder?.runAttemptId).toBe("attempt_execution_0");
-  expect(coder?.parentAgentId).toBe("planner:attempt_execution_0");
+  expect(coder?.parentAgentId).toBe("main:attempt_execution_0");
   expect(coder?.todoId).toBe("todo-1");
   expect(explore?.parentToolUseId).toBe("toolu_explore");
 });
@@ -224,7 +224,7 @@ test("AgentLifecycleService finalizes active subagents as abandoned on failed ru
 
   expect(store.getAttempt("thr_lifecycle", "attempt_execution_0")?.status).toBe("failed");
   expect(store.getAgent("thr_lifecycle", "agent_coder")?.status).toBe("abandoned");
-  expect(store.getAgent("thr_lifecycle", "planner:attempt_execution_0")?.status).toBe("abandoned");
+  expect(store.getAgent("thr_lifecycle", "main:attempt_execution_0")?.status).toBe("abandoned");
 });
 
 test("AgentLifecycleService stops subagents explicitly before run finalizer", () => {

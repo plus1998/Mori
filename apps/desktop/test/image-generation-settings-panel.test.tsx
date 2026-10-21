@@ -51,6 +51,12 @@ test("uses vendor brand marks for creative drawing profile cards", () => {
   // Vendor name > model > protocol decides the logo, assets come from the shipped icon sets.
   expect(markup).toContain('src="./provider-icons/openai.svg"');
   expect(markup).toContain('src="./agent-icons/gemini.png"');
+  expect(markup).toContain("Creative Drawing");
+  expect(markup).toContain("2 profiles");
+  expect(markup).toContain("1 active");
+  expect(markup).toContain("Supports image editing");
+  expect(markup).toContain("Text-to-image only");
+  expect(markup).not.toMatch(/[\u3400-\u9fff]/u);
 });
 
 test("keeps the state chip as the only activation control", () => {

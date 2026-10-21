@@ -1,0 +1,111 @@
+{
+  "project_client": "OpenAIBackendAPI",
+  "quota": {
+    "success": true,
+    "type": "plus",
+    "quota": 120,
+    "limits_progress": [
+      {
+        "feature_name": "deep_research",
+        "remaining": 25,
+        "reset_after": "2026-11-13T13:44:20.644006+00:00"
+      },
+      {
+        "feature_name": "file_upload",
+        "remaining": 80,
+        "reset_after": "2026-10-14T16:44:20.644021+00:00"
+      },
+      {
+        "feature_name": "paste_text_to_file",
+        "remaining": 80,
+        "reset_after": "2026-10-14T16:44:20.644026+00:00"
+      },
+      {
+        "feature_name": "image_gen",
+        "remaining": 120,
+        "reset_after": "2026-10-15T13:44:20.644029+00:00"
+      }
+    ],
+    "restore_at": "2026-10-15T13:44:20.644029+00:00",
+    "status": "正常"
+  },
+  "local_pool": {
+    "success": true,
+    "selected": [
+      "A",
+      "B",
+      "A",
+      "B",
+      "A",
+      "B"
+    ],
+    "after_disable_A": "B",
+    "scope": "original selection code, synthetic accounts, no upstream calls"
+  },
+  "generation": {
+    "events": {
+      "response.created": 1,
+      "response.in_progress": 1,
+      "response.output_item.added": 2,
+      "response.image_generation_call.in_progress": 1,
+      "response.image_generation_call.generating": 1,
+      "response.image_generation_call.completed": 1,
+      "response.output_item.done": 2,
+      "response.content_part.added": 1,
+      "response.output_text.done": 1,
+      "response.content_part.done": 1,
+      "response.completed": 1
+    },
+    "success": true,
+    "dimensions": [
+      1254,
+      1254
+    ],
+    "image_bytes": 1038573,
+    "image_file": "report.png",
+    "error": "Failed to perform, curl: (35) BoringSSL SSL_connect: Connection closed abruptly (SSL_ERROR_SYSCALL; error queue empty) in connection to chatgpt.com:443. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.",
+    "elapsed_seconds": 38.21,
+    "error_stage": "post-generation quota query"
+  },
+  "post_generation_query": {
+    "success": false,
+    "error": "Failed to perform, curl: (35) BoringSSL SSL_connect: Connection closed abruptly (SSL_ERROR_SYSCALL; error queue empty) in connection to chatgpt.com:443. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.",
+    "diagnostics": [
+      {
+        "method": "_get_me",
+        "success": true
+      },
+      {
+        "method": "_get_conversation_init",
+        "success": true,
+        "limits_progress": [
+          {
+            "feature_name": "deep_research",
+            "remaining": 25,
+            "reset_after": "2026-11-13T13:45:37.870396+00:00"
+          },
+          {
+            "feature_name": "file_upload",
+            "remaining": 80,
+            "reset_after": "2026-10-14T16:45:37.870419+00:00"
+          },
+          {
+            "feature_name": "paste_text_to_file",
+            "remaining": 80,
+            "reset_after": "2026-10-14T16:45:37.870427+00:00"
+          },
+          {
+            "feature_name": "image_gen",
+            "remaining": 120,
+            "reset_after": "2026-10-15T13:45:37.870432+00:00"
+          }
+        ]
+      },
+      {
+        "method": "_get_default_account",
+        "success": true,
+        "plan_type": "plus"
+      }
+    ]
+  }
+}

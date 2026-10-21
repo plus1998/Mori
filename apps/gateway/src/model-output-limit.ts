@@ -39,6 +39,10 @@ export function withDynamicOutputBudget(
   signal: AbortSignal,
   onLog: GatewayLogFn,
 ): typeof fetch {
+  // The ChatGPT subscription Responses preview rejects max_output_tokens. The
+  // Responses and Messages→Responses routes strip that field before calling
+  // this fetcher, so there is no output budget for this wrapper to enforce.
+  if (route.provider.authMethod === "chatgpt_subscription") return fetcher;
   if (route.provider.modelContextTokens === undefined) return fetcher;
   return (async (url, init) => {
     try {
@@ -51,12 +55,6 @@ export function withDynamicOutputBudget(
       if (window === undefined || !Number.isSafeInteger(window) || window < 2) {
         throw new Error(
           `Dynamic max output requires a resolved context window for ${route.upstreamModelId}.`,
-        );
-      }
-      // The subscription preview explicitly rejects output limits; surface the gap.
-      if (route.provider.authMethod === "chatgpt_subscription") {
-        throw new Error(
-          "ChatGPT subscription transport does not support max_output_tokens; dynamic output cannot be enforced.",
         );
       }
       if (!config.countInputTokens) throw new Error("Dynamic max output requires an input token counter.");
@@ -73,12 +71,15 @@ export function withDynamicOutputBudget(
       if (!Number.isSafeInteger(count.tokens) || count.tokens < 0) {
         throw new Error("Dynamic max output requires a valid current input token count.");
       }
-      const remaining = window - count.tokens - 1;
+      // Character estimates can undercount substantially; reserve headroom based on
+      // the counter's actual precision rather than treating it as an exact tokenizer.
+      const reserve = count.precision === "heuristic" ? Math.max(8_192, Math.ceil(window / 10)) : 1_024;
+      const remaining = window - count.tokens - reserve;
       if (remaining < 1) {
         return Response.json(
           {
             error: {
-              message: `Context window exhausted: window=${window}, input=${count.tokens}, reserve=1. Compact the input before retrying.`,
+              message: `Context window exhausted: window=${window}, input=${count.tokens}, reserve=${reserve}. Compact the input before retrying.`,
               type: "invalid_request_error",
               code: "context_length_exceeded",
             },
@@ -118,7 +119,7 @@ export function withDynamicOutputBudget(
         );
       }
       onLog(
-        `dynamic output provider=${route.provider.id} model=${route.upstreamModelId} window=${window} input=${count.tokens} precision=${count.precision} source=${count.source} remaining=${remaining} applied=${body[field]}`,
+        `dynamic output provider=${route.provider.id} model=${route.upstreamModelId} window=${window} input=${count.tokens} precision=${count.precision} source=${count.source} reserve=${reserve} remaining=${remaining} applied=${body[field]}`,
       );
       return fetcher(url, { ...init, body: JSON.stringify(body) });
     } catch (error) {

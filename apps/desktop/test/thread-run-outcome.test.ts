@@ -13,7 +13,7 @@ import {
 test("resolveAskRunOutcome maps cancelled failed and completed results", () => {
   expect(resolveAskRunOutcome({ ok: false, reason: "stop", aborted: true })).toEqual({
     kind: "cancelled",
-    reason: "cancelled by user",
+    reason: "stop",
   });
   expect(resolveAskRunOutcome({ ok: false, reason: "upstream failed" })).toEqual({
     kind: "failed",
@@ -64,7 +64,26 @@ test("resolvePlanningRunOutcome keeps awaiting_plan when upstream fails after pl
   ).toEqual({ kind: "awaiting_plan", message: "" });
   expect(
     resolvePlanningRunOutcome({ ok: false, reason: "stop", aborted: true }, { hasPendingPlan: true }),
-  ).toEqual({ kind: "cancelled", reason: "cancelled by user" });
+  ).toEqual({ kind: "cancelled", reason: "stop" });
+});
+
+test("preserves the quota stop reason and surfaces interrupt failures as failures", () => {
+  const quotaReason = "ChatGPT subscription usage limit exceeded; 该账号的 ChatGPT 订阅用量受限，本轮已停止";
+  expect(resolveAskRunOutcome({ ok: false, reason: quotaReason, aborted: true })).toEqual({
+    kind: "cancelled",
+    reason: quotaReason,
+  });
+  expect(
+    resolveAskRunOutcome({
+      ok: false,
+      reason: "停止当前 Codex turn 失败：turn/interrupt failed",
+      aborted: true,
+      interruptFailed: true,
+    }),
+  ).toEqual({
+    kind: "failed",
+    reason: "停止当前 Codex turn 失败：turn/interrupt failed",
+  });
 });
 
 test("resolveAutonomousRunOutcome keeps awaiting_plan on non-cancel failure with pending plan", () => {
@@ -123,5 +142,13 @@ test("runAttemptPhaseFromThreadMode and isRequestAttemptAborted expose shared ru
   expect(runAttemptPhaseFromThreadMode("planning")).toBe("planning");
   expect(runAttemptPhaseFromThreadMode("execution")).toBe("execution");
   expect(isRequestAttemptAborted({ ok: false, reason: "stop", aborted: true })).toBe(true);
+  expect(
+    isRequestAttemptAborted({
+      ok: false,
+      reason: "turn/interrupt failed",
+      aborted: true,
+      interruptFailed: true,
+    }),
+  ).toBe(false);
   expect(isRequestAttemptAborted({ ok: false, reason: "failed" })).toBe(false);
 });

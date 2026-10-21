@@ -122,7 +122,7 @@ test("builds operation approval notification from Bash and filesystem requests",
     reason: "运行测试",
     riskScore: 50,
     riskLevel: "medium" as const,
-    agentId: "planner",
+    agentId: "main",
   };
   expect(
     buildThreadApprovalNotificationContent({ title: "运行测试" }, "bash", {

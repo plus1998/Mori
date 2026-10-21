@@ -1,4 +1,9 @@
 export { validateChatGptResponsesRequest } from "./chatgpt-responses-policy.js";
+export {
+  IncrementalSseParser,
+  parseResponsesSseFrame,
+  type ParsedSseFrame,
+} from "./sse.js";
 export { CODEX_TURN_METADATA_HEADER, parseCodexTurnMetadataHeader } from "./codex-turn-metadata.js";
 export {
   buildProviderProxyRoutes,
@@ -47,6 +52,7 @@ export type {
   GatewayCodexRequestKind,
   GatewayCodexTurnMetadata,
   GatewayConfig,
+  GatewayCredentialResult,
   GatewayProvider,
   GatewayRequestLifecycleEvent,
   GatewayRequestLifecycleObserver,
@@ -55,6 +61,8 @@ export type {
   GatewayToolWriteObserver,
   GatewayUsageEvent,
   GatewayUsageObserver,
+  GatewayUpstreamErrorInfo,
+  GatewayUpstreamResultType,
   ResolvedProviderRoute,
   UpstreamKind,
 } from "./types.js";

@@ -47,6 +47,96 @@ test("new OpenAI image profiles use gpt-image-2", async () => {
   expect(store.getSettings().profiles[0]?.supportsImageToImage).toBe(true);
 });
 
+test("Codex login profiles activate without a key and reject custom credential destinations", async () => {
+  const store = await createStore();
+  const profile = store.saveProfile({
+    name: "Codex 账号池",
+    provider: "codex",
+    endpoint: "https://chatgpt.com/backend-api/codex",
+    model: "gpt-image-2",
+  });
+  expect(profile.hasApiKey).toBe(false);
+  store.activateProfile(profile.id);
+  expect(store.setEnabled(true).enabled).toBe(true);
+  expect(store.getActiveClientConfig()).toMatchObject({ provider: "codex", apiKey: "" });
+  expect(() =>
+    store.saveProfile({
+      name: "unsafe",
+      provider: "codex",
+      endpoint: "https://example.com",
+      model: "gpt-image-2",
+    }),
+  ).toThrow("固定地址");
+  expect(() =>
+    store.saveProfile({ name: "wrong model", provider: "codex", endpoint: "", model: "other" }),
+  ).toThrow("gpt-image-2");
+});
+
+test("web image profiles use login credentials, default edits on, and respect explicit disabling", async () => {
+  const store = await createStore();
+  const profile = store.saveProfile({
+    name: "Free",
+    provider: "chatgpt_web",
+    endpoint: "",
+    model: "gpt-image-2",
+  });
+  expect(profile).toMatchObject({
+    hasApiKey: false,
+    supportsImageToImage: true,
+    endpoint: "https://chatgpt.com/backend-api",
+  });
+  store.activateProfile(profile.id);
+  store.setEnabled(true);
+  expect(store.getActiveClientConfig()).toMatchObject({ provider: "chatgpt_web", apiKey: "" });
+  store.saveProfile({
+    id: profile.id,
+    name: "Free",
+    provider: "chatgpt_web",
+    endpoint: "",
+    model: "gpt-image-2",
+    supportsImageToImage: false,
+  });
+  expect(store.getActiveClientConfig().supportsImageToImage).toBe(false);
+});
+
+test("legacy provider CHECK migration preserves active profile, encrypted key, and foreign keys", () => {
+  const database = new Database(":memory:");
+  openDatabases.push(database);
+  database.exec(`CREATE TABLE image_generation_profiles (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    provider TEXT NOT NULL CHECK(provider IN ('openai', 'gemini', 'openai_compatible')),
+    endpoint TEXT NOT NULL, model TEXT NOT NULL, supports_image_to_image INTEGER NOT NULL DEFAULT 0,
+    encrypted_api_key TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE image_generation_settings (singleton INTEGER PRIMARY KEY, enabled INTEGER NOT NULL,
+    active_profile_id TEXT NOT NULL REFERENCES image_generation_profiles(id), updated_at TEXT NOT NULL);`);
+  const id = "00000000-0000-4000-8000-000000000003";
+  database
+    .prepare(
+      "INSERT INTO image_generation_profiles VALUES (?, 'Existing', 'openai', 'https://api.openai.com/v1', 'gpt-image-2', 1, ?, 'created', 'updated')",
+    )
+    .run(id, codec.encrypt("secret"));
+  database.prepare("INSERT INTO image_generation_settings VALUES (1, 1, ?, 'updated')").run(id);
+  const store = new ImageGenerationStore(database as never, codec);
+  store.initialize();
+  expect(store.getActiveClientConfig()).toMatchObject({
+    profileId: id,
+    apiKey: "secret",
+    supportsImageToImage: true,
+  });
+  const profile = store.saveProfile({ name: "Codex", provider: "codex", endpoint: "", model: "gpt-image-2" });
+  store.activateProfile(profile.id);
+  const web = store.saveProfile({
+    name: "Free",
+    provider: "chatgpt_web",
+    endpoint: "",
+    model: "gpt-image-2",
+  });
+  expect(web.provider).toBe("chatgpt_web");
+  expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  store.initialize();
+  expect(store.getSettings().activeProfileId).toBe(profile.id);
+});
+
 test("the built-in legacy OpenAI profile is migrated without changing custom profiles", async () => {
   const store = await createStore();
   const builtIn = store.getSettings().profiles[0]!;

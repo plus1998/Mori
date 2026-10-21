@@ -1,9 +1,9 @@
 import type { AcpHostUiFeatures } from "@eco/runtime/acp-host-ui-features";
 import { formatUsageBadge } from "@eco/runtime/usage";
+import { useTranslation } from "react-i18next";
 import type { ThreadBillingSnapshot, ThreadContextSnapshot, ThreadStatus } from "../shared/ipc";
 import {
-  billingEmptyHint,
-  contextCardPlaceholder,
+  contextCardPlaceholderKey,
   shouldShowBillingUsagePanel,
   shouldShowContextUsagePanel,
 } from "../shared/thread-usage-summary";
@@ -57,6 +57,7 @@ export function ComposerThreadUsagePills({
   agentThemes,
   agentModelLabels,
 }: ComposerThreadUsagePillsProps) {
+  const { t } = useTranslation();
   const billing = usageSummary?.billing;
   const tokenBadge = billing
     ? formatUsageBadge({
@@ -93,7 +94,7 @@ export function ComposerThreadUsagePills({
         plannerLabel={plannerLabel}
         showBilling={showBilling}
         {...(usageSummary?.context !== undefined && { context: usageSummary.context })}
-        contextPlaceholder={contextCardPlaceholder(threadStatus)}
+        contextPlaceholder={t(contextCardPlaceholderKey(threadStatus))}
         contextCompactionInFlight={contextCompactionInFlight}
         autoCompactSuspended={autoCompactSuspended}
         promptCacheInvalidated={promptCacheInvalidated}

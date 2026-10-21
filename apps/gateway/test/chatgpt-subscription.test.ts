@@ -6,6 +6,7 @@ import { createGatewayFetchHandler } from "../src/server.js";
 import { reportRouteCredentialResult, resolveRouteCredential } from "../src/route-credentials.js";
 import type {
   GatewayConfig,
+  GatewayCredentialResult,
   GatewayProvider,
   GatewayUsageEvent,
   GatewayRequestLifecycleEvent,
@@ -66,6 +67,46 @@ function terminalSse(response: unknown): string {
 }
 
 describe("ChatGPT subscription gateway adapter", () => {
+  for (const endpoint of ["responses", "messages"]) {
+    test(`${endpoint} preserves a local paused-pool error without calling upstream`, async () => {
+      let upstreamCalls = 0;
+      const reports: GatewayCredentialResult[] = [];
+      const handler = createGatewayFetchHandler({
+        host: "127.0.0.1",
+        port: 0,
+        providers: [provider],
+        resolveCredential: async () => {
+          throw Object.assign(new Error("用量受限账号已暂停，请手动测试，测试成功后才能恢复"), {
+            statusCode: 403,
+            errorCode: "subscription_sharing_usage_limit_exceeded",
+            accountId: "account-paused",
+          });
+        },
+        reportCredentialResult: (result) => { reports.push(result); },
+      }, async () => {
+        upstreamCalls += 1;
+        return new Response("unexpected upstream call");
+      });
+      const request = endpoint === "messages" ? messagesRequest(true) : new Request("http://127.0.0.1/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json", [GATEWAY_PROVIDER_ID_HEADER]: provider.id },
+        body: JSON.stringify(validBody),
+      });
+
+      const response = await handler(request);
+      expect(response.status).toBe(403);
+      expect(response.headers.get("x-eco-upstream-error-code")).toBe("subscription_sharing_usage_limit_exceeded");
+      expect(await response.json()).toMatchObject({ error: {
+        type: "credential_error",
+        code: "subscription_sharing_usage_limit_exceeded",
+        accountId: "account-paused",
+        message: expect.stringContaining("手动测试"),
+      } });
+      expect(upstreamCalls).toBe(0);
+      expect(reports).toHaveLength(0);
+    });
+  }
+
   for (const stream of [true, false, undefined]) {
     test(`真实 OAuth 日志回放：缺少 Content-Type，Messages stream=${stream}`, async () => {
       const usage: GatewayUsageEvent[] = [];
@@ -132,6 +173,46 @@ describe("ChatGPT subscription gateway adapter", () => {
     expect(await response.text()).toContain('"text": "Hi! How can I help you today?"');
     expect(usage).toHaveLength(1);
     expect(usage[0]).toMatchObject({ usage: { inputTokens: 7, outputTokens: 13 }, stream: true });
+  });
+
+  test("动态输出模式下跳过预算计算，并且订阅请求不发送 max_output_tokens", async () => {
+    let upstreamBody: Record<string, unknown> | undefined;
+    let countInputTokensCalls = 0;
+    const dynamicProvider = {
+      ...provider,
+      modelMaxOutputTokens: { "gpt-5": 8_192 },
+      modelContextTokens: { "gpt-5": 32_768 },
+    };
+    const handler = createGatewayFetchHandler(
+      {
+        host: "127.0.0.1",
+        port: 0,
+        providers: [dynamicProvider],
+        resolveCredential: async () => ({ accessToken: "oauth-access" }),
+        countInputTokens: async () => {
+          countInputTokensCalls++;
+          return { tokens: 1, precision: "provider_exact", source: "test" };
+        },
+      },
+      async (_input, init) => {
+        upstreamBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(new TextEncoder().encode(oauthHiSse));
+      },
+      () => undefined,
+    );
+
+    const response = await handler(
+      new Request("http://127.0.0.1/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json", [GATEWAY_PROVIDER_ID_HEADER]: provider.id },
+        body: JSON.stringify({ ...validBody, max_output_tokens: 128 }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(upstreamBody).toBeDefined();
+    expect(upstreamBody).not.toHaveProperty("max_output_tokens");
+    expect(countInputTokensCalls).toBe(0);
   });
 
   for (const stream of [false, undefined]) {
@@ -309,6 +390,105 @@ describe("ChatGPT subscription gateway adapter", () => {
     });
   }
 
+  for (const stream of [true, false]) {
+    test(`HTTP 200 流内订阅额度失败只上报一次且保留关联身份 stream=${stream}`, async () => {
+      const reports: GatewayCredentialResult[] = [];
+      const lifecycle: GatewayRequestLifecycleEvent[] = [];
+      let upstreamCalls = 0;
+      const quotaFailure =
+        `data: ${JSON.stringify({
+          type: "response.created",
+          response: { id: "resp_quota", status: "in_progress", output: [] },
+        })}\n\n` +
+        `data: ${JSON.stringify({
+          type: "response.failed",
+          response: {
+            id: "resp_quota",
+            status: "failed",
+            error: {
+              type: "invalid_request_error",
+              code: "subscription_sharing_usage_limit_exceeded",
+              param: "model",
+              message: "Subscription sharing usage limit exceeded",
+            },
+          },
+        })}\n\n`;
+      const handler = createGatewayFetchHandler(
+        {
+          host: "127.0.0.1",
+          port: 0,
+          providers: [provider],
+          resolveCredential: async () => ({ accessToken: "oauth-access", accountId: "account-quota" }),
+          reportCredentialResult: (result) => {
+            reports.push(result);
+          },
+        },
+        async () => {
+          upstreamCalls += 1;
+          return new Response(quotaFailure, {
+            status: 200,
+            headers: { "x-request-id": "req_quota" },
+          });
+        },
+        () => undefined,
+        undefined,
+        (event) => {
+          lifecycle.push(event);
+        },
+      );
+      const request = messagesRequest(stream);
+      request.headers.set("x-eco-logical-request-id", "logical-quota");
+      request.headers.set("x-eco-bridge-binding-id", "binding-quota");
+      request.headers.set("x-eco-run-attempt-id", "run-attempt-quota");
+      request.headers.set(
+        "x-codex-turn-metadata",
+        JSON.stringify({
+          thread_id: "codex-thread-quota",
+          turn_id: "codex-turn-quota",
+          request_kind: "turn",
+        }),
+      );
+
+      const response = await handler(request);
+      expect(response.status).toBe(stream ? 200 : 502);
+      await response.text();
+      expect(upstreamCalls).toBe(1);
+      expect(reports).toHaveLength(1);
+      expect(reports[0]).toMatchObject({
+        accountId: "account-quota",
+        resultType: "failed",
+        statusCode: 200,
+        providerRequestId: "req_quota",
+        responseId: "resp_quota",
+        logicalRequestId: "logical-quota",
+        bridgeBindingId: "binding-quota",
+        threadId: "codex-thread-quota",
+        turnId: "codex-turn-quota",
+        runAttemptId: "run-attempt-quota",
+        attemptIndex: 0,
+        error: {
+          code: "subscription_sharing_usage_limit_exceeded",
+          param: "model",
+          type: "invalid_request_error",
+          eventType: "response.failed",
+          rawEvent: {
+            type: "response.failed",
+            response: {
+              id: "resp_quota",
+              status: "failed",
+              error: {
+                code: "subscription_sharing_usage_limit_exceeded",
+              },
+            },
+          },
+        },
+      });
+      expect(lifecycle.filter((event) => event.type === "upstream.failed")).toHaveLength(1);
+      expect(lifecycle.filter((event) => event.type === "logical.failed")).toHaveLength(1);
+      expect(lifecycle.filter((event) => event.type === "logical.completed")).toHaveLength(0);
+    });
+  }
+
   test("非流式 OAuth 上游 403 保留状态和错误码供账号管理使用", async () => {
     const reports: unknown[] = [];
     const handler = createGatewayFetchHandler(
@@ -336,7 +516,8 @@ describe("ChatGPT subscription gateway adapter", () => {
     expect(reports[0]).toMatchObject({
       accountId: "account-1",
       statusCode: 403,
-      errorCode: "subscription_sharing_user_not_eligible",
+      resultType: "failed",
+      error: { code: "subscription_sharing_user_not_eligible" },
     });
   });
   test("accepts the supported Responses preview shape", () => {
@@ -497,7 +678,8 @@ describe("ChatGPT subscription gateway adapter", () => {
     expect(reports[0]).toMatchObject({
       accountId: "account-1",
       statusCode: 403,
-      errorCode: "subscription_sharing_user_not_eligible",
+      resultType: "failed",
+      error: { code: "subscription_sharing_user_not_eligible" },
     });
   });
 

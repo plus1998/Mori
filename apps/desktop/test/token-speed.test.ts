@@ -260,7 +260,7 @@ test("attachOutputTokensToRequestSpans joins by providerRequestId and proxy requ
   ];
   const attached = attachOutputTokensToRequestSpans(spans, [
     { outputTokens: 40, providerRequestId: "prov-9" },
-    { outputTokens: 12, requestKey: "proxy:planner:model:req_abc:1:2:0:0" },
+    { outputTokens: 12, requestKey: "proxy:main:model:req_abc:1:2:0:0" },
     { outputTokens: 99, providerRequestId: "unrelated" },
   ]);
   expect(attached[0]?.outputTokens).toBe(40);
@@ -276,7 +276,7 @@ test("attachOutputTokensToRequestSpans joins reasoning_tokens from ledger", () =
     },
   ];
   const attached = attachOutputTokensToRequestSpans(spans, [
-    { outputTokens: 550, reasoningTokens: 129, requestKey: "proxy:planner:model:req_abc:1:2:0:0" },
+    { outputTokens: 550, reasoningTokens: 129, requestKey: "proxy:main:model:req_abc:1:2:0:0" },
   ]);
   expect(attached[0]?.outputTokens).toBe(550);
   expect(attached[0]?.reasoningTokens).toBe(129);
@@ -349,7 +349,7 @@ test("healthy early-headers timing publishes prefill", () => {
 
 test("lenient span resolution prefers the most recent span before the item, matching role first", () => {
   const spans = [
-    { requestId: "a", role: "planner", status: "completed" as const, startedAt: isoAt(0) },
+    { requestId: "a", role: "main", status: "completed" as const, startedAt: isoAt(0) },
     { requestId: "b", role: "coder", status: "completed" as const, startedAt: isoAt(2_000) },
     { requestId: "c", role: "coder", status: "completed" as const, startedAt: isoAt(8_000) },
     { requestId: "t", role: "thinking", status: "completed" as const, startedAt: isoAt(9_500) },
@@ -357,7 +357,7 @@ test("lenient span resolution prefers the most recent span before the item, matc
   // item starts at 9s, role coder -> picks span c (most recent coder startedAt <= 9s)
   expect(resolveLenientRequestSpan({ at: isoAt(9_000), role: "coder" }, spans)?.requestId).toBe("c");
   // item role planner -> picks span a (only planner)
-  expect(resolveLenientRequestSpan({ at: isoAt(9_000), role: "planner" }, spans)?.requestId).toBe("a");
+  expect(resolveLenientRequestSpan({ at: isoAt(9_000), role: "main" }, spans)?.requestId).toBe("a");
   // no role -> most recent overall startedAt <= item.at
   expect(resolveLenientRequestSpan({ at: isoAt(10_000) }, spans)?.requestId).toBe("t");
   // item before any span -> undefined

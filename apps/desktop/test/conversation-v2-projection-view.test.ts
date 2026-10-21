@@ -111,7 +111,7 @@ test("collapseConsecutiveThinkingTimelineItems joins only adjacent thinking rows
     item({
       id: "message-1",
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       runAttemptId: "attempt-1",
       text: "已完成",
       at: "2026-01-01T00:00:03.000Z",
@@ -1278,7 +1278,7 @@ test("buildThreadRunProjectionViewModel interleaves planner and agent speech by 
         item({
           id: "planner-last",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           text: "我总结一下。",
           at: "2026-01-01T00:00:03.000Z",
           sequence: 3,
@@ -1308,7 +1308,7 @@ test("buildThreadRunProjectionViewModel interleaves planner and agent speech by 
   expect(view.mainFeedEntries.map((entry) => entry.key)).toEqual([
     "main:stream:thinking:role:thinking:afterUser:0",
     "agent-card:coder_agent_00000001",
-    "main:stream:message:role:planner:afterUser:0",
+    "main:stream:message:role:main:afterUser:0",
   ]);
   expect(view.subagentCards[0]?.agent.timeline[0]?.text).toBe("我找到问题了。");
 });
@@ -1316,7 +1316,7 @@ test("buildThreadRunProjectionViewModel interleaves planner and agent speech by 
 test("buildThreadRunProjectionViewModel does not echo request or lifecycle noise", () => {
   const view = buildThreadRunProjectionViewModel(
     projection({
-      timeline: [item({ id: "main", role: "planner", text: "Working" })],
+      timeline: [item({ id: "main", role: "main", text: "Working" })],
       agents: [
         agent({
           agentId: "coder_agent_00000001",
@@ -1347,7 +1347,7 @@ test("buildThreadRunProjectionViewModel does not echo request or lifecycle noise
   );
 
   expect(view.mainFeedEntries.map((entry) => entry.key)).toEqual([
-    "main:stream:message:role:planner:afterUser:0",
+    "main:stream:message:role:main:afterUser:0",
     "agent-card:coder_agent_00000001",
   ]);
   expect(view.mainFeedEntries.some((entry) => entry.kind === "agent-echo")).toBe(false);
@@ -1442,8 +1442,8 @@ test("buildThreadRunProjectionViewModel hides clarification request narration fr
         item({
           id: "clarification-request",
           eventType: "message.final",
-          role: "planner",
-          text: "Planner 需要你回答几个问题。",
+          role: "main",
+          text: "主代理需要你回答几个问题。",
           metadata: { liveType: "clarification.requested" },
           sequence: 2,
         }),
@@ -1478,7 +1478,7 @@ test("buildThreadRunProjectionViewModel replaces clarification waiting with the 
           id: "clarification-answer",
           sequence: 3,
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           text: "澄清回答：应该使用哪种部署方式？ → 蓝绿部署",
           metadata: {
             liveType: "clarification.answered",
@@ -1524,8 +1524,8 @@ test("buildThreadRunProjectionViewModel anchors clarification answers beside Ask
           sequence: 3,
           at: "2026-01-01T00:00:02.100Z",
           eventType: "message.final",
-          role: "planner",
-          text: "Planner 需要你回答几个问题。",
+          role: "main",
+          text: "主代理需要你回答几个问题。",
           metadata: {
             liveType: "clarification.requested",
             tool: { name: "AskUserQuestion", toolUseId: "question-1", status: "started" },
@@ -1547,7 +1547,7 @@ test("buildThreadRunProjectionViewModel anchors clarification answers beside Ask
           sequence: 5,
           at: "2026-01-01T00:05:00.000Z",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           text: "澄清回答：应该使用哪种部署方式？ → 蓝绿部署",
           metadata: {
             liveType: "clarification.answered",
@@ -1570,7 +1570,7 @@ test("buildThreadRunProjectionViewModel anchors clarification answers beside Ask
           sequence: 7,
           at: "2026-01-01T00:05:01.000Z",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           text: "好的，按蓝绿部署推进。",
         }),
       ],
@@ -1612,7 +1612,7 @@ test("buildThreadRunProjectionViewModel keeps clarification answers out of plann
           sequence: 1,
           at: "2026-01-01T00:05:00.000Z",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           text: "澄清回答：是否启用？ → 是",
           metadata: { liveType: "clarification.answered" },
         }),
@@ -1621,7 +1621,7 @@ test("buildThreadRunProjectionViewModel keeps clarification answers out of plann
           sequence: 2,
           at: "2026-01-01T00:05:01.000Z",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           text: "好的，继续推进。",
         }),
       ],
@@ -1650,7 +1650,7 @@ test("buildThreadRunProjectionViewModel hides placeholder clarification.answered
           id: "real-answered",
           sequence: 2,
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           text: "澄清回答：是否启用？ → 是",
           metadata: {
             liveType: "clarification.answered",
@@ -1777,14 +1777,14 @@ test("buildThreadRunProjectionViewModel removes main feed status and usage noise
         item({
           id: "agent-lifecycle",
           eventType: "agent.started",
-          role: "planner",
+          role: "main",
           text: "Requesting model…",
           sequence: 2,
         }),
         item({
           id: "usage",
           eventType: "thread.status",
-          role: "planner",
+          role: "main",
           text: "↑23k ↓404",
           sequence: 3,
         }),
@@ -1812,7 +1812,7 @@ test("buildThreadRunProjectionViewModel removes main feed status and usage noise
         item({
           id: "substantive",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           text: "天气查询完成。",
           sequence: 7,
         }),
@@ -1822,7 +1822,7 @@ test("buildThreadRunProjectionViewModel removes main feed status and usage noise
 
   expect(view.mainFeedEntries.map((entry) => entry.key)).toEqual([
     "main:prompt",
-    "main:stream:message:role:planner:afterUser:1",
+    "main:stream:message:role:main:afterUser:1",
   ]);
 });
 
@@ -1872,7 +1872,7 @@ test("buildThreadRunProjectionViewModel hides follow-up interrupt and resume sta
         item({
           id: "substantive",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           text: "好的，继续实现。",
           sequence: 6,
         }),
@@ -1882,7 +1882,7 @@ test("buildThreadRunProjectionViewModel hides follow-up interrupt and resume sta
 
   expect(view.mainFeedEntries.map((entry) => entry.key)).toEqual([
     "main:prompt",
-    "main:stream:message:role:planner:afterUser:1",
+    "main:stream:message:role:main:afterUser:1",
   ]);
 });
 
@@ -2153,7 +2153,7 @@ test("buildThreadRunProjectionViewModel hides empty streaming placeholder withou
         item({
           id: "request-start",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_planner",
           at: "2026-01-01T00:00:01.000Z",
           sequence: 1,
@@ -2297,7 +2297,7 @@ test("buildThreadRunProjectionViewModel hides plan-ready statuses already repres
         item({
           id: "plan-ready",
           eventType: "thread.status",
-          role: "planner",
+          role: "main",
           text: "计划已生成，等待确认。",
           metadata: { liveType: "plan.ready" },
         }),
@@ -2311,20 +2311,20 @@ test("buildThreadRunProjectionViewModel hides plan-ready statuses already repres
         item({
           id: "plan-approval-requested",
           eventType: "thread.status",
-          role: "planner",
+          role: "main",
           text: "计划已提交，等待你确认。",
           metadata: { liveType: "plan_approval.requested" },
         }),
         item({
           id: "legacy-plan-ready",
           eventType: "thread.status",
-          role: "planner",
+          role: "main",
           text: "计划已生成，等待确认。",
         }),
         item({
           id: "legacy-plan-approval-requested",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           text: "计划已提交，等待你确认。",
         }),
       ],
@@ -2525,7 +2525,7 @@ test("buildThreadRunProjectionViewModel keeps historical thinking without reques
         item({
           id: "t1-msg",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_1",
           text: "第一轮回复",
           at: "2026-01-01T00:00:05.000Z",
@@ -2583,7 +2583,7 @@ test("buildThreadRunProjectionViewModel keeps streaming thinking above streaming
         item({
           id: "message-delta",
           eventType: "message.delta",
-          role: "planner",
+          role: "main",
           requestId: "req_1",
           text: "正文输出",
           at: "2026-01-01T00:00:05.000Z",
@@ -2672,7 +2672,7 @@ test("buildThreadRunProjectionViewModel settles terminal deltas when final event
         item({
           id: "planner-delta",
           eventType: "message.delta",
-          role: "planner",
+          role: "main",
           requestId: "req_planner",
           text: "天气查询完成。",
           at: "2026-01-01T00:00:02.000Z",
@@ -2714,7 +2714,7 @@ test("buildThreadRunProjectionViewModel settles stale active stream when thread 
         item({
           id: "request-start",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_interrupted",
           at: "2026-01-01T00:00:01.000Z",
           sequence: 1,
@@ -2722,7 +2722,7 @@ test("buildThreadRunProjectionViewModel settles stale active stream when thread 
         item({
           id: "planner-delta",
           eventType: "message.delta",
-          role: "planner",
+          role: "main",
           requestId: "req_interrupted",
           text: "我先停在这里。",
           at: "2026-01-01T00:00:02.000Z",
@@ -2774,7 +2774,7 @@ test("buildThreadRunProjectionViewModel hides request lifecycle terminal events"
         item({
           id: "request-start",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_done",
           at: "2026-01-01T00:00:01.000Z",
           sequence: 1,
@@ -2782,7 +2782,7 @@ test("buildThreadRunProjectionViewModel hides request lifecycle terminal events"
         item({
           id: "request-done",
           eventType: "request.completed",
-          role: "planner",
+          role: "main",
           requestId: "req_done",
           at: "2026-01-01T00:00:02.000Z",
           sequence: 2,
@@ -2790,7 +2790,7 @@ test("buildThreadRunProjectionViewModel hides request lifecycle terminal events"
         item({
           id: "request-failed-start",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_failed",
           at: "2026-01-01T00:00:03.000Z",
           sequence: 3,
@@ -2798,7 +2798,7 @@ test("buildThreadRunProjectionViewModel hides request lifecycle terminal events"
         item({
           id: "request-failed",
           eventType: "request.failed",
-          role: "planner",
+          role: "main",
           requestId: "req_failed",
           text: "HTTP 502",
           at: "2026-01-01T00:00:04.000Z",
@@ -2807,7 +2807,7 @@ test("buildThreadRunProjectionViewModel hides request lifecycle terminal events"
         item({
           id: "request-cancelled-start",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_cancelled",
           at: "2026-01-01T00:00:05.000Z",
           sequence: 5,
@@ -2815,7 +2815,7 @@ test("buildThreadRunProjectionViewModel hides request lifecycle terminal events"
         item({
           id: "request-cancelled",
           eventType: "request.cancelled",
-          role: "planner",
+          role: "main",
           requestId: "req_cancelled",
           text: "模型请求已取消",
           at: "2026-01-01T00:00:06.000Z",
@@ -2836,20 +2836,20 @@ test("buildThreadRunProjectionViewModel hides duplicate active request placehold
           requestId: "req_proxy",
           status: "waiting_first_token",
           startedAt: "2026-01-01T00:00:01.000Z",
-          role: "planner",
+          role: "main",
         },
         {
           requestId: "req_sdk",
           status: "waiting_first_token",
           startedAt: "2026-01-01T00:00:01.100Z",
-          role: "planner",
+          role: "main",
         },
       ],
       timeline: [
         item({
           id: "proxy-request",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_proxy",
           at: "2026-01-01T00:00:01.000Z",
           sequence: 1,
@@ -2857,7 +2857,7 @@ test("buildThreadRunProjectionViewModel hides duplicate active request placehold
         item({
           id: "sdk-request",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_sdk",
           at: "2026-01-01T00:00:01.100Z",
           sequence: 2,
@@ -2889,7 +2889,7 @@ test("buildThreadRunProjectionViewModel hides request placeholders once owner ou
         item({
           id: "request-start",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_orphan_started",
           at: "2026-01-01T00:00:01.000Z",
           sequence: 1,
@@ -2897,7 +2897,7 @@ test("buildThreadRunProjectionViewModel hides request placeholders once owner ou
         item({
           id: "planner-delta",
           eventType: "message.delta",
-          role: "planner",
+          role: "main",
           text: "我会让子代理查询天气。",
           at: "2026-01-01T00:00:02.000Z",
           sequence: 2,
@@ -2907,7 +2907,7 @@ test("buildThreadRunProjectionViewModel hides request placeholders once owner ou
   );
 
   expect(view.mainFeedEntries.map((entry) => entry.key)).toEqual([
-    "main:stream:message:role:planner:afterUser:0",
+    "main:stream:message:role:main:afterUser:0",
   ]);
 });
 
@@ -2927,7 +2927,7 @@ test("buildThreadRunProjectionViewModel hides request placeholder for completed 
         item({
           id: "request-start",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_planner",
           at: "2026-01-01T00:00:01.000Z",
           sequence: 1,
@@ -2935,7 +2935,7 @@ test("buildThreadRunProjectionViewModel hides request placeholder for completed 
         item({
           id: "planner-final",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_planner",
           text: "直接回复，没有思考内容。",
           at: "2026-01-01T00:00:05.000Z",
@@ -2963,14 +2963,14 @@ test("buildThreadRunProjectionViewModel keeps follow-up request placeholder afte
           requestId: "req_turn_2",
           status: "waiting_first_token",
           startedAt: "2026-01-01T00:01:00.000Z",
-          role: "planner",
+          role: "main",
         },
       ],
       timeline: [
         item({
           id: "turn-1-final",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_1",
           text: "第一轮回复。",
           at: "2026-01-01T00:00:03.000Z",
@@ -2988,7 +2988,7 @@ test("buildThreadRunProjectionViewModel keeps follow-up request placeholder afte
         item({
           id: "turn-2-request",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_2",
           at: "2026-01-01T00:01:00.000Z",
           sequence: 3,
@@ -3007,7 +3007,7 @@ test("buildThreadRunProjectionViewModel keeps follow-up request placeholder afte
   if (requestEntry?.kind === "timeline") {
     expect(projectionItemToDetailBlock(requestEntry.item)).toMatchObject({
       kind: "model-request",
-      role: "planner",
+      role: "main",
     });
   }
 });
@@ -3033,7 +3033,7 @@ test("buildThreadRunProjectionViewModel keeps completed planner replies from pri
         item({
           id: "turn-1-final",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_1",
           streamKey: "thr_view:planner",
           text: "第一轮回复。",
@@ -3052,7 +3052,7 @@ test("buildThreadRunProjectionViewModel keeps completed planner replies from pri
         item({
           id: "turn-2-final",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_2",
           streamKey: "thr_view:planner",
           text: "第二轮回复。",
@@ -3084,21 +3084,21 @@ test("buildThreadRunProjectionViewModel keeps completed planner thinking from pr
           status: "completed",
           startedAt: "2026-01-01T00:00:01.000Z",
           endedAt: "2026-01-01T00:00:03.000Z",
-          role: "planner",
+          role: "main",
         },
         {
           requestId: "req_turn_2",
           status: "completed",
           startedAt: "2026-01-01T00:01:00.000Z",
           endedAt: "2026-01-01T00:01:05.000Z",
-          role: "planner",
+          role: "main",
         },
       ],
       timeline: [
         item({
           id: "turn-1-request",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_1",
           at: "2026-01-01T00:00:01.000Z",
           sequence: 1,
@@ -3115,7 +3115,7 @@ test("buildThreadRunProjectionViewModel keeps completed planner thinking from pr
         item({
           id: "turn-1-final",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_1",
           text: "第一轮回复。",
           at: "2026-01-01T00:00:03.000Z",
@@ -3133,7 +3133,7 @@ test("buildThreadRunProjectionViewModel keeps completed planner thinking from pr
         item({
           id: "turn-2-request",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_2",
           at: "2026-01-01T00:01:00.000Z",
           sequence: 5,
@@ -3150,7 +3150,7 @@ test("buildThreadRunProjectionViewModel keeps completed planner thinking from pr
         item({
           id: "turn-2-final",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_2",
           text: "第二轮回复。",
           at: "2026-01-01T00:01:05.000Z",
@@ -3200,7 +3200,7 @@ test("buildThreadRunProjectionViewModel interleaves completed thinking before ea
         item({
           id: "turn-1-final",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_1",
           text: "第一轮回复。",
           at: "2026-01-01T00:00:05.000Z",
@@ -3219,7 +3219,7 @@ test("buildThreadRunProjectionViewModel interleaves completed thinking before ea
         item({
           id: "turn-2-final",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_2",
           text: "第二轮回复。",
           at: "2026-01-01T00:01:05.000Z",
@@ -3269,7 +3269,7 @@ test("buildThreadRunProjectionViewModel does not bleed prior thinking text into 
         item({
           id: "turn-1-final",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_1",
           text: "第一轮回复。",
           at: "2026-01-01T00:00:03.000Z",
@@ -3325,7 +3325,7 @@ test("buildThreadRunProjectionViewModel keeps prior message.final when next turn
         item({
           id: "turn-1-final",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_1",
           streamKey: "thr_view:planner",
           text: "第一轮回复。",
@@ -3344,7 +3344,7 @@ test("buildThreadRunProjectionViewModel keeps prior message.final when next turn
         item({
           id: "turn-2-delta",
           eventType: "message.delta",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_2",
           streamKey: "thr_view:planner",
           text: "第二轮",
@@ -3420,7 +3420,7 @@ test("buildThreadRunProjectionViewModel keeps final main agent text after empty 
         item({
           id: "planner-placeholder",
           eventType: "message.delta",
-          role: "planner",
+          role: "main",
           text: "",
           streamKey: "act_weather",
           at: "2026-01-01T00:00:01.000Z",
@@ -3429,7 +3429,7 @@ test("buildThreadRunProjectionViewModel keeps final main agent text after empty 
         item({
           id: "planner-final",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           text: "子代理查询结果：广州今天中到大雨。",
           streamKey: "act_weather",
           at: "2026-01-01T00:00:03.000Z",
@@ -3468,9 +3468,9 @@ test("buildThreadRunProjectionViewModel keeps separate SDK text blocks in one co
         item({
           id: "text-block-0",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_planner",
-          streamKey: "thr_view:planner:block:text:0",
+          streamKey: "thr_view:main:block:text:0",
           text: "第一句正文。",
           at: "2026-01-01T00:00:02.000Z",
           sequence: 1,
@@ -3478,9 +3478,9 @@ test("buildThreadRunProjectionViewModel keeps separate SDK text blocks in one co
         item({
           id: "text-block-2",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_planner",
-          streamKey: "thr_view:planner:block:text:2",
+          streamKey: "thr_view:main:block:text:2",
           text: "第二句正文。",
           at: "2026-01-01T00:00:04.000Z",
           sequence: 2,
@@ -3505,14 +3505,14 @@ test("buildThreadRunProjectionViewModel keeps SDK block streams from separate tu
           status: "completed",
           startedAt: "2026-01-01T00:00:01.000Z",
           endedAt: "2026-01-01T00:00:05.000Z",
-          role: "planner",
+          role: "main",
         },
         {
           requestId: "req_turn_2",
           status: "completed",
           startedAt: "2026-01-01T00:01:01.000Z",
           endedAt: "2026-01-01T00:01:05.000Z",
-          role: "planner",
+          role: "main",
         },
       ],
       timeline: [
@@ -3528,7 +3528,7 @@ test("buildThreadRunProjectionViewModel keeps SDK block streams from separate tu
         item({
           id: "turn-1-request",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_1",
           at: "2026-01-01T00:00:01.000Z",
           sequence: 2,
@@ -3555,8 +3555,8 @@ test("buildThreadRunProjectionViewModel keeps SDK block streams from separate tu
         item({
           id: "turn-1-message",
           eventType: "message.final",
-          role: "planner",
-          streamKey: "thr_view:planner:block:text:1",
+          role: "main",
+          streamKey: "thr_view:main:block:text:1",
           text: "第一轮回复。",
           at: "2026-01-01T00:00:04.000Z",
           sequence: 5,
@@ -3573,7 +3573,7 @@ test("buildThreadRunProjectionViewModel keeps SDK block streams from separate tu
         item({
           id: "turn-2-request",
           eventType: "request.started",
-          role: "planner",
+          role: "main",
           requestId: "req_turn_2",
           at: "2026-01-01T00:01:01.000Z",
           sequence: 7,
@@ -3600,8 +3600,8 @@ test("buildThreadRunProjectionViewModel keeps SDK block streams from separate tu
         item({
           id: "turn-2-message",
           eventType: "message.final",
-          role: "planner",
-          streamKey: "thr_view:planner:block:text:1",
+          role: "main",
+          streamKey: "thr_view:main:block:text:1",
           text: "第二轮回复。",
           at: "2026-01-01T00:01:04.000Z",
           sequence: 10,
@@ -3661,7 +3661,7 @@ test("buildThreadRunProjectionViewModel hides legacy duplicate final echoes when
         item({
           id: "message-legacy-final",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "req_planner",
           streamKey: "thr_view:planner",
           text: "最终回复。",
@@ -3671,8 +3671,8 @@ test("buildThreadRunProjectionViewModel hides legacy duplicate final echoes when
         item({
           id: "message-block-final",
           eventType: "message.final",
-          role: "planner",
-          streamKey: "thr_view:planner:block:text:1",
+          role: "main",
+          streamKey: "thr_view:main:block:text:1",
           text: "最终回复。",
           at: "2026-01-01T00:00:04.001Z",
           sequence: 4,
@@ -3796,7 +3796,7 @@ test("projectionMainFeedEntryKey stays stable across superseded stream deltas", 
   const deltaOne = item({
     id: "delta-1",
     eventType: "message.delta",
-    role: "planner",
+    role: "main",
     requestId: "req_stream",
     text: "A",
     sequence: 1,
@@ -3804,7 +3804,7 @@ test("projectionMainFeedEntryKey stays stable across superseded stream deltas", 
   const deltaTwo = item({
     id: "delta-2",
     eventType: "message.delta",
-    role: "planner",
+    role: "main",
     requestId: "req_stream",
     text: "AB",
     sequence: 2,
@@ -3816,20 +3816,20 @@ test("projectionMainFeedEntryKey scopes message stream by requestId when present
   const withoutRequest = item({
     id: "delta-1",
     eventType: "message.delta",
-    role: "planner",
+    role: "main",
     text: "A",
     sequence: 1,
   });
   const withRequest = item({
     id: "delta-2",
     eventType: "message.delta",
-    role: "planner",
+    role: "main",
     requestId: "req_planner",
     text: "AB",
     sequence: 2,
   });
-  expect(projectionMainFeedEntryKey(withoutRequest)).toBe("main:stream:message:role:planner:afterUser:0");
-  expect(projectionMainFeedEntryKey(withRequest)).toBe("main:stream:message:role:planner:req:req_planner");
+  expect(projectionMainFeedEntryKey(withoutRequest)).toBe("main:stream:message:role:main:afterUser:0");
+  expect(projectionMainFeedEntryKey(withRequest)).toBe("main:stream:message:role:main:req:req_planner");
 });
 
 test("buildThreadRunProjectionViewModel preserves separate Codex message items after request completion", () => {
@@ -3841,14 +3841,14 @@ test("buildThreadRunProjectionViewModel preserves separate Codex message items a
           status: "completed",
           startedAt: "2026-01-01T00:00:00.000Z",
           endedAt: "2026-01-01T00:00:05.000Z",
-          role: "planner",
+          role: "main",
         },
       ],
       timeline: [
         item({
           id: "codex-message-a",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "turn_codex",
           streamKey: "msg_codex_a",
           text: "先检查项目结构。",
@@ -3863,7 +3863,7 @@ test("buildThreadRunProjectionViewModel preserves separate Codex message items a
         item({
           id: "codex-message-b",
           eventType: "message.final",
-          role: "planner",
+          role: "main",
           requestId: "turn_codex",
           streamKey: "msg_codex_b",
           text: "结构确认后继续修改。",
@@ -4126,7 +4126,7 @@ test("buildProjectionDisplayTimelineItems keeps only the latest in-flight delta 
       item({
         id: "delta-1",
         eventType: "message.delta",
-        role: "planner",
+        role: "main",
         text: "A",
         at: "2026-01-01T00:00:01.000Z",
         sequence: 1,
@@ -4134,7 +4134,7 @@ test("buildProjectionDisplayTimelineItems keeps only the latest in-flight delta 
       item({
         id: "delta-2",
         eventType: "message.delta",
-        role: "planner",
+        role: "main",
         text: "AB",
         at: "2026-01-01T00:00:02.000Z",
         sequence: 2,
@@ -4158,14 +4158,14 @@ test("buildProjectionDisplayTimelineItems keeps only the latest in-flight delta 
 });
 
 test("buildProjectionDisplayTimelineItems keeps no-requestId final that collapses with request-scoped delta", () => {
-  const streamKey = "thr_test:planner:block:pi-text:msg-1:m1:c0";
+  const streamKey = "thr_test:main:block:pi-text:msg-1:m1:c0";
   const requestId = "req_test_1";
   const text = "跟进回复正文，不应在完成后从 Feed 消失。";
   const timeline = [
     item({
       id: "delta-with-req",
       eventType: "message.delta",
-      role: "planner",
+      role: "main",
       text,
       at: "2026-01-01T00:00:10.000Z",
       sequence: 10,
@@ -4175,7 +4175,7 @@ test("buildProjectionDisplayTimelineItems keeps no-requestId final that collapse
     item({
       id: "final-no-req",
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text,
       at: "2026-01-01T00:00:11.000Z",
       sequence: 11,
@@ -4221,7 +4221,50 @@ test("projectionItemToDetailBlock maps reconnect activity to collapsible phase",
     label: "连接失败 · HTTP 500",
     reconnecting: true,
     reconnectFailed: true,
+    reconnectDetail: "upstream error: do request failed",
   });
+});
+
+test("projectionItemToDetailBlock exposes the upstream 400 reason for the error card", () => {
+  const reason =
+    "Upstream provider sk-deepseek-t156tt · model=deepseek-flash · url=https://slb-v1.api.fan/v1/responses · status=400 · Context window exhausted: window=262144, input=299189, reserve=1. Compact the input before retrying.";
+  const detail = projectionItemToDetailBlock(
+    item({
+      id: "reconnect-context-window",
+      eventType: "api.error",
+      scope: "main",
+      text: `【连接失败】HTTP 400：${reason}`,
+      metadata: {
+        liveType: "thread.api_error",
+        activityOrigin: "proxy.connection_error",
+        apiError: { statusCode: 400, message: reason },
+      },
+    }),
+  );
+  expect(detail).toMatchObject({
+    kind: "phase",
+    label: "连接失败 · HTTP 400",
+    reconnecting: true,
+    reconnectFailed: true,
+    reconnectDetail: reason,
+  });
+});
+
+test("projectionItemToDetailBlock stays quiet for status-only legacy rows", () => {
+  const detail = projectionItemToDetailBlock(
+    item({
+      id: "reconnect-legacy",
+      eventType: "api.error",
+      scope: "main",
+      text: "【连接失败】HTTP 400：Upstream returned HTTP 400",
+      metadata: {
+        liveType: "thread.api_error",
+        activityOrigin: "proxy.connection_error",
+        apiError: { statusCode: 400, message: "Upstream returned HTTP 400" },
+      },
+    }),
+  );
+  expect(detail).toMatchObject({ kind: "phase", label: "连接失败 · HTTP 400" });
   expect(detail).not.toHaveProperty("reconnectDetail");
 });
 
@@ -4313,7 +4356,7 @@ test("buildProjectionDisplayTimelineItems drops reconnect after agent recovers",
       sequence: 2,
       eventType: "message.final",
       text: "好的，我已经完成分析。",
-      role: "planner",
+      role: "main",
     }),
   ];
   const rows = buildProjectionDisplayTimelineItems(timeline, new Map());
@@ -4450,7 +4493,7 @@ test("buildProjectionDisplayTimelineItems drops reconnect and upstream error aft
       sequence: 3,
       eventType: "message.final",
       text: "问题已修复，请查看变更。",
-      role: "planner",
+      role: "main",
     }),
   ];
   const rows = buildProjectionDisplayTimelineItems(timeline, new Map());
@@ -4788,7 +4831,7 @@ test("buildThreadRunProjectionViewModel hides prompt cache tips when includeProm
 test("buildThreadRunProjectionViewModel requests legacy prompt only when projection lacks user prompt", () => {
   const view = buildThreadRunProjectionViewModel(
     projection({
-      timeline: [item({ id: "main", role: "planner", text: "Working" })],
+      timeline: [item({ id: "main", role: "main", text: "Working" })],
     }),
     { id: "thr_view", prompt: "原始需求" },
   );
@@ -4824,7 +4867,7 @@ test("projectionItemToDetailBlock maps API errors and request ownership", () => 
       id: "main-request",
       eventType: "request.started",
       scope: "main",
-      role: "planner",
+      role: "main",
       requestId: "req_main",
     }),
   );
@@ -4838,7 +4881,7 @@ test("projectionItemToDetailBlock maps API errors and request ownership", () => 
     agentId: "coder_a",
   });
   expect(agentRequest).toMatchObject({ kind: "agent-request", subagent: "coder", agentId: "coder_a" });
-  expect(mainRequest).toMatchObject({ kind: "model-request", role: "planner" });
+  expect(mainRequest).toMatchObject({ kind: "model-request", role: "main" });
 });
 
 test("projectionItemToDetailBlock exposes blocked Codex service failures as alerts", () => {
@@ -6084,7 +6127,7 @@ test("projectionItemToDetailBlock prefers structured tool description on complet
       id: "bash-done",
       eventType: "tool.completed",
       scope: "main",
-      role: "planner",
+      role: "main",
       text: "Tool: Bash · npm test",
       metadata: {
         liveType: "tool.completed",
@@ -6118,7 +6161,7 @@ test("projectionItemToDetailBlock builds bash card display for completed bash to
       id: "bash-done",
       eventType: "tool.completed",
       scope: "main",
-      role: "planner",
+      role: "main",
       text: "Run projection view tests",
       metadata: {
         liveType: "tool.completed",
@@ -6153,7 +6196,7 @@ test("projectionItemToDetailBlock separates failed bash command from output", ()
       id: "bash-failed",
       eventType: "tool.failed",
       scope: "main",
-      role: "planner",
+      role: "main",
       text: `Tool: Bash · ${command}`,
       metadata: {
         liveType: "tool.failed",
@@ -6191,7 +6234,7 @@ rg -n "oldSymbol" src -g '*.ts'"`;
       id: "bash-patch-verified",
       eventType: "tool.failed",
       scope: "main",
-      role: "planner",
+      role: "main",
       text: `Tool: Bash · ${command}`,
       metadata: {
         liveType: "tool.failed",
@@ -6233,7 +6276,7 @@ bun test"`;
       id: "bash-patch-test-failed",
       eventType: "tool.failed",
       scope: "main",
-      role: "planner",
+      role: "main",
       text: `Tool: Bash · ${command}`,
       metadata: {
         liveType: "tool.failed",
@@ -6262,7 +6305,7 @@ test("projectionItemToDetailBlock formats MCP tool metadata", () => {
       id: "plan-tool",
       eventType: "tool.started",
       scope: "main",
-      role: "planner",
+      role: "main",
       text: "Tool: mcp__eco_plan__finalize_plan",
       metadata: {
         liveType: "tool.started",
@@ -6284,7 +6327,7 @@ test("projectionItemToDetailBlock formats MCP tool metadata", () => {
       id: "plan-wrapper",
       eventType: "tool.completed",
       scope: "main",
-      role: "planner",
+      role: "main",
       text: "Tool: mcp_tool · mcp__eco_plan__finalize_plan (0.0s)",
       metadata: {
         liveType: "tool.completed",
@@ -6420,11 +6463,11 @@ test("short pre-tool assistant speech stays process narrative (not demoted to ti
       id: "status",
       sequence: 1,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text: "查找 π Agent 图标资源及当前引用",
       runAttemptId: "att_1",
       // Mirror PI/activity stream keys so display collapse keeps distinct process speech.
-      streamKey: "thr_view:planner:block:pi-text:sess:m1:c0",
+      streamKey: "thr_view:main:block:pi-text:sess:m1:c0",
     }),
     item({
       id: "tool",
@@ -6439,10 +6482,10 @@ test("short pre-tool assistant speech stays process narrative (not demoted to ti
       id: "answer",
       sequence: 3,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text: "图标在 apps/desktop/public/agent-icons/pi.ico。",
       runAttemptId: "att_1",
-      streamKey: "thr_view:planner:block:pi-text:sess:m2:c0",
+      streamKey: "thr_view:main:block:pi-text:sess:m2:c0",
     }),
   ];
 
@@ -6483,7 +6526,7 @@ test("message.final rows without streamKey collapse per stream owner (document b
       id: "status",
       sequence: 1,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text: "中间状态",
       runAttemptId: "att_1",
     }),
@@ -6500,7 +6543,7 @@ test("message.final rows without streamKey collapse per stream owner (document b
       id: "answer",
       sequence: 3,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text: "最终答复",
       runAttemptId: "att_1",
     }),
@@ -6533,7 +6576,7 @@ test("message.final rows without streamKey collapse per stream owner (document b
 });
 
 test("stream collapse keeps same block:message:0 across attempts (ACP / unscoped request)", () => {
-  const streamKey = "thr_view:planner:block:message:0";
+  const streamKey = "thr_view:main:block:message:0";
   const timeline = [
     item({
       id: "user_1",
@@ -6548,7 +6591,7 @@ test("stream collapse keeps same block:message:0 across attempts (ACP / unscoped
       id: "ans_1",
       sequence: 2,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text: "第一答",
       streamKey,
       runAttemptId: "att_1",
@@ -6567,7 +6610,7 @@ test("stream collapse keeps same block:message:0 across attempts (ACP / unscoped
       id: "ans_2",
       sequence: 4,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text: "第二答",
       streamKey,
       runAttemptId: "att_2",
@@ -6599,13 +6642,13 @@ test("stream collapse keeps same block:message:0 across attempts (ACP / unscoped
 });
 
 test("stream collapse keeps same streamKey across requests when requestId differs", () => {
-  const streamKey = "thr_view:planner:block:pi-text:abc:m4:";
+  const streamKey = "thr_view:main:block:pi-text:abc:m4:";
   const timeline = [
     item({
       id: "ans_1",
       sequence: 1,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text: "请求一",
       streamKey,
       requestId: "req_1",
@@ -6615,7 +6658,7 @@ test("stream collapse keeps same streamKey across requests when requestId differ
       id: "ans_2",
       sequence: 2,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text: "请求二",
       streamKey,
       requestId: "req_2",
@@ -6634,13 +6677,13 @@ test("stream collapse keeps same streamKey across requests when requestId differ
 });
 
 test("stream collapse still merges delta+final for the same scoped stream", () => {
-  const streamKey = "thr_view:planner:block:message:0";
+  const streamKey = "thr_view:main:block:message:0";
   const timeline = [
     item({
       id: "d1",
       sequence: 1,
       eventType: "message.delta",
-      role: "planner",
+      role: "main",
       text: "半",
       streamKey,
       runAttemptId: "att_1",
@@ -6649,7 +6692,7 @@ test("stream collapse still merges delta+final for the same scoped stream", () =
       id: "f1",
       sequence: 2,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text: "完整答复",
       streamKey,
       runAttemptId: "att_1",
@@ -6669,18 +6712,18 @@ test("stream collapse keeps distinct blocks in the same attempt", () => {
       id: "a",
       sequence: 1,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text: "过程话",
-      streamKey: "thr_view:planner:block:message:0",
+      streamKey: "thr_view:main:block:message:0",
       runAttemptId: "att_1",
     }),
     item({
       id: "b",
       sequence: 2,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text: "终答",
-      streamKey: "thr_view:planner:block:message:1",
+      streamKey: "thr_view:main:block:message:1",
       runAttemptId: "att_1",
     }),
   ];
@@ -6696,7 +6739,7 @@ test("stream collapse keeps distinct blocks in the same attempt", () => {
 });
 
 test("stream collapse does not merge across mid-turn user_prompt with reused streamKey", () => {
-  const streamKey = "thr_view:planner:block:message:0";
+  const streamKey = "thr_view:main:block:message:0";
   const timeline = [
     item({
       id: "user_1",
@@ -6711,7 +6754,7 @@ test("stream collapse does not merge across mid-turn user_prompt with reused str
       id: "ans_1",
       sequence: 2,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text: "先答",
       streamKey,
       runAttemptId: "att_1",
@@ -6730,7 +6773,7 @@ test("stream collapse does not merge across mid-turn user_prompt with reused str
       id: "ans_2",
       sequence: 4,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       text: "插话后答",
       streamKey,
       runAttemptId: "att_1",
@@ -6768,7 +6811,7 @@ test("buildProjectionDisplayTimelineItems drops empty thinking.delta placeholder
         id: "msg",
         sequence: 2,
         eventType: "message.final",
-        role: "planner",
+        role: "main",
         streamKey: "msg",
         text: "done",
       }),
@@ -6787,7 +6830,7 @@ test("buildProjectionDisplayTimelineItems collapses mid-turn exact duplicate ass
         id: "m1",
         sequence: 1,
         eventType: "message.final",
-        role: "planner",
+        role: "main",
         streamKey: ":block:text:1",
         text,
         runAttemptId: "att_1",
@@ -6796,7 +6839,7 @@ test("buildProjectionDisplayTimelineItems collapses mid-turn exact duplicate ass
         id: "m2",
         sequence: 2,
         eventType: "message.final",
-        role: "planner",
+        role: "main",
         streamKey: ":block:text:2",
         text,
         runAttemptId: "att_1",
@@ -6814,7 +6857,7 @@ test("buildProjectionDisplayTimelineItems collapses prefix-growth narratives bet
         id: "short",
         sequence: 1,
         eventType: "message.final",
-        role: "planner",
+        role: "main",
         streamKey: ":block:text:1",
         text: "I'll start by checking the project directory and launching the HTTP server, then verify it and open",
         runAttemptId: "att_1",
@@ -6823,7 +6866,7 @@ test("buildProjectionDisplayTimelineItems collapses prefix-growth narratives bet
         id: "full",
         sequence: 2,
         eventType: "message.final",
-        role: "planner",
+        role: "main",
         streamKey: ":block:text:2",
         text: "I'll start by checking the project directory and launching the HTTP server, then verify it and open the browser.",
         runAttemptId: "att_1",
@@ -6832,7 +6875,7 @@ test("buildProjectionDisplayTimelineItems collapses prefix-growth narratives bet
         id: "tool",
         sequence: 3,
         eventType: "tool.completed",
-        role: "planner",
+        role: "main",
         streamKey: "shell",
         text: "ls",
         runAttemptId: "att_1",
@@ -6847,7 +6890,7 @@ test("buildProjectionDisplayTimelineItems collapses prefix-growth narratives bet
         id: "after",
         sequence: 4,
         eventType: "message.final",
-        role: "planner",
+        role: "main",
         streamKey: ":block:text:3",
         text: "The project directory exists with an `index.html`. Let me start the HTTP server in the background.",
         runAttemptId: "att_1",
@@ -6856,7 +6899,7 @@ test("buildProjectionDisplayTimelineItems collapses prefix-growth narratives bet
         id: "after-dup",
         sequence: 5,
         eventType: "message.final",
-        role: "planner",
+        role: "main",
         streamKey: ":block:text:4",
         text: "The project directory exists with an `index.html`. Let me start the HTTP server in the background.",
         runAttemptId: "att_1",
@@ -6873,7 +6916,7 @@ test("collapseProjectionTimelineStreamsForDetail keeps only the latest same-stre
       id: "a",
       sequence: 1,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       streamKey: "same",
       text: "hello",
     }),
@@ -6881,7 +6924,7 @@ test("collapseProjectionTimelineStreamsForDetail keeps only the latest same-stre
       id: "b",
       sequence: 2,
       eventType: "message.final",
-      role: "planner",
+      role: "main",
       streamKey: "same",
       text: "hello world",
     }),

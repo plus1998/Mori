@@ -145,7 +145,7 @@ test("terminal eventRole conflict fail closed and keeps entry active", () => {
       threadId,
       logicalRequestId: snapshot.logicalRequestId,
       stage: "failed",
-      eventRole: "planner",
+      eventRole: "main",
     },
     ({ displayRequestId }) => {
       ui.push(displayRequestId);
@@ -167,7 +167,7 @@ test("connection diagnostic eventRole conflict fail closed and keeps entry activ
     resolveUpstreamConnectionErrorAttribution(registry, {
       threadId,
       logicalRequestId: snapshot.logicalRequestId,
-      eventRole: "planner",
+      eventRole: "main",
     }),
   ).toBeUndefined();
   expect(registry.findEntryByLogicalId(threadId, snapshot.logicalRequestId)?.agentId).toBe("agent_a");

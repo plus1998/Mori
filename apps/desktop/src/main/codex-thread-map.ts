@@ -43,7 +43,7 @@ export function resolveCodexThreadAttribution(
   // role=general to every planner message and hide them from the main feed.
   const ecoAsRoot = threadMap.getEcoThreadId(trimmed);
   if (ecoAsRoot) {
-    return { ecoThreadId: ecoAsRoot, billingRole: "planner" };
+    return { ecoThreadId: ecoAsRoot, billingRole: "main" };
   }
 
   // Walk parent links to the eco-mapped root. Nested Codex subagents parent to another

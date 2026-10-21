@@ -58,7 +58,7 @@ function sampleRegistry(enabled: boolean): EcoAgentRuntimeConfig {
     ],
     orchestration: {
       mainAgent: {
-        agentKey: "planner",
+        agentKey: "main",
         name: "Main",
         systemPromptPreset: "core_native",
         prompt: "",
@@ -189,7 +189,7 @@ test("PI_CORE_CAPABILITIES marks subagents as eco", () => {
 test("resolvePiRouteByRole never falls back to planner", () => {
   const routes = [
     {
-      role: "planner",
+      role: "main",
       primary: { providerId: "p1", modelId: "m1" },
       fallbacks: [],
     },
@@ -201,7 +201,7 @@ test("resolvePiRouteByRole never falls back to planner", () => {
   ] as const;
   expect(resolvePiRouteByRole(routes as never, "coder")?.primary.modelId).toBe("m2");
   expect(resolvePiRouteByRole(routes as never, "explore")).toBeUndefined();
-  expect(resolvePiRouteByRole(routes as never, "planner")?.primary.modelId).toBe("m1");
+  expect(resolvePiRouteByRole(routes as never, "main")?.primary.modelId).toBe("m1");
 });
 
 test("parent tools allowlist must include Agent when eco-pi-agent is loaded", () => {

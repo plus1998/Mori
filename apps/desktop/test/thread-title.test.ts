@@ -46,7 +46,7 @@ const routes: AnthropicProxyRoute[] = [
     modelId: "explore-model",
   },
   {
-    role: "planner",
+    role: "main",
     provider: {
       id: "p1",
       name: "Provider",

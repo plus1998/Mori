@@ -67,6 +67,157 @@ test.skipIf(!sqliteAvailable)(
   },
 );
 
+test.skipIf(!sqliteAvailable)(
+  "persists Codex structured turn errors and gateway correlation without lossy flattening",
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-api-error-persistence-"));
+    const dbPath = path.join(dir, "eco-coding.sqlite");
+    const store = await createLegacyConversationStore(dbPath);
+    store.saveThread({
+      id: "thr_structured_error",
+      title: "structured error",
+      prompt: "hello",
+      workspacePath: dir,
+      coreKind: "codex",
+      status: "failed",
+      message: "",
+      createdAt: "2026-10-21T00:00:00.000Z",
+      updatedAt: "2026-10-21T00:00:00.000Z",
+    });
+    store.appendActivityLine("thr_structured_error", {
+      id: "act_structured_error",
+      role: "system",
+      message: "Codex turn failed",
+      apiError: {
+        message: "Codex turn failed",
+        code: "provider_error",
+        param: "model_provider",
+        codexErrorInfo: {
+          type: "http_connection_failed",
+          httpStatusCode: 503,
+        },
+        additionalDetails: "The provider process exited.",
+        rawTurnError: {
+          message: "Codex turn failed",
+          code: "provider_error",
+          param: "model_provider",
+        },
+        providerRequestId: "req_provider",
+        responseId: "resp_provider",
+        accountId: "account_provider",
+        turnId: "turn_provider",
+        runAttemptId: "run_attempt_provider",
+      },
+    });
+
+    const reopened = await createLegacyConversationStore(dbPath);
+    expect(reopened.listActivityLines("thr_structured_error")[0]?.apiError).toEqual({
+      message: "Codex turn failed",
+      code: "provider_error",
+      param: "model_provider",
+      codexErrorInfo: {
+        type: "http_connection_failed",
+        httpStatusCode: 503,
+      },
+      additionalDetails: "The provider process exited.",
+      rawTurnError: {
+        message: "Codex turn failed",
+        code: "provider_error",
+        param: "model_provider",
+      },
+      providerRequestId: "req_provider",
+      responseId: "resp_provider",
+      accountId: "account_provider",
+      turnId: "turn_provider",
+      runAttemptId: "run_attempt_provider",
+    });
+  },
+);
+
+test.skipIf(!sqliteAvailable)(
+  "V2 runtime events preserve Codex structured turn errors and gateway correlation",
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-api-error-v2-persistence-"));
+    const dbPath = path.join(dir, "eco-coding.sqlite");
+    const store = await createConversationStore(dbPath);
+    const threadId = "thr_v2_structured_error";
+    store.saveThread({
+      id: threadId,
+      title: "V2 structured error",
+      prompt: "hello",
+      workspacePath: dir,
+      coreKind: "codex",
+      status: "failed",
+      message: "",
+      createdAt: "2026-10-21T00:00:00.000Z",
+      updatedAt: "2026-10-21T00:00:00.000Z",
+    });
+    store.appendConversationRuntimeEvent({
+      id: "event_v2_structured_error",
+      threadId,
+      eventType: "thread.api_error",
+      scope: "main",
+      role: "main",
+      streamState: "none",
+      message: "Codex turn failed",
+      observedAt: "2026-10-21T00:00:01.000Z",
+      metadata: {
+        liveType: "thread.api_error",
+        apiError: {
+          message: "Codex turn failed",
+          code: "subscription_sharing_usage_limit_exceeded",
+          param: "model",
+          codexErrorInfo: {
+            type: "http_connection_failed",
+            httpStatusCode: 200,
+          },
+          additionalDetails: "The upstream stream failed.",
+          rawTurnError: {
+            message: "Codex turn failed",
+            code: "subscription_sharing_usage_limit_exceeded",
+            param: "model",
+          },
+          logicalRequestId: "logical_v2",
+          providerRequestId: "req_v2",
+          responseId: "resp_v2",
+          accountId: "account_v2",
+          threadId,
+          turnId: "turn_v2",
+          runAttemptId: "run_attempt_v2",
+        },
+      },
+    });
+
+    const reopened = await createConversationStore(dbPath);
+    expect(
+      reopened.listConversationRuntimeSources(threadId).find(
+        (event) => event.id === "event_v2_structured_error",
+      )?.metadata?.apiError,
+    ).toEqual({
+      message: "Codex turn failed",
+      code: "subscription_sharing_usage_limit_exceeded",
+      param: "model",
+      codexErrorInfo: {
+        type: "http_connection_failed",
+        httpStatusCode: 200,
+      },
+      additionalDetails: "The upstream stream failed.",
+      rawTurnError: {
+        message: "Codex turn failed",
+        code: "subscription_sharing_usage_limit_exceeded",
+        param: "model",
+      },
+      logicalRequestId: "logical_v2",
+      providerRequestId: "req_v2",
+      responseId: "resp_v2",
+      accountId: "account_v2",
+      threadId,
+      turnId: "turn_v2",
+      runAttemptId: "run_attempt_v2",
+    });
+  },
+);
+
 // These tests exercise the one-time legacy compatibility surface explicitly.
 // Production callers must use the factory default, which is V2-only.
 async function createLegacyConversationStore(dbPath: string) {
@@ -105,7 +256,7 @@ test("V2 rewind uses original receipt order after a late UUID bind and tombstone
       threadId,
       eventType: user ? "thread.status" : "message.final",
       scope: "main",
-      role: user ? "user" : "planner",
+      role: user ? "user" : "main",
       runAttemptId: "run_rewind",
       streamState: "finalized",
       streamKey: id,
@@ -142,7 +293,7 @@ const presetBundle = buildResourcesFromRouteProfile(
     id: "profile-a",
     name: "方案 A",
     routes: [
-      { role: "planner", providerId: "p1", modelId: "m1" },
+      { role: "main", providerId: "p1", modelId: "m1" },
       { role: "explore", providerId: "p1", modelId: "m1" },
       { role: "architect", providerId: "p1", modelId: "m1" },
       { role: "coder", providerId: "p1", modelId: "m1" },
@@ -169,7 +320,7 @@ const settings: ModelSettingsSnapshot = {
       id: "profile-a",
       name: "方案 A",
       routes: [
-        { role: "planner", providerId: "p1", modelId: "m1" },
+        { role: "main", providerId: "p1", modelId: "m1" },
         { role: "explore", providerId: "p1", modelId: "m1" },
         { role: "architect", providerId: "p1", modelId: "m1" },
         { role: "coder", providerId: "p1", modelId: "m1" },
@@ -838,7 +989,7 @@ test.skipIf(!sqliteAvailable)("rewindThreadToActivityLine prunes target and late
     observedAt: "2024-01-01T00:00:02.000Z",
   });
   store.bindLatestUserActivityToSdkMessage(thread.id, "user-target");
-  store.appendActivityLine(thread.id, { id: "act_future", role: "planner", message: "future" });
+  store.appendActivityLine(thread.id, { id: "act_future", role: "main", message: "future" });
   store.appendThreadRunEvent({
     id: "evt_future",
     threadId: thread.id,
@@ -898,7 +1049,7 @@ test.skipIf(!sqliteAvailable)("rewindThreadToActivityLine prunes target and late
     source: "sdk",
     sourceEventId: "evt_usage_future",
     usageKind: "request_final",
-    role: "planner",
+    role: "main",
     inputTokens: 1,
     outputTokens: 2,
     cacheReadTokens: 0,
@@ -1725,7 +1876,7 @@ test.skipIf(!sqliteAvailable)(
       streamState: "final",
       message: "Requesting model…",
       observedAt: "2026-01-01T00:00:01.000Z",
-      role: "planner",
+      role: "main",
       requestId: "req_local_placeholder",
     });
     store.appendThreadRunEvent({
@@ -1736,7 +1887,7 @@ test.skipIf(!sqliteAvailable)(
       streamState: "partial",
       message: "Hello",
       observedAt: "2026-01-01T00:00:02.000Z",
-      role: "planner",
+      role: "main",
       requestId: "req_local_placeholder",
     });
 

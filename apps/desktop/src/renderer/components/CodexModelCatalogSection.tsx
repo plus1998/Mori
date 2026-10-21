@@ -1,6 +1,8 @@
 import { ChevronRight, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { CodexCatalogModelView, CodexModelCatalogStatusView } from "../../shared/ipc";
+import { type AppLocale, formatAppDateTime } from "../../shared/locale";
 
 const EXPANDED_STORAGE_KEY = "eco.codexModelCatalog.expanded";
 
@@ -12,11 +14,11 @@ function readExpandedPreference(): boolean {
   }
 }
 
-function formatFetchedAt(fetchedAt: number | undefined): string {
+function formatFetchedAt(fetchedAt: number | undefined, locale: AppLocale, notFetched: string): string {
   if (!fetchedAt) {
-    return "尚未获取";
+    return notFetched;
   }
-  return new Date(fetchedAt).toLocaleString(undefined, {
+  return formatAppDateTime(locale, new Date(fetchedAt), {
     year: "numeric",
     month: "numeric",
     day: "numeric",
@@ -53,6 +55,8 @@ function formatContextWindow(tokens: number | undefined): string {
  * expanded, so a long account list can never push it out of view.
  */
 export function CodexModelCatalogSection() {
+  const { t, i18n } = useTranslation();
+  const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
   const [models, setModels] = useState<CodexCatalogModelView[]>([]);
   const [status, setStatus] = useState<CodexModelCatalogStatusView | undefined>(undefined);
   const [loading, setLoading] = useState(false);
@@ -113,11 +117,15 @@ export function CodexModelCatalogSection() {
       applySnapshot(await eco.refreshCodexModelCatalog());
       setError("");
     } catch (caught) {
-      setError(`刷新失败：${caught instanceof Error ? caught.message : String(caught)}`);
+      setError(
+        t("codexModels.refreshFailed", {
+          message: caught instanceof Error ? caught.message : String(caught),
+        }),
+      );
     } finally {
       setRefreshing(false);
     }
-  }, [applySnapshot]);
+  }, [applySnapshot, t]);
 
   const handleAdd = useCallback(async () => {
     const eco = window.eco;
@@ -161,8 +169,11 @@ export function CodexModelCatalogSection() {
   );
 
   const summary = loading
-    ? "正在读取模型目录…"
-    : `${models.length} 个可用 · 上次刷新 ${formatFetchedAt(status?.fetchedAt)}`;
+    ? t("codexModels.loading")
+    : t("codexModels.summary", {
+        total: models.length,
+        time: formatFetchedAt(status?.fetchedAt, locale, t("codexModels.notFetched")),
+      });
 
   return (
     <section className={expanded ? "codex-catalog-card is-expanded" : "codex-catalog-card"}>
@@ -177,13 +188,13 @@ export function CodexModelCatalogSection() {
             size={14}
             className={expanded ? "codex-catalog-chevron is-open" : "codex-catalog-chevron"}
           />
-          <strong>Codex 模型列表</strong>
+          <strong>{t("codexModels.title")}</strong>
           <span className="codex-catalog-summary-meta">{summary}</span>
         </button>
         <div className="codex-catalog-actions">
           {status?.lastError && !error ? (
             <span className="codex-catalog-warning" title={status.lastError}>
-              自动获取失败
+              {t("codexModels.autoFetchFailed")}
             </span>
           ) : null}
           <button
@@ -193,7 +204,7 @@ export function CodexModelCatalogSection() {
             disabled={refreshing || loading}
           >
             <RefreshCw size={14} className={refreshing ? "mcp-spin" : undefined} />
-            {refreshing ? "刷新中…" : "刷新"}
+            {refreshing ? t("codexModels.refreshing") : t("common.refresh")}
           </button>
         </div>
       </div>
@@ -202,7 +213,9 @@ export function CodexModelCatalogSection() {
         <>
           {error ? <div className="codex-account-sync-error">{error}</div> : null}
           {!error && status?.lastError ? (
-            <div className="codex-account-sync-error">上次自动获取失败：{status.lastError}</div>
+            <div className="codex-account-sync-error">
+              {t("codexModels.lastAutoFetchFailed", { message: status.lastError })}
+            </div>
           ) : null}
 
           <form
@@ -213,22 +226,22 @@ export function CodexModelCatalogSection() {
             }}
           >
             <label className="codex-catalog-add-field">
-              <span>Model ID</span>
+              <span>{t("codexModels.modelId")}</span>
               <input
                 className="mcp-field-input"
                 type="text"
                 value={modelIdDraft}
-                placeholder="例如 gpt-6.1-sol-preview"
+                placeholder={t("codexModels.modelIdPlaceholder")}
                 onChange={(event) => setModelIdDraft(event.target.value)}
               />
             </label>
             <label className="codex-catalog-add-field">
-              <span>显示名（可选）</span>
+              <span>{t("codexModels.displayNameOptional")}</span>
               <input
                 className="mcp-field-input"
                 type="text"
                 value={displayNameDraft}
-                placeholder="留空则使用 Model ID"
+                placeholder={t("codexModels.displayNameHint")}
                 onChange={(event) => setDisplayNameDraft(event.target.value)}
               />
             </label>
@@ -238,12 +251,12 @@ export function CodexModelCatalogSection() {
               disabled={!modelIdDraft.trim() || refreshing}
             >
               <Plus size={14} />
-              手动添加
+              {t("codexModels.addManual")}
             </button>
           </form>
 
           {models.length === 0 ? (
-            <p className="codex-catalog-empty">没有可用模型，请点击刷新或手动添加。</p>
+            <p className="codex-catalog-empty">{t("codexModels.empty")}</p>
           ) : (
             <ul className="codex-catalog-list">
               {models.map((model) => (
@@ -254,26 +267,26 @@ export function CodexModelCatalogSection() {
                   </div>
                   <div className="codex-catalog-item-meta">
                     {model.origin === "manual" ? (
-                      <span className="codex-catalog-tag is-manual">手动</span>
+                      <span className="codex-catalog-tag is-manual">{t("codexModels.tagManual")}</span>
                     ) : (
                       <span className="codex-catalog-tag">codex-rs</span>
                     )}
                     {model.contextWindow ? (
                       <span className="codex-catalog-meta">
-                        上下文 {formatContextWindow(model.contextWindow)}
+                        {t("codexModels.contextWindow", { size: formatContextWindow(model.contextWindow) })}
                       </span>
                     ) : null}
                     {model.reasoningEfforts.length > 0 ? (
                       <span className="codex-catalog-meta" title={model.reasoningEfforts.join(" / ")}>
-                        推理 {model.reasoningEfforts.length} 档
+                        {t("codexModels.reasoningLevels", { count: model.reasoningEfforts.length })}
                       </span>
                     ) : null}
                     {model.origin === "manual" ? (
                       <button
                         type="button"
                         className="mcp-icon-button"
-                        aria-label={`移除 ${model.modelId}`}
-                        title={`移除 ${model.modelId}`}
+                        aria-label={t("codexModels.removeNamed", { modelId: model.modelId })}
+                        title={t("codexModels.removeNamed", { modelId: model.modelId })}
                         onClick={() => void handleRemove(model.modelId)}
                         disabled={removingId !== null}
                       >
@@ -288,9 +301,12 @@ export function CodexModelCatalogSection() {
 
           <footer className="codex-catalog-footer">
             <span className="codex-catalog-counts">
-              远端 {status?.remoteCount ?? 0} 个 · 手动 {status?.manualCount ?? 0} 个
+              {t("codexModels.footerCounts", {
+                remote: status?.remoteCount ?? 0,
+                manual: status?.manualCount ?? 0,
+              })}
             </span>
-            <span className="codex-catalog-note">隐藏模型不在此列出</span>
+            <span className="codex-catalog-note">{t("codexModels.footerHiddenNote")}</span>
             <span className="codex-catalog-source" title={status?.sourceUrl}>
               {formatSourceLabel(status?.sourceUrl)}
             </span>

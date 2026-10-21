@@ -80,10 +80,7 @@ export class DesktopUpdateService {
    * @param explicit - User/IPC initiated checks always run; automatic checks skip busy phases.
    * @param options.throttle - Resume-style auto checks respect a minimum interval.
    */
-  async checkForUpdates(
-    explicit = true,
-    options?: { throttle?: boolean },
-  ): Promise<DesktopUpdateState> {
+  async checkForUpdates(explicit = true, options?: { throttle?: boolean }): Promise<DesktopUpdateState> {
     if (this.state.capability !== "auto") {
       return this.state;
     }
@@ -108,18 +105,17 @@ export class DesktopUpdateService {
       this.lastAutoCheckAt = now;
     }
 
-    await this.applyOutboundProxy();
     this.setState({
       phase: "checking",
       error: undefined,
       reason: undefined,
       progress: undefined,
     });
-    this.checkPromise = autoUpdater
-      .checkForUpdates()
+    this.checkPromise = this.applyOutboundProxy()
+      .then(() => autoUpdater.checkForUpdates())
       .then((result) => {
         if (result && !result.isUpdateAvailable && this.state.phase === "checking") {
-          this.setState({ phase: "idle", reason: "up-to-date" });
+          this.setState({ phase: "idle", reason: "up-to-date", availableVersion: undefined });
         }
         return this.state;
       })
@@ -141,7 +137,12 @@ export class DesktopUpdateService {
     if (this.state.capability !== "auto" || this.state.phase !== "available") {
       return this.state;
     }
-    await this.applyOutboundProxy();
+    // The feed may have advanced since the update was offered. Refresh the
+    // updater's cached metadata before downloading, and never use it after a failed check.
+    await this.checkForUpdates();
+    if (this.state.phase !== "available") {
+      return this.state;
+    }
     try {
       this.setState({
         phase: "downloading",
@@ -243,7 +244,12 @@ export class DesktopUpdateService {
       });
     });
     autoUpdater.on("update-not-available", () => {
-      this.setState({ phase: "idle", reason: "up-to-date", progress: undefined });
+      this.setState({
+        phase: "idle",
+        reason: "up-to-date",
+        availableVersion: undefined,
+        progress: undefined,
+      });
     });
     autoUpdater.on("error", (error) => {
       this.setState({

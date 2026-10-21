@@ -6,6 +6,20 @@ export interface ThreadApiErrorInfo {
   /** User-facing summary (Chinese when mapped, otherwise cleaned upstream text). */
   message: string;
   model?: string;
+  /** Codex app-server's structured `turn.error.codexErrorInfo`, retained verbatim. */
+  codexErrorInfo?: unknown;
+  /** Codex app-server's structured `turn.error.additionalDetails`, retained verbatim. */
+  additionalDetails?: string;
+  /** Complete structured `turn.error` object when available. */
+  rawTurnError?: unknown;
+  param?: string;
+  logicalRequestId?: string;
+  providerRequestId?: string;
+  responseId?: string;
+  accountId?: string;
+  threadId?: string;
+  turnId?: string;
+  runAttemptId?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -155,6 +169,7 @@ export function parseSdkApiErrorAttribute(raw: string, model?: string): ThreadAp
 
   let code: string | undefined;
   let rawMessage: string | undefined;
+  let structured: Partial<ThreadApiErrorInfo> = {};
 
   if (jsonText) {
     try {
@@ -162,6 +177,7 @@ export function parseSdkApiErrorAttribute(raw: string, model?: string): ThreadAp
       const extracted = readErrorFromJson(parsed);
       code = extracted.code;
       rawMessage = extracted.message;
+      structured = readStructuredApiErrorExtras(parsed);
     } catch {
       // ignore malformed JSON
     }
@@ -186,11 +202,62 @@ export function parseSdkApiErrorAttribute(raw: string, model?: string): ThreadAp
     ...(model && { model }),
     ...(statusCode !== undefined && { statusCode }),
     ...(code && { code }),
+    ...structured,
   };
   return {
     ...draft,
     message: formatApiErrorUserMessage(draft),
   };
+}
+
+function readStructuredApiErrorExtras(value: unknown): Partial<ThreadApiErrorInfo> {
+  if (!isRecord(value)) return {};
+  const error = isRecord(value.error) ? value.error : undefined;
+  const response = isRecord(value.response) ? value.response : undefined;
+  const responseError = response && isRecord(response.error) ? response.error : undefined;
+  const source = error ?? responseError ?? value;
+  const additionalDetails =
+    typeof source.additionalDetails === "string" && source.additionalDetails.trim()
+      ? source.additionalDetails
+      : undefined;
+  const param =
+    typeof source.param === "string" && source.param.trim()
+      ? source.param.trim()
+      : typeof value.param === "string" && value.param.trim()
+        ? value.param.trim()
+        : undefined;
+  return {
+    ...(source.codexErrorInfo !== undefined
+      ? { codexErrorInfo: source.codexErrorInfo }
+      : {}),
+    ...(additionalDetails ? { additionalDetails } : {}),
+    ...(isRecord(value.turn) && isRecord(value.turn.error)
+      ? { rawTurnError: value.turn.error }
+      : {}),
+    ...(param ? { param } : {}),
+    ...readOptionalStructuredString(source, "logicalRequestId"),
+    ...readOptionalStructuredString(source, "providerRequestId"),
+    ...readOptionalStructuredString(source, "responseId"),
+    ...readOptionalStructuredString(source, "accountId"),
+    ...readOptionalStructuredString(source, "threadId"),
+    ...readOptionalStructuredString(source, "turnId"),
+    ...readOptionalStructuredString(source, "runAttemptId"),
+  };
+}
+
+function readOptionalStructuredString(
+  source: Record<string, unknown>,
+  key:
+    | "logicalRequestId"
+    | "providerRequestId"
+    | "responseId"
+    | "accountId"
+    | "threadId"
+    | "turnId"
+    | "runAttemptId",
+): Partial<ThreadApiErrorInfo> {
+  const value = source[key];
+  return typeof value === "string" && value.trim() ? { [key]: value.trim() } : {};
 }
 
 export function formatApiErrorUserMessage(info: ThreadApiErrorInfo): string {
@@ -210,6 +277,9 @@ export function formatApiErrorUserMessage(info: ThreadApiErrorInfo): string {
   }
   if (code === "model_not_found") {
     return "模型不存在或无权访问，请检查 Provider 配置与模型 ID。";
+  }
+  if (code === "subscription_sharing_usage_limit_exceeded") {
+    return "该账号的 ChatGPT 订阅用量受限，本轮已停止";
   }
   if (status === 429 || code === "rate_limit_exceeded") {
     return "上游模型请求过于频繁，请稍后重试或切换 Provider。";

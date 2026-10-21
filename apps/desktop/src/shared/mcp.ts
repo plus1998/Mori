@@ -18,6 +18,8 @@ export interface McpServerConfigInput {
    * Leave empty to auto-approve all tools from this server.
    */
   allowedTools?: string;
+  /** Revoke saved tool approvals when saving this server. Does not grant access. */
+  resetToolApprovals?: boolean;
 }
 
 export interface McpServerConfigView {
@@ -31,8 +33,17 @@ export interface McpServerConfigView {
   url?: string;
   headersJson: string;
   allowedTools: string;
+  rememberedTools?: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+/** Host-bound identity for remembering one tool on one server configuration. */
+export interface McpToolApprovalTarget {
+  serverId: string;
+  serverName: string;
+  toolName: string;
+  configurationRevision: string;
 }
 
 export interface McpSettingsSnapshot {

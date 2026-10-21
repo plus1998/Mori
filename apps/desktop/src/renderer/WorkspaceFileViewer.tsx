@@ -445,9 +445,6 @@ export function WorkspaceFileViewer({ workspacePath, target, onViewedFileChange 
         ) : (
           <div className="workspace-file-browser__message">{t("fileViewer.noFile")}</div>
         )}
-        {file?.truncated ? (
-          <div className="workspace-file-browser__status">{t("fileBrowser.truncated")}</div>
-        ) : null}
       </div>
     </div>
   );

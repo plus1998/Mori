@@ -1,6 +1,4 @@
-import { resolveUpstreamApiCompat } from "../shared/api-compat";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +7,7 @@ import type { ResolvedModelRoute } from "@eco/model-router";
 import {
   applyCodexExecutionConfirmation,
   assertCodexRoleProvidersAvailable,
+  buildCodexConfigToml,
   buildCodexGatewayModelAlias,
   buildCodexMainAgentOrchestrationAppend,
   buildCodexSubagentFollowupPrompt,
@@ -53,9 +52,12 @@ import {
   syncEcoCodexModelCatalog,
   syncOrchestrationAgentsToCodexRoles,
   transferAppliedCodexThreadConfig,
+  withCodexMcpServerDefinitions,
   withCodexNativeImageView,
+  withCodexRemoteCompaction,
   withCodexSkillConfig,
 } from "@eco/runtime";
+import { resolveUpstreamApiCompat } from "../shared/api-compat";
 import type { SkillsEnabledSettings } from "../shared/composer-skills-settings";
 import type { CodexModelCatalogEntryView } from "../shared/models";
 import type { ThreadRunEventInput } from "../shared/thread-run-events";
@@ -66,6 +68,11 @@ import {
   createCodexApprovalBridge,
 } from "./codex-approval-bridge";
 import { waitForCodexConfigReload } from "./codex-config-reload-wait";
+import {
+  assertCodexSubagentCompactionCompatible,
+  createCodexRemoteCompactionResolver,
+  fingerprintCodexProviderConfig,
+} from "./codex-model-capability-config";
 import { CodexModelCatalogService } from "./codex-model-catalog";
 import {
   CodexRuntimeLifecycle,
@@ -114,8 +121,9 @@ export interface RunThreadRequestWithRuntimeProxyInput {
   /** Thread-level subagent toggles (explore/coder/…). */
   resolveSubagentAvailability?: () => Partial<Record<string, boolean>> | undefined;
   /**
-   * Global MCP pool with thread-level tool visibility applied.
-   * Processes stay warm; unselected servers use a disabled tools sentinel.
+   * MCP servers visible to the current thread. Codex receives the full
+   * definitions through `thread/start` / `thread/resume` config, never through
+   * the process-global config.toml.
    */
   resolveMcpServers?: () =>
     | readonly CodexMcpServerForConfigSync[]
@@ -134,7 +142,7 @@ export interface RunThreadRequestWithRuntimeProxyInput {
   onPrepared?: (prepared: PreparedCodexRuntime) => void | Promise<void>;
   /** Reports active Codex turns that temporarily prevent an app-server config reload. */
   onConfigReloadWait?: (input: {
-    reason: "model_catalog" | "global_runtime";
+    reason: CodexRuntimeRestartReason;
     activeThreadIds: readonly string[];
   }) => void;
   recordRouteFingerprint: (threadId: string, routes: readonly RuntimeRoute[]) => void;
@@ -186,7 +194,7 @@ export interface CodexRuntimeRunDeps {
    * Bind a Codex user item id onto the latest local user-prompt run event.
    * Returns true when the local event was updated (caller should skip appending a duplicate).
    */
-  bindLatestUserPromptToCodexItem?: (threadId: string, itemId: string) => boolean;
+  bindLatestUserPromptToCodexItem?: (threadId: string, itemId: string, turnId?: string) => boolean;
   /** Local prune after a successful app-server `thread/fork` rewind. */
   pruneThreadAfterCodexFork?: (ecoThreadId: string, itemId: string) => void;
   /** @deprecated Use pruneThreadAfterCodexFork. */
@@ -236,13 +244,20 @@ export interface PrepareCodexRuntimeInput {
   requiredProviderIds?: readonly string[];
   /** Main thread's selected provider (the built-in `openai` route retains native image viewing). */
   mainProviderId?: string;
+  mainModelId?: string;
+  mainApiCompat?: EcoProviderForCodexConfig["apiCompat"];
   mainSupportsImageInput?: boolean;
   /**
-   * Global MCP pool for `config.toml` `[mcp_servers.*]` (settings-enabled servers).
-   * Thread selection is applied via per-server `enabledTools` (warm process, hidden tools).
-   * Empty = no globally enabled MCP.
+   * MCP servers visible to this thread. Definitions are passed to Codex through
+   * the thread config; they are not written to the process-global config.toml.
    */
   mcpServers?: readonly CodexMcpServerForConfigSync[];
+  /**
+   * Stable process-global MCP servers written to `config.toml` `[mcp_servers.*]`.
+   * Defaults to `listGlobalMcpServers`. Thread-specific Hub descriptors must not
+   * be passed here.
+   */
+  globalMcpServers?: readonly CodexMcpServerForConfigSync[];
   /** Composer-selected MCP names for this thread. Omitted means all supplied servers. */
   threadEnabledMcpServerNames?: readonly string[];
   skillConfig?: readonly { path: string; enabled: boolean }[];
@@ -261,6 +276,9 @@ export interface PrepareCodexRuntimeInput {
   /** Internal desired-baseline revision captured by the refresh coordinator. */
   globalRuntimeRevision?: number;
 }
+
+/** Exhaustive process-only restart reasons; thread settings must never enter this path. */
+export type CodexRuntimeRestartReason = "account" | "account_proxy" | "model_catalog" | "launch_config";
 
 export interface PreparedCodexRuntime {
   orchestrationAppend?: string;
@@ -291,6 +309,7 @@ let globalRuntimeRefreshShuttingDown = false;
 let globalRefreshIdleAbortController = new AbortController();
 let beforeGlobalRuntimeRefresh: (() => Promise<void>) | undefined;
 let globalRefreshActiveThreadIds: readonly string[] = [];
+let forcedRuntimeRestart: "account" | "account_proxy" | undefined;
 let loadedModelCatalogAliases: readonly string[] = [];
 let loadedGlobalMcpServerNames: readonly string[] = [];
 
@@ -344,6 +363,7 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
   globalRefreshIdleAbortController = new AbortController();
   beforeGlobalRuntimeRefresh = undefined;
   globalRefreshActiveThreadIds = [];
+  forcedRuntimeRestart = undefined;
   loadedModelCatalogAliases = [];
   loadedGlobalMcpServerNames = [];
   // Role declarations remain thread-scoped, but the shared runtime always needs
@@ -377,7 +397,11 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
         projectionEvent.role === "user" &&
         projectionEvent.metadata?.itemType === "userMessage" &&
         itemId &&
-        config.bindLatestUserPromptToCodexItem?.(projectionEvent.threadId, itemId)
+        config.bindLatestUserPromptToCodexItem?.(
+          projectionEvent.threadId,
+          itemId,
+          typeof projectionEvent.metadata?.turnId === "string" ? projectionEvent.metadata.turnId : undefined,
+        )
       ) {
         // Projection-only: local user prompt already carries the Codex item id / rewindTarget.
         config.scheduleThreadRunProjectionUpdated(projectionEvent.threadId, { streaming: false });
@@ -893,9 +917,11 @@ export function clearCodexModelCatalogCache(): void {
  * so the fingerprint gate in prepareCodexRuntime cannot detect those changes
  * on its own.
  */
-export function invalidateGlobalCodexRuntimeFingerprints(): void {
-  lastPreparedModelCatalogFingerprint = "";
-  lastPreparedGlobalConfigFingerprint = "";
+export function requestCodexAccountRuntimeRestart(reason: "account" | "account_proxy"): void {
+  if (reason !== "account" && reason !== "account_proxy") {
+    throw new Error("Only account credentials or account proxy changes may force a Codex runtime restart.");
+  }
+  forcedRuntimeRestart = reason;
 }
 
 /** Queue a settings-driven refresh without interrupting active Codex turns. */
@@ -912,22 +938,29 @@ export function scheduleCodexGlobalRuntimeRefresh(options?: { beforePrepare?: ()
     do {
       const revision = desiredGlobalRuntimeRevision;
       try {
-        // Do not write a new catalog/config while another turn is active. The
-        // active app-server continues using the complete loaded baseline.
-        await waitForGlobalCodexRuntimeIdle(globalRefreshIdleAbortController.signal);
-        if (globalRuntimeRefreshShuttingDown) return;
-        // Coalesce every save observed while waiting into the newest snapshot.
-        if (revision !== desiredGlobalRuntimeRevision) {
-          continue;
-        }
         const beforePrepare = beforeGlobalRuntimeRefresh;
+        // Account credentials must not be published while the old account is
+        // running. Ordinary saves first compare actual launch/catalog content;
+        // a no-op refresh must never queue behind unrelated active turns.
+        if (beforePrepare) {
+          if (forcedRuntimeRestart !== "account") {
+            throw new Error("A Codex account transition requires the explicit account restart reason.");
+          }
+          await waitForGlobalCodexRuntimeIdle(globalRefreshIdleAbortController.signal);
+          if (globalRuntimeRefreshShuttingDown) return;
+          if (revision !== desiredGlobalRuntimeRevision) continue;
+        }
         beforeGlobalRuntimeRefresh = undefined;
         await beforePrepare?.();
         if (globalRuntimeRefreshShuttingDown) return;
         if (revision !== desiredGlobalRuntimeRevision) {
           continue;
         }
-        await prepareCodexRuntime({ globalOnly: true, globalRuntimeRevision: revision });
+        await prepareCodexRuntime({
+          globalOnly: true,
+          globalRuntimeRevision: revision,
+          signal: globalRefreshIdleAbortController.signal,
+        });
         globalRefreshError = undefined;
       } catch (error) {
         if (globalRuntimeRefreshShuttingDown && error === globalRefreshIdleAbortController.signal.reason)
@@ -975,7 +1008,7 @@ export async function prepareCodexRuntime(
       if (globalRefreshActiveThreadIds.length > 0) {
         input.onConfigReloadWait?.({
           reason: catalogRoutesAreAvailable(input.requiredCatalogRoutes ?? [], loadedModelCatalogAliases)
-            ? "global_runtime"
+            ? "launch_config"
             : "model_catalog",
           activeThreadIds: globalRefreshActiveThreadIds,
         });
@@ -1031,7 +1064,15 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
 
   const codexHomeDir = resolveCodexHomeDir(runtimeDeps.ecoDataDir);
   const providers = [...runtimeDeps.listProviders()];
-  const mcpServers = input.mcpServers ?? (await runtimeDeps.listGlobalMcpServers?.()) ?? [];
+  const resolveModelRemoteCompaction = createCodexRemoteCompactionResolver(
+    providers,
+    input.requiredCatalogRoutes,
+  );
+  // Global config.toml must stay identical across thread switches. Only the
+  // thread-visible descriptors are per-thread and they travel through the
+  // thread config overrides passed to thread/start / thread/resume.
+  const threadMcpServers = input.globalOnly ? [] : (input.mcpServers ?? []);
+  const globalMcpServers = input.globalMcpServers ?? (await runtimeDeps.listGlobalMcpServers?.()) ?? [];
   const globalUserRules =
     [runtimeDeps.getGlobalUserRules?.()?.trim(), input.systemPromptAppend?.trim()]
       .filter((value): value is string => Boolean(value))
@@ -1070,7 +1111,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
           codexHomeDir,
           orchestration: input.agentRegistry.orchestration,
           templates: input.agentRegistry.templates,
-          mcpServers,
+          mcpServers: threadMcpServers,
           ...(input.threadEnabledMcpServerNames
             ? { threadEnabledMcpServers: input.threadEnabledMcpServerNames }
             : {}),
@@ -1090,12 +1131,30 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     assertCodexRoleProvidersAvailable(roleSync.roles, providers);
   }
   lastPreparedRoleIds = roleSync?.roleIds ?? [];
-  const baseThreadConfig = roleSync?.threadConfig ?? buildDenyAllMcpThreadConfig(mcpServers);
+  const baseThreadConfig =
+    roleSync?.threadConfig ??
+    withCodexMcpServerDefinitions(buildDenyAllMcpThreadConfig(threadMcpServers), threadMcpServers);
   const threadConfigWithWebSearch = input.webSearchOverride
     ? { ...baseThreadConfig, web_search: input.webSearchOverride }
     : baseThreadConfig;
   const mainProviderId =
     input.mainProviderId ?? input.agentRegistry?.orchestration.mainAgent.modelRef.providerId;
+  const mainModelId = input.mainModelId ?? input.agentRegistry?.orchestration.mainAgent.modelRef.modelId;
+  const mainRemoteCompaction =
+    mainProviderId && mainModelId
+      ? resolveModelRemoteCompaction({
+          providerId: mainProviderId,
+          modelId: mainModelId,
+          ...(input.mainApiCompat ? { apiCompat: input.mainApiCompat } : {}),
+        })
+      : "unsupported";
+  if (mainProviderId && mainModelId) {
+    assertCodexSubagentCompactionCompatible(
+      mainRemoteCompaction,
+      roleSync?.roles ?? [],
+      resolveModelRemoteCompaction,
+    );
+  }
   const prepared: PreparedCodexRuntime = {
     ...(orchestrationAppend ? { orchestrationAppend } : {}),
     ...(orchestrationToolPolicy ? { orchestrationToolPolicy } : {}),
@@ -1105,18 +1164,30 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     ),
     threadConfig: withCodexSkillConfig(
       mainProviderId
-        ? withCodexNativeImageView(threadConfigWithWebSearch, mainProviderId, input.mainSupportsImageInput)
+        ? withCodexRemoteCompaction(
+            withCodexNativeImageView(threadConfigWithWebSearch, mainProviderId, input.mainSupportsImageInput),
+            mainProviderId,
+            mainRemoteCompaction,
+          )
         : threadConfigWithWebSearch,
       input.skillConfig ?? [],
     ),
     roleThreadConfigs: Object.fromEntries(
-      Object.entries(roleSync?.roleThreadConfigs ?? {}).map(([role, config]) => [
-        role,
-        withCodexSkillConfig(
-          input.webSearchOverride ? { ...config, web_search: input.webSearchOverride } : config,
-          input.skillConfig ?? [],
-        ),
-      ]),
+      Object.entries(roleSync?.roleThreadConfigs ?? {}).map(([role, config]) => {
+        const definition = roleSync?.roles.find((entry) => entry.roleId === role);
+        if (!definition) throw new Error(`Missing Codex role definition: ${role}`);
+        return [
+          role,
+          withCodexSkillConfig(
+            withCodexRemoteCompaction(
+              input.webSearchOverride ? { ...config, web_search: input.webSearchOverride } : config,
+              definition.providerId,
+              mainRemoteCompaction,
+            ),
+            input.skillConfig ?? [],
+          ),
+        ];
+      }),
     ),
   };
 
@@ -1149,7 +1220,10 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
   // catalog nor config.toml may be regenerated by a concurrent session.
   if (!input.globalOnly && hasLoadedGlobalRuntimeBaseline()) {
     assertCatalogRoutesAvailable(input.requiredCatalogRoutes ?? [], loadedModelCatalogAliases);
-    assertThreadMcpServersAvailable(input.threadEnabledMcpServerNames ?? [], loadedGlobalMcpServerNames);
+    assertThreadMcpServersAvailable(input.threadEnabledMcpServerNames ?? [], [
+      ...loadedGlobalMcpServerNames,
+      ...threadMcpServers.map((server) => server.name),
+    ]);
     assertCatalogRoutesAvailable(
       (roleSync?.roles ?? []).map((role) => ({
         providerId: role.providerId,
@@ -1182,13 +1256,14 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     `[eco-codex] model catalog path=${catalogSync.catalogPath} aliases=${catalogSync.aliasSlugs.length} native=${catalogSync.nativeModelCount} changed=${catalogSync.changed}`,
   );
 
-  const configSync = await syncCodexConfigFromEcoProviders({
+  const globalConfigInput = {
     ecoDataDir: runtimeDeps.ecoDataDir,
     providers,
-    mcpServers,
+    mcpServers: globalMcpServers,
     modelCatalogJsonPath: catalogSync.catalogPath,
     ...(globalMultiAgentSupportRequired ? { enableMultiAgent: true } : {}),
-  });
+  };
+  const configSync = await syncCodexConfigFromEcoProviders(globalConfigInput);
 
   const configToml = fs.readFileSync(configSync.configPath, "utf8");
   if (!configToml.includes("model_catalog_json =")) {
@@ -1231,21 +1306,27 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     }
   }
 
-  for (const server of mcpServers) {
+  for (const server of globalMcpServers) {
     if (!configToml.includes(`[mcp_servers.${server.name}]`)) {
       throw new Error(
         `Codex MCP sync failed: missing [mcp_servers.${server.name}] in ${configSync.configPath}.`,
       );
     }
   }
-  if (mcpServers.length === 0 && configToml.includes("[mcp_servers.")) {
+  if (globalMcpServers.length === 0 && configToml.includes("[mcp_servers.")) {
     throw new Error(
       `Codex MCP sync failed: config.toml still contains [mcp_servers.*] after clearing MCP selection (${configSync.configPath}).`,
     );
   }
+  if (threadMcpServers.some((server) => configToml.includes(`[mcp_servers.${server.name}]`))) {
+    throw new Error(
+      `Codex MCP sync failed: a thread-scoped MCP server leaked into ${configSync.configPath}.`,
+    );
+  }
 
   // Fail before Codex app-server starts: dead ports / notification≠202 look like silent MCP absence.
-  await assertEcoHttpMcpServersReachable(mcpServers, (message) => {
+  // Thread-scoped descriptors are checked here too; they reach Codex through the thread config.
+  await assertEcoHttpMcpServersReachable([...globalMcpServers, ...threadMcpServers], (message) => {
     runtimeDeps.onStderr?.(`${message}\n`);
   });
 
@@ -1266,7 +1347,11 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     catalogSync.aliasSlugs,
   );
 
-  const globalConfigFingerprint = createHash("sha256").update(configToml).digest("hex");
+  // Global MCP has a native reload RPC; candidate capabilities are thread
+  // overrides. Neither belongs in the process-launch restart fingerprint.
+  const globalConfigFingerprint = fingerprintCodexProviderConfig(
+    buildCodexConfigToml({ ...globalConfigInput, mcpServers: [] }),
+  );
   // A save that races catalog/config generation is intentionally coalesced before
   // restart. It is safe to rewrite files while all threads are idle; only the
   // final desired revision may restart the shared app-server.
@@ -1277,26 +1362,33 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
   ) {
     return prepared;
   }
-  const catalogNeedsRestart = catalogSync.fingerprint !== lastPreparedModelCatalogFingerprint;
-  const configNeedsRestart = globalConfigFingerprint !== lastPreparedGlobalConfigFingerprint;
+  const catalogNeedsRestart = catalogSync.runtimeFingerprint !== lastPreparedModelCatalogFingerprint;
+  const configNeedsRestart =
+    globalConfigFingerprint !== lastPreparedGlobalConfigFingerprint || forcedRuntimeRestart !== undefined;
   if (catalogNeedsRestart || configNeedsRestart) {
-    await ensureIdleCodexAppServerRestartForCatalog(
+    await ensureCodexRuntimeRestart(
       runtimeDeps,
       codexExecutable,
       catalogSync.aliasSlugs,
       configSync.mcpServerNames,
-      catalogSync.fingerprint,
+      catalogSync.runtimeFingerprint,
       globalConfigFingerprint,
       baselineInput,
-      catalogNeedsRestart ? "model_catalog" : "global_runtime",
+      forcedRuntimeRestart ?? (catalogNeedsRestart ? "model_catalog" : "launch_config"),
     );
   }
+  if (
+    input.globalOnly &&
+    input.globalRuntimeRevision !== undefined &&
+    input.globalRuntimeRevision !== desiredGlobalRuntimeRevision
+  )
+    return prepared;
 
   if (input.globalOnly && !getGlobalCodexRuntimeLifecycle()?.getClient()) {
     markLoadedGlobalRuntimeBaseline(
       catalogSync.aliasSlugs,
       configSync.mcpServerNames,
-      catalogSync.fingerprint,
+      catalogSync.runtimeFingerprint,
       globalConfigFingerprint,
       baselineInput,
     );
@@ -1313,13 +1405,13 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     markLoadedGlobalRuntimeBaseline(
       catalogSync.aliasSlugs,
       configSync.mcpServerNames,
-      catalogSync.fingerprint,
+      catalogSync.runtimeFingerprint,
       globalConfigFingerprint,
       baselineInput,
     );
   }
   clearCodexModelCatalogCache();
-  const mcpFingerprint = fingerprintPreparedMcpServers(mcpServers);
+  const mcpFingerprint = fingerprintPreparedMcpServers(globalMcpServers);
   const shouldReloadMcp = mcpFingerprint !== lastPreparedMcpFingerprint;
   if (!shouldReloadMcp) {
     runtimeDeps.onStderr?.(
@@ -1450,7 +1542,7 @@ function assertThreadMcpServersAvailable(
     ...new Set(enabledServerNames.map((name) => name.trim()).filter((name) => name && !available.has(name))),
   ];
   throw new Error(
-    `Selected MCP servers are not registered in the loaded global Codex runtime: ${missing.join(", ")}. Save the related MCP or integration settings, then wait for the global runtime refresh to finish.`,
+    `Selected MCP servers have no thread connection descriptor: ${missing.join(", ")}. Check the selected MCP or integration settings before retrying.`,
   );
 }
 
@@ -1469,6 +1561,7 @@ function markLoadedGlobalRuntimeBaseline(
   loadedGlobalMcpServerNames = [...new Set(mcpServerNames.map((name) => name.trim()).filter(Boolean))].sort();
   lastPreparedModelCatalogFingerprint = catalogFingerprint;
   lastPreparedGlobalConfigFingerprint = configFingerprint;
+  forcedRuntimeRestart = undefined;
   if (input.globalOnly) {
     loadedGlobalRuntimeRevision = input.globalRuntimeRevision ?? desiredGlobalRuntimeRevision;
     refreshPending = loadedGlobalRuntimeRevision !== desiredGlobalRuntimeRevision;
@@ -1483,7 +1576,7 @@ function markLoadedGlobalRuntimeBaseline(
  * Catalog content is only reloaded by app-server process start.
  * Wait when a loaded thread is active so we never silently keep a stale catalog or lose the request.
  */
-async function ensureIdleCodexAppServerRestartForCatalog(
+async function ensureCodexRuntimeRestart(
   runtimeDeps: CodexRuntimeRunDeps,
   codexExecutable: string,
   nextAliases: readonly string[],
@@ -1494,7 +1587,7 @@ async function ensureIdleCodexAppServerRestartForCatalog(
     PrepareCodexRuntimeInput,
     "signal" | "onConfigReloadWait" | "globalOnly" | "globalRuntimeRevision"
   >,
-  reason: "model_catalog" | "global_runtime",
+  reason: CodexRuntimeRestartReason,
 ): Promise<void> {
   const lifecycle = getGlobalCodexRuntimeLifecycle();
   const client = lifecycle?.getClient();
@@ -1510,20 +1603,36 @@ async function ensureIdleCodexAppServerRestartForCatalog(
     return;
   }
 
-  await waitForCodexConfigReload({
-    ...(waitOptions.signal ? { signal: waitOptions.signal } : {}),
-    check: async () => {
-      const loadedThreadIds = await listLoadedCodexThreadIds(client);
-      const activeThreadIds = await filterActiveCodexThreadIds(client, loadedThreadIds);
-      return activeThreadIds.length > 0 ? { kind: "busy", activeThreadIds } : { kind: "ready" };
-    },
-    onWaiting: (activeThreadIds) => {
-      runtimeDeps.onStderr?.(
-        `[eco-codex] waiting to reload global runtime; active threads=${activeThreadIds.join(",")}`,
-      );
-      waitOptions.onConfigReloadWait?.({ reason, activeThreadIds });
-    },
-  });
+  await awaitGlobalRuntimeRefresh(
+    waitForCodexConfigReload({
+      ...(waitOptions.signal ? { signal: waitOptions.signal } : {}),
+      check: async () => {
+        if (
+          waitOptions.globalOnly &&
+          waitOptions.globalRuntimeRevision !== undefined &&
+          waitOptions.globalRuntimeRevision !== desiredGlobalRuntimeRevision
+        )
+          return { kind: "skip" };
+        const loadedThreadIds = await listLoadedCodexThreadIds(client);
+        waitOptions.signal?.throwIfAborted();
+        const activeThreadIds = await filterActiveCodexThreadIds(client, loadedThreadIds);
+        return activeThreadIds.length > 0 ? { kind: "busy", activeThreadIds } : { kind: "ready" };
+      },
+      onWaiting: (activeThreadIds) => {
+        runtimeDeps.onStderr?.(
+          `[eco-codex] waiting to reload global runtime; active threads=${activeThreadIds.join(",")}`,
+        );
+        waitOptions.onConfigReloadWait?.({ reason, activeThreadIds });
+      },
+    }).then(() => undefined),
+    waitOptions.signal,
+  );
+  if (
+    waitOptions.globalOnly &&
+    waitOptions.globalRuntimeRevision !== undefined &&
+    waitOptions.globalRuntimeRevision !== desiredGlobalRuntimeRevision
+  )
+    return;
 
   runtimeDeps.onStderr?.(
     `[eco-codex] cold restart app-server for ${reason} catalog=${nextCatalogFingerprint.slice(0, 12)}`,
@@ -1694,13 +1803,16 @@ export async function runThreadRequestWithRuntimeProxy(
                 ...(route.manualSpec.supportsImageInput !== undefined
                   ? { supportsImageInput: route.manualSpec.supportsImageInput }
                   : {}),
+                ...(route.manualSpec.supportsRemoteCompaction !== undefined
+                  ? { supportsRemoteCompaction: route.manualSpec.supportsRemoteCompaction }
+                  : {}),
               },
             }
           : {}),
       });
     }
     const systemPromptAppend = input.resolveSystemPromptAppend?.()?.trim();
-    const plannerRoute = freshConfig.routes.find((route) => route.role === "planner");
+    const plannerRoute = freshConfig.routes.find((route) => route.role === "main");
     const selectedRoute = plannerRoute ?? freshConfig.routes[0];
     const webSearchOverride = input.resolveWebSearchOverride?.();
     const prepared = await prepareCodexRuntime({
@@ -1715,6 +1827,15 @@ export async function runThreadRequestWithRuntimeProxy(
       ...(subagentAvailability ? { subagentAvailability } : {}),
       requiredProviderIds,
       ...(selectedRoute ? { mainProviderId: selectedRoute.provider.id } : {}),
+      ...(selectedRoute
+        ? {
+            mainModelId: selectedRoute.modelId,
+            mainApiCompat: resolveUpstreamApiCompat(
+              selectedRoute.apiCompat,
+              selectedRoute.provider.apiCompat,
+            ),
+          }
+        : {}),
       ...(selectedRoute?.manualSpec?.supportsImageInput !== undefined
         ? { mainSupportsImageInput: selectedRoute.manualSpec.supportsImageInput }
         : {}),
@@ -1740,7 +1861,7 @@ export async function runThreadRequestWithRuntimeProxy(
   }
 
   const routes = buildDriverRoutesFromRuntime(freshConfig.routes);
-  const plannerRoute = freshConfig.routes.find((route) => route.role === "planner");
+  const plannerRoute = freshConfig.routes.find((route) => route.role === "main");
   const attempt: CodexRuntimeAttempt = {
     routes,
     ...(plannerRoute && { plannerRoute: { modelId: plannerRoute.modelId } }),

@@ -176,7 +176,10 @@
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease;
 }
 
 .workspace-file-header__action-btn:hover {
@@ -1050,4 +1053,82 @@
     min-width: 150px;
     right: -4px;
   }
+}
+
+.workspace-pdf-preview,
+.workspace-html-preview,
+.workspace-table-preview {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+.workspace-pdf-preview__toolbar {
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.workspace-pdf-preview__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  background: var(--nav-hover-solid);
+}
+.workspace-pdf-preview__body canvas {
+  display: block;
+  margin: 0 auto;
+  background: white;
+}
+.workspace-html-preview iframe {
+  display: block;
+  flex: 1;
+  width: 100%;
+  min-height: 240px;
+  border: 0;
+  background: white;
+}
+.workspace-table-preview__scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.workspace-table-preview table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
+  font-size: 12px;
+}
+.workspace-table-preview th,
+.workspace-table-preview td {
+  max-width: 360px;
+  padding: 7px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-align: left;
+  vertical-align: top;
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.workspace-table-preview thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-primary);
+  font-weight: 550;
+}
+.workspace-table-preview tbody th {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.workspace-file-browser__load-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
 }

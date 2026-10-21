@@ -4,14 +4,14 @@ import { buildSdkUsageLedgerEvents, buildSingleUsageLedgerEvent } from "../src/m
 test("buildSdkUsageLedgerEvents writes one row per model without duplicating total cost", () => {
   const events = buildSdkUsageLedgerEvents({
     threadId: "thr_adapter",
-    role: "planner",
+    role: "main",
     requestKey: "sdk-result:evt_1",
     totalCostUsd: 1.23,
     runAttemptId: "attempt_1",
     observedAt: "2026-01-01T00:00:00.000Z",
     models: [
       {
-        role: "planner",
+        role: "main",
         modelId: "planner-model",
         usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 5, cacheCreationTokens: 1 },
         sdkCostUsd: 0.4,
@@ -37,7 +37,7 @@ test("buildSdkUsageLedgerEvents writes one row per model without duplicating tot
 test("buildSdkUsageLedgerEvents uses request total only for a single model row", () => {
   const events = buildSdkUsageLedgerEvents({
     threadId: "thr_adapter",
-    role: "planner",
+    role: "main",
     requestKey: "sdk-result:evt_single",
     totalCostUsd: 0.5,
     models: [

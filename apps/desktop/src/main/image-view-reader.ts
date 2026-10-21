@@ -137,7 +137,7 @@ export function inspectImageBuffer(data: Buffer): {
   return { mimeType, bytes: data.length, ...dimensions };
 }
 
-function readImageDimensions(
+export function readImageDimensions(
   bytes: Buffer,
   mimeType: ImageViewFileData["mimeType"],
 ): { width: number; height: number } | undefined {

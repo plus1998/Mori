@@ -10,22 +10,35 @@ import type {
   WorkspaceFileWriteRequest,
   WorkspaceFileWriteResult,
 } from "../shared/ipc";
+import { WorkspaceFileStreams } from "./workspace-file-stream";
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 const TEXT_PROBE_BYTES = 4;
-const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
 const MEDIA_SIGNATURE_BYTES = 64;
 
-const MEDIA_TYPES = new Map<string, { kind: "image" | "audio" | "video"; mimeType: string }>([
+const MEDIA_TYPES = new Map<string, { kind: "image" | "audio" | "video" | "pdf"; mimeType: string }>([
   [".png", { kind: "image", mimeType: "image/png" }],
   [".jpg", { kind: "image", mimeType: "image/jpeg" }],
   [".jpeg", { kind: "image", mimeType: "image/jpeg" }],
   [".gif", { kind: "image", mimeType: "image/gif" }],
   [".webp", { kind: "image", mimeType: "image/webp" }],
+  [".avif", { kind: "image", mimeType: "image/avif" }],
+  [".bmp", { kind: "image", mimeType: "image/bmp" }],
+  [".ico", { kind: "image", mimeType: "image/x-icon" }],
+  [".pdf", { kind: "pdf", mimeType: "application/pdf" }],
+  [".weba", { kind: "audio", mimeType: "audio/webm" }],
+  [".m4v", { kind: "video", mimeType: "video/mp4" }],
+  [".mov", { kind: "video", mimeType: "video/mp4" }],
   [".mp3", { kind: "audio", mimeType: "audio/mpeg" }],
   [".wav", { kind: "audio", mimeType: "audio/wav" }],
   [".ogg", { kind: "audio", mimeType: "audio/ogg" }],
+  // Ogg containers that Chromium decodes as Opus; `audio/ogg` is the type <audio> accepts here.
+  [".oga", { kind: "audio", mimeType: "audio/ogg" }],
+  [".opus", { kind: "audio", mimeType: "audio/ogg" }],
+  [".flac", { kind: "audio", mimeType: "audio/flac" }],
+  [".aac", { kind: "audio", mimeType: "audio/aac" }],
   [".m4a", { kind: "audio", mimeType: "audio/mp4" }],
+  [".m4b", { kind: "audio", mimeType: "audio/mp4" }],
   [".mp4", { kind: "video", mimeType: "video/mp4" }],
   [".webm", { kind: "video", mimeType: "video/webm" }],
 ]);
@@ -61,11 +74,11 @@ function openWriteFlags(): number {
   return fsConstants.O_WRONLY | (typeof noFollow === "number" ? noFollow : 0);
 }
 
-async function readHandleBytes(handle: fs.FileHandle, length: number): Promise<Buffer> {
+async function readHandleBytes(handle: fs.FileHandle, length: number, start = 0): Promise<Buffer> {
   const buffer = Buffer.alloc(length);
   let bytesRead = 0;
   while (bytesRead < length) {
-    const result = await handle.read(buffer, bytesRead, length - bytesRead, bytesRead);
+    const result = await handle.read(buffer, bytesRead, length - bytesRead, start + bytesRead);
     if (result.bytesRead === 0) break;
     bytesRead += result.bytesRead;
   }
@@ -134,13 +147,18 @@ export async function listWorkspaceEntries(
   });
 }
 
-function hasMediaSignature(kind: "image" | "audio" | "video", buffer: Buffer): boolean {
+function hasMediaSignature(kind: "image" | "audio" | "video" | "pdf", buffer: Buffer): boolean {
   const startsWith = (...bytes: number[]): boolean => bytes.every((byte, index) => buffer[index] === byte);
   switch (kind) {
+    case "pdf":
+      return buffer.subarray(0, 5).toString("ascii") === "%PDF-";
     case "image":
       return (
         startsWith(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a) ||
         startsWith(0xff, 0xd8, 0xff) ||
+        startsWith(0x42, 0x4d) ||
+        startsWith(0, 0, 1, 0) ||
+        (buffer.subarray(4, 8).toString("ascii") === "ftyp" && buffer.includes(Buffer.from("avif"))) ||
         buffer.subarray(0, 6).toString("ascii") === "GIF87a" ||
         buffer.subarray(0, 6).toString("ascii") === "GIF89a" ||
         (startsWith(0x52, 0x49, 0x46, 0x46) && buffer.subarray(8, 12).toString("ascii") === "WEBP")
@@ -152,6 +170,8 @@ function hasMediaSignature(kind: "image" | "audio" | "video", buffer: Buffer): b
         (buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
           buffer.subarray(8, 12).toString("ascii") === "WAVE") ||
         buffer.subarray(0, 4).toString("ascii") === "OggS" ||
+        buffer.subarray(0, 4).toString("ascii") === "fLaC" ||
+        (startsWith(0x1a, 0x45, 0xdf, 0xa3) && buffer.includes(Buffer.from("webm"))) ||
         (buffer.subarray(4, 8).toString("ascii") === "ftyp" &&
           buffer.subarray(8, 12).toString("ascii").toLowerCase().startsWith("m4"))
       );
@@ -238,11 +258,12 @@ function readTextSample(
   };
 }
 
-export async function readWorkspaceFile(request: WorkspaceFileReadRequest): Promise<WorkspaceFileReadResult> {
+export const workspaceFileStreams = new WorkspaceFileStreams(openWorkspaceFileForStreaming);
+
+export async function openWorkspaceFileForStreaming(
+  request: WorkspaceFileReadRequest,
+): Promise<{ handle: fs.FileHandle; size: number; revision: string }> {
   const { requestedPath } = await resolveContainedTarget(request.workspacePath, request.filePath);
-  const name = path.basename(requestedPath);
-  const extension = path.extname(name).toLowerCase();
-  const media = MEDIA_TYPES.get(extension);
   const handle = await fs.open(requestedPath, openReadFlags());
   try {
     const fileStat = await handle.stat();
@@ -258,16 +279,29 @@ export async function readWorkspaceFile(request: WorkspaceFileReadRequest): Prom
     if (!sameFile(fileStat, pathStat)) {
       throw new Error("File changed while it was being opened.");
     }
-    const size = fileStat.size;
+    const revision = `${fileStat.dev}:${fileStat.ino}:${fileStat.size}:${fileStat.mtimeMs}`;
+    if (request.revision !== undefined && request.revision !== revision)
+      throw new Error("File changed. Reopen it before loading more content.");
+    return { handle, size: fileStat.size, revision };
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
+
+export async function readWorkspaceFile(request: WorkspaceFileReadRequest): Promise<WorkspaceFileReadResult> {
+  const { workspaceRealPath, requestedPath, realPath } = await resolveContainedTarget(
+    request.workspacePath,
+    request.filePath,
+  );
+  const name = path.basename(requestedPath);
+  const extension = path.extname(name).toLowerCase();
+  const media = MEDIA_TYPES.get(extension);
+  const { handle, size, revision } = await openWorkspaceFileForStreaming(request);
+  try {
     if (media) {
-      if (size > MAX_MEDIA_BYTES) {
-        return unsupportedResult(requestedPath, name, size, "Media file exceeds the 20 MiB limit.");
-      }
-      const mediaBuffer = await readHandleBytes(handle, size);
-      if (
-        mediaBuffer.length !== size ||
-        !hasMediaSignature(media.kind, mediaBuffer.subarray(0, MEDIA_SIGNATURE_BYTES))
-      ) {
+      const mediaBuffer = await readHandleBytes(handle, Math.min(size, MEDIA_SIGNATURE_BYTES));
+      if (!hasMediaSignature(media.kind, mediaBuffer)) {
         return unsupportedResult(
           requestedPath,
           name,
@@ -281,11 +315,18 @@ export async function readWorkspaceFile(request: WorkspaceFileReadRequest): Prom
         size,
         kind: media.kind,
         mimeType: media.mimeType,
-        base64: mediaBuffer.toString("base64"),
+        url: workspaceFileStreams.urlForFile(workspaceRealPath, realPath),
       };
     }
-    const textBuffer = await readHandleBytes(handle, Math.min(size, MAX_TEXT_BYTES + TEXT_PROBE_BYTES));
-    const text = readTextSample(textBuffer, size, textBuffer.length);
+    const offset = request.offset ?? 0;
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset > size) throw new Error("Invalid file offset.");
+    const remainingSize = size - offset;
+    const textBuffer = await readHandleBytes(
+      handle,
+      Math.min(remainingSize, MAX_TEXT_BYTES + TEXT_PROBE_BYTES),
+      offset,
+    );
+    const text = readTextSample(textBuffer, remainingSize, textBuffer.length);
     if (!text) {
       return unsupportedResult(requestedPath, name, size, "File is not valid UTF-8 text.");
     }
@@ -295,8 +336,12 @@ export async function readWorkspaceFile(request: WorkspaceFileReadRequest): Prom
       size,
       kind: "text",
       mimeType: "text/plain",
+      url: workspaceFileStreams.urlForFile(workspaceRealPath, realPath),
       content: text.content,
-      ...(text.truncated ? { truncated: true } : {}),
+      revision,
+      ...(text.truncated
+        ? { truncated: true, nextOffset: offset + Buffer.byteLength(text.content, "utf8") }
+        : {}),
     };
   } finally {
     await handle.close();

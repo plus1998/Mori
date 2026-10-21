@@ -3,7 +3,7 @@ import {
   applyConversationV2Effects,
   installConversationV2Bootstrap,
 } from "../../src/renderer/conversation-v2-renderer-state";
-import type { ThreadRunProjectionRequestSpan, ThreadSummary } from "../../src/shared/ipc";
+import type { TerminalStreamEvent, ThreadRunProjectionRequestSpan, ThreadSummary } from "../../src/shared/ipc";
 import {
   type FeedReplayEvent,
   type FeedReplayFixture,
@@ -63,6 +63,7 @@ function pageItems<T>(
 
 export class FeedReplaySession {
   readonly listeners = new Set<(event: unknown) => void>();
+  readonly terminalListeners = new Set<(event: TerminalStreamEvent) => void>();
   readonly fixture: FeedReplayFixture;
   state;
   thread: ThreadSummary;
@@ -71,6 +72,13 @@ export class FeedReplaySession {
   playing = false;
   private generation = 0;
   private configOverride?: ThreadSummary["runtimeConfig"];
+
+  writeTerminalOutput(data: string): void {
+    if (this.fixture.uiScenario?.terminalHeight === undefined)
+      throw new Error("Terminal output requires an explicit terminal UI scenario.");
+    for (const listener of this.terminalListeners)
+      listener({ type: "output", sessionId: "feed-replay-terminal", data });
+  }
 
   constructor(
     fixture: FeedReplayFixture,
@@ -85,6 +93,7 @@ export class FeedReplaySession {
       status: "idle",
       prompt: "",
       message: "",
+      ...(fixture.uiScenario?.pausedFollowUps ? { followUpQueuePaused: true } : {}),
     };
     this.state = installConversationV2Bootstrap({
       protocolVersion: 2,
@@ -128,9 +137,16 @@ export class FeedReplaySession {
     const status = replayThreadStatus(latest?.status);
     this.state = state;
     this.index = next;
+    let spans: Map<string, ThreadRunProjectionRequestSpan> | undefined;
     for (const event of batch) {
       if (event.requestSpans) this.requestSpans = event.requestSpans;
+      if (event.requestSpanChanges) {
+        spans ??= new Map(this.requestSpans.map((span) => [span.requestId, span]));
+        for (const id of event.requestSpanChanges.removed) spans.delete(id);
+        for (const span of event.requestSpanChanges.upserts) spans.set(span.requestId, span);
+      }
     }
+    if (spans) this.requestSpans = [...spans.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
     this.onTime?.(batch.at(-1)!.at);
     const firstUser = [...state.messages.values()]
       .filter((message) => message.role === "user" && !message.isDeleted)

@@ -3,10 +3,12 @@ import fs from "node:fs";
 
 const source = fs.readFileSync(new URL("../src/main/index.ts", import.meta.url), "utf8");
 
-test("Codex global MCP runtime is populated only with thread-scoped Hub descriptors", () => {
+test("Codex global MCP pool stays empty so threads load their own Hub descriptor", () => {
   expect(source).toContain("listGlobalMcpServers: resolveCodexGlobalMcpServers");
-  expect(source).toContain("configuredServers: mcpHubGateway.listThreadCodexServers()");
-  expect(source).toContain("builtinServerResolvers: []");
+  expect(source).toMatch(
+    /function resolveCodexGlobalMcpServers\(\)[^{]*\{\s*(?:\/\/[^\n]*\n\s*)*return \[\];/,
+  );
+  expect(source).not.toContain("configuredServers: mcpHubGateway.listThreadCodexServers()");
   expect(source).not.toContain("buildCodexMcpServersForConfigSync(mcpStore.listServers()");
   expect(source).toMatch(
     /resolveMcpServers:\s*async \(\) => \{\s*const configuredMcp = mcpStore\.buildSdkConfig\(\)/,
@@ -16,14 +18,26 @@ test("Codex global MCP runtime is populated only with thread-scoped Hub descript
   expect(source).toContain("mcpHubGateway.prepareThreadFromSdkConfig");
   expect(source).toContain("runtimeName: codexHubName");
   expect(source).toContain("function codexHubServerName(threadId: string)");
-  expect(source).toContain("const hadCodexHub = mcpHubGateway");
 });
 
-test("saving browser integration settings schedules a Codex global runtime refresh", () => {
-  const start = source.indexOf("IPC_CHANNELS.browserSettingsSave");
+test("thread Hub registration and descriptor changes never restart the shared runtime", () => {
+  const start = source.indexOf("resolveMcpServers: async () => {");
+  const end = source.indexOf("resolveEnabledMcpServerKeys:", start);
+  const handler = source.slice(start, end);
+  expect(handler).toContain("mcpHubGateway.prepareThreadFromSdkConfig");
+  expect(handler).not.toContain("requestCodexAccountRuntimeRestart");
+  expect(handler).not.toContain("scheduleCodexGlobalRuntimeRefresh");
+});
+
+test("saving browser, computer, image, and speech settings never queues a runtime restart", () => {
+  const start = source.indexOf("IPC_CHANNELS.imageGenerationSettingsGet");
   const end = source.indexOf("IPC_CHANNELS.notificationSettingsGet", start);
   const handler = source.slice(start, end);
-  expect(handler).toContain("scheduleCodexGlobalRuntimeRefresh()");
+  expect(handler).toContain("IPC_CHANNELS.browserSettingsSave");
+  expect(handler).toContain("IPC_CHANNELS.computerUseSettingsSave");
+  expect(handler).toContain("IPC_CHANNELS.ttsSettingsSave");
+  expect(handler).not.toContain("scheduleCodexGlobalRuntimeRefresh");
+  expect(source).not.toContain("onHtmlHostingCapabilityChange: () => scheduleCodexGlobalRuntimeRefresh()");
 });
 
 test("Codex system prompt rewrites fixed Hub tool names to the per-thread registered server", () => {

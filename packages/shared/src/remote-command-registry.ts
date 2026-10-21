@@ -27,6 +27,18 @@ const RPC_INVOKE = ["rpc:invoke"] as const;
 const APPROVAL_DECIDE = ["rpc:invoke", "approval:decide"] as const;
 
 export const REMOTE_COMMAND_DEFINITIONS = [
+  command("scheduling:list", "List schedules", "read", RPC_INVOKE, []),
+  command("scheduling:create", "Create schedule", "write_safe", RPC_INVOKE, [
+    objectArg(["requestId", "kind", "name", "prompt", "trigger"]),
+  ]),
+  command("scheduling:update", "Update schedule", "write_safe", RPC_INVOKE, [
+    objectArg(["id", "expectedRevision"]),
+  ]),
+  command("scheduling:delete", "Delete schedule", "write_safe", RPC_INVOKE, [stringArg()]),
+  command("scheduling:run-now", "Run schedule now", "execute", RPC_INVOKE, [
+    objectArg(["id", "requestId"]),
+  ]),
+  command("scheduling:preview", "Preview schedule", "read", RPC_INVOKE, [objectArg(["type"])]),
   command("thread:list", "List threads", "read", RPC_INVOKE, []),
   command("thread:list-initial", "List initial threads", "read", RPC_INVOKE, []),
   command("thread:list-more", "List more threads", "read", RPC_INVOKE, [
@@ -105,6 +117,13 @@ export const REMOTE_COMMAND_DEFINITIONS = [
       "expectedHistoryRevision",
     ]),
   ]),
+  command(
+    "thread:fork-from-message",
+    "Fork an independent conversation from a user message",
+    "execute",
+    RPC_INVOKE,
+    [objectArg(["principalId", "clientCommandId", "threadId", "activityLineId", "expectedHistoryRevision"])],
+  ),
   command("thread:cancel", "Cancel thread", "execute", RPC_INVOKE, [
     objectArg(["principalId", "clientCommandId", "threadId", "expectedHistoryRevision"]),
   ]),
@@ -198,6 +217,11 @@ export const REMOTE_COMMAND_DEFINITIONS = [
   command("cursor:models-list", "List Cursor Agent CLI models", "read", RPC_INVOKE, []),
   command("candidate-model:list", "List candidate models", "read", RPC_INVOKE, [stringArg()]),
   command("mcp-settings:get", "Get MCP settings", "read", RPC_INVOKE, []),
+  command("tts-read-aloud:status", "Get reading status", "read", RPC_INVOKE, []),
+  command("tts-read-aloud:start", "Start reading", "execute", RPC_INVOKE, [objectArg(["requestId", "threadId", "entryId", "sourceText"])]),
+  command("tts-read-aloud:segment", "Synthesize reading segment", "execute", RPC_INVOKE, [objectArg(["requestId", "index"])]),
+  command("tts-read-aloud:read", "Read audio chunk", "read", RPC_INVOKE, [objectArg(["requestId", "index", "offset", "length"])]),
+  command("tts-read-aloud:cancel", "Cancel reading", "write_safe", RPC_INVOKE, [objectArg(["requestId"])]),
   command("tts-artifacts:list", "List speech artifacts", "read", RPC_INVOKE, [objectArg(["threadId"])]),
   command("tts-artifact:read", "Read a speech artifact", "read", RPC_INVOKE, [objectArg(["artifactId", "audioIndex"])]),
   command("integration-availability:get", "Get integration availability", "read", RPC_INVOKE, []),

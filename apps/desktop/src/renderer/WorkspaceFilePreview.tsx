@@ -1,23 +1,17 @@
 import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
-import { Check, Eye, Pencil, RotateCcw, TriangleAlert } from "lucide-react";
+import { Check, Eye, Pencil, TriangleAlert } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { WorkspaceFileReadResult } from "../shared/ipc";
 import { MarkdownContent } from "./MarkdownContent";
 import { useImageCopyMenu } from "./use-image-copy-menu";
+import { WorkspaceTablePreview } from "./WorkspaceTablePreview";
+import { htmlPreviewDocument } from "./workspace-document-preview";
 import { clampTargetColumn, clampTargetLine, languageForFile } from "./workspace-file-browser-logic";
 
-export interface WorkspaceFile {
-  path: string;
-  name: string;
-  size: number;
-  kind: "text" | "image" | "audio" | "video" | "unsupported";
-  mimeType?: string;
-  content?: string;
-  base64?: string;
-  truncated?: boolean;
-  reason?: string;
-}
+export type WorkspaceFile = WorkspaceFileReadResult;
+const LazyPdfPreview = lazy(() => import("./WorkspacePdfPreview"));
 
 export interface WorkspaceFilePreviewTarget {
   line?: number;
@@ -227,7 +221,9 @@ const LazyCodeMirror = lazy(async () => {
 });
 
 function dataUrl(file: WorkspaceFile): string | undefined {
-  return file.base64 && file.mimeType ? `data:${file.mimeType};base64,${file.base64}` : undefined;
+  return (
+    file.url ?? (file.base64 && file.mimeType ? `data:${file.mimeType};base64,${file.base64}` : undefined)
+  );
 }
 
 /** 复制结果的小浮标：图片预览右上角，几秒后自动消失。 */
@@ -252,6 +248,7 @@ function WorkspaceMediaPreview({ file }: { file: WorkspaceFile }) {
   const { t } = useTranslation();
   const src = dataUrl(file);
   const copyMenu = useImageCopyMenu(src);
+  const [failedSource, setFailedSource] = useState<string>();
   if (!src) {
     return <div className="workspace-file-browser__message">{t("fileBrowser.mediaMissing")}</div>;
   }
@@ -261,12 +258,38 @@ function WorkspaceMediaPreview({ file }: { file: WorkspaceFile }) {
       className="workspace-file-browser__media-wrap"
       {...(isImage ? { onContextMenu: copyMenu.openMenu } : {})}
     >
-      {isImage ? <img className="workspace-file-browser__media" src={src} alt={file.name} /> : null}
+      {isImage ? (
+        <img
+          className="workspace-file-browser__media"
+          src={src}
+          alt={file.name}
+          onError={() => setFailedSource(src)}
+        />
+      ) : null}
       {file.kind === "audio" ? (
-        <audio className="workspace-file-browser__audio" src={src} controls aria-label={file.name} />
+        <audio
+          className="workspace-file-browser__audio"
+          src={src}
+          controls
+          preload="metadata"
+          aria-label={file.name}
+          onError={() => setFailedSource(src)}
+        />
       ) : null}
       {file.kind === "video" ? (
-        <video className="workspace-file-browser__media" src={src} controls aria-label={file.name} />
+        <video
+          className="workspace-file-browser__media"
+          src={src}
+          controls
+          preload="metadata"
+          aria-label={file.name}
+          onError={() => setFailedSource(src)}
+        />
+      ) : null}
+      {failedSource === src ? (
+        <p role="alert" className="workspace-file-browser__error">
+          {t("fileBrowser.mediaPlaybackError")}
+        </p>
       ) : null}
       {copyMenu.copyState ? <MediaCopyStatus state={copyMenu.copyState} /> : null}
       {copyMenu.menu}
@@ -312,6 +335,11 @@ export function WorkspaceFilePreview({
   const onDirtyChangeRef = useRef(onDirtyChange);
   onDirtyChangeRef.current = onDirtyChange;
 
+  const [nextOffset, setNextOffset] = useState(file.nextOffset);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [pageError, setPageError] = useState<string>();
+  const pageGeneration = useRef(0);
+
   // 判断是否是 Markdown 或 SVG 文件
   const isMarkdown = useMemo(() => {
     const ext = file.path.toLowerCase().split(".").pop();
@@ -328,18 +356,19 @@ export function WorkspaceFilePreview({
     return ext === "html" || ext === "htm";
   }, [file.path]);
 
-  // 对于 Markdown 和 SVG 文件，默认使用预览模式
+  const extension = file.path.toLowerCase().split(".").pop();
+  const isTable = extension === "csv" || extension === "tsv";
+  const hasPreview = isMarkdown || isSvg || isHtml || isTable;
   useEffect(() => {
-    if (isMarkdown || isSvg) {
-      setViewMode("preview");
-    } else {
-      setViewMode("edit");
-    }
-  }, [isMarkdown, isSvg, file.path]);
-
-  const showModeToggle = (isMarkdown || isSvg) && editable;
+    setViewMode(hasPreview ? "preview" : "edit");
+  }, [hasPreview, file.path]);
+  const showModeToggle = hasPreview;
 
   useEffect(() => {
+    pageGeneration.current += 1;
+    setNextOffset(file.nextOffset);
+    setLoadingMore(false);
+    setPageError(undefined);
     const next = file.content ?? "";
     baselineRef.current = next;
     setDraft(next);
@@ -347,7 +376,10 @@ export function WorkspaceFilePreview({
     setSaveStatus("idle");
     setSaveError(null);
     onDirtyChangeRef.current?.(false);
-  }, [file.content, file.path, target?.requestId]);
+    return () => {
+      pageGeneration.current += 1;
+    };
+  }, [file.content, file.path, file.nextOffset, target?.requestId]);
 
   const updateDirty = useCallback((nextDraft: string) => {
     const nextDirty = nextDraft !== baselineRef.current;
@@ -398,6 +430,42 @@ export function WorkspaceFilePreview({
     }
   }, [editable, file.path, t, workspacePath]);
 
+  async function loadMore() {
+    if (nextOffset === undefined || !workspacePath || loadingMore) return;
+    const generation = pageGeneration.current;
+    setLoadingMore(true);
+    setPageError(undefined);
+    try {
+      if (!window.eco?.readWorkspaceFile) throw new Error(t("fileBrowser.apiUnavailable"));
+      const chunk = await window.eco.readWorkspaceFile({
+        workspacePath,
+        filePath: file.path,
+        offset: nextOffset,
+        ...(file.revision ? { revision: file.revision } : {}),
+      });
+      if (generation !== pageGeneration.current) return;
+      if (chunk.kind !== "text" || chunk.content === undefined) throw new Error(t("fileBrowser.readFailed"));
+      setDraft((current) => current + chunk.content);
+      setNextOffset(chunk.nextOffset);
+    } catch (caught) {
+      if (generation === pageGeneration.current)
+        setPageError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      if (generation === pageGeneration.current) setLoadingMore(false);
+    }
+  }
+
+  if (file.kind === "pdf") {
+    return file.url ? (
+      <Suspense
+        fallback={<div className="workspace-file-browser__message">{t("fileBrowser.loadingPreview")}</div>}
+      >
+        <LazyPdfPreview key={file.url} url={file.url} size={file.size} name={file.name} />
+      </Suspense>
+    ) : (
+      <div className="workspace-file-browser__message">{t("fileBrowser.mediaMissing")}</div>
+    );
+  }
   if (file.kind === "image" || file.kind === "audio" || file.kind === "video") {
     return <WorkspaceMediaPreview file={file} />;
   }
@@ -428,13 +496,20 @@ export function WorkspaceFilePreview({
         <div className="workspace-file-browser__markdown-preview">
           <MarkdownContent
             text={draft}
-            {...(workspacePath
-              ? { localImageContext: { workspacePath, filePath: file.path } }
-              : {})}
+            {...(workspacePath ? { localImageContext: { workspacePath, filePath: file.path } } : {})}
           />
         </div>
       );
     }
+    if (isHtml)
+      return (
+        <div className="workspace-html-preview">
+          <div className="workspace-file-browser__status">{t("fileBrowser.htmlStaticPreview")}</div>
+          <iframe title={file.name} sandbox="" srcDoc={htmlPreviewDocument(draft, file.url)} />
+        </div>
+      );
+    if (isTable)
+      return <WorkspaceTablePreview content={draft} delimiter={extension === "tsv" ? "\t" : ","} />;
     if (isSvg) {
       return <WorkspaceSvgPreview name={file.name} draft={draft} />;
     }
@@ -467,10 +542,9 @@ export function WorkspaceFilePreview({
               </button>
             </>
           )}
-
         </div>
       )}
-      {viewMode === "preview" && (isMarkdown || isSvg) ? (
+      {viewMode === "preview" && hasPreview ? (
         renderPreviewContent()
       ) : (
         <Suspense
@@ -488,6 +562,29 @@ export function WorkspaceFilePreview({
           />
         </Suspense>
       )}
+      {nextOffset !== undefined ? (
+        <div className="workspace-file-browser__status workspace-file-browser__load-more">
+          <span>
+            {t("fileBrowser.partialContent", {
+              loaded: Math.round(nextOffset / 1024),
+              total: Math.ceil(file.size / 1024),
+            })}
+          </span>
+          <button
+            type="button"
+            className="workspace-file-browser__mode-btn"
+            disabled={loadingMore}
+            onClick={() => void loadMore()}
+          >
+            {t(loadingMore ? "fileBrowser.loadingPreview" : "fileBrowser.loadMore")}
+          </button>
+        </div>
+      ) : null}
+      {pageError ? (
+        <p role="alert" className="workspace-file-browser__error">
+          {pageError}
+        </p>
+      ) : null}
       {statusMessage ? (
         <div
           className={[

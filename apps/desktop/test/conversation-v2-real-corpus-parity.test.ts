@@ -1,3 +1,4 @@
+import { normalizeAgentRole, isMainAgentRole } from "@eco/shared";
 import { expect, test } from "bun:test";
 import {
   type FeedShape,
@@ -436,7 +437,7 @@ function explainToken(
  */
 function legacyRoles(conversation: Corpus["conversations"][number]): Set<string> {
   return new Set(
-    (conversation.events as LegacyRow[]).map((row) => String(row.role ?? "").trim()).filter(Boolean),
+    (conversation.events as LegacyRow[]).map((row) => normalizeAgentRole(normalizeAgentRole(String(row.role ?? "")).trim())).filter(Boolean),
   );
 }
 
@@ -502,7 +503,7 @@ function cardIdentities(shape: FeedShape): Set<string> {
 function agentOwnedToolUseIdsOf(conversation: Corpus["conversations"][number]): Map<string, string> {
   const subagentIds = new Set(
     conversation.agents
-      .filter((agent) => String(agent.kind ?? "") !== "planner")
+      .filter((agent) => !isMainAgentRole(String(agent.kind ?? "")))
       .map((agent) => String(agent.agent_id ?? "").trim())
       .filter(Boolean),
   );
@@ -535,9 +536,9 @@ test("the corpus covers the shapes the Feed has to keep", () => {
     expect(eventTypes.has(required)).toBe(true);
   }
   const roles = new Set(
-    corpus.conversations.flatMap((conversation) => conversation.events.map((row) => String(row.role ?? ""))),
+    corpus.conversations.flatMap((conversation) => conversation.events.map((row) => normalizeAgentRole(String(row.role ?? "")))),
   );
-  for (const required of ["planner", "coder", "explore", "tool", "user"]) {
+  for (const required of ["main", "coder", "explore", "tool", "user"]) {
     expect(roles.has(required)).toBe(true);
   }
   expect(corpus.conversations.some((entry) => entry.agents.length > 1)).toBe(true);

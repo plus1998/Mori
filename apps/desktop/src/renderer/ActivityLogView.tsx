@@ -1,3 +1,5 @@
+import { isMainAgentRole, normalizeAgentRole } from "@eco/shared";
+import { ReadAloudButton, useReadAloudAutoRead } from "./ReadAloud";
 import { isSubagentMissionEnvelope, resolveMissionDisplayText } from "@eco/runtime/agent-mission";
 import { isSkillActivityLabel } from "@eco/runtime/skill-display";
 import {
@@ -37,12 +39,14 @@ import {
   ExternalLink,
   FileText,
   Gauge,
+  GitFork,
   Globe2,
   Image as ImageIcon,
   Images,
   LoaderCircle,
   Minimize2,
   Monitor,
+  PanelRight,
   Pencil,
   RefreshCw,
   Reply,
@@ -61,6 +65,7 @@ import {
   Fragment,
   type KeyboardEvent,
   memo,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -169,6 +174,7 @@ import {
   type ThreadRunProjectionTimelineFeedEntry,
   type ThreadRunProjectionToolGroupFeedEntry,
 } from "./conversation-v2-projection-view";
+import { FeedTextContextMenu, type FeedTextContextMenuAnchor } from "./FeedTextContextMenu";
 import {
   type ConversationV2RendererState,
   orderedConversationV2Messages,
@@ -195,7 +201,7 @@ import { type RuntimeAgentDisplayNames, resolveRuntimeAgentName } from "./runtim
 import { type RuntimeAgentThemes, resolveSubagentRowThemeStyle } from "./runtime-agent-theme";
 import { StreamingMarkdownContent } from "./StreamingMarkdownContent";
 import { RequestSpansContext, TokenSpeedBadge } from "./TokenSpeedBadge";
-import { readTtsToolUseId, TtsFeedArtifacts, TtsFeedGroupDetailsContext } from "./TtsArtifactPlayer";
+import { readTtsToolUseId, TtsFeedArtifacts } from "./TtsArtifactPlayer";
 import {
   findThinkingFeedScrollRoot,
   isThinkingPreferenceDrivenExpand,
@@ -214,6 +220,11 @@ import {
 import { resolveToolWritingIndicator, resolveToolWritingLabel } from "./tool-writing-indicator";
 import { UserPromptBodyContent } from "./UserPromptBodyContent";
 import { WorkspaceChangesCard } from "./WorkspaceChangesCard";
+
+type ForkMessageHandler = (input: {
+  activityLineId: string;
+  expectedHistoryRevision: number;
+}) => Promise<void>;
 
 type RestorePromptHandler = (prompt: string, rewindTarget?: ThreadActivityRewindTarget) => void;
 type LoadUserMessageEditHandler = (activityLineId: string) => Promise<ThreadUserMessageEditGetResult>;
@@ -339,17 +350,63 @@ function scrollBashOutputFromCommand(event: WheelEvent<HTMLDivElement>): void {
   event.stopPropagation();
 }
 
+type MessageForkAction = {
+  activityLineId: string;
+  expectedHistoryRevision: number;
+  onFork: ForkMessageHandler;
+  disabledReason?: string;
+};
+
+function MessageForkButton({
+  activityLineId,
+  expectedHistoryRevision,
+  onFork,
+  disabledReason,
+}: MessageForkAction) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+  return (
+    <>
+      <button
+        type="button"
+        className="run-log-message-meta-button run-log-fork-button"
+        disabled={saving || Boolean(disabledReason)}
+        aria-label={i18n.t("activity.fork")}
+        title={disabledReason ?? i18n.t("activity.forkTitle")}
+        onClick={() => {
+          if (saving || disabledReason) return;
+          setSaving(true);
+          setError(undefined);
+          void onFork({ activityLineId, expectedHistoryRevision })
+            .catch((failure) => setError(failure instanceof Error ? failure.message : String(failure)))
+            .finally(() => setSaving(false));
+        }}
+      >
+        {saving ? <LoaderCircle size={13} className="spin" /> : <GitFork size={13} />}
+      </button>
+      {error ? (
+        <span role="alert" className="run-log-user-prompt-edit-error">
+          {error}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 function RunLogMessageMeta({
   createdAt,
   copyText,
+  readAloud,
   restorePrompt,
   editUserMessage,
   align = "start",
   sticky = false,
   trailing,
+  forkAction,
 }: {
   createdAt?: string;
   copyText?: string;
+  readAloud?: { entryId: string; sourceText: string };
   restorePrompt?: {
     text: string;
     rewindTarget: ThreadActivityRewindTarget;
@@ -363,10 +420,11 @@ function RunLogMessageMeta({
   sticky?: boolean;
   /** Extra content after the timestamp (e.g. token speed). */
   trailing?: ReactNode;
+  forkAction?: MessageForkAction;
 }) {
   const time = formatRunLogMessageTime(createdAt);
   const canCopy = Boolean(copyText?.trim());
-  if (!time && !canCopy && !restorePrompt && !editUserMessage && !trailing) {
+  if (!time && !canCopy && !restorePrompt && !editUserMessage && !trailing && !forkAction) {
     return null;
   }
 
@@ -418,6 +476,8 @@ function RunLogMessageMeta({
           <Copy size={13} />
         </button>
       ) : null}
+      {readAloud ? <ReadAloudButton {...readAloud} /> : null}
+      {forkAction ? <MessageForkButton {...forkAction} /> : null}
       {time ? (
         <time className="run-log-message-meta-time" dateTime={time.dateTime} title={time.title}>
           {time.label}
@@ -427,7 +487,6 @@ function RunLogMessageMeta({
     </div>
   );
 }
-
 function shouldOmitSubagentIdentity(block: ActivityDetailBlock, hideSubagentIdentity?: boolean): boolean {
   if (!hideSubagentIdentity) {
     return false;
@@ -597,7 +656,10 @@ export interface ActivityLogViewProps {
   onRestorePrompt?: RestorePromptHandler;
   onLoadUserMessageEdit?: LoadUserMessageEditHandler;
   onRewriteUserMessage?: RewriteUserMessageHandler;
+  onForkMessage?: ForkMessageHandler;
   onRetryFailedRequest?: RetryFailedRequestHandler;
+  onSwitchCodexAccount?: () => void;
+  onOpenChatGptSubscriptionAccounts?: (accountId?: string) => void;
   modelByRole?: Record<string, string>;
   usageByRole?: Record<string, ThreadUsageSnapshot>;
   context?: ThreadContextSnapshot;
@@ -667,11 +729,11 @@ function conversationV2MessageToTimelineItem(
             ? "message.delta"
             : "message.final",
     scope: "main",
-    // The Feed asks the row's role who wrote it (`role === "planner"` marks a turn's
+    // The Feed asks the row's role who wrote it (`role === "main"` marks a turn's
     // final output) and normalizing it to the channel role left V2 unable to answer.
     // The provider's own label is carried on the row; the channel role is the fallback
     // for rows written before it was recorded.
-    role: message.providerRole?.trim() || (isThinking ? "thinking" : message.role),
+    role: normalizeAgentRole(message.providerRole?.trim() || (isThinking ? "thinking" : message.role)),
     ...(agentId ? { agentId } : {}),
     ...(message.runId ? { runAttemptId: message.runId } : {}),
     streamKey: message.messageId,
@@ -682,6 +744,7 @@ function conversationV2MessageToTimelineItem(
     at,
     metadata: {
       conversationV2MessageId: message.messageId,
+      ...(isThinking && message.startedAt ? { thinkingStartedAt: message.startedAt } : {}),
       conversationV2TurnId: message.turnId,
       conversationV2VersionSeq: message.versionSeq,
       conversationV2ContentVersion: message.contentVersion,
@@ -703,6 +766,7 @@ function conversationV2MessageToTimelineItem(
       // present.
       logicalEntityId: message.messageId,
       ...(message.role === "user" && { liveType: "thread.user_prompt" }),
+      ...(message.role === "user" && message.historyTarget ? { rewindTarget: message.historyTarget } : {}),
       ...(message.role === "user" && message.attachments?.length
         ? { promptImagePreviews: message.attachments }
         : {}),
@@ -840,7 +904,17 @@ function buildConversationV2RunMessagePositions(
  * a V2 gap, not a legacy feature.
  */
 export function buildConversationV2OnlyProjection(
-  conversationV2: ConversationV2RendererState,
+  conversationV2: Pick<
+    ConversationV2RendererState,
+    | "conversationId"
+    | "messages"
+    | "runs"
+    | "agents"
+    | "tools"
+    | "details"
+    | "projectionExtras"
+    | "historyRevision"
+  >,
   thread?: Pick<ThreadSummary, "createdAt" | "status">,
 ): ThreadRunProjectionSnapshot {
   const at = thread?.createdAt ?? "1970-01-01T00:00:00.000Z";
@@ -871,17 +945,8 @@ export function buildConversationV2OnlyProjection(
     toolsByOwner.set(agentId, owned);
   }
   const registry = new Map([...conversationV2.agents.values()].map((agent) => [agent.agentId, agent]));
-  // An agent the registry knows about, or one the rows themselves reveal. The
-  // legacy projection discovered agents from their spawn events; the registry is the
-  // same fact recorded durably, and the tool/message owner ids keep an agent visible
-  // while its lifecycle event is still missing.
-  const agentIds = new Set<string>([
-    ...registry.keys(),
-    ...toolsByOwner.keys(),
-    ...[...conversationV2.messages.values()]
-      .map((message) => message.agentId?.trim())
-      .filter((agentId): agentId is string => Boolean(agentId)),
-  ]);
+  // Owner ids also identify auxiliary requests (for example image_view errors).
+  // Only a durable agent record establishes an agent lifecycle and warrants a card.
   // Who gets a card, and therefore who owns rows. The Feed draws a card for a subagent,
   // and a row belongs to the main feed unless its owner is one — a planner instance is the
   // attempt's own main agent, whose messages and tools are the conversation itself. An
@@ -890,7 +955,7 @@ export function buildConversationV2OnlyProjection(
   // announced itself is a main-feed row, not a card invented from an id (invariant 14:
   // content is shown, never hidden behind a card no agent record backs).
   const cardAgentIds = new Set<string>(
-    [...agentIds].filter((agentId) => registry.get(agentId)?.kind === "subagent"),
+    [...registry.values()].filter((agent) => agent.kind === "subagent").map((agent) => agent.agentId),
   );
   // Rows whose owner is not a card owner stay in the main feed, so the split happens here
   // once rather than at each use.
@@ -956,8 +1021,7 @@ export function buildConversationV2OnlyProjection(
   }
 
   const agents: ThreadRunProjectionAgent[] = [];
-  for (const agentId of agentIds) {
-    const record = registry.get(agentId);
+  for (const [agentId, record] of registry) {
     const ownedTools = toolsByAgent.get(agentId) ?? [];
     const ownedMessages = messagesByAgent.get(agentId) ?? [];
     const timeline = [
@@ -980,9 +1044,9 @@ export function buildConversationV2OnlyProjection(
       : Math.max(0, Date.now() - Date.parse(startedAt));
     agents.push({
       agentId,
-      role: record?.role ?? "subagent",
-      kind: record?.kind === "planner" ? "planner" : "subagent",
-      status: agentProjectionStatus(record?.status),
+      role: record.role,
+      kind: isMainAgentRole(record.kind) ? "main" : "subagent",
+      status: agentProjectionStatus(record.status),
       startedAt,
       durationMs,
       ...(record?.runId ? { runAttemptId: record.runId } : {}),
@@ -1210,6 +1274,7 @@ function conversationV2ToolPresentation(tool: ConversationToolCall): {
     "htmlHost",
     "mcpDiscovery",
     "sendMessage",
+    "processId",
     "nonExecutionKind",
     "bashApproval",
     "clarification",
@@ -1822,6 +1887,8 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
         </div>
       );
     }
+    if (props.thread?.status === "idle" && !props.thread.prompt)
+      return <div className="run-log run-log-empty" />;
     return <ProjectionFeedLoading />;
   }
   return (
@@ -1839,8 +1906,13 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
       {...(props.onRewriteUserMessage && {
         onRewriteUserMessage: props.onRewriteUserMessage,
       })}
+      {...(props.onForkMessage && { onForkMessage: props.onForkMessage })}
       {...(props.onRetryFailedRequest && {
         onRetryFailedRequest: props.onRetryFailedRequest,
+      })}
+      {...(props.onSwitchCodexAccount && { onSwitchCodexAccount: props.onSwitchCodexAccount })}
+      {...(props.onOpenChatGptSubscriptionAccounts && {
+        onOpenChatGptSubscriptionAccounts: props.onOpenChatGptSubscriptionAccounts,
       })}
       {...(props.selectedSubagentAgentId && {
         selectedSubagentAgentId: props.selectedSubagentAgentId,
@@ -1888,7 +1960,10 @@ function ConversationV2ProjectionActivityLogViewImpl({
   onRestorePrompt,
   onLoadUserMessageEdit,
   onRewriteUserMessage,
+  onForkMessage,
   onRetryFailedRequest,
+  onSwitchCodexAccount,
+  onOpenChatGptSubscriptionAccounts,
   onPlannerLayoutChange,
   onComposerAgentSilenceChange,
   onFeedEndAnchorChange,
@@ -1916,7 +1991,10 @@ function ConversationV2ProjectionActivityLogViewImpl({
   onRestorePrompt?: RestorePromptHandler;
   onLoadUserMessageEdit?: LoadUserMessageEditHandler;
   onRewriteUserMessage?: RewriteUserMessageHandler;
+  onForkMessage?: ForkMessageHandler;
   onRetryFailedRequest?: RetryFailedRequestHandler;
+  onSwitchCodexAccount?: () => void;
+  onOpenChatGptSubscriptionAccounts?: (accountId?: string) => void;
   onPlannerLayoutChange?: ActivityFeedLayoutChange;
   onComposerAgentSilenceChange?: (silent: boolean) => void;
   onFeedEndAnchorChange?: (endAnchored: boolean) => void;
@@ -1969,6 +2047,14 @@ function ConversationV2ProjectionActivityLogViewImpl({
     [projection.timeline, projection.thread.status, thread?.coreKind, thread?.status],
   );
   const allowUserMessageRewrite = supportsHistoryRewrite(thread?.coreKind);
+  const forkStatus = thread?.status ?? projection.thread.status;
+  const hideMessageActions =
+    forkStatus === "running" || forkStatus === "queued" || Boolean(thread?.cancelling);
+  const forkDisabledReason =
+    hideMessageActions
+      ? i18n.t("activity.forkWait", { defaultValue: "等待当前执行结束，或停止后再分叉" })
+      : undefined;
+  const showMessageActions = !hideMessageActions;
   const conversationActive = !isThreadStoppedForFinalSummary(projection.thread.status);
   const pendingThinking = projection.requestSpans.some(
     (span) => !span.ownerAgentId && isPendingThinkingWithoutContent(span, projection.timeline),
@@ -2091,6 +2177,23 @@ function ConversationV2ProjectionActivityLogViewImpl({
     }
     return itemId;
   }, [finalSummaryItemIds, viewModel.mainFeedEntries]);
+  // A completed turn can be followed immediately by another queued turn.
+  // Auto-read observes final outputs independently from the meta row's layout policy.
+  let readAloudCandidate: { id: string; text: string; runId: string } | undefined;
+  for (const section of feedSections) {
+    if (section.kind !== "turn" || section.attempt.status !== "completed" || section.finalEntry?.kind !== "timeline") continue;
+    const item = section.finalEntry.item;
+    if (item.contentLoaded !== false && item.runAttemptId && item.text.trim()) {
+      readAloudCandidate = { id: item.id, text: item.text, runId: item.runAttemptId };
+    }
+  }
+  useReadAloudAutoRead(
+    projection.thread.threadId,
+    !isThreadStoppedForFinalSummary(projection.thread.status),
+    readAloudCandidate,
+    projection.thread.currentAttemptId ?? projection.attempts.find((attempt) => attempt.status === "running")?.attemptId,
+  );
+
   const layoutSignature = useMemo(
     () =>
       [
@@ -2138,6 +2241,39 @@ function ConversationV2ProjectionActivityLogViewImpl({
 
   const runLogRef = useRef<HTMLDivElement>(null);
   const feedHeaderRef = useRef<HTMLDivElement>(null);
+  const [feedTextContextMenu, setFeedTextContextMenu] = useState<FeedTextContextMenuAnchor>();
+  const closeFeedTextContextMenu = useCallback(() => {
+    setFeedTextContextMenu(undefined);
+  }, []);
+  const handleFeedContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) {
+      return;
+    }
+    const selection = window.getSelection();
+    const anchorNode = selection?.anchorNode;
+    const focusNode = selection?.focusNode;
+    if (
+      !selection ||
+      selection.isCollapsed ||
+      selection.rangeCount === 0 ||
+      !anchorNode ||
+      !focusNode ||
+      !event.currentTarget.contains(anchorNode) ||
+      !event.currentTarget.contains(focusNode)
+    ) {
+      return;
+    }
+    const selectedText = selection.toString();
+    if (!selectedText.trim()) {
+      return;
+    }
+    event.preventDefault();
+    setFeedTextContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      selectedText,
+    });
+  }, []);
   /*
     `latestContentIsToolGroup` keeps 「正在思考」 and Summary tips from stacking under a tool
     row — that row owns the slot. It must not swallow the one state that outlives it: a
@@ -2202,11 +2338,16 @@ function ConversationV2ProjectionActivityLogViewImpl({
     ...(onOpenImageDisplayArtifact && { onOpenImageDisplayArtifact }),
     ...(agentDisplayNames && { agentDisplayNames }),
     ...(agentThemes && { agentThemes }),
-    // ACP/Pi have no history rewrite; omit restore+edit handlers so Reply/Pencil icons stay hidden.
-    ...(onRestorePrompt && allowUserMessageRewrite && { onRestorePrompt }),
-    ...(onLoadUserMessageEdit && allowUserMessageRewrite && { onLoadUserMessageEdit }),
-    ...(onRewriteUserMessage && allowUserMessageRewrite && { onRewriteUserMessage }),
+    // ACP/Pi have no history rewrite; active runs also omit the message-action handlers so
+    // Reply/Pencil/Fork icons stay hidden until the conversation settles.
+    ...(showMessageActions && onRestorePrompt && allowUserMessageRewrite && { onRestorePrompt }),
+    ...(showMessageActions && onLoadUserMessageEdit && allowUserMessageRewrite && { onLoadUserMessageEdit }),
+    ...(showMessageActions && onRewriteUserMessage && allowUserMessageRewrite && { onRewriteUserMessage }),
+    ...(showMessageActions && onForkMessage && { onForkMessage }),
+    ...(forkDisabledReason && { forkDisabledReason }),
     ...(onRetryFailedRequest && { onRetryFailedRequest }),
+    ...(thread?.coreKind === "codex" && onSwitchCodexAccount && { onSwitchCodexAccount }),
+    ...(onOpenChatGptSubscriptionAccounts && { onOpenChatGptSubscriptionAccounts }),
     retryTargets,
     allowUserMessageRewrite,
     historyRevision: projection.historyRevision ?? 0,
@@ -2251,6 +2392,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
         <div
           ref={runLogRef}
           className={["run-log", feedVirtualized ? "run-log--virtualized" : ""].filter(Boolean).join(" ")}
+          onContextMenu={handleFeedContextMenu}
         >
           <div ref={feedHeaderRef} className="run-log-virtual-header">
             {showThreadPrompt && thread?.prompt
@@ -2259,9 +2401,11 @@ function ConversationV2ProjectionActivityLogViewImpl({
                     text={thread.prompt}
                     anchorId={`thread:${thread.id}`}
                     {...(thread.createdAt ? { createdAt: thread.createdAt } : {})}
-                    {...(onRestorePrompt && { onRestorePrompt })}
-                    {...(onLoadUserMessageEdit && { onLoadUserMessageEdit })}
-                    {...(onRewriteUserMessage && { onRewriteUserMessage })}
+                    {...(showMessageActions && onRestorePrompt && { onRestorePrompt })}
+                    {...(showMessageActions && onLoadUserMessageEdit && { onLoadUserMessageEdit })}
+                    {...(showMessageActions && onRewriteUserMessage && { onRewriteUserMessage })}
+                    {...(showMessageActions && onForkMessage && { onForkMessage })}
+                    {...(forkDisabledReason && { forkDisabledReason })}
                     allowUserMessageRewrite={allowUserMessageRewrite}
                     historyRevision={projection.historyRevision ?? 0}
                   />,
@@ -2294,6 +2438,12 @@ function ConversationV2ProjectionActivityLogViewImpl({
             ))
           )}
         </div>
+        {feedTextContextMenu ? (
+          <FeedTextContextMenu
+            anchor={feedTextContextMenu}
+            onClose={closeFeedTextContextMenu}
+          />
+        ) : null}
       </ActivityFeedLayoutContext.Provider>
     </RequestSpansContext.Provider>
   );
@@ -2317,7 +2467,11 @@ type ProjectionFeedEntrySharedProps = {
   onRestorePrompt?: RestorePromptHandler;
   onLoadUserMessageEdit?: LoadUserMessageEditHandler;
   onRewriteUserMessage?: RewriteUserMessageHandler;
+  onForkMessage?: ForkMessageHandler;
+  forkDisabledReason?: string;
   onRetryFailedRequest?: RetryFailedRequestHandler;
+  onSwitchCodexAccount?: () => void;
+  onOpenChatGptSubscriptionAccounts?: (accountId?: string) => void;
   retryTargets?: Map<string, RequestFailureRetryTarget>;
   allowUserMessageRewrite?: boolean;
   historyRevision: number;
@@ -2726,7 +2880,11 @@ function ProjectionMainFeedEntry({
   onRestorePrompt,
   onLoadUserMessageEdit,
   onRewriteUserMessage,
+  onForkMessage,
+  forkDisabledReason,
   onRetryFailedRequest,
+  onSwitchCodexAccount,
+  onOpenChatGptSubscriptionAccounts,
   retryTargets,
   allowUserMessageRewrite,
   historyRevision,
@@ -2750,7 +2908,11 @@ function ProjectionMainFeedEntry({
   onRestorePrompt?: RestorePromptHandler;
   onLoadUserMessageEdit?: LoadUserMessageEditHandler;
   onRewriteUserMessage?: RewriteUserMessageHandler;
+  onForkMessage?: ForkMessageHandler;
+  forkDisabledReason?: string;
   onRetryFailedRequest?: RetryFailedRequestHandler;
+  onSwitchCodexAccount?: () => void;
+  onOpenChatGptSubscriptionAccounts?: (accountId?: string) => void;
   retryTargets?: Map<string, RequestFailureRetryTarget>;
   allowUserMessageRewrite?: boolean;
   historyRevision: number;
@@ -2779,7 +2941,13 @@ function ProjectionMainFeedEntry({
         {...(onRestorePrompt && { onRestorePrompt })}
         {...(onLoadUserMessageEdit && { onLoadUserMessageEdit })}
         {...(onRewriteUserMessage && { onRewriteUserMessage })}
+        {...(onForkMessage && { onForkMessage })}
+        {...(forkDisabledReason && { forkDisabledReason })}
         {...(onRetryFailedRequest && { onRetryFailedRequest })}
+        {...(onSwitchCodexAccount && { onSwitchCodexAccount })}
+        {...(onOpenChatGptSubscriptionAccounts && {
+          onOpenChatGptSubscriptionAccounts,
+        })}
         {...(retryTargets && { retryTargets })}
         allowUserMessageRewrite={Boolean(allowUserMessageRewrite)}
         historyRevision={historyRevision ?? 0}
@@ -2900,15 +3068,6 @@ export function ProjectionToolGroupEntry({
     ),
   ];
   const imageToolUseId = imageToolUseIds.length === 1 ? imageToolUseIds[0] : undefined;
-  const imageDisplayToolUseIds = [
-    ...new Set(
-      entry.entries
-        .map((child) => readImageDisplayToolUseId(child.item))
-        .filter((value): value is string => Boolean(value)),
-    ),
-  ];
-  const imageDisplayToolUseId = imageDisplayToolUseIds.length === 1 ? imageDisplayToolUseIds[0] : undefined;
-
   return (
     <div className={["run-log-tool-group", expanded ? "is-expanded" : ""].filter(Boolean).join(" ")}>
       <RunLogCollapsibleActionTrigger
@@ -2930,16 +3089,10 @@ export function ProjectionToolGroupEntry({
         onClick={() => {
           setExpanded((value) => !value);
           if (imageToolUseId) onOpenImageGenerationTool?.(imageToolUseId);
-          if (imageDisplayToolUseId) onOpenImageDisplayTool?.(imageDisplayToolUseId);
         }}
       />
-      <TtsFeedArtifacts
-        toolUseIds={entry.entries
-          .map((child) => readTtsToolUseId(child.item))
-          .filter((id): id is string => Boolean(id))}
-      />
       {expanded ? (
-        <TtsFeedGroupDetailsContext value={true}><div className="run-log-tool-group-details">
+        <div className="run-log-tool-group-details">
           {topLevel.map((child) => {
             const toolUseId = child.kind === "timeline" ? readProjectionToolUseId(child.item) : undefined;
             const nestedChildren = toolUseId ? nestedByParent.get(toolUseId) : undefined;
@@ -2955,7 +3108,7 @@ export function ProjectionToolGroupEntry({
               />
             );
           })}
-        </div></TtsFeedGroupDetailsContext>
+        </div>
       ) : null}
     </div>
   );
@@ -3159,12 +3312,23 @@ function ProjectionToolGroupChildEntry({
           actionLabelOverride: formatToolGroupChildDetail(block),
         })}
         compact
+        forceActionDetailsExpanded={Boolean(
+          block?.kind === "action" && (block.webSearch || readTtsToolUseId(entry.item)),
+        )}
         {...(onOpenImageGenerationTool && { onOpenImageGenerationTool })}
         {...(onOpenImageDisplayTool && { onOpenImageDisplayTool })}
       />
     );
   }
-  return <ProjectionAgentEchoEntry entry={entry} requestSpansById={requestSpansById} />;
+  return (
+    <ProjectionAgentEchoEntry
+      entry={entry}
+      requestSpansById={requestSpansById}
+      forceActionDetailsExpanded={Boolean(
+        block?.kind === "action" && (block.webSearch || readTtsToolUseId(entry.item)),
+      )}
+    />
+  );
 }
 
 function ProjectionToolGroupBashChild({
@@ -4130,6 +4294,7 @@ function ProjectionAgentEchoEntry({
   pacing?: boolean;
 }) {
   const block = projectionItemToDetailBlock(entry.item);
+  const ttsToolUseId = readTtsToolUseId(entry.item);
   if (!block) {
     return null;
   }
@@ -4177,6 +4342,9 @@ function ProjectionAgentEchoEntry({
     <ProjectionAgentEchoShell label={entry.agentLabel} agentId={entry.agent.agentId}>
       <DetailBlock
         block={block}
+        {...(ttsToolUseId && {
+          actionDetails: <TtsFeedArtifacts toolUseIds={[ttsToolUseId]} />,
+        })}
         requestActive={requestActive}
         hideSubagentIdentity
         forceActionDetailsExpanded={forceActionDetailsExpanded}
@@ -4644,7 +4812,11 @@ function ProjectionTimelineEntry({
   onRestorePrompt,
   onLoadUserMessageEdit,
   onRewriteUserMessage,
+  onForkMessage,
+  forkDisabledReason,
   onRetryFailedRequest,
+  onSwitchCodexAccount,
+  onOpenChatGptSubscriptionAccounts,
   retryTargets,
   allowUserMessageRewrite = false,
   historyRevision,
@@ -4666,7 +4838,11 @@ function ProjectionTimelineEntry({
   onRestorePrompt?: RestorePromptHandler;
   onLoadUserMessageEdit?: LoadUserMessageEditHandler;
   onRewriteUserMessage?: RewriteUserMessageHandler;
+  onForkMessage?: ForkMessageHandler;
+  forkDisabledReason?: string;
   onRetryFailedRequest?: RetryFailedRequestHandler;
+  onSwitchCodexAccount?: () => void;
+  onOpenChatGptSubscriptionAccounts?: (accountId?: string) => void;
   retryTargets?: Map<string, RequestFailureRetryTarget>;
   allowUserMessageRewrite?: boolean;
   historyRevision?: number;
@@ -4706,6 +4882,8 @@ function ProjectionTimelineEntry({
         {...(onRestorePrompt && { onRestorePrompt })}
         {...(onLoadUserMessageEdit && { onLoadUserMessageEdit })}
         {...(onRewriteUserMessage && { onRewriteUserMessage })}
+        {...(onForkMessage && { onForkMessage })}
+        {...(forkDisabledReason && { forkDisabledReason })}
         allowUserMessageRewrite={allowUserMessageRewrite}
         historyRevision={historyRevision ?? 0}
       />,
@@ -4730,6 +4908,57 @@ function ProjectionTimelineEntry({
         }
       : undefined;
 
+  // Account recovery must remain available even when the failed turn already
+  // produced output and cannot use one-click request retry.
+  const failureMessage =
+    block.kind === "api-error"
+      ? block.message
+      : block.kind === "phase"
+        ? block.reconnectDetail ?? block.label
+        : undefined;
+  const usageLimitReached =
+    failureMessage !== undefined &&
+    (/\byou['’]ve hit your usage limit\b/iu.test(failureMessage) ||
+      (block.kind === "api-error" && block.code === "usage_limit_reached"));
+  const subscriptionUsagePaused =
+    block.kind === "api-error" &&
+    block.code === "subscription_sharing_usage_limit_exceeded";
+  if (
+    !compact &&
+    item.scope !== "agent" &&
+    subscriptionUsagePaused &&
+    onOpenChatGptSubscriptionAccounts
+  ) {
+    return wrapRunLogFeedEntry(
+      <FeedErrorCard
+        message={
+          <>
+            {i18n.t("activity.chatgptUsagePaused")}{" "}
+            <a
+              className="feed-error-card-link"
+              href="https://chatgpt.com/settings/usage"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {i18n.t("activity.viewChatgptUsage")}
+            </a>
+          </>
+        }
+        actionLabel={i18n.t("activity.manualTestChatgptAccount")}
+        onAction={() => onOpenChatGptSubscriptionAccounts(block.accountId)}
+      />,
+    );
+  }
+  if (!compact && item.scope !== "agent" && onSwitchCodexAccount && usageLimitReached) {
+    return wrapRunLogFeedEntry(
+      <FeedErrorCard
+        message={failureMessage}
+        actionLabel={i18n.t("activity.switchAccount")}
+        onAction={onSwitchCodexAccount}
+      />,
+    );
+  }
+
   if (block.kind === "subagent-prompt") {
     return wrapRunLogFeedEntry(
       <UserPromptBlock text={block.text} className="subagent-conversation-prompt" createdAt={item.at} />,
@@ -4750,6 +4979,9 @@ function ProjectionTimelineEntry({
         compact={compact}
         {...(requestSpan && { requestSpan })}
         item={item}
+        {...(onForkMessage && {onForkMessage})}
+        {...(forkDisabledReason && {forkDisabledReason})}
+        historyRevision={historyRevision ?? 0}
       />,
       { compact },
     );
@@ -4805,9 +5037,9 @@ function ProjectionTimelineEntry({
   }
 
   return wrapRunLogFeedEntry(
-    <>
     <DetailBlock
       block={block}
+      {...(ttsToolUseId && { actionDetails: <TtsFeedArtifacts toolUseIds={[ttsToolUseId]} /> })}
       requestActive={requestActive}
       createdAt={item.at}
       hideSubagentIdentity={omitIdentity}
@@ -4825,9 +5057,7 @@ function ProjectionTimelineEntry({
           onActionActivate: () => onOpenImageDisplayTool(imageDisplayToolUseId),
         })}
       {...(onOpenImageDisplayArtifact && { onOpenImageDisplayArtifact })}
-    />
-      {ttsToolUseId ? <TtsFeedArtifacts toolUseIds={[ttsToolUseId]} /> : null}
-    </>,
+    />,
     { compact, tight: isTightFeedDetailBlock(block) },
   );
 }
@@ -5004,6 +5234,7 @@ function DetailBlock({
   hideSubagentIdentity,
   forceActionDetailsExpanded = false,
   actionLabelOverride,
+  actionDetails,
   requestActive = false,
   requestSpan,
   agentThemes,
@@ -5018,6 +5249,7 @@ function DetailBlock({
   hideSubagentIdentity?: boolean;
   forceActionDetailsExpanded?: boolean;
   actionLabelOverride?: string;
+  actionDetails?: ReactNode;
   requestActive?: boolean;
   requestSpan?: ThreadRunProjectionRequestSpan;
   agentThemes?: RuntimeAgentThemes;
@@ -5125,7 +5357,8 @@ function DetailBlock({
         {...(block.bashRun && { bashRun: block.bashRun })}
         {...(block.fileChange && { fileChange: block.fileChange })}
         {...(block.webSearch && { webSearch: block.webSearch })}
-        {...(block.toolOutput && { toolOutput: block.toolOutput })}
+        {...(!actionDetails && block.toolOutput && { toolOutput: block.toolOutput })}
+        {...(actionDetails && { details: actionDetails })}
         {...(block.lifecycle && { lifecycle: block.lifecycle })}
         {...(block.subagent && { subagent: block.subagent })}
         omitRoleLabel={omitSubagent}
@@ -5252,7 +5485,7 @@ function PhaseBlock({
         <FeedErrorCard
           message={label}
           {...(reconnectDetail && { detail: reconnectDetail })}
-          {...(onRetry && { retryLabel: i18n.t("common.retry"), onRetry })}
+          {...(onRetry && { actionLabel: i18n.t("common.retry"), onAction: onRetry })}
         />
       );
     }
@@ -5283,7 +5516,7 @@ function PhaseBlock({
     );
   }
   if (onRetry) {
-    return <FeedErrorCard message={label} retryLabel={i18n.t("common.retry")} onRetry={onRetry} />;
+    return <FeedErrorCard message={label} actionLabel={i18n.t("common.retry")} onAction={onRetry} />;
   }
   return <div className="run-log-phase">{label}</div>;
 }
@@ -5517,6 +5750,7 @@ function isProjectionRequestWaitingForFirstToken(span: ThreadRunProjectionReques
 }
 
 function isReasoningStageItem(item: ThreadRunProjectionTimelineItem): boolean {
+  if (item.eventType !== "thinking.delta" && item.eventType !== "thinking.final") return false;
   return projectionItemToDetailBlock(item)?.kind === "reasoning-stage";
 }
 
@@ -5541,6 +5775,7 @@ function resolveLiveReasoningStageLabel(
     if (entry.kind !== "timeline" && entry.kind !== "agent-echo") {
       continue;
     }
+    if (entry.item.eventType !== "thinking.delta" && entry.item.eventType !== "thinking.final") continue;
     const block = projectionItemToDetailBlock(entry.item);
     if (block?.kind !== "reasoning-stage") {
       continue;
@@ -5859,8 +6094,8 @@ function ThinkingBlock({
 
   const isExpanded = displayOpen;
   const baseLabel = activelyStreaming ? i18n.t("activity.thinking") : i18n.t("activity.deepThinkingDone");
+  // 秒数单独成 span：跟工具行的耗时一样是小字 faint 数字，而不是跟着 13px/500 的摘要走。
   const durationLabel = formatDuration(durationMs);
-  const label = durationLabel ? `${baseLabel} ${durationLabel}` : baseLabel;
 
   return (
     <div
@@ -5899,7 +6134,8 @@ function ThinkingBlock({
       >
         <Sparkles size={14} className="run-log-thinking-icon" aria-hidden />
         <span className="run-log-thinking-summary">
-          {activelyStreaming ? <ShimmerText>{label}</ShimmerText> : label}
+          {activelyStreaming ? <ShimmerText>{baseLabel}</ShimmerText> : baseLabel}
+          {durationLabel ? <span className="run-log-thinking-elapsed">{durationLabel}</span> : null}
         </span>
         {hasBody ? (
           <ChevronRight
@@ -6022,6 +6258,8 @@ function UserPromptBlock({
   historyRevision = 0,
   onLoadUserMessageEdit,
   onRewriteUserMessage,
+  onForkMessage,
+  forkDisabledReason,
   allowUserMessageRewrite = false,
 }: {
   text: string;
@@ -6035,6 +6273,8 @@ function UserPromptBlock({
   historyRevision?: number;
   onLoadUserMessageEdit?: LoadUserMessageEditHandler;
   onRewriteUserMessage?: RewriteUserMessageHandler;
+  onForkMessage?: ForkMessageHandler;
+  forkDisabledReason?: string;
   allowUserMessageRewrite?: boolean;
 }) {
   const asyncQuestionReplies = useMemo(() => parseCodexAsyncQuestionReplyText(text), [text]);
@@ -6487,6 +6727,7 @@ function UserPromptBlock({
           延迟挂载 meta 的策略只针对 agent 侧流式输出（turn final summary）。 */}
       <RunLogMessageMeta
         align="end"
+        sticky={Boolean(onForkMessage && rewindTarget && !editing)}
         copyText={copyText}
         {...(createdAt ? { createdAt } : {})}
         {...(allowUserMessageRewrite &&
@@ -6500,7 +6741,16 @@ function UserPromptBlock({
             },
           })}
         {...(!editing && canEdit && { editUserMessage: { onEdit: beginEdit } })}
+        {...(onForkMessage && rewindTarget && !editing ? {
+          forkAction: {
+            activityLineId: rewindTarget.activityLineId,
+            expectedHistoryRevision: historyRevision,
+            onFork: onForkMessage,
+            ...(forkDisabledReason ? {disabledReason: forkDisabledReason} : {}),
+          },
+        } : {})}
       />
+
       {lightboxImage ? (
         <ImageLightbox
           src={lightboxImage.src}
@@ -6749,7 +6999,7 @@ function ApiErrorBlock({
       {...(subagent && !omitRoleLabel
         ? { context: formatRoleModelLabel(subagent, modelByRole?.[subagent]) }
         : {})}
-      {...(onRetry ? { retryLabel: i18n.t("common.retry"), onRetry } : {})}
+      {...(onRetry ? { actionLabel: i18n.t("common.retry"), onAction: onRetry } : {})}
     />
   );
 }
@@ -7143,6 +7393,7 @@ export function ImageDisplayBlock({
   const previewAlt = i18n.t("activity.imageDisplay.previewAlt", {
     name: fileName,
   });
+  const openInPanelLabel = i18n.t("task.imageDisplay.open");
   const revealInFolder = useCallback(() => {
     if (loadState.status !== "ready") return;
     const bridge = window.eco;
@@ -7156,17 +7407,28 @@ export function ImageDisplayBlock({
     <div className="run-log-image-view-wrap">
       {roleLabel ? <span className="run-log-action-role">{roleLabel}</span> : null}
       <article className="run-log-image-view" aria-busy={loadState.status === "loading"}>
-        <RunLogCollapsibleActionTrigger
-          className="run-log-image-view-summary"
-          icon="images"
-          label={lifecycle === "running" ? <ShimmerText>{statusLabel}</ShimmerText> : statusLabel}
-          {...(lifecycle && { lifecycle })}
-          expanded={detailsOpen}
-          onClick={() => {
-            setDetailsOpen((value) => !value);
-            onOpenImageDisplayArtifact?.(imageDisplay.artifactId);
-          }}
-        />
+        <div className="run-log-image-view-head">
+          <RunLogCollapsibleActionTrigger
+            className="run-log-image-view-summary"
+            icon="images"
+            label={lifecycle === "running" ? <ShimmerText>{statusLabel}</ShimmerText> : statusLabel}
+            {...(lifecycle && { lifecycle })}
+            expanded={detailsOpen}
+            onClick={() => setDetailsOpen((value) => !value)}
+          />
+          {/* 折叠层只负责展开/折叠；打开工作面板需要显式点击这个按钮。 */}
+          {onOpenImageDisplayArtifact ? (
+            <button
+              type="button"
+              className="run-log-image-view-icon-button run-log-image-view-panel-trigger"
+              onClick={() => onOpenImageDisplayArtifact(imageDisplay.artifactId)}
+              aria-label={openInPanelLabel}
+              title={openInPanelLabel}
+            >
+              <PanelRight size={14} aria-hidden />
+            </button>
+          ) : null}
+        </div>
 
         {detailsOpen ? (
           <div className="run-log-image-view-body">
@@ -7279,6 +7541,7 @@ function RunLogAction({
   fileChange,
   webSearch,
   toolOutput,
+  details,
   error,
   subagent,
   modelByRole,
@@ -7300,6 +7563,7 @@ function RunLogAction({
   fileChange?: import("../shared/activity-display").FileChangeCardDisplay;
   webSearch?: import("../shared/activity-display").WebSearchCardDisplay;
   toolOutput?: string;
+  details?: ReactNode;
   error?: string;
   subagent?: string;
   modelByRole?: Record<string, string>;
@@ -7339,9 +7603,9 @@ function RunLogAction({
       ? formatRoleModelLabel(subagentRole, modelByRole?.[subagentRole])
       : undefined;
   const displayLabel =
-    displayLabelOverride ?? bashRun?.title ?? fileChange?.fileName ?? webSearch?.title ?? label;
+    displayLabelOverride ?? bashRun?.title ?? fileChange?.fileName ?? label;
   const hasHeavyDetails = Boolean(
-    bashRun?.command || bashRun?.output || fileChange || webSearch || error || toolOutput,
+    bashRun?.command || bashRun?.output || fileChange || webSearch || error || toolOutput || details,
   );
   const detailsExpanded = forceDetailsExpanded || expanded;
   const canToggleDetails = !forceDetailsExpanded && (hasHeavyDetails || (isTerminal && canExpand));
@@ -7412,7 +7676,7 @@ function RunLogAction({
       {webSearch?.meta && !bashRun?.meta ? (
         <span className="run-log-action-meta">{webSearch.meta}</span>
       ) : null}
-      {hasHeavyDetails || (isTerminal && canExpand) ? (
+      {canToggleDetails ? (
         <ChevronDown
           size={14}
           className={`run-log-action-chevron${detailsExpanded ? " open" : ""}`}
@@ -7448,34 +7712,6 @@ function RunLogAction({
                 {...(bashRun.command && { command: bashRun.command })}
                 {...(bashRun.output && { output: bashRun.output })}
               />
-            </div>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-
-  if (webSearch) {
-    return (
-      <div className="run-log-action run-log-action--with-card run-log-action--web-search-card">
-        {roleLabel ? <span className="run-log-action-role">{roleLabel}</span> : null}
-        <div className="run-log-action-main run-log-feed-surface">
-          {canToggleDetails ? (
-            <button
-              type="button"
-              className={`${triggerClassName} run-log-feed-surface-header`}
-              onClick={() => setExpanded((value) => !value)}
-              aria-expanded={detailsExpanded}
-              title={detailsExpanded ? undefined : webSearch.title}
-            >
-              {row}
-            </button>
-          ) : (
-            <div className={`${triggerClassName} run-log-feed-surface-header`}>{row}</div>
-          )}
-          {detailsExpanded ? (
-            <div className="run-log-action-card-detail run-log-feed-surface-body run-log-web-search-detail">
-              <RunLogWebSearchDetail display={webSearch} {...(lifecycle ? { lifecycle } : {})} />
             </div>
           ) : null}
         </div>
@@ -7530,6 +7766,14 @@ function RunLogAction({
         ) : (
           <div className={triggerClassName}>{row}</div>
         )}
+        {webSearch && detailsExpanded ? (
+          <div className="run-log-feed-surface run-log-web-search-detail run-log-action-card-detail">
+            <div className="run-log-feed-surface-body">
+              <RunLogWebSearchDetail display={webSearch} {...(lifecycle ? { lifecycle } : {})} />
+            </div>
+          </div>
+        ) : null}
+        {detailsExpanded ? details : null}
         {error && detailsExpanded ? (
           <div className="run-log-tool-result-panel">
             <div className="run-log-tool-result-header">
@@ -7927,6 +8171,9 @@ function RunLogNarrative({
   omitSubagentBadge,
   requestSpan,
   item,
+  onForkMessage,
+  forkDisabledReason,
+  historyRevision = 0,
 }: {
   text: string;
   createdAt?: string;
@@ -7941,13 +8188,26 @@ function RunLogNarrative({
   omitSubagentBadge?: boolean;
   requestSpan?: ThreadRunProjectionRequestSpan;
   item?: ThreadRunProjectionTimelineItem;
+  onForkMessage?: ForkMessageHandler;
+  forkDisabledReason?: string;
+  historyRevision?: number;
 }) {
   const usage = subagent ? usageByRole?.[subagent] : undefined;
   const hasBody = text.trim().length > 0;
   const showSubagentBadge = subagent && !omitSubagentBadge;
   const showBody = hasBody || !streaming;
   const showFinalMessageMeta = showMessageMeta && hasBody && !streaming;
-  const showStickyMessageMeta = showFinalMessageMeta && stickyMessageMeta;
+  const messageId = item?.metadata?.conversationV2MessageId;
+  const forkAction: MessageForkAction | undefined =
+    onForkMessage && typeof messageId === "string" && item?.scope !== "agent"
+      ? {
+          activityLineId: messageId,
+          expectedHistoryRevision: historyRevision,
+          onFork: onForkMessage,
+          ...(forkDisabledReason ? { disabledReason: forkDisabledReason } : {}),
+        }
+      : undefined;
+  const showStickyMessageMeta = showFinalMessageMeta && (stickyMessageMeta || Boolean(forkAction));
   const waitingEmpty = Boolean(streaming) && !hasBody;
   const clarificationRows = !streaming ? parseClarificationAnswersSummary(text) : null;
   const worktreeMergeSummary = !streaming ? parseWorktreeMergeMessage(text) : null;
@@ -8000,6 +8260,8 @@ function RunLogNarrative({
         <RunLogMessageMeta
           align="start"
           copyText={text}
+          {...(item && { readAloud: { entryId: item.id, sourceText: text } })}
+          {...(forkAction && { forkAction })}
           sticky={showStickyMessageMeta}
           {...(createdAt && { createdAt })}
           {...(item

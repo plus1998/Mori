@@ -40,7 +40,7 @@ test("buildBillingTokenBreakdown returns agent rows in AGENT_ROLES order", () =>
         ecoCostUsd: 0.05,
         modelId: "claude-haiku-4-5",
       },
-      planner: {
+      main: {
         inputTokens: 10000,
         outputTokens: 1000,
         cacheReadTokens: 0,
@@ -51,7 +51,7 @@ test("buildBillingTokenBreakdown returns agent rows in AGENT_ROLES order", () =>
     }),
   );
 
-  expect(breakdown?.byAgent.map((row) => row.role)).toEqual(["planner", "coder"]);
+  expect(breakdown?.byAgent.map((row) => row.role)).toEqual(["main", "coder"]);
   expect(breakdown?.byAgent[0]?.label).toBe("主代理 · 主");
   expect(breakdown?.byAgent[1]?.label).toBe("编码 · 主");
   expect(breakdown?.byAgent[0]?.tokenBadge).toBe("↑10k ↓1k");
@@ -85,6 +85,23 @@ test("buildBillingTokenBreakdown merges roles that share the same model", () => 
   expect(breakdown?.byModel[0]?.ecoCostUsd).toBeCloseTo(0.06);
 });
 
+test("buildBillingTokenBreakdown uses readable model display names", () => {
+  const breakdown = buildBillingTokenBreakdown(
+    makeBilling({
+      coder: {
+        inputTokens: 3000,
+        outputTokens: 300,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        ecoCostUsd: 0.02,
+        modelId: "deepseek-ai/deepseek-r1-distill-qwen-32b-instruct",
+      },
+    }),
+  );
+
+  expect(breakdown?.byModel[0]?.label).toBe("Deepseek R1 Distill Qwen 32b Instruct");
+});
+
 test("buildBillingTokenBreakdown includes dynamic orchestration roles", () => {
   const breakdown = buildBillingTokenBreakdown(
     makeBilling({
@@ -96,7 +113,7 @@ test("buildBillingTokenBreakdown includes dynamic orchestration roles", () => {
         ecoCostUsd: 0.03,
         modelId: "research-model",
       },
-      planner: {
+      main: {
         inputTokens: 1000,
         outputTokens: 100,
         cacheReadTokens: 0,
@@ -107,7 +124,7 @@ test("buildBillingTokenBreakdown includes dynamic orchestration roles", () => {
     }),
   );
 
-  expect(breakdown?.byAgent.map((row) => row.role)).toEqual(["planner", "researcher"]);
+  expect(breakdown?.byAgent.map((row) => row.role)).toEqual(["main", "researcher"]);
   expect(breakdown?.byAgent.find((row) => row.role === "researcher")?.tokenBadge).toBe("↑4k ↓400");
   expect(breakdown?.byModel.flatMap((row) => row.roles)).toContain("researcher");
 });
@@ -142,7 +159,7 @@ test("buildBillingTokenBreakdown does not supplement roles from non-primary sour
 
 test("buildBillingTokenBreakdown passes reportedCostUsd on model rows when present", () => {
   const billing = makeBilling({
-    planner: {
+    main: {
       inputTokens: 1000,
       outputTokens: 100,
       cacheReadTokens: 0,
@@ -154,7 +171,7 @@ test("buildBillingTokenBreakdown passes reportedCostUsd on model rows when prese
   billing.byModel = [
     {
       modelId: "sonnet",
-      roles: ["planner"],
+      roles: ["main"],
       inputTokens: 1000,
       outputTokens: 100,
       cacheReadTokens: 0,
@@ -170,7 +187,7 @@ test("buildBillingTokenBreakdown passes reportedCostUsd on model rows when prese
 
 test("buildBillingTokenBreakdown omits zero reportedCostUsd on model rows", () => {
   const billing = makeBilling({
-    planner: {
+    main: {
       inputTokens: 1000,
       outputTokens: 100,
       cacheReadTokens: 0,
@@ -182,7 +199,7 @@ test("buildBillingTokenBreakdown omits zero reportedCostUsd on model rows", () =
   billing.byModel = [
     {
       modelId: "sonnet",
-      roles: ["planner"],
+      roles: ["main"],
       inputTokens: 1000,
       outputTokens: 100,
       cacheReadTokens: 0,
@@ -198,7 +215,7 @@ test("buildBillingTokenBreakdown omits zero reportedCostUsd on model rows", () =
 
 test("buildBillingTokenBreakdown prefers explicit byModel rows", () => {
   const billing = makeBilling({
-    planner: {
+    main: {
       inputTokens: 3000,
       outputTokens: 300,
       cacheReadTokens: 0,
@@ -210,7 +227,7 @@ test("buildBillingTokenBreakdown prefers explicit byModel rows", () => {
   billing.byModel = [
     {
       modelId: "sonnet",
-      roles: ["planner"],
+      roles: ["main"],
       inputTokens: 1000,
       outputTokens: 100,
       cacheReadTokens: 0,
@@ -219,7 +236,7 @@ test("buildBillingTokenBreakdown prefers explicit byModel rows", () => {
     },
     {
       modelId: "haiku",
-      roles: ["planner"],
+      roles: ["main"],
       inputTokens: 2000,
       outputTokens: 200,
       cacheReadTokens: 0,
@@ -260,7 +277,7 @@ test("buildBillingTokenBreakdown uses primary byRole only when supplemental sour
       ecoCostUsd: 0.1,
       pricingResolved: true,
       byRole: {
-        planner: {
+        main: {
           inputTokens: 10000,
           outputTokens: 1000,
           cacheReadTokens: 0,
@@ -313,9 +330,9 @@ function makeSubagentUsage(
 }
 
 test("buildAgentViewRows keeps roles without subagent rows as primary", () => {
-  const rows = buildAgentViewRows([makeAgentRow("planner")], []);
+  const rows = buildAgentViewRows([makeAgentRow("main")], []);
   expect(rows).toHaveLength(1);
-  expect(rows[0]).toMatchObject({ role: "planner", kind: "primary", inputTokens: 1000 });
+  expect(rows[0]).toMatchObject({ role: "main", kind: "primary", inputTokens: 1000 });
 });
 
 test("buildAgentViewRows keeps role usage visible when subagent rows are all zero", () => {
@@ -365,7 +382,7 @@ test("buildBillingTokenBreakdown returns null for empty or zero usage", () => {
   expect(
     buildBillingTokenBreakdown(
       makeBilling({
-        planner: {
+        main: {
           inputTokens: 0,
           outputTokens: 0,
           cacheReadTokens: 0,

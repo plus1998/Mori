@@ -43,7 +43,7 @@ function startedProxy(closeEvents: string[]): StartedAnthropicProxy {
     baseUrl: "http://127.0.0.1:41234",
     bindingId: "cbb_test",
     routes: [
-      { ...runtimeRoute("planner"), aliasModelId: "eco-planner" },
+      { ...runtimeRoute("main"), aliasModelId: "eco-planner" },
       { ...runtimeRoute("coder"), aliasModelId: "eco-coder" },
     ],
     async close() {
@@ -80,7 +80,7 @@ test("runThreadRequestWithRuntimeProxy records routes, builds driver routes and 
 
   const result = await runThreadRequestWithRuntimeProxy({
     context: attemptContext("thr_proxy"),
-    resolveRuntimeConfig: () => ({ ok: true, routes: [runtimeRoute("planner")] }),
+    resolveRuntimeConfig: () => ({ ok: true, routes: [runtimeRoute("main")] }),
     recordRouteFingerprint: (threadId, routes) => {
       order.push("record");
       records.push({ threadId, routes: [...routes] });
@@ -101,7 +101,7 @@ test("runThreadRequestWithRuntimeProxy records routes, builds driver routes and 
   });
 
   expect(result).toEqual({ ok: true, planCaptured: true });
-  expect(records).toEqual([{ threadId: "thr_proxy", routes: [runtimeRoute("planner")] }]);
+  expect(records).toEqual([{ threadId: "thr_proxy", routes: [runtimeRoute("main")] }]);
   expect(closeEvents).toEqual(["closed"]);
   expect(order).toEqual(["start", "ready", "run", "record"]);
 });
@@ -113,7 +113,7 @@ test("runThreadRequestWithRuntimeProxy does not record fingerprint when run thro
   await expect(
     runThreadRequestWithRuntimeProxy({
       context: attemptContext("thr_throw_no_record"),
-      resolveRuntimeConfig: () => ({ ok: true, routes: [runtimeRoute("planner")] }),
+      resolveRuntimeConfig: () => ({ ok: true, routes: [runtimeRoute("main")] }),
       recordRouteFingerprint: () => {
         recorded = true;
       },
@@ -134,7 +134,7 @@ test("runThreadRequestWithRuntimeProxy closes proxy when run throws", async () =
   await expect(
     runThreadRequestWithRuntimeProxy({
       context: attemptContext("thr_throw"),
-      resolveRuntimeConfig: () => ({ ok: true, routes: [runtimeRoute("planner")] }),
+      resolveRuntimeConfig: () => ({ ok: true, routes: [runtimeRoute("main")] }),
       recordRouteFingerprint: () => {},
       startRuntimeProxy: async () => startedProxy(closeEvents),
       run: async () => {

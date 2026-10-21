@@ -5,10 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { buildCodexGatewayModelAlias, type CodexGatewayApiCompat } from "../../shared/src";
 import { resolveCodexHomeDir } from "./codex-config-sync.js";
-import {
-  assertCodexGatedModelApiCompat,
-  isCodexGatedOptionalModelId,
-} from "./codex-gated-models.js";
+import { assertCodexGatedModelApiCompat, isCodexGatedOptionalModelId } from "./codex-gated-models.js";
 import { DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT, resolveEffectiveContextLimit } from "./models-dev-limits.js";
 
 export const ECO_MODEL_CATALOG_FILE_NAME = "eco-model-catalog.json";
@@ -32,6 +29,8 @@ export function resolveCodexMultiAgentVersion(modelId: string): CodexMultiAgentV
 export interface CodexCatalogManualCapabilities {
   contextTokens?: number;
   supportsImageInput?: boolean;
+  /** Bound to thread/role provider capabilities, not the shared model catalog entry. */
+  supportsRemoteCompaction?: boolean;
 }
 
 /**
@@ -94,6 +93,8 @@ export interface SyncEcoCodexModelCatalogInput {
 export interface SyncEcoCodexModelCatalogResult {
   catalogPath: string;
   fingerprint: string;
+  /** Model behavior only; display labels must not restart the app-server. */
+  runtimeFingerprint: string;
   aliasSlugs: string[];
   nativeModelCount: number;
   changed: boolean;
@@ -137,6 +138,14 @@ export function resolveEcoModelCatalogPath(ecoDataDir: string): string {
 
 export function fingerprintEcoModelCatalog(document: EcoCodexModelCatalogDocument): string {
   return createHash("sha256").update(stableCatalogJson(document)).digest("hex");
+}
+
+export function fingerprintEcoModelCatalogRuntime(document: EcoCodexModelCatalogDocument): string {
+  return fingerprintEcoModelCatalog({
+    models: document.models.map(
+      ({ display_name: _name, description: _description, ...runtimeModel }) => runtimeModel,
+    ),
+  });
 }
 
 /**
@@ -431,7 +440,7 @@ export function buildAliasCatalogEntry(
   // The freeform template is currently GPT-5.6 Sol (v2). Do not let unknown
   // or lower-tier upstream models inherit its child-agent protocol by clone.
   entry.multi_agent_version = knownNativeMatch
-    ? template.multi_agent_version ?? resolveCodexMultiAgentVersion(route.modelId)
+    ? (template.multi_agent_version ?? resolveCodexMultiAgentVersion(route.modelId))
     : "v1";
   // Always register freeform apply_patch so Eco coding routes can edit files.
   entry.apply_patch_tool_type = "freeform";
@@ -552,6 +561,7 @@ export async function syncEcoCodexModelCatalog(
   return {
     catalogPath,
     fingerprint: written.fingerprint,
+    runtimeFingerprint: fingerprintEcoModelCatalogRuntime(document),
     aliasSlugs: [...new Set(aliasSlugs)].sort(),
     nativeModelCount: nativeModels.length,
     changed: written.changed,

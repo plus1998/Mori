@@ -28,11 +28,7 @@ import {
   reportLogicalUpstreamFailure,
   tryEmitLogicalCompleted,
 } from "../request-lifecycle.js";
-import {
-  credentialResolutionErrorResponse,
-  reportRouteCredentialResult,
-  resolveRouteCredential,
-} from "../route-credentials.js";
+import { credentialResolutionErrorResponse, resolveRouteCredential } from "../route-credentials.js";
 import type { GatewayLogFn } from "../server.js";
 import {
   codexToolArgumentFailureCircuitBreaker,
@@ -53,7 +49,13 @@ import { fetchUpstreamWithRetry } from "../upstream/fetch-with-retry.js";
 import { forwardOpenAIChat } from "../upstream/openai-chat.js";
 import { readUpstreamRequestId } from "../upstream/request-id-headers.js";
 import { forwardResponsesPassthrough } from "../upstream/responses-passthrough.js";
-import { upstreamErrorResponse } from "../upstream/upstream-error.js";
+import { responsesFailedSse } from "../upstream/responses-stream-errors.js";
+import {
+  extractUpstreamErrorInfo,
+  extractUpstreamErrorMessage,
+  formatUpstreamHttpError,
+  upstreamErrorResponse,
+} from "../upstream/upstream-error.js";
 import { applyUpstreamUserAgent, resolveUpstreamUserAgent } from "../upstream/user-agent.js";
 import { normalizeResponsesUsage } from "../usage-normalize.js";
 
@@ -170,9 +172,15 @@ export async function handlePostResponses(
     `route hit provider=${route.provider.id} kind=${route.upstreamKind} upstreamModel=${route.upstreamModelId} → ${upstreamUrl}`,
   );
 
-  const lifecycle = buildRequestLifecycleContext(route, "responses", onLog, onRequestLifecycle);
+  const lifecycle = buildRequestLifecycleContext(
+    route,
+    "responses",
+    onLog,
+    onRequestLifecycle,
+    config.reportCredentialResult,
+  );
 
-  // UA: per agent core override → global override → SDK UA → Eco fallback.
+  // UA: per Harness override → global override → SDK UA → Eco fallback.
   const upstreamUserAgent = resolveUpstreamUserAgent(request.headers, {
     override: config.upstreamUserAgent,
     byCore: config.upstreamUserAgents,
@@ -228,7 +236,25 @@ export async function handlePostResponses(
       return _exhaustive;
     }
   }
-  await reportRouteCredentialResult(route, config, upstreamResponse);
+  // Codex classifies a JSON HTTP 400 as an opaque transport failure, even when
+  // its body carries context_length_exceeded. A failed Responses event reaches
+  // native compaction's input-reduction path; keep the original failed lifecycle.
+  if (
+    body.stream === true &&
+    upstreamResponse.status === 400 &&
+    upstreamResponse.headers.get("x-eco-upstream-error-code") === "context_length_exceeded"
+  ) {
+    const message = extractUpstreamErrorMessage(await upstreamResponse.text());
+    const headers = new Headers(upstreamResponse.headers);
+    headers.set("content-type", "text/event-stream");
+    headers.set("cache-control", "no-cache");
+    headers.delete("content-length");
+    onLog(`responses context overflow delivered as response.failed provider=${route.provider.id}`);
+    return new Response(responsesFailedSse(message, "context_length_exceeded"), {
+      status: 200,
+      headers,
+    });
+  }
   return normalizeResponsesToolArgumentResponse(upstreamResponse, hubNamespace);
 }
 
@@ -325,7 +351,13 @@ export async function handlePostResponsesCompact(
     }),
   );
 
-  const lifecycle = buildRequestLifecycleContext(route, "responses", onLog, onRequestLifecycle);
+  const lifecycle = buildRequestLifecycleContext(
+    route,
+    "responses",
+    onLog,
+    onRequestLifecycle,
+    config.reportCredentialResult,
+  );
 
   onLog(
     `POST /v1/responses/compact provider=${route.provider.id} model=${route.upstreamModelId} → ${upstreamUrl}`,
@@ -343,6 +375,7 @@ export async function handlePostResponsesCompact(
       },
       lifecycle,
       onLog,
+      httpFailureContext: { route, upstreamUrl },
       ...(route.provider.upstreamProxyUrl ? { upstreamProxyUrl: route.provider.upstreamProxyUrl } : {}),
     });
   } catch (error) {
@@ -351,19 +384,24 @@ export async function handlePostResponsesCompact(
     return invalidCompactResponse(route, upstreamUrl, message);
   }
 
-  await reportRouteCredentialResult(route, config, upstreamResponse);
-
   onLog(`compact upstream ${upstreamUrl} status=${upstreamResponse.status}`);
 
   const responseText = await upstreamResponse.text();
   const providerRequestId = readUpstreamRequestId(upstreamResponse.headers);
+  const errorInfo = extractUpstreamErrorInfo(responseText, "http");
   if (!upstreamResponse.ok) {
     if (lifecycle) {
       reportLogicalUpstreamFailure(lifecycle, {
         stage: "http",
-        error: `Upstream returned HTTP ${upstreamResponse.status}`,
+        error: formatUpstreamHttpError({
+          route,
+          upstreamUrl,
+          status: upstreamResponse.status,
+          bodyText: responseText,
+        }),
         statusCode: upstreamResponse.status,
         ...(providerRequestId ? { providerRequestId } : {}),
+        ...(errorInfo ? { errorInfo } : {}),
       });
     }
     return recreateResponse(upstreamResponse, responseText);

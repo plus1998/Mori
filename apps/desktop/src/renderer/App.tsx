@@ -1,4 +1,14 @@
+import { ReadAloudControls, ReadAloudThreadContext } from "./ReadAloud";
+import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
+import { ComposerReferencesMenu } from "./ComposerReferencesMenu";
+import { useComposerReferences } from "./use-composer-references";
+import { composerReferenceToken } from "../shared/composer-references";
+import { browserSelectionReference, type BrowserSelection } from "../shared/browser-selection";
+import { BrowserSelectionPreview } from "./BrowserSelectionPreview";
+import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "./browser-selection-events";
 import { ACP_IMAGE_ONLY_PROMPT } from "@eco/runtime/acp-prompt";
+import { OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID } from "../shared/agent-orchestration";
+import { CodexQuotaReminder } from "./CodexQuotaReminder";
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import {
   listPlanDelegationAgents,
@@ -77,8 +87,13 @@ import { I18nextProvider, useTranslation } from "react-i18next";
 import { isAcpSubagentAgentId } from "../shared/acp-subagent";
 import { type BashReviewMode, normalizeBashReviewMode } from "../shared/bash-review-ui";
 import { enrichBillingDisplaySource } from "../shared/billing-display-source";
-import type { BrowserSettingsSnapshot } from "../shared/browser";
-import { browserTaskTabId, isBrowserTaskTabId, parseBrowserTaskTabId } from "../shared/browser";
+import type { BrowserSettingsSnapshot, BrowserViewState } from "../shared/browser";
+import {
+  browserPersonalScopeId,
+  browserTaskTabId,
+  isBrowserTaskTabId,
+  parseBrowserTaskTabId,
+} from "../shared/browser";
 import { deriveSkillsEnabled, type ProjectSkillsSettingsSnapshot } from "../shared/composer-skills-settings";
 import type { ComputerUseSettingsSnapshot } from "../shared/computer-use";
 import type { DesktopUpdateState } from "../shared/desktop-update";
@@ -114,6 +129,8 @@ import {
   type CenterServerSyncDomain,
   type ClarificationRequest,
   type CoderTodoItem,
+  type ClaudeBackgroundTask,
+  type CodexBackgroundTerminal,
   type CoreAvailabilitySnapshot,
   type CursorAgentsListResult,
   type CursorModelOption,
@@ -179,6 +196,12 @@ import {
   type NotificationSettingsSnapshot,
 } from "../shared/notification-settings";
 import { type SessionMode, withSessionMode } from "../shared/plan-mode-ui";
+import {
+  loadProjectPinyin,
+  planProjectSearchTermIndex,
+  projectSearchTermPlanChanged,
+  type ProjectSearchTermIndex,
+} from "../shared/project-pinyin-search";
 import {
   formatPromptCacheConfigDriftHint,
   resolvePromptCacheConfigDrift,
@@ -256,7 +279,12 @@ import {
 import { mergeAsrTextAtSelection } from "./asr-composer";
 import { BashApprovalPanel, type BashApprovalResolutionInput } from "./BashApprovalPanel";
 import { BROWSER_HTML_OPEN_EVENT, BROWSER_LINK_OPEN_EVENT, openPublishedHtmlInBrowser } from "./browser-link";
-import { browserStateStore, useBrowserInstanceIds } from "./browser-state-store";
+import {
+  browserStateStore,
+  useBrowserInstanceIds,
+  useBrowserStateSelector,
+  useBrowserTaskInstances,
+} from "./browser-state-store";
 import { ClarificationPanel } from "./ClarificationPanel";
 import { ComposerAcpModelTrigger } from "./ComposerAcpModelTrigger";
 import { ComposerAgentModels } from "./ComposerAgentModels";
@@ -286,6 +314,7 @@ import {
   COMPOSER_MAX_IMAGES,
   type ComposerImageAttachment,
   fromPromptImageAttachments,
+  hydrateComposerImageAttachments,
   readImageFileAsAttachment,
   revokeComposerAttachmentPreview,
   revokeComposerAttachmentPreviews,
@@ -297,6 +326,7 @@ import {
   resolveComposerAfterFollowUpEdit,
 } from "./composer-follow-up-edit-draft";
 import { buildComposerGlobalRuntimeConfig } from "./composer-global-runtime-config";
+import { buildEffectiveComposerRuntimeConfig } from "./composer-runtime-config";
 import {
   composerRequiresOrchestration,
   composerShowsRouteConfig,
@@ -357,6 +387,7 @@ import {
   LazyBrowserWebviewLayer,
   LazyCenterServerSettingsPanel,
   LazyComputerUseSettingsPanel,
+  LazyCodexAccountSwitchDialog,
   LazyContextWindowSettingsPanel,
   LazyDefaultAgentSettingsPanel,
   LazyGeneralSettingsPanel,
@@ -419,7 +450,7 @@ import { SidebarSettingsUpdateControl } from "./SidebarSettingsUpdateControl";
 import { buildSidebarAttentionItems } from "./sidebar-attention-items";
 import type { TerminalSessionPresentation } from "./TerminalPanel";
 import { ThreadIdleCacheWarning } from "./ThreadIdleCacheWarning";
-import { TtsArtifactsContext } from "./TtsArtifactPlayer";
+import { OpenTtsArtifactContext, TtsArtifactsContext } from "./TtsArtifactPlayer";
 import { loadTaskPanelReviewDiff } from "./task-panel-review-loader";
 import {
   captureTaskPanelSessionUiState,
@@ -459,6 +490,7 @@ import {
   type TerminalWorkspaceState,
 } from "./terminal-panel-storage";
 import {
+  deleteTerminalSessionId,
   hasTerminalSessionsForProject,
   listTerminalSessionEntriesForProject,
   listTerminalSessionsForProject,
@@ -502,6 +534,12 @@ import { useSchedulingSnapshot } from "./use-scheduling-snapshot";
 import { useStableCallback } from "./use-stable-callback";
 import { installVitePreloadRecovery } from "./vite-preload-recovery";
 import { WebChatListPopover } from "./WebChatListPopover";
+import { RunningResourcesPopover } from "./RunningResourcesPopover";
+import {
+  selectClaudeBackgroundTasksForThread,
+  selectCodexBackgroundTerminalsForThread,
+  type RunningTerminal,
+} from "./running-resources";
 import { WorkspaceFloatingCards } from "./WorkspaceFloatingCards";
 import { isThreadActivelyViewed, subscribeToWindowFocus } from "./window-focus";
 import {
@@ -596,6 +634,7 @@ const unreadThreadsStorageKey = "eco.sidebar.unread-threads";
 const collapsedProjectsStorageKey = "eco.sidebar.collapsed-projects";
 const hiddenProjectsStorageKey = "eco.sidebar.hidden-projects";
 const customProjectNamesStorageKey = "eco.sidebar.custom-project-names";
+const customProjectSearchTermsStorageKey = "eco.sidebar.custom-project-search-terms";
 const compactSidebarMediaQuery = MAIN_SHELL_MEDIA_QUERIES.sidebarOverlay;
 const taskPanelNarrowMediaQuery = MAIN_SHELL_MEDIA_QUERIES.taskOverlay;
 const sidebarThreadsCollapsed = 5;
@@ -605,6 +644,37 @@ interface RecentProject {
   name: string;
   /** Set once when the project is first opened in the app; used for stable sidebar order. */
   importedAt: string;
+  /** Pinyin spellings of a Chinese display name, used to widen sidebar search. */
+  searchTerms?: string[];
+}
+
+/** Pinyin index persisted for Chinese project names, keyed by project path. */
+function readStoredProjectSearchTerms(): ProjectSearchTermIndex {
+  const saved = window.localStorage.getItem(customProjectSearchTermsStorageKey);
+  if (!saved) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(saved) as unknown;
+    if (!isRecordValue(parsed)) {
+      return {};
+    }
+    const index: ProjectSearchTermIndex = {};
+    for (const [projectPath, value] of Object.entries(parsed)) {
+      if (!isRecordValue(value)) {
+        continue;
+      }
+      const name = value.name;
+      const terms = value.terms;
+      if (typeof name === "string" && Array.isArray(terms) && terms.every((item) => typeof item === "string")) {
+        index[projectPath] = { name, terms: terms as string[] };
+      }
+    }
+    return index;
+  } catch {
+    window.localStorage.removeItem(customProjectSearchTermsStorageKey);
+    return {};
+  }
 }
 
 type SettingsSectionId =
@@ -1172,6 +1242,7 @@ function ActivityUserMessageNavigator({
 function App() {
   const { t } = useTranslation();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [codexAccountSwitchOpen, setCodexAccountSwitchOpen] = useState(false);
   const [schedulingOpen, setSchedulingOpen] = useState(false);
   const scheduling = useSchedulingSnapshot();
   const scheduledMessages = useMemo(
@@ -1445,7 +1516,7 @@ function App() {
             id: "integratedWebSearch",
             label: t("settings.integratedWebSearch.title"),
             icon: Search,
-            keywords: ["web search", "tavily", "brave", "doubao", "网络搜索", "Integrated Web Search"],
+            keywords: ["web search", "tavily", "brave", "doubao", "deepseek", "网络搜索", "Integrated Web Search"],
           },
         ],
       },
@@ -1481,6 +1552,8 @@ function App() {
   const [unreadThreadIds, setUnreadThreadIds] = useState<Set<string>>(() => new Set());
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [customProjectNames, setCustomProjectNames] = useState<Record<string, string>>({});
+  const [customProjectSearchTerms, setCustomProjectSearchTerms] =
+    useState<ProjectSearchTermIndex>(readStoredProjectSearchTerms);
   const [homeProjectPath, setHomeProjectPath] = useState<string>();
   const [projectOrder, setProjectOrder] = useState<string[]>([]);
   const projectOrderInitializedRef = useRef(false);
@@ -1567,9 +1640,11 @@ function App() {
     useState<IntegratedWebSearchSettingsSnapshot | null>(null);
   const [isSavingProxyBridgeSettings, setIsSavingProxyBridgeSettings] = useState(false);
   const [isSavingIntegratedWebSearchSettings, setIsSavingIntegratedWebSearchSettings] = useState(false);
+  const [composerPlusMenuOpen, setComposerPlusMenuOpen] = useState(false);
   const [composerRoutePopoverOpen, setComposerRoutePopoverOpen] = useState(false);
   const [composerRouteAnchor, setComposerRouteAnchor] = useState<"plus" | "model-empty">("plus");
   const [modelsSettingsTab, setModelsSettingsTab] = useState<ModelsSettingsTab>("subagents");
+  const [modelsSettingsChatGptAccountId, setModelsSettingsChatGptAccountId] = useState<string>();
   const [pendingCreateMainConfig, setPendingCreateMainConfig] = useState<PendingMainAgentConfigCreateSeed>();
   const composerPlusButtonRef = useRef<HTMLButtonElement>(null);
   const composerModelEmptyTriggerRef = useRef<HTMLButtonElement>(null);
@@ -2114,11 +2189,12 @@ function App() {
   );
   const [webChatListOpen, setWebChatListOpen] = useState(false);
   const webChatListAnchorRef = useRef<HTMLButtonElement>(null);
+  const [runningResourcesOpen, setRunningResourcesOpen] = useState(false);
+  const runningResourcesAnchorRef = useRef<HTMLButtonElement>(null);
   const [sshBookmarks, setSshBookmarks] = useState<SshBookmarkView[]>([]);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettingsSnapshot>(
     defaultNotificationSettings(),
   );
-  const browserInstanceIds = useBrowserInstanceIds();
   const [scriptsDialogOpen, setScriptsDialogOpen] = useState(false);
   const [packageScriptArgsRevision, setPackageScriptArgsRevision] = useState(0);
   const [packageScripts, setPackageScripts] = useState<PackageScriptsListResult>();
@@ -2131,6 +2207,10 @@ function App() {
     open: boolean;
   }>();
   const [backgroundTerminalTasks, setBackgroundTerminalTasks] = useState<BackgroundTerminalTask[]>([]);
+  const [codexBackgroundTerminals, setCodexBackgroundTerminals] = useState<CodexBackgroundTerminal[]>([]);
+  const [codexBackgroundTerminalError, setCodexBackgroundTerminalError] = useState<string>();
+  const [claudeBackgroundTasks, setClaudeBackgroundTasks] = useState<ClaudeBackgroundTask[]>([]);
+  const [claudeBackgroundTaskError, setClaudeBackgroundTaskError] = useState<string>();
   const [imageArtifactsByThread, setImageArtifactsByThread] = useState<
     Record<string, ImageGenerationArtifact[]>
   >({});
@@ -2159,8 +2239,8 @@ function App() {
     setImageGalleryOpen(true);
   }, []);
 
-  const advanceImageGallery = useCallback(() => {
-    setImageGalleryQueue((current) => advanceImageGalleryQueue(current));
+  const advanceImageGallery = useCallback((item: ImageGalleryQueueItem) => {
+    setImageGalleryQueue((current) => advanceImageGalleryQueue(current, item.key));
   }, []);
 
   const closeImageGallery = useCallback(() => {
@@ -2608,8 +2688,6 @@ function App() {
         return;
       }
 
-      ensureThreadListed(event.threadId);
-
       if (event.type === "thread.deleted") {
         clearThreadClientState(event.threadId);
         conversationV2PendingEventsRef.current.delete(event.threadId);
@@ -2637,6 +2715,7 @@ function App() {
         });
         return;
       }
+      ensureThreadListed(event.threadId);
 
       if (
         event.type === "thread.failed" ||
@@ -3334,14 +3413,27 @@ function App() {
   }, []);
 
   function setCustomProjectName(projectPath: string, name: string | undefined) {
+    const trimmed = name?.trim();
     setCustomProjectNames((current) => {
       const next = { ...current };
-      if (name === undefined) {
+      if (!trimmed) {
         delete next[projectPath];
       } else {
-        next[projectPath] = name;
+        next[projectPath] = trimmed;
       }
       window.localStorage.setItem(customProjectNamesStorageKey, JSON.stringify(next));
+      return next;
+    });
+    // A Chinese name is stored together with its pinyin spelling, so the project
+    // stays searchable as "huihua" after the rename. Dropping the entry here lets
+    // the search-term effect regenerate it for the new name.
+    setCustomProjectSearchTerms((current) => {
+      if (!current[projectPath]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[projectPath];
+      window.localStorage.setItem(customProjectSearchTermsStorageKey, JSON.stringify(next));
       return next;
     });
   }
@@ -3482,17 +3574,54 @@ function App() {
         });
       }
     }
-    return [...merged.values()].filter(
-      (project) =>
-        !hiddenProjectPaths.has(project.path) ||
-        (homeProjectPath !== undefined && isHomeProjectPath(project.path, homeProjectPath)),
-    );
-  }, [customProjectNames, hiddenProjectPaths, homeProjectPath, recentProjects, threads, workspace]);
+    return [...merged.values()]
+      .filter(
+        (project) =>
+          !hiddenProjectPaths.has(project.path) ||
+          (homeProjectPath !== undefined && isHomeProjectPath(project.path, homeProjectPath)),
+      )
+      .map((project) => ({
+        ...project,
+        searchTerms: customProjectSearchTerms[project.path]?.terms ?? [],
+      }));
+  }, [customProjectNames, customProjectSearchTerms, hiddenProjectPaths, homeProjectPath, recentProjects, threads, workspace]);
 
   const projects = useMemo(
     () => ensureHomeProjectFirst(sortProjectsByOrder(mergedProjects, projectOrder), homeProjectPath),
     [homeProjectPath, mergedProjects, projectOrder],
   );
+
+  // Chinese project names keep a pinyin spelling in storage ("会话存档" -> "huihua").
+  // Renames and first-time backfills generate it off the startup path, because the
+  // pinyin dictionary is a separate chunk.
+  useEffect(() => {
+    const plan = planProjectSearchTermIndex(projects, customProjectSearchTerms);
+    if (!projectSearchTermPlanChanged(plan, customProjectSearchTerms)) {
+      return;
+    }
+    const persist = (index: ProjectSearchTermIndex) => {
+      setCustomProjectSearchTerms(index);
+      window.localStorage.setItem(customProjectSearchTermsStorageKey, JSON.stringify(index));
+    };
+    if (plan.pending.length === 0) {
+      persist(plan.kept);
+      return;
+    }
+    let cancelled = false;
+    void loadProjectPinyin().then(({ buildProjectSearchTerms }) => {
+      if (cancelled) {
+        return;
+      }
+      const index = { ...plan.kept };
+      for (const project of plan.pending) {
+        index[project.path] = { name: project.name, terms: buildProjectSearchTerms(project.name) };
+      }
+      persist(index);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [customProjectSearchTerms, projects]);
 
   useEffect(() => {
     if (projectOrderInitializedRef.current || mergedProjects.length === 0) {
@@ -3580,6 +3709,12 @@ function App() {
     () => (feedThreadId ? threads.find((thread) => thread.id === feedThreadId) : undefined),
     [feedThreadId, threads],
   );
+  const browserScopeId = activeThread?.id ?? browserPersonalScopeId(currentProjectPath);
+  const browserScopeIdRef = useRef(browserScopeId);
+  browserScopeIdRef.current = browserScopeId;
+  const browserInstanceIds = useBrowserInstanceIds(browserScopeId);
+  const browserTaskInstances = useBrowserTaskInstances(browserScopeId);
+  const browserScopeReady = useBrowserStateSelector((state) => state?.uiScopeId === browserScopeId);
   useEffect(() => {
     if (!window.eco?.getTtsSettings) return;
     void window.eco
@@ -4199,6 +4334,94 @@ function App() {
     void refreshBackgroundTerminalTasks();
   }, [refreshBackgroundTerminalTasks]);
 
+  const refreshCodexBackgroundTerminals = useCallback(async () => {
+    if (!window.eco?.listCodexBackgroundTerminals) {
+      setCodexBackgroundTerminals([]);
+      setCodexBackgroundTerminalError(undefined);
+      return;
+    }
+    try {
+      setCodexBackgroundTerminals(await window.eco.listCodexBackgroundTerminals());
+      setCodexBackgroundTerminalError(undefined);
+    } catch (error) {
+      setCodexBackgroundTerminalError(String(error));
+    }
+  }, []);
+
+  const stopCodexBackgroundTerminal = useCallback(
+    async (terminal: Pick<CodexBackgroundTerminal, "codexThreadId" | "processId">) => {
+      if (!window.eco?.terminateCodexBackgroundTerminal) {
+        throw new Error(t("app.running.terminateUnavailable"));
+      }
+      const result = await window.eco.terminateCodexBackgroundTerminal({
+        codexThreadId: terminal.codexThreadId,
+        processId: terminal.processId,
+      });
+      if (!result.terminated) {
+        throw new Error(t("app.running.terminateUnavailable"));
+      }
+      await refreshCodexBackgroundTerminals();
+    },
+    [refreshCodexBackgroundTerminals, t],
+  );
+
+  const refreshClaudeBackgroundTasks = useCallback(async () => {
+    if (!window.eco?.listClaudeBackgroundTasks) {
+      setClaudeBackgroundTasks([]);
+      setClaudeBackgroundTaskError(undefined);
+      return;
+    }
+    try {
+      setClaudeBackgroundTasks(await window.eco.listClaudeBackgroundTasks());
+      setClaudeBackgroundTaskError(undefined);
+    } catch (error) {
+      setClaudeBackgroundTaskError(String(error));
+    }
+  }, []);
+
+  const stopClaudeBackgroundTask = useCallback(
+    async (task: Pick<ClaudeBackgroundTask, "threadId" | "taskId">) => {
+      if (!window.eco?.stopClaudeBackgroundTask) {
+        throw new Error(t("app.running.terminateUnavailable"));
+      }
+      const result = await window.eco.stopClaudeBackgroundTask({
+        threadId: task.threadId,
+        taskId: task.taskId,
+      });
+      if (!result.stopped) {
+        throw new Error(t("app.running.terminateUnavailable"));
+      }
+      await refreshClaudeBackgroundTasks();
+    },
+    [refreshClaudeBackgroundTasks, t],
+  );
+
+  const handleRunningTerminalClosed = useCallback((terminal: RunningTerminal) => {
+    const closedTabIds = new Set(
+      listTerminalSessionEntriesForProject(terminal.workspacePath)
+        .filter((entry) => entry.sessionId === terminal.sessionId)
+        .map((entry) => entry.tabId),
+    );
+    for (const tabId of closedTabIds) deleteTerminalSessionId(terminal.workspacePath, tabId);
+    setTerminalByProject((current) => {
+      const state = current[terminal.workspacePath];
+      if (!state || closedTabIds.size === 0) return current;
+      const tabs = state.tabs.filter((tab) => !closedTabIds.has(tab.id));
+      return {
+        ...current,
+        [terminal.workspacePath]: {
+          ...state,
+          tabs,
+          activeTabId: closedTabIds.has(state.activeTabId) ? (tabs.at(-1)?.id ?? "") : state.activeTabId,
+          open: state.open && tabs.length > 0,
+        },
+      };
+    });
+    setInjectedTerminalSessionId((current) => current === terminal.sessionId ? null : current);
+    setTerminalLifecycleEpoch((epoch) => epoch + 1);
+    void refreshBackgroundTerminalTasks();
+  }, [refreshBackgroundTerminalTasks]);
+
   const trackPackageScriptTerminalSession = useCallback(
     (sessionId: string, meta: { command: string; projectName: string }, taskId?: string) => {
       if (!settledPackageScriptTerminalSessionRef.current.has(sessionId)) {
@@ -4538,6 +4761,28 @@ function App() {
   }, [settingsOpen, settingsSection]);
 
   useEffect(() => {
+    const eco = window.eco;
+    if (!eco?.onOpenAIAccountsChanged) return;
+    let alive = true;
+    let revision = 0;
+    const unsubscribe = eco.onOpenAIAccountsChanged(() => {
+      const requestedRevision = ++revision;
+      void eco
+        .getIntegrationAvailability()
+        .then((snapshot) => {
+          if (alive && requestedRevision === revision) setIntegrationAvailability(snapshot);
+        })
+        .catch((caught) => {
+          if (alive && requestedRevision === revision) setError(errorMessage(caught));
+        });
+    });
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!settingsOpen || settingsSection !== "defaultAgent") {
       return;
     }
@@ -4602,9 +4847,9 @@ function App() {
   }, [currentProjectPath]);
 
   useEffect(() => {
-    if (activeThread) {
-      setComposerRoutePopoverOpen(false);
-    }
+    setComposerPlusMenuOpen(false);
+    setComposerRoutePopoverOpen(false);
+    setScheduledMessageEditor(undefined);
   }, [activeThread?.id, currentProjectPath]);
 
   // Cursor ACP is available when CLI probe succeeds (legacy acpAgentsEnabled switch has no UI).
@@ -4923,19 +5168,19 @@ function App() {
   );
   const effectiveComposerRuntimeConfig = useMemo(
     () =>
-      composerRuntimeConfig
-        ? {
-            ...composerRuntimeConfig,
-            ...(Object.keys(composerSkillsEnabled).length > 0
-              ? { skillsEnabled: composerSkillsEnabled }
-              : {}),
-            ...(Object.keys(composerMcpSettings).length > 0
-              ? { mcpServersEnabled: composerMcpSettings }
-              : {}),
-            integrationsEnabled: composerIntegrationSettings,
-          }
-        : null,
-    [composerRuntimeConfig, composerIntegrationSettings, composerMcpSettings, composerSkillsEnabled],
+      buildEffectiveComposerRuntimeConfig(composerRuntimeConfig, {
+        hasThread: Boolean(activeThread),
+        skillsEnabled: composerSkillsEnabled,
+        mcpServersEnabled: composerMcpSettings,
+        integrationsEnabled: composerIntegrationSettings,
+      }),
+    [
+      activeThread?.id,
+      composerRuntimeConfig,
+      composerIntegrationSettings,
+      composerMcpSettings,
+      composerSkillsEnabled,
+    ],
   );
   const resolveComposerRuntimeConfigForSend = useCallback((): ThreadRuntimeConfig | null => {
     const base = effectiveComposerRuntimeConfig ?? composerRuntimeConfig;
@@ -5044,7 +5289,7 @@ function App() {
       return undefined;
     }
     const route = runtimeRoleRoutesFromOrchestrationSnapshot(selectedOrchestrationSnapshot).find(
-      (candidate) => candidate.role === "planner",
+      (candidate) => candidate.role === "main",
     );
     if (!route) {
       return undefined;
@@ -5139,7 +5384,7 @@ function App() {
       return;
     }
     void window.eco.getRouteCapabilities(activeRoutes).then((hints) => {
-      setPlannerCapability(hints.find((hint) => hint.role === "planner"));
+      setPlannerCapability(hints.find((hint) => hint.role === "main"));
     });
   }, [activeRoutes, settings.providers]);
   const providerById = useMemo(
@@ -5162,7 +5407,7 @@ function App() {
             composerMainAgentModelOverride,
           )
         : [],
-    [composerMainAgentModelOverride, providerById, selectedOrchestrationSnapshot],
+    [composerMainAgentModelOverride, providerById, selectedOrchestrationSnapshot, t],
   );
   const invalidOrchestrationFields = useMemo(
     () => invalidOrchestrationFieldsFromIssues(orchestrationIssues),
@@ -5191,12 +5436,41 @@ function App() {
   const showBashApproval = Boolean(pendingBashApproval);
   const composerHasContent = Boolean(prompt.trim() || composerAttachments.length > 0);
   const activeConversationV2 = activeThread ? conversationV2ByThread[activeThread.id] : undefined;
+  // A verified sync cursor can advance without any Feed content changing.
+  // Pass the projector's content fields so receipt-only batches reuse it.
   const v2RunProjection = useMemo(
     () =>
-      activeConversationV2
-        ? buildConversationV2OnlyProjection(activeConversationV2, activeThread)
+      activeConversationV2?.conversationId !== undefined
+        ? buildConversationV2OnlyProjection(
+            {
+              conversationId: activeConversationV2.conversationId,
+              messages: activeConversationV2.messages,
+              runs: activeConversationV2.runs,
+              agents: activeConversationV2.agents,
+              tools: activeConversationV2.tools,
+              details: activeConversationV2.details,
+              historyRevision: activeConversationV2.historyRevision,
+              ...(activeConversationV2.projectionExtras
+                ? { projectionExtras: activeConversationV2.projectionExtras }
+                : {}),
+            },
+            activeThread?.createdAt !== undefined
+              ? { createdAt: activeThread.createdAt, status: activeThread.status }
+              : undefined,
+          )
         : undefined,
-    [activeConversationV2, activeThread?.createdAt, activeThread?.status],
+    [
+      activeConversationV2?.conversationId,
+      activeConversationV2?.messages,
+      activeConversationV2?.runs,
+      activeConversationV2?.agents,
+      activeConversationV2?.tools,
+      activeConversationV2?.details,
+      activeConversationV2?.projectionExtras,
+      activeConversationV2?.historyRevision,
+      activeThread?.createdAt,
+      activeThread?.status,
+    ],
   );
   // V2 is the only renderer projection source. A missing V2 state is a visible
   // bootstrap/recovery condition; it never falls back to a legacy projection or
@@ -5343,7 +5617,11 @@ function App() {
       threadAcceptsInput,
   );
   const canSend = composerFollowUpMode ? canSendFollowUp : canSendThreadMessage;
-  const showPlanApproval = Boolean(activeThread && pendingPlan);
+  // Forced delegation retains the plan for retry until the child finishes.
+  // That retained record must not keep the approval dock open during execution.
+  const showPlanApproval = Boolean(
+    activeThread && pendingPlan && activeThread.status !== "running" && activeThread.status !== "queued",
+  );
   const showClarification = Boolean(pendingClarification);
   const showComposerDockApproval = showBashApproval || showPlanApproval || showClarification;
   const composerDockSurfaceKey = showBashApproval
@@ -5453,6 +5731,57 @@ function App() {
   }, [composerContextKey]);
 
   useEffect(() => {
+    // Only durable-reference attachments without a renderer-owned preview need a read.
+    // A freshly pasted/dropped image already owns a local blob preview, and its staged
+    // content reference is not persisted in the draft yet, so reading it back would fail
+    // authorization and wrongly report the preview as unavailable.
+    const needsPreview = composerAttachments.some(
+      (attachment) => attachment.contentRef && !attachment.data && !attachment.previewUrl,
+    );
+    if (!composerContextKey || !needsPreview) {
+      return;
+    }
+    const readChunk = window.eco?.readPromptImageChunk;
+    if (typeof readChunk !== "function") {
+      setComposerImageNotice(t("app.imagePreviewUnavailable"));
+      return;
+    }
+    const contextKey = composerContextKey;
+    const sourceAttachments = composerAttachments;
+    let cancelled = false;
+    const isCurrent = () =>
+      !cancelled &&
+      composerContextKeyRef.current === contextKey &&
+      composerAttachmentsRef.current.length === sourceAttachments.length &&
+      sourceAttachments.every(
+        (attachment, index) => composerAttachmentsRef.current[index] === attachment,
+      );
+    void hydrateComposerImageAttachments(sourceAttachments, contextKey, (request) => readChunk(request))
+      .then((hydrated) => {
+        if (!isCurrent()) {
+          hydrated.forEach((attachment, index) => {
+            if (attachment.previewUrl !== sourceAttachments[index]?.previewUrl) {
+              revokeComposerAttachmentPreview(attachment);
+            }
+          });
+          return;
+        }
+        setComposerAttachments(hydrated);
+        setComposerImageNotice(undefined);
+      })
+      .catch((caught) => {
+        if (!isCurrent()) {
+          return;
+        }
+        console.error("[eco] composer image preview load failed", caught);
+        setComposerImageNotice(t("app.imagePreviewUnavailable"));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [composerAttachments, composerContextKey, t]);
+
+  useEffect(() => {
     if (
       !composerContextKey ||
       prevComposerContextKeyRef.current !== composerContextKey ||
@@ -5560,7 +5889,7 @@ function App() {
   }, [activeSubagentMetrics]);
   const activeRuntimeAgentDisplayNames = useMemo(
     () => buildRuntimeAgentDisplayNames(settings, activeThread?.runtimeConfig),
-    [settings, activeThread?.runtimeConfig],
+    [settings, activeThread?.runtimeConfig, t],
   );
   const activeRuntimeAgentThemes = useMemo(
     () => buildRuntimeAgentThemes(settings, activeThread?.runtimeConfig),
@@ -5621,7 +5950,7 @@ function App() {
   }, [activeProjectionViewModel, activeThread?.id, activeThread?.prompt]);
 
   useEffect(() => {
-    const nextThreadId = activeThread?.id;
+    const nextThreadId = browserScopeId;
     const prevThreadId = taskPanelUiThreadIdRef.current;
     if (prevThreadId === nextThreadId) {
       return;
@@ -5638,7 +5967,10 @@ function App() {
     pendingTaskPanelTabCloseRef.current = undefined;
 
     let restored: TaskPanelSessionUiState;
-    if (!prevThreadId && nextThreadId && adoptLandingTaskPanelUiRef.current) {
+    if (
+      prevThreadId === browserPersonalScopeId(currentProjectPath) &&
+      activeThread?.id && adoptLandingTaskPanelUiRef.current
+    ) {
       adoptLandingTaskPanelUiRef.current = false;
       restored = normalizeTaskPanelSessionUiState(liveTaskPanelUiRef.current);
       taskPanelUiByThreadRef.current[nextThreadId] = restored;
@@ -5684,7 +6016,7 @@ function App() {
     }
 
     taskPanelUiThreadIdRef.current = nextThreadId;
-  }, [activeThread?.id, prefersReducedMotion, taskPanelAnimationControls]);
+  }, [activeThread?.id, browserScopeId, currentProjectPath, prefersReducedMotion, taskPanelAnimationControls]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(taskPanelNarrowMediaQuery);
@@ -5854,6 +6186,7 @@ function App() {
 
   useEffect(() => {
     const handleBrowserLink = (event: Event) => {
+      const requestedScopeId = browserScopeIdRef.current;
       const url = (event as CustomEvent<string>).detail;
       if (typeof url !== "string" || !url.trim()) {
         return;
@@ -5869,7 +6202,10 @@ function App() {
           ...(activeThread?.id ? { threadId: activeThread.id } : { workspacePath: currentProjectPath }),
         })
         .then((state) => {
-          if (!state) return;
+          if (
+            !state || state.uiScopeId !== requestedScopeId ||
+            requestedScopeId !== browserScopeIdRef.current
+          ) return;
           const focusId = state.focusedBrowserId ?? state.revealBrowserId ?? state.instances.at(-1)?.id;
           if (focusId) {
             const tabId = browserTaskTabId(focusId);
@@ -5887,6 +6223,7 @@ function App() {
 
   useEffect(() => {
     const handleBrowserHtml = (event: Event) => {
+      const requestedScopeId = browserScopeIdRef.current;
       const html = (event as CustomEvent<string>).detail;
       if (typeof html !== "string" || !html.trim()) {
         return;
@@ -5902,7 +6239,10 @@ function App() {
           ...(activeThread?.id ? { threadId: activeThread.id } : { workspacePath: currentProjectPath }),
         })
         .then((state) => {
-          if (!state) return;
+          if (
+            !state || state.uiScopeId !== requestedScopeId ||
+            requestedScopeId !== browserScopeIdRef.current
+          ) return;
           const focusId = state.focusedBrowserId ?? state.revealBrowserId ?? state.instances.at(-1)?.id;
           if (focusId) {
             const tabId = browserTaskTabId(focusId);
@@ -5928,6 +6268,7 @@ function App() {
     void window.eco
       ?.browserSetUiScope?.({
         threadId: activeThread?.id ?? null,
+        ...(currentProjectPath ? { workspacePath: currentProjectPath } : {}),
       })
       .then(() => {
         // Switching chats while the work panel is collapsed must not leave guests painted.
@@ -5935,10 +6276,11 @@ function App() {
           void window.eco?.browserSetVisible?.({ visible: false });
         }
       });
-  }, [activeThread?.id]);
+  }, [activeThread?.id, currentProjectPath]);
 
   useEffect(() => {
     const unsubscribe = browserStateStore.onStateChange((state) => {
+      if (state.uiScopeId !== browserScopeIdRef.current) return;
       // `revealBrowserId` is sticky in main (it survives every emit until the page is
       // closed or the panel hides it), so an unchanged id is not a new request. Treating
       // every snapshot as one drags the panel back to the previous tab right after the
@@ -6000,6 +6342,9 @@ function App() {
   }, [currentProjectPath]);
 
   useEffect(() => {
+    // IPC still describes the previous chat until the scope-switch broadcast arrives.
+    // Do not remove the newly restored chat's tabs using the previous chat's ids.
+    if (!browserScopeReady) return;
     const liveBrowserIds = new Set(browserInstanceIds);
     const projectionLoaded = Boolean(activeProjectionViewModel);
     setOpenTaskPanelTabIds((current) => {
@@ -6042,7 +6387,7 @@ function App() {
       }
       return next;
     });
-  }, [activeProjectionViewModel, activeSubagentCards, browserInstanceIds, taskPanelActiveTab]);
+  }, [activeProjectionViewModel, activeSubagentCards, browserInstanceIds, browserScopeReady, taskPanelActiveTab]);
 
   const toggleWorkPanelForCurrentProject = useCallback(() => {
     toggleWorkspacePanelForCurrentProject();
@@ -6064,6 +6409,11 @@ function App() {
   }, [currentProjectPath, dismissTaskPanel, revealTaskPanel, taskDrawerOpen, taskPanelActiveTab]);
 
   const selectBrowserTaskTab = useCallback((browserId: string) => {
+    const state = browserStateStore.getState();
+    if (
+      state?.uiScopeId !== browserScopeIdRef.current ||
+      !state.guestInstances.some((g) => g.id === browserId)
+    ) return;
     const tabId = browserTaskTabId(browserId);
     setOpenTaskPanelTabIds((current) => addOpenTaskPanelTab(current, tabId));
     setTaskPanelActiveTab(tabId);
@@ -6072,7 +6422,8 @@ function App() {
   }, []);
 
   const openBrowserTaskPanel = useCallback(
-    (options?: string | { browserId?: string; url?: string }) => {
+    (options?: string | { browserId?: string; url?: string; webChatSiteId?: string }) => {
+      const requestedScopeId = browserScopeIdRef.current;
       if (!currentProjectPath) {
         return;
       }
@@ -6099,11 +6450,15 @@ function App() {
         ?.browserOpen?.({
           reveal: true,
           newBrowser: true,
+          ...(resolved.webChatSiteId ? { webChatSiteId: resolved.webChatSiteId } : {}),
           ...(resolved.url ? { url: resolved.url } : {}),
           ...(activeThread?.id ? { threadId: activeThread.id } : { workspacePath: currentProjectPath }),
         })
         .then((state) => {
-          if (!state) return;
+          if (
+            !state || state.uiScopeId !== requestedScopeId ||
+            requestedScopeId !== browserScopeIdRef.current
+          ) return;
           const focusId = state.focusedBrowserId ?? state.revealBrowserId ?? state.instances.at(-1)?.id;
           if (focusId) {
             selectBrowserTaskTab(focusId);
@@ -6111,15 +6466,17 @@ function App() {
               revealTaskPanel();
             }
           }
-        });
+        })
+        .catch((error) => showAppMessageError(error instanceof Error ? error.message : String(error)));
     },
-    [activeThread?.id, currentProjectPath, revealTaskPanel, selectBrowserTaskTab],
+    [activeThread?.id, currentProjectPath, revealTaskPanel, selectBrowserTaskTab, showAppMessageError],
   );
 
   const navigateNewTaskPanelTab = useCallback(
     async (sourceTabId: string, url: string) => {
       const eco = window.eco;
       if (!eco || !currentProjectPath || pendingNewTabNavigationsRef.current.has(sourceTabId)) return;
+      const requestedScopeId = browserScopeIdRef.current;
       pendingNewTabNavigationsRef.current.add(sourceTabId);
       try {
         const next = await eco.browserOpen({
@@ -6128,6 +6485,7 @@ function App() {
           newBrowser: true,
           ...(activeThread?.id ? { threadId: activeThread.id } : { workspacePath: currentProjectPath }),
         });
+        if (next.uiScopeId !== requestedScopeId || requestedScopeId !== browserScopeIdRef.current) return;
         const browserId = next.focusedBrowserId;
         if (!browserId) throw new Error("浏览器未返回新页面实例");
         const tabId = browserTaskTabId(browserId);
@@ -6187,7 +6545,7 @@ function App() {
 
   const openWebChatItem = useCallback(
     (item: WebChatItem) => {
-      openBrowserTaskPanel({ url: item.url });
+      openBrowserTaskPanel({ url: item.url, webChatSiteId: item.id });
     },
     [openBrowserTaskPanel],
   );
@@ -6501,11 +6859,10 @@ function App() {
       if (!canOpenComposerRoute) {
         return;
       }
+      setComposerPlusMenuOpen(false);
+      setScheduledMessageEditor(undefined);
       setComposerRouteAnchor(anchor);
-      // Defer open so the originating click is not treated as an outside dismiss.
-      window.setTimeout(() => {
-        setComposerRoutePopoverOpen(true);
-      }, 0);
+      setComposerRoutePopoverOpen(true);
     },
     [canOpenComposerRoute],
   );
@@ -6538,7 +6895,7 @@ function App() {
         snapshot: selectedOrchestrationSnapshot,
         templates: settings.agentTemplates,
       }),
-    [activeRoutes, selectedOrchestrationSnapshot, settings.agentTemplates, threadModelByRole],
+    [activeRoutes, selectedOrchestrationSnapshot, settings.agentTemplates, threadModelByRole, t],
   );
   const activityModelByRole = useMemo(() => {
     const configured: Record<string, string> = {};
@@ -6578,6 +6935,65 @@ function App() {
   const lastActivityFeedLayoutScrollAtRef = useRef(0);
   const activityUserMessageJumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const composerRef = useRef<ComposerSkillsInputHandle>(null);
+  const composerCapabilityReferences = useMemo(
+    () =>
+      buildComposerCapabilityReferences({
+        availability: integrationAvailability,
+        integrationsEnabled: composerIntegrationSettings,
+        integrationLabels: {
+          browser: t("settings.browser"),
+          imageGeneration: t("settings.imageGeneration.title"),
+          tts: t("settings.tts.title"),
+          computerUse: t("settings.computerUse"),
+        },
+        mcpServers: mcpSettings.servers,
+        mcpServersEnabled: composerMcpSettings,
+        agents:
+          composerCoreKind === "acp" || !selectedOrchestrationSnapshot
+            ? []
+            : agentModelLabels
+                .filter((agent) => !agent.main)
+                .map((agent) => ({
+                  agentKey: agent.role,
+                  name: agent.displayName,
+                  modelId: activeRoutes.find((route) => route.role === agent.role)?.modelId ?? "",
+                  enabled:
+                    selectedOrchestrationSnapshot.agents.some(
+                      (entry) => entry.agentKey === agent.role && entry.enabled,
+                    ) &&
+                    (!agent.subagentRole ||
+                      (composerRuntimeConfig?.subagentEnabled ?? defaultSubagentAvailability())[
+                        agent.subagentRole
+                      ] === true),
+                })),
+      }),
+    [
+      integrationAvailability,
+      composerIntegrationSettings,
+      mcpSettings.servers,
+      composerMcpSettings,
+      composerCoreKind,
+      selectedOrchestrationSnapshot,
+      agentModelLabels,
+      activeRoutes,
+      composerRuntimeConfig?.subagentEnabled,
+      t,
+    ],
+  );
+  const composerReferencesMenu = useComposerReferences({
+    prompt,
+    cursor: composerCursor,
+    inputRef: composerRef,
+    onChange: setPrompt,
+    capabilities: composerCapabilityReferences,
+  });
+  useEffect(() => {
+    if (composerReferencesMenu.open) {
+      setComposerPlusMenuOpen(false);
+      setComposerRoutePopoverOpen(false);
+      setScheduledMessageEditor(undefined);
+    }
+  }, [composerReferencesMenu.open]);
   const COMPOSER_TEXTAREA_MAX_HEIGHT = 200;
   const runProjectionLayoutSignature = useMemo(() => {
     if (!runProjection?.sourceEventCount) {
@@ -6867,6 +7283,10 @@ function App() {
       if (activityUserMessageJumpTimerRef.current) {
         clearTimeout(activityUserMessageJumpTimerRef.current);
       }
+      if (activityFeedStickRecoveryFrameRef.current !== null) {
+        cancelAnimationFrame(activityFeedStickRecoveryFrameRef.current);
+        activityFeedStickRecoveryFrameRef.current = null;
+      }
     },
     [],
   );
@@ -6968,6 +7388,50 @@ function App() {
       requestAnimationFrame(() => scrollActivityFeedToEnd(true));
     });
   }, [scrollActivityFeedToEnd, setActivityFeedDetachedAnchor]);
+
+  const activityFeedStickRecoveryFrameRef = useRef<number | null>(null);
+  /**
+   * The virtualizer swaps a top spacer for a freshly mounted (often heavy,
+   * ProseMirror-backed) row inside one commit. A forced layout landing between
+   * those mutations makes Chromium clamp `scrollTop` against the transiently
+   * shorter `scrollHeight`; once the row lands the height is restored but the
+   * offset is not, and virtual-core's end anchor declines to correct it because
+   * it no longer sees the feed at its end. The follow state deliberately runs
+   * `overflow-anchor: none`, so nothing else heals a drift past the growth band
+   * (the content observer only re-pins within `STICK_THRESHOLD * 2`). Re-pin
+   * once the layout settles, and never for a reader who scrolled away.
+   */
+  const recoverActivityFeedStick = useCallback(() => {
+    if (userDetachedFromBottomRef.current) {
+      return;
+    }
+    const container = activityMessagesRef.current;
+    if (
+      !container ||
+      distanceFromActivityFeedBottom(container) <= ACTIVITY_FEED_STICK_THRESHOLD_PX
+    ) {
+      return;
+    }
+    // `force` past `feedEndAnchoredRef`; the anchor already declined to correct
+    // this offset (it no longer considers the feed at its end). Correct before
+    // the next paint when `scrollHeight` already settled, then verify once on the
+    // next frame for a clamp measured against a still-transient height.
+    scrollActivityFeedToEnd(true);
+    if (activityFeedStickRecoveryFrameRef.current !== null) {
+      return;
+    }
+    activityFeedStickRecoveryFrameRef.current = requestAnimationFrame(() => {
+      activityFeedStickRecoveryFrameRef.current = null;
+      if (userDetachedFromBottomRef.current) {
+        return;
+      }
+      const el = activityMessagesRef.current;
+      if (!el || distanceFromActivityFeedBottom(el) <= ACTIVITY_FEED_STICK_THRESHOLD_PX) {
+        return;
+      }
+      scrollActivityFeedToEnd(true);
+    });
+  }, [distanceFromActivityFeedBottom, scrollActivityFeedToEnd]);
 
   const jumpActivityFeedToTop = useCallback(() => {
     const container = activityMessagesRef.current;
@@ -7084,7 +7548,7 @@ function App() {
     activityFeedScrollTopRef.current = container.scrollTop;
     let scrollbarDragging = false;
     let userScrollUntil = 0;
-    let touchY: number | undefined;
+    let touchStartY: number | undefined;
     const onScroll = () => {
       if (programmaticActivityFeedScrollRef.current) {
         return;
@@ -7116,8 +7580,12 @@ function App() {
         }
       } else if (
         distanceFromBottom <= ACTIVITY_FEED_STICK_THRESHOLD_PX &&
-        (scrollbarDragging || performance.now() < userScrollUntil)
+        (scrollbarDragging || performance.now() < userScrollUntil) &&
+        activityFeedUserScrollDirectionRef.current !== "up"
       ) {
+        // A trackpad can report an upward gesture as a sequence of 1px scroll
+        // events. The wheel handler has already recorded that intent, so do not
+        // interpret the sub-threshold movement as a return to the bottom.
         userDetachedFromBottomRef.current = false;
         activityFeedUserScrollDirectionRef.current = null;
         setActivityFeedDetachedAnchor(false);
@@ -7129,10 +7597,26 @@ function App() {
       syncActivityFeedBoot(container);
       syncActivityFeedScrollJump(container);
       syncActivityUserMessageNavigator(container);
+      // No wheel/touch/keyboard intent, yet the follow state is far from the
+      // bottom: the browser clamped a transient spacer collapse. Recover it.
+      if (
+        !userDetachedFromBottomRef.current &&
+        !scrollbarDragging &&
+        performance.now() >= userScrollUntil &&
+        distanceFromBottom > ACTIVITY_FEED_STICK_THRESHOLD_PX
+      ) {
+        recoverActivityFeedStick();
+      }
     };
     const onWheel = (event: WheelEvent) => {
       userScrollUntil = performance.now() + 500;
-      if (event.deltaY >= 0) {
+      if (event.deltaY > 0) {
+        if (userDetachedFromBottomRef.current) {
+          activityFeedUserScrollDirectionRef.current = "down";
+        }
+        return;
+      }
+      if (event.deltaY === 0) {
         return;
       }
       // Detach before virtualization ResizeObserver can snap stick-to-bottom mid-gesture.
@@ -7165,7 +7649,7 @@ function App() {
     };
     const onPointerDown = (event: PointerEvent) => {
       if (event.pointerType === "touch") {
-        touchY = event.clientY;
+        touchStartY = event.clientY;
       } else if (
         event.target === container &&
         event.clientX >= container.getBoundingClientRect().right - 20
@@ -7174,14 +7658,18 @@ function App() {
       }
     };
     const onPointerMove = (event: PointerEvent) => {
-      if (touchY === undefined) return;
+      if (touchStartY === undefined) return;
       userScrollUntil = performance.now() + 500;
-      if (event.clientY > touchY + 2) detachForInput();
-      touchY = event.clientY;
+      const deltaY = event.clientY - touchStartY;
+      if (deltaY > 2) {
+        detachForInput();
+      } else if (deltaY < -2 && userDetachedFromBottomRef.current) {
+        activityFeedUserScrollDirectionRef.current = "down";
+      }
     };
     const onPointerUp = () => {
       scrollbarDragging = false;
-      touchY = undefined;
+      touchStartY = undefined;
     };
     container.addEventListener("scroll", onScroll, { passive: true });
     container.addEventListener("wheel", onWheel, { passive: true });
@@ -7206,6 +7694,7 @@ function App() {
     activeThread?.id,
     distanceFromActivityFeedBottom,
     markActivityFeedUserDetached,
+    recoverActivityFeedStick,
     requestActivityFeedForceScroll,
     setActivityFeedDetachedAnchor,
     syncActivityFeedBoot,
@@ -7645,6 +8134,29 @@ function App() {
 
   const activityLoadUserMessageEdit = useStableCallback(loadUserMessageEdit);
   const activityRewriteUserMessage = useStableCallback(rewriteUserMessage);
+  const activityForkMessage = useStableCallback(
+    async (input: { activityLineId: string; expectedHistoryRevision: number }) => {
+      if (!activeThread || !window.eco) throw new Error("当前会话不可用。");
+      const result = await window.eco.forkThreadFromMessage({
+        principalId: "desktop-local",
+        clientCommandId: `history_fork_${crypto.randomUUID()}`,
+        threadId: activeThread.id,
+        ...input,
+      });
+      persistComposerDraftSnapshot(composerDraftsByKeyRef.current, `thread:${result.thread.id}`, {
+        prompt: result.draft.prompt,
+        attachments: fromPromptImageAttachments(result.draft.attachments),
+      });
+      setThreads((current) =>
+        current.some((thread) => thread.id === result.thread.id)
+          ? current.map((thread) => (thread.id === result.thread.id ? result.thread : thread))
+          : [result.thread, ...current],
+      );
+      selectThread(result.thread);
+      queueConversationV2Recovery(result.thread.id);
+      await refreshThreadState(result.thread.id);
+    },
+  );
   const activityRetryFailedRequest = useStableCallback(retryFailedRequest);
 
   async function sendConversationV2Continuation(input: {
@@ -7703,20 +8215,16 @@ function App() {
   ) {
     if (!activeThread || isStarting || !window.eco) return;
     const threadId = activeThread.id;
-    const expectedHistoryRevision = displayProjection?.historyRevision ?? 0;
     setIsStarting(true);
     setError(undefined);
     try {
-      const result = await window.eco.continueCodexThread({
-        principalId: "desktop-local",
-        clientCommandId: `codex_continue_${stableHash({ threadId, sourceAttemptId: target.sourceAttemptId })}`,
-        threadId,
+      const command = await buildV2CommandEnvelope(threadId, "codex_continue", {
         activityLineId: target.activityLineId,
         prompt: target.prompt,
         hasImages: target.hasImages,
         sourceAttemptId: target.sourceAttemptId,
-        expectedHistoryRevision,
       });
+      const result = await window.eco.continueCodexThread(command);
       setThreads((current) =>
         current.map((thread) => (thread.id === result.thread.id ? result.thread : thread)),
       );
@@ -7744,7 +8252,6 @@ function App() {
       return;
     }
     const threadId = activeThread.id;
-    const historyRevision = displayProjection?.historyRevision ?? 0;
     const useRewrite = usesRewindOnRequestRetry(activeThread.coreKind);
     setError(undefined);
     requestActivityFeedForceScroll();
@@ -7752,21 +8259,12 @@ function App() {
     }
     setIsStarting(true);
     try {
-      const result = await window.eco.retryThreadFromMessage({
-        principalId: "desktop-local",
-        clientCommandId: `history_retry_${stableHash({
-          threadId,
-          activityLineId: target.activityLineId,
-          prompt: target.prompt,
-          hasImages: target.hasImages,
-          expectedHistoryRevision: historyRevision,
-        })}`,
-        threadId,
+      const command = await buildV2CommandEnvelope(threadId, "history_retry", {
         activityLineId: target.activityLineId,
         prompt: target.prompt,
         hasImages: target.hasImages,
-        expectedHistoryRevision: historyRevision,
       });
+      const result = await window.eco.retryThreadFromMessage(command);
       setThreads((current) =>
         current.map((thread) => (thread.id === result.thread.id ? result.thread : thread)),
       );
@@ -7829,9 +8327,18 @@ function App() {
   function restoreComposerAfterFollowUpEdit() {
     const restored = resolveComposerAfterFollowUpEdit(savedComposerBeforeFollowUpEditRef.current);
     savedComposerBeforeFollowUpEditRef.current = undefined;
+    const restoredAttachments = restored.attachments as ComposerImageAttachment[];
+    const restoredPreviewUrls = new Set(
+      restoredAttachments.map((attachment) => attachment.previewUrl).filter(Boolean),
+    );
+    composerAttachmentsRef.current.forEach((attachment) => {
+      if (!restoredPreviewUrls.has(attachment.previewUrl)) {
+        revokeComposerAttachmentPreview(attachment);
+      }
+    });
     composerPromptRef.current = restored.prompt;
     setPrompt(restored.prompt);
-    setComposerAttachments(restored.attachments as ComposerImageAttachment[]);
+    setComposerAttachments(restoredAttachments);
     setComposerRewindTarget(restored.rewindTarget as ComposerRewindTarget | undefined);
     setComposerImageNotice(restored.imageNotice);
   }
@@ -8310,6 +8817,9 @@ function App() {
           threadId,
           resolution: "approve",
           executionTarget,
+          // A failed delegation leaves the same plan and history revision in place.
+          // Retrying after that run must dispatch a new command, not replay its receipt.
+          previousAttemptId: displayProjection?.attempts.at(-1)?.attemptId,
           expectedHistoryRevision: displayProjection?.historyRevision ?? 0,
         })}`,
         threadId,
@@ -8622,6 +9132,15 @@ function App() {
     setSettingsSection("providers");
     setSettingsOpen(true);
   }
+
+  const openCodexAccountSwitch = useCallback(() => setCodexAccountSwitchOpen(true), []);
+  const closeCodexAccountSwitch = useCallback(() => setCodexAccountSwitchOpen(false), []);
+  const openChatGptSubscriptionAccounts = useCallback((accountId?: string) => {
+    setModelsSettingsChatGptAccountId(accountId?.trim() || undefined);
+    setModelsSettingsTab("chatgptAccounts");
+    setSettingsSection("agentLibrary");
+    setSettingsOpen(true);
+  }, []);
 
   function openSettings() {
     setSettingsSection("preferences");
@@ -9147,15 +9666,19 @@ function App() {
   async function persistComposerRuntimeConfig(
     next: ThreadRuntimeConfig,
     options?: { persistWhileRunning?: boolean },
-  ): Promise<void> {
-    setComposerRuntimeConfig(next);
-    if (!activeThread || !window.eco) {
-      return;
+  ): Promise<boolean> {
+    if (!activeThread) {
+      setComposerRuntimeConfig(next);
+      return true;
+    }
+    if (!window.eco) {
+      setError("当前会话配置保存不可用。");
+      return false;
     }
     const isRunning = activeThread.status === "running" || activeThread.status === "queued";
     const canPersist = canEditComposerConfig || (options?.persistWhileRunning === true && isRunning);
     if (!canPersist) {
-      return;
+      return false;
     }
     setIsSavingSettings(true);
     setError(undefined);
@@ -9168,8 +9691,10 @@ function App() {
       setThreads((current) =>
         current.map((thread) => (thread.id === result.thread.id ? result.thread : thread)),
       );
+      return true;
     } catch (caught) {
       setError(errorMessage(caught));
+      return false;
     } finally {
       setIsSavingSettings(false);
     }
@@ -9235,8 +9760,11 @@ function App() {
         orchestrationSelection: nextSelection,
         mcpServers: mcpSettings.servers,
       });
+    const { mainAgentModelOverride, ...baseConfig } = bootstrapped;
+    const mainAgentChanged = current.mainAgentConfigId !== nextSelection.mainAgentConfigId;
     const next: ThreadRuntimeConfig = {
-      ...bootstrapped,
+      ...baseConfig,
+      ...(!mainAgentChanged && mainAgentModelOverride ? { mainAgentModelOverride } : {}),
       ...materialized,
       subagentEnabled: deriveSubagentEnabledFromSnapshot(
         snapshot,
@@ -9417,7 +9945,26 @@ function App() {
       ...baseRuntimeConfig,
       ...(override ? { mainAgentModelOverride: override } : {}),
     };
-    await persistComposerRuntimeConfig(next);
+    if (!(await persistComposerRuntimeConfig(next))) return;
+    if (
+      next.orchestrationSelection?.mainAgentConfigId === OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID &&
+      templateMainModel?.providerId === "openai" &&
+      window.eco
+    ) {
+      try {
+        const model = override ?? templateMainModel;
+        const codexAuthModel: MainAgentModelOverride = {
+          providerId: model.providerId,
+          modelId: model.modelId,
+          ...(model.thinkingEffort ? { thinkingEffort: model.thinkingEffort } : {}),
+          ...(model.candidateModelId ? { candidateModelId: model.candidateModelId } : {}),
+        };
+        const saved = await window.eco.saveWorkflowSettings({ ...workflowSettings, codexAuthModel });
+        setWorkflowSettings(saved);
+      } catch (caught) {
+        setError(errorMessage(caught));
+      }
+    }
   }
 
   async function toggleComposerSubagent(role: SubagentRole, enabled: boolean) {
@@ -9440,7 +9987,7 @@ function App() {
       ...composerRuntimeConfig,
       mcpServersEnabled: nextMcpServersEnabled,
     };
-    await persistComposerRuntimeConfig(next, { persistWhileRunning: true });
+    if (!(await persistComposerRuntimeConfig(next, { persistWhileRunning: true }))) return;
     if (!window.eco) {
       return;
     }
@@ -9458,10 +10005,11 @@ function App() {
   async function toggleComposerIntegration(integrationId: IntegrationId, enabled: boolean) {
     if (!composerRuntimeConfig || !currentProjectPath || !window.eco) return;
     const nextEnabled = { ...composerIntegrationSettings, [integrationId]: enabled };
-    await persistComposerRuntimeConfig(
+    const persisted = await persistComposerRuntimeConfig(
       { ...composerRuntimeConfig, integrationsEnabled: nextEnabled },
       { persistWhileRunning: true },
     );
+    if (!persisted) return;
     try {
       const saved = await window.eco.saveProjectIntegrationsSettings({
         workspacePath: currentProjectPath,
@@ -9476,10 +10024,11 @@ function App() {
   async function toggleComposerSkill(settingsKey: string, enabled: boolean) {
     if (!composerRuntimeConfig || !currentProjectPath) return;
     const nextSkillsEnabled = { ...composerSkillsEnabled, [settingsKey]: enabled };
-    await persistComposerRuntimeConfig(
+    const persisted = await persistComposerRuntimeConfig(
       { ...composerRuntimeConfig, skillsEnabled: nextSkillsEnabled },
       { persistWhileRunning: true },
     );
+    if (!persisted) return;
     if (!window.eco) return;
     try {
       const saved = await window.eco.saveProjectSkillsSettings({
@@ -9497,7 +10046,7 @@ function App() {
       return;
     }
     const next: ThreadRuntimeConfig = withSessionMode(composerRuntimeConfig, sessionMode);
-    await persistComposerRuntimeConfig(next);
+    if (!(await persistComposerRuntimeConfig(next))) return;
     if (!window.eco?.saveWorkflowSettings) {
       return;
     }
@@ -10613,6 +11162,7 @@ function App() {
   }
 
   function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (composerReferencesMenu.onKeyDown(event)) return;
     if (composerSkillPopoverOpen) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
@@ -10684,6 +11234,33 @@ function App() {
   }, [showLanding]);
   const workspaceCardsLayoutMode = workspacePanelLayoutForMode(activityWorkspaceLayoutMode);
   const workspaceCardsPanelOpen = Boolean(showWorkspacePanel && workspacePanelResolvedOpen);
+  const codexBackgroundTerminalsForActiveThread = useMemo(
+    () => selectCodexBackgroundTerminalsForThread(codexBackgroundTerminals, activeThread?.id),
+    [activeThread?.id, codexBackgroundTerminals],
+  );
+  const claudeBackgroundTasksForActiveThread = useMemo(
+    () => selectClaudeBackgroundTasksForThread(claudeBackgroundTasks, activeThread?.id),
+    [activeThread?.id, claudeBackgroundTasks],
+  );
+  useEffect(() => {
+    if (!workspaceCardsPanelOpen && !runningResourcesOpen) {
+      return;
+    }
+    void refreshCodexBackgroundTerminals();
+    void refreshClaudeBackgroundTasks();
+    const timer = window.setInterval(() => {
+      void refreshCodexBackgroundTerminals();
+      void refreshClaudeBackgroundTasks();
+    }, 2000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [
+    refreshClaudeBackgroundTasks,
+    refreshCodexBackgroundTerminals,
+    runningResourcesOpen,
+    workspaceCardsPanelOpen,
+  ]);
   useEffect(() => {
     if (showWorkspacePanel) {
       void refreshGitStatus();
@@ -10799,10 +11376,44 @@ function App() {
       <div className="codex-main-topbar-actions" aria-label={t("app.workspaceControls")}>
         <div className="codex-main-topbar-action-group" data-group="workspace">
           <button
+            ref={runningResourcesAnchorRef}
+            type="button"
+            className={runningResourcesOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"}
+            onClick={() => {
+              setWebChatListOpen(false);
+              setRunningResourcesOpen((open) => !open);
+            }}
+            title={t("app.running.title")}
+            aria-label={t("app.running.title")}
+            aria-expanded={runningResourcesOpen}
+            aria-haspopup="dialog"
+          >
+            <Activity size={15} aria-hidden />
+          </button>
+          {runningResourcesOpen ? (
+            <RunningResourcesPopover
+              anchorRef={runningResourcesAnchorRef}
+              threads={threads}
+              projects={projects}
+              terminalByProject={terminalByProject}
+              codexTerminals={codexBackgroundTerminals}
+              {...(codexBackgroundTerminalError && { codexTerminalError: codexBackgroundTerminalError })}
+              onTerminateCodexTerminal={stopCodexBackgroundTerminal}
+              claudeTasks={claudeBackgroundTasks}
+              {...(claudeBackgroundTaskError && { claudeTaskError: claudeBackgroundTaskError })}
+              onStopClaudeTask={stopClaudeBackgroundTask}
+              onClose={() => setRunningResourcesOpen(false)}
+              onTerminalClosed={handleRunningTerminalClosed}
+            />
+          ) : null}
+          <button
             ref={webChatListAnchorRef}
             type="button"
             className={webChatListOpen ? "codex-main-toolbar-button is-active" : "codex-main-toolbar-button"}
-            onClick={() => setWebChatListOpen((open) => !open)}
+            onClick={() => {
+              setRunningResourcesOpen(false);
+              setWebChatListOpen((open) => !open);
+            }}
             title={t("app.webChat.openList")}
             aria-label={t("app.webChat.openList")}
             aria-expanded={webChatListOpen}
@@ -10813,6 +11424,7 @@ function App() {
           <WebChatListPopover
             open={webChatListOpen}
             items={webChatList.items}
+            siteProxies={webChatList.siteProxies}
             anchorRef={webChatListAnchorRef}
             onClose={() => setWebChatListOpen(false)}
             onSelect={openWebChatItem}
@@ -10837,7 +11449,7 @@ function App() {
       </div>
     ) : null;
   const renderTaskPanel = () =>
-    showWorkspacePanel && taskPanelLayoutOpen ? (
+    showWorkspacePanel && taskPanelLayoutOpen && taskPanelUiThreadIdRef.current === browserScopeId ? (
       <motion.aside
         id="task-panel-container"
         className={["workspace-panel", "is-task-panel-mode", taskPanelFullscreenOpen ? "is-fullscreen" : ""]
@@ -10862,8 +11474,10 @@ function App() {
           onKeyDown={handleTaskPanelResizeKeyDown}
         />
         <SuspensePanel>
+          <OpenTtsArtifactContext value={openTtsArtifact}>
           <TtsArtifactsContext value={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}>
           <LazySubagentTaskDrawer
+            browserInstances={browserTaskInstances}
             open={taskPanelLayoutOpen}
             surfaceActive={taskPanelOpen && !taskPanelExiting}
             fullscreen={taskPanelFullscreenOpen}
@@ -10973,6 +11587,7 @@ function App() {
             }}
           />
           </TtsArtifactsContext>
+          </OpenTtsArtifactContext>
         </SuspensePanel>
       </motion.aside>
     ) : null;
@@ -11077,6 +11692,44 @@ function App() {
                   ? t("thread.composer.unavailable")
                   : t("thread.composer.placeholder");
   const composerDisabled = Boolean(activeThread && !threadAcceptsInput && !composerFollowUpMode);
+
+  useEffect(() => {
+    const insert = (event: Event) => {
+      const selection = (event as CustomEvent<BrowserSelection>).detail;
+      if (!selection || selection.scopeId !== browserScopeIdRef.current) return;
+      if (composerDisabled) { showAppMessageError(t("browser.selection.composerDisabled")); return; }
+      const current = composerPromptRef.current;
+      const offset = Math.max(0, Math.min(composerCursor, current.length));
+      const token = `${composerReferenceToken(browserSelectionReference(selection))} `;
+      const next = current.slice(0, offset) + token + current.slice(offset);
+      composerPromptRef.current = next;
+      setPrompt(next);
+      const cursor = offset + token.length;
+      window.requestAnimationFrame(() => {
+        if (browserScopeIdRef.current !== selection.scopeId || composerPromptRef.current !== next) return;
+        composerRef.current?.focus();
+        composerRef.current?.setCursor(cursor);
+        composerRef.current?.fitHeight();
+        setComposerCursor(cursor);
+      });
+    };
+    const reveal = (event: Event) => {
+      const state = (event as CustomEvent<BrowserViewState>).detail;
+      if (state?.uiScopeId !== browserScopeIdRef.current || !state.focusedBrowserId) return;
+      const tabId = browserTaskTabId(state.focusedBrowserId);
+      setOpenTaskPanelTabIds(current => addOpenTaskPanelTab(current, tabId));
+      setTaskPanelActiveTab(tabId);
+      setTaskPanelFullscreen(false);
+      setSelectedSubagentAgentId(undefined);
+      revealTaskPanel();
+    };
+    window.addEventListener(BROWSER_SELECTION_INSERT_EVENT, insert);
+    window.addEventListener(BROWSER_SELECTION_REVEAL_EVENT, reveal);
+    return () => {
+      window.removeEventListener(BROWSER_SELECTION_INSERT_EVENT, insert);
+      window.removeEventListener(BROWSER_SELECTION_REVEAL_EVENT, reveal);
+    };
+  }, [composerCursor, composerDisabled, revealTaskPanel, showAppMessageError, t]);
   const composerActionMode = editingFollowUpId
     ? "save-follow-up"
     : canStopThread
@@ -11159,6 +11812,7 @@ function App() {
 
   useEffect(() => {
     if (!asrSession.active) return;
+    setComposerPlusMenuOpen(false);
     if (composerRoutePopoverOpen) setComposerRoutePopoverOpen(false);
   }, [asrSession.active, composerRoutePopoverOpen]);
 
@@ -11172,7 +11826,9 @@ function App() {
       showOrchestration={composerNeedsOrchestration}
       invalidFields={invalidOrchestrationFields}
       orchestrationIssues={orchestrationIssues}
-      anchorRef={composerRouteAnchor === "model-empty" ? composerModelEmptyTriggerRef : composerPlusButtonRef}
+      anchorRef={composerAnchorRef}
+      triggerRef={composerPlusButtonRef}
+      onBack={() => { setComposerRoutePopoverOpen(false); setComposerPlusMenuOpen(true); }}
       runtimeConfig={composerRuntimeConfig ?? undefined}
       onClose={() => setComposerRoutePopoverOpen(false)}
       onSelectMainAgentConfig={selectComposerMainAgentConfig}
@@ -11431,8 +12087,19 @@ function App() {
                 onDragOver={handleComposerDragOver}
                 onDrop={handleComposerDrop}
               >
+                {composerReferencesMenu.open ? <ComposerReferencesMenu
+                  anchorRef={composerAnchorRef}
+                  items={composerReferencesMenu.items}
+                  activeIndex={composerReferencesMenu.activeIndex}
+                  loading={composerReferencesMenu.loading}
+                  error={composerReferencesMenu.error}
+                  hasMore={composerReferencesMenu.hasMore}
+                  onActiveIndexChange={composerReferencesMenu.setActiveIndex}
+                  onSelect={composerReferencesMenu.select}
+                  onClose={composerReferencesMenu.close}
+                /> : null}
                 <ComposerSkillsSlashMenu
-                  open={composerSkillPopoverOpen}
+                  open={composerSkillPopoverOpen && !composerReferencesMenu.open}
                   query={composerSkillSlash?.query ?? ""}
                   skills={slashPickerSkills}
                   matches={composerSkillMatches}
@@ -11453,16 +12120,24 @@ function App() {
                             <button
                               type="button"
                               className="composer-attachment-preview"
-                              onClick={() =>
+                              disabled={!attachment.previewUrl}
+                              onClick={() => {
+                                if (!attachment.previewUrl) return;
                                 setComposerLightbox({
                                   src: attachment.previewUrl,
                                   alt,
                                   label: openLabel,
-                                })
-                              }
-                              aria-label={openLabel}
+                                });
+                              }}
+                              aria-label={attachment.previewUrl ? openLabel : t("app.imagePreviewUnavailable")}
                             >
-                              <img src={attachment.previewUrl} alt={alt} />
+                              {attachment.previewUrl ? (
+                                <img src={attachment.previewUrl} alt={alt} />
+                              ) : (
+                                <span className="composer-attachment-preview-missing">
+                                  {t("app.imagePreviewUnavailable")}
+                                </span>
+                              )}
                             </button>
                             <button
                               type="button"
@@ -11488,6 +12163,7 @@ function App() {
                   ) : null}
                   <ComposerSkillsInput
                     ref={composerRef}
+                    referencePopup={composerReferencesMenu.open ? { activeIndex: composerReferencesMenu.items.length ? composerReferencesMenu.activeIndex : -1 } : undefined}
                     value={prompt}
                     onChange={(next) => {
                       composerPromptRef.current = next;
@@ -11509,6 +12185,9 @@ function App() {
                     <div className="composer-footer-row composer-footer-config-row">
                       <ComposerPlusMenu
                         buttonRef={composerPlusButtonRef}
+                        anchorRef={composerAnchorRef}
+                        open={composerPlusMenuOpen}
+                        panelActive={composerPlusMenuOpen || composerRoutePopoverOpen || Boolean(scheduledMessageEditor && scheduledMessageEditor.threadId === activeThread?.id)}
                         sessionMode={composerRuntimeConfig?.sessionMode ?? "agent"}
                         canEditMode={canEditComposerConfig}
                         canOpenRoute={canOpenComposerRoute}
@@ -11525,9 +12204,9 @@ function App() {
                           openComposerRoutePopover("plus");
                         }}
                         onOpenChange={(open) => {
-                          if (open) {
-                            setComposerRoutePopoverOpen(false);
-                          }
+                          setComposerPlusMenuOpen(open);
+                          setComposerRoutePopoverOpen(false);
+                          setScheduledMessageEditor(undefined);
                         }}
                       />
                       {composerRuntimeConfig &&
@@ -11634,7 +12313,9 @@ function App() {
                       </button>
                     </div>
                   </div>
-                  {!composerRoutesReady && !composerFollowUpMode && (
+                  {!composerRoutesReady &&
+                  !composerFollowUpMode &&
+                  composerModelAvailability !== "no-orchestration" && (
                     <p className="composer-hint">
                       {composerModelAvailability === "no-provider" ? (
                         <>
@@ -11643,23 +12324,6 @@ function App() {
                             {t("settings.providers")}
                           </button>{" "}
                           {t("composer.hint.noProviderSuffix")}
-                        </>
-                      ) : composerModelAvailability === "no-orchestration" ? (
-                        <>
-                          {t("composer.hint.noOrchestrationPrefix")}{" "}
-                          <button
-                            type="button"
-                            className="link-button"
-                            disabled={!canOpenComposerRoute}
-                            onClick={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              openComposerOrchestrationChooser();
-                            }}
-                          >
-                            {t("composer.hint.noOrchestrationAction")}
-                          </button>
-                          {t("composer.hint.noOrchestrationSuffix")}
                         </>
                       ) : (
                         <>
@@ -11883,50 +12547,53 @@ function App() {
             </div>
           </div>
 
-          <div className="sidebar-settings">
-            <button
-              type="button"
-              className="sidebar-settings-action"
-              onClick={openSettings}
-              aria-label={
-                centerServerRegistered
-                  ? `${sidebarCenterDeviceName} · ${sidebarCenterPresenceLabel} · ${t("nav.settings")}`
-                  : t("nav.settings")
-              }
-              title={
-                centerServerRegistered
-                  ? `${sidebarCenterDeviceName} · ${sidebarCenterPresenceLabel}`
-                  : t("nav.settings")
-              }
-            >
-              <Cog size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
-              {centerServerRegistered ? (
-                <>
-                  <span className="sidebar-settings-action-label">{sidebarCenterDeviceName}</span>
-                  <span
-                    className={`cs-dot cs-dot--${sidebarCenterPresenceDot} sidebar-settings-presence-dot`}
-                    aria-hidden
-                  />
-                </>
-              ) : (
-                <span className="sidebar-settings-action-label">{t("nav.settings")}</span>
-              )}
-            </button>
-            <SidebarSettingsUpdateControl
-              state={desktopUpdateState}
-              onCheck={() => {
-                void window.eco?.checkDesktopForUpdates();
-              }}
-              onDownload={() => {
-                void window.eco?.downloadDesktopUpdate();
-              }}
-              onInstall={() => {
-                void window.eco?.installDesktopUpdate();
-              }}
-              onOpenRelease={() => {
-                void window.eco?.openDesktopReleasePage();
-              }}
-            />
+          <div className="sidebar-settings-footer">
+            <CodexQuotaReminder threads={threads} onSwitchAccount={openCodexAccountSwitch} />
+            <div className="sidebar-settings">
+              <button
+                type="button"
+                className="sidebar-settings-action"
+                onClick={openSettings}
+                aria-label={
+                  centerServerRegistered
+                    ? `${sidebarCenterDeviceName} · ${sidebarCenterPresenceLabel} · ${t("nav.settings")}`
+                    : t("nav.settings")
+                }
+                title={
+                  centerServerRegistered
+                    ? `${sidebarCenterDeviceName} · ${sidebarCenterPresenceLabel}`
+                    : t("nav.settings")
+                }
+              >
+                <Cog size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
+                {centerServerRegistered ? (
+                  <>
+                    <span className="sidebar-settings-action-label">{sidebarCenterDeviceName}</span>
+                    <span
+                      className={`cs-dot cs-dot--${sidebarCenterPresenceDot} sidebar-settings-presence-dot`}
+                      aria-hidden
+                    />
+                  </>
+                ) : (
+                  <span className="sidebar-settings-action-label">{t("nav.settings")}</span>
+                )}
+              </button>
+              <SidebarSettingsUpdateControl
+                state={desktopUpdateState}
+                onCheck={() => {
+                  void window.eco?.checkDesktopForUpdates();
+                }}
+                onDownload={() => {
+                  void window.eco?.downloadDesktopUpdate();
+                }}
+                onInstall={() => {
+                  void window.eco?.installDesktopUpdate();
+                }}
+                onOpenRelease={() => {
+                  void window.eco?.openDesktopReleasePage();
+                }}
+              />
+            </div>
           </div>
         </div>
       </aside>
@@ -12037,6 +12704,13 @@ function App() {
                         onError={showAppMessageError}
                       />
                       <h2 title={activeThread.title}>{activeThread.title}</h2>
+                      <ReadAloudControls
+                        threadId={activeThread.id}
+                        onOpenSettings={() => {
+                          setSettingsSection("tts");
+                          setSettingsOpen(true);
+                        }}
+                      />
                       {canRegenerateThreadTitle(
                         activeThread.title,
                         titleGeneratingThreadIds.has(activeThread.id),
@@ -12142,6 +12816,8 @@ function App() {
                             >
                               {activityFeedBootReady ? (
                                 <SuspensePanel>
+                                  <ReadAloudThreadContext value={activeThread?.id ?? ""}>
+                                  <OpenTtsArtifactContext value={openTtsArtifact}>
                                   <TtsArtifactsContext
                                     value={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}
                                   >
@@ -12155,7 +12831,15 @@ function App() {
                                       onRestorePrompt={restorePrompt}
                                       onLoadUserMessageEdit={activityLoadUserMessageEdit}
                                       onRewriteUserMessage={activityRewriteUserMessage}
+                                      {...(activeThread &&
+                                      activeThread.coreKind !== "acp"
+                                        ? { onForkMessage: activityForkMessage }
+                                        : {})}
                                       onRetryFailedRequest={activityRetryFailedRequest}
+                                      onSwitchCodexAccount={openCodexAccountSwitch}
+                                      onOpenChatGptSubscriptionAccounts={
+                                        openChatGptSubscriptionAccounts
+                                      }
                                       onPlannerLayoutChange={handleActivityPlannerLayoutChange}
                                       onComposerAgentSilenceChange={setComposerAgentSilenceVisible}
                                       onFeedEndAnchorChange={handleFeedEndAnchorChange}
@@ -12180,6 +12864,8 @@ function App() {
                                       })}
                                     />
                                   </TtsArtifactsContext>
+                                  </OpenTtsArtifactContext>
+                                  </ReadAloudThreadContext>
                                 </SuspensePanel>
                               ) : null}
                               <div ref={activityEndRef} className="activity-scroll-anchor" aria-hidden />
@@ -12268,6 +12954,18 @@ function App() {
                 }
               >
                 <WorkspaceFloatingCards
+                  codexBackgroundTerminals={codexBackgroundTerminalsForActiveThread}
+                  {...(codexBackgroundTerminalError && {
+                    codexBackgroundTerminalError,
+                  })}
+                  onStopCodexBackgroundTerminal={stopCodexBackgroundTerminal}
+                  onCodexBackgroundTerminalError={(message) => showAppMessageErrorRef.current(message)}
+                  claudeBackgroundTasks={claudeBackgroundTasksForActiveThread}
+                  {...(claudeBackgroundTaskError && {
+                    claudeBackgroundTaskError,
+                  })}
+                  onStopClaudeBackgroundTask={stopClaudeBackgroundTask}
+                  onClaudeBackgroundTaskError={(message) => showAppMessageErrorRef.current(message)}
                   todos={activeThread ? coderTodos : []}
                   hasActiveThread={Boolean(activeThread)}
                   scheduledMessages={
@@ -12459,6 +13157,9 @@ function App() {
               key={scheduledMessageEditor.definition?.id ?? scheduledMessageEditor.threadId}
               thread={threads.find((thread) => thread.id === scheduledMessageEditor.threadId)!}
               definition={scheduledMessageEditor.definition}
+              anchorRef={scheduledMessageEditor.threadId === activeThread?.id ? composerAnchorRef : undefined}
+              triggerRef={composerPlusButtonRef}
+              onBack={() => { setScheduledMessageEditor(undefined); setComposerPlusMenuOpen(true); }}
               occurrences={scheduling.snapshot.occurrences}
               onClose={() => setScheduledMessageEditor(undefined)}
               onSaved={() => {
@@ -12469,10 +13170,16 @@ function App() {
                   requestId: Date.now(),
                 });
                 setScheduledMessageEditor(undefined);
+                if (scheduledMessageEditor.threadId === activeThread?.id) setComposerPlusMenuOpen(true);
               }}
             />
           </SuspensePanel>
         )}
+      {codexAccountSwitchOpen && (
+        <SuspensePanel>
+          <LazyCodexAccountSwitchDialog onClose={closeCodexAccountSwitch} />
+        </SuspensePanel>
+      )}
       {settingsOpen && (
         <div className="settings-page" role="dialog" aria-modal="true" aria-label={t("settings.dialog")}>
           <aside className="settings-nav">
@@ -12803,7 +13510,7 @@ function App() {
                             delete merged.upstreamProxyUrl;
                           }
                         }
-                        // 按 Agent Core 单独覆盖：空串 = 清除该 core，回退到 SDK 自己的 UA。
+                        // 按 Harness 单独覆盖：空串 = 清除该 core，回退到 SDK 自己的 UA。
                         if (next.upstreamUserAgents !== undefined) {
                           const perCore: Partial<Record<UpstreamAgentCore, string>> = {};
                           for (const core of UPSTREAM_AGENT_CORES) {
@@ -12842,7 +13549,15 @@ function App() {
                       mcpServers={mcpSettings.servers}
                       skillsSnapshot={skillsSnapshot}
                       initialTab={
-                        settingsSection === "orchestrationComponents" ? "compositionParts" : "subagents"
+                        settingsSection === "orchestrationComponents"
+                          ? "compositionParts"
+                          : modelsSettingsTab
+                      }
+                      {...(modelsSettingsChatGptAccountId && {
+                        initialChatGptAccountId: modelsSettingsChatGptAccountId,
+                      })}
+                      onInitialChatGptAccountHandled={() =>
+                        setModelsSettingsChatGptAccountId(undefined)
                       }
                       mode="agentBuilder"
                       hideCategoryTabs
@@ -12900,7 +13615,7 @@ function App() {
       )}
     </main>
   );
-  return <AppRenderContent render={renderAppLayout} />;
+  return <><AppRenderContent render={renderAppLayout} /><BrowserSelectionPreview /></>;
 }
 
 async function loadConversationV2RendererState(

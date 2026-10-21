@@ -1,3 +1,4 @@
+import { normalizeAgentRole } from "@eco/shared";
 import type { UpstreamApiCompat } from "./api-compat";
 import type {
   ModelsDevMapping,
@@ -7,6 +8,9 @@ import type {
   SubagentEnabledSettings,
   ThinkingEffort,
 } from "./ipc";
+
+export const OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID = "__openai_official__";
+export const CHATGPT_SUBSCRIPTION_MAIN_AGENT_CONFIG_ID = "__chatgpt_subscription__";
 
 export type AgentConfigSource = "built_in" | "user" | "project" | "derived";
 
@@ -191,6 +195,8 @@ export interface OrchestrationResourceBundle {
 }
 
 export interface AgentInstanceConfig {
+  /** Omitted: derive from the selected model. Only lowers Claude's inherited window. */
+  claudeAutoCompactWindow?: number;
   agentKey: string;
   templateId: string;
   displayName?: string;
@@ -386,8 +392,8 @@ export function buildResourcesFromRouteProfile(
     updatedAt?: string;
   },
 ): OrchestrationResourceBundle {
-  const routeByRole = new Map(routeProfile.routes.map((route) => [route.role, route]));
-  const plannerRoute = requireRoute(routeByRole, "planner", routeProfile.id);
+  const routeByRole = new Map(routeProfile.routes.map((route) => [normalizeAgentRole(route.role), route]));
+  const plannerRoute = requireRoute(routeByRole, "main", routeProfile.id);
   const exploreRoute = requireRoute(routeByRole, "explore", routeProfile.id);
   const updatedAt = options.updatedAt ?? routeProfile.updatedAt;
   const mainAgentConfig: MainAgentConfigResource = {
@@ -723,6 +729,9 @@ function cloneOrchestrationStrategy(strategy: OrchestrationStrategy): Orchestrat
 
 function cloneAgentInstance(agent: AgentInstanceConfig): AgentInstanceConfig {
   return {
+    ...(agent.claudeAutoCompactWindow !== undefined && {
+      claudeAutoCompactWindow: agent.claudeAutoCompactWindow,
+    }),
     agentKey: agent.agentKey,
     templateId: agent.templateId,
     ...(agent.displayName ? { displayName: agent.displayName } : {}),

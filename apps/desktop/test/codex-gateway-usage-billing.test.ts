@@ -27,7 +27,7 @@ const provider: ProviderConfigSecret = {
 
 const routes: RuntimeRoute[] = [
   {
-    role: "planner",
+    role: "main",
     provider,
     modelId: "gpt-test",
     apiCompat: "openai_responses",
@@ -73,7 +73,7 @@ function resolve(event: GatewayUsageEvent, attribution?: CodexThreadAttribution)
 
 describe("Codex Gateway usage billing", () => {
   test("resolves a root turn to the existing Codex ledger and pricing contract", () => {
-    const result = resolve(usageEvent(), { ecoThreadId: "thr_1", billingRole: "planner" });
+    const result = resolve(usageEvent(), { ecoThreadId: "thr_1", billingRole: "main" });
 
     expect(result.status).toBe("resolved");
     if (result.status !== "resolved") return;
@@ -81,14 +81,14 @@ describe("Codex Gateway usage billing", () => {
       threadId: "thr_1",
       codexThreadId: "codex_root",
       turnId: "turn_1",
-      billingRole: "planner",
-      routeRole: "planner",
+      billingRole: "main",
+      routeRole: "main",
       contextOccupied: 140,
-      observation: { source: "codex", role: "planner" },
+      observation: { source: "codex", role: "main" },
       billingInput: {
         threadId: "thr_1",
         source: "codex",
-        role: "planner",
+        role: "main",
         providerId: "provider_test",
         modelId: "gpt-test",
         runAttemptId: "attempt_1",
@@ -109,7 +109,7 @@ describe("Codex Gateway usage billing", () => {
           modelId: "gpt-test",
         },
       }),
-      { ecoThreadId: "thr_1", billingRole: "planner" },
+      { ecoThreadId: "thr_1", billingRole: "main" },
     );
 
     expect(result.status).toBe("resolved");
@@ -121,7 +121,7 @@ describe("Codex Gateway usage billing", () => {
   test("resolves an untyped Codex child through equivalent shared-model pricing routes", () => {
     const sharedRoutes: RuntimeRoute[] = [
       {
-        role: "planner",
+        role: "main",
         provider,
         modelId: "gpt-test",
         apiCompat: "openai_responses",
@@ -168,11 +168,11 @@ describe("Codex Gateway usage billing", () => {
     if (result.status !== "resolved") return;
     expect(result).toMatchObject({
       billingRole: "general",
-      routeRole: "planner",
+      routeRole: "main",
       subagentAgentId: "codex_child",
       billingInput: {
         role: "general",
-        routeRole: "planner",
+        routeRole: "main",
         agentId: "codex_child",
       },
     });
@@ -231,7 +231,7 @@ describe("Codex Gateway usage billing", () => {
     });
     const result = resolveCodexGatewayUsageBilling({
       event,
-      resolveThreadAttribution: () => ({ ecoThreadId: "thr_1", billingRole: "planner" }),
+      resolveThreadAttribution: () => ({ ecoThreadId: "thr_1", billingRole: "main" }),
       resolveParentCodexThreadId: () => undefined,
       resolveRuntimeRoutes: () => routes,
     });
@@ -239,7 +239,7 @@ describe("Codex Gateway usage billing", () => {
     expect(result.status).toBe("resolved");
     if (result.status !== "resolved") return;
     expect(result.billingInput).toMatchObject({
-      plannerAgentId: "planner:codex-control:thr_1",
+      plannerAgentId: "main:codex-control:thr_1",
       updateContext: false,
     });
   });

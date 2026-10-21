@@ -63,7 +63,11 @@ class _BashApprovalPanelState extends State<BashApprovalPanel> {
 
   List<BashApprovalChoice> get _choices {
     final choices = <BashApprovalChoice>[BashApprovalChoice.approve];
-    if (widget.request.filesystemTool == null &&
+    if (widget.request.mcpToolName != null &&
+        widget.request.mcpToolServerName != null &&
+        !widget.request.suppressAlwaysAllowRule) {
+      choices.add(BashApprovalChoice.approveRememberMcpTool);
+    } else if (widget.request.filesystemTool == null &&
         !widget.request.suppressAlwaysAllowRule) {
       choices.add(BashApprovalChoice.approveRememberPrefix);
     }
@@ -298,7 +302,9 @@ class _BashApprovalPanelState extends State<BashApprovalPanel> {
       );
     }
 
-    if (choice == BashApprovalChoice.approveRememberPrefix) {
+    if (choice == BashApprovalChoice.approveRememberPrefix ||
+        choice == BashApprovalChoice.approveRememberMcpTool) {
+      final mcp = choice == BashApprovalChoice.approveRememberMcpTool;
       return Material(
         color: highlighted
             ? colors.textHeading.withValues(alpha: 0.05)
@@ -337,10 +343,16 @@ class _BashApprovalPanelState extends State<BashApprovalPanel> {
                         height: 1.45,
                       ),
                       children: [
-                        TextSpan(text: context.l10n.bashApprovalRememberPrefix),
+                        TextSpan(
+                          text: mcp
+                              ? context.l10n.mcpApprovalRememberTool
+                              : context.l10n.bashApprovalRememberPrefix,
+                        ),
                         TextSpan(
                           text: formatBashApprovalRememberPrefix(
-                            rememberCommand,
+                            mcp
+                                ? '${widget.request.mcpToolServerName} · ${widget.request.mcpToolName}'
+                                : rememberCommand,
                           ),
                           style: TextStyle(
                             fontFamily: 'monospace',
@@ -350,7 +362,7 @@ class _BashApprovalPanelState extends State<BashApprovalPanel> {
                         ),
                       ],
                     ),
-                    maxLines: 1,
+                    maxLines: mcp ? 3 : 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),

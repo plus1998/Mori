@@ -1,5 +1,7 @@
-export type AgentRole = "planner" | "explore" | "architect" | "coder" | "reviewer" | "tester";
+export type AgentRole = "main" | "explore" | "architect" | "coder" | "reviewer" | "tester";
 export type RuntimeAgentRole = string;
+export { isMainAgentId, isMainAgentRole, normalizeAgentRole } from "./agent-role";
+export * from "./claude-subagent-compaction";
 
 export * from "./codex-gateway-model-alias";
 export type {
@@ -109,6 +111,8 @@ export type {
   ParsedEcoRealtimeTopic,
 } from "./realtime-topics";
 export {
+  ECO_REALTIME_BINDINGS_CHANGED_EVENT,
+  ECO_REALTIME_BINDING_READY_EVENT,
   buildEcoBindTopic,
   buildEcoUserTopic,
   buildEcoVaultTopic,
@@ -180,6 +184,8 @@ export interface ModelProfile {
   capabilities: ModelCapability[];
   enabled: boolean;
   contextWindow?: number;
+  /** False when the context window is an assumed default rather than model metadata. */
+  contextWindowResolved?: boolean;
   inputCostPerMillion?: number;
   outputCostPerMillion?: number;
 }

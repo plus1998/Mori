@@ -33,7 +33,24 @@ export interface EcoProviderForCodexConfig {
   name: string;
   enabled: boolean;
   apiCompat?: "anthropic" | "openai_responses" | "openai_chat_completions";
-  compactionMode?: "codex-local" | "responses-native";
+}
+
+export type CodexRemoteCompactionSupport = "v2" | "unsupported";
+
+/** Remote compaction is an explicit model capability, never a provider-name heuristic. */
+export function resolveCodexRemoteCompaction(input: {
+  providerId: string;
+  modelId: string;
+  apiCompat?: CodexGatewayApiCompat;
+  supportsRemoteCompaction?: boolean;
+}): CodexRemoteCompactionSupport {
+  if (input.supportsRemoteCompaction !== true) return "unsupported";
+  if (input.apiCompat !== "openai_responses") {
+    throw new Error(
+      `模型「${input.providerId} / ${input.modelId}」已开启远程压缩，但当前协议为 ${input.apiCompat ?? "未配置"}。请使用 OpenAI Responses 协议，或在候选模型中关闭远程压缩。`,
+    );
+  }
+  return "v2";
 }
 
 export interface CodexAgentRoleForConfigSync {
@@ -202,37 +219,41 @@ export function buildCodexConfigToml(input: SyncCodexConfigFromEcoProvidersInput
 
   const streamIdleTimeoutMs = resolveCodexStreamIdleTimeoutMs();
   for (const provider of gatewayProviders) {
-    const slug = buildCodexModelProviderSlug(provider.id);
     lines.push(
-      `[model_providers.${slug}]`,
-      `name = ${tomlString(resolveCodexModelProviderName(provider, slug))}`,
-      `base_url = ${tomlString(gatewayBaseUrl)}`,
-      'wire_api = "responses"',
-      // Local / slow models often emit no bytes for minutes during prefill.
-      `stream_idle_timeout_ms = ${streamIdleTimeoutMs}`,
-      `request_max_retries = ${DEFAULT_CODEX_REQUEST_MAX_RETRIES}`,
+      ...buildCodexGatewayProviderTomlLines(provider.id, { gatewayBaseUrl, streamIdleTimeoutMs }),
       "",
     );
   }
 
-  for (const server of uniqueMcpServers(input.mcpServers ?? []).map(withDefaultCodexMcpToolOutputTokenLimits)) {
+  for (const server of uniqueMcpServers(input.mcpServers ?? []).map(
+    withDefaultCodexMcpToolOutputTokenLimits,
+  )) {
     lines.push(...buildCodexMcpServerTomlLines(server));
   }
 
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-function resolveCodexModelProviderName(provider: EcoProviderForCodexConfig, slug: string): string {
-  if (provider.compactionMode === "responses-native") {
-    if (provider.apiCompat !== "openai_responses") {
-      throw new Error(
-        `Provider "${provider.id}" can use responses-native compaction only with apiCompat=openai_responses.`,
-      );
-    }
-    // Codex selects remote compaction only for providers named exactly "OpenAI" (verified through 0.150.1).
-    return "OpenAI";
-  }
-  return `Eco Gateway (${slug})`;
+/** Global gateway provider definition; model capability is bound through thread config. */
+export function buildCodexGatewayProviderTomlLines(
+  providerId: string,
+  options: {
+    gatewayBaseUrl?: string;
+    streamIdleTimeoutMs?: number;
+    remoteCompaction?: CodexRemoteCompactionSupport;
+  } = {},
+): string[] {
+  const slug = buildCodexModelProviderSlug(providerId);
+  return [
+    `[model_providers.${slug}]`,
+    `name = ${tomlString(`Eco Gateway (${slug})`)}`,
+    `base_url = ${tomlString(options.gatewayBaseUrl ?? resolveEcoGatewayBaseUrl())}`,
+    'wire_api = "responses"',
+    `stream_idle_timeout_ms = ${options.streamIdleTimeoutMs ?? resolveCodexStreamIdleTimeoutMs()}`,
+    `request_max_retries = ${DEFAULT_CODEX_REQUEST_MAX_RETRIES}`,
+    `[model_providers.${slug}.capabilities]`,
+    `remote_compaction = ${tomlString(options.remoteCompaction ?? "unsupported")}`,
+  ];
 }
 
 export async function syncCodexConfigFromEcoProviders(
@@ -318,6 +339,78 @@ function tomlStringArray(values: readonly string[]): string {
 function tomlInlineTable(entries: Record<string, string>): string {
   const parts = Object.entries(entries).map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`);
   return `{ ${parts.join(", ")} }`;
+}
+
+/**
+ * Codex thread `config` override shape for one MCP server.
+ * `thread/start` and `thread/resume` accept arbitrary config layers, so the
+ * descriptor can live on the thread instead of the process-global config.toml.
+ */
+export function buildCodexMcpServerOverride(server: CodexMcpServerForConfigSync): Record<string, unknown> {
+  const name = server.name.trim();
+  if (!name) {
+    throw new Error("Codex MCP server name is required.");
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+    throw new Error(`Invalid Codex MCP server name: ${name}`);
+  }
+
+  const override: Record<string, unknown> = {};
+  if (server.transport === "stdio") {
+    const command = server.command?.trim();
+    if (!command) {
+      throw new Error(`Codex MCP server "${name}" requires a stdio command.`);
+    }
+    override.command = command;
+    if (server.args && server.args.length > 0) {
+      override.args = [...server.args];
+    }
+    if (server.env && Object.keys(server.env).length > 0) {
+      override.env = { ...server.env };
+    }
+  } else if (server.transport === "http") {
+    const url = server.url?.trim();
+    if (!url) {
+      throw new Error(`Codex MCP server "${name}" requires an HTTP URL.`);
+    }
+    override.url = url;
+    if (server.httpHeaders && Object.keys(server.httpHeaders).length > 0) {
+      override.http_headers = { ...server.httpHeaders };
+    }
+  } else {
+    throw new Error(`Unsupported Codex MCP transport for "${name}".`);
+  }
+
+  if (server.enabledTools && server.enabledTools.length > 0) {
+    override.enabled_tools = [...server.enabledTools];
+  }
+  if (
+    typeof server.startupTimeoutSec === "number" &&
+    Number.isFinite(server.startupTimeoutSec) &&
+    server.startupTimeoutSec > 0
+  ) {
+    override.startup_timeout_sec = Math.ceil(server.startupTimeoutSec);
+  }
+  if (
+    typeof server.toolTimeoutSec === "number" &&
+    Number.isFinite(server.toolTimeoutSec) &&
+    server.toolTimeoutSec > 0
+  ) {
+    override.tool_timeout_sec = Math.ceil(server.toolTimeoutSec);
+  }
+  const tools: Record<string, { output_token_limit: number }> = {};
+  for (const [toolName, limit] of Object.entries(server.toolOutputTokenLimits ?? {})) {
+    const trimmedTool = toolName.trim();
+    if (!trimmedTool || !Number.isFinite(limit) || limit <= 0) {
+      continue;
+    }
+    tools[trimmedTool] = { output_token_limit: Math.ceil(limit) };
+  }
+  if (Object.keys(tools).length > 0) {
+    override.tools = tools;
+  }
+  override.enabled = true;
+  return override;
 }
 
 export function buildCodexMcpServerTomlLines(server: CodexMcpServerForConfigSync): string[] {
@@ -411,9 +504,7 @@ function tomlBareKey(key: string): string {
  * Default per-tool model-facing budgets for Eco-hosted MCP servers (Codex 0.152+).
  * Conservative for status tools; higher for snapshots / vision reports.
  */
-export function defaultCodexMcpToolOutputTokenLimits(
-  serverName: string,
-): Record<string, number> | undefined {
+export function defaultCodexMcpToolOutputTokenLimits(serverName: string): Record<string, number> | undefined {
   switch (serverName.trim()) {
     case "eco_agent_browser":
       return {

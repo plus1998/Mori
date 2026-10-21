@@ -27,6 +27,7 @@ export type EventCenterEventKind =
   | "conversation.sync_effect"
   | "conversation.projection_extras"
   | "settings.updated"
+  | "scheduling.changed"
   | "workspace.terminal"
   | "workspace.package_json_changed"
   | "workspace.git_remote_fetched"
@@ -35,6 +36,7 @@ export type EventCenterEventKind =
 
 export type ThreadEventCenterEventKind = Exclude<
   EventCenterEventKind,
+  | "scheduling.changed"
   | "workspace.terminal"
   | "workspace.package_json_changed"
   | "workspace.git_remote_fetched"
@@ -138,6 +140,7 @@ export interface EventCenterPayloadMap {
     conversationId: string;
   };
   "settings.updated": ThreadLiveEvent;
+  "scheduling.changed": Record<string, never>;
   "workspace.terminal": TerminalStreamEvent;
   "workspace.package_json_changed": EventCenterPackageJsonChangedPayload;
   "workspace.git_remote_fetched": EventCenterGitRemoteFetchedPayload;

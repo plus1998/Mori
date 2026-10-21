@@ -353,7 +353,8 @@ function ttsToolDefinition(): McpToolDefinition {
           type: "string",
           minLength: 1,
           maxLength: 256,
-          description: "Provider voice ID; Gemini examples: Kore, Puck, Aoede, Charon, Fenrir.",
+          description:
+            "Provider voice ID; Gemini examples: Kore, Puck, Aoede, Charon, Fenrir. Doubao examples: zh_female_vv_uranus_bigtts, en_male_tim_uranus_bigtts.",
         },
         style: {
           type: "string",

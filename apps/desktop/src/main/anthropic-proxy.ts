@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { mapApiCompatToUpstreamKind, type ResolvedProviderRoute, type UpstreamKind } from "@eco/gateway";
-import { containsImageInput } from "@eco/shared";
 import {
   applyThinkingToMessagesBody,
   type GlobalMaxOutputTokens,
   type ParsedUsage,
   resolveAppliedMaxOutputTokens,
 } from "@eco/runtime";
+import { containsImageInput } from "@eco/shared";
 import {
   assertApiCompatCompatibleWithProviderPath,
   IncompatibleApiCompatError,
@@ -79,6 +79,7 @@ export interface AnthropicProxyRoute {
   maxOutputTokens?: number;
   /** Resolved catalog/manual context window; drives SDK `[1m]` alias suffix when >= 1M. */
   contextTokens?: number;
+  contextTokensResolved?: boolean;
   supportsImageInput?: boolean;
 }
 
@@ -119,6 +120,7 @@ export function resolveRouteMaxOutputTokens(manualSpec?: RouteManualSpec): numbe
 export interface RuntimeRouteToProxyOptions {
   globalMaxOutputTokens?: GlobalMaxOutputTokens;
   contextTokens?: number;
+  contextTokensResolved?: boolean;
   catalogMaxOutputTokens?: number;
 }
 
@@ -138,6 +140,9 @@ export function runtimeRouteToProxyRoute(
       globalMaxOutputTokens: options.globalMaxOutputTokens,
     }),
     ...(options?.contextTokens !== undefined && { contextTokens: options.contextTokens }),
+    ...(options?.contextTokensResolved !== undefined && {
+      contextTokensResolved: options.contextTokensResolved,
+    }),
   });
   return {
     role: route.role,
@@ -276,6 +281,7 @@ export async function startAnthropicModelProxy(
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
     ...(route.maxOutputTokens !== undefined && { maxOutputTokens: route.maxOutputTokens }),
     ...(route.contextTokens !== undefined && { contextTokens: route.contextTokens }),
+    ...(route.contextTokensResolved !== undefined && { contextTokensResolved: route.contextTokensResolved }),
     ...(route.supportsImageInput !== undefined && { supportsImageInput: route.supportsImageInput }),
   }));
 
@@ -906,7 +912,7 @@ const SHARED_UPSTREAM_MODEL_ROLE_PRIORITY: readonly AgentRole[] = [
   "tester",
   "architect",
   "reviewer",
-  "planner",
+  "main",
 ];
 
 function pickSharedUpstreamModelRoute(

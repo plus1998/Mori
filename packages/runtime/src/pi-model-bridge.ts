@@ -199,7 +199,7 @@ export function buildEcoPiModel(input: BuildEcoPiModelInput): EcoPiModelSpec {
 
 export function resolvePiPlannerRoute(routes: readonly ResolvedModelRoute[]): ResolvedModelRoute | undefined {
   return (
-    routes.find((route) => route.role === "planner") ??
+    routes.find((route) => route.role === "main") ??
     routes.find((route) => route.role === "main") ??
     routes[0]
   );

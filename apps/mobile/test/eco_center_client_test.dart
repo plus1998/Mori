@@ -5,6 +5,26 @@ import 'package:eco_mobile/core/storage/credential_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('repeated initialize does not rebroadcast unchanged connection state', () async {
+    final client = EcoCenterClient(store: _MemoryCredentialStore());
+    final states = <EcoConnectionState>[];
+    final subscription = client.connectionStatus.listen((s) => states.add(s.state));
+    await client.initialize();
+    await client.initialize();
+    await client.initialize();
+    await Future<void>.delayed(Duration.zero);
+    expect(states, [EcoConnectionState.disconnected]);
+    await subscription.cancel();
+    await client.dispose();
+  });
+
+  test('Realtime reconnect backs off and caps repeated failures', () {
+    expect(
+      List.generate(8, (attempt) => ecoRealtimeReconnectDelayMs(3000, attempt)),
+      [3000, 6000, 12000, 24000, 48000, 60000, 60000, 60000],
+    );
+  });
+
   group('normalizeSupabaseProjectUrl', () {
     test('strips trailing slash', () {
       expect(
@@ -372,6 +392,71 @@ void main() {
       },
     );
   });
+
+  group('applyPairingProjectConfig', () {
+    test(
+      'saves QR project details and probes the resulting endpoint',
+      () async {
+        final client = _RecordingProjectProbeClient();
+        final payload = parsePairingQrPayload(
+          'eco://center?supabase=https%3A%2F%2Fnew.supabase.co&anon=new-anon',
+        );
+
+        final reachable = await client.applyPairingProjectConfig(payload);
+
+        expect(reachable, isTrue);
+        expect(client.credentials.supabaseUrl, 'https://new.supabase.co');
+        expect(client.credentials.anonKey, 'new-anon');
+        expect(client.probedUrls, ['https://new.supabase.co']);
+        expect(client.probedAnonKeys, ['new-anon']);
+        await client.dispose();
+      },
+    );
+
+    test(
+      'reuses the saved anon key when the QR targets the same project',
+      () async {
+        final client = _RecordingProjectProbeClient();
+        await client.updateCredentials(
+          const AppCredentials(
+            supabaseUrl: 'https://same.supabase.co',
+            anonKey: 'saved-anon',
+          ),
+        );
+        final payload = parsePairingQrPayload(
+          'eco://center?supabase=https%3A%2F%2Fsame.supabase.co',
+        );
+
+        final reachable = await client.applyPairingProjectConfig(payload);
+
+        expect(reachable, isTrue);
+        expect(client.probedUrls, ['https://same.supabase.co']);
+        expect(client.probedAnonKeys, ['saved-anon']);
+        await client.dispose();
+      },
+    );
+
+    test('does not pair a new project URL with an old anon key', () async {
+      final client = _RecordingProjectProbeClient();
+      await client.updateCredentials(
+        const AppCredentials(
+          supabaseUrl: 'https://old.supabase.co',
+          anonKey: 'old-anon',
+        ),
+      );
+      final payload = parsePairingQrPayload(
+        'eco://center?supabase=https%3A%2F%2Fnew.supabase.co',
+      );
+
+      final reachable = await client.applyPairingProjectConfig(payload);
+
+      expect(reachable, isNull);
+      expect(client.credentials.supabaseUrl, 'https://old.supabase.co');
+      expect(client.credentials.anonKey, 'old-anon');
+      expect(client.probedUrls, isEmpty);
+      await client.dispose();
+    });
+  });
 }
 
 class _MemoryCredentialStore extends CredentialStore {
@@ -383,5 +468,19 @@ class _MemoryCredentialStore extends CredentialStore {
   @override
   Future<void> save(AppCredentials credentials) async {
     value = credentials;
+  }
+}
+
+class _RecordingProjectProbeClient extends EcoCenterClient {
+  _RecordingProjectProbeClient() : super(store: _MemoryCredentialStore());
+
+  final probedUrls = <String>[];
+  final probedAnonKeys = <String?>[];
+
+  @override
+  Future<bool> testConnection(String supabaseUrl, {String? anonKey}) async {
+    probedUrls.add(supabaseUrl);
+    probedAnonKeys.add(anonKey);
+    return probedAnonKeys.length == 1;
   }
 }

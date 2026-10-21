@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { normalizeAgentRole } from "@eco/shared";
 import { buildConversationV2OnlyProjection } from "../src/renderer/ActivityLogView";
 import { installConversationV2Bootstrap } from "../src/renderer/conversation-v2-renderer-state";
 import type { ConversationBootstrap } from "../src/shared/ipc";
-import { crossEndShape, type CrossEndShape } from "./support/cross-end-shape";
+import { type CrossEndShape, crossEndShape } from "./support/cross-end-shape";
 import { feedShape } from "./support/feed-shape";
 import { loadCorpus } from "./support/v2-corpus";
 
@@ -43,10 +44,24 @@ const corpus = loadCorpus();
 
 for (const conversation of corpus.conversations) {
   test(`desktop renders the golden shape for ${conversation.conversationId}`, () => {
-    const expected = fixture<CrossEndShape>("v2-render", conversation.conversationId);
-    expect(
-      desktopShape(conversation.conversationId, String(conversation.thread.created_at)),
-    ).toEqual(expected);
+    const historical = fixture<CrossEndShape>("v2-render", conversation.conversationId);
+    // The recorded events/identities stay immutable; only the old role name changed.
+    const row = (item: CrossEndShape["feed"][number]) => ({
+      ...item,
+      role: item.role === null ? null : normalizeAgentRole(item.role),
+    });
+    const expected: CrossEndShape = {
+      ...historical,
+      feed: historical.feed.map(row),
+      cards: historical.cards.map((card) => ({
+        ...card,
+        role: normalizeAgentRole(card.role),
+        rows: card.rows.map(row),
+      })),
+    };
+    expect(desktopShape(conversation.conversationId, String(conversation.thread.created_at))).toEqual(
+      expected,
+    );
   });
 }
 

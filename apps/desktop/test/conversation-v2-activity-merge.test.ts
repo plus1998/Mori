@@ -562,7 +562,7 @@ function feedEntryMessageId(entry: ThreadRunProjectionMainFeedEntry): string | u
 }
 
 test("SDK state notices neither render a request failure nor replace the final answer", () => {
-  const answer = { ...assistantMessage("real-answer", 2, "ECO_289_FIXED_BASH"), providerRole: "planner" };
+  const answer = { ...assistantMessage("real-answer", 2, "ECO_289_FIXED_BASH"), providerRole: "main" };
   const notice: ConversationMessage = {
     ...message("idle-notice", 3),
     role: "system",
@@ -720,8 +720,8 @@ function projectionWithAgent(
     agents: [
       {
         agentId,
-        role: "planner",
-        kind: "planner",
+        role: "main",
+        kind: "main",
         status: "completed",
         startedAt: "2026-09-14T00:00:00.000Z",
         durationMs: 1_000,
@@ -732,7 +732,7 @@ function projectionWithAgent(
 }
 
 test("routes a subagent's V2 narration to its agent card instead of the main feed", () => {
-  const owner = "planner:attempt_execution_1";
+  const owner = "main:attempt_execution_1";
   const merged = mergeConversationV2MessagesIntoProjection(
     projectionWithAgent([legacyUserItem("legacy_user", 1)], owner),
     v2State([message("message_1", 1), subagentMessage("message_agent", 2, owner)]),
@@ -858,11 +858,68 @@ test("keeps complete V2 message and tool ownership facts in the agent Feed proje
 test("keeps a subagent message in the main feed when no agent card can hold it", () => {
   const merged = mergeConversationV2MessagesIntoProjection(
     projection([legacyUserItem("legacy_user", 1)]),
-    v2State([subagentMessage("message_orphan", 2, "planner:missing_card")]),
+    v2State([subagentMessage("message_orphan", 2, "main:missing_card")]),
   );
 
   const orphan = merged.timeline.find((item) => item.id === "conversation-v2:message_orphan");
   expect(orphan?.scope).toBe("main");
+});
+
+test("an image-view failure stays visible without inventing a running subagent", () => {
+  const owner = "image_view:thread_merge:failed_request";
+  const failure: ConversationMessage = {
+    ...message("image_failure", 2),
+    role: "system",
+    channel: "system",
+    providerRole: "vision",
+    agentId: owner,
+    agentInstanceId: owner,
+    body: "【连接失败】HTTP 400：upstream unavailable",
+  };
+  const projection = buildConversationV2OnlyProjection(v2State([failure]), {
+    createdAt: "2026-09-14T00:00:00.000Z",
+    status: "completed",
+  });
+  expect(projection.agents).toEqual([]);
+  expect(projection.timeline).toHaveLength(1);
+  expect(projection.timeline[0]).toMatchObject({
+    scope: "main",
+    agentId: owner,
+    text: failure.body,
+  });
+  expect(buildThreadRunProjectionViewModel(projection).subagentCards).toEqual([]);
+  const html = renderToStaticMarkup(createElement(ActivityLogView, { conversationV2: v2State([failure]) }));
+  expect(html).toContain("连接失败 · HTTP 400");
+  expect(html).not.toContain("subagent-run-row-wrap");
+});
+
+test("an unregistered tool owner does not create an agent card or hide the tool", () => {
+  const projection = buildConversationV2OnlyProjection(
+    v2State(
+      [],
+      [],
+      [
+        {
+          toolCallId: "unregistered_tool",
+          conversationId: "thread_merge",
+          runId: "run_1",
+          agentId: "unregistered_owner",
+          name: "Bash",
+          status: "completed",
+          createdSeq: 2,
+          versionSeq: 3,
+          input: { command: "bun test" },
+        },
+      ],
+    ),
+  );
+  expect(projection.agents).toEqual([]);
+  expect(projection.timeline).toHaveLength(1);
+  expect(projection.timeline[0]).toMatchObject({
+    scope: "main",
+    agentId: "unregistered_owner",
+    metadata: { tool: { name: "Bash", toolUseId: "unregistered_tool" } },
+  });
 });
 
 test("a legacy subagent row keeps its owner from the adapter to the agent card", () => {
@@ -881,18 +938,18 @@ test("a legacy subagent row keeps its owner from the adapter to the agent card",
     message: "辅助模型已允许 Grep：/repo",
     observedAt: "2026-09-14T00:00:05.000Z",
     role: "coder",
-    agentId: "planner:attempt_1",
+    agentId: "main:attempt_1",
     runAttemptId: "attempt_1",
     streamKey: "answer_agent",
   });
   const stored = store.bootstrap("thread_merge").messages[0];
   expect(stored).toMatchObject({
-    agentId: "planner:attempt_1",
-    agentInstanceId: "planner:attempt_1",
+    agentId: "main:attempt_1",
+    agentInstanceId: "main:attempt_1",
   });
 
   const merged = mergeConversationV2MessagesIntoProjection(
-    projectionWithAgent([legacyUserItem("legacy_user", 1)], "planner:attempt_1"),
+    projectionWithAgent([legacyUserItem("legacy_user", 1)], "main:attempt_1"),
     v2State([stored as ConversationMessage]),
   );
   expect(merged.timeline.map((item) => item.id)).not.toContain(`conversation-v2:${stored?.messageId}`);

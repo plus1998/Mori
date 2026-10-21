@@ -159,6 +159,11 @@ class SettingsScreen extends ConsumerWidget {
                                   context.push('/settings/thinking-content'),
                             ),
                             const EcoGroupedDivider(),
+                            SettingsDisclosureRow(
+                              title: l10n.readAloudTitle,
+                              onTap: () => context.push('/settings/read-aloud'),
+                            ),
+                            const EcoGroupedDivider(),
                             SettingsSwitchRow(
                               title: l10n.settingsShowBilling,
                               subtitle: l10n.settingsShowBillingSubtitle,

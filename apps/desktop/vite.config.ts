@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
+import { feedReplayArtifactsPlugin } from "./scripts/feed-replay/vite-plugin";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const materialIconsSrc = path.resolve(rootDir, "node_modules/material-icon-theme/icons");
@@ -75,8 +76,50 @@ function materialIconsPlugin(): Plugin {
   };
 }
 
+/** Keep PDF workers, fonts and decoders local in development and packaged builds. */
+function pdfPreviewAssetsPlugin(): Plugin {
+  const source = path.resolve(rootDir, "node_modules/pdfjs-dist");
+  const folders = ["cmaps", "standard_fonts", "wasm", "iccs"];
+  return {
+    name: "eco-pdf-preview-assets",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const match = /^\/pdfjs\/(cmaps|standard_fonts|wasm|iccs)\/([^/?]+)(?:\?.*)?$/.exec(req.url ?? "");
+        if (!match) {
+          next();
+          return;
+        }
+        const folder = match[1];
+        const name = match[2];
+        if (!folder || !name || name === "." || name === ".." || name.includes("%")) {
+          res.statusCode = 400;
+          res.end();
+          return;
+        }
+        const file = path.join(source, folder, name);
+        if (!existsSync(file)) {
+          res.statusCode = 404;
+          res.end();
+          return;
+        }
+        res.setHeader(
+          "Content-Type",
+          name.endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
+        );
+        createReadStream(file).pipe(res);
+      });
+    },
+    closeBundle() {
+      for (const folder of folders)
+        cpSync(path.join(source, folder), path.resolve(rootDir, "dist/renderer/pdfjs", folder), {
+          recursive: true,
+        });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), materialIconsPlugin()],
+  plugins: [react(), materialIconsPlugin(), pdfPreviewAssetsPlugin(), feedReplayArtifactsPlugin()],
   root: ".",
   // Relative paths so loadFile(file://...) resolves assets next to index.html in packaged app.
   base: "./",

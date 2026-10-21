@@ -91,7 +91,7 @@ test("awaiting_plan with pending before approval continues planning session", ()
     hasCoderTodos: false,
     hasAppliedDiff: false,
     threadStatus: "awaiting_plan",
-    activityLines: [{ role: "planner", message: "计划已生成，等待确认。" }],
+    activityLines: [{ role: "main", message: "计划已生成，等待确认。" }],
   });
   expect(action).toEqual({ kind: "resume_sdk", phase: "planning" });
 });
@@ -172,7 +172,7 @@ test("agent mode does not enter planning for stale pending plan", () => {
     hasCoderTodos: false,
     hasAppliedDiff: false,
     threadStatus: "awaiting_plan",
-    activityLines: [{ role: "planner", message: "计划已生成，等待确认。" }],
+    activityLines: [{ role: "main", message: "计划已生成，等待确认。" }],
   });
   expect(action).toEqual({ kind: "resume_sdk", phase: "execution" });
   expect(continueStatusMessage(action)).toBe("正在继续执行…");

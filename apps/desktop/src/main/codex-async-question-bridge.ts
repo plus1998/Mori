@@ -35,7 +35,7 @@ export interface CodexAsyncQuestionBridgeDeps {
     threadId: string,
     type: string,
     message: string,
-    role: "planner" | "system",
+    role: "main" | "system",
     extras?: { clarification?: ClarificationRequest; tool?: ThreadRunToolMetadata },
   ): void;
   registerPending(
@@ -148,7 +148,7 @@ export function handleCodexAsyncQuestions(input: CodexAsyncQuestionsInput): void
     request.questions.length === 1
       ? "Codex 需要你回答一个问题（本轮会继续执行）。"
       : `Codex 需要你回答 ${request.questions.length} 个问题（本轮会继续执行）。`,
-    "planner",
+    "main",
     {
       clarification: request,
       tool: buildClarificationToolMetadata(input.itemId, "started"),
@@ -171,7 +171,7 @@ export function handleCodexAsyncQuestions(input: CodexAsyncQuestionsInput): void
         input.ecoThreadId,
         "clarification.answered",
         formatClarificationAnswersSummary(request, answers),
-        "planner",
+        "main",
         { tool: buildClarificationToolMetadata(input.itemId, "completed") },
       );
     },

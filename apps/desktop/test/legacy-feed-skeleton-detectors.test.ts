@@ -52,7 +52,7 @@ describe("feed skeleton rebuild detectors", () => {
       id: "agent_body",
       scope: "agent",
       agentId: "agent_missing",
-      role: "planner",
+      role: "main",
       message: "orphan body",
     });
     const input = {
@@ -139,7 +139,7 @@ describe("feed skeleton rebuild detectors", () => {
       shouldRebuildFeedSkeletonForTruncatedUserPrompts([
         {
           ...promptItem("a", "body"),
-          role: "planner",
+          role: "main",
           metadata: { liveType: "message.final", textTruncated: true },
         },
       ]),

@@ -1,6 +1,6 @@
 import { CONTEXT_SEGMENT_LABELS, contextSegmentDisplayLabel } from "@eco/runtime/context-breakdown";
 import { formatTokenCount } from "@eco/runtime/usage";
-import { X } from "lucide-react";
+import { Gauge, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ThreadContextSnapshot, ThreadRoleContextSnapshot, ThreadStatus } from "../shared/ipc";
@@ -86,7 +86,7 @@ function contextRoles(context: ThreadContextSnapshot): ThreadRoleContextSnapshot
   }
   return [
     {
-      role: context.displayRole ?? "planner",
+      role: context.displayRole ?? "main",
       occupied: context.occupied,
       limit: context.limit,
       occupancyPct: context.occupancyPct,
@@ -102,12 +102,12 @@ function resolvePlannerSnapshot(
   context: ThreadContextSnapshot,
   roles: ThreadRoleContextSnapshot[],
 ): ThreadRoleContextSnapshot {
-  const fromRoles = roles.find((role) => role.role === "planner");
+  const fromRoles = roles.find((role) => role.role === "main");
   if (fromRoles) {
     return fromRoles;
   }
   return {
-    role: "planner",
+    role: "main",
     occupied: context.occupied,
     limit: context.limit,
     occupancyPct: context.occupancyPct,
@@ -141,7 +141,7 @@ function buildFlatSubagentRows(
   agentDisplayNames?: RuntimeAgentDisplayNames,
 ): FlatSubagentRow[] {
   const instances = [...(instanceEntries ?? [])]
-    .filter((instance) => instance.role !== "planner" && instance.occupied > 0)
+    .filter((instance) => instance.role !== "main" && instance.occupied > 0)
     .sort((left, right) => right.occupied - left.occupied);
 
   if (instances.length > 0) {
@@ -346,15 +346,32 @@ export function ContextCard({
       return null;
     }
     return (
-      <div className="context-card context-card-empty">
-        <p className="context-card-placeholder">{placeholder ?? t("context.empty")}</p>
+      <div className="context-card context-card-empty" role="status" aria-live="polite">
+        <div className="context-card-empty-header">
+          <div className="context-card-empty-icon" aria-hidden="true">
+            <Gauge size={21} strokeWidth={1.8} />
+          </div>
+          <div className="context-card-empty-copy">
+            <h4 className="context-card-empty-title">{t("context.title")}</h4>
+            <p className="context-card-placeholder">{placeholder ?? t("context.empty")}</p>
+          </div>
+        </div>
+        <div className="context-card-empty-meter" aria-hidden="true">
+          <div className="context-card-empty-track">
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+          <span className="context-card-empty-meter-label">{t("context.emptyMeter")}</span>
+        </div>
       </div>
     );
   }
 
   const roles = contextRoles(context);
   const planner = resolvePlannerSnapshot(context, roles);
-  const subagentRoles = roles.filter((role) => role.role !== "planner");
+  const subagentRoles = roles.filter((role) => role.role !== "main");
   const flatSubagents = buildFlatSubagentRows(context.instances, subagentRoles, agentDisplayNames);
   const plannerDetailed = hasDetailedBreakdown(planner);
   const hasSubagents = flatSubagents.length > 0;

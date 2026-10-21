@@ -1,3 +1,4 @@
+import { COMPOSER_REFERENCE_PATTERN, parseComposerReference, type ComposerReference } from "../shared/composer-references";
 import {
   parseExplicitSkillNames,
   promptIncludesSkillName,
@@ -16,7 +17,8 @@ export { parseExplicitSkillNames, promptIncludesSkillName, fileAttachmentToken }
 export type PromptSegment =
   | { type: "text"; value: string }
   | { type: "skill"; name: string }
-  | { type: "file"; path: string };
+  | { type: "file"; path: string }
+  | { type: "reference"; reference: ComposerReference };
 
 export type SlashQuery = { start: number; query: string };
 
@@ -70,6 +72,10 @@ export function parsePromptSegments(text: string): PromptSegment[] {
       length: match[0].length,
       segment: { type: "file", path },
     });
+  }
+  for (const match of text.matchAll(COMPOSER_REFERENCE_PATTERN)) {
+    const reference = parseComposerReference(match[1]!, match[2]!);
+    if (reference && match.index !== undefined) hits.push({ index: match.index, length: match[0].length, segment: { type: "reference", reference } });
   }
   hits.sort((left, right) => left.index - right.index || left.length - right.length);
 

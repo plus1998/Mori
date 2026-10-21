@@ -5,6 +5,8 @@ import 'package:uuid/uuid.dart';
 
 import '../models/acp_models.dart';
 import '../models/asr_models.dart';
+import '../models/tts_models.dart';
+import '../models/eco_types.dart';
 import '../models/conversation_v2_models.dart';
 import '../models/git_models.dart';
 import '../models/html_host_models.dart';
@@ -16,6 +18,7 @@ import '../models/mcp_models.dart';
 import '../models/project_orchestration_settings.dart';
 import '../models/skill_models.dart';
 import '../models/thread_models.dart';
+import '../models/scheduling_models.dart';
 import '../network/eco_center_client.dart';
 import '../storage/conversation_v2_cache.dart';
 import '../utils/conversation_v2_hash.dart';
@@ -32,7 +35,44 @@ class PromptImageUploadResult {
   final int byteLength;
 }
 
-class DesktopRpc {
+class DesktopRpc implements ReadAloudRemote {
+  Future<SchedulingSnapshot> listSchedules() async =>
+      SchedulingSnapshot.fromJson(
+        Map<String, dynamic>.from(
+          await _client.invoke<dynamic>(desktopDeviceId, 'scheduling:list', [])
+              as Map,
+        ),
+      );
+
+  Future<void> createSchedule(Map<String, dynamic> input) async {
+    await _client.invoke<dynamic>(desktopDeviceId, 'scheduling:create', [
+      input,
+    ]);
+  }
+
+  Future<void> updateSchedule(Map<String, dynamic> input) async {
+    await _client.invoke<dynamic>(desktopDeviceId, 'scheduling:update', [
+      input,
+    ]);
+  }
+
+  Future<void> deleteSchedule(String id) async {
+    await _client.invoke<dynamic>(desktopDeviceId, 'scheduling:delete', [id]);
+  }
+
+  Future<void> runScheduleNow(String id, String requestId) async {
+    await _client.invoke<dynamic>(desktopDeviceId, 'scheduling:run-now', [
+      {'id': id, 'requestId': requestId},
+    ]);
+  }
+
+  Future<List<String>> previewSchedule(Map<String, dynamic> trigger) async =>
+      (await _client.invoke<dynamic>(desktopDeviceId, 'scheduling:preview', [
+                trigger,
+              ])
+              as List)
+          .cast<String>();
+
   DesktopRpc(
     this._client,
     this.desktopDeviceId, {
@@ -44,6 +84,133 @@ class DesktopRpc {
   final ConversationV2ThreadDeleteCommandStore? _threadDeleteCommandStore;
   final Map<String, ConversationV2PendingThreadDelete>
   _pendingThreadDeleteCommands = {};
+
+  Future<dynamic> _readAloudInvoke(
+    String channel,
+    List<dynamic> args, {
+    int? deadlineMs,
+  }) async {
+    try {
+      return await _client.invoke<dynamic>(
+        desktopDeviceId,
+        channel,
+        args,
+        deadlineMs: deadlineMs,
+      );
+    } on EcoCenterException catch (error) {
+      if (error.code == EcoRpcConstants.methodNotFound ||
+          RegExp(
+            r'Unknown (?:desktop command )?channel|not remote-enabled|not registered',
+            caseSensitive: false,
+          ).hasMatch(error.message)) {
+        throw const ReadAloudException('已连接的电脑版本不支持正文朗读，请升级 Eco。');
+      }
+      if (error.code == EcoRpcConstants.targetOffline ||
+          error.kind == EcoCenterErrorKind.websocketDisconnected) {
+        throw const ReadAloudException('已连接的电脑当前离线或连接已中断，请连接后重试。');
+      }
+      if (error.code == EcoRpcConstants.timeout ||
+          error.kind == EcoCenterErrorKind.rpcTimeout) {
+        throw const ReadAloudException('朗读请求超时，请重试。');
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<ReadAloudStatus> getReadAloudStatus() async =>
+      ReadAloudStatus.fromJson(
+        await _readAloudInvoke('tts-read-aloud:status', []),
+      );
+
+  @override
+  Future<ReadAloudStartResult> startReadAloud({
+    required String requestId,
+    required String threadId,
+    required String entryId,
+    required String sourceText,
+  }) async {
+    final result = await _readAloudInvoke('tts-read-aloud:start', [
+      {
+        'requestId': requestId,
+        'threadId': threadId,
+        'entryId': entryId,
+        'sourceText': sourceText,
+      },
+    ]);
+    if (result is! Map ||
+        result['requestId'] != requestId ||
+        result['segmentCount'] is! int ||
+        (result['segmentCount'] as int) < 1) {
+      throw const ReadAloudException('朗读任务响应无效。');
+    }
+    return ReadAloudStartResult(requestId, result['segmentCount'] as int);
+  }
+
+  @override
+  Future<ReadAloudSegmentResult> synthesizeReadAloudSegment(
+    String requestId,
+    int index,
+  ) async {
+    final result = await _readAloudInvoke('tts-read-aloud:segment', [
+      {'requestId': requestId, 'index': index},
+    ], deadlineMs: 660000);
+    if (result is! Map ||
+        result['totalBytes'] is! int ||
+        (result['totalBytes'] as int) <= 0 ||
+        (result['totalBytes'] as int) > 64 * 1024 * 1024 ||
+        !['audio/mpeg', 'audio/wav'].contains(result['mimeType'])) {
+      throw const ReadAloudException('朗读音频响应无效。');
+    }
+    return ReadAloudSegmentResult(
+      result['mimeType'] as String,
+      result['totalBytes'] as int,
+    );
+  }
+
+  @override
+  Future<ReadAloudChunk> readReadAloudChunk(
+    String requestId,
+    int index,
+    int offset,
+    int length,
+  ) async {
+    final result = await _readAloudInvoke('tts-read-aloud:read', [
+      {
+        'requestId': requestId,
+        'index': index,
+        'offset': offset,
+        'length': length,
+      },
+    ]);
+    if (result is! Map ||
+        result['dataBase64'] is! String ||
+        result['offset'] != offset ||
+        result['chunkBytes'] is! int ||
+        result['totalBytes'] is! int ||
+        result['mimeType'] is! String) {
+      throw const ReadAloudException('朗读音频分块响应无效。');
+    }
+    final bytes = base64Decode(result['dataBase64'] as String);
+    if (bytes.isEmpty ||
+        bytes.length > length ||
+        bytes.length != result['chunkBytes']) {
+      throw const ReadAloudException('朗读音频分块长度无效。');
+    }
+    return ReadAloudChunk(
+      bytes: bytes,
+      offset: offset,
+      totalBytes: result['totalBytes'] as int,
+      mimeType: result['mimeType'] as String,
+    );
+  }
+
+  @override
+  Future<void> cancelReadAloud(String requestId) async {
+    await _readAloudInvoke('tts-read-aloud:cancel', [
+      {'requestId': requestId},
+    ]);
+  }
 
   Future<AsrStatus> getAsrStatus() async {
     final result = await _client.invoke<dynamic>(

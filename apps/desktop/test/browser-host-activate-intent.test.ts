@@ -3,7 +3,7 @@ import { expect, mock, test } from "bun:test";
 // BrowserHost imports electron main-process modules at module load time —
 // stub them before the dynamic import so the test runs under bun.
 mock.module("electron", () => ({
-  session: { fromPartition: () => ({ setPermissionRequestHandler: () => {} }) },
+  session: { fromPartition: () => ({ setPermissionRequestHandler: () => {}, on: () => {}, off: () => {} }) },
   shell: { openExternal: async () => true },
   webContents: { fromId: () => undefined },
   BrowserWindow: class {},
@@ -81,4 +81,215 @@ test("closing another page keeps the activate intent on the live one", async () 
   } finally {
     host.dispose();
   }
+});
+
+test("global resource list includes other conversations and closes pages without switching scope", async () => {
+  const host = createTestHost();
+  try {
+    for (const threadId of ["t1", "t2"]) {
+      await host.openSharedSession({ threadId, url: `https://${threadId}.example.com`, revealUi: false });
+    }
+    host.setUiScope("t1");
+    const state = host.getState();
+    expect(state.instances.map((page) => page.threadId)).toEqual(["t1"]);
+    expect(state.allInstances.map((page) => page.threadId)).toEqual(["t1", "t2"]);
+    const other = state.allInstances.find((page) => page.threadId === "t2");
+    if (!other) throw new Error("Missing other conversation's browser");
+    host.closeBrowser(other.id);
+    expect(host.getState().uiScopeId).toBe("t1");
+    expect(host.getState().allInstances.map((page) => page.threadId)).toEqual(["t1"]);
+  } finally {
+    host.dispose();
+  }
+});
+
+function createViewportGuest(id: number) {
+  const commands: Array<{ method: string; params?: Record<string, unknown> }> = [];
+  return {
+    id,
+    commands,
+    isDestroyed: () => false,
+    getType: () => "webview",
+    getURL: () => "about:blank",
+    getTitle: () => "",
+    isLoading: () => false,
+    setWindowOpenHandler: () => {},
+    on: () => {},
+    close: () => {},
+    debugger: {
+      isAttached: () => true,
+      sendCommand: async (method: string, params?: Record<string, unknown>) => {
+        commands.push({ method, params });
+      },
+    },
+    executeJavaScript: async () => ({ width: 390, height: 844, deviceScaleFactor: 3 }),
+  };
+}
+
+test("Agent can discover named devices without creating a page or CDP session", async () => {
+  const host = createTestHost();
+  try {
+    const result = await host.invokeNativeAgentBrowserTool("t1", "agent_browser_list_devices", {});
+    const devices = JSON.parse((result?.content[0] as { text: string }).text).devices;
+    expect(devices.find((device: { preset: string }) => device.preset === "iphone-16")).toMatchObject({
+      name: "iPhone 16",
+      width: 393,
+      height: 852,
+    });
+    expect(devices.find((device: { preset: string }) => device.preset === "iphone-se")).toMatchObject({
+      name: "iPhone SE",
+      width: 375,
+      height: 667,
+    });
+    expect(host.getState().allGuestInstances).toHaveLength(0);
+    expect(host.getState().cdpPort).toBeUndefined();
+  } finally {
+    host.dispose();
+  }
+});
+
+test("viewport changes stay tab-scoped and native Agent tools use the authenticated thread", async () => {
+  const host = createTestHost();
+  try {
+    await host.openSharedSession({ threadId: "t1", revealUi: false });
+    const first = host.getState().focusedBrowserId!;
+    const guest = createViewportGuest(100);
+    host.registerGuestWebContents(first, guest as never);
+    await host.openSharedSession({ threadId: "t2", revealUi: false });
+    const second = host.getState().focusedBrowserId!;
+    const otherGuest = createViewportGuest(101);
+    host.registerGuestWebContents(second, otherGuest as never);
+    const result = await host.invokeNativeAgentBrowserTool("t1", "agent_browser_set_viewport", {
+      preset: "phone",
+    });
+    const state = host.getState();
+    expect(state.allInstances.find((page) => page.id === first)?.viewport?.width).toBe(390);
+    expect(state.allInstances.find((page) => page.id === second)?.viewport).toBeUndefined();
+    expect(otherGuest.commands).toHaveLength(0);
+    expect(JSON.parse((result!.content[0] as { text: string }).text).metrics.width).toBe(390);
+    expect(
+      guest.commands.find((call) => call.method.endsWith("setDeviceMetricsOverride"))?.params
+        ?.deviceScaleFactor,
+    ).toBe(3);
+    await host.setViewport(first, { preset: "auto" });
+    expect(host.getState().allInstances.find((page) => page.id === first)?.viewport).toBeUndefined();
+  } finally {
+    host.dispose();
+  }
+});
+
+test("concurrent viewport changes are applied in order and failed changes are visible", async () => {
+  const host = createTestHost();
+  try {
+    await host.openSharedSession({ threadId: "t1", revealUi: false });
+    const browserId = host.getState().focusedBrowserId!;
+    const guest = createViewportGuest(102);
+    host.registerGuestWebContents(browserId, guest as never);
+    await Promise.all([
+      host.setViewport(browserId, { preset: "phone" }),
+      host.setViewport(browserId, { preset: "desktop" }),
+    ]);
+    expect(host.getState().instances[0]?.viewport?.width).toBe(1920);
+    const widths = guest.commands
+      .filter((call) => call.method.endsWith("setDeviceMetricsOverride"))
+      .map((call) => call.params?.width);
+    expect(widths).toEqual([390, 1920]);
+    guest.debugger.sendCommand = async () => {
+      throw new Error("Emulation failed");
+    };
+    await expect(host.setViewport(browserId, { preset: "phone" })).rejects.toThrow("Emulation failed");
+    expect(host.getState().instances[0]?.viewportError).toBe("Emulation failed");
+    expect(host.getState().instances[0]?.viewport?.width).toBe(1920);
+  } finally {
+    host.dispose();
+  }
+});
+
+test("web AI pages share storage across threads while ordinary pages keep workspace storage", async () => {
+  const host = createTestHost();
+  try {
+    await host.openSharedSession({ threadId: "a", workspacePath: "/tmp/a", webChatSiteId: "chatgpt" });
+    await host.openSharedSession({ threadId: "b", workspacePath: "/tmp/b", webChatSiteId: "chatgpt" });
+    await host.openSharedSession({ threadId: "b", newBrowser: true });
+    const guests = host.getState().allGuestInstances;
+    expect(guests).toHaveLength(3);
+    expect(guests.filter((guest) => guest.partition.startsWith("persist:eco-web-chat-site-"))).toHaveLength(2);
+    expect(guests.filter((guest) => guest.partition.startsWith("persist:eco-browser-w-"))).toHaveLength(1);
+  } finally {
+    host.dispose();
+  }
+});
+
+
+test("different Chat AI sites keep independent sessions within the same thread", async () => {
+  const host = createTestHost();
+  try {
+    await host.openSharedSession({ threadId: "a", workspacePath: "/tmp/a", webChatSiteId: "chatgpt" });
+    await host.openSharedSession({ threadId: "a", webChatSiteId: "doubao" });
+    const guests = host.getState().allGuestInstances;
+    expect(guests).toHaveLength(2);
+    expect(guests[0]!.partition).not.toBe(guests[1]!.partition);
+  } finally { host.dispose(); }
+});
+
+test("landing pages and partitions are isolated between projects before starting a conversation", async () => {
+  const host = createTestHost();
+  try {
+    const a = await host.openSharedSession({ threadId: null, workspacePath: "/tmp/project-a", url: "https://a.test", revealUi: false });
+    const b = await host.openSharedSession({ threadId: null, workspacePath: "/tmp/project-b", url: "https://b.test", revealUi: false });
+    expect(a.uiScopeId).not.toBe(b.uiScopeId);
+    expect(b.instances.map((page) => page.url)).toEqual(["https://b.test"]);
+    expect(a.guestInstances[0]?.partition).not.toBe(b.guestInstances[0]?.partition);
+    expect(host.setUiScope(null, "/tmp/project-a").instances.map((page) => page.id)).toEqual(a.instances.map((page) => page.id));
+    expect(host.setUiScope(null, "/tmp/project-b").instances.map((page) => page.id)).toEqual(b.instances.map((page) => page.id));
+  } finally { host.dispose(); }
+});
+
+test("stale browser ids cannot focus, navigate or operate another conversation's page", async () => {
+  const host = createTestHost();
+  try {
+    const a = await host.openSharedSession({ threadId: "a", url: "https://a.test", revealUi: false });
+    const id = a.instances[0]!.id;
+    await host.openSharedSession({ threadId: "b", url: "https://b.test", revealUi: false });
+    expect(() => host.focusBrowser(id)).toThrow(/does not belong/);
+    expect(() => host.setVisible(true, id)).toThrow(/does not belong/);
+    expect(() => host.goBack(id)).toThrow(/does not belong/);
+    await expect(host.openSharedSession({ browserId: id, url: "https://wrong.test" })).rejects.toThrow(/does not belong/);
+    expect(host.getState().uiScopeId).toBe("b");
+    expect(host.getState().instances[0]?.url).toBe("https://b.test");
+    expect(host.getState().allInstances.find((page) => page.id === id)?.url).toBe("https://a.test");
+  } finally { host.dispose(); }
+});
+
+test("background Agent tab switches keep the foreground conversation and browser untouched", async () => {
+  const host = createTestHost();
+  try {
+    await host.openSharedSession({ threadId: "a", revealUi: false });
+    const first = host.getState().focusedBrowserId!;
+    host.registerGuestWebContents(first, createViewportGuest(201) as never);
+    await Bun.sleep(2);
+    await host.openSharedSession({ threadId: "a", newBrowser: true, revealUi: false });
+    const second = host.getState().focusedBrowserId!;
+    host.registerGuestWebContents(second, createViewportGuest(202) as never);
+    await host.openSharedSession({ threadId: "b", revealUi: false });
+    const foreground = host.getState().focusedBrowserId;
+    await host.invokeNativeAgentBrowserTool("a", "agent_browser_tab_switch", { tabId: "t1" });
+    expect(host.getState().uiScopeId).toBe("b");
+    expect(host.getState().focusedBrowserId).toBe(foreground);
+    expect(host.getState().revealBrowserId).toBeUndefined();
+    expect(host.setUiScope("a").focusedBrowserId).toBe(first);
+  } finally { host.dispose(); }
+});
+
+test("starting a conversation adopts only that project's landing pages without hijacking another project", async () => {
+  const host = createTestHost();
+  try {
+    const a = await host.openSharedSession({ workspacePath: "/tmp/ws-t1", url: "https://a.test", revealUi: false });
+    const b = await host.openSharedSession({ workspacePath: "/tmp/project-b", url: "https://b.test", revealUi: false });
+    await host.adoptPersonalScopeToThread("t1");
+    expect(host.getState().uiScopeId).toBe(b.uiScopeId);
+    expect(host.getState().instances[0]?.id).toBe(b.instances[0]?.id);
+    expect(host.setUiScope("t1").instances.map((page) => page.id)).toEqual(a.instances.map((page) => page.id));
+    expect(host.setUiScope(null, "/tmp/project-b").instances[0]?.id).toBe(b.instances[0]?.id);
+  } finally { host.dispose(); }
 });

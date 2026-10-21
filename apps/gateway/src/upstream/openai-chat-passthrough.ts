@@ -22,7 +22,7 @@ import type { GatewayUsageEvent, GatewayUsageObserver, ResolvedProviderRoute } f
 import { normalizeChatCompletionsUsage, type ParsedUsage } from "../usage-normalize.js";
 import { fetchUpstreamWithRetry } from "./fetch-with-retry.js";
 import { headersWithLogicalRequestIdentity, readUpstreamRequestId } from "./request-id-headers.js";
-import { upstreamErrorResponse } from "./upstream-error.js";
+import { formatUpstreamHttpError, upstreamErrorResponse } from "./upstream-error.js";
 import { applyUpstreamUserAgent } from "./user-agent.js";
 
 let chatCompletionsUsageSeq = 0;
@@ -105,6 +105,7 @@ export async function forwardOpenAIChatPassthrough(
       },
       lifecycle,
       onLog,
+      httpFailureContext: { route, upstreamUrl },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -131,7 +132,12 @@ export async function forwardOpenAIChatPassthrough(
     const providerRequestId = readUpstreamRequestId(upstreamResponse.headers);
     reportLogicalUpstreamFailure(lifecycle, {
       stage: "http",
-      error: `Upstream returned HTTP ${upstreamResponse.status}`,
+      error: formatUpstreamHttpError({
+        route,
+        upstreamUrl,
+        status: upstreamResponse.status,
+        bodyText: text,
+      }),
       statusCode: upstreamResponse.status,
       ...(providerRequestId ? { providerRequestId } : {}),
     });

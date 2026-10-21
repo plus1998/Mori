@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/eco_types.dart';
 import '../network/eco_center_client.dart';
+import '../network/desktop_rpc.dart';
 import '../services/eco_tts_service.dart';
 import '../storage/credential_store.dart';
 import '../utils/center_server_auth.dart';
@@ -28,6 +29,11 @@ final appForegroundProvider = Provider<bool>((ref) {
   }
 
   final observer = _LifecycleObserver(handleLifecycle);
+  final initialState = WidgetsBinding.instance.lifecycleState;
+  if (initialState != null) {
+    AppLifecycleTracker.update(initialState);
+    foreground = AppLifecycleTracker.isForeground;
+  }
   WidgetsBinding.instance.addObserver(observer);
   ref.onDispose(() => WidgetsBinding.instance.removeObserver(observer));
   return foreground;
@@ -42,7 +48,6 @@ class _LifecycleObserver extends Object with WidgetsBindingObserver {
     _onStateChange(state);
   }
 }
-
 
 final credentialStoreProvider = Provider<CredentialStore>((ref) {
   return CredentialStore();
@@ -81,7 +86,12 @@ final ecoEventsProvider = StreamProvider<EcoEventEnvelope>((ref) {
 final selectedDesktopIdProvider = StateProvider<String?>((ref) => null);
 
 final ecoTtsServiceProvider = ChangeNotifierProvider<EcoTtsService>((ref) {
-  return EcoTtsService();
+  return EcoTtsService(remote: () {
+    final client = ref.read(ecoCenterClientProvider);
+    final id = ref.read(selectedDesktopIdProvider) ?? client.credentials.selectedDesktopId;
+    if (id == null || id.isEmpty) return null;
+    return DesktopRpc(client, id);
+  });
 });
 
 /// Set when credentials expire; [HomeScreen] consumes this to show login UI.

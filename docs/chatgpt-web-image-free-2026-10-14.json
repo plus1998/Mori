@@ -1,0 +1,50 @@
+{
+  "quota": {
+    "source": "chatgpt_image_gen",
+    "status": "available",
+    "fetchedAt": 1791989515296,
+    "remaining": 3,
+    "resetAt": "2026-10-15T14:36:02.203649+00:00"
+  },
+  "artifact": {
+    "id": "d593692b-a9ab-4a53-812c-49e89e15815d",
+    "threadId": "thr_codex_image_smoke",
+    "status": "completed",
+    "prompt": "A simple flat illustration of a blue circle centered on white. No text.",
+    "parameters": {
+      "count": 1,
+      "quality": "low"
+    },
+    "provider": "chatgpt_web",
+    "profileName": "Codex 登录账号",
+    "model": "gpt-image-2",
+    "workspacePath": "/tmp/eco-native-web-free-20261014",
+    "generationRoot": "/tmp/eco-native-web-free-20261014",
+    "images": [
+      {
+        "absolutePath": "/tmp/eco-native-web-free-20261014/.eco/generated-images/thread-12cb4e8d/image-1791989537922-1-dbc9c8bc.png",
+        "relativePath": ".eco/generated-images/thread-12cb4e8d/image-1791989537922-1-dbc9c8bc.png",
+        "mimeType": "image/png",
+        "bytes": 1065105
+      }
+    ],
+    "createdAt": "2026-10-14T14:51:55.314Z",
+    "updatedAt": "2026-10-14T14:52:17.924Z"
+  },
+  "imageValidation": {
+    "format": "PNG",
+    "width": 1254,
+    "height": 1254,
+    "bytes": 1065105
+  },
+  "liveDevVerification": {
+    "profileName": "Free",
+    "provider": "chatgpt_web",
+    "imageGenerationEnabled": true,
+    "composerAvailable": true,
+    "composerChecked": true,
+    "latestRemaining": 2,
+    "imageGenerationsDuringValidation": 3,
+    "screenshot": "/tmp/eco-free-web-composer.png"
+  }
+}

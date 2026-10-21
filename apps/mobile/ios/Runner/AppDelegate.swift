@@ -2,35 +2,29 @@ import Flutter
 import UIKit
 
 @main
-@objc class AppDelegate: FlutterAppDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    GeneratedPluginRegistrant.register(with: self)
-    if let controller = window?.rootViewController as? FlutterViewController {
-      if let liquidGlassRegistrar = registrar(
-        forPlugin: "EcoMobileLiquidGlassActionButton"
-      ) {
-        liquidGlassRegistrar.register(
-          EcoMobileLiquidGlassActionButtonFactory(
-            messenger: controller.binaryMessenger
-          ),
-          withId: "eco_mobile/liquid_glass_action_button"
-        )
-      }
-      if let searchFieldRegistrar = registrar(
-        forPlugin: "EcoMobileIOS26SearchField"
-      ) {
-        searchFieldRegistrar.register(
-          EcoMobileIOS26SearchFieldFactory(
-            messenger: controller.binaryMessenger
-          ),
-          withId: "eco_mobile/ios26_search_field"
-        )
-      }
-    }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  func didInitializeImplicitFlutterEngine(
+    _ engineBridge: FlutterImplicitEngineBridge
+  ) {
+    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+
+    let registrar = engineBridge.applicationRegistrar
+    let messenger = registrar.messenger()
+    registrar.register(
+      EcoMobileLiquidGlassActionButtonFactory(messenger: messenger),
+      withId: "eco_mobile/liquid_glass_action_button"
+    )
+    registrar.register(
+      EcoMobileIOS26SearchFieldFactory(messenger: messenger),
+      withId: "eco_mobile/ios26_search_field"
+    )
   }
 }
 

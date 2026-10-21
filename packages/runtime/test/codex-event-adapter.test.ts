@@ -784,7 +784,16 @@ test("dispatch emits api.error when turn/completed status is failed", () => {
         id: "turn_fail_001",
         items: [],
         status: "failed",
-        error: { message: "Model provider eco_custom not found" },
+        error: {
+          message: "Model provider eco_custom not found",
+          code: "provider_error",
+          param: "model_provider",
+          codexErrorInfo: {
+            type: "http_connection_failed",
+            httpStatusCode: 503,
+          },
+          additionalDetails: "The provider process exited.",
+        },
       },
     });
   });
@@ -793,6 +802,25 @@ test("dispatch emits api.error when turn/completed status is failed", () => {
   expect(events[1]?.message).toBe("Model provider eco_custom not found");
   expect(events[1]?.metadata?.apiError).toEqual({
     message: "Model provider eco_custom not found",
+    code: "provider_error",
+    param: "model_provider",
+    codexErrorInfo: {
+      type: "http_connection_failed",
+      httpStatusCode: 503,
+    },
+    additionalDetails: "The provider process exited.",
+    rawTurnError: {
+      message: "Model provider eco_custom not found",
+      code: "provider_error",
+      param: "model_provider",
+      codexErrorInfo: {
+        type: "http_connection_failed",
+        httpStatusCode: 503,
+      },
+      additionalDetails: "The provider process exited.",
+    },
+    codexThreadId: "thr_codex_fixture_001",
+    turnId: "turn_fail_001",
   });
 });
 
@@ -2185,7 +2213,7 @@ test("ignores self-parent subAgentActivity so planner thinking stays on main sco
         }
         return {
           ecoThreadId: ECO_THREAD,
-          billingRole: "planner",
+          billingRole: "main",
         };
       },
     });
@@ -2724,6 +2752,7 @@ test("dispatch maps commandExecution lifecycle to tool.started and tool.complete
       item: {
         type: "commandExecution",
         id: "item_bash_001",
+        processId: "process-bash-001",
         command: "git status",
         cwd: "/repo",
         commandActions: [{ type: "listFiles", command: "git status", path: "/repo" }],
@@ -2736,6 +2765,7 @@ test("dispatch maps commandExecution lifecycle to tool.started and tool.complete
       item: {
         type: "commandExecution",
         id: "item_bash_001",
+        processId: "process-bash-001",
         command: "git status",
         commandActions: [{ type: "listFiles", command: "git status", path: "/repo" }],
         status: "completed",
@@ -2753,6 +2783,7 @@ test("dispatch maps commandExecution lifecycle to tool.started and tool.complete
     detail: "git status",
     description: "列出文件 · /repo",
     toolUseId: "item_bash_001",
+    processId: "process-bash-001",
     status: "started",
   });
   expect(events[1]?.metadata?.tool).toMatchObject({
@@ -2760,6 +2791,7 @@ test("dispatch maps commandExecution lifecycle to tool.started and tool.complete
     detail: "git status",
     description: "列出文件 · /repo",
     toolUseId: "item_bash_001",
+    processId: "process-bash-001",
     status: "completed",
     exitCode: 0,
     durationMs: 12,
@@ -2905,7 +2937,7 @@ test("dispatch maps plan item completed to thread.status plan.ready", () => {
 
   expect(events).toHaveLength(1);
   expect(events[0]?.eventType).toBe("thread.status");
-  expect(events[0]?.role).toBe("planner");
+  expect(events[0]?.role).toBe("main");
   expect(events[0]?.message).toBe("计划已生成，等待确认。");
   expect(events[0]?.metadata?.liveType).toBe("plan.ready");
   expect(events[0]?.metadata?.plan).toEqual({

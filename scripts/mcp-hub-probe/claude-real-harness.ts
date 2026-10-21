@@ -200,7 +200,7 @@ export async function runClaudeRealProbe(mode: Mode): Promise<Record<string, unk
     prompt: `deterministic ${mode} probe`,
     workspacePath: process.cwd(),
     worktreePath: process.cwd(),
-    routes: [{ role: "planner", primary: {
+    routes: [{ role: "main", primary: {
       id: "local-probe",
       provider: "anthropic",
       displayName: "local-probe",

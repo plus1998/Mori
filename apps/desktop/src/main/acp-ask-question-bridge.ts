@@ -199,7 +199,7 @@ export function createAcpAskQuestionHandler(
     deps.updateThreadRunning();
     // Park before UI emit so submit cannot race an empty pending map.
     const answersPromise = registerPending(threadId, mapped.request.toolUseId, mapped.request.questions);
-    deps.emit("clarification.requested", "Planner 需要你回答几个问题。", mapped.request, "started");
+    deps.emit("clarification.requested", "主代理需要你回答几个问题。", mapped.request, "started");
 
     try {
       const answers = await answersPromise;

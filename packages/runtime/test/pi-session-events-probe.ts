@@ -21,12 +21,15 @@ export interface ScriptedTurn {
   /** Tool call for this turn, or a text answer when `text` is set. */
   tool?: string;
   input?: Record<string, unknown>;
+  rawArguments?: string;
   id?: string;
   text?: string;
 }
 
 export interface ProbeSessionOptions {
   signal?: AbortSignal;
+  /** Observe a running session without aborting its outer request signal. */
+  onEvent?: (event: AgentEvent, abort: () => Promise<void>) => void;
   workspace: string;
   agentDir: string;
   threadId: string;
@@ -34,6 +37,7 @@ export interface ProbeSessionOptions {
   mcpServers?: Record<string, unknown>;
   /** Resume an existing conversation JSONL instead of starting a fresh session. */
   sessionFile?: string;
+  promptActivityLineId?: string;
   sessionMode?: "agent" | "ask" | "plan";
   mcpStartupWaitMs?: number;
   /** Explicit, scripted tool allowlist for the session. */
@@ -59,7 +63,7 @@ export interface ProbeSessionResult {
   /** Turns the model actually served (a runaway loop shows up as a high count). */
   turnCount: number;
   dispose: () => Promise<void>;
-  runAgain: (mcpServers?: Record<string, unknown>) => Promise<AgentEvent[]>;
+  runAgain: (mcpServers?: Record<string, unknown>, promptActivityLineId?: string) => Promise<AgentEvent[]>;
 }
 
 function sse(res: http.ServerResponse, payload: ScriptedTurn, options?: ProbeSessionOptions): void {
@@ -92,7 +96,10 @@ function sse(res: http.ServerResponse, payload: ScriptedTurn, options?: ProbeSes
         },
       },
     ],
-    ["content_block_start", { type: "content_block_start", index: 0, content_block: block }],
+    [
+      "content_block_start",
+      { type: "content_block_start", index: 0, content_block: isText ? { type: "text", text: "" } : block },
+    ],
     [
       "content_block_delta",
       {
@@ -100,7 +107,10 @@ function sse(res: http.ServerResponse, payload: ScriptedTurn, options?: ProbeSes
         index: 0,
         delta: isText
           ? { type: "text_delta", text: payload.text }
-          : { type: "input_json_delta", partial_json: JSON.stringify(payload.input ?? {}) },
+          : {
+              type: "input_json_delta",
+              partial_json: payload.rawArguments ?? JSON.stringify(payload.input ?? {}),
+            },
       },
     ],
     ["content_block_stop", { type: "content_block_stop", index: 0 }],
@@ -225,7 +235,7 @@ export async function runScriptedPiSession(options: ProbeSessionOptions): Promis
     worktreePath: options.workspace,
     routes: [
       {
-        role: "planner" as const,
+        role: "main" as const,
         primary: {
           id: "probe",
           provider: "anthropic",
@@ -240,6 +250,7 @@ export async function runScriptedPiSession(options: ProbeSessionOptions): Promis
     ],
     signal: options.signal ?? new AbortController().signal,
     piSession: {
+      ...(options.promptActivityLineId ? { promptActivityLineId: options.promptActivityLineId } : {}),
       sessionMode: options.sessionMode ?? "agent",
       ...(options.mcpServers ? { mcpServers: options.mcpServers } : {}),
       ...(options.sessionFile ? { sessionFile: options.sessionFile } : {}),
@@ -248,7 +259,18 @@ export async function runScriptedPiSession(options: ProbeSessionOptions): Promis
   };
 
   const events: AgentEvent[] = [];
-  for await (const event of driver.run(input)) events.push(event);
+  try {
+    for await (const event of driver.run(input)) {
+      events.push(event);
+      options.onEvent?.(event, () => registry.abort(options.threadId));
+    }
+  } catch (error) {
+    await registry.deleteThread(options.threadId);
+    await new Promise<void>((resolve, reject) =>
+      server.close((failure) => (failure ? reject(failure) : resolve())),
+    );
+    throw error;
+  }
   let disposal: Promise<void> | undefined;
   return {
     events,
@@ -256,11 +278,15 @@ export async function runScriptedPiSession(options: ProbeSessionOptions): Promis
     get turnCount() {
       return turnCount;
     },
-    runAgain: async (mcpServers) => {
+    runAgain: async (mcpServers, promptActivityLineId) => {
       const next: AgentEvent[] = [];
       for await (const event of driver.run({
         ...input,
-        piSession: { ...input.piSession, ...(mcpServers ? { mcpServers } : {}) },
+        piSession: {
+          ...input.piSession,
+          ...(mcpServers ? { mcpServers } : {}),
+          ...(promptActivityLineId ? { promptActivityLineId } : {}),
+        },
       }))
         next.push(event);
       return next;

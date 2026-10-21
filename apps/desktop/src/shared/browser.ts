@@ -1,3 +1,4 @@
+import type { BrowserViewport } from "./browser-viewport";
 import { buildEcoMcpHubToolUsage, mergeEcoMcpHubPromptParts } from "./mcp-hub-tool-usage";
 
 /** Built-in Eco browser MCP server name (must stay sanitizable for MCP tool prefixes). */
@@ -10,6 +11,18 @@ export const ECO_AGENT_BROWSER_SKILL_NAME = "eco-agent-browser";
 
 /** Scope id when the user browses without an active Eco thread (not injectable to Agent). */
 export const ECO_BROWSER_PERSONAL_SCOPE_ID = "__personal__";
+
+/** Landing pages belong to one project even before a conversation exists. */
+export function browserPersonalScopeId(workspacePath?: string | null): string {
+  const workspace = workspacePath?.trim();
+  return workspace
+    ? `${ECO_BROWSER_PERSONAL_SCOPE_ID}:${partitionForBrowserWorkspace(workspace)}`
+    : ECO_BROWSER_PERSONAL_SCOPE_ID;
+}
+
+export function isPersonalBrowserScopeId(scopeId: string): boolean {
+  return scopeId === ECO_BROWSER_PERSONAL_SCOPE_ID || scopeId.startsWith(`${ECO_BROWSER_PERSONAL_SCOPE_ID}:`);
+}
 
 export const BROWSER_TASK_TAB_PREFIX = "browser:";
 
@@ -172,6 +185,9 @@ export interface BrowserLoadError {
 }
 
 export interface BrowserInstanceView {
+  /** Fixed CSS viewport, independently scaled to fit the panel; absent means auto. */
+  viewport?: BrowserViewport;
+  viewportError?: string;
   id: string;
   threadId: string;
   /** Electron session partition for the renderer `<webview>` tag. */
@@ -187,6 +203,8 @@ export interface BrowserInstanceView {
   focused: boolean;
   source: BrowserInstanceSource;
   createdAt: number;
+  /** Downloads retained by this tab; paths are only exposed after file-access review. */
+  downloads?: import("./browser-downloads").BrowserDownload[];
 }
 
 /** Renderer `<webview>` guest for every logical browser (includes hidden CDP warmup shells). */
@@ -217,6 +235,8 @@ export interface BrowserViewState {
   uiScopeId: string;
   /** Task-panel / human-visible tabs only. */
   instances: BrowserInstanceView[];
+  /** Human-visible pages across every conversation and the personal scope. */
+  allInstances: BrowserInstanceView[];
   /** All logical browsers in {@link uiScopeId} needing a renderer webview guest. */
   guestInstances: BrowserGuestInstanceView[];
   /** All browsers across every thread scope — persistent webview layer uses this. */
@@ -262,6 +282,7 @@ export interface BrowserNavigateRequest {
 }
 
 export interface BrowserOpenRequest {
+  webChatSiteId?: string;
   url?: string;
   /** Inline HTML opened as a temp preview page when too large for a data URL. */
   htmlContent?: string;
@@ -295,6 +316,7 @@ export interface BrowserSetVisibleRequest {
 
 export interface BrowserSetUiScopeRequest {
   threadId: string | null;
+  workspacePath?: string;
 }
 
 export function browserTaskTabId(browserId: string): string {
@@ -346,11 +368,13 @@ export function resolveBrowserScopePartition(
   options?: { workspacePath?: string | null },
 ): string {
   const workspacePath = options?.workspacePath?.trim();
-  if (scopeId === ECO_BROWSER_PERSONAL_SCOPE_ID) {
+  if (isPersonalBrowserScopeId(scopeId)) {
     if (workspacePath) {
       return partitionForBrowserWorkspace(workspacePath);
     }
-    return partitionForBrowserWorkspace(ECO_BROWSER_PERSONAL_SCOPE_ID);
+    if (scopeId === ECO_BROWSER_PERSONAL_SCOPE_ID) {
+      return partitionForBrowserWorkspace(ECO_BROWSER_PERSONAL_SCOPE_ID);
+    }
   }
   if (!workspacePath) {
     throw new Error(`无法解析会话 workspacePath（scope=${scopeId}），无法使用 workspace 级浏览器存储分区。`);

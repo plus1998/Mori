@@ -4,6 +4,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/app_providers.dart';
+import '../models/eco_types.dart';
+import '../services/eco_tts_service.dart';
 
 /// Stops TTS when the app leaves the foreground so playback cannot resume later.
 class TtsLifecycleBinder extends ConsumerStatefulWidget {
@@ -43,5 +45,16 @@ class _TtsLifecycleBinderState extends ConsumerState<TtsLifecycleBinder>
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) {
+    ref.listen(connectionStatusProvider, (previous, next) {
+      if (next.valueOrNull?.state != EcoConnectionState.connected &&
+          ref.read(ecoTtsServiceProvider).engine == TtsEngine.online) {
+        unawaited(ref.read(ecoTtsServiceProvider).connectionLost());
+      }
+    });
+    ref.listen(selectedDesktopIdProvider, (previous, next) {
+      if (previous != next) unawaited(ref.read(ecoTtsServiceProvider).stop());
+    });
+    return widget.child;
+  }
 }

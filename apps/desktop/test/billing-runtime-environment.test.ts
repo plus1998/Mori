@@ -26,7 +26,7 @@ const provider: ProviderConfigSecret = {
 
 const runtimeRoutes: RuntimeRoute[] = [
   {
-    role: "planner",
+    role: "main",
     provider,
     modelId: "sonnet",
     apiCompat: "anthropic",

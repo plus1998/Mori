@@ -76,9 +76,9 @@ API Key 会通过系统安全存储保存。系统安全存储不可用时，Eco
 
 保存后选择一个候选模型执行“连通性测试”。测试通过只说明当前地址、协议、密钥和模型可以完成测试请求，不代表该模型支持所有工具、视觉或长上下文能力。
 
-## 4. 选择 Agent Core
+## 4. 选择 Harness
 
-Eco Coding 支持三种 Core：
+Eco Coding 支持三种 Harness：
 
 - **Codex**：使用 OpenAI Codex runtime。
 - **Claude Code**：使用 Claude Agent SDK / Claude Code runtime。
@@ -86,7 +86,7 @@ Eco Coding 支持三种 Core：
 
 运行中跟进（steer）：PI 会话运行期间发送的后续消息会经 `AgentSession.steer()` 注入当前回合（在下一个模型调用前投递）；会话空闲或当前 run 刚好结束时保持排队，run 结束后作为新一轮发送，不会假装已注入。
 
-可以在设置中指定新会话默认 Core，也可以为具体会话选择。Core 切换会改变原生工具、审批和会话恢复语义；已经运行的会话不会因为修改全局默认值而自动切换。
+可以在设置中指定新会话默认 Harness，也可以为具体会话选择。Harness 切换会改变原生工具、审批和会话恢复语义；已经运行的会话不会因为修改全局默认值而自动切换。
 
 ## 5. 创建 Agent Team
 
@@ -98,7 +98,7 @@ Eco Coding 支持三种 Core：
 
 ### 主提示词
 
-默认建议“跟随 Core 内置提示词”。只有确实需要补充团队规范或行为约束时，再创建自定义追加提示词。项目编码规则优先写入仓库的 `AGENTS.md`、`CLAUDE.md` 等项目文件。
+默认建议“跟随 Harness 内置提示词”。只有确实需要补充团队规范或行为约束时，再创建自定义追加提示词。项目编码规则优先写入仓库的 `AGENTS.md`、`CLAUDE.md` 等项目文件。
 
 ### 子代理编排
 
@@ -145,7 +145,7 @@ Eco Coding 支持三种 Core：
 
 Composer 可以为当前会话选择：
 
-- Agent Core 与运行配置
+- Harness 与运行配置
 - 主模型、辅助/视觉模型
 - MCP Servers 和 Skills
 - 内置浏览器、创意绘画等集成
@@ -176,9 +176,9 @@ Eco 扫描当前项目中的：
 .pi/skills/<name>/SKILL.md
 ```
 
-也可以从 Skills 界面浏览和安装兼容 Skill。项目 Skill 默认属于当前项目；个人 Skill 需要显式选择。不同 Core 对目录和 Skill 能力的支持可能不同，界面会显示需要链接或不可用的状态。
+也可以从 Skills 界面浏览和安装兼容 Skill。项目 Skill 默认属于当前项目；个人 Skill 需要显式选择。不同 Harness 对目录和 Skill 能力的支持可能不同，界面会显示需要链接或不可用的状态。
 
-PI Core 额外支持会话私有 Skills 目录（`pi-agent/<threadId>/skills`），以及用户级 `~/.pi/agent/skills`。会话 transcript 落在同线程的 `pi-agent/<threadId>/sessions/`，可在设置 → 存储中计量与清理；「全部 PI 会话」会删除对应 Eco 对话（侧边栏消失），不只清磁盘文件。会话开关控制的是注入可见性；共享工作区内的 skill 文件仍可能被带 `read`/`bash` 的会话读到，不是 OS 级隔离。
+PI Harness 额外支持会话私有 Skills 目录（`pi-agent/<threadId>/skills`），以及用户级 `~/.pi/agent/skills`。会话 transcript 落在同线程的 `pi-agent/<threadId>/sessions/`，可在设置 → 存储中计量与清理；「全部 PI 会话」会删除对应 Eco 对话（侧边栏消失），不只清磁盘文件。会话开关控制的是注入可见性；共享工作区内的 skill 文件仍可能被带 `read`/`bash` 的会话读到，不是 OS 级隔离。
 
 ## 8. 视觉、创意绘画与 ASR
 
@@ -225,6 +225,7 @@ PI Core 额外支持会话私有 Skills 目录（`pi-agent/<threadId>/skills`）
 
 - 云托管：[supabase-deploy.md](supabase-deploy.md)
 - 自托管 Docker：[supabase-self-host.md](supabase-self-host.md)
+- 火山引擎 Supabase（实验性手工部署）：[supabase-volcengine.md](supabase-volcengine.md)
 
 云托管摘要：
 
@@ -338,7 +339,7 @@ bun run pack
 提交 Issue 时请提供：
 
 - Eco Coding 版本和操作系统
-- Agent Core、Provider 协议和 Model ID（删除 API Key）
+- Harness、Provider 协议和 Model ID（删除 API Key）
 - 可复现步骤
 - 相关错误文本和日志片段
 - 是否可以在新会话或最小项目中复现

@@ -140,7 +140,7 @@ test("dynamic budget recounts growing inputs, including final converted tools", 
       ]);
       counted.push(body);
       return {
-        tokens: counted.length === 1 ? 100 : 32_667,
+        tokens: counted.length === 1 ? 100 : 31_644,
         precision: "provider_exact",
         source: "test:input",
       };
@@ -179,7 +179,7 @@ test("dynamic budget recounts growing inputs, including final converted tools", 
     expect(response.status).toBe(200);
     await response.text();
   }
-  expect(sent.map((body) => body.max_tokens)).toEqual([32_667, 100]);
+  expect(sent.map((body) => body.max_tokens)).toEqual([31_644, 100]);
   expect(counted.every((body) => body.system === "System instructions")).toBe(true);
 });
 
@@ -200,7 +200,7 @@ test("dynamic rejects exhausted windows and counter failures without sending gen
     generations++;
     return Response.json({});
   };
-  for (const tokens of [32_767, 32_768, -1, NaN, 0.5]) {
+  for (const tokens of [31_744, 32_767, 32_768, -1, NaN, 0.5]) {
     const budgeted = withDynamicOutputBudget(
       fetcher,
       route,
@@ -220,7 +220,7 @@ test("dynamic rejects exhausted windows and counter failures without sending gen
     expect(response.status).toBe(400);
     const error = await response.json();
     expect(error.error.code).toBe(
-      tokens >= 32_767 ? "context_length_exceeded" : "dynamic_output_budget_error",
+      tokens >= 31_744 ? "context_length_exceeded" : "dynamic_output_budget_error",
     );
   }
   for (const countInputTokens of [
@@ -319,10 +319,10 @@ test("dynamic recounts the rectified thinking payload before retry", async () =>
   );
   expect(response.status).toBe(200);
   expect(counts).toEqual([1_000, 100]);
-  expect(outputs).toEqual([31_767, 32_667]);
+  expect(outputs).toEqual([30_744, 31_644]);
 });
 
-test("dynamic permits one output token but refuses insufficient thinking space and unsupported subscription limits", async () => {
+test("dynamic permits one output token, refuses insufficient thinking space, and bypasses subscription limits", async () => {
   const provider: GatewayProvider = {
     id: "d",
     name: "D",
@@ -340,19 +340,25 @@ test("dynamic permits one output token but refuses insufficient thinking space a
     upstreamModelId: "m",
   };
   let generations = 0;
+  const dynamicConfig: GatewayConfig = {
+    host: "127.0.0.1",
+    port: 0,
+    providers: [provider],
+    countInputTokens: async () => ({ tokens: 31_743, precision: "provider_exact", source: "test" }),
+  };
   const fetcher = withDynamicOutputBudget(
     async (_url, init) => {
       generations++;
-      expect(JSON.parse(String(init?.body)).max_tokens).toBe(1);
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      if (provider.authMethod === "chatgpt_subscription") {
+        expect(body).not.toHaveProperty("max_tokens");
+      } else {
+        expect(body.max_tokens).toBe(1);
+      }
       return Response.json({});
     },
     route,
-    {
-      host: "127.0.0.1",
-      port: 0,
-      providers: [provider],
-      countInputTokens: async () => ({ tokens: 32_766, precision: "provider_exact", source: "test" }),
-    },
+    dynamicConfig,
     new AbortController().signal,
     () => {},
   );
@@ -371,13 +377,24 @@ test("dynamic permits one output token but refuses insufficient thinking space a
   expect(thinking.status).toBe(400);
   expect((await thinking.json()).error.code).toBe("context_length_exceeded");
   provider.authMethod = "chatgpt_subscription";
-  const subscription = await fetcher("https://example.test/v1/messages", {
+  const subscriptionFetcher = withDynamicOutputBudget(
+    async (_url, init) => {
+      generations++;
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body).not.toHaveProperty("max_tokens");
+      return Response.json({});
+    },
+    route,
+    dynamicConfig,
+    new AbortController().signal,
+    () => {},
+  );
+  const subscription = await subscriptionFetcher("https://example.test/v1/messages", {
     method: "POST",
     body: JSON.stringify({ model: "m", messages: [] }),
   });
-  expect(subscription.status).toBe(400);
-  expect((await subscription.json()).error.message).toContain("cannot be enforced");
-  expect(generations).toBe(1);
+  expect(subscription.status).toBe(200);
+  expect(generations).toBe(2);
 });
 
 for (const [kind, field] of [
@@ -433,11 +450,76 @@ for (const [kind, field] of [
       method: "POST",
       body: JSON.stringify({ model: "m", [field]: 32_000 }),
     });
-    tokens = 199_899;
+    tokens = 198_876;
     await fetcher("https://example.test/request", {
       method: "POST",
       body: JSON.stringify({ model: "m", [field]: 32_000 }),
     });
     expect(observed).toEqual([64_000, 64_000, 4_096, 100]);
   });
+
+  for (const [scenario, window, tokens, precision, output, reserve] of [
+    ["production context underestimate", 1_000_000, 742_940, "heuristic", 157_060, 100_000],
+    ["minimum heuristic reserve", 32_768, 10_000, "heuristic", 14_576, 8_192],
+    ["rounded heuristic reserve", 100_001, 1_000, "heuristic", 89_000, 10_001],
+    ["provider exact reserve", 32_768, 10_000, "provider_exact", 21_744, 1_024],
+    ["tokenizer exact reserve", 32_768, 10_000, "tokenizer_exact", 21_744, 1_024],
+    ["exhausted heuristic reserve", 1_000_000, 900_000, "heuristic", 0, 100_000],
+    ["exhausted minimum reserve", 32_768, 24_576, "heuristic", 0, 8_192],
+  ] as const) {
+    test(`dynamic ${kind}/${field} handles ${scenario}`, async () => {
+      const provider: GatewayProvider = {
+        id: "d",
+        name: "D",
+        upstreamKind: kind,
+        baseUrl: "https://example.test",
+        apiKey: "test",
+        upstreamModelId: "m",
+        models: ["m"],
+        modelMaxOutputTokens: { m: 384_000 },
+        modelContextTokens: { m: 1_000_000 },
+      };
+      const route = { provider, upstreamKind: kind, requestedModel: "m", upstreamModelId: "m" };
+      const sent: Record<string, unknown>[] = [];
+      const logs: string[] = [];
+      const fetcher = withDynamicOutputBudget(
+        async (_url, init) => {
+          sent.push(JSON.parse(String(init?.body)));
+          return Response.json({});
+        },
+        route,
+        {
+          host: "127.0.0.1",
+          port: 0,
+          providers: [provider],
+          resolveModelLimits: async () => ({ contextTokens: window }),
+          countInputTokens: async () => ({ tokens, precision, source: "test:input" }),
+        },
+        new AbortController().signal,
+        (message) => logs.push(message),
+      );
+      const response = await fetcher("https://example.test/request", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "m",
+          [field]: 32_000,
+          ...(field === "max_completion_tokens" && { max_tokens: 32_000 }),
+        }),
+      });
+      if (output === 0) {
+        expect(response.status).toBe(400);
+        const error = (await response.json()).error;
+        expect(error.code).toBe("context_length_exceeded");
+        expect(error.message).toContain(`reserve=${reserve}`);
+        expect(sent).toHaveLength(0);
+      } else {
+        expect(response.status).toBe(200);
+        expect(sent).toHaveLength(1);
+        expect(sent[0]?.[field]).toBe(output);
+        if (field === "max_completion_tokens") expect(sent[0]?.max_tokens).toBe(output);
+        expect(logs).toHaveLength(1);
+        expect(logs[0]).toContain(`reserve=${reserve}`);
+      }
+    });
+  }
 }

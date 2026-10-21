@@ -1078,7 +1078,9 @@ test("maintenance cutover fails closed on corrupt V1 attempt metadata and keeps 
     );
     const [stderr, code] = await Promise.all([new Response(command.stderr).text(), command.exited]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("invalid_attempt_metadata:attempt_corrupt");
+    const failure = JSON.parse(stderr);
+    expect(failure.code).toBe("migration_incomplete");
+    expect(failure.data.conflicts).toContain("invalid_attempt_metadata:attempt_corrupt");
     await access(backup);
 
     // A failed migration may leave a WAL sidecar that a read-only SQLite

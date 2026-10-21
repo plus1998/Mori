@@ -54,7 +54,7 @@ test("resolveSdkEventUsageBilling builds assistant subagent billing input", () =
   const resolved = resolveSdkEventUsageBilling({
     threadId: "thr_sdk",
     event: event({
-      role: "planner",
+      role: "main",
       payload: {
         messageId: "msg_1",
         model: "haiku",
@@ -105,7 +105,7 @@ test("resolveSdkEventUsageBilling builds assistant billing input for dynamic sub
   const resolved = resolveSdkEventUsageBilling({
     threadId: "thr_sdk",
     event: event({
-      role: "planner",
+      role: "main",
       payload: {
         messageId: "msg_dynamic_1",
         model: "haiku",
@@ -143,7 +143,7 @@ test("resolveSdkEventUsageBilling skips assistant fallback when authoritative ob
   const resolved = resolveSdkEventUsageBilling({
     threadId: "thr_sdk",
     event: event({
-      role: "planner",
+      role: "main",
       payload: {
         messageId: "msg_1",
         model: "haiku",

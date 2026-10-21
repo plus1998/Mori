@@ -16,6 +16,7 @@ Eco **无官方节点**。客户端只要 **Project URL + anon key**（禁止 `s
 | --- | --- | --- |
 | Cloud | [docs/supabase-deploy.md](../../../docs/supabase-deploy.md) | `bun run supabase:deploy -- --platform cloud --project-ref <ref>` |
 | **自托管** | [docs/supabase-self-host.md](../../../docs/supabase-self-host.md) | `bun run supabase:deploy -- --platform self-host --compose-dir <dir>` |
+| **火山引擎 Supabase（实验性）** | [docs/supabase-volcengine.md](../../../docs/supabase-volcengine.md) | 使用 `byted-supabase-cli` 手工应用 migration 与函数 |
 | 本机开发 | supabase-deploy.md「本地开发」 | `npx supabase start` |
 
 Schema / 函数：[supabase/](../../../supabase/)  
@@ -23,12 +24,15 @@ Schema / 函数：[supabase/](../../../supabase/)
 
 **桌面 Cloud 一键入口：** 设置 → 互联 → 部署 TAB → Supabase Cloud 部署。“当前互联” TAB 展示现有连接与状态。使用账号 Personal Access Token 获取项目，自动识别首次部署／更新／已是最新；不要求 CLI、Docker 或数据库密码。应用内仅支持官方 Cloud，自托管继续使用下方命令行流程。详见部署文档「桌面一键部署／更新」。
 
+**火山引擎 Supabase 不属于 Cloud 或自托管脚本支持范围。** 它使用独立的 Workspace/Branch 和 `byted-supabase-cli`；不要对其运行官方 `supabase link` / `db push`，也不要宣称桌面一键部署支持。按 [supabase-volcengine.md](../../../docs/supabase-volcengine.md) 手工部署，并明确标记为实验性接入。
+
 **后端版本：** 独立维护 `supabase/deployment.json` 的 `backendVersion`（SemVer）与 `apiVersion`（接口契约）。后端资源变更需要发布后端版本；破坏接口兼容时递增接口版本并同步客户端支持声明。桌面版本只记录部署来源，不能用于判断后端更新或接口兼容。不要修改已发布迁移，也不要手写未经部署器验证的成功版本记录。
 
 ## 何时用本 Skill
 
 - 「帮我初始化 / 部署 Supabase」
 - 「自建 / 自托管 / Docker / VPS 上的 Supabase」
+- 「火山引擎 Supabase / AIDAP Workspace」
 - 「migration 怎么更新 / db push / self-host apply」
 - 「部署 Edge Functions」
 - 「HTML 托管 / Artifacts / Custom Domain」

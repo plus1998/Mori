@@ -4,7 +4,7 @@ import type { GatewayAgentCore } from "../types.js";
 export const DEFAULT_UPSTREAM_USER_AGENT = "Eco-Coding/0.0.0";
 
 /**
- * Agent core that issued the request, stamped by the desktop bridge
+ * Harness that issued the request, stamped by the desktop bridge
  * (`x-eco-agent-core`). PI stamps itself; the bridge fills the default per face.
  */
 export const GATEWAY_AGENT_CORE_HEADER = "x-eco-agent-core";
@@ -15,7 +15,7 @@ export function isGatewayAgentCore(value: string | undefined): value is GatewayA
   return value !== undefined && (GATEWAY_AGENT_CORES as readonly string[]).includes(value);
 }
 
-/** Read the stamped agent core; unknown or missing values return undefined. */
+/** Read the stamped Harness; unknown or missing values return undefined. */
 export function readGatewayAgentCore(clientHeaders: Headers): GatewayAgentCore | undefined {
   const raw = clientHeaders.get(GATEWAY_AGENT_CORE_HEADER)?.trim().toLowerCase();
   return isGatewayAgentCore(raw) ? raw : undefined;
@@ -24,7 +24,7 @@ export function readGatewayAgentCore(clientHeaders: Headers): GatewayAgentCore |
 export interface UpstreamUserAgentPolicy {
   /** Global override from Proxy Bridge settings. */
   override?: string | undefined;
-  /** Per agent core overrides (Codex / Claude Code / PI). */
+  /** Per Harness overrides (Codex / Claude Code / PI). */
   byCore?: Partial<Record<GatewayAgentCore, string>> | undefined;
   /** Last resort when neither override applies and the client sent no UA. */
   fallback?: string | undefined;

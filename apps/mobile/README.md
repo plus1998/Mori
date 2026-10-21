@@ -11,6 +11,8 @@ Flutter 远程客户端，通过用户自建的 **Supabase Center** 操控已绑
 - Plan / Bash / Clarification 审批
 - Plan Mode、Bash Review、Agent Profile 运行时配置
 - Workflow 全局 Plan Mode 开关
+- 输入框「+」定时发送消息，会话更多菜单查看和管理定时消息
+- 会话列表时钟入口新增、编辑、暂停、启用、删除或立即执行定时任务，查看执行记录并打开运行会话；支持一次性、固定间隔和 Cron，执行仍由保持运行且唤醒的电脑完成
 
 ## 前置条件
 
@@ -82,6 +84,12 @@ Supabase  →  Eco Desktop (local execution)
 ```
 
 执行仍在 Desktop 本地完成；Mobile 只做远程操控。
+
+## 流式 Markdown
+
+长回复按 Markdown 顶层块增量渲染：已确定边界的段落复用组件和解析结果，只处理活动尾部。列表、引用、代码块和表格保持结构完整；后续引用链接定义变化时，只使含链接候选的已完成块失效。最后一行未完成时保留前一个块，防止标题、列表和表格被过早拆分。脚注有全文编号和回链依赖，从首个可能的脚注引用或定义开始保留为同一个活动范围；单个超长块仍按整块更新。流式结束后使用完整消息渲染。
+
+本机 Flutter widget 基准使用 80 段正文，交替测量全文更新与增量更新，每轮追加 24 次，共 4 轮。每次更新耗时的轮次中位数约为 18.0 ms → 4.4 ms；新建 MarkdownBody 的文本量约为 5,594 → 86 个字符。该结果来自测试环境，包含组件更新和观测开销，不代表手机帧耗时或功耗。升级 `markdown` 或 `flutter_markdown` 后需运行 `incremental_markdown_test.dart` 和 `streaming_eco_markdown_test.dart`，检查逐字解析一致性、跨段链接、缓存复用和流式结束前后的排版。
 
 ## 测试
 

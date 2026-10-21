@@ -697,7 +697,7 @@ async function runClaudeProbe(hub: RunningHub, token: string) {
       worktreePath: process.cwd(),
       routes: [
         {
-          role: "planner",
+          role: "main",
           primary: {
             id: "probe",
             provider: "anthropic",
@@ -972,15 +972,14 @@ async function main() {
       versions: {
         node: process.version,
         bun: process.versions.bun ?? "unknown",
-        ecoDesktop: "0.1.0-beta.12",
-        claudeAgentSdk: "0.3.289",
-        claudeAgentSdkRootResolverObserved: "0.3.223 (not used by real Claude harness)",
+        ecoDesktop: JSON.parse(readFileSync(path.join(repoRoot, "apps/desktop/package.json"), "utf8")).version,
+        claudeAgentSdk: JSON.parse(readFileSync(path.join(repoRoot, "packages/runtime/node_modules/@anthropic-ai/claude-agent-sdk/package.json"), "utf8")).version,
         codexDependency: readCodexDependencyPins(
           JSON.parse(readFileSync(path.join(repoRoot, "apps/desktop/package.json"), "utf8")),
         ).version,
         codexCliHarness: readCodexCliVersion(codexHarnessExecutable) ?? "not installed",
-        piCodingAgent: "1.0.3",
-        piMcpExtension: "official MCP extension (@earendil-works/pi-coding-agent 1.0.3, createMcpExtension)",
+        piCodingAgent: JSON.parse(readFileSync(path.join(repoRoot, "packages/runtime/node_modules/@earendil-works/pi-coding-agent/package.json"), "utf8")).version,
+        piMcpExtension: "official MCP extension (createMcpExtension)",
         acpAgent: "fake-acp-agent probe v0.1.0 (Cursor ACP 未验证)",
       },
       hub: hubResult,

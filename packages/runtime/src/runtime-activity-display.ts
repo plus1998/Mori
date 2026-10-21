@@ -80,6 +80,8 @@ export type SdkTodoUpdatedKind = "task_started" | "task_updated" | "task_progres
 export interface SdkTodoUpdatedPayload {
   sdkKind: SdkTodoUpdatedKind;
   task_id: string;
+  run_id?: string;
+  parent_task_id?: string;
   description?: string;
   subagent_type?: string;
   task_type?: string;
@@ -126,6 +128,9 @@ export function buildSdkTodoUpdatedPayload(message: Record<string, unknown>): Sd
     sdkKind: subtype,
     task_id: taskId,
   };
+  if (typeof message.run_id === "string" && message.run_id.trim()) payload.run_id = message.run_id.trim();
+  if (typeof message.parent_task_id === "string" && message.parent_task_id.trim())
+    payload.parent_task_id = message.parent_task_id.trim();
 
   if (typeof message.description === "string" && message.description.trim()) {
     payload.description = message.description.trim();
@@ -189,7 +194,7 @@ export function buildSdkTodoUpdatedPayload(message: Record<string, unknown>): Sd
 }
 
 function isAgentRole(value: string): value is AgentRole {
-  return ["planner", "explore", "architect", "coder", "reviewer", "tester"].includes(value);
+  return ["main", "explore", "architect", "coder", "reviewer", "tester"].includes(value);
 }
 
 function resolveActivitySubagentRole(value: string): ActivityDisplayRole | undefined {
@@ -400,7 +405,7 @@ export function inferActivityRole(event: Pick<AgentEvent, "type" | "payload" | "
 }
 
 function isRuntimeAgentActivityRole(role: RuntimeAgentRole): boolean {
-  return role !== "planner" && role !== "system" && role !== "thinking" && role !== "tool" && role !== "user";
+  return role !== "main" && role !== "system" && role !== "thinking" && role !== "tool" && role !== "user";
 }
 
 export function isThinkingPayload(payload: unknown): boolean {
@@ -671,7 +676,7 @@ export function formatSubagentLabel(role: string): string {
   if (isSubagentRole(role)) {
     return SUBAGENT_ROLE_LABELS[role];
   }
-  if (isAgentRole(role) && role !== "planner") {
+  if (isAgentRole(role) && role !== "main") {
     return role;
   }
   return role;

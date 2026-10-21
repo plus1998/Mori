@@ -9,6 +9,7 @@ import { removeTempDirectory } from "../test/helpers/temp-directory";
 import { OpenAIAccountService, readAuthRefreshStamp } from "../src/main/openai-account-service";
 import { parseOpenAIAccountImport } from "../src/main/openai-account-import";
 import { writeFakeCodexLogin } from "../test-support/fake-codex-login";
+import { OpenAIAccountStore } from "../src/main/openai-account-store";
 
 function authJson(input: { accountId: string; refreshToken: string; stamp: string; unknown?: unknown }): string {
   return JSON.stringify({
@@ -23,6 +24,35 @@ function authJson(input: { accountId: string; refreshToken: string; stamp: strin
     },
   }, null, 2);
 }
+
+test("image switches and per-account quota survive restart, invalidate on account change, and preserve active Codex auth", async (t) => {
+  const { root, service } = await makeService(t);
+  const a = await service.createAccount("A");
+  const b = await service.createAccount("B");
+  const rawA = authJson({ accountId: "chatgpt-A", refreshToken: "A", stamp: "2026-10-14" });
+  const rawB = authJson({ accountId: "chatgpt-B", refreshToken: "B", stamp: "2026-10-14" });
+  await service.setAuthJson(a.id, rawA);
+  await service.setAuthJson(b.id, rawB);
+  await service.setActiveAccount(a.id);
+  await service.applyPendingTransition();
+  const activeFile = path.join(root, "codex/auth.json");
+  const before = await fs.readFile(activeFile, "utf8");
+  await service.setImageGenerationEnabled(b.id, true);
+  service.saveImageQuota(b.id, rawB, { source: "chatgpt_image_gen", status: "available", fetchedAt: Date.now(), remaining: 120 });
+  assert.equal(await fs.readFile(activeFile, "utf8"), before);
+  assert.equal(await service.getActiveAccountId(), a.id);
+  assert.equal((await service.listAccounts()).find((x) => x.id === b.id)?.imageGenerationEnabled, true);
+  assert.equal((await service.listAccounts()).find((x) => x.id === a.id)?.imageQuota, undefined);
+  const store = await OpenAIAccountStore.open(path.join(root, "eco-coding.sqlite"));
+  try {
+    assert.equal(store.get(b.id)?.imageQuota?.remaining, 120);
+    assert.equal(store.get(b.id)?.imageGenerationEnabled, true);
+    const changed = authJson({ accountId: "chatgpt-replaced", refreshToken: "C", stamp: "2026-10-14" });
+    store.saveAuthJson(b.id, changed);
+    assert.equal(store.get(b.id)?.imageQuota, undefined);
+    assert.throws(() => store.saveImageQuota(b.id, rawB, { source: "chatgpt_image_gen", status: "available", fetchedAt: Date.now(), remaining: 120 }), /凭据已变更/);
+  } finally { store.close(); }
+});
 
 async function makeService(t: test.TestContext, executable?: string, onAccountsChanged?: ConstructorParameters<typeof OpenAIAccountService>[2]) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "eco-openai-sqlite-"));
@@ -48,6 +78,41 @@ function quotaResponse(usedPercent = 24): Response {
     rate_limit_reset_credits: { available_count: 2 },
   });
 }
+
+test("explicit account operations reject mismatches and hold account publication until completion", async (t) => {
+  const { root, service } = await makeService(t);
+  const a = await service.createAccount("A");
+  const b = await service.createAccount("B");
+  for (const account of [a, b]) {
+    await service.setAuthJson(account.id, authJson({ accountId: account.id, refreshToken: account.id, stamp: "2026-10-21" }));
+  }
+  await service.setActiveAccount(a.id);
+  await service.applyPendingTransition();
+  await assert.rejects(service.withActiveAccount(b.id, async () => assert.fail("wrong account")), /当前使用账号已变更/u);
+  let finish!: () => void;
+  let entered!: () => void;
+  const ready = new Promise<void>((resolve) => { entered = resolve; });
+  const pending = new Promise<void>((resolve) => { finish = resolve; });
+  const operation = service.withActiveAccount(a.id, async () => { entered(); await pending; });
+  await ready;
+  await service.setActiveAccount(b.id);
+  const transition = service.applyPendingTransition();
+  await Promise.resolve();
+  assert.equal(await service.getActiveAccountId(), a.id);
+  const main = JSON.parse(await fs.readFile(path.join(root, "codex/auth.json"), "utf8"));
+  assert.equal(main.tokens.account_id, a.id);
+  finish();
+  await operation;
+  await transition;
+  assert.equal(await service.getActiveAccountId(), b.id);
+  await assert.rejects(service.withActiveAccount(b.id, async () => { throw new Error("reset offline"); }), /reset offline/u);
+  assert.equal(service.getSyncStatus().state, "ok");
+  await fs.writeFile(path.join(root, "codex/auth.json"), authJson({
+    accountId: "unexpected-account", refreshToken: "unexpected", stamp: "2026-10-22",
+  }));
+  await assert.rejects(service.withActiveAccount(b.id, async () => assert.fail("mismatched auth file")), /当前使用账号已变更/u);
+  assert.equal(service.getSyncStatus().state, "conflict");
+});
 
 async function waitFor(predicate: () => Promise<boolean>, timeoutMs = 3_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;

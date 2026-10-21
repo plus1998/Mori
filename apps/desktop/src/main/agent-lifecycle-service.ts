@@ -76,12 +76,12 @@ export class AgentLifecycleService {
     };
     this.store.upsertRunAttempt(attempt, input.commandDispatch);
     state.currentAttempt = attempt;
-    state.currentPlannerAgentId = `planner:${attempt.attemptId}`;
+    state.currentPlannerAgentId = `main:${attempt.attemptId}`;
     this.store.upsertAgentInstance({
       threadId: input.threadId,
       agentId: state.currentPlannerAgentId,
-      role: "planner",
-      kind: "planner",
+      role: "main",
+      kind: "main",
       status: "active",
       runAttemptId: attempt.attemptId,
       startedAt: now,
@@ -120,8 +120,8 @@ export class AgentLifecycleService {
       this.store.upsertAgentInstance({
         threadId,
         agentId: state.currentPlannerAgentId,
-        role: "planner",
-        kind: "planner",
+        role: "main",
+        kind: "main",
         status: status === "completed" ? "stopped" : "abandoned",
         runAttemptId: attempt.attemptId,
         startedAt: attempt.startedAt,
@@ -296,8 +296,8 @@ export class AgentLifecycleService {
       this.store.upsertAgentInstance({
         threadId,
         agentId: state.currentPlannerAgentId,
-        role: "planner",
-        kind: "planner",
+        role: "main",
+        kind: "main",
         status: "active",
         runAttemptId: nextAttempt.attemptId,
         startedAt: now,

@@ -132,21 +132,26 @@ export class ConversationV2RuntimeWriter {
     });
     const receipt = this.v2.appendInCurrentTransaction(receiptInput);
     results.push(receipt);
-    if (
+    const thinkingChanged =
       source.eventType === "thinking.final" ||
-      (source.eventType === "thinking.delta" && source.streamState === "placeholder")
-    ) {
+      (source.eventType === "thinking.delta" && source.streamState === "placeholder");
+    const writingChanged =
+      source.eventType === "tool.writing" || source.eventType === "tool.writing.completed";
+    if (thinkingChanged || writingChanged) {
       // A separate notice preserves existing receipt hashes and wakes the renderer even
       // when an empty start creates no message effect. Never emit this per content delta.
-      const noticeKey = `thinking-state:${sourceEventKey}`;
-      results.push(this.v2.appendInCurrentTransaction({
-        conversationId: source.threadId,
-        eventId: `thinking_state_${stableHash(noticeKey)}`,
-        sourceEventKey: noticeKey,
-        type: "noop",
-        occurredAt: source.observedAt,
-        payload: { reason: "runtime.thinking.changed" },
-      }));
+      const kind = thinkingChanged ? "thinking" : "tool-writing";
+      const noticeKey = `${kind}-state:${sourceEventKey}`;
+      results.push(
+        this.v2.appendInCurrentTransaction({
+          conversationId: source.threadId,
+          eventId: `${kind}_state_${stableHash(noticeKey)}`,
+          sourceEventKey: noticeKey,
+          type: "noop",
+          occurredAt: source.observedAt,
+          payload: { reason: thinkingChanged ? "runtime.thinking.changed" : "runtime.tool_writing.changed" },
+        }),
+      );
     }
     return { event: { ...source, sequence: receipt.event.seq }, duplicate: false };
   }

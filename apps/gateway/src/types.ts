@@ -47,12 +47,43 @@ export interface ResolvedProviderRoute {
   bridgeBindingId?: string;
   threadId?: string;
   runAttemptId?: string;
+  /** Codex turn identity retained independently from the Gateway logical request id. */
+  turnId?: string;
   logicalRequestId?: string;
   /** Local account selected for a chatgpt_subscription provider. */
   credentialAccountId?: string;
 }
 
-/** Agent core that issued the upstream request. */
+export type GatewayUpstreamResultType = "completed" | "failed" | "cancelled";
+
+/** Machine-readable upstream failure evidence. Never includes request authentication headers. */
+export interface GatewayUpstreamErrorInfo {
+  message: string;
+  code?: string;
+  param?: string;
+  type?: string;
+  eventType?: string;
+  /** Original JSON error event/body, preserved for diagnosis. */
+  rawEvent?: unknown;
+}
+
+export interface GatewayCredentialResult {
+  provider: GatewayProvider;
+  accountId?: string;
+  resultType: GatewayUpstreamResultType;
+  statusCode?: number;
+  providerRequestId?: string;
+  responseId?: string;
+  error?: GatewayUpstreamErrorInfo;
+  logicalRequestId: string;
+  attemptIndex: number;
+  bridgeBindingId?: string;
+  threadId?: string;
+  turnId?: string;
+  runAttemptId?: string;
+}
+
+/** Harness that issued the upstream request. */
 export type GatewayAgentCore = "codex" | "claude" | "pi";
 
 export interface GatewayConfig {
@@ -84,19 +115,14 @@ export interface GatewayConfig {
     provider: GatewayProvider;
     request?: Request;
   }) => Promise<{ accessToken: string; accountId?: string; upstreamProxyUrl?: string }>;
-  /** Reports the upstream admission result back to the local account pool. */
-  reportCredentialResult?: (input: {
-    provider: GatewayProvider;
-    accountId?: string;
-    statusCode: number;
-    errorCode?: string;
-  }) => void | Promise<void>;
+  /** Reports the real upstream attempt terminal back to the local account pool. */
+  reportCredentialResult?: (input: GatewayCredentialResult) => void | Promise<void>;
   /**
    * Global upstream User-Agent override (from Proxy Bridge settings).
    * When unset, passthrough client UA or fall back to Eco default.
    */
   upstreamUserAgent?: string;
-  /** Per agent core overrides; a cleared entry falls back to the SDK UA. */
+  /** Per Harness overrides; a cleared entry falls back to the SDK UA. */
   upstreamUserAgents?: Partial<Record<GatewayAgentCore, string>>;
   /** Eco fallback UA (app version + OS) for requests without any client UA. */
   userAgentDefault?: string;
@@ -158,6 +184,7 @@ export type GatewayRequestLifecycleEvent =
       attemptIndex: number;
       bridgeBindingId?: string;
       threadId?: string;
+      turnId?: string;
       runAttemptId?: string;
       observedAt: string;
     }
@@ -171,13 +198,15 @@ export type GatewayRequestLifecycleEvent =
       attemptIndex: number;
       bridgeBindingId?: string;
       threadId?: string;
+      turnId?: string;
       runAttemptId?: string;
       providerRequestId?: string;
       statusCode: number;
       observedAt: string;
     }
   | {
-      type: "upstream.failed";
+      type: "upstream.completed";
+      resultType: "completed";
       source: GatewayRequestLifecycleSource;
       providerId: string;
       requestedModel: string;
@@ -186,15 +215,59 @@ export type GatewayRequestLifecycleEvent =
       attemptIndex: number;
       bridgeBindingId?: string;
       threadId?: string;
+      turnId?: string;
       runAttemptId?: string;
+      accountId?: string;
       providerRequestId?: string;
+      responseId?: string;
+      statusCode?: number;
+      observedAt: string;
+    }
+  | {
+      type: "upstream.failed";
+      resultType: "failed";
+      source: GatewayRequestLifecycleSource;
+      providerId: string;
+      requestedModel: string;
+      upstreamModelId: string;
+      logicalRequestId: string;
+      attemptIndex: number;
+      bridgeBindingId?: string;
+      threadId?: string;
+      turnId?: string;
+      runAttemptId?: string;
+      accountId?: string;
+      providerRequestId?: string;
+      responseId?: string;
       stage: "transport" | "http" | "stream" | "protocol";
       statusCode?: number;
       error: string;
+      errorInfo?: GatewayUpstreamErrorInfo;
+      observedAt: string;
+    }
+  | {
+      type: "upstream.cancelled";
+      resultType: "cancelled";
+      source: GatewayRequestLifecycleSource;
+      providerId: string;
+      requestedModel: string;
+      upstreamModelId: string;
+      logicalRequestId: string;
+      attemptIndex: number;
+      bridgeBindingId?: string;
+      threadId?: string;
+      turnId?: string;
+      runAttemptId?: string;
+      accountId?: string;
+      providerRequestId?: string;
+      responseId?: string;
+      statusCode?: number;
+      reason?: string;
       observedAt: string;
     }
   | {
       type: "logical.completed";
+      resultType: "completed";
       source: GatewayRequestLifecycleSource;
       providerId: string;
       requestedModel: string;
@@ -203,12 +276,16 @@ export type GatewayRequestLifecycleEvent =
       attemptIndex: number;
       bridgeBindingId?: string;
       threadId?: string;
+      turnId?: string;
       runAttemptId?: string;
+      accountId?: string;
       providerRequestId?: string;
+      responseId?: string;
       observedAt: string;
     }
   | {
       type: "logical.failed";
+      resultType: "failed";
       source: GatewayRequestLifecycleSource;
       providerId: string;
       requestedModel: string;
@@ -217,15 +294,20 @@ export type GatewayRequestLifecycleEvent =
       attemptIndex: number;
       bridgeBindingId?: string;
       threadId?: string;
+      turnId?: string;
       runAttemptId?: string;
+      accountId?: string;
       providerRequestId?: string;
+      responseId?: string;
       stage?: "transport" | "http" | "stream" | "protocol";
       statusCode?: number;
       error: string;
+      errorInfo?: GatewayUpstreamErrorInfo;
       observedAt: string;
     }
   | {
       type: "logical.cancelled";
+      resultType: "cancelled";
       source: GatewayRequestLifecycleSource;
       providerId: string;
       requestedModel: string;
@@ -234,8 +316,11 @@ export type GatewayRequestLifecycleEvent =
       attemptIndex: number;
       bridgeBindingId?: string;
       threadId?: string;
+      turnId?: string;
       runAttemptId?: string;
+      accountId?: string;
       providerRequestId?: string;
+      responseId?: string;
       reason?: string;
       observedAt: string;
     };
@@ -252,6 +337,7 @@ export type GatewayRequestLifecycleObserver = (event: GatewayRequestLifecycleEve
  * item lands milliseconds after the last text), so the gateway forwards it.
  */
 export interface GatewayToolWriteObservation {
+  state: "writing" | "ready";
   /** Client thread identity from `x-codex-turn-metadata`. */
   codexThreadId: string;
   turnId?: string;

@@ -147,9 +147,12 @@ final conversationV2SessionProvider = StateNotifierProvider.autoDispose
           );
         });
       });
-      ref.listen(connectionStatusProvider, (_, next) {
+      ref.listen(connectionStatusProvider, (previous, next) {
         next.whenData((status) {
-          if (status.state == EcoConnectionState.connected) {
+          final before = previous?.valueOrNull?.state;
+          if (before != null &&
+              before != EcoConnectionState.connected &&
+              status.state == EcoConnectionState.connected) {
             unawaited(controller.refresh());
           }
         });

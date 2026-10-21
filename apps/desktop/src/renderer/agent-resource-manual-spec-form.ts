@@ -21,6 +21,7 @@ export interface ManualSpecFormFields {
   supportsReasoning: ManualTriState;
   /** Default true; only persisted as false when user disables native web search. */
   supportsNativeWebSearch: boolean;
+  supportsRemoteCompaction: boolean;
   priceMultiplier: string;
   inputPerM: string;
   outputPerM: string;
@@ -34,6 +35,7 @@ export type ManualSpecOverrideField =
   | "supportsImageInput"
   | "supportsReasoning"
   | "supportsNativeWebSearch"
+  | "supportsRemoteCompaction"
   | "priceMultiplier"
   | "inputPerM"
   | "outputPerM"
@@ -47,6 +49,7 @@ export function emptyManualSpecForm(): ManualSpecFormFields {
     supportsImageInput: "auto",
     supportsReasoning: "auto",
     supportsNativeWebSearch: true,
+    supportsRemoteCompaction: false,
     priceMultiplier: "1",
     inputPerM: "",
     outputPerM: "",
@@ -77,6 +80,7 @@ export function manualSpecToForm(spec?: RouteManualSpec): ManualSpecFormFields {
     supportsImageInput: booleanToTriState(spec?.supportsImageInput),
     supportsReasoning: booleanToTriState(spec?.supportsReasoning),
     supportsNativeWebSearch: spec?.supportsNativeWebSearch !== false,
+    supportsRemoteCompaction: spec?.supportsRemoteCompaction === true,
     ...pricingFieldsFromManual(spec),
   };
 }
@@ -88,6 +92,7 @@ export interface CandidateResolvedSpecSource {
   resolvedSupportsImageInput?: boolean;
   resolvedSupportsReasoning?: boolean;
   resolvedSupportsNativeWebSearch?: boolean;
+  resolvedSupportsRemoteCompaction?: boolean;
   resolvedInputPerM?: number;
   resolvedOutputPerM?: number;
   resolvedCacheReadPerM?: number;
@@ -104,6 +109,7 @@ export function prefillManualSpecFormFromCandidate(
     candidate.resolvedSupportsImageInput !== undefined ||
     candidate.resolvedSupportsReasoning !== undefined ||
     candidate.resolvedSupportsNativeWebSearch !== undefined ||
+    candidate.resolvedSupportsRemoteCompaction !== undefined ||
     candidate.resolvedInputPerM !== undefined ||
     candidate.resolvedOutputPerM !== undefined ||
     candidate.resolvedCacheReadPerM !== undefined ||
@@ -119,6 +125,8 @@ export function prefillManualSpecFormFromCandidate(
     supportsImageInput: booleanToTriState(candidate.resolvedSupportsImageInput),
     supportsReasoning: booleanToTriState(candidate.resolvedSupportsReasoning),
     supportsNativeWebSearch: candidate.resolvedSupportsNativeWebSearch !== false,
+    supportsRemoteCompaction:
+      (candidate.resolvedSupportsRemoteCompaction ?? candidate.manualSpec?.supportsRemoteCompaction) === true,
     ...pricingFieldsFromManual(candidate.manualSpec),
   };
 }
@@ -141,6 +149,7 @@ export function prefillManualSpecFormFromHints(
     supportsImageInput: booleanToTriState(supportsImageInput),
     supportsReasoning: booleanToTriState(supportsReasoning),
     supportsNativeWebSearch: true,
+    supportsRemoteCompaction: false,
     priceMultiplier: "1",
     inputPerM: formatManualRateValue(catalogPrice?.rates?.inputPerM),
     outputPerM: formatManualRateValue(catalogPrice?.rates?.outputPerM),
@@ -191,6 +200,7 @@ export function formToManualSpec(
     ...(supportsImageInput !== undefined && { supportsImageInput }),
     ...(supportsReasoning !== undefined && { supportsReasoning }),
     ...(form.supportsNativeWebSearch === false && { supportsNativeWebSearch: false }),
+    ...(form.supportsRemoteCompaction === true && { supportsRemoteCompaction: true }),
     ...(priceMultiplier !== undefined && { priceMultiplier }),
     ...(inputPerM !== undefined && { inputPerM }),
     ...(outputPerM !== undefined && { outputPerM }),
@@ -212,7 +222,8 @@ export function countManualOverrides(form: ManualSpecFormFields): number {
   if (form.supportsImageInput !== "auto") count += 1;
   if (form.supportsReasoning !== "auto") count += 1;
   if (!form.supportsNativeWebSearch) count += 1;
-  if (isPriceMultiplierOverride(form.priceMultiplier)) count += 1;
+  if (form.supportsRemoteCompaction) count += 1;
+  if (isPriceMultiplierOverrideValue(form.priceMultiplier)) count += 1;
   if (form.inputPerM.trim()) count += 1;
   if (form.outputPerM.trim()) count += 1;
   if (form.cacheReadPerM.trim()) count += 1;
@@ -227,7 +238,8 @@ export function listManualOverrideFields(form: ManualSpecFormFields): Set<Manual
   if (form.supportsImageInput !== "auto") fields.add("supportsImageInput");
   if (form.supportsReasoning !== "auto") fields.add("supportsReasoning");
   if (!form.supportsNativeWebSearch) fields.add("supportsNativeWebSearch");
-  if (isPriceMultiplierOverride(form.priceMultiplier)) fields.add("priceMultiplier");
+  if (form.supportsRemoteCompaction) fields.add("supportsRemoteCompaction");
+  if (isPriceMultiplierOverrideValue(form.priceMultiplier)) fields.add("priceMultiplier");
   if (form.inputPerM.trim()) fields.add("inputPerM");
   if (form.outputPerM.trim()) fields.add("outputPerM");
   if (form.cacheReadPerM.trim()) fields.add("cacheReadPerM");
@@ -251,11 +263,13 @@ export function mergeEffectiveCapabilityHint(
     countManualCapabilityOverrides(manualSpec) > 0 || auto?.capabilitiesResolved === true;
 
   return {
-    role: auto?.role ?? ("planner" as const),
+    role: auto?.role ?? ("main" as const),
     modelId: auto?.modelId ?? "",
     providerName: auto?.providerName ?? "",
     supportsImageInput,
     supportsReasoning,
+    supportsNativeWebSearch: manualSpec?.supportsNativeWebSearch ?? auto?.supportsNativeWebSearch ?? true,
+    supportsRemoteCompaction: manualSpec?.supportsRemoteCompaction ?? auto?.supportsRemoteCompaction ?? false,
     capabilitiesResolved,
     contextLimitResolved,
     ...(contextTokens !== undefined && { contextTokens }),
@@ -307,7 +321,7 @@ export function mergeEffectivePricingHint(
   }
 
   return {
-    role: auto?.role ?? ("planner" as const),
+    role: auto?.role ?? ("main" as const),
     modelId: auto?.modelId ?? "",
     providerName: auto?.providerName ?? "",
     ...(rates && {
@@ -470,6 +484,7 @@ function countManualCapabilityOverrides(spec?: RouteManualSpec): number {
   if (spec.supportsImageInput !== undefined) count += 1;
   if (spec.supportsReasoning !== undefined) count += 1;
   if (spec.supportsNativeWebSearch !== undefined) count += 1;
+  if (spec.supportsRemoteCompaction !== undefined) count += 1;
   return count;
 }
 
@@ -484,13 +499,27 @@ function hasManualPricingOverride(spec?: RouteManualSpec): boolean {
   );
 }
 
-function isPriceMultiplierOverride(value: string): boolean {
+export function isPriceMultiplierOverrideValue(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed || trimmed === "1") {
     return false;
   }
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) && parsed >= 0;
+}
+
+/** 表单值是否为可接受的 token（空 = 自动）。 */
+export function isTokenFormValueValid(value: string): boolean {
+  const trimmed = value.trim().replace(/[_,\s]/g, "");
+  if (!trimmed) return true;
+  return /^\d+$/.test(trimmed) || /^\d+(\.\d+)?[km]$/i.test(trimmed);
+}
+
+/** 表单值是否为可接受的价格（空 = 自动）。 */
+export function isRateFormValueValid(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  return /^\d+(\.\d+)?$/.test(trimmed);
 }
 
 function parsePriceMultiplierInput(

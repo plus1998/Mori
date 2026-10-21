@@ -123,7 +123,7 @@ function resolveEffectiveMainAgentModel(
     runtimeConfig.mainAgentModelOverride,
   );
   return runtimeRoleRoutesFromOrchestrationSnapshot(snapshot, override).find(
-    (route) => route.role === "planner",
+    (route) => route.role === "main",
   );
 }
 

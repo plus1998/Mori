@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { type TtsSecretCodec, TtsStore } from "../src/main/tts-store";
+import { DEFAULT_TTS_PROFILE_ID, type TtsSecretCodec, TtsStore } from "../src/main/tts-store";
 
 const databases: Database[] = [];
 afterEach(() => {
@@ -22,6 +22,43 @@ function configure(store: TtsStore) {
   const initial = store.getSettings().profiles[0]!;
   return store.saveProfile({ ...initial, apiKey: "secret-key" });
 }
+
+test("reader settings are independent from Agent profile activation, parameters and enabled state", () => {
+  const { store } = fixture();
+  const agent = configure(store);
+  expect(store.getReadAloudConfig()).toMatchObject({ voice: "Kore", config: { profileId: agent.id } });
+  const reader = store.saveProfile({ name: "Reader provider", provider: "doubao", baseUrl: "https://example.test", model: "seed-tts-2.0", apiKey: "reader-key" });
+  store.saveReadAloudSettings({ profileId: reader.id, voice: "zh_female_xiaohe_uranus_bigtts", style: "清晰、缓慢" });
+  store.initialize();
+  expect(store.getSettings()).toMatchObject({ enabled: false, activeProfileId: agent.id });
+  expect(store.getReadAloudConfig()).toMatchObject({ config: { profileId: reader.id, provider: "doubao" }, voice: "zh_female_xiaohe_uranus_bigtts", style: "清晰、缓慢" });
+  store.saveProfile({ ...reader, model: "updated-reader-model" });
+  expect(store.getSettings().profiles[0]).not.toHaveProperty("readAloudVoice");
+  store.activateProfile(reader.id);
+  store.setEnabled(true);
+  store.setEnabled(false);
+  expect(store.getReadAloudConfig()).toMatchObject({ voice: "zh_female_xiaohe_uranus_bigtts", style: "清晰、缓慢" });
+  expect(store.getActiveClientConfig().profileId).toBe(reader.id);
+  expect(JSON.stringify(store.getReadAloudSettings())).not.toContain("reader-key");
+});
+
+test("reader migration preserves prior voice once, rejects incomplete edits and never falls back after provider deletion", () => {
+  const { store, db } = fixture();
+  const profile = configure(store);
+  db.prepare("UPDATE tts_profiles SET read_aloud_voice = ?, read_aloud_style = ? WHERE id = ?").run("Aoede", "清晰、缓慢", profile.id);
+  db.exec("DROP TABLE tts_read_aloud_settings");
+  store.initialize();
+  expect(store.getReadAloudConfig()).toMatchObject({ voice: "Aoede", style: "清晰、缓慢" });
+  expect(() => store.saveReadAloudSettings({ profileId: profile.id, voice: "", style: "" })).toThrow("填写");
+  expect(store.getReadAloudConfig().voice).toBe("Aoede");
+  const other = store.saveProfile({ name: "Disposable reader", provider: "gemini", baseUrl: profile.baseUrl, model: profile.model, apiKey: "another-key" });
+  store.saveReadAloudSettings({ profileId: other.id, voice: "Puck", style: "平稳" });
+  store.deleteProfile(other.id);
+  store.initialize();
+  expect(store.getReadAloudSettings().profileId).toBe("");
+  expect(() => store.getReadAloudConfig()).toThrow("选择供应商");
+  expect(store.getSettings().activeProfileId).toBe(profile.id);
+});
 
 test("TTS defaults to Gemini 3.8, stays disabled until configured, and never exposes secrets", () => {
   const { store, db } = fixture();
@@ -78,6 +115,54 @@ test("invalid URLs, protocols and unavailable secret storage fail explicitly", (
   expect(() => store.saveProfile({ ...profile, apiKey: "secret" })).toThrow("系统加密不可用");
 });
 
+test("doubao profiles keep the Volcengine endpoint and resource ID", () => {
+  const { store } = fixture();
+  configure(store);
+  const profile = store.saveProfile({
+    name: "豆包 TTS 2.0",
+    provider: "doubao",
+    baseUrl: "https://openspeech.bytedance.com",
+    model: "seed-tts-2.0",
+    apiKey: "doubao-secret",
+  });
+  store.activateProfile(profile.id);
+  expect(store.getActiveClientConfig()).toMatchObject({
+    provider: "doubao",
+    baseUrl: "https://openspeech.bytedance.com",
+    model: "seed-tts-2.0",
+    apiKey: "doubao-secret",
+  });
+});
+
+test("legacy provider CHECK migration keeps profiles and accepts doubao", () => {
+  const db = new Database(":memory:");
+  databases.push(db);
+  db.exec(`CREATE TABLE tts_profiles (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    provider TEXT NOT NULL CHECK(provider IN ('gemini', 'openai_compatible')),
+    baseUrl TEXT NOT NULL, model TEXT NOT NULL, encrypted_api_key TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE tts_settings (singleton INTEGER PRIMARY KEY, enabled INTEGER NOT NULL,
+    active_profile_id TEXT NOT NULL REFERENCES tts_profiles(id), updated_at TEXT NOT NULL);`);
+  const id = DEFAULT_TTS_PROFILE_ID;
+  db.prepare(
+    "INSERT INTO tts_profiles VALUES (?, 'Legacy', 'gemini', 'https://generativelanguage.googleapis.com/v1beta', 'gemini-3.8-flash-tts', ?, 'created', 'updated')",
+  ).run(id, codec.encrypt("legacy-secret"));
+  db.prepare("INSERT INTO tts_settings VALUES (1, 1, ?, 'updated')").run(id);
+  const store = new TtsStore(db as never, codec);
+  store.initialize();
+  expect(store.getActiveClientConfig()).toMatchObject({ profileId: id, apiKey: "legacy-secret" });
+  const doubao = store.saveProfile({
+    name: "Doubao",
+    provider: "doubao",
+    baseUrl: "https://openspeech.bytedance.com",
+    model: "seed-tts-2.0",
+    apiKey: "doubao-secret",
+  });
+  store.activateProfile(doubao.id);
+  expect(store.getActiveClientConfig().provider).toBe("doubao");
+});
+
 test("artifacts survive reopening, remain thread-scoped and interrupted generations become failures", () => {
   const { store, db } = fixture();
   configure(store);
@@ -121,4 +206,14 @@ test("artifacts survive reopening, remain thread-scoped and interrupted generati
   expect(reopened.getArtifact(second.id)).toMatchObject({ status: "failed", errorCode: "interrupted" });
   db.prepare("UPDATE tts_artifacts SET parameters_json = ? WHERE id = ?").run("corrupt-json", first.id);
   expect(() => reopened.getArtifact(first.id)).toThrow();
+});
+
+test("reader settings save atomically when SQLite rejects an update", () => {
+  const { store, db } = fixture();
+  const profile = configure(store);
+  const before = store.getReadAloudSettings();
+  db.exec("CREATE TRIGGER reject_voice BEFORE UPDATE OF voice ON tts_read_aloud_settings BEGIN SELECT RAISE(ABORT, 'voice rejected'); END");
+  expect(() => store.saveReadAloudSettings({ profileId: profile.id, voice: "Aoede", style: "Should not persist" })).toThrow("voice rejected");
+  expect(store.getReadAloudSettings()).toEqual(before);
+  expect(store.getSettings().profiles[0]!.name).toBe(profile.name);
 });

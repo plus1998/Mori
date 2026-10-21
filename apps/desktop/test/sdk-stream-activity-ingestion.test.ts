@@ -30,7 +30,7 @@ function createIngestionHarness(agents: AgentInstanceRecord[] = []) {
     },
     stopSubagent: () => {},
     usageRunAttemptId: () => "attempt_1",
-    currentPlannerAgentId: () => "planner:attempt_1",
+    currentPlannerAgentId: () => "main:attempt_1",
     currentRunAttemptId: () => "attempt_1",
     linkSubagentParentToolUse: () => undefined,
     noteTaskToolUse: () => {},
@@ -70,7 +70,7 @@ test("SDK notices before init and after result never become assistant answers or
   ]) {
     ingestion.ingest("thr_notice", {
       type: "agent.started",
-      role: "planner",
+      role: "main",
       agentId: "root-session-before-init",
       payload,
     });

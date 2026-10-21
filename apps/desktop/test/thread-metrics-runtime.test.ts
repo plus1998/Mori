@@ -33,7 +33,7 @@ function serializedUsageState() {
   const accumulator = new ThreadUsageAccumulator();
   accumulator.recordUsage({
     threadId: "thr_metrics",
-    role: "planner",
+    role: "main",
     delta: usage(),
     actualRates: sonnetRates,
     plannerRates: sonnetRates,

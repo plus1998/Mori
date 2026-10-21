@@ -35,7 +35,7 @@ const provider: ProviderConfigSecret = {
 
 const routes: RuntimeRoute[] = [
   {
-    role: "planner",
+    role: "main",
     provider,
     modelId: "sonnet",
     apiCompat: "anthropic",
@@ -202,7 +202,7 @@ test("resolveSdkRunBillingModels resolves model rates and computed billing", asy
 test("resolveSingleUsageBillingArtifacts does not pre-attribute pending planner-route usage", async () => {
   const artifacts = await resolveSingleUsageBillingArtifacts({
     threadId: "thr_pending_planner_route",
-    role: "planner",
+    role: "main",
     source: "proxy",
     usage: usage(),
     runtimeRoutes: routes,
@@ -211,12 +211,12 @@ test("resolveSingleUsageBillingArtifacts does not pre-attribute pending planner-
     messageId: "resp_pending_identity",
     plannerAgentId: "planner_attempt_1",
     attributionPending: true,
-    requestKey: "proxy:planner:pending",
-    routeRole: "planner",
+    requestKey: "proxy:main:pending",
+    routeRole: "main",
   });
 
   expect(artifacts.ledgerEvent).toMatchObject({
-    role: "planner",
+    role: "main",
     sdkMessageId: "resp_pending_identity",
     attribution: {
       status: "pending",

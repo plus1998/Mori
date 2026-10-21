@@ -65,34 +65,34 @@ test("ThreadLiveRequestRegistry does not fall back to the last active request", 
 
 test("ThreadLiveRequestRegistry resolves main-thread role scope without agentId when exactly one", () => {
   const registry = new ThreadLiveRequestRegistry();
-  registry.beginRequest("thr_1", { role: "planner" });
+  registry.beginRequest("thr_1", { role: "main" });
   registry.beginRequest("thr_1", { role: "coder", agentId: "agent_a" });
 
-  expect(registry.resolve("thr_1", { role: "planner" })).toMatch(/^req_/);
+  expect(registry.resolve("thr_1", { role: "main" })).toMatch(/^req_/);
   expect(registry.resolve("thr_1", { role: "coder" })).toBeUndefined();
 });
 
 test("ThreadLiveRequestRegistry prefers in-flight planner when sequential tool-loop requests overlap", () => {
   const registry = new ThreadLiveRequestRegistry();
-  const first = registry.beginRequest("thr_1", { role: "planner" });
-  const second = registry.beginRequest("thr_1", { role: "planner" });
+  const first = registry.beginRequest("thr_1", { role: "main" });
+  const second = registry.beginRequest("thr_1", { role: "main" });
 
-  expect(registry.resolve("thr_1", { role: "planner" })).toBe(first.logicalRequestId);
+  expect(registry.resolve("thr_1", { role: "main" })).toBe(first.logicalRequestId);
   expect(first.logicalRequestId).not.toBe(second.logicalRequestId);
 });
 
 test("ThreadLiveRequestRegistry prefers newest planner once prior upstream id is recorded", () => {
   const registry = new ThreadLiveRequestRegistry();
-  const first = registry.beginRequest("thr_1", { role: "planner" });
+  const first = registry.beginRequest("thr_1", { role: "main" });
   registry.recordProviderRequestIdByLogicalId("thr_1", first.logicalRequestId, "msg_first");
-  const second = registry.beginRequest("thr_1", { role: "planner" });
+  const second = registry.beginRequest("thr_1", { role: "main" });
 
-  expect(registry.resolve("thr_1", { role: "planner" })).toBe(second.logicalRequestId);
+  expect(registry.resolve("thr_1", { role: "main" })).toBe(second.logicalRequestId);
 });
 
 test("ThreadLiveRequestRegistry records provider request id metadata without changing logical id", () => {
   const registry = new ThreadLiveRequestRegistry();
-  const begun = registry.beginRequest("thr_1", { role: "planner" });
+  const begun = registry.beginRequest("thr_1", { role: "main" });
   const recorded = registry.recordProviderRequestIdByLogicalId(
     "thr_1",
     begun.logicalRequestId,
@@ -112,7 +112,7 @@ test("ThreadLiveRequestRegistry clears ended requests by logical id only", () =>
   registry.endRequest("thr_1", begun.logicalRequestId);
   expect(registry.resolve("thr_1", { role: "coder", agentId: "agent_a" })).toBeUndefined();
 
-  const begun2 = registry.beginRequest("thr_1", { role: "planner" });
+  const begun2 = registry.beginRequest("thr_1", { role: "main" });
   registry.endRequest("thr_1", begun2.logicalRequestId);
   expect(registry.listActive("thr_1")).toHaveLength(0);
 });
@@ -158,13 +158,13 @@ test("concurrent entries with same provider request id remain independently addr
 
 test("resolveLiveRequestIdForEvent prefers in-flight planner when same-role requests overlap", () => {
   const registry = new ThreadLiveRequestRegistry();
-  const first = registry.beginRequest("thr_1", { role: "planner" });
-  registry.beginRequest("thr_1", { role: "planner" });
+  const first = registry.beginRequest("thr_1", { role: "main" });
+  registry.beginRequest("thr_1", { role: "main" });
 
   expect(
     resolveLiveRequestIdForEvent(registry, "thr_1", {
       type: "message.delta",
-      role: "planner",
+      role: "main",
       stream: true,
     }),
   ).toBe(first.logicalRequestId);
@@ -172,7 +172,7 @@ test("resolveLiveRequestIdForEvent prefers in-flight planner when same-role requ
 
 test("ThreadLiveRequestRegistry listActive snapshots open requests", () => {
   const registry = new ThreadLiveRequestRegistry();
-  const plannerRequest = registry.beginRequest("thr_1", { role: "planner" });
+  const plannerRequest = registry.beginRequest("thr_1", { role: "main" });
   const coderRequest = registry.beginRequest("thr_1", { role: "coder", agentId: "agent_a" });
 
   expect(registry.listActive("thr_1").map((entry) => entry.logicalRequestId)).toEqual([

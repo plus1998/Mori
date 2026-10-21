@@ -184,7 +184,7 @@ export class AcpAgentDriver {
         id: `${input.threadId}:acp:unsupported`,
         threadId: input.threadId,
         agentId: "acp",
-        role: "planner",
+        role: "main",
         type: "run.terminal",
         payload: acpFailedTerminalPayload(`Unsupported acpAgentId: ${String(input.acpAgentId)}`),
       });
@@ -245,7 +245,7 @@ export class AcpAgentDriver {
         id: `${input.threadId}:acp:${sessionRunId}:agent_start`,
         threadId: input.threadId,
         agentId: sessionRunId,
-        role: "planner",
+        role: "main",
         type: "agent.started",
         payload: {
           source: "acp",
@@ -289,7 +289,7 @@ export class AcpAgentDriver {
         id: `${input.threadId}:acp:${sessionRunId}:session`,
         threadId: input.threadId,
         agentId: sessionRunId,
-        role: "planner",
+        role: "main",
         type: "session.captured",
         payload: {
           source: "acp",
@@ -338,7 +338,7 @@ export class AcpAgentDriver {
                 id: `${input.threadId}:acp:${sessionRunId}:plan_continue`,
                 threadId: input.threadId,
                 agentId: sessionRunId,
-                role: "planner",
+                role: "main",
                 type: "terminal.output",
                 payload: {
                   source: "acp",
@@ -364,7 +364,7 @@ export class AcpAgentDriver {
                     id: `${input.threadId}:acp:${sessionRunId}:plan_continue_terminal`,
                     threadId: input.threadId,
                     agentId: sessionRunId,
-                    role: "planner",
+                    role: "main",
                     type: "run.terminal",
                     payload: { status: "cancelled", reason: "cancelled by user" },
                   }),
@@ -375,7 +375,7 @@ export class AcpAgentDriver {
                     id: `${input.threadId}:acp:${sessionRunId}:plan_continue_terminal`,
                     threadId: input.threadId,
                     agentId: sessionRunId,
-                    role: "planner",
+                    role: "main",
                     type: "run.terminal",
                     payload: acpFailedTerminalPayload(
                       continueError instanceof Error ? continueError.message : String(continueError),
@@ -393,7 +393,7 @@ export class AcpAgentDriver {
                 id: `${input.threadId}:acp:${sessionRunId}:terminal`,
                 threadId: input.threadId,
                 agentId: sessionRunId,
-                role: "planner",
+                role: "main",
                 type: "run.terminal",
                 payload: { status: "cancelled", reason: "cancelled by user" },
               }),
@@ -408,7 +408,7 @@ export class AcpAgentDriver {
                 id: `${input.threadId}:acp:${sessionRunId}:terminal`,
                 threadId: input.threadId,
                 agentId: sessionRunId,
-                role: "planner",
+                role: "main",
                 type: "run.terminal",
                 payload: acpFailedTerminalPayload(
                   withCursorProcessDiagnostics(promptError, active.child),
@@ -443,7 +443,7 @@ export class AcpAgentDriver {
         id: `${input.threadId}:acp:${sessionRunId}:terminal`,
         threadId: input.threadId,
         agentId: sessionRunId,
-        role: "planner",
+        role: "main",
         type: "run.terminal",
         payload: cancelled
           ? { status: "cancelled", reason: "cancelled by user" }
@@ -611,7 +611,7 @@ export class AcpAgentDriver {
             id: `${turn.input.threadId}:acp:${turn.sessionRunId}:plan_ready:${request.toolCallId}`,
             threadId: turn.input.threadId,
             agentId: turn.sessionRunId,
-            role: "planner",
+            role: "main",
             type: "plan.ready",
             payload: buildAcpPlanReadyPayload(request, turn.input),
           }),
@@ -641,7 +641,7 @@ export class AcpAgentDriver {
                 id: `${turn.input.threadId}:acp:${turn.sessionRunId}:mode_after_plan`,
                 threadId: turn.input.threadId,
                 agentId: turn.sessionRunId,
-                role: "planner",
+                role: "main",
                 type: "terminal.output",
                 payload: {
                   source: "acp",
@@ -705,7 +705,7 @@ export class AcpAgentDriver {
               id: `${turn.input.threadId}:acp:${turn.sessionRunId}:generate_image:${request.toolCallId}`,
               threadId: turn.input.threadId,
               agentId: turn.sessionRunId,
-              role: "planner",
+              role: "main",
               type: "terminal.output",
               payload: {
                 source: "acp",

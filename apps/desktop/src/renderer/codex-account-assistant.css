@@ -8,6 +8,10 @@ button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
 .assistant-titlebar button { -webkit-app-region: no-drag; display: grid; place-items: center; border: 0; border-radius: 6px; width: 27px; height: 27px; color: var(--muted); background: transparent; }
 .assistant-titlebar button.is-pinned { color: var(--blue); background: var(--blue-wash); }
 .assistant-body { padding: 19px 19px 16px; max-height: calc(100vh - 46px); overflow-y: auto; }
+.assistant-login-timeout { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: -5px 0 14px; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--blue) 24%, var(--line)); border-radius: 10px; background: var(--blue-wash); color: var(--blue); }
+.assistant-login-timeout > span { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; }
+.assistant-login-timeout > strong { font: 600 15px "SFMono-Regular", Consolas, monospace; font-variant-numeric: tabular-nums; }
+.assistant-login-timeout.is-expiring { border-color: color-mix(in srgb, #bd8226 42%, var(--line)); background: color-mix(in srgb, #bd8226 10%, var(--surface)); color: #bd8226; }
 .assistant-identity { display: flex; align-items: center; gap: 11px; margin-bottom: 19px; }
 .assistant-monogram { display: grid; place-items: center; width: 37px; height: 37px; flex-shrink: 0; border: 1px solid var(--line); border-radius: 12px; color: var(--blue); background: var(--surface); font-size: 18px; font-weight: 600; }
 .assistant-identity > div:nth-child(2) { min-width: 0; flex: 1; }

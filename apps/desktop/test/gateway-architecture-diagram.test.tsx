@@ -4,7 +4,7 @@ import { GatewayArchitectureDiagram } from "../src/renderer/GatewayArchitectureD
 import { ProxySettingsPanel } from "../src/renderer/ProxySettingsPanel";
 import { renderLocalized } from "./i18n-test";
 
-test("diagram shows the three agent cores pointing at the local gateway", () => {
+test("diagram shows the three Harnesses pointing at the local gateway", () => {
   const markup = renderLocalized(createElement(GatewayArchitectureDiagram), "zh-CN");
   expect(markup).toContain('src="./agent-icons/pi.svg"');
   expect(markup).toContain('src="./agent-icons/codex.ico"');
@@ -49,7 +49,7 @@ test("gateway panel splits into architecture / proxy / headers tabs", () => {
   expect(markup).toContain("gateway-arch");
 });
 
-test("headers tab exposes one User-Agent field per agent core", () => {
+test("headers tab exposes one User-Agent field per Harness", () => {
   const markup = renderLocalized(
     createElement(ProxySettingsPanel, {
       settings: { upstreamUserAgents: { codex: "codex-ua/1" } },

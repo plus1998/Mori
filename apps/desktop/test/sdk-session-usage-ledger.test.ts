@@ -23,8 +23,8 @@ function input(tokens: number, requestKey: string, resumed = false): AppendSdkSe
   };
   return {
     threadId: "thr_session_usage",
-    role: "planner",
-    agentId: "planner",
+    role: "main",
+    agentId: "main",
     requestKey,
     session: { sessionId: "session-1", resumed },
     totalCostUsd: tokens / 1000,
@@ -159,8 +159,8 @@ test("V2 SQLite stores session checkpoints and settles increments after reopenin
   });
   store.upsertAgentInstance({
     threadId: "thr_session_usage",
-    agentId: "planner",
-    role: "planner",
+    agentId: "main",
+    role: "main",
     kind: "main",
     status: "completed",
     startedAt: "2026-10-05T00:00:00Z",

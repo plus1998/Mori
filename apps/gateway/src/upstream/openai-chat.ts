@@ -36,6 +36,7 @@ import type {
 import { normalizeChatCompletionsUsage, type ParsedUsage } from "../usage-normalize.js";
 import { fetchUpstreamWithRetry } from "./fetch-with-retry.js";
 import { headersWithLogicalRequestIdentity, readUpstreamRequestId } from "./request-id-headers.js";
+import { formatUpstreamHttpError } from "./upstream-error.js";
 import { applyUpstreamUserAgent } from "./user-agent.js";
 
 let chatUsageEventSeq = 0;
@@ -158,6 +159,7 @@ export async function forwardOpenAIChat(
       },
       lifecycle,
       onLog,
+      httpFailureContext: { route, upstreamUrl },
       ...(route.provider.upstreamProxyUrl ? { upstreamProxyUrl: route.provider.upstreamProxyUrl } : {}),
     });
   } catch (error) {
@@ -183,7 +185,12 @@ export async function forwardOpenAIChat(
     const providerRequestId = readUpstreamRequestId(upstreamResponse.headers);
     reportLogicalUpstreamFailure(lifecycle, {
       stage: "http",
-      error: `Upstream returned HTTP ${upstreamResponse.status}`,
+      error: formatUpstreamHttpError({
+        route,
+        upstreamUrl,
+        status: upstreamResponse.status,
+        bodyText: text,
+      }),
       statusCode: upstreamResponse.status,
       ...(providerRequestId ? { providerRequestId } : {}),
     });
@@ -633,7 +640,12 @@ function openaiChatErrorResponse(input: {
       body.error.message,
     ].join(" · ");
   }
+  const headers = new Headers();
+  if (typeof body.error.code === "string" && body.error.code.trim()) {
+    headers.set("x-eco-upstream-error-code", body.error.code.trim());
+  }
   return Response.json(body, {
     status: input.status >= 400 && input.status < 600 ? input.status : 502,
+    headers,
   });
 }

@@ -98,6 +98,7 @@ function MarkdownContentProseMirror({
             kind: string;
             mimeType?: string;
             base64?: string;
+            url?: string;
             content?: string;
           }>;
         }

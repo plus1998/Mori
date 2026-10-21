@@ -41,7 +41,7 @@ export function buildFallbackContextSnapshot(options: {
   }
 
   const roles = buildFallbackRoleSnapshots(options.usageByRole, options.plannerUsage);
-  const displayRole = roles.find((role) => role.role === "planner")?.role ?? roles[0]?.role;
+  const displayRole = roles.find((role) => role.role === "main")?.role ?? roles[0]?.role;
   const active = roles.find((role) => role.role === displayRole);
   const occupied = active?.occupied ?? options.contextTokens ?? options.plannerUsage?.contextTokens ?? 0;
   if (occupied <= 0) {
@@ -70,7 +70,7 @@ export function buildThreadUsageSummary(input: ThreadUsageSummaryInput): ThreadU
   const showContext = isAcpHostUiFeatureVisible(input.hostUiFeatures, "contextUsage");
   const showBilling = isAcpHostUiFeatureVisible(input.hostUiFeatures, "billing");
   const contextTokens = input.usageByRole ? pickDisplayContextTokens(input.usageByRole) : 0;
-  const plannerUsage = input.usageByRole?.planner;
+  const plannerUsage = input.usageByRole?.main;
   const context = showContext
     ? buildFallbackContextSnapshot({
         ...(input.context && { context: input.context }),
@@ -93,7 +93,7 @@ function buildFallbackRoleSnapshots(
   plannerUsage: ThreadUsageSnapshot | undefined,
 ): ThreadRoleContextSnapshot[] {
   const snapshots: ThreadRoleContextSnapshot[] = [];
-  const source = usageByRole ?? (plannerUsage ? { planner: plannerUsage } : undefined);
+  const source = usageByRole ?? (plannerUsage ? { main: plannerUsage } : undefined);
   if (!source) {
     return snapshots;
   }
@@ -167,28 +167,40 @@ export function shouldShowBillingUsagePanel(
   return shouldShowThreadUsagePanels(status) && isAcpHostUiFeatureVisible(features, "billing");
 }
 
-export function contextCardPlaceholder(status?: ThreadStatus): string {
+export type ContextCardPlaceholderKey =
+  | "context.emptyHint.accumulating"
+  | "context.emptyHint.planning"
+  | "context.emptyHint.noData"
+  | "context.empty";
+
+export function contextCardPlaceholderKey(status?: ThreadStatus): ContextCardPlaceholderKey {
   if (status === "running" || status === "queued") {
-    return "用量随每轮模型响应更新";
+    return "context.emptyHint.accumulating";
   }
   if (status === "awaiting_plan") {
-    return "计划阶段用量将随模型响应更新";
+    return "context.emptyHint.planning";
   }
   if (status === "completed" || status === "idle" || status === "failed" || status === "blocked") {
-    return "暂无上下文数据";
+    return "context.emptyHint.noData";
   }
-  return "上下文 — 有模型请求后显示";
+  return "context.empty";
 }
 
-export function billingEmptyHint(status?: ThreadStatus): string {
+export type BillingEmptyHintKey =
+  | "billing.emptyHint.accumulating"
+  | "billing.emptyHint.planning"
+  | "billing.emptyHint.noRecords"
+  | "billing.emptyHint.notStarted";
+
+export function billingEmptyHintKey(status?: ThreadStatus): BillingEmptyHintKey {
   if (status === "running" || status === "queued") {
-    return "费用累计中…";
+    return "billing.emptyHint.accumulating";
   }
   if (status === "awaiting_plan") {
-    return "计划阶段已产生的 token 与费用将显示在此处。";
+    return "billing.emptyHint.planning";
   }
   if (shouldShowThreadUsagePanels(status)) {
-    return "暂无累计 token 或费用记录。";
+    return "billing.emptyHint.noRecords";
   }
-  return "费用 — 有模型请求后显示";
+  return "billing.emptyHint.notStarted";
 }

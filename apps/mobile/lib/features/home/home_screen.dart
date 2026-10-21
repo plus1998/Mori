@@ -17,6 +17,7 @@ import '../../core/utils/center_server_auth.dart';
 import '../../core/utils/device_display.dart';
 import '../../core/widgets/adaptive_glass_action_button.dart';
 import '../../core/widgets/adaptive_toolbar_icon.dart';
+import '../../core/widgets/app_error_state.dart';
 import '../../core/widgets/eco_android_glass.dart';
 import '../../core/widgets/eco_grouped_list.dart';
 import '../pairing/pairing_scan_screen.dart';
@@ -277,39 +278,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _handleScanResult(PairingQrPayload payload) async {
     final l10n = context.l10n;
     final projectUrl = payload.projectUrl?.trim();
-    if (projectUrl != null && projectUrl.isNotEmpty) {
-      final client = ref.read(ecoCenterClientProvider);
-      final anonFromQr = payload.anonKey?.trim();
-      final currentProject = client.credentials.supabaseUrl.trim().isEmpty
-          ? null
-          : normalizeSupabaseProjectUrl(client.credentials.supabaseUrl);
-      final sameProject =
-          currentProject == normalizeSupabaseProjectUrl(projectUrl);
-      final anon = (anonFromQr != null && anonFromQr.isNotEmpty)
-          ? anonFromQr
-          : (sameProject ? (client.credentials.anonKey?.trim() ?? '') : '');
-      if (anon.isNotEmpty) {
-        await client.setProjectConfig(supabaseUrl: projectUrl, anonKey: anon);
-        _serverUrlController.text = client.credentials.supabaseUrl;
-        ref.invalidate(credentialsProvider);
-      } else {
-        await client.setServerUrl(projectUrl);
-        _serverUrlController.text = client.credentials.supabaseUrl;
-        ref.invalidate(credentialsProvider);
-      }
-    }
-
     if (payload.canConfigureServer || payload.projectUrl != null) {
       await _run(() async {
         final client = ref.read(ecoCenterClientProvider);
+        final reachable = projectUrl != null && projectUrl.isNotEmpty
+            ? await client.applyPairingProjectConfig(payload)
+            : null;
+        if (!context.mounted) return;
+        if (reachable != null) {
+          _serverUrlController.text = client.credentials.supabaseUrl;
+          ref.invalidate(credentialsProvider);
+          ref.read(serverReachableProvider.notifier).state = reachable;
+        }
+        if (reachable == null) {
+          setState(() {
+            _showManualSetup = true;
+            _wizardStep = SetupWizardStep.server;
+          });
+          _showSnack(l10n.setupLegacyQr);
+          return;
+        }
         if (!client.credentials.hasUserSession) {
           _pendingPairingQr = null;
           setState(() {
             _showManualSetup = true;
             _wizardStep = SetupWizardStep.login;
           });
-          if (!context.mounted) return;
-          _showSnack(l10n.setupScanNeedsLogin);
+          _showSnack(
+            reachable ? l10n.setupScanNeedsLogin : l10n.setupServerUnreachable,
+          );
+          return;
+        }
+        if (!reachable) {
+          _showSnack(l10n.setupServerUnreachable);
           return;
         }
         // Same-account login is enough -- show the normal PC picker.
@@ -317,7 +318,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           _showManualSetup = false;
           _wizardStep = null;
         });
-        if (!context.mounted) return;
         _showSnack(l10n.setupScanServerConfigured);
       });
       return;
@@ -1142,7 +1142,13 @@ class _SelectPcStep extends ConsumerWidget {
     }
 
     if (presenceAsync.hasError && presenceAsync.valueOrNull == null) {
-      return Text(presenceAsync.error.toString());
+      return AppErrorState(
+        title: context.l10n.setupConnectionError,
+        message: localizedConnectionError(presenceAsync.error!, context.l10n),
+        retryLabel: context.l10n.commonRetry,
+        onRetry: () =>
+            ref.read(desktopPresenceProvider.notifier).refresh(force: true),
+      );
     }
 
     if (!overview.hasActiveBinding) {

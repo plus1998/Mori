@@ -29,10 +29,11 @@ export interface WebChatListAnchorRect {
 export function webChatListPopoverBoxForRect(
   rect: WebChatListAnchorRect,
   viewport: { width: number; height: number },
+  options: { width?: number; maxHeight?: number } = {},
 ): WebChatListPopoverBox {
   const width = Math.min(
-    WEB_CHAT_LIST_POPOVER_WIDTH,
-    Math.max(200, viewport.width - WEB_CHAT_LIST_VIEWPORT_MARGIN * 2),
+    options.width ?? WEB_CHAT_LIST_POPOVER_WIDTH,
+    Math.max(0, viewport.width - WEB_CHAT_LIST_VIEWPORT_MARGIN * 2),
   );
   const rawLeft = rect.right - width;
   const left = Math.max(
@@ -40,7 +41,10 @@ export function webChatListPopoverBoxForRect(
     Math.min(rawLeft, viewport.width - WEB_CHAT_LIST_VIEWPORT_MARGIN - width),
   );
   const top = Math.max(WEB_CHAT_LIST_VIEWPORT_MARGIN, rect.bottom + WEB_CHAT_LIST_ANCHOR_GAP);
-  const maxHeight = Math.max(160, viewport.height - top - WEB_CHAT_LIST_VIEWPORT_MARGIN);
+  const maxHeight = Math.min(
+    options.maxHeight ?? Number.POSITIVE_INFINITY,
+    Math.max(0, viewport.height - top - WEB_CHAT_LIST_VIEWPORT_MARGIN),
+  );
   return {
     position: "fixed",
     top,

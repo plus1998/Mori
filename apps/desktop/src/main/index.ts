@@ -1,6 +1,4 @@
-import { buildTtsPromptAppend, ECO_TTS_MCP_SERVER, isEcoTtsToolName, type TtsProfileSaveInput } from "../shared/tts";
-import { createTtsStore, type TtsStore } from "./tts-store";
-import { TtsMcpGateway } from "./tts-mcp-gateway";
+import { TtsReadAloudService } from "./tts-read-aloud";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -9,6 +7,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
+import {
+  CONTEXT_MCP_SERVER,
+  CONTEXT_REFERENCE_PROMPT,
+  type ComposerReferenceSearchRequest,
+} from "../shared/composer-references";
 import {
   SCHEDULING_MCP_SERVER,
   SCHEDULING_PROMPT,
@@ -18,14 +22,30 @@ import {
   type ScheduleTrigger,
   type ScheduleUpdateInput,
 } from "../shared/scheduling";
+import {
+  buildTtsPromptAppend,
+  ECO_TTS_MCP_SERVER,
+  isEcoTtsToolName,
+  type TtsProfileSaveInput,
+} from "../shared/tts";
+import { webChatProxyConfig, webChatSitePartition } from "../shared/web-chat-list";
+import { ComposerReferenceService } from "./composer-reference-service";
+import { BrowserSelectionService } from "./browser-selection-service";
+import { authorizeBrowserDownloadAccess } from "./browser-download-approval";
+import { ContextReferenceMcpGateway } from "./context-reference-mcp-gateway";
 import { ConversationRecoveryGate } from "./conversation-recovery-gate";
 import { finalizeAcceptedConversationV2Messages } from "./conversation-v2-accepted-finalization";
+import { createMcpHubNestedToolPermissionHandler } from "./mcp-hub-permission";
 import { previewSchedule } from "./schedule-time";
 import { inspectScheduledRun } from "./scheduling-inspection";
 import { SchedulingMcpGateway } from "./scheduling-mcp-gateway";
 import { freezeSchedulingProfile } from "./scheduling-profile";
 import { SchedulingService } from "./scheduling-service";
 import { SchedulingStore } from "./scheduling-store";
+import { TtsMcpGateway } from "./tts-mcp-gateway";
+import { createTtsStore, type TtsStore } from "./tts-store";
+import { WebChatProxyController } from "./web-chat-proxy";
+import { isDevFeedReplayFrameUrl } from "../shared/dev-feed-replay";
 
 const execFileAsync = promisify(execFile);
 
@@ -36,6 +56,7 @@ import {
   acpSessionIdToDelete,
   type CodexAsyncQuestionsInput,
   type CodexGatewayCatalogRoute,
+  type CodexMcpServerForConfigSync,
   type CodexTurnTokenUsageBreakdown,
   codexToolDisplayName,
   composeCanUseToolHandlers,
@@ -51,8 +72,10 @@ import {
   evaluateFilesystemWriteConfirmation,
   isAcpProviderExhaustionMessage,
   isCoreKind,
+  isCodexTurnInterruptFailed,
   isPiThreadMidTurnAccepting,
   isReadFilesystemTool,
+  integratedWebSearchProviderLabel,
   isWriteFilesystemTool,
   materializeEcoToolPolicy,
   normalizeSdkSubagentType,
@@ -65,8 +88,10 @@ import {
   resolveCodexHomeDir,
   resolveCursorAgentExecutable,
   resolveEffectiveContextLimit,
+  sanitizeCodexRoleId,
   SDK_GENERAL_PURPOSE_AGENT_KEY,
   SDK_PLAN_AGENT_KEY,
+  sdkAgentKeyForOrchestrationAgent,
   type SdkAskUserQuestionRequest,
   type SdkToolPermissionDecision,
   type SdkToolPermissionRequest,
@@ -124,8 +149,9 @@ import {
   net,
   powerMonitor,
   powerSaveBlocker,
-  screen,
+  protocol,
   safeStorage,
+  screen,
   session,
   shell,
   type WebContents,
@@ -243,9 +269,10 @@ import {
   isWebSearchApprovalToolName,
 } from "../shared/integrated-web-search";
 import { integrationEnabled } from "../shared/integrations";
+import type { ThreadForkFromMessageRequest } from "../shared/ipc";
 import {
-  type AgentRole,
   type AddCodexCatalogModelRequest,
+  type AgentRole,
   type AgentTemplate,
   type AgentTemplateExportRequest,
   applyBusyMutableRuntimeConfigFields,
@@ -276,6 +303,8 @@ import {
   isBackgroundTerminalStartRequest,
   isBackgroundTerminalStopRequest,
   isBusyMutableOnlyRuntimeConfigUpdate,
+  isCodexBackgroundTerminalTerminateRequest,
+  isClaudeBackgroundTaskStopRequest,
   isGitCommitRequest,
   isGitFetchRequest,
   isGitGenerateCommitMessageRequest,
@@ -433,6 +462,7 @@ import {
 import {
   buildPlanExecutionFailureMessage,
   persistThreadSummaryMessage,
+  planDelegationFailurePrefix,
   planExecutionFailurePrefix,
 } from "../shared/thread-failure-message";
 import { coreSupportsMidTurnFollowUp, coreUsesInterruptForSteer } from "../shared/thread-follow-up-core";
@@ -502,7 +532,11 @@ import {
   runtimeRouteToProxyRoute,
   startAnthropicModelProxy,
 } from "./anthropic-proxy";
-import { attachMainWindowQuitGuard, installApplicationShutdownHook } from "./application-shutdown";
+import {
+  attachMainWindowQuitGuard,
+  installApplicationShutdownHook,
+  isApplicationQuitting,
+} from "./application-shutdown";
 import {
   type ApplicationShutdownDeps,
   collectRunningWorkSummary,
@@ -514,6 +548,8 @@ import { type AsrSecretCodec, type AsrSettingsStore, createAsrSettingsStore } fr
 import { resolveAuxiliaryModelRoute } from "./auxiliary-model-route";
 import { BackgroundTerminalTaskRegistry } from "./background-terminal-tasks";
 import { resolveBashApprovalAgentId } from "./bash-approval-agent-id.js";
+import { CodexBackgroundTerminalService } from "./codex-background-terminals";
+import { ClaudeBackgroundTaskRegistry } from "./claude-background-tasks";
 import {
   approveAllPendingBashApprovalsForThread,
   type BashApprovalResolution,
@@ -583,11 +619,20 @@ import {
   prepareAsyncClarificationReply,
   releasePendingClarification,
 } from "./codex-async-question-bridge";
+import { normalizeCodexAppServerUsage } from "./codex-app-server-usage-billing";
+import { isCodexAuthCompletionPageText } from "./codex-browser-login";
 import {
   CodexGatewayUsageDeduplicator,
   resolveCodexGatewayUsageBilling,
 } from "./codex-gateway-usage-billing";
 import { CodexGatewayUsagePendingBuffer } from "./codex-gateway-usage-pending";
+import { connectCodexImageAccount, disposeCodexImageConnections } from "./codex-image-electron-transport";
+import { CodexImageService } from "./codex-image-service";
+import { consumeCodexQuotaReset } from "./codex-quota-reset";
+import {
+  CodexRemoteModelCatalogService,
+  resolveCodexModelCatalogCachePath,
+} from "./codex-model-catalog-remote";
 import {
   getGlobalCodexRuntimeLifecycle,
   setCodexAccountProxyUrlGetter,
@@ -601,7 +646,7 @@ import {
   ensureCodexControlPlaneClient,
   forkCodexThreadForEcoThread,
   getCodexTurnRouteRegistry,
-  invalidateGlobalCodexRuntimeFingerprints,
+  requestCodexAccountRuntimeRestart,
   isCodexCliAvailable,
   queryCodexThreadStatusForEcoThread,
   registerResolvedCodexGatewayTurnRoute,
@@ -644,12 +689,14 @@ import {
   executeFollowUpMutationCommand,
   failInterruptedFollowUpCommands,
 } from "./conversation-follow-up-command";
+import { ConversationForkCommands } from "./conversation-fork-command";
 import {
   executeBashApprovalResolutionCommand,
   executeClarificationResolutionCommand,
   failInterruptedInteractionCommands,
   recoverAsyncClarificationCommands,
 } from "./conversation-interaction-command";
+import { cleanupNativeConversationFork, forkNativeConversation } from "./conversation-native-fork";
 import {
   executeNonRewindRetryCommand,
   resolveNonRewindRetryUserMessage,
@@ -693,13 +740,12 @@ import {
   removeClaudeUserEcoAgentBrowserSkill,
   resolveEcoAgentBrowserSkillFileForCodex,
 } from "./eco-agent-browser-skill";
+import { type ApprovalHostEvidence, collectApprovalHostEvidence } from "./eco-approval-local-evidence";
 import {
   buildThreadApprovalEnvelope,
   type EcoApprovalReviewResult,
   reviewEcoApproval,
 } from "./eco-approval-reviewer";
-import { collectApprovalHostEvidence, type ApprovalHostEvidence } from "./eco-approval-local-evidence";
-import { resolveSdkHintPermission } from "./sdk-hint-approval";
 import { logEcoDiag, logEcoDiagThrottled, shortAgentId, shortThreadId } from "./eco-diag-log";
 import {
   configureEcoGatewayLifecycle,
@@ -749,6 +795,7 @@ import { HtmlHostMcpGateway } from "./html-host-mcp-gateway";
 import { HtmlHostStore } from "./html-host-store";
 import { ImageDisplayMcpGateway } from "./image-display-mcp-gateway";
 import { createImageDisplayStore, ImageDisplayError, type ImageDisplayStore } from "./image-display-store";
+import { imageGenerationAvailability } from "./image-generation-availability";
 import { ImageGenerationMcpGateway } from "./image-generation-mcp-gateway";
 import {
   createImageGenerationStore,
@@ -766,13 +813,9 @@ import { InteractiveTerminalManager } from "./interactive-terminal-manager";
 import { createLocalSecretCodec } from "./local-secret-codec";
 import { checkMcpServerConnection } from "./mcp-checker";
 import { McpHubGateway } from "./mcp-hub-gateway";
-import { prepareCodexGlobalMcpServerPool, prepareMcpSdkConfigForRuntime } from "./mcp-runtime";
+import { prepareMcpSdkConfigForRuntime } from "./mcp-runtime";
 import { createMcpStore, type McpStore } from "./mcp-store";
 import { ModelsDevPricingCache } from "./models-dev-pricing-cache";
-import {
-  CodexRemoteModelCatalogService,
-  resolveCodexModelCatalogCachePath,
-} from "./codex-model-catalog-remote";
 import {
   createNotificationSettingsStore,
   isNotificationSettingsSnapshot,
@@ -865,6 +908,7 @@ import { resolveCommandExecutable } from "./resolve-command-executable";
 import { resolveThreadWebSearchPlan } from "./resolve-thread-web-search";
 import { reconcileSdkAgentTerminalEvent } from "./sdk-agent-terminal-reconciliation";
 import type { resolveSdkEventUsageBilling, SdkRunUsageBillingInput } from "./sdk-event-usage-billing";
+import { resolveSdkHintPermission } from "./sdk-hint-approval";
 import { resolveSdkRunBillingResolution } from "./sdk-run-billing-resolution";
 import { consumeSdkRunEvents } from "./sdk-run-event-loop";
 import { type BuildSdkRunInput, buildSdkRunInput, sdkRunPhaseFromMode } from "./sdk-run-input";
@@ -1048,11 +1092,16 @@ import {
   resolveAcpCursorApiKeyForSave,
   type WorkflowSettingsStore,
 } from "./workflow-settings-store";
-import { listWorkspaceEntries, readWorkspaceFile, writeWorkspaceFile } from "./workspace-file-browser";
+import {
+  listWorkspaceEntries,
+  readWorkspaceFile,
+  workspaceFileStreams,
+  writeWorkspaceFile,
+} from "./workspace-file-browser";
 import { prepareWorkspaceGit } from "./workspace-git-setup";
 import { WorkspaceGitStatusPublisher } from "./workspace-git-status-publisher";
-import { WorkspaceReviewService } from "./workspace-review-service";
 import { inspectWorkspace, resolveGitExecutable } from "./workspace-inspect";
+import { WorkspaceReviewService } from "./workspace-review-service";
 import {
   type ApprovedPlanArtifact,
   type ApprovedPlanSnapshot,
@@ -1067,6 +1116,12 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "eco-workspace",
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+  },
+]);
 
 const packagingDir = path.join(__dirname, "../../packaging");
 
@@ -1162,6 +1217,83 @@ function createOAuthAuthWindow(parent?: BrowserWindow, partition = "oauth-auth-s
       contextIsolation: true,
     },
   });
+}
+
+/** Watch for the provider's success page while the local app-server callback is still in flight. */
+function watchCodexAuthCompletionPage(authWindow: BrowserWindow, onDetected: () => void): () => void {
+  let stopped = false;
+  let checking = false;
+  let timer: ReturnType<typeof setInterval> | undefined;
+
+  function stop(): void {
+    if (stopped) return;
+    stopped = true;
+    if (timer) clearInterval(timer);
+    authWindow.webContents.removeListener("dom-ready", check);
+    authWindow.webContents.removeListener("did-finish-load", check);
+    authWindow.webContents.removeListener("did-navigate", check);
+    authWindow.webContents.removeListener("did-navigate-in-page", check);
+  }
+
+  function check(): void {
+    if (stopped || checking || authWindow.isDestroyed()) return;
+    checking = true;
+    void authWindow.webContents
+      .executeJavaScript("document.body?.innerText ?? ''", true)
+      .then((bodyText) => {
+        if (typeof bodyText !== "string" || !isCodexAuthCompletionPageText(bodyText)) return;
+        stop();
+        onDetected();
+      })
+      .catch(() => {
+        // The document can be replaced while OAuth navigates. The next load event retries.
+      })
+      .finally(() => {
+        checking = false;
+      });
+  }
+
+  authWindow.webContents.on("dom-ready", check);
+  authWindow.webContents.on("did-finish-load", check);
+  authWindow.webContents.on("did-navigate", check);
+  authWindow.webContents.on("did-navigate-in-page", check);
+  timer = setInterval(check, 1_000);
+  check();
+  return stop;
+}
+
+/** Keep the OAuth window open after provider-side success until app-server confirms the callback. */
+function installCodexAuthCompletionGuard(
+  authWindow: BrowserWindow,
+  cancelLogin: () => void,
+): {
+  allowClose: () => void;
+  dispose: () => void;
+} {
+  let awaitingCallback = false;
+  const stopWatching = watchCodexAuthCompletionPage(authWindow, () => {
+    if (awaitingCallback || authWindow.isDestroyed()) return;
+    awaitingCallback = true;
+    authWindow.setClosable(false);
+    process.stderr.write("[codex-oauth] provider authorization succeeded; waiting for local callback\n");
+  });
+
+  authWindow.on("close", (event) => {
+    if (awaitingCallback && !isApplicationQuitting()) {
+      event.preventDefault();
+      return;
+    }
+    cancelLogin();
+  });
+
+  return {
+    allowClose: () => {
+      awaitingCallback = false;
+      stopWatching();
+      if (!authWindow.isDestroyed()) authWindow.setClosable(true);
+    },
+    dispose: stopWatching,
+  };
 }
 
 /** Configure the shared embedded OAuth session with the desktop outbound proxy. */
@@ -1321,6 +1453,8 @@ function broadcastPackageScriptTerminalLaunch(payload: {
   });
 }
 let backgroundTerminalTaskRegistry: BackgroundTerminalTaskRegistry;
+let codexBackgroundTerminalService: CodexBackgroundTerminalService | undefined;
+const claudeBackgroundTaskRegistry = new ClaudeBackgroundTaskRegistry();
 const systemSleepBlocker = new SystemSleepBlocker(powerSaveBlocker);
 let applicationShutdownDeps: ApplicationShutdownDeps | undefined;
 
@@ -1356,6 +1490,21 @@ backgroundTerminalTaskRegistry = new BackgroundTerminalTaskRegistry(
   interactiveTerminalManager,
   syncSystemSleepBlocker,
 );
+
+function getCodexBackgroundTerminalService(): CodexBackgroundTerminalService {
+  return (codexBackgroundTerminalService ??= new CodexBackgroundTerminalService({
+    getClient: () => getGlobalCodexRuntimeLifecycle()?.getClient(),
+    resolveEcoThreadId: (codexThreadId) => {
+      const mapped = codexThreadMap?.getEcoThreadId(codexThreadId);
+      if (mapped) {
+        return mapped;
+      }
+      return codexThreadMap
+        ? resolveCodexThreadAttribution(codexThreadMap, codexThreadId)?.ecoThreadId
+        : undefined;
+    },
+  }));
+}
 const packageJsonWatcher = new PackageJsonWatcher((workspacePath) => {
   desktopEventCenter.publishPackageJsonChanged(workspacePath);
 });
@@ -1363,12 +1512,22 @@ const workspaceReviewService = new WorkspaceReviewService(runGitCommand, (event)
   desktopEventCenter.publishGitDiffChanged(event);
   if (!event.error) workspaceGitStatusPublisher.schedule(event.workspacePath);
 });
-const workspaceGitStatusPublisher = new WorkspaceGitStatusPublisher(runGitCommand, (summary) => {
-  desktopEventCenter.publishGitStatusChanged(summary);
-}, undefined, async (workspacePath) => {
-  const diff = await workspaceReviewService.getSummary(workspacePath);
-  return { workspacePath, dirtyFileCount: diff.fileCount, insertions: diff.totalAdditions, deletions: diff.totalDeletions };
-});
+const workspaceGitStatusPublisher = new WorkspaceGitStatusPublisher(
+  runGitCommand,
+  (summary) => {
+    desktopEventCenter.publishGitStatusChanged(summary);
+  },
+  undefined,
+  async (workspacePath) => {
+    const diff = await workspaceReviewService.getSummary(workspacePath);
+    return {
+      workspacePath,
+      dirtyFileCount: diff.fileCount,
+      insertions: diff.totalAdditions,
+      deletions: diff.totalDeletions,
+    };
+  },
+);
 let gitAutoFetcher: GitAutoFetcher | undefined;
 let activeGitOperations = 0;
 const gitWorktrees = new GitWorktreeService(gitRunner);
@@ -1380,6 +1539,57 @@ let agentOrchestrationStore: AgentOrchestrationStore;
 let mcpStore: McpStore;
 let mcpHubGateway: McpHubGateway;
 let conversationStore: ConversationStore;
+let conversationForkCommands: ConversationForkCommands | undefined;
+
+function getConversationForkCommands(): ConversationForkCommands {
+  return (conversationForkCommands ??= new ConversationForkCommands({
+    store: conversationStore,
+    ensureThreadRuntimeConfig,
+    hasActiveRun: (threadId) => activeRunRuntimeState.hasRun(threadId),
+    prepareHistory: async (_thread, history) => {
+      for (const message of [...history.messages, history.target]) {
+        for (const attachment of parsePromptImageAttachments(message.attachments)) {
+          if (!attachment.contentRef || !(await promptImageFileStore.hasReadableContentRef(attachment)))
+            throw new Error("分叉历史中的图片原图不可用，请重新发送该图片。");
+        }
+      }
+    },
+    forkNative: async (thread, history, childThreadId, onCreated) => {
+      const binding = conversationStore.getThreadCoreSession(thread.id);
+      if (!binding || !["claude", "codex", "pi"].includes(binding.coreKind))
+        throw new Error("源会话缺少可恢复的原生绑定。");
+      return forkNativeConversation({
+        history,
+        childThreadId,
+        coreKind: binding.coreKind as "claude" | "codex" | "pi",
+        sessionId: binding.externalSessionId,
+        cwd: binding.cwd,
+        ...(typeof binding.metadata?.sessionFile === "string"
+          ? { sessionFile: binding.metadata.sessionFile }
+          : {}),
+        ecoDataDir: app.getPath("userData"),
+        recoveryTitle: `eco-fork:${childThreadId}`,
+        ...(resolveCodexExecutable() ? { codexExecutable: resolveCodexExecutable()! } : {}),
+        codexHome: resolveCodexHomeDir(app.getPath("userData")),
+        resolveClaudeUserId: (activityLineId) => resolveCurrentClaudeUserMessageId(thread.id, activityLineId),
+        onCreated,
+      });
+    },
+    cleanupNative: async (result) => {
+      if (result.coreKind === "codex") {
+        await (await ensureCodexControlPlaneClient()).request("thread/archive", {
+          threadId: result.externalSessionId,
+        });
+      } else await cleanupNativeConversationFork(result);
+    },
+    validateRecoveredNative: (result) => {
+      if (result.empty) return;
+      const file = result.coreKind === "codex" ? result.metadata?.rolloutPath : result.metadata?.sessionFile;
+      if (typeof file !== "string" || !existsSync(file))
+        throw new Error("原生分支历史文件缺失，无法恢复该分叉。");
+    },
+  }));
+}
 let executeThreadDeleteCommand: ReturnType<typeof createThreadDeleteCommandCoordinator>;
 let codexThreadMap: CodexThreadMap;
 let workflowSettingsStore: WorkflowSettingsStore;
@@ -1393,13 +1603,25 @@ let browserSettingsStore: BrowserSettingsStore;
 let computerUseSettingsStore: ComputerUseSettingsStore;
 let computerUseGateway: ComputerUseMcpGateway;
 let webChatListStore: WebChatListStore;
+const webChatProxyControllers = new Map<ReturnType<typeof session.fromPartition>, WebChatProxyController>();
+function webChatProxyControllerFor(siteId: string): WebChatProxyController {
+  const siteSession = session.fromPartition(webChatSitePartition(siteId));
+  let controller = webChatProxyControllers.get(siteSession);
+  if (!controller) {
+    controller = new WebChatProxyController(siteSession);
+    webChatProxyControllers.set(siteSession, controller);
+  }
+  return controller;
+}
 let sshBookmarkStore: SshBookmarkStore;
 let notificationSettingsStore: NotificationSettingsStore;
 let browserHost: BrowserHost | undefined;
 let ttsStore: TtsStore;
 let ttsGateway: TtsMcpGateway;
+let ttsReadAloud: TtsReadAloudService;
 let imageGenerationStore: ImageGenerationStore;
 let imageGenerationGateway: ImageGenerationMcpGateway;
+let codexImages: CodexImageService;
 let imageViewGateway: ImageViewMcpGateway;
 let imageDisplayStore: ImageDisplayStore;
 let imageDisplayGateway: ImageDisplayMcpGateway;
@@ -1407,6 +1629,9 @@ let htmlHostStore: HtmlHostStore;
 let htmlHostGateway: HtmlHostMcpGateway;
 let schedulingService: SchedulingService;
 let schedulingGateway: SchedulingMcpGateway;
+let composerReferenceService: ComposerReferenceService;
+let browserSelectionService: BrowserSelectionService;
+let contextReferenceGateway: ContextReferenceMcpGateway;
 let integratedWebSearchGateway: IntegratedWebSearchMcpGateway;
 let promptImageFileStore: PromptImageFileStore;
 
@@ -1417,14 +1642,14 @@ function requireBrowserHost(): BrowserHost {
   return browserHost;
 }
 
-async function resolveCodexGlobalMcpServers() {
-  // Codex must see only the thread-scoped Hub descriptors. Direct stdio/HTTP
-  // entries and built-in Eco gateways would create a second dispatch path and
-  // could retain credentials outside the Hub session binding.
-  return prepareCodexGlobalMcpServerPool({
-    configuredServers: mcpHubGateway.listThreadCodexServers(),
-    builtinServerResolvers: [],
-  });
+async function resolveCodexGlobalMcpServers(): Promise<CodexMcpServerForConfigSync[]> {
+  // Eco exposes every MCP server through the per-thread Hub descriptor, and
+  // that descriptor travels in the thread's own `thread/start` config. Keeping
+  // `config.toml` free of `[mcp_servers.*]` lets independent threads load
+  // concurrently instead of forcing a whole-file fingerprint change plus an
+  // idle wait for each new thread. Direct stdio/HTTP entries and built-in Eco
+  // gateways would also create a second dispatch path outside the Hub binding.
+  return [];
 }
 
 function codexHubServerName(threadId: string): string {
@@ -1760,6 +1985,23 @@ function startActiveRun(threadId: string, run: ActiveRunRuntimeStateInput): void
       }
     });
   }
+}
+
+function resolveAbortedRunReason(signal: AbortSignal, error?: unknown): string {
+  if (
+    error instanceof Error &&
+    (error.name === "CodexTurnInterruptFailed" ||
+      /turn\/interrupt.*failed|interrupt failed/i.test(error.message))
+  ) {
+    return `停止当前 Codex turn 失败：${error.message}`;
+  }
+  if (signal.reason instanceof Error && signal.reason.message.trim()) {
+    return signal.reason.message.trim();
+  }
+  if (typeof signal.reason === "string" && signal.reason.trim()) {
+    return signal.reason.trim();
+  }
+  return "cancelled by user";
 }
 
 function finishActiveRun(threadId: string): void {
@@ -2155,6 +2397,17 @@ async function createMainWindow(
     },
   };
   const window = new BrowserWindow(windowOptions);
+  // Workspace HTML is a static, sandboxed preview. Block frame redirects to external sites too.
+  window.webContents.on("will-frame-navigate", (event) => {
+    if (
+      !event.isMainFrame &&
+      !event.url.startsWith("eco-workspace://") &&
+      !/^about:(?:blank|srcdoc)(?:#.*)?$/.test(event.url) &&
+      !isDevFeedReplayFrameUrl(event.url, { packaged: app.isPackaged, devServerUrl: process.env.VITE_DEV_SERVER_URL })
+    ) {
+      event.preventDefault();
+    }
+  });
   window.webContents.on("render-process-gone", (_event, details) => {
     logUpstream("desktop.render-process-gone", {
       webContentsId: window.webContents.id,
@@ -2307,6 +2560,7 @@ app
     };
 
     logStartupStage("ready");
+    protocol.handle("eco-workspace", (request) => workspaceFileStreams.respond(request));
     if (!hasSingleInstanceLock) {
       return;
     }
@@ -2485,6 +2739,17 @@ app
     computerUseSettingsStore = await createComputerUseSettingsStore(dbPath);
     computerUseGateway = new ComputerUseMcpGateway(() => computerUseSettingsStore.get());
     webChatListStore = await createWebChatListStore(dbPath);
+    app.on("web-contents-created", (_event, contents) => {
+      contents.on("login", (event, _details, authInfo, callback) => {
+        const credentials = webChatProxyControllers.get(contents.session)?.credentials(authInfo);
+        if (!credentials) return;
+        event.preventDefault();
+        callback(...credentials);
+      });
+    });
+    app.once("before-quit", () => {
+      for (const controller of webChatProxyControllers.values()) controller.dispose();
+    });
     sshBookmarkStore = await createSshBookmarkStore(dbPath, createLocalSecretCodec());
     notificationSettingsStore = await createNotificationSettingsStore(dbPath);
     browserHost = new BrowserHost({
@@ -2505,6 +2770,28 @@ app
         });
       },
       resolveWorkspacePath: (threadId) => conversationStore.getThread(threadId)?.workspacePath,
+      authorizeDownloadAccess: input => authorizeBrowserDownloadAccess(input, {
+        context: threadId => {
+          const thread = conversationStore.getThread(threadId);
+          const agentId = agentLifecycle.usagePlannerAgentId(threadId);
+          if (!thread || !agentId) throw new Error("Cannot attribute browser download access to an active conversation agent.");
+          return {
+            agentId,
+            cwd: activeRunRuntimeState.worktreePlan(threadId)?.worktreePath || thread.sdkCwd || thread.workspacePath,
+            mode: ensureThreadRuntimeConfig(thread).runtimeConfig?.bashReviewMode ?? "always",
+          };
+        },
+        review: (request, toolInput) => reviewThreadToolApproval(input.threadId, request, {
+          toolName: "BrowserDownload", toolInput,
+        }, "browser"),
+        requestHuman: request => registerPendingBashApproval(input.threadId, request),
+        cancel: toolUseId => { resolvePendingBashApproval(toolUseId, { decision: "cancelled" }); },
+        emit: (request, decision) => {
+          const type = `bash_approval.${decision}` as const;
+          const label = decision === "requested" ? "等待确认下载文件访问" : decision === "approved" ? "已允许下载文件访问" : "已拒绝下载文件访问";
+          emitThreadEvent(input.threadId, type, `${label}：${input.file.name}`, "tool", false, bashApprovalEventExtras(request, type));
+        },
+      }),
     });
     const imageSecretCodec: ImageGenerationSecretCodec = {
       isAvailable: () => safeStorage.isEncryptionAvailable(),
@@ -2517,6 +2804,7 @@ app
     imageGenerationStore = await createImageGenerationStore(dbPath, imageSecretCodec);
     imageGenerationGateway = new ImageGenerationMcpGateway({
       store: imageGenerationStore,
+      generateCodex: (input, images, signal, route) => codexImages.generate(input, images, signal, route),
       resolveWorkspacePath: (threadId) => conversationStore.getThread(threadId)?.workspacePath,
       resolveGenerationRoot: (threadId) =>
         activeRunRuntimeState.worktreePlan(threadId)?.worktreePath ??
@@ -2530,6 +2818,7 @@ app
       },
     });
     ttsStore = await createTtsStore(dbPath, imageSecretCodec);
+    ttsReadAloud = new TtsReadAloudService(ttsStore);
     ttsGateway = new TtsMcpGateway({
       store: ttsStore,
       resolveWorkspacePath: (threadId) => conversationStore.getThread(threadId)?.workspacePath,
@@ -2539,8 +2828,7 @@ app
         conversationStore.getThread(threadId)?.workspacePath,
       onArtifactChanged: (artifact) => {
         BrowserWindow.getAllWindows().forEach((window) => {
-          if (!window.isDestroyed())
-            window.webContents.send(IPC_CHANNELS.ttsArtifactChanged, artifact);
+          if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.ttsArtifactChanged, artifact);
         });
       },
     });
@@ -2658,7 +2946,6 @@ app
       eventCenter: desktopEventCenter,
       log: (message) => process.stderr.write(message),
       onStatusChange: emitCenterServerStatus,
-      onHtmlHostingCapabilityChange: () => scheduleCodexGlobalRuntimeRefresh(),
     });
     centerServerClient.setSettingsSyncHooks(
       createDesktopSettingsSyncHooks({
@@ -2771,13 +3058,9 @@ app
         },
       getGatewayCredentialReporter:
         () =>
-        async ({ accountId, statusCode, errorCode }) => {
+        async (result) => {
           const service = await getChatGptSubscriptionService();
-          await service.reportCredentialResult({
-            ...(accountId ? { accountId } : {}),
-            statusCode,
-            ...(errorCode ? { errorCode } : {}),
-          });
+          await service.reportCredentialResult(result);
         },
       getTurnRouteRegistry: () => getCodexTurnRouteRegistry(),
       resolveEcoThreadIdFromCodex: (codexThreadId) =>
@@ -2885,18 +3168,59 @@ app
         await handleCodexGatewayUsage(event);
       },
       onRequestLifecycle: (event) => {
-        handleGatewayRequestLifecycleEvent(event, {
+        const lifecycleEvent = event.threadId
+          ? {
+              ...event,
+              threadId:
+                codexThreadMap.getEcoThreadId(event.threadId) ??
+                event.threadId,
+            }
+          : event;
+        handleGatewayRequestLifecycleEvent(lifecycleEvent, {
           onUpstreamRequestId: ({ threadId, role, requestId, logicalRequestId }) => {
             adoptLiveProviderRequestId(threadId, logicalRequestId, requestId);
           },
           onUpstreamConnectionError: (input) => {
+            if (input.errorInfo?.code === "subscription_sharing_usage_limit_exceeded") {
+              return;
+            }
             emitUpstreamConnectionErrorActivity(input);
           },
           onLogicalCompleted: ({ threadId, role, logicalRequestId }) => {
             emitLogicalRequestTerminal(threadId, role, logicalRequestId, "completed");
           },
-          onLogicalFailed: ({ threadId, role, error, statusCode, logicalRequestId }) => {
-            const detail = statusCode ? `HTTP ${statusCode}` : error;
+          onLogicalFailed: ({
+            threadId,
+            role,
+            error,
+            statusCode,
+            logicalRequestId,
+            accountId,
+            providerRequestId,
+            responseId,
+            turnId,
+            runAttemptId,
+            errorInfo,
+          }) => {
+            // Keep the upstream reason. Collapsing to `HTTP <code>` loses the provider
+            // body (for example "Context window exhausted") and leaves users with a
+            // bare status code and no explanation.
+            const detail = error.trim() || (statusCode !== undefined ? `HTTP ${statusCode}` : "");
+            if (errorInfo?.code === "subscription_sharing_usage_limit_exceeded") {
+              const handled = handleSubscriptionUsageLimitFailure({
+                threadId,
+                role,
+                logicalRequestId,
+                errorInfo,
+                ...(turnId ? { turnId } : {}),
+                ...(runAttemptId ? { runAttemptId } : {}),
+                ...(accountId ? { accountId } : {}),
+                ...(providerRequestId ? { providerRequestId } : {}),
+                ...(responseId ? { responseId } : {}),
+                ...(statusCode !== undefined ? { statusCode } : {}),
+              });
+              if (!handled) return;
+            }
             emitLogicalRequestTerminal(threadId, role, logicalRequestId, "failed", detail);
           },
           onLogicalCancelled: ({ threadId, role, reason, logicalRequestId }) => {
@@ -2978,6 +3302,9 @@ app
                         ? {
                             supportsImageInput: model.manualSpec.supportsImageInput,
                           }
+                        : {}),
+                      ...(model.manualSpec.supportsRemoteCompaction !== undefined
+                        ? { supportsRemoteCompaction: model.manualSpec.supportsRemoteCompaction }
                         : {}),
                     },
                   }
@@ -3101,8 +3428,10 @@ app
           });
         }
       },
-      bindLatestUserPromptToCodexItem: (threadId, itemId) => {
-        return Boolean(conversationStore.bindLatestUserRunEventToSdkMessage(threadId, itemId));
+      bindLatestUserPromptToCodexItem: (threadId, itemId, turnId) => {
+        const bound = Boolean(conversationStore.bindLatestUserRunEventToSdkMessage(threadId, itemId));
+        if (bound && turnId) conversationStore.bindCodexForkTurn(threadId, itemId, turnId);
+        return bound;
       },
       resolveCodexForkTurnIndex: (threadId, itemId) =>
         conversationStore.resolveCodexUserTurnIndex(threadId, itemId),
@@ -3203,6 +3532,8 @@ app
       getWorktreePath: (threadId) => activeRunRuntimeState.worktreePlan(threadId)?.worktreePath,
       getPlannerAgentId: (threadId) => agentLifecycle.usagePlannerAgentId(threadId),
       getMcpHubServerName: (threadId) => mcpHubGateway.getThreadCodexServerName(threadId),
+      getMcpToolApprovalTarget: (server, tool) => mcpStore.getToolApprovalTarget(server, tool),
+      isMcpToolApproved: (target) => mcpStore.isToolApproved(target),
       getApprovalMode: (threadId) => {
         const thread = conversationStore.getThread(threadId);
         return thread
@@ -3377,6 +3708,26 @@ app
     initializeGitAutoFetcher();
     schedulingService = createSchedulingService(dbPath);
     schedulingGateway = new SchedulingMcpGateway(schedulingService);
+    browserSelectionService = new BrowserSelectionService({
+      directory: path.join(app.getPath("userData"), "browser-selections"),
+      getTarget: id => requireBrowserHost().getSelectionTarget(id),
+    });
+    composerReferenceService = new ComposerReferenceService({
+      selections: browserSelectionService,
+      listThreads: (query, limit) => conversationStore.searchThreadReferences(query, limit),
+      getThread: (id) => conversationStore.getThread(id),
+      listSsh: () => sshBookmarkStore.list(),
+      listBrowsers: () => requireBrowserHost().getState().allInstances,
+      listCapabilities: resolveComposerCapabilitiesForThread,
+      readHistory: (id, before, limit, includeTools) =>
+        conversationStore.conversationV2().transcriptPage(id, before, limit, includeTools),
+      readMessage: (id, messageId) => conversationStore.conversationV2().getMessage(id, messageId),
+      readTools: (id, runId, cursor, limit) =>
+        conversationStore.conversationV2().toolsPage(id, runId, cursor, limit, 128 * 1024),
+      browserTool: (id, action, args, signal) =>
+        requireBrowserHost().invokeReferencedBrowserTool(id, action, args, signal),
+    });
+    contextReferenceGateway = new ContextReferenceMcpGateway(composerReferenceService);
     registerIpcHandlers();
     schedulingService.start();
     if (centerServerClient.getSnapshot().settings.enabled) {
@@ -3528,6 +3879,7 @@ installApplicationShutdownHook(
     },
     stopAllPiRuntimes: disposeAllPiSessions,
     closeImageGenerationGateway: async () => {
+      ttsReadAloud?.close();
       await imageGenerationGateway?.close();
       await ttsGateway?.close();
     },
@@ -3538,6 +3890,7 @@ installApplicationShutdownHook(
       await imageDisplayGateway?.close();
       schedulingService?.stop();
       await schedulingGateway?.close();
+      await contextReferenceGateway?.close();
       await htmlHostGateway?.close();
     },
     closeIntegratedWebSearchGateway: async () => {
@@ -3603,10 +3956,12 @@ function getModelSettingsSnapshot(): ModelSettingsSnapshot {
     /* app not ready yet */
   }
   const chatGptSubscriptionModelId = providerStore.listCandidateModels("eco-coding-chatgpt")[0]?.modelId;
+  const codexAuthModel = workflowSettingsStore.getCodexAuthModel();
   return {
     ...mergeAgentRegistrySettings(providerStore.getSettings(), agentOrchestrationStore, {
       openAiAccountActive,
       ...(chatGptSubscriptionModelId ? { chatGptSubscriptionModelId } : {}),
+      ...(codexAuthModel ? { codexAuthModel } : {}),
     }),
     mcpSettings: mcpStore.getSettings(),
   };
@@ -3706,7 +4061,10 @@ function getCodexModelCatalogService(): CodexRemoteModelCatalogService {
 function codexCatalogCandidateViews(models: readonly CodexCatalogModelView[]): CandidateModelView[] {
   const timestamps = new Date().toISOString();
   return models.map((model, index) => ({
-    id: `cand-openai-${model.modelId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`,
+    id: `cand-openai-${model.modelId
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "")}`,
     providerId: "openai",
     modelId: model.modelId,
     displayName: model.displayName,
@@ -4080,7 +4438,7 @@ function resolveRuntimeRoutesForThread(
       // Fall through to planner clone when the saved vision selection is stale.
     }
   }
-  const plannerRoute = routes.find((route) => route.role === "planner");
+  const plannerRoute = routes.find((route) => route.role === "main");
   if (!plannerRoute) {
     return routes;
   }
@@ -4236,7 +4594,8 @@ function registerDesktopCommand<Args extends unknown[], Result>(
 }
 
 async function resolveTtsArtifactAudio(payload: unknown) {
-  if (!isRecord(payload) || typeof payload.artifactId !== "string" || !Number.isInteger(payload.audioIndex)) throw new Error("音频产物参数无效。");
+  if (!isRecord(payload) || typeof payload.artifactId !== "string" || !Number.isInteger(payload.audioIndex))
+    throw new Error("音频产物参数无效。");
   const artifact = ttsStore.getArtifact(payload.artifactId);
   const audio = artifact.audio[payload.audioIndex as number];
   if (!audio) throw new Error("音频产物索引不存在。");
@@ -4578,6 +4937,7 @@ function registerIpcHandlers(): void {
 
   registerDesktopCommand(IPC_CHANNELS.appSetLocale, async (payload: unknown) => {
     appLocalePreference = normalizeLocalePreference(payload);
+    openaiAccountAssistant?.refreshTitles();
     return { localePreference: appLocalePreference };
   });
 
@@ -4799,13 +5159,23 @@ function registerIpcHandlers(): void {
     const request = payload as {
       workspacePath?: unknown;
       filePath?: unknown;
+      offset?: unknown;
+      revision?: unknown;
     };
     if (typeof request.workspacePath !== "string" || typeof request.filePath !== "string") {
       throw new Error("Workspace path and file path are required.");
     }
+    if (request.offset !== undefined && typeof request.offset !== "number") {
+      throw new Error("Invalid file offset.");
+    }
+    if (request.revision !== undefined && typeof request.revision !== "string") {
+      throw new Error("Invalid file revision.");
+    }
     return readWorkspaceFile({
       workspacePath: request.workspacePath,
       filePath: request.filePath,
+      ...(request.offset === undefined ? {} : { offset: request.offset }),
+      ...(request.revision === undefined ? {} : { revision: request.revision }),
     });
   });
 
@@ -5138,6 +5508,28 @@ function registerIpcHandlers(): void {
     return backgroundTerminalTaskRegistry.stop(payload.taskId);
   });
 
+  registerDesktopCommand(IPC_CHANNELS.codexBackgroundTerminalList, async () => {
+    return getCodexBackgroundTerminalService().list();
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.codexBackgroundTerminalTerminate, async (payload: unknown) => {
+    if (!isCodexBackgroundTerminalTerminateRequest(payload)) {
+      throw new Error("Invalid Codex background terminal termination request.");
+    }
+    return getCodexBackgroundTerminalService().terminate(payload);
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.claudeBackgroundTaskList, async () => {
+    return claudeBackgroundTaskRegistry.list();
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.claudeBackgroundTaskStop, async (payload: unknown) => {
+    if (!isClaudeBackgroundTaskStopRequest(payload)) {
+      throw new Error("Invalid Claude background task stop request.");
+    }
+    return claudeBackgroundTaskRegistry.stop(payload.threadId, payload.taskId);
+  });
+
   registerDesktopCommand(IPC_CHANNELS.terminalList, async (payload: unknown) => {
     if (payload !== undefined && !isTerminalListRequest(payload)) {
       throw new Error("Invalid terminal list request.");
@@ -5205,6 +5597,10 @@ function registerIpcHandlers(): void {
     return workspace;
   });
 
+  registerDesktopCommand(
+    IPC_CHANNELS.composerReferencesSearch,
+    async (request: ComposerReferenceSearchRequest) => composerReferenceService.search(request),
+  );
   registerDesktopCommand(IPC_CHANNELS.threadList, async () =>
     attachThreadListCancelling(conversationStore.listThreads()),
   );
@@ -5636,7 +6032,9 @@ function registerIpcHandlers(): void {
 
   registerDesktopCommand(IPC_CHANNELS.conversationHead, async (conversationId: unknown) => {
     const id = requiredConversationV2String(conversationId, "conversationId");
-    requireConversationV2Thread(id);
+    // Reading a revision (including before deletion) does not load content.
+    // Leave read-model repairs to the content-loading commands.
+    requireConversationV2Thread(id, { repairOnLoad: false });
     return conversationStore.conversationV2().head(id);
   });
 
@@ -5859,6 +6257,30 @@ function registerIpcHandlers(): void {
     return getThreadUserMessageEdit(threadId, activityLineId);
   });
 
+  registerDesktopCommand(IPC_CHANNELS.threadForkFromMessage, async (payload: unknown) => {
+    const request = parseConversationV2Request(
+      payload,
+      ["principalId", "clientCommandId", "threadId", "activityLineId", "expectedHistoryRevision"],
+      ["principalId", "clientCommandId", "threadId", "activityLineId"],
+    ) as Partial<ThreadForkFromMessageRequest>;
+    const input: ThreadForkFromMessageRequest = {
+      principalId: requiredConversationV2String(request.principalId, "principalId"),
+      clientCommandId: requiredConversationV2String(request.clientCommandId, "clientCommandId"),
+      threadId: requiredConversationV2String(request.threadId, "threadId"),
+      activityLineId: requiredConversationV2String(request.activityLineId, "activityLineId"),
+      expectedHistoryRevision: requiredConversationV2Integer(
+        request.expectedHistoryRevision,
+        "expectedHistoryRevision",
+      ),
+    };
+    requireConversationV2Thread(input.threadId);
+    const result = await getConversationForkCommands().execute(input);
+    emitThreadEvent(result.thread.id, "thread.created", "", "system", false, {
+      metadata: { sourceThreadId: result.sourceThreadId },
+    });
+    return result;
+  });
+
   registerDesktopCommand(IPC_CHANNELS.threadRewriteFromMessage, async (payload: unknown) => {
     if (!payload || typeof payload !== "object") {
       throw new Error("Invalid user message rewrite request.");
@@ -6036,7 +6458,7 @@ function registerIpcHandlers(): void {
       if (provider.authMethod === "chatgpt_subscription" || payload.authMethod === "chatgpt_subscription") {
         try {
           const service = await getChatGptSubscriptionService();
-          const models = await service.listModels();
+          const models = await service.listModels(payload.accountId);
           syncChatGptSubscriptionModels(models);
           return { ok: true, models } as const;
         } catch (error) {
@@ -6051,7 +6473,7 @@ function registerIpcHandlers(): void {
     } else if (payload.authMethod === "chatgpt_subscription") {
       try {
         const service = await getChatGptSubscriptionService();
-        const models = await service.listModels();
+        const models = await service.listModels(payload.accountId);
         syncChatGptSubscriptionModels(models);
         return { ok: true, models } as const;
       } catch (error) {
@@ -6372,8 +6794,9 @@ function registerIpcHandlers(): void {
 
       // Register before loadURL: the user can close the native window while the
       // OAuth page is still loading.
-      authWindow.on("close", cancelLogin);
+      const completionGuard = installCodexAuthCompletionGuard(authWindow, cancelLogin);
       authWindow.on("closed", () => {
+        completionGuard.dispose();
         // `destroy()` and application shutdown may skip the `close` event.
         cancelLogin();
       });
@@ -6387,6 +6810,7 @@ function registerIpcHandlers(): void {
       try {
         await authWindow.loadURL(authInfo.authUrl);
       } catch (error) {
+        completionGuard.allowClose();
         cancelLogin();
         if (!authWindow.isDestroyed()) authWindow.destroy();
         return {
@@ -6402,6 +6826,7 @@ function registerIpcHandlers(): void {
           // Mark the flow as settled before closing so the close listener does not
           // report a successful login as a cancellation.
           loginCancelled = true;
+          completionGuard.allowClose();
           if (!authWindow.isDestroyed()) authWindow.close();
           process.stderr.write(`[codex-oauth] login result: ${JSON.stringify(res)}\n`);
           if (res.success) {
@@ -6419,6 +6844,7 @@ function registerIpcHandlers(): void {
           if (loginCancelled) return;
           loginCancelled = true;
           authInfo.cancel();
+          completionGuard.allowClose();
           if (!authWindow.isDestroyed()) authWindow.close();
           process.stderr.write(`[codex-oauth] login error: ${error}\n`);
           BrowserWindow.getAllWindows().forEach((win) => {
@@ -6477,6 +6903,7 @@ function registerIpcHandlers(): void {
     getDetails: async (accountId) => (await getOpenAIAccountService()).getAccountDetails(accountId),
     preloadPath: path.join(__dirname, "../preload/index.cjs"),
     parent: getMainWindow,
+    text: mainText,
     loadRenderer: async (window, accountId) => {
       const devUrl = process.env.VITE_DEV_SERVER_URL;
       if (devUrl) {
@@ -6491,7 +6918,7 @@ function registerIpcHandlers(): void {
     },
   });
   const requireAccountAssistant = () => {
-    if (!openaiAccountAssistant) throw new Error("登录助手未初始化");
+    if (!openaiAccountAssistant) throw new Error(mainText("assistant.notInitialized"));
     return openaiAccountAssistant;
   };
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsOpenAssistant, async (payload: { accountId: string }) => {
@@ -6511,7 +6938,7 @@ function registerIpcHandlers(): void {
   );
 
   const scheduleOpenAIAccountTransition = (service: OpenAIAccountService) => {
-    invalidateGlobalCodexRuntimeFingerprints();
+    requestCodexAccountRuntimeRestart("account");
     scheduleCodexGlobalRuntimeRefresh({
       beforePrepare: async () => {
         try {
@@ -6572,7 +6999,6 @@ function registerIpcHandlers(): void {
       return { success: false, message: "Failed to start login" };
     }
 
-    const mainWin = getMainWindow();
     const partition = `openai-account-auth-${payload.accountId}-${Date.now()}`;
     const authSession = session.fromPartition(partition);
     let releaseProxy: () => void;
@@ -6585,9 +7011,11 @@ function registerIpcHandlers(): void {
         message: `登录代理配置失败：${error instanceof Error ? error.message : String(error)}`,
       };
     }
-    const authWindow = createOAuthAuthWindow(mainWin, partition);
+    // Keep the OAuth page independent from the main window so it can move
+    // across displays without being constrained by the main window's window group.
+    const authWindow = createOAuthAuthWindow(undefined, partition);
     authWindow.setTitle(`Codex 登录 · ${account?.name ?? "账号"}`);
-    requireAccountAssistant().attachLogin(payload.accountId, authWindow);
+    requireAccountAssistant().attachLogin(payload.accountId, authWindow, authInfo.expiresAt);
     let loginCancelled = false;
     let proxyReleased = false;
     const closeSocksBridge = () => {
@@ -6613,8 +7041,9 @@ function registerIpcHandlers(): void {
 
     // Register before loadURL so closing while the OAuth page is loading still
     // cancels the CLI process and releases the proxy bridge.
-    authWindow.on("close", cancelLogin);
+    const completionGuard = installCodexAuthCompletionGuard(authWindow, cancelLogin);
     authWindow.on("closed", () => {
+      completionGuard.dispose();
       closeSocksBridge();
       // `destroy()` and application shutdown may skip the `close` event.
       cancelLogin();
@@ -6624,6 +7053,7 @@ function registerIpcHandlers(): void {
       await requireAccountAssistant().open(payload.accountId);
       await authWindow.loadURL(authInfo.authUrl);
     } catch (error) {
+      completionGuard.allowClose();
       cancelLogin();
       closeSocksBridge();
       if (!authWindow.isDestroyed()) authWindow.destroy();
@@ -6639,6 +7069,7 @@ function registerIpcHandlers(): void {
         // Settle before closing so the close listener does not turn a completed
         // login into a cancellation notification.
         loginCancelled = true;
+        completionGuard.allowClose();
         closeSocksBridge();
         if (!authWindow.isDestroyed()) authWindow.close();
         // `codex login` only writes the account's own CODEX_HOME. When this account is
@@ -6663,6 +7094,7 @@ function registerIpcHandlers(): void {
         if (loginCancelled) return;
         loginCancelled = true;
         authInfo.cancel();
+        completionGuard.allowClose();
         closeSocksBridge();
         if (!authWindow.isDestroyed()) authWindow.close();
         console.error(
@@ -6725,6 +7157,43 @@ function registerIpcHandlers(): void {
     return quota;
   });
 
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsResetQuota, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.accountId !== "string" || !payload.accountId.trim() ||
+      typeof payload.idempotencyKey !== "string" || !/^[0-9a-f-]{36}$/i.test(payload.idempotencyKey)) {
+      throw new Error("额度重置参数无效。");
+    }
+    const { accountId, idempotencyKey } = payload;
+    const svc = await getOpenAIAccountService();
+    return svc.withActiveAccount(accountId, async () => {
+      const client = await ensureCodexControlPlaneClient();
+      return consumeCodexQuotaReset(client, idempotencyKey);
+    });
+  });
+
+  codexImages = new CodexImageService(
+    {
+      listAccounts: async () => (await getOpenAIAccountService()).listAccounts(),
+      getAccountDetails: async (id) => (await getOpenAIAccountService()).getAccountDetails(id),
+      saveImageQuota: async (id, authJson, quota) =>
+        (await getOpenAIAccountService()).saveImageQuota(id, authJson, quota),
+    },
+    connectCodexImageAccount,
+  );
+  app.once("before-quit", () => {
+    void disposeCodexImageConnections();
+  });
+
+  registerDesktopCommand(
+    IPC_CHANNELS.openAIAccountsImageEnabled,
+    async (payload: { accountId: string; enabled: boolean }) => {
+      if (typeof payload.enabled !== "boolean") throw new Error("生图开关值无效。");
+      await (await getOpenAIAccountService()).setImageGenerationEnabled(payload.accountId, payload.enabled);
+    },
+  );
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsImageQuota, async (payload: { accountId: string }) => {
+    return codexImages.queryQuota(payload.accountId);
+  });
+
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsUpdate, async (payload: OpenAIAccountUpdateInput) => {
     const svc = await getOpenAIAccountService();
     const prevAccount = (await svc.listAccounts()).find((a: OpenAIAccount) => a.id === payload.accountId);
@@ -6736,7 +7205,7 @@ function registerIpcHandlers(): void {
       payload.accountId === (await svc.getActiveAccountId())
     ) {
       // Proxy env vars are baked into the app-server at spawn time.
-      invalidateGlobalCodexRuntimeFingerprints();
+      requestCodexAccountRuntimeRestart("account_proxy");
       scheduleCodexGlobalRuntimeRefresh();
     }
     return result;
@@ -7321,6 +7790,10 @@ function registerIpcHandlers(): void {
     // Legacy acpAgentsEnabled.cursor is no longer a user-facing gate; Cursor ACP
     // is allowed whenever the CLI probe succeeds (checked below for default=acp).
     const gated: typeof normalized = { ...normalized };
+    // Older clients omit this device preference when saving other workflow settings.
+    if (!("codexAuthModel" in payload) && previous.codexAuthModel) {
+      gated.codexAuthModel = previous.codexAuthModel;
+    }
     delete gated.acpAgentsEnabled;
     // The Cursor ACP API key is a device-local secret that partial-update callers
     // (e.g. the mobile `workflow-settings:save`) omit. Preserve it unless the payload
@@ -7444,51 +7917,7 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.integrationAvailabilityGet, async () => {
-    const browserSettings = browserSettingsStore.get();
-    const browserFeature = requireBrowserHost().isFeatureAvailable();
-    const computerUseSettings = computerUseSettingsStore.get();
-    const computerUseFeature = computerUseGateway.isFeatureAvailableQuick();
-    const ttsSettings = ttsStore.getSettings();
-    const ttsProfile = ttsSettings.profiles.find(profile => profile.id === ttsSettings.activeProfileId);
-    const ttsReason = !ttsProfile?.hasApiKey ? "当前语音生成 Profile 尚未配置 API Key。" : !ttsSettings.apiKeyEncryptionAvailable ? "系统加密不可用，无法读取语音生成 API Key。" : undefined;
-    const imageSettings = imageGenerationStore.getSettings();
-    const activeImageProfile = imageSettings.profiles.find(
-      (profile) => profile.id === imageSettings.activeProfileId,
-    );
-    let imageReason: string | undefined;
-    if (!activeImageProfile?.hasApiKey) imageReason = "当前创意绘画 Profile 尚未配置 API Key。";
-    else if (!imageSettings.apiKeyEncryptionAvailable)
-      imageReason = "系统加密不可用，无法读取创意绘画 API Key。";
-    return {
-      integrations: [
-        {
-          id: "browser" as const,
-          enabled: browserSettings.agentIntegrationEnabled,
-          available: browserFeature.available,
-          ...(browserFeature.reason ? { reason: browserFeature.reason } : {}),
-        },
-        {
-          id: "computerUse" as const,
-          enabled: computerUseSettings.agentIntegrationEnabled,
-          available: computerUseFeature.available,
-          ...(computerUseFeature.reason ? { reason: computerUseFeature.reason } : {}),
-        },
-        {
-          id: "tts" as const,
-          enabled: ttsSettings.enabled,
-          available: Boolean(ttsSettings.enabled && ttsProfile?.hasApiKey && !ttsReason),
-          ...(ttsReason ? { reason: ttsReason } : {}),
-          ...(ttsProfile ? { activeProfileName: ttsProfile.name } : {}),
-        },
-        {
-          id: "imageGeneration" as const,
-          enabled: imageSettings.enabled,
-          available: Boolean(imageSettings.enabled && activeImageProfile?.hasApiKey && !imageReason),
-          ...(imageReason ? { reason: imageReason } : {}),
-          ...(activeImageProfile ? { activeProfileName: activeImageProfile.name } : {}),
-        },
-      ],
-    };
+    return resolveIntegrationAvailability();
   });
 
   registerDesktopCommand(IPC_CHANNELS.imageGenerationSettingsGet, async () =>
@@ -7499,25 +7928,21 @@ function registerIpcHandlers(): void {
       throw new Error("创意绘画设置无效。");
     }
     const saved = imageGenerationStore.setEnabled(payload.enabled);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.imageGenerationProfileSave, async (payload: unknown) => {
     if (!isRecord(payload)) throw new Error("创意绘画 Profile 无效。");
     const saved = imageGenerationStore.saveProfile(payload as unknown as ImageGenerationProfileSaveInput);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.imageGenerationProfileDelete, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.id !== "string") throw new Error("创意绘画 Profile ID 无效。");
     const saved = imageGenerationStore.deleteProfile(payload.id);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.imageGenerationProfileActivate, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.id !== "string") throw new Error("创意绘画 Profile ID 无效。");
     const saved = imageGenerationStore.activateProfile(payload.id);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.imageGenerationArtifactsList, async (payload: unknown) => {
@@ -7538,33 +7963,40 @@ function registerIpcHandlers(): void {
     const { resolvedPath } = resolveImageGenerationArtifactImage(payload);
     shell.showItemInFolder(resolvedPath);
   });
-  registerDesktopCommand(IPC_CHANNELS.ttsSettingsGet, async () =>
-    ttsStore.getSettings(),
-  );
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudStatus, () => ttsReadAloud.status());
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudSettingsGet, () => ttsStore.getReadAloudSettings());
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudSettingsSave, (payload: unknown) => {
+    if (!isRecord(payload)) throw new Error("正文朗读配置无效。");
+    return ttsStore.saveReadAloudSettings(payload as unknown as import("../shared/tts").ReadAloudSettingsInput);
+  });
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudStart, (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.threadId !== "string" || !conversationStore.getThread(payload.threadId)) throw new Error("朗读会话不存在。");
+    return ttsReadAloud.start(payload as unknown as import("../shared/tts").ReadAloudStartInput);
+  });
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudSegment, (payload: unknown) => ttsReadAloud.segment(payload as import("../shared/tts").ReadAloudSegmentInput));
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudRead, (payload: unknown) => ttsReadAloud.read(payload as import("../shared/tts").ReadAloudReadInput));
+  registerDesktopCommand(IPC_CHANNELS.ttsReadAloudCancel, (payload: unknown) => ttsReadAloud.cancel((payload as { requestId: string })?.requestId));
+  registerDesktopCommand(IPC_CHANNELS.ttsSettingsGet, async () => ttsStore.getSettings());
   registerDesktopCommand(IPC_CHANNELS.ttsSettingsSave, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.enabled !== "boolean") {
       throw new Error("语音生成设置无效。");
     }
     const saved = ttsStore.setEnabled(payload.enabled);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.ttsProfileSave, async (payload: unknown) => {
     if (!isRecord(payload)) throw new Error("语音生成 Profile 无效。");
     const saved = ttsStore.saveProfile(payload as unknown as TtsProfileSaveInput);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.ttsProfileDelete, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.id !== "string") throw new Error("语音生成 Profile ID 无效。");
     const saved = ttsStore.deleteProfile(payload.id);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.ttsProfileActivate, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.id !== "string") throw new Error("语音生成 Profile ID 无效。");
     const saved = ttsStore.activateProfile(payload.id);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
   registerDesktopCommand(IPC_CHANNELS.ttsArtifactsList, async (payload: unknown) => {
@@ -7667,7 +8099,25 @@ function registerIpcHandlers(): void {
     if (!isWebChatListSnapshot(payload)) {
       throw new Error("Invalid web chat list.");
     }
-    return webChatListStore.save(normalizeWebChatListSnapshot(payload));
+    const next = normalizeWebChatListSnapshot(payload);
+    const previous = webChatListStore.getSnapshot();
+    const items = webChatListStore.get().items;
+    for (const proxy of Object.values(next.siteProxies ?? {})) webChatProxyConfig(proxy);
+    const applied: string[] = [];
+    try {
+      for (const item of items) {
+        const siteSession = session.fromPartition(webChatSitePartition(item.id));
+        const controller = webChatProxyControllers.get(siteSession);
+        if (!controller) continue;
+        await controller.apply(next.siteProxies?.[item.id]);
+        applied.push(item.id);
+      }
+      return webChatListStore.save(next);
+    } catch (error) {
+      for (const siteId of applied)
+        await webChatProxyControllerFor(siteId).apply(previous.siteProxies?.[siteId]);
+      throw error;
+    }
   });
 
   registerDesktopCommand(IPC_CHANNELS.sshBookmarksGet, async () => sshBookmarkStore.list());
@@ -7737,12 +8187,10 @@ function registerIpcHandlers(): void {
         });
         throw new Error(`无法启用内置浏览器 Agent 能力：${feature.reason ?? "未知原因"}`);
       }
-      scheduleCodexGlobalRuntimeRefresh();
       return saved;
     }
     await removeClaudeUserEcoAgentBrowserSkill();
     const saved = browserSettingsStore.save(next);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
 
@@ -7757,11 +8205,9 @@ function registerIpcHandlers(): void {
         throw new Error(`无法启用电脑操控 Agent 能力：${feature.reason ?? "未知原因"}`);
       }
       const saved = computerUseSettingsStore.save(next);
-      scheduleCodexGlobalRuntimeRefresh();
       return saved;
     }
     const saved = computerUseSettingsStore.save(next);
-    scheduleCodexGlobalRuntimeRefresh();
     return saved;
   });
 
@@ -7775,6 +8221,32 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.browserGetState, async () => requireBrowserHost().getState());
+
+  registerDesktopCommand(IPC_CHANNELS.browserCaptureSelection, async (payload: unknown) => {
+    const request = payload as { browserId?: unknown; kind?: unknown };
+    if (typeof request?.browserId !== "string" || !request.browserId.trim() || !["element", "text"].includes(String(request.kind)))
+      throw new Error("网页选择需要 browserId 和 element/text 类型。");
+    const host = requireBrowserHost();
+    const { instance } = host.getSelectionTarget(request.browserId);
+    if (instance.threadId !== host.getState().uiScopeId) throw new Error("只能选择当前会话中的网页内容。");
+    return browserSelectionService.capture(request.browserId, request.kind as "element" | "text");
+  });
+  registerDesktopCommand(IPC_CHANNELS.browserCancelSelection, async (payload: unknown) => {
+    const id = (payload as { browserId?: unknown })?.browserId;
+    if (typeof id !== "string") throw new Error("取消网页选择需要 browserId。");
+    browserSelectionService.cancel(id);
+  });
+  registerDesktopCommand(IPC_CHANNELS.browserReadSelection, async (payload: unknown) => {
+    const id = (payload as { id?: unknown })?.id;
+    if (typeof id !== "string") throw new Error("读取网页内容引用需要 id。");
+    return browserSelectionService.preview(id);
+  });
+  registerDesktopCommand(IPC_CHANNELS.browserRevealSelection, async (payload: unknown) => {
+    const id = (payload as { id?: unknown })?.id;
+    if (typeof id !== "string") throw new Error("定位网页内容引用需要 id。");
+    const selection = await browserSelectionService.validate(id, true);
+    return requireBrowserHost().focusBrowser(selection.browserId, { reveal: true });
+  });
 
   registerDesktopCommand(IPC_CHANNELS.browserDevPrepareAgentCdp, async (payload: unknown) => {
     const { isDevRuntime } = await import("../shared/dev-cdp");
@@ -7838,7 +8310,14 @@ function registerIpcHandlers(): void {
     const url =
       typeof request.url === "string" ? request.url : typeof payload === "string" ? payload : undefined;
     const htmlContent = typeof request.htmlContent === "string" ? request.htmlContent : undefined;
+    if (request.webChatSiteId) {
+      const siteId = request.webChatSiteId;
+      const site = webChatListStore.get().items.find((item) => item.id === siteId);
+      if (!site || site.url !== url) throw new Error("无效的聊天站点");
+      await webChatProxyControllerFor(siteId).apply(webChatListStore.getSnapshot().siteProxies?.[siteId]);
+    }
     return requireBrowserHost().openSharedSession({
+      ...(request.webChatSiteId ? { webChatSiteId: request.webChatSiteId } : {}),
       revealUi: request.reveal !== false,
       ...(url && url.trim() && url !== "about:blank" ? { url } : {}),
       ...(htmlContent && htmlContent.trim() ? { htmlContent: htmlContent.trim() } : {}),
@@ -7875,7 +8354,10 @@ function registerIpcHandlers(): void {
     if (!request || !("threadId" in request)) {
       throw new Error("Invalid browser ui-scope payload.");
     }
-    return requireBrowserHost().setUiScope(typeof request.threadId === "string" ? request.threadId : null);
+    return requireBrowserHost().setUiScope(
+      typeof request.threadId === "string" ? request.threadId : null,
+      request.workspacePath,
+    );
   });
 
   registerDesktopCommand(IPC_CHANNELS.browserGoBack, async (payload: unknown) => {
@@ -7896,6 +8378,14 @@ function registerIpcHandlers(): void {
         : undefined;
     return requireBrowserHost().goForward(browserId);
   });
+  registerDesktopCommand(IPC_CHANNELS.browserSetViewport, async (payload: unknown) => {
+    const request = payload as { browserId?: unknown };
+    if (!request || typeof request.browserId !== "string" || !request.browserId.trim()) {
+      throw new Error("Invalid browser viewport payload: browserId is required.");
+    }
+    return requireBrowserHost().setViewport(request.browserId.trim(), payload);
+  });
+
   registerDesktopCommand(IPC_CHANNELS.browserReload, async (payload: unknown) => {
     const browserId =
       payload &&
@@ -7914,6 +8404,28 @@ function registerIpcHandlers(): void {
         : undefined;
     await requireBrowserHost().openExternalCurrent(browserId);
     return { ok: true as const };
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.browserDownloadAction, async (payload: unknown) => {
+    const request = payload as import("../shared/browser-downloads").BrowserDownloadActionRequest;
+    if (!request || typeof request.browserId !== "string" || typeof request.fileId !== "string" ||
+      !["save", "reveal", "cancel"].includes(request.action)) throw new Error("Invalid download action.");
+    const host = requireBrowserHost();
+    if (request.action === "cancel") {
+      host.cancelDownloadForUi(request.browserId, request.fileId);
+      return { cancelled: false };
+    }
+    const file = host.getDownloadForUi(request.browserId, request.fileId);
+    if (request.action === "reveal") {
+      shell.showItemInFolder(file.path);
+      return { cancelled: false };
+    }
+    const chosen = await dialog.showSaveDialog({ defaultPath: path.join(app.getPath("downloads"), file.name) });
+    if (chosen.canceled || !chosen.filePath) return { cancelled: true };
+    // Revalidate after the native dialog, because closing the tab deletes its temporary files.
+    const current = host.getDownloadForUi(request.browserId, request.fileId);
+    await fs.copyFile(current.path, chosen.filePath);
+    return { cancelled: false };
   });
 
   registerDesktopCommand(IPC_CHANNELS.asrSettingsGet, async () => asrSettingsStore.get());
@@ -8088,13 +8600,17 @@ function registerIpcHandlers(): void {
     return status;
   });
 
-  registerDesktopCommand(IPC_CHANNELS.gitGetWorkspaceDiff, async (workspacePath: unknown, options: unknown) => {
-    if (typeof workspacePath !== "string" || !workspacePath.trim()) {
-      throw new Error("Workspace path is required.");
-    }
-    const refresh = !!options && typeof options === "object" && (options as { refresh?: unknown }).refresh === true;
-    return workspaceReviewService.getSummary(workspacePath.trim(), refresh);
-  });
+  registerDesktopCommand(
+    IPC_CHANNELS.gitGetWorkspaceDiff,
+    async (workspacePath: unknown, options: unknown) => {
+      if (typeof workspacePath !== "string" || !workspacePath.trim()) {
+        throw new Error("Workspace path is required.");
+      }
+      const refresh =
+        !!options && typeof options === "object" && (options as { refresh?: unknown }).refresh === true;
+      return workspaceReviewService.getSummary(workspacePath.trim(), refresh);
+    },
+  );
 
   registerDesktopCommand(IPC_CHANNELS.gitGetWorkspaceFileDiff, async (payload: unknown) => {
     if (!payload || typeof payload !== "object") {
@@ -8622,6 +9138,7 @@ function registerIpcHandlers(): void {
         v2: conversationStore.conversationV2(),
         getPending: getPendingBashApprovalByToolUseId,
         resolve: resolvePendingBashApproval,
+        rememberMcpToolApproval: (target) => mcpStore.rememberToolApproval(target),
         errorMessage,
       },
     );
@@ -8629,6 +9146,7 @@ function registerIpcHandlers(): void {
       // Response-loss retry of the same durable command.
       return { ok: true as const, alreadyResolved: true as const };
     }
+    if (payload.decision === "approved_remember_mcp_tool") emitSettingsUpdated();
     const threadPatch = buildResolvedBashApprovalThreadPatch(payload.decision);
     patchThreadSummary(outcome.request.threadId, threadPatch);
     desktopEventCenter.publishThreadLiveEvent({
@@ -8704,13 +9222,14 @@ function registerIpcHandlers(): void {
             }
             forcedTarget = validation.target as Extract<PlanExecutionTarget, { kind: "subagent" }>;
           }
-          const forcedTargetDisplayName = forcedTarget
-            ? delegationAgents.find((agent) => agent.agentKey === forcedTarget?.agentKey)?.displayName
-            : undefined;
           const forcedContract = forcedTarget
             ? buildForcedPlanDelegationContract({
-                agentKey: forcedTarget.agentKey,
-                ...(forcedTargetDisplayName ? { displayName: forcedTargetDisplayName } : {}),
+                agentKey:
+                  approvalThread.coreKind === "claude"
+                    ? sdkAgentKeyForOrchestrationAgent(forcedTarget.agentKey)
+                    : approvalThread.coreKind === "codex"
+                      ? sanitizeCodexRoleId(forcedTarget.agentKey)
+                      : forcedTarget.agentKey,
               })
             : undefined;
 
@@ -9274,10 +9793,9 @@ function enqueueThreadFollowUpCommand(
           text: request.prompt,
           ...(persistedAttachments?.length ? { attachments: persistedAttachments } : {}),
         });
-        const isAsyncAnswer = conversationStore.conversationV2().isAsyncClarificationAnswer(
-          thread.id,
-          acceptedMessage.messageId,
-        );
+        const isAsyncAnswer = conversationStore
+          .conversationV2()
+          .isAsyncClarificationAnswer(thread.id, acceptedMessage.messageId);
         const existingAcceptedFollowUp = conversationStore
           .listThreadFollowUps(thread.id)
           .find((candidate) => candidate.conversationMessageId === acceptedMessage.messageId);
@@ -9630,7 +10148,9 @@ function registerRemainingDesktopCommands(): void {
           }
           const persistedAttachments = request.attachments?.length
             ? await promptImageFileStore.persistMessageAttachments(
-                thread.id, `follow-up-edit:${request.clientCommandId}`, request.attachments,
+                thread.id,
+                `follow-up-edit:${request.clientCommandId}`,
+                request.attachments,
               )
             : undefined;
           const followUp = conversationStore.updateThreadFollowUp(request.threadId, request.followUpId, {
@@ -9664,6 +10184,7 @@ function registerRemainingDesktopCommands(): void {
       errorMessage,
       cancel: async ({ threadId, worktreeDisposition }) => {
         schedulingGateway.disposeThread(threadId);
+        contextReferenceGateway.revokeThread(threadId);
         schedulingService.pauseAutomaticMessages(threadId);
         // Explicit Stop revokes an earlier Guide; cleanup must pause queued rows.
         pendingEscalatedFollowUpDrain.delete(threadId);
@@ -9931,7 +10452,7 @@ function captureThreadPlanReady(input: {
         conversationStore.savePendingPlan(plan);
       },
       emitAwaitingPlan: (event) => {
-        emitThreadEvent(event.threadId, "thread.awaiting_plan", event.message, "planner", false, {
+        emitThreadEvent(event.threadId, "thread.awaiting_plan", event.message, "main", false, {
           plan: event.plan,
         });
       },
@@ -10287,7 +10808,10 @@ async function drainPreparedNextQueuedThreadFollowUp(
       } else if (!conversationStore.getThread(threadId)?.followUpQueuePaused) {
         void drainQueuedThreadFollowUpsAfterRun(threadId);
       }
-      if (!activeRunRuntimeState.hasRun(threadId) && conversationStore.getThread(threadId)?.status === "running") {
+      if (
+        !activeRunRuntimeState.hasRun(threadId) &&
+        conversationStore.getThread(threadId)?.status === "running"
+      ) {
         updateThread(threadId, { status: "idle", message: "" });
       }
       return;
@@ -10797,7 +11321,8 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
       const prepared = await resolvePiSessionResourcesForThread(threadId, workspacePath);
       return toAcpMcpServers(prepared.mcpServers);
     },
-    resolveAcpSystemPromptAppend: ({ threadId }) => mcpHubGateway.getThreadPromptAppend(threadId),
+    resolveAcpSystemPromptAppend: ({ threadId }) =>
+      appendBrowserPrompt(mcpHubGateway.getThreadPromptAppend(threadId), CONTEXT_REFERENCE_PROMPT),
     resolvePromptImagesForMainContext,
     resolveAcpCreatePlanHandler: ({ threadId, workspacePath, userPrompt }) => {
       return async (request) => {
@@ -10831,7 +11356,7 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
           payload: planPayload,
         });
         updateThread(threadId, { status: "awaiting_plan", message: "" });
-        emitThreadEvent(threadId, "plan_approval.requested", "计划已提交，等待你确认。", "planner", false, {
+        emitThreadEvent(threadId, "plan_approval.requested", "计划已提交，等待你确认。", "main", false, {
           plan: planPayload,
           planApproval: approvalRequest,
         });
@@ -10855,7 +11380,7 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
           updateThread(threadId, { status: "running", message: "" });
         },
         emit: (type, message, clarification, toolStatus) => {
-          emitThreadEvent(threadId, type, message, "planner", false, {
+          emitThreadEvent(threadId, type, message, "main", false, {
             ...(type === "clarification.requested" ? { clarification } : {}),
             tool: buildClarificationToolMetadata(clarification.toolUseId, toolStatus),
           });
@@ -10972,7 +11497,21 @@ function piRuntimeOrchestrationDeps(): import("./pi-runtime-run").PiRuntimeOrche
         worktreePath: input.worktreePath,
         signal: input.signal,
         onUsageRecorded: onPiUsageRecordedEvent,
-        captureSession: async () => {},
+        captureSession: async (threadId, event) => {
+          if (
+            event.type === "file.checkpoint" &&
+            isRecord(event.payload) &&
+            event.payload.source === "pi" &&
+            typeof event.payload.activityLineId === "string" &&
+            typeof event.payload.userMessageId === "string"
+          ) {
+            conversationStore.bindPiPromptEntry(
+              threadId,
+              event.payload.activityLineId,
+              event.payload.userMessageId,
+            );
+          }
+        },
         emitActivity: emitSdkStreamActivity,
       }),
     applyRunDecision: async (input: {
@@ -11025,7 +11564,10 @@ function piRuntimeOrchestrationDeps(): import("./pi-runtime-run").PiRuntimeOrche
               ok: true,
             });
             if (settled?.outcome === "failed") {
-              markThreadInterrupted(input.threadId, settled.reason ?? "计划委派失败。");
+              updateThread(input.threadId, {
+                status: "awaiting_plan",
+                message: `${planDelegationFailurePrefix}${settled.reason ?? "子代理未完成计划。"}`,
+              });
               return;
             }
             conversationStore.clearPendingPlan(input.threadId);
@@ -11140,12 +11682,12 @@ function onPiUsageRecordedEvent(threadId: string, event: AgentEventLike & { id: 
   }
   const billingRequest: SingleUsageBillingRequest = {
     threadId,
-    role: typeof event.role === "string" && event.role.trim() ? event.role.trim() : "planner",
+    role: typeof event.role === "string" && event.role.trim() ? event.role.trim() : "main",
     source: "pi",
     usage,
     sourceEventId: event.id,
     updateContext: true,
-    ...(typeof event.agentId === "string" && event.agentId.trim() && event.role && event.role !== "planner"
+    ...(typeof event.agentId === "string" && event.agentId.trim() && event.role && event.role !== "main"
       ? { agentId: event.agentId.trim() }
       : {}),
   };
@@ -11163,7 +11705,7 @@ function onPiUsageRecordedEvent(threadId: string, event: AgentEventLike & { id: 
   if (plannerAgentId) {
     billingRequest.plannerAgentId = plannerAgentId;
   }
-  const billingRole = typeof event.role === "string" && event.role.trim() ? event.role.trim() : "planner";
+  const billingRole = typeof event.role === "string" && event.role.trim() ? event.role.trim() : "main";
   const logicalRequestId = resolvePiUsageLogicalRequestId(threadLiveRequestRegistry, threadId, {
     role: billingRole,
     ...(typeof event.agentId === "string" && event.agentId.trim() ? { agentId: event.agentId.trim() } : {}),
@@ -11411,7 +11953,7 @@ async function startCodexThreadRun(
       integrationEnabled(threadRuntimeForIntegrations?.integrationsEnabled, "tts");
     const codexAgentRegistry = resolveAgentRuntimeConfigForThreadId(input.thread.id);
     const codexPlannerRoute = resolveRoleRoutesForThread(input.thread.id).find(
-      (route) => route.role === "planner",
+      (route) => route.role === "main",
     );
     const integratedWebSearchSettings = integratedWebSearchSettingsStore.get();
     const integratedWebSearchApiKey = integratedWebSearchSettings.enabled
@@ -11461,12 +12003,10 @@ async function startCodexThreadRun(
               );
             }
             if (sessionTtsEnabled) {
-              append = appendBrowserPrompt(
-                append,
-                buildTtsPromptAppend(ttsStore.getActiveClientConfig()),
-              );
+              append = appendBrowserPrompt(append, buildTtsPromptAppend(ttsStore.getActiveClientConfig()));
             }
             append = appendBrowserPrompt(append, SCHEDULING_PROMPT);
+            append = appendBrowserPrompt(append, CONTEXT_REFERENCE_PROMPT);
             append = appendBrowserPrompt(append, buildImageViewPromptAppend());
             append = appendBrowserPrompt(append, buildImageDisplayPromptAppend());
             if (centerServerClient.getHtmlHostingCapability().available) {
@@ -11476,11 +12016,7 @@ async function startCodexThreadRun(
               append = appendBrowserPrompt(
                 append,
                 buildIntegratedWebSearchPromptAppend(
-                  integratedWebSearchSettingsStore.get().provider === "tavily"
-                    ? "Tavily"
-                    : integratedWebSearchSettingsStore.get().provider === "doubao"
-                      ? "Doubao Search"
-                      : "Brave Search",
+                  integratedWebSearchProviderLabel(integratedWebSearchSettingsStore.get().provider),
                 ),
               );
             }
@@ -11582,6 +12118,10 @@ async function startCodexThreadRun(
             }
             const schedulingInject = await schedulingGateway.resolveInjection(input.thread.id);
             registerBuiltin(SCHEDULING_MCP_SERVER, schedulingInject.sdkEntry);
+            registerBuiltin(
+              CONTEXT_MCP_SERVER,
+              (await contextReferenceGateway.resolveInjection(input.thread.id)).sdkEntry,
+            );
             const imageViewInject = await imageViewGateway.resolveInjection(input.thread.id);
             registerBuiltin(ECO_IMAGE_VIEW_MCP_SERVER, imageViewInject.sdkEntry);
             const imageDisplayInject = await imageDisplayGateway.resolveInjection(input.thread.id);
@@ -11591,18 +12131,12 @@ async function startCodexThreadRun(
               const htmlHostInject = await htmlHostGateway.resolveInjection(input.thread.id);
               registerBuiltin(ECO_HTML_HOST_MCP_SERVER, htmlHostInject.sdkEntry);
             }
-            const hadCodexHub = mcpHubGateway
-              .listThreadCodexServers()
-              .some((server) => server.name === codexHubName);
             const hubInjection = await mcpHubGateway.prepareThreadFromSdkConfig({
               threadId: input.thread.id,
               config: configuredMcp,
               allowedServers: [...hubMcpKeys, ...builtinHubServers],
               runtimeName: codexHubName,
             });
-            if (hubInjection?.codexServerChanged || (!hubInjection && hadCodexHub)) {
-              scheduleCodexGlobalRuntimeRefresh();
-            }
             return hubInjection ? [hubInjection.codexServer] : [];
           },
           resolveEnabledMcpServerKeys: async () => {
@@ -11679,6 +12213,9 @@ async function startCodexThreadRun(
             const driver = createCodexRuntimeDriver(input.thread.id, mode, {
               enableMidTurnPort: true,
               onTurnBound: ({ ecoThreadId, codexThreadId, turnId }) => {
+                if (!activeRunRuntimeState.bindCodexTurn(ecoThreadId, controller, turnId)) {
+                  return;
+                }
                 const client = getGlobalCodexRuntimeLifecycle()?.getClient();
                 if (!client) {
                   return;
@@ -11692,7 +12229,10 @@ async function startCodexThreadRun(
               onTurnClosing: async ({ ecoThreadId }) => {
                 await codexMidTurnPorts.closeIngress(ecoThreadId);
               },
-              onTurnClosed: ({ ecoThreadId }) => {
+              onTurnClosed: ({ ecoThreadId, turnId }) => {
+                if (turnId) {
+                  activeRunRuntimeState.clearCodexTurn(ecoThreadId, controller, turnId);
+                }
                 codexMidTurnPorts.close(ecoThreadId);
               },
             });
@@ -11727,12 +12267,18 @@ async function startCodexThreadRun(
                 }
               }
               return controller.signal.aborted
-                ? { ok: false, reason: "cancelled by user", aborted: true }
+                ? { ok: false, reason: resolveAbortedRunReason(controller.signal), aborted: true }
                 : { ok: true };
             } catch (error) {
-              return controller.signal.aborted
-                ? { ok: false, reason: "cancelled by user", aborted: true }
-                : { ok: false, reason: errorMessage(error) };
+              if (controller.signal.aborted) {
+                return {
+                  ok: false,
+                  reason: resolveAbortedRunReason(controller.signal, error),
+                  aborted: true,
+                  ...(isCodexTurnInterruptFailed(error) && { interruptFailed: true }),
+                };
+              }
+              return { ok: false, reason: errorMessage(error) };
             } finally {
               driver.dispose();
             }
@@ -11748,11 +12294,23 @@ async function startCodexThreadRun(
       if (forcedDelegationActive) {
         settleForcedPlanDelegation(input.thread.id, {
           ok: false,
-          reason: outcome.aborted ? "cancelled by user" : outcome.reason,
+          reason: outcome.reason,
         });
       }
-      if (outcome.aborted) {
-        await handleRunCancelled(input.thread.id, worktreePlan);
+      if (outcome.interruptFailed) {
+        const message = `本轮停止失败：${formatUserFacingRequestError(outcome.reason)}`;
+        emitThreadEvent(input.thread.id, "thread.api_error", message, "system", false, {
+          metadata: {
+            activityOrigin: "codex.turn_interrupt_failed",
+            apiError: {
+              code: "codex_turn_interrupt_failed",
+              message,
+            },
+          },
+        });
+        markThreadInterrupted(input.thread.id, message);
+      } else if (outcome.aborted) {
+        await handleRunCancelled(input.thread.id, worktreePlan, outcome.reason);
       } else {
         markThreadInterrupted(input.thread.id, outcome.reason);
       }
@@ -11880,8 +12438,7 @@ async function resolvePiSessionResourcesForThread(
     imageGenerationStore.getSettings().enabled &&
     integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "imageGeneration");
   const sessionTtsEnabled =
-    ttsStore.getSettings().enabled &&
-    integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "tts");
+    ttsStore.getSettings().enabled && integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "tts");
 
   const browserInject = await requireBrowserHost().resolveAgentBrowserMcpInjection({
     threadId,
@@ -11973,6 +12530,10 @@ async function resolvePiSessionResourcesForThread(
     ...(browserSkillDirectory ? { browserSkillDirectory } : {}),
   });
 
+  mcpSession.mcpServers[CONTEXT_MCP_SERVER] = (
+    await contextReferenceGateway.resolveInjection(threadId)
+  ).sdkEntry;
+  mcpSession.appendSystemPrompt.push(CONTEXT_REFERENCE_PROMPT);
   mcpSession.mcpServers[SCHEDULING_MCP_SERVER] = schedulingInject.sdkEntry;
   mcpSession.appendSystemPrompt.push(SCHEDULING_PROMPT);
   const globalMcpConfig = mcpStore.buildSdkConfig();
@@ -12124,7 +12685,7 @@ async function runAskThread(
               if (controller.signal.aborted) {
                 return {
                   ok: false,
-                  reason: "cancelled by user",
+                  reason: resolveAbortedRunReason(controller.signal, error),
                   aborted: true,
                 };
               }
@@ -12291,7 +12852,7 @@ async function runPlanThread(
               if (controller.signal.aborted) {
                 return {
                   ok: false,
-                  reason: "cancelled by user",
+                  reason: resolveAbortedRunReason(controller.signal, error),
                   aborted: true,
                 };
               }
@@ -12509,7 +13070,7 @@ async function runCodingThreadAutonomous(
               if (controller.signal.aborted) {
                 return {
                   ok: false,
-                  reason: "cancelled by user",
+                  reason: resolveAbortedRunReason(controller.signal, error),
                   aborted: true,
                 };
               }
@@ -12723,7 +13284,7 @@ async function runCodingThreadExecution(
               if (controller.signal.aborted) {
                 return {
                   ok: false,
-                  reason: "cancelled by user",
+                  reason: resolveAbortedRunReason(controller.signal, error),
                   aborted: true,
                 };
               }
@@ -12855,7 +13416,9 @@ async function scheduleAcceptedConversationMessage(
   // may consume it.
   if (!thread) return { state: "unknown", message: "对话不存在，回答未确认投递。" };
   const currentMessage = conversationStore.conversationV2().getMessage(input.conversationId, input.messageId);
-  const isAsyncAnswer = conversationStore.conversationV2().isAsyncClarificationAnswer(thread.id, input.messageId);
+  const isAsyncAnswer = conversationStore
+    .conversationV2()
+    .isAsyncClarificationAnswer(thread.id, input.messageId);
   const terminalDelivery = terminalAcceptedMessageDelivery(currentMessage, thread.coreKind === "codex");
   if (terminalDelivery) return { ...terminalDelivery, followUpMessageId: input.messageId };
 
@@ -12969,7 +13532,7 @@ function pinSchedulingProfile(profile: ScheduleExecutionProfile): ScheduleExecut
 }
 
 function validateSchedulingProfile(profile: ScheduleExecutionProfile): void {
-  if (!profile || !isCoreKind(profile.coreKind)) throw new Error("AgentCore 不可用。");
+  if (!profile || !isCoreKind(profile.coreKind)) throw new Error("Harness 不可用。");
   if (profile.coreKind === "acp") {
     if (!profile.runtimeConfig.cursorModelId?.trim()) throw new Error("Cursor 任务缺少固定模型。");
     return;
@@ -13110,9 +13673,7 @@ function createSchedulingService(dbPath: string): SchedulingService {
     inspect: inspectScheduledOccurrence,
     onChanged: () => {
       syncSystemSleepBlocker();
-      BrowserWindow.getAllWindows().forEach((window) => {
-        if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.schedulingChanged);
-      });
+      desktopEventCenter.publish({ kind: "scheduling.changed", payload: {}, aggregateKey: "scheduling:global" });
     },
     onError: (error) => logEcoDiag("scheduling.error", { error: errorMessage(error) }),
   });
@@ -13132,15 +13693,15 @@ async function startNewThread(
   const attachmentsForHandOff = attachments.length ? await loadPromptAttachmentsForRuntime(attachments) : [];
   const coreKind = payload.coreKind ?? "claude";
   if (!isCoreKind(coreKind)) {
-    throw new Error(`Unsupported Core: ${String(payload.coreKind)}`);
+    throw new Error(`Unsupported Harness: ${String(payload.coreKind)}`);
   }
   if (coreKind === "codex" && !isCodexCliAvailable()) {
-    throw new Error("Codex Core 不可用：未找到可执行的 Codex CLI。请安装工作区依赖或设置 CODEX_EXECUTABLE。");
+    throw new Error("Codex Harness 不可用：未找到可执行的 Codex CLI。请安装工作区依赖或设置 CODEX_EXECUTABLE。");
   }
   if (coreKind === "pi") {
     const pi = await probePiCoreAvailability();
     if (!pi.available) {
-      throw new Error(pi.reason ?? "PI Core 不可用。");
+      throw new Error(pi.reason ?? "PI Harness 不可用。");
     }
   }
   if (coreKind === "acp") {
@@ -13286,7 +13847,7 @@ async function startPreparedThreadContinuation(
     throw new Error("Thread was not found.");
   }
   if (!thread.coreKind) {
-    throw new Error(`Thread ${thread.id} has unknown Core ownership.`);
+    throw new Error(`Thread ${thread.id} has unknown Harness ownership.`);
   }
   // Pause means new prompts join the queue; do not start a run ahead of it.
   // Rewind is allowed (explicit edit of history) and still must not drain while paused.
@@ -13787,8 +14348,10 @@ function threadAcceptsLiveFollowUp(
 
 function isAsyncClarificationAnswerFollowUp(followUp: ThreadPendingFollowUp): boolean {
   return Boolean(
-    followUp.conversationMessageId && conversationStore.conversationV2()
-      .isAsyncClarificationAnswer(followUp.threadId, followUp.conversationMessageId),
+    followUp.conversationMessageId &&
+      conversationStore
+        .conversationV2()
+        .isAsyncClarificationAnswer(followUp.threadId, followUp.conversationMessageId),
   );
 }
 
@@ -13819,6 +14382,7 @@ async function tryDeliverFollowUpViaMidTurn(
   const isCodex = thread.coreKind === "codex";
   const isPi = thread.coreKind === "pi";
   const midTurnLabel = isCodex ? "Codex turn/steer" : isPi ? "PI steer" : "Claude streamInput";
+  let runtimePrompt = "";
   const claimed = await withThreadFollowUpLock(thread.id, async () => {
     const currentThread = conversationStore.getThread(thread.id);
     if (!currentThread) throw new Error("Thread was not found.");
@@ -13863,6 +14427,7 @@ async function tryDeliverFollowUpViaMidTurn(
     }
 
     const excludeFollowUpId = editingFollowUpClaimExclusion(thread.id);
+    runtimePrompt = await composerReferenceService.resolvePrompt(thread.id, currentFollowUp.prompt.trim());
     return conversationStore.claimThreadFollowUpStreamingPush(thread.id, followUp.id, {
       ...(excludeFollowUpId ? { excludeFollowUpId } : {}),
     });
@@ -13883,12 +14448,12 @@ async function tryDeliverFollowUpViaMidTurn(
   }
 
   const push = isCodex
-    ? await codexMidTurnPorts.tryPushUserText(thread.id, claimed.prompt.trim(), {
+    ? await codexMidTurnPorts.tryPushUserText(thread.id, runtimePrompt, {
         clientUserMessageId: followUp.id,
       })
     : isPi
-      ? await pushPiMidTurnSteer(thread.id, claimed.prompt.trim())
-      : await claudeMidTurnPorts.tryPushUserText(thread.id, claimed.prompt.trim(), {
+      ? await pushPiMidTurnSteer(thread.id, runtimePrompt)
+      : await claudeMidTurnPorts.tryPushUserText(thread.id, runtimePrompt, {
           uuid: followUp.id,
         });
 
@@ -14263,6 +14828,7 @@ function healOrphanedThreadBeforeContinuation(threadId: string): void {
 
 /** After a crash, SQLite may still say running while no runtime run is active. */
 function recoverOrphanedRunningThreads(logStartupStage?: (stage: string) => void): void {
+  getConversationForkCommands().recover();
   logStartupStage?.("recovery-gate.start");
   const threads = conversationStore.listThreads();
   const v2 = conversationStore.conversationV2();
@@ -14745,7 +15311,7 @@ async function getThreadUserMessageEdit(
       capability: {
         status: "unavailable",
         reasonCode: "unsupported_core",
-        reason: "当前核心不支持历史消息改写。",
+        reason: "当前 Harness 不支持历史消息改写。",
       },
     };
   }
@@ -14828,7 +15394,7 @@ async function retryThreadFromFailedRequest(input: {
     throw new Error("Thread was not found.");
   }
   if (!supportsOneClickRequestRetry(thread.coreKind)) {
-    throw new Error("当前核心不支持一键重试失败请求。");
+    throw new Error("当前 Harness 不支持一键重试失败请求。");
   }
   if (input.continueInterrupted && (thread.coreKind !== "codex" || !input.sourceAttemptId?.trim())) {
     throw new Error("Codex 继续需要有效的原执行标识。");
@@ -15269,7 +15835,10 @@ async function handleRunCancelled(
   // "queued" state here and is force-drained right after — auto-pausing would
   // flash "排队发送已暂停" and then send the message anyway, and the paused
   // state would linger for the rest of the queue.
-  if (!pendingEscalatedFollowUpDrain.has(threadId) && threadFollowUpQueueControl.shouldPauseCancelledRun(threadId)) {
+  if (
+    !pendingEscalatedFollowUpDrain.has(threadId) &&
+    threadFollowUpQueueControl.shouldPauseCancelledRun(threadId)
+  ) {
     autoPauseFollowUpQueueWhenQueuedRemain(threadId);
   }
   const explicit = takePendingCancelDisposition(pendingCancelDisposition, threadId);
@@ -15496,6 +16065,7 @@ function buildDesktopSdkRunInput(
     globalUserRules = appendBrowserPrompt(globalUserRules, buildTtsPromptAppend(config));
   }
   globalUserRules = appendBrowserPrompt(globalUserRules, SCHEDULING_PROMPT);
+  globalUserRules = appendBrowserPrompt(globalUserRules, CONTEXT_REFERENCE_PROMPT);
   globalUserRules = appendBrowserPrompt(globalUserRules, buildImageViewPromptAppend());
   globalUserRules = appendBrowserPrompt(globalUserRules, buildImageDisplayPromptAppend());
   if (threadId) {
@@ -15506,7 +16076,7 @@ function buildDesktopSdkRunInput(
   }
   if (threadId) {
     const agentRegistry = resolveAgentRuntimeConfigForThreadId(threadId);
-    const plannerRoute = resolveRoleRoutesForThread(threadId).find((route) => route.role === "planner");
+    const plannerRoute = resolveRoleRoutesForThread(threadId).find((route) => route.role === "main");
     const integratedWebSearchSettings = integratedWebSearchSettingsStore.get();
     const integratedWebSearchApiKey = integratedWebSearchSettings.enabled
       ? integratedWebSearchSettingsStore.getApiKey()
@@ -15524,7 +16094,7 @@ function buildDesktopSdkRunInput(
       globalUserRules = appendBrowserPrompt(
         globalUserRules,
         buildIntegratedWebSearchPromptAppend(
-          provider === "tavily" ? "Tavily" : provider === "doubao" ? "Doubao Search" : "Brave Search",
+          integratedWebSearchProviderLabel(provider),
         ),
       );
     }
@@ -15570,7 +16140,7 @@ function createSdkDriver(
           agentId && agentId !== agentLifecycle.usagePlannerAgentId(threadId)
             ? (subagentMetricsRegistry.roleForAgentId(threadId, agentId) ??
               normalizeSdkSubagentType(agentType ?? ""))
-            : "planner";
+            : "main";
         if (!actorRole) throw new Error("无法确认 Agent 的模型视觉配置，已禁止直接读图。");
         const routes = resolveRoleRoutesForThread(threadId);
         const route = routes.find((entry) => entry.role === actorRole);
@@ -15609,6 +16179,29 @@ function createSdkDriver(
         claudeMidTurnPorts.close(threadId);
         recentStreamingPushFollowUpIds.delete(threadId);
       },
+    },
+    onBackgroundTasksChanged: ({ threadId, query, tasks }) => {
+      claudeBackgroundTaskRegistry.replaceThread({
+        threadId,
+        workspacePath: conversationStore.getThread(threadId)?.workspacePath ?? storedThread.workspacePath,
+        owner: query,
+        tasks,
+        stopTask: async (taskId) => {
+          if (typeof query.stopTask !== "function") {
+            throw new Error("Claude Agent SDK cannot stop this background task: stopTask is unavailable.");
+          }
+          await query.stopTask(taskId);
+        },
+        forceClose: () => {
+          if (typeof query.close !== "function") {
+            throw new Error("Claude Agent SDK cannot close the Query owning this background task.");
+          }
+          query.close();
+        },
+      });
+    },
+    onBackgroundTasksClosed: ({ threadId, query }) => {
+      claudeBackgroundTaskRegistry.clearThread(threadId, query as object);
     },
     onContextProbe: (phase, detail) => {
       onContextProbe?.(phase, detail);
@@ -15733,12 +16326,9 @@ async function cleanupPendingClaudeFork(threadId: string): Promise<void> {
 async function cleanupThreadExternalState(threadId: string): Promise<void> {
   await cleanupPendingClaudeFork(threadId);
   await deleteThreadSdkSession(threadId);
-  if (mcpHubGateway.revokeThread(threadId)) {
-    // Removing a thread-scoped Codex descriptor changes the process-global
-    // pool. Defer the reload through the existing idle coordinator so a
-    // running turn never loses its MCP connection mid-call.
-    scheduleCodexGlobalRuntimeRefresh();
-  }
+  // Thread-scoped Hub descriptors live in that thread's own config, not in
+  // `config.toml`, so revoking one never changes the shared runtime baseline.
+  mcpHubGateway.revokeThread(threadId);
   await disposePiThreadSession(threadId);
   await removePiThreadAgentDir(app.getPath("userData"), threadId);
   imageGenerationGateway.disposeThread(threadId);
@@ -15747,6 +16337,7 @@ async function cleanupThreadExternalState(threadId: string): Promise<void> {
   imageDisplayGateway.disposeThread(threadId);
   htmlHostGateway.disposeThread(threadId);
   schedulingGateway.disposeThread(threadId);
+  contextReferenceGateway.disposeThread(threadId);
   computerUseGateway.disposeThread(threadId);
   integratedWebSearchGateway.disposeThread(threadId);
   disposeAcpThread(threadId);
@@ -15758,7 +16349,8 @@ async function cleanupThreadExternalState(threadId: string): Promise<void> {
       ...(env ? { env } : {}),
     });
   }
-  await promptImageFileStore.deleteThreadMessages(threadId);
+  if (!conversationStore.hasForkImageDependents(threadId))
+    await promptImageFileStore.deleteThreadMessages(threadId);
 }
 
 function isSdkSessionAlreadyMissing(error: unknown): boolean {
@@ -16561,7 +17153,7 @@ async function runThreadContinuation(
               if (controller.signal.aborted) {
                 return {
                   ok: false,
-                  reason: "cancelled by user",
+                  reason: resolveAbortedRunReason(controller.signal, error),
                   aborted: true,
                 };
               }
@@ -16994,13 +17586,7 @@ async function handleCodexAppServerTurnUsage(input: {
     return;
   }
   const usage: ParsedUsage = {
-    inputTokens: appServerTokenUsage.inputTokens,
-    outputTokens: appServerTokenUsage.outputTokens,
-    cacheReadTokens: appServerTokenUsage.cachedInputTokens,
-    cacheCreationTokens: 0,
-    ...(appServerTokenUsage.reasoningOutputTokens > 0
-      ? { reasoningTokens: appServerTokenUsage.reasoningOutputTokens }
-      : {}),
+    ...normalizeCodexAppServerUsage(appServerTokenUsage),
     modelId: roleRoute.modelId,
   };
   if (
@@ -17219,7 +17805,7 @@ async function processUsageBilling(
 }
 
 function maybeEmitPromptCacheHitDrop(input: SingleUsageBillingRequest): void {
-  if (input.reconciliationOnly || input.role !== "planner") {
+  if (input.reconciliationOnly || input.role !== "main") {
     return;
   }
   const detection = threadCacheHitMonitor.observePlannerUsage(input.threadId, {
@@ -17566,7 +18152,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function requireConversationV2Thread(conversationId: string): void {
+function requireConversationV2Thread(conversationId: string, options: { repairOnLoad?: boolean } = {}): void {
   const id = conversationId.trim();
   conversationRecoveryGate.assertReady(id);
   if (!conversationStore.getThread(id)) {
@@ -17608,7 +18194,9 @@ function requireConversationV2Thread(conversationId: string): void {
   }
   // One-time data repairs for this conversation. Recorded per conversation, so
   // loading it again after the first pass costs only a lookup.
-  conversationStore.repairConversationV2OnLoad(id);
+  if (options.repairOnLoad !== false) {
+    conversationStore.repairConversationV2OnLoad(id);
+  }
 }
 
 function isSdkCompactionStatusEvent(event: AgentEventLike): boolean {
@@ -17666,6 +18254,96 @@ function isSkillCatalogInstallRequest(value: unknown): value is SkillCatalogInst
   );
 }
 
+async function resolveComposerCapabilitiesForThread(threadId: string) {
+  const thread = conversationStore.getThread(threadId);
+  if (!thread) throw new Error("会话不存在或已删除。");
+  const config = ensureThreadRuntimeConfig(thread).runtimeConfig;
+  if (!config) throw new Error("会话缺少运行配置。");
+  const settings = getModelSettingsSnapshot();
+  const snapshot =
+    thread.coreKind === "acp" ? undefined : resolveThreadOrchestrationSnapshot(settings, config);
+  const routes = snapshot ? roleRoutesForThreadConfig(settings, config) : [];
+  const servers = mcpStore.listServers();
+  const enabledMcp = new Set(
+    resolveThreadRuntimeMcpServerKeys({
+      runtimeConfig: config,
+      settings,
+      availableMcpServerKeys: listEnabledGlobalMcpServerKeys(servers),
+    }),
+  );
+  return buildComposerCapabilityReferences({
+    availability: await resolveIntegrationAvailability(),
+    integrationsEnabled: config.integrationsEnabled ?? {},
+    mcpServers: servers,
+    mcpServersEnabled: Object.fromEntries([...enabledMcp].map((key) => [key, true])),
+    agents: (snapshot?.agents ?? []).map((agent) => ({
+      agentKey: agent.agentKey,
+      name:
+        agent.displayName?.trim() ||
+        settings.agentTemplates.find((template) => template.id === agent.templateId)?.name ||
+        agent.agentKey,
+      modelId: routes.find((route) => route.role === agent.agentKey)?.modelId ?? "",
+      enabled:
+        agent.enabled &&
+        (!Object.hasOwn(config.subagentEnabled, agent.agentKey) ||
+          config.subagentEnabled[agent.agentKey as keyof typeof config.subagentEnabled] === true),
+    })),
+  });
+}
+
+async function resolveIntegrationAvailability() {
+  const browserSettings = browserSettingsStore.get();
+  const browserFeature = requireBrowserHost().isFeatureAvailable();
+  const computerUseSettings = computerUseSettingsStore.get();
+  const computerUseFeature = computerUseGateway.isFeatureAvailableQuick();
+  const ttsSettings = ttsStore.getSettings();
+  const ttsProfile = ttsSettings.profiles.find((profile) => profile.id === ttsSettings.activeProfileId);
+  const ttsReason = !ttsProfile?.hasApiKey
+    ? "当前语音生成 Profile 尚未配置 API Key。"
+    : !ttsSettings.apiKeyEncryptionAvailable
+      ? "系统加密不可用，无法读取语音生成 API Key。"
+      : undefined;
+  const imageSettings = imageGenerationStore.getSettings();
+  const activeImageProfile = imageSettings.profiles.find(
+    (profile) => profile.id === imageSettings.activeProfileId,
+  );
+  const imageAvailability = imageGenerationAvailability(
+    imageSettings,
+    activeImageProfile?.provider === "codex" || activeImageProfile?.provider === "chatgpt_web"
+      ? await codexImages.getAvailability(activeImageProfile.provider)
+      : undefined,
+  );
+  return {
+    integrations: [
+      {
+        id: "browser" as const,
+        enabled: browserSettings.agentIntegrationEnabled,
+        available: browserFeature.available,
+        ...(browserFeature.reason ? { reason: browserFeature.reason } : {}),
+      },
+      {
+        id: "computerUse" as const,
+        enabled: computerUseSettings.agentIntegrationEnabled,
+        available: computerUseFeature.available,
+        ...(computerUseFeature.reason ? { reason: computerUseFeature.reason } : {}),
+      },
+      {
+        id: "tts" as const,
+        enabled: ttsSettings.enabled,
+        available: Boolean(ttsSettings.enabled && ttsProfile?.hasApiKey && !ttsReason),
+        ...(ttsReason ? { reason: ttsReason } : {}),
+        ...(ttsProfile ? { activeProfileName: ttsProfile.name } : {}),
+      },
+      {
+        id: "imageGeneration" as const,
+        enabled: imageSettings.enabled,
+        ...imageAvailability,
+        ...(activeImageProfile ? { activeProfileName: activeImageProfile.name } : {}),
+      },
+    ],
+  };
+}
+
 async function buildSdkSessionOptions(
   threadId: string,
   prompt?: string,
@@ -17691,8 +18369,7 @@ async function buildSdkSessionOptions(
     imageGenerationStore.getSettings().enabled &&
     integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "imageGeneration");
   const sessionTtsEnabled =
-    ttsStore.getSettings().enabled &&
-    integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "tts");
+    ttsStore.getSettings().enabled && integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "tts");
   const browserInject = await requireBrowserHost().resolveAgentBrowserMcpInjection({
     threadId,
     sessionEnabled: sessionEcoBrowserEnabled,
@@ -17728,7 +18405,7 @@ async function buildSdkSessionOptions(
     ? await htmlHostGateway.resolveInjection(threadId)
     : undefined;
   const agentRegistry = resolveAgentRuntimeConfigForThreadId(threadId);
-  const plannerRoute = resolveRoleRoutesForThread(threadId).find((route) => route.role === "planner");
+  const plannerRoute = resolveRoleRoutesForThread(threadId).find((route) => route.role === "main");
   const integratedWebSearchSettings = integratedWebSearchSettingsStore.get();
   const integratedWebSearchApiKey = integratedWebSearchSettings.enabled
     ? integratedWebSearchSettingsStore.getApiKey()
@@ -17786,6 +18463,9 @@ async function buildSdkSessionOptions(
   const withWebSearchMcp = integratedWebSearchGateway.mergeIntoSdkConfig(withHtmlHostMcp, webSearchInject);
   withWebSearchMcp.mcpServers[SCHEDULING_MCP_SERVER] = (
     await schedulingGateway.resolveInjection(threadId)
+  ).sdkEntry;
+  withWebSearchMcp.mcpServers[CONTEXT_MCP_SERVER] = (
+    await contextReferenceGateway.resolveInjection(threadId)
   ).sdkEntry;
   const hubBuiltinKeys = Object.keys(withWebSearchMcp.mcpServers).filter(
     (key) => key.startsWith("eco_") && key !== "eco_mcp",
@@ -18226,7 +18906,8 @@ function maybeRevealBrowserFromAgentTool(input: {
   const toolName = (input.toolName ?? fromPayload ?? fromMessage ?? "").trim();
   if (toolName && isEcoTtsToolName(toolName)) {
     const threadId = input.threadId?.trim();
-    if (threadId) ttsGateway.noteUpcomingTool(threadId, toolName, resolveToolUseIdFromActivityPayload(input.payload));
+    if (threadId)
+      ttsGateway.noteUpcomingTool(threadId, toolName, resolveToolUseIdFromActivityPayload(input.payload));
   }
   if (toolName && isEcoImageGenerationToolName(toolName)) {
     const threadId = input.threadId?.trim();
@@ -18288,7 +18969,11 @@ function maybeRevealBrowserFromThreadRunEvent(event: {
     resolveToolNameFromActivityPayload({ message: event.message });
   const name = (toolName ?? "").trim();
   if (name && isEcoTtsToolName(name)) {
-    ttsGateway.noteUpcomingTool(event.threadId, name, typeof metaTool?.toolUseId === "string" ? metaTool.toolUseId.trim() : undefined);
+    ttsGateway.noteUpcomingTool(
+      event.threadId,
+      name,
+      typeof metaTool?.toolUseId === "string" ? metaTool.toolUseId.trim() : undefined,
+    );
   }
   if (name && isEcoImageGenerationToolName(name)) {
     const toolUseId = typeof metaTool?.toolUseId === "string" ? metaTool.toolUseId.trim() : undefined;
@@ -18337,14 +19022,16 @@ function maybeRevealBrowserFromThreadRunEvent(event: {
  * gateway forwards it and it lands in the same Feed slot the SDK cores use.
  */
 function emitCodexToolWriteActivity(observation: {
+  state: "writing" | "ready";
   codexThreadId: string;
+  turnId?: string;
+  callId?: string;
   toolName?: string;
   kind: ToolWritingActivity["kind"];
   target?: string;
 }): void {
-  const ecoThreadId =
-    codexThreadMap.getEcoThreadId(observation.codexThreadId) ??
-    resolveCodexThreadAttribution(codexThreadMap, observation.codexThreadId)?.ecoThreadId;
+  const attribution = resolveCodexThreadAttribution(codexThreadMap, observation.codexThreadId);
+  const ecoThreadId = attribution?.ecoThreadId;
   if (!ecoThreadId) {
     return;
   }
@@ -18358,9 +19045,24 @@ function emitCodexToolWriteActivity(observation: {
   };
   // The Feed reads the fact from `toolWriting`; the message is the closest thing to a label for
   // any consumer that still reads one (empty for a provider-side call with neither name nor target).
-  emitThreadEvent(ecoThreadId, "tool.writing", toolName ?? observation.target ?? "", "tool", false, {
-    metadata: { activityOrigin: "gateway.codex_tool_writing", toolWriting: writing },
-  });
+  emitThreadEvent(
+    ecoThreadId,
+    observation.state === "ready" ? "tool.writing.completed" : "tool.writing",
+    toolName ?? observation.target ?? "",
+    "tool",
+    false,
+    {
+      ...(attribution?.agentId && { agentId: attribution.agentId }),
+      ...(observation.turnId && { requestId: observation.turnId }),
+      metadata: {
+        activityOrigin: "gateway.codex_tool_writing",
+        toolWriting: writing,
+        codexThreadId: observation.codexThreadId,
+        ...(observation.turnId && { turnId: observation.turnId }),
+        ...(observation.callId && { toolCallId: observation.callId }),
+      },
+    },
+  );
 }
 
 function emitThreadEvent(
@@ -19192,7 +19894,7 @@ function createThreadImageViewHost(runAttemptId?: string): ImageViewHost {
           if (!runtime.ok) {
             throw new Error(runtime.reason);
           }
-          const sourceRoute = runtime.routes.find((route) => route.role === "planner") ?? runtime.routes[0];
+          const sourceRoute = runtime.routes.find((route) => route.role === "main") ?? runtime.routes[0];
           if (!sourceRoute) {
             throw new Error("image_view 缺少可用的模型路由。");
           }
@@ -19238,7 +19940,7 @@ async function resolvePromptImagesForMainContext(input: {
 }): Promise<string> {
   imageViewGateway.noteThreadPrompt(input.threadId, input.prompt);
   return buildPromptWithImageReferences({
-    prompt: input.prompt,
+    prompt: await composerReferenceService.resolvePrompt(input.threadId, input.prompt),
     ...(input.attachments ? { attachments: input.attachments } : {}),
   });
 }
@@ -19254,7 +19956,7 @@ async function handleThreadAskUserQuestion(
     questions: parsed.questions,
   };
   const answersPromise = registerPendingClarification(threadId, parsed.toolUseId, parsed);
-  emitThreadEvent(threadId, "clarification.requested", "Planner 需要你回答几个问题。", "planner", false, {
+  emitThreadEvent(threadId, "clarification.requested", "主代理需要你回答几个问题。", "main", false, {
     clarification: clarificationRequest,
     tool: buildClarificationToolMetadata(parsed.toolUseId, "started"),
   });
@@ -19267,7 +19969,7 @@ async function handleThreadAskUserQuestion(
       { toolUseId: parsed.toolUseId, threadId, questions: parsed.questions },
       answers,
     ),
-    "planner",
+    "main",
     false,
     {
       tool: buildClarificationToolMetadata(parsed.toolUseId, "completed"),
@@ -19331,7 +20033,7 @@ function createThreadHookContext(threadId: string): EcoHookContext {
         },
       });
       updateThread(threadId, { status: "awaiting_plan", message: "" });
-      emitThreadEvent(threadId, "plan_approval.requested", "计划已提交，等待你确认。", "planner", false, {
+      emitThreadEvent(threadId, "plan_approval.requested", "计划已提交，等待你确认。", "main", false, {
         plan: planPayload,
         planApproval: approvalRequest,
       });
@@ -19520,36 +20222,6 @@ function createThreadToolPermissionHandler(
       bashAndFilesystemHandler,
     ),
   );
-}
-
-function createMcpHubNestedToolPermissionHandler(
-  handlers: readonly ((request: SdkToolPermissionRequest) => Promise<SdkToolPermissionDecision>)[],
-): (request: SdkToolPermissionRequest) => Promise<SdkToolPermissionDecision> {
-  const delegate = composeCanUseToolHandlers(...handlers);
-  return async (request) => {
-    if (
-      request.toolName !== "mcp__eco_mcp__call_tool" &&
-      request.toolName !== "eco_mcp_call_tool" &&
-      !request.toolName.endsWith("__eco_mcp__call_tool")
-    ) {
-      return { behavior: "allow", updatedInput: request.input };
-    }
-    const toolId = typeof request.input.name === "string" ? request.input.name.trim() : "";
-    const nested = isRecord(request.input.arguments) ? request.input.arguments : {};
-    const separator = toolId.indexOf(":");
-    if (separator <= 0 || !toolId.slice(separator + 1).trim()) {
-      return {
-        behavior: "deny",
-        message: "Eco MCP Hub call_tool 缺少有效的已搜索工具 ID。",
-        interrupt: false,
-      };
-    }
-    return delegate({
-      ...request,
-      toolName: `mcp__${toolId.slice(0, separator)}__${toolId.slice(separator + 1)}`,
-      input: nested,
-    });
-  };
 }
 
 function createWebSearchToolPermissionHandler(
@@ -19921,6 +20593,11 @@ async function requestSdkHintApproval(
 ): Promise<SdkToolPermissionDecision> {
   if (sdkHintApprovalsHandled.has(request.toolUseId))
     return { behavior: "allow", updatedInput: request.input };
+  const mcpToolApproval = mcpStore.resolveToolApprovalTarget(request.toolName);
+  if (!request.suppressAlwaysAllowRule && mcpToolApproval && mcpStore.isToolApproved(mcpToolApproval)) {
+    sdkHintApprovalsHandled.add(request.toolUseId);
+    return { behavior: "allow", updatedInput: request.input };
+  }
   const thread = conversationStore.getThread(threadId);
   const agentId = resolveThreadBashApprovalAgentId(threadId, request);
   if (!thread || !agentId)
@@ -19935,6 +20612,14 @@ async function requestSdkHintApproval(
     riskScore: 50,
     riskLevel: "medium",
     filesystemTool: request.toolName,
+    ...(mcpToolApproval
+      ? {
+          mcpToolApproval,
+          kind: "mcp" as const,
+          filesystemTool: "MCP",
+          filesystemPath: `${mcpToolApproval.serverName}/mcp__${mcpToolApproval.serverName}__${mcpToolApproval.toolName}`,
+        }
+      : {}),
     ...sdkPermissionApprovalHints(request),
     ...(request.description && { description: request.description }),
   };
@@ -20395,7 +21080,10 @@ async function reviewThreadToolApproval(
     policyMatches: review.policyMatches,
     diagnostics: review.diagnostics,
     targetExtractionComplete: hostEvidence.targetExtractionComplete,
-    evidenceLimitations: [...hostEvidence.limitations, ...hostEvidence.paths.flatMap((entry) => entry.limitations)],
+    evidenceLimitations: [
+      ...hostEvidence.limitations,
+      ...hostEvidence.paths.flatMap((entry) => entry.limitations),
+    ],
   });
   if (review.action === "allow" && (tool.sdkHints?.defaultToNo || tool.sdkHints?.suppressAlwaysAllowRule)) {
     sdkHintApprovalsHandled.add(request.toolUseId);
@@ -20521,6 +21209,7 @@ function isBashApprovalResolvePayload(value: unknown): value is BashApprovalReso
     payload.toolUseId.trim().length > 0 &&
     (payload.decision === "approved" ||
       payload.decision === "approved_remember_prefix" ||
+      payload.decision === "approved_remember_mcp_tool" ||
       payload.decision === "approved_for_session" ||
       payload.decision === "approved_execpolicy_amendment" ||
       payload.decision === "approved_network_policy_amendment" ||
@@ -20547,7 +21236,7 @@ function isBashApprovalGranted(
   if (!resolved) {
     return false;
   }
-  if (resolved.decision === "approved") {
+  if (resolved.decision === "approved" || resolved.decision === "approved_remember_mcp_tool") {
     return true;
   }
   if (resolved.decision === "approved_remember_prefix") {
@@ -20767,6 +21456,7 @@ function startRuntimeProxy(
           return runtimeRouteToProxyRoute(route, {
             globalMaxOutputTokens: workflowSettingsStore.get().maxOutputLimitTokens,
             ...(contextTokens !== undefined && { contextTokens }),
+            contextTokensResolved: (route.manualSpec?.contextTokens ?? 0) > 0 || (catalog?.limits.contextTokens ?? 0) > 0,
             ...(catalog?.limits.maxOutputTokens !== undefined && {
               catalogMaxOutputTokens: catalog.limits.maxOutputTokens,
             }),
@@ -20823,6 +21513,7 @@ async function resolveCandidateModels(
           view.resolvedSupportsReasoning = manual.supportsReasoning;
       }
       view.resolvedSupportsNativeWebSearch = manual?.supportsNativeWebSearch !== false;
+      view.resolvedSupportsRemoteCompaction = manual?.supportsRemoteCompaction === true;
       if (pricingLookup) {
         const rates = resolveRatesForRoute(pricingLookup, manual);
         if (rates) {
@@ -20844,4 +21535,75 @@ async function resolveCandidateModels(
       return view;
     }),
   );
+}
+
+function handleSubscriptionUsageLimitFailure(input: {
+  threadId: string;
+  role: RuntimeAgentRole;
+  logicalRequestId: string;
+  turnId?: string;
+  runAttemptId?: string;
+  accountId?: string;
+  providerRequestId?: string;
+  responseId?: string;
+  statusCode?: number;
+  errorInfo: import("@eco/gateway").GatewayUpstreamErrorInfo;
+}): boolean {
+  const message = "该账号的 ChatGPT 订阅用量受限，本轮已停止";
+  const currentRunAttemptId = resolveCurrentRunAttemptId(input.threadId);
+  if (!activeRunRuntimeState.ownsRequest(input.threadId, {
+    ...(input.runAttemptId ? { runAttemptId: input.runAttemptId } : {}),
+    ...(currentRunAttemptId ? { currentRunAttemptId } : {}),
+    ...(input.turnId ? { turnId: input.turnId } : {}),
+  })) {
+    logEcoDiag("gateway.subscription_usage_limit.unowned_request", {
+      threadId: shortThreadId(input.threadId),
+      eventRunAttemptId: input.runAttemptId,
+      currentRunAttemptId,
+      eventTurnId: input.turnId,
+    });
+    return false;
+  }
+
+  emitThreadEvent(input.threadId, "thread.api_error", message, input.role, false, {
+    requestId: input.logicalRequestId,
+    apiError: {
+      statusCode: input.statusCode ?? 200,
+      ...(input.errorInfo.code ? { code: input.errorInfo.code } : {}),
+      message,
+      logicalRequestId: input.logicalRequestId,
+      ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+      ...(input.responseId ? { responseId: input.responseId } : {}),
+      ...(input.accountId ? { accountId: input.accountId } : {}),
+      threadId: input.threadId,
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+      ...(input.runAttemptId ? { runAttemptId: input.runAttemptId } : {}),
+      ...(input.errorInfo.param ? { param: input.errorInfo.param } : {}),
+    },
+    metadata: {
+      activityOrigin: "gateway.subscription_usage_limit",
+      logicalRequestId: input.logicalRequestId,
+      ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+      ...(input.responseId ? { responseId: input.responseId } : {}),
+      ...(input.accountId ? { accountId: input.accountId } : {}),
+      threadId: input.threadId,
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+      ...(input.runAttemptId ? { runAttemptId: input.runAttemptId } : {}),
+      upstreamStatusCode: input.statusCode,
+      upstreamError: input.errorInfo,
+    },
+  });
+
+  const aborted = activeRunRuntimeState.abortRun(
+    input.threadId,
+    `ChatGPT subscription usage limit exceeded; ${message}`,
+  );
+  if (!aborted) {
+    process.stderr.write(
+      `[eco-codex] subscription usage limit reached but no active run to interrupt ` +
+        `thread=${input.threadId} turn=${input.turnId ?? "(unknown)"} ` +
+        `logical=${input.logicalRequestId}\n`,
+    );
+  }
+  return true;
 }

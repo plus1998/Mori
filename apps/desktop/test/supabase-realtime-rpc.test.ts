@@ -335,6 +335,82 @@ test("SupabaseRealtimeRpc reports an unhealthy subscribed channel", async () => 
   await realtime.stop();
 });
 
+test("SupabaseRealtimeRpc publishes only to online bound mobiles and never falls back to HTTP", async () => {
+  const callbacks = new Map<string, (status: string, error?: Error) => void>();
+  const broadcasts = new Map<string, (payload: unknown) => void>();
+  const sent: unknown[] = [];
+  const controls = {
+    presence: {} as Record<string, Array<Record<string, unknown>>>,
+    presenceHandlers: new Map<string, () => void>(),
+    connected: true,
+    state: "joined",
+  };
+  const userId = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+  const desktopId = "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+  const mobileId = "c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+  const bindingId = "d3eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+  let refreshes = 0;
+  const failures: Error[] = [];
+  const realtime = new SupabaseRealtimeRpc({
+    client: createRealtimeClient(callbacks, async () => "ok", broadcasts, sent, async () => "ok", controls) as never,
+    eventCenter: {} as never,
+    onBindingsChanged: () => { refreshes++; },
+    onTransportUnhealthy: (error) => failures.push(error),
+  });
+  const started = realtime.start({ userId, deviceId: desktopId });
+  await Bun.sleep(0);
+  callbacks.get(`eco:user:${userId}`)?.("SUBSCRIBED");
+  await started;
+  const synced = realtime.syncBindings([{
+    id: bindingId, userId, desktopDeviceId: desktopId, mobileDeviceId: mobileId,
+    capabilities: ["events:read"], createdAt: "2030-01-01T00:00:00.000Z", revokedAt: null,
+  }]);
+  await Bun.sleep(0);
+  callbacks.get(`eco:bind:${bindingId}`)?.("SUBSCRIBED");
+  await synced;
+  const notification = { jsonrpc: "2.0", method: "eco.event", params: {} } as never;
+  for (let i = 0; i < 250; i++) realtime.publishNotification(notification);
+  expect(sent).toHaveLength(0);
+  // An unrelated online device cannot enable delivery to an offline binding.
+  controls.presence = { other: [{ deviceId: "other", deviceKind: "mobile", online: true }] };
+  controls.presenceHandlers.get(`eco:user:${userId}:sync`)?.();
+  realtime.publishNotification(notification);
+  expect(sent).toHaveLength(0);
+  controls.presence = { [mobileId]: [{ deviceId: mobileId, deviceKind: "mobile", online: true }] };
+  controls.presenceHandlers.get(`eco:user:${userId}:sync`)?.();
+  realtime.publishNotification(notification);
+  await Bun.sleep(0);
+  expect(sent).toHaveLength(1);
+  controls.presence = {};
+  controls.presenceHandlers.get(`eco:user:${userId}:leave`)?.();
+  realtime.publishNotification(notification);
+  expect(sent).toHaveLength(1);
+  controls.state = "errored";
+  await expect(realtime.sendOnBinding(bindingId, notification)).rejects.toThrow("not connected");
+  controls.state = "joined";
+  controls.connected = false;
+  await expect(realtime.sendOnBinding(bindingId, notification)).rejects.toThrow("not connected");
+  expect(sent).toHaveLength(1);
+  broadcasts.get(`eco:user:${userId}`)?.({ payload: { desktopDeviceId: "other" } });
+  expect(refreshes).toBe(0);
+  broadcasts.get(`eco:user:${userId}`)?.({ payload: { desktopDeviceId: desktopId } });
+  expect(refreshes).toBe(1);
+  controls.connected = true;
+  broadcasts.get(`eco:user:${userId}`)?.({ payload: {
+    desktopDeviceId: desktopId, mobileDeviceId: mobileId, bindingId, requestId: "ready_1",
+  } });
+  await Bun.sleep(0);
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toMatchObject({
+    event: "eco.binding.ready",
+    payload: { desktopDeviceId: desktopId, mobileDeviceId: mobileId, bindingId, requestId: "ready_1" },
+  });
+  await realtime.syncBindings([]);
+  callbacks.get(`eco:bind:${bindingId}`)?.("CLOSED");
+  expect(failures).toHaveLength(0);
+  await realtime.stop();
+});
+
 test("SupabaseRealtimeRpc rejects a private channel authorization failure", async () => {
   const callbacks = new Map<string, (status: string, error?: Error) => void>();
   const client = createRealtimeClient(callbacks, async () => "ok");
@@ -359,13 +435,24 @@ function createRealtimeClient(
   broadcastHandlers = new Map<string, (payload: unknown) => void>(),
   sent: unknown[] = [],
   sendImpl: (payload: unknown) => Promise<string> = async () => "ok",
+  controls: {
+    presence?: Record<string, Array<Record<string, unknown>>>;
+    presenceHandlers?: Map<string, () => void>;
+    connected?: boolean;
+    state?: string;
+  } = {},
 ) {
   return {
+    realtime: { isConnected: () => controls.connected !== false },
     channel(topic: string) {
       const channel = {
-        on(type: string, _filter: unknown, callback: (payload: unknown) => void) {
+        get state() { return controls.state ?? "joined"; },
+        on(type: string, filter: { event: string }, callback: (payload: unknown) => void) {
           if (type === "broadcast") {
             broadcastHandlers.set(topic, callback);
+          }
+          if (type === "presence") {
+            controls.presenceHandlers?.set(`${topic}:${filter.event}`, () => callback(undefined));
           }
           return channel;
         },
@@ -379,7 +466,7 @@ function createRealtimeClient(
         },
         track,
         presenceState() {
-          return {};
+          return controls.presence ?? {};
         },
       };
       return channel;

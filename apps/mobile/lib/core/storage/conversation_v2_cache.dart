@@ -10,6 +10,17 @@ class ConversationV2EntityRepairError extends StateError {
   ConversationV2EntityRepairError(super.message);
 }
 
+/// A presentation read uses one epoch and one SQLite transaction, so a push or
+/// bootstrap cannot interleave a different cursor with the displayed entities.
+typedef ConversationV2PresentationSnapshot = ({
+  ConversationV2CacheState? cacheState,
+  List<ConversationV2Message> messages,
+  List<ConversationV2Run> runs,
+  List<ConversationV2Tool> tools,
+  List<ConversationV2Agent> agents,
+  List<ConversationV2Todo> todos,
+});
+
 abstract interface class ConversationV2CachePort {
   Future<ConversationV2CacheState?> state(String conversationId);
 
@@ -293,7 +304,13 @@ class ConversationV2Cache
 
   @override
   Future<ConversationV2CacheState?> state(String conversationId) async {
-    final db = await _db();
+    return _readState(await _db(), conversationId);
+  }
+
+  Future<ConversationV2CacheState?> _readState(
+    DatabaseExecutor db,
+    String conversationId,
+  ) async {
     final rows = await db.query(
       'conversation_v2_state',
       where: 'account_id = ? AND desktop_device_id = ? AND conversation_id = ?',
@@ -307,14 +324,50 @@ class ConversationV2Cache
     return rows.isEmpty ? null : ConversationV2CacheState.fromRow(rows.first);
   }
 
+  /// Read the five presentation collections with a single state lookup instead
+  /// of resolving the same epoch again for each collection.
+  Future<ConversationV2PresentationSnapshot> presentationSnapshot(
+    String conversationId,
+  ) async {
+    final db = await _db();
+    return db.transaction((txn) async {
+      final current = await _readState(txn, conversationId);
+      if (current == null) {
+        return (
+          cacheState: null,
+          messages: <ConversationV2Message>[],
+          runs: <ConversationV2Run>[],
+          tools: <ConversationV2Tool>[],
+          agents: <ConversationV2Agent>[],
+          todos: <ConversationV2Todo>[],
+        );
+      }
+      return (
+        cacheState: current,
+        messages: await _readMessages(txn, current),
+        runs: await _readRuns(txn, current),
+        tools: await _readTools(txn, current),
+        agents: await _readAgents(txn, current),
+        todos: await _readTodos(txn, current),
+      );
+    }, exclusive: false);
+  }
+
   @override
   Future<List<ConversationV2Message>> messages(String conversationId) async {
     final current = await state(conversationId);
     if (current == null) return const [];
-    final rows = await (await _db()).query(
+    return _readMessages(await _db(), current);
+  }
+
+  Future<List<ConversationV2Message>> _readMessages(
+    DatabaseExecutor db,
+    ConversationV2CacheState current,
+  ) async {
+    final rows = await db.query(
       'conversation_v2_messages',
       where: _scopeWhere(current.storeEpoch),
-      whereArgs: _scopeArgs(current.storeEpoch, conversationId),
+      whereArgs: _scopeArgs(current.storeEpoch, current.conversationId),
       orderBy: 'created_seq ASC, message_id ASC',
     );
     return rows.map(_messageFromRow).toList(growable: false);
@@ -323,10 +376,17 @@ class ConversationV2Cache
   Future<List<ConversationV2Run>> runs(String conversationId) async {
     final current = await state(conversationId);
     if (current == null) return const [];
-    final rows = await (await _db()).query(
+    return _readRuns(await _db(), current);
+  }
+
+  Future<List<ConversationV2Run>> _readRuns(
+    DatabaseExecutor db,
+    ConversationV2CacheState current,
+  ) async {
+    final rows = await db.query(
       'conversation_v2_runs',
       where: _scopeWhere(current.storeEpoch),
-      whereArgs: _scopeArgs(current.storeEpoch, conversationId),
+      whereArgs: _scopeArgs(current.storeEpoch, current.conversationId),
       orderBy: 'version_seq DESC, run_id DESC',
     );
     return rows.map(_runFromRow).toList(growable: false);
@@ -339,16 +399,27 @@ class ConversationV2Cache
   ]) async {
     final current = await state(conversationId);
     if (current == null) return const [];
+    return _readTools(await _db(), current, runId);
+  }
+
+  Future<List<ConversationV2Tool>> _readTools(
+    DatabaseExecutor db,
+    ConversationV2CacheState current, [
+    String? runId,
+  ]) async {
     final normalizedRunId = runId?.trim();
     final filterByRun = normalizedRunId != null && normalizedRunId.isNotEmpty;
-    final rows = await (await _db()).query(
+    final rows = await db.query(
       'conversation_v2_tools',
       where: filterByRun
           ? '${_scopeWhere(current.storeEpoch)} AND run_id = ?'
           : _scopeWhere(current.storeEpoch),
       whereArgs: filterByRun
-          ? [..._scopeArgs(current.storeEpoch, conversationId), normalizedRunId]
-          : _scopeArgs(current.storeEpoch, conversationId),
+          ? [
+              ..._scopeArgs(current.storeEpoch, current.conversationId),
+              normalizedRunId,
+            ]
+          : _scopeArgs(current.storeEpoch, current.conversationId),
       orderBy: 'created_seq ASC, tool_call_id ASC',
     );
     return rows.map(_toolFromRow).toList(growable: false);
@@ -358,10 +429,17 @@ class ConversationV2Cache
   Future<List<ConversationV2Agent>> agents(String conversationId) async {
     final current = await state(conversationId);
     if (current == null) return const [];
-    final rows = await (await _db()).query(
+    return _readAgents(await _db(), current);
+  }
+
+  Future<List<ConversationV2Agent>> _readAgents(
+    DatabaseExecutor db,
+    ConversationV2CacheState current,
+  ) async {
+    final rows = await db.query(
       'conversation_v2_agents',
       where: _scopeWhere(current.storeEpoch),
-      whereArgs: _scopeArgs(current.storeEpoch, conversationId),
+      whereArgs: _scopeArgs(current.storeEpoch, current.conversationId),
       orderBy: 'version_seq ASC, agent_id ASC',
     );
     return rows.map(_agentFromRow).toList(growable: false);
@@ -371,10 +449,17 @@ class ConversationV2Cache
   Future<List<ConversationV2Todo>> todos(String conversationId) async {
     final current = await state(conversationId);
     if (current == null) return const [];
-    final rows = await (await _db()).query(
+    return _readTodos(await _db(), current);
+  }
+
+  Future<List<ConversationV2Todo>> _readTodos(
+    DatabaseExecutor db,
+    ConversationV2CacheState current,
+  ) async {
+    final rows = await db.query(
       'conversation_v2_todos',
       where: _scopeWhere(current.storeEpoch),
-      whereArgs: _scopeArgs(current.storeEpoch, conversationId),
+      whereArgs: _scopeArgs(current.storeEpoch, current.conversationId),
       orderBy: 'position ASC, todo_id ASC',
     );
     return rows.map(_todoFromRow).toList(growable: false);
@@ -391,6 +476,48 @@ class ConversationV2Cache
       where: '${_scopeWhere(current.storeEpoch)} AND run_id = ?',
       whereArgs: [..._scopeArgs(current.storeEpoch, conversationId), runId],
       orderBy: 'created_seq ASC, item_id ASC',
+    );
+    return rows.map(_detailFromRow).toList(growable: false);
+  }
+
+  /// Recent compaction lifecycle rows plus each owner's latest state.
+  ///
+  /// Context compaction is represented as V2 detail rows rather than tool
+  /// summaries. The Feed needs them even when the user never opens a detail
+  /// panel, so read a bounded projection view instead of hydrating every
+  /// detail owned by the conversation.
+  Future<List<ConversationV2Detail>> compactionDetails(
+    String conversationId,
+  ) async {
+    final current = await state(conversationId);
+    if (current == null) return const [];
+    final placeholders = List.filled(
+      conversationV2ContextCompactionTypes.length,
+      '?',
+    ).join(', ');
+    final rows = await (await _db()).rawQuery(
+      '''
+      WITH compaction AS (
+        SELECT *,
+          ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(agent_instance_id, agent_id, '')
+            ORDER BY created_seq DESC, item_id DESC
+          ) AS owner_rank,
+          ROW_NUMBER() OVER (
+            ORDER BY created_seq DESC, item_id DESC
+          ) AS recent_rank
+        FROM conversation_v2_details
+        WHERE ${_scopeWhere(current.storeEpoch)}
+          AND type IN ($placeholders)
+      )
+      SELECT * FROM compaction
+      WHERE owner_rank = 1 OR recent_rank <= 100
+      ORDER BY created_seq ASC, item_id ASC
+      ''',
+      [
+        ..._scopeArgs(current.storeEpoch, conversationId),
+        ...conversationV2ContextCompactionTypes,
+      ],
     );
     return rows.map(_detailFromRow).toList(growable: false);
   }
@@ -441,6 +568,9 @@ class ConversationV2Cache
       }
       for (final agent in bootstrap.agents) {
         await _upsertAgent(txn, bootstrap.storeEpoch, agent);
+      }
+      for (final detail in bootstrap.details) {
+        await _upsertDetail(txn, bootstrap.storeEpoch, detail);
       }
       if (!sameEpoch || current!.appliedSeq <= bootstrap.snapshotSeq) {
         await txn.delete(

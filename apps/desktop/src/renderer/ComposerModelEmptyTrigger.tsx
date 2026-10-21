@@ -19,6 +19,8 @@ export function ComposerModelEmptyTrigger({
   const { t } = useTranslation();
   const label =
     state === "no-provider" ? t("composer.model.addProvider") : t("composer.model.selectOrchestration");
+  const title =
+    state === "no-orchestration" ? t("composer.model.selectOrchestrationHint") : label;
 
   return (
     <span className="composer-model-selector">
@@ -27,8 +29,8 @@ export function ComposerModelEmptyTrigger({
         type="button"
         className="composer-model-trigger is-empty"
         disabled={disabled}
-        aria-label={label}
-        title={label}
+        aria-label={title}
+        title={title}
         onClick={onAction}
       >
         <span className="composer-model-empty-label">{label}</span>

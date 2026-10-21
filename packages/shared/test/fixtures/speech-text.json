@@ -1,0 +1,9 @@
+[
+  {"source":"# 标题\n\n- 第一项\n- 第二项","expected":"标题\n第一项\n第二项"},
+  {"source":"说明如下：\n```dart\nvoid main() {}\n```\n结束","expected":"说明如下：\n代码块已省略\n结束"},
+  {"source":"查看 [文档](https://example.com)，**重点**和 `inline`。","expected":"查看 文档，重点和 inline。"},
+  {"source":"![图片](https://example.com/a.png)\n1. 第一步\n2. 第二步","expected":"1、第一步\n2、第二步"},
+  {"source":"> 引用 <b>正文</b>\n~~~sh\necho hello\n~~~","expected":"引用 正文\n代码块已省略"},
+  {"source":"模型输出。 citeturn0search0","expected":"模型输出。"},
+  {"source":"   \n\n  ","expected":""}
+]

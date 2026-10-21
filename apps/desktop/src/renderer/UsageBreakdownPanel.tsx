@@ -1,4 +1,4 @@
-import { formatCostUsd, formatRoleModelLabel, formatUsageBadge, shortenModelId } from "@eco/runtime/usage";
+import { formatCostUsd, formatRoleModelLabel, formatUsageBadge } from "@eco/runtime/usage";
 import { ChevronDown, CircleHelp } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -9,6 +9,7 @@ import type {
   ThreadSubagentBillingSnapshot,
   ThreadUsageLedgerEventView,
 } from "../shared/ipc";
+import { resolveLedgerEventTiming } from "../shared/ledger-event-timing";
 import {
   ledgerEventRouteRoleDiffers,
   partitionLedgerEventsForDisplay,
@@ -18,6 +19,7 @@ import {
   sortLedgerEventsNewestFirst,
   sumLedgerEventTokens,
 } from "../shared/ledger-events-display";
+import { formatModelDisplayName } from "../shared/model-id";
 import { resolveSubagentRunDisplayTitle } from "./activity-log";
 import { composerFloatingViewport, observeComposerFloatingViewport } from "./composer-floating";
 import { i18n } from "./i18n";
@@ -26,13 +28,9 @@ import {
   type RuntimeAgentDisplayNames,
   resolveRuntimeAgentName,
 } from "./runtime-agent-display";
-import { useTokenSpeedDisplayMode } from "./token-speed-preferences";
+import { formatTokenSpeedSegmentPlain, TokenSpeedSegmentsView } from "./TokenSpeedSegments";
 import { resolveTokenSpeedSegments } from "./token-speed";
-import {
-  formatTokenSpeedSegmentPlain,
-  TokenSpeedSegmentsView,
-} from "./TokenSpeedSegments";
-import { resolveLedgerEventTiming } from "../shared/ledger-event-timing";
+import { useTokenSpeedDisplayMode } from "./token-speed-preferences";
 
 type BreakdownView = "agent" | "model" | "events";
 
@@ -51,7 +49,7 @@ function formatLedgerEventAgentLabel(event: ThreadUsageLedgerEventView): string 
   if (!agentId) {
     return undefined;
   }
-  if (agentId === event.billingRole || agentId === "planner") {
+  if (agentId === event.billingRole || agentId === "main") {
     return i18n.t("usage.mainSession");
   }
   return agentId.slice(-8);
@@ -100,7 +98,7 @@ export function formatLedgerEventProviderModel(
     rawProviderLabel && !/^codex-[a-z0-9]+$/i.test(rawProviderLabel) ? rawProviderLabel : undefined;
   return {
     ...(providerLabel && { providerLabel }),
-    modelLabel: shortenModelId(providerModelId),
+    modelLabel: formatModelDisplayName(providerModelId),
     title: providerLabel ? `${providerLabel} / ${providerModelId}` : providerModelId,
   };
 }
@@ -271,7 +269,7 @@ function BreakdownRows({
               titleTooltip={
                 row.modelId ? formatRuntimeRoleModelLabel(row.role, row.modelId, agentDisplayNames) : title
               }
-              {...(row.modelId && { meta: shortenModelId(row.modelId) })}
+              {...(row.modelId && { meta: formatModelDisplayName(row.modelId) })}
               {...(status && row.kind !== "primary"
                 ? { status, statusKind: row.kind }
                 : status
@@ -286,7 +284,7 @@ function BreakdownRows({
           <BillingSummaryRow
             key={row.agentId}
             title={formatUsageBreakdownAgentLabel(row.role, row.agentId, agentDisplayNames)}
-            {...(row.modelId && { meta: shortenModelId(row.modelId) })}
+            {...(row.modelId && { meta: formatModelDisplayName(row.modelId) })}
             tokenBadge={formatUsageBadge({
               inputTokens: row.inputTokens,
               outputTokens: row.outputTokens,
@@ -364,9 +362,7 @@ function LedgerEventRow({
     tokenSpeedMode,
   );
   const timingPlain =
-    timingSegments.length > 0
-      ? timingSegments.map(formatTokenSpeedSegmentPlain).join(" · ")
-      : undefined;
+    timingSegments.length > 0 ? timingSegments.map(formatTokenSpeedSegmentPlain).join(" · ") : undefined;
   const observedTime = formatLedgerEventTime(event.observedAt);
   const computedCostAvailable = event.ecoCostUsd !== undefined && event.pricingResolved !== false;
   const primaryCostUsd = computedCostAvailable ? event.ecoCostUsd : event.reportedCostUsd;
@@ -393,49 +389,21 @@ function LedgerEventRow({
         .join(" ")}
       title={detailParts.join(" · ")}
     >
-      <span className="usage-breakdown-event-main">
-        <span className="usage-breakdown-event-copy">
-          <span className="usage-breakdown-event-heading">
-            <span
-              className="usage-breakdown-event-model"
-              title={providerModel?.title ?? i18n.t("usage.unknownModel")}
-            >
-              {providerModel?.modelLabel ?? i18n.t("usage.unknownModel")}
-            </span>
-            {attributionLabel ? (
-              <span
-                className={`usage-breakdown-event-status usage-breakdown-event-status-${event.attributionStatus}`}
-                title={event.attributionReason}
-              >
-                {attributionLabel}
-              </span>
-            ) : null}
-          </span>
-          <span className="usage-breakdown-event-meta">
-            {providerModel?.providerLabel ? (
-              <span className="usage-breakdown-event-provider">{providerModel.providerLabel}</span>
-            ) : null}
-            <span className="usage-breakdown-event-role">{roleLabel}</span>
-            <span
-              className={
-                formattedAgentLabel ? "usage-breakdown-event-agent" : "usage-breakdown-event-no-agent"
-              }
-            >
-              {agentLabel}
-            </span>
-            {ledgerEventRouteRoleDiffers(event) ? (
-              <span
-                className="usage-breakdown-event-route"
-                title={i18n.t("usage.proxyRoute", { role: routeRoleLabel })}
-              >
-                {i18n.t("usage.route", { role: routeRoleLabel })}
-              </span>
-            ) : null}
-            {showSource ? <span className="usage-breakdown-event-source">{event.source}</span> : null}
-          </span>
+      <span className="usage-breakdown-event-heading">
+        <span
+          className="usage-breakdown-event-model"
+          title={providerModel?.title ?? i18n.t("usage.unknownModel")}
+        >
+          {providerModel?.modelLabel ?? i18n.t("usage.unknownModel")}
         </span>
-      </span>
-      <span className="usage-breakdown-event-usage">
+        {attributionLabel ? (
+          <span
+            className={`usage-breakdown-event-status usage-breakdown-event-status-${event.attributionStatus}`}
+            title={event.attributionReason}
+          >
+            {attributionLabel}
+          </span>
+        ) : null}
         <span
           className={[
             "usage-breakdown-event-cost",
@@ -459,6 +427,28 @@ function LedgerEventRow({
             </span>
           ) : null}
         </span>
+      </span>
+      <span className="usage-breakdown-event-meta">
+        {providerModel?.providerLabel ? (
+          <span className="usage-breakdown-event-provider">{providerModel.providerLabel}</span>
+        ) : null}
+        <span className="usage-breakdown-event-role">{roleLabel}</span>
+        <span
+          className={formattedAgentLabel ? "usage-breakdown-event-agent" : "usage-breakdown-event-no-agent"}
+        >
+          {agentLabel}
+        </span>
+        {ledgerEventRouteRoleDiffers(event) ? (
+          <span
+            className="usage-breakdown-event-route"
+            title={i18n.t("usage.proxyRoute", { role: routeRoleLabel })}
+          >
+            {i18n.t("usage.route", { role: routeRoleLabel })}
+          </span>
+        ) : null}
+        {showSource ? <span className="usage-breakdown-event-source">{event.source}</span> : null}
+      </span>
+      <span className="usage-breakdown-event-footer">
         <span className="usage-breakdown-event-token-detail" title={i18n.t("billing.tokenTitle")}>
           {tokenBadge}
         </span>

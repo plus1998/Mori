@@ -1,8 +1,9 @@
+import { normalizeAgentRole } from "../../shared/src";
 import type { ResolvedModelRoute } from "../../model-router/src";
 import type { RuntimeAgentRole } from "../../shared/src";
 
 function normalizeRouteAgentKey(agentKey: string): string {
-  return agentKey.startsWith("eco_") ? agentKey.slice(4) : agentKey;
+  return normalizeAgentRole(agentKey.startsWith("eco_") ? agentKey.slice(4) : agentKey);
 }
 
 function isEcoAliasModelId(modelId: string): boolean {
@@ -13,7 +14,7 @@ function findRouteByRole(
   routes: readonly ResolvedModelRoute[],
   role: string,
 ): ResolvedModelRoute | undefined {
-  return routes.find((route) => route.role === role);
+  return routes.find((route) => normalizeAgentRole(route.role) === role);
 }
 
 /** Map orchestration/SDK upstream model ids to configured proxy alias ids. */
@@ -50,7 +51,7 @@ export function resolveSdkModelId(
     }
   }
 
-  const plannerAlias = findRouteByRole(routes, "planner")?.primary.modelId;
+  const plannerAlias = findRouteByRole(routes, "main")?.primary.modelId;
   if (plannerAlias) {
     return plannerAlias;
   }
@@ -62,12 +63,12 @@ export function resolveMainSdkModelId(
   routes: readonly ResolvedModelRoute[],
   orchestrationMainModelId?: string,
 ): string {
-  const plannerAlias = findRouteByRole(routes, "planner")?.primary.modelId;
+  const plannerAlias = findRouteByRole(routes, "main")?.primary.modelId;
   if (plannerAlias) {
     return plannerAlias;
   }
   if (orchestrationMainModelId?.trim()) {
-    return resolveSdkModelId(routes, "planner", orchestrationMainModelId);
+    return resolveSdkModelId(routes, "main", orchestrationMainModelId);
   }
   return routes[0]?.primary.modelId ?? "";
 }

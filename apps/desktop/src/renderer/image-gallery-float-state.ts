@@ -2,7 +2,7 @@
  * 右侧图片画廊悬浮窗的队列状态。
  *
  * 展示图片工具（display_image）与创意绘画工具（create_image）每次被调用时，
- * 对应的图片会被排入队列；悬浮窗竖直方向展示队列，关闭当前一张后切换到下一张。
+ * 对应的图片会被排入队列；悬浮窗可前后浏览，关闭当前一张只移除对应项。
  * 队列清空或用户整体关闭后，图片仍保留在 workspace cards 面板中。
  */
 
@@ -46,7 +46,10 @@ export function appendImageGalleryItems(
   return next;
 }
 
-/** 关闭当前一张，返回剩余队列（队列为空即整体收起）。 */
-export function advanceImageGalleryQueue(queue: readonly ImageGalleryQueueItem[]): ImageGalleryQueueItem[] {
-  return queue.slice(1);
+/** 关闭指定图片；未指定时关闭第一张，队列为空即整体收起。 */
+export function advanceImageGalleryQueue(
+  queue: readonly ImageGalleryQueueItem[],
+  key = queue[0]?.key,
+): ImageGalleryQueueItem[] {
+  return queue.filter((item) => item.key !== key);
 }

@@ -1,3 +1,4 @@
+import { normalizeAgentRole } from "@eco/shared";
 import {
   computeOccupancyRatio,
   computeWindowOccupancy,
@@ -20,7 +21,7 @@ import type { ModelsDevPricingCache } from "./models-dev-pricing-cache";
 
 const DEFAULT_SUBAGENT_HANDOFF_THRESHOLD = 0.85;
 
-const ROLE_ORDER: readonly AgentRole[] = ["planner", "explore", "architect", "coder", "reviewer", "tester"];
+const ROLE_ORDER: readonly AgentRole[] = ["main", "explore", "architect", "coder", "reviewer", "tester"];
 const ROLE_ORDER_INDEX = new Map<string, number>(ROLE_ORDER.map((role, index) => [role, index]));
 
 export interface ContextMonitorRoleSnapshot {
@@ -92,7 +93,7 @@ export class ContextWindowMonitor {
     },
   ): Promise<ContextMonitorSnapshot> {
     const state = this.getOrCreateState(threadId);
-    const role = options?.role ?? "planner";
+    const role = options?.role ?? "main";
     const occupancy = computeWindowOccupancy(usage);
 
     if (options?.messageId) {
@@ -126,7 +127,7 @@ export class ContextWindowMonitor {
     if (manualSpec) {
       next.manualSpec = manualSpec;
     }
-    const subagentAgentId = options?.agentId && role !== "planner" ? options.agentId : undefined;
+    const subagentAgentId = options?.agentId && role !== "main" ? options.agentId : undefined;
     if (subagentAgentId) {
       state.byInstance.set(subagentAgentId, {
         role,
@@ -179,7 +180,7 @@ export class ContextWindowMonitor {
     options?: { limit?: number; agentId?: string; modelId?: string },
   ): Promise<ContextMonitorSnapshot> {
     const state = this.getOrCreateState(threadId);
-    const subagentAgentId = options?.agentId && role !== "planner" ? options.agentId : undefined;
+    const subagentAgentId = options?.agentId && role !== "main" ? options.agentId : undefined;
     const instancePrev = subagentAgentId ? state.byInstance.get(subagentAgentId) : undefined;
     const prev = instancePrev ?? state.byRole[role];
     // Seed limit from Eco state (not Codex/SDK-reported windows). Codex catalog
@@ -274,9 +275,9 @@ export class ContextWindowMonitor {
     const state = this.getOrCreateState(threadId);
     state.compactInFlight = false;
     state.seenMessageIds.clear();
-    const planner = state.byRole.planner;
+    const planner = state.byRole.main;
     if (postTokens !== undefined && Number.isFinite(postTokens)) {
-      state.byRole.planner = {
+      state.byRole.main = {
         ...planner,
         occupied: postTokens,
         limit: planner?.limit ?? DEFAULT_CONTEXT_LIMIT,
@@ -284,7 +285,7 @@ export class ContextWindowMonitor {
       };
     }
     for (const role of Object.keys(state.byRole)) {
-      if (role !== "planner") {
+      if (role !== "main") {
         delete state.byRole[role];
       }
     }
@@ -333,7 +334,7 @@ export class ContextWindowMonitor {
       return undefined;
     }
     return {
-      role: instance.role,
+      role: normalizeAgentRole(instance.role),
       occupied: instance.occupied,
       limit: instance.limit,
       compactLimit: compactLimitForRole(instance),
@@ -382,12 +383,12 @@ export class ContextWindowMonitor {
       return undefined;
     }
     for (const role of Object.keys(state.byRole)) {
-      if (role !== "planner") {
+      if (role !== "main") {
         delete state.byRole[role];
       }
     }
     for (const [agentId, instance] of state.byInstance.entries()) {
-      if (instance.role !== "planner") {
+      if (instance.role !== "main") {
         state.byInstance.delete(agentId);
       }
     }
@@ -403,7 +404,7 @@ export class ContextWindowMonitor {
         ? snapshot.roles
         : [
             {
-              role: snapshot.displayRole ?? "planner",
+              role: snapshot.displayRole ?? "main",
               occupied: snapshot.occupied,
               limit: snapshot.limit,
               occupancyPct: snapshot.occupancyPct,
@@ -414,9 +415,9 @@ export class ContextWindowMonitor {
           ];
 
     for (const roleSnapshot of roles) {
-      const prev = state.byRole[roleSnapshot.role];
+      const prev = state.byRole[normalizeAgentRole(roleSnapshot.role)];
       const maxOutputTokens = roleSnapshot.maxOutputTokens ?? prev?.maxOutputTokens;
-      state.byRole[roleSnapshot.role] = {
+      state.byRole[normalizeAgentRole(roleSnapshot.role)] = {
         occupied: roleSnapshot.occupied,
         limit: this.applyGlobalLimit(roleSnapshot.limit),
         compactLimit: effectiveContextLimit(this.applyGlobalLimit(roleSnapshot.limit), maxOutputTokens),
@@ -434,7 +435,7 @@ export class ContextWindowMonitor {
         continue;
       }
       state.byInstance.set(instance.agentId, {
-        role: instance.role,
+        role: normalizeAgentRole(instance.role),
         occupied: instance.occupied,
         limit: this.applyGlobalLimit(instance.limit),
         compactLimit: effectiveContextLimit(this.applyGlobalLimit(instance.limit), instance.maxOutputTokens),
@@ -444,7 +445,7 @@ export class ContextWindowMonitor {
         ...(instance.maxOutputTokens !== undefined && { maxOutputTokens: instance.maxOutputTokens }),
       });
     }
-    state.displayRole = snapshot.displayRole ?? "planner";
+    state.displayRole = normalizeAgentRole(snapshot.displayRole ?? "main");
     this.refreshDisplayRole(state);
   }
 
@@ -454,7 +455,7 @@ export class ContextWindowMonitor {
       state = {
         byRole: {},
         byInstance: new Map(),
-        displayRole: "planner",
+        displayRole: "main",
         seenMessageIds: new Set(),
         compactInFlight: false,
       };
@@ -465,8 +466,8 @@ export class ContextWindowMonitor {
 
   /** Prefer the planner main session when it exists; otherwise show the largest known child session. */
   private refreshDisplayRole(state: ThreadMonitorState): void {
-    if ((state.byRole.planner?.occupied ?? 0) > 0) {
-      state.displayRole = "planner";
+    if ((state.byRole.main?.occupied ?? 0) > 0) {
+      state.displayRole = "main";
       return;
     }
 
@@ -479,7 +480,7 @@ export class ContextWindowMonitor {
         maxRole = role;
       }
     }
-    state.displayRole = maxRole ?? "planner";
+    state.displayRole = maxRole ?? "main";
   }
 
   private async refreshLimitForRole(roleState: RoleOccupancyState): Promise<void> {
@@ -554,7 +555,7 @@ export class ContextWindowMonitor {
       .filter(([, instance]) => instance.occupied > 0)
       .map(([agentId, instance]) => ({
         agentId,
-        role: instance.role,
+        role: normalizeAgentRole(instance.role),
         occupied: instance.occupied,
         limit: instance.limit,
         occupancyPct: occupancyPercent(instance.occupied, instance.limit),

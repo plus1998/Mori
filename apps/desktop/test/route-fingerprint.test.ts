@@ -3,7 +3,7 @@ import type { RoleRouteConfig, RuntimeRoleRouteConfig } from "../src/shared/ipc"
 import { computeRouteFingerprint, routesMatchFingerprint } from "../src/shared/route-fingerprint";
 
 const sampleRoutes: RoleRouteConfig[] = [
-  { role: "planner", providerId: "p1", modelId: "model-a" },
+  { role: "main", providerId: "p1", modelId: "model-a" },
   { role: "coder", providerId: "p2", modelId: "model-b" },
   { role: "reviewer", providerId: "p1", modelId: "model-c" },
 ];
@@ -19,7 +19,7 @@ test("routesMatchFingerprint detects provider or model changes", () => {
   expect(routesMatchFingerprint(sampleRoutes, fingerprint)).toBe(true);
   expect(
     routesMatchFingerprint(
-      sampleRoutes.map((route) => (route.role === "planner" ? { ...route, providerId: "other" } : route)),
+      sampleRoutes.map((route) => (route.role === "main" ? { ...route, providerId: "other" } : route)),
       fingerprint,
     ),
   ).toBe(false);
@@ -27,14 +27,14 @@ test("routesMatchFingerprint detects provider or model changes", () => {
 
 test("routesMatchFingerprint detects thinking effort changes", () => {
   const routes = sampleRoutes.map((route) =>
-    route.role === "planner" ? { ...route, thinkingEffort: "high" as const } : route,
+    route.role === "main" ? { ...route, thinkingEffort: "high" as const } : route,
   );
   const fingerprint = computeRouteFingerprint(routes);
 
   expect(
     routesMatchFingerprint(
       routes.map((route) =>
-        route.role === "planner" ? { ...route, thinkingEffort: "xhigh" as const } : route,
+        route.role === "main" ? { ...route, thinkingEffort: "xhigh" as const } : route,
       ),
       fingerprint,
     ),
@@ -43,7 +43,7 @@ test("routesMatchFingerprint detects thinking effort changes", () => {
 
 test("routesMatchFingerprint includes dynamic runtime roles", () => {
   const routes: RuntimeRoleRouteConfig[] = [
-    { role: "planner", providerId: "p1", modelId: "main" },
+    { role: "main", providerId: "p1", modelId: "main" },
     { role: "researcher", providerId: "p1", modelId: "research-a" },
   ];
   const fingerprint = computeRouteFingerprint(routes);

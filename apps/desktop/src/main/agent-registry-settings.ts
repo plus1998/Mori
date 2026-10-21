@@ -1,3 +1,7 @@
+import {
+  CHATGPT_SUBSCRIPTION_MAIN_AGENT_CONFIG_ID,
+  OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID,
+} from "../shared/agent-orchestration";
 import type {
   AgentTemplate,
   MainAgentConfigResource,
@@ -6,6 +10,7 @@ import type {
   ProviderConfigView,
   SubagentOrchestrationResource,
 } from "../shared/ipc";
+import type { MainAgentModelOverride } from "../shared/thread-runtime-config";
 
 export interface AgentRegistrySettingsSource {
   listAgentTemplates(): AgentTemplate[];
@@ -16,7 +21,7 @@ export interface AgentRegistrySettingsSource {
 
 /** Virtual built-in main agent config for Codex Auth (CODEX_HOME/auth.json). */
 const OPENAI_OFFICIAL_MAIN_AGENT_CONFIG: MainAgentConfigResource = {
-  id: "__openai_official__",
+  id: OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID,
   name: "Codex 登录",
   agentKey: "openai-official",
   modelRef: { providerId: "openai", modelId: "gpt-5.6-luna", thinkingEffort: "medium" },
@@ -45,7 +50,7 @@ const OPENAI_OFFICIAL_PROVIDER: ProviderConfigView = {
 
 function createChatGptSubscriptionMainAgentConfig(modelId: string): MainAgentConfigResource {
   return {
-    id: "__chatgpt_subscription__",
+    id: CHATGPT_SUBSCRIPTION_MAIN_AGENT_CONFIG_ID,
     name: "ChatGPT 订阅",
     agentKey: "chatgpt-subscription",
     modelRef: { providerId: "eco-coding-chatgpt", modelId, thinkingEffort: "medium" },
@@ -60,11 +65,18 @@ function createChatGptSubscriptionMainAgentConfig(modelId: string): MainAgentCon
 export function mergeAgentRegistrySettings(
   base: ModelSettingsSnapshot,
   registry: AgentRegistrySettingsSource,
-  options?: { openAiAccountActive?: boolean; chatGptSubscriptionModelId?: string },
+  options?: {
+    openAiAccountActive?: boolean;
+    chatGptSubscriptionModelId?: string;
+    codexAuthModel?: MainAgentModelOverride;
+  },
 ): ModelSettingsSnapshot {
   const mainAgentConfigs = registry.listMainAgentConfigs();
+  const codexAuthConfig = options?.codexAuthModel
+    ? { ...OPENAI_OFFICIAL_MAIN_AGENT_CONFIG, modelRef: options.codexAuthModel }
+    : OPENAI_OFFICIAL_MAIN_AGENT_CONFIG;
   const withBuiltInConfigs = options?.openAiAccountActive
-    ? [OPENAI_OFFICIAL_MAIN_AGENT_CONFIG, ...mainAgentConfigs]
+    ? [codexAuthConfig, ...mainAgentConfigs]
     : mainAgentConfigs;
   const chatGptModelId = options?.chatGptSubscriptionModelId?.trim();
   const withChatGptSubscription = chatGptModelId

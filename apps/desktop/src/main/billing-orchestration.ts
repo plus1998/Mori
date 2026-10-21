@@ -5,7 +5,7 @@ import type { ContextMonitorSnapshot } from "./context-window-monitor";
 const NON_SUBAGENT_BILLING_ROLES = new Set([
   "assistant",
   "main",
-  "planner",
+  "main",
   "system",
   "thinking",
   "tool",
@@ -119,7 +119,7 @@ export function shouldUpdateContextFromUsageSource(
   }
   // Proxy is the only context meter for planner when SDK getContextUsage() is unavailable
   // (OpenAI-compat / llama.cpp upstream). Anthropic-native runs still calibrate via sdk_context_usage.
-  if (source === "proxy" && role === "planner") {
+  if (source === "proxy" && role === "main") {
     return true;
   }
   return false;

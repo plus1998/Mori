@@ -195,6 +195,12 @@ export function settleForcedPlanDelegation(
   if (!attempt) {
     return undefined;
   }
+  if (attempt.status === "failed" || attempt.status === "violated") {
+    const reason = attempt.failureReason ?? input.reason ?? "计划委派失败。";
+    forcedPlanDelegationStore.release(threadId);
+    clearCodexForcedDelegationSideEffects();
+    return { outcome: "failed", reason };
+  }
   if (attempt.status === "claimed") {
     forcedPlanDelegationStore.resetUnstartedClaim(threadId);
     return {

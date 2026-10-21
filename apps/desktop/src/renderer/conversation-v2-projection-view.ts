@@ -1,3 +1,4 @@
+import { isMainAgentRole } from "@eco/shared";
 import {
   isSubagentMissionEnvelope,
   parseSubagentMissionMessage,
@@ -440,6 +441,7 @@ function isReasoningStageFeedEntry(entry: ThreadRunProjectionMainFeedEntry): boo
   if (entry.kind !== "timeline" && entry.kind !== "agent-echo") {
     return false;
   }
+  if (entry.item.eventType !== "thinking.delta" && entry.item.eventType !== "thinking.final") return false;
   return projectionItemToDetailBlock(entry.item)?.kind === "reasoning-stage";
 }
 
@@ -462,6 +464,7 @@ function isReasoningSummaryBoundaryFeedEntry(entry: ThreadRunProjectionMainFeedE
   if (entry.kind !== "timeline" && entry.kind !== "agent-echo") {
     return false;
   }
+  if (entry.item.eventType !== "message.delta" && entry.item.eventType !== "message.final") return false;
   const block = projectionItemToDetailBlock(entry.item);
   return block?.kind === "narrative" && Boolean(block.text.trim());
 }
@@ -577,6 +580,7 @@ function isGroupableThinkingFeedEntry(
   if (entry.kind !== "timeline" && entry.kind !== "agent-echo") {
     return false;
   }
+  if (entry.item.eventType !== "thinking.delta" && entry.item.eventType !== "thinking.final") return false;
   return projectionItemToDetailBlock(entry.item)?.kind === "thinking";
 }
 
@@ -1516,6 +1520,7 @@ export function buildProjectionDisplayTimelineItems(
   timeline: readonly ThreadRunProjectionTimelineItem[],
   requestSpansById: ReadonlyMap<string, ThreadRunProjectionSnapshot["requestSpans"][number]>,
 ): ThreadRunProjectionTimelineItem[] {
+  const streamKeys = new Map<ThreadRunProjectionTimelineItem, string | undefined>();
   const latestStreamDisplayByKey = new Map<string, ThreadRunProjectionTimelineItem>();
   const latestToolDisplayByKey = new Map<string, ThreadRunProjectionTimelineItem>();
   const latestLifecycleDisplayByKey = new Map<string, ThreadRunProjectionTimelineItem>();
@@ -1558,6 +1563,7 @@ export function buildProjectionDisplayTimelineItems(
     }
 
     const streamKey = projectionStreamDisplayKey(item, requestSpansById, timeline);
+    streamKeys.set(item, streamKey);
     if (streamKey) {
       const current = latestStreamDisplayByKey.get(streamKey);
       if (!current || compareTimelineItems(current, item) <= 0) {
@@ -1607,7 +1613,7 @@ export function buildProjectionDisplayTimelineItems(
       }
       displayItem = latestLifecycle;
     }
-    const streamKey = projectionStreamDisplayKey(item, requestSpansById, timeline);
+    const streamKey = streamKeys.get(item);
     if (streamKey) {
       const latestStream = latestStreamDisplayByKey.get(streamKey);
       if (!latestStream || latestStream.id !== item.id) {
@@ -1644,54 +1650,60 @@ export function buildProjectionDisplayTimelineItems(
 export function collapseRedundantMessageDisplayItems(
   items: readonly ThreadRunProjectionTimelineItem[],
 ): ThreadRunProjectionTimelineItem[] {
-  const messageIndexes: number[] = [];
+  const lookup = timelineLookup(items);
+  const messageGroups = new Map<string, number[]>();
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index];
     if (item && isMessageSpeechDisplayItem(item) && item.text.trim()) {
-      messageIndexes.push(index);
+      // Different agents, attempts and user turns can never collapse together.
+      // Compare only speech in that scope, rather than every historical pair.
+      const key = JSON.stringify([
+        normalizeThinkingContext(item.agentId),
+        normalizeThinkingContext(item.runAttemptId),
+        lookup.userCounts[index],
+      ]);
+      const group = messageGroups.get(key);
+      if (group) group.push(index);
+      else messageGroups.set(key, [index]);
     }
-  }
-  if (messageIndexes.length < 2) {
-    return [...items];
   }
 
   const drop = new Set<number>();
-  for (let leftPos = 0; leftPos < messageIndexes.length; leftPos += 1) {
-    const leftIndex = messageIndexes[leftPos];
-    if (leftIndex === undefined || drop.has(leftIndex)) {
-      continue;
-    }
-    const earlier = items[leftIndex];
-    if (!earlier) {
-      continue;
-    }
-    const earlierText = earlier.text.trim();
-    for (let rightPos = leftPos + 1; rightPos < messageIndexes.length; rightPos += 1) {
-      const rightIndex = messageIndexes[rightPos];
-      if (rightIndex === undefined || drop.has(rightIndex)) {
+  for (const messageIndexes of messageGroups.values()) {
+    for (let leftPos = 0; leftPos < messageIndexes.length; leftPos += 1) {
+      const leftIndex = messageIndexes[leftPos];
+      if (leftIndex === undefined || drop.has(leftIndex)) {
         continue;
       }
-      const later = items[rightIndex];
-      if (!later || !sameMessageCollapseScope(earlier, later)) {
+      const earlier = items[leftIndex];
+      if (!earlier) {
         continue;
       }
-      if (hasUserPromptBetween(items, earlier, later)) {
-        continue;
-      }
-      const laterText = later.text.trim();
-      if (laterText === earlierText) {
-        drop.add(leftIndex);
-        break;
-      }
-      if (hasToolBoundaryBetween(items, earlier, later)) {
-        continue;
-      }
-      if (laterText.startsWith(earlierText) && laterText.length > earlierText.length) {
-        drop.add(leftIndex);
-        break;
-      }
-      if (earlierText.startsWith(laterText) && earlierText.length > laterText.length) {
-        drop.add(rightIndex);
+      const earlierText = earlier.text.trim();
+      for (let rightPos = leftPos + 1; rightPos < messageIndexes.length; rightPos += 1) {
+        const rightIndex = messageIndexes[rightPos];
+        if (rightIndex === undefined || drop.has(rightIndex)) {
+          continue;
+        }
+        const later = items[rightIndex];
+        if (!later || !sameMessageCollapseScope(earlier, later)) {
+          continue;
+        }
+        const laterText = later.text.trim();
+        if (laterText === earlierText) {
+          drop.add(leftIndex);
+          break;
+        }
+        if (hasToolBoundaryBetween(items, earlier, later)) {
+          continue;
+        }
+        if (laterText.startsWith(earlierText) && laterText.length > earlierText.length) {
+          drop.add(leftIndex);
+          break;
+        }
+        if (earlierText.startsWith(laterText) && earlierText.length > laterText.length) {
+          drop.add(rightIndex);
+        }
       }
     }
   }
@@ -1736,25 +1748,78 @@ function hasToolBoundaryBetween(
   current: ThreadRunProjectionTimelineItem,
   item: ThreadRunProjectionTimelineItem,
 ): boolean {
-  const currentIndex = timeline.findIndex((entry) => entry.id === current.id);
-  const itemIndex = timeline.findIndex((entry) => entry.id === item.id);
-  if (currentIndex < 0 || itemIndex < 0 || itemIndex <= currentIndex) {
-    return false;
-  }
-  for (let index = currentIndex + 1; index < itemIndex; index += 1) {
-    const entry = timeline[index];
-    if (!entry) {
-      continue;
+  const lookup = timelineLookup(timeline);
+  return hasIndexedBoundaryBetween(lookup, lookup.toolCounts, current, item);
+}
+
+/** Timeline arrays are immutable projection inputs; an index lives only as long as its array. */
+const timelineLookups = new WeakMap<readonly ThreadRunProjectionTimelineItem[], TimelineLookup>();
+interface TimelineLookup {
+  positions: Map<string, number>;
+  userCounts: Uint32Array;
+  toolCounts: Uint32Array;
+  thinkingBoundaryCounts: Uint32Array;
+  turnBoundaryBefore: Int32Array;
+  userBoundaryBefore: Int32Array;
+  userBoundaryAfter: Int32Array;
+  explicitFinals: Map<string, ThreadRunProjectionTimelineItem[]>;
+}
+
+function timelineLookup(timeline: readonly ThreadRunProjectionTimelineItem[]): TimelineLookup {
+  const cached = timelineLookups.get(timeline);
+  if (cached) return cached;
+  const lookup: TimelineLookup = {
+    positions: new Map(),
+    userCounts: new Uint32Array(timeline.length + 1),
+    toolCounts: new Uint32Array(timeline.length + 1),
+    thinkingBoundaryCounts: new Uint32Array(timeline.length + 1),
+    turnBoundaryBefore: new Int32Array(timeline.length),
+    userBoundaryBefore: new Int32Array(timeline.length),
+    userBoundaryAfter: new Int32Array(timeline.length),
+    explicitFinals: new Map(),
+  };
+  let userBoundary = -1;
+  let turnBoundary = -1;
+  for (const [index, item] of timeline.entries()) {
+    // Match findIndex semantics if a caller supplies repeated ids.
+    if (!lookup.positions.has(item.id)) lookup.positions.set(item.id, index);
+    lookup.userBoundaryBefore[index] = userBoundary;
+    lookup.turnBoundaryBefore[index] = turnBoundary;
+    const user = isProjectionUserPromptItem(item);
+    const tool = ["tool.started", "tool.completed", "tool.failed"].includes(item.eventType);
+    const final = item.eventType === "thinking.final" || item.eventType === "message.final";
+    lookup.userCounts[index + 1] = lookup.userCounts[index]! + Number(user);
+    lookup.toolCounts[index + 1] = lookup.toolCounts[index]! + Number(tool);
+    lookup.thinkingBoundaryCounts[index + 1] =
+      lookup.thinkingBoundaryCounts[index]! + Number(user || tool || final);
+    if (user) userBoundary = index;
+    if (user || item.eventType === "thinking.final" || (item.eventType === "message.final" && isMainAgentRole(item.role)))
+      turnBoundary = index;
+    if (final && isExplicitStreamBlockItem(item)) {
+      const key = JSON.stringify([item.eventType, item.text.trim()]);
+      const candidates = lookup.explicitFinals.get(key);
+      if (candidates) candidates.push(item);
+      else lookup.explicitFinals.set(key, [item]);
     }
-    if (
-      entry.eventType === "tool.started" ||
-      entry.eventType === "tool.completed" ||
-      entry.eventType === "tool.failed"
-    ) {
-      return true;
-    }
   }
-  return false;
+  let nextUser = timeline.length;
+  for (let index = timeline.length - 1; index >= 0; index--) {
+    lookup.userBoundaryAfter[index] = nextUser;
+    if (isProjectionUserPromptItem(timeline[index]!)) nextUser = index;
+  }
+  timelineLookups.set(timeline, lookup);
+  return lookup;
+}
+
+function hasIndexedBoundaryBetween(
+  lookup: TimelineLookup,
+  counts: Uint32Array,
+  current: ThreadRunProjectionTimelineItem,
+  item: ThreadRunProjectionTimelineItem,
+): boolean {
+  const left = lookup.positions.get(current.id);
+  const right = lookup.positions.get(item.id);
+  return left !== undefined && right !== undefined && right > left && counts[right]! > counts[left + 1]!;
 }
 
 interface ReconnectCollapseMetadata {
@@ -1914,7 +1979,8 @@ function isDuplicateLegacyStreamFinalEcho(
     return false;
   }
   const channel = streamDisplayChannel(item);
-  return timeline.some((other) => {
+  const candidates = timelineLookup(timeline).explicitFinals.get(JSON.stringify([item.eventType, text]));
+  return candidates?.some((other) => {
     if (other.id === item.id || !isExplicitStreamBlockItem(other)) {
       return false;
     }
@@ -1925,7 +1991,7 @@ function isDuplicateLegacyStreamFinalEcho(
       return false;
     }
     return !hasUserPromptBetweenTimelineItems(timeline, item, other);
-  });
+  }) ?? false;
 }
 
 function isExplicitStreamBlockItem(item: ThreadRunProjectionTimelineItem): boolean {
@@ -2020,18 +2086,8 @@ function hasUserPromptBetween(
   current: ThreadRunProjectionTimelineItem,
   item: ThreadRunProjectionTimelineItem,
 ): boolean {
-  const currentIndex = timeline.findIndex((entry) => entry.id === current.id);
-  const itemIndex = timeline.findIndex((entry) => entry.id === item.id);
-  if (currentIndex < 0 || itemIndex < 0 || itemIndex <= currentIndex) {
-    return false;
-  }
-  for (let index = currentIndex + 1; index < itemIndex; index += 1) {
-    const entry = timeline[index];
-    if (entry && isProjectionUserPromptItem(entry)) {
-      return true;
-    }
-  }
-  return false;
+  const lookup = timelineLookup(timeline);
+  return hasIndexedBoundaryBetween(lookup, lookup.userCounts, current, item);
 }
 
 /** Same thinking block grows by prefix extension; a new block is not a continuation. */
@@ -2052,38 +2108,15 @@ function hasThinkingStreamBoundaryBetween(
   current: ThreadRunProjectionTimelineItem,
   item: ThreadRunProjectionTimelineItem,
 ): boolean {
-  const currentIndex = timeline.findIndex((entry) => entry.id === current.id);
-  const itemIndex = timeline.findIndex((entry) => entry.id === item.id);
-  if (currentIndex < 0 || itemIndex < 0 || itemIndex <= currentIndex) {
-    return false;
-  }
-  for (let index = currentIndex + 1; index < itemIndex; index += 1) {
-    const entry = timeline[index];
-    if (!entry) {
-      continue;
-    }
-    if (isProjectionUserPromptItem(entry)) {
-      return true;
-    }
-    if (entry.eventType === "thinking.final" || entry.eventType === "message.final") {
-      return true;
-    }
-    if (
-      entry.eventType === "tool.started" ||
-      entry.eventType === "tool.completed" ||
-      entry.eventType === "tool.failed"
-    ) {
-      return true;
-    }
-  }
-  return false;
+  const lookup = timelineLookup(timeline);
+  return hasIndexedBoundaryBetween(lookup, lookup.thinkingBoundaryCounts, current, item);
 }
 
 function hasOnlyEmptyThinkingBefore(
   timeline: readonly ThreadRunProjectionTimelineItem[],
   item: ThreadRunProjectionTimelineItem,
 ): boolean {
-  const itemIndex = timeline.findIndex((entry) => entry.id === item.id);
+  const itemIndex = timelineLookup(timeline).positions.get(item.id) ?? -1;
   if (itemIndex <= 0) {
     return false;
   }
@@ -2561,48 +2594,21 @@ function resolveTurnBoundaryIndex(
   timeline: readonly ThreadRunProjectionTimelineItem[],
   itemIndex: number,
 ): number {
-  for (let index = itemIndex - 1; index >= 0; index -= 1) {
-    const entry = timeline[index];
-    if (!entry) {
-      continue;
-    }
-    if (isProjectionUserPromptItem(entry)) {
-      return index;
-    }
-    if (entry.eventType === "message.final" && entry.role === "planner") {
-      return index;
-    }
-    if (entry.eventType === "thinking.final") {
-      return index;
-    }
-  }
-  return -1;
+  return timelineLookup(timeline).turnBoundaryBefore[itemIndex] ?? -1;
 }
 
 function resolveTurnSegmentEndIndex(
   timeline: readonly ThreadRunProjectionTimelineItem[],
   itemIndex: number,
 ): number {
-  for (let index = itemIndex + 1; index < timeline.length; index += 1) {
-    const entry = timeline[index];
-    if (entry && isProjectionUserPromptItem(entry)) {
-      return index;
-    }
-  }
-  return timeline.length;
+  return timelineLookup(timeline).userBoundaryAfter[itemIndex] ?? timeline.length;
 }
 
 function resolveUserPromptBoundaryIndex(
   timeline: readonly ThreadRunProjectionTimelineItem[],
   itemIndex: number,
 ): number {
-  for (let index = itemIndex - 1; index >= 0; index -= 1) {
-    const entry = timeline[index];
-    if (entry && isProjectionUserPromptItem(entry)) {
-      return index;
-    }
-  }
-  return -1;
+  return timelineLookup(timeline).userBoundaryBefore[itemIndex] ?? -1;
 }
 
 function resolveExpectedStreamRequestRole(item: ThreadRunProjectionTimelineItem): string | undefined {
@@ -2611,7 +2617,7 @@ function resolveExpectedStreamRequestRole(item: ThreadRunProjectionTimelineItem)
     item.eventType === "thinking.delta" ||
     item.eventType === "thinking.final"
   ) {
-    return "planner";
+    return "main";
   }
   const role = item.role?.trim();
   if (!role || role === "tool" || role === "system" || role === "user") {
@@ -2647,7 +2653,7 @@ function resolveNearestStreamRequestIdInUserTurn(
   timeline: readonly ThreadRunProjectionTimelineItem[],
   requestSpansById?: ReadonlyMap<string, ThreadRunProjectionSnapshot["requestSpans"][number]>,
 ): string | undefined {
-  const itemIndex = timeline.findIndex((entry) => entry.id === item.id);
+  const itemIndex = timelineLookup(timeline).positions.get(item.id) ?? -1;
   if (itemIndex < 0) {
     return undefined;
   }
@@ -2690,7 +2696,7 @@ function resolveNearestPlannerRequestId(
   timeline: readonly ThreadRunProjectionTimelineItem[],
   requestSpansById?: ReadonlyMap<string, ThreadRunProjectionSnapshot["requestSpans"][number]>,
 ): string | undefined {
-  const itemIndex = timeline.findIndex((entry) => entry.id === item.id);
+  const itemIndex = timelineLookup(timeline).positions.get(item.id) ?? -1;
   if (itemIndex < 0) {
     return undefined;
   }
@@ -2706,10 +2712,10 @@ function resolveNearestPlannerRequestId(
     if (!requestId) {
       continue;
     }
-    if (entry.eventType === "request.started" && entry.role === "planner") {
+    if (entry.eventType === "request.started" && isMainAgentRole(entry.role)) {
       return requestId;
     }
-    if (entry.role === "planner" && requestSpansById?.has(requestId)) {
+    if (isMainAgentRole(entry.role) && requestSpansById?.has(requestId)) {
       return requestId;
     }
   }
@@ -2722,10 +2728,10 @@ function resolveNearestPlannerRequestId(
     if (!requestId) {
       continue;
     }
-    if (entry.eventType === "request.started" && entry.role === "planner") {
+    if (entry.eventType === "request.started" && isMainAgentRole(entry.role)) {
       return requestId;
     }
-    if (entry.role === "planner" && requestSpansById?.has(requestId)) {
+    if (isMainAgentRole(entry.role) && requestSpansById?.has(requestId)) {
       return requestId;
     }
   }
@@ -2760,7 +2766,7 @@ function resolveEffectiveStreamRequestId(
   if (plannerRequestId) {
     return plannerRequestId;
   }
-  const itemIndex = timeline.findIndex((entry) => entry.id === item.id);
+  const itemIndex = timelineLookup(timeline).positions.get(item.id) ?? -1;
   const turnBoundaryIndex = itemIndex >= 0 ? resolveTurnBoundaryIndex(timeline, itemIndex) : -1;
   const boundaryItem = turnBoundaryIndex >= 0 ? timeline[turnBoundaryIndex] : undefined;
   const hasUserPromptInTurn = Boolean(boundaryItem && isProjectionUserPromptItem(boundaryItem));
@@ -3404,6 +3410,7 @@ export function projectionItemToDetailBlock(
       ...(apiError?.title && { title: apiError.title }),
       ...(apiError?.statusCode !== undefined && { statusCode: apiError.statusCode }),
       ...(apiError?.code && { code: apiError.code }),
+      ...(apiError?.accountId && { accountId: apiError.accountId }),
       ...(subagent && { subagent }),
       ...(item.agentId && { agentId: item.agentId }),
     };
@@ -3767,7 +3774,13 @@ function isProjectionTodoToolActionItem(item: ThreadRunProjectionTimelineItem): 
 
 function readProjectionApiError(
   item: ThreadRunProjectionTimelineItem,
-): { message: string; title?: string; statusCode?: number; code?: string } | undefined {
+): {
+  message: string;
+  title?: string;
+  statusCode?: number;
+  code?: string;
+  accountId?: string;
+} | undefined {
   const raw = item.metadata?.apiError;
   if (!raw || typeof raw !== "object") {
     return undefined;
@@ -3782,8 +3795,12 @@ function readProjectionApiError(
     ...(typeof record.title === "string" && record.title.trim() && { title: record.title.trim() }),
     ...(typeof record.statusCode === "number" && { statusCode: record.statusCode }),
     ...(typeof record.code === "string" && record.code.trim() && { code: record.code.trim() }),
+    ...(typeof record.accountId === "string" &&
+      record.accountId.trim() && { accountId: record.accountId.trim() }),
   };
 }
+
+const projectionToolMetadataCache = new WeakMap<object, ThreadRunToolMetadata | undefined>();
 
 export function readProjectionToolMetadata(
   item: ThreadRunProjectionTimelineItem,
@@ -3792,7 +3809,15 @@ export function readProjectionToolMetadata(
   if (!raw || typeof raw !== "object") {
     return undefined;
   }
-  const record = raw as Record<string, unknown>;
+  // Projection metadata is immutable. Grouping, sorting and rendering read the
+  // same tool repeatedly; parse its file previews and targets once per version.
+  if (projectionToolMetadataCache.has(raw)) return projectionToolMetadataCache.get(raw);
+  const parsed = parseProjectionToolMetadata(raw as Record<string, unknown>);
+  projectionToolMetadataCache.set(raw, parsed);
+  return parsed;
+}
+
+function parseProjectionToolMetadata(record: Record<string, unknown>): ThreadRunToolMetadata | undefined {
   const name = typeof record.name === "string" ? record.name.trim() : "";
   if (!name) {
     return undefined;

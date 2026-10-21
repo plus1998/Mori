@@ -72,7 +72,7 @@ export class CoreRegistry {
   register(adapter: CoreAdapter): void {
     const kind = adapter.descriptor.kind;
     if (this.adapters.has(kind)) {
-      throw new Error(`Core adapter is already registered: ${kind}`);
+      throw new Error(`Harness adapter is already registered: ${kind}`);
     }
     this.adapters.set(kind, adapter);
   }
@@ -88,7 +88,7 @@ export class CoreRegistry {
   require(kind: CoreKind): CoreAdapter {
     const adapter = this.adapters.get(kind);
     if (!adapter) {
-      throw new Error(`Core adapter is not registered: ${kind}`);
+      throw new Error(`Harness adapter is not registered: ${kind}`);
     }
     return adapter;
   }

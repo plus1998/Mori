@@ -3,7 +3,7 @@ import type { ThreadBillingSnapshot } from "../src/shared/ipc";
 import {
   buildFallbackContextSnapshot,
   buildThreadUsageSummary,
-  contextCardPlaceholder,
+  contextCardPlaceholderKey,
   shouldShowBillingUsagePanel,
   shouldShowContextUsagePanel,
   shouldShowThreadUsagePanels,
@@ -34,7 +34,7 @@ test("buildFallbackContextSnapshot uses planner usage when no /context cache", (
 test("buildThreadUsageSummary always includes context when tokens known", () => {
   const summary = buildThreadUsageSummary({
     usageByRole: {
-      planner: {
+      main: {
         inputTokens: 10,
         outputTokens: 5,
         cacheReadTokens: 0,
@@ -56,7 +56,7 @@ test("buildThreadUsageSummary always includes context when tokens known", () => 
     },
   });
   expect(summary.context?.occupied).toBe(12_000);
-  expect(summary.context?.displayRole).toBe("planner");
+  expect(summary.context?.displayRole).toBe("main");
   expect(summary.context?.roles?.find((role) => role.role === "coder")?.occupied).toBe(80_000);
 });
 
@@ -84,10 +84,11 @@ test("buildThreadUsageSummary preserves dynamic orchestration context roles", ()
   });
 });
 
-test("contextCardPlaceholder differs for awaiting_plan vs idle", () => {
-  expect(contextCardPlaceholder("awaiting_plan")).toContain("计划");
-  expect(contextCardPlaceholder("running")).toContain("模型响应");
-  expect(contextCardPlaceholder("completed")).toContain("暂无");
+test("contextCardPlaceholderKey selects localized hints for each state", () => {
+  expect(contextCardPlaceholderKey("awaiting_plan")).toBe("context.emptyHint.planning");
+  expect(contextCardPlaceholderKey("running")).toBe("context.emptyHint.accumulating");
+  expect(contextCardPlaceholderKey("completed")).toBe("context.emptyHint.noData");
+  expect(contextCardPlaceholderKey()).toBe("context.empty");
 });
 
 test("shouldShowContextUsagePanel and billing panel honor hostUiFeatures", () => {
@@ -110,7 +111,7 @@ test("buildThreadUsageSummary omits hidden context and billing instead of fabric
       totalTokens: { input: 10, output: 10, cacheRead: 0, cacheCreation: 0 },
     } as ThreadBillingSnapshot,
     usageByRole: {
-      planner: {
+      main: {
         inputTokens: 10,
         outputTokens: 5,
         cacheReadTokens: 0,

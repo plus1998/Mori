@@ -1707,6 +1707,7 @@ class _ActivityFeedView extends ConsumerWidget {
       runs: conversationV2.runs,
       tools: conversationV2.tools,
       agents: conversationV2.agents,
+      details: conversationV2.details,
       projectionExtras: conversationV2.projectionExtras,
       hasEarlier: conversationV2.hasOlder,
       historyRevision: conversationV2.historyRevision,
@@ -1756,6 +1757,8 @@ class _ActivityFeedView extends ConsumerWidget {
 
     return ActivityFeedAutoReadListener(
       threadId: threadId,
+      running: isRunning,
+      ready: conversationV2.syncState == ConversationV2SyncState.live,
       entries: displayFeedEntries,
       child: ActivityFeedList(
         entries: displayFeedEntries,

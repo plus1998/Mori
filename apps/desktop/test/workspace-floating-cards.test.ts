@@ -69,7 +69,7 @@ test("agent orchestration is hidden when the snapshot only has the main agent", 
   const markup = renderToStaticMarkup(
     createElement(WorkspaceFloatingCards, {
       hasActiveThread: true,
-      agentModelLabels: [label("planner", true)],
+      agentModelLabels: [label("main", true)],
     }),
   );
 
@@ -232,6 +232,60 @@ test("browser instances render title plus hostname meta", () => {
   expect(markup).toContain("workspace-browser-card-trigger");
   expect(markup).toContain('src="https://chat.deepseek.com/favicon.ico"');
   expect(markup).toContain("workspace-resource-row-favicon");
+});
+
+test("Agent Bash processes render as a stoppable workspace card", () => {
+  const markup = renderToStaticMarkup(
+    createElement(WorkspaceFloatingCards, {
+      codexBackgroundTerminals: [
+        {
+          codexThreadId: "codex-thread",
+          threadId: "thr_1",
+          itemId: "item-bash",
+          processId: "process-bash",
+          workspacePath: "/repo",
+          command: "bun run dev",
+          osPid: 56282,
+          cpuPercent: 2.5,
+          rssKb: 208320,
+        },
+      ],
+      onStopCodexBackgroundTerminal: async () => {},
+    }),
+  );
+
+  expect(markup).toContain('aria-controls="workspace-agent-bash-body"');
+  expect(markup).toContain("Agent Bash");
+  expect(markup).toContain("bun run dev");
+  expect(markup).toContain("PID 56282");
+  expect(markup).toContain("CPU 2.5%");
+  expect(markup).toContain("203 MB");
+  expect(markup).toContain('aria-label="停止 Agent Bash 进程"');
+  expect(markup).toContain("workspace-agent-bash-card-trigger");
+});
+
+test("Claude background Bash tasks render as a stoppable workspace card", () => {
+  const markup = renderToStaticMarkup(
+    createElement(WorkspaceFloatingCards, {
+      claudeBackgroundTasks: [
+        {
+          threadId: "thr_1",
+          taskId: "claude-task-1",
+          workspacePath: "/repo",
+          label: "bun run dev",
+          status: "running",
+          taskType: "local_bash",
+        },
+      ],
+      onStopClaudeBackgroundTask: async () => {},
+    }),
+  );
+
+  expect(markup).toContain('aria-controls="workspace-claude-bash-body"');
+  expect(markup).toContain("Claude Bash");
+  expect(markup).toContain("bun run dev");
+  expect(markup).toContain("taskId claude-task-1");
+  expect(markup).toContain('aria-label="停止 Agent Bash 进程"');
 });
 
 test("image generation tasks render as a workspace card and open the task panel", () => {

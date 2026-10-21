@@ -1,6 +1,6 @@
 /**
  * End-to-end: the User-Agent that actually reaches the upstream depends on which
- * agent core issued the request (Codex / Claude Code / PI), and clearing a core
+ * Harness issued the request (Codex / Claude Code / PI), and clearing a core
  * falls back to the SDK's own UA.
  */
 import { describe, expect, test } from "bun:test";

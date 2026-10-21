@@ -48,7 +48,14 @@ export function readUserPromptRetryIdentity(
   if (!prompt && !options?.allowEmptyPrompt) {
     return undefined;
   }
-  const activityLineId = readRewindActivityLineId(item) || item.streamKey?.trim() || item.id.trim();
+  // Retry operates on the durable Eco message even after native fork/edit identities
+  // are exposed on the same row. A provider UUID must not replace that command key.
+  const canonicalId = item.metadata?.conversationV2MessageId;
+  const activityLineId =
+    (typeof canonicalId === "string" ? canonicalId.trim() : "") ||
+    readRewindActivityLineId(item) ||
+    item.streamKey?.trim() ||
+    item.id.trim();
   if (!activityLineId) {
     return undefined;
   }

@@ -105,7 +105,7 @@ export async function resolveSingleUsageBillingArtifacts(
   input: ResolveSingleUsageBillingArtifactsInput,
 ): Promise<SingleUsageBillingArtifacts> {
   const source = input.source ?? "sdk";
-  const plannerRoute = input.runtimeRoutes.find((route) => route.role === "planner");
+  const plannerRoute = input.runtimeRoutes.find((route) => route.role === "main");
 
   let usageRoute: ResolvedUsageRoute | undefined;
   let billingRole: RuntimeAgentRole;
@@ -164,7 +164,7 @@ export async function resolveSingleUsageBillingArtifacts(
   const { savedUsd } = computeSavings(requestBilling.plannerTokenCostUsd, requestBilling.ecoCostUsd);
   const ledgerAgentId =
     input.agentId ??
-    (!input.attributionPending && billingRole === "planner" ? input.plannerAgentId : undefined);
+    (!input.attributionPending && billingRole === "main" ? input.plannerAgentId : undefined);
   const pendingAttributionReason = input.parentToolUseId
     ? PROXY_PENDING_PARENT_UNMAPPED_REASON
     : PROXY_PENDING_ATTRIBUTION_REASON;
@@ -271,7 +271,7 @@ export async function resolveSdkStreamPartialBillingArtifacts(
   input: ResolveSdkStreamPartialBillingArtifactsInput,
 ): Promise<SdkStreamPartialBillingArtifacts> {
   const usageRoute = resolveUsageRoute(input.role, input.modelId, input.runtimeRoutes);
-  const plannerRoute = input.runtimeRoutes.find((route) => route.role === "planner");
+  const plannerRoute = input.runtimeRoutes.find((route) => route.role === "main");
   const actualLookup = usageRoute ? await input.lookupPricing(usageRoute) : null;
   const plannerLookup = plannerRoute ? await input.lookupPricing(plannerRoute) : null;
   const actualRates = resolveRatesForRoute(actualLookup, usageRoute?.manualSpec);
@@ -279,7 +279,7 @@ export async function resolveSdkStreamPartialBillingArtifacts(
   const computedBilling = computeRequestBilling(input.usage, actualRates, plannerRates);
   const resolvedModelId = usageRoute?.modelId ?? input.modelId;
   const ledgerAgentId =
-    input.subagentAgentId ?? (input.role === "planner" ? input.plannerAgentId : undefined);
+    input.subagentAgentId ?? (input.role === "main" ? input.plannerAgentId : undefined);
   const requestKey = `sdk-stream:${input.eventId}`;
   const contextUpdate = usageRoute ? contextUpdateFromRoute(input.role, usageRoute) : undefined;
 
@@ -340,7 +340,7 @@ export interface ResolveSdkRunBillingModelsInput {
 export async function resolveSdkRunBillingModels(
   input: ResolveSdkRunBillingModelsInput,
 ): Promise<SdkRunBillingModels> {
-  const plannerRoute = input.runtimeRoutes.find((route) => route.role === "planner");
+  const plannerRoute = input.runtimeRoutes.find((route) => route.role === "main");
   const plannerLookup = plannerRoute ? await input.lookupPricing(plannerRoute) : null;
   const plannerRates = resolveRatesForRoute(plannerLookup, plannerRoute?.manualSpec);
   const models = await Promise.all(

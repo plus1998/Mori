@@ -2,7 +2,7 @@ import { normalizeSkillsEnabled, type SkillsEnabledSettings } from "../shared/co
 
 /** Shown when Skills would change on a loaded Codex thread (upstream reload defect). */
 export const CODEX_SKILLS_CONFIG_RELOAD_BLOCKED_MESSAGE =
-  "无法修改 Skills：当前 Codex 会话已在 app-server 中加载，配置重载依赖冷重启；有会话运行或共享进程下不能冷重启（Codex 0.150+ 仍未修复：loaded idle 下 thread/resume(config) 可能静默忽略）。请保持现有 Skills 继续对话，或新建会话后再调整。";
+  "无法修改 Skills：当前 Codex 会话已加载，所用版本不支持对已加载会话进行 Skills 配置重载。请保持现有选择继续对话，或在新会话中使用新选择。";
 
 export type CodexSkillsReloadThreadStatus = "notLoaded" | "idle" | "systemError" | "active" | "unknown";
 

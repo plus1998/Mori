@@ -89,7 +89,7 @@ int? resolvePlannerOccupancyPct(ThreadContextSnapshot? context) {
     return null;
   }
   for (final role in context.roles) {
-    if (role.role == 'planner') {
+    if (role.role == 'main') {
       return role.occupancyPct;
     }
   }
@@ -98,12 +98,12 @@ int? resolvePlannerOccupancyPct(ThreadContextSnapshot? context) {
 
 ThreadRoleContextSnapshot resolvePlannerContext(ThreadContextSnapshot context) {
   for (final role in context.roles) {
-    if (role.role == 'planner') {
+    if (role.role == 'main') {
       return role;
     }
   }
   return ThreadRoleContextSnapshot(
-    role: context.displayRole ?? 'planner',
+    role: context.displayRole ?? 'main',
     occupied: context.occupied,
     limit: context.limit,
     occupancyPct: context.occupancyPct,
@@ -148,7 +148,7 @@ String contextCardPlaceholder(String? status, AppLocalizations l10n) {
 
 String roleDisplayLabel(String role, AppLocalizations l10n) {
   switch (role) {
-    case 'planner':
+    case 'main':
       return 'Main Agent';
     case 'vision':
       return l10n.roleVision;
@@ -209,13 +209,13 @@ List<FlatSubagentContextRow> buildFlatSubagentContextRows(
   required AppLocalizations l10n,
 }) {
   final subagentRoles = context.roles
-      .where((role) => role.role != 'planner')
+      .where((role) => role.role != 'main')
       .toList();
 
   final instances =
       [...context.instances]
           .where(
-            (instance) => instance.role != 'planner' && instance.occupied > 0,
+            (instance) => instance.role != 'main' && instance.occupied > 0,
           )
           .toList()
         ..sort((left, right) => right.occupied.compareTo(left.occupied));

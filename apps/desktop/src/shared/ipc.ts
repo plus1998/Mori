@@ -1,4 +1,3 @@
-import type { TtsArtifact, TtsArtifactListRequest, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSaveInput, TtsSettingsSnapshot } from "./tts";
 import type {
   ThreadRunProjectionRequestSpan,
   ThreadRunProjectionSnapshot,
@@ -16,6 +15,16 @@ import type {
 import type { IntegrationAvailabilitySnapshot, IntegrationsEnabledSettings } from "./integrations";
 import type { McpSettingsSnapshot } from "./mcp";
 import type { ThreadRunToolMetadata } from "./thread-run-events";
+import type {
+  TtsArtifact,
+  TtsArtifactListRequest,
+  TtsArtifactReadRequest,
+  TtsArtifactReadResult,
+  TtsProfileSaveInput,
+  TtsProfileSnapshot,
+  TtsSettingsSaveInput,
+  TtsSettingsSnapshot,
+} from "./tts";
 
 export const IPC_CHANNELS = {
   schedulingList: "scheduling:list",
@@ -72,6 +81,10 @@ export const IPC_CHANNELS = {
   backgroundTerminalStart: "background-terminal:start",
   backgroundTerminalOpen: "background-terminal:open",
   backgroundTerminalStop: "background-terminal:stop",
+  codexBackgroundTerminalList: "codex-background-terminal:list",
+  codexBackgroundTerminalTerminate: "codex-background-terminal:terminate",
+  claudeBackgroundTaskList: "claude-background-task:list",
+  claudeBackgroundTaskStop: "claude-background-task:stop",
   workspacePrepareGit: "workspace:prepare-git",
   modelSettingsGet: "model-settings:get",
   settingsDigest: "settings:digest",
@@ -99,6 +112,9 @@ export const IPC_CHANNELS = {
   openAIAccountsGetActive: "openai-accounts:get-active",
   openAIAccountsSetAuthJson: "openai-accounts:set-auth-json",
   openAIAccountsQueryQuota: "openai-accounts:query-quota",
+  openAIAccountsResetQuota: "openai-accounts:reset-quota",
+  openAIAccountsImageEnabled: "openai-accounts:image-enabled",
+  openAIAccountsImageQuota: "openai-accounts:image-quota",
   openAIAccountsUpdate: "openai-accounts:update",
   openAIAccountsGetAuthJson: "openai-accounts:get-auth-json",
   openAIAccountsGetDetails: "openai-accounts:get-details",
@@ -124,6 +140,7 @@ export const IPC_CHANNELS = {
   subagentOrchestrationDelete: "subagent-orchestration:delete",
   threadStart: "thread:start",
   threadUpdateRuntimeConfig: "thread:update-runtime-config",
+  composerReferencesSearch: "composer-references:search",
   threadList: "thread:list",
   threadListInitial: "thread:list-initial",
   threadListMore: "thread:list-more",
@@ -152,6 +169,7 @@ export const IPC_CHANNELS = {
   conversationSendMessage: "conversation:send-message",
   threadUserMessageEditGet: "thread:user-message-edit-get",
   threadRewriteFromMessage: "thread:rewrite-from-message",
+  threadForkFromMessage: "thread:fork-from-message",
   threadRetryFromMessage: "thread:retry-from-message",
   threadDelete: "thread:delete",
   threadRegenerateTitle: "thread:regenerate-title",
@@ -318,12 +336,18 @@ export const IPC_CHANNELS = {
   browserGoBack: "browser:go-back",
   browserGoForward: "browser:go-forward",
   browserReload: "browser:reload",
+  browserSetViewport: "browser:set-viewport",
   browserRegisterGuest: "browser:register-guest",
   browserSetVisible: "browser:set-visible",
   browserGetState: "browser:get-state",
   /** Dev-only: mint thread-scoped browser CDP for smoke/probe scripts. */
   browserDevPrepareAgentCdp: "browser:dev-prepare-agent-cdp",
   browserOpenExternal: "browser:open-external",
+  browserDownloadAction: "browser:download-action",
+  browserCaptureSelection: "browser:capture-selection",
+  browserCancelSelection: "browser:cancel-selection",
+  browserReadSelection: "browser:read-selection",
+  browserRevealSelection: "browser:reveal-selection",
   browserStateChanged: "browser:state-changed",
   /** Agent operating the built-in browser (rainbow edge / synthetic cursor). */
   browserAgentPresence: "browser:agent-presence",
@@ -337,6 +361,13 @@ export const IPC_CHANNELS = {
   imageGenerationArtifactRead: "image-generation-artifact:read",
   imageGenerationArtifactReveal: "image-generation-artifact:reveal",
   imageGenerationArtifactChanged: "image-generation-artifact:changed",
+  ttsReadAloudStatus: "tts-read-aloud:status",
+  ttsReadAloudSettingsGet: "tts-read-aloud:settings:get",
+  ttsReadAloudSettingsSave: "tts-read-aloud:settings:save",
+  ttsReadAloudStart: "tts-read-aloud:start",
+  ttsReadAloudSegment: "tts-read-aloud:segment",
+  ttsReadAloudRead: "tts-read-aloud:read",
+  ttsReadAloudCancel: "tts-read-aloud:cancel",
   ttsSettingsGet: "tts-settings:get",
   ttsSettingsSave: "tts-settings:save",
   ttsProfileSave: "tts-profile:save",
@@ -747,6 +778,9 @@ export interface WorkspaceFileEntry {
 export interface WorkspaceFileReadRequest {
   workspacePath: string;
   filePath: string;
+  /** UTF-8 byte boundary returned by the preceding chunk. */
+  offset?: number;
+  revision?: string;
 }
 
 export interface WorkspaceFileWriteRequest {
@@ -761,7 +795,7 @@ export interface WorkspaceFileWriteResult {
   size: number;
 }
 
-export type WorkspaceFileKind = "text" | "image" | "audio" | "video" | "unsupported";
+export type WorkspaceFileKind = "text" | "image" | "audio" | "video" | "pdf" | "unsupported";
 
 export interface WorkspaceFileReadResult {
   path: string;
@@ -771,8 +805,11 @@ export interface WorkspaceFileReadResult {
   mimeType?: string;
   content?: string;
   base64?: string;
+  url?: string;
+  nextOffset?: number;
   truncated?: boolean;
   reason?: string;
+  revision?: string;
 }
 
 export type PackageManagerKind = "bun" | "pnpm" | "yarn" | "npm";
@@ -890,6 +927,51 @@ export interface BackgroundTerminalStopResult {
   task?: BackgroundTerminalTask;
 }
 
+/**
+ * A live Unified Exec process owned by Codex. Runtime state comes from
+ * `thread/backgroundTerminals/list`; processId and osPid are deliberately separate.
+ */
+export interface CodexBackgroundTerminal {
+  codexThreadId: string;
+  threadId: string;
+  itemId: string;
+  processId: string;
+  workspacePath: string;
+  command: string;
+  osPid?: number;
+  cpuPercent?: number;
+  rssKb?: number;
+}
+
+export interface CodexBackgroundTerminalTerminateRequest {
+  codexThreadId: string;
+  processId: string;
+}
+
+export interface CodexBackgroundTerminalTerminateResult {
+  terminated: boolean;
+}
+
+/** A live Claude SDK background Bash task owned by an active Query. */
+export interface ClaudeBackgroundTask {
+  threadId: string;
+  taskId: string;
+  workspacePath: string;
+  label: string;
+  status: "running";
+  taskType: string;
+}
+
+export interface ClaudeBackgroundTaskStopRequest {
+  threadId: string;
+  taskId: string;
+}
+
+export interface ClaudeBackgroundTaskStopResult {
+  stopped: boolean;
+  mode?: "task" | "query";
+}
+
 export interface TerminalSpawnRequest {
   workspacePath: string;
   cols?: number;
@@ -969,7 +1051,7 @@ export interface WorkspacePrepareGitRequest {
   workspacePath: string;
 }
 
-export const AGENT_ROLES = ["planner", "explore", "architect", "coder", "reviewer", "tester"] as const;
+export const AGENT_ROLES = ["main", "explore", "architect", "coder", "reviewer", "tester"] as const;
 
 export type AgentRole = (typeof AGENT_ROLES)[number];
 export type RuntimeAgentRole = string;
@@ -1011,12 +1093,13 @@ export interface WorkflowSettingsSnapshot {
   defaultAuxiliaryModel?: import("./auxiliary-model").AuxiliaryModelSelection;
   defaultApprovalModel?: import("./approval-model").ApprovalModelSelection;
   defaultVisionModel?: import("./vision-model").VisionModelSelection;
+  /** Last model and reasoning choice made with the built-in Codex Auth config. */
+  codexAuthModel?: import("./thread-runtime-config").MainAgentModelOverride;
   mcpServersEnabled?: Record<string, boolean>;
   integrationsEnabled?: IntegrationsEnabledSettings;
 }
 
 export type {
-  TtsArtifact, TtsArtifactListRequest, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSaveInput, TtsSettingsSnapshot,
   ImageGenerationArtifact,
   ImageGenerationArtifactListRequest,
   ImageGenerationArtifactReadRequest,
@@ -1026,6 +1109,14 @@ export type {
   ImageGenerationSettingsSaveInput,
   ImageGenerationSettingsSnapshot,
   IntegrationAvailabilitySnapshot,
+  TtsArtifact,
+  TtsArtifactListRequest,
+  TtsArtifactReadRequest,
+  TtsArtifactReadResult,
+  TtsProfileSaveInput,
+  TtsProfileSnapshot,
+  TtsSettingsSaveInput,
+  TtsSettingsSnapshot,
 };
 
 export interface GhAvailabilityView {
@@ -1294,7 +1385,7 @@ export {
   normalizeComputerUseSettingsSnapshot,
 } from "./computer-use";
 
-/** Agent cores that can carry their own upstream User-Agent. */
+/** Harnesses that can carry their own upstream User-Agent. */
 export const UPSTREAM_AGENT_CORES = ["codex", "claude", "pi"] as const;
 
 export type UpstreamAgentCore = (typeof UPSTREAM_AGENT_CORES)[number];
@@ -1302,15 +1393,15 @@ export type UpstreamAgentCore = (typeof UPSTREAM_AGENT_CORES)[number];
 export interface ProxyBridgeSettingsSnapshot {
   /** 出站代理总开关；关闭时忽略 upstreamProxyUrl */
   enabled?: boolean;
-  /** 全局覆盖：未识别 Agent Core 时生效；留空 = 透传 SDK User-Agent */
+  /** 全局覆盖：未识别 Harness 时生效；留空 = 透传 SDK User-Agent */
   upstreamUserAgent?: string;
-  /** 按 Agent Core 单独覆盖；留空（或缺失）表示回到该项目 SDK 自己的 UA */
+  /** 按 Harness 单独覆盖；留空（或缺失）表示回到该项目 SDK 自己的 UA */
   upstreamUserAgents?: Partial<Record<UpstreamAgentCore, string>>;
   /** 出站 HTTP/HTTPS/SOCKS5 代理 URL（gateway upstream + 在线升级）；留空直连 */
   upstreamProxyUrl?: string;
 }
 
-export type IntegratedWebSearchProvider = "brave" | "tavily" | "doubao";
+export type IntegratedWebSearchProvider = "brave" | "tavily" | "doubao" | "deepseek";
 
 export interface IntegratedWebSearchSettingsSnapshot {
   enabled: boolean;
@@ -1450,6 +1541,8 @@ export interface RouteManualSpec {
   supportsReasoning?: boolean;
   /** When false, PI uses Integrated web search instead of provider-native pi-web-search. Default true when omitted. */
   supportsNativeWebSearch?: boolean;
+  /** Opt in to Codex remote compaction (Responses compaction_trigger). Default false. */
+  supportsRemoteCompaction?: boolean;
   /** USD per million input tokens. */
   inputPerM?: number;
   /** USD per million output tokens. */
@@ -1485,6 +1578,8 @@ export interface CandidateModelView {
   resolvedSupportsReasoning?: boolean;
   /** Default true when manualSpec omits supportsNativeWebSearch. */
   resolvedSupportsNativeWebSearch?: boolean;
+  /** Default false; only enabled explicitly on the candidate model. */
+  resolvedSupportsRemoteCompaction?: boolean;
   resolvedInputPerM?: number;
   resolvedOutputPerM?: number;
   resolvedCacheReadPerM?: number;
@@ -1745,7 +1840,7 @@ export interface ThreadSummary {
   cancelling?: boolean;
   /** Live-only: desktop is currently auto-generating the thread title. Never persisted. */
   titleGenerating?: boolean;
-  /** Runtime Core permanently selected for this thread after first run. */
+  /** Harness permanently selected for this thread after first run. */
   coreKind?: import("@eco/runtime/core-runtime").CoreKind;
   /** ACP agent under `coreKind: "acp"` (MVP: `"cursor"`). */
   acpAgentId?: import("@eco/runtime/core-runtime").AcpAgentId;
@@ -1893,6 +1988,20 @@ export interface ThreadRewriteFromMessageRequest {
   attachments?: PromptImageAttachment[];
   expectedHistoryRevision: number;
   runtimeConfig?: ThreadRuntimeConfigInput;
+}
+
+export interface ThreadForkFromMessageRequest {
+  principalId: string;
+  clientCommandId: string;
+  threadId: string;
+  activityLineId: string;
+  expectedHistoryRevision: number;
+}
+
+export interface ThreadForkFromMessageResult {
+  thread: ThreadSummary;
+  sourceThreadId: string;
+  draft: { prompt: string; attachments: PromptImageAttachment[] };
 }
 
 export interface ThreadRetryFromMessageRequest {
@@ -2237,6 +2346,7 @@ export interface BashApprovalNetworkPolicyAmendment {
 }
 
 export interface BashApprovalRequest {
+  mcpToolApproval?: import("./mcp").McpToolApprovalTarget;
   defaultToNo?: boolean;
   suppressAlwaysAllowRule?: boolean;
   mcpServer?: { name: string; source: string };
@@ -2263,6 +2373,7 @@ export interface BashApprovalRequest {
 export type BashApprovalDecision =
   | "approved"
   | "approved_remember_prefix"
+  | "approved_remember_mcp_tool"
   | "approved_for_session"
   | "approved_execpolicy_amendment"
   | "approved_network_policy_amendment"
@@ -2550,6 +2661,8 @@ export interface RouteCapabilityHint {
   supportsReasoning: boolean;
   /** PI provider-native web search; default true when omitted from manualSpec. */
   supportsNativeWebSearch?: boolean;
+  /** Codex remote compaction; default false when omitted from manualSpec. */
+  supportsRemoteCompaction?: boolean;
   capabilitiesResolved: boolean;
   contextTokens?: number;
   maxOutputTokens?: number;
@@ -2659,6 +2772,17 @@ export interface ThreadApiErrorInfo {
   code?: string;
   message: string;
   model?: string;
+  codexErrorInfo?: unknown;
+  additionalDetails?: string;
+  rawTurnError?: unknown;
+  param?: string;
+  logicalRequestId?: string;
+  providerRequestId?: string;
+  responseId?: string;
+  accountId?: string;
+  threadId?: string;
+  turnId?: string;
+  runAttemptId?: string;
 }
 
 export interface ThreadActivityLine {
@@ -2921,6 +3045,36 @@ export function isBackgroundTerminalStopRequest(value: unknown): value is Backgr
   return typeof record.taskId === "string";
 }
 
+export function isCodexBackgroundTerminalTerminateRequest(
+  value: unknown,
+): value is CodexBackgroundTerminalTerminateRequest {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.codexThreadId === "string" &&
+    Boolean(record.codexThreadId.trim()) &&
+    typeof record.processId === "string" &&
+    Boolean(record.processId.trim())
+  );
+}
+
+export function isClaudeBackgroundTaskStopRequest(
+  value: unknown,
+): value is ClaudeBackgroundTaskStopRequest {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.threadId === "string" &&
+    Boolean(record.threadId.trim()) &&
+    typeof record.taskId === "string" &&
+    Boolean(record.taskId.trim())
+  );
+}
+
 export function isTerminalSpawnRequest(value: unknown): value is TerminalSpawnRequest {
   if (!value || typeof value !== "object") {
     return false;
@@ -3094,3 +3248,5 @@ export function isStorageCleanupRequest(
   }
   return true;
 }
+
+export type { BrowserSetViewportRequest } from "./browser-viewport";

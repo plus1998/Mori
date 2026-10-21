@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import type { ThreadSummary } from "../shared/ipc";
 import type { AppLocale } from "../shared/locale";
 import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
+import { coreDisplayName, coreIconSrc } from "./SidebarCoreSelector";
 import type { ProjectReorderPosition } from "./project-sidebar-order";
 import { formatRelativeTime } from "./relative-time";
 
@@ -490,6 +491,13 @@ export function ProjectSidebarTree({
                 return (
                   <div key={thread.id} className={rowClassName} data-thread-id={thread.id}>
                     <button type="button" className="chat-item nested" onClick={() => onSelectThread(thread)}>
+                      {thread.coreKind ? (
+                        <img
+                          className="chat-item-core-icon"
+                          src={coreIconSrc(thread.coreKind)}
+                          alt={coreDisplayName(thread.coreKind)}
+                        />
+                      ) : null}
                       <span className="chat-item-title-row">
                         <span className="chat-item-title">{thread.title}</span>
                       </span>

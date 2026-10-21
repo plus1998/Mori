@@ -1,3 +1,4 @@
+import { normalizeAgentRole } from "@eco/shared";
 import type {
   ThreadBillingSnapshot,
   ThreadContextSnapshot,
@@ -309,7 +310,7 @@ export function eventToTimelineItem(
     scope: event.scope,
     text: event.message,
     at: event.observedAt,
-    ...(event.role && { role: event.role }),
+    ...(event.role && { role: normalizeAgentRole(event.role) }),
     ...(resolvedAgentId || event.agentId ? { agentId: resolvedAgentId ?? event.agentId } : {}),
     ...(event.runAttemptId && { runAttemptId: event.runAttemptId }),
     ...(event.requestId && { requestId: event.requestId }),
@@ -431,7 +432,7 @@ function agentRecordFromStartedEvent(event: ThreadRunEvent): AgentInstanceRecord
   return {
     threadId: event.threadId,
     agentId: event.agentId,
-    role: event.role ?? "coder",
+    role: normalizeAgentRole(event.role) ?? "coder",
     kind: "subagent",
     status: "active",
     startedAt: event.observedAt,
@@ -458,7 +459,7 @@ function agentRecordFromDelegationLink(
   return {
     threadId: event.threadId,
     agentId,
-    role: event.role ?? "coder",
+    role: normalizeAgentRole(event.role) ?? "coder",
     kind: "subagent",
     status: "active",
     startedAt: event.observedAt,
@@ -615,6 +616,7 @@ function applyToolWritingState(
   }
   const agentsByParentToolUseId = buildAgentsByParentToolUseId(agents);
   const attachedByOwner = new Map<string | undefined, MutableRequestSpan>();
+  const callIdsByOwner = new Map<string | undefined, string>();
   const resolveTarget = (event: ThreadRunEvent): MutableRequestSpan | undefined => {
     if (event.requestId) {
       return spans.get(event.requestId);
@@ -631,44 +633,70 @@ function applyToolWritingState(
     return ordered ? latestSpanStartedBy(ordered, event.observedAt, event.runAttemptId) : undefined;
   };
   for (const event of events) {
+    const target = resolveTarget(event);
+    if (!target || orderedByOwner.get(target.ownerAgentId)?.at(-1) !== target) continue;
     if (event.eventType === "tool.writing") {
       const writing = resolveToolWritingActivity(event);
       if (!writing) {
         continue;
       }
-      const target = resolveTarget(event);
       // Gateway argument deltas can arrive after cancellation. A later running
       // turn must not revive that old request's waiting line (or inherit it).
       // Completed narrative streams remain eligible: the model may write its
       // tool arguments after closing the text block.
-      if (!target || target.status === "cancelled" || target.status === "failed") {
+      if (target.status === "cancelled" || target.status === "failed") {
         continue;
-      }
-      const attached = attachedByOwner.get(target.ownerAgentId);
-      if (attached && attached !== target) {
-        delete attached.writingTool;
       }
       target.writingTool = { ...writing, since: event.observedAt };
       attachedByOwner.set(target.ownerAgentId, target);
+      const callId = toolWritingCallId(event);
+      if (callId) callIdsByOwner.set(target.ownerAgentId, callId);
+      else callIdsByOwner.delete(target.ownerAgentId);
       continue;
     }
-    if (
-      event.eventType === "tool.started" ||
-      event.eventType === "tool.completed" ||
-      event.eventType === "tool.failed"
-    ) {
-      // A tool row ends only its owner's wait; concurrent agents keep their writing state.
-      const target = resolveTarget(event);
-      if (!target) {
+    const attached = attachedByOwner.get(target.ownerAgentId);
+    if (!attached?.writingTool) continue;
+    if (event.eventType === "thinking.delta" || event.eventType === "thinking.final") {
+      const startedAt =
+        typeof event.metadata?.thinkingStartedAt === "string"
+          ? event.metadata.thinkingStartedAt
+          : event.observedAt;
+      if (startedAt < attached.writingTool.since) continue;
+    } else if (event.eventType !== "request.completed") {
+      const tool = event.metadata?.tool;
+      const status =
+        tool && typeof tool === "object" && !Array.isArray(tool)
+          ? (tool as Record<string, unknown>).status
+          : undefined;
+      if (
+        event.eventType !== "tool.writing.completed" &&
+        event.eventType !== "tool.started" &&
+        event.eventType !== "tool.completed" &&
+        event.eventType !== "tool.failed" &&
+        status !== "started" &&
+        status !== "completed" &&
+        status !== "failed"
+      )
         continue;
-      }
-      const attached = attachedByOwner.get(target.ownerAgentId);
-      if (attached) {
-        delete attached.writingTool;
-        attachedByOwner.delete(target.ownerAgentId);
-      }
+      const callId = toolWritingCallId(event);
+      const writingCallId = callIdsByOwner.get(target.ownerAgentId);
+      if (callId && writingCallId && callId !== writingCallId) continue;
     }
+    if (event.observedAt < attached.writingTool.since) continue;
+    delete attached.writingTool;
+    attachedByOwner.delete(target.ownerAgentId);
+    callIdsByOwner.delete(target.ownerAgentId);
   }
+}
+
+function toolWritingCallId(event: ThreadRunEvent): string | undefined {
+  const tool = event.metadata?.tool;
+  const toolUseId =
+    tool && typeof tool === "object" && !Array.isArray(tool)
+      ? (tool as Record<string, unknown>).toolUseId
+      : undefined;
+  const callId = event.metadata?.toolCallId ?? toolUseId ?? event.streamKey;
+  return typeof callId === "string" && callId.trim() ? callId.trim() : undefined;
 }
 
 const ACTIVE_THREAD_STATUSES = new Set(["running", "queued"]);
@@ -706,17 +734,23 @@ function latestSpanStartedBy(
   at: string,
   runAttemptId?: string,
 ): MutableRequestSpan | undefined {
-  let found: MutableRequestSpan | undefined;
-  for (const span of orderedSpans) {
-    if (span.startedAt > at) {
-      break;
-    }
+  // Tool facts repeatedly resolve the latest request of their owner. Walking
+  // every earlier request for each fact makes a long session quadratic.
+  let low = 0;
+  let high = orderedSpans.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (orderedSpans[middle]!.startedAt <= at) low = middle + 1;
+    else high = middle;
+  }
+  for (let index = low - 1; index >= 0; index -= 1) {
+    const span = orderedSpans[index]!;
     if (runAttemptId && span.runAttemptId && span.runAttemptId !== runAttemptId) {
       continue;
     }
-    found = span;
+    return span;
   }
-  return found;
+  return undefined;
 }
 
 /** Keep an empty thinking start as request state, never as an unfinished V2 message. */
@@ -754,7 +788,6 @@ function applyPendingThinkingState(
           : event.observedAt;
       pending.add(target);
       target.pendingThinkingMessageId = legacyMessageId(event);
-      if (target.writingTool && target.writingTool.since <= event.observedAt) delete target.writingTool;
       continue;
     }
     if (
@@ -921,7 +954,7 @@ function createRequestSpan(event: ThreadRunEvent, requestId: string): MutableReq
     requestId,
     ...(event.runAttemptId && { runAttemptId: event.runAttemptId }),
     ...(event.agentId && { ownerAgentId: event.agentId }),
-    ...(event.role && { role: event.role }),
+    ...(event.role && { role: normalizeAgentRole(event.role) }),
     ...(typeof event.metadata?.source === "string" && { source: event.metadata.source }),
     status: "waiting_first_token",
     startedAt: event.observedAt,
@@ -983,7 +1016,7 @@ function applyEventToRequestSpan(
     span.ownerAgentId = event.agentId;
   }
   if (!span.role && event.role) {
-    span.role = event.role;
+    span.role = normalizeAgentRole(event.role);
   }
   const providerRequestId = readProviderRequestId(event);
   if (providerRequestId) {

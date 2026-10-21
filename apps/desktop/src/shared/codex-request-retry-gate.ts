@@ -11,7 +11,7 @@ import {
 const AGENT_ROLES = new Set([
   "assistant",
   "agent",
-  "planner",
+  "main",
   "explore",
   "architect",
   "coder",

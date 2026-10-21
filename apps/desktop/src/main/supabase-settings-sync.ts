@@ -175,7 +175,10 @@ function isEcoSyncedIntegratedWebSearchSettings(
   const record = value as Record<string, unknown>;
   return (
     typeof record.enabled === "boolean" &&
-    (record.provider === "brave" || record.provider === "tavily" || record.provider === "doubao") &&
+    (record.provider === "brave" ||
+      record.provider === "tavily" ||
+      record.provider === "doubao" ||
+      record.provider === "deepseek") &&
     (record.approvalMode === undefined || isWebSearchApprovalMode(record.approvalMode))
   );
 }

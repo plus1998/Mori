@@ -1,3 +1,5 @@
+import '../utils/agent_role.dart';
+
 class ThreadSubagentSessionTiming {
   const ThreadSubagentSessionTiming({
     required this.agentId,
@@ -69,7 +71,9 @@ class ThreadRunProjectionTimelineItem {
     summary: json['summary'] as String?,
     contentLoaded: json['contentLoaded'] as bool?,
     contentAvailable: json['contentAvailable'] as bool?,
-    role: json['role'] as String?,
+    role: json['role'] == null
+        ? null
+        : normalizeAgentRole(json['role'] as String),
     agentId: json['agentId'] as String?,
     runAttemptId: json['runAttemptId'] as String?,
     requestId: json['requestId'] as String?,
@@ -126,8 +130,8 @@ class ThreadRunProjectionAgent {
     final timelineRaw = json['timeline'] as List<dynamic>? ?? const [];
     return ThreadRunProjectionAgent(
       agentId: json['agentId'] as String? ?? '',
-      role: json['role'] as String? ?? '',
-      kind: json['kind'] as String? ?? 'subagent',
+      role: normalizeAgentRole(json['role'] as String? ?? ''),
+      kind: normalizeAgentRole(json['kind'] as String? ?? 'subagent'),
       status: json['status'] as String? ?? 'stopped',
       startedAt: json['startedAt'] as String? ?? '',
       durationMs: (json['durationMs'] as num?)?.toInt() ?? 0,
@@ -205,6 +209,28 @@ class ThreadRunProjectionAttempt {
   bool get isRunning => status == 'running';
 }
 
+class ThreadRunProjectionWritingTool {
+  const ThreadRunProjectionWritingTool({
+    required this.since,
+    this.name,
+    this.kind,
+    this.target,
+  });
+
+  factory ThreadRunProjectionWritingTool.fromJson(Map<String, dynamic> json) =>
+      ThreadRunProjectionWritingTool(
+        since: json['since'] as String,
+        name: json['name'] as String?,
+        kind: json['kind'] as String?,
+        target: json['target'] as String?,
+      );
+
+  final String since;
+  final String? name;
+  final String? kind;
+  final String? target;
+}
+
 class ThreadRunProjectionRequestSpan {
   const ThreadRunProjectionRequestSpan({
     required this.requestId,
@@ -214,6 +240,9 @@ class ThreadRunProjectionRequestSpan {
     this.role,
     this.firstTokenAt,
     this.endedAt,
+    this.writingTool,
+    this.pendingThinkingSince,
+    this.pendingThinkingMessageId,
   });
 
   factory ThreadRunProjectionRequestSpan.fromJson(Map<String, dynamic> json) =>
@@ -222,9 +251,18 @@ class ThreadRunProjectionRequestSpan {
         status: json['status'] as String? ?? '',
         startedAt: json['startedAt'] as String? ?? '',
         ownerAgentId: json['ownerAgentId'] as String?,
-        role: json['role'] as String?,
+        role: json['role'] == null
+            ? null
+            : normalizeAgentRole(json['role'] as String),
         firstTokenAt: json['firstTokenAt'] as String?,
         endedAt: json['endedAt'] as String?,
+        writingTool: json['writingTool'] == null
+            ? null
+            : ThreadRunProjectionWritingTool.fromJson(
+                Map<String, dynamic>.from(json['writingTool'] as Map),
+              ),
+        pendingThinkingSince: json['pendingThinkingSince'] as String?,
+        pendingThinkingMessageId: json['pendingThinkingMessageId'] as String?,
       );
 
   final String requestId;
@@ -234,6 +272,9 @@ class ThreadRunProjectionRequestSpan {
   final String? role;
   final String? firstTokenAt;
   final String? endedAt;
+  final ThreadRunProjectionWritingTool? writingTool;
+  final String? pendingThinkingSince;
+  final String? pendingThinkingMessageId;
 }
 
 class ThreadRunProjectionSnapshot {

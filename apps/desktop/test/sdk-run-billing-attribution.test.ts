@@ -35,7 +35,7 @@ test("resolveSdkRunBillingAttribution resolves subagent from parent tool use", (
 
   const attribution = resolveSdkRunBillingAttribution({
     threadId: "thr_attr",
-    role: "planner",
+    role: "main",
     models: [model("coder", "haiku")],
     resolver,
     parentToolUseId: "tool_parent",
@@ -85,14 +85,14 @@ test("resolveSdkRunBillingAttribution falls back to planner agent for planner-on
 
   const attribution = resolveSdkRunBillingAttribution({
     threadId: "thr_attr",
-    role: "planner",
-    models: [model("planner", "sonnet"), model(undefined, "sonnet")],
+    role: "main",
+    models: [model("main", "sonnet"), model(undefined, "sonnet")],
     resolver,
     plannerAgentId: "agent_planner",
   });
 
   expect(attribution).toEqual({
-    billingRole: "planner",
+    billingRole: "main",
     allLedgerRowsArePlanner: true,
     ledgerAgentId: "agent_planner",
   });
@@ -101,7 +101,7 @@ test("resolveSdkRunBillingAttribution falls back to planner agent for planner-on
 test("resolveSdkRunBillingAttribution uses registry role for resolved agents", () => {
   const resolver: SdkRunBillingAttributionResolver = {
     resolveAgentId: () => undefined,
-    roleForAgentId: () => "planner",
+    roleForAgentId: () => "main",
   };
 
   const attribution = resolveSdkRunBillingAttribution({
@@ -113,7 +113,7 @@ test("resolveSdkRunBillingAttribution uses registry role for resolved agents", (
   });
 
   expect(attribution).toMatchObject({
-    billingRole: "planner",
+    billingRole: "main",
     resolvedSubagentId: "agent_planner_like",
     ledgerAgentId: "agent_planner_like",
   });

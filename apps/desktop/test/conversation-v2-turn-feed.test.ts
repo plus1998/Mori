@@ -13,7 +13,7 @@ function item(
     sequence: input.sequence ?? 1,
     eventType: input.eventType ?? "message.final",
     scope: input.scope ?? "main",
-    role: input.role ?? "planner",
+    role: input.role ?? "main",
     text,
     at: input.at ?? "2026-01-01T00:00:02.000Z",
     ...(input.runAttemptId && { runAttemptId: input.runAttemptId }),
@@ -393,6 +393,66 @@ test("stream rows that keep an early sequence still follow a later mid-turn user
   }
   expect(turns[0].key).toBe("turn:attempt-1#after:82");
   expect(turns[0].finalEntry?.key).toBe("main:stale-seq-final");
+});
+
+test("a late-finalized prompt does not pull earlier compaction into a continuation turn", () => {
+  const sections = buildThreadRunTurnFeedSections(
+    [
+      entry(
+        item("user-initial", "先分析这个问题", {
+          role: "user",
+          sequence: 1,
+          at: "2026-01-01T00:00:00.500Z",
+          metadata: { liveType: "thread.user_prompt" },
+        }),
+      ),
+      entry(
+        item("compaction", "上下文已压缩", {
+          eventType: "context.compaction.completed",
+          runAttemptId: "attempt-1",
+          sequence: 5,
+          at: "2026-01-01T00:00:04.000Z",
+        }),
+      ),
+      entry(
+        item("final", "第一轮处理完成。", {
+          runAttemptId: "attempt-1",
+          sequence: 6,
+          at: "2026-01-01T00:00:07.000Z",
+        }),
+      ),
+      entry(
+        item("queued-image-prompt", "请查看并分析我附上的图片。", {
+          role: "user",
+          sequence: 4,
+          // Delivery time is later than every event produced by attempt-1.
+          at: "2026-01-01T00:00:09.000Z",
+          metadata: { liveType: "thread.user_prompt" },
+        }),
+      ),
+    ],
+    {
+      attempts: [
+        {
+          attemptId: "attempt-1",
+          phase: "execution",
+          retryIndex: 0,
+          status: "completed",
+          startedAt: "2026-01-01T00:00:01.000Z",
+          endedAt: "2026-01-01T00:00:08.000Z",
+        },
+      ],
+      timeline: [],
+    },
+  );
+
+  const turns = sections.filter(
+    (section): section is Extract<ThreadRunTurnFeedSection, { kind: "turn" }> => section.kind === "turn",
+  );
+  expect(turns).toHaveLength(1);
+  expect(turns[0]?.processEntries.map((entry) => entry.key)).toEqual(["main:compaction"]);
+  expect(turns[0]?.finalEntry?.key).toBe("main:final");
+  expect(sections.map((section) => section.kind)).toEqual(["entry", "turn", "entry"]);
 });
 
 test("mid-turn output preserves the original running heading before the first agent event", () => {

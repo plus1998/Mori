@@ -65,13 +65,25 @@ void main() {
 
   vec2 axis = (uAxis < 0.5) ? vec2(1.0 / uSize.x, 0.0) : vec2(0.0, 1.0 / uSize.y);
   float stride = max(1.0, 3.0 * sigma / float(kHalf));
-  float inv2s2 = 1.0 / (2.0 * sigma * sigma);
+  // The old fixed kernel sampled far beyond the useful support of small
+  // sigmas. Four sigma omits less than 0.007% of a continuous Gaussian's mass;
+  // retain the original stride and full kernel for larger sigmas.
+  float radius = min(float(kHalf), ceil(4.0 * sigma / stride));
+
+  // Gaussian weights form a recurrence: w(i)/w(i-1) changes by a constant
+  // factor. Compute exp once instead of once per tap, retaining normalisation
+  // at the texture edges below.
+  float ratio = exp(-0.5 * stride * stride / (sigma * sigma));
+  float ratioStep = ratio * ratio;
+  float w = 1.0;
 
   vec4 acc = texture(uTexture, uv);
   float wsum = 1.0;
   for (int i = 1; i <= kHalf; i++) {
+    if (float(i) > radius) break;
     float d = float(i) * stride;
-    float w = exp(-d * d * inv2s2);
+    w *= ratio;
+    ratio *= ratioStep;
     vec2 off = axis * d;
     vec2 sp = uv + off;
     vec2 sm = uv - off;

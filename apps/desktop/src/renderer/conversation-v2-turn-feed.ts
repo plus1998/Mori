@@ -5,6 +5,7 @@ import type {
   ThreadRunProjectionTimelineFeedEntry,
 } from "./conversation-v2-projection-view";
 import { isProjectionUserPromptItem, projectionItemToDetailBlock } from "./conversation-v2-projection-view";
+import { isContextCompactionEventType } from "../shared/thread-run-events";
 
 export type ThreadRunTurnFeedSection =
   | {
@@ -246,6 +247,12 @@ function shouldUseObservedAtForUserBoundary(entry: ThreadRunProjectionMainFeedEn
   }
   return (
     isConversationV2FeedEntry(entry) ||
+    // A queued user prompt keeps its acceptance sequence after finalization,
+    // while `at` moves to the delivery time. Compaction rows carry the model's
+    // observed time, so sequence comparison can pull an earlier compaction
+    // past a prompt that was only delivered after the run had already ended.
+    // Keep compaction on the same clock as messages when resolving boundaries.
+    isContextCompactionEventType(entry.item.eventType) ||
     entry.item.eventType === "message.delta" ||
     entry.item.eventType === "message.final" ||
     entry.item.eventType === "thinking.delta" ||

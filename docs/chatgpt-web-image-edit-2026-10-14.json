@@ -1,0 +1,65 @@
+{
+  "quotaBefore": {
+    "source": "chatgpt_image_gen",
+    "status": "available",
+    "fetchedAt": 1791990982554,
+    "remaining": 2,
+    "resetAt": "2026-10-15T14:36:02.425016+00:00"
+  },
+  "quotaAfter": {
+    "source": "chatgpt_image_gen",
+    "status": "available",
+    "fetchedAt": 1791991018631,
+    "remaining": 1,
+    "resetAt": "2026-10-15T14:36:02.534723+00:00"
+  },
+  "artifact": {
+    "id": "d5ae7505-04b6-4710-bb66-a5042d5c21d5",
+    "threadId": "thr_codex_image_smoke",
+    "status": "completed",
+    "prompt": "Edit the attached image: change the blue circle to a bright red circle. Keep the same white background and centered composition. No text.",
+    "parameters": {
+      "count": 1,
+      "quality": "low",
+      "input_images": [
+        "reference.png"
+      ]
+    },
+    "provider": "chatgpt_web",
+    "profileName": "GPT网页生图",
+    "model": "gpt-image-2",
+    "workspacePath": "/tmp/eco-native-web-edit-20261014",
+    "generationRoot": "/tmp/eco-native-web-edit-20261014",
+    "images": [
+      {
+        "absolutePath": "/tmp/eco-native-web-edit-20261014/.eco/generated-images/thread-12cb4e8d/image-1791991018634-1-3948dab8.png",
+        "relativePath": ".eco/generated-images/thread-12cb4e8d/image-1791991018634-1-3948dab8.png",
+        "mimeType": "image/png",
+        "bytes": 931621
+      }
+    ],
+    "createdAt": "2026-10-14T15:16:22.582Z",
+    "updatedAt": "2026-10-14T15:16:58.635Z"
+  },
+  "imageValidation": {
+    "format": "PNG",
+    "width": 1254,
+    "height": 1254,
+    "referenceCenterRgb": [
+      42,
+      132,
+      252
+    ],
+    "editedCenterRgb": [
+      251,
+      1,
+      0
+    ]
+  },
+  "liveDevVerification": {
+    "providerLabel": "GPT网页生图",
+    "profileName": "Free",
+    "supportsImageToImage": true,
+    "remaining": 1
+  }
+}

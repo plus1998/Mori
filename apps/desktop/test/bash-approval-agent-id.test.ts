@@ -22,9 +22,9 @@ test("resolveBashApprovalAgentId returns planner agent id for main-thread bash",
     resolveBashApprovalAgentId(
       "thr_1",
       { toolName: "Bash", input: {}, toolUseId: "toolu_1", signal: new AbortController().signal },
-      deps({ plannerAgentId: "planner:attempt_execution_0" }),
+      deps({ plannerAgentId: "main:attempt_execution_0" }),
     ),
-  ).toBe("planner:attempt_execution_0");
+  ).toBe("main:attempt_execution_0");
 });
 
 test("resolveBashApprovalAgentId returns registered subagent instance id", () => {
@@ -40,7 +40,7 @@ test("resolveBashApprovalAgentId returns registered subagent instance id", () =>
         signal: new AbortController().signal,
       },
       deps({
-        plannerAgentId: "planner:attempt_execution_0",
+        plannerAgentId: "main:attempt_execution_0",
         roles: { agent_coder_a: "coder" },
       }),
     ),
@@ -60,7 +60,7 @@ test("resolveBashApprovalAgentId resolves subagent session id via registry", () 
         signal: new AbortController().signal,
       },
       deps({
-        plannerAgentId: "planner:attempt_execution_0",
+        plannerAgentId: "main:attempt_execution_0",
         resolveSubagentId: (_threadId, input) =>
           input.subagentAgentId === "sdk_session_coder" ? "agent_coder_a" : undefined,
       }),
@@ -80,7 +80,7 @@ test("resolveBashApprovalAgentId returns undefined when subagent attribution fai
         agentType: "coder",
         signal: new AbortController().signal,
       },
-      deps({ plannerAgentId: "planner:attempt_execution_0" }),
+      deps({ plannerAgentId: "main:attempt_execution_0" }),
     ),
   ).toBeUndefined();
 });

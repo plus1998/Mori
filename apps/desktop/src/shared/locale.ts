@@ -54,3 +54,18 @@ export function persistLocalePreference(preference: AppLocalePreference, storage
     // Storage can be unavailable in hardened or private renderer contexts.
   }
 }
+
+/**
+ * Formats an instant with the **app** locale rather than the OS locale.
+ *
+ * `toLocaleString()` without a tag follows the operating system, so a Chinese UI running on an
+ * English macOS mixes `上次刷新` with `Oct 16, 2026` inside one row. Pass the resolved app locale
+ * instead (same reasoning as `formatInstallCount` in `renderer/SkillsSettingsPanel.tsx`).
+ */
+export function formatAppDateTime(
+  locale: AppLocale,
+  instant: number | Date,
+  options: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "short" },
+): string {
+  return new Intl.DateTimeFormat(locale, options).format(instant);
+}

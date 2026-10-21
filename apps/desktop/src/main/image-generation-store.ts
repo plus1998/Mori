@@ -94,7 +94,7 @@ export class ImageGenerationStore {
       CREATE TABLE IF NOT EXISTS image_generation_profiles (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-        provider TEXT NOT NULL CHECK(provider IN ('openai', 'gemini', 'openai_compatible')),
+        provider TEXT NOT NULL CHECK(provider IN ('openai', 'gemini', 'openai_compatible', 'codex', 'chatgpt_web')),
         endpoint TEXT NOT NULL,
         model TEXT NOT NULL,
         supports_image_to_image INTEGER NOT NULL DEFAULT 0 CHECK(supports_image_to_image IN (0, 1)),
@@ -131,6 +131,7 @@ export class ImageGenerationStore {
         ON image_generation_artifacts(thread_id, created_at DESC);
     `);
     this.ensureProfileColumns();
+    this.ensureCodexProvider();
     const count = Number(
       (
         this.db.prepare("SELECT COUNT(*) AS count FROM image_generation_profiles").get() as
@@ -217,6 +218,8 @@ export class ImageGenerationStore {
     const provider = normalizeProvider(input.provider);
     const endpoint = normalizeEndpoint(input.endpoint, provider);
     const model = normalizeModel(input.model);
+    if ((provider === "codex" || provider === "chatgpt_web") && model !== "gpt-image-2")
+      throw new Error("Codex 登录生图目前只支持 gpt-image-2。");
     const existing = this.readProfileOptional(id);
     const supportsImageToImage =
       typeof input.supportsImageToImage === "boolean"
@@ -230,7 +233,8 @@ export class ImageGenerationStore {
     if (duplicate) throw new Error(`创意绘画 Profile 名称已存在：${name}`);
     let encryptedApiKey = existing?.encrypted_api_key ?? "";
     const apiKey = input.apiKey?.trim();
-    if (apiKey) {
+    if (provider === "codex" || provider === "chatgpt_web") encryptedApiKey = "";
+    else if (apiKey) {
       if (!this.secretCodec?.isAvailable()) {
         throw new Error("系统加密不可用，无法保存创意绘画 API Key。");
       }
@@ -425,8 +429,12 @@ export class ImageGenerationStore {
   }
 
   private requireClientConfig(row: ProfileRow): ImageGenerationClientConfig {
-    if (!row.encrypted_api_key) throw new Error(`创意绘画 Profile “${row.name}” 尚未配置 API Key。`);
-    const apiKey = this.decryptStoredApiKey(row.encrypted_api_key);
+    if (row.provider !== "codex" && row.provider !== "chatgpt_web" && !row.encrypted_api_key)
+      throw new Error(`创意绘画 Profile “${row.name}” 尚未配置 API Key。`);
+    const apiKey =
+      row.provider === "codex" || row.provider === "chatgpt_web"
+        ? ""
+        : this.decryptStoredApiKey(row.encrypted_api_key);
     return {
       profileId: row.id,
       profileName: row.name,
@@ -446,6 +454,37 @@ export class ImageGenerationStore {
       return this.secretCodec.decrypt(stored);
     } catch (error) {
       throw new Error(`创意绘画 API Key 解密失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private ensureCodexProvider(): void {
+    const row = this.db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'image_generation_profiles'")
+      .get() as { sql: string };
+    if (row.sql.includes("'chatgpt_web'") || !row.sql.includes("'openai_compatible'")) return;
+    // SQLite cannot alter CHECK constraints. Rebuild atomically, keeping the active profile FK.
+    this.db.exec("PRAGMA foreign_keys = OFF");
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.exec(
+        row.sql
+          .replace(
+            /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?["`]?image_generation_profiles["`]?/i,
+            "CREATE TABLE image_generation_profiles_next",
+          )
+          .replace(/'openai_compatible'(?:,\s*'codex')?/, "'openai_compatible', 'codex', 'chatgpt_web'"),
+      );
+      this.db.exec(`INSERT INTO image_generation_profiles_next SELECT * FROM image_generation_profiles;
+        DROP TABLE image_generation_profiles;
+        ALTER TABLE image_generation_profiles_next RENAME TO image_generation_profiles;`);
+      if (this.db.prepare("PRAGMA foreign_key_check").all().length)
+        throw new Error("创意绘画配置迁移外键校验失败。");
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    } finally {
+      this.db.exec("PRAGMA foreign_keys = ON");
     }
   }
 
@@ -514,6 +553,12 @@ function normalizeProvider(value: unknown): ImageGenerationProvider {
 }
 
 function normalizeEndpoint(value: unknown, provider: ImageGenerationProvider): string {
+  if (provider === "codex" || provider === "chatgpt_web") {
+    const fixed = defaultImageGenerationEndpoint(provider);
+    if (value && value !== fixed)
+      throw new Error("Codex 登录生图使用固定地址，不能向自定义地址发送登录凭证。");
+    return fixed;
+  }
   const raw = typeof value === "string" ? value.trim() : "";
   const endpoint = raw || defaultImageGenerationEndpoint(provider);
   if (!endpoint) throw new Error("创意绘画 Base URL 不能为空。");

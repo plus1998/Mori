@@ -17,6 +17,7 @@
  */
 
 import { summarizeAgentObjective } from "./agent-mission.js";
+import { formatApiErrorUserMessage, type ThreadApiErrorInfo } from "./api-error.js";
 import {
   type CodexContextSnapshotResolution,
   parseCodexThreadTokenUsage,
@@ -78,6 +79,7 @@ interface CodexCommandExecutionFields {
   command: string;
   description?: string;
   status?: CodexCommandExecutionStatus;
+  processId?: string;
   aggregatedOutput?: string;
   exitCode?: number;
   durationMs?: number;
@@ -445,7 +447,8 @@ function handleTurnCompleted(ctx: AdapterContext, params: Record<string, unknown
   // clears the route exactly once.
   const turnRoute = ctx.turnRouteRegistry?.consume(codexThreadId, turnId);
   const appServerTokenUsage = turnRoute?.appServerTokenUsage;
-  const errorMessage = readCodexTurnErrorMessage(params);
+  const turnApiError = readCodexTurnApiError(params);
+  const errorMessage = turnApiError?.message;
   const interrupted = status === "interrupted";
   const failed = status === "failed";
   const attribution = ctx.resolveThreadAttribution?.(codexThreadId);
@@ -524,7 +527,9 @@ function handleTurnCompleted(ctx: AdapterContext, params: Record<string, unknown
         turnId,
         status,
         apiError: {
-          message: errorMessage ?? `Codex turn ${status}`,
+          ...(turnApiError ?? { message: `Codex turn ${status}` }),
+          codexThreadId,
+          turnId,
         },
       },
     });
@@ -1096,7 +1101,7 @@ function handleItemCompleted(ctx: AdapterContext, params: Record<string, unknown
       codexThreadId,
       turnId,
       itemId,
-      role: "planner",
+      role: "main",
       message: "计划已生成，等待确认。",
       streamState: "finalized",
       metadata: {
@@ -1444,6 +1449,7 @@ function emitCommandExecutionToolEvent(
         ...(fields.description ? { description: fields.description } : {}),
         toolUseId: itemId,
         status: toolStatus,
+        ...(fields.processId ? { processId: fields.processId } : {}),
         ...(outputPreview?.text ? { outputPreview: outputPreview.text } : {}),
         ...(outputPreview?.truncated ? { outputPreviewTruncated: true } : {}),
         ...(commandProjection.readTarget ? { readTarget: commandProjection.readTarget } : {}),
@@ -1861,6 +1867,7 @@ function readCommandExecutionFields(item: Record<string, unknown>): CodexCommand
   const command = readString(item, "command") ?? "";
   const description = formatCodexCommandActions(item.commandActions);
   const status = readCommandExecutionStatus(item);
+  const processId = readString(item, "processId") ?? readString(item, "process_id");
   const aggregatedOutput = readOptionalString(item, "aggregatedOutput");
   const exitCode = readNumber(item, "exitCode");
   const durationMs = readNumber(item, "durationMs");
@@ -1868,6 +1875,7 @@ function readCommandExecutionFields(item: Record<string, unknown>): CodexCommand
     command,
     ...(description && { description }),
     ...(status && { status }),
+    ...(processId && { processId }),
     ...(aggregatedOutput && { aggregatedOutput }),
     ...(exitCode !== undefined && { exitCode }),
     ...(durationMs !== undefined && { durationMs }),
@@ -2727,7 +2735,9 @@ function readCodexTurnStatus(
   return status === "completed" || status === "failed" || status === "interrupted" ? status : undefined;
 }
 
-function readCodexTurnErrorMessage(params: Record<string, unknown>): string | undefined {
+function readCodexTurnApiError(
+  params: Record<string, unknown>,
+): ThreadApiErrorInfo | undefined {
   const turn = readTurnRecord(params);
   const error = turn && isRecord(turn.error) ? turn.error : undefined;
   if (!error) {
@@ -2735,10 +2745,21 @@ function readCodexTurnErrorMessage(params: Record<string, unknown>): string | un
   }
   const message = readString(error, "message");
   const details = readString(error, "additionalDetails");
-  if (message && details) {
-    return `${message}: ${details}`;
-  }
-  return message;
+  const code = readString(error, "code");
+  const param = readString(error, "param");
+  const codexErrorInfo = error.codexErrorInfo;
+  const draft: ThreadApiErrorInfo = {
+    message: message ?? details ?? "Codex turn failed",
+    ...(code ? { code } : {}),
+    ...(param ? { param } : {}),
+    ...(details ? { additionalDetails: details } : {}),
+    ...(codexErrorInfo !== undefined ? { codexErrorInfo } : {}),
+    rawTurnError: error,
+  };
+  return {
+    ...draft,
+    message: formatApiErrorUserMessage(draft),
+  };
 }
 
 function readUserMessageText(item: Record<string, unknown>): string {

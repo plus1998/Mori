@@ -310,7 +310,7 @@ test("PiCodingAgentDriver exposes the registered parent session for mid-turn ste
       worktreePath: "/w",
       routes: [
         {
-          role: "planner" as const,
+          role: "main" as const,
           providerId: "p",
           modelId: "m",
           primary: { modelId: "m", contextWindow: 100_000 },

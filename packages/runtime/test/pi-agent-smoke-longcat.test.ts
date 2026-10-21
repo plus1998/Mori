@@ -276,7 +276,7 @@ async function makeLongcatSession(input: {
         threadId: input.threadId,
         sessionId,
         agentId: sessionId,
-        role: "planner",
+        role: "main",
         state: createPiEventAdapterState(),
         nextSeq: () => seqSeq++,
       };
@@ -366,7 +366,7 @@ async function runPrompt(
     worktreePath: process.cwd(),
     routes: [
       {
-        role: "planner" as const,
+        role: "main" as const,
         providerId: LONGCAT_PROVIDER,
         modelId: LONGCAT_MODEL,
         primary: { modelId: LONGCAT_MODEL, contextWindow: 128_000 },
@@ -709,7 +709,7 @@ test.skipIf(!haveKey)(
       ],
       orchestration: {
         mainAgent: {
-          agentKey: "planner",
+          agentKey: "main",
           name: "Main",
           systemPromptPreset: "core_native",
           prompt: "",
@@ -807,7 +807,7 @@ test.skipIf(!haveKey)(
                 worktreePath: process.cwd(),
                 routes: [
                   {
-                    role: "planner" as const,
+                    role: "main" as const,
                     providerId: LONGCAT_PROVIDER,
                     modelId: LONGCAT_MODEL,
                     primary: { modelId: LONGCAT_MODEL, contextWindow: 128_000 },
@@ -825,7 +825,7 @@ test.skipIf(!haveKey)(
                   id: `${spawnInput.threadId}:child-error`,
                   threadId: spawnInput.threadId,
                   agentId: "smoke_child",
-                  role: "planner",
+                  role: "main",
                   type: "thread.failed",
                   payload: { message: err instanceof Error ? err.message : String(err) },
                 }),

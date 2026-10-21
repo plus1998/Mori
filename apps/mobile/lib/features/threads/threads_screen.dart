@@ -16,6 +16,7 @@ import 'thread_menu_sheets.dart';
 import 'thread_attention_sheet.dart';
 import 'thread_providers.dart';
 import 'thread_search_sheet.dart';
+import '../scheduling/scheduling_screen.dart';
 import 'thread_session_app_bar.dart';
 import 'session_content_boot_loading.dart';
 
@@ -57,8 +58,7 @@ class _ThreadsScreenState extends ConsumerState<ThreadsScreen> {
     projectsAsync.whenData(collapsedNotifier.applyProjectDefaults);
 
     final frostCanvas = ecoColors(context).bgMain;
-    final projectsBooting =
-        projectsAsync.isLoading && !projectsAsync.hasValue;
+    final projectsBooting = projectsAsync.isLoading && !projectsAsync.hasValue;
 
     // Entering / switching PC should land on this route's boot surface, not
     // linger on the connect PC list. Hide shell chrome until projects resolve.
@@ -98,6 +98,13 @@ class _ThreadsScreenState extends ConsumerState<ThreadsScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                AdaptiveToolbarIcon(
+                  tooltip: context.l10n.schedulingTitle,
+                  icon: Icons.schedule,
+                  size: sessionToolbarButtonSize,
+                  onPressed: () => showSchedulingScreen(context),
+                ),
+                const SizedBox(width: sessionToolbarButtonGap),
                 AdaptiveToolbarIcon(
                   tooltip: context.l10n.toolbarSearch,
                   icon: EcoIcons.search,

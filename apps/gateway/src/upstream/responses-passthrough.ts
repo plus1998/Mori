@@ -7,7 +7,11 @@ import {
   tryEmitLogicalCompleted,
 } from "../request-lifecycle.js";
 import type { GatewayLogFn } from "../server.js";
-import { parseResponsesStreamEventBlock, splitSseBlocks } from "../sse.js";
+import {
+  IncrementalSseParser,
+  parseResponsesSseFrame,
+  type ParsedSseFrame,
+} from "../sse.js";
 import { GatewayToolWriteAnnouncer } from "../tool-write-observation.js";
 import type {
   GatewayCodexTurnMetadata,
@@ -24,11 +28,18 @@ import {
 import { fetchUpstreamWithRetry } from "./fetch-with-retry.js";
 import { headersWithLogicalRequestIdentity, readUpstreamRequestId } from "./request-id-headers.js";
 import {
+  extractResponsesErrorInfo,
+  isIncompleteResponsesCompletedRemainder,
   isResponsesToolOutputItem,
+  readResponsesResponseId,
   responsesCompletedSse,
   responsesFailedSse,
 } from "./responses-stream-errors.js";
-import { upstreamErrorResponse } from "./upstream-error.js";
+import {
+  extractUpstreamErrorInfo,
+  formatUpstreamHttpError,
+  upstreamErrorResponse,
+} from "./upstream-error.js";
 import { applyUpstreamUserAgent } from "./user-agent.js";
 
 let usageEventSeq = 0;
@@ -235,6 +246,7 @@ export async function forwardResponsesPassthrough(
       },
       lifecycle,
       onLog,
+      httpFailureContext: { route, upstreamUrl },
       ...(route.provider.upstreamProxyUrl ? { upstreamProxyUrl: route.provider.upstreamProxyUrl } : {}),
     });
   } catch (error) {
@@ -260,11 +272,18 @@ export async function forwardResponsesPassthrough(
     const text = await upstreamResponse.text();
     onLog(`upstream error body: ${text.slice(0, 300)}`);
     const providerRequestId = readUpstreamRequestId(upstreamResponse.headers);
+    const errorInfo = extractUpstreamErrorInfo(text, "http");
     reportLogicalUpstreamFailure(lifecycle, {
       stage: "http",
-      error: `Upstream returned HTTP ${upstreamResponse.status}`,
+      error: formatUpstreamHttpError({
+        route,
+        upstreamUrl,
+        status: upstreamResponse.status,
+        bodyText: text,
+      }),
       statusCode: upstreamResponse.status,
       ...(providerRequestId ? { providerRequestId } : {}),
+      ...(errorInfo ? { errorInfo } : {}),
     });
     return upstreamErrorResponse({
       route,
@@ -291,7 +310,35 @@ export async function forwardResponsesPassthrough(
       onUsage,
       onLog,
     });
-    tryEmitLogicalCompleted(lifecycle, providerRequestId ?? parsedJsonUsage?.responseId);
+    const parsedJson = parseResponsesJson(text, route.upstreamModelId);
+    const requiresCompletedResponse = route.provider.authMethod === "chatgpt_subscription";
+    if (requiresCompletedResponse && (!parsedJson || parsedJson.status !== "completed")) {
+      const message = parsedJson?.status
+        ? `Upstream Responses JSON ended with status ${parsedJson.status}.`
+        : "Upstream returned invalid or incomplete Responses JSON.";
+      reportLogicalUpstreamFailure(lifecycle, {
+        stage: "protocol",
+        error: message,
+        ...(providerRequestId ? { providerRequestId } : {}),
+        ...(parsedJson?.responseId ? { responseId: parsedJson.responseId } : {}),
+      });
+      return Response.json(
+        {
+          error: {
+            message,
+            type: "upstream_error",
+            ...(providerRequestId ? { providerRequestId } : {}),
+          },
+        },
+        { status: 502 },
+      );
+    }
+    tryEmitLogicalCompleted(
+      lifecycle,
+      providerRequestId,
+      parsedJson?.responseId ?? parsedJsonUsage?.responseId,
+      200,
+    );
     return new Response(text, {
       status: 200,
       headers: headersWithLogicalRequestIdentity(upstreamResponse.headers, route.logicalRequestId, {
@@ -319,6 +366,33 @@ export async function forwardResponsesPassthrough(
       connection: "keep-alive",
     }),
   });
+}
+
+function parseResponsesJson(
+  text: string,
+  fallbackModelId: string,
+): { status?: string; responseId?: string; usage?: ParsedUsage } | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const response = isRecord(parsed) && isRecord(parsed.response) ? parsed.response : parsed;
+  if (!isRecord(response)) {
+    return null;
+  }
+  const modelId = readString(response, "model") ?? fallbackModelId;
+  const usage = isRecord(response.usage)
+    ? normalizeResponsesUsage(response.usage as unknown as ResponsesUsage, modelId)
+    : null;
+  const status = readString(response, "status");
+  const responseId = readString(response, "id");
+  return {
+    ...(status ? { status } : {}),
+    ...(responseId ? { responseId } : {}),
+    ...(usage ? { usage } : {}),
+  };
 }
 
 function observeResponsesJsonUsage(input: {
@@ -385,9 +459,8 @@ function observeResponsesSseBody(input: {
   onToolWriteStarted?: GatewayToolWriteObserver;
   lifecycle?: RequestLifecycleContext;
 }): ReadableStream<Uint8Array> {
-  const decoder = new TextDecoder();
+  const parser = new IncrementalSseParser();
   const encoder = new TextEncoder();
-  let buffer = "";
   let usageEmitted = false;
   let streamFailed = false;
   let sawResponseCompleted = false;
@@ -397,8 +470,10 @@ function observeResponsesSseBody(input: {
   const providerRequestId = input.providerRequestId;
   const reader = input.body.getReader();
   let cancelled = false;
-  let stallTimer: ReturnType<typeof setTimeout> | undefined;
+  let responseId: string | undefined;
+  const allowSyntheticCompletion = input.route.provider.authMethod !== "chatgpt_subscription";
   const POST_TOOL_STALL_MS = 120;
+  let stallTimer: ReturnType<typeof setTimeout> | undefined;
 
   const clearStallTimer = () => {
     if (stallTimer !== undefined) {
@@ -421,62 +496,38 @@ function observeResponsesSseBody(input: {
     void reader.cancel().catch(() => undefined);
   };
 
-  const failureMessageFromEvent = (event: Record<string, unknown>, type: string): string => {
-    const errObj = event.error as { message?: string } | string | undefined;
-    const responseObj = event.response as { error?: { message?: string } | string } | undefined;
-    const responseError = responseObj?.error;
-    return type === "response.incomplete"
-      ? "Upstream response incomplete"
-      : typeof errObj === "string"
-        ? errObj
-        : typeof errObj?.message === "string"
-          ? errObj.message
-          : typeof responseError === "string"
-            ? responseError
-            : typeof responseError?.message === "string"
-              ? responseError.message
-              : JSON.stringify(event).slice(0, 400);
-  };
-
   const synthesizeCompletedAndClose = (
     controller: ReadableStreamDefaultController<Uint8Array>,
     reason: string,
   ): boolean => {
-    if (terminalSettled || cancelled || sawResponseCompleted) {
+    if (!allowSyntheticCompletion || terminalSettled || cancelled || sawResponseCompleted) {
       return false;
     }
     clearStallTimer();
-    const responseId = providerRequestId ?? `resp_synth_${Date.now()}`;
+    const syntheticResponseId = responseId ?? providerRequestId ?? `resp_synth_${Date.now()}`;
     input.onLog(
       `responses synthesizing completed provider=${input.route.provider.id} ` +
         `outputs=${collectedOutputItems.length} reason=${reason}`,
     );
-    buffer = "";
     try {
       const sse = responsesCompletedSse({
-        responseId,
+        responseId: syntheticResponseId,
         modelId: input.route.upstreamModelId,
         output: collectedOutputItems,
       });
       controller.enqueue(encoder.encode(sse));
-      observeEnqueuedBlock(sse.trim(), controller);
+      tryEmitLogicalCompleted(
+        input.lifecycle,
+        providerRequestId,
+        syntheticResponseId,
+        200,
+      );
+      closeDownstreamAndCancelUpstream(controller);
       return true;
     } catch {
       closeDownstreamAndCancelUpstream(controller);
       return false;
     }
-  };
-
-  const armPostToolStall = (controller: ReadableStreamDefaultController<Uint8Array>) => {
-    if (!sawToolOutputItemDone || buffer.length === 0 || stallTimer !== undefined) {
-      return;
-    }
-    if (cancelled || terminalSettled || sawResponseCompleted) {
-      return;
-    }
-    stallTimer = setTimeout(() => {
-      synthesizeCompletedAndClose(controller, "post-tool stall on incomplete SSE remainder");
-    }, POST_TOOL_STALL_MS);
   };
 
   const toolWriteAnnouncer = new GatewayToolWriteAnnouncer(
@@ -485,66 +536,87 @@ function observeResponsesSseBody(input: {
     input.onLog,
   );
 
-  /** Observe one SSE block after it has been enqueued. Returns true when terminal froze the stream. */
-  const observeEnqueuedBlock = (
-    block: string,
+  /** Observe one parsed SSE frame after its original bytes were enqueued. */
+  const observeFrame = (
+    frame: ParsedSseFrame,
     controller: ReadableStreamDefaultController<Uint8Array>,
   ): boolean => {
     if (terminalSettled || cancelled) {
       return true;
     }
-    const event = parseResponsesStreamEventBlock(block);
-    if (!event) {
-      return false;
-    }
-    const type = typeof event.type === "string" ? event.type : "unknown";
-
-    toolWriteAnnouncer.observeEvent(event);
-
-    if (
-      type === "error" ||
-      type === "response.failed" ||
-      type === "response.incomplete" ||
-      (event as { error?: unknown }).error
-    ) {
+    let event: Record<string, unknown>;
+    try {
+      event = parseResponsesSseFrame(frame) as unknown as Record<string, unknown>;
+    } catch (error) {
       streamFailed = true;
+      const message = error instanceof Error ? error.message : String(error);
       reportLogicalUpstreamFailure(input.lifecycle, {
-        stage: "stream",
-        error: failureMessageFromEvent(event as unknown as Record<string, unknown>, type),
+        stage: "protocol",
+        error: message,
+        statusCode: 200,
         ...(providerRequestId ? { providerRequestId } : {}),
+        ...(responseId ? { responseId } : {}),
+        errorInfo: {
+          message,
+          code: "invalid_stream",
+          ...(frame.event ? { eventType: frame.event } : {}),
+          rawEvent: frame.data,
+        },
       });
+      try {
+        controller.enqueue(encoder.encode(responsesFailedSse(message, "invalid_stream")));
+      } catch {
+        // downstream already closed
+      }
       closeDownstreamAndCancelUpstream(controller);
       return true;
     }
-
-    input.lifecycle?.tracker.noteFirstChunk();
-    if (type === "response.reasoning_text.delta" || type === "response.output_text.delta") {
-      input.lifecycle?.tracker.noteFirstToken();
+    const maybeResponseId = readResponsesResponseId(event);
+    if (maybeResponseId) {
+      responseId = maybeResponseId;
     }
-
-    if (type === "response.output_item.done") {
-      const item = (event as { item?: unknown }).item;
-      if (item && typeof item === "object" && !Array.isArray(item)) {
-        collectedOutputItems.push(item);
-        if (isResponsesToolOutputItem(item)) {
-          sawToolOutputItemDone = true;
-        }
-      }
-    }
+    const type = typeof event.type === "string" ? event.type : "unknown";
 
     if (type === "response.completed") {
       sawResponseCompleted = true;
       const response = isRecord(event.response) ? event.response : undefined;
-      const responseId = response ? readString(response, "id") : undefined;
+      const completedResponseId = (response ? readString(response, "id") : undefined) ?? responseId;
+      if (!completedResponseId) {
+        streamFailed = true;
+        const message = "Upstream response.completed is missing response.id.";
+        reportLogicalUpstreamFailure(input.lifecycle, {
+          stage: "protocol",
+          error: message,
+          statusCode: 200,
+          ...(providerRequestId ? { providerRequestId } : {}),
+          errorInfo: {
+            message,
+            code: "invalid_stream",
+            eventType: type,
+            rawEvent: event,
+          },
+        });
+        try {
+          controller.enqueue(encoder.encode(responsesFailedSse(message, "invalid_stream")));
+        } catch {
+          // downstream already closed
+        }
+        closeDownstreamAndCancelUpstream(controller);
+        return true;
+      }
+      responseId = completedResponseId;
       if (!usageEmitted && input.onUsage) {
-        const usage = extractUsageFromResponsesStreamEvent(event, input.route.upstreamModelId);
+        const usage = extractUsageFromResponsesStreamEvent(
+          event as never,
+          input.route.upstreamModelId,
+        );
         if (usage) {
           usageEmitted = true;
           emitGatewayUsage({
             route: input.route,
             usage,
             stream: true,
-            ...(responseId && { responseId }),
+            responseId: completedResponseId,
             ...(providerRequestId && { providerRequestId }),
             ...(input.codexTurnMetadata && { codexTurnMetadata: input.codexTurnMetadata }),
             onUsage: input.onUsage,
@@ -553,17 +625,59 @@ function observeResponsesSseBody(input: {
           });
         }
       }
-      tryEmitLogicalCompleted(input.lifecycle, providerRequestId ?? responseId);
+      tryEmitLogicalCompleted(
+        input.lifecycle,
+        providerRequestId,
+        completedResponseId,
+        200,
+      );
       closeDownstreamAndCancelUpstream(controller);
       return true;
     }
 
+    const errorInfo = extractResponsesErrorInfo(event, type);
+    if (type === "response.failed" || type === "response.incomplete" || type === "error" || errorInfo) {
+      streamFailed = true;
+      const resolvedError = errorInfo ?? {
+        message: `Upstream Responses stream emitted ${type} without structured error fields.`,
+        eventType: type,
+        rawEvent: event,
+      };
+      reportLogicalUpstreamFailure(input.lifecycle, {
+        stage: "stream",
+        error: resolvedError.message,
+        statusCode: 200,
+        ...(providerRequestId ? { providerRequestId } : {}),
+        ...(responseId ? { responseId } : {}),
+        errorInfo: resolvedError,
+      });
+      closeDownstreamAndCancelUpstream(controller);
+      return true;
+    }
+
+    toolWriteAnnouncer.observeEvent(event);
+    input.lifecycle?.tracker.noteFirstChunk();
+    if (type === "response.reasoning_text.delta" || type === "response.output_text.delta") {
+      input.lifecycle?.tracker.noteFirstToken();
+    }
+
+    if (type === "response.output_item.done") {
+      const item = event.item;
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        collectedOutputItems.push(item);
+        if (isResponsesToolOutputItem(item)) {
+          sawToolOutputItemDone = true;
+        }
+      }
+    }
+
     if (!usageEmitted && input.onUsage) {
-      const usage = extractUsageFromResponsesStreamEvent(event, input.route.upstreamModelId);
+      const usage = extractUsageFromResponsesStreamEvent(
+        event as never,
+        input.route.upstreamModelId,
+      );
       if (usage) {
         usageEmitted = true;
-        const response = isRecord(event.response) ? event.response : undefined;
-        const responseId = response ? readString(response, "id") : undefined;
         emitGatewayUsage({
           route: input.route,
           usage,
@@ -580,21 +694,40 @@ function observeResponsesSseBody(input: {
     return false;
   };
 
-  const enqueueSseBlock = (controller: ReadableStreamDefaultController<Uint8Array>, block: string) => {
-    const framed = block.endsWith("\n\n") ? block : `${block}\n\n`;
-    controller.enqueue(encoder.encode(framed));
+  const armPostToolStall = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+    clearStallTimer();
+    if (
+      !allowSyntheticCompletion ||
+      !sawToolOutputItemDone ||
+      !isIncompleteResponsesCompletedRemainder(parser.remainder) ||
+      cancelled ||
+      terminalSettled ||
+      sawResponseCompleted
+    ) {
+      return;
+    }
+    stallTimer = setTimeout(() => {
+      synthesizeCompletedAndClose(controller, "post-tool stall on incomplete SSE remainder");
+    }, POST_TOOL_STALL_MS);
   };
 
-  const processBlocks = (
+  const enqueueFrame = (
     controller: ReadableStreamDefaultController<Uint8Array>,
-    blocks: readonly string[],
+    frame: ParsedSseFrame,
+  ) => {
+    controller.enqueue(encoder.encode(`${frame.raw}\n\n`));
+  };
+
+  const processFrames = (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+    frames: readonly ParsedSseFrame[],
   ): boolean => {
-    for (const block of blocks) {
+    for (const frame of frames) {
       if (terminalSettled || cancelled) {
         return true;
       }
-      enqueueSseBlock(controller, block);
-      if (observeEnqueuedBlock(block, controller)) {
+      enqueueFrame(controller, frame);
+      if (observeFrame(frame, controller)) {
         return true;
       }
     }
@@ -614,19 +747,19 @@ function observeResponsesSseBody(input: {
             }
             if (done) {
               clearStallTimer();
-              buffer += decoder.decode();
-              if (buffer.trim()) {
-                const { blocks } = splitSseBlocks(`${buffer}\n\n`);
-                if (processBlocks(controller, blocks)) {
-                  return;
-                }
+              const frames = parser.finish();
+              if (processFrames(controller, frames)) {
+                return;
               }
               if (cancelled || terminalSettled) {
                 return;
               }
               if (!streamFailed && !sawResponseCompleted) {
-                if (collectedOutputItems.length > 0) {
-                  synthesizeCompletedAndClose(controller, "upstream ended without response.completed");
+                if (allowSyntheticCompletion && collectedOutputItems.length > 0) {
+                  synthesizeCompletedAndClose(
+                    controller,
+                    "upstream ended without response.completed",
+                  );
                   return;
                 }
                 streamFailed = true;
@@ -634,10 +767,23 @@ function observeResponsesSseBody(input: {
                 reportLogicalUpstreamFailure(input.lifecycle, {
                   stage: "stream",
                   error: message,
+                  statusCode: 200,
                   ...(providerRequestId ? { providerRequestId } : {}),
+                  ...(responseId ? { responseId } : {}),
+                  errorInfo: {
+                    message,
+                    code: "incomplete_stream",
+                    rawEvent: {
+                      reason: sawToolOutputItemDone
+                        ? "eof_after_tool_output"
+                        : "eof_before_completed",
+                    },
+                  },
                 });
                 try {
-                  controller.enqueue(encoder.encode(responsesFailedSse(message)));
+                  controller.enqueue(
+                    encoder.encode(responsesFailedSse(message, "incomplete_stream")),
+                  );
                 } catch {
                   // downstream already closed
                 }
@@ -646,33 +792,49 @@ function observeResponsesSseBody(input: {
               return;
             }
 
-            buffer += decoder.decode(value, { stream: true });
-            const { blocks, remainder } = splitSseBlocks(buffer);
-            buffer = remainder;
-            if (processBlocks(controller, blocks)) {
-              return;
+            if (value) {
+              const frames = parser.push(value);
+              if (processFrames(controller, frames)) {
+                return;
+              }
+              armPostToolStall(controller);
             }
-            if (blocks.length > 0) {
-              clearStallTimer();
-            }
-            armPostToolStall(controller);
           }
         } catch (error) {
+          clearStallTimer();
           if (cancelled || terminalSettled) {
             return;
           }
-          if (sawToolOutputItemDone && !sawResponseCompleted && !streamFailed) {
-            if (synthesizeCompletedAndClose(controller, "reader abort after tool output")) {
-              return;
-            }
-          }
-          clearStallTimer();
           const message = error instanceof Error ? error.message : String(error);
-          reportLogicalUpstreamFailure(input.lifecycle, {
-            stage: "stream",
-            error: `reader failure: ${message}`,
-            ...(providerRequestId ? { providerRequestId } : {}),
-          });
+          const isCancel = error instanceof Error &&
+            (error.name === "AbortError" || /abort|cancel/i.test(message));
+          if (isCancel) {
+            tryEmitLogicalCancelled(input.lifecycle, {
+              reason: message,
+              statusCode: 200,
+              ...(providerRequestId ? { providerRequestId } : {}),
+              ...(responseId ? { responseId } : {}),
+            });
+          } else if (allowSyntheticCompletion &&
+            sawToolOutputItemDone &&
+            !sawResponseCompleted &&
+            !streamFailed &&
+            synthesizeCompletedAndClose(controller, "reader abort after tool output")) {
+            return;
+          } else {
+            reportLogicalUpstreamFailure(input.lifecycle, {
+              stage: "stream",
+              error: `reader failure: ${message}`,
+              statusCode: 200,
+              ...(providerRequestId ? { providerRequestId } : {}),
+              ...(responseId ? { responseId } : {}),
+              errorInfo: {
+                message: `reader failure: ${message}`,
+                code: "stream_read_failed",
+                rawEvent: error instanceof Error ? error.stack : String(error),
+              },
+            });
+          }
           try {
             controller.error(error);
           } catch {
@@ -687,7 +849,9 @@ function observeResponsesSseBody(input: {
       clearStallTimer();
       tryEmitLogicalCancelled(input.lifecycle, {
         reason: "downstream cancel",
+        statusCode: 200,
         ...(providerRequestId ? { providerRequestId } : {}),
+        ...(responseId ? { responseId } : {}),
       });
       reader.cancel().catch(() => {});
     },
@@ -707,9 +871,6 @@ function emitGatewayUsage(input: {
 }): void {
   const sourceEventId = buildGatewayUsageSourceEventId(input);
   const resolvedProviderRequestId = input.providerRequestId ?? input.responseId;
-  if (input.lifecycle) {
-    tryEmitLogicalCompleted(input.lifecycle, resolvedProviderRequestId);
-  }
   const event: GatewayUsageEvent = {
     source: "responses",
     sourceEventId,
@@ -773,30 +934,19 @@ function errorMessage(error: unknown): string {
 
 /** Collect Responses SSE events from a stream (test helper). */
 export async function collectResponsesSseEvents(body: ReadableStream<Uint8Array>): Promise<string[]> {
-  const decoder = new TextDecoder();
-  let buffer = "";
+  const parser = new IncrementalSseParser();
   const events: string[] = [];
 
   for await (const chunk of body) {
-    buffer += decoder.decode(chunk, { stream: true });
-    const { blocks, remainder } = splitSseBlocks(buffer);
-    buffer = remainder;
-    for (const block of blocks) {
-      const evt = parseResponsesStreamEventBlock(block);
-      if (evt?.type) {
-        events.push(evt.type);
-      }
+    for (const frame of parser.push(chunk)) {
+      const event = parseResponsesSseFrame(frame);
+      if (event.type) events.push(event.type);
     }
   }
 
-  if (buffer.trim()) {
-    const { blocks } = splitSseBlocks(`${buffer}\n\n`);
-    for (const block of blocks) {
-      const evt = parseResponsesStreamEventBlock(block);
-      if (evt?.type) {
-        events.push(evt.type);
-      }
-    }
+  for (const frame of parser.finish()) {
+    const event = parseResponsesSseFrame(frame);
+    if (event.type) events.push(event.type);
   }
 
   return events;

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
+import { validateClaudeSubagentCompactWindow } from "@eco/shared";
 import type {
   AgentTemplate,
   MainAgentConfigResource,
@@ -246,6 +247,10 @@ export function normalizeStoredSubagentOrchestration(
   const { version: _version, ...rest } = orchestration as SubagentOrchestrationResource & {
     version?: number;
   };
+  for (const agent of orchestration.agents) {
+    if (agent.claudeAutoCompactWindow !== undefined)
+      validateClaudeSubagentCompactWindow(agent.claudeAutoCompactWindow, agent.displayName ?? agent.agentKey);
+  }
   return {
     ...rest,
     id: orchestration.id.trim(),

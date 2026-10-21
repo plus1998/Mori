@@ -110,7 +110,7 @@ describe("Claude Bridge concurrent isolation", () => {
       const proxyA = await startAnthropicModelProxy(
         [
           {
-            role: "planner",
+            role: "main",
             provider: providerSecret("prov", "P", upstream.baseUrl),
             modelId: "shared-model",
           },
@@ -120,7 +120,7 @@ describe("Claude Bridge concurrent isolation", () => {
       const proxyB = await startAnthropicModelProxy(
         [
           {
-            role: "planner",
+            role: "main",
             provider: providerSecret("prov", "P", upstream.baseUrl),
             modelId: "shared-model",
           },
@@ -628,7 +628,7 @@ describe("Claude Bridge concurrent isolation", () => {
       const proxyA = await startAnthropicModelProxy(
         [
           {
-            role: "planner",
+            role: "main",
             provider: {
               ...providerSecret("prov", "P", baseUrl),
               tokenCountMode: "anthropic_messages",

@@ -260,7 +260,7 @@ describe("POST /v1/responses/compact (gateway protocol)", () => {
     });
   });
 
-  test("native compact HTTP non-2xx emits http logical failure once", async () => {
+  test("native compact HTTP non-2xx records one HTTP failure per bounded retry attempt", async () => {
     const lifecycle: import("../src/types.js").GatewayRequestLifecycleEvent[] = [];
     const response = await postCompact(
       responsesProvider(),
@@ -277,7 +277,10 @@ describe("POST /v1/responses/compact (gateway protocol)", () => {
       },
     );
     expect(response.status).toBe(429);
-    expect(lifecycle.filter((e) => e.type === "upstream.failed")).toHaveLength(1);
+    const started = lifecycle.filter((e) => e.type === "upstream.started");
+    const failed = lifecycle.filter((e) => e.type === "upstream.failed");
+    expect(started.length).toBeGreaterThan(1);
+    expect(failed).toHaveLength(started.length);
     expect(lifecycle.filter((e) => e.type === "logical.failed")).toHaveLength(1);
     expect(lifecycle.filter((e) => e.type === "logical.completed")).toHaveLength(0);
     expect(lifecycle.find((e) => e.type === "logical.failed")).toMatchObject({

@@ -13,6 +13,7 @@ import type {
   OpenAIAccountCreateInput,
   OpenAIAccountDetails,
   OpenAIAccountQuota,
+  OpenAIAccountImageQuota,
   OpenAIAccountSyncStatus,
   OpenAIAccountUpdateInput,
 } from "../shared/openai-account";
@@ -621,6 +622,8 @@ export class OpenAIAccountService {
         ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
         ...(lastLogin ? { lastLogin } : {}),
         ...(account.quota ? { quota: account.quota } : {}),
+        imageGenerationEnabled: account.imageGenerationEnabled ?? false,
+        ...(account.imageQuota ? { imageQuota: account.imageQuota } : {}),
       };
     });
   }
@@ -679,7 +682,7 @@ export class OpenAIAccountService {
   /** Start login for a specific account. */
   async startLogin(
     accountId: string,
-  ): Promise<{ authUrl: string; result: Promise<OpenAIAccountLoginResult>; cancel: () => void } | null> {
+  ): Promise<{ authUrl: string; expiresAt: number; result: Promise<OpenAIAccountLoginResult>; cancel: () => void } | null> {
     const account = await this.requireAccount(accountId);
     this.activeLogins.get(accountId)?.cancel();
     const codexExecutable = this.codexExecutableProvider();
@@ -731,7 +734,7 @@ export class OpenAIAccountService {
         if (this.activeLogins.get(accountId)?.result === result) this.activeLogins.delete(accountId);
       });
       this.activeLogins.set(accountId, { cancel: login.cancel, result });
-      return { authUrl: login.authUrl, result, cancel: login.cancel };
+      return { authUrl: login.authUrl, expiresAt: login.expiresAt, result, cancel: login.cancel };
     } catch (error) {
       bridge?.close();
       // A failed startup is not a completed login; preserve any credential file.
@@ -757,6 +760,28 @@ export class OpenAIAccountService {
   /** Get the currently active account ID. */
   async getActiveAccountId(): Promise<string | null> {
     return this.getStore().getActiveAccountId();
+  }
+
+  /** Keep auth.json bound to the requested account for an explicit account operation. */
+  async withActiveAccount<T>(accountId: string, operation: () => Promise<T>): Promise<T> {
+    const work = this.authSyncQueue.then(async () => {
+      await this.reconcileMainAuth();
+      if (
+        this.getStore().getActiveAccountId() !== accountId ||
+        this.getPendingAccountId() !== undefined ||
+        this.syncStatus.state !== "ok"
+      ) {
+        throw new Error("当前使用账号已变更或正在切换，请刷新后重试。");
+      }
+      if (!(await this.getActiveStatus()).isLoggedIn) throw new Error("当前使用账号尚未登录。");
+      return operation();
+    });
+    // An operation error is not an auth synchronization error.
+    this.authSyncQueue = work.then(
+      () => undefined,
+      () => undefined,
+    );
+    return work;
   }
 
   /** Request a deferred switch; the runtime scheduler commits it once Codex is idle. */
@@ -848,6 +873,17 @@ export class OpenAIAccountService {
     const result = this.getStore().importProfiles(input);
     this.onAccountsChanged?.({ syncStatus: this.syncStatus });
     return result;
+  }
+
+  async setImageGenerationEnabled(accountId: string, enabled: boolean): Promise<void> {
+    await this.requireAccount(accountId);
+    this.getStore().setImageGenerationEnabled(accountId, enabled);
+    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+  }
+
+  saveImageQuota(accountId: string, authJson: string, quota: OpenAIAccountImageQuota): void {
+    this.getStore().saveImageQuota(accountId, authJson, quota);
+    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
   }
 
   async cancelPendingAccountSwitch(): Promise<{ success: boolean }> {

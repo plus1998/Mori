@@ -15,6 +15,41 @@ test("catalog translation interpolates variables without changing raw detail", (
   expect(translateCatalog("zh-CN", "notification.bashApproval", { detail })).toContain(detail);
 });
 
+/**
+ * A key whose zh value takes `{{name}}` but whose en value takes `{{label}}` renders as a literal
+ * `{{name}}` in one language, and the key-parity test above cannot see it.
+ */
+test("both catalogs interpolate the same variables for every key", () => {
+  const variables = (value: string) =>
+    [...String(value).matchAll(/\{\{\s*([\w.]+)/g)]
+      .map((match) => match[1])
+      .sort()
+      .join(",");
+  const chinese = i18nCatalogs["zh-CN"].translation;
+  const english = i18nCatalogs["en-US"].translation;
+  const mismatched: string[] = [];
+  for (const key of Object.keys(chinese)) {
+    if (variables(chinese[key]) !== variables(english[key])) {
+      mismatched.push(`${key}: zh{${variables(chinese[key])}} en{${variables(english[key])}}`);
+    }
+  }
+  expect(mismatched).toEqual([]);
+});
+
+/**
+ * English strings must actually be English, otherwise switching the app to en-US still shows
+ * Chinese. Native-language names in the language picker are the only deliberate exception: they
+ * have to read as their own language to be recognizable.
+ */
+test("en-US catalog values contain no untranslated Chinese copy", () => {
+  const nativeLanguageNames = new Set(["settings.language.zh"]);
+  const cjk = /[\u3400-\u9fff\u3040-\u30ff]/;
+  const offenders = Object.entries(i18nCatalogs["en-US"].translation)
+    .filter(([key, value]) => !nativeLanguageNames.has(key) && cjk.test(String(value)))
+    .map(([key]) => key);
+  expect(offenders).toEqual([]);
+});
+
 test("known application IPC errors localize without raw Chinese in en-US", () => {
   const messages = [
     "子代理模板名称不能为空。",

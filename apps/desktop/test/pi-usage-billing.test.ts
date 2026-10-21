@@ -32,7 +32,7 @@ test("resolvePiUsageBilling builds pi-sourced ledger artifacts", async () => {
     },
     runtimeRoutes: [
       {
-        role: "planner",
+        role: "main",
         provider: {
           id: "p",
           name: "P",

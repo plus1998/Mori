@@ -6,6 +6,7 @@ import {
   listWorkspaceEntries,
   readWorkspaceFile,
   writeWorkspaceFile,
+  workspaceFileStreams,
 } from "../src/main/workspace-file-browser";
 
 let workspacePath = "";
@@ -96,8 +97,31 @@ test("rejects unknown binary files and supports whitelisted media", async () => 
   expect(image).toMatchObject({
     kind: "image",
     mimeType: "image/png",
-    base64: "iVBORw0KGgo=",
+    url: expect.stringMatching(/^eco-workspace:\/\//),
   });
+});
+
+test("plays generated and common audio containers in the file browser", async () => {
+  const cases: Array<[string, Buffer, string]> = [
+    ["speech.mp3", Buffer.from("ID3\x03\x00fake-id3-tag", "latin1"), "audio/mpeg"],
+    ["speech.wav", Buffer.from("RIFF\x00\x00\x00\x00WAVEfmt ", "latin1"), "audio/wav"],
+    ["speech.ogg", Buffer.from("OggS\x00\x02", "latin1"), "audio/ogg"],
+    ["speech.opus", Buffer.from("OggS\x00\x02", "latin1"), "audio/ogg"],
+    ["speech.flac", Buffer.from("fLaC\x00\x00\x00\x22", "latin1"), "audio/flac"],
+    ["speech.aac", Buffer.from([0xff, 0xf1, 0x50, 0x80]), "audio/aac"],
+    ["book.m4b", Buffer.from("\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00", "latin1"), "audio/mp4"],
+  ];
+  for (const [name, bytes, mimeType] of cases) {
+    const filePath = path.join(workspacePath, name);
+    await fs.writeFile(filePath, bytes);
+    const result = await readWorkspaceFile({ workspacePath, filePath });
+    expect(result.kind).toBe("audio");
+    expect(result.mimeType).toBe(mimeType);
+    expect(result.url).toStartWith("eco-workspace://");
+    expect(result.base64).toBeUndefined();
+    const response = await workspaceFileStreams.respond(new Request(result.url!));
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+  }
 });
 
 test("rejects media files whose signatures do not match their extensions", async () => {
@@ -114,13 +138,22 @@ test("rejects media files whose signatures do not match their extensions", async
   expect(fakeMp3.reason).toContain("signature");
 });
 
-test("rejects oversized media with an understandable reason", async () => {
+test("large media returns a stream descriptor without reading the whole file", async () => {
   const filePath = path.join(workspacePath, "large.mp4");
-  await fs.writeFile(filePath, Buffer.alloc(20 * 1024 * 1024 + 1));
+  const handle = await fs.open(filePath, "w");
+  await handle.write(Buffer.from("\x00\x00\x00\x18ftypisom", "latin1"));
+  await handle.truncate(5 * 1024 * 1024 * 1024);
+  await handle.close();
   const result = await readWorkspaceFile({ workspacePath, filePath });
-
-  expect(result.kind).toBe("unsupported");
-  expect(result.reason).toContain("20 MiB");
+  expect(result.kind).toBe("video");
+  expect(result.size).toBe(5 * 1024 * 1024 * 1024);
+  expect(result.base64).toBeUndefined();
+  const response = await workspaceFileStreams.respond(
+    new Request(result.url!, { headers: { Range: "bytes=-4" } }),
+  );
+  expect(response.status).toBe(206);
+  expect(response.headers.get("Content-Length")).toBe("4");
+  expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(4));
 });
 
 test("rejects directories, workspace escapes, and symlink escapes", async () => {
@@ -191,4 +224,42 @@ test("does not create missing files when writing", async () => {
     writeWorkspaceFile({ workspacePath, filePath: missingPath, content: "new" }),
   ).rejects.toThrow();
   await expect(fs.stat(missingPath)).rejects.toThrow();
+});
+
+test("large UTF-8 text can be loaded across chunk boundaries without losing multibyte characters", async () => {
+  const filePath = path.join(workspacePath, "large.txt");
+  const content = `${"a".repeat(2 * 1024 * 1024 - 2)}😀最后一段`;
+  await fs.writeFile(filePath, content);
+  const first = await readWorkspaceFile({ workspacePath, filePath });
+  expect(first.nextOffset).toBe(2 * 1024 * 1024 - 2);
+  const next = await readWorkspaceFile({
+    workspacePath,
+    filePath,
+    offset: first.nextOffset!,
+    revision: first.revision!,
+  });
+  expect(first.content + next.content!).toBe(content);
+  expect(next.truncated).toBeUndefined();
+  expect(next.nextOffset).toBeUndefined();
+  await fs.writeFile(filePath, `${content}changed`);
+  await expect(
+    readWorkspaceFile({ workspacePath, filePath, offset: first.nextOffset!, revision: first.revision! }),
+  ).rejects.toThrow("File changed");
+});
+
+test("PDF and extra native image/video formats are recognized without Base64 payloads", async () => {
+  for (const [name, header, kind] of [
+    ["document.pdf", Buffer.from("%PDF-1.7\n"), "pdf"],
+    ["image.bmp", Buffer.from([0x42, 0x4d, 0, 0]), "image"],
+    ["image.ico", Buffer.from([0, 0, 1, 0]), "image"],
+    ["image.avif", Buffer.from("\x00\x00\x00\x18ftypavif", "latin1"), "image"],
+    ["video.mov", Buffer.from("\x00\x00\x00\x18ftypqt  ", "latin1"), "video"],
+  ] as const) {
+    const filePath = path.join(workspacePath, name);
+    await fs.writeFile(filePath, header);
+    const result = await readWorkspaceFile({ workspacePath, filePath });
+    expect(result.kind).toBe(kind);
+    expect(result.url).toStartWith("eco-workspace://");
+    expect(result.base64).toBeUndefined();
+  }
 });

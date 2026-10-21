@@ -172,6 +172,7 @@ const demoBrowserState: BrowserViewState = {
   instances: [],
   guestInstances: [],
   allGuestInstances: [],
+  allInstances: [],
   url: "",
   title: "",
   canGoBack: false,

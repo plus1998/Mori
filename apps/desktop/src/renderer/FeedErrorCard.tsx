@@ -1,4 +1,4 @@
-import { CircleAlert } from "lucide-react";
+import { ChevronDown, CircleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import "./FeedErrorCard.css";
 
@@ -6,12 +6,19 @@ interface FeedErrorCardProps {
   message: ReactNode;
   context?: ReactNode;
   detail?: string;
-  retryLabel?: string;
-  onRetry?: () => void;
+  actionLabel?: string;
+  onAction?: () => void;
   title?: string;
 }
 
-export function FeedErrorCard({ message, context, detail, retryLabel, onRetry, title }: FeedErrorCardProps) {
+export function FeedErrorCard({
+  message,
+  context,
+  detail,
+  actionLabel,
+  onAction,
+  title,
+}: FeedErrorCardProps) {
   const copy = (
     <>
       {context ? <span className="feed-error-card-context">{context}</span> : null}
@@ -24,23 +31,26 @@ export function FeedErrorCard({ message, context, detail, retryLabel, onRetry, t
       <CircleAlert className="feed-error-card-icon" size={18} strokeWidth={1.8} aria-hidden />
       {detail ? (
         <details className="feed-error-card-details">
-          <summary className="feed-error-card-copy">{copy}</summary>
+          <summary className="feed-error-card-copy">
+            {copy}
+            <ChevronDown className="feed-error-card-disclosure" size={14} strokeWidth={2} aria-hidden />
+          </summary>
           <pre className="feed-error-card-detail">{detail}</pre>
         </details>
       ) : (
         <div className="feed-error-card-copy">{copy}</div>
       )}
-      {onRetry && retryLabel ? (
+      {onAction && actionLabel ? (
         <button
           type="button"
           className="feed-error-card-retry"
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            onRetry();
+            onAction();
           }}
         >
-          {retryLabel}
+          {actionLabel}
         </button>
       ) : null}
     </section>

@@ -89,7 +89,7 @@ function readSubagentOutputText(content: unknown): string | undefined {
  * Turn end is on `session/prompt` result `{ stopReason }`, not on session/update.
  */
 export function mapAcpSessionUpdate(params: unknown, ctx: AcpEventMapContext): AgentEvent[] {
-  const base = { threadId: ctx.threadId, agentId: ctx.agentId, role: "planner" as const };
+  const base = { threadId: ctx.threadId, agentId: ctx.agentId, role: "main" as const };
   const id = `${ctx.threadId}:acp:${ctx.sessionRunId}:${randomUUID()}`;
 
   if (!isRecord(params)) {
@@ -362,7 +362,7 @@ export function mapAcpCursorUpdateTodos(params: unknown, ctx: AcpEventMapContext
       id: `${ctx.threadId}:acp:${ctx.sessionRunId}:${randomUUID()}`,
       threadId: ctx.threadId,
       agentId: ctx.agentId,
-      role: "planner",
+      role: "main",
       type: "todo.updated",
       payload: {
         source: "acp",
@@ -425,7 +425,7 @@ export function mapAcpCursorTask(params: unknown, ctx: AcpEventMapContext): Agen
         id: `${id}:tool`,
         threadId: ctx.threadId,
         agentId: ctx.agentId,
-        role: "planner",
+        role: "main",
         type: "tool.started",
         payload: {
           type: "tool_use",
@@ -467,7 +467,7 @@ export function mapAcpCursorTask(params: unknown, ctx: AcpEventMapContext): Agen
         id: `${id}:tool-completed`,
         threadId: ctx.threadId,
         agentId: ctx.agentId,
-        role: "planner",
+        role: "main",
         type: "tool.completed",
         payload: {
           type: "tool_result",
@@ -528,7 +528,7 @@ function acpUnstartedFromContext(ctx: AcpEventMapContext, agentText = ""): boole
 
 function mapStopReason(
   id: string,
-  base: { threadId: string; agentId: string; role: "planner" },
+  base: { threadId: string; agentId: string; role: "main" },
   stopReason: string,
   params: JsonRecord,
   ctx: AcpEventMapContext,
@@ -586,7 +586,7 @@ function mapStopReason(
 
 function rawOutput(
   id: string,
-  base: { threadId: string; agentId: string; role: "planner" },
+  base: { threadId: string; agentId: string; role: "main" },
   raw: unknown,
   liveType?: string,
 ): AgentEvent {
@@ -604,7 +604,7 @@ function rawOutput(
  */
 function unhandledSessionUpdate(
   id: string,
-  base: { threadId: string; agentId: string; role: "planner" },
+  base: { threadId: string; agentId: string; role: "main" },
   params: JsonRecord,
   kind: string,
 ): AgentEvent {

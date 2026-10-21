@@ -9,6 +9,7 @@ import {
   type ImageGenerationToolInput,
 } from "../shared/image-generation";
 import type { ImageGenerationClientConfig } from "./image-generation-store";
+import { CodexImageBatchError } from "./codex-image-service";
 
 const MAX_IMAGE_BYTES = 64 * 1024 * 1024;
 const MAX_INPUT_IMAGE_BYTES = 50 * 1024 * 1024;
@@ -29,12 +30,12 @@ const GEMINI_ASPECT_RATIOS = new Set([
   "21:9",
 ]);
 
-interface ImagePayload {
+export interface ImagePayload {
   bytes: Buffer;
   mimeType: string;
 }
 
-interface LoadedInputImage {
+export interface LoadedInputImage {
   bytes: Buffer;
   mimeType: string;
   fileName: string;
@@ -50,16 +51,47 @@ export async function generateImagesToWorkspace(input: {
   threadDirectory: string;
   workspacePath: string;
   signal?: AbortSignal;
+  generateCodex?: (
+    input: ImageGenerationToolInput,
+    images: LoadedInputImage[],
+    signal?: AbortSignal,
+    route?: "codex" | "chatgpt_web",
+  ) => Promise<ImagePayload[]>;
 }): Promise<GeneratedImageFile[]> {
   const args = normalizeToolInput(input.toolInput, input.config.provider, input.config.supportsImageToImage);
   const inputImages =
     args.input_images && args.input_images.length > 0
       ? await loadInputImages(args.input_images, input.workspacePath, input.config.provider)
       : [];
-  const payloads =
-    input.config.provider === "gemini"
-      ? await generateGemini(input.config, args, inputImages, input.signal)
-      : await generateOpenAi(input.config, args, inputImages, input.signal);
+  let payloads: ImagePayload[];
+  try {
+    payloads =
+      input.config.provider === "codex" || input.config.provider === "chatgpt_web"
+        ? input.generateCodex
+          ? await input.generateCodex(args, inputImages, input.signal, input.config.provider)
+          : (() => {
+              throw new ImageGenerationError("codex_unavailable", "Codex 登录生图服务尚未初始化。");
+            })()
+        : input.config.provider === "gemini"
+          ? await generateGemini(input.config, args, inputImages, input.signal)
+          : await generateOpenAi(input.config, args, inputImages, input.signal);
+  } catch (error) {
+    if (error instanceof CodexImageBatchError) {
+      const partial = await writeImages(error.payloads, {
+        generationRoot: input.generationRoot,
+        threadDirectory: input.threadDirectory,
+        ...(args.output_name ? { outputName: args.output_name } : {}),
+      });
+      throw new ImageGenerationError(
+        error.code,
+        error.message,
+        error.providerStatus,
+        error.requestId,
+        partial,
+      );
+    }
+    throw error;
+  }
   if (payloads.length === 0) {
     throw new ImageGenerationError("empty_response", "供应商未返回任何图片。");
   }
@@ -120,7 +152,7 @@ function normalizeToolInput(
       throw new ImageGenerationError("unsupported_parameter", "Gemini 渠道不支持 quality 参数。");
     }
   } else {
-    if (size && provider === "openai" && !OPENAI_SIZES.has(size)) {
+    if (size && (provider === "openai" || provider === "codex") && !OPENAI_SIZES.has(size)) {
       throw new ImageGenerationError(
         "unsupported_parameter",
         "OpenAI size 仅支持 auto、1024x1024、1536x1024 或 1024x1536。",

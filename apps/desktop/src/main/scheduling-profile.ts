@@ -8,7 +8,7 @@ export function freezeSchedulingProfile(
   settings: ModelSettingsSnapshot,
   resolveRoutes: (config: ThreadRuntimeConfig) => RuntimeRoleRouteConfig[],
 ): ScheduleExecutionProfile {
-  if (!profile || !isCoreKind(profile.coreKind)) throw new Error("请选择有效的 AgentCore。");
+  if (!profile || !isCoreKind(profile.coreKind)) throw new Error("请选择有效的 Harness。");
   if (!profile.runtimeConfig || typeof profile.runtimeConfig !== "object") throw new Error("任务缺少运行配置。");
   const config = normalizeThreadRuntimeConfig(profile.runtimeConfig);
   if (profile.coreKind === "acp") {
@@ -19,7 +19,7 @@ export function freezeSchedulingProfile(
   if (!snapshot) throw new Error("请选择完整的运行配置。");
   // Resolve candidate defaults now and remove soft references so later defaults cannot change a task's model.
   const routes = resolveRoutes(config);
-  const main = routes.find(route => route.role === "planner");
+  const main = routes.find(route => route.role === "main");
   if (!main) throw new Error("任务缺少主模型。");
   const pinModel = (route: RuntimeRoleRouteConfig) => {
     const { candidateModelId: _candidate, role: _role, ...modelRef } = route;

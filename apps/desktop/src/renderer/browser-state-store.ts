@@ -30,6 +30,7 @@ class BrowserStateStore {
   private readonly listeners = new Set<BrowserStateListener>();
   private sourceAttached = false;
   private unsubscribeSource: (() => void) | undefined;
+  private revision = 0;
 
   getState(): BrowserViewState | undefined {
     return this.state;
@@ -40,6 +41,7 @@ class BrowserStateStore {
       return;
     }
     this.state = next;
+    this.revision += 1;
     for (const listener of this.listeners) {
       listener();
     }
@@ -47,8 +49,9 @@ class BrowserStateStore {
 
   async hydrate(): Promise<void> {
     this.attachSource();
+    const revision = this.revision;
     const next = await window.eco?.getBrowserState?.();
-    if (next) {
+    if (next && this.revision === revision) {
       this.setState(next);
     }
   }
@@ -110,12 +113,19 @@ export function useBrowserStateSelector<T>(
   selectorRef.current = selector;
   const isEqualRef = useRef(isEqual);
   isEqualRef.current = isEqual;
-  const cacheRef = useRef<{ source: BrowserViewState | undefined; value: T } | undefined>(undefined);
+  const cacheRef = useRef<
+    | {
+        source: BrowserViewState | undefined;
+        selector: typeof selector;
+        value: T;
+      }
+    | undefined
+  >(undefined);
 
   const getSnapshot = useCallback(() => {
     const source = browserStateStore.getState();
     const cache = cacheRef.current;
-    if (cache && cache.source === source) {
+    if (cache && cache.source === source && cache.selector === selectorRef.current) {
       return cache.value;
     }
     const next = selectorRef.current(source);
@@ -123,6 +133,7 @@ export function useBrowserStateSelector<T>(
     // the same projected fields; otherwise every browser event re-renders App.
     cacheRef.current = {
       source,
+      selector: selectorRef.current,
       value: cache && isEqualRef.current(cache.value, next) ? cache.value : next,
     };
     return cacheRef.current.value;
@@ -148,8 +159,18 @@ function projectLiveBrowserInstanceIds(state: BrowserViewState | undefined): rea
   return ids;
 }
 
-export function useBrowserInstanceIds(): readonly string[] {
-  return useBrowserStateSelector(projectLiveBrowserInstanceIds, equalPrimitiveArrays);
+export function browserStateForScope(
+  state: BrowserViewState | undefined,
+  scopeId: string,
+): BrowserViewState | undefined {
+  return state?.uiScopeId === scopeId ? state : undefined;
+}
+
+export function useBrowserInstanceIds(scopeId?: string): readonly string[] {
+  return useBrowserStateSelector(
+    (state) => projectLiveBrowserInstanceIds(scopeId ? browserStateForScope(state, scopeId) : state),
+    equalPrimitiveArrays,
+  );
 }
 
 function equalTaskInstances(
@@ -174,8 +195,11 @@ function equalTaskInstances(
   );
 }
 
-export function useBrowserTaskInstances(): readonly BrowserTaskInstance[] {
-  return useBrowserStateSelector(projectTaskInstances, equalTaskInstances);
+export function useBrowserTaskInstances(scopeId?: string): readonly BrowserTaskInstance[] {
+  return useBrowserStateSelector(
+    (state) => projectTaskInstances(scopeId ? browserStateForScope(state, scopeId) : state),
+    equalTaskInstances,
+  );
 }
 
 function equalWebviewInstances(

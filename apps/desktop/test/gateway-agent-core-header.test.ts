@@ -1,5 +1,5 @@
 /**
- * Bridge must tell the gateway which agent core issued a request so the gateway can
+ * Bridge must tell the gateway which Harness issued a request so the gateway can
  * apply a per-core upstream User-Agent (Codex / Claude Code / PI).
  */
 import { describe, expect, test } from "bun:test";
@@ -46,7 +46,7 @@ async function post(
   );
 }
 
-describe("bridge stamps the agent core header", () => {
+describe("bridge stamps the Harness header", () => {
   test("responses face is stamped as codex", async () => {
     const { server, lastHeaders } = stubGateway();
     const handler = createEcoSdkBridgeHandler({

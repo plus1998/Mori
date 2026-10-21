@@ -46,7 +46,7 @@ export async function runThreadRequestWithRuntimeProxy(
 
   const proxy = await input.startRuntimeProxy(freshConfig.routes, input.attachments, input.context);
   try {
-    const plannerRoute = proxy.routes.find((route) => route.role === "planner");
+    const plannerRoute = proxy.routes.find((route) => route.role === "main");
     const attempt: ThreadRuntimeProxyAttempt = {
       proxy,
       routes: buildDriverRoutes(proxy.routes),

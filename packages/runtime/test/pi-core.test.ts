@@ -730,7 +730,7 @@ test("buildEcoPiModel enables PI reasoning only when route thinkingEffort is on"
     buildEcoPiModel({
       ...base,
       route: {
-        role: "planner",
+        role: "main",
         providerId: "p",
         modelId: "grok-4.5",
         primary: { modelId: "grok-4.5" },
@@ -743,7 +743,7 @@ test("buildEcoPiModel enables PI reasoning only when route thinkingEffort is on"
     buildEcoPiModel({
       ...base,
       route: {
-        role: "planner",
+        role: "main",
         providerId: "p",
         modelId: "grok-4.5",
         primary: { modelId: "grok-4.5" },
@@ -760,7 +760,7 @@ test("buildEcoPiModel does not enable supportsMidConvoEffort (Gateway is not fai
     bridgeModelId: "claude-alias",
     apiCompat: "anthropic",
     route: {
-      role: "planner",
+      role: "main",
       providerId: "anthropic",
       modelId: "claude-opus-4",
       primary: { modelId: "claude-opus-4" },
@@ -779,7 +779,7 @@ test("buildEcoPiModel opts in xhigh/max so PI does not clamp max thinking to hig
     bridgeModelId: "alias-r",
     apiCompat: "openai_responses",
     route: {
-      role: "planner",
+      role: "main",
       providerId: "p",
       modelId: "gpt-5.6-luna",
       primary: { modelId: "gpt-5.6-luna" },
@@ -802,7 +802,7 @@ test("computePiRouteFingerprint includes thinkingEffort so changing it rebuilds 
     bindingId: "",
   };
   const planner = {
-    role: "planner" as const,
+    role: "main" as const,
     providerId: "p",
     modelId: "grok-4.5",
     primary: { modelId: "grok-4.5" },
@@ -840,6 +840,37 @@ test("agent_end is not run terminal; agent_settled is settle-only", () => {
   const settled = mapPiSessionEventToAgentEvents({ type: "agent_settled" }, makeCtx());
   expect(settled.some((e) => e.type === "agent.settled")).toBe(true);
   expect(settled.some((e) => e.type === "run.terminal")).toBe(false);
+});
+
+test("PI keeps native tool duration and arbitrary MCP structured JSON", () => {
+  for (const structuredContent of [null, [1, "two"], false, 42, "value"]) {
+    const event = mapPiSessionEventToAgentEvents(
+      {
+        type: "tool_execution_end",
+        toolCallId: "mcp-result",
+        toolName: "mcp__example__read",
+        durationMs: 0,
+        result: { content: [], structuredContent },
+      },
+      makeCtx(),
+    )[0];
+    expect(event?.payload).toMatchObject({ structuredContent, durationMs: 0 });
+  }
+  const failed = mapPiSessionEventToAgentEvents(
+    {
+      type: "tool_execution_end",
+      toolCallId: "failed",
+      toolName: "bash",
+      isError: true,
+      durationMs: 12.5,
+      result: { content: [{ type: "text", text: "capacity exceeded" }] },
+    },
+    makeCtx(),
+  )[0];
+  expect(failed).toMatchObject({
+    type: "tool.failed",
+    payload: { durationMs: 12.5, message: "capacity exceeded" },
+  });
 });
 
 test("decidePiPromptRunTerminal: only agent_settled may complete", () => {
@@ -1000,7 +1031,7 @@ test("PiSessionRegistry isolates sessions and PiCodingAgentDriver streams events
         id: `${id}:msg`,
         threadId: "unused",
         agentId: id,
-        role: "planner",
+        role: "main",
         type: "message.delta",
         payload: { type: "eco_stream", blockKind: "text", text: `echo:${text}` },
         createdAt: new Date().toISOString(),
@@ -1045,7 +1076,7 @@ test("PiSessionRegistry isolates sessions and PiCodingAgentDriver streams events
 
   const routes = [
     {
-      role: "planner" as const,
+      role: "main" as const,
       providerId: "p",
       modelId: "m",
       primary: { modelId: "m", contextWindow: 100_000 },
@@ -1231,7 +1262,7 @@ test("token-only MCP env change reuses registry session", async () => {
         id: `${id}:msg`,
         threadId: "unused",
         agentId: id,
-        role: "planner",
+        role: "main",
         type: "message.delta",
         payload: { type: "eco_stream", blockKind: "text", text: `echo:${text}` },
         createdAt: new Date().toISOString(),
@@ -1271,7 +1302,7 @@ test("token-only MCP env change reuses registry session", async () => {
 
   const routes = [
     {
-      role: "planner" as const,
+      role: "main" as const,
       providerId: "p",
       modelId: "m",
       primary: { modelId: "m", contextWindow: 100_000 },
@@ -1359,7 +1390,7 @@ test("inherited spawn env in live MCP config does not recreate or clear JSONL", 
         id: `${id}:msg`,
         threadId: "unused",
         agentId: id,
-        role: "planner",
+        role: "main",
         type: "message.delta",
         payload: { type: "eco_stream", blockKind: "text", text: `echo:${text}` },
         createdAt: new Date().toISOString(),
@@ -1399,7 +1430,7 @@ test("inherited spawn env in live MCP config does not recreate or clear JSONL", 
 
   const routes = [
     {
-      role: "planner" as const,
+      role: "main" as const,
       providerId: "p",
       modelId: "m",
       primary: { modelId: "m", contextWindow: 100_000 },
@@ -1496,7 +1527,7 @@ test("legacy resumeMcpFingerprint with embedded token still disk-resumes", async
         id: `${id}:msg`,
         threadId: "unused",
         agentId: id,
-        role: "planner",
+        role: "main",
         type: "message.delta",
         payload: { type: "eco_stream", blockKind: "text", text: `echo:${text}` },
         createdAt: new Date().toISOString(),
@@ -1536,7 +1567,7 @@ test("legacy resumeMcpFingerprint with embedded token still disk-resumes", async
 
   const routes = [
     {
-      role: "planner" as const,
+      role: "main" as const,
       providerId: "p",
       modelId: "m",
       primary: { modelId: "m", contextWindow: 100_000 },
@@ -1626,7 +1657,7 @@ test("PiCodingAgentDriver injects eco-pi-approval and re-arms handler on session
         id: `${id}:msg`,
         threadId: "unused",
         agentId: id,
-        role: "planner",
+        role: "main",
         type: "message.delta",
         payload: { type: "eco_stream", blockKind: "text", text: `echo:${text}` },
         createdAt: new Date().toISOString(),
@@ -1674,7 +1705,7 @@ test("PiCodingAgentDriver injects eco-pi-approval and re-arms handler on session
 
   const routes = [
     {
-      role: "planner" as const,
+      role: "main" as const,
       providerId: "p",
       modelId: "m",
       primary: { modelId: "m", contextWindow: 100_000 },
@@ -1762,7 +1793,7 @@ test("PiCodingAgentDriver recreates session when tool approval presence drifts",
         id: `${id}:msg`,
         threadId: "unused",
         agentId: id,
-        role: "planner",
+        role: "main",
         type: "message.delta",
         payload: { type: "eco_stream", blockKind: "text", text: `echo:${text}` },
         createdAt: new Date().toISOString(),
@@ -1804,7 +1835,7 @@ test("PiCodingAgentDriver recreates session when tool approval presence drifts",
 
   const routes = [
     {
-      role: "planner" as const,
+      role: "main" as const,
       providerId: "p",
       modelId: "m",
       primary: { modelId: "m", contextWindow: 100_000 },
@@ -1866,8 +1897,8 @@ test("PiCodingAgentDriver passes planner thinkingEffort into PI session thinking
             yield {
               id: "m",
               threadId: input.threadId,
-              agentId: "planner",
-              role: "planner",
+              agentId: "main",
+              role: "main",
               type: "message.delta",
               payload: { type: "eco_stream", blockKind: "text", text },
               createdAt: new Date().toISOString(),
@@ -1889,7 +1920,7 @@ test("PiCodingAgentDriver passes planner thinkingEffort into PI session thinking
   );
 
   const planner = {
-    role: "planner" as const,
+    role: "main" as const,
     providerId: "p",
     modelId: "grok-4.5",
     primary: { modelId: "grok-4.5", contextWindow: 100_000 },

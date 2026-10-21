@@ -44,13 +44,13 @@ const snapshot: ResolvedOrchestrationSnapshot = {
 test("buildComposerAgentModelLabels localizes legacy coding labels", async () => {
   const labels = buildComposerAgentModelLabels({
     routes: [
-      { role: "planner", providerId: "p1", modelId: "main-model" },
+      { role: "main", providerId: "p1", modelId: "main-model" },
       { role: "coder", providerId: "p1", modelId: "coder-model" },
     ],
   });
 
   expect(labels[0]).toMatchObject({
-    role: "planner",
+    role: "main",
     displayName: "Main agent",
     main: true,
     modelId: "main-model",
@@ -67,7 +67,7 @@ test("buildComposerAgentModelLabels renders resolved orchestration labels", asyn
   const labels = buildComposerAgentModelLabels({
     snapshot,
     routes: [
-      { role: "planner", providerId: "p1", modelId: "main-model" },
+      { role: "main", providerId: "p1", modelId: "main-model" },
       { role: "research_lead", providerId: "p1", modelId: "research-model" },
     ],
     threadModelByRole: { research_lead: "live-research-model" },
@@ -75,7 +75,7 @@ test("buildComposerAgentModelLabels renders resolved orchestration labels", asyn
 
   expect(labels).toEqual([
     {
-      role: "planner",
+      role: "main",
       displayName: "Research Captain",
       modelId: "main-model",
       title: "Research Captain · main-model",

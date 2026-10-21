@@ -67,7 +67,7 @@ export async function resolvePiUsageBilling(
 
   const artifacts = await resolveSingleUsageBillingArtifacts({
     threadId: input.threadId,
-    role: "planner" satisfies RuntimeAgentRole,
+    role: "main" satisfies RuntimeAgentRole,
     usage,
     runtimeRoutes: input.runtimeRoutes,
     lookupPricing: input.lookupPricing,

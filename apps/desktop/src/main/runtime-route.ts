@@ -129,7 +129,7 @@ const SHARED_UPSTREAM_MODEL_ROLE_PRIORITY: readonly AgentRole[] = [
   "tester",
   "architect",
   "reviewer",
-  "planner",
+  "main",
 ];
 
 function pickSharedUpstreamModelRoute(

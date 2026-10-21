@@ -19,7 +19,7 @@ function providerSecret(id: string): ProviderConfigSecret {
   };
 }
 
-function route(role: "coder" | "planner", alias: string): ClaudeBridgeBindingRoute {
+function route(role: "coder" | "main", alias: string): ClaudeBridgeBindingRoute {
   return {
     role,
     provider: providerSecret("pa"),
@@ -30,14 +30,14 @@ function route(role: "coder" | "planner", alias: string): ClaudeBridgeBindingRou
 }
 
 test("resolveBindingRoleForRoutes selects route by exact requested alias", () => {
-  const routes = [route("coder", "alias-coder"), route("planner", "alias-planner")];
+  const routes = [route("coder", "alias-coder"), route("main", "alias-planner")];
   expect(
     resolveBindingRoleForRoutes(routes, {
       providerId: "pa",
       requestedModel: "alias-planner",
       upstreamModelId: "shared-model",
     }),
-  ).toBe("planner");
+  ).toBe("main");
   expect(
     resolveBindingRoleForRoutes(routes, {
       providerId: "pa",
@@ -48,7 +48,7 @@ test("resolveBindingRoleForRoutes selects route by exact requested alias", () =>
 });
 
 test("resolveBindingRoleForRoutes fail closed when concrete model matches multiple routes", () => {
-  const routes = [route("coder", "alias-coder"), route("planner", "alias-planner")];
+  const routes = [route("coder", "alias-coder"), route("main", "alias-planner")];
   expect(
     resolveBindingRoleForRoutes(routes, {
       providerId: "pa",
@@ -66,7 +66,7 @@ test("resolveBindingRoleForRoutes fail closed when concrete model matches multip
 });
 
 test("resolveBindingRoleForRoutes fail closed when alias match is ambiguous", () => {
-  const routes = [route("coder", "alias-dup"), route("planner", "alias-dup")];
+  const routes = [route("coder", "alias-dup"), route("main", "alias-dup")];
   expect(
     resolveBindingRoleForRoutes(routes, {
       providerId: "pa",

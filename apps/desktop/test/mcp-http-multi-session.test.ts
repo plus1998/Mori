@@ -121,6 +121,7 @@ test("multi-session image-view shares one HTTP endpoint and routes by token", as
 
 test("multi-session browser prepareThread reuses one control URL for agents", async () => {
   const gateway = new BrowserMcpGateway({
+    getFocusedTargetId: () => "test-target",
     ensureCdpPort: async () => {
       throw new Error("listTools must not mint CDP");
     },

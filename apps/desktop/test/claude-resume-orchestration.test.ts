@@ -106,11 +106,11 @@ describe("Claude bridge lease / settle hardening", () => {
 describe("resume fingerprint / apiCompat normalization", () => {
   test("apiCompat fingerprint drift still resumes (SDK always sees /messages)", () => {
     const previous = snapshotClaudeResumeRoutes([
-      { role: "planner", providerId: "p1", modelId: "m1", apiCompat: "anthropic" },
+      { role: "main", providerId: "p1", modelId: "m1", apiCompat: "anthropic" },
     ]);
     const next = snapshotClaudeResumeRoutes([
       {
-        role: "planner",
+        role: "main",
         providerId: "p1",
         modelId: "m1",
         apiCompat: "openai_responses",
@@ -130,9 +130,9 @@ describe("resume fingerprint / apiCompat normalization", () => {
   });
 
   test("raw vs resolved apiCompat fingerprint mismatch does not block resume", () => {
-    const rawThreadRoutes: RuntimeRoleRouteConfig[] = [{ role: "planner", providerId: "p1", modelId: "m1" }];
+    const rawThreadRoutes: RuntimeRoleRouteConfig[] = [{ role: "main", providerId: "p1", modelId: "m1" }];
     const resolvedRoutes: RuntimeRoleRouteConfig[] = [
-      { role: "planner", providerId: "p1", modelId: "m1", apiCompat: "anthropic" },
+      { role: "main", providerId: "p1", modelId: "m1", apiCompat: "anthropic" },
     ];
     const previous = snapshotClaudeResumeRoutes(resolvedRoutes);
     const nextRaw = snapshotClaudeResumeRoutes(rawThreadRoutes);

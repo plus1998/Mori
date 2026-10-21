@@ -36,7 +36,7 @@ test("buildActivityContextForPrompt skips tool noise", () => {
   const history = buildActivityContextForPrompt([
     { role: "user", message: "实现导出按钮" },
     { role: "tool", message: "Tool: Read · foo.ts" },
-    { role: "planner", message: "【规划 (planner)】计划已生成，等待确认。" },
+    { role: "main", message: "【规划 (planner)】计划已生成，等待确认。" },
   ]);
   expect(history).toContain("实现导出按钮");
   expect(history).toContain("计划已生成");
@@ -56,7 +56,7 @@ test("buildAgentPromptWithContext includes history for coding follow-up", () => 
 test("rewind continuation prompt uses trimmed history instead of future activity", () => {
   const prompt = buildAgentPromptWithContext("原任务", "替换后的消息", [
     { role: "user", message: "原任务" },
-    { role: "planner", message: "目标节点之前的回复" },
+    { role: "main", message: "目标节点之前的回复" },
   ]);
   expect(prompt).toContain("替换后的消息");
   expect(prompt).toContain("目标节点之前的回复");
@@ -183,7 +183,7 @@ test("agent session mode keeps agent routing on question-shaped follow-up", () =
 test("pickDisplayContextTokens prefers planner", () => {
   expect(
     pickDisplayContextTokens({
-      planner: { contextTokens: 12_000 },
+      main: { contextTokens: 12_000 },
       reviewer: { contextTokens: 80_000 },
     }),
   ).toBe(12_000);
@@ -215,6 +215,6 @@ test("resolveCodexContinueStrategy rejects rewind without binding", () => {
 test("threadHasPriorAgentOutput ignores noise and user-only history", () => {
   expect(threadHasPriorAgentOutput([])).toBe(false);
   expect(threadHasPriorAgentOutput([{ role: "user", message: "hi" }])).toBe(false);
-  expect(threadHasPriorAgentOutput([{ role: "planner", message: "Requesting model…" }])).toBe(false);
-  expect(threadHasPriorAgentOutput([{ role: "planner", message: "我来帮你改这个按钮。" }])).toBe(true);
+  expect(threadHasPriorAgentOutput([{ role: "main", message: "Requesting model…" }])).toBe(false);
+  expect(threadHasPriorAgentOutput([{ role: "main", message: "我来帮你改这个按钮。" }])).toBe(true);
 });

@@ -30,6 +30,11 @@ import { ECO_AGENT_BROWSER_MCP_SERVER } from "../shared/browser";
 import { type McpServersEnabledSettings, normalizeMcpServersEnabled } from "../shared/composer-mcp";
 import { type IntegrationsEnabledSettings, normalizeIntegrationsEnabled } from "../shared/integrations";
 import type { FollowUpDeliveryMode } from "../shared/ipc";
+import {
+  isMainAgentModelOverride,
+  type MainAgentModelOverride,
+  normalizeMainAgentModelOverride,
+} from "../shared/thread-runtime-config";
 import { isSessionMode, normalizeSessionMode, type SessionMode } from "../shared/session-mode";
 import {
   isVisionModelSelection,
@@ -82,6 +87,8 @@ export interface WorkflowSettingsSnapshot {
   defaultAuxiliaryModel?: AuxiliaryModelSelection;
   defaultApprovalModel?: ApprovalModelSelection;
   defaultVisionModel?: VisionModelSelection;
+  /** Last model and reasoning choice made with the built-in Codex Auth config. */
+  codexAuthModel?: MainAgentModelOverride;
   mcpServersEnabled?: Record<string, boolean>;
   integrationsEnabled?: IntegrationsEnabledSettings;
 }
@@ -134,6 +141,7 @@ export class WorkflowSettingsStore {
     const defaultAuxiliaryModel = this.readDefaultAuxiliaryModel();
     const defaultApprovalModel = this.readDefaultApprovalModel();
     const defaultVisionModel = this.readDefaultVisionModel();
+    const codexAuthModel = this.getCodexAuthModel();
     const followUpDeliveryMode = this.readFollowUpDeliveryMode();
     const mcpServersEnabled = this.readMcpServersEnabled();
     const storedIntegrations = this.readIntegrationsEnabled();
@@ -167,6 +175,7 @@ export class WorkflowSettingsStore {
       ...(defaultAuxiliaryModel ? { defaultAuxiliaryModel } : {}),
       ...(defaultApprovalModel ? { defaultApprovalModel } : {}),
       ...(defaultVisionModel ? { defaultVisionModel } : {}),
+      ...(codexAuthModel ? { codexAuthModel } : {}),
       ...(cleanedMcp && Object.keys(cleanedMcp).length > 0 ? { mcpServersEnabled: cleanedMcp } : {}),
       ...(integrationsEnabled ? { integrationsEnabled } : {}),
     });
@@ -180,6 +189,17 @@ export class WorkflowSettingsStore {
   save(snapshot: WorkflowSettingsSnapshot): WorkflowSettingsSnapshot {
     const normalized = normalizeWorkflowSettingsSnapshot(snapshot);
     const now = new Date().toISOString();
+    if (normalized.codexAuthModel) {
+      this.db
+        .prepare(
+          `INSERT INTO workflow_settings (key, value_json, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+        )
+        .run("codex_auth_model", JSON.stringify(normalized.codexAuthModel), now);
+    } else {
+      this.db.prepare(`DELETE FROM workflow_settings WHERE key = ?`).run("codex_auth_model");
+    }
     this.db
       .prepare(
         `INSERT INTO workflow_settings (key, value_json, updated_at)
@@ -650,6 +670,18 @@ export class WorkflowSettingsStore {
     }
   }
 
+  getCodexAuthModel(): MainAgentModelOverride | undefined {
+    const row = this.db
+      .prepare(`SELECT value_json FROM workflow_settings WHERE key = ?`)
+      .get("codex_auth_model") as { value_json: string } | undefined;
+    if (!row?.value_json?.trim()) return undefined;
+    try {
+      return normalizeCodexAuthModel(JSON.parse(row.value_json) as unknown);
+    } catch {
+      return undefined;
+    }
+  }
+
   private readDefaultVisionModel(): VisionModelSelection | undefined {
     const row = this.db
       .prepare(`SELECT value_json FROM workflow_settings WHERE key = ?`)
@@ -719,6 +751,7 @@ export function normalizeWorkflowSettingsSnapshot(value: unknown): WorkflowSetti
   const defaultAuxiliaryModel = normalizeAuxiliaryModelSelection(record.defaultAuxiliaryModel);
   const defaultApprovalModel = normalizeApprovalModelSelection(record.defaultApprovalModel);
   const defaultVisionModel = normalizeVisionModelSelection(record.defaultVisionModel);
+  const codexAuthModel = normalizeCodexAuthModel(record.codexAuthModel);
   const mcpServersEnabled = normalizeMcpServersEnabled(record.mcpServersEnabled);
   const integrationsEnabled = normalizeIntegrationsEnabled(record.integrationsEnabled);
   const acpCursorApiKeyPart = acpCursorApiKey ? { acpCursorApiKey } : {};
@@ -745,11 +778,17 @@ export function normalizeWorkflowSettingsSnapshot(value: unknown): WorkflowSetti
       ...defaultAuxiliaryPart,
       ...defaultApprovalPart,
       ...defaultVisionPart,
+      ...(codexAuthModel ? { codexAuthModel } : {}),
       ...mcpPart,
       ...integrationsPart,
     };
   }
   return defaultWorkflowSettings();
+}
+
+function normalizeCodexAuthModel(value: unknown): MainAgentModelOverride | undefined {
+  if (!isMainAgentModelOverride(value) || value.providerId.trim() !== "openai") return undefined;
+  return normalizeMainAgentModelOverride(value);
 }
 
 function normalizeDefaultCoreKind(value: unknown): CoreKind {
@@ -862,6 +901,7 @@ export function isWorkflowSettingsSnapshot(value: unknown): value is WorkflowSet
     (record.defaultAuxiliaryModel === undefined || isAuxiliaryModelSelection(record.defaultAuxiliaryModel)) &&
     (record.defaultApprovalModel === undefined || isApprovalModelSelection(record.defaultApprovalModel)) &&
     (record.defaultVisionModel === undefined || isVisionModelSelection(record.defaultVisionModel)) &&
+    (record.codexAuthModel === undefined || normalizeCodexAuthModel(record.codexAuthModel) !== undefined) &&
     (record.integrationsEnabled === undefined ||
       normalizeIntegrationsEnabled(record.integrationsEnabled) !== undefined)
   );

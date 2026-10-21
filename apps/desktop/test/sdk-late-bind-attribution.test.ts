@@ -14,13 +14,13 @@ test("main planner late-bind uses exact session id when parent_tool_use_id absen
     "thr_main",
     {
       type: "usage.recorded",
-      role: "planner",
+      role: "main",
       agentId: "session_planner_1",
       payload: { request_id: "req_main" },
     },
     { plannerSessionId: "session_planner_1" },
   );
-  expect(attribution).toEqual({ agentId: "session_planner_1", role: "planner" });
+  expect(attribution).toEqual({ agentId: "session_planner_1", role: "main" });
 });
 
 test("main planner late-bind rejected when parent_tool_use_id present", () => {
@@ -29,7 +29,7 @@ test("main planner late-bind rejected when parent_tool_use_id present", () => {
       "thr_main",
       {
         type: "usage.recorded",
-        role: "planner",
+        role: "main",
         agentId: "session_planner_1",
         payload: { request_id: "req_main", parent_tool_use_id: "toolu_parent" },
       },

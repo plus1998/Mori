@@ -21,6 +21,10 @@ import {
   resolveAnthropicStreamUsage,
   trackAnthropicStreamUsage,
 } from "../anthropic-stream-usage.js";
+import {
+  enrichResolvedRouteWithCodexTurnIdentity,
+  parseCodexTurnMetadataHeader,
+} from "../codex-turn-metadata.js";
 import { rejectDisabledModelImageInput } from "../image-input-policy.js";
 import { applyModelOutputLimit, withDynamicOutputBudget } from "../model-output-limit.js";
 import {
@@ -44,7 +48,6 @@ import {
 } from "../request-lifecycle.js";
 import {
   credentialResolutionErrorResponse,
-  reportRouteCredentialResult,
   resolveRouteCredential,
 } from "../route-credentials.js";
 import type { GatewayLogFn } from "../server.js";
@@ -52,13 +55,16 @@ import {
   appendStreamUtf8Chunk,
   createStreamUtf8Decoder,
   finalizeStreamUtf8Decoder,
+  IncrementalSseParser,
+  type ParsedSseFrame,
   parseAnthropicStreamEventBlock,
-  parseResponsesStreamEventBlock,
+  parseResponsesSseFrame,
   splitSseBlocks,
 } from "../sse.js";
 import type {
   GatewayConfig,
   GatewayRequestLifecycleObserver,
+  GatewayUpstreamErrorInfo,
   GatewayUsageEvent,
   GatewayUsageObserver,
   ResolvedProviderRoute,
@@ -73,7 +79,12 @@ import {
   sanitizeDeepSeekResponsesCustomTools,
 } from "../upstream/responses-passthrough.js";
 import {
+  extractResponsesErrorInfo,
+  readResponsesResponseId,
+} from "../upstream/responses-stream-errors.js";
+import {
   extractUpstreamErrorCode,
+  extractUpstreamErrorInfo,
   extractUpstreamErrorMessage,
   formatUpstreamHttpError,
 } from "../upstream/upstream-error.js";
@@ -131,6 +142,10 @@ export async function handlePostMessages(
       config.providers,
       buildResolveProviderRouteOptions(request.headers),
     );
+    route = enrichResolvedRouteWithCodexTurnIdentity(
+      route,
+      parseCodexTurnMetadataHeader(request.headers),
+    );
   } catch (error) {
     if (
       error instanceof ProviderNotFoundError ||
@@ -161,10 +176,16 @@ export async function handlePostMessages(
 
   applyModelOutputLimit(body, route, "max_tokens");
   fetchImpl = withDynamicOutputBudget(fetchImpl, route, config, request.signal, onLog);
-  const lifecycle = buildRequestLifecycleContext(route, "messages", onLog, onRequestLifecycle);
+  const lifecycle = buildRequestLifecycleContext(
+    route,
+    "messages",
+    onLog,
+    onRequestLifecycle,
+    config.reportCredentialResult,
+  );
 
   let response: Response;
-  // UA: per agent core override → global override → SDK UA → Eco fallback.
+  // UA: per Harness override → global override → SDK UA → Eco fallback.
   const upstreamUserAgent = resolveUpstreamUserAgent(request.headers, {
     override: config.upstreamUserAgent,
     byCore: config.upstreamUserAgents,
@@ -216,7 +237,6 @@ export async function handlePostMessages(
       return _exhaustive;
     }
   }
-  await reportRouteCredentialResult(route, config, response);
   return response;
 }
 
@@ -303,6 +323,7 @@ export async function handlePostMessagesCountTokens(
         headers,
         body: JSON.stringify(body),
       },
+      httpFailureContext: { route, upstreamUrl },
       onLog,
     });
   } catch (error) {
@@ -395,6 +416,7 @@ async function forwardMessagesViaOpenAIChat(
   return mapResponsesSseBodyToAnthropic({
     upstreamBody: responsesResponse.body,
     upstreamHeaders: responsesResponse.headers,
+    upstreamStatusCode: responsesResponse.status,
     requestToolNames,
     providerId: route.provider.id,
     startedAt,
@@ -595,12 +617,14 @@ async function forwardMessagesViaResponses(
       bodyText: text,
     });
     const upstreamErrorCode = extractUpstreamErrorCode(text);
+    const errorInfo = extractUpstreamErrorInfo(text, "http");
     const providerRequestId = readUpstreamRequestId(upstreamResponse.headers);
     reportLogicalUpstreamFailure(lifecycle, {
       stage: "http",
       error: detailed,
       statusCode: upstreamResponse.status,
       ...(providerRequestId ? { providerRequestId } : {}),
+      ...(errorInfo ? { errorInfo } : {}),
     });
     if (wantStream) {
       return anthropicErrorSseResponse(upstreamResponse.status, detailed, {
@@ -635,7 +659,12 @@ async function forwardMessagesViaResponses(
           );
         }
       }
-      tryEmitLogicalCompleted(lifecycle, readUpstreamRequestId(upstreamResponse.headers));
+      tryEmitLogicalCompleted(
+        lifecycle,
+        readUpstreamRequestId(upstreamResponse.headers),
+        (json as { id?: string }).id,
+        upstreamResponse.status,
+      );
       // Flatten non-stream result into a minimal Anthropic SSE so the Claude SDK keeps the stream path.
       return anthropicJsonAsSse(anthropic, upstreamResponse.headers, route.logicalRequestId);
     } catch {
@@ -679,6 +708,15 @@ async function forwardMessagesViaResponses(
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const streamError = error instanceof ResponsesStreamError ? error : undefined;
+      const errorInfo =
+        streamError?.errorInfo ??
+        ({
+          message,
+          code: streamError?.code ?? "invalid_stream",
+          eventType: "responses",
+          rawEvent: { message },
+        } satisfies GatewayUpstreamErrorInfo);
       const providerRequestId = readUpstreamRequestId(upstreamResponse.headers);
       onLog(`messages→responses non-stream collection failed: ${message}`);
       if (signal?.aborted) {
@@ -687,7 +725,10 @@ async function forwardMessagesViaResponses(
         reportLogicalUpstreamFailure(lifecycle, {
           stage: "stream",
           error: message,
+          statusCode: upstreamResponse.status,
           ...(providerRequestId ? { providerRequestId } : {}),
+          ...(streamError?.responseId ? { responseId: streamError.responseId } : {}),
+          errorInfo,
         });
       }
       return anthropicErrorResponse(
@@ -702,7 +743,12 @@ async function forwardMessagesViaResponses(
         emitMessagesUsage(onUsage, route, usage, false, (json as { id?: string }).id, onLog);
       }
     }
-    tryEmitLogicalCompleted(lifecycle, readUpstreamRequestId(upstreamResponse.headers));
+    tryEmitLogicalCompleted(
+      lifecycle,
+      readUpstreamRequestId(upstreamResponse.headers),
+      (json as { id?: string }).id,
+      upstreamResponse.status,
+    );
     return Response.json(anthropic, {
       status: 200,
       headers: headersWithLogicalRequestIdentity(upstreamResponse.headers, route.logicalRequestId, {
@@ -718,6 +764,7 @@ async function forwardMessagesViaResponses(
   return mapResponsesSseBodyToAnthropic({
     upstreamBody: upstreamResponse.body,
     upstreamHeaders: upstreamResponse.headers,
+    upstreamStatusCode: upstreamResponse.status,
     requestToolNames,
     providerId: route.provider.id,
     startedAt,
@@ -918,6 +965,7 @@ function passThroughAnthropicSseWithUsage(
 function mapResponsesSseBodyToAnthropic(input: {
   upstreamBody: ReadableStream<Uint8Array>;
   upstreamHeaders: Headers;
+  upstreamStatusCode: number;
   requestToolNames: readonly string[];
   providerId: string;
   startedAt: number;
@@ -931,8 +979,7 @@ function mapResponsesSseBodyToAnthropic(input: {
   const face = input.faceLabel ?? "messages→responses";
   const providerRequestId = readUpstreamRequestId(input.upstreamHeaders);
   const state = newResponsesEventToAnthropicState(input.requestToolNames);
-  const utf8Decoder = createStreamUtf8Decoder();
-  let sseBuffer = "";
+  const parser = new IncrementalSseParser();
   const reader = input.upstreamBody.getReader();
   const encoder = new TextEncoder();
   let rawEventCount = 0;
@@ -944,6 +991,7 @@ function mapResponsesSseBodyToAnthropic(input: {
   const usageTracker = newAnthropicStreamUsageTracker();
   let fallbackResponsesUsage: ParsedUsage | undefined;
   let fallbackResponseId: string | undefined;
+  let responseId: string | undefined;
   let usageSettled = false;
 
   const settleUsage = () => {
@@ -994,7 +1042,10 @@ function mapResponsesSseBodyToAnthropic(input: {
     void reader.cancel().catch(() => undefined);
   };
 
-  const completeFromResponses = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+  const completeFromResponses = (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+    completedResponseId: string,
+  ) => {
     if (terminalSettled || cancelled || streamFailed) {
       return;
     }
@@ -1014,13 +1065,18 @@ function mapResponsesSseBodyToAnthropic(input: {
         `(raw=${rawEventCount} parseFail=${parseFailures} types=${JSON.stringify(rawTypes)}).`;
       input.onLog(msg);
       streamFailed = true;
-      if (!input.lifecycle?.tracker.hasUpstreamFailed()) {
-        reportLogicalUpstreamFailure(input.lifecycle, {
-          stage: "stream",
-          error: msg,
-          ...(providerRequestId ? { providerRequestId } : {}),
-        });
-      }
+      reportLogicalUpstreamFailure(input.lifecycle, {
+        stage: "stream",
+        error: msg,
+        statusCode: input.upstreamStatusCode,
+        ...(providerRequestId ? { providerRequestId } : {}),
+        errorInfo: {
+          message: msg,
+          code: "invalid_stream",
+          eventType: "responses",
+          rawEvent: { reason: "no_converted_events" },
+        },
+      });
       try {
         controller.enqueue(
           encoder.encode(
@@ -1040,7 +1096,12 @@ function mapResponsesSseBodyToAnthropic(input: {
       `${face} stream done raw=${rawEventCount} anth=${anthropicEventCount} ` +
         `elapsed=${Date.now() - input.startedAt}ms provider=${input.providerId}`,
     );
-    tryEmitLogicalCompleted(input.lifecycle, providerRequestId);
+    tryEmitLogicalCompleted(
+      input.lifecycle,
+      providerRequestId,
+      completedResponseId,
+      input.upstreamStatusCode,
+    );
     closeDownstreamAndCancelUpstream(controller);
   };
 
@@ -1048,6 +1109,12 @@ function mapResponsesSseBodyToAnthropic(input: {
     controller: ReadableStreamDefaultController<Uint8Array>,
     message: string,
     alreadyEmittedAnthropicError: boolean,
+    errorInfo: GatewayUpstreamErrorInfo = {
+      message,
+      code: "incomplete_stream",
+      eventType: "responses",
+      rawEvent: { reason: "stream_failed" },
+    },
   ) => {
     if (terminalSettled || cancelled) {
       return;
@@ -1067,13 +1134,14 @@ function mapResponsesSseBodyToAnthropic(input: {
         // already closed
       }
     }
-    if (!input.lifecycle?.tracker.hasUpstreamFailed()) {
-      reportLogicalUpstreamFailure(input.lifecycle, {
-        stage: "stream",
-        error: message,
-        ...(providerRequestId ? { providerRequestId } : {}),
-      });
-    }
+    reportLogicalUpstreamFailure(input.lifecycle, {
+      stage: "stream",
+      error: message,
+      statusCode: input.upstreamStatusCode,
+      ...(providerRequestId ? { providerRequestId } : {}),
+      ...(responseId ? { responseId } : {}),
+      errorInfo,
+    });
     closeDownstreamAndCancelUpstream(controller);
   };
 
@@ -1087,16 +1155,21 @@ function mapResponsesSseBodyToAnthropic(input: {
           `${face} timed out waiting for first converted SSE event ` +
           `after ${RESPONSES_STREAM_FIRST_EVENT_TIMEOUT_MS}ms (provider=${input.providerId}).`;
         input.onLog(msg);
-        failFromResponses(controller, msg, false);
+        failFromResponses(controller, msg, false, {
+          message: msg,
+          code: "stream_timeout",
+          eventType: "responses",
+          rawEvent: { reason: "first_event_timeout" },
+        });
       }, RESPONSES_STREAM_FIRST_EVENT_TIMEOUT_MS);
 
-      const processBlocks = (blocks: readonly string[]) => {
-        for (const block of blocks) {
+      const processFrames = (frames: readonly ParsedSseFrame[]) => {
+        for (const frame of frames) {
           if (terminalSettled || cancelled) {
             return;
           }
           const counts = enqueueAnthropicFromResponsesSse(
-            block,
+            frame,
             state,
             controller,
             encoder,
@@ -1111,8 +1184,14 @@ function mapResponsesSseBodyToAnthropic(input: {
             input.route?.upstreamModelId,
             input.lifecycle,
             providerRequestId,
+            responseId,
             {
-              onResponseCompleted: () => {
+              onResponseId: (nextResponseId) => {
+                responseId = nextResponseId;
+                fallbackResponseId = nextResponseId;
+              },
+              onResponseCompleted: (completedResponseId) => {
+                responseId = completedResponseId;
                 sawResponseCompleted = true;
               },
               onStreamFailed: () => {
@@ -1129,7 +1208,7 @@ function mapResponsesSseBodyToAnthropic(input: {
             return;
           }
           if (sawResponseCompleted) {
-            completeFromResponses(controller);
+            completeFromResponses(controller, responseId!);
             return;
           }
         }
@@ -1145,16 +1224,18 @@ function mapResponsesSseBodyToAnthropic(input: {
             }
             if (done) {
               clearFirstEventTimer();
-              sseBuffer = finalizeStreamUtf8Decoder(utf8Decoder, sseBuffer);
-              if (sseBuffer.trim()) {
-                const { blocks } = splitSseBlocks(`${sseBuffer}\n\n`);
-                processBlocks(blocks);
-              }
+              processFrames(parser.finish());
               if (cancelled || terminalSettled) {
                 return;
               }
               if (!streamFailed && !sawResponseCompleted) {
-                failFromResponses(controller, `${face} stream ended before response.completed.`, false);
+                const message = `${face} stream ended before response.completed.`;
+                failFromResponses(controller, message, false, {
+                  message,
+                  code: "incomplete_stream",
+                  eventType: "responses",
+                  rawEvent: { reason: "eof_before_completed" },
+                });
               }
               return;
             }
@@ -1166,10 +1247,7 @@ function mapResponsesSseBodyToAnthropic(input: {
               );
             }
 
-            sseBuffer = appendStreamUtf8Chunk(utf8Decoder, sseBuffer, value);
-            const { blocks, remainder } = splitSseBlocks(sseBuffer);
-            sseBuffer = remainder;
-            processBlocks(blocks);
+            processFrames(parser.push(value));
           }
         } catch (error) {
           clearFirstEventTimer();
@@ -1178,7 +1256,12 @@ function mapResponsesSseBodyToAnthropic(input: {
           }
           const message = error instanceof Error ? error.message : String(error);
           input.onLog(`${face} stream pump failed: ${message}`);
-          failFromResponses(controller, message, false);
+          failFromResponses(controller, message, false, {
+            message,
+            code: "invalid_stream",
+            eventType: "responses",
+            rawEvent: { message },
+          });
         }
       };
 
@@ -1197,7 +1280,7 @@ function mapResponsesSseBodyToAnthropic(input: {
   });
 
   return new Response(stream, {
-    status: 200,
+    status: input.upstreamStatusCode,
     headers: headersWithLogicalRequestIdentity(input.upstreamHeaders, input.route?.logicalRequestId, {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache",
@@ -1206,7 +1289,7 @@ function mapResponsesSseBodyToAnthropic(input: {
 }
 
 function enqueueAnthropicFromResponsesSse(
-  block: string,
+  frame: ParsedSseFrame,
   state: ReturnType<typeof newResponsesEventToAnthropicState>,
   controller: ReadableStreamDefaultController<Uint8Array>,
   encoder: TextEncoder,
@@ -1216,43 +1299,50 @@ function enqueueAnthropicFromResponsesSse(
   modelId: string | undefined,
   lifecycle?: RequestLifecycleContext,
   providerRequestId?: string,
+  activeResponseId?: string,
   hooks?: {
-    onResponseCompleted?: () => void;
+    onResponseId?: (responseId: string) => void;
+    onResponseCompleted?: (responseId: string) => void;
     onStreamFailed?: () => void;
   },
 ): { raw: number; anth: number; parseFail: number } {
-  const parsed = parseResponsesStreamEventBlock(block);
-  if (!parsed) {
-    // Keep prior fallback for non-standard framing.
-    const dataLine = block
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((line) => line.startsWith("data:"));
-    if (!dataLine) {
-      return { raw: 0, anth: 0, parseFail: 0 };
-    }
-    const payload = dataLine.slice("data:".length).trim();
-    if (!payload || payload === "[DONE]") {
-      return { raw: 0, anth: 0, parseFail: 0 };
-    }
+  let parsed: ResponsesStreamEvent;
+  try {
+    parsed = parseResponsesSseFrame(frame);
+  } catch (error) {
+    hooks?.onStreamFailed?.();
+    const message = error instanceof Error ? error.message : String(error);
+    const errorInfo: GatewayUpstreamErrorInfo = {
+      message,
+      code: "invalid_stream",
+      ...(frame.event ? { eventType: frame.event } : {}),
+      rawEvent: frame.data,
+    };
+    reportLogicalUpstreamFailure(lifecycle, {
+      stage: "protocol",
+      error: message,
+      statusCode: 200,
+      ...(providerRequestId ? { providerRequestId } : {}),
+      ...(activeResponseId ? { responseId: activeResponseId } : {}),
+      errorInfo,
+    });
     try {
-      const event = JSON.parse(payload) as ResponsesStreamEvent;
-      return emitConverted(
-        event,
-        state,
-        controller,
-        encoder,
-        rawTypes,
-        usageTracker,
-        onResponsesUsage,
-        modelId,
-        lifecycle,
-        providerRequestId,
-        hooks,
+      controller.enqueue(
+        encoder.encode(
+          responsesAnthropicEventToSse({
+            type: "error",
+            error: {
+              type: "api_error",
+              message,
+              code: "invalid_stream",
+            },
+          } as never),
+        ),
       );
     } catch {
-      return { raw: 0, anth: 0, parseFail: 1 };
+      // downstream already closed
     }
+    return { raw: 0, anth: 1, parseFail: 1 };
   }
   return emitConverted(
     parsed,
@@ -1265,6 +1355,7 @@ function enqueueAnthropicFromResponsesSse(
     modelId,
     lifecycle,
     providerRequestId,
+    activeResponseId,
     hooks,
   );
 }
@@ -1280,8 +1371,10 @@ function emitConverted(
   modelId: string | undefined,
   lifecycle?: RequestLifecycleContext,
   providerRequestId?: string,
+  activeResponseId?: string,
   hooks?: {
-    onResponseCompleted?: () => void;
+    onResponseId?: (responseId: string) => void;
+    onResponseCompleted?: (responseId: string) => void;
     onStreamFailed?: () => void;
   },
 ): { raw: number; anth: number; parseFail: number } {
@@ -1289,8 +1382,44 @@ function emitConverted(
   rawTypes[type] = (rawTypes[type] ?? 0) + 1;
   lifecycle?.tracker.noteFirstChunk();
 
+  const eventResponseId = readResponsesResponseId(event as unknown as Record<string, unknown>);
+  if (eventResponseId) {
+    hooks?.onResponseId?.(eventResponseId);
+  }
+
   if (type === "response.completed") {
-    hooks?.onResponseCompleted?.();
+    if (!eventResponseId) {
+      hooks?.onStreamFailed?.();
+      const message = "Upstream response.completed is missing response.id.";
+      const errorInfo: GatewayUpstreamErrorInfo = {
+        message,
+        code: "invalid_stream",
+        eventType: type,
+        rawEvent: event,
+      };
+      reportLogicalUpstreamFailure(lifecycle, {
+        stage: "protocol",
+        error: message,
+        statusCode: 200,
+        ...(providerRequestId ? { providerRequestId } : {}),
+        ...(activeResponseId ? { responseId: activeResponseId } : {}),
+        errorInfo,
+      });
+      controller.enqueue(
+        encoder.encode(
+          responsesAnthropicEventToSse({
+            type: "error",
+            error: {
+              type: "api_error",
+              message,
+              code: "invalid_stream",
+            },
+          } as never),
+        ),
+      );
+      return { raw: 1, anth: 1, parseFail: 0 };
+    }
+    hooks?.onResponseCompleted?.(eventResponseId);
   }
 
   const fromResponses = extractUsageFromResponsesStreamEvent(event, modelId);
@@ -1310,31 +1439,38 @@ function emitConverted(
     (event as { error?: unknown }).error
   ) {
     hooks?.onStreamFailed?.();
-    const errObj = (event as { error?: { message?: string } | string }).error;
-    const responseObj = (event as { response?: { error?: { message?: string } | string } }).response;
-    const responseError = responseObj?.error;
-    const message =
-      type === "response.incomplete"
-        ? "Upstream response incomplete"
-        : typeof errObj === "string"
-          ? errObj
-          : typeof errObj?.message === "string"
-            ? errObj.message
-            : typeof responseError === "string"
-              ? responseError
-              : typeof responseError?.message === "string"
-                ? responseError.message
-                : JSON.stringify(event).slice(0, 400);
+    const errorInfo = extractResponsesErrorInfo(
+      event as unknown as Record<string, unknown>,
+      type,
+    ) ?? {
+      message:
+        type === "response.incomplete"
+          ? "Upstream response incomplete"
+          : `Upstream Responses stream emitted ${type} without structured error fields.`,
+      code: type === "response.incomplete" ? "response_incomplete" : "upstream_error",
+      eventType: type,
+      rawEvent: event,
+    };
+    const message = errorInfo.message;
+    const resolvedResponseId = eventResponseId ?? activeResponseId;
     reportLogicalUpstreamFailure(lifecycle, {
       stage: "stream",
       error: message,
+      statusCode: 200,
       ...(providerRequestId ? { providerRequestId } : {}),
+      ...(resolvedResponseId ? { responseId: resolvedResponseId } : {}),
+      errorInfo,
     });
     controller.enqueue(
       encoder.encode(
         responsesAnthropicEventToSse({
           type: "error",
-          error: { type: "api_error", message },
+          error: {
+            type: "api_error",
+            message,
+            ...(errorInfo.code ? { code: errorInfo.code } : {}),
+            ...(errorInfo.param ? { param: errorInfo.param } : {}),
+          },
         } as never),
       ),
     );
@@ -1409,6 +1545,7 @@ async function postResponsesWithUnsupportedParamRetry(input: {
       lifecycle: input.lifecycle,
       onLog: input.onLog,
       signal: input.signal,
+      httpFailureContext: { route: input.route, upstreamUrl: input.url },
       upstreamProxyUrl: input.route.provider.upstreamProxyUrl,
     });
     if (response.ok || response.status < 400 || response.status >= 500) {
@@ -1445,6 +1582,7 @@ async function postResponsesWithUnsupportedParamRetry(input: {
     lifecycle: input.lifecycle,
     onLog: input.onLog,
     signal: input.signal,
+    httpFailureContext: { route: input.route, upstreamUrl: input.url },
     upstreamProxyUrl: input.route.provider.upstreamProxyUrl,
   });
   return { response, body, droppedParams };

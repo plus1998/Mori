@@ -2,6 +2,7 @@ import 'package:eco_mobile/core/locale/app_error_localizations.dart';
 import 'package:eco_mobile/core/models/app_error.dart';
 import 'package:eco_mobile/core/models/eco_types.dart';
 import 'package:eco_mobile/core/models/asr_models.dart';
+import 'package:eco_mobile/core/utils/center_server_auth.dart';
 import 'package:eco_mobile/l10n/generated/app_localizations.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,6 +27,32 @@ void main() {
 
     expect(localizedAppError(error, en), 'Server supplied detail');
     expect(error.nativeMessage, 'Server supplied detail');
+  });
+
+  test('connection errors do not expose native SDK exception text', () {
+    final error = EcoCenterException.native(
+      'AuthRetryableFetchException('
+      'message: 502 Bad Gateway, statusCode: 502)',
+      recovery: CenterServerAuthRecovery.network,
+    );
+
+    expect(
+      localizedConnectionError(error, en),
+      'Cannot connect to the server. Check your network and try again.',
+    );
+    expect(localizedConnectionError(error, zh), '无法连接服务端，请检查网络后重试。');
+    expect(localizedConnectionError(error, en), isNot(contains('502')));
+  });
+
+  test('connection errors use a stable fallback for unknown failures', () {
+    expect(
+      localizedConnectionError(StateError('Unexpected protocol shape'), en),
+      'Connection failed. Try again later.',
+    );
+    expect(
+      localizedConnectionError(StateError('Unexpected protocol shape'), zh),
+      '连接失败，请稍后重试。',
+    );
   });
 
   test('localizes stable thread errors', () {

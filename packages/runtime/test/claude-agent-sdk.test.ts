@@ -34,6 +34,7 @@ import {
   isCompactBoundarySdkMessage,
   isSdkInitMessage,
   mapSdkMessageToEvents,
+  readClaudeBackgroundTasksChanged,
   mergeAllowedTools,
   readSdkSessionId,
   readSdkUserMessageCheckpointId,
@@ -65,7 +66,7 @@ function createFakeHeldPromptStream(
 
 const routes: ResolvedModelRoute[] = [
   {
-    role: "planner",
+    role: "main",
     primary: {
       id: "opus",
       provider: "anthropic",
@@ -74,6 +75,7 @@ const routes: ResolvedModelRoute[] = [
       modelId: "claude-opus-4",
       capabilities: ["messages_api"],
       enabled: true,
+      contextWindow: 200_000,
     },
     fallbacks: [],
   },
@@ -87,6 +89,7 @@ const routes: ResolvedModelRoute[] = [
       modelId: "claude-haiku-explore",
       capabilities: ["messages_api"],
       enabled: true,
+      contextWindow: 200_000,
     },
     fallbacks: [],
   },
@@ -100,6 +103,7 @@ const routes: ResolvedModelRoute[] = [
       modelId: "qwen-coder-anthropic",
       capabilities: ["messages_api"],
       enabled: true,
+      contextWindow: 200_000,
     },
     fallbacks: [],
   },
@@ -113,6 +117,7 @@ const routes: ResolvedModelRoute[] = [
       modelId: "claude-sonnet-architect",
       capabilities: ["messages_api"],
       enabled: true,
+      contextWindow: 200_000,
     },
     fallbacks: [],
   },
@@ -126,6 +131,7 @@ const routes: ResolvedModelRoute[] = [
       modelId: "claude-sonnet-reviewer",
       capabilities: ["messages_api"],
       enabled: true,
+      contextWindow: 200_000,
     },
     fallbacks: [],
   },
@@ -139,6 +145,7 @@ const routes: ResolvedModelRoute[] = [
       modelId: "claude-haiku-tester",
       capabilities: ["messages_api"],
       enabled: true,
+      contextWindow: 200_000,
     },
     fallbacks: [],
   },
@@ -467,7 +474,7 @@ test("merges MCP tool allowlist and defaults filesystem session options", () => 
   });
   expect(
     resolveSdkSessionOptions({
-      agentSkills: { planner: ["pdf"], coder: ["docx", "lint"] },
+      agentSkills: { main: ["pdf"], coder: ["docx", "lint"] },
     }),
   ).toEqual({
     settingSources: ["project"],
@@ -482,10 +489,10 @@ test("removes Bash from SDK auto-approved tools when confirmation is enabled", (
 
 test("explicit empty skill selections stay empty instead of enabling CLI defaults", () => {
   expect(resolveSdkSessionOptions({ skills: [] }).skills).toEqual([]);
-  expect(resolveSdkSessionOptions({ skills: ["pdf"], agentSkills: { planner: [] } }).skills).toEqual([]);
+  expect(resolveSdkSessionOptions({ skills: ["pdf"], agentSkills: { main: [] } }).skills).toEqual([]);
   expect(resolveSdkSessionOptions({ agentSkills: { eco_planner: [] } }).skills).toEqual([]);
-  expect(resolveAgentSkills("planner", { planner: [], eco_planner: ["pdf"] }, ["docx"])).toEqual([]);
-  expect(resolveAgentSkills("planner", undefined, ["pdf"])).toEqual(["pdf"]);
+  expect(resolveAgentSkills("main", { main: [], eco_planner: ["pdf"] }, ["docx"])).toEqual([]);
+  expect(resolveAgentSkills("main", undefined, ["pdf"])).toEqual(["pdf"]);
 });
 
 test("removes Plan Mode submission tools from SDK auto-approved tools", () => {
@@ -699,7 +706,7 @@ test("inferActivityRole does not map SDK built-in Agent(Explore) to Eco Explore"
   expect(
     inferActivityRole({
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "Agent",
@@ -713,7 +720,7 @@ test("inferActivityRole maps Agent(general-purpose) to general-purpose", () => {
   expect(
     inferActivityRole({
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "Agent",
@@ -727,7 +734,7 @@ test("inferActivityRole maps Agent(Plan) to Plan", () => {
   expect(
     inferActivityRole({
       type: "tool.started",
-      role: "planner",
+      role: "main",
       payload: {
         type: "tool_use",
         tool_name: "Agent",
@@ -858,7 +865,7 @@ test("appends stream deltas into phase transcript", () => {
     id: "1",
     threadId: "thr_1",
     agentId: "a",
-    role: "planner",
+    role: "main",
     type: "message.delta",
     timestamp: "",
     payload: {
@@ -870,7 +877,7 @@ test("appends stream deltas into phase transcript", () => {
     id: "2",
     threadId: "thr_1",
     agentId: "a",
-    role: "planner",
+    role: "main",
     type: "message.delta",
     timestamp: "",
     payload: {
@@ -946,7 +953,7 @@ test("formats assistant, thinking, and stream payloads for UI output", () => {
 
   const askDisplay = formatAgentEventDisplay({
     type: "tool.started",
-    role: "planner",
+    role: "main",
     payload: {
       type: "tool_use",
       tool_name: "AskUserQuestion",
@@ -959,7 +966,7 @@ test("formats assistant, thinking, and stream payloads for UI output", () => {
 
   const webSearchDisplay = formatAgentEventDisplay({
     type: "tool.started",
-    role: "planner",
+    role: "main",
     payload: {
       type: "tool_use",
       tool_name: "WebSearch",
@@ -970,7 +977,7 @@ test("formats assistant, thinking, and stream payloads for UI output", () => {
 
   const agentDisplay = formatAgentEventDisplay({
     type: "tool.started",
-    role: "planner",
+    role: "main",
     payload: {
       type: "tool_use",
       tool_name: "Agent",
@@ -1009,7 +1016,7 @@ test("formats assistant, thinking, and stream payloads for UI output", () => {
   expect(
     inferActivityRole({
       type: "message.delta",
-      role: "planner",
+      role: "main",
       payload: {
         type: "stream_event",
         event: {
@@ -1434,7 +1441,7 @@ test("formatAgentEventLine omits usage.recorded display text", () => {
     formatAgentEventLine({
       type: "usage.recorded",
       payload: { totalCostUsd: 2.1695, usage: { input_tokens: 1, output_tokens: 1 } },
-      role: "planner",
+      role: "main",
     }),
   ).toBeNull();
 });
@@ -1444,7 +1451,7 @@ test("formatSdkPayloadMessage omits result cost lines", () => {
     formatAgentEventLine({
       type: "tool.completed",
       payload: { type: "result", total_cost_usd: 2.1695, subtype: "success" },
-      role: "planner",
+      role: "main",
     }),
   ).toBeNull();
 });
@@ -1795,6 +1802,44 @@ test("maps SDK task_started system messages to todo.updated with ambient fields"
   expect(formatAgentEventLine(events[0]!)).toBeNull();
 });
 
+test("reads the Claude background task level signal without inventing task identities", () => {
+  expect(
+    readClaudeBackgroundTasksChanged({
+      type: "system",
+      subtype: "background_tasks_changed",
+      tasks: [
+        {
+          task_id: "shell_1",
+          task_type: "local_bash",
+          description: "bun run dev",
+        },
+        {
+          task_id: "",
+          task_type: "local_bash",
+          description: "invalid",
+        },
+        {
+          task_id: "agent_1",
+          task_type: "local_agent",
+          description: "Explore code",
+        },
+      ],
+    }),
+  ).toEqual([
+    {
+      taskId: "shell_1",
+      taskType: "local_bash",
+      description: "bun run dev",
+    },
+    {
+      taskId: "agent_1",
+      taskType: "local_agent",
+      description: "Explore code",
+    },
+  ]);
+  expect(readClaudeBackgroundTasksChanged({ type: "system", subtype: "task_started" })).toBeUndefined();
+});
+
 test("maps task_notification with resource_links and ambient", () => {
   const events = mapSdkMessageToEvents(
     {
@@ -1895,7 +1940,7 @@ test("formatAgentEventLine renders todo.updated task progress for activity", () 
   expect(
     formatAgentEventLine({
       type: "todo.updated",
-      role: "planner",
+      role: "main",
       payload: {
         sdkKind: "task_progress",
         task_id: "task_abc",
@@ -1908,7 +1953,7 @@ test("formatAgentEventLine renders todo.updated task progress for activity", () 
   expect(
     inferActivityRole({
       type: "todo.updated",
-      role: "planner",
+      role: "main",
       payload: {
         sdkKind: "task_started",
         task_id: "task_abc",

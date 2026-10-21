@@ -24,6 +24,8 @@ import {
 import { i18n } from "../src/renderer/i18n";
 import { StreamingMarkdownContent } from "../src/renderer/StreamingMarkdownContent";
 import { SubagentTaskDrawer } from "../src/renderer/SubagentTaskDrawer";
+import { TtsArtifactsContext } from "../src/renderer/TtsArtifactPlayer";
+import type { TtsArtifact } from "../src/shared/tts";
 import { WorkspaceFloatingCards } from "../src/renderer/WorkspaceFloatingCards";
 import type {
   ThreadRunProjectionAgent,
@@ -59,7 +61,7 @@ function item(
     sequence: input.sequence ?? 1,
     eventType: input.eventType ?? "tool.started",
     scope: input.scope ?? "main",
-    role: input.role ?? "planner",
+    role: input.role ?? "main",
     text: input.text ?? "Tool: Write",
     at: input.at ?? "2026-01-01T00:00:00.000Z",
     ...(input.runAttemptId && { runAttemptId: input.runAttemptId }),
@@ -103,7 +105,7 @@ test("running turn heading switches to stopping while cancelling", async () => {
 test("an active thread summary restores running during a provisional idle V2 projection", () => {
   const snapshot = projection({
     status: "idle",
-    timeline: [item({ id: "message", eventType: "message.delta", role: "planner", text: "正在准备下一步" })],
+    timeline: [item({ id: "message", eventType: "message.delta", role: "main", text: "正在准备下一步" })],
   });
 
   expect(reconcileActivityProjectionThreadStatus(snapshot, { status: "running" }).thread.status).toBe(
@@ -137,7 +139,7 @@ test("a streaming thinking row on the tail owns the Feed's own live indicator", 
   expect(
     isTailThinkingStreamingLive([
       timelineEntry(
-        item({ id: "narrative", eventType: "message.delta", role: "planner", text: "让我读取代码：" }),
+        item({ id: "narrative", eventType: "message.delta", role: "main", text: "让我读取代码：" }),
       ),
     ]),
   ).toBe(false);
@@ -665,7 +667,7 @@ test("ActivityLogView removes the waiting indicator after the first stream outpu
             sequence: 2,
             eventType: "message.delta",
             requestId: "req-streaming",
-            role: "planner",
+            role: "main",
             text: "",
             streamKey: "stream:req-streaming",
           }),
@@ -674,7 +676,7 @@ test("ActivityLogView removes the waiting indicator after the first stream outpu
             sequence: 3,
             eventType: "message.delta",
             requestId: "req-streaming",
-            role: "planner",
+            role: "main",
             text: "首个输出",
             streamKey: "stream:req-streaming",
           }),
@@ -805,7 +807,7 @@ test("ActivityLogView replaces answered clarification waiting with its question 
             id: "clarification-answer",
             sequence: 2,
             eventType: "message.final",
-            role: "planner",
+            role: "main",
             text: "澄清回答：应该使用哪种部署方式？ → 蓝绿部署",
             metadata: { liveType: "clarification.answered" },
           }),
@@ -938,7 +940,7 @@ test("ActivityLogView does not resurrect thinking for a terminal V2 projection",
             id: "final-agent-message",
             sequence: 3,
             eventType: "message.final",
-            role: "planner",
+            role: "main",
             text: "已经完成。",
           }),
         ],
@@ -1091,7 +1093,7 @@ test("ActivityLogView does not duplicate turn headings for skeleton subagent car
             id: "final",
             sequence: 4,
             eventType: "message.final",
-            role: "planner",
+            role: "main",
             runAttemptId: "attempt-1",
             text: "全部完成。",
             at: "2026-01-01T00:00:45.000Z",
@@ -1332,6 +1334,64 @@ test("mid-turn prompts keep one running heading while every continuation remains
   }
 });
 
+test("late-finalized image prompts do not create a completed compaction-only turn", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "completed",
+        attempts: [
+          {
+            attemptId: "attempt-image-follow-up",
+            status: "completed",
+            startedAt: "2026-01-01T00:00:01.000Z",
+            endedAt: "2026-01-01T00:00:08.000Z",
+          },
+        ],
+        timeline: [
+          item({
+            id: "user-initial",
+            eventType: "thread.status",
+            sequence: 1,
+            role: "user",
+            text: "先分析这个问题",
+            at: "2026-01-01T00:00:00.500Z",
+            metadata: { liveType: "thread.user_prompt" },
+          }),
+          item({
+            id: "compaction",
+            eventType: "context.compaction.completed",
+            sequence: 5,
+            text: "上下文已压缩",
+            runAttemptId: "attempt-image-follow-up",
+            at: "2026-01-01T00:00:04.000Z",
+          }),
+          item({
+            id: "final",
+            eventType: "message.final",
+            sequence: 6,
+            text: "第一轮处理完成。",
+            runAttemptId: "attempt-image-follow-up",
+            at: "2026-01-01T00:00:07.000Z",
+          }),
+          item({
+            id: "late-image-prompt",
+            eventType: "thread.status",
+            sequence: 4,
+            role: "user",
+            text: "请查看并分析我附上的图片。",
+            at: "2026-01-01T00:00:09.000Z",
+            metadata: { liveType: "thread.user_prompt" },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(html.match(/class="run-log-turn-toggle"/g)?.length).toBe(1);
+  expect(html.match(/run-log-turn-status">已处理/g)?.length).toBe(1);
+  expect(html.indexOf("第一轮处理完成。")).toBeLessThan(html.indexOf("请查看并分析我附上的图片。"));
+});
+
 test("a new follow-up attempt keeps its own running heading", () => {
   const html = renderToStaticMarkup(
     createElement(ProjectionActivityLogView, {
@@ -1445,7 +1505,12 @@ test("ActivityLogView appends turn-style duration to completed thinking summary"
     }),
   );
 
-  expect(html).toContain("已思考 5s");
+  expect(html).toContain("已思考");
+  // The duration is the same small faint number tool rows use, not part of the 13px/500 summary.
+  expect(html).toContain('<span class="run-log-thinking-elapsed">5s</span>');
+  expect(styles).toMatch(
+    /\.run-log-thinking-elapsed\s*\{[^}]*font-size:\s*12px;[^}]*font-weight:\s*400;[\s\S]*?\}/,
+  );
   expect(html).not.toContain("带耗时的思考内容。");
 });
 
@@ -1476,7 +1541,8 @@ test("ActivityLogView appends live duration while thinking streams", () => {
     }),
   );
 
-  expect(html).toContain("正在思考 4s");
+  expect(html).toContain("正在思考");
+  expect(html).toContain('<span class="run-log-thinking-elapsed">4s</span>');
   expect(html).toContain("正在输出的思考内容");
 });
 
@@ -1893,7 +1959,7 @@ test("ActivityLogView stops playing the ephemeral reasoning tip once the convers
           item({
             id: "agent-interrupted",
             eventType: "agent.interrupted",
-            role: "planner",
+            role: "main",
             sequence: 2,
             text: "",
           }),
@@ -2639,6 +2705,45 @@ test("ActivityLogView renders imageView as a standalone collapsed preview", () =
   expect(html).not.toContain("/tmp/feed-preview.png");
   expect(html).not.toContain("正在读取本地图片");
   expect(html).not.toContain('class="run-log-tool-group"');
+});
+
+test("display_image cards keep collapse separate from opening the workspace panel", () => {
+  const html = renderToStaticMarkup(
+    createElement(ProjectionActivityLogView, {
+      projection: projection({
+        status: "completed",
+        timeline: [
+          item({
+            id: "image-display-feed",
+            eventType: "tool.completed",
+            text: "Tool: mcp__eco_image_display__display_image · art-feed-1",
+            metadata: {
+              itemType: "tool",
+              tool: {
+                name: "mcp__eco_image_display__display_image",
+                detail: "art-feed-1",
+                toolUseId: "toolu_display_image_feed",
+                status: "completed",
+                imageDisplay: { artifactId: "art-feed-1", title: "示例图" },
+              },
+            },
+          }),
+        ],
+      }),
+      onOpenImageDisplayArtifact: () => undefined,
+    }),
+  );
+
+  expect(html).toContain("已展示 1 张图像");
+  // The chevron row is a pure collapse control: it never opens the task panel.
+  expect(html).toContain('class="run-log-image-view-head"');
+  expect(html).toContain('class="run-log-tool-group-trigger run-log-image-view-summary"');
+  expect(html).toContain('aria-expanded="true"');
+  // Opening the panel is its own separately labelled affordance.
+  expect(html).toContain('aria-label="在工作面板中查看"');
+  expect(html).toContain("run-log-image-view-panel-trigger");
+  expect(styles).toMatch(/\.run-log-image-view-head\s*\{[^}]*display:\s*flex;/s);
+  expect(styles).toMatch(/\.run-log-image-view-panel-trigger\s*\{/);
 });
 
 test("ActivityLogView upgrades persisted imageView gaps instead of rendering unknown payload", () => {
@@ -4526,4 +4631,49 @@ test("codemode lists each call once when PI's details duplicate its own tool row
   expect(html).toContain("bash");
   // One row from the tool event plus one record with no row, not 2 + 2.
   expect(html.match(/run-log-codemode-call"/g)?.length).toBe(1);
+});
+
+
+test("speech and web search cards stay behind the shared tool summary and appear once on expansion", () => {
+  const audio: TtsArtifact = {
+    id: "audio-group", threadId: "thread-1", toolUseId: "speech-call", status: "completed",
+    text: "测试音频正文", parameters: { voice: "Kore", style: "自然" },
+    provider: "gemini", profileName: "默认", model: "tts-model",
+    workspacePath: "/tmp", generationRoot: "/tmp", audio: [
+      { absolutePath: "/tmp/test.wav", relativePath: "test.wav", mimeType: "audio/wav", bytes: 52 },
+    ], createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:01.000Z",
+  };
+  for (const tool of [
+    { name: "mcp__eco_tts__create_speech", toolUseId: "speech-call", expected: "合成了音频" },
+    { name: "WebSearch", toolUseId: "search-call", detail: "测试搜索词", expected: "联网搜索了" },
+  ]) {
+    const view = buildThreadRunProjectionViewModel(projection({ status: "completed", timeline: [item({
+      id: tool.toolUseId, eventType: "tool.completed", text: `Tool: ${tool.name}`,
+      metadata: { tool: { ...tool, status: "completed", ...(tool.name === "WebSearch" ? {
+        webSearch: { query: "测试搜索词", provider: "test-provider", results: [
+          { title: "检索结果标题", url: "https://example.com", description: "结果说明" },
+        ] },
+      } : {}) } },
+    })] }));
+    const entry = view.mainFeedEntries[0];
+    if (entry?.kind !== "tool-group") throw new Error("tool group missing");
+    const render = (defaultExpanded: boolean) => renderLocalized(createElement(TtsArtifactsContext.Provider,
+      { value: [audio] }, createElement(ProjectionToolGroupEntry, {
+        entry, requestSpansById: new Map(), defaultExpanded,
+      })), "zh-CN");
+    const collapsed = render(false);
+    expect(collapsed).toContain(tool.expected);
+    expect(collapsed).not.toContain("tts-artifact-player");
+    expect(collapsed).not.toContain(audio.text);
+    expect(collapsed).not.toContain("run-log-feed-surface");
+    const expanded = render(true);
+    if (tool.toolUseId === "speech-call") {
+      expect(expanded.match(/class="tts-artifact-bar"/g)?.length).toBe(1);
+      expect(expanded).toContain(audio.text);
+    } else {
+      expect(expanded).toContain("run-log-web-search-detail-body");
+      expect(expanded).toContain("test-provider");
+      expect(expanded).toContain("检索结果标题");
+    }
+  }
 });

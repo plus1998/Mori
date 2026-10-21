@@ -1,4 +1,9 @@
-export type BashApprovalChoice = "approve" | "approve_remember_prefix" | "deny" | "deny_custom";
+export type BashApprovalChoice =
+  | "approve"
+  | "approve_remember_prefix"
+  | "approve_remember_mcp_tool"
+  | "deny"
+  | "deny_custom";
 
 /**
  * @deprecated Prefer i18n key `approval.bash.otherPlaceholder` in UI.
@@ -11,11 +16,14 @@ export const BASH_APPROVAL_DENY_OPTION_LABEL = BASH_APPROVAL_DENY_CUSTOM_OPTION_
 
 export function buildBashApprovalChoices(options?: {
   includeRememberPrefix?: boolean;
+  includeRememberMcpTool?: boolean;
   suppressAlwaysAllowRule?: boolean;
 }): BashApprovalChoice[] {
   const includeRemember = options?.includeRememberPrefix !== false && !options?.suppressAlwaysAllowRule;
   const rows: BashApprovalChoice[] = ["approve"];
-  if (includeRemember) {
+  if (options?.includeRememberMcpTool && !options.suppressAlwaysAllowRule) {
+    rows.push("approve_remember_mcp_tool");
+  } else if (includeRemember) {
     rows.push("approve_remember_prefix");
   }
   rows.push("deny", "deny_custom");
@@ -75,5 +83,5 @@ export function bashApprovalInitialChoiceIndex(
   return defaultToNo ? Math.max(0, choices.indexOf("deny")) : 0;
 }
 export function canSubmitBashApprovalWithEnter(choice: BashApprovalChoice, defaultToNo?: boolean): boolean {
-  return !defaultToNo || (choice !== "approve" && choice !== "approve_remember_prefix");
+  return !defaultToNo || !choice.startsWith("approve");
 }

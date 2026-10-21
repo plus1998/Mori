@@ -67,4 +67,57 @@ void main() {
     await tester.pumpAndSettle();
     expect(resolutions, ['approved']);
   });
+
+  for (final suppressed in [false, true]) {
+    testWidgets('MCP remember action respects suppress=$suppressed', (
+      tester,
+    ) async {
+      final request = BashApprovalRequest.fromJson({
+        'toolUseId': 'mcp-call',
+        'threadId': 'thread-mcp',
+        'command': 'mcp__mysql__read',
+        'filesystemTool': 'MCP',
+        'filesystemPath': 'mysql/read',
+        'suppressAlwaysAllowRule': suppressed,
+        'mcpToolApproval': {'serverName': 'mysql', 'toolName': 'read'},
+      });
+      expect(request.mcpToolName, 'read');
+      final resolutions = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: BashApprovalPanel(
+              request: request,
+              busy: false,
+              onResolve: ({required decision, feedback}) async {
+                resolutions.add(decision);
+              },
+              onSkip: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final remember = find.textContaining(
+        'Allow this tool without asking again',
+        findRichText: true,
+      );
+      if (suppressed) {
+        expect(remember, findsNothing);
+      } else {
+        expect(remember, findsOneWidget);
+        await tester.tap(remember);
+        await tester.pumpAndSettle();
+        expect(resolutions, ['approved_remember_mcp_tool']);
+      }
+    });
+  }
 }

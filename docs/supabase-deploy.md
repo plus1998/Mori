@@ -1,11 +1,12 @@
 # Eco Supabase 部署指南
 
-开源 Eco **不提供官方托管节点**。在自己的 Supabase（**Cloud** 或 **自托管 Docker**）上部署本仓库 `supabase/` 下的 schema 与 Edge Functions。
+开源 Eco **不提供官方托管节点**。在自己的 Supabase（**Cloud**、**自托管 Docker** 或实验性接入的**火山引擎 Supabase**）上部署本仓库 `supabase/` 下的 schema 与 Edge Functions。
 
 | 场景 | 文档 |
 | --- | --- |
 | **Supabase Cloud** | 本文下方「初次部署（云项目）」→ `--platform cloud` |
 | **自托管 Docker** | **[supabase-self-host.md](supabase-self-host.md)** → `--platform self-host` |
+| **火山引擎 Supabase（实验性）** | **[supabase-volcengine.md](supabase-volcengine.md)** → `byted-supabase-cli` 手工部署 |
 | **本机开发** | 本文「本地开发」（`start` / `reset` / `functions:serve`，不是 deploy） |
 
 客户端只需填写：
@@ -62,6 +63,8 @@ Agent 请遵循 [`.agents/skills/eco-supabase/SKILL.md`](../.agents/skills/eco-s
 命令行部署仍按迁移与函数发布流程执行，不会写入未经桌面部署器完整验证的后端版本记录。
 
 此入口只支持官方 Supabase Cloud。下面的命令行及自托管流程仍可单独使用。
+
+火山引擎的“AI 原生 BaaS 平台 Supabase 版”使用独立 Workspace/Branch 和 CLI，不在桌面一键部署、`--platform cloud` 或 `--platform self-host` 的支持范围内。已验证的手工步骤见 [supabase-volcengine.md](supabase-volcengine.md)，该路径仍属实验性接入。
 
 ---
 
@@ -180,6 +183,8 @@ bun run supabase:deploy -- --platform cloud --functions-only
 
 自托管增量见 [supabase-self-host.md](supabase-self-host.md) §B。
 
+火山引擎手工部署与增量更新见 [supabase-volcengine.md](supabase-volcengine.md)。
+
 ---
 
 ## 本地开发
@@ -256,4 +261,5 @@ supabase/
   functions/
 docs/supabase-deploy.md       # 本文（Cloud + 总览）
 docs/supabase-self-host.md    # 自托管专用
+docs/supabase-volcengine.md   # 火山引擎 Supabase（实验性手工部署）
 ```

@@ -344,7 +344,7 @@ test("mainAgentConfig and subagent orchestration round-trip apiCompat", () => {
     },
   );
   const routes = runtimeRoleRoutesFromOrchestrationSnapshot(snapshot);
-  expect(routes.find((route) => route.role === "planner")?.apiCompat).toBe("anthropic");
+  expect(routes.find((route) => route.role === "main")?.apiCompat).toBe("anthropic");
   expect(routes.find((route) => route.role === "explore")?.apiCompat).toBe("openai_chat_completions");
 });
 

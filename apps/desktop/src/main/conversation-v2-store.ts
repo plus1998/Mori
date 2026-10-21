@@ -53,6 +53,8 @@ import {
 import { conversationV2EventHash } from "./conversation-v2-event-integrity";
 import { logEcoDiag } from "./eco-diag-log";
 import { collectPromptImageContentRefs, isPromptImageContentRef } from "./prompt-image-file-store";
+import type { ThreadRunEvent } from "../shared/thread-run-events";
+import type { ConversationForkHistory } from "./conversation-fork-history";
 
 const META_KEY = "conversation_v2_store_epoch";
 const STORAGE_MODE_KEY = "conversation_v2_storage_mode";
@@ -216,6 +218,16 @@ export interface ConversationAppendResult {
   duplicate: boolean;
 }
 
+export interface ConversationProviderInputPatchInput {
+  conversationId: string;
+  eventId: string;
+  sourceEventKey: string;
+  occurredAt: string;
+  inputIds: readonly string[];
+  patch: Record<string, unknown>;
+  reason: string;
+}
+
 export interface ConversationSendMessageInput {
   principalId: string;
   conversationId: string;
@@ -264,6 +276,10 @@ export type ConversationCommandJobStatus = "accepted" | "running" | "completed" 
 
 export type ConversationCommandCheckpointName =
   | "execution.claimed"
+  | "fork.prepared"
+  | "fork.requested"
+  | "fork.created"
+  | "fork.committed"
   | "history.sdk_fork_requested"
   | "history.sdk_fork_created"
   | "history.sdk_fork_skipped"
@@ -378,6 +394,7 @@ interface MessageRow {
   // about a row, not when it happened, so a Feed that only has sequence numbers cannot
   // put a message between two tools of the same turn.
   occurred_at?: string | null;
+  started_at?: string | null;
   provider_role?: string | null;
   history_activity_line_id?: string | null;
   history_user_message_id?: string | null;
@@ -665,6 +682,11 @@ export class ConversationV2Store {
         ON conversation_events_v2(conversation_id, tool_call_id, seq);
       CREATE INDEX IF NOT EXISTS idx_conversation_events_v2_message
         ON conversation_events_v2(conversation_id, message_id, seq);
+      -- Deleting a thread checks cross-conversation image dependencies. Keep
+      -- that lookup on the small fork lineage index rather than the event log.
+      CREATE INDEX IF NOT EXISTS idx_conversation_events_v2_fork_source
+        ON conversation_events_v2(json_extract(payload_json, '$.sourceThreadId'))
+        WHERE type = 'noop' AND json_extract(payload_json, '$.reason') = 'history.fork_created';
 
       CREATE TABLE IF NOT EXISTS conversation_messages_v2 (
         message_id TEXT PRIMARY KEY,
@@ -682,6 +704,7 @@ export class ConversationV2Store {
         agent_id TEXT,
         agent_instance_id TEXT,
         occurred_at TEXT,
+        started_at TEXT,
         provider_role TEXT,
         history_activity_line_id TEXT,
         history_user_message_id TEXT,
@@ -942,6 +965,8 @@ export class ConversationV2Store {
         accepted_seq INTEGER NOT NULL,
         PRIMARY KEY (principal_id, conversation_id, client_command_id)
       );
+      CREATE INDEX IF NOT EXISTS idx_conversation_command_receipts_v2_conversation
+        ON conversation_command_receipts_v2(conversation_id);
 
       CREATE TABLE IF NOT EXISTS conversation_command_jobs_v2 (
         principal_id TEXT NOT NULL,
@@ -961,6 +986,8 @@ export class ConversationV2Store {
       );
       CREATE INDEX IF NOT EXISTS idx_conversation_command_jobs_v2_recovery
         ON conversation_command_jobs_v2(status, accepted_seq, conversation_id);
+      CREATE INDEX IF NOT EXISTS idx_conversation_command_jobs_v2_conversation
+        ON conversation_command_jobs_v2(conversation_id);
 
       CREATE TABLE IF NOT EXISTS conversation_command_checkpoints_v2 (
         principal_id TEXT NOT NULL,
@@ -978,6 +1005,8 @@ export class ConversationV2Store {
         ON conversation_command_checkpoints_v2(
           principal_id, conversation_id, client_command_id, ordinal
         );
+      CREATE INDEX IF NOT EXISTS idx_conversation_command_checkpoints_v2_conversation
+        ON conversation_command_checkpoints_v2(conversation_id);
 
       CREATE TABLE IF NOT EXISTS conversation_migrations_v2 (
         migration_version INTEGER NOT NULL,
@@ -1111,6 +1140,7 @@ export class ConversationV2Store {
           "agent_id",
           "agent_instance_id",
           "occurred_at",
+          "started_at",
           "provider_role",
           "history_activity_line_id",
           "history_user_message_id",
@@ -1142,6 +1172,19 @@ export class ConversationV2Store {
       ) {
         this.backfillMessageAgentOwnership();
       }
+      if (table === "conversation_messages_v2" && addedColumns.includes("started_at")) {
+        // Recover the first thinking event, never the request's start or finalization time.
+        this.db.exec(`
+          UPDATE conversation_messages_v2 AS message
+             SET started_at = (
+               SELECT COALESCE(json_extract(event.payload_json, '$.startedAt'), event.occurred_at)
+                 FROM conversation_events_v2 AS event
+                WHERE event.conversation_id = message.conversation_id
+                  AND event.seq = message.created_seq
+             )
+           WHERE message.channel = 'thinking' AND message.started_at IS NULL
+        `);
+      }
       // Placement times are the same kind of fact: the read table learned when a row
       // happened from the event that produced it, so a table that predates the column
       // is filled from that log. Rebuilding the read model produces the same values.
@@ -1151,7 +1194,7 @@ export class ConversationV2Store {
       // The provider's own role label is the same kind of fact: the read table learned
       // it from the event that produced the row, so a table that predates the column is
       // filled from the legacy log by recomputing each row's identity. A Feed identifies
-      // a turn's final output by `role === "planner"`; without the label that question
+      // a turn's final output by `role === "main"`; without the label that question
       // cannot be answered at all.
       if (addedColumns.includes("provider_role")) {
         this.backfillProviderRole(table);
@@ -2455,6 +2498,11 @@ export class ConversationV2Store {
         "Plan checkpoints are only valid for plan.resolve commands.",
       );
     }
+    if (name.startsWith("fork.") && current.commandType !== "history.branch")
+      throw new ConversationV2Error(
+        CONVERSATION_V2_ERROR.idempotencyConflict,
+        "Fork checkpoints are only valid for history.branch commands.",
+      );
     const existing = current.checkpoints.find((checkpoint) => checkpoint.name === name);
     if (existing) {
       if (stableHash(existing.payload) !== stableHash(payload)) {
@@ -2702,6 +2750,47 @@ export class ConversationV2Store {
         );
       }
       return response;
+    });
+  }
+
+  /**
+   * Bounded agent-facing transcript, independent of tool/attachment payload size.
+   * Every older row remains reachable by cursor; long bodies have a separate chunk reader.
+   * See https://github.com/openclaw/openclaw/issues/22920 for the failure mode of dropping rows to fit a budget.
+   */
+  transcriptPage(conversationId: string, beforeCursor?: string, limit = 20, includeTools = false) {
+    return this.readTransaction(() => {
+      const stream = this.requireExistingStream(conversationId);
+      const cursor = beforeCursor ? decodeConversationCursor(beforeCursor, "messages") : undefined;
+      this.validateCursor(cursor, stream);
+      const params: Array<string | number> = [conversationId];
+      let where = "conversation_id = ? AND is_deleted = 0 AND role IN ('user', 'assistant') AND channel IN ('answer', 'commentary')";
+      if (cursor) {
+        where += " AND (created_seq < ? OR (created_seq = ? AND message_id < ?))";
+        params.push(cursor.createdSeq, cursor.createdSeq, cursor.id);
+      }
+      const rows = this.db.prepare(`SELECT message_id, role, channel, status, occurred_at, created_seq, run_id,
+        substr(body, 1, 4000) AS excerpt, length(body) AS total_characters
+        FROM conversation_messages_v2 WHERE ${where} ORDER BY created_seq DESC, message_id DESC LIMIT ?`)
+        .all(...params, normalizeLimit(limit, 50) + 1) as Array<{
+          message_id: string; role: string; channel: string; status: string; occurred_at: string | null;
+          created_seq: number; run_id: string | null; excerpt: string; total_characters: number;
+        }>;
+      const hasMore = rows.length > limit;
+      const selected = rows.slice(0, limit);
+      const last = selected.at(-1);
+      const runIds = [...new Set(selected.flatMap(row => row.run_id ? [row.run_id] : []))];
+      return {
+        historyRevision: stream.history_revision,
+        messages: selected.reverse().map(row => ({ messageId: row.message_id, role: row.role, channel: row.channel,
+          body: row.excerpt, status: row.status, ...(row.run_id ? { runId: row.run_id } : {}),
+          ...(row.occurred_at ? { occurredAt: row.occurred_at } : {}), truncated: row.total_characters > 4000,
+          totalCharacters: row.total_characters })),
+        hasMore,
+        ...(hasMore && last ? { nextCursor: encodeConversationCursor({ kind: "messages", storeEpoch: stream.store_epoch,
+          historyRevision: stream.history_revision, createdSeq: last.created_seq, id: last.message_id }) } : {}),
+        ...(includeTools ? { tools: this.listToolSummaries(conversationId, runIds, 50), toolResults: "bounded_summaries; use read_conversation_tools with runId for pagination" } : {}),
+      };
     });
   }
 
@@ -3125,7 +3214,7 @@ export class ConversationV2Store {
         `SELECT message_id, conversation_id, turn_id, run_id, role, channel,
                 created_seq, version_seq, content_version, body, attachments_json,
                 origin_json,
-                agent_id, agent_instance_id, occurred_at, provider_role,
+                agent_id, agent_instance_id, occurred_at, started_at, provider_role,
                 history_activity_line_id, history_user_message_id,
                 status, is_deleted
          FROM conversation_messages_v2 WHERE conversation_id = ? AND message_id = ?`,
@@ -3146,6 +3235,164 @@ export class ConversationV2Store {
         )
         .all(id) as unknown as MessageRow[];
       return rows.map(rowToMessage);
+    });
+  }
+
+  /** Freeze visible current history at the provider-delivery boundary, not queue acceptance. */
+  snapshotForkHistory(
+    conversationId: string,
+    activityLineId: string,
+    sources: readonly ThreadRunEvent[],
+  ): ConversationForkHistory {
+    return this.readTransaction(() => {
+      const target = this.db
+        .prepare(
+          `SELECT * FROM conversation_messages_v2 WHERE conversation_id = ? AND role IN ('user', 'assistant') AND is_deleted = 0 AND (message_id = ? OR history_activity_line_id = ?)`,
+        )
+        .get(conversationId, activityLineId, activityLineId) as MessageRow | undefined;
+      const targetMessage = target ? rowToMessage(target) : undefined;
+      if (!targetMessage || targetMessage.status !== "final")
+        throw new Error("所选消息尚未发送或已被移除，无法分叉。");
+      const targetSource = sources.find(
+        (source) =>
+          source.metadata?.conversationV2MessageId === targetMessage.messageId ||
+          (source.metadata?.rewindTarget as { activityLineId?: string } | undefined)?.activityLineId ===
+            activityLineId,
+      );
+      if (!targetSource) throw new Error("所选消息缺少持久化的发送边界，无法分叉。");
+      const afterAssistant = targetMessage.role === "assistant";
+      if (
+        afterAssistant &&
+        (targetMessage.channel !== "answer" || targetSource.scope === "agent" || !targetMessage.runId)
+      )
+        throw new Error("请从主 Agent 的已完成回复分叉。");
+      const allMessages = (
+        this.db
+          .prepare(
+            `SELECT * FROM conversation_messages_v2 WHERE conversation_id = ? AND is_deleted = 0 ORDER BY created_seq ASC`,
+          )
+          .all(conversationId) as unknown as MessageRow[]
+      ).map(rowToMessage);
+      const boundarySource = afterAssistant
+        ? sources.filter((source) => source.role === "user" && source.sequence < targetSource.sequence).at(-1)
+        : targetSource;
+      const boundaryUser = afterAssistant
+        ? allMessages.find(
+            (message) =>
+              message.role === "user" &&
+              message.messageId === boundarySource?.metadata?.conversationV2MessageId,
+          )
+        : undefined;
+      if (afterAssistant && !boundaryUser) throw new Error("Agent 回复缺少对应的用户轮次身份，无法分叉。");
+      if (
+        afterAssistant &&
+        allMessages.some(
+          (message) =>
+            message.role === "assistant" &&
+            message.channel === "answer" &&
+            !message.agentInstanceId &&
+            message.runId === targetMessage.runId &&
+            message.createdSeq > targetMessage.createdSeq,
+        )
+      )
+        throw new Error("请从该轮最后一条 Agent 回复分叉，避免截断工具执行。");
+      const cutoff = afterAssistant
+        ? (sources.find((source) => source.role === "user" && source.sequence > targetSource.sequence)
+            ?.sequence ?? Number.POSITIVE_INFINITY)
+        : targetSource.sequence;
+      const keptSources = sources.filter((source) => source.sequence < cutoff);
+      const messageIds = new Set(
+        keptSources.flatMap((source) =>
+          typeof source.metadata?.conversationV2MessageId === "string"
+            ? [source.metadata.conversationV2MessageId]
+            : [],
+        ),
+      );
+      const runIds = new Set(
+        keptSources.flatMap((source) =>
+          source.role !== "user" && source.runAttemptId ? [source.runAttemptId] : [],
+        ),
+      );
+      // A continuation's user receipt can still carry the previous (completed) run id.
+      // Only actual provider work crossing the boundary proves a mid-run selection.
+      if (
+        sources.some(
+          (source) =>
+            source.sequence >= cutoff &&
+            source.role !== "user" &&
+            source.runAttemptId &&
+            runIds.has(source.runAttemptId),
+        )
+      )
+        throw new Error("该消息在同一执行轮中追加，无法在完整轮次边界之前分叉。");
+      const messages = allMessages.filter((message) => messageIds.has(message.messageId));
+      const activeMessageIds = new Set(messages.map((message) => message.messageId));
+      const runs = (
+        this.db
+          .prepare(`SELECT * FROM conversation_runs_v2 WHERE conversation_id = ? ORDER BY version_seq ASC`)
+          .all(conversationId) as unknown as RunRow[]
+      )
+        .map(rowToRun)
+        .filter((run) => runIds.has(run.runId));
+      const runPayloads: Record<string, Record<string, unknown>> = {};
+      for (const row of this.db
+        .prepare(
+          `SELECT run_id, payload_json FROM conversation_events_v2 WHERE conversation_id = ? AND type LIKE 'run.%' AND json_extract(payload_json, '$.authority') = 'lifecycle' ORDER BY seq ASC`,
+        )
+        .all(conversationId) as Array<{ run_id: string; payload_json: string }>) {
+        if (runIds.has(row.run_id)) runPayloads[row.run_id] = JSON.parse(row.payload_json);
+      }
+      const tools = (
+        this.db
+          .prepare(
+            `SELECT * FROM conversation_tool_calls_v2 WHERE conversation_id = ? ORDER BY created_seq ASC`,
+          )
+          .all(conversationId) as unknown as ToolRow[]
+      )
+        .map(rowToTool)
+        .filter((tool) => runIds.has(tool.runId));
+      const details = (
+        this.db
+          .prepare(
+            `SELECT * FROM conversation_detail_items_v2 WHERE conversation_id = ? ORDER BY created_seq ASC`,
+          )
+          .all(conversationId) as unknown as DetailRow[]
+      )
+        .map(rowToDetail)
+        .filter((detail) => runIds.has(detail.runId));
+      const agents = this.agentsOf(conversationId).filter((agent) => agent.runId && runIds.has(agent.runId));
+      const codexTurnIds: Record<string, string> = {};
+      for (const source of sources)
+        if (
+          typeof source.metadata?.conversationV2MessageId === "string" &&
+          typeof source.metadata?.codexForkTurnId === "string"
+        )
+          codexTurnIds[source.metadata.conversationV2MessageId] = source.metadata.codexForkTurnId;
+      if (
+        messages.some((message) => message.status === "streaming" || message.status === "queued") ||
+        runs.some((run) => !TERMINAL_RUN_STATUSES.has(run.status)) ||
+        tools.some((tool) => !TERMINAL_TOOL_STATUSES.has(tool.status)) ||
+        agents.some((agent) => !AGENT_TERMINAL_STATUSES.has(agent.status))
+      )
+        throw new Error("分叉节点之前仍有未结束的消息或工具执行。");
+      return {
+        sourceThreadId: conversationId,
+        sourceHeadSeq: this.head(conversationId).lastSeq,
+        target: targetMessage,
+        ...(boundaryUser ? { boundaryUser } : {}),
+        messages,
+        runs,
+        runPayloads,
+        tools,
+        details,
+        agents,
+        sources: keptSources.filter(
+          (source) =>
+            typeof source.metadata?.conversationV2MessageId !== "string" ||
+            activeMessageIds.has(source.metadata.conversationV2MessageId),
+        ),
+        codexTurnIds,
+      };
     });
   }
 
@@ -3305,45 +3552,32 @@ export class ConversationV2Store {
     return results;
   }
 
-  appendProviderInputPatch(input: {
-    conversationId: string;
-    eventId: string;
-    sourceEventKey: string;
-    occurredAt: string;
-    inputIds: readonly string[];
-    patch: Record<string, unknown>;
-    reason: string;
-  }): ConversationAppendResult {
-    return this.appendProviderInputPatchInternal(input, false);
+  /** Audit the existing history before a maintenance provider identity patch. */
+  appendProviderInputPatch(input: ConversationProviderInputPatchInput): ConversationAppendResult {
+    return this.appendProviderInputPatchInternal(input, "audited");
+  }
+
+  /**
+   * Patch live provider identities with the same incremental checks as appendRuntime().
+   * A Codex turn bind must not read and hash the entire history on the main thread.
+   * The patch and any history-target effects still commit atomically, and retries
+   * validate the exact stored event/effect and reject changed content.
+   */
+  appendRuntimeProviderInputPatch(input: ConversationProviderInputPatchInput): ConversationAppendResult {
+    return this.appendProviderInputPatchInternal(input, "runtime");
   }
 
   /** Append a provider identity patch while the caller owns the SQLite transaction. */
   appendProviderInputPatchInCurrentTransaction(
-    input: {
-      conversationId: string;
-      eventId: string;
-      sourceEventKey: string;
-      occurredAt: string;
-      inputIds: readonly string[];
-      patch: Record<string, unknown>;
-      reason: string;
-    },
+    input: ConversationProviderInputPatchInput,
     onAppendResult?: (result: ConversationAppendResult) => void,
   ): ConversationAppendResult {
-    return this.appendProviderInputPatchInternal(input, true, onAppendResult);
+    return this.appendProviderInputPatchInternal(input, "current-transaction", onAppendResult);
   }
 
   private appendProviderInputPatchInternal(
-    input: {
-      conversationId: string;
-      eventId: string;
-      sourceEventKey: string;
-      occurredAt: string;
-      inputIds: readonly string[];
-      patch: Record<string, unknown>;
-      reason: string;
-    },
-    inCurrentTransaction: boolean,
+    input: ConversationProviderInputPatchInput,
+    mode: "audited" | "runtime" | "current-transaction",
     onAppendResult?: (result: ConversationAppendResult) => void,
   ): ConversationAppendResult {
     const ids = [...new Set(input.inputIds.map((id) => requireText(id, "providerInputId")))].sort();
@@ -3381,7 +3615,7 @@ export class ConversationV2Store {
         payload: { historyTarget },
       };
     });
-    if (inCurrentTransaction) {
+    if (mode === "current-transaction") {
       const result = this.appendInCurrentTransaction(event);
       onAppendResult?.(result);
       for (const targetEvent of targetEvents) {
@@ -3389,7 +3623,7 @@ export class ConversationV2Store {
       }
       return result;
     }
-    return this.appendBatch([event, ...targetEvents], { verifyExistingIntegrity: true })[0]!;
+    return this.appendBatch([event, ...targetEvents], { verifyExistingIntegrity: mode === "audited" })[0]!;
   }
 
   private existingEventOccurredAt(
@@ -4347,6 +4581,12 @@ export class ConversationV2Store {
     if (record.type === "message.accepted" && status !== "queued") {
       throw v2Invalid("message.accepted must create a queued message");
     }
+    const startedAt = channel === "thinking"
+      ? optionalPayloadText(record.payload.startedAt, "startedAt") ?? record.occurredAt
+      : undefined;
+    if (startedAt !== undefined && !Number.isFinite(Date.parse(startedAt))) {
+      throw v2Invalid("message.startedAt must be a valid timestamp");
+    }
     const body =
       payloadString(record.payload.body, "body") ?? payloadString(record.payload.text, "text") ?? "";
     const attachments = optionalPayloadArray(record.payload.attachments, "attachments");
@@ -4359,7 +4599,7 @@ export class ConversationV2Store {
     const agentInstanceId =
       optionalText(record.agentInstanceId) ??
       optionalPayloadText(record.payload.agentInstanceId, "agentInstanceId");
-    // The provider's own label for this row (`planner`, `coder`, ...). It is not a
+    // The provider's own label for this row (`main`, `coder`, ...). It is not a
     // rendering of `role`: `role` is the normalized channel role a client switches on,
     // while this is the fact the Feed uses to tell a turn's final output from any other
     // assistant text. The two are stored separately so neither has to guess the other.
@@ -4398,9 +4638,9 @@ export class ConversationV2Store {
         `INSERT INTO conversation_messages_v2
          (message_id, conversation_id, turn_id, run_id, role, channel, created_seq,
           version_seq, content_version, body, attachments_json, origin_json, agent_id,
-          agent_instance_id, occurred_at, provider_role, history_activity_line_id,
+          agent_instance_id, occurred_at, started_at, provider_role, history_activity_line_id,
           history_user_message_id, status, is_deleted)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       )
       .run(
         messageId,
@@ -4417,6 +4657,7 @@ export class ConversationV2Store {
         agentId ?? null,
         agentInstanceId ?? null,
         record.occurredAt,
+        startedAt ?? null,
         providerRole ?? null,
         historyTarget?.activityLineId ?? null,
         historyTarget?.userMessageId ?? null,
@@ -4789,7 +5030,7 @@ export class ConversationV2Store {
     const kind =
       payloadString(record.payload.kind, "kind") ??
       existing?.kind ??
-      (role === "planner" ? "planner" : "subagent");
+      (role === "main" ? "main" : "subagent");
     const status = payloadString(record.payload.status, "status") ?? agentStatusForEvent(record.type);
     const terminal = AGENT_TERMINAL_STATUSES.has(status);
     const startedAt =
@@ -5680,6 +5921,10 @@ export class ConversationV2Store {
     ) {
       throw integrity("A non-plan command contains plan checkpoints.");
     }
+    if (checkpoints.some((checkpoint) => checkpoint.name.startsWith("fork.")) && commandType !== "history.branch")
+      throw integrity("A non-branch command contains fork checkpoints.");
+    if (status === "completed" && commandType === "history.branch" && checkpoints.at(-1)?.name !== "fork.committed")
+      throw integrity("A completed branch command is missing its child commit.");
     if (
       checkpoints[1]?.name === "history.runtime_dispatch_prepared" &&
       !(commandType === "history.retry" && request.rewind === false)
@@ -6555,6 +6800,7 @@ function rowToMessage(row: MessageRow): ConversationMessage {
   const createdSeq = rowPositiveInteger(row.created_seq, "message.created_seq");
   const versionSeq = rowPositiveInteger(row.version_seq, "message.version_seq");
   const occurredAt = rowOptionalText(row.occurred_at, "message.occurred_at");
+  const startedAt = rowOptionalText(row.started_at, "message.started_at");
   const providerRole = rowOptionalText(row.provider_role, "message.provider_role");
   const historyActivityLineId = rowOptionalText(
     row.history_activity_line_id,
@@ -6589,6 +6835,7 @@ function rowToMessage(row: MessageRow): ConversationMessage {
     ...(agentId ? { agentId } : {}),
     ...(agentInstanceId ? { agentInstanceId } : {}),
     ...(occurredAt ? { occurredAt } : {}),
+    ...(startedAt ? { startedAt } : {}),
     ...(providerRole ? { providerRole } : {}),
     ...(historyActivityLineId
       ? {
@@ -6946,6 +7193,7 @@ function storedMessage(value: unknown, field: string): ConversationMessage {
   const agentId = storedEffectOptionalText(object.agentId, `${field}.agentId`);
   const agentInstanceId = storedEffectOptionalText(object.agentInstanceId, `${field}.agentInstanceId`);
   const occurredAt = storedEffectOptionalText(object.occurredAt, `${field}.occurredAt`);
+  const startedAt = storedEffectOptionalText(object.startedAt, `${field}.startedAt`);
   const providerRole = storedEffectOptionalText(object.providerRole, `${field}.providerRole`);
   const historyTarget = storedHistoryTarget(object.historyTarget, `${field}.historyTarget`);
   const status = storedMessageStatus(object.status);
@@ -6968,6 +7216,7 @@ function storedMessage(value: unknown, field: string): ConversationMessage {
     ...(agentId ? { agentId } : {}),
     ...(agentInstanceId ? { agentInstanceId } : {}),
     ...(occurredAt ? { occurredAt } : {}),
+    ...(startedAt ? { startedAt } : {}),
     ...(providerRole ? { providerRole } : {}),
     ...(historyTarget ? { historyTarget } : {}),
     ...(object.attachments !== undefined
@@ -7271,6 +7520,10 @@ function storedCommandJobStatus(value: unknown): ConversationCommandJobStatus {
 
 function requireCommandCheckpointName(value: unknown): ConversationCommandCheckpointName {
   if (
+    value !== "fork.prepared" &&
+    value !== "fork.requested" &&
+    value !== "fork.created" &&
+    value !== "fork.committed" &&
     value !== "execution.claimed" &&
     value !== "history.sdk_fork_requested" &&
     value !== "history.sdk_fork_created" &&
@@ -7311,34 +7564,41 @@ function assertNextCommandCheckpoint(
     previous === undefined
       ? next === "execution.claimed"
       : previous === "execution.claimed"
-        ? next === "history.sdk_fork_requested" ||
+        ? next === "fork.prepared" ||
+          next === "history.sdk_fork_requested" ||
           next === "history.sdk_fork_skipped" ||
           next === "history.runtime_dispatch_prepared" ||
           next === "plan.context_frozen"
-        : previous === "history.sdk_fork_requested"
-          ? next === "history.sdk_fork_created"
-          : previous === "history.sdk_fork_created" || previous === "history.sdk_fork_skipped"
-            ? next === "history.local_rewrite_committed"
-            : previous === "history.local_rewrite_committed"
-              ? next === "history.runtime_dispatch_prepared"
-              : previous === "history.runtime_dispatch_prepared"
-                ? next === "history.runtime_dispatched"
-                : previous === "plan.context_frozen" ||
-                    previous === "plan.snapshot_persisted" ||
-                    previous === "plan.session_mode_committed" ||
-                    previous === "plan.bridge_resolved" ||
-                    previous === "plan.bridge_continuation_resumed" ||
-                    previous === "plan.runtime_dispatch_prepared" ||
-                    previous === "plan.runtime_dispatched"
-                  ? next === "plan.snapshot_persisted" ||
-                    next === "plan.session_mode_committed" ||
-                    next === "plan.bridge_resolved" ||
-                    next === "plan.bridge_continuation_resumed" ||
-                    next === "plan.runtime_dispatch_prepared" ||
-                    next === "plan.runtime_dispatched" ||
-                    next === "plan.pending_cleared" ||
-                    next === "plan.dismissal_committed"
-                  : false;
+        : previous === "fork.prepared"
+          ? next === "fork.requested"
+          : previous === "fork.requested"
+            ? next === "fork.created"
+            : previous === "fork.created"
+              ? next === "fork.committed"
+              : previous === "history.sdk_fork_requested"
+                ? next === "history.sdk_fork_created"
+                : previous === "history.sdk_fork_created" || previous === "history.sdk_fork_skipped"
+                  ? next === "history.local_rewrite_committed"
+                  : previous === "history.local_rewrite_committed"
+                    ? next === "history.runtime_dispatch_prepared"
+                    : previous === "history.runtime_dispatch_prepared"
+                      ? next === "history.runtime_dispatched"
+                      : previous === "plan.context_frozen" ||
+                          previous === "plan.snapshot_persisted" ||
+                          previous === "plan.session_mode_committed" ||
+                          previous === "plan.bridge_resolved" ||
+                          previous === "plan.bridge_continuation_resumed" ||
+                          previous === "plan.runtime_dispatch_prepared" ||
+                          previous === "plan.runtime_dispatched"
+                        ? next === "plan.snapshot_persisted" ||
+                          next === "plan.session_mode_committed" ||
+                          next === "plan.bridge_resolved" ||
+                          next === "plan.bridge_continuation_resumed" ||
+                          next === "plan.runtime_dispatch_prepared" ||
+                          next === "plan.runtime_dispatched" ||
+                          next === "plan.pending_cleared" ||
+                          next === "plan.dismissal_committed"
+                        : false;
   if (!allowed) {
     const message = `Invalid command checkpoint transition: ${previous ?? "start"} -> ${next}.`;
     if (stored) throw integrity(message);

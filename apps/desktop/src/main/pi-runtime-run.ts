@@ -240,7 +240,7 @@ export function getPiCodingAgentDriver(ecoDataDir: string): PiCodingAgentDriver 
         const selectedRole = role?.trim();
         const bindingRoute = selectedRole
           ? armed.binding.routes.find((entry) => entry.role === selectedRole)
-          : (armed.binding.routes.find((entry) => entry.role === "planner") ?? armed.binding.routes[0]);
+          : (armed.binding.routes.find((entry) => entry.role === "main") ?? armed.binding.routes[0]);
         if (!bindingRoute) {
           throw new Error(
             selectedRole
@@ -308,7 +308,7 @@ export async function startPiThreadRun(
 
   const availability = await probePiCoreAvailability();
   if (!availability.available) {
-    throw new Error(availability.reason ?? "PI Core is unavailable.");
+    throw new Error(availability.reason ?? "PI Harness is unavailable.");
   }
 
   const controller = new AbortController();
@@ -378,7 +378,7 @@ export async function startPiThreadRun(
             resolvePiSkipExecutionApprovals(bashReviewMode),
           );
           const enabledSubagents = listEnabledPiSubagents(input.agentRegistry);
-          const plannerRoute = config.routes.find((route) => route.role === "planner");
+          const plannerRoute = config.routes.find((route) => route.role === "main");
           const integratedWebSearch = deps.getIntegratedWebSearchRuntime();
           const webSearchSession = buildPiWebSearchSessionFields({
             ...(plannerRoute?.manualSpec ? { plannerManualSpec: plannerRoute.manualSpec } : {}),
@@ -424,6 +424,16 @@ export async function startPiThreadRun(
             signal: controller.signal,
             ...(input.agentRegistry && mode === "agent" ? { agentRegistry: input.agentRegistry } : {}),
             piSession: {
+              ...(() => {
+                const dispatched = deps.conversationStore
+                  .listConversationRuntimeSources(input.thread.id, { historyOrder: true })
+                  .filter(
+                    (source) => source.role === "user" && source.metadata?.liveType === "thread.user_prompt",
+                  )
+                  .at(-1);
+                const target = dispatched?.metadata?.rewindTarget as { activityLineId?: string } | undefined;
+                return target?.activityLineId ? { promptActivityLineId: target.activityLineId } : {};
+              })(),
               skillPaths: input.skillPaths ?? [],
               sessionMode: mode,
               ...(input.mcpServers && Object.keys(input.mcpServers).length > 0 && mode === "agent"

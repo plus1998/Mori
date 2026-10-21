@@ -32,7 +32,7 @@ void main() {
     },
   );
 
-  testWidgets('reuses one ticker across repeated streaming updates', (
+  testWidgets('keeps revealing across repeated streaming updates', (
     tester,
   ) async {
     await tester.pumpWidget(app('a', streaming: true));
@@ -94,5 +94,26 @@ void main() {
 
     expect(find.text('已经显示的完整内容'), findsOneWidget);
     expect(find.text('已经显示的'), findsNothing);
+  });
+
+  testWidgets('stream reveal does not schedule frames between text updates', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app('开始', streaming: true));
+    await tester.pumpWidget(app('开始继续逐字输出', streaming: true));
+    expect(tester.binding.transientCallbackCount, 0);
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(find.text('开始'), findsOneWidget);
+    expect(tester.binding.hasScheduledFrame, isFalse);
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(find.text('开始继'), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('开始继'), findsOneWidget);
+    expect(tester.binding.hasScheduledFrame, isFalse);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump(pacedStreamInterval);
+    expect(find.text('开始继续'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 }

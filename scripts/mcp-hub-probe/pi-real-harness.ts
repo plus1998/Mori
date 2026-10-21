@@ -194,7 +194,7 @@ async function drain<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 function route(): AgentRuntimeRunInput["routes"] {
   return [
     {
-      role: "planner" as const,
+      role: "main" as const,
       primary: {
         id: "local-probe",
         provider: "anthropic",

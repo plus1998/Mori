@@ -29,7 +29,7 @@ const provider: ProviderConfigSecret = {
 
 const routes: RuntimeRoute[] = [
   {
-    role: "planner",
+    role: "main",
     provider,
     modelId: "sonnet",
     apiCompat: "anthropic",
@@ -85,11 +85,11 @@ test("resolveSingleUsageBillingOrchestration keeps cost-only sdk records", async
   const resolved = await resolveSingleUsageBillingOrchestration({
     request: request({
       source: "sdk",
-      role: "planner",
+      role: "main",
       usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
       sourceReportedCostUsd: 0.01,
       updateContext: false,
-      requestKey: "sdk:planner:0:0:0:0:1",
+      requestKey: "sdk:main:0:0:0:0:1",
     }),
     runtimeRoutes: routes,
     lookupPricing,
@@ -171,7 +171,7 @@ test("resolveSingleUsageBillingOrchestration lets explicit updateContext overrid
 test("resolveSingleUsageBillingOrchestration updates planner context for proxy usage", async () => {
   const resolved = await resolveSingleUsageBillingOrchestration({
     request: request({
-      role: "planner",
+      role: "main",
       modelId: "llama-local",
       apiCompat: "anthropic",
     }),

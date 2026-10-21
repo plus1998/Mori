@@ -970,9 +970,9 @@ export function createForcedPlanDelegationPreToolHook(
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
           permissionDecision: "deny",
-          permissionDecisionReason:
-            `用户已指定由子代理「${config.agentKey}」执行该已批准的计划，主代理不得自行修改工作区。` +
-            `请调用 Agent 工具（subagent_type: ${config.agentKey}）委派该计划。`,
+          permissionDecisionReason: buildForcedPlanDelegationContract({
+            agentKey: sdkAgentKeyForOrchestrationAgent(config.agentKey),
+          }),
         },
       };
     }
@@ -1037,7 +1037,9 @@ export function createForcedPlanDelegationPostToolHook(
     return {
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
-        additionalContext: buildForcedPlanDelegationContract({ agentKey: config.agentKey }),
+        additionalContext: buildForcedPlanDelegationContract({
+          agentKey: sdkAgentKeyForOrchestrationAgent(config.agentKey),
+        }),
       },
     };
   };

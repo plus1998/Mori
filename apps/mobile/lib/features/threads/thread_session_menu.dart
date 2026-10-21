@@ -18,6 +18,7 @@ import '../composer/commit_push_sheet.dart';
 import 'thread_menu_sheets.dart';
 import 'thread_providers.dart';
 import 'thread_session_menu_cards.dart';
+import '../scheduling/scheduling_screen.dart';
 
 final _openingCommitPushWorkspaces = <String>{};
 
@@ -69,6 +70,12 @@ List<ThreadSessionMenuEntry> buildThreadSessionMenuEntries(
       gitStatus.hasUpstream;
 
   return [
+    ThreadSessionMenuEntry(
+      value: 'scheduled_messages',
+      icon: Icons.schedule,
+      label: l10n.schedulingMessages,
+      enabled: hasThread,
+    ),
     if (visibility.showProgress)
       ThreadSessionMenuEntry(
         value: 'todos',
@@ -208,7 +215,8 @@ class ThreadSessionMenuButton extends ConsumerWidget {
               runtimeConfig: runtimeConfig,
               gitStatus: gitStatus,
               onRevealImageDisplay: onRevealImageDisplay,
-              imageGenerationArtifacts: cards?.imageGenerationArtifacts ?? const [],
+              imageGenerationArtifacts:
+                  cards?.imageGenerationArtifacts ?? const [],
               htmlHostArtifacts: cards?.htmlHostArtifacts ?? const [],
             );
           },
@@ -255,6 +263,10 @@ Future<void> handleThreadSessionMenuAction({
 
   try {
     switch (value) {
+      case 'scheduled_messages':
+        if (threadId == null || threadId.isEmpty) return;
+        await showSchedulingScreen(context, threadId: threadId);
+        return;
       case 'auto_read':
         await ref.read(activityFeedAutoReadProvider.notifier).toggle();
         return;

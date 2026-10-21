@@ -17,7 +17,7 @@ const globalEcoBundle = buildResourcesFromRouteProfile(
     id: "global-default",
     name: "Global default",
     routes: [
-      { role: "planner", providerId: "provider-1", modelId: "main-global" },
+      { role: "main", providerId: "provider-1", modelId: "main-global" },
       { role: "explore", providerId: "provider-1", modelId: "main-global" },
       { role: "architect", providerId: "provider-1", modelId: "main-global" },
       { role: "coder", providerId: "provider-1", modelId: "main-global" },

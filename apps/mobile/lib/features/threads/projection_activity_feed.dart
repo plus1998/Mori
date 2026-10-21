@@ -98,7 +98,7 @@ List<ActivityFeedEntry> groupProjectionActivityFeedTurns(
   };
   final userBoundaries = [
     for (final entry in entries)
-      if (entry.kind == ActivityFeedKind.user)
+      if (_isUserSideFeedEntry(entry))
         _UserPromptBoundary(sequence: entry.sequence, at: entry.at ?? ''),
   ]..sort((left, right) => left.sequence.compareTo(right.sequence));
   // Acceptance sequences remain unchanged when reordered queue rows are sent.
@@ -121,7 +121,7 @@ List<ActivityFeedEntry> groupProjectionActivityFeedTurns(
       .toSet();
 
   for (final entry in entries) {
-    if (entry.kind == ActivityFeedKind.user) {
+    if (_isUserSideFeedEntry(entry)) {
       sections.add(
         _OrderedFeedSection(
           value: entry,
@@ -235,6 +235,11 @@ List<ActivityFeedEntry> groupProjectionActivityFeedTurns(
   }).toList();
 }
 
+bool _isUserSideFeedEntry(ActivityFeedEntry entry) {
+  return entry.kind == ActivityFeedKind.user ||
+      entry.kind == ActivityFeedKind.clarificationAnswer;
+}
+
 int _compareOrderedFeedSections(
   _OrderedFeedSection left,
   _OrderedFeedSection right,
@@ -280,6 +285,7 @@ bool _isStreamNarrativeFeedEntry(ActivityFeedEntry entry) {
   return entry.kind == ActivityFeedKind.assistant ||
       entry.kind == ActivityFeedKind.thinking ||
       entry.kind == ActivityFeedKind.reasoningStage ||
+      entry.kind == ActivityFeedKind.toolWriting ||
       entry.kind == ActivityFeedKind.subagentMission;
 }
 
@@ -392,11 +398,14 @@ List<ActivityFeedEntry> buildProjectionActivityFeed({
       projection.timeline.isEmpty &&
       prompt != null &&
       prompt.isNotEmpty) {
+    final isClarificationAnswer = parseClarificationAnswers(prompt) != null;
     slots.add(
       _ProjectionFeedSlot(
         entry: ActivityFeedEntry(
           id: 'user-prompt-${threadId ?? projection.threadId}',
-          kind: ActivityFeedKind.user,
+          kind: isClarificationAnswer
+              ? ActivityFeedKind.clarificationAnswer
+              : ActivityFeedKind.user,
           text: prompt,
           at: '1970-01-01T00:00:00.000Z',
         ),
@@ -410,12 +419,15 @@ List<ActivityFeedEntry> buildProjectionActivityFeed({
 
   for (final item in projection.timeline.where(_isProjectionUserPromptItem)) {
     final rewindTarget = _readProjectionRewindTarget(item.metadata);
+    final isClarificationAnswer = parseClarificationAnswers(item.text) != null;
     slots.add(
       _ProjectionFeedSlot(
         entry: ActivityFeedEntry(
           id: item.id,
           role: item.role,
-          kind: ActivityFeedKind.user,
+          kind: isClarificationAnswer
+              ? ActivityFeedKind.clarificationAnswer
+              : ActivityFeedKind.user,
           text: item.text.trim(),
           attachments: _promptImagePreviews(item),
           rewindTarget: rewindTarget,
@@ -1338,7 +1350,7 @@ int _resolveTurnBoundaryIndex(
     if (_isProjectionUserPromptItem(entry)) {
       return index;
     }
-    if (entry.eventType == 'message.final' && entry.role == 'planner') {
+    if (entry.eventType == 'message.final' && entry.role == 'main') {
       return index;
     }
     if (entry.eventType == 'thinking.final') {
@@ -1380,7 +1392,7 @@ String? _resolveExpectedStreamRequestRole(
   if (item.role == 'thinking' ||
       item.eventType == 'thinking.delta' ||
       item.eventType == 'thinking.final') {
-    return 'planner';
+    return 'main';
   }
   final role = item.role?.trim();
   if (role == null ||
@@ -1484,10 +1496,10 @@ String? _resolveNearestPlannerRequestId(
     if (requestId == null || requestId.isEmpty) {
       continue;
     }
-    if (entry.eventType == 'request.started' && entry.role == 'planner') {
+    if (entry.eventType == 'request.started' && entry.role == 'main') {
       return requestId;
     }
-    if (entry.role == 'planner' && requestSpansById.containsKey(requestId)) {
+    if (entry.role == 'main' && requestSpansById.containsKey(requestId)) {
       return requestId;
     }
   }
@@ -1497,10 +1509,10 @@ String? _resolveNearestPlannerRequestId(
     if (requestId == null || requestId.isEmpty) {
       continue;
     }
-    if (entry.eventType == 'request.started' && entry.role == 'planner') {
+    if (entry.eventType == 'request.started' && entry.role == 'main') {
       return requestId;
     }
-    if (entry.role == 'planner' && requestSpansById.containsKey(requestId)) {
+    if (entry.role == 'main' && requestSpansById.containsKey(requestId)) {
       return requestId;
     }
   }
@@ -1849,7 +1861,7 @@ ActivityFeedEntry? _projectionItemToFeedEntry(
   if (item.eventType == 'message.delta' || item.eventType == 'message.final') {
     if (text.isEmpty && item.eventType != 'message.delta') return null;
     if (isLegacyBashApprovalActivityText(text)) return null;
-    if (parseClarificationAnswersSummary(text) != null) {
+    if (parseClarificationAnswers(text) != null) {
       return ActivityFeedEntry(
         id: feedId,
         role: item.role,

@@ -210,7 +210,7 @@ test("shouldEmitUpstreamConnectionErrorActivity fail closed for unknown or silen
   });
   const visible = handleBridgeMessagesRequest(registry, {
     threadId,
-    role: "planner",
+    role: "main",
     emitTimelineActivity: true,
   });
 

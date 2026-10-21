@@ -23,6 +23,7 @@ import {
 } from "./agent-orchestration.js";
 import { expandAssistantMessageContent } from "./anthropic-content-normalize.js";
 import { formatApiErrorUserMessage } from "./api-error.js";
+import { applyClaudeSubagentCompactionWindows } from "./claude-subagent-compaction";
 import {
   awaitExitPlanModeUserDecision,
   buildEcoSdkHooks,
@@ -136,6 +137,18 @@ export type SdkQueryHandle = AsyncIterable<unknown> & {
   ) => Promise<void> | void;
   getContextUsage?: (opts?: { detail?: "summary" | "full" }) => Promise<Record<string, unknown>>;
 };
+
+export interface ClaudeBackgroundTaskSnapshot {
+  taskId: string;
+  taskType: string;
+  description: string;
+}
+
+export interface ClaudeBackgroundTasksChangedInput {
+  threadId: string;
+  query: SdkQueryHandle;
+  tasks: readonly ClaudeBackgroundTaskSnapshot[];
+}
 
 type SdkQuery = (input: {
   prompt: string | AsyncIterable<SdkUserMessage>;
@@ -675,7 +688,7 @@ export function resolveSdkSessionOptions(session?: EcoSdkSessionOptions): {
   skills: EcoSdkSessionOptions["skills"];
   mcpServers: Record<string, unknown>;
 } {
-  const plannerSkills = readAgentSkillAssignment(session?.agentSkills, "planner") ?? session?.skills;
+  const plannerSkills = readAgentSkillAssignment(session?.agentSkills, "main") ?? session?.skills;
   return {
     settingSources: session?.settingSources ?? [...defaultSettingSources],
     skills: plannerSkills === undefined ? undefined : [...plannerSkills],
@@ -703,7 +716,7 @@ export function resolveAgentSkills(
   if (fromRole !== undefined) {
     return [...fromRole];
   }
-  if (role === "planner" && sessionSkills !== undefined) {
+  if (role === "main" && sessionSkills !== undefined) {
     return [...sessionSkills];
   }
   return [];
@@ -744,7 +757,7 @@ function agentSkillLookupKeys(role: RuntimeAgentRole): string[] {
   }
   const unprefixed = trimmed.startsWith("eco_") ? trimmed.slice(4) : trimmed;
   const prefixed = trimmed.startsWith("eco_") ? trimmed : `eco_${trimmed}`;
-  return [...new Set([trimmed, unprefixed, prefixed])];
+  return [...new Set([trimmed, unprefixed, prefixed, ...(unprefixed === "main" ? ["planner", "eco_planner"] : [])])];
 }
 
 export type EcoRunPhase = "analyze" | "plan" | "execute" | "answer";
@@ -770,6 +783,10 @@ export interface ClaudeAgentSdkDriverOptions {
   onContextProbe?: (phase: string, detail: Record<string, unknown>) => void;
   /** Record raw SDK messages for offline replay fixtures (tests / conversation-round). */
   onSdkMessage?: (message: unknown) => void;
+  /** Live background-task level signal owned by the current Claude Query. */
+  onBackgroundTasksChanged?: (input: ClaudeBackgroundTasksChangedInput) => void;
+  /** Clears producer-owned task handles when the Query closes. */
+  onBackgroundTasksClosed?: (input: { threadId: string; query: SdkQueryHandle }) => void;
   /** Override SDK control/drain deadlines for constrained runtimes and deterministic tests. */
   queryControlDeadlineMs?: number;
   /** Override mid-turn streamInput deadline (tests / constrained runtimes). */
@@ -1026,7 +1043,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
   ): AsyncGenerator<AgentEvent, { transcript: string; finalizedPlan?: FinalizePlanPayload }> {
     input.signal.throwIfAborted();
     const sdk = await sdkWorkOrAbort(this.loadSdk(), input.signal);
-    const plannerRoute = findRoute(input.routes, "planner") ?? input.routes[0];
+    const plannerRoute = findRoute(input.routes, "main") ?? input.routes[0];
     if (!plannerRoute) {
       throw new Error("At least one model route is required to start Claude Agent SDK");
     }
@@ -1316,7 +1333,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       queryOptions.mcpServers = session.mcpServers;
     }
     if (effectiveDynamicDefinitions) {
-      queryOptions.agents = effectiveDynamicDefinitions;
+      queryOptions.agents = applyClaudeSubagentCompactionWindows(effectiveDynamicDefinitions, input.routes);
     }
 
     this.options.onContextProbe?.("query_start", {
@@ -1678,6 +1695,14 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
         }
 
         this.options.onSdkMessage?.(message);
+        const backgroundTasks = readClaudeBackgroundTasksChanged(message);
+        if (backgroundTasks) {
+          this.options.onBackgroundTasksChanged?.({
+            threadId: input.threadId,
+            query,
+            tasks: backgroundTasks,
+          });
+        }
 
         const mappedMessage =
           isRecord(message) && message.type === "result"
@@ -1738,7 +1763,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
             id: `${crypto.randomUUID()}:run-terminal-cancelled`,
             threadId: input.threadId,
             agentId: activeSessionId,
-            role: "planner",
+            role: "main",
             type: "run.terminal",
             payload: {
               status: "cancelled",
@@ -1750,7 +1775,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
             id: `${crypto.randomUUID()}:run-terminal-incomplete`,
             threadId: input.threadId,
             agentId: activeSessionId,
-            role: "planner",
+            role: "main",
             type: "run.terminal",
             payload: {
               status: "incomplete",
@@ -1769,23 +1794,27 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       heldPromptCloseGate.cancel();
       await notifyClosing();
       promptStream.close();
-      const teardown = await teardownClaudeQueryHandle(handle, {
-        iterator,
-        ...(pendingIteratorNext ? { pendingNext: pendingIteratorNext } : {}),
-        shouldInterrupt: input.signal.aborted,
-        interruptDeadlineMs: this.options.queryControlDeadlineMs ?? CLAUDE_QUERY_CONTROL_DEADLINE_MS,
-        drainDeadlineMs: this.options.queryControlDeadlineMs ?? CLAUDE_QUERY_DRAIN_DEADLINE_MS,
-        cancelQueued: this.options.cancelQueuedOnInterrupt ?? true,
-        onProbe: (probePhase, detail) => this.options.onContextProbe?.(probePhase, detail),
-        clearSubagentLimits: () => subagentRuntimeLimit.clear(),
-      });
       try {
-        await this.options.queryLifecycle?.onClosed?.(handle, {
-          stillQueued: teardown.stillQueued,
-          cancelled: teardown.cancelled,
+        const teardown = await teardownClaudeQueryHandle(handle, {
+          iterator,
+          ...(pendingIteratorNext ? { pendingNext: pendingIteratorNext } : {}),
+          shouldInterrupt: input.signal.aborted,
+          interruptDeadlineMs: this.options.queryControlDeadlineMs ?? CLAUDE_QUERY_CONTROL_DEADLINE_MS,
+          drainDeadlineMs: this.options.queryControlDeadlineMs ?? CLAUDE_QUERY_DRAIN_DEADLINE_MS,
+          cancelQueued: this.options.cancelQueuedOnInterrupt ?? true,
+          onProbe: (probePhase, detail) => this.options.onContextProbe?.(probePhase, detail),
+          clearSubagentLimits: () => subagentRuntimeLimit.clear(),
         });
-      } catch {
-        // Reconcile hooks must not suppress post-run cleanup callers.
+        try {
+          await this.options.queryLifecycle?.onClosed?.(handle, {
+            stillQueued: teardown.stillQueued,
+            cancelled: teardown.cancelled,
+          });
+        } catch {
+          // Reconcile hooks must not suppress post-run cleanup callers.
+        }
+      } finally {
+        this.options.onBackgroundTasksClosed?.({ threadId: input.threadId, query });
       }
     }
     for (const event of drainToolPermissionDecisionEvents(input.threadId, pendingToolPermissionDecisions)) {
@@ -1810,7 +1839,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
         usage: usage as unknown as Record<string, unknown>,
         timing: "on_result",
       });
-      const role: AgentRole = "planner";
+      const role: AgentRole = "main";
       return [
         createAgentEvent({
           id: `${crypto.randomUUID()}:sdk-context-usage`,
@@ -1906,6 +1935,7 @@ function summarizeAgentsForProbe(agents: Record<string, unknown> | undefined): R
       return {
         key,
         model: typeof record.model === "string" ? record.model : null,
+        autoCompactWindow: typeof record.autoCompactWindow === "number" ? record.autoCompactWindow : null,
         description:
           typeof record.description === "string" ? summarizeTextForProbe(record.description) : null,
         prompt: typeof record.prompt === "string" ? summarizeTextForProbe(record.prompt) : null,
@@ -2594,7 +2624,7 @@ export function createFileCheckpointEvent(threadId: string, userMessageId: strin
     id: `file-checkpoint:${userMessageId}`,
     type: "file.checkpoint",
     threadId,
-    role: "planner",
+    role: "main",
     agentId: "eco-checkpoint",
     payload: { userMessageId },
   });
@@ -2621,7 +2651,7 @@ export function createSessionCapturedEvent(
     id: `${threadId}:session:${sessionId}`,
     threadId,
     agentId: sessionId,
-    role: "planner",
+    role: "main",
     type: "session.captured",
     payload: { sessionId, cwd, ...(state?.resetPending && { resetPending: true }) },
   });
@@ -2637,7 +2667,7 @@ export function createToolPermissionDeniedEvent(
     id: `${threadId}:tool-permission-denied:${decision.toolUseId}:${uuidFactory()}`,
     threadId,
     agentId: decision.agentId ?? decision.sessionId ?? decision.actor,
-    role: subagentRole ?? "planner",
+    role: subagentRole ?? "main",
     type: "tool.failed",
     payload: {
       type: "tool_permission_denied",
@@ -2676,7 +2706,7 @@ export function createPhaseBoundaryEvent(threadId: string, phase: EcoRunPhase, l
     id: `${threadId}:eco-phase-${phase}-${crypto.randomUUID()}`,
     threadId,
     agentId: "eco-orchestrator",
-    role: "planner",
+    role: "main",
     type: "agent.started",
     payload: { ecoPhase: phase, label },
   });
@@ -2871,7 +2901,7 @@ export function createPlanReadyEvent(threadId: string, payload: PlanReadyPayload
     id: `${threadId}:plan-ready-${crypto.randomUUID()}`,
     threadId,
     agentId: "eco-orchestrator",
-    role: "planner",
+    role: "main",
     type: "plan.ready",
     payload,
   });
@@ -2900,6 +2930,8 @@ export type SdkTodoUpdatedKind = "task_started" | "task_updated" | "task_progres
 export interface SdkTodoUpdatedPayload {
   sdkKind: SdkTodoUpdatedKind;
   task_id: string;
+  run_id?: string;
+  parent_task_id?: string;
   tool_use_id?: string;
   description?: string;
   subagent_type?: string;
@@ -2934,6 +2966,36 @@ export interface SdkTodoUpdatedPayload {
   };
 }
 
+export function readClaudeBackgroundTasksChanged(
+  message: unknown,
+): ClaudeBackgroundTaskSnapshot[] | undefined {
+  if (
+    !isRecord(message) ||
+    message.type !== "system" ||
+    message.subtype !== "background_tasks_changed" ||
+    !Array.isArray(message.tasks)
+  ) {
+    return undefined;
+  }
+  return message.tasks.flatMap((task): ClaudeBackgroundTaskSnapshot[] => {
+    if (!isRecord(task)) {
+      return [];
+    }
+    const taskId = typeof task.task_id === "string" ? task.task_id.trim() : "";
+    const taskType = typeof task.task_type === "string" ? task.task_type.trim() : "";
+    if (!taskId || !taskType) {
+      return [];
+    }
+    return [
+      {
+        taskId,
+        taskType,
+        description: typeof task.description === "string" ? task.description.trim() : "",
+      },
+    ];
+  });
+}
+
 export function buildSdkTodoUpdatedPayload(message: Record<string, unknown>): SdkTodoUpdatedPayload | null {
   const subtype = message.subtype;
   if (
@@ -2954,6 +3016,9 @@ export function buildSdkTodoUpdatedPayload(message: Record<string, unknown>): Sd
     sdkKind: subtype,
     task_id: taskId,
   };
+  if (typeof message.run_id === "string" && message.run_id.trim()) payload.run_id = message.run_id.trim();
+  if (typeof message.parent_task_id === "string" && message.parent_task_id.trim())
+    payload.parent_task_id = message.parent_task_id.trim();
 
   if (typeof message.tool_use_id === "string" && message.tool_use_id.trim()) {
     payload.tool_use_id = message.tool_use_id.trim();
@@ -3182,6 +3247,13 @@ function resolveSdkMessageStreamRole(
   streamCtx: SdkStreamContext | undefined,
   fallback: RuntimeAgentRole,
 ): RuntimeAgentRole {
+  const nativeAgentId = readSdkMessageAgentId(message);
+  if (nativeAgentId && streamCtx) {
+    for (const [parentId, agentId] of streamCtx.registeredSubagentByParentToolUseId) {
+      const registeredRole = streamCtx.subagentRoleByParentToolUseId.get(parentId);
+      if (agentId === nativeAgentId && registeredRole) return registeredRole;
+    }
+  }
   const parentToolUseId =
     typeof message.parent_tool_use_id === "string" ? message.parent_tool_use_id.trim() : "";
   const linkedRole = parentToolUseId && streamCtx?.subagentRoleByParentToolUseId.get(parentToolUseId);
@@ -3189,7 +3261,13 @@ function resolveSdkMessageStreamRole(
     return linkedRole;
   }
   const fromMessage = inferRole(message);
-  return fromMessage !== "planner" ? fromMessage : fallback;
+  return fromMessage !== "main" ? fromMessage : fallback;
+}
+
+function readSdkMessageAgentId(message: Record<string, unknown>): string | undefined {
+  return typeof message.agent_id === "string" && message.agent_id.trim()
+    ? message.agent_id.trim()
+    : undefined;
 }
 
 export function isSdkBackgroundOnlyResult(message: Record<string, unknown>): boolean {
@@ -3449,6 +3527,7 @@ function mapUserToolResultEvents(
   const messageParentToolUseId =
     typeof message.parent_tool_use_id === "string" ? message.parent_tool_use_id : null;
   const role = resolveSdkMessageStreamRole(message, streamCtx, fallbackRole);
+  const nativeAgentId = readSdkMessageAgentId(message);
   const agentOutput = isRecord(message.tool_use_result)
     ? message.tool_use_result
     : isRecord(message.toolUseResult)
@@ -3518,6 +3597,7 @@ function mapUserToolResultEvents(
                 ...(resourceLinks && { resource_links: resourceLinks }),
               },
           messageParentToolUseId,
+          ...(nativeAgentId && { nativeAgentId }),
         },
         streamCtx,
       ),
@@ -3701,10 +3781,8 @@ function mapAssistantMessageToEvents(
   const messageId = nestedMessage && typeof nestedMessage.id === "string" ? nestedMessage.id : undefined;
   const messageParentToolUseId =
     typeof message.parent_tool_use_id === "string" ? message.parent_tool_use_id : null;
-  const contentRole =
-    (typeof messageParentToolUseId === "string" &&
-      streamCtx?.subagentRoleByParentToolUseId.get(messageParentToolUseId)) ||
-    role;
+  const nativeAgentId = readSdkMessageAgentId(message);
+  const contentRole = resolveSdkMessageStreamRole(message, streamCtx, role);
   const sdkRequestId =
     typeof message.request_id === "string" && message.request_id.trim()
       ? message.request_id.trim()
@@ -3723,7 +3801,13 @@ function mapAssistantMessageToEvents(
       ...uuidFields,
     };
     const attributed = applySubagentUsageAttribution(
-      { role: contentRole, sessionId, payload: assistantPayload, messageParentToolUseId },
+      {
+        role: contentRole,
+        sessionId,
+        payload: assistantPayload,
+        messageParentToolUseId,
+        ...(nativeAgentId && { nativeAgentId }),
+      },
       streamCtx,
     );
     events.push(
@@ -3751,7 +3835,12 @@ function mapAssistantMessageToEvents(
     if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
       const streamBlockKey = assistantStreamBlockKey(messageId ?? uuid, "text", index);
       if (
-        hasEmittedStreamBlockForMessageKind(streamCtx, messageId, "text", messageParentToolUseId === null)
+        hasEmittedStreamBlockForMessageKind(
+          streamCtx,
+          messageId,
+          "text",
+          messageParentToolUseId === null && !nativeAgentId,
+        )
       ) {
         continue;
       }
@@ -3779,6 +3868,7 @@ function mapAssistantMessageToEvents(
               ...(typeof message.agent_type === "string" && { agent_type: message.agent_type }),
             },
             messageParentToolUseId,
+            ...(nativeAgentId && { nativeAgentId }),
           },
           streamCtx,
         ),
@@ -3788,7 +3878,12 @@ function mapAssistantMessageToEvents(
     if (block.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim()) {
       const streamBlockKey = assistantStreamBlockKey(messageId ?? uuid, "thinking", index);
       if (
-        hasEmittedStreamBlockForMessageKind(streamCtx, messageId, "thinking", messageParentToolUseId === null)
+        hasEmittedStreamBlockForMessageKind(
+          streamCtx,
+          messageId,
+          "thinking",
+          messageParentToolUseId === null && !nativeAgentId,
+        )
       ) {
         continue;
       }
@@ -3816,6 +3911,7 @@ function mapAssistantMessageToEvents(
               ...(typeof message.agent_type === "string" && { agent_type: message.agent_type }),
             },
             messageParentToolUseId,
+            ...(nativeAgentId && { nativeAgentId }),
           },
           streamCtx,
         ),
@@ -3860,6 +3956,7 @@ function mapAssistantMessageToEvents(
               }),
           },
           messageParentToolUseId,
+          ...(nativeAgentId && { nativeAgentId }),
         },
         streamCtx,
       ),
@@ -4062,11 +4159,11 @@ function inferRole(message: Record<string, unknown>): RuntimeAgentRole {
       return message.agent_type;
     }
   }
-  return "planner";
+  return "main";
 }
 
 function isAgentRole(value: string): value is AgentRole {
-  return ["planner", "explore", "architect", "coder", "reviewer", "tester"].includes(value);
+  return ["main", "explore", "architect", "coder", "reviewer", "tester"].includes(value);
 }
 
 function resolveActivitySubagentRole(value: string): ActivityDisplayRole | undefined {
@@ -4281,7 +4378,7 @@ export function inferActivityRole(event: Pick<AgentEvent, "type" | "payload" | "
 }
 
 function isRuntimeAgentActivityRole(role: RuntimeAgentRole): boolean {
-  return role !== "planner" && role !== "system" && role !== "thinking" && role !== "tool" && role !== "user";
+  return role !== "main" && role !== "system" && role !== "thinking" && role !== "tool" && role !== "user";
 }
 
 export function isThinkingPayload(payload: unknown): boolean {
@@ -4567,7 +4664,7 @@ export function formatSubagentLabel(role: string): string {
   if (isSubagentRole(role)) {
     return SUBAGENT_ROLE_LABELS[role];
   }
-  if (isAgentRole(role) && role !== "planner") {
+  if (isAgentRole(role) && role !== "main") {
     return role;
   }
   return role;

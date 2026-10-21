@@ -950,7 +950,7 @@ test("Node SQLite rejects a Claude session binding for a Codex thread", async (t
 
   assert.throws(
     () => store.saveSdkSession("thr_codex", "sdk_wrong_core", "/tmp/codex"),
-    /Thread Core mismatch/,
+    /Thread Harness mismatch/,
   );
   assert.equal(store.getSdkSession("thr_codex"), undefined);
   assert.equal(store.getThreadCoreSession("thr_codex"), undefined);
@@ -1024,7 +1024,7 @@ test("Node SQLite leaves ambiguous mixed-product thread ownership unknown", asyn
         externalSessionId: "codex_conflict",
         cwd: "/tmp/project",
       }),
-    /Thread Core mismatch/,
+    /Thread Harness mismatch/,
   );
 });
 
@@ -1498,7 +1498,7 @@ test("Node SQLite attributeThreadRunEventsByLogicalRequestId role conflict fail 
     threadId,
     eventType: "request.started",
     scope: "main",
-    role: "planner",
+    role: "main",
     requestId: logicalRequestId,
     streamState: "finalized",
     message: "Requesting model…",

@@ -129,11 +129,15 @@ export function assertBashApprovalResolutionAllowed(
     request.suppressAlwaysAllowRule &&
     [
       "approved_remember_prefix",
+      "approved_remember_mcp_tool",
       "approved_for_session",
       "approved_execpolicy_amendment",
       "approved_network_policy_amendment",
     ].includes(resolution.decision)
   ) {
     throw new Error("This SDK permission request forbids persistent approval rules.");
+  }
+  if (resolution.decision === "approved_remember_mcp_tool" && !request.mcpToolApproval) {
+    throw new Error("This request has no host-bound MCP tool to remember.");
   }
 }

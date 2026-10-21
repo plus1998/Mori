@@ -29,7 +29,7 @@ const provider: ProviderConfigSecret = {
 
 const routes: RuntimeRoute[] = [
   {
-    role: "planner",
+    role: "main",
     provider,
     modelId: "sonnet",
     apiCompat: "anthropic",
@@ -152,7 +152,7 @@ test("resolveSdkRunBillingResolution attributes planner-only rows to planner age
 
   const resolved = await resolveSdkRunBillingResolution({
     threadId: "thr_sdk_run",
-    role: "planner",
+    role: "main",
     requestKey: "sdk-result:evt_planner",
     bundle: plannerBundle,
     runtimeRoutes: routes,
@@ -161,13 +161,13 @@ test("resolveSdkRunBillingResolution attributes planner-only rows to planner age
     plannerAgentId: "planner_attempt_1",
   });
 
-  expect(resolved.billingRole).toBe("planner");
+  expect(resolved.billingRole).toBe("main");
   expect(resolved.resolvedSubagentId).toBeUndefined();
   expect(resolved.ledgerAgentId).toBe("planner_attempt_1");
   expect(resolved.observations).toEqual([]);
   expect(resolved.effectsInput).toMatchObject({
-    role: "planner",
-    billingRole: "planner",
+    role: "main",
+    billingRole: "main",
     ledgerAgentId: "planner_attempt_1",
     updateContext: false,
   });

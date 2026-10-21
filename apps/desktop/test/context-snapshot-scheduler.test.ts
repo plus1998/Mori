@@ -11,10 +11,10 @@ test("emits one occupancy segment per independent role window", () => {
     ratio: 0.1,
     occupancyPct: 10,
     limitsResolved: true,
-    displayRole: "planner",
+    displayRole: "main",
     roles: [
       {
-        role: "planner",
+        role: "main",
         occupied: 10_000,
         limit: 100_000,
         ratio: 0.1,
@@ -46,11 +46,11 @@ test("emits one occupancy segment per independent role window", () => {
     limit: 100_000,
     occupancyPct: 10,
     limitsResolved: true,
-    displayRole: "planner",
+    displayRole: "main",
     segments: [],
     roles: [
       {
-        role: "planner",
+        role: "main",
         occupied: 10_000,
         limit: 100_000,
         occupancyPct: 10,
@@ -63,7 +63,7 @@ test("emits one occupancy segment per independent role window", () => {
   scheduler.emitLiveFromMonitor("t1");
 
   const snapshot = emitted.at(-1);
-  expect(snapshot?.roles?.find((role) => role.role === "planner")?.segments).toEqual([
+  expect(snapshot?.roles?.find((role) => role.role === "main")?.segments).toEqual([
     { key: "conversation", label: "会话", tokens: 10_000, color: "#ea580c" },
   ]);
   const coderSegments = snapshot?.roles?.find((role) => role.role === "coder")?.segments;
@@ -112,11 +112,11 @@ test("clearSubagentState drops cached child role snapshots and segments", () => 
     limit: 100_000,
     occupancyPct: 10,
     limitsResolved: true,
-    displayRole: "planner",
+    displayRole: "main",
     segments: plannerSegments,
     roles: [
       {
-        role: "planner",
+        role: "main",
         occupied: 10_000,
         limit: 100_000,
         occupancyPct: 10,
@@ -138,7 +138,7 @@ test("clearSubagentState drops cached child role snapshots and segments", () => 
   scheduler.clearSubagentState("t1");
 
   const snapshot = scheduler.getDisplaySnapshot("t1");
-  expect(snapshot?.roles?.map((role) => role.role)).toEqual(["planner"]);
+  expect(snapshot?.roles?.map((role) => role.role)).toEqual(["main"]);
   expect(snapshot?.segments).toEqual(plannerSegments);
 });
 
@@ -150,10 +150,10 @@ test("applySdkContextUsageBreakdown updates planner segments from getContextUsag
     ratio: 0.18,
     occupancyPct: 18,
     limitsResolved: true,
-    displayRole: "planner",
+    displayRole: "main",
     roles: [
       {
-        role: "planner",
+        role: "main",
         occupied: 36_000,
         limit: 200_000,
         ratio: 0.24,
@@ -164,7 +164,7 @@ test("applySdkContextUsageBreakdown updates planner segments from getContextUsag
   };
   const monitor = {
     getSnapshot: () => monitorSnapshot,
-    updateOccupied: async (_threadId: string, role: "planner", occupied: number) => {
+    updateOccupied: async (_threadId: string, role: "main", occupied: number) => {
       monitorSnapshot = {
         ...monitorSnapshot,
         occupied,
@@ -203,7 +203,7 @@ test("applySdkContextUsageBreakdown updates planner segments from getContextUsag
   expect(snapshot?.occupied).toBe(31_528);
   expect(
     snapshot?.roles
-      ?.find((role) => role.role === "planner")
+      ?.find((role) => role.role === "main")
       ?.segments.some((s) => s.label === "未归因上下文"),
   ).toBe(true);
 });

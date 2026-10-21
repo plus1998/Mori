@@ -164,9 +164,9 @@ export function resolveUsageRoute(
   if (byModelId.length === 1) {
     const route = byModelId[0]!;
     if (roleRoute && route.role !== role) {
-      const plannerRoute = routes.find((entry) => entry.role === "planner");
+      const plannerRoute = routes.find((entry) => entry.role === "main");
       // SDK often reports the planner upstream id for subagent calls — prefer the billing role's route.
-      if (plannerRoute && route.modelId === plannerRoute.modelId && role !== "planner") {
+      if (plannerRoute && route.modelId === plannerRoute.modelId && role !== "main") {
         return toResolved(roleRoute);
       }
       // Unique upstream id identifies a specific role (e.g. explore haiku when billing role wrongly says planner).
@@ -402,6 +402,7 @@ export async function lookupRouteCapabilityHints(
       providerName: route.provider.name,
       supportsImageInput: effectiveCapabilities.supportsImageInput,
       supportsReasoning: effectiveCapabilities.supportsReasoning,
+      supportsRemoteCompaction: route.manualSpec?.supportsRemoteCompaction === true,
       capabilitiesResolved: effectiveCapabilities.capabilitiesResolved,
       ...(capabilities.capabilitiesResolved && {
         catalogSupportsImageInput: capabilities.supportsImageInput,

@@ -27,7 +27,7 @@ test("formatSkillActivityLabel uses 读取 <name> 技能", () => {
 test("formatAgentEventDisplay shows skill read label", () => {
   const display = formatAgentEventDisplay({
     type: "tool.started",
-    role: "planner",
+    role: "main",
     payload: {
       type: "tool_use",
       tool_name: "Skill",
@@ -40,7 +40,7 @@ test("formatAgentEventDisplay shows skill read label", () => {
 test("formatAgentEventDisplay shows Read SKILL.md as skill", () => {
   const display = formatAgentEventDisplay({
     type: "tool.started",
-    role: "planner",
+    role: "main",
     payload: {
       type: "tool_use",
       tool_name: "Read",
@@ -53,7 +53,7 @@ test("formatAgentEventDisplay shows Read SKILL.md as skill", () => {
 test("formatAgentEventDisplay shows pi read path to SKILL.md as skill", () => {
   const display = formatAgentEventDisplay({
     type: "tool.started",
-    role: "planner",
+    role: "main",
     payload: {
       type: "tool_use",
       tool_name: "Read",
@@ -66,7 +66,7 @@ test("formatAgentEventDisplay shows pi read path to SKILL.md as skill", () => {
 test("formatAgentEventDisplay shows skill label on tool completion", () => {
   const display = formatAgentEventDisplay({
     type: "tool.completed",
-    role: "planner",
+    role: "main",
     payload: {
       type: "tool_result",
       tool_name: "Read",

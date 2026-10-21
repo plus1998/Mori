@@ -103,6 +103,17 @@ enum ConversationV2SyncState {
   incompatible,
 }
 
+const conversationV2ContextCompactionTypes = <String>{
+  'context.compaction.started',
+  'context.compaction.completed',
+  'context.compaction.failed',
+  'context.compaction.suspended',
+};
+
+bool isConversationV2ContextCompactionType(String type) {
+  return conversationV2ContextCompactionTypes.contains(type);
+}
+
 class ConversationV2Capabilities {
   const ConversationV2Capabilities({
     required this.protocolVersion,
@@ -217,7 +228,7 @@ class ConversationV2Message {
   /// place a message between the two tools of its own turn.
   final String? occurredAt;
 
-  /// The provider's own label for the row (`planner`, `coder`, ...), kept separate from
+  /// The provider's own label for the row (`main`, `coder`, ...), kept separate from
   /// [role]. `role` is the normalized channel role; this is the fact the Feed uses to
   /// pick a turn's final output.
   final String? providerRole;
@@ -640,6 +651,7 @@ class ConversationV2Bootstrap {
     required this.hasOlder,
     this.agents = const [],
     this.todos = const [],
+    this.details = const [],
     this.toolSummaryCounts = const {},
   });
 
@@ -655,6 +667,7 @@ class ConversationV2Bootstrap {
   /// The agents of the visible window (see [ConversationV2Agent]).
   final List<ConversationV2Agent> agents;
   final List<ConversationV2Todo> todos;
+  final List<ConversationV2Detail> details;
   final Map<String, int> toolSummaryCounts;
   final String? olderCursor;
   final bool hasOlder;
@@ -689,6 +702,10 @@ class ConversationV2Bootstrap {
         json['todos'],
         'todos',
       ).map(ConversationV2Todo.fromJson).toList(growable: false),
+      details: _optionalList(
+        json['details'],
+        'details',
+      ).map(ConversationV2Detail.fromJson).toList(growable: false),
       toolSummaryCounts: _optionalIntMap(json['toolSummaryCounts']),
     );
   }

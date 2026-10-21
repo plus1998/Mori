@@ -4,7 +4,7 @@ import { resolveSubagentAgentId } from "../src/main/subagent-agent-resolver";
 test("resolveSubagentAgentId prefers explicit agent id", () => {
   expect(
     resolveSubagentAgentId({
-      role: "planner",
+      role: "main",
       explicitAgentId: " agent_explicit ",
       linkedParentAgentId: "agent_parent",
       hasThreadState: false,
@@ -15,7 +15,7 @@ test("resolveSubagentAgentId prefers explicit agent id", () => {
 test("resolveSubagentAgentId maps linked parent tool use before role checks", () => {
   expect(
     resolveSubagentAgentId({
-      role: "planner",
+      role: "main",
       parentToolUseId: "toolu_task",
       linkedParentAgentId: "agent_explore",
       hasThreadState: true,
@@ -26,7 +26,7 @@ test("resolveSubagentAgentId maps linked parent tool use before role checks", ()
 test("resolveSubagentAgentId skips non-subagent roles without a parent link", () => {
   expect(
     resolveSubagentAgentId({
-      role: "planner",
+      role: "main",
       hasThreadState: true,
       activeAgentIds: ["agent_planner_like"],
     }),

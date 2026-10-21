@@ -50,7 +50,11 @@ export function resolveClaudeRunAttemptFromTerminalState(
   signal: AbortSignal,
 ): RequestAttemptResult {
   if (signal.aborted) {
-    return { ok: false, reason: "cancelled by user", aborted: true };
+    return {
+      ok: false,
+      reason: resolveAbortReason(signal.reason),
+      aborted: true,
+    };
   }
   if (state.kind === "running") {
     return {
@@ -77,4 +81,24 @@ export function resolveClaudeRunAttemptFromTerminalState(
       return _exhaustive;
     }
   }
+}
+
+export function resolveAbortReason(
+  reason: unknown,
+  fallback = "cancelled by user",
+): string {
+  if (typeof reason === "string" && reason.trim()) {
+    return reason.trim();
+  }
+  if (reason instanceof Error && reason.message.trim()) {
+    const message = reason.message.trim();
+    if (
+      reason.name === "AbortError" &&
+      /^(?:The|This) operation was aborted\.?$/i.test(message)
+    ) {
+      return fallback;
+    }
+    return message;
+  }
+  return fallback;
 }

@@ -5,6 +5,8 @@ import path from "node:path";
 export type AgentBrowserCliBridgeInput = {
   binaryPath: string;
   cdpPort: number;
+  /** Eco page id; never confuse Eco's positional tN labels with CLI tab ids. */
+  cdpTargetId?: string;
   sessionKey: string;
   env: Record<string, string>;
   toolName: string;
@@ -334,15 +336,10 @@ export async function callAgentBrowserToolViaCli(
 ): Promise<AgentBrowserMcpToolResult> {
   input.signal?.throwIfAborted();
   const cliArgs = mapAgentBrowserToolToCliArgs(input.toolName, input.args);
-  const spawnArgs = [
-    "--cdp",
-    String(input.cdpPort),
-    "--session",
-    input.sessionKey,
-    "--idle-timeout",
-    "0",
-    ...cliArgs,
-  ];
+  const cdpEndpoint = input.cdpTargetId
+    ? `ws://127.0.0.1:${input.cdpPort}/devtools/browser?targetId=${encodeURIComponent(input.cdpTargetId)}`
+    : String(input.cdpPort);
+  const spawnArgs = ["--cdp", cdpEndpoint, "--session", input.sessionKey, "--idle-timeout", "0", ...cliArgs];
   const timeoutMs = input.timeoutMs ?? 120_000;
 
   return new Promise((resolve) => {
@@ -350,7 +347,7 @@ export async function callAgentBrowserToolViaCli(
       env: {
         ...process.env,
         ...input.env,
-        AGENT_BROWSER_CDP: String(input.cdpPort),
+        AGENT_BROWSER_CDP: cdpEndpoint,
         AGENT_BROWSER_SESSION: input.sessionKey,
         AGENT_BROWSER_IDLE_TIMEOUT_MS: "0",
       },
@@ -465,10 +462,7 @@ export async function callAgentBrowserToolViaCli(
         // CDP can close the inspected target between the navigation command
         // and the CLI's final Runtime.evaluate used to print its result. Verify
         // the session URL before surfacing this as a failed navigation.
-        if (
-          NAVIGATION_TOOL_NAMES.has(input.toolName) &&
-          /Inspected target navigated or closed/i.test(text)
-        ) {
+        if (NAVIGATION_TOOL_NAMES.has(input.toolName) && /Inspected target navigated or closed/i.test(text)) {
           void callAgentBrowserToolViaCli({
             ...input,
             toolName: "agent_browser_get_url",

@@ -12,9 +12,7 @@ export const IMAGE_GENERATION_REQUEST_TIMEOUT_MS = 600_000;
  * Codex `tool_timeout_sec`). Default SDK/Codex tool timeout is 60s — too short for drawing.
  */
 export const IMAGE_GENERATION_MCP_TOOL_TIMEOUT_MS = 600_000;
-export const IMAGE_GENERATION_CODEX_TOOL_TIMEOUT_SEC = Math.ceil(
-  IMAGE_GENERATION_MCP_TOOL_TIMEOUT_MS / 1000,
-);
+export const IMAGE_GENERATION_CODEX_TOOL_TIMEOUT_SEC = Math.ceil(IMAGE_GENERATION_MCP_TOOL_TIMEOUT_MS / 1000);
 
 export function imageGenerationTaskTabId(artifactId: string): string {
   return `${IMAGE_GENERATION_TASK_TAB_PREFIX}${artifactId}`;
@@ -26,7 +24,7 @@ export function parseImageGenerationTaskTabId(tabId: string): string | undefined
     : undefined;
 }
 
-export const IMAGE_GENERATION_PROVIDERS = ["openai", "gemini", "openai_compatible"] as const;
+export const IMAGE_GENERATION_PROVIDERS = ["openai", "gemini", "openai_compatible", "codex", "chatgpt_web"] as const;
 export type ImageGenerationProvider = (typeof IMAGE_GENERATION_PROVIDERS)[number];
 
 export interface ImageGenerationProfileSnapshot {
@@ -135,12 +133,15 @@ export function isImageGenerationProvider(value: unknown): value is ImageGenerat
 }
 
 export function defaultImageGenerationEndpoint(provider: ImageGenerationProvider): string {
+  if (provider === "chatgpt_web") return "https://chatgpt.com/backend-api";
+  if (provider === "codex") return "https://chatgpt.com/backend-api/codex";
   if (provider === "gemini") return "https://generativelanguage.googleapis.com/v1beta";
   if (provider === "openai") return "https://api.openai.com/v1";
   return "";
 }
 
 export function defaultImageGenerationModel(provider: ImageGenerationProvider): string {
+  if (provider === "codex" || provider === "chatgpt_web") return "gpt-image-2";
   if (provider === "gemini") return "gemini-2.5-flash-image";
   if (provider === "openai") return "gpt-image-2";
   return "";
@@ -148,7 +149,7 @@ export function defaultImageGenerationModel(provider: ImageGenerationProvider): 
 
 /** Default for new profiles: official OpenAI/Gemini support edits; compatible gateways often do not. */
 export function defaultSupportsImageToImage(provider: ImageGenerationProvider): boolean {
-  return provider === "openai" || provider === "gemini";
+  return provider === "openai" || provider === "gemini" || provider === "codex" || provider === "chatgpt_web";
 }
 
 export function buildImageGenerationPromptAppend(input: {

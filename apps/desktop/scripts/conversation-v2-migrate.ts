@@ -3,7 +3,7 @@ import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { type ConversationEventInput, stableHash } from "@eco/shared";
+import { type ConversationEventInput, ConversationV2Error, stableHash } from "@eco/shared";
 import { ConversationStore } from "../src/main/conversation-store";
 import { ConversationV2LegacyMigrator } from "../src/main/conversation-v2-legacy-migration";
 import { type ConversationNativeFact, ConversationV2Store } from "../src/main/conversation-v2-store";
@@ -128,18 +128,27 @@ try {
 }
 if (args.nativeManifestPath) await assertNativeManifestPathAvailable(args.nativeManifestPath);
 
-if (args.repairLegacyAttachments) {
-  const report = await runLegacyAttachmentRepair(args);
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-} else if (args.cutover) {
-  const report = await runCutover(args);
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-} else if (args.all) {
-  const report = await runAllMigration(args);
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-} else {
-  const report = await runSingleMigration(args);
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+try {
+  if (args.repairLegacyAttachments) {
+    const report = await runLegacyAttachmentRepair(args);
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } else if (args.cutover) {
+    const report = await runCutover(args);
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } else if (args.all) {
+    const report = await runAllMigration(args);
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } else {
+    const report = await runSingleMigration(args);
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  }
+} catch (error) {
+  if (!(error instanceof ConversationV2Error)) throw error;
+  // Runtime error inspection truncates nested arrays, hiding migration blockers.
+  process.stderr.write(
+    `${JSON.stringify({ code: error.code, message: error.message, data: error.data }, null, 2)}\n`,
+  );
+  process.exitCode = 1;
 }
 
 async function runSingleMigration(args: Arguments): Promise<unknown> {

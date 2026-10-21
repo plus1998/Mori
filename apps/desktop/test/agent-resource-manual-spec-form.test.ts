@@ -139,7 +139,7 @@ test("prefillManualSpecFormFromCandidate fills resolved values for editing", () 
 test("prefillManualSpecFormFromHints fills catalog capabilities and pricing", () => {
   const form = prefillManualSpecFormFromHints(
     {
-      role: "planner",
+      role: "main",
       modelId: "gpt-4o",
       providerName: "OpenAI",
       supportsImageInput: true,
@@ -152,7 +152,7 @@ test("prefillManualSpecFormFromHints fills catalog capabilities and pricing", ()
       catalogSupportsReasoning: false,
     },
     {
-      role: "planner",
+      role: "main",
       modelId: "gpt-4o",
       providerName: "OpenAI",
       pricingResolved: true,
@@ -171,7 +171,7 @@ test("prefillManualSpecFormFromHints fills catalog capabilities and pricing", ()
 test("mergeEffectivePricingHint applies price multiplier to catalog rates", () => {
   const merged = mergeEffectivePricingHint(
     {
-      role: "planner",
+      role: "main",
       modelId: "gpt-4o",
       providerName: "OpenAI",
       pricingResolved: true,
@@ -187,7 +187,7 @@ test("mergeEffectivePricingHint applies price multiplier to catalog rates", () =
 test("mergeEffectivePricingHint treats price multiplier zero as free", () => {
   const merged = mergeEffectivePricingHint(
     {
-      role: "planner",
+      role: "main",
       modelId: "gpt-4o",
       providerName: "OpenAI",
       pricingResolved: true,
@@ -208,4 +208,25 @@ test("formToManualSpec only persists supportsNativeWebSearch when false", () => 
   expect(
     formToManualSpec({ ...emptyManualSpecForm(), supportsNativeWebSearch: false })?.supportsNativeWebSearch,
   ).toBe(false);
+});
+
+test("remote compaction defaults off, persists opt-in and survives candidate prefill", () => {
+  expect(manualSpecToForm().supportsRemoteCompaction).toBe(false);
+  expect(formToManualSpec(emptyManualSpecForm())).toBeUndefined();
+  const form = manualSpecToForm({ supportsRemoteCompaction: true });
+  expect(form.supportsRemoteCompaction).toBe(true);
+  expect(formToManualSpec(form)).toEqual({ supportsRemoteCompaction: true });
+  expect(countManualOverrides(form)).toBe(1);
+  expect(listManualOverrideFields(form)).toEqual(new Set(["supportsRemoteCompaction"]));
+  expect(
+    prefillManualSpecFormFromCandidate({
+      manualSpec: { supportsRemoteCompaction: true },
+      resolvedContextTokens: 100_000,
+    }).supportsRemoteCompaction,
+  ).toBe(true);
+  expect(prefillManualSpecFormFromHints().supportsRemoteCompaction).toBe(false);
+  expect(
+    mergeEffectiveCapabilityHint(undefined, { supportsRemoteCompaction: true })?.supportsRemoteCompaction,
+  ).toBe(true);
+  expect(formToManualSpec({ ...form, supportsRemoteCompaction: false })).toBeUndefined();
 });

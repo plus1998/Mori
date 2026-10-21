@@ -18,6 +18,7 @@ import {
   sanitizeCodexRoleId,
   syncOrchestrationAgentsToCodexRoles,
   withCodexNativeImageView,
+  withCodexRemoteCompaction,
   withCodexSkillConfig,
 } from "../src/codex-role-sync";
 
@@ -134,8 +135,15 @@ test("syncOrchestrationAgentsToCodexRoles writes role toml for explore and enabl
   await expect(fs.stat(path.join(result.agentsDir, "architect.toml"))).rejects.toThrow();
 });
 
-test("full access propagates to every generated Codex role", async () => {
+test("execution mode changes per-turn role policy without changing immutable role configs", async () => {
   const ecoDataDir = await makeTempEcoDataDir();
+  const initial = await syncOrchestrationAgentsToCodexRoles({
+    codexHomeDir: resolveCodexHomeDir(ecoDataDir),
+    orchestration: buildOrchestration(),
+    templates: [researchTemplate, codingTemplate],
+    executionConfirmationMode: "always",
+  });
+  const initialFiles = await Promise.all(initial.roles.map((role) => fs.readFile(role.rolePath, "utf8")));
   const result = await syncOrchestrationAgentsToCodexRoles({
     codexHomeDir: resolveCodexHomeDir(ecoDataDir),
     orchestration: buildOrchestration(),
@@ -146,10 +154,21 @@ test("full access propagates to every generated Codex role", async () => {
   for (const role of result.roles) {
     expect(role.toolPolicy.sandboxMode).toBe("danger-full-access");
     expect(role.toolPolicy.approvalPolicy).toBe("never");
-    const toml = await fs.readFile(role.rolePath, "utf8");
-    expect(toml).toContain('sandbox_mode = "danger-full-access"');
-    expect(toml).toContain('approval_policy = "never"');
   }
+  expect(result.agentsDir).toBe(initial.agentsDir);
+  expect(result.threadConfig).toEqual(initial.threadConfig);
+  expect(result.roleThreadConfigs).toEqual(initial.roleThreadConfigs);
+  expect(await Promise.all(result.roles.map((role) => fs.readFile(role.rolePath, "utf8")))).toEqual(
+    initialFiles,
+  );
+  const restored = await syncOrchestrationAgentsToCodexRoles({
+    codexHomeDir: resolveCodexHomeDir(ecoDataDir),
+    orchestration: buildOrchestration(),
+    templates: [researchTemplate, codingTemplate],
+    executionConfirmationMode: "auto",
+  });
+  expect(restored.threadConfig).toEqual(initial.threadConfig);
+  expect(restored.roles.every((role) => role.toolPolicy.approvalPolicy === "on-request")).toBe(true);
 });
 
 test("syncOrchestrationAgentsToCodexRoles appends V4A teaching to role developer instructions when enabled", async () => {
@@ -349,33 +368,15 @@ test("role TOML carries an explicit apiCompat override in the V1 gateway alias",
   );
 });
 
-test("responses-native providers reject non-Responses role overrides", async () => {
-  const ecoDataDir = await makeTempEcoDataDir();
-  const roleSync = await syncOrchestrationAgentsToCodexRoles({
-    codexHomeDir: resolveCodexHomeDir(ecoDataDir),
-    orchestration: buildOrchestration({
-      agents: [
-        exploreAgent({
-          providerId: "native",
-          modelId: "chat-model",
-          apiCompat: "anthropic",
-        }),
-      ],
-    }),
-    templates: [],
-  });
-
-  expect(() =>
-    assertCodexRoleProvidersAvailable(roleSync.roles, [
-      {
-        id: "native",
-        name: "Native Responses",
-        enabled: true,
-        apiCompat: "openai_responses",
-        compactionMode: "responses-native",
-      },
-    ]),
-  ).toThrow(/cannot override provider 'native' to apiCompat=anthropic/);
+test("thread remote compaction changes do not mutate other threads or MCP policy", () => {
+  const config = { mcp_servers: { eco_mcp: { enabled: true } } };
+  const remote = withCodexRemoteCompaction(config, "vendor", "v2");
+  const local = withCodexRemoteCompaction(remote, "vendor", "unsupported");
+  expect(remote.model_providers?.eco_vendor?.capabilities.remote_compaction).toBe("v2");
+  expect(local.model_providers?.eco_vendor?.capabilities.remote_compaction).toBe("unsupported");
+  expect(local.mcp_servers).toEqual(config.mcp_servers);
+  expect(config).not.toHaveProperty("model_providers");
+  expect(withCodexRemoteCompaction(config, "openai", "unsupported")).toEqual(config);
 });
 
 test("role sync rejects unknown apiCompat values", async () => {
@@ -625,16 +626,17 @@ test("role MCP policy follows Composer thread selection for all actors", async (
     threadEnabledMcpServers: ["browser", "github"],
   });
 
+  // Transport fields travel with the thread config; visibility still wins.
   expect(result.threadConfig.mcp_servers).toEqual({
-    browser: { enabled: true, enabled_tools: ["open", "search"] },
-    github: { enabled: true, enabled_tools: ["read", "write"] },
-    sources: { enabled: false },
+    browser: { command: "node", enabled: true, enabled_tools: ["open", "search"] },
+    github: { command: "node", enabled: true, enabled_tools: ["read", "write"] },
+    sources: { command: "node", enabled: false },
   });
   const researcherConfig = result.roleThreadConfigs.researcher;
   expect(researcherConfig?.mcp_servers).toEqual({
-    browser: { enabled: true, enabled_tools: ["open", "search"] },
-    github: { enabled: true, enabled_tools: ["read", "write"] },
-    sources: { enabled: false },
+    browser: { command: "node", enabled: true, enabled_tools: ["open", "search"] },
+    github: { command: "node", enabled: true, enabled_tools: ["read", "write"] },
+    sources: { command: "node", enabled: false },
   });
 
   const researcherToml = await fs.readFile(
@@ -663,8 +665,8 @@ test("main actor inherits Composer-selected MCP regardless of orchestration MCP 
   });
 
   expect(result.threadConfig.mcp_servers).toEqual({
-    browser: { enabled: false },
-    mongo: { enabled: true },
+    browser: { command: "node", enabled: false },
+    mongo: { command: "node", enabled: true },
   });
 });
 
@@ -687,7 +689,9 @@ test("legacy empty orchestration MCP policy no longer denies Composer-selected M
     threadEnabledMcpServers: ["mongo"],
   });
 
-  expect(result.threadConfig.mcp_servers).toEqual({ mongo: { enabled: true } });
+  expect(result.threadConfig.mcp_servers).toEqual({
+    mongo: { command: "node", enabled: true },
+  });
 });
 
 test("content-addressed role bundles survive a concurrent Orchestration preparation", async () => {
@@ -751,8 +755,52 @@ test("role sync shares Composer MCP scope between main and subagents", async () 
     mcpServers: [{ name: "browser", transport: "stdio", command: "node" }],
     threadEnabledMcpServers: ["browser"],
   });
-  expect(result.threadConfig.mcp_servers).toEqual({ browser: { enabled: true } });
-  expect(result.roleThreadConfigs.researcher?.mcp_servers).toEqual({ browser: { enabled: true } });
+  expect(result.threadConfig.mcp_servers).toEqual({
+    browser: { command: "node", enabled: true },
+  });
+  expect(result.roleThreadConfigs.researcher?.mcp_servers).toEqual({
+    browser: { command: "node", enabled: true },
+  });
+});
+
+test("concurrent threads keep independent thread MCP definitions", async () => {
+  const ecoDataDir = await makeTempEcoDataDir();
+  const codexHomeDir = resolveCodexHomeDir(ecoDataDir);
+  const orchestration = buildOrchestration({ agents: [] });
+  const [first, second] = await Promise.all(
+    ["a", "b"].map((suffix) =>
+      syncOrchestrationAgentsToCodexRoles({
+        codexHomeDir,
+        orchestration,
+        templates: [],
+        mcpServers: [
+          {
+            name: `eco_mcp_${suffix}`,
+            transport: "http" as const,
+            url: `http://127.0.0.1:19${suffix === "a" ? 1 : 2}/mcp`,
+            httpHeaders: { Authorization: `Bearer ${suffix}` },
+          },
+        ],
+      }),
+    ),
+  );
+
+  // Each thread carries only its own Hub descriptor, so one thread's cache
+  // refresh can never redirect another thread's MCP calls.
+  expect(first.threadConfig.mcp_servers).toEqual({
+    eco_mcp_a: {
+      url: "http://127.0.0.1:191/mcp",
+      http_headers: { Authorization: "Bearer a" },
+      enabled: true,
+    },
+  });
+  expect(second.threadConfig.mcp_servers).toEqual({
+    eco_mcp_b: {
+      url: "http://127.0.0.1:192/mcp",
+      http_headers: { Authorization: "Bearer b" },
+      enabled: true,
+    },
+  });
 });
 
 function toolPolicy(overrides: Partial<EcoToolPolicy> = {}): EcoToolPolicy {

@@ -42,7 +42,7 @@ export function resolveSdkRunBillingAttribution(
   });
 
   const { billingRole, subagentAgentId: resolvedSubagentId } = attribution;
-  const allLedgerRowsArePlanner = input.models.every((model) => (model.role ?? input.role) === "planner");
+  const allLedgerRowsArePlanner = input.models.every((model) => (model.role ?? input.role) === "main");
   const ledgerAgentId = resolvedSubagentId ?? (allLedgerRowsArePlanner ? input.plannerAgentId : undefined);
 
   return {

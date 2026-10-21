@@ -1,3 +1,5 @@
+import { BROWSER_VIEWPORT_DISPLAY_SCALES } from "../shared/browser-viewport";
+
 type BrowserWebviewHostSlotListener = () => void;
 type BrowserWebviewViewportListener = () => void;
 
@@ -18,6 +20,33 @@ const hostSlotsByBrowserId = new Map<string, HTMLElement>();
 const viewportRectsByBrowserId = new Map<string, DOMRectReadOnly>();
 const hostSlotListenersByBrowserId = new Map<string, Set<BrowserWebviewHostSlotListener>>();
 const viewportListenersByBrowserId = new Map<string, Set<BrowserWebviewViewportListener>>();
+const deviceModeBrowserIds = new Set<string>();
+const displayScalesByBrowserId = new Map<string, number>();
+
+export function setBrowserWebviewDisplayScale(browserId: string, scale: number | undefined): void {
+  if (scale !== undefined && !BROWSER_VIEWPORT_DISPLAY_SCALES.some((value) => value === scale)) {
+    throw new Error("Unsupported browser display scale.");
+  }
+  if (displayScalesByBrowserId.get(browserId) === scale) return;
+  if (scale === undefined) displayScalesByBrowserId.delete(browserId);
+  else displayScalesByBrowserId.set(browserId, scale);
+  notifyViewportListeners(browserId);
+}
+
+export function getBrowserWebviewDisplayScale(browserId: string): number | undefined {
+  return displayScalesByBrowserId.get(browserId);
+}
+
+export function setBrowserWebviewDeviceMode(browserId: string, enabled: boolean): void {
+  if (deviceModeBrowserIds.has(browserId) === enabled) return;
+  if (enabled) deviceModeBrowserIds.add(browserId);
+  else deviceModeBrowserIds.delete(browserId);
+  notifyViewportListeners(browserId);
+}
+
+export function isBrowserWebviewDeviceMode(browserId: string): boolean {
+  return deviceModeBrowserIds.has(browserId);
+}
 
 function notifyHostSlotListeners(browserId: string): void {
   const id = browserId.trim();
@@ -131,6 +160,8 @@ export function subscribeBrowserWebviewViewportRect(
 }
 
 export function resetBrowserWebviewLayoutForTests(): void {
+  displayScalesByBrowserId.clear();
+  deviceModeBrowserIds.clear();
   hostSlotsByBrowserId.clear();
   viewportRectsByBrowserId.clear();
   hostSlotListenersByBrowserId.clear();

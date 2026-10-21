@@ -1,3 +1,4 @@
+import type { ReadAloudSettingsInput, ReadAloudSettingsSnapshot, ReadAloudStatus, ReadAloudStartInput, ReadAloudStartResult, ReadAloudSegmentInput, ReadAloudSegmentResult, ReadAloudReadInput, ReadAloudReadResult } from "../shared/tts";
 import type { TtsArtifact, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSnapshot } from "../shared/tts";
 import type { ScheduleCreateInput, ScheduleUpdateInput, ScheduleTrigger, ScheduleDefinition, ScheduleOccurrence, SchedulingSnapshot } from "../shared/scheduling";
 import type {
@@ -24,6 +25,7 @@ import type {
   OpenAIAccountDetails,
   OpenAIAccountImportResult,
   OpenAIAccountQuota,
+  OpenAIAccountImageQuota,
   OpenAIAccountSyncStatus,
   OpenAIAccountUpdateInput,
 } from "../shared/openai-account";
@@ -62,6 +64,7 @@ import {
   type BrowserSettingsSnapshot,
   type BrowserSetUiScopeRequest,
   type BrowserSetVisibleRequest,
+  type BrowserSetViewportRequest,
   type BrowserViewState,
   type CandidateModelInput,
   type CandidateModelView,
@@ -94,6 +97,12 @@ import {
   type ClarificationSubmitResult,
   type ClipboardReadImageResult,
   type ClipboardWriteImageRequest,
+  type CodexBackgroundTerminal,
+  type CodexBackgroundTerminalTerminateRequest,
+  type CodexBackgroundTerminalTerminateResult,
+  type ClaudeBackgroundTask,
+  type ClaudeBackgroundTaskStopRequest,
+  type ClaudeBackgroundTaskStopResult,
   type CodexModelCatalogSnapshot,
   type ComposerDraftDeleteRequest,
   type ComposerDraftDeleteResult,
@@ -254,6 +263,8 @@ import {
 import type { AppLocalePreference } from "../shared/locale";
 import type { NotificationSettingsSnapshot } from "../shared/notification-settings";
 import type { WebChatListSnapshot, WebChatListView } from "../shared/web-chat-list";
+
+import type { ThreadForkFromMessageRequest, ThreadForkFromMessageResult } from "../shared/ipc";
 
 type InvokePayload = Record<string, unknown> | undefined;
 
@@ -501,6 +512,22 @@ const api = {
   stopBackgroundTerminalTask(request: BackgroundTerminalStopRequest): Promise<BackgroundTerminalStopResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.backgroundTerminalStop, request);
   },
+  listCodexBackgroundTerminals(): Promise<CodexBackgroundTerminal[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexBackgroundTerminalList);
+  },
+  terminateCodexBackgroundTerminal(
+    request: CodexBackgroundTerminalTerminateRequest,
+  ): Promise<CodexBackgroundTerminalTerminateResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexBackgroundTerminalTerminate, request);
+  },
+  listClaudeBackgroundTasks(): Promise<ClaudeBackgroundTask[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.claudeBackgroundTaskList);
+  },
+  stopClaudeBackgroundTask(
+    request: ClaudeBackgroundTaskStopRequest,
+  ): Promise<ClaudeBackgroundTaskStopResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.claudeBackgroundTaskStop, request);
+  },
   listTerminalSessions(request?: TerminalListRequest): Promise<TerminalSessionView[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.terminalList, request ?? {});
   },
@@ -655,6 +682,19 @@ const api = {
 
   openAIAccountsQueryQuota(accountId: string): Promise<OpenAIAccountQuota> {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsQueryQuota, { accountId });
+  },
+
+  openAIAccountsResetQuota(accountId: string, idempotencyKey: string): Promise<{
+    outcome: import("../shared/openai-account").CodexQuotaResetOutcome;
+  }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsResetQuota, { accountId, idempotencyKey });
+  },
+
+  openAIAccountsSetImageEnabled(accountId: string, enabled: boolean): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsImageEnabled, { accountId, enabled });
+  },
+  openAIAccountsQueryImageQuota(accountId: string): Promise<OpenAIAccountImageQuota> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsImageQuota, { accountId });
   },
 
   openAIAccountsUpdate(input: OpenAIAccountUpdateInput): Promise<{ success: boolean }> {
@@ -924,6 +964,13 @@ const api = {
   revealImageGenerationArtifact(request: ImageGenerationArtifactReadRequest): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationArtifactReveal, request);
   },
+  getReadAloudStatus(): Promise<ReadAloudStatus> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudStatus); },
+  getReadAloudSettings(): Promise<ReadAloudSettingsSnapshot> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudSettingsGet); },
+  saveReadAloudSettings(input: ReadAloudSettingsInput): Promise<ReadAloudSettingsSnapshot> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudSettingsSave, input); },
+  startReadAloud(input: ReadAloudStartInput): Promise<ReadAloudStartResult> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudStart, input); },
+  synthesizeReadAloudSegment(input: ReadAloudSegmentInput): Promise<ReadAloudSegmentResult> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudSegment, input); },
+  readReadAloudChunk(input: ReadAloudReadInput): Promise<ReadAloudReadResult> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudRead, input); },
+  cancelReadAloud(requestId: string): Promise<void> { return ipcRenderer.invoke(IPC_CHANNELS.ttsReadAloudCancel, { requestId }); },
   getTtsSettings(): Promise<TtsSettingsSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.ttsSettingsGet);
   },
@@ -1069,11 +1116,29 @@ const api = {
   browserGoForward(browserId?: string): Promise<BrowserViewState> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserGoForward, browserId ? { browserId } : undefined);
   },
+  browserSetViewport(request: BrowserSetViewportRequest): Promise<BrowserViewState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserSetViewport, request);
+  },
   browserReload(browserId?: string): Promise<BrowserViewState> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserReload, browserId ? { browserId } : undefined);
   },
   browserOpenExternal(browserId?: string): Promise<{ ok: true }> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserOpenExternal, browserId ? { browserId } : undefined);
+  },
+  browserDownloadAction(request: import("../shared/browser-downloads").BrowserDownloadActionRequest): Promise<{ cancelled: boolean }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserDownloadAction, request);
+  },
+  browserCaptureSelection(request: import("../shared/browser-selection").BrowserSelectionRequest): Promise<import("../shared/browser-selection").BrowserSelection | null> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserCaptureSelection, request);
+  },
+  browserCancelSelection(browserId: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserCancelSelection, { browserId });
+  },
+  browserReadSelection(id: string): Promise<import("../shared/browser-selection").BrowserSelectionPreview> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserReadSelection, { id });
+  },
+  browserRevealSelection(id: string): Promise<BrowserViewState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserRevealSelection, { id });
   },
   onBrowserStateChanged(callback: (state: BrowserViewState) => void): () => void {
     const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
@@ -1408,6 +1473,9 @@ const api = {
   applyWorktree(threadId: string): Promise<WorktreeApplyResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.worktreeApply, threadId);
   },
+  searchComposerReferences(request: import("../shared/composer-references").ComposerReferenceSearchRequest): Promise<import("../shared/composer-references").ComposerReferenceSearchResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.composerReferencesSearch, request);
+  },
   listThreads(): Promise<ThreadSummary[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadList);
   },
@@ -1549,6 +1617,9 @@ const api = {
   },
   rewriteThreadFromMessage(request: ThreadRewriteFromMessageRequest): Promise<ThreadContinueResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadRewriteFromMessage, request);
+  },
+  forkThreadFromMessage(request: ThreadForkFromMessageRequest): Promise<ThreadForkFromMessageResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.threadForkFromMessage, request);
   },
   retryThreadFromMessage(request: ThreadRetryFromMessageRequest): Promise<ThreadContinueResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadRetryFromMessage, request);

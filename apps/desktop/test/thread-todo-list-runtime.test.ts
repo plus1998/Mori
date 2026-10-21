@@ -18,7 +18,7 @@ function todo(input: Partial<CoderTodoItem> = {}): CoderTodoItem {
 function activity(input: Partial<ThreadActivityLine> = {}): ThreadActivityLine {
   return {
     id: "activity_1",
-    role: "planner",
+    role: "main",
     message: "## Coder Tasks\n1. title: Wire TODO IPC\n   scope: main process",
     ...input,
   };

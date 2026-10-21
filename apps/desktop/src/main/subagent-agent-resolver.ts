@@ -50,5 +50,5 @@ export function resolveSubagentAgentId(input: SubagentAgentResolveInput): Subage
 }
 
 function isResolvableAgentRole(role: RuntimeAgentRole): boolean {
-  return !["assistant", "main", "planner", "system", "thinking", "tool", "user"].includes(role);
+  return !["assistant", "main", "main", "system", "thinking", "tool", "user"].includes(role);
 }

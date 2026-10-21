@@ -4,10 +4,13 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ThreadSummary } from "../shared/ipc";
 import type { ScheduleDefinition } from "../shared/scheduling";
+import { matchesProjectSearchTerms } from "../shared/project-pinyin-search";
 
 export interface SidebarSearchProject {
   path: string;
   name: string;
+  /** Pinyin spellings of a Chinese project name, e.g. "会话存档" -> "huihuacundang". */
+  searchTerms?: readonly string[];
 }
 
 export type SidebarSearchResult =
@@ -64,7 +67,8 @@ export function buildSidebarSearchResults(
       (project) =>
         !normalizedQuery ||
         normalizeSearchText(project.name).includes(normalizedQuery) ||
-        normalizeSearchText(project.path).includes(normalizedQuery),
+        normalizeSearchText(project.path).includes(normalizedQuery) ||
+        matchesProjectSearchTerms(project.searchTerms, normalizedQuery),
     )
     .slice(0, MAX_PROJECT_RESULTS)
     .map(

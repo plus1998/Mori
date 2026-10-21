@@ -3,7 +3,13 @@ import { createServer, type Server } from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import type { GatewayProvider } from "@eco/gateway";
+import {
+  IncrementalSseParser,
+  parseResponsesSseFrame,
+  type GatewayCredentialResult,
+  type GatewayProvider,
+  type GatewayUpstreamErrorInfo,
+} from "@eco/gateway";
 
 const AUTHORIZATION_ENDPOINT = "https://auth.openai.com/api/accounts/authorize";
 const TOKEN_ENDPOINT = "https://auth.openai.com/api/accounts/oauth/token";
@@ -11,57 +17,129 @@ const ISSUER = "https://auth.openai.com";
 const RESOURCE = "https://api.openai.com/v1";
 const REQUIRED_SCOPE = "chatgpt.tokens.use.direct";
 const ACCESS_TOKEN_SKEW_MS = 60_000;
-const RATE_LIMIT_COOLDOWN_MS = 5 * 60_000;
+const GENERAL_RATE_LIMIT_COOLDOWN_MS = 5 * 60_000;
 const UNAVAILABLE_COOLDOWN_MS = 30_000;
+const SAFE_UPSTREAM_DIAGNOSTIC_HEADERS = [
+  "content-type",
+  "request-id",
+  "x-request-id",
+  "openai-request-id",
+  "anthropic-request-id",
+  "x-eco-provider-request-id",
+  "retry-after",
+] as const;
+
+function readSafeUpstreamDiagnosticHeaders(headers: Headers): Record<string, string> {
+  return Object.fromEntries(
+    SAFE_UPSTREAM_DIAGNOSTIC_HEADERS.flatMap((name) => {
+      const value = headers.get(name)?.trim();
+      return value ? [[name, value] as const] : [];
+    }),
+  );
+}
 
 function readUpstreamErrorCode(body: string): string | undefined {
   try {
-    const payload = JSON.parse(body) as { error?: { code?: unknown } };
-    return typeof payload.error?.code === "string" ? payload.error.code : undefined;
+    const payload = JSON.parse(body) as { error?: { code?: unknown }; code?: unknown };
+    const code = payload.error?.code ?? payload.code;
+    return typeof code === "string" && code.trim() ? code.trim() : undefined;
   } catch {
     return undefined;
   }
 }
 
+function readUpstreamErrorDetails(body: string): {
+  code?: string;
+  param?: string;
+  message?: string;
+  type?: string;
+  rawEvent?: unknown;
+} {
+  let rawEvent: unknown = body;
+  try {
+    const payload = JSON.parse(body) as {
+      error?: { code?: unknown; param?: unknown; message?: unknown; type?: unknown };
+      code?: unknown;
+      param?: unknown;
+      message?: unknown;
+    };
+    rawEvent = payload;
+    const error = payload.error;
+    return {
+      ...(typeof (error?.code ?? payload.code) === "string"
+        ? { code: String(error?.code ?? payload.code).trim() }
+        : {}),
+      ...(typeof (error?.param ?? payload.param) === "string"
+        ? { param: String(error?.param ?? payload.param).trim() }
+        : {}),
+      ...(typeof (error?.message ?? payload.message) === "string"
+        ? { message: String(error?.message ?? payload.message).trim() }
+        : {}),
+      ...(typeof error?.type === "string" && error.type.trim()
+        ? { type: error.type.trim() }
+        : {}),
+      rawEvent,
+    };
+  } catch {
+    return { rawEvent };
+  }
+}
+
+function eventErrorDetails(event: Record<string, unknown>): {
+  code?: string;
+  param?: string;
+  message: string;
+  type?: string;
+  eventType?: string;
+  rawEvent?: unknown;
+} {
+  const response = isRecord(event.response) ? event.response : undefined;
+  const errorSource =
+    isRecord(event.error)
+      ? event.error
+      : response && isRecord(response.error)
+        ? response.error
+        : event;
+  const message =
+    typeof event.error === "string"
+      ? event.error
+      : readOptionalString(errorSource, "message") ??
+        readOptionalString(event, "message") ??
+        "官方 Responses 流返回失败事件";
+  const code = readOptionalString(errorSource, "code") ?? readOptionalString(event, "code");
+  const param = readOptionalString(errorSource, "param") ?? readOptionalString(event, "param");
+  const type =
+    readOptionalString(errorSource, "type") ??
+    readOptionalString(event, "error_type") ??
+    readOptionalString(event, "type");
+  const eventType = readOptionalString(event, "type");
+  return {
+    message,
+    ...(code ? { code } : {}),
+    ...(param ? { param } : {}),
+    ...(type ? { type } : {}),
+    ...(eventType ? { eventType } : {}),
+    rawEvent: event,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readOptionalString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 function explainResponsesError(statusCode: number, errorCode: string | undefined, body: string): string {
+  if (errorCode === "subscription_sharing_usage_limit_exceeded") {
+    return "该账号的 ChatGPT 订阅用量受限，本轮已停止。请查看 Usage，并在账号设置中手动测试；真实测试完成后才会恢复自动选用。";
+  }
   if (errorCode === "subscription_sharing_user_not_eligible") {
     return "该 ChatGPT 账号当前不具备订阅共享资格（用户、工作区或策略限制）。请在 ChatGPT 中确认账号和工作区权限；重复发送请求或反复授权无法绕过此限制。";
   }
   return `官方 Responses API 请求失败（${statusCode}）${body ? `：${body.slice(0, 240)}` : ""}`;
-}
-
-/** The subscription sharing preview is a streaming Responses endpoint. A 200
- * only means the stream was opened; the request is successful only after the
- * upstream emits response.completed. */
-function assertCompletedResponsesStream(body: string): void {
-  let completed = false;
-  let pending = "";
-  for (const chunk of body.split(/\r?\n/)) {
-    if (chunk === "") {
-      if (!pending) continue;
-      if (pending === "[DONE]") {
-        pending = "";
-        continue;
-      }
-      try {
-        const event = JSON.parse(pending) as { type?: unknown; error?: unknown };
-        if (event.type === "response.completed") completed = true;
-        if (event.type === "response.failed" || event.type === "error") {
-          throw new Error("官方 Responses 流返回失败事件");
-        }
-      } catch (error) {
-        if (error instanceof Error && error.message === "官方 Responses 流返回失败事件") throw error;
-        throw new Error("官方 Responses 流格式无效");
-      }
-      pending = "";
-      continue;
-    }
-    if (chunk.startsWith("data:")) {
-      const value = chunk.slice(5).replace(/^ /, "");
-      pending = pending ? `${pending}\n${value}` : value;
-    }
-  }
-  if (!completed) throw new Error("官方 Responses 流在完成前结束");
 }
 
 export type ChatGptSubscriptionStatus =
@@ -69,6 +147,7 @@ export type ChatGptSubscriptionStatus =
   | "ready"
   | "refreshing"
   | "rate_limited"
+  | "subscription_usage_paused"
   | "temporarily_unavailable"
   | "not_eligible"
   | "reauthorization_required"
@@ -87,9 +166,30 @@ export interface ChatGptSubscriptionAccountView {
   lastSuccessAt?: number;
   lastErrorCode?: string;
   lastErrorAt?: number;
+  subscriptionUsagePausedAt?: number;
+  subscriptionUsagePause?: ChatGptSubscriptionUsagePauseEvidence;
   hasCredentials: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface ChatGptSubscriptionUsagePauseEvidence {
+  code: "subscription_sharing_usage_limit_exceeded";
+  pausedAt: number;
+  statusCode: number;
+  message: string;
+  type?: string;
+  eventType?: string;
+  rawEvent?: unknown;
+  providerRequestId?: string;
+  responseId?: string;
+  param?: string;
+  logicalRequestId?: string;
+  attemptIndex?: number;
+  bridgeBindingId?: string;
+  threadId?: string;
+  turnId?: string;
+  runAttemptId?: string;
 }
 
 interface StoredAccount {
@@ -113,6 +213,8 @@ interface StoredAccount {
   lastSuccessAt?: number;
   lastErrorCode?: string;
   lastErrorAt?: number;
+  subscriptionUsagePausedAt?: number;
+  subscriptionUsagePause?: ChatGptSubscriptionUsagePauseEvidence;
   createdAt: number;
   updatedAt: number;
 }
@@ -156,6 +258,7 @@ export class ChatGptSubscriptionService {
   private roundRobinCursor = 0;
   private readonly pendingLogins = new Map<string, PendingLogin>();
   private readonly jwks = createRemoteJWKSet(new URL("https://auth.openai.com/.well-known/jwks.json"));
+  private persistQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly dataDir: string,
@@ -174,6 +277,12 @@ export class ChatGptSubscriptionService {
       const raw = await fs.readFile(filePath, "utf8");
       this.state = JSON.parse(this.codec.decrypt(raw)) as PersistedState;
       this.validateState();
+      for (const account of this.state.accounts) {
+        if (account.subscriptionUsagePause || account.subscriptionUsagePausedAt) {
+          account.subscriptionUsagePausedAt ??= account.updatedAt || Date.now();
+          account.status = account.enabled ? "subscription_usage_paused" : "disabled";
+        }
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       await this.persist();
@@ -239,7 +348,11 @@ export class ChatGptSubscriptionService {
     const account = this.findRequiredAccount(accountId);
     account.enabled = enabled;
     account.status = enabled
-      ? (account.refreshToken ? (account.status === "not_eligible" ? "not_eligible" : "ready") : "needs_login")
+      ? (account.subscriptionUsagePause || account.subscriptionUsagePausedAt
+          ? "subscription_usage_paused"
+          : account.refreshToken
+            ? (account.status === "not_eligible" ? "not_eligible" : "ready")
+            : "needs_login")
       : "disabled";
     account.updatedAt = Date.now();
     await this.persist();
@@ -248,6 +361,12 @@ export class ChatGptSubscriptionService {
 
   async resetAvailability(accountId: string): Promise<ChatGptSubscriptionAccountView> {
     const account = this.findRequiredAccount(accountId);
+    if (account.subscriptionUsagePause || account.subscriptionUsagePausedAt) {
+      account.status = account.enabled ? "subscription_usage_paused" : "disabled";
+      account.updatedAt = Date.now();
+      await this.persist();
+      return this.toView(account);
+    }
     account.status = account.refreshToken ? "ready" : "needs_login";
     delete account.cooldownUntil;
     delete account.lastErrorCode;
@@ -330,10 +449,29 @@ export class ChatGptSubscriptionService {
     const candidates = this.state.accounts.filter((account) => {
       const now = Date.now();
       return account.enabled && account.status !== "disabled" && account.refreshToken &&
+        !account.subscriptionUsagePause && !account.subscriptionUsagePausedAt &&
+        account.status !== "subscription_usage_paused" &&
         account.status !== "reauthorization_required" && account.status !== "not_eligible" &&
         (!account.cooldownUntil || account.cooldownUntil <= now);
     });
     if (candidates.length === 0) {
+      const pausedAccounts = this.state.accounts.filter((account) =>
+        account.enabled && Boolean(account.refreshToken) && (
+          account.subscriptionUsagePause || account.subscriptionUsagePausedAt ||
+          account.status === "subscription_usage_paused"
+        ),
+      );
+      if (pausedAccounts.length > 0) {
+        // A local pool rejection, not a new upstream HTTP failure. There is no
+        // known cooldown; only a successful manual test can restore selection.
+        throw Object.assign(new Error(
+          "没有可用的 ChatGPT 订阅账号：用量受限账号已暂停，请在账号设置中手动测试，测试成功后才能恢复",
+        ), {
+          statusCode: 403,
+          errorCode: "subscription_sharing_usage_limit_exceeded",
+          ...(pausedAccounts.length === 1 ? { accountId: pausedAccounts[0]!.accountId } : {}),
+        });
+      }
       const hasIneligibleAccount = this.state.accounts.some((account) =>
         account.enabled && account.status === "not_eligible" && Boolean(account.refreshToken),
       );
@@ -366,41 +504,230 @@ export class ChatGptSubscriptionService {
     if (!account.refreshToken) throw new Error("此账号尚未完成官方 OAuth 授权");
     const model = modelId.trim();
     if (!model) throw new Error("请先选择要测试的模型");
-    const refreshed = await this.ensureFresh(account);
-    const requestBody = JSON.stringify({
-      model,
-      input: [{ role: "user", content: "hi" }],
-      store: false,
-      stream: true,
-    });
-    process.stderr.write(`[chatgpt-subscription] test hi request body=${requestBody}\n`);
-    const response = await this.fetchFor(refreshed)("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        accept: "text/event-stream",
-        "content-type": "application/json",
-        authorization: `Bearer ${refreshed.accessToken}`,
-      },
-      body: requestBody,
-    });
-    const responseBody = await response.text();
-    // Diagnostic output for the explicit UI smoke test. Never include the
-    // Authorization header or response cookies/session state in this log.
-    const diagnosticHeaders = Object.fromEntries(
-      [...response.headers.entries()].filter(([name]) => name !== "set-cookie" && name !== "x-codex-turn-state"),
-    );
-    process.stderr.write(
-      `[chatgpt-subscription] test hi upstream response status=${response.status} ` +
-        `headers=${JSON.stringify(diagnosticHeaders)} ` +
-        `body=${responseBody}\n`,
-    );
-    const errorCode = response.ok ? undefined : readUpstreamErrorCode(responseBody);
-    await this.reportCredentialResult({ accountId, statusCode: response.status, ...(errorCode ? { errorCode } : {}) });
-    if (!response.ok) {
-      throw new Error(explainResponsesError(response.status, errorCode, responseBody.trim()));
+    // Each quota failure replaces the evidence object, even when pausedAt is
+    // retained. A probe may only clear the pause it started against.
+    const testedPause = account.subscriptionUsagePause;
+    const testedPausedAt = account.subscriptionUsagePausedAt;
+    const provider = subscriptionTestProvider(model);
+    const logicalRequestId = randomUUID();
+    let response: Response | undefined;
+    let providerRequestId: string | undefined;
+    let responseBody = "";
+    let responseId: string | undefined;
+    let failure: GatewayUpstreamErrorInfo | undefined;
+    let completed = false;
+    let terminalReported = false;
+
+    const reportOnce = async (input: GatewayCredentialResult): Promise<void> => {
+      if (terminalReported) return;
+      terminalReported = true;
+      await this.reportCredentialResult(input);
+    };
+
+    try {
+      const refreshed = await this.ensureFresh(account);
+      const requestBody = JSON.stringify({
+        model,
+        input: [{ role: "user", content: "hi" }],
+        store: false,
+        stream: true,
+      });
+      process.stderr.write(`[chatgpt-subscription] test hi request body=${requestBody}\n`);
+      response = await this.fetchFor(refreshed)("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          accept: "text/event-stream",
+          "content-type": "application/json",
+          authorization: `Bearer ${refreshed.accessToken}`,
+        },
+        body: requestBody,
+      });
+      providerRequestId =
+        response.headers.get("x-request-id") ??
+        response.headers.get("request-id") ??
+        response.headers.get("openai-request-id") ??
+        undefined;
+
+      if (response.ok && response.body) {
+        const reader = response.body.getReader();
+        const parser = new IncrementalSseParser();
+        const decoder = new TextDecoder();
+        const inspectFrames = (frames: ReturnType<IncrementalSseParser["push"]>): boolean => {
+          for (const frame of frames) {
+            let event: Record<string, unknown>;
+            try {
+              event = parseResponsesSseFrame(frame) as unknown as Record<string, unknown>;
+            } catch (error) {
+              failure = {
+                message: error instanceof Error ? error.message : String(error),
+                code: "invalid_stream",
+                ...(frame.event ? { eventType: frame.event } : {}),
+                rawEvent: frame.data,
+              };
+              return true;
+            }
+            const eventResponse = isRecord(event.response) ? event.response : undefined;
+            responseId = readOptionalString(eventResponse ?? {}, "id") ?? responseId;
+            const type = readOptionalString(event, "type");
+            if (type === "response.completed") {
+              if (!responseId) {
+                failure = {
+                  message: "官方 Responses 流完成事件缺少 response.id",
+                  code: "invalid_stream",
+                  eventType: type,
+                  rawEvent: event,
+                };
+                return true;
+              }
+              completed = true;
+              return true;
+            }
+            if (
+              type === "response.failed" ||
+              type === "response.incomplete" ||
+              type === "error" ||
+              isRecord(event.error)
+            ) {
+              failure = eventErrorDetails(event);
+              if (type === "response.incomplete" && !failure.code) {
+                failure.code = "response_incomplete";
+              }
+              return true;
+            }
+          }
+          return false;
+        };
+        try {
+          while (!completed && !failure) {
+            const { done, value } = await reader.read();
+            if (done) {
+              responseBody += decoder.decode();
+              inspectFrames(parser.finish());
+              break;
+            }
+            responseBody += decoder.decode(value, { stream: true });
+            if (inspectFrames(parser.push(value))) {
+              break;
+            }
+          }
+        } finally {
+          await reader.cancel().catch(() => undefined);
+        }
+      } else if (response.ok) {
+        failure = {
+          message: "官方 Responses 接口未返回可读取的流",
+          code: "incomplete_stream",
+          eventType: "stream",
+          rawEvent: { reason: "missing_body" },
+        };
+      } else {
+        responseBody = await response.text();
+      }
+
+      const diagnosticHeaders = readSafeUpstreamDiagnosticHeaders(response.headers);
+      process.stderr.write(
+        `[chatgpt-subscription] test hi upstream response status=${response.status} ` +
+          `headers=${JSON.stringify(diagnosticHeaders)} ` +
+          `body=${responseBody}\n`,
+      );
+
+      if (!response.ok) {
+        const httpError = readUpstreamErrorDetails(responseBody);
+        failure = {
+          message: httpError.message ?? (responseBody.trim() || `HTTP ${response.status}`),
+          ...(httpError.code ? { code: httpError.code } : {}),
+          ...(httpError.param ? { param: httpError.param } : {}),
+          ...(httpError.type ? { type: httpError.type } : {}),
+          eventType: "http",
+          rawEvent: httpError.rawEvent,
+        };
+      } else if (!failure && !completed) {
+        failure = {
+          message: "官方 Responses 流在 response.completed 前结束",
+          code: "incomplete_stream",
+          eventType: "stream",
+          rawEvent: { reason: "eof_before_completed" },
+        };
+      }
+
+      if (failure) {
+        await reportOnce({
+          provider,
+          accountId,
+          resultType: "failed",
+          statusCode: response.status,
+          logicalRequestId,
+          attemptIndex: 0,
+          ...(providerRequestId ? { providerRequestId } : {}),
+          ...(responseId ? { responseId } : {}),
+          error: failure,
+        });
+        if (!response.ok) {
+          throw new Error(explainResponsesError(response.status, failure.code, responseBody.trim()));
+        }
+        throw new Error(
+          `官方 Responses 流返回失败：${failure.message}` +
+            `（code=${failure.code ?? "upstream_error"}` +
+            `${failure.param ? `，param=${failure.param}` : ""}）`,
+        );
+      }
+
+      await reportOnce({
+        provider,
+        accountId,
+        resultType: "completed",
+        statusCode: response.status,
+        logicalRequestId,
+        attemptIndex: 0,
+        ...(providerRequestId ? { providerRequestId } : {}),
+        ...(responseId ? { responseId } : {}),
+      });
+      const current = this.findRequiredAccount(accountId);
+      if (
+        (current.subscriptionUsagePause || current.subscriptionUsagePausedAt) && (
+          current.subscriptionUsagePause !== testedPause ||
+          current.subscriptionUsagePausedAt !== testedPausedAt
+        )
+      ) {
+        throw new Error("测试期间收到新的 ChatGPT 订阅用量限制，账号仍已暂停，请重新手动测试");
+      }
+      if (current.subscriptionUsagePause || current.subscriptionUsagePausedAt) {
+        delete current.subscriptionUsagePause;
+        delete current.subscriptionUsagePausedAt;
+        delete current.cooldownUntil;
+        delete current.lastErrorCode;
+        delete current.lastErrorAt;
+        current.status = current.enabled ? "ready" : "disabled";
+        current.lastSuccessAt = Date.now();
+        current.updatedAt = Date.now();
+        await this.persist();
+      }
+      if (current.subscriptionUsagePause || current.subscriptionUsagePausedAt) {
+        throw new Error("测试期间收到新的 ChatGPT 订阅用量限制，账号仍已暂停，请重新手动测试");
+      }
+      return { success: true, message: "官方 OAuth 授权有效，已成功发送测试消息 hi" };
+    } catch (error) {
+      if (!terminalReported) {
+        const message = error instanceof Error ? error.message : String(error);
+        await reportOnce({
+          provider,
+          accountId,
+          resultType: "failed",
+          ...(response ? { statusCode: response.status } : {}),
+          logicalRequestId,
+          attemptIndex: 0,
+          ...(providerRequestId ? { providerRequestId } : {}),
+          ...(responseId ? { responseId } : {}),
+          error: {
+            message,
+            code: response ? "invalid_stream" : "transport_error",
+            eventType: response ? "stream" : "transport",
+            rawEvent: { message },
+          },
+        });
+      }
+      throw error;
     }
-    assertCompletedResponsesStream(responseBody);
-    return { success: true, message: "官方 OAuth 授权有效，已成功发送测试消息 hi" };
   }
 
   /**
@@ -408,19 +735,26 @@ export class ChatGptSubscriptionService {
    * ChatGPT subscription providers must use this path instead of the generic
    * API-key model discovery request.
    */
-  async listModels(): Promise<Array<{ id: string; displayName?: string }>> {
+  async listModels(accountId?: string): Promise<Array<{ id: string; displayName?: string }>> {
     this.assertInitialized();
-    const candidates = this.state.accounts.filter((account) => {
-      const now = Date.now();
-      return account.enabled && account.status !== "disabled" && account.refreshToken &&
-        account.status !== "reauthorization_required" && account.status !== "not_eligible" &&
-        (!account.cooldownUntil || account.cooldownUntil <= now);
-    });
-    if (candidates.length === 0) {
-      throw new Error("没有可用的 ChatGPT 订阅账号，请先登录账号或等待账号冷却结束");
+    let account: StoredAccount;
+    if (accountId) {
+      account = this.findRequiredAccount(accountId);
+      if (!account.refreshToken) throw new Error("此账号尚未完成官方 OAuth 授权");
+    } else {
+      const candidates = this.state.accounts.filter((candidate) => {
+        const now = Date.now();
+        return candidate.enabled && candidate.status !== "disabled" && candidate.refreshToken &&
+          !candidate.subscriptionUsagePause && !candidate.subscriptionUsagePausedAt &&
+          candidate.status !== "subscription_usage_paused" &&
+          candidate.status !== "reauthorization_required" && candidate.status !== "not_eligible" &&
+          (!candidate.cooldownUntil || candidate.cooldownUntil <= now);
+      });
+      if (candidates.length === 0) {
+        throw new Error("没有可用于自动选用的 ChatGPT 订阅账号；受限账号仍可在账号详情中手动测试");
+      }
+      account = candidates[this.roundRobinCursor++ % candidates.length]!;
     }
-
-    const account = candidates[this.roundRobinCursor++ % candidates.length]!;
     const refreshed = await this.ensureFresh(account);
     refreshed.lastUsedAt = Date.now();
     refreshed.updatedAt = Date.now();
@@ -433,11 +767,21 @@ export class ChatGptSubscriptionService {
     });
     const responseBody = await response.text();
     const errorCode = response.ok ? undefined : readUpstreamErrorCode(responseBody);
-    await this.reportCredentialResult({
-      accountId: refreshed.accountId,
-      statusCode: response.status,
-      ...(errorCode ? { errorCode } : {}),
-    });
+    if (!response.ok) {
+      await this.reportCredentialResult({
+        provider: subscriptionTestProvider("gpt-5"),
+        accountId: refreshed.accountId,
+        resultType: "failed",
+        statusCode: response.status,
+        logicalRequestId: randomUUID(),
+        attemptIndex: 0,
+        error: {
+          message: responseBody.trim() || `HTTP ${response.status}`,
+          ...(errorCode ? { code: errorCode } : {}),
+          eventType: "http",
+        },
+      });
+    }
     if (!response.ok) {
       throw new Error(`官方模型列表获取失败（${response.status}）${errorCode === "subscription_sharing_user_not_eligible" ? "该账号当前不具备订阅共享资格" : responseBody.trim().slice(0, 240)}`);
     }
@@ -464,38 +808,91 @@ export class ChatGptSubscriptionService {
     return models;
   }
 
-  async reportCredentialResult(input: { accountId?: string; statusCode: number; errorCode?: string }): Promise<void> {
+  async reportCredentialResult(input: GatewayCredentialResult): Promise<void> {
     if (!input.accountId) return;
     const account = this.findAccount(input.accountId);
     if (!account) return;
     const now = Date.now();
-    if (input.statusCode >= 400) account.lastErrorAt = now;
-    if (input.statusCode === 401) {
+    const statusCode = input.statusCode;
+    const errorCode = input.error?.code;
+    const alreadyPaused = Boolean(
+      account.subscriptionUsagePause || account.subscriptionUsagePausedAt,
+    );
+
+    if (
+      alreadyPaused ||
+      (input.resultType === "failed" && errorCode === "subscription_sharing_usage_limit_exceeded")
+    ) {
+      if (errorCode === "subscription_sharing_usage_limit_exceeded") {
+        const pausedAt = account.subscriptionUsagePausedAt ?? now;
+        account.subscriptionUsagePausedAt = pausedAt;
+        account.subscriptionUsagePause = {
+          code: errorCode,
+          pausedAt,
+          statusCode: statusCode ?? 0,
+          message: input.error?.message ?? "ChatGPT subscription usage limit exceeded",
+          ...(input.error?.type ? { type: input.error.type } : {}),
+          ...(input.error?.eventType ? { eventType: input.error.eventType } : {}),
+          ...(input.error?.rawEvent !== undefined ? { rawEvent: input.error.rawEvent } : {}),
+          ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+          ...(input.responseId ? { responseId: input.responseId } : {}),
+          ...(input.error?.param ? { param: input.error.param } : {}),
+          logicalRequestId: input.logicalRequestId,
+          attemptIndex: input.attemptIndex,
+          ...(input.bridgeBindingId ? { bridgeBindingId: input.bridgeBindingId } : {}),
+          ...(input.threadId ? { threadId: input.threadId } : {}),
+          ...(input.turnId ? { turnId: input.turnId } : {}),
+          ...(input.runAttemptId ? { runAttemptId: input.runAttemptId } : {}),
+        };
+      }
+      account.status = account.enabled ? "subscription_usage_paused" : "disabled";
+      if (input.resultType === "failed" && errorCode === "subscription_sharing_usage_limit_exceeded") {
+        account.lastErrorCode = errorCode;
+        account.lastErrorAt = now;
+      }
+      if (input.resultType === "completed") {
+        account.lastSuccessAt = now;
+      }
+      delete account.cooldownUntil;
+    } else if (input.resultType === "failed" && statusCode === 401) {
       account.status = "reauthorization_required";
       account.lastErrorCode = "invalid_user";
-    } else if (input.errorCode === "subscription_sharing_user_not_eligible") {
+      account.lastErrorAt = now;
+    } else if (input.resultType === "failed" && errorCode === "subscription_sharing_user_not_eligible") {
       account.status = "not_eligible";
-      account.lastErrorCode = input.errorCode;
+      account.lastErrorCode = errorCode;
+      account.lastErrorAt = now;
       delete account.cooldownUntil;
-    } else if (input.statusCode === 403) {
+    } else if (input.resultType === "failed" && statusCode === 403) {
       // Do not turn an unknown 403 into an eligibility diagnosis. Preserve the
       // actual HTTP failure so a newly introduced upstream policy is visible.
       account.status = "temporarily_unavailable";
       account.lastErrorCode = "http_403";
+      account.lastErrorAt = now;
       account.cooldownUntil = now + UNAVAILABLE_COOLDOWN_MS;
-    } else if (input.statusCode === 429) {
+    } else if (input.resultType === "failed" && statusCode === 429) {
       account.status = "rate_limited";
-      account.lastErrorCode = "subscription_sharing_usage_limit_exceeded";
-      account.cooldownUntil = now + RATE_LIMIT_COOLDOWN_MS;
-    } else if (input.statusCode === 503) {
+      account.lastErrorCode = errorCode ?? "http_429";
+      account.lastErrorAt = now;
+      account.cooldownUntil = now + GENERAL_RATE_LIMIT_COOLDOWN_MS;
+    } else if (input.resultType === "failed" && statusCode === 503) {
       account.status = "temporarily_unavailable";
-      account.lastErrorCode = "subscription_sharing_usage_unavailable";
+      account.lastErrorCode = errorCode ?? "http_503";
+      account.lastErrorAt = now;
       account.cooldownUntil = now + UNAVAILABLE_COOLDOWN_MS;
-    } else if (input.statusCode >= 200 && input.statusCode < 400) {
-      account.status = "ready";
-      delete account.cooldownUntil;
+    } else if (input.resultType === "failed" && statusCode && statusCode >= 400) {
+      account.lastErrorAt = now;
+      account.lastErrorCode = errorCode ?? `http_${statusCode}`;
+    } else if (input.resultType === "completed") {
+      // A late success is still useful evidence, but it cannot revoke a
+      // subscription-usage pause. Only testAccount may clear that pause.
+      if (!account.subscriptionUsagePause) {
+        account.status = "ready";
+        delete account.cooldownUntil;
+        delete account.lastErrorCode;
+        delete account.lastErrorAt;
+      }
       account.lastSuccessAt = now;
-      delete account.lastErrorCode;
     }
     account.updatedAt = now;
     await this.persist();
@@ -517,7 +914,10 @@ export class ChatGptSubscriptionService {
       account.status = "needs_login";
       throw new Error(`ChatGPT 账号 ${account.displayName} 尚未完成 OAuth 登录`);
     }
-    account.status = "refreshing";
+    const subscriptionUsagePaused = Boolean(
+      account.subscriptionUsagePause || account.subscriptionUsagePausedAt,
+    );
+    if (!subscriptionUsagePaused) account.status = "refreshing";
     const body = new URLSearchParams({
       grant_type: "refresh_token",
       client_id: account.clientId,
@@ -532,20 +932,25 @@ export class ChatGptSubscriptionService {
         body,
       });
     } catch (error) {
-      account.status = "temporarily_unavailable";
-      account.cooldownUntil = Date.now() + UNAVAILABLE_COOLDOWN_MS;
+      if (!subscriptionUsagePaused) {
+        account.status = "temporarily_unavailable";
+        account.cooldownUntil = Date.now() + UNAVAILABLE_COOLDOWN_MS;
+      }
       await this.persist();
       throw error;
     }
     if (!response.ok) {
-      account.status = response.status === 401 ? "reauthorization_required" : "temporarily_unavailable";
-      if (response.status !== 401) account.cooldownUntil = Date.now() + UNAVAILABLE_COOLDOWN_MS;
+      if (!subscriptionUsagePaused) {
+        account.status =
+          response.status === 401 ? "reauthorization_required" : "temporarily_unavailable";
+        if (response.status !== 401) account.cooldownUntil = Date.now() + UNAVAILABLE_COOLDOWN_MS;
+      }
       await this.persist();
       throw new Error(`ChatGPT token refresh failed (${response.status})`);
     }
     const token = (await response.json()) as TokenResponse;
     this.applyTokenResponse(account, token);
-    account.status = "ready";
+    if (!subscriptionUsagePaused) account.status = "ready";
     account.updatedAt = Date.now();
     await this.persist();
     return account;
@@ -607,7 +1012,7 @@ export class ChatGptSubscriptionService {
     account.idToken = idToken;
     account.scopes = scopes;
     this.applyTokenResponse(account, token);
-    account.status = "ready";
+    if (!account.subscriptionUsagePause && !account.subscriptionUsagePausedAt) account.status = "ready";
     account.enabled = true;
     account.updatedAt = Date.now();
     await this.persist();
@@ -640,12 +1045,16 @@ export class ChatGptSubscriptionService {
 
   private statePath(): string { return path.join(this.dataDir, "chatgpt-subscription", "accounts.json"); }
 
-  private async persist(): Promise<void> {
-    await fs.mkdir(path.dirname(this.statePath()), { recursive: true });
-    const encrypted = this.codec.encrypt(JSON.stringify(this.state));
-    const temp = `${this.statePath()}.${process.pid}.tmp`;
-    await fs.writeFile(temp, encrypted, { mode: 0o600 });
-    await fs.rename(temp, this.statePath());
+  private persist(): Promise<void> {
+    const write = this.persistQueue.then(async () => {
+      await fs.mkdir(path.dirname(this.statePath()), { recursive: true });
+      const encrypted = this.codec.encrypt(JSON.stringify(this.state));
+      const temp = `${this.statePath()}.${process.pid}.${randomUUID()}.tmp`;
+      await fs.writeFile(temp, encrypted, { mode: 0o600 });
+      await fs.rename(temp, this.statePath());
+    });
+    this.persistQueue = write.catch(() => undefined);
+    return write;
   }
 
   private validateState(): void {
@@ -671,6 +1080,12 @@ export class ChatGptSubscriptionService {
       ...(account.lastSuccessAt ? { lastSuccessAt: account.lastSuccessAt } : {}),
       ...(account.lastErrorCode ? { lastErrorCode: account.lastErrorCode } : {}),
       ...(account.lastErrorAt ? { lastErrorAt: account.lastErrorAt } : {}),
+      ...(account.subscriptionUsagePausedAt
+        ? { subscriptionUsagePausedAt: account.subscriptionUsagePausedAt }
+        : {}),
+      ...(account.subscriptionUsagePause
+        ? { subscriptionUsagePause: account.subscriptionUsagePause }
+        : {}),
       hasCredentials: Boolean(account.refreshToken),
       createdAt: account.createdAt,
       updatedAt: account.updatedAt,
@@ -732,4 +1147,18 @@ function normalizeAccountProxyUrl(proxyUrl?: string): string | undefined {
   }
   if (!url.hostname) throw new Error("代理 URL 缺少主机名");
   return trimmed;
+}
+
+function subscriptionTestProvider(modelId: string): GatewayProvider {
+  return {
+    id: "eco-coding-chatgpt",
+    name: "ChatGPT subscription",
+    upstreamKind: "responses",
+    baseUrl: "https://api.openai.com",
+    apiKey: "local-unused",
+    authMethod: "chatgpt_subscription",
+    credentialPoolId: "chatgpt-default",
+    upstreamModelId: modelId,
+    models: [modelId],
+  };
 }

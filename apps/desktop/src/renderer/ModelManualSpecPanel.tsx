@@ -1,4 +1,5 @@
-import { useId, useMemo, useRef, useState } from "react";
+import { RotateCcw } from "lucide-react";
+import { type ReactNode, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ModelsDevMapping, RouteCapabilityHint, RoutePricingHint } from "../shared/ipc";
 import { multiplyUnitRate } from "../shared/manual-spec-pricing";
@@ -6,8 +7,12 @@ import {
   catalogCapabilityHint,
   catalogPricingHint,
   countManualOverrides,
+  emptyManualSpecForm,
   formatCatalogMappingLabel,
   formatTokenCountHint,
+  isPriceMultiplierOverrideValue,
+  isRateFormValueValid,
+  isTokenFormValueValid,
   listManualOverrideFields,
   type ManualSpecFormFields,
   type ManualTriState,
@@ -24,8 +29,8 @@ interface ModelManualSpecPanelProps {
   autoPricing?: RoutePricingHint;
   mapping?: ModelsDevMapping;
   disabled?: boolean;
-  /** sidebar = 候选模型侧栏，单列对齐布局 */
-  variant?: "default" | "sidebar";
+  /** sidebar = 候选模型侧栏，单列对齐布局；editor = 候选模型编辑区（服务商表单让位后的整块区域） */
+  variant?: "default" | "sidebar" | "editor";
   onChange: (patch: Partial<ManualSpecFormFields>) => void;
 }
 
@@ -58,6 +63,7 @@ function TriStateField({
             key={option.value}
             type="button"
             className={`model-spec-segmented-btn${value === option.value ? " is-active" : ""}`}
+            aria-pressed={value === option.value}
             disabled={disabled}
             onClick={() => onChange(option.value)}
           >
@@ -127,7 +133,7 @@ function parseTokenInput(raw: string): number | undefined {
     numericPart = lower.slice(0, -1);
   }
   const parsed = Number(numericPart);
-  if (Number.isNaN(parsed)) return undefined;
+  if (!numericPart.trim() || !Number.isFinite(parsed)) return undefined;
   return Math.round(parsed * multiplier);
 }
 
@@ -148,120 +154,252 @@ function TokenPresetField({
   disabled?: boolean;
   onChange: (value: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const currentValue = parseTokenInput(value);
-  const isPreset = presets.some((p) => p === currentValue);
-
-  function startEditing() {
-    setDraft(value);
-    setEditing(true);
-    setTimeout(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }, 0);
-  }
-
-  function cancelEditing() {
-    setEditing(false);
-    setDraft("");
-  }
-
-  function saveEditing() {
-    onChange(draft);
-    setEditing(false);
-    setDraft("");
-  }
-
-  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Enter") {
-      saveEditing();
-    } else if (event.key === "Escape") {
-      cancelEditing();
-    }
-  }
-
-  if (editing) {
-    return (
-      <label className="model-spec-field">
-        <span className="model-spec-field-label">{label}</span>
-        <div className="model-spec-preset-edit-row">
-          <input
-            ref={inputRef}
-            className="model-spec-field-input"
-            type="text"
-            inputMode="numeric"
-            placeholder={placeholder}
-            value={draft}
-            disabled={disabled}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={handleKeyDown}
-          />
-          <button
-            type="button"
-            className="model-spec-preset-edit-btn model-spec-preset-edit-btn-save"
-            onClick={saveEditing}
-            disabled={disabled}
-          >
-            保存
-          </button>
-          <button
-            type="button"
-            className="model-spec-preset-edit-btn"
-            onClick={cancelEditing}
-            disabled={disabled}
-          >
-            取消
-          </button>
-        </div>
-        {caption ? <span className="model-spec-field-caption">{caption}</span> : null}
-      </label>
-    );
-  }
-
+  const presetsId = useId();
+  const inputId = useId();
   return (
-    <label className="model-spec-field">
-      <span className="model-spec-field-label">{label}</span>
-      <div className="model-spec-preset-row">
-        <select
-          className="model-spec-preset-select"
-          value={isPreset ? String(currentValue) : ""}
-          disabled={disabled}
-          onChange={(event) => {
-            const selected = event.target.value;
-            if (selected) {
-              onChange(selected);
-            }
-          }}
-        >
-          <option value="">选择...</option>
-          {presets.map((preset) => (
-            <option key={preset} value={preset}>
-              {formatTokenPresetLabel(preset)}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="model-spec-preset-edit-icon-btn"
-          onClick={startEditing}
-          disabled={disabled}
-          aria-label={`编辑${label}`}
-          title={`手动输入${label}`}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-          </svg>
-        </button>
-      </div>
+    <div className="model-spec-field">
+      <label className="model-spec-field-label" htmlFor={inputId}>
+        {label}
+      </label>
+      <input
+        id={inputId}
+        className="model-spec-field-input"
+        type="text"
+        inputMode="numeric"
+        list={presetsId}
+        placeholder={placeholder}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          }
+        }}
+        onBlur={(event) => {
+          const raw = event.target.value;
+          const parsed = parseTokenInput(raw);
+          if (parsed !== undefined && /[km]$/i.test(raw.trim())) onChange(String(parsed));
+        }}
+      />
+      <datalist id={presetsId}>
+        {presets.map((preset) => (
+          <option key={preset} value={preset} label={formatTokenPresetLabel(preset)} />
+        ))}
+      </datalist>
       {caption ? <span className="model-spec-field-caption">{caption}</span> : null}
-      {value && !isPreset ? (
-        <span className="model-spec-field-caption model-spec-field-caption-custom">自定义：{value}</span>
+    </div>
+  );
+}
+
+/** 候选模型编辑区：字段被覆盖时只靠 accent 边框 + reload 图标表达，不写“已覆盖”文字。 */
+function EditorResetButton({
+  label,
+  disabled,
+  onReset,
+}: {
+  label: string;
+  disabled?: boolean | undefined;
+  onReset: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="candidate-editor-reset-btn"
+      disabled={disabled}
+      onClick={onReset}
+      title={label}
+      aria-label={label}
+    >
+      <RotateCcw size={12} aria-hidden />
+    </button>
+  );
+}
+
+function EditorTokenField({
+  label,
+  value,
+  presets,
+  placeholder,
+  catalogHint,
+  hint,
+  errorText,
+  resetLabel,
+  disabled,
+  onChange,
+  onReset,
+}: {
+  label: string;
+  value: string;
+  presets: readonly number[];
+  placeholder?: string | undefined;
+  catalogHint?: string | undefined;
+  hint?: string | undefined;
+  errorText: string;
+  resetLabel: string;
+  disabled?: boolean | undefined;
+  onChange: (value: string) => void;
+  onReset: () => void;
+}) {
+  const overridden = value.trim() !== "";
+  const invalid = !isTokenFormValueValid(value);
+  return (
+    <div
+      className={`candidate-editor-field${overridden ? " is-overridden" : ""}${invalid ? " is-invalid" : ""}`}
+    >
+      <div className="candidate-editor-field-head">
+        <span className="candidate-editor-field-label">{label}</span>
+        {overridden ? <EditorResetButton label={resetLabel} disabled={disabled} onReset={onReset} /> : null}
+      </div>
+      <input
+        className="candidate-editor-input is-mono"
+        type="text"
+        inputMode="numeric"
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        onBlur={(event) => {
+          const parsed = parseTokenInput(event.target.value);
+          if (parsed !== undefined && /[km]$/i.test(event.target.value.trim())) {
+            onChange(String(parsed));
+          }
+        }}
+      />
+      <div className="candidate-editor-presets">
+        {presets.map((preset) => (
+          <button
+            key={preset}
+            type="button"
+            className={`candidate-editor-preset${value.trim() === String(preset) ? " is-on" : ""}`}
+            disabled={disabled}
+            onClick={() => onChange(String(preset))}
+          >
+            {formatTokenPresetLabel(preset)}
+          </button>
+        ))}
+      </div>
+      {catalogHint || hint ? (
+        <span className="candidate-editor-caption">{[catalogHint, hint].filter(Boolean).join(" · ")}</span>
       ) : null}
-    </label>
+      {invalid ? <span className="candidate-editor-error">{errorText}</span> : null}
+    </div>
+  );
+}
+
+function EditorPriceField({
+  label,
+  value,
+  placeholder,
+  errorText,
+  resetLabel,
+  disabled,
+  onChange,
+  onReset,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string | undefined;
+  errorText: string;
+  resetLabel: string;
+  disabled?: boolean | undefined;
+  onChange: (value: string) => void;
+  onReset: () => void;
+}) {
+  const overridden = value.trim() !== "";
+  const invalid = !isRateFormValueValid(value);
+  return (
+    <div
+      className={`candidate-editor-field${overridden ? " is-overridden" : ""}${invalid ? " is-invalid" : ""}`}
+    >
+      <div className="candidate-editor-field-head">
+        <span className="candidate-editor-field-label">{label}</span>
+        {overridden ? <EditorResetButton label={resetLabel} disabled={disabled} onReset={onReset} /> : null}
+      </div>
+      <div className="candidate-editor-input-wrap">
+        <span className="candidate-editor-input-prefix" aria-hidden>
+          $
+        </span>
+        <input
+          className="candidate-editor-input is-mono has-prefix"
+          type="text"
+          inputMode="decimal"
+          value={value}
+          placeholder={placeholder}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </div>
+      {invalid ? <span className="candidate-editor-error">{errorText}</span> : null}
+    </div>
+  );
+}
+
+function EditorSegmented({
+  label,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: ManualTriState;
+  disabled?: boolean | undefined;
+  onChange: (value: ManualTriState) => void;
+}) {
+  const { t } = useTranslation();
+  const options: ManualTriState[] = ["auto", "yes", "no"];
+  const labels: Record<ManualTriState, string> = {
+    auto: t("modelSpec.auto"),
+    yes: t("modelSpec.supported"),
+    no: t("modelSpec.unsupported"),
+  };
+  return (
+    <div className="candidate-editor-seg" role="group" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option}
+          type="button"
+          className={`candidate-editor-seg-btn${value === option ? " is-active" : ""}`}
+          aria-pressed={value === option}
+          disabled={disabled}
+          onClick={() => onChange(option)}
+        >
+          {labels[option]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function EditorCapabilityRow({
+  title,
+  catalogHint,
+  overridden,
+  resetLabel,
+  disabled,
+  onReset,
+  children,
+}: {
+  title: string;
+  catalogHint?: string | undefined;
+  overridden: boolean;
+  resetLabel: string;
+  disabled?: boolean | undefined;
+  onReset: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`candidate-editor-cap-row${overridden ? " is-overridden" : ""}`}>
+      <div className="candidate-editor-cap-left">
+        <span className="candidate-editor-cap-title">{title}</span>
+        {catalogHint ? <span className="candidate-editor-caption">{catalogHint}</span> : null}
+      </div>
+      <div className="candidate-editor-cap-right">
+        {overridden ? <EditorResetButton label={resetLabel} disabled={disabled} onReset={onReset} /> : null}
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -276,6 +414,7 @@ export function ModelManualSpecPanel({
 }: ModelManualSpecPanelProps) {
   const { t } = useTranslation();
   const nativeWebSearchLabelId = useId();
+  const remoteCompactionLabelId = useId();
   const isSidebar = variant === "sidebar";
   const overrideCount = countManualOverrides(value);
   const [expanded, setExpanded] = useState(() => isSidebar || overrideCount > 0);
@@ -392,6 +531,24 @@ export function ModelManualSpecPanel({
               <span className="mcp-toggle-track" aria-hidden />
             </span>
           </label>
+          <label
+            className="model-spec-field model-spec-field-checkbox"
+            title={t("modelSpec.remoteCompactionHint")}
+          >
+            <span className="model-spec-field-label" id={remoteCompactionLabelId}>
+              {t("modelSpec.remoteCompaction")}
+            </span>
+            <span className="mcp-toggle mcp-toggle-sm">
+              <input
+                type="checkbox"
+                checked={value.supportsRemoteCompaction}
+                disabled={disabled}
+                aria-labelledby={remoteCompactionLabelId}
+                onChange={(event) => onChange({ supportsRemoteCompaction: event.target.checked })}
+              />
+              <span className="mcp-toggle-track" aria-hidden />
+            </span>
+          </label>
         </div>
       </section>
 
@@ -463,11 +620,228 @@ export function ModelManualSpecPanel({
     </div>
   );
 
+  const isEditor = variant === "editor";
+  const editorBody = isEditor ? (
+    <section className="candidate-editor-section">
+      <div className="candidate-editor-section-head">
+        <h4 className="candidate-editor-section-title">{t("modelSpec.manualOverrides")}</h4>
+        <div className="candidate-editor-section-actions">
+          {overrideCount > 0 ? (
+            <span className="candidate-editor-badge">
+              {t("modelSpec.overrideCount", { count: overrideCount })}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="candidate-editor-reset-all"
+            disabled={Boolean(disabled) || overrideCount === 0}
+            onClick={() => onChange(emptyManualSpecForm())}
+          >
+            {t("modelSpec.resetAllAuto")}
+          </button>
+        </div>
+      </div>
+
+      <h5 className="candidate-editor-subtitle">{t("modelSpec.contextAndOutput")}</h5>
+      <div className="candidate-editor-grid candidate-editor-grid--2">
+        <EditorTokenField
+          label={t("modelSpec.contextLimit")}
+          value={value.contextTokens}
+          presets={CONTEXT_PRESETS}
+          placeholder={autoContextHint ?? "tokens"}
+          {...(autoContextHint ? { catalogHint: t("modelSpec.catalogHint", { hint: autoContextHint }) } : {})}
+          hint={t("candidateModels.tokenSuffixHint")}
+          errorText={t("modelSpec.tokenInvalid")}
+          resetLabel={t("modelSpec.resetAuto")}
+          {...(disabled !== undefined ? { disabled } : {})}
+          onChange={(contextTokens) => onChange({ contextTokens })}
+          onReset={() => onChange({ contextTokens: "" })}
+        />
+        <EditorTokenField
+          label={t("modelSpec.maxOutput")}
+          value={value.maxOutputTokens}
+          presets={OUTPUT_PRESETS}
+          placeholder={autoOutputHint ?? "tokens"}
+          {...(autoOutputHint ? { catalogHint: t("modelSpec.catalogHint", { hint: autoOutputHint }) } : {})}
+          errorText={t("modelSpec.tokenInvalid")}
+          resetLabel={t("modelSpec.resetAuto")}
+          {...(disabled !== undefined ? { disabled } : {})}
+          onChange={(maxOutputTokens) => onChange({ maxOutputTokens })}
+          onReset={() => onChange({ maxOutputTokens: "" })}
+        />
+      </div>
+
+      <h5 className="candidate-editor-subtitle">{t("modelSpec.capabilities")}</h5>
+      <div className="candidate-editor-caps">
+        <EditorCapabilityRow
+          title={t("modelSpec.multimodal")}
+          {...(autoImageHint ? { catalogHint: t("modelSpec.catalogHint", { hint: autoImageHint }) } : {})}
+          overridden={value.supportsImageInput !== "auto"}
+          resetLabel={t("modelSpec.resetAuto")}
+          {...(disabled !== undefined ? { disabled } : {})}
+          onReset={() => onChange({ supportsImageInput: "auto" })}
+        >
+          <EditorSegmented
+            label={t("modelSpec.multimodal")}
+            value={value.supportsImageInput}
+            {...(disabled !== undefined ? { disabled } : {})}
+            onChange={(supportsImageInput) => onChange({ supportsImageInput })}
+          />
+        </EditorCapabilityRow>
+        <EditorCapabilityRow
+          title={t("modelSpec.reasoning")}
+          {...(autoReasoningHint
+            ? { catalogHint: t("modelSpec.catalogHint", { hint: autoReasoningHint }) }
+            : {})}
+          overridden={value.supportsReasoning !== "auto"}
+          resetLabel={t("modelSpec.resetAuto")}
+          {...(disabled !== undefined ? { disabled } : {})}
+          onReset={() => onChange({ supportsReasoning: "auto" })}
+        >
+          <EditorSegmented
+            label={t("modelSpec.reasoning")}
+            value={value.supportsReasoning}
+            {...(disabled !== undefined ? { disabled } : {})}
+            onChange={(supportsReasoning) => onChange({ supportsReasoning })}
+          />
+        </EditorCapabilityRow>
+        <EditorCapabilityRow
+          title={t("modelSpec.nativeWebSearch")}
+          catalogHint={
+            value.supportsNativeWebSearch ? t("modelSpec.defaultSource") : t("modelSpec.nativeWebSearchOff")
+          }
+          overridden={!value.supportsNativeWebSearch}
+          resetLabel={t("modelSpec.resetAuto")}
+          {...(disabled !== undefined ? { disabled } : {})}
+          onReset={() => onChange({ supportsNativeWebSearch: true })}
+        >
+          <label className="mcp-toggle mcp-toggle-sm">
+            <input
+              type="checkbox"
+              checked={value.supportsNativeWebSearch}
+              disabled={disabled}
+              aria-label={t("modelSpec.nativeWebSearch")}
+              onChange={(event) => onChange({ supportsNativeWebSearch: event.target.checked })}
+            />
+            <span className="mcp-toggle-track" aria-hidden />
+          </label>
+        </EditorCapabilityRow>
+        <EditorCapabilityRow
+          title={t("modelSpec.remoteCompaction")}
+          catalogHint={t("modelSpec.remoteCompactionHint")}
+          overridden={value.supportsRemoteCompaction}
+          resetLabel={t("modelSpec.resetAuto")}
+          {...(disabled !== undefined ? { disabled } : {})}
+          onReset={() => onChange({ supportsRemoteCompaction: false })}
+        >
+          <label className="mcp-toggle mcp-toggle-sm">
+            <input
+              type="checkbox"
+              checked={value.supportsRemoteCompaction}
+              disabled={disabled}
+              aria-label={t("modelSpec.remoteCompaction")}
+              onChange={(event) => onChange({ supportsRemoteCompaction: event.target.checked })}
+            />
+            <span className="mcp-toggle-track" aria-hidden />
+          </label>
+        </EditorCapabilityRow>
+      </div>
+
+      <h5 className="candidate-editor-subtitle">{t("modelSpec.pricingPerM")}</h5>
+      <div className="candidate-editor-grid candidate-editor-grid--4">
+        <EditorPriceField
+          label={t("modelSpec.input")}
+          value={value.inputPerM}
+          placeholder={formatRatePlaceholder(catalogRates?.inputPerM, effectiveInputPerM)}
+          errorText={t("modelSpec.rateInvalid")}
+          resetLabel={t("modelSpec.resetAuto")}
+          {...(disabled !== undefined ? { disabled } : {})}
+          onChange={(inputPerM) => onChange({ inputPerM })}
+          onReset={() => onChange({ inputPerM: "" })}
+        />
+        <EditorPriceField
+          label={t("modelSpec.output")}
+          value={value.outputPerM}
+          placeholder={formatRatePlaceholder(catalogRates?.outputPerM, effectiveOutputPerM)}
+          errorText={t("modelSpec.rateInvalid")}
+          resetLabel={t("modelSpec.resetAuto")}
+          {...(disabled !== undefined ? { disabled } : {})}
+          onChange={(outputPerM) => onChange({ outputPerM })}
+          onReset={() => onChange({ outputPerM: "" })}
+        />
+        <EditorPriceField
+          label={t("modelSpec.cacheRead")}
+          value={value.cacheReadPerM}
+          placeholder={formatRatePlaceholder(catalogRates?.cacheReadPerM, effectiveCacheReadPerM)}
+          errorText={t("modelSpec.rateInvalid")}
+          resetLabel={t("modelSpec.resetAuto")}
+          {...(disabled !== undefined ? { disabled } : {})}
+          onChange={(cacheReadPerM) => onChange({ cacheReadPerM })}
+          onReset={() => onChange({ cacheReadPerM: "" })}
+        />
+        <EditorPriceField
+          label={t("modelSpec.cacheWrite")}
+          value={value.cacheWritePerM}
+          placeholder={formatRatePlaceholder(catalogRates?.cacheWritePerM, effectiveCacheWritePerM)}
+          errorText={t("modelSpec.rateInvalid")}
+          resetLabel={t("modelSpec.resetAuto")}
+          {...(disabled !== undefined ? { disabled } : {})}
+          onChange={(cacheWritePerM) => onChange({ cacheWritePerM })}
+          onReset={() => onChange({ cacheWritePerM: "" })}
+        />
+      </div>
+
+      <div
+        className={`candidate-editor-mult-banner${
+          isPriceMultiplierOverrideValue(value.priceMultiplier) ? " is-overridden" : ""
+        }`}
+      >
+        <div className="candidate-editor-mult-left">
+          <div className="candidate-editor-field-head">
+            <span className="candidate-editor-field-label">{t("modelSpec.priceMultiplier")}</span>
+            {isPriceMultiplierOverrideValue(value.priceMultiplier) ? (
+              <EditorResetButton
+                label={t("modelSpec.resetAuto")}
+                disabled={disabled}
+                onReset={() => onChange({ priceMultiplier: "1" })}
+              />
+            ) : null}
+          </div>
+          <input
+            className="candidate-editor-input is-mono candidate-editor-mult-input"
+            type="text"
+            inputMode="decimal"
+            value={value.priceMultiplier}
+            placeholder="1"
+            disabled={disabled}
+            onChange={(event) => onChange({ priceMultiplier: event.target.value })}
+          />
+          <span className="candidate-editor-mult-times" aria-hidden>
+            ×
+          </span>
+        </div>
+        <span className="candidate-editor-caption candidate-editor-mult-caption">
+          {multiplierCaption ??
+            t("modelSpec.multiplierCaption", {
+              catalogInput: catalogRates?.inputPerM ?? "—",
+              catalogOutput: catalogRates?.outputPerM ?? "—",
+              effectiveInput: formatRateHint(effectiveInputPerM),
+              effectiveOutput: formatRateHint(effectiveOutputPerM),
+            })}
+        </span>
+      </div>
+    </section>
+  ) : null;
+
+  if (isEditor) {
+    return <div className="candidate-editor-spec">{editorBody}</div>;
+  }
+
   if (isSidebar) {
     return (
       <div className="model-manual-spec model-manual-spec--sidebar">
         <div className="model-manual-spec-sidebar-head">
-          <h3 className="model-manual-spec-sidebar-title">{title}</h3>
+          <h3 className="model-manual-spec-sidebar-title">{t("modelSpec.manualOverrides")}</h3>
           {overrideCount > 0 ? (
             <span className="model-manual-spec-sidebar-badge">
               {t("modelSpec.overrideCount", { count: overrideCount })}

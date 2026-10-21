@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  GatewayCredentialResult,
   GatewayRequestLifecycleEvent,
   GatewayRequestLifecycleObserver,
   GatewayRequestLifecycleSource,
+  GatewayUpstreamErrorInfo,
+  GatewayUpstreamResultType,
   ResolvedProviderRoute,
 } from "./types.js";
 import { readUpstreamRequestId } from "./upstream/request-id-headers.js";
@@ -14,8 +17,7 @@ export type LogicalRequestTerminal = "completed" | "failed" | "cancelled";
 
 export class RequestLifecycleTracker {
   private logicalTerminal: LogicalRequestTerminal | null = null;
-  private upstreamFailedEmitted = false;
-  private httpFailureEmitted = false;
+  private readonly upstreamTerminalByAttempt = new Map<number, GatewayUpstreamResultType>();
   private upstreamStartedAtMs: number | null = null;
   private firstHeadersAtMs: number | null = null;
   private firstChunkAtMs: number | null = null;
@@ -26,22 +28,26 @@ export class RequestLifecycleTracker {
   }
 
   hasUpstreamFailed(): boolean {
-    return this.upstreamFailedEmitted;
+    return [...this.upstreamTerminalByAttempt.values()].includes("failed");
   }
 
   tryMarkHttpFailure(): boolean {
-    if (this.httpFailureEmitted) {
-      return false;
-    }
-    this.httpFailureEmitted = true;
-    return true;
+    return this.tryMarkUpstreamTerminal(this.currentAttemptIndex(), "failed");
   }
 
   tryMarkUpstreamFailed(): boolean {
-    if (this.upstreamFailedEmitted) {
+    return this.tryMarkUpstreamTerminal(this.currentAttemptIndex(), "failed");
+  }
+
+  upstreamTerminalFor(attemptIndex: number): GatewayUpstreamResultType | undefined {
+    return this.upstreamTerminalByAttempt.get(attemptIndex);
+  }
+
+  tryMarkUpstreamTerminal(attemptIndex: number, terminal: GatewayUpstreamResultType): boolean {
+    if (this.upstreamTerminalByAttempt.has(attemptIndex)) {
       return false;
     }
-    this.upstreamFailedEmitted = true;
+    this.upstreamTerminalByAttempt.set(attemptIndex, terminal);
     return true;
   }
 
@@ -144,6 +150,7 @@ export interface RequestLifecycleContext {
   tracker: RequestLifecycleTracker;
   logicalRequestId: string;
   attemptIndex: number;
+  reportCredentialResult?: (result: GatewayCredentialResult) => void | Promise<void>;
 }
 
 export function observeLifecycle(
@@ -170,6 +177,7 @@ function lifecycleIdentity(ctx: RequestLifecycleContext): {
   observedAt: string;
   bridgeBindingId?: string;
   threadId?: string;
+  turnId?: string;
   runAttemptId?: string;
 } {
   return {
@@ -182,8 +190,80 @@ function lifecycleIdentity(ctx: RequestLifecycleContext): {
     observedAt: new Date().toISOString(),
     ...(ctx.route.bridgeBindingId ? { bridgeBindingId: ctx.route.bridgeBindingId } : {}),
     ...(ctx.route.threadId ? { threadId: ctx.route.threadId } : {}),
+    ...(ctx.route.turnId ? { turnId: ctx.route.turnId } : {}),
     ...(ctx.route.runAttemptId ? { runAttemptId: ctx.route.runAttemptId } : {}),
   };
+}
+
+function reportCredentialTerminal(
+  ctx: RequestLifecycleContext,
+  input: {
+    resultType: GatewayUpstreamResultType;
+    statusCode?: number;
+    providerRequestId?: string;
+    responseId?: string;
+    error?: GatewayUpstreamErrorInfo;
+  },
+): void {
+  if (ctx.route.provider.authMethod !== "chatgpt_subscription" || !ctx.reportCredentialResult) {
+    return;
+  }
+  const identity = lifecycleIdentity(ctx);
+  const result: GatewayCredentialResult = {
+    provider: ctx.route.provider,
+    resultType: input.resultType,
+    logicalRequestId: ctx.logicalRequestId,
+    attemptIndex: ctx.attemptIndex,
+    ...(ctx.route.credentialAccountId ? { accountId: ctx.route.credentialAccountId } : {}),
+    ...(input.statusCode !== undefined ? { statusCode: input.statusCode } : {}),
+    ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+    ...(input.responseId ? { responseId: input.responseId } : {}),
+    ...(input.error ? { error: input.error } : {}),
+    ...(identity.bridgeBindingId ? { bridgeBindingId: identity.bridgeBindingId } : {}),
+    ...(identity.threadId ? { threadId: identity.threadId } : {}),
+    ...(identity.turnId ? { turnId: identity.turnId } : {}),
+    ...(identity.runAttemptId ? { runAttemptId: identity.runAttemptId } : {}),
+  };
+  try {
+    void Promise.resolve(ctx.reportCredentialResult(result)).catch((error) => {
+      ctx.onLog(`credential result reporter failed: ${formatLifecycleError(error)}`);
+    });
+  } catch (error) {
+    ctx.onLog(`credential result reporter failed: ${formatLifecycleError(error)}`);
+  }
+}
+
+export function tryEmitUpstreamCompleted(
+  ctx: RequestLifecycleContext | undefined,
+  input: {
+    providerRequestId?: string;
+    responseId?: string;
+    statusCode?: number;
+  } = {},
+): boolean {
+  if (!ctx || !ctx.tracker.tryMarkUpstreamTerminal(ctx.attemptIndex, "completed")) {
+    return false;
+  }
+  observeLifecycle(
+    ctx.observer,
+    {
+      type: "upstream.completed",
+      resultType: "completed",
+      ...lifecycleIdentity(ctx),
+      ...(ctx.route.credentialAccountId ? { accountId: ctx.route.credentialAccountId } : {}),
+      ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+      ...(input.responseId ? { responseId: input.responseId } : {}),
+      ...(input.statusCode !== undefined ? { statusCode: input.statusCode } : {}),
+    },
+    ctx.onLog,
+  );
+  reportCredentialTerminal(ctx, {
+    resultType: "completed",
+    ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+    ...(input.responseId ? { responseId: input.responseId } : {}),
+    ...(input.statusCode !== undefined ? { statusCode: input.statusCode } : {}),
+  });
+  return true;
 }
 
 export function tryEmitUpstreamFailed(
@@ -193,23 +273,37 @@ export function tryEmitUpstreamFailed(
     error: string;
     statusCode?: number;
     providerRequestId?: string;
+    responseId?: string;
+    errorInfo?: GatewayUpstreamErrorInfo;
   },
 ): boolean {
-  if (!ctx || !ctx.tracker.tryMarkUpstreamFailed()) {
+  if (!ctx || !ctx.tracker.tryMarkUpstreamTerminal(ctx.attemptIndex, "failed")) {
     return false;
   }
+  const errorInfo = input.errorInfo ?? { message: input.error };
   observeLifecycle(
     ctx.observer,
     {
       type: "upstream.failed",
+      resultType: "failed",
       ...lifecycleIdentity(ctx),
+      ...(ctx.route.credentialAccountId ? { accountId: ctx.route.credentialAccountId } : {}),
       stage: input.stage,
       error: input.error,
+      errorInfo,
       ...(input.statusCode !== undefined ? { statusCode: input.statusCode } : {}),
       ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+      ...(input.responseId ? { responseId: input.responseId } : {}),
     },
     ctx.onLog,
   );
+  reportCredentialTerminal(ctx, {
+    resultType: "failed",
+    error: errorInfo,
+    ...(input.statusCode !== undefined ? { statusCode: input.statusCode } : {}),
+    ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+    ...(input.responseId ? { responseId: input.responseId } : {}),
+  });
   return true;
 }
 
@@ -220,24 +314,41 @@ export function tryEmitHttpUpstreamFailure(
     error: string;
     statusCode: number;
     providerRequestId?: string;
+    responseId?: string;
+    errorInfo?: GatewayUpstreamErrorInfo;
   },
 ): boolean {
-  if (!ctx || !ctx.tracker.tryMarkHttpFailure()) {
-    return false;
-  }
   return tryEmitUpstreamFailed(ctx, {
     stage: "http",
     error: input.error,
     statusCode: input.statusCode,
     ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+    ...(input.responseId ? { responseId: input.responseId } : {}),
+    ...(input.errorInfo ? { errorInfo: input.errorInfo } : {}),
   });
 }
 
 export function tryEmitLogicalCompleted(
   ctx: RequestLifecycleContext | undefined,
   providerRequestId?: string,
+  responseId?: string,
+  statusCode?: number,
 ): boolean {
-  if (!ctx || !ctx.tracker.trySetLogicalTerminal("completed")) {
+  if (!ctx) {
+    return false;
+  }
+  const terminal = ctx.tracker.upstreamTerminalFor(ctx.attemptIndex);
+  if (terminal && terminal !== "completed") {
+    return false;
+  }
+  if (!terminal) {
+    tryEmitUpstreamCompleted(ctx, {
+      ...(providerRequestId ? { providerRequestId } : {}),
+      ...(responseId ? { responseId } : {}),
+      ...(statusCode !== undefined ? { statusCode } : {}),
+    });
+  }
+  if (!ctx.tracker.trySetLogicalTerminal("completed")) {
     return false;
   }
   const completedAtMs = Date.now();
@@ -261,8 +372,11 @@ export function tryEmitLogicalCompleted(
     ctx.observer,
     {
       type: "logical.completed",
+      resultType: "completed",
       ...lifecycleIdentity(ctx),
+      ...(ctx.route.credentialAccountId ? { accountId: ctx.route.credentialAccountId } : {}),
       ...(providerRequestId ? { providerRequestId } : {}),
+      ...(responseId ? { responseId } : {}),
     },
     ctx.onLog,
   );
@@ -276,20 +390,34 @@ export function tryEmitLogicalFailed(
     stage?: "transport" | "http" | "stream" | "protocol";
     statusCode?: number;
     providerRequestId?: string;
+    responseId?: string;
+    errorInfo?: GatewayUpstreamErrorInfo;
   },
 ): boolean {
-  if (!ctx || !ctx.tracker.trySetLogicalTerminal("failed")) {
+  if (!ctx) {
     return false;
   }
+  const terminal = ctx.tracker.upstreamTerminalFor(ctx.attemptIndex);
+  if (terminal && terminal !== "failed") {
+    return false;
+  }
+  if (!ctx.tracker.trySetLogicalTerminal("failed")) {
+    return false;
+  }
+  const errorInfo = input.errorInfo ?? { message: input.error };
   observeLifecycle(
     ctx.observer,
     {
       type: "logical.failed",
+      resultType: "failed",
       ...lifecycleIdentity(ctx),
+      ...(ctx.route.credentialAccountId ? { accountId: ctx.route.credentialAccountId } : {}),
       error: input.error,
+      errorInfo,
       ...(input.stage ? { stage: input.stage } : {}),
       ...(input.statusCode !== undefined ? { statusCode: input.statusCode } : {}),
       ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+      ...(input.responseId ? { responseId: input.responseId } : {}),
     },
     ctx.onLog,
   );
@@ -298,21 +426,64 @@ export function tryEmitLogicalFailed(
 
 export function tryEmitLogicalCancelled(
   ctx: RequestLifecycleContext | undefined,
-  input?: { reason?: string; providerRequestId?: string },
+  input?: { reason?: string; providerRequestId?: string; responseId?: string; statusCode?: number },
 ): boolean {
-  if (!ctx || !ctx.tracker.trySetLogicalTerminal("cancelled")) {
+  if (!ctx) {
     return false;
+  }
+  const terminal = ctx.tracker.upstreamTerminalFor(ctx.attemptIndex);
+  if (terminal && terminal !== "cancelled") {
+    return false;
+  }
+  if (!ctx.tracker.trySetLogicalTerminal("cancelled")) {
+    return false;
+  }
+  if (!terminal) {
+    tryEmitUpstreamCancelled(ctx, input);
   }
   observeLifecycle(
     ctx.observer,
     {
       type: "logical.cancelled",
+      resultType: "cancelled",
       ...lifecycleIdentity(ctx),
+      ...(ctx.route.credentialAccountId ? { accountId: ctx.route.credentialAccountId } : {}),
       ...(input?.reason ? { reason: input.reason } : {}),
       ...(input?.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+      ...(input?.responseId ? { responseId: input.responseId } : {}),
     },
     ctx.onLog,
   );
+  return true;
+}
+
+export function tryEmitUpstreamCancelled(
+  ctx: RequestLifecycleContext | undefined,
+  input?: { reason?: string; providerRequestId?: string; responseId?: string; statusCode?: number },
+): boolean {
+  if (!ctx || !ctx.tracker.tryMarkUpstreamTerminal(ctx.attemptIndex, "cancelled")) {
+    return false;
+  }
+  observeLifecycle(
+    ctx.observer,
+    {
+      type: "upstream.cancelled",
+      resultType: "cancelled",
+      ...lifecycleIdentity(ctx),
+      ...(ctx.route.credentialAccountId ? { accountId: ctx.route.credentialAccountId } : {}),
+      ...(input?.reason ? { reason: input.reason } : {}),
+      ...(input?.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+      ...(input?.responseId ? { responseId: input.responseId } : {}),
+      ...(input?.statusCode !== undefined ? { statusCode: input.statusCode } : {}),
+    },
+    ctx.onLog,
+  );
+  reportCredentialTerminal(ctx, {
+    resultType: "cancelled",
+    ...(input?.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+    ...(input?.responseId ? { responseId: input.responseId } : {}),
+    ...(input?.statusCode !== undefined ? { statusCode: input.statusCode } : {}),
+  });
   return true;
 }
 
@@ -324,6 +495,8 @@ export function reportLogicalUpstreamFailure(
     error: string;
     statusCode?: number;
     providerRequestId?: string;
+    responseId?: string;
+    errorInfo?: GatewayUpstreamErrorInfo;
   },
 ): void {
   if (input.stage === "http" && input.statusCode !== undefined) {
@@ -331,6 +504,8 @@ export function reportLogicalUpstreamFailure(
       error: input.error,
       statusCode: input.statusCode,
       ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+      ...(input.responseId ? { responseId: input.responseId } : {}),
+      ...(input.errorInfo ? { errorInfo: input.errorInfo } : {}),
     });
   } else {
     tryEmitUpstreamFailed(ctx, input);
@@ -340,6 +515,8 @@ export function reportLogicalUpstreamFailure(
     stage: input.stage,
     ...(input.statusCode !== undefined ? { statusCode: input.statusCode } : {}),
     ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
+    ...(input.responseId ? { responseId: input.responseId } : {}),
+    ...(input.errorInfo ? { errorInfo: input.errorInfo } : {}),
   });
 }
 
@@ -365,6 +542,8 @@ export async function fetchWithRequestLifecycle(
     response = await fetchImpl(url, init);
   } catch (error) {
     // Do not mark logical failure here — callers / fetchUpstreamWithRetry may retry.
+    const message = formatLifecycleError(error);
+    tryEmitUpstreamFailed(ctx, { stage: "transport", error: message });
     throw error;
   }
   const providerRequestId = readUpstreamRequestId(response.headers);
@@ -391,8 +570,9 @@ export function buildRequestLifecycleContext(
   source: GatewayRequestLifecycleSource,
   onLog: GatewayLogFn,
   observer?: GatewayRequestLifecycleObserver,
+  reportCredentialResult?: (result: GatewayCredentialResult) => void | Promise<void>,
 ): RequestLifecycleContext | undefined {
-  if (!observer) {
+  if (!observer && !reportCredentialResult) {
     return undefined;
   }
   const logicalRequestId = route.logicalRequestId || `glr_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
@@ -400,9 +580,10 @@ export function buildRequestLifecycleContext(
     source,
     route,
     onLog,
-    observer,
+    ...(observer ? { observer } : {}),
     tracker: new RequestLifecycleTracker(),
     logicalRequestId,
     attemptIndex: 0,
+    ...(reportCredentialResult ? { reportCredentialResult } : {}),
   };
 }

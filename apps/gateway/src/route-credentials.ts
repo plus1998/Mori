@@ -1,16 +1,24 @@
 import type { GatewayConfig, ResolvedProviderRoute } from "./types.js";
 
 export function credentialResolutionErrorResponse(error: unknown): Response {
-  const value = error as { statusCode?: unknown; errorCode?: unknown };
+  const value = error as { statusCode?: unknown; errorCode?: unknown; accountId?: unknown };
   const statusCode = typeof value.statusCode === "number" && value.statusCode >= 400 && value.statusCode < 600
     ? value.statusCode
     : 503;
   const errorCode = typeof value.errorCode === "string" ? value.errorCode : undefined;
+  const accountId = typeof value.accountId === "string" && value.accountId.trim()
+    ? value.accountId.trim()
+    : undefined;
   const message = error instanceof Error ? error.message : String(error);
   const headers = new Headers({ "content-type": "application/json" });
   if (errorCode) headers.set("x-eco-upstream-error-code", errorCode);
   return new Response(JSON.stringify({
-    error: { message, type: "credential_error", ...(errorCode ? { code: errorCode } : {}) },
+    error: {
+      message,
+      type: "credential_error",
+      ...(errorCode ? { code: errorCode } : {}),
+      ...(accountId ? { accountId } : {}),
+    },
   }), { status: statusCode, headers });
 }
 
@@ -49,20 +57,35 @@ export async function reportRouteCredentialResult(
   if (route.provider.authMethod !== "chatgpt_subscription" || !config.reportCredentialResult) {
     return;
   }
+  // HTTP success is not an upstream terminal. Only Response parsing can report
+  // completed after observing the real protocol terminal.
+  if (upstreamResponse.ok) {
+    return;
+  }
   let errorCode: string | undefined;
-  if (!upstreamResponse.ok) {
-    errorCode = upstreamResponse.headers.get("x-eco-upstream-error-code")?.trim() || undefined;
-    try {
-      const payload = (await upstreamResponse.clone().json()) as { error?: { code?: unknown } };
-      if (!errorCode && typeof payload.error?.code === "string") errorCode = payload.error.code;
-    } catch {
-      // The original response is still returned to the caller; reporting is best effort.
+  let errorMessage = `Upstream returned HTTP ${upstreamResponse.status}`;
+  errorCode = upstreamResponse.headers.get("x-eco-upstream-error-code")?.trim() || undefined;
+  try {
+    const body = await upstreamResponse.clone().text();
+    const payload = JSON.parse(body) as { error?: { code?: unknown; message?: unknown } };
+    if (!errorCode && typeof payload.error?.code === "string") errorCode = payload.error.code;
+    if (typeof payload.error?.message === "string" && payload.error.message.trim()) {
+      errorMessage = payload.error.message.trim();
     }
+  } catch {
+    // The original response is still returned to the caller; reporting is best effort.
   }
   await config.reportCredentialResult({
     provider: route.provider,
+    resultType: "failed",
+    logicalRequestId: route.logicalRequestId ?? "unattributed",
+    attemptIndex: 0,
     ...(route.credentialAccountId ? { accountId: route.credentialAccountId } : {}),
     statusCode: upstreamResponse.status,
-    ...(errorCode ? { errorCode } : {}),
+    error: {
+      message: errorMessage,
+      ...(errorCode ? { code: errorCode } : {}),
+      eventType: "http",
+    },
   });
 }

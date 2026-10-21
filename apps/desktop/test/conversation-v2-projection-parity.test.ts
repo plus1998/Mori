@@ -80,7 +80,7 @@ function agentInstance(input: Partial<AgentInstanceRecord> & { agentId: string }
     kind: input.kind ?? "subagent",
     status: input.status ?? "active",
     runAttemptId: input.runAttemptId ?? "attempt_1",
-    parentAgentId: input.parentAgentId ?? "planner:attempt_1",
+    parentAgentId: input.parentAgentId ?? "main:attempt_1",
     startedAt: input.startedAt ?? "2026-01-01T00:00:01.000Z",
     updatedAt: input.updatedAt ?? "2026-01-01T00:00:01.000Z",
     ...(input.parentToolUseId && { parentToolUseId: input.parentToolUseId }),
@@ -225,7 +225,7 @@ test("V2 matches the legacy Feed for a narrative/tool/final turn", () => {
       event({
         id: "narrative",
         sequence: 1,
-        role: "planner",
+        role: "main",
         message: "looking at the service",
         runAttemptId: "attempt_1",
         observedAt: "2026-01-01T00:00:01.000Z",
@@ -234,7 +234,7 @@ test("V2 matches the legacy Feed for a narrative/tool/final turn", () => {
         id: "tool",
         sequence: 2,
         eventType: "tool.completed",
-        role: "planner",
+        role: "main",
         message: "Tool: Read · src/main.ts",
         runAttemptId: "attempt_1",
         observedAt: "2026-01-01T00:00:03.000Z",
@@ -252,7 +252,7 @@ test("V2 matches the legacy Feed for a narrative/tool/final turn", () => {
         sequence: 3,
         eventType: "message.final",
         streamState: "finalized",
-        role: "planner",
+        role: "main",
         message: "done",
         runAttemptId: "attempt_1",
         observedAt: "2026-01-01T00:00:04.000Z",
@@ -272,7 +272,7 @@ test("V2 shows a provider failure notice as the row the reader had", () => {
       event({
         id: "narrative",
         sequence: 1,
-        role: "planner",
+        role: "main",
         message: "looking at the service",
         runAttemptId: "attempt_1",
         observedAt: "2026-01-01T00:00:01.000Z",
@@ -281,7 +281,7 @@ test("V2 shows a provider failure notice as the row the reader had", () => {
         id: "notice",
         sequence: 2,
         eventType: "api.error",
-        role: "planner",
+        role: "main",
         message: "【连接失败】HTTP 503：Upstream returned HTTP 503",
         runAttemptId: "attempt_1",
         requestId: "req_notice_1",
@@ -295,7 +295,7 @@ test("V2 shows a provider failure notice as the row the reader had", () => {
         id: "notice_again",
         sequence: 3,
         eventType: "api.error",
-        role: "planner",
+        role: "main",
         message: "【连接失败】Upstream service temporarily unavailable",
         runAttemptId: "attempt_1",
         requestId: "req_notice_1",
@@ -314,8 +314,8 @@ test("V2 shows a provider failure notice as the row the reader had", () => {
   // what offers the reader a retry for the failed request.
   const notices = v2Projection(scenario).timeline.filter((item) => item.text.includes("【连接失败】"));
   expect(notices.map((item) => ({ eventType: item.eventType, role: item.role }))).toEqual([
-    { eventType: "api.error", role: "planner" },
-    { eventType: "api.error", role: "planner" },
+    { eventType: "api.error", role: "main" },
+    { eventType: "api.error", role: "main" },
   ]);
   expect(notices.map(isRetryableRequestFailureItem)).toEqual([true, true]);
   // One row per notice, at the time the log recorded it — not carried to the turn's start.
@@ -477,7 +477,7 @@ test("keeps one turn in one section and a subagent's tools off the main feed", (
       event({
         id: "narrative",
         sequence: 3,
-        role: "planner",
+        role: "main",
         message: "两个查询员已出发",
         runAttemptId: "attempt_1",
         observedAt: "2026-01-01T00:00:02.000Z",

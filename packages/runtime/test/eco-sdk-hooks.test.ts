@@ -3152,7 +3152,9 @@ test("forced plan delegation blocks the parent from editing the workspace itself
   for (const toolName of ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]) {
     const denied = await run(toolName, { file_path: "/tmp/x" });
     expect(denied).toBeDefined();
-    expect(denied?.hookSpecificOutput?.permissionDecisionReason).toContain("coder");
+    expect(denied?.hookSpecificOutput?.permissionDecisionReason).toBe(
+      "用户要求使用子代理「eco_coder」执行已批准的计划。",
+    );
   }
   expect(await run("Read", { file_path: "/tmp/x" })).toBeUndefined();
 });
@@ -3185,8 +3187,7 @@ test("forced plan delegation injects the contract after an approved plan", async
   );
   const context = (result as { hookSpecificOutput?: { additionalContext?: string } }).hookSpecificOutput
     ?.additionalContext;
-  expect(context).toContain("coder");
-  expect(context).toContain("Agent");
+  expect(context).toBe("用户要求使用子代理「eco_coder」执行已批准的计划。");
 });
 
 test("forced plan delegation PostToolUse stays silent when unarmed", async () => {

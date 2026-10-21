@@ -10,9 +10,9 @@ function makeEvent(
   overrides: Partial<ThreadUsageLedgerEventView> & Pick<ThreadUsageLedgerEventView, "id" | "source">,
 ): ThreadUsageLedgerEventView {
   return {
-    role: "planner",
-    routeRole: "planner",
-    billingRole: "planner",
+    role: "main",
+    routeRole: "main",
+    billingRole: "main",
     attributionStatus: "attributed",
     usageKind: "request_final",
     inputTokens: 1000,
@@ -39,9 +39,9 @@ test("partitionLedgerEventsForDisplay splits primary proxy from shadow sources",
 
 test("partitionLedgerEventsForDisplay collapses duplicate same-source requestKey rows", () => {
   const events = [
-    makeEvent({ id: "pi_1", source: "pi", requestKey: "usage:planner:3177:281:0:0:eco-planner-abc" }),
-    makeEvent({ id: "pi_2", source: "pi", requestKey: "usage:planner:3177:281:0:0:eco-planner-abc" }),
-    makeEvent({ id: "proxy_1", source: "proxy", requestKey: "proxy:planner:qwen:resp_1:3177:281:0:0" }),
+    makeEvent({ id: "pi_1", source: "pi", requestKey: "usage:main:3177:281:0:0:eco-planner-abc" }),
+    makeEvent({ id: "pi_2", source: "pi", requestKey: "usage:main:3177:281:0:0:eco-planner-abc" }),
+    makeEvent({ id: "proxy_1", source: "proxy", requestKey: "proxy:main:qwen:resp_1:3177:281:0:0" }),
   ];
   const { primaryEvents, shadowEvents } = partitionLedgerEventsForDisplay(events, "pi");
   expect(primaryEvents.map((event) => event.id)).toEqual(["pi_1"]);

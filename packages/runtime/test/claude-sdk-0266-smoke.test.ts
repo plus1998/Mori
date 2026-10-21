@@ -16,7 +16,7 @@ import { createClassifierContextPostToolHook } from "../src/eco-sdk-hooks";
 
 const routes = [
   {
-    role: "planner" as const,
+    role: "main" as const,
     primary: { modelId: "claude-sonnet-4", provider: "anthropic", contextWindow: 200_000 },
   },
 ];
@@ -134,7 +134,7 @@ test("smoke: result uuid + queued_turn_count + task ambient mapping", () => {
   expect(
     formatAgentEventLine({
       type: "todo.updated",
-      role: "planner",
+      role: "main",
       payload: started!,
     }),
   ).toBeNull();

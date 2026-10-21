@@ -4,18 +4,16 @@ import type {
   ResponsesResponse,
   ResponsesStreamEvent,
 } from "@eco/openai-anthropic-bridge";
-import {
-  appendStreamUtf8Chunk,
-  createStreamUtf8Decoder,
-  finalizeStreamUtf8Decoder,
-  parseResponsesStreamEventBlock,
-  splitSseBlocks,
-} from "../sse.js";
+import { IncrementalSseParser, type ParsedSseFrame, parseResponsesSseFrame } from "../sse.js";
+import type { GatewayUpstreamErrorInfo } from "../types.js";
+import { extractResponsesErrorInfo, readResponsesResponseId } from "./responses-stream-errors.js";
 
 export class ResponsesStreamError extends Error {
   constructor(
     message: string,
     readonly code?: string,
+    readonly errorInfo?: GatewayUpstreamErrorInfo,
+    readonly responseId?: string,
   ) {
     super(message);
     this.name = "ResponsesStreamError";
@@ -28,11 +26,11 @@ export async function collectResponsesStream(
   options: { signal?: AbortSignal; idleTimeoutMs?: number } = {},
 ): Promise<ResponsesResponse> {
   const reader = body.getReader();
-  const decoder = createStreamUtf8Decoder();
-  let buffer = "";
+  const parser = new IncrementalSseParser();
   const completedItems = new Map<number, ResponsesOutput>();
   const pendingItems = new Set<number>();
   let sawOutput = false;
+  let responseId: string | undefined;
 
   const readChunk = async () => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -44,7 +42,16 @@ export async function collectResponsesStream(
       timer = setTimeout(
         () =>
           reject(
-            new ResponsesStreamError("Timed out waiting for upstream Responses stream", "stream_timeout"),
+            new ResponsesStreamError(
+              "Timed out waiting for upstream Responses stream",
+              "stream_timeout",
+              {
+                message: "Timed out waiting for upstream Responses stream",
+                code: "stream_timeout",
+                rawEvent: { reason: "idle_timeout" },
+              },
+              responseId,
+            ),
           ),
         options.idleTimeoutMs ?? 45_000,
       );
@@ -57,29 +64,45 @@ export async function collectResponsesStream(
     }
   };
 
-  const terminalResponse = (blocks: readonly string[]): ResponsesResponse | undefined => {
-    for (const block of blocks) {
-      const event = parseResponsesStreamEventBlock(block) as
-        | (ResponsesStreamEvent & { error?: ResponsesError; message?: string })
-        | null;
-      if (!event) {
-        if (
-          block
-            .split(/\r?\n/)
-            .some(
-              (line) => line.startsWith("data:") && line.slice(5).trim() && line.slice(5).trim() !== "[DONE]",
-            )
-        ) {
-          throw new ResponsesStreamError("Invalid JSON in upstream Responses stream", "invalid_stream");
-        }
-        continue;
-      }
-      if (event.type === "response.failed" || event.type === "error") {
-        const error = event.response?.error ?? event.error;
-        const code = error?.code ?? event.code;
+  const terminalResponse = (frames: readonly ParsedSseFrame[]): ResponsesResponse | undefined => {
+    for (const frame of frames) {
+      let event: ResponsesStreamEvent & {
+        error?: ResponsesError;
+        message?: string;
+        code?: string;
+      };
+      try {
+        event = parseResponsesSseFrame(frame) as typeof event;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         throw new ResponsesStreamError(
-          error?.message ?? event.message ?? "Upstream Responses stream failed",
-          typeof code === "string" ? code : undefined,
+          message,
+          "invalid_stream",
+          {
+            message,
+            code: "invalid_stream",
+            eventType: frame.event ?? "responses",
+            rawEvent: frame.data,
+          },
+          responseId,
+        );
+      }
+      responseId = readResponsesResponseId(event as unknown as Record<string, unknown>) ?? responseId;
+      if (event.type === "response.failed" || event.type === "error") {
+        const errorInfo = extractResponsesErrorInfo(
+          event as unknown as Record<string, unknown>,
+          event.type,
+        ) ?? {
+          message: "Upstream Responses stream failed without structured error fields.",
+          code: "upstream_error",
+          eventType: event.type,
+          rawEvent: event,
+        };
+        throw new ResponsesStreamError(
+          errorInfo.message,
+          errorInfo.code,
+          errorInfo,
+          responseId,
         );
       }
       if (
@@ -103,15 +126,42 @@ export async function collectResponsesStream(
           pendingItems.add(index);
         }
       }
-      if (event.type === "response.completed" || event.type === "response.incomplete") {
+      if (event.type === "response.incomplete") {
+        const errorInfo = extractResponsesErrorInfo(
+          event as unknown as Record<string, unknown>,
+          event.type,
+        ) ?? {
+          message: "Upstream Responses stream ended incomplete.",
+          code: "response_incomplete",
+          eventType: event.type,
+          rawEvent: event,
+        };
+        throw new ResponsesStreamError(
+          errorInfo.message,
+          errorInfo.code ?? "response_incomplete",
+          errorInfo,
+          responseId,
+        );
+      }
+      if (event.type === "response.completed") {
         const response = event.response;
-        const expectedStatus = event.type === "response.completed" ? "completed" : "incomplete";
-        if (!response?.id || !Array.isArray(response.output) || response.status !== expectedStatus) {
+        const completedResponseId = response?.id ?? responseId;
+        if (!completedResponseId || !Array.isArray(response?.output) || response.status !== "completed") {
+          const message = "Invalid response.completed terminal response in upstream Responses stream";
           throw new ResponsesStreamError(
-            "Invalid terminal response in upstream Responses stream",
+            message,
             "invalid_stream",
+            {
+              message,
+              code: "invalid_stream",
+              eventType: event.type,
+              rawEvent: event,
+            },
+            completedResponseId,
           );
         }
+        responseId = completedResponseId;
+        response.id = completedResponseId;
         if (response.output.length > 0) return response;
         // ChatGPT sends the full items in output_item.done, while the terminal
         // response.output can be empty. Collect those real items in wire order.
@@ -119,6 +169,13 @@ export async function collectResponsesStream(
           throw new ResponsesStreamError(
             "Upstream terminal response is missing completed output items",
             "incomplete_stream",
+            {
+              message: "Upstream terminal response is missing completed output items",
+              code: "incomplete_stream",
+              eventType: event.type,
+              rawEvent: event,
+            },
+            responseId,
           );
         }
         const items = [...completedItems.entries()].sort(([a], [b]) => a - b);
@@ -126,6 +183,13 @@ export async function collectResponsesStream(
           throw new ResponsesStreamError(
             "Upstream terminal response is missing an output item",
             "incomplete_stream",
+            {
+              message: "Upstream terminal response is missing an output item",
+              code: "incomplete_stream",
+              eventType: event.type,
+              rawEvent: event,
+            },
+            responseId,
           );
         }
         return { ...response, output: items.map(([, item]) => item) };
@@ -138,17 +202,19 @@ export async function collectResponsesStream(
     options.signal?.throwIfAborted();
     while (true) {
       const { done, value } = await readChunk();
-      buffer = done
-        ? finalizeStreamUtf8Decoder(decoder, buffer)
-        : appendStreamUtf8Chunk(decoder, buffer, value);
-      const { blocks, remainder } = splitSseBlocks(done && buffer.trim() ? `${buffer}\n\n` : buffer);
-      buffer = remainder;
-      const response = terminalResponse(blocks);
+      const frames = done ? parser.finish() : parser.push(value);
+      const response = terminalResponse(frames);
       if (response) return response;
       if (done)
         throw new ResponsesStreamError(
           "Upstream Responses stream ended before a terminal response",
           "incomplete_stream",
+          {
+            message: "Upstream Responses stream ended before a terminal response",
+            code: "incomplete_stream",
+            rawEvent: { reason: "eof_before_completed" },
+          },
+          responseId,
         );
     }
   } finally {

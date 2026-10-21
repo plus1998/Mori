@@ -37,7 +37,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const EXPECTED_PI_VERSION = "1.0.3";
+const EXPECTED_PI_VERSION = "1.3.0";
 const MAX_SEARCH_DEPTH = 8;
 
 const args = process.argv.slice(2);
@@ -48,9 +48,7 @@ function argValue(flag) {
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const searchRoot = path.resolve(
-  argValue("--resources") ??
-    argValue("--search") ??
-    path.join(scriptDirectory, "..", "release"),
+  argValue("--resources") ?? argValue("--search") ?? path.join(scriptDirectory, "..", "release"),
 );
 
 if (process.env.ELECTRON_RUN_AS_NODE !== "1") {
@@ -122,7 +120,15 @@ console.log(`Inspecting ${resources}\n`);
 
 // 1. The PI closure ships unpacked, at the pinned version. Version is read from the real
 // files on disk: a closure that only exists inside the archive is the bug this catches.
-const piPackages = ["pi-coding-agent", "pi-codemode", "pi-mcp", "pi-ai"];
+const piPackages = [
+  "pi-coding-agent",
+  "pi-codemode",
+  "pi-mcp",
+  "pi-ai",
+  "pi-agent-core",
+  "pi-tui",
+  "pi-telemetry",
+];
 const piVersions = {};
 for (const name of piPackages) {
   const manifest = JSON.parse(
@@ -133,16 +139,21 @@ for (const name of piPackages) {
     throw new Error(`@earendil-works/${name} is ${manifest.version}, expected ${EXPECTED_PI_VERSION}`);
   }
 }
-check("packed PI closure present", Object.entries(piVersions).map(([n, v]) => `${n}=${v}`).join(", "));
+check(
+  "packed PI closure present",
+  Object.entries(piVersions)
+    .map(([n, v]) => `${n}=${v}`)
+    .join(", "),
+);
 
 // 2. The wasm files the asarUnpack rules exist for are real files, and compile.
-const quickjsWasm = await requireFile(
-  path.join(unpacked, "quickjs-wasi", "quickjs.wasm"),
-  "QuickJS wasm",
-);
+const quickjsWasm = await requireFile(path.join(unpacked, "quickjs-wasi", "quickjs.wasm"), "QuickJS wasm");
 const quickjsBytes = await readFile(quickjsWasm);
 await WebAssembly.compile(quickjsBytes);
-check("quickjs.wasm compiles", `${quickjsBytes.byteLength} bytes at ${path.basename(path.dirname(quickjsWasm))}/quickjs.wasm`);
+check(
+  "quickjs.wasm compiles",
+  `${quickjsBytes.byteLength} bytes at ${path.basename(path.dirname(quickjsWasm))}/quickjs.wasm`,
+);
 
 const photonWasm = await requireFile(
   path.join(unpacked, "@silvia-odwyer", "photon-node", "photon_rs_bg.wasm"),
@@ -166,8 +177,12 @@ check("shipped PI SDK exports the official extensions", "createMcpExtension + cr
 // path explicitly: the sandbox has to derive both from its own location, inside app.asar.
 const codemode = await import(asarImport(["@earendil-works", "pi-codemode", "dist", "index.js"]));
 const seen = [];
+const workerExits = [];
 const sandbox = new codemode.CodemodeSandbox({
   wasm: codemode.loadQuickJSWasm(),
+  onWorkerStarted: (exited) => {
+    workerExits.push(exited);
+  },
   timeoutMs: 60_000,
   tools: [
     {
@@ -201,5 +216,38 @@ if (seen.join(",") !== "worker-ok,wasm-ok") {
   throw new Error(`Codemode tool calls did not round-trip: ${JSON.stringify(seen)}`);
 }
 check("packaged codemode runs a real script", `value=${result.value}, tool calls=${result.calls.length}`);
+
+// 1.3 results and close() settle before actual worker exit; observe that lifecycle too.
+const cancellation = new codemode.CodemodeSandbox({
+  wasm: codemode.loadQuickJSWasm(),
+  timeoutMs: 100,
+  onWorkerStarted: (exited) => {
+    workerExits.push(exited);
+  },
+});
+try {
+  const timedOut = await cancellation.execute("while (true) {}");
+  if (timedOut.ok || timedOut.error.kind !== "timeout")
+    throw new Error(`Packaged codemode failed to enforce its deadline: ${JSON.stringify(timedOut.error)}`);
+} finally {
+  await cancellation.close();
+}
+let workerExitTimer;
+try {
+  await Promise.race([
+    Promise.all(workerExits),
+    new Promise((_, reject) => {
+      workerExitTimer = setTimeout(
+        () => reject(new Error("Packaged codemode workers did not exit after shutdown")),
+        5_000,
+      );
+    }),
+  ]);
+} finally {
+  clearTimeout(workerExitTimer);
+}
+if (workerExits.length !== 2)
+  throw new Error(`Expected two packaged workers, observed ${workerExits.length}`);
+check("packaged codemode timeout and actual worker exit", `${workerExits.length} workers exited`);
 
 console.log(`\n打包产物 PI 冒烟：${checks.length} 项通过`);

@@ -1,6 +1,28 @@
 import 'dart:async';
 
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../models/eco_types.dart';
+
+int ecoRealtimeReconnectDelayMs(int baseDelayMs, int attempt) =>
+    (baseDelayMs * (1 << attempt.clamp(0, 5))).clamp(0, 60000);
+
+/// Send the same Broadcast frame shape as supabase-js. realtime_client 2.x
+/// adds type/event directly to its argument; the application data belongs in
+/// its nested payload. A disconnected RPC must never use SDK HTTP delivery.
+Future<ChannelResponse> sendEcoRealtimeBroadcast(
+  RealtimeChannel channel, {
+  required String event,
+  required Map<String, dynamic> payload,
+}) {
+  if (!channel.canPush) {
+    throw EcoCenterException.app(EcoCenterErrorKind.websocketDisconnected);
+  }
+  return channel.sendBroadcastMessage(
+    event: event,
+    payload: {'payload': payload},
+  );
+}
 
 /// Drives channel subscription lifecycle independent of the Supabase channel.
 ///
@@ -69,6 +91,8 @@ class EcoRealtimeTopics {
   static const vaultPrefix = 'eco:vault:';
 
   static const broadcastEvent = 'eco.rpc';
+  static const bindingsChangedEvent = 'eco.bindings.changed';
+  static const bindingReadyEvent = 'eco.binding.ready';
   static const envelopeVersion = 1;
 
   static String bindTopic(String bindingId) =>

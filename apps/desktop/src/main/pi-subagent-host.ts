@@ -74,7 +74,7 @@ export function createPiSubagentSpawnHandler(
   const agents = listEnabledPiSubagents(input.registry);
   const byKey = new Map(agents.map((agent) => [agent.agentKey, agent]));
 
-  return async (spawnInput): Promise<PiSubagentSpawnResult> => {
+  const spawn: PiSubagentSpawnHandler = async (spawnInput): Promise<PiSubagentSpawnResult> => {
     const agent = byKey.get(spawnInput.agentKey);
     if (!agent) {
       throw new Error(
@@ -223,41 +223,41 @@ export function createPiSubagentSpawnHandler(
       }),
     );
 
-    const childSession = await createDefaultPiSession({
-      threadId: input.threadId,
-      cwd,
-      agentDir: childAgentDir,
-      model: modelSpec,
-      thinkingLevel,
-      apiKey: armed.binding.apiKey,
-      apiCompat,
-      bindingId: `${armed.binding.bindingId}:${agentId}`,
-      routeFingerprint,
-      skillPaths: input.parentSkillPaths ?? [],
-      ...(childMcp ? { mcpServers: childMcp } : {}),
-      systemPromptOverride: [
-        agent.prompt.trim(),
-        "You are a specialized subagent. Complete the delegated task.",
-        "Do not attempt to spawn further subagents.",
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-      toolsAllowlist,
-      eventRole: agent.agentKey,
-      eventAgentId: agentId,
-      replacePersistedSessions: true,
-      ...buildPiSessionToolApprovalFields({
-        toolPermissionHandler: input.toolPermissionHandler,
-        agentId,
-        agentType: agent.agentKey,
-      }),
-      ...webSearchSession,
-    });
-    globalPiSessionRegistry.set(childKey, childSession);
-
     const collected: AgentEvent[] = [];
     let failedMessage: string | undefined;
     try {
+      const childSession = await createDefaultPiSession({
+        threadId: input.threadId,
+        cwd,
+        agentDir: childAgentDir,
+        model: modelSpec,
+        thinkingLevel,
+        apiKey: armed.binding.apiKey,
+        apiCompat,
+        bindingId: `${armed.binding.bindingId}:${agentId}`,
+        routeFingerprint,
+        skillPaths: input.parentSkillPaths ?? [],
+        ...(childMcp ? { mcpServers: childMcp } : {}),
+        systemPromptOverride: [
+          agent.prompt.trim(),
+          "You are a specialized subagent. Complete the delegated task.",
+          "Do not attempt to spawn further subagents.",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        toolsAllowlist,
+        eventRole: agent.agentKey,
+        eventAgentId: agentId,
+        replacePersistedSessions: true,
+        ...buildPiSessionToolApprovalFields({
+          toolPermissionHandler: input.toolPermissionHandler,
+          agentId,
+          agentType: agent.agentKey,
+        }),
+        ...webSearchSession,
+      });
+      globalPiSessionRegistry.set(childKey, childSession);
+
       for await (const event of childSession.prompt(task, spawnInput.signal)) {
         // Child run.terminal / thread.failed stay local; do not complete the parent run.
         if (event.type === "run.terminal" || event.type === "thread.failed") {
@@ -312,9 +312,10 @@ export function createPiSubagentSpawnHandler(
         truncated: truncated.truncated,
       };
     } catch (error) {
-      sessionHooks.onStop?.({
+      await sessionHooks.onStop?.({
         agentId,
         agentType: agent.agentKey,
+        failed: true,
       });
       spawnInput.emitEvent(
         createAgentEvent({
@@ -333,6 +334,22 @@ export function createPiSubagentSpawnHandler(
       throw error;
     } finally {
       await globalPiSessionRegistry.delete(childKey);
+    }
+  };
+
+  return async (spawnInput) => {
+    try {
+      return await spawn(spawnInput);
+    } catch (error) {
+      // The parent may finish normally after reporting an Agent tool error.
+      // Preserve the child's failure so that does not clear the approved plan.
+      if (forcedPlanDelegationStore.get(input.threadId)) {
+        forcedPlanDelegationStore.fail(
+          input.threadId,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      throw error;
     }
   };
 }

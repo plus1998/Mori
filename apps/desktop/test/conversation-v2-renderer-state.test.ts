@@ -52,6 +52,47 @@ function effect(seq: number, value: ConversationSyncEffect["effect"]): Conversat
 }
 
 describe("conversation V2 renderer state", () => {
+  test("receipts advance and verify the cursor without copying historical collections", () => {
+    const state = installConversationV2Bootstrap(bootstrap);
+    const next = applyConversationV2Effects(state, [
+      effect(2, { type: "noop", reason: "provider receipt" }),
+      effect(3, { type: "noop", reason: "command accepted" }),
+    ]);
+    expect(next.appliedSeq).toBe(3);
+    expect(next.effectHashes.has(3)).toBe(true);
+    for (const key of ["messages", "runs", "agents", "todos", "tools", "details"] as const) {
+      expect(next[key]).toBe(state[key]);
+    }
+    expect(state.appliedSeq).toBe(1);
+    expect(state.effectHashes.has(3)).toBe(false);
+    expect(() => applyConversationV2Effect(next, effect(3, { type: "noop", reason: "conflict" }))).toThrow(
+      ConversationV2RendererConflictError,
+    );
+  });
+
+  test("a content batch copies only changed collections and failed batches keep the prior state intact", () => {
+    const state = installConversationV2Bootstrap(bootstrap);
+    const append = effect(2, {
+      type: "message.append",
+      messageId: "message_1",
+      baseContentVersion: 0,
+      nextContentVersion: 1,
+      delta: " world",
+      versionSeq: 2,
+    });
+    const next = applyConversationV2Effects(state, [append, effect(3, { type: "noop", reason: "receipt" })]);
+    expect(next.messages).not.toBe(state.messages);
+    expect(next.messages.get("message_1")?.body).toBe("hello world");
+    for (const key of ["runs", "agents", "todos", "tools", "details"] as const) {
+      expect(next[key]).toBe(state[key]);
+    }
+    expect(() =>
+      applyConversationV2Effects(state, [append, effect(4, { type: "noop", reason: "missing sequence" })]),
+    ).toThrow(ConversationV2RendererGapError);
+    expect(state.messages.get("message_1")?.body).toBe("hello");
+    expect(state.appliedSeq).toBe(1);
+  });
+
   test("queued message replacement updates and removes attachments with its body", () => {
     const state = installConversationV2Bootstrap({
       ...bootstrap,

@@ -16,7 +16,7 @@ has a distinct context/output budget. Cases cover streaming/non-streaming reques
 and missing, oversized, 32K SDK defaults, and smaller client output limits. Dynamic
 mode replaces these client values with the calculated budget; fixed mode preserves
 smaller requested values. Short and nearly-full
-window cases use controlled input counts to verify `W - input - 1` for each request.
+window cases use controlled exact input counts to verify `W - input - 1024` for each request.
 Assertions inspect the
 final upstream request and consume the complete response.
 
@@ -53,8 +53,9 @@ This does **not** verify remote provider compliance or real
 model compaction near a full context window. ChatGPT subscription transport does
 not support max_output_tokens; dynamic mode rejects that transport explicitly.
 
-The native assertions require equality with `min(W - input - 1, model ceiling)`;
-they do not accept a smaller SDK default as success. Claude's process and settings
+The native assertions require equality with `min(W - input - reserve, model ceiling)`.
+Heuristic counts reserve `max(8192, ceil(W / 10))` tokens; exact counts reserve 1024 tokens.
+They do not accept a smaller SDK default as success. Claude's process and settings
 environment receive the resolved output ceiling across its main/child routes;
 Gateway still computes and enforces each role's current request budget separately.
 

@@ -1,4 +1,4 @@
-import type { ResolvedProviderRoute } from "../types.js";
+import type { GatewayUpstreamErrorInfo, ResolvedProviderRoute } from "../types.js";
 
 /** Extract a short user-facing message from an upstream error body. */
 export function extractUpstreamErrorMessage(bodyText: string): string {
@@ -43,6 +43,52 @@ export function extractUpstreamErrorCode(bodyText: string): string | undefined {
   }
 }
 
+/** Preserve the provider error envelope without copying request credentials. */
+export function extractUpstreamErrorInfo(
+  bodyText: string,
+  eventType?: string,
+): GatewayUpstreamErrorInfo | undefined {
+  const message = extractUpstreamErrorMessage(bodyText);
+  let rawEvent: unknown = bodyText;
+  let code: string | undefined;
+  let param: string | undefined;
+  let type: string | undefined;
+  try {
+    const parsed = JSON.parse(bodyText) as unknown;
+    rawEvent = parsed;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      const error = record.error;
+      if (error && typeof error === "object" && !Array.isArray(error)) {
+        const errorRecord = error as Record<string, unknown>;
+        code = readString(errorRecord.code);
+        param = readString(errorRecord.param);
+        type = readString(errorRecord.type);
+      }
+      code ??= readString(record.code);
+      param ??= readString(record.param);
+      type ??= readString(record.error_type);
+    }
+  } catch {
+    // Plain-text errors are still useful evidence.
+  }
+  if (!message && !code && !param) {
+    return undefined;
+  }
+  return {
+    message,
+    ...(code ? { code } : {}),
+    ...(param ? { param } : {}),
+    ...(type ? { type } : {}),
+    ...(eventType ? { eventType } : {}),
+    rawEvent,
+  };
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 /** Attribute upstream failures to provider/model/url so Eco UI does not look like an internal fault. */
 export function formatUpstreamHttpError(input: {
   route: ResolvedProviderRoute;
@@ -67,14 +113,17 @@ export function upstreamErrorResponse(input: {
   bodyText: string;
 }): Response {
   const message = formatUpstreamHttpError(input);
-  const errorCode = extractUpstreamErrorCode(input.bodyText);
+  const errorInfo = extractUpstreamErrorInfo(input.bodyText);
+  const errorCode = errorInfo?.code;
   const headers = new Headers({ "content-type": "application/json" });
   if (errorCode) headers.set("x-eco-upstream-error-code", errorCode);
   return Response.json(
     {
       error: {
         message,
-        type: "upstream_error",
+        type: errorInfo?.type ?? "upstream_error",
+        ...(errorCode ? { code: errorCode } : {}),
+        ...(errorInfo?.param ? { param: errorInfo.param } : {}),
         providerId: input.route.provider.id,
         model: input.route.upstreamModelId,
         url: input.upstreamUrl,

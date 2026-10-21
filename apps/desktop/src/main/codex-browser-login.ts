@@ -7,6 +7,14 @@ export interface CodexBrowserLoginResult {
   message: string;
 }
 
+export const CODEX_BROWSER_LOGIN_TIMEOUT_MS = 10 * 60 * 1_000;
+
+/** The final OAuth page is shown before the local app-server callback arrives. */
+export function isCodexAuthCompletionPageText(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/gu, " ");
+  return normalized.includes("signed in to codex") && normalized.includes("you may now close this page");
+}
+
 /** The app-server login API returns a URL with open_browser=false on every OS. */
 export async function startCodexBrowserLogin(input: {
   executable: string;
@@ -15,6 +23,7 @@ export async function startCodexBrowserLogin(input: {
   onAuthenticated: (signal: AbortSignal) => Promise<void>;
 }): Promise<{
   authUrl: string;
+  expiresAt: number;
   result: Promise<CodexBrowserLoginResult>;
   cancel: () => void;
 }> {
@@ -80,8 +89,9 @@ export async function startCodexBrowserLogin(input: {
     if (response.type !== "chatgpt" || !response.loginId || new URL(response.authUrl).protocol !== "https:") {
       throw new Error("Codex 返回了无效的登录地址");
     }
-    if (!finished) timeout = setTimeout(() => settle({ success: false, message: "登录超时（5 分钟）" }), 5 * 60 * 1_000);
-    return { authUrl: response.authUrl, result, cancel: () => settle({ success: false, message: "登录已取消" }) };
+    const expiresAt = Date.now() + CODEX_BROWSER_LOGIN_TIMEOUT_MS;
+    if (!finished) timeout = setTimeout(() => settle({ success: false, message: "登录超时（10 分钟）" }), CODEX_BROWSER_LOGIN_TIMEOUT_MS);
+    return { authUrl: response.authUrl, expiresAt, result, cancel: () => settle({ success: false, message: "登录已取消" }) };
   } catch (error) {
     settle({ success: false, message: `启动登录失败：${error instanceof Error ? error.message : String(error)}` });
     throw error;

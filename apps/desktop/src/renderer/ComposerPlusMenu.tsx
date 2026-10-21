@@ -1,55 +1,14 @@
-import { Check, Clock3, Image, LayoutTemplate, Plus, X } from "lucide-react";
-import {
-  type CSSProperties,
-  type ReactNode,
-  type RefObject,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
-import { createPortal } from "react-dom";
+import { Check, ChevronRight, Clock3, Image, LayoutTemplate, Plus, X } from "lucide-react";
+import { type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { type SessionMode, togglePlusMenuSessionMode } from "../shared/session-mode";
 import { sessionModeUi } from "../shared/session-mode-ui";
 import { ComposerHoverTooltip, useComposerIconOnlyToolbar } from "./ComposerHoverTooltip";
 import { SessionModeIcon } from "./ComposerPlanModeToggle";
-import { clampComposerFloatingLeft, composerFloatingAvailableWidth } from "./composer-floating";
+import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { COMPOSER_TOOLBAR_ICON_PX, COMPOSER_TOOLBAR_ICON_STROKE } from "./composer-icon-metrics";
 
-const MENU_WIDTH = 220;
-const VIEWPORT_MARGIN = 8;
-const ANCHOR_GAP = 6;
-
-export type ComposerPlusMenuAction = "plan" | "ask" | "image" | "route" | "scheduled-message";
-
-function menuStyleForAnchor(anchor: HTMLElement): CSSProperties {
-  const rect = anchor.getBoundingClientRect();
-  const width = Math.min(MENU_WIDTH, composerFloatingAvailableWidth(VIEWPORT_MARGIN));
-  const spaceAbove = rect.top - VIEWPORT_MARGIN;
-  const preferredBottom = window.innerHeight - rect.top + ANCHOR_GAP;
-  const openAbove = spaceAbove >= 160;
-  if (openAbove) {
-    return {
-      position: "fixed",
-      left: clampComposerFloatingLeft(rect.left, width, VIEWPORT_MARGIN),
-      bottom: preferredBottom,
-      width,
-      zIndex: 10000,
-    };
-  }
-  return {
-    position: "fixed",
-    left: clampComposerFloatingLeft(rect.left, width, VIEWPORT_MARGIN),
-    top: rect.bottom + ANCHOR_GAP,
-    width,
-    zIndex: 10000,
-  };
-}
-
-interface ComposerPlusMenuProps {
-  buttonRef: RefObject<HTMLButtonElement | null>;
+interface MenuActions {
   sessionMode: SessionMode;
   canEditMode: boolean;
   canOpenRoute: boolean;
@@ -59,152 +18,70 @@ interface ComposerPlusMenuProps {
   onPickImage: () => void;
   onOpenRoute: () => void;
   onAddScheduledMessage?: (() => void) | undefined;
-  onOpenChange?: ((open: boolean) => void) | undefined;
 }
 
 export function ComposerPlusMenu({
   buttonRef,
-  sessionMode,
-  canEditMode,
-  canOpenRoute,
-  showRoute = true,
-  saving,
-  onSelectMode,
-  onPickImage,
-  onOpenRoute,
-  onAddScheduledMessage,
+  anchorRef,
+  open,
+  panelActive,
   onOpenChange,
-}: ComposerPlusMenuProps) {
+  ...actions
+}: MenuActions & {
+  buttonRef: RefObject<HTMLButtonElement | null>;
+  anchorRef: RefObject<HTMLElement | null>;
+  open: boolean;
+  panelActive: boolean;
+  onOpenChange(open: boolean): void;
+}) {
   const { t } = useTranslation();
-  const panelRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const openRef = useRef(false);
-  const [panelStyle, setPanelStyle] = useState<CSSProperties>(() => ({ visibility: "hidden" }));
-
-  const setMenuOpen = useCallback(
-    (next: boolean) => {
-      if (openRef.current === next) {
-        return;
-      }
-      openRef.current = next;
-      setOpen(next);
-      onOpenChange?.(next);
-    },
-    [onOpenChange],
-  );
-
-  const updatePanelPosition = useCallback(() => {
-    const anchor = buttonRef.current;
-    if (!anchor) {
-      return;
-    }
-    setPanelStyle(menuStyleForAnchor(anchor));
-  }, [buttonRef]);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      return;
-    }
-    updatePanelPosition();
-    window.addEventListener("resize", updatePanelPosition);
-    window.addEventListener("scroll", updatePanelPosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePanelPosition);
-      window.removeEventListener("scroll", updatePanelPosition, true);
-    };
-  }, [open, updatePanelPosition]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    function onPointerDown(event: MouseEvent) {
-      const target = event.target as Node;
-      if (panelRef.current?.contains(target) || buttonRef.current?.contains(target)) {
-        return;
-      }
-      setMenuOpen(false);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open, buttonRef, setMenuOpen]);
-
-  function handleAction(action: ComposerPlusMenuAction) {
-    setMenuOpen(false);
-    // Defer so the menu unmounts before nested popovers / file picker open.
-    window.setTimeout(() => {
-      switch (action) {
-        case "plan":
-        case "ask":
-          if (canEditMode && !saving) {
-            onSelectMode(togglePlusMenuSessionMode(sessionMode, action));
-          }
-          break;
-        case "image":
-          onPickImage();
-          break;
-        case "route":
-          if (canOpenRoute) {
-            onOpenRoute();
-          }
-          break;
-        case "scheduled-message":
-          onAddScheduledMessage?.();
-          break;
-      }
-    }, 0);
-  }
-
+  const close = () => onOpenChange(false);
+  const select = (action: () => void) => {
+    close();
+    action();
+  };
   return (
     <>
       <button
         ref={buttonRef}
         type="button"
-        className={["composer-plus-trigger", open ? "is-active" : ""].filter(Boolean).join(" ")}
+        className={`composer-plus-trigger${panelActive ? " is-active" : ""}`}
         title={t("composer.plus.menu")}
         aria-label={t("composer.plus.menu")}
-        aria-expanded={open}
-        onClick={() => setMenuOpen(!open)}
+        aria-expanded={panelActive}
+        aria-haspopup="dialog"
+        onClick={() => onOpenChange(!panelActive)}
       >
         <Plus size={COMPOSER_TOOLBAR_ICON_PX} strokeWidth={COMPOSER_TOOLBAR_ICON_STROKE} aria-hidden />
       </button>
-      {open
-        ? createPortal(
-            <div
-              ref={panelRef}
-              className="composer-codex-popover composer-plus-menu"
-              role="menu"
-              aria-label={t("composer.plus.menu")}
-              style={panelStyle}
-            >
-              <ComposerPlusMenuPanel
-                sessionMode={sessionMode}
-                canEditMode={canEditMode}
-                canOpenRoute={canOpenRoute}
-                showRoute={showRoute}
-                {...(saving !== undefined ? { saving } : {})}
-                onSelectMode={(mode) => {
-                  if (mode === "plan" || mode === "ask") {
-                    handleAction(mode);
-                  }
-                }}
-                onPickImage={() => handleAction("image")}
-                onOpenRoute={() => handleAction("route")}
-                onAddScheduledMessage={onAddScheduledMessage ? () => handleAction("scheduled-message") : undefined}
-              />
-            </div>,
-            document.body,
-          )
-        : null}
+      {open ? (
+        <ComposerAbovePanel
+          anchorRef={anchorRef}
+          triggerRef={buttonRef}
+          className="composer-plus-menu"
+          role="menu"
+          label={t("composer.plus.menu")}
+          onClose={close}
+        >
+          <ComposerPlusMenuPanel
+            {...actions}
+            onSelectMode={(mode) =>
+              select(() =>
+                actions.onSelectMode(
+                  mode === "plan" || mode === "ask"
+                    ? togglePlusMenuSessionMode(actions.sessionMode, mode)
+                    : mode,
+                ),
+              )
+            }
+            onPickImage={() => select(actions.onPickImage)}
+            onOpenRoute={() => select(actions.onOpenRoute)}
+            onAddScheduledMessage={
+              actions.onAddScheduledMessage ? () => select(actions.onAddScheduledMessage!) : undefined
+            }
+          />
+        </ComposerAbovePanel>
+      ) : null}
     </>
   );
 }
@@ -219,52 +96,78 @@ export function ComposerPlusMenuPanel({
   onPickImage,
   onOpenRoute,
   onAddScheduledMessage,
-}: {
-  sessionMode: SessionMode;
-  canEditMode: boolean;
-  canOpenRoute: boolean;
-  showRoute?: boolean | undefined;
-  saving?: boolean | undefined;
-  onSelectMode: (sessionMode: SessionMode) => void;
-  onPickImage: () => void;
-  onOpenRoute: () => void;
-  onAddScheduledMessage?: (() => void) | undefined;
-}) {
+}: MenuActions) {
   const { t } = useTranslation();
   return (
-    <ul className="composer-plus-menu-list">
+    <ul
+      className="composer-plus-menu-list"
+      onKeyDown={(event) => {
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+        const index = items.indexOf(document.activeElement as HTMLButtonElement);
+        const next =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? items.length - 1
+              : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        items[next]?.focus();
+      }}
+    >
+      <li className="composer-plus-menu-section" role="presentation">
+        {t("composer.plus.modeSection")}
+      </li>
       <PlusMenuRow
         icon={<SessionModeIcon mode="plan" />}
         label={sessionModeUi("plan").title}
+        description={t("composer.plus.planHint")}
         selected={sessionMode === "plan"}
+        toggle
         disabled={!canEditMode || Boolean(saving)}
         onSelect={() => onSelectMode("plan")}
       />
       <PlusMenuRow
         icon={<SessionModeIcon mode="ask" />}
         label={sessionModeUi("ask").title}
+        description={t("composer.plus.askHint")}
         selected={sessionMode === "ask"}
+        toggle
         disabled={!canEditMode || Boolean(saving)}
         onSelect={() => onSelectMode("ask")}
       />
-      <li className="composer-plus-menu-divider" aria-hidden />
+      <li className="composer-plus-menu-section" role="presentation">
+        {t("composer.plus.actionSection")}
+      </li>
       <PlusMenuRow
-        icon={<Image size={18} strokeWidth={COMPOSER_TOOLBAR_ICON_STROKE} aria-hidden />}
+        icon={<Image size={18} aria-hidden />}
         label={t("composer.plus.image")}
+        description={t("composer.plus.imageHint")}
         onSelect={onPickImage}
       />
-      {onAddScheduledMessage ? <PlusMenuRow
-        icon={<Clock3 size={18} strokeWidth={COMPOSER_TOOLBAR_ICON_STROKE} aria-hidden />}
-        label={t("scheduling.messageAction")}
-        onSelect={onAddScheduledMessage}
-      /> : null}
-      {showRoute ? (
+      {onAddScheduledMessage ? (
         <PlusMenuRow
-          icon={<LayoutTemplate size={18} strokeWidth={COMPOSER_TOOLBAR_ICON_STROKE} aria-hidden />}
-          label={t("composer.plus.route")}
-          disabled={!canOpenRoute}
-          onSelect={onOpenRoute}
+          icon={<Clock3 size={18} aria-hidden />}
+          label={t("scheduling.messageAction")}
+          description={t("composer.plus.scheduleHint")}
+          next
+          onSelect={onAddScheduledMessage}
         />
+      ) : null}
+      {showRoute ? (
+        <>
+          <li className="composer-plus-menu-section" role="presentation">
+            {t("composer.plus.route")}
+          </li>
+          <PlusMenuRow
+            icon={<LayoutTemplate size={18} aria-hidden />}
+            label={t("composer.route.profiles")}
+            description={t("composer.plus.routeHint")}
+            next
+            disabled={!canOpenRoute}
+            onSelect={onOpenRoute}
+          />
+        </>
       ) : null}
     </ul>
   );
@@ -273,34 +176,45 @@ export function ComposerPlusMenuPanel({
 function PlusMenuRow({
   icon,
   label,
+  description,
   selected = false,
   disabled = false,
+  next,
+  toggle,
   onSelect,
 }: {
   icon: ReactNode;
   label: string;
+  description: string;
   selected?: boolean;
   disabled?: boolean;
-  onSelect: () => void;
+  next?: boolean;
+  toggle?: boolean;
+  onSelect(): void;
 }) {
+  const { t } = useTranslation();
   return (
     <li role="none">
       <button
         type="button"
-        role="menuitem"
-        className={["composer-plus-menu-item", selected ? "is-selected" : ""].filter(Boolean).join(" ")}
+        role={toggle ? "menuitemcheckbox" : "menuitem"}
+        className={`composer-plus-menu-item${selected ? " is-selected" : ""}`}
         disabled={disabled}
-        aria-checked={selected || undefined}
+        aria-checked={toggle ? selected : undefined}
         onClick={onSelect}
       >
         <span className="composer-plus-menu-item-icon" aria-hidden>
           {icon}
         </span>
         <span className="composer-plus-menu-item-label">{label}</span>
+        <span className="composer-plus-menu-item-description">{description}</span>
         {selected ? (
-          <span className="composer-plus-menu-item-check" aria-hidden>
-            <Check size={14} strokeWidth={2.25} />
+          <span className="composer-plus-menu-item-check">
+            <Check size={14} aria-hidden />
+            {t("composer.plus.enabled")}
           </span>
+        ) : next ? (
+          <ChevronRight size={15} className="composer-plus-menu-item-chevron" aria-hidden />
         ) : null}
       </button>
     </li>

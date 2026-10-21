@@ -1,6 +1,43 @@
 import { expect, test } from "bun:test";
 import { DatabaseSync } from "node:sqlite";
-import { IntegratedWebSearchSettingsStore } from "../src/main/integrated-web-search-settings-store";
+import {
+  IntegratedWebSearchSettingsStore,
+  isIntegratedWebSearchSettingsSaveInput,
+  isIntegratedWebSearchSettingsSnapshot,
+} from "../src/main/integrated-web-search-settings-store";
+
+test("DeepSeek settings pass IPC validation and survive encrypted storage reload", () => {
+  const db = new DatabaseSync(":memory:");
+  const codec = {
+    isAvailable: () => true,
+    encrypt: (value: string) => `encrypted:${value}`,
+    decrypt: (value: string) => value.slice("encrypted:".length),
+  };
+  try {
+    const store = new IntegratedWebSearchSettingsStore(db, codec);
+    store.initialize();
+    const input = {
+      enabled: true,
+      provider: "deepseek",
+      apiKey: " sk-test ",
+      approvalMode: "always_ask",
+    } as const;
+    expect(isIntegratedWebSearchSettingsSaveInput(input)).toBe(true);
+    const snapshot = store.save(input);
+    expect(snapshot).toEqual({
+      enabled: true,
+      provider: "deepseek",
+      hasApiKey: true,
+      approvalMode: "always_ask",
+    });
+    expect(isIntegratedWebSearchSettingsSnapshot(snapshot)).toBe(true);
+    const reloaded = new IntegratedWebSearchSettingsStore(db, codec);
+    expect(reloaded.get()).toEqual(snapshot);
+    expect(reloaded.getApiKey()).toBe("sk-test");
+  } finally {
+    db.close();
+  }
+});
 
 test("integrated web search reports an actionable error for stale safeStorage ciphertext", () => {
   const store = new IntegratedWebSearchSettingsStore(new DatabaseSync(":memory:"), {
