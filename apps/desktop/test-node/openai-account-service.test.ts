@@ -184,6 +184,7 @@ test("Node SQLite migrates and archives complete legacy account data idempotentl
   assert.deepEqual(await service.getAccountDetails(id), {
     id,
     name: "Legacy",
+    proxyMode: "manual",
     proxyUrl: "http://127.0.0.1:7890",
     createdAt: "2026-01-02T03:04:05.000Z",
     updatedAt: "2026-01-02T03:04:05.000Z",
