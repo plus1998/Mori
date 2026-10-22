@@ -9078,6 +9078,50 @@ button.integrated-web-search-clear-key:disabled {
   margin-top: 16px;
 }
 
+.openai-proxy-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.openai-proxy-mode-toggle {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.openai-proxy-mode-toggle button {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.openai-proxy-mode-toggle button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.openai-proxy-mode-toggle button.is-active {
+  border-color: color-mix(in srgb, var(--codex-blue) 36%, var(--border-subtle));
+  background: var(--codex-blue-soft);
+  color: var(--codex-blue);
+}
+
+.openai-proxy-mode-toggle button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.openai-manual-proxy-field {
+  margin-top: 8px;
+}
+
 .account-quota-info {
   display: inline-flex;
   align-items: center;

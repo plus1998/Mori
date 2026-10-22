@@ -637,7 +637,9 @@ import {
 } from "./codex-model-catalog-remote";
 import {
   getGlobalCodexRuntimeLifecycle,
-  setCodexAccountProxyUrlGetter,
+  parseElectronProxyResolution,
+  setCodexAccountProxyConfigGetter,
+  setCodexSystemProxyResolver,
   stopGlobalCodexRuntimeLifecycle,
 } from "./codex-runtime-lifecycle";
 import {
@@ -6867,6 +6869,11 @@ function registerIpcHandlers(): void {
   // ─── OpenAI Account Management ─────────────────────────────────────────────
 
   let openaiAccountServicePromise: Promise<OpenAIAccountService> | undefined;
+  const resolveSystemProxyResolution = () =>
+    session.defaultSession.resolveProxy("https://chatgpt.com");
+  const resolveSystemProxyUrl = async () =>
+    parseElectronProxyResolution(await resolveSystemProxyResolution());
+  setCodexSystemProxyResolver(resolveSystemProxyResolution);
   const getOpenAIAccountService = async () => {
     if (openaiAccountService) return openaiAccountService;
     if (!openaiAccountServicePromise) {
@@ -6876,7 +6883,7 @@ function registerIpcHandlers(): void {
           for (const window of BrowserWindow.getAllWindows()) {
             if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.openAIAccountsChanged, state);
           }
-        }, ensureCodexControlPlaneClient);
+        }, ensureCodexControlPlaneClient, resolveSystemProxyUrl);
         await service.initialize();
         openaiAccountService = service;
         return service;
@@ -6948,7 +6955,7 @@ function registerIpcHandlers(): void {
 
   // Register before any composer request can start Codex. The getter itself awaits
   // initialization, so a cold start cannot silently omit the active account proxy.
-  setCodexAccountProxyUrlGetter(async () => (await getOpenAIAccountService()).getActiveProxyUrl());
+  setCodexAccountProxyConfigGetter(async () => (await getOpenAIAccountService()).getActiveProxyConfig());
   void getOpenAIAccountService().catch((error) => {
     console.error(
       `[openai-accounts] Initialization failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -7186,10 +7193,18 @@ function registerIpcHandlers(): void {
     const svc = await getOpenAIAccountService();
     const prevAccount = (await svc.listAccounts()).find((a: OpenAIAccount) => a.id === payload.accountId);
     const result = await svc.updateAccount(payload);
+    const nextProxyMode = payload.proxyMode ?? (
+      payload.proxyUrl !== undefined
+        ? payload.proxyUrl.trim() ? "manual" : "system"
+        : prevAccount?.proxyMode
+    );
+    const nextProxyUrl = nextProxyMode === "manual" ? payload.proxyUrl?.trim() ?? "" : "";
     if (
       prevAccount &&
-      payload.proxyUrl !== undefined &&
-      (prevAccount.proxyUrl?.trim() ?? "") !== payload.proxyUrl.trim() &&
+      (
+        prevAccount.proxyMode !== nextProxyMode ||
+        (prevAccount.proxyUrl?.trim() ?? "") !== nextProxyUrl
+      ) &&
       payload.accountId === (await svc.getActiveAccountId())
     ) {
       // Proxy env vars are baked into the app-server at spawn time.

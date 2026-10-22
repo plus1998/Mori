@@ -25,7 +25,15 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import type { OpenAIAccount, OpenAIAccountDetails, OpenAIAccountImageQuota, OpenAIAccountQuota, OpenAIAccountQuotaWindow, OpenAIAccountSyncStatus } from "../../shared/openai-account";
+import type {
+  OpenAIAccount,
+  OpenAIAccountDetails,
+  OpenAIAccountImageQuota,
+  OpenAIAccountProxyMode,
+  OpenAIAccountQuota,
+  OpenAIAccountQuotaWindow,
+  OpenAIAccountSyncStatus,
+} from "../../shared/openai-account";
 import { type AppLocale, formatAppDateTime } from "../../shared/locale";
 import { CodexModelCatalogSection } from "./CodexModelCatalogSection";
 
@@ -160,6 +168,78 @@ function ProfileSecretInput({
         </button>
       </div>
     </label>
+  );
+}
+
+export function OpenAIAccountProxyFields({
+  mode,
+  proxyUrl,
+  onModeChange,
+  onProxyUrlChange,
+  disabled = false,
+}: {
+  mode: OpenAIAccountProxyMode;
+  proxyUrl: string;
+  onModeChange: (mode: OpenAIAccountProxyMode) => void;
+  onProxyUrlChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const { t } = useTranslation();
+  const options: Array<{ mode: OpenAIAccountProxyMode; label: string; hint: string }> = [
+    {
+      mode: "system",
+      label: t("settings.openaiAccounts.proxyModeSystem"),
+      hint: t("settings.openaiAccounts.proxyModeSystemHint"),
+    },
+    {
+      mode: "direct",
+      label: t("settings.openaiAccounts.proxyModeDirect"),
+      hint: t("settings.openaiAccounts.proxyModeDirectHint"),
+    },
+    {
+      mode: "manual",
+      label: t("settings.openaiAccounts.proxyModeManual"),
+      hint: t("settings.openaiAccounts.proxyModeManualHint"),
+    },
+  ];
+  const selected = options.find((option) => option.mode === mode) ?? options[0]!;
+  return (
+    <div className="openai-proxy-fields">
+      <span className="mcp-field-label">{t("settings.openaiAccounts.proxyMode")}</span>
+      <div
+        className="openai-proxy-mode-toggle"
+        role="radiogroup"
+        aria-label={t("settings.openaiAccounts.proxyMode")}
+      >
+        {options.map((option) => (
+          <button
+            key={option.mode}
+            type="button"
+            role="radio"
+            aria-checked={option.mode === mode}
+            className={option.mode === mode ? "is-active" : ""}
+            disabled={disabled}
+            onClick={() => onModeChange(option.mode)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <p className="mcp-field-hint">{selected.hint}</p>
+      {mode === "manual" ? (
+        <label className="mcp-field openai-manual-proxy-field">
+          <span className="mcp-field-label">{t("settings.openaiAccounts.proxyUrl")}</span>
+          <input
+            className="mcp-field-input"
+            type="url"
+            value={proxyUrl}
+            placeholder="http://127.0.0.1:7890"
+            disabled={disabled}
+            onChange={(event) => onProxyUrlChange(event.target.value)}
+          />
+        </label>
+      ) : null}
+    </div>
   );
 }
 
@@ -305,6 +385,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   const [modalOpen, setModalOpen] = useState(false);
   const [modalEditId, setModalEditId] = useState<string | null>(null);
   const [modalName, setModalName] = useState("");
+  const [modalProxyMode, setModalProxyMode] = useState<OpenAIAccountProxyMode>("system");
   const [modalProxy, setModalProxy] = useState("");
   const [modalAuthJson, setModalAuthJson] = useState("");
   const [modalEmail, setModalEmail] = useState("");
@@ -478,7 +559,8 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         await eco.openAIAccountsUpdate({
           accountId: modalEditId,
           name,
-          proxyUrl: modalProxy.trim(),
+          proxyMode: modalProxyMode,
+          proxyUrl: modalProxyMode === "manual" ? modalProxy.trim() : "",
           email: modalEmail,
           password: modalPassword,
           pickupUrl: modalPickupUrl,
@@ -495,7 +577,8 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         // Create mode
         const account = await eco.openAIAccountsCreate({
           name,
-          proxyUrl: modalProxy.trim(),
+          proxyMode: modalProxyMode,
+          ...(modalProxyMode === "manual" ? { proxyUrl: modalProxy.trim() } : {}),
           email: modalEmail,
           password: modalPassword,
           pickupUrl: modalPickupUrl,
@@ -521,6 +604,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
       setModalOpen(false);
       setModalEditId(null);
       setModalName("");
+      setModalProxyMode("system");
       setModalProxy("");
       setModalAuthJson("");
       setModalEmail("");
@@ -537,6 +621,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   }, [
     eco,
     modalName,
+    modalProxyMode,
     modalProxy,
     modalEmail,
     modalPassword,
@@ -627,6 +712,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
       const detail: OpenAIAccountDetails = await eco.openAIAccountsGetDetails(accountId);
       setModalEditId(detail.id);
       setModalName(detail.name);
+      setModalProxyMode(detail.proxyMode);
       setModalProxy(detail.proxyUrl ?? "");
       setModalEmail(detail.email ?? "");
       setModalPassword(detail.password ?? "");
@@ -701,6 +787,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             onClick={() => {
               setModalEditId(null);
               setModalName(t("settings.openaiAccounts.defaultAccountName", { index: accounts.length + 1 }));
+              setModalProxyMode("system");
               setModalProxy("");
               setModalAuthJson("");
               setModalEmail("");
@@ -979,7 +1066,11 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                         onClick={() => void openEdit(account.id)}
                       >
                         <Globe2 size={13} />
-                        {account.proxyUrl ? t("settings.openaiAccounts.proxyOwn") : t("settings.openaiAccounts.proxySystem")}
+                        {account.proxyMode === "manual"
+                          ? t("settings.openaiAccounts.proxyOwn")
+                          : account.proxyMode === "direct"
+                            ? t("settings.openaiAccounts.proxyDirect")
+                            : t("settings.openaiAccounts.proxySystem")}
                       </button>
                       <span>
                         {account.lastLogin
@@ -1263,19 +1354,13 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                 onTwoFactorSecretChange={setModalTwoFactorSecret}
               />
 
-              {/* Proxy - always visible */}
-              <label className="mcp-field modal-proxy-field">
-                <span className="mcp-field-label">
-                  {t("settings.openaiAccounts.proxy")}
-                </span>
-                <input
-                  className="mcp-field-input"
-                  type="text"
-                  value={modalProxy}
-                  placeholder="http://127.0.0.1:7890"
-                  onChange={(e) => setModalProxy(e.target.value)}
-                />
-              </label>
+              <OpenAIAccountProxyFields
+                mode={modalProxyMode}
+                proxyUrl={modalProxy}
+                disabled={busy}
+                onModeChange={setModalProxyMode}
+                onProxyUrlChange={setModalProxy}
+              />
 
               {/* Mode toggle */}
               <div className="modal-mode-toggle">
@@ -1333,7 +1418,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                   type="button"
                   className="settings-modal-cancel"
                   onClick={() => void handleCreate(true)}
-                  disabled={busy || !modalName.trim()}
+                  disabled={busy || !modalName.trim() || (modalProxyMode === "manual" && !modalProxy.trim())}
                 >
                   {busy ? t("settings.openaiAccounts.saving") : t("settings.openaiAccounts.saveProfileOnly")}
                 </button>
@@ -1345,6 +1430,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                   disabled={
                     busy ||
                     !modalName.trim() ||
+                    (modalProxyMode === "manual" && !modalProxy.trim()) ||
                     (modalMode === "manual" && !modalAuthJson.trim())
                   }
                 >

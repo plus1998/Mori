@@ -5,14 +5,23 @@ export interface OpenAIAccountProfile {
   twoFactorSecret?: string;
 }
 
+export type OpenAIAccountProxyMode = "system" | "direct" | "manual";
+
 export interface OpenAIAccountCreateInput extends OpenAIAccountProfile {
   name: string;
+  proxyMode?: OpenAIAccountProxyMode;
   proxyUrl?: string;
 }
 
 export interface OpenAIAccountUpdateInput extends OpenAIAccountProfile {
   accountId: string;
   name: string;
+  proxyMode?: OpenAIAccountProxyMode;
+  proxyUrl?: string;
+}
+
+export interface OpenAIAccountProxyConfig {
+  mode: OpenAIAccountProxyMode;
   proxyUrl?: string;
 }
 
@@ -55,6 +64,7 @@ export interface OpenAIAccount {
   id: string;
   name: string;
   email?: string;
+  proxyMode: OpenAIAccountProxyMode;
   proxyUrl?: string;
   /** Whether this account has usable, non-expired Codex credentials. */
   isLoggedIn: boolean;
@@ -101,6 +111,7 @@ export interface OpenAIAccountDetails extends OpenAIAccountProfile {
   imageQuota?: OpenAIAccountImageQuota;
   id: string;
   name: string;
+  proxyMode: OpenAIAccountProxyMode;
   proxyUrl?: string;
   createdAt: string;
   updatedAt: string;

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { CodexAppServerClient } from "@eco/runtime/codex-app-server-client";
 import type { OpenAIAccountQuota, OpenAIAccountQuotaWindow } from "../shared/openai-account";
+import type { CodexProxyEnvironment } from "./codex-proxy";
 import { buildCodexAppServerEnv } from "./codex-runtime-lifecycle";
 
 export interface CodexQuotaClient {
@@ -91,11 +92,11 @@ export async function readCodexAccountQuota(client: CodexQuotaClient, refreshTok
 export async function queryIsolatedCodexAccountQuota(input: {
   executable: string;
   codexHomeDir: string;
-  proxyUrl?: string;
+  proxy: CodexProxyEnvironment;
   refreshToken: boolean;
   expectedAccountId: string;
 }): Promise<OpenAIAccountQuota> {
-  const env = buildCodexAppServerEnv(process.env, input.codexHomeDir, input.proxyUrl);
+  const env = buildCodexAppServerEnv(process.env, input.codexHomeDir, input.proxy);
   // These would override the account's file-backed login in the child process.
   delete env.OPENAI_API_KEY;
   delete env.CODEX_API_KEY;

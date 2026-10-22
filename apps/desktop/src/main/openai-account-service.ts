@@ -9,6 +9,8 @@ import type {
   OpenAIAccount as OpenAIAccountShared,
   OpenAIAccountCreateInput,
   OpenAIAccountDetails,
+  OpenAIAccountProxyConfig,
+  OpenAIAccountProxyMode,
   OpenAIAccountQuota,
   OpenAIAccountImageQuota,
   OpenAIAccountSyncStatus,
@@ -16,7 +18,17 @@ import type {
 } from "../shared/openai-account";
 import { OpenAIAccountStore } from "./openai-account-store";
 import { startCodexBrowserLogin } from "./codex-browser-login";
-import { queryIsolatedCodexAccountQuota, readCodexAccountQuota, type CodexQuotaClient } from "./codex-account-quota";
+import {
+  queryIsolatedCodexAccountQuota,
+  readCodexAccountQuota,
+  type CodexQuotaClient,
+} from "./codex-account-quota";
+import {
+  buildCodexProxyEnv,
+  resolveCodexProxyUrl,
+  type CodexProxyEnvironment,
+  type SystemProxyResolver,
+} from "./codex-proxy";
 
 export type { OpenAIAccount, OpenAIAccountQuota } from "../shared/openai-account";
 
@@ -44,6 +56,12 @@ export interface OpenAIAccountLoginResult {
 }
 
 const ACCOUNT_ID_PATTERN = /^oa_[A-Za-z0-9_-]+$/;
+
+function assertProxyMode(value: unknown): asserts value is OpenAIAccountProxyMode | undefined {
+  if (value !== undefined && value !== "system" && value !== "direct" && value !== "manual") {
+    throw new Error("账号代理模式无效。");
+  }
+}
 
 function parseAuthJson(content: string): Record<string, unknown> {
   let parsed: unknown;
@@ -209,6 +227,7 @@ export class OpenAIAccountService {
     codexExecutable: string | (() => string | undefined) = () => undefined,
     private readonly onAccountsChanged?: (state: { syncStatus: OpenAIAccountSyncStatus }) => void,
     private readonly getActiveQuotaClient?: () => Promise<CodexQuotaClient>,
+    private readonly resolveSystemProxy?: SystemProxyResolver,
   ) {
     this.accountsDir = path.join(userDataDir, "codex-accounts");
     this.mainCodexDir = path.join(userDataDir, "codex");
@@ -610,6 +629,7 @@ export class OpenAIAccountService {
         hasProfileData,
         profileFields: { email: Boolean(account.email), password: Boolean(account.password), pickupUrl: Boolean(account.pickupUrl), twoFactorSecret: Boolean(account.twoFactorSecret) },
         ...(account.email ? { email: account.email } : {}),
+        proxyMode: account.proxyMode,
         ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
         ...(lastLogin ? { lastLogin } : {}),
         ...(account.quota ? { quota: account.quota } : {}),
@@ -624,6 +644,10 @@ export class OpenAIAccountService {
     const input: OpenAIAccountCreateInput = typeof nameOrInput === "string"
       ? { name: nameOrInput, ...(proxyUrl !== undefined ? { proxyUrl } : {}) }
       : nameOrInput;
+    assertProxyMode(input.proxyMode);
+    if ((input.proxyMode ?? (input.proxyUrl?.trim() ? "manual" : "system")) === "manual" && !input.proxyUrl?.trim()) {
+      throw new Error("手动代理模式需要填写代理地址。");
+    }
     const account = this.getStore().create(input);
     await fs.mkdir(this.accountDir(account.id), { recursive: true });
     this.onAccountsChanged?.({ syncStatus: this.syncStatus });
@@ -637,6 +661,7 @@ export class OpenAIAccountService {
       hasProfileData: Boolean(account.email || account.password || account.pickupUrl || account.twoFactorSecret),
       profileFields: { email: Boolean(account.email), password: Boolean(account.password), pickupUrl: Boolean(account.pickupUrl), twoFactorSecret: Boolean(account.twoFactorSecret) },
       ...(account.email ? { email: account.email } : {}),
+      proxyMode: account.proxyMode,
       ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
     };
   }
@@ -681,19 +706,22 @@ export class OpenAIAccountService {
     const codexHomeDir = path.join(this.accountDir(accountId), `oauth-login-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
     let bridge: { close: () => void } | undefined;
     try {
-      let proxyUrl = account.proxyUrl?.trim();
+      let proxyUrl = await resolveCodexProxyUrl({
+        mode: account.proxyMode,
+        ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
+      }, this.resolveSystemProxy);
       if (proxyUrl && new URL(proxyUrl).protocol.startsWith("socks")) {
         const socksBridge = await startSocksToHttpBridge(proxyUrl);
         bridge = socksBridge;
         proxyUrl = `http://127.0.0.1:${socksBridge.port}`;
       }
+      const proxyEnvironment: CodexProxyEnvironment = proxyUrl
+        ? { mode: "proxy", url: proxyUrl }
+        : { mode: "direct" };
       const login = await startCodexBrowserLogin({
         executable: codexExecutable,
         codexHomeDir,
-        ...(proxyUrl ? { env: {
-          HTTP_PROXY: proxyUrl, HTTPS_PROXY: proxyUrl, http_proxy: proxyUrl, https_proxy: proxyUrl,
-          NO_PROXY: "localhost,127.0.0.1,::1", no_proxy: "localhost,127.0.0.1,::1",
-        } } : {}),
+        env: buildCodexProxyEnv(process.env, proxyEnvironment),
         onAuthenticated: async (signal) => {
           let saveError: unknown;
           for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -854,7 +882,16 @@ export class OpenAIAccountService {
     } else {
       input = inputOrId;
     }
-    await this.requireAccount(input.accountId);
+    const existing = await this.requireAccount(input.accountId);
+    assertProxyMode(input.proxyMode);
+    const effectiveManualProxy = input.proxyUrl !== undefined
+      ? input.proxyUrl.trim()
+      : existing.proxyMode === "manual"
+        ? existing.proxyUrl?.trim()
+        : undefined;
+    if (input.proxyMode === "manual" && !effectiveManualProxy) {
+      throw new Error("手动代理模式需要填写代理地址。");
+    }
     this.getStore().update(input);
     this.onAccountsChanged?.({ syncStatus: this.syncStatus });
     return { success: true };
@@ -891,10 +928,19 @@ export class OpenAIAccountService {
   }
 
   /** Quota/usage data for an OpenAI account. */
-  async getActiveProxyUrl(): Promise<string | undefined> {
+  async getActiveProxyConfig(): Promise<OpenAIAccountProxyConfig> {
     const activeId = await this.getActiveAccountId();
-    if (!activeId) return undefined;
-    return (await this.requireAccount(activeId)).proxyUrl?.trim() || undefined;
+    if (!activeId) return { mode: "system" };
+    const account = await this.requireAccount(activeId);
+    return {
+      mode: account.proxyMode,
+      ...(account.proxyMode === "manual" && account.proxyUrl ? { proxyUrl: account.proxyUrl.trim() } : {}),
+    };
+  }
+
+  async getActiveProxyUrl(): Promise<string | undefined> {
+    const config = await this.getActiveProxyConfig();
+    return config.mode === "manual" ? config.proxyUrl : undefined;
   }
 
   queryQuota(accountId: string): Promise<OpenAIAccountQuota> {
@@ -940,7 +986,10 @@ export class OpenAIAccountService {
       let preserveCredentials = false;
       try {
         await fs.writeFile(path.join(codexHomeDir, "auth.json"), account.authJson, { mode: 0o600 });
-        let proxyUrl = account.proxyUrl?.trim();
+        let proxyUrl = await resolveCodexProxyUrl({
+          mode: account.proxyMode,
+          ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
+        }, this.resolveSystemProxy);
         if (proxyUrl && new URL(proxyUrl).protocol.startsWith("socks")) {
           const socksBridge = await startSocksToHttpBridge(proxyUrl);
           bridge = socksBridge;
@@ -949,7 +998,7 @@ export class OpenAIAccountService {
         try {
           quota = await queryIsolatedCodexAccountQuota({
             executable, codexHomeDir, refreshToken, expectedAccountId: chatgptAccountId,
-            ...(proxyUrl ? { proxyUrl } : {}),
+            proxy: proxyUrl ? { mode: "proxy", url: proxyUrl } : { mode: "direct" },
           });
         } finally {
           const updatedAuth = await this.readFileOrNull(path.join(codexHomeDir, "auth.json"));

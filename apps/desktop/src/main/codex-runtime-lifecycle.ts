@@ -6,6 +6,16 @@ import {
   type CodexAppServerNotificationHandler,
   resolveCodexHomeDir,
 } from "@eco/runtime";
+import type { OpenAIAccountProxyConfig } from "../shared/openai-account";
+import {
+  buildCodexProxyEnv,
+  type CodexProxyEnvironment,
+  parseElectronProxyResolution,
+  resolveCodexProxyUrl,
+  type SystemProxyResolver,
+} from "./codex-proxy";
+
+export { type CodexProxyEnvironment, parseElectronProxyResolution, resolveCodexProxyUrl };
 
 export interface CodexRuntimeLifecycleOptions {
   ecoDataDir: string;
@@ -13,18 +23,23 @@ export interface CodexRuntimeLifecycleOptions {
   clientOptions?: Omit<CodexAppServerClientOptions, "onNotification">;
   onNotification?: CodexAppServerNotificationHandler;
   onStderr?: (chunk: string) => void;
-  /** Returns the active OpenAI account's proxy URL (http or socks), or undefined. */
-  getAccountProxyUrl?: () => string | undefined;
 }
 
 let nextDiagnosticGeneration = 1;
 
-// Module-level getter for the active OpenAI account proxy URL (set by index.ts)
-let accountProxyUrlGetter: (() => string | undefined | Promise<string | undefined>) | undefined;
-export function setCodexAccountProxyUrlGetter(
-  getter: (() => string | undefined | Promise<string | undefined>) | undefined,
+// Module-level configuration shared by the global and temporary runtimes.
+let accountProxyConfigGetter:
+  | (() => OpenAIAccountProxyConfig | Promise<OpenAIAccountProxyConfig>)
+  | undefined;
+export function setCodexAccountProxyConfigGetter(
+  getter: (() => OpenAIAccountProxyConfig | Promise<OpenAIAccountProxyConfig>) | undefined,
 ): void {
-  accountProxyUrlGetter = getter;
+  accountProxyConfigGetter = getter;
+}
+
+let systemProxyResolver: SystemProxyResolver | undefined;
+export function setCodexSystemProxyResolver(resolver: SystemProxyResolver | undefined): void {
+  systemProxyResolver = resolver;
 }
 
 export class CodexRuntimeLifecycle {
@@ -135,16 +150,13 @@ export class CodexRuntimeLifecycle {
     const executable =
       this.options.codexExecutable?.trim() || process.env.CODEX_EXECUTABLE?.trim() || "codex";
 
-    // Resolve account proxy for Codex process
-    let accountProxyHttp: string | undefined;
-    let rawProxy: string | undefined;
+    // Resolve the explicit account proxy or the current OS proxy before spawning.
+    let proxyEnvironment: CodexProxyEnvironment;
     try {
-      rawProxy = (await accountProxyUrlGetter?.())?.trim();
-    } catch (error) {
-      throw new Error("Configured OpenAI account proxy could not be loaded.", { cause: error });
-    }
-    if (rawProxy) {
-      try {
+      const proxyConfig = (await accountProxyConfigGetter?.()) ?? { mode: "system" };
+      const rawProxy = await resolveCodexProxyUrl(proxyConfig, systemProxyResolver);
+      let proxyHttp = rawProxy;
+      if (rawProxy) {
         const parsed = new URL(rawProxy);
         if (!["http:", "https:", "socks:", "socks4:", "socks5:", "socks5h:"].includes(parsed.protocol)) {
           throw new Error("Unsupported proxy protocol.");
@@ -154,18 +166,19 @@ export class CodexRuntimeLifecycle {
           // Bridge SOCKS → local HTTP for Codex (Rust doesn't support SOCKS natively)
           const { startSocksToHttpBridge } = await import("./openai-account-service");
           const bridge = await startSocksToHttpBridge(rawProxy);
-          accountProxyHttp = `http://127.0.0.1:${bridge.port}`;
+          proxyHttp = `http://127.0.0.1:${bridge.port}`;
           this.socksBridge = { close: bridge.close };
-        } else {
-          accountProxyHttp = rawProxy;
         }
-        process.stderr.write(`[eco-codex] account proxy configured endpoint=${proxyEndpoint}\n`);
-      } catch (e) {
-        throw new Error("Configured OpenAI account proxy could not be initialized.", { cause: e });
+        process.stderr.write(`[eco-codex] ${proxyConfig.mode} proxy configured endpoint=${proxyEndpoint}\n`);
+        proxyEnvironment = { mode: "proxy", url: proxyHttp ?? rawProxy };
+      } else {
+        proxyEnvironment = { mode: "direct" };
       }
+    } catch (error) {
+      throw new Error("Configured OpenAI account proxy could not be initialized.", { cause: error });
     }
 
-    const env = buildCodexAppServerEnv(process.env, codexHomeDir, accountProxyHttp);
+    const env = buildCodexAppServerEnv(process.env, codexHomeDir, proxyEnvironment);
     const child = spawn(executable, ["app-server", "--stdio"], {
       env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -223,37 +236,15 @@ export function resolveEcoDataCodexHome(ecoDataDir: string): string {
   return path.join(ecoDataDir, "codex");
 }
 
-const CODEX_LOOPBACK_PROXY_BYPASS = ["127.0.0.1", "localhost", "::1"] as const;
-
-export function buildCodexAppServerEnv(source: NodeJS.ProcessEnv, codexHomeDir: string, accountProxyHttp?: string): NodeJS.ProcessEnv {
-  const noProxy = mergeNoProxyEntries(source.NO_PROXY, source.no_proxy, CODEX_LOOPBACK_PROXY_BYPASS);
+export function buildCodexAppServerEnv(
+  source: NodeJS.ProcessEnv,
+  codexHomeDir: string,
+  proxy: CodexProxyEnvironment = { mode: "inherit" },
+): NodeJS.ProcessEnv {
   return {
-    ...source,
+    ...buildCodexProxyEnv(source, proxy),
     CODEX_HOME: codexHomeDir,
-    NO_PROXY: noProxy,
-    no_proxy: noProxy,
-    ...(accountProxyHttp
-      ? { HTTPS_PROXY: accountProxyHttp, HTTP_PROXY: accountProxyHttp, https_proxy: accountProxyHttp, http_proxy: accountProxyHttp }
-      : {}),
   };
-}
-
-function mergeNoProxyEntries(...sources: readonly (string | readonly string[] | undefined)[]): string {
-  const entries: string[] = [];
-  const seen = new Set<string>();
-  for (const source of sources) {
-    const values = Array.isArray(source) ? source : typeof source === "string" ? source.split(",") : [];
-    for (const value of values) {
-      const trimmed = value.trim();
-      const key = trimmed.toLowerCase();
-      if (!trimmed || seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-      entries.push(trimmed);
-    }
-  }
-  return entries.join(",");
 }
 
 function waitForProcessExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {

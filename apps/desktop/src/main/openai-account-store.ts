@@ -2,15 +2,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import type {
-  OpenAIAccountDetails,
   OpenAIAccountCreateInput,
+  OpenAIAccountDetails,
+  OpenAIAccountImageQuota,
   OpenAIAccountImportResult,
   OpenAIAccountProfile,
+  OpenAIAccountProxyMode,
   OpenAIAccountQuota,
-  OpenAIAccountImageQuota,
   OpenAIAccountUpdateInput,
 } from "../shared/openai-account";
-import { parseOpenAIAccountImport, type ParsedOpenAIAccountImportRow } from "./openai-account-import";
+import { type ParsedOpenAIAccountImportRow, parseOpenAIAccountImport } from "./openai-account-import";
 
 const ACCOUNT_ID_PATTERN = /^oa_[A-Za-z0-9_-]+$/u;
 const MIGRATION_KEY = "legacy_migration_v1";
@@ -38,6 +39,7 @@ interface AccountRow {
   image_quota_account_id: string | null;
   id: string;
   name: string;
+  proxy_mode: string | null;
   proxy_url: string | null;
   created_at: string;
   updated_at: string;
@@ -53,6 +55,7 @@ interface AccountRow {
 interface LegacyAccount {
   id: string;
   name: string;
+  proxyMode?: OpenAIAccountProxyMode;
   proxyUrl?: string;
   createdAt: string;
   updatedAt?: string;
@@ -71,7 +74,13 @@ function normalizeOptional(value: string | null): string | undefined {
   return value === null ? undefined : value;
 }
 
+function proxyModeFor(mode: string | null | undefined, proxyUrl: string | null | undefined): OpenAIAccountProxyMode {
+  if (mode === "system" || mode === "direct" || mode === "manual") return mode;
+  return proxyUrl?.trim() ? "manual" : "system";
+}
+
 function mapAccount(row: AccountRow): StoredOpenAIAccount {
+  const proxyMode = proxyModeFor(row.proxy_mode, row.proxy_url);
   let quota: OpenAIAccountQuota | undefined;
   if (row.quota_json !== null && row.auth_json !== null && readChatGptAccountId(row.auth_json) === row.quota_chatgpt_account_id) {
     try {
@@ -84,6 +93,7 @@ function mapAccount(row: AccountRow): StoredOpenAIAccount {
   return {
     id: row.id,
     name: row.name,
+    proxyMode,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     authJson: row.auth_json,
@@ -91,7 +101,7 @@ function mapAccount(row: AccountRow): StoredOpenAIAccount {
     ...(row.image_quota_json && row.auth_json && readChatGptAccountId(row.auth_json) === row.image_quota_account_id
       ? { imageQuota: JSON.parse(row.image_quota_json) as OpenAIAccountImageQuota } : {}),
     ...(quota ? { quota } : {}),
-    ...(row.proxy_url !== null ? { proxyUrl: row.proxy_url } : {}),
+    ...(proxyMode === "manual" && row.proxy_url !== null ? { proxyUrl: row.proxy_url } : {}),
     ...(normalizeOptional(row.email) !== undefined ? { email: row.email as string } : {}),
     ...(normalizeOptional(row.password) !== undefined ? { password: row.password as string } : {}),
     ...(normalizeOptional(row.pickup_url) !== undefined ? { pickupUrl: row.pickup_url as string } : {}),
@@ -119,9 +129,20 @@ function asLegacyAccount(value: unknown, index: number): LegacyAccount {
       throw new Error(`旧账号文件第 ${index + 1} 项的 ${key} 字段格式无效`);
     }
   }
+  if (
+    candidate.proxyMode !== undefined &&
+    candidate.proxyMode !== "system" &&
+    candidate.proxyMode !== "direct" &&
+    candidate.proxyMode !== "manual"
+  ) {
+    throw new Error(`旧账号文件第 ${index + 1} 项的 proxyMode 字段格式无效`);
+  }
   return {
     id: candidate.id,
     name: candidate.name,
+    ...(candidate.proxyMode === "system" || candidate.proxyMode === "direct" || candidate.proxyMode === "manual"
+      ? { proxyMode: candidate.proxyMode }
+      : {}),
     createdAt: candidate.createdAt,
     ...(typeof candidate.updatedAt === "string" ? { updatedAt: candidate.updatedAt } : {}),
     ...(typeof candidate.proxyUrl === "string" ? { proxyUrl: candidate.proxyUrl } : {}),
@@ -205,6 +226,7 @@ export class OpenAIAccountStore {
       CREATE TABLE IF NOT EXISTS openai_accounts (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        proxy_mode TEXT NOT NULL DEFAULT 'system' CHECK(proxy_mode IN ('system', 'direct', 'manual')),
         proxy_url TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -243,6 +265,7 @@ export class OpenAIAccountStore {
     );
     for (const [column, declaration] of [
       ["updated_at", "TEXT NOT NULL DEFAULT ''"],
+      ["proxy_mode", "TEXT NOT NULL DEFAULT 'system' CHECK(proxy_mode IN ('system', 'direct', 'manual'))"],
       ["email", "TEXT"],
       ["password", "TEXT"],
       ["pickup_url", "TEXT"],
@@ -254,6 +277,14 @@ export class OpenAIAccountStore {
     ] as const) {
       if (!columns.has(column)) this.db.exec(`ALTER TABLE openai_accounts ADD COLUMN ${column} ${declaration}`);
     }
+    // The old UI represented a non-empty proxy URL as a manual proxy and an
+    // empty URL as "system network". New writes always clear proxy_url for
+    // system/direct accounts, so this safely repairs interrupted upgrades too.
+    this.db.exec(`
+      UPDATE openai_accounts
+      SET proxy_mode = 'manual'
+      WHERE proxy_mode = 'system' AND proxy_url IS NOT NULL AND trim(proxy_url) <> ''
+    `);
     this.db.exec(`CREATE INDEX IF NOT EXISTS openai_accounts_email_ci ON openai_accounts(email COLLATE NOCASE);`);
   }
 
@@ -478,14 +509,16 @@ export class OpenAIAccountStore {
       this.transaction(() => {
         const insert = this.db.prepare(`
           INSERT INTO openai_accounts
-            (id, name, proxy_url, created_at, updated_at, email, password, pickup_url, two_factor_secret, auth_json)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, name, proxy_mode, proxy_url, created_at, updated_at, email, password, pickup_url, two_factor_secret, auth_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO NOTHING
         `);
         for (const account of legacyAccounts) {
+          const proxyMode = account.proxyMode ?? (account.proxyUrl?.trim() ? "manual" : "system");
           const inserted = insert.run(
             account.id,
             account.name,
+            proxyMode,
             nullable(account.proxyUrl),
             account.createdAt,
             account.updatedAt ?? account.createdAt,
@@ -500,6 +533,7 @@ export class OpenAIAccountStore {
             if (
               !existing ||
               existing.name !== account.name ||
+              existing.proxyMode !== proxyMode ||
               existing.createdAt !== account.createdAt ||
               (existing.proxyUrl ?? undefined) !== (account.proxyUrl ?? undefined) ||
               (existing.email ?? undefined) !== (account.email ?? undefined) ||
@@ -541,7 +575,9 @@ export class OpenAIAccountStore {
         if (!dbAccount || dbAccount.name !== account.name || dbAccount.createdAt !== account.createdAt) {
           throw new Error(`SQLite 核对失败：账号 ${account.id}，旧文件已保留`);
         }
+        const expectedProxyMode = account.proxyMode ?? (account.proxyUrl?.trim() ? "manual" : "system");
         if (
+          dbAccount.proxyMode !== expectedProxyMode ||
           (dbAccount.proxyUrl ?? undefined) !== (account.proxyUrl ?? undefined) ||
           (dbAccount.email ?? undefined) !== (account.email ?? undefined) ||
           (dbAccount.password ?? undefined) !== (account.password ?? undefined) ||
@@ -641,15 +677,18 @@ export class OpenAIAccountStore {
   create(input: OpenAIAccountCreateInput): StoredOpenAIAccount {
     const accountId = `oa_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     const now = nowIso();
+    const proxyMode = input.proxyMode ?? (input.proxyUrl?.trim() ? "manual" : "system");
+    const proxyUrl = proxyMode === "manual" ? nullable(input.proxyUrl?.trim()) : null;
     this.transaction(() => {
       this.db.prepare(`
         INSERT INTO openai_accounts
-          (id, name, proxy_url, created_at, updated_at, email, password, pickup_url, two_factor_secret, auth_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+          (id, name, proxy_mode, proxy_url, created_at, updated_at, email, password, pickup_url, two_factor_secret, auth_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
       `).run(
         accountId,
         input.name.trim(),
-        nullable(input.proxyUrl?.trim()),
+        proxyMode,
+        proxyUrl,
         now,
         now,
         nullable(input.email),
@@ -666,14 +705,21 @@ export class OpenAIAccountStore {
   update(input: OpenAIAccountUpdateInput): StoredOpenAIAccount {
     const existing = this.get(input.accountId);
     if (!existing) throw new Error(`OpenAI account not found: ${input.accountId}`);
+    const proxyMode = input.proxyMode ?? (input.proxyUrl !== undefined
+      ? input.proxyUrl.trim() ? "manual" : "system"
+      : existing.proxyMode);
+    const proxyUrl = proxyMode === "manual"
+      ? nullable(input.proxyUrl === undefined ? existing.proxyUrl : input.proxyUrl.trim())
+      : null;
     this.transaction(() => {
       this.db.prepare(`
         UPDATE openai_accounts
-        SET name = ?, proxy_url = ?, email = ?, password = ?, pickup_url = ?, two_factor_secret = ?, updated_at = ?
+        SET name = ?, proxy_mode = ?, proxy_url = ?, email = ?, password = ?, pickup_url = ?, two_factor_secret = ?, updated_at = ?
         WHERE id = ?
       `).run(
         input.name.trim(),
-        input.proxyUrl === undefined ? existing.proxyUrl ?? null : nullable(input.proxyUrl.trim()),
+        proxyMode,
+        proxyUrl,
         input.email === undefined ? existing.email ?? null : nullable(profileValue(input, "email")),
         input.password === undefined ? existing.password ?? null : nullable(profileValue(input, "password")),
         input.pickupUrl === undefined ? existing.pickupUrl ?? null : nullable(profileValue(input, "pickupUrl")),
@@ -750,8 +796,8 @@ export class OpenAIAccountStore {
     this.transaction(() => {
       const insert = this.db.prepare(`
         INSERT INTO openai_accounts
-          (id, name, proxy_url, created_at, updated_at, email, password, pickup_url, two_factor_secret, auth_json)
-        VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL)
+          (id, name, proxy_mode, proxy_url, created_at, updated_at, email, password, pickup_url, two_factor_secret, auth_json)
+        VALUES (?, ?, 'system', NULL, ?, ?, ?, ?, ?, ?, NULL)
       `);
       const update = this.db.prepare(`
         UPDATE openai_accounts SET email = ?, password = ?, pickup_url = ?, two_factor_secret = ?, updated_at = ? WHERE id = ?

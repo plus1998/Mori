@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import {
+  OpenAIAccountProxyFields,
   OpenAIAccountProfileFields,
   OpenAIAccountQuotaSummary,
   OpenAIAccountSwitchStatus,
@@ -71,6 +72,29 @@ test("account profile editor labels every field in English for en-US", () => {
   expect(markup).toContain('aria-label="Show value"');
   expect(markup).toContain('aria-label="Copy Password"');
   expect(markup).not.toMatch(/[\u3400-\u9fff]/u);
+});
+
+test("account proxy editor exposes system, direct, and manual modes", () => {
+  const render = (locale: "zh-CN" | "en-US", mode: "system" | "direct" | "manual") =>
+    renderLocalized(createElement(OpenAIAccountProxyFields, {
+      mode,
+      proxyUrl: "http://127.0.0.1:7890",
+      onModeChange: () => undefined,
+      onProxyUrlChange: () => undefined,
+    }), locale);
+
+  const zh = render("zh-CN", "system");
+  expect(zh).toContain("系统代理");
+  expect(zh).toContain("不使用代理");
+  expect(zh).toContain("手动代理");
+  expect(zh).not.toContain('type="url"');
+  expect(render("zh-CN", "manual")).toContain('type="url"');
+
+  const en = render("en-US", "direct");
+  expect(en).toContain("System proxy");
+  expect(en).toContain("No proxy");
+  expect(en).toContain("Manual proxy");
+  expect(en).not.toMatch(/[\u3400-\u9fff]/u);
 });
 
 test("pending account switch shows the last target and a cancel action", () => {

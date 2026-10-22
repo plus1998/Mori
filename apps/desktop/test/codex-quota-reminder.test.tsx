@@ -43,6 +43,7 @@ const snapshot: CodexQuotaReminderSnapshot = {
 const account: OpenAIAccount = {
   id: "A",
   name: "Current",
+  proxyMode: "system",
   isLoggedIn: true,
   authState: "configured",
   hasProfileData: false,
