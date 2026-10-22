@@ -575,17 +575,7 @@ export class BrowserHost {
     return [...scope.browsers.values()].flatMap((browser) => {
       const wc = browser.webContents;
       const alive = wc && !wc.isDestroyed();
-      let url = alive
-        ? wc.getURL() || HOME_URL
-        : browser.detachedUrl?.trim() || browser.pendingUrl?.trim() || HOME_URL;
-      if (
-        alive &&
-        isBrowserPlaceholderUrl(url) &&
-        browser.detachedUrl?.trim() &&
-        !isBrowserPlaceholderUrl(browser.detachedUrl)
-      ) {
-        url = browser.detachedUrl.trim();
-      }
+      const url = this.resolveBrowserTabUrl(browser);
       if (
         !shouldSurfaceBrowserInstance({
           url,
@@ -1155,11 +1145,13 @@ export class BrowserHost {
 
   async openExternalCurrent(browserId?: string): Promise<void> {
     const browser = this.requireFocusedOrId(browserId);
-    const wc = browser.webContents;
-    const url = wc && !wc.isDestroyed() ? wc.getURL() : (browser.pendingUrl ?? "");
-    if (isBrowserHttpUrl(url)) {
-      await shell.openExternal(url);
+    // Use the address shown in the toolbar, including while a guest is being
+    // recreated. Its WebContents may still be blank or already destroyed.
+    const url = this.resolveBrowserTabUrl(browser);
+    if (!isBrowserHttpUrl(url)) {
+      throw new Error("Only HTTP and HTTPS pages can be opened in the system browser.");
     }
+    await shell.openExternal(url);
   }
 
   private async waitForGuestWebContents(browserId: string, timeoutMs = 30_000): Promise<WebContents> {
@@ -1414,6 +1406,13 @@ export class BrowserHost {
     const found = this.findBrowser(browserId);
     if (!found || found.scope.threadId !== this.uiScopeId) throw new Error("Browser is not in the current UI scope.");
     this.downloads.cancel(browserId, fileId);
+  }
+
+  async removeDownloadForUi(browserId: string, fileId: string): Promise<void> {
+    const found = this.findBrowser(browserId);
+    if (!found || found.scope.threadId !== this.uiScopeId) throw new Error("Browser is not in the current UI scope.");
+    await this.downloads.remove(browserId, fileId);
+    this.emit();
   }
 
   /** Resolve a real guest for human-selected content, never the Eco main window. */

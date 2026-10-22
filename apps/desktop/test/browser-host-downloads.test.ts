@@ -80,6 +80,38 @@ test("download hook uses the real guest source across shared sessions and remove
   expect(session.listenerCount("will-download")).toBe(0);
 });
 
+test("UI deletion checks the current conversation and broadcasts the updated download list", async () => {
+  const states: number[] = [];
+  const host = new BrowserHost({
+    getMainWindow: () => undefined,
+    getSettings: () => ({ get: () => ({ agentIntegrationEnabled: false }) }) as never,
+    broadcast: state => states.push(state.instances.reduce((count, tab) => count + (tab.downloads?.length ?? 0), 0)),
+    resolveWorkspacePath: () => "/tmp/download-delete-test",
+  });
+  try {
+    const opened = await host.openSharedSession({ threadId: "a", revealUi: false });
+    const browserId = opened.focusedBrowserId!;
+    const registry = (host as unknown as { downloads: BrowserDownloads }).downloads;
+    const item = Object.assign(new EventEmitter(), {
+      savedPath: "", getFilename: () => "report.pdf", getMimeType: () => "application/pdf",
+      getURL: () => "https://test.invalid/file", getTotalBytes: () => 4, getReceivedBytes: () => 4,
+      setSavePath(value: string) { this.savedPath = value; }, cancel() {},
+    });
+    registry.capture(browserId, item as never);
+    fs.writeFileSync(item.savedPath, "test");
+    item.emit("done", {}, "completed");
+    const fileId = registry.list(browserId)[0]!.id;
+    host.setUiScope("b");
+    await expect(host.removeDownloadForUi(browserId, fileId)).rejects.toThrow("current UI scope");
+    expect(fs.existsSync(item.savedPath)).toBe(true);
+    host.setUiScope("a");
+    await host.removeDownloadForUi(browserId, fileId);
+    expect(host.getState().instances[0]!.downloads).toEqual([]);
+    expect(fs.existsSync(item.savedPath)).toBe(false);
+    expect(states.at(-1)).toBe(0);
+  } finally { host.dispose(); }
+});
+
 test("closing a tab aborts its parked file-access review", async () => {
   let accessSignal: AbortSignal | undefined;
   const host = new BrowserHost({

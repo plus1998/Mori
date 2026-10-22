@@ -8377,10 +8377,14 @@ function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.browserDownloadAction, async (payload: unknown) => {
     const request = payload as import("../shared/browser-downloads").BrowserDownloadActionRequest;
     if (!request || typeof request.browserId !== "string" || typeof request.fileId !== "string" ||
-      !["save", "reveal", "cancel"].includes(request.action)) throw new Error("Invalid download action.");
+      !["save", "reveal", "cancel", "remove"].includes(request.action)) throw new Error("Invalid download action.");
     const host = requireBrowserHost();
     if (request.action === "cancel") {
       host.cancelDownloadForUi(request.browserId, request.fileId);
+      return { cancelled: false };
+    }
+    if (request.action === "remove") {
+      await host.removeDownloadForUi(request.browserId, request.fileId);
       return { cancelled: false };
     }
     const file = host.getDownloadForUi(request.browserId, request.fileId);

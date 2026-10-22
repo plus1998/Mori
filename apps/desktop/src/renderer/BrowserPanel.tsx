@@ -49,6 +49,12 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
   const [selecting, setSelecting] = useState<"element" | "text">();
   const [selectionError, setSelectionError] = useState<string>();
   const [showDownloads, setShowDownloads] = useState(false);
+  const [openingExternal, setOpeningExternal] = useState(false);
+  const [externalOpenError, setExternalOpenError] = useState<{
+    browserId: string;
+    url: string;
+    message: string;
+  }>();
   const selectionRequest = useRef(0);
   const addressInputId = useId();
   /** Main drops a closed browser from its guest list — never focus a page that is gone. */
@@ -143,6 +149,20 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
     }
   }
 
+  async function openExternal() {
+    if (openingExternal) return;
+    setOpeningExternal(true);
+    setExternalOpenError(undefined);
+    try {
+      if (!window.eco?.browserOpenExternal) throw new Error(t("browser.openExternalUnavailable"));
+      await window.eco.browserOpenExternal(browserId);
+    } catch (error) {
+      setExternalOpenError({ browserId, url: displayUrl, message: formatIpcInvokeError(error) });
+    } finally {
+      setOpeningExternal(false);
+    }
+  }
+
   return (
     <div className="browser-panel" aria-label={t("browser.title")}>
       <div className="browser-panel-chrome">
@@ -228,14 +248,20 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
         <button
           type="button"
           className="browser-panel-icon-btn"
-          disabled={!displayUrl || displayUrl === "about:blank"}
-          onClick={() => void window.eco?.browserOpenExternal?.(browserId)}
+          disabled={!displayUrl || displayUrl === "about:blank" || openingExternal}
+          onClick={() => void openExternal()}
+          aria-busy={openingExternal}
           aria-label={t("browser.openExternal")}
           title={t("browser.openExternal")}
         >
           <ExternalLink size={ICON_SIZE} />
         </button>
       </div>
+      {externalOpenError?.browserId === browserId && externalOpenError.url === displayUrl ? (
+        <div className="browser-viewport-error" role="alert">
+          {t("browser.openExternalFailed", { error: externalOpenError.message })}
+        </div>
+      ) : null}
       {showDownloads ? <BrowserDownloadsPanel browserId={browserId} files={downloads ?? []} /> : null}
       {viewportControlsVisible ? (
         <BrowserViewportControls browserId={browserId} viewport={instance?.viewport} onChange={setState} />

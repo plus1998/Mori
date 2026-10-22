@@ -17,5 +17,5 @@ export interface BrowserDownload {
 export interface BrowserDownloadActionRequest {
   browserId: string;
   fileId: string;
-  action: "reveal" | "save" | "cancel";
+  action: "reveal" | "save" | "cancel" | "remove";
 }

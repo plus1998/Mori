@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
@@ -108,4 +108,62 @@ test("download names reject path separators, control characters and Windows devi
   expect(sanitizeBrowserDownloadName("CON.txt")).toBe("_CON.txt");
   expect(sanitizeBrowserDownloadName("... ")).toBe("download");
   expect(sanitizeBrowserDownloadName("中文报告.pdf")).toBe("中文报告.pdf");
+});
+
+test("deleting a completed download removes its temporary file and keeps saved copies and other downloads", async () => {
+  const { root, downloads } = setup();
+  const a = new Download(), b = new Download();
+  downloads.capture("tab", a.asItem()); downloads.capture("tab", b.asItem());
+  a.complete("first"); b.complete("second");
+  const savedCopy = path.join(root, "saved-report.pdf");
+  fs.copyFileSync(a.savedPath, savedCopy);
+  const [fileA, fileB] = downloads.list("tab");
+  await downloads.remove("tab", fileA!.id);
+  expect(fs.existsSync(path.dirname(a.savedPath))).toBe(false);
+  expect(fs.readFileSync(savedCopy, "utf8")).toBe("first");
+  expect(fs.readFileSync(b.savedPath, "utf8")).toBe("second");
+  expect(downloads.list("tab").map(file => file.id)).toEqual([fileB!.id]);
+  expect(() => downloads.getCompleted("tab", fileA!.id)).toThrow("does not belong");
+});
+
+test("deleting validates tab ownership and requires active downloads to be cancelled first", async () => {
+  const { downloads } = setup();
+  const item = new Download();
+  downloads.capture("tab-a", item.asItem());
+  const id = downloads.list("tab-a")[0]!.id;
+  await expect(downloads.remove("tab-b", id)).rejects.toThrow("does not belong");
+  await expect(downloads.remove("tab-a", id)).rejects.toThrow("Cancel the download");
+  downloads.cancel("tab-a", id);
+  await downloads.remove("tab-a", id);
+  expect(downloads.list("tab-a")).toEqual([]);
+});
+
+test("failed downloads can be deleted even if storage setup never produced a path", async () => {
+  const { root } = setup();
+  const downloads = new BrowserDownloads(() => {}, path.join(root, "missing"));
+  expect(() => downloads.capture("tab", new Download().asItem())).toThrow();
+  await downloads.remove("tab", downloads.list("tab")[0]!.id);
+  expect(downloads.list("tab")).toEqual([]);
+  await downloads.dispose();
+});
+
+test("cleanup errors keep the download available for retry and notify only after success", async () => {
+  const { root } = setup();
+  let changes = 0;
+  const downloads = new BrowserDownloads(() => { changes++; }, root);
+  cleanup.push(() => downloads.dispose());
+  const item = new Download();
+  downloads.capture("tab", item.asItem()); item.complete();
+  const id = downloads.list("tab")[0]!.id;
+  const before = changes;
+  const remove = spyOn(fs.promises, "rm").mockRejectedValueOnce(new Error("File is in use"));
+  try {
+    await expect(downloads.remove("tab", id)).rejects.toThrow("File is in use");
+    expect(downloads.list("tab")).toHaveLength(1);
+    expect(fs.existsSync(item.savedPath)).toBe(true);
+    expect(changes).toBe(before);
+  } finally { remove.mockRestore(); }
+  await downloads.remove("tab", id);
+  expect(downloads.list("tab")).toEqual([]);
+  expect(changes).toBe(before + 1);
 });
