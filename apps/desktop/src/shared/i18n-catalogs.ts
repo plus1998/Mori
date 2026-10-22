@@ -1295,6 +1295,7 @@ export const i18nCatalogs = {
       "settings.openaiAccounts.imageQuotaRestoresAt": "恢复于 {{time}}",
       "settings.openaiAccounts.imageQuotaFailed": "图片额度查询失败",
       "settings.openaiAccounts.imageQuotaIdle": "图片额度未查询",
+      "settings.openaiAccounts.accountDetails": "账号详情",
       "settings.openaiAccounts.profileLegend": "登录资料",
       "settings.openaiAccounts.optionalBadge": "选填",
       "settings.openaiAccounts.profileHint": "登录助手可复制或填入资料，并生成 2FA 验证码。",
@@ -4531,6 +4532,7 @@ export const i18nCatalogs = {
       "settings.openaiAccounts.imageQuotaRestoresAt": "Restores at {{time}}",
       "settings.openaiAccounts.imageQuotaFailed": "Image quota check failed",
       "settings.openaiAccounts.imageQuotaIdle": "Image quota not checked",
+      "settings.openaiAccounts.accountDetails": "Account details",
       "settings.openaiAccounts.profileLegend": "Sign-in profile",
       "settings.openaiAccounts.optionalBadge": "optional",
       "settings.openaiAccounts.profileHint":

@@ -135,7 +135,7 @@ test("cached quota shows the last successful refresh time after credentials expi
     }),
     "zh-CN",
   );
-  expect(markup).toContain("37% 已使用");
+  expect(markup).toContain("剩余 63%");
   expect(markup).toContain("2 次重置");
   expect(markup).toContain('dateTime="2025-01-01T08:30:00.000Z"');
   expect(markup).toContain("上次刷新");
@@ -153,7 +153,7 @@ test("cached quota renders English quota copy and app-locale timestamps for en-U
     }),
     "en-US",
   );
-  expect(markup).toContain("37% used");
+  expect(markup).toContain("63% left");
   expect(markup).toContain("2 resets");
   expect(markup).toContain("Last refreshed");
   expect(markup).toContain("Reset due, waiting to refresh");
@@ -173,7 +173,7 @@ test("refreshing quota keeps the cached values visible with a loading indicator"
   );
   expect(markup).toContain('aria-busy="true"');
   expect(markup).toContain('aria-label="正在刷新额度"');
-  expect(markup).toContain("37% 已使用");
+  expect(markup).toContain("剩余 63%");
   expect(markup).toContain("上次刷新");
 });
 
@@ -187,7 +187,7 @@ test("quota errors preserve cached values and expose the actual failure", () => 
     }),
     "zh-CN",
   );
-  expect(markup).toContain("37% 已使用");
+  expect(markup).toContain("剩余 63%");
   expect(markup).toContain("刷新失败，显示缓存");
   expect(markup).toContain('title="OpenAI quota request failed with status 503."');
   expect(markup).toContain('dateTime="2025-01-01T08:30:00.000Z"');
@@ -225,8 +225,10 @@ test("quota summary shows five-hour and weekly windows with their own usage and 
   const zh = render("zh-CN");
   expect(zh).toContain("5 小时额度");
   expect(zh).toContain("周额度");
-  expect(zh).toMatch(/class="is-ok">37% 已使用/u);
-  expect(zh).toMatch(/class="is-limited">100% 已使用/u);
+  expect(zh).toMatch(/class="is-ok">剩余 63%/u);
+  expect(zh).toMatch(/class="is-limited">剩余 0%/u);
+  expect(zh).toContain('aria-valuenow="63"');
+  expect(zh).toContain('aria-valuenow="0"');
   expect(zh).toContain("1h 后重置");
   expect(zh).toContain("2d 后重置");
   const en = render("en-US");
@@ -245,7 +247,7 @@ test("a single returned weekly window is labelled by duration without inventing 
     isLoggedIn: true, loading: false, error: undefined,
   }), "zh-CN");
   expect(markup).toContain("周额度");
-  expect(markup).toContain("12% 已使用");
+  expect(markup).toContain("剩余 88%");
   expect(markup).not.toContain("5 小时额度");
 });
 

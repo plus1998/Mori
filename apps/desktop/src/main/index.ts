@@ -2330,7 +2330,9 @@ async function createMainWindow(
     ...(isMac
       ? {
           titleBarStyle: "hiddenInset" as const,
-          transparent: true,
+          // Native vibrancy supplies translucency. An alpha-shaped window lets
+          // macOS cast content-shaped shadows around sidebar text under scrims.
+          transparent: false,
           backgroundColor: "#00000000",
           vibrancy: "under-window" as const,
           visualEffectState: "followWindow" as const,

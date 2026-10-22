@@ -21,6 +21,7 @@ import {
   Mail,
   KeyRound,
   Inbox,
+  ChevronDown,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -77,32 +78,52 @@ function QuotaRefreshedAt({ fetchedAt }: { fetchedAt: number }) {
   );
 }
 
-export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error }: {
+export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error, showRefreshedAt = true }: {
   quota: OpenAIAccountQuota | undefined;
   isLoggedIn: boolean;
   loading: boolean;
   error: string | undefined;
+  showRefreshedAt?: boolean;
 }) {
   const { t } = useTranslation();
   if (!quota && !isLoggedIn && !loading && !error) return null;
-  return <span className="codex-quota-summary" aria-busy={loading}>
+  return <span className="codex-quota-summary codex-text-quota-summary" aria-busy={loading}>
     {loading ? <Loader2 size={13} className="mcp-spin" aria-label={t("settings.openaiAccounts.refreshingQuotaAria")} /> : null}
     {quota ? <>
-      <b>{quota.planType}</b>
-      {[quota.rateLimit.primaryWindow, quota.rateLimit.secondaryWindow].map((window, index) => window ? (
-        <span className="codex-quota-window" key={index}>
-          <span>{window.limitWindowSeconds === 604_800
-            ? t("settings.openaiAccounts.weeklyQuota")
-            : window.limitWindowSeconds > 0
-              ? t("settings.openaiAccounts.windowHours", { count: window.limitWindowSeconds / 3_600 })
-              : t("settings.openaiAccounts.quotaWindow")}</span>
-          <em className={window.usedPercent >= 100 ? "is-limited" : "is-ok"}>{t("settings.openaiAccounts.usedPercent", { percent: Math.round(window.usedPercent) })}</em>
-          {window.resetAt > 0 || window.resetAfterSeconds > 0 ? <span>{formatResetTime(window, quota.fetchedAt, t)}</span> : null}
-        </span>
-      ) : null)}
-      {quota.resetCreditsAvailable > 0 ? <span>{t("settings.openaiAccounts.resetCredits", { count: quota.resetCreditsAvailable })}</span> : null}
-      <QuotaRefreshedAt fetchedAt={quota.fetchedAt} />
-      {error ? <em className="is-error" title={error} role="status">{t("settings.openaiAccounts.quotaFailedCached")}</em> : null}
+      {[quota.rateLimit.primaryWindow, quota.rateLimit.secondaryWindow].map((window, index) => {
+        if (!window) return null;
+        const remaining = Math.min(100, Math.max(0, 100 - window.usedPercent));
+        const tone = remaining <= 10 ? "is-limited" : remaining <= 20 ? "is-low" : "is-ok";
+        const label = window.limitWindowSeconds === 604_800
+          ? t("settings.openaiAccounts.weeklyQuota")
+          : window.limitWindowSeconds > 0
+            ? t("settings.openaiAccounts.windowHours", { count: window.limitWindowSeconds / 3_600 })
+            : t("settings.openaiAccounts.quotaWindow");
+        const remainingText = t("codexSwitch.remaining", { percent: Math.round(remaining) });
+        return (
+          <span className="codex-quota-window" key={index}>
+            <span className="codex-quota-window-heading">
+              <span>{label}</span>
+              <em className={tone}>{remainingText}</em>
+            </span>
+            <span
+              className={`codex-quota-energy ${tone}`}
+              role="meter"
+              aria-label={label}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={remaining}
+              aria-valuetext={remainingText}
+            >
+              <span style={{ width: `${remaining}%` }} />
+            </span>
+            {window.resetAt > 0 || window.resetAfterSeconds > 0 ? <span className="codex-quota-window-reset">{formatResetTime(window, quota.fetchedAt, t)}</span> : null}
+          </span>
+        );
+      })}
+      {quota.resetCreditsAvailable > 0 ? <span className="codex-quota-note">{t("settings.openaiAccounts.resetCredits", { count: quota.resetCreditsAvailable })}</span> : null}
+      {showRefreshedAt ? <QuotaRefreshedAt fetchedAt={quota.fetchedAt} /> : null}
+      {error ? <em className="codex-quota-note is-error" title={error} role="status">{t("settings.openaiAccounts.quotaFailedCached")}</em> : null}
     </> : <span className={error ? "is-error" : undefined} title={error}>{error ? t("settings.openaiAccounts.quotaError") : loading ? t("settings.openaiAccounts.quotaLoading") : t("settings.openaiAccounts.quotaIdle")}</span>}
   </span>;
 }
@@ -142,21 +163,23 @@ function ProfileSecretInput({
   );
 }
 
-export function OpenAIAccountImageQuotaSummary({ account, loading }: { account: OpenAIAccount; loading: boolean }) {
+export function OpenAIAccountImageQuotaSummary({ account, loading, showRefreshedAt = true }: { account: OpenAIAccount; loading: boolean; showRefreshedAt?: boolean }) {
   const { t, i18n } = useTranslation();
   const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
   const quota: OpenAIAccountImageQuota | undefined = account.imageQuota;
   const resetAt = quota?.status === "available" && quota.resetAt ? Date.parse(quota.resetAt) : undefined;
   return <div className="codex-quota-summary codex-image-quota-summary" aria-busy={loading}>
     {loading ? <Loader2 size={13} className="mcp-spin" aria-label={t("settings.openaiAccounts.imageQuotaLoadingAria")} /> : null}
-    <b title={t("settings.openaiAccounts.imageQuotaTooltip")}>{t("settings.openaiAccounts.imageQuotaLabel")}</b>
-    {quota?.status === "available" ? <>
-      <em className={quota.remaining === 0 ? "is-limited" : "is-ok"}>{t("settings.openaiAccounts.imageQuotaRemaining", { total: quota.remaining })}</em>
-      {resetAt !== undefined && Number.isFinite(resetAt) ? <span title={t("settings.openaiAccounts.imageQuotaRestoresAt", { time: formatAppDateTime(locale, new Date(resetAt)) })}>{formatQuotaResetTime(resetAt, t)}</span> : null}
-    </> : <span className={quota?.status === "error" ? "is-error" : undefined} title={quota?.error}>
-      {quota?.status === "error" ? t("settings.openaiAccounts.imageQuotaFailed") : t("settings.openaiAccounts.imageQuotaIdle")}
-    </span>}
-    {quota ? <QuotaRefreshedAt fetchedAt={quota.fetchedAt} /> : null}
+    <span className="codex-quota-window-heading" title={t("settings.openaiAccounts.imageQuotaTooltip")}>
+      <b>{t("settings.openaiAccounts.imageQuotaLabel")}</b>
+      {quota?.status === "available" ? (
+        <em className={quota.remaining === 0 ? "is-limited" : "is-ok"}>{t("settings.openaiAccounts.imageQuotaRemaining", { total: quota.remaining })}</em>
+      ) : <span className={quota?.status === "error" ? "is-error" : undefined} title={quota?.error}>
+        {quota?.status === "error" ? t("settings.openaiAccounts.imageQuotaFailed") : t("settings.openaiAccounts.imageQuotaIdle")}
+      </span>}
+    </span>
+    {resetAt !== undefined && Number.isFinite(resetAt) ? <span className="codex-quota-window-reset" title={t("settings.openaiAccounts.imageQuotaRestoresAt", { time: formatAppDateTime(locale, new Date(resetAt)) })}>{formatQuotaResetTime(resetAt, t)}</span> : null}
+    {quota && showRefreshedAt ? <QuotaRefreshedAt fetchedAt={quota.fetchedAt} /> : null}
     {quota?.status === "error" ? <span className="codex-image-quota-error is-error" role="alert">{quota.error}</span> : null}
   </div>;
 }
@@ -845,6 +868,9 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                 ? "ready"
                 : "muted";
             const email = account.email || accountQuota?.email;
+            const isQuotaLoading = (quotaLoading && account.authState !== "missing") || quotaLoadingId === account.id;
+            const showTextQuota = Boolean(accountQuota || account.isLoggedIn || isQuotaLoading || quotaErrors[account.id]);
+            const showImageQuota = Boolean(account.imageGenerationEnabled || account.imageQuota);
             return (
               <article
                 key={account.id}
@@ -855,7 +881,10 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                     <span>{(email || account.name).slice(0, 1).toUpperCase()}</span>
                   </div>
                   <div className="codex-account-identity">
-                    <strong title={account.name}>{account.name}</strong>
+                    <div className="codex-account-identity-title">
+                      <strong title={account.name}>{account.name}</strong>
+                      {accountQuota?.planType ? <span className="codex-account-plan">{accountQuota.planType}</span> : null}
+                    </div>
                     <span title={email}>
                       {email ||
                         (account.isLoggedIn
@@ -929,34 +958,52 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                     </button>
                   </div>
                 </div>
-                <div className="codex-account-meta">
-                  <OpenAIAccountProfilePresence fields={account.profileFields} />
-                  <button
-                    type="button"
-                    className="codex-proxy-link"
-                    disabled={busy}
-                    onClick={() => {
-                      void openEdit(account.id);
-                    }}
-                  >
-                    <Globe2 size={13} />
-                    {account.proxyUrl ? t("settings.openaiAccounts.proxyOwn") : t("settings.openaiAccounts.proxySystem")}
-                  </button>
-                  <span>
-                    {account.lastLogin
-                      ? t("settings.openaiAccounts.lastLogin", {
-                          time: formatAppDateTime(locale, new Date(account.lastLogin), {
-                            month: "numeric",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          }),
-                        })
-                      : t("settings.openaiAccounts.notLoggedIn")}
-                  </span>
-                  <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={account.isLoggedIn} loading={(quotaLoading && account.authState !== "missing") || quotaLoadingId === account.id} error={quotaErrors[account.id]} />
-                  <OpenAIAccountImageQuotaSummary account={account} loading={imageOperation?.accountId === account.id && imageOperation.kind === "quota"} />
-                </div>
+                {showTextQuota || showImageQuota ? (
+                  <div className={`codex-account-quotas ${showTextQuota && showImageQuota ? "has-image-quota" : ""}`}>
+                    {showTextQuota ? <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={account.isLoggedIn} loading={isQuotaLoading} error={quotaErrors[account.id]} showRefreshedAt={false} /> : null}
+                    {showImageQuota ? <OpenAIAccountImageQuotaSummary account={account} loading={imageOperation?.accountId === account.id && imageOperation.kind === "quota"} showRefreshedAt={false} /> : null}
+                  </div>
+                ) : null}
+                <details className="codex-account-details">
+                  <summary>
+                    {t("settings.openaiAccounts.accountDetails")}
+                    <ChevronDown size={13} />
+                  </summary>
+                  <div className="codex-account-details-content">
+                    <OpenAIAccountProfilePresence fields={account.profileFields} />
+                    <div className="codex-account-details-row">
+                      <button
+                        type="button"
+                        className="codex-proxy-link"
+                        disabled={busy}
+                        onClick={() => void openEdit(account.id)}
+                      >
+                        <Globe2 size={13} />
+                        {account.proxyUrl ? t("settings.openaiAccounts.proxyOwn") : t("settings.openaiAccounts.proxySystem")}
+                      </button>
+                      <span>
+                        {account.lastLogin
+                          ? t("settings.openaiAccounts.lastLogin", {
+                              time: formatAppDateTime(locale, new Date(account.lastLogin), {
+                                month: "numeric",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              }),
+                            })
+                          : t("settings.openaiAccounts.notLoggedIn")}
+                      </span>
+                    </div>
+                    {accountQuota ? <div className="codex-account-details-row">
+                      <span>Codex</span>
+                      <QuotaRefreshedAt fetchedAt={accountQuota.fetchedAt} />
+                    </div> : null}
+                    {account.imageQuota ? <div className="codex-account-details-row">
+                      <span>{t("settings.openaiAccounts.imageQuotaLabel")}</span>
+                      <QuotaRefreshedAt fetchedAt={account.imageQuota.fetchedAt} />
+                    </div> : null}
+                  </div>
+                </details>
                 {menuOpenId === account.id
                   ? createPortal(
                       <div

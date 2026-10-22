@@ -9327,9 +9327,9 @@ button.integrated-web-search-clear-key:disabled {
 .codex-account-card {
   flex: 0 0 auto;
   min-width: 0;
-  padding: 16px 18px 13px;
+  padding: 18px 20px 10px;
   border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--bg-elevated);
   transition: border-color 0.16s ease;
 }
@@ -9338,25 +9338,24 @@ button.integrated-web-search-clear-key:disabled {
 }
 .codex-account-card.is-active {
   border-color: color-mix(in srgb, var(--codex-blue) 30%, var(--border-subtle));
-  box-shadow: inset 3px 0 var(--codex-blue);
 }
 .codex-account-card-main {
-  display: flex;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto auto;
   min-width: 0;
   align-items: center;
   gap: 12px;
 }
 .codex-account-avatar {
   display: grid;
-  flex: 0 0 40px;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   place-items: center;
   border: 1px solid var(--border-subtle);
   border-radius: 11px;
   background: var(--bg-main);
   color: var(--text-secondary);
-  font-size: 19px;
+  font-size: 16px;
   font-weight: 600;
 }
 .codex-account-card.is-active .codex-account-avatar {
@@ -9378,6 +9377,21 @@ button.integrated-web-search-clear-key:disabled {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.codex-account-identity-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.codex-account-plan {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-main);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.4;
 }
 .codex-account-identity > span {
   overflow: hidden;
@@ -9452,17 +9466,63 @@ button.integrated-web-search-clear-key:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
-.codex-account-meta {
+.codex-account-quotas {
+  display: grid;
+  min-width: 0;
+  gap: 24px;
+  margin-top: 20px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.codex-account-quotas.has-image-quota {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+.codex-account-quotas.has-image-quota .codex-image-quota-summary {
+  padding-left: 24px;
+  border-left: 1px solid var(--border-subtle);
+}
+.codex-account-details {
+  margin-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.codex-account-details > summary {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+}
+.codex-account-details > summary::-webkit-details-marker {
+  display: none;
+}
+.codex-account-details > summary:hover {
+  color: var(--text-primary);
+}
+.codex-account-details > summary:focus-visible {
+  outline: 2px solid var(--codex-blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.codex-account-details[open] > summary svg {
+  transform: rotate(180deg);
+}
+.codex-account-details-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0 6px;
+}
+.codex-account-details-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 15px;
-  margin-top: 13px;
-  padding-top: 11px;
-  border-top: 1px solid color-mix(in srgb, var(--border-subtle) 65%, transparent);
-  color: var(--text-muted);
-  font-size: 10px;
-  line-height: 1.5;
+  justify-content: space-between;
+  gap: 4px 16px;
 }
 .codex-profile-presence {
   display: flex;
@@ -9505,11 +9565,23 @@ button.integrated-web-search-clear-key:disabled {
   opacity: 0.5;
 }
 .codex-quota-summary {
+  position: relative;
   display: inline-flex;
   flex-basis: 100%;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px 24px;
+  color: var(--text-muted);
+}
+.codex-quota-summary > .mcp-spin {
+  position: absolute;
+  top: -16px;
+  right: 0;
+}
+.codex-quota-note {
+  flex-basis: 100%;
+  font-size: 10px;
 }
 .codex-quota-refreshed-at {
   margin-left: auto;
@@ -9519,13 +9591,40 @@ button.integrated-web-search-clear-key:disabled {
 }
 .codex-quota-window {
   display: inline-flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px;
+  flex: 1 1 150px;
+  flex-direction: column;
+  min-width: 0;
+  gap: 8px;
 }
-.codex-quota-window + .codex-quota-window {
-  padding-left: 10px;
-  border-left: 1px solid var(--border-subtle);
+.codex-quota-window-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.codex-quota-window-heading em {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.codex-quota-energy {
+  display: block;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  mask-image: repeating-linear-gradient(to right, #000 0, #000 calc(10% - 2px), transparent calc(10% - 2px), transparent 10%);
+}
+.codex-quota-energy > span {
+  display: block;
+  height: 100%;
+  background: currentColor;
+}
+.codex-quota-window-reset {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 .codex-quota-summary b {
   color: var(--text-secondary);
@@ -9534,7 +9633,15 @@ button.integrated-web-search-clear-key:disabled {
 
 .codex-image-quota-summary {
   min-width: 0;
+  flex-direction: column;
+  gap: 8px;
   font-variant-numeric: tabular-nums;
+}
+.codex-image-quota-summary .codex-quota-window-heading {
+  width: 100%;
+}
+.codex-image-quota-summary > .codex-quota-window-reset {
+  margin-top: auto;
 }
 .codex-account-action-checkbox input {
   flex: 0 0 auto;
@@ -9558,6 +9665,9 @@ button.integrated-web-search-clear-key:disabled {
 }
 .codex-quota-summary .is-ok {
   color: var(--success, #34c759);
+}
+.codex-quota-summary .is-low {
+  color: var(--warning, #e5a028);
 }
 .codex-quota-summary .is-limited,
 .codex-quota-summary .is-error {
@@ -9985,17 +10095,26 @@ button.integrated-web-search-clear-key:disabled {
     gap: 6px;
   }
   .codex-account-card-main {
-    flex-wrap: wrap;
+    grid-template-columns: 36px minmax(0, 1fr) auto;
     gap: 10px;
   }
-  .codex-account-identity {
-    flex-basis: calc(100% - 65px);
-  }
   .codex-account-actions {
-    margin-left: auto;
+    grid-column: 3;
+    grid-row: 1 / span 2;
   }
   .codex-status-badge {
-    margin-left: 50px;
+    grid-column: 2;
+    justify-self: start;
+    padding-left: 0;
+  }
+  .codex-account-quotas.has-image-quota {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .codex-account-quotas.has-image-quota .codex-image-quota-summary {
+    padding: 12px 0 0;
+    border-top: 1px solid var(--border-subtle);
+    border-left: 0;
   }
 }
 @container (max-width: 450px) {

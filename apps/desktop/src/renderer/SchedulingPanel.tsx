@@ -200,7 +200,7 @@ export function SchedulingPanel(props: Props) {
     : profile.runtimeConfig.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId ?? coreDisplayName(profile.coreKind);
 
   return <div className="scheduling-backdrop" onClick={props.onClose}>
-    <div className="scheduling-panel" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="scheduling-title" onClick={event => event.stopPropagation()}
+    <div className="scheduling-panel scheduling-manager" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="scheduling-title" onClick={event => event.stopPropagation()}
       onKeyDown={event => {
         if (event.key === "Escape") props.onClose();
         if (event.key !== "Tab") return;
@@ -209,13 +209,14 @@ export function SchedulingPanel(props: Props) {
         if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
       }}>
-      <header className="scheduling-header"><h2 id="scheduling-title"><Clock3 size={20} />{t("scheduling.title")}</h2>
-        <button ref={initialFocus} className="scheduling-icon" onClick={props.onClose} aria-label={t("common.close")}><X size={20} /></button>
+      <header className="scheduling-header"><h2 id="scheduling-title"><Clock3 size={18} aria-hidden />{t("scheduling.title")}</h2>
+        <div className="scheduling-toolbar">
+          <button className="scheduling-icon" onClick={() => void refresh()} aria-label={t("common.refresh")} title={t("common.refresh")}><RefreshCw size={16} /></button>
+          <button className="scheduling-primary" onClick={create} disabled={busy}><Plus size={16} />{t("scheduling.create")}</button>
+          <span className="scheduling-toolbar-divider" aria-hidden />
+          <button ref={initialFocus} className="scheduling-icon" onClick={props.onClose} aria-label={t("common.close")}><X size={18} /></button>
+        </div>
       </header>
-      <div className="scheduling-toolbar">
-        <button className="scheduling-icon" onClick={() => void refresh()} aria-label={t("common.refresh")}><RefreshCw size={16} /></button>
-        <button className="scheduling-primary" onClick={create} disabled={busy}><Plus size={16} />{t("scheduling.create")}</button>
-      </div>
       {(error || loadError) && <div className="scheduling-error" role="alert">{error || loadError}</div>}
       <div className="scheduling-content">
         <aside className="scheduling-list" aria-label={t("scheduling.scheduled_task")}>
@@ -278,8 +279,8 @@ export function SchedulingPanel(props: Props) {
               <button disabled={busy} onClick={() => void runAction(() => api.runScheduleNow({ id: selected.id, requestId: crypto.randomUUID() }))}><Play size={15}/>{t("scheduling.runNow")}</button>
               <button disabled={busy} className="scheduling-danger" onClick={() => void runAction(async () => { await api.deleteSchedule(selected.id); setSelectedId(undefined); })}><Trash2 size={15}/>{t("common.delete")}</button>
             </div>
-          </> : <p className="scheduling-empty">{t("scheduling.selectHint")}</p>}
-          {!form && <section className="scheduling-history"><h3>{t("scheduling.history")}</h3>{history.length === 0 ? <p className="scheduling-hint">{t("scheduling.noHistory")}</p> : history.map(item => <div className="scheduling-run" key={item.id}>
+          </> : <p className="scheduling-select-hint">{t("scheduling.selectHint")}</p>}
+          {!form && <section className={`scheduling-history${selected ? "" : " scheduling-history-overview"}`}><h3>{t("scheduling.history")}</h3>{history.length === 0 ? <p className="scheduling-hint">{t("scheduling.noHistory")}</p> : history.map(item => <div className="scheduling-run" key={item.id}>
             <div><strong>{selectedId ? formatTime(item.scheduledAt) : item.definition.name}</strong><span className={`scheduling-badge ${item.status === "failed" || item.status === "unknown" ? "error" : ""}`}>{t(`scheduling.status.${item.status}`)}</span><small>{!selectedId && formatTime(item.scheduledAt)}</small>{item.error && <p>{item.error}</p>}</div>
             {item.threadId && <button className="scheduling-icon" aria-label={t("scheduling.openThread")} title={t("scheduling.openThread")} onClick={() => props.onOpenThread(item.threadId!)}><ExternalLink size={16}/></button>}
           </div>)}</section>}
