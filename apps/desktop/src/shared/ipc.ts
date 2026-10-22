@@ -1871,8 +1871,8 @@ export interface ThreadSummary {
 
 export interface ThreadCompletionNotificationRequest {
   threadId: string;
-  /** Whether the user is actively viewing this thread (window focused + selected). */
-  activelyViewed: boolean;
+  /** Whether this thread is selected. Native window focus is checked in main. */
+  threadSelected: boolean;
 }
 
 export interface ThreadCompletionNotificationResult {
@@ -1891,7 +1891,7 @@ export type ThreadApprovalNotificationKind = "plan" | "bash";
 export interface ThreadApprovalNotificationRequest {
   threadId: string;
   kind: ThreadApprovalNotificationKind;
-  activelyViewed: boolean;
+  threadSelected: boolean;
 }
 
 export interface ThreadApprovalNotificationResult {
@@ -1908,7 +1908,7 @@ export interface ThreadApprovalNotificationResult {
 export interface ThreadClarificationNotificationRequest {
   threadId: string;
   toolUseId: string;
-  activelyViewed: boolean;
+  threadSelected: boolean;
 }
 
 export interface ThreadClarificationNotificationResult {

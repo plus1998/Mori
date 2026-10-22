@@ -2375,7 +2375,7 @@ function App() {
       .finally(() => setCursorModelsLoading(false));
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     selectedThreadIdRef.current = selectedThreadId;
   }, [selectedThreadId]);
 
@@ -2595,7 +2595,7 @@ function App() {
           eco.showThreadClarificationNotification({
             threadId,
             toolUseId,
-            activelyViewed: isThreadActivelyViewed(selectedThreadIdRef.current, threadId, document.hasFocus()),
+            threadSelected: selectedThreadIdRef.current === threadId,
           }),
           "clarification",
         );
@@ -2863,7 +2863,7 @@ function App() {
         reportDesktopNotification(
           window.eco!.showThreadCompletionNotification({
             threadId: event.threadId,
-            activelyViewed,
+            threadSelected: selectedThreadIdRef.current === event.threadId,
           }),
           "task completion",
         );
@@ -2918,16 +2918,11 @@ function App() {
             ? "bash"
             : undefined;
       if (approvalNotificationKind) {
-        const activelyViewed = isThreadActivelyViewed(
-          selectedThreadIdRef.current,
-          event.threadId,
-          document.hasFocus(),
-        );
         reportDesktopNotification(
           window.eco!.showThreadApprovalNotification({
             threadId: event.threadId,
             kind: approvalNotificationKind,
-            activelyViewed,
+            threadSelected: selectedThreadIdRef.current === event.threadId,
           }),
           `${approvalNotificationKind} approval`,
         );

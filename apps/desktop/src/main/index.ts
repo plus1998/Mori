@@ -413,7 +413,7 @@ import {
 } from "../shared/locale";
 import { filterMcpSdkConfigByAssignedServers } from "../shared/mcp";
 import { rewriteEcoMcpHubPromptForCodexServer } from "../shared/mcp-hub-tool-usage";
-import { preferenceAllowsDesktopNotification } from "../shared/notification-settings";
+import { evaluateDesktopNotificationPolicy } from "./desktop-notification-policy";
 import type {
   OpenAIAccountAssistantAction,
   OpenAIAccountCreateInput,
@@ -4749,16 +4749,15 @@ async function openThreadFromDesktopNotification(threadId: string): Promise<void
 
 function evaluateDesktopNotificationDelivery(
   kind: "completion" | "approval" | "question",
-  activelyViewed: boolean,
+  threadSelected: boolean,
 ): { ok: true } | { ok: false; reason: "unsupported" | "preference_disabled" } {
-  if (!Notification.isSupported()) {
-    return { ok: false, reason: "unsupported" };
-  }
-  const settings = notificationSettingsStore.get();
-  if (!preferenceAllowsDesktopNotification(settings, kind, activelyViewed)) {
-    return { ok: false, reason: "preference_disabled" };
-  }
-  return { ok: true };
+  return evaluateDesktopNotificationPolicy(
+    kind,
+    threadSelected,
+    Notification.isSupported(),
+    notificationSettingsStore.get(),
+    getMainWindow(),
+  );
 }
 
 function showDesktopNotification(content: { title: string; body: string }, threadId: string): void {
@@ -4954,11 +4953,11 @@ function registerIpcHandlers(): void {
       !isRecord(payload) ||
       typeof payload.threadId !== "string" ||
       !payload.threadId.trim() ||
-      typeof payload.activelyViewed !== "boolean"
+      typeof payload.threadSelected !== "boolean"
     ) {
       return { shown: false, reason: "invalid_request" } as const;
     }
-    const gate = evaluateDesktopNotificationDelivery("completion", payload.activelyViewed);
+    const gate = evaluateDesktopNotificationDelivery("completion", payload.threadSelected);
     if (!gate.ok) {
       return { shown: false, reason: gate.reason } as const;
     }
@@ -4982,6 +4981,12 @@ function registerIpcHandlers(): void {
       } as const;
     }
 
+    // Reading the SDK session above yields to the event loop. The user may have
+    // returned to the window or changed preferences while it was loading.
+    const deliveryGate = evaluateDesktopNotificationDelivery("completion", payload.threadSelected);
+    if (!deliveryGate.ok) {
+      return { shown: false, reason: deliveryGate.reason } as const;
+    }
     showDesktopNotification(content, thread.id);
     return { shown: true } as const;
   });
@@ -4991,11 +4996,11 @@ function registerIpcHandlers(): void {
       !isRecord(payload) ||
       typeof payload.threadId !== "string" ||
       (payload.kind !== "plan" && payload.kind !== "bash") ||
-      typeof payload.activelyViewed !== "boolean"
+      typeof payload.threadSelected !== "boolean"
     ) {
       return { shown: false, reason: "invalid_request" } as const;
     }
-    const gate = evaluateDesktopNotificationDelivery("approval", payload.activelyViewed);
+    const gate = evaluateDesktopNotificationDelivery("approval", payload.threadSelected);
     if (!gate.ok) {
       return { shown: false, reason: gate.reason } as const;
     }
@@ -5032,11 +5037,11 @@ function registerIpcHandlers(): void {
       !payload.threadId.trim() ||
       typeof payload.toolUseId !== "string" ||
       !payload.toolUseId.trim() ||
-      typeof payload.activelyViewed !== "boolean"
+      typeof payload.threadSelected !== "boolean"
     ) {
       return { shown: false, reason: "invalid_request" } as const;
     }
-    const gate = evaluateDesktopNotificationDelivery("question", payload.activelyViewed);
+    const gate = evaluateDesktopNotificationDelivery("question", payload.threadSelected);
     if (!gate.ok) {
       return { shown: false, reason: gate.reason } as const;
     }
