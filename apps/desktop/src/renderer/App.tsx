@@ -1,3 +1,5 @@
+import type { ProjectTodo } from "../shared/project-todos";
+import type { TodoEditorDraft } from "./ProjectTodoPanel";
 import { ReadAloudControls, ReadAloudThreadContext } from "./ReadAloud";
 import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
 import { ComposerReferencesMenu } from "./ComposerReferencesMenu";
@@ -26,6 +28,7 @@ import {
   ChevronLeft,
   ChevronUp,
   Clock3,
+  ClipboardList,
   Cloud,
   Cog,
   CornerDownRight,
@@ -403,6 +406,7 @@ import {
   LazyProxySettingsPanel,
   LazyScheduledMessageDialog,
   LazySchedulingPanel,
+  LazyProjectTodoPanel,
   LazySkillsSettingsPanel,
   LazyStorageSettingsPanel,
   LazySubagentTaskDrawer,
@@ -1244,6 +1248,9 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [codexAccountSwitchOpen, setCodexAccountSwitchOpen] = useState(false);
   const [schedulingOpen, setSchedulingOpen] = useState(false);
+  const [projectTodosOpen, setProjectTodosOpen] = useState(false);
+  const projectTodoComposerFocusRef = useRef(false);
+  const projectTodoDraftRef = useRef<TodoEditorDraft>({ projectPath: "", text: "", images: [], completed: false });
   const scheduling = useSchedulingSnapshot();
   const scheduledMessages = useMemo(
     () => scheduling.snapshot.schedules.filter((item) => item.kind === "session_message"),
@@ -4077,6 +4084,12 @@ function App() {
   composerPromptRef.current = prompt;
   composerAttachmentsRef.current = composerAttachments;
   composerRewindTargetRef.current = composerRewindTarget;
+  useEffect(() => {
+    if (projectTodosOpen || !projectTodoComposerFocusRef.current) return;
+    projectTodoComposerFocusRef.current = false;
+    // Run after the closing panel restores its trigger focus.
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }, [projectTodosOpen, composerContextKey]);
   useEffect(() => {
     saveTerminalWorkspaceState(terminalByProject);
   }, [terminalByProject]);
@@ -10972,6 +10985,68 @@ function App() {
     setError(undefined);
   }
 
+  async function composeProjectTodo(todo: ProjectTodo) {
+    const api = window.eco!;
+    if (!projects.some(project => project.path === todo.projectPath)) {
+      // Reopen a removed project before selecting it; currentProjectPath only
+      // accepts registered projects and must never fall back to another folder.
+      await api.openWorkspacePath(todo.projectPath);
+      registerImportedProject(todo.projectPath);
+    }
+    const contextKey = composerContextKeyFromParts(undefined, todo.projectPath)!;
+    // Flush the target draft before replacing it. Preserve its text and original
+    // images as a separate to-do, so one-click composing never destroys work.
+    if (composerDraftSaveTimerRef.current?.key === contextKey) {
+      window.clearTimeout(composerDraftSaveTimerRef.current.timer);
+      composerDraftSaveTimerRef.current = undefined;
+    }
+    const memory = composerContextKeyRef.current === contextKey
+      ? { prompt: composerPromptRef.current, attachments: composerAttachmentsRef.current }
+      : composerDraftsByKeyRef.current[contextKey];
+    if (memory) await api.saveComposerDraft({ contextKey, prompt: memory.prompt, attachments: toPromptImageAttachments(memory.attachments) });
+    const previous = await api.getComposerDraft(contextKey);
+    let preserved = false;
+    if (previous && (previous.prompt.trim() || previous.attachments?.length)) {
+      const images = await hydrateComposerImageAttachments(fromPromptImageAttachments(previous.attachments ?? []), contextKey, request => api.readPromptImageChunk(request));
+      try {
+        const matchesTodo = previous.prompt === todo.text && images.length === todo.images.length &&
+          images.every((image, index) => image.mediaType === todo.images[index]?.mediaType && image.data === todo.images[index]?.data);
+        if (!matchesTodo) {
+          const { createTodoImage } = await import("./project-todo-images");
+          await api.saveProjectTodo({ projectPath: todo.projectPath, text: previous.prompt, completed: false,
+            images: await Promise.all(images.map(image => {
+              if (!image.data) throw new Error(t("todos.draftSaveFailed"));
+              return createTodoImage(image.id, image.mediaType, image.data);
+            })),
+          });
+          preserved = true;
+        }
+      } finally { revokeComposerAttachmentPreviews(images); }
+    }
+    const attachments = todo.images.map(image => {
+      if (!image.data) throw new Error(t("todos.imageInvalid"));
+      return { mediaType: image.mediaType, data: image.data };
+    });
+    await api.saveComposerDraft({ contextKey, prompt: todo.text, attachments });
+    const nextAttachments = fromPromptImageAttachments(attachments);
+    composerDraftsByKeyRef.current[contextKey] = { prompt: todo.text, attachments: nextAttachments };
+    ++composerDraftLoadRequestRef.current;
+    const sameContext = composerContextKeyRef.current === contextKey;
+    switchProject(todo.projectPath);
+    setNewThreadCoreKind(workflowSettings.defaultCoreKind ?? "claude");
+    if (sameContext) {
+      revokeComposerAttachmentPreviews(composerAttachmentsRef.current);
+      composerPromptRef.current = todo.text;
+      setPrompt(todo.text);
+      setComposerAttachments(nextAttachments);
+      setComposerImageNotice(undefined);
+    }
+    projectTodoComposerFocusRef.current = true;
+    setProjectTodosOpen(false);
+    requestSidebarReveal("project", todo.projectPath);
+    showAppMessageSuccessRef.current(t(preserved ? "todos.draftPreserved" : "todos.composed"));
+  }
+
   function startNewChatWithPlan(plan: ThreadPendingPlan) {
     const contextKey = composerContextKeyFromParts(undefined, currentProjectPath);
     if (!contextKey) {
@@ -12498,6 +12573,13 @@ function App() {
               <Clock3 size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
               {t("scheduling.title")}
             </button>
+            <button type="button" className="sidebar-action muted" onClick={() => {
+              if (!projectTodoDraftRef.current.id && !projectTodoDraftRef.current.text && !projectTodoDraftRef.current.images.length) projectTodoDraftRef.current = { ...projectTodoDraftRef.current, projectPath: currentProjectPath ?? projects[0]?.path ?? "" };
+              setProjectTodosOpen(true);
+            }}>
+              <ClipboardList size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
+              {t("todos.title")}
+            </button>
             <div className="sidebar-section sidebar-section-grow">
               <button
                 type="button"
@@ -13119,6 +13201,14 @@ function App() {
           onRefresh={refreshPackageScripts}
         />
       ) : null}
+
+      {projectTodosOpen && window.eco && (
+        <SuspensePanel>
+          <LazyProjectTodoPanel projects={projects} currentProjectPath={currentProjectPath}
+            draft={projectTodoDraftRef.current} onDraftChange={next => { projectTodoDraftRef.current = next; }}
+            onClose={() => setProjectTodosOpen(false)} onCompose={composeProjectTodo} />
+        </SuspensePanel>
+      )}
 
       {schedulingOpen && window.eco && (
         <SuspensePanel>

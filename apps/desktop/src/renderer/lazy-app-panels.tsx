@@ -5,6 +5,8 @@ import { type ReactNode, Suspense, lazy } from "react";
  * Keep hooks used at App root (e.g. useAsrRecorder) eager; only defer mount-gated panels.
  */
 
+export const LazyProjectTodoPanel = lazy(() => import("./ProjectTodoPanel").then(m => ({ default: m.ProjectTodoPanel })));
+
 export const LazySchedulingPanel = lazy(() => import("./SchedulingPanel").then(m => ({ default: m.SchedulingPanel })));
 export const LazyScheduledMessageDialog = lazy(() => import("./ScheduledMessageDialog").then(m => ({ default: m.ScheduledMessageDialog })));
 

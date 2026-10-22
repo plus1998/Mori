@@ -1,0 +1,177 @@
+import { randomUUID } from "node:crypto";
+import path from "node:path";
+import type { DatabaseSync } from "node:sqlite";
+import {
+  type ProjectTodo,
+  type ProjectTodoImage,
+  type ProjectTodoSave,
+  type ProjectTodoTrash,
+  TODO_MAX_IMAGE_BYTES,
+  TODO_MAX_IMAGES,
+} from "../shared/project-todos";
+
+type Row = {
+  id: string;
+  revision: number;
+  project_path: string;
+  text: string;
+  completed: number;
+  created_at: string;
+  updated_at: string;
+};
+type ImageRow = { id: string; media_type: ProjectTodoImage["mediaType"]; thumbnail: string; data?: string };
+const MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/** Original images are read only for editing/handoff, never in list snapshots. */
+export class ProjectTodoStore {
+  constructor(
+    private db: DatabaseSync,
+    private thumbnail: (data: Buffer) => string,
+  ) {
+    db.exec(`PRAGMA foreign_keys=ON;
+      CREATE TABLE IF NOT EXISTS project_todos (
+        id TEXT PRIMARY KEY, revision INTEGER NOT NULL, project_path TEXT NOT NULL,
+        text TEXT NOT NULL, completed INTEGER NOT NULL, created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL, deleted_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS project_todo_images (
+        todo_id TEXT NOT NULL REFERENCES project_todos(id) ON DELETE CASCADE,
+        id TEXT NOT NULL, position INTEGER NOT NULL, media_type TEXT NOT NULL,
+        thumbnail TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(todo_id, id)
+      );`);
+    db.prepare("DELETE FROM project_todos WHERE deleted_at < ?").run(
+      new Date(Date.now() - 30 * 86400_000).toISOString(),
+    );
+  }
+  list(): ProjectTodo[] {
+    const rows = this.db
+      .prepare("SELECT * FROM project_todos WHERE deleted_at IS NULL ORDER BY created_at DESC, id")
+      .all() as Row[];
+    return rows.map((row) => this.record(row, false));
+  }
+  get(id: string): ProjectTodo {
+    const row = this.db.prepare("SELECT * FROM project_todos WHERE id=? AND deleted_at IS NULL").get(id) as
+      | Row
+      | undefined;
+    if (!row) throw new Error("Todo no longer exists.");
+    return this.record(row, true);
+  }
+  private record(row: Row, full: boolean): ProjectTodo {
+    const images = this.db
+      .prepare(
+        `SELECT id, media_type, thumbnail${full ? ", data" : ""} FROM project_todo_images WHERE todo_id=? ORDER BY position`,
+      )
+      .all(row.id) as ImageRow[];
+    return {
+      id: row.id,
+      revision: row.revision,
+      projectPath: row.project_path,
+      text: row.text,
+      completed: Boolean(row.completed),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      images: images.map((image) => ({
+        id: image.id,
+        mediaType: image.media_type,
+        thumbnail: image.thumbnail,
+        ...(image.data ? { data: image.data } : {}),
+      })),
+    };
+  }
+  save(input: ProjectTodoSave): ProjectTodo {
+    if (
+      !input ||
+      typeof input.projectPath !== "string" ||
+      !path.isAbsolute(input.projectPath) ||
+      typeof input.text !== "string" ||
+      input.text.length > 100_000 ||
+      typeof input.completed !== "boolean" ||
+      !Array.isArray(input.images) ||
+      input.images.length > TODO_MAX_IMAGES
+    )
+      throw new Error("Invalid todo.");
+    if (!input.text.trim() && !input.images.length) throw new Error("A todo needs text or an image.");
+    const id = input.id ?? randomUUID();
+    if (typeof id !== "string" || !id || id.length > 200) throw new Error("Invalid todo ID.");
+    const existing = input.id ? this.get(id) : undefined;
+    if (existing && existing.revision !== input.revision)
+      throw new Error("Todo changed. Reopen it before saving.");
+    const ids = new Set<string>();
+    const images = input.images.map((image) => {
+      if (
+        !image ||
+        typeof image.id !== "string" ||
+        !image.id ||
+        image.id.length > 200 ||
+        ids.has(image.id) ||
+        !MEDIA_TYPES.has(image.mediaType)
+      )
+        throw new Error("Invalid todo image.");
+      ids.add(image.id);
+      const previous = existing?.images.find((item) => item.id === image.id);
+      if (image.data === undefined && previous?.mediaType === image.mediaType) return previous;
+      if (
+        typeof image.data !== "string" ||
+        image.data.length > Math.ceil(TODO_MAX_IMAGE_BYTES / 3) * 4 ||
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(image.data)
+      )
+        throw new Error("Invalid todo image data.");
+      const bytes = Buffer.from(image.data, "base64");
+      if (!bytes.length || bytes.length > TODO_MAX_IMAGE_BYTES) throw new Error("Todo image exceeds 5 MB.");
+      const prefix = "data:image/png;base64,";
+      if (
+        typeof image.thumbnail !== "string" ||
+        !image.thumbnail.startsWith(prefix) ||
+        image.thumbnail.length > 300_000
+      )
+        throw new Error("Invalid todo image preview.");
+      const thumbnail = this.thumbnail(Buffer.from(image.thumbnail.slice(prefix.length), "base64"));
+      if (!thumbnail) throw new Error("Unable to decode todo image preview.");
+      return { id: image.id, mediaType: image.mediaType, data: bytes.toString("base64"), thumbnail };
+    });
+    const now = new Date().toISOString();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db
+        .prepare(`INSERT INTO project_todos (id, revision, project_path, text, completed, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, project_path=excluded.project_path, text=excluded.text, completed=excluded.completed, updated_at=excluded.updated_at`)
+        .run(
+          id,
+          (existing?.revision ?? 0) + 1,
+          input.projectPath,
+          input.text,
+          Number(input.completed),
+          existing?.createdAt ?? now,
+          now,
+        );
+      this.db.prepare("DELETE FROM project_todo_images WHERE todo_id=?").run(id);
+      const insert = this.db.prepare("INSERT INTO project_todo_images VALUES (?, ?, ?, ?, ?, ?)");
+      images.forEach((image, index) => {
+        if (!image.data) throw new Error("Todo image data missing.");
+        insert.run(id, image.id, index, image.mediaType, image.thumbnail, image.data);
+      });
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return this.record(this.db.prepare("SELECT * FROM project_todos WHERE id=?").get(id) as Row, false);
+  }
+  trash(input: ProjectTodoTrash): number {
+    if (
+      !input ||
+      typeof input.id !== "string" ||
+      typeof input.deleted !== "boolean" ||
+      !Number.isInteger(input.revision)
+    )
+      throw new Error("Invalid todo deletion.");
+    const result = this.db
+      .prepare("UPDATE project_todos SET deleted_at=?, revision=revision+1 WHERE id=? AND revision=?")
+      .run(input.deleted ? new Date().toISOString() : null, input.id, input.revision);
+    if (!result.changes) throw new Error("Todo changed. Refresh before trying again.");
+    return input.revision + 1;
+  }
+  close() {
+    this.db.close();
+  }
+}

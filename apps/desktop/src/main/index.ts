@@ -1,3 +1,5 @@
+import { ProjectTodoStore } from "./project-todo-store";
+import type { ProjectTodoSave, ProjectTodoTrash } from "../shared/project-todos";
 import { TtsReadAloudService } from "./tts-read-aloud";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -1539,6 +1541,7 @@ let agentOrchestrationStore: AgentOrchestrationStore;
 let mcpStore: McpStore;
 let mcpHubGateway: McpHubGateway;
 let conversationStore: ConversationStore;
+let projectTodoStore: ProjectTodoStore;
 let conversationForkCommands: ConversationForkCommands | undefined;
 
 function getConversationForkCommands(): ConversationForkCommands {
@@ -2581,6 +2584,14 @@ app
       },
     );
     const dbPath = path.join(app.getPath("userData"), "eco-coding.sqlite");
+    const todoSqlite = await import("node:sqlite");
+    projectTodoStore = new ProjectTodoStore(new todoSqlite.DatabaseSync(dbPath), bytes => {
+      const image = nativeImage.createFromBuffer(bytes);
+      if (image.isEmpty()) return "";
+      const size = image.getSize();
+      return image.resize(size.width >= size.height ? { width: Math.min(240, size.width) } : { height: Math.min(180, size.height) }).toDataURL();
+    });
+    app.once("will-quit", () => projectTodoStore.close());
     providerStore = await createProviderStore(dbPath);
     agentOrchestrationStore = await createAgentOrchestrationStore(dbPath);
     mcpStore = await createMcpStore(dbPath);
@@ -4763,6 +4774,13 @@ function showDesktopNotification(content: { title: string; body: string }, threa
 }
 
 function registerIpcHandlers(): void {
+  registerDesktopCommand(IPC_CHANNELS.projectTodoList, () => projectTodoStore.list());
+  registerDesktopCommand(IPC_CHANNELS.projectTodoGet, (id: string) => {
+    if (typeof id !== "string") throw new Error("Invalid todo ID.");
+    return projectTodoStore.get(id);
+  });
+  registerDesktopCommand(IPC_CHANNELS.projectTodoSave, (input: ProjectTodoSave) => projectTodoStore.save(input));
+  registerDesktopCommand(IPC_CHANNELS.projectTodoTrash, (input: ProjectTodoTrash) => projectTodoStore.trash(input));
   registerDesktopCommand(IPC_CHANNELS.schedulingList, () => schedulingService.store.snapshot());
   registerDesktopCommand(IPC_CHANNELS.schedulingCreate, (input: ScheduleCreateInput) => {
     if (input.kind === "scheduled_task")
