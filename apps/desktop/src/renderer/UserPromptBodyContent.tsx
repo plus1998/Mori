@@ -5,7 +5,7 @@ import { dispatchWorkspaceFileReference, workspaceFileReferenceBasename } from "
 import { previewBrowserSelection } from "./browser-selection-events";
 
 /** Render user-prompt text with `@file{abs}` chips; other tokens stay literal. */
-export function UserPromptBodyContent({ text }: { text: string }) {
+export function UserPromptBodyContent({ text, interactive = true }: { text: string; interactive?: boolean }) {
   const segments = parsePromptSegments(text);
   const hasFileChip = segments.some((segment) => segment.type === "file" || segment.type === "reference");
   if (!hasFileChip) {
@@ -22,7 +22,7 @@ export function UserPromptBodyContent({ text }: { text: string }) {
         }
         if (segment.type === "reference") {
           const ref = segment.reference;
-          if (ref.kind === "web_selection") return (
+          if (ref.kind === "web_selection" && interactive) return (
             <button key={`r-${index}`} type="button" className="markdown-file-ref run-log-user-prompt-file-ref composer-reference-display"
               title={`${ref.label} · ${ref.detail}`} onClick={() => previewBrowserSelection(ref.id)}>
               <ComposerReferenceIcon reference={ref} size={14} /><span>@{ref.label}</span>
@@ -40,6 +40,12 @@ export function UserPromptBodyContent({ text }: { text: string }) {
           );
         }
         const label = workspaceFileReferenceBasename(segment.path);
+        if (!interactive) return (
+          <span key={`f-${index}-${segment.path}`} className="markdown-file-ref run-log-user-prompt-file-ref" title={segment.path}>
+            <MaterialFileIcon path={segment.path} size={14} className="markdown-file-ref__icon" />
+            <span className="markdown-file-ref__label">{label}</span>
+          </span>
+        );
         return (
           <button
             key={`f-${index}-${segment.path}`}

@@ -7,6 +7,7 @@ import { useComposerReferences } from "./use-composer-references";
 import { composerReferenceToken } from "../shared/composer-references";
 import { browserSelectionReference, type BrowserSelection } from "../shared/browser-selection";
 import { BrowserSelectionPreview } from "./BrowserSelectionPreview";
+import { FollowUpPromptPreview } from "./FollowUpPromptPreview";
 import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "./browser-selection-events";
 import { ACP_IMAGE_ONLY_PROMPT } from "@eco/runtime/acp-prompt";
 import { OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID } from "../shared/agent-orchestration";
@@ -509,7 +510,6 @@ import {
 } from "./thinking-display-preferences";
 import {
   canEscalateThreadFollowUp,
-  formatThreadFollowUpPreview,
   mergeThreadFollowUp,
   mergeThreadFollowUps,
   queuedThreadFollowUps,
@@ -14146,7 +14146,7 @@ function FollowUpQueuePanel({
                 >
                   <GripVertical size={14} aria-hidden />
                 </span>
-                <span className="follow-up-card-text">{formatThreadFollowUpPreview(followUp)}</span>
+                <FollowUpPromptPreview followUp={followUp} />
               </div>
               <div className="follow-up-card-actions">
                 {isEditing ? (

@@ -4723,6 +4723,29 @@ button.sidebar-settings-meta {
   white-space: nowrap;
 }
 
+.follow-up-card-text .markdown-file-ref {
+  max-width: min(280px, 100%);
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--follow-up-card-text) 13%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--follow-up-card-text) 5%, transparent);
+  color: inherit;
+  line-height: 18px;
+  vertical-align: middle;
+}
+
+.follow-up-card-text .markdown-file-ref > svg {
+  flex: none;
+}
+
+.follow-up-card-text .markdown-file-ref > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .follow-up-card-actions {
   display: inline-flex;
   flex-shrink: 0;
