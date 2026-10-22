@@ -8,17 +8,25 @@ const seed = Array.from({ length: 8 }, (_, index) => `Line ${index + 1}: editabl
 function ComposerHeightFixture() {
   const [value, setValue] = useState(seed);
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: 480, width: 600 }}>
-      <div
-        data-testid="feed"
-        style={{ flex: "1 1 0", minHeight: 0, overflow: "auto", overflowAnchor: "none" }}
-      >
-        <div style={{ height: 3000 }}>Recorded feed content</div>
+    <>
+      <div style={{ display: "flex", flexDirection: "column", height: 480, width: 600 }}>
+        <div
+          data-testid="feed"
+          style={{ flex: "1 1 0", minHeight: 0, overflow: "auto", overflowAnchor: "none" }}
+        >
+          <div style={{ height: 3000 }}>Recorded feed content</div>
+        </div>
+        <div style={{ flex: "0 0 auto" }}>
+          <ComposerSkillsInput value={value} onChange={setValue} skillsByName={skills} maxHeight={200} />
+        </div>
       </div>
-      <div style={{ flex: "0 0 auto" }}>
-        <ComposerSkillsInput value={value} onChange={setValue} skillsByName={skills} maxHeight={200} />
-      </div>
-    </div>
+      <output hidden data-testid="draft-value">
+        {value}
+      </output>
+      <button type="button" onClick={() => setValue(seed)}>
+        Reset draft
+      </button>
+    </>
   );
 }
 

@@ -16,12 +16,11 @@ import { ComposerContextMenu, type ComposerContextMenuAnchor } from "./ComposerC
 import { copyTextToClipboard } from "./clipboard";
 import { readComposerClipboard } from "./composer-clipboard-paste";
 import { previewBrowserSelection } from "./browser-selection-events";
+import { ComposerEditHistory, type ComposerEditSnapshot } from "./composer-edit-history";
 import {
   getCursorOffset,
   getSelectionOffsets,
   handleFileChipDeletion,
-  insertNewlineAtSelection,
-  insertPlainTextAtSelection,
   renderEditablePrompt,
   serializeEditable,
   setSelectionAtPoint,
@@ -74,6 +73,8 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
     const editorRef = useRef<HTMLDivElement>(null);
     const isComposingRef = useRef(false);
     const lastEmittedValueRef = useRef(value);
+    const historyRef = useRef(new ComposerEditHistory());
+    const pendingEditRef = useRef<{ before: ComposerEditSnapshot; inputType: string } | null>(null);
     const skillsByNameRef = useRef(skillsByName);
     skillsByNameRef.current = skillsByName;
     const [contextMenu, setContextMenu] = useState<ComposerContextMenuAnchor | undefined>(undefined);
@@ -120,11 +121,85 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
         renderEditablePrompt(editor, next, skillsByNameRef.current);
         setSelectionOffsets(editor, cursor, cursor);
       }
+      const selection = getSelectionOffsets(editor);
+      const pending = pendingEditRef.current;
+      pendingEditRef.current = null;
+      historyRef.current.record(
+        pending?.before ?? { value: lastEmittedValueRef.current, ...selection },
+        { value: next, ...selection },
+        pending?.inputType ?? "insertReplacementText",
+      );
       lastEmittedValueRef.current = next;
       onChange(next);
-      onCursorChange?.(getCursorOffset(editor));
+      onCursorChange?.(selection.end);
       fitHeight(editor);
     }, [onChange, onCursorChange, fitHeight]);
+
+    const captureEdit = useCallback((inputType: string) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      pendingEditRef.current = {
+        before: { value: lastEmittedValueRef.current, ...getSelectionOffsets(editor) },
+        inputType,
+      };
+    }, []);
+
+    const restoreHistory = useCallback((direction: "undo" | "redo") => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const snapshot = historyRef.current[direction]();
+      if (!snapshot) return;
+      pendingEditRef.current = null;
+      renderEditablePrompt(editor, snapshot.value, skillsByNameRef.current);
+      setSelectionOffsets(editor, snapshot.start, snapshot.end);
+      lastEmittedValueRef.current = snapshot.value;
+      onChange(snapshot.value);
+      onCursorChange?.(snapshot.end);
+      fitHeight(editor);
+    }, [onChange, onCursorChange, fitHeight]);
+
+    const replaceSelectedText = useCallback((text: string, inputType: string) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      captureEdit(inputType);
+      const { before } = pendingEditRef.current!;
+      const start = Math.min(before.start, before.end);
+      const end = Math.max(before.start, before.end);
+      const next = before.value.slice(0, start) + text + before.value.slice(end);
+      // Native selected deletion builds an editing command for every DOM node.
+      // Replace the model once instead, including paste/cut over a large selection.
+      renderEditablePrompt(editor, next, skillsByNameRef.current);
+      setSelectionOffsets(editor, start + text.length, start + text.length);
+      commitEditorValue();
+    }, [captureEdit, commitEditorValue]);
+
+    useEffect(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const beforeInput = (event: InputEvent) => {
+        if (disabled || isComposingRef.current || event.isComposing) return;
+        if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
+          event.preventDefault();
+          restoreHistory(event.inputType === "historyUndo" ? "undo" : "redo");
+          return;
+        }
+        const selection = window.getSelection();
+        if (event.cancelable && selection && !selection.isCollapsed &&
+          editor.contains(selection.anchorNode) && editor.contains(selection.focusNode)) {
+          const replacement = event.inputType.startsWith("delete") ? "" :
+            event.inputType === "insertParagraph" || event.inputType === "insertLineBreak" ? "\n" :
+            event.inputType === "insertText" || event.inputType === "insertReplacementText" ? event.data : null;
+          if (replacement !== null) {
+            event.preventDefault();
+            replaceSelectedText(replacement, event.inputType);
+            return;
+          }
+        }
+        captureEdit(event.inputType);
+      };
+      editor.addEventListener("beforeinput", beforeInput);
+      return () => editor.removeEventListener("beforeinput", beforeInput);
+    }, [captureEdit, replaceSelectedText, restoreHistory, disabled]);
 
     useImperativeHandle(
       ref,
@@ -147,8 +222,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
           if (isComposingRef.current) {
             return;
           }
-          insertNewlineAtSelection();
-          commitEditorValue();
+          replaceSelectedText("\n", "insertLineBreak");
         },
         fitHeight: () => {
           if (editorRef.current) {
@@ -156,7 +230,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
           }
         },
       }),
-      [commitEditorValue, fitHeight],
+      [replaceSelectedText, fitHeight],
     );
 
     const syncDomFromValue = useCallback(
@@ -190,6 +264,10 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
         return;
       }
       const isExternalUpdate = value !== lastEmittedValueRef.current;
+      if (isExternalUpdate) {
+        historyRef.current.clear();
+        pendingEditRef.current = null;
+      }
       syncDomFromValue(!isExternalUpdate);
       lastEmittedValueRef.current = value;
       fitHeight(editor);
@@ -224,6 +302,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
     };
 
     const handleCompositionStart = () => {
+      captureEdit("insertCompositionText");
       isComposingRef.current = true;
     };
 
@@ -244,6 +323,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
 
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
       if (
+        disabled ||
         isComposingRef.current ||
         event.nativeEvent.isComposing ||
         event.key === "Process" ||
@@ -259,7 +339,22 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
         return;
       }
       const editor = editorRef.current;
+      const key = event.key.toLowerCase();
+      if (editor && (event.metaKey || event.ctrlKey) && !event.altKey && key === "a") {
+        event.preventDefault();
+        // Chromium's visual select-all can omit an otherwise blank/trailing newline.
+        const length = serializeEditable(editor).length;
+        setSelectionOffsets(editor, 0, length);
+        onCursorChange?.(length);
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && (key === "z" || key === "y")) {
+        event.preventDefault();
+        restoreHistory(key === "y" || event.shiftKey ? "redo" : "undo");
+        return;
+      }
       if (editor && (event.key === "Backspace" || event.key === "Delete")) {
+        captureEdit(event.key === "Backspace" ? "deleteContentBackward" : "deleteContentForward");
         const deletion = handleFileChipDeletion(
           editor,
           event.key === "Backspace" ? "backward" : "forward",
@@ -287,8 +382,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
         return;
       }
       event.preventDefault();
-      insertPlainTextAtSelection(text);
-      handleInput();
+      replaceSelectedText(text, "insertFromPaste");
     };
 
     /**
@@ -342,8 +436,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
       }
       editor.focus();
       setSelectionOffsets(editor, anchor.start, anchor.end);
-      insertPlainTextAtSelection(text);
-      commitEditorValue();
+      replaceSelectedText(text, text ? "insertFromPaste" : "deleteByCut");
     };
 
     const handleContextMenuCut = () => {
@@ -421,7 +514,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
             const chip = target?.closest<HTMLElement>('[data-reference-kind="web_selection"]');
             if (chip && editorRef.current?.contains(chip)) {
               if (target?.closest("[data-reference-remove]")) {
-                if (!disabled) { chip.remove(); commitEditorValue(); }
+                if (!disabled) { captureEdit("deleteContent"); chip.remove(); commitEditorValue(); }
               }
               else if (chip.dataset.referenceId) previewBrowserSelection(chip.dataset.referenceId);
               return;
