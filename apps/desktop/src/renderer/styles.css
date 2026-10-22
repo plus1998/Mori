@@ -9517,6 +9517,16 @@ button.integrated-web-search-clear-key:disabled {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+.codex-quota-window {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.codex-quota-window + .codex-quota-window {
+  padding-left: 10px;
+  border-left: 1px solid var(--border-subtle);
+}
 .codex-quota-summary b {
   color: var(--text-secondary);
   font-weight: 500;

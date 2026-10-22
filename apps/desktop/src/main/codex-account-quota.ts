@@ -1,0 +1,132 @@
+import { spawn } from "node:child_process";
+import { CodexAppServerClient } from "@eco/runtime/codex-app-server-client";
+import type { OpenAIAccountQuota, OpenAIAccountQuotaWindow } from "../shared/openai-account";
+import { buildCodexAppServerEnv } from "./codex-runtime-lifecycle";
+
+export interface CodexQuotaClient {
+  request<T = unknown>(method: string, params?: unknown, options?: { timeoutMs?: number }): Promise<T>;
+}
+
+interface AccountResponse {
+  account: { type: string; email?: string | null; planType?: string | null } | null;
+}
+
+interface RateLimitWindow {
+  usedPercent: number;
+  windowDurationMins?: number | null;
+  resetsAt?: number | null;
+}
+
+interface RateLimitSnapshot {
+  planType?: string | null;
+  primary?: RateLimitWindow | null;
+  secondary?: RateLimitWindow | null;
+  rateLimitReachedType?: string | null;
+}
+
+interface RateLimitsResponse {
+  accountId?: string | null;
+  rateLimits: RateLimitSnapshot;
+  rateLimitsByLimitId?: Record<string, RateLimitSnapshot> | null;
+  rateLimitResetCredits?: { availableCount: number } | null;
+  ordinaryUsageAllowed?: boolean | null;
+}
+
+function isAuthenticationError(error: unknown): boolean {
+  return error instanceof Error && /\b401\b|unauthorized|access[_ ]token.*expir|token[_ ]expired/iu.test(error.message);
+}
+
+/** Account RPCs do not create a thread or run a model turn. */
+export async function readCodexAccountQuota(client: CodexQuotaClient, refreshToken = false, expectedAccountId?: string): Promise<OpenAIAccountQuota> {
+  const requestOptions = { timeoutMs: 30_000 };
+  let account: AccountResponse;
+  let result: RateLimitsResponse;
+  try {
+    account = await client.request<AccountResponse>("account/read", { refreshToken }, requestOptions);
+    result = await client.request<RateLimitsResponse>("account/rateLimits/read", undefined, requestOptions);
+  } catch (error) {
+    // Refresh once, and only for an authentication failure. Network/server
+    // errors must remain visible instead of rotating credentials unnecessarily.
+    if (refreshToken || !isAuthenticationError(error)) throw error;
+    account = await client.request<AccountResponse>("account/read", { refreshToken: true }, requestOptions);
+    result = await client.request<RateLimitsResponse>("account/rateLimits/read", undefined, requestOptions);
+  }
+  if (account.account?.type !== "chatgpt") throw new Error("额度查询需要 ChatGPT 登录凭据，请重新登录该账号。");
+  if (result.accountId && expectedAccountId && result.accountId !== expectedAccountId) throw new Error("Codex 返回的额度不属于所查询的账号，请重新刷新。");
+  // Do not select an unrelated premium/model bucket when a multi-bucket
+  // response omits the ordinary Codex bucket.
+  const limits = result.rateLimitsByLimitId ? result.rateLimitsByLimitId.codex : result.rateLimits;
+  if (!limits) throw new Error("Codex 未返回账号额度。");
+  const fetchedAt = Date.now();
+  const mapWindow = (window: RateLimitWindow | null | undefined): OpenAIAccountQuotaWindow | null => {
+    if (!window) return null;
+    if (!Number.isFinite(window.usedPercent)) throw new Error("Codex 返回的额度使用比例无效。");
+    const resetAt = window.resetsAt ?? 0;
+    return {
+      usedPercent: window.usedPercent,
+      limitWindowSeconds: (window.windowDurationMins ?? 0) * 60,
+      resetAt,
+      resetAfterSeconds: resetAt > 0 ? Math.max(0, Math.ceil(resetAt - fetchedAt / 1_000)) : 0,
+    };
+  };
+  const primaryWindow = mapWindow(limits.primary);
+  const secondaryWindow = mapWindow(limits.secondary);
+  const limitReached = Boolean(limits.rateLimitReachedType) ||
+    [primaryWindow, secondaryWindow].some((window) => window !== null && window.usedPercent >= 100);
+  return {
+    planType: limits.planType ?? account.account.planType ?? "unknown",
+    email: account.account.email ?? "",
+    rateLimit: {
+      allowed: result.ordinaryUsageAllowed ?? !limitReached,
+      limitReached,
+      primaryWindow,
+      secondaryWindow,
+    },
+    resetCreditsAvailable: result.rateLimitResetCredits?.availableCount ?? 0,
+    fetchedAt,
+  };
+}
+
+/** An inactive account gets its own CODEX_HOME, never the running account's auth. */
+export async function queryIsolatedCodexAccountQuota(input: {
+  executable: string;
+  codexHomeDir: string;
+  proxyUrl?: string;
+  refreshToken: boolean;
+  expectedAccountId: string;
+}): Promise<OpenAIAccountQuota> {
+  const env = buildCodexAppServerEnv(process.env, input.codexHomeDir, input.proxyUrl);
+  // These would override the account's file-backed login in the child process.
+  delete env.OPENAI_API_KEY;
+  delete env.CODEX_API_KEY;
+  delete env.CODEX_ACCESS_TOKEN;
+  const child = spawn(input.executable, ["app-server", "--stdio", "-c", 'cli_auth_credentials_store="file"'], {
+    env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  child.stderr.resume();
+  const client = CodexAppServerClient.attachToProcess(child, { timeoutMs: 30_000 });
+  let spawnError: Error | undefined;
+  child.once("error", (error) => {
+    spawnError = error;
+    client.close();
+  });
+  try {
+    await client.initialize({ clientInfo: { name: "eco_coding", title: "Eco Coding", version: "0.1.0" } });
+    return await readCodexAccountQuota(client, input.refreshToken, input.expectedAccountId);
+  } catch (error) {
+    throw spawnError ?? error;
+  } finally {
+    client.close();
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => child.kill("SIGKILL"), 1_000);
+        child.once("exit", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        child.kill("SIGTERM");
+      });
+    }
+  }
+}

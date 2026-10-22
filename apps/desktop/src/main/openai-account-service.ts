@@ -2,11 +2,8 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import http from "node:http";
-import https from "node:https";
 import net from "node:net";
 import path from "node:path";
-import { createUpstreamFetchController } from "@eco/gateway";
-import { SocksProxyAgent } from "socks-proxy-agent";
 import { SocksClient } from "socks";
 import type {
   OpenAIAccount as OpenAIAccountShared,
@@ -19,6 +16,7 @@ import type {
 } from "../shared/openai-account";
 import { OpenAIAccountStore } from "./openai-account-store";
 import { startCodexBrowserLogin } from "./codex-browser-login";
+import { queryIsolatedCodexAccountQuota, readCodexAccountQuota, type CodexQuotaClient } from "./codex-account-quota";
 
 export type { OpenAIAccount, OpenAIAccountQuota } from "../shared/openai-account";
 
@@ -114,15 +112,6 @@ export function readAuthAccountId(content: string): string | undefined {
   }
 }
 
-function proxyEndpointForLog(proxyUrl: string): string {
-  try {
-    const parsed = new URL(proxyUrl);
-    return `${parsed.protocol}//${parsed.hostname}${parsed.port ? `:${parsed.port}` : ""}`;
-  } catch {
-    return "invalid-proxy-url";
-  }
-}
-
 /**
  * Start a local HTTP CONNECT proxy that tunnels through SOCKS5 (with auth).
  * Returns { port, close } for the local server.
@@ -213,11 +202,13 @@ export class OpenAIAccountService {
   private initialized = false;
   private readonly codexExecutableProvider: () => string | undefined;
   private readonly activeLogins = new Map<string, { cancel: () => void; result: Promise<OpenAIAccountLoginResult> }>();
+  private readonly quotaQueries = new Map<string, Promise<OpenAIAccountQuota>>();
 
   constructor(
     userDataDir: string,
     codexExecutable: string | (() => string | undefined) = () => undefined,
     private readonly onAccountsChanged?: (state: { syncStatus: OpenAIAccountSyncStatus }) => void,
+    private readonly getActiveQuotaClient?: () => Promise<CodexQuotaClient>,
   ) {
     this.accountsDir = path.join(userDataDir, "codex-accounts");
     this.mainCodexDir = path.join(userDataDir, "codex");
@@ -906,194 +897,81 @@ export class OpenAIAccountService {
     return (await this.requireAccount(activeId)).proxyUrl?.trim() || undefined;
   }
 
-  async queryQuota(accountId: string): Promise<OpenAIAccountQuota> {
+  queryQuota(accountId: string): Promise<OpenAIAccountQuota> {
+    const existing = this.quotaQueries.get(accountId);
+    if (existing) return existing;
+    // Hold the auth queue until credential writeback finishes. Account switches
+    // must not publish this account's old refresh token while a query rotates it.
+    const work = this.authSyncQueue.then(() => this.queryQuotaUnlocked(accountId));
+    // An unavailable quota endpoint is not an auth-file synchronization error.
+    this.authSyncQueue = work.then(() => undefined, () => undefined);
+    this.quotaQueries.set(accountId, work);
+    void work.finally(() => this.quotaQueries.delete(accountId)).catch(() => undefined);
+    return work;
+  }
+
+  private async queryQuotaUnlocked(accountId: string): Promise<OpenAIAccountQuota> {
+    const active = this.getStore().getActiveAccountId() === accountId;
+    if (active) {
+      await this.reconcileMainAuth();
+      if (this.getPendingAccountId() !== undefined || this.syncStatus.state !== "ok") {
+        throw new Error("当前账号凭据正在更新、切换或同步失败，请稍后重新刷新额度。");
+      }
+    }
     const account = await this.requireAccount(accountId);
-    let auth: {
-      access_token?: string;
-      account_id?: string;
-      tokens?: { access_token?: string; account_id?: string };
-    };
-    try {
-      const content = account.authJson;
-      if (!content) throw new Error("missing auth.json");
-      auth = JSON.parse(content);
-    } catch (e) {
-      console.error(`[openai-quota] Failed to read auth.json for ${accountId}.`);
-      throw new Error("OpenAI account auth.json could not be read.");
-    }
-
-    // Token can be at top level or nested under "tokens"
-    const accessToken = auth.access_token ?? auth.tokens?.access_token;
-    const chatgptAccountId = auth.account_id ?? auth.tokens?.account_id;
-    if (!accessToken || !chatgptAccountId) {
-      console.error(`[openai-quota] Missing access_token or account_id for ${accountId}`);
-      throw new Error("OpenAI account credentials are incomplete.");
-    }
-
-    // Get the account's proxy URL.
-    const proxyUrl = account.proxyUrl?.trim() || undefined;
-
+    if (!account.authJson) throw new Error("该账号没有登录凭据，请先登录。");
+    const chatgptAccountId = readAuthAccountId(account.authJson);
+    if (!chatgptAccountId) throw new Error("账号凭据缺少 ChatGPT 账号身份，请重新登录。");
+    const refreshToken = this.readAuthState(account.authJson) === "expired";
     let quota: OpenAIAccountQuota;
-    try {
-      console.log(
-        `[openai-quota] Querying usage for account ${accountId}${proxyUrl ? ` via proxy ${proxyEndpointForLog(proxyUrl)}` : ""}`,
-      );
-
-      let resp: { status: number; ok: boolean; json: () => Promise<unknown>; text: () => Promise<string> };
-
-      if (proxyUrl) {
-        const parsed = new URL(proxyUrl);
-        if (parsed.protocol.startsWith("socks")) {
-          // Use SocksProxyAgent (supports auth)
-          const agent = new SocksProxyAgent(proxyUrl);
-          const data = await new Promise<{ status: number; body: string }>((resolve, reject) => {
-            const req = https.request(
-              {
-                host: "chatgpt.com",
-                port: 443,
-                path: "/backend-api/wham/usage",
-                method: "GET",
-                agent,
-                timeout: 20000,
-                headers: {
-                  authorization: `Bearer ${accessToken}`,
-                  "chatgpt-account-id": chatgptAccountId,
-                  "openai-beta": "codex-1",
-                  "oai-language": "zh-CN",
-                  originator: "Codex Desktop",
-                  accept: "application/json",
-                  "sec-fetch-site": "none",
-                  "sec-fetch-mode": "no-cors",
-                  "sec-fetch-dest": "empty",
-                  priority: "u=4, i",
-                },
-              },
-              (res) => {
-                let body = "";
-                res.on("data", (chunk) => (body += chunk));
-                res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
-              },
-            );
-            req.on("error", reject);
-            req.on("timeout", () => { req.destroy(); reject(new Error("timeout")); });
-            req.end();
+    if (active) {
+      if (!this.getActiveQuotaClient) throw new Error("当前账号的 Codex 额度查询客户端不可用。");
+      try {
+        quota = await readCodexAccountQuota(await this.getActiveQuotaClient(), refreshToken, chatgptAccountId);
+      } finally {
+        // A token refresh may have succeeded even if the later quota read failed.
+        await this.reconcileMainAuth();
+      }
+    } else {
+      const executable = this.codexExecutableProvider();
+      if (!executable) throw new Error("Codex CLI 未找到，无法刷新账号额度。");
+      const codexHomeDir = await fs.mkdtemp(path.join(this.accountsDir, `quota-${accountId}-`));
+      let bridge: { close: () => void } | undefined;
+      let preserveCredentials = false;
+      try {
+        await fs.writeFile(path.join(codexHomeDir, "auth.json"), account.authJson, { mode: 0o600 });
+        let proxyUrl = account.proxyUrl?.trim();
+        if (proxyUrl && new URL(proxyUrl).protocol.startsWith("socks")) {
+          const socksBridge = await startSocksToHttpBridge(proxyUrl);
+          bridge = socksBridge;
+          proxyUrl = `http://127.0.0.1:${socksBridge.port}`;
+        }
+        try {
+          quota = await queryIsolatedCodexAccountQuota({
+            executable, codexHomeDir, refreshToken, expectedAccountId: chatgptAccountId,
+            ...(proxyUrl ? { proxyUrl } : {}),
           });
-          resp = {
-            status: data.status,
-            ok: data.status === 200,
-            json: async () => JSON.parse(data.body),
-            text: async () => data.body,
-          };
-        } else {
-          // HTTP proxy: use undici via createUpstreamFetchController
-          const controller = createUpstreamFetchController(proxyUrl);
-          try {
-            const fetcher = controller.fetch;
-            const r = await fetcher("https://chatgpt.com/backend-api/wham/usage", {
-              method: "GET",
-              headers: {
-                authorization: `Bearer ${accessToken}`,
-                "chatgpt-account-id": chatgptAccountId,
-                "openai-beta": "codex-1",
-                "oai-language": "zh-CN",
-                originator: "Codex Desktop",
-                accept: "application/json",
-                "sec-fetch-site": "none",
-                "sec-fetch-mode": "no-cors",
-                "sec-fetch-dest": "empty",
-                priority: "u=4, i",
-              },
-            });
-            resp = r;
-          } finally {
-            controller.close();
+        } finally {
+          const updatedAuth = await this.readFileOrNull(path.join(codexHomeDir, "auth.json"));
+          if (updatedAuth !== null && updatedAuth !== account.authJson) {
+            try {
+              parseAuthJson(updatedAuth);
+              if (readAuthAccountId(updatedAuth) !== chatgptAccountId) throw new Error("刷新后的账号身份不匹配");
+              if (this.getStore().get(accountId)?.authJson !== account.authJson) throw new Error("查询期间账号凭据已变更");
+              this.getStore().saveAuthJson(accountId, updatedAuth);
+              this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+            } catch (error) {
+              preserveCredentials = true;
+              throw new Error(`额度查询后的凭据保存失败，新凭据已保留在 ${codexHomeDir}：${error instanceof Error ? error.message : String(error)}`);
+            }
           }
         }
-      } else {
-        const r = await fetch("https://chatgpt.com/backend-api/wham/usage", {
-          method: "GET",
-          headers: {
-            authorization: `Bearer ${accessToken}`,
-            "chatgpt-account-id": chatgptAccountId,
-            "openai-beta": "codex-1",
-            "oai-language": "zh-CN",
-            originator: "Codex Desktop",
-            accept: "application/json",
-            "sec-fetch-site": "none",
-            "sec-fetch-mode": "no-cors",
-            "sec-fetch-dest": "empty",
-            priority: "u=4, i",
-          },
-        });
-        resp = r;
+      } finally {
+        bridge?.close();
+        if (!preserveCredentials) await fs.rm(codexHomeDir, { recursive: true, force: true });
       }
-
-      console.log(`[openai-quota] Response status: ${resp.status}`);
-      if (!resp.ok) {
-        await resp.text().catch(() => "");
-        console.error(`[openai-quota] Non-OK response for ${accountId}: ${resp.status}`);
-        throw new Error(`OpenAI quota request failed with status ${resp.status}.`);
-      }
-
-      const data = (await resp.json()) as {
-        plan_type?: string;
-        email?: string;
-        rate_limit?: {
-          allowed?: boolean;
-          limit_reached?: boolean;
-          primary_window?: {
-            used_percent?: number;
-            limit_window_seconds?: number;
-            reset_after_seconds?: number;
-            reset_at?: number;
-          };
-          secondary_window?: {
-            used_percent?: number;
-            limit_window_seconds?: number;
-            reset_after_seconds?: number;
-            reset_at?: number;
-          };
-        };
-        rate_limit_reset_credits?: {
-          available_count?: number;
-        };
-      };
-
-      quota = {
-        planType: data.plan_type ?? "unknown",
-        email: data.email ?? "",
-        rateLimit: {
-          allowed: data.rate_limit?.allowed ?? true,
-          limitReached: data.rate_limit?.limit_reached ?? false,
-          primaryWindow: data.rate_limit?.primary_window
-            ? {
-                usedPercent: data.rate_limit.primary_window.used_percent ?? 0,
-                limitWindowSeconds: data.rate_limit.primary_window.limit_window_seconds ?? 0,
-                resetAfterSeconds: data.rate_limit.primary_window.reset_after_seconds ?? 0,
-                resetAt: data.rate_limit.primary_window.reset_at ?? 0,
-              }
-            : null,
-          secondaryWindow: data.rate_limit?.secondary_window
-            ? {
-                usedPercent: data.rate_limit.secondary_window.used_percent ?? 0,
-                limitWindowSeconds: data.rate_limit.secondary_window.limit_window_seconds ?? 0,
-                resetAfterSeconds: data.rate_limit.secondary_window.reset_after_seconds ?? 0,
-                resetAt: data.rate_limit.secondary_window.reset_at ?? 0,
-              }
-            : null,
-        },
-        resetCreditsAvailable: data.rate_limit_reset_credits?.available_count ?? 0,
-        fetchedAt: Date.now(),
-      };
-    } catch (e) {
-      if (e instanceof Error && e.message.startsWith("OpenAI quota request failed with status")) {
-        throw e;
-      }
-      console.error(`[openai-quota] Request failed for ${accountId}.`);
-      throw new Error("OpenAI quota request failed.");
     }
-    // Only a successful refresh updates the snapshot and its timestamp. Keep
-    // storage errors distinct from network errors and do not claim success.
+    // Failed reads leave the previous successful quota and timestamp untouched.
     try {
       this.getStore().saveQuota(accountId, chatgptAccountId, quota);
     } catch (error) {

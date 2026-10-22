@@ -6856,7 +6856,7 @@ function registerIpcHandlers(): void {
           for (const window of BrowserWindow.getAllWindows()) {
             if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.openAIAccountsChanged, state);
           }
-        });
+        }, ensureCodexControlPlaneClient);
         await service.initialize();
         openaiAccountService = service;
         return service;

@@ -84,14 +84,22 @@ export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error }:
   error: string | undefined;
 }) {
   const { t } = useTranslation();
-  if (!quota && !isLoggedIn) return null;
-  const primary = quota?.rateLimit.primaryWindow;
+  if (!quota && !isLoggedIn && !loading && !error) return null;
   return <span className="codex-quota-summary" aria-busy={loading}>
     {loading ? <Loader2 size={13} className="mcp-spin" aria-label={t("settings.openaiAccounts.refreshingQuotaAria")} /> : null}
     {quota ? <>
       <b>{quota.planType}</b>
-      {primary ? <em className={quota.rateLimit.limitReached ? "is-limited" : "is-ok"}>{t("settings.openaiAccounts.usedPercent", { percent: Math.round(primary.usedPercent) })}</em> : null}
-      {primary && (primary.resetAt > 0 || primary.resetAfterSeconds > 0) ? <span>{formatResetTime(primary, quota.fetchedAt, t)}</span> : null}
+      {[quota.rateLimit.primaryWindow, quota.rateLimit.secondaryWindow].map((window, index) => window ? (
+        <span className="codex-quota-window" key={index}>
+          <span>{window.limitWindowSeconds === 604_800
+            ? t("settings.openaiAccounts.weeklyQuota")
+            : window.limitWindowSeconds > 0
+              ? t("settings.openaiAccounts.windowHours", { count: window.limitWindowSeconds / 3_600 })
+              : t("settings.openaiAccounts.quotaWindow")}</span>
+          <em className={window.usedPercent >= 100 ? "is-limited" : "is-ok"}>{t("settings.openaiAccounts.usedPercent", { percent: Math.round(window.usedPercent) })}</em>
+          {window.resetAt > 0 || window.resetAfterSeconds > 0 ? <span>{formatResetTime(window, quota.fetchedAt, t)}</span> : null}
+        </span>
+      ) : null)}
       {quota.resetCreditsAvailable > 0 ? <span>{t("settings.openaiAccounts.resetCredits", { count: quota.resetCreditsAvailable })}</span> : null}
       <QuotaRefreshedAt fetchedAt={quota.fetchedAt} />
       {error ? <em className="is-error" title={error} role="status">{t("settings.openaiAccounts.quotaFailedCached")}</em> : null}
@@ -421,7 +429,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     if (!eco || accounts.length === 0 || quotaLoading || quotaLoadingId !== null) return;
     setQuotaLoading(true);
     try {
-      await Promise.all(accounts.filter((account) => account.isLoggedIn).map((account) => refreshAccountQuota(account.id)));
+      await Promise.all(accounts.filter((account) => account.authState !== "missing").map((account) => refreshAccountQuota(account.id)));
       await refresh();
     } finally {
       setQuotaLoading(false);
@@ -723,7 +731,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             type="button"
             className="chatgpt-inline-link"
             onClick={() => void refreshQuotas()}
-            disabled={quotaLoading || quotaLoadingId !== null || !accounts.some((account) => account.isLoggedIn)}
+            disabled={quotaLoading || quotaLoadingId !== null || !accounts.some((account) => account.authState !== "missing")}
           >
             <RefreshCw
               size={13}
@@ -946,7 +954,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                         })
                       : t("settings.openaiAccounts.notLoggedIn")}
                   </span>
-                  <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={account.isLoggedIn} loading={(quotaLoading && account.isLoggedIn) || quotaLoadingId === account.id} error={quotaErrors[account.id]} />
+                  <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={account.isLoggedIn} loading={(quotaLoading && account.authState !== "missing") || quotaLoadingId === account.id} error={quotaErrors[account.id]} />
                   <OpenAIAccountImageQuotaSummary account={account} loading={imageOperation?.accountId === account.id && imageOperation.kind === "quota"} />
                 </div>
                 {menuOpenId === account.id
@@ -1006,7 +1014,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                             }
                           }}
                           disabled={
-                            !account.isLoggedIn || quotaLoading || quotaLoadingId !== null
+                            account.authState === "missing" || quotaLoading || quotaLoadingId !== null
                           }
                         >
                           <RefreshCw size={14} />

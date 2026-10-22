@@ -206,3 +206,56 @@ test("quota error fallback text is localized for en-US", () => {
   expect(markup).toContain("Quota refresh failed");
   expect(markup).not.toMatch(/[\u3400-\u9fff]/u);
 });
+
+test("quota summary shows five-hour and weekly windows with their own usage and reset times", () => {
+  const fetchedAt = Date.now();
+  const quota: OpenAIAccountQuota = {
+    ...cachedQuota,
+    fetchedAt,
+    rateLimit: {
+      allowed: false,
+      limitReached: true,
+      primaryWindow: { usedPercent: 37, limitWindowSeconds: 18_000, resetAfterSeconds: 3_600, resetAt: 0 },
+      secondaryWindow: { usedPercent: 100, limitWindowSeconds: 604_800, resetAfterSeconds: 172_800, resetAt: 0 },
+    },
+  };
+  const render = (locale: "zh-CN" | "en-US") => renderLocalized(createElement(OpenAIAccountQuotaSummary, {
+    quota, isLoggedIn: true, loading: false, error: undefined,
+  }), locale);
+  const zh = render("zh-CN");
+  expect(zh).toContain("5 小时额度");
+  expect(zh).toContain("周额度");
+  expect(zh).toMatch(/class="is-ok">37% 已使用/u);
+  expect(zh).toMatch(/class="is-limited">100% 已使用/u);
+  expect(zh).toContain("1h 后重置");
+  expect(zh).toContain("2d 后重置");
+  const en = render("en-US");
+  expect(en).toContain("5-hour quota");
+  expect(en).toContain("Weekly quota");
+});
+
+test("a single returned weekly window is labelled by duration without inventing a five-hour window", () => {
+  const markup = renderLocalized(createElement(OpenAIAccountQuotaSummary, {
+    quota: {
+      ...cachedQuota,
+      rateLimit: { ...cachedQuota.rateLimit, primaryWindow: {
+        usedPercent: 12, limitWindowSeconds: 604_800, resetAfterSeconds: 0, resetAt: 0,
+      } },
+    },
+    isLoggedIn: true, loading: false, error: undefined,
+  }), "zh-CN");
+  expect(markup).toContain("周额度");
+  expect(markup).toContain("12% 已使用");
+  expect(markup).not.toContain("5 小时额度");
+});
+
+test("expired accounts without cached quota still show refresh progress and the actual failure", () => {
+  for (const loading of [true, false]) {
+    const markup = renderLocalized(createElement(OpenAIAccountQuotaSummary, {
+      quota: undefined, isLoggedIn: false, loading,
+      error: loading ? undefined : "refresh token expired; sign in again",
+    }), "zh-CN");
+    expect(markup).toContain(loading ? "正在刷新额度" : "额度刷新失败");
+    if (!loading) expect(markup).toContain('title="refresh token expired; sign in again"');
+  }
+});
