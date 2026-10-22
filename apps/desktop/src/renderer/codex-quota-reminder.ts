@@ -51,12 +51,14 @@ type QuotaBridge = Pick<
   "openAIAccountsGetActive" | "openAIAccountsList" | "openAIAccountsQueryQuota"
 >;
 
+/** syncStatus.updatedAt is rewritten by every credential reconcile; only its verdict matters here. */
 function activeAccountSignature(active: Awaited<ReturnType<QuotaBridge["openAIAccountsGetActive"]>>): string {
   return JSON.stringify([
     active.activeAccountId,
     active.pendingAccountId === undefined ? "none" : active.pendingAccountId,
     active.isLoggedIn,
-    active.syncStatus,
+    active.syncStatus.state,
+    active.syncStatus.message ?? "",
   ]);
 }
 

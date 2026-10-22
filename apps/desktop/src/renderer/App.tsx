@@ -12664,6 +12664,11 @@ function App() {
           </div>
 
           <div className="sidebar-settings-footer">
+            <CodexQuotaReminder
+              variant="sidebar"
+              threads={threads}
+              onSwitchAccount={openCodexAccountSwitch}
+            />
             <div className="sidebar-settings">
               <button
                 type="button"

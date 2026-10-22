@@ -22,15 +22,19 @@
   overscroll-behavior: contain;
 }
 
-.codex-quota-billing {
-  margin: 0 0 12px;
-  padding: 12px;
+.codex-quota-billing,
+.codex-quota-sidebar {
   border-color: var(--border-subtle);
   background: var(--bg-elevated);
   color: var(--text-primary);
   --sidebar-item-text: var(--text-secondary);
   --sidebar-item-active-text: var(--text-primary);
   --bg-sidebar: var(--bg-elevated);
+}
+
+.codex-quota-billing {
+  margin: 0 0 12px;
+  padding: 12px;
 }
 
 .codex-quota-billing .codex-quota-refresh-error {

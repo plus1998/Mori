@@ -218,6 +218,40 @@ test("quota's own account-change event does not start a refresh feedback loop", 
   monitor.dispose();
 });
 
+test("credential reconcile timestamps do not invalidate a quota refresh", async () => {
+  // The main process rewrites syncStatus.updatedAt on every credential reconcile
+  // and then emits its own accounts-changed event after saving quota. Treating that
+  // timestamp as an identity change made the monitor clear and re-query forever.
+  const api = bridge();
+  let queries = 0;
+  let stamp = 0;
+  let monitor!: CodexQuotaMonitor;
+  api.openAIAccountsGetActive = async () => ({
+    ...active(),
+    syncStatus: {
+      state: "ok" as const,
+      updatedAt: new Date(Date.UTC(2026, 0, 1) + stamp++ * 5_000).toISOString(),
+    },
+  });
+  api.openAIAccountsQueryQuota = async () => {
+    queries++;
+    void monitor.accountsChanged();
+    return quota;
+  };
+  const updates: (CodexQuotaReminderSnapshot | undefined)[] = [];
+  monitor = new CodexQuotaMonitor(api, {
+    enabled: () => true,
+    onChange: (value) => updates.push(value),
+    onError: () => {},
+  });
+  await monitor.refresh();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(queries).toBe(1);
+  expect(updates.filter((value) => value === undefined)).toEqual([]);
+  expect(updates.at(-1)).toEqual(snapshot);
+  monitor.dispose();
+});
+
 test("reminder shows reference-card content and disables reset without credits or while switching", () => {
   const props = { snapshot, onReset() {}, onSwitchAccount() {}, onDismiss() {} };
   const html = renderLocalized(createElement(CodexQuotaReminderCard, props), "zh-CN");
@@ -243,6 +277,41 @@ test("reminder shows reference-card content and disables reset without credits o
     );
     expect(disabled).toMatch(/<button[^>]*disabled=""[^>]*>使用重置<\/button>/);
   }
+});
+
+test("sidebar card shows every quota window without a low-quota trigger", () => {
+  const html = renderLocalized(
+    createElement(CodexQuotaReminderCard, {
+      snapshot: {
+        ...snapshot,
+        quota: {
+          ...quota,
+          rateLimit: {
+            ...quota.rateLimit,
+            primaryWindow: { ...quota.rateLimit.primaryWindow!, usedPercent: 12 },
+          },
+        },
+      },
+      variant: "sidebar",
+      onReset() {},
+      onSwitchAccount() {},
+    }),
+    "zh-CN",
+  );
+  for (const text of [
+    "Codex 账号额度",
+    "当前使用账号：Current",
+    "5 小时",
+    "7 天",
+    "88%",
+    "50%",
+    "切换账号",
+    "使用重置",
+  ])
+    expect(html).toContain(text);
+  expect(html).not.toContain('aria-label="关闭"');
+  expect(html).toContain("codex-quota-sidebar");
+  expect(html).not.toContain("codex-quota-billing");
 });
 
 test("billing card shows every quota window even when no quota is low", () => {

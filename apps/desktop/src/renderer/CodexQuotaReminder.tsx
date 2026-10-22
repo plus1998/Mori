@@ -37,29 +37,31 @@ export function CodexQuotaReminderCard({
   onSwitchAccount: () => void;
   onReset: () => void;
   onDismiss?: () => void;
-  variant?: "reminder" | "billing";
+  variant?: "reminder" | "billing" | "sidebar";
 }) {
   const { t, i18n } = useTranslation();
   const windows =
-    variant === "billing"
-      ? [snapshot.quota.rateLimit.primaryWindow, snapshot.quota.rateLimit.secondaryWindow].filter(
+    variant === "reminder"
+      ? lowCodexQuotaWindows(snapshot.quota)
+      : [snapshot.quota.rateLimit.primaryWindow, snapshot.quota.rateLimit.secondaryWindow].filter(
           (window): window is OpenAIAccountQuotaWindow =>
             window !== null &&
             Number.isFinite(window.usedPercent) &&
             window.usedPercent >= 0 &&
             window.usedPercent <= 100,
-        )
-      : lowCodexQuotaWindows(snapshot.quota);
+        );
   if (windows.length === 0 && variant === "reminder") return null;
   const percent = windows[0] ? Math.round((100 - windows[0].usedPercent) * 10) / 10 : 0;
+  const showsAccountQuota = variant !== "reminder";
+  const variantClass = variant === "reminder" ? "" : ` codex-quota-${variant}`;
   return (
     <section
-      className={`codex-quota-reminder${variant === "billing" ? " codex-quota-billing" : ""}`}
-      aria-label={t(variant === "billing" ? "codexQuota.accountQuota" : "codexQuota.label")}
+      className={`codex-quota-reminder${variantClass}`}
+      aria-label={t(showsAccountQuota ? "codexQuota.accountQuota" : "codexQuota.label")}
     >
       <div className="codex-quota-reminder-heading">
         <strong>
-          {t(variant === "billing" ? "codexQuota.accountQuota" : "codexQuota.remaining", { percent })}
+          {t(showsAccountQuota ? "codexQuota.accountQuota" : "codexQuota.remaining", { percent })}
         </strong>
         {onDismiss ? (
           <button type="button" aria-label={t("common.close")} onClick={onDismiss}>
@@ -156,7 +158,12 @@ export function CodexQuotaReminder({
   threads: readonly ThreadSummary[];
   onSwitchAccount: () => void;
   eco?: QuotaReminderBridge | undefined;
-  variant?: "reminder" | "billing";
+  /**
+   * reminder: 仅在最近用过 Codex 且某个窗口接近用尽时出现的提醒。
+   * billing: 计费弹层里的账号额度。
+   * sidebar: 侧边栏常驻的账号额度，不再要求最近使用或低额度。
+   */
+  variant?: "reminder" | "billing" | "sidebar";
 }) {
   const { t } = useTranslation();
   const threadsRef = useRef(threads);
@@ -171,7 +178,11 @@ export function CodexQuotaReminder({
   const resetAttempt = useRef<{ accountId: string; key: string } | undefined>(undefined);
   const resettingRef = useRef(false);
   const recentlyUsed =
-    variant === "billing" ? threads.some(isCodexAuthThread) : hasRecentCodexAuthUsage(threads);
+    variant === "reminder"
+      ? hasRecentCodexAuthUsage(threads)
+      : variant === "billing"
+        ? threads.some(isCodexAuthThread)
+        : true;
   const acceptSnapshot = useCallback((next: CodexQuotaReminderSnapshot | undefined) => {
     snapshotRef.current = next;
     setSnapshot(next);
@@ -181,10 +192,13 @@ export function CodexQuotaReminder({
   useEffect(() => {
     if (!eco) return;
     const instance = new CodexQuotaMonitor(eco, {
+      // The sidebar card is always visible, so it keeps the active account's quota fresh.
       enabled: () =>
-        variant === "billing"
-          ? threadsRef.current.some(isCodexAuthThread)
-          : hasRecentCodexAuthUsage(threadsRef.current),
+        variant === "sidebar"
+          ? true
+          : variant === "billing"
+            ? threadsRef.current.some(isCodexAuthThread)
+            : hasRecentCodexAuthUsage(threadsRef.current),
       onChange: acceptSnapshot,
       onError: (message) => {
         setError(message);
@@ -241,10 +255,12 @@ export function CodexQuotaReminder({
           .sort()
           .join("/")}`
       : undefined;
-  if (variant === "billing" && !snapshot && recentlyUsed) {
+  // The billing popover explains every empty state; the sidebar card only appears
+  // while it has something to show (an account is being queried or already loaded).
+  if (!snapshot && recentlyUsed && (variant === "billing" || (variant === "sidebar" && loading))) {
     return (
       <section
-        className="codex-quota-reminder codex-quota-billing"
+        className={`codex-quota-reminder codex-quota-${variant}`}
         aria-label={t("codexQuota.accountQuota")}
         aria-busy={loading}
       >
