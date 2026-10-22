@@ -37,6 +37,7 @@ interface ProjectSidebarTreeProps {
   revealTarget?: { kind: "project" | "thread"; id: string; requestId: number } | undefined;
   unreadThreadIds: ReadonlySet<string>;
   pinnedThreadIds: ReadonlySet<string>;
+  draftThreadIds?: ReadonlySet<string>;
   onSwitchProject: (path: string) => void;
   onSelectThread: (thread: ThreadSummary) => void;
   onToggleProjectCollapsed: (path: string) => void;
@@ -78,6 +79,7 @@ export function ProjectSidebarTree({
   revealTarget,
   unreadThreadIds,
   pinnedThreadIds,
+  draftThreadIds,
   onSwitchProject,
   onSelectThread,
   onToggleProjectCollapsed,
@@ -500,6 +502,11 @@ export function ProjectSidebarTree({
                       ) : null}
                       <span className="chat-item-title-row">
                         <span className="chat-item-title">{thread.title}</span>
+                        {draftThreadIds?.has(thread.id) ? (
+                          <span className="chat-item-draft" title={t("projectTree.draftHint")}>
+                            {t("projectTree.draft")}
+                          </span>
+                        ) : null}
                       </span>
                       {hasThreadStatusIndicator ? (
                         <span className="chat-item-meta">

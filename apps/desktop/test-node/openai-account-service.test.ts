@@ -54,9 +54,9 @@ test("image switches and per-account quota survive restart, invalidate on accoun
   } finally { store.close(); }
 });
 
-async function makeService(t: test.TestContext, executable?: string, onAccountsChanged?: ConstructorParameters<typeof OpenAIAccountService>[2]) {
+async function makeService(t: test.TestContext, executable?: string, onAccountsChanged?: ConstructorParameters<typeof OpenAIAccountService>[2], getActiveQuotaClient?: ConstructorParameters<typeof OpenAIAccountService>[3]) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "eco-openai-sqlite-"));
-  const service = new OpenAIAccountService(root, executable, onAccountsChanged);
+  const service = new OpenAIAccountService(root, executable, onAccountsChanged, getActiveQuotaClient);
   await service.initialize();
   t.after(async () => {
     await service.dispose();
@@ -65,18 +65,34 @@ async function makeService(t: test.TestContext, executable?: string, onAccountsC
   return { root, service };
 }
 
-function quotaResponse(usedPercent = 24): Response {
-  return Response.json({
-    plan_type: "plus",
-    email: "quota@example.test",
-    rate_limit: {
-      allowed: true,
-      limit_reached: false,
-      primary_window: { used_percent: usedPercent, limit_window_seconds: 18_000, reset_after_seconds: 3_600, reset_at: Math.floor(Date.now() / 1_000) + 3_600 },
-      secondary_window: { used_percent: 41, limit_window_seconds: 604_800, reset_after_seconds: 86_400, reset_at: Math.floor(Date.now() / 1_000) + 86_400 },
+function quotaResponse(usedPercent = 24) {
+  return {
+    rateLimits: {
+      planType: "plus",
+      primary: { usedPercent, windowDurationMins: 300, resetsAt: 2_000_000_000 },
+      secondary: { usedPercent: 41, windowDurationMins: 10_080, resetsAt: 2_000_086_400 },
     },
-    rate_limit_reset_credits: { available_count: 2 },
-  });
+    rateLimitResetCredits: { availableCount: 2 },
+  };
+}
+
+async function makeQuotaService(t: test.TestContext, onAccountsChanged?: ConstructorParameters<typeof OpenAIAccountService>[2]) {
+  const quotaRead = t.mock.fn(async (): Promise<ReturnType<typeof quotaResponse>> => quotaResponse());
+  const client = {
+    async request<T>(method: string): Promise<T> {
+      if (method === "account/read") {
+        return { account: { type: "chatgpt", planType: "plus", email: "quota@example.test" } } as T;
+      }
+      assert.equal(method, "account/rateLimits/read");
+      return await quotaRead() as T;
+    },
+  };
+  return { ...await makeService(t, undefined, onAccountsChanged, async () => client), quotaRead };
+}
+
+async function activateQuotaAccount(service: OpenAIAccountService, accountId: string): Promise<void> {
+  await service.setActiveAccount(accountId);
+  await service.applyPendingTransition();
 }
 
 test("explicit account operations reject mismatches and hold account publication until completion", async (t) => {
@@ -802,10 +818,10 @@ test("a failed account deletion rolls back conflict cleanup in the same transact
 });
 
 test("quota snapshots survive restart and listing cached data makes no network requests", async (t) => {
-  const { root, service } = await makeService(t);
+  const { root, service, quotaRead } = await makeQuotaService(t);
   const account = await service.createAccount("Quota cache");
   await service.setAuthJson(account.id, authJson({ accountId: "chatgpt-quota", refreshToken: "quota", stamp: "2026-10-05T01:00:00.000Z" }));
-  const fetchMock = t.mock.method(globalThis, "fetch", async () => quotaResponse());
+  await activateQuotaAccount(service, account.id);
   const quota = await service.queryQuota(account.id);
   assert.equal(quota.planType, "plus");
   assert.equal(quota.rateLimit.primaryWindow?.usedPercent, 24);
@@ -826,7 +842,7 @@ test("quota snapshots survive restart and listing cached data makes no network r
   try {
     await restarted.initialize();
     assert.deepEqual((await restarted.listAccounts())[0]?.quota, quota);
-    assert.equal(fetchMock.mock.callCount(), 1);
+    assert.equal(quotaRead.mock.callCount(), 1);
   } finally {
     await restarted.dispose();
   }
@@ -834,11 +850,12 @@ test("quota snapshots survive restart and listing cached data makes no network r
 
 test("explicit quota refresh updates the snapshot, timestamp, and account-change event", async (t) => {
   let changeEvents = 0;
-  const { service } = await makeService(t, undefined, () => { changeEvents += 1; });
+  const { service, quotaRead } = await makeQuotaService(t, () => { changeEvents += 1; });
   const account = await service.createAccount("Refresh");
   await service.setAuthJson(account.id, authJson({ accountId: "chatgpt-refresh", refreshToken: "quota", stamp: "2026-10-05T01:00:00.000Z" }));
   let usedPercent = 24;
-  t.mock.method(globalThis, "fetch", async () => quotaResponse(usedPercent));
+  await activateQuotaAccount(service, account.id);
+  quotaRead.mock.mockImplementation(async () => quotaResponse(usedPercent));
   changeEvents = 0;
   const first = await service.queryQuota(account.id);
   await new Promise((resolve) => setTimeout(resolve, 5));
@@ -851,40 +868,42 @@ test("explicit quota refresh updates the snapshot, timestamp, and account-change
 });
 
 test("failed quota refresh preserves the last successful snapshot and timestamp", async (t) => {
-  const { service } = await makeService(t);
+  const { service, quotaRead } = await makeQuotaService(t);
   const account = await service.createAccount("Offline cache");
   await service.setAuthJson(account.id, authJson({ accountId: "chatgpt-offline", refreshToken: "quota", stamp: "2026-10-05T01:00:00.000Z" }));
-  const fetchMock = t.mock.method(globalThis, "fetch", async () => quotaResponse());
+  await activateQuotaAccount(service, account.id);
   const cached = await service.queryQuota(account.id);
-  fetchMock.mock.mockImplementation(async () => new Response("temporarily unavailable", { status: 503 }));
+  quotaRead.mock.mockImplementation(async () => { throw new Error("status 503 temporarily unavailable"); });
   await assert.rejects(service.queryQuota(account.id), /status 503/u);
   assert.deepEqual((await service.listAccounts())[0]?.quota, cached);
-  fetchMock.mock.mockImplementation(async () => { throw new Error("offline"); });
-  await assert.rejects(service.queryQuota(account.id), /quota request failed/u);
+  quotaRead.mock.mockImplementation(async () => { throw new Error("offline"); });
+  await assert.rejects(service.queryQuota(account.id), /offline/u);
   assert.deepEqual((await service.getAccountDetails(account.id)).quota, cached);
 });
 
 test("quota storage failures are reported and roll back the snapshot update", async (t) => {
-  const { root, service } = await makeService(t);
+  const { root, service, quotaRead } = await makeQuotaService(t);
   const account = await service.createAccount("Write failure");
   await service.setAuthJson(account.id, authJson({ accountId: "chatgpt-write", refreshToken: "quota", stamp: "2026-10-05T01:00:00.000Z" }));
-  const fetchMock = t.mock.method(globalThis, "fetch", async () => quotaResponse());
+  await activateQuotaAccount(service, account.id);
   const cached = await service.queryQuota(account.id);
   const db = new DatabaseSync(path.join(root, "eco-coding.sqlite"));
   t.after(() => db.close());
   db.exec(`CREATE TRIGGER reject_quota_update BEFORE UPDATE ON openai_account_quotas
     BEGIN SELECT RAISE(ABORT, 'quota_cache_unavailable'); END;`);
-  fetchMock.mock.mockImplementation(async () => quotaResponse(90));
+  quotaRead.mock.mockImplementation(async () => quotaResponse(90));
   await assert.rejects(service.queryQuota(account.id), /额度已获取，但保存缓存失败：.*quota_cache_unavailable/u);
   assert.deepEqual((await service.listAccounts())[0]?.quota, cached);
 });
 
 test("token refresh keeps the quota cache but changing the remote account hides it", async (t) => {
-  const { service } = await makeService(t);
+  const { service } = await makeQuotaService(t);
   const account = await service.createAccount("Identity");
   await service.setAuthJson(account.id, authJson({ accountId: "chatgpt-original", refreshToken: "old", stamp: "2026-10-05T01:00:00.000Z" }));
-  t.mock.method(globalThis, "fetch", async () => quotaResponse());
+  await activateQuotaAccount(service, account.id);
   const cached = await service.queryQuota(account.id);
+  await service.setActiveAccount(null);
+  await service.applyPendingTransition();
   await service.setAuthJson(account.id, authJson({ accountId: "chatgpt-original", refreshToken: "new", stamp: "2026-10-05T02:00:00.000Z" }));
   assert.deepEqual((await service.listAccounts())[0]?.quota, cached);
   await service.setAuthJson(account.id, authJson({ accountId: "chatgpt-different", refreshToken: "other", stamp: "2026-10-05T03:00:00.000Z" }));
@@ -893,19 +912,23 @@ test("token refresh keeps the quota cache but changing the remote account hides 
 });
 
 test("an in-flight quota response cannot be saved under replaced account credentials", async (t) => {
-  const { service } = await makeService(t);
+  const { root, service, quotaRead } = await makeQuotaService(t);
   const account = await service.createAccount("Identity race");
   await service.setAuthJson(account.id, authJson({ accountId: "chatgpt-before", refreshToken: "old", stamp: "2026-10-05T01:00:00.000Z" }));
-  let release!: (response: Response) => void;
+  await activateQuotaAccount(service, account.id);
+  let release!: (response: ReturnType<typeof quotaResponse>) => void;
   let started!: () => void;
   const requested = new Promise<void>((resolve) => { started = resolve; });
-  t.mock.method(globalThis, "fetch", () => {
+  quotaRead.mock.mockImplementation(() => {
     started();
-    return new Promise<Response>((resolve) => { release = resolve; });
+    return new Promise<ReturnType<typeof quotaResponse>>((resolve) => { release = resolve; });
   });
   const result = service.queryQuota(account.id);
   await requested;
-  await service.setAuthJson(account.id, authJson({ accountId: "chatgpt-after", refreshToken: "new", stamp: "2026-10-05T02:00:00.000Z" }));
+  // Simulate a separate SQLite writer replacing this identity during the RPC.
+  const store = await OpenAIAccountStore.open(path.join(root, "eco-coding.sqlite"));
+  t.after(() => store.close());
+  store.saveAuthJson(account.id, authJson({ accountId: "chatgpt-after", refreshToken: "new", stamp: "2026-10-05T02:00:00.000Z" }));
   const rejected = assert.rejects(result, /账号凭据已变更/u);
   release(quotaResponse());
   await rejected;
@@ -914,13 +937,13 @@ test("an in-flight quota response cannot be saved under replaced account credent
 
 for (const deferred of [false, true]) {
   test(`${deferred ? "deferred" : "immediate"} account deletion removes its persisted quota`, async (t) => {
-    const { root, service } = await makeService(t);
+    const { root, service } = await makeQuotaService(t);
     const account = await service.createAccount("Delete quota");
     await service.setAuthJson(account.id, authJson({ accountId: "chatgpt-delete", refreshToken: "quota", stamp: "2026-10-05T01:00:00.000Z" }));
-    t.mock.method(globalThis, "fetch", async () => quotaResponse());
+    await activateQuotaAccount(service, account.id);
     await service.queryQuota(account.id);
-    if (deferred) {
-      await service.setActiveAccount(account.id);
+    if (!deferred) {
+      await service.setActiveAccount(null);
       await service.applyPendingTransition();
     }
     await service.deleteAccount(account.id);

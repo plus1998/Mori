@@ -2013,6 +2013,14 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   gap: 6px;
 }
 
+.chat-item-draft {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 .chat-item-approval {
   flex-shrink: 0;
   max-width: 76px;

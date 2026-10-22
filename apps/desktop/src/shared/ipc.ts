@@ -1844,6 +1844,8 @@ export interface ThreadSummary {
   cancelling?: boolean;
   /** Live-only: desktop is currently auto-generating the thread title. Never persisted. */
   titleGenerating?: boolean;
+  /** Derived from the saved composer draft; never persisted on the thread itself. */
+  hasComposerDraft?: boolean;
   /** Harness permanently selected for this thread after first run. */
   coreKind?: import("@eco/runtime/core-runtime").CoreKind;
   /** ACP agent under `coreKind: "acp"` (MVP: `"cursor"`). */

@@ -149,6 +149,7 @@ interface ThreadRow {
   runtime_config_json: string | null;
   external_session_id: string | null;
   follow_up_queue_paused: number | null;
+  has_composer_draft?: number;
 }
 
 export interface ThreadListCursor {
@@ -10864,7 +10865,13 @@ const THREAD_SUMMARY_SELECT = `SELECT threads.id AS id,
                 threads.sdk_cwd AS sdk_cwd,
                 threads.runtime_config_json AS runtime_config_json,
                 threads.follow_up_queue_paused AS follow_up_queue_paused,
-                sessions.external_session_id AS external_session_id
+                sessions.external_session_id AS external_session_id,
+                EXISTS (
+                  SELECT 1 FROM composer_drafts
+                  WHERE context_key = 'thread:' || threads.id
+                    AND (TRIM(prompt, char(9, 10, 13, 32)) <> ''
+                      OR (attachments_json IS NOT NULL AND attachments_json <> '[]'))
+                ) AS has_composer_draft
          FROM threads
          LEFT JOIN thread_core_sessions AS sessions ON sessions.thread_id = threads.id`;
 
@@ -10903,6 +10910,7 @@ function rowToThread(row: ThreadRow): ThreadSummary {
     ...(row.external_session_id?.trim() ? { externalSessionId: row.external_session_id.trim() } : {}),
     ...(runtimeConfig ? { runtimeConfig } : {}),
     ...(row.follow_up_queue_paused ? { followUpQueuePaused: true } : {}),
+    ...(row.has_composer_draft ? { hasComposerDraft: true } : {}),
   };
 }
 

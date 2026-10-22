@@ -2736,7 +2736,7 @@ function App() {
 
       if (event.type === "thread.unstarted_turn_discarded") {
         if (event.threadId === selectedThreadIdRef.current && event.composerRestore) {
-          persistComposerDraftSnapshot(composerDraftsByKeyRef.current, `thread:${event.threadId}`, {
+          updateComposerDraftSnapshot(`thread:${event.threadId}`, {
             prompt: event.composerRestore.prompt,
             attachments: fromPromptImageAttachments(event.composerRestore.attachments ?? []),
           });
@@ -2745,7 +2745,7 @@ function App() {
           setComposerRewindTarget(undefined);
           setError(event.message);
         } else if (event.composerRestore) {
-          persistComposerDraftSnapshot(composerDraftsByKeyRef.current, `thread:${event.threadId}`, {
+          updateComposerDraftSnapshot(`thread:${event.threadId}`, {
             prompt: event.composerRestore.prompt,
             attachments: fromPromptImageAttachments(event.composerRestore.attachments ?? []),
           });
@@ -4072,6 +4072,18 @@ function App() {
     [activeThread?.id, currentProjectPath],
   );
   const composerDraftsByKeyRef = useRef<Record<string, ComposerDraft>>({});
+  const [composerDraftPresenceByThread, setComposerDraftPresenceByThread] = useState<Record<string, boolean>>(
+    {},
+  );
+  const draftThreadIds = useMemo(
+    () =>
+      new Set(
+        threads
+          .filter((thread) => composerDraftPresenceByThread[thread.id] ?? thread.hasComposerDraft)
+          .map((thread) => thread.id),
+      ),
+    [threads, composerDraftPresenceByThread],
+  );
   const pendingPlanComposerHandoffRef = useRef<ComposerPlanHandoff | undefined>(undefined);
   const prevComposerContextKeyRef = useRef<string | undefined>(undefined);
   const composerContextKeyRef = useRef(composerContextKey);
@@ -5559,6 +5571,19 @@ function App() {
     ? resolveLatestThreadActivityAt(runProjection.timeline)
     : undefined;
 
+  function updateComposerDraftPresence(contextKey: string, hasDraft: boolean): void {
+    const threadId = threadIdFromComposerContextKey(contextKey);
+    if (!threadId) return;
+    setComposerDraftPresenceByThread((current) =>
+      current[threadId] === hasDraft ? current : { ...current, [threadId]: hasDraft },
+    );
+  }
+
+  function updateComposerDraftSnapshot(contextKey: string, snapshot: ComposerDraft): void {
+    persistComposerDraftSnapshot(composerDraftsByKeyRef.current, contextKey, snapshot);
+    updateComposerDraftPresence(contextKey, Boolean(snapshot.prompt.trim() || snapshot.attachments.length));
+  }
+
   function saveComposerDraftInBackground(
     contextKey: string,
     value: string,
@@ -5586,6 +5611,7 @@ function App() {
     if (!contextKey) {
       return;
     }
+    updateComposerDraftPresence(contextKey, false);
     if (composerContextKeyRef.current === contextKey) {
       composerPromptRef.current = "";
     }
@@ -5650,7 +5676,7 @@ function App() {
   useEffect(() => {
     const prevKey = prevComposerContextKeyRef.current;
     if (prevKey !== undefined && prevKey !== composerContextKey) {
-      persistComposerDraftSnapshot(composerDraftsByKeyRef.current, prevKey, {
+      updateComposerDraftSnapshot(prevKey, {
         prompt: composerPromptRef.current,
         attachments: composerAttachmentsRef.current,
         ...(composerRewindTargetRef.current ? { rewindTarget: composerRewindTargetRef.current } : {}),
@@ -5731,7 +5757,7 @@ function App() {
               prompt: persisted.prompt,
               attachments: fromPromptImageAttachments(persisted.attachments ?? []),
             };
-            composerDraftsByKeyRef.current[composerContextKey] = restored;
+            updateComposerDraftSnapshot(composerContextKey, restored);
             composerPromptRef.current = persisted.prompt;
             setPrompt(persisted.prompt);
             setComposerAttachments(restored.attachments);
@@ -5812,7 +5838,7 @@ function App() {
       }
       return;
     }
-    persistComposerDraftSnapshot(composerDraftsByKeyRef.current, composerContextKey, {
+    updateComposerDraftSnapshot(composerContextKey, {
       prompt,
       attachments: composerAttachmentsRef.current,
       ...(composerRewindTargetRef.current ? { rewindTarget: composerRewindTargetRef.current } : {}),
@@ -8156,7 +8182,7 @@ function App() {
         threadId: activeThread.id,
         ...input,
       });
-      persistComposerDraftSnapshot(composerDraftsByKeyRef.current, `thread:${result.thread.id}`, {
+      updateComposerDraftSnapshot(`thread:${result.thread.id}`, {
         prompt: result.draft.prompt,
         attachments: fromPromptImageAttachments(result.draft.attachments),
       });
@@ -12608,6 +12634,7 @@ function App() {
                 revealTarget={sidebarRevealTarget}
                 unreadThreadIds={unreadThreadIds}
                 pinnedThreadIds={pinnedThreadIds}
+                draftThreadIds={draftThreadIds}
                 onSwitchProject={switchProject}
                 onSelectThread={selectThread}
                 onToggleProjectCollapsed={toggleProjectCollapsed}
