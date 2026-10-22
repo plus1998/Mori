@@ -201,23 +201,28 @@ test("refreshing quota keeps the cached values visible with a loading indicator"
   expect(markup).toContain("上次刷新");
 });
 
-test("quota errors preserve cached values and expose the actual failure", () => {
-  const markup = renderLocalized(
-    createElement(OpenAIAccountQuotaSummary, {
-      quota: cachedQuota,
-      isLoggedIn: true,
-      loading: false,
-      error: "OpenAI quota request failed with status 503.",
-    }),
-    "zh-CN",
-  );
-  expect(markup).toContain("剩余 63%");
-  expect(markup).toContain("刷新失败，显示缓存");
-  expect(markup).toContain('title="OpenAI quota request failed with status 503."');
-  expect(markup).toContain('dateTime="2025-01-01T08:30:00.000Z"');
+test("quota errors replace cached values with the actual failure, including during retry", () => {
+  for (const loading of [false, true]) {
+    const markup = renderLocalized(
+      createElement(OpenAIAccountQuotaSummary, {
+        quota: cachedQuota,
+        isLoggedIn: true,
+        loading,
+        error: "OpenAI quota request failed with status 503.",
+      }),
+      "zh-CN",
+    );
+    expect(markup).toContain('role="alert">额度刷新失败：OpenAI quota request failed with status 503.</span>');
+    expect(markup).not.toContain("剩余 63%");
+    expect(markup).not.toContain('role="meter"');
+    expect(markup).not.toContain("2 次重置");
+    expect(markup).not.toContain("已到重置时间，待刷新");
+    expect(markup).not.toContain("上次刷新");
+    expect(markup).not.toContain("显示缓存");
+  }
 });
 
-test("quota error fallback text is localized for en-US", () => {
+test("quota error shows the actual failure with a localized label for en-US", () => {
   const markup = renderLocalized(
     createElement(OpenAIAccountQuotaSummary, {
       quota: undefined,
@@ -227,7 +232,7 @@ test("quota error fallback text is localized for en-US", () => {
     }),
     "en-US",
   );
-  expect(markup).toContain("Quota refresh failed");
+  expect(markup).toContain('role="alert">Quota refresh failed: OpenAI quota request failed with status 503.</span>');
   expect(markup).not.toMatch(/[\u3400-\u9fff]/u);
 });
 
@@ -282,6 +287,6 @@ test("expired accounts without cached quota still show refresh progress and the 
       error: loading ? undefined : "refresh token expired; sign in again",
     }), "zh-CN");
     expect(markup).toContain(loading ? "正在刷新额度" : "额度刷新失败");
-    if (!loading) expect(markup).toContain('title="refresh token expired; sign in again"');
+    if (!loading) expect(markup).toContain('role="alert">额度刷新失败：refresh token expired; sign in again</span>');
   }
 });

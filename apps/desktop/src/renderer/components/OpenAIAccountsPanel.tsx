@@ -97,7 +97,7 @@ export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error, s
   if (!quota && !isLoggedIn && !loading && !error) return null;
   return <span className="codex-quota-summary codex-text-quota-summary" aria-busy={loading}>
     {loading ? <Loader2 size={13} className="mcp-spin" aria-label={t("settings.openaiAccounts.refreshingQuotaAria")} /> : null}
-    {quota ? <>
+    {error ? <span className="codex-quota-error is-error" role="alert">{t("settings.openaiAccounts.quotaError", { message: error })}</span> : quota ? <>
       {[quota.rateLimit.primaryWindow, quota.rateLimit.secondaryWindow].map((window, index) => {
         if (!window) return null;
         const remaining = Math.min(100, Math.max(0, 100 - window.usedPercent));
@@ -131,8 +131,7 @@ export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error, s
       })}
       {quota.resetCreditsAvailable > 0 ? <span className="codex-quota-note">{t("settings.openaiAccounts.resetCredits", { count: quota.resetCreditsAvailable })}</span> : null}
       {showRefreshedAt ? <QuotaRefreshedAt fetchedAt={quota.fetchedAt} /> : null}
-      {error ? <em className="codex-quota-note is-error" title={error} role="status">{t("settings.openaiAccounts.quotaFailedCached")}</em> : null}
-    </> : <span className={error ? "is-error" : undefined} title={error}>{error ? t("settings.openaiAccounts.quotaError") : loading ? t("settings.openaiAccounts.quotaLoading") : t("settings.openaiAccounts.quotaIdle")}</span>}
+    </> : <span>{loading ? t("settings.openaiAccounts.quotaLoading") : t("settings.openaiAccounts.quotaIdle")}</span>}
   </span>;
 }
 

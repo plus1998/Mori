@@ -9708,6 +9708,7 @@ button.integrated-web-search-clear-key:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
+.codex-quota-error,
 .codex-image-quota-error {
   flex-basis: 100%;
   overflow-wrap: anywhere;
