@@ -5,7 +5,9 @@ import {
   CODEX_AUTH_RECENT_USE_MS,
   CodexQuotaMonitor,
   type CodexQuotaReminderSnapshot,
+  codexQuotaReminderKey,
   hasRecentCodexAuthUsage,
+  isCodexAuthConversation,
   isCodexAuthThread,
   lowCodexQuotaWindows,
 } from "../src/renderer/codex-quota-reminder";
@@ -279,39 +281,79 @@ test("reminder shows reference-card content and disables reset without credits o
   }
 });
 
-test("sidebar card shows every quota window without a low-quota trigger", () => {
-  const html = renderLocalized(
-    createElement(CodexQuotaReminderCard, {
-      snapshot: {
-        ...snapshot,
-        quota: {
-          ...quota,
-          rateLimit: {
-            ...quota.rateLimit,
-            primaryWindow: { ...quota.rateLimit.primaryWindow!, usedPercent: 12 },
-          },
+test("the sidebar reminder only follows the conversation on screen", () => {
+  const now = Date.now();
+  const codexThread = {
+    id: "codex",
+    coreKind: "codex",
+    status: "completed",
+    updatedAt: new Date(now - 1000).toISOString(),
+    runtimeConfig: { orchestrationSelection: { mainAgentConfigId: "__openai_official__" } },
+  } as ThreadSummary;
+  const claudeThread = {
+    ...codexThread,
+    id: "claude",
+    coreKind: "claude",
+    status: "running",
+  } as ThreadSummary;
+  expect(isCodexAuthConversation([codexThread, claudeThread], "codex")).toBe(true);
+  expect(isCodexAuthConversation([codexThread, claudeThread], "claude")).toBe(false);
+  // A Codex thread that ran recently must not leak the reminder into a Claude conversation.
+  expect(isCodexAuthConversation([{ ...codexThread, status: "running" }, claudeThread], "claude")).toBe(
+    false,
+  );
+  // Fresh drafts have no thread yet and fall back to recent usage.
+  expect(isCodexAuthConversation([codexThread], undefined)).toBe(true);
+  expect(isCodexAuthConversation([claudeThread], undefined)).toBe(false);
+});
+
+test("the reminder key is stable across refetches and changes when a window resets", () => {
+  expect(codexQuotaReminderKey({ ...snapshot, quota: { ...quota, fetchedAt: Date.now() } })).toBe(
+    codexQuotaReminderKey(snapshot),
+  );
+  const high = {
+    ...quota,
+    rateLimit: {
+      ...quota.rateLimit,
+      primaryWindow: { ...quota.rateLimit.primaryWindow!, usedPercent: 12 },
+      secondaryWindow: { ...quota.rateLimit.secondaryWindow!, usedPercent: 20 },
+    },
+  };
+  expect(codexQuotaReminderKey({ ...snapshot, quota: high })).toBeUndefined();
+  expect(
+    codexQuotaReminderKey({
+      ...snapshot,
+      quota: {
+        ...quota,
+        rateLimit: {
+          ...quota.rateLimit,
+          primaryWindow: { ...quota.rateLimit.primaryWindow!, resetAt: 1800099999 },
         },
       },
-      variant: "sidebar",
-      onReset() {},
-      onSwitchAccount() {},
     }),
-    "zh-CN",
+  ).not.toBe(codexQuotaReminderKey(snapshot));
+});
+
+test("the sidebar reminder hides above 10% headroom and is dismissible when it shows", () => {
+  const props = { onReset() {}, onSwitchAccount() {}, onDismiss() {} };
+  const shown = renderLocalized(createElement(CodexQuotaReminderCard, { ...props, snapshot }), "zh-CN");
+  expect(shown).toContain("剩余 6% 使用量");
+  expect(shown).toContain('aria-label="关闭"');
+  expect(shown).not.toContain("Codex 账号额度");
+  const high = {
+    ...snapshot,
+    quota: {
+      ...quota,
+      rateLimit: {
+        ...quota.rateLimit,
+        primaryWindow: { ...quota.rateLimit.primaryWindow!, usedPercent: 88 },
+        secondaryWindow: { ...quota.rateLimit.secondaryWindow!, usedPercent: 20 },
+      },
+    },
+  };
+  expect(renderLocalized(createElement(CodexQuotaReminderCard, { ...props, snapshot: high }), "zh-CN")).toBe(
+    "",
   );
-  for (const text of [
-    "Codex 账号额度",
-    "当前使用账号：Current",
-    "5 小时",
-    "7 天",
-    "88%",
-    "50%",
-    "切换账号",
-    "使用重置",
-  ])
-    expect(html).toContain(text);
-  expect(html).not.toContain('aria-label="关闭"');
-  expect(html).toContain("codex-quota-sidebar");
-  expect(html).not.toContain("codex-quota-billing");
 });
 
 test("billing card shows every quota window even when no quota is low", () => {

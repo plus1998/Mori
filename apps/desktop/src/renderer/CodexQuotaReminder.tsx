@@ -7,7 +7,8 @@ import {
   CODEX_QUOTA_REFRESH_MS,
   CodexQuotaMonitor,
   type CodexQuotaReminderSnapshot,
-  hasRecentCodexAuthUsage,
+  codexQuotaReminderKey,
+  isCodexAuthConversation,
   isCodexAuthThread,
   lowCodexQuotaWindows,
 } from "./codex-quota-reminder";
@@ -37,7 +38,7 @@ export function CodexQuotaReminderCard({
   onSwitchAccount: () => void;
   onReset: () => void;
   onDismiss?: () => void;
-  variant?: "reminder" | "billing" | "sidebar";
+  variant?: "reminder" | "billing";
 }) {
   const { t, i18n } = useTranslation();
   const windows =
@@ -50,10 +51,12 @@ export function CodexQuotaReminderCard({
             window.usedPercent >= 0 &&
             window.usedPercent <= 100,
         );
+  // The reminder variant is driven by `lowCodexQuotaWindows`; when nothing is low it renders
+  // nothing at all, which is what keeps the sidebar card hidden above 10% headroom.
   if (windows.length === 0 && variant === "reminder") return null;
   const percent = windows[0] ? Math.round((100 - windows[0].usedPercent) * 10) / 10 : 0;
-  const showsAccountQuota = variant !== "reminder";
-  const variantClass = variant === "reminder" ? "" : ` codex-quota-${variant}`;
+  const showsAccountQuota = variant === "billing";
+  const variantClass = variant === "billing" ? " codex-quota-billing" : "";
   return (
     <section
       className={`codex-quota-reminder${variantClass}`}
@@ -154,20 +157,24 @@ export function CodexQuotaReminder({
   onSwitchAccount,
   eco = window.eco,
   variant = "reminder",
+  activeThreadId,
 }: {
   threads: readonly ThreadSummary[];
   onSwitchAccount: () => void;
   eco?: QuotaReminderBridge | undefined;
+  /** The conversation on screen; the sidebar reminder only shows while it uses the Codex account. */
+  activeThreadId?: string | undefined;
   /**
-   * reminder: 仅在最近用过 Codex 且某个窗口接近用尽时出现的提醒。
+   * reminder: 侧边栏提醒，仅当当前会话使用 Codex 账号且某个窗口剩余不足 10% 时出现。
    * billing: 计费弹层里的账号额度。
-   * sidebar: 侧边栏常驻的账号额度，不再要求最近使用或低额度。
    */
-  variant?: "reminder" | "billing" | "sidebar";
+  variant?: "reminder" | "billing";
 }) {
   const { t } = useTranslation();
   const threadsRef = useRef(threads);
   threadsRef.current = threads;
+  const activeThreadIdRef = useRef(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
   const monitor = useRef<CodexQuotaMonitor | undefined>(undefined);
   const [snapshot, setSnapshot] = useState<CodexQuotaReminderSnapshot>();
   const snapshotRef = useRef<CodexQuotaReminderSnapshot | undefined>(undefined);
@@ -179,10 +186,8 @@ export function CodexQuotaReminder({
   const resettingRef = useRef(false);
   const recentlyUsed =
     variant === "reminder"
-      ? hasRecentCodexAuthUsage(threads)
-      : variant === "billing"
-        ? threads.some(isCodexAuthThread)
-        : true;
+      ? isCodexAuthConversation(threads, activeThreadId)
+      : threads.some(isCodexAuthThread);
   const acceptSnapshot = useCallback((next: CodexQuotaReminderSnapshot | undefined) => {
     snapshotRef.current = next;
     setSnapshot(next);
@@ -192,13 +197,10 @@ export function CodexQuotaReminder({
   useEffect(() => {
     if (!eco) return;
     const instance = new CodexQuotaMonitor(eco, {
-      // The sidebar card is always visible, so it keeps the active account's quota fresh.
       enabled: () =>
-        variant === "sidebar"
-          ? true
-          : variant === "billing"
-            ? threadsRef.current.some(isCodexAuthThread)
-            : hasRecentCodexAuthUsage(threadsRef.current),
+        variant === "billing"
+          ? threadsRef.current.some(isCodexAuthThread)
+          : isCodexAuthConversation(threadsRef.current, activeThreadIdRef.current),
       onChange: acceptSnapshot,
       onError: (message) => {
         setError(message);
@@ -247,17 +249,10 @@ export function CodexQuotaReminder({
       setResetting(false);
     }
   }
-  const lowWindows = snapshot ? lowCodexQuotaWindows(snapshot.quota) : [];
-  const reminderKey =
-    snapshot && lowWindows.length > 0
-      ? `${snapshot.accountId}:${lowWindows
-          .map((window) => `${window.limitWindowSeconds}:${window.resetAt}`)
-          .sort()
-          .join("/")}`
-      : undefined;
-  // The billing popover explains every empty state; the sidebar card only appears
-  // while it has something to show (an account is being queried or already loaded).
-  if (!snapshot && recentlyUsed && (variant === "billing" || (variant === "sidebar" && loading))) {
+  const reminderKey = snapshot ? codexQuotaReminderKey(snapshot) : undefined;
+  // The billing popover explains every empty state; the reminder stays out of the way until the
+  // active account actually reports a low window.
+  if (!snapshot && recentlyUsed && variant === "billing") {
     return (
       <section
         className={`codex-quota-reminder codex-quota-${variant}`}
@@ -282,7 +277,7 @@ export function CodexQuotaReminder({
       </section>
     );
   }
-  if (!snapshot || (variant === "reminder" && (lowWindows.length === 0 || dismissed === reminderKey))) {
+  if (!snapshot || (variant === "reminder" && (reminderKey === undefined || dismissed === reminderKey))) {
     return error && recentlyUsed ? (
       <div className="codex-quota-refresh-error" role="status">
         <span>{t("codexQuota.refreshFailed")}</span>

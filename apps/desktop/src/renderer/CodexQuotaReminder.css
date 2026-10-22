@@ -5,31 +5,26 @@
   -webkit-app-region: no-drag;
 }
 
+/* The sidebar sits on macOS vibrancy, so the card paints its own elevated surface instead of
+   the translucent sidebar wash: white sidebar text over a light material is unreadable. */
 .codex-quota-reminder {
   margin: 8px 0;
   padding: 13px;
-  border: 1px solid var(--border-sidebar);
+  border: 1px solid var(--border-subtle);
   border-radius: 14px;
-  background: var(--sidebar-control-hover-bg);
-  color: var(--sidebar-item-active-text);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
   font-size: 12px;
   -webkit-app-region: no-drag;
+  --sidebar-item-text: var(--text-secondary);
+  --sidebar-item-active-text: var(--text-primary);
+  --bg-sidebar: var(--bg-elevated);
 }
 
 .thread-info-billing-card:has(.codex-quota-billing) {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-
-.codex-quota-billing,
-.codex-quota-sidebar {
-  border-color: var(--border-subtle);
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  --sidebar-item-text: var(--text-secondary);
-  --sidebar-item-active-text: var(--text-primary);
-  --bg-sidebar: var(--bg-elevated);
 }
 
 .codex-quota-billing {

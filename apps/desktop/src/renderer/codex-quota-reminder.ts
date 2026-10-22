@@ -46,6 +46,30 @@ export interface CodexQuotaReminderSnapshot {
   switching: boolean;
 }
 
+/**
+ * Identity of a reminder: which account and which low windows caused it. Dismissing a reminder
+ * only hides that exact situation, so a later window running low shows the reminder again.
+ */
+export function codexQuotaReminderKey(snapshot: CodexQuotaReminderSnapshot): string | undefined {
+  const windows = lowCodexQuotaWindows(snapshot.quota);
+  if (windows.length === 0) return undefined;
+  return `${snapshot.accountId}:${windows
+    .map((window) => `${window.limitWindowSeconds}:${window.resetAt}`)
+    .sort()
+    .join("/")}`;
+}
+
+/**
+ * Whether the conversation the user is looking at draws on the Codex account.
+ *
+ * Falls back to recent Codex Auth usage while no thread is selected yet (a fresh draft), so the
+ * reminder can still surface right after Codex usage.
+ */
+export function isCodexAuthConversation(threads: readonly ThreadSummary[], activeThreadId?: string): boolean {
+  const active = activeThreadId ? threads.find((thread) => thread.id === activeThreadId) : undefined;
+  return active ? isCodexAuthThread(active) : hasRecentCodexAuthUsage(threads);
+}
+
 type QuotaBridge = Pick<
   NonNullable<Window["eco"]>,
   "openAIAccountsGetActive" | "openAIAccountsList" | "openAIAccountsQueryQuota"
