@@ -467,7 +467,27 @@ List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
   required AppLocalizations l10n,
 }) {
   if (!isRunning) return entries;
-  final writingSpan = resolveToolWritingSpan(projection.requestSpans);
+  final writingSpan = resolveToolWritingSpan(
+    projection.requestSpans.where((span) {
+      final writing = span.writingTool;
+      if (writing == null) return true;
+      // Extras and V2 effects arrive independently. A started/completed tool
+      // already proves that argument writing has ended, even when the older
+      // extras snapshot still carries its hint. Keep the durable tool in place.
+      return !projection.timeline.any(
+        (item) =>
+            item.scope == 'main' &&
+            (item.eventType == 'tool.started' ||
+                item.eventType == 'tool.completed' ||
+                item.eventType == 'tool.failed') &&
+            item.at.compareTo(writing.since) >= 0 &&
+            (writing.name == null ||
+                writing.name!.isEmpty ||
+                readProjectionToolMetadata(item.metadata)?.name ==
+                    writing.name),
+      );
+    }),
+  );
   ThreadRunProjectionRequestSpan? pendingThinking;
   for (final span in projection.requestSpans) {
     if (span.ownerAgentId != null || span.pendingThinkingSince == null) {

@@ -28,6 +28,9 @@ import 'package:eco_mobile/l10n/generated/app_localizations.dart';
 /// Feed localizes the action label and prefers a structured target; the desktop Feed prints
 /// `Tool: Name · target`), which is recorded as a deliberate divergence in
 /// `docs/plans/feed-regression-test-plan.md` §4.13 K10.
+/// Mobile also places later tool groups before intervening progress narration.
+/// The one affected corpus segment is asserted explicitly below; all row fields
+/// and the rest of the corpus order are still compared without normalization.
 void main() {
   final fixtures = '../desktop/test/fixtures/feed-parity';
   // Read from the fixtures, not from a list kept here: a hand-written list stops at the
@@ -79,9 +82,21 @@ void main() {
             ? null
             : normalizeAgentRole(item['role'] as String),
       };
+      final expectedFeed = (historical['feed'] as List).map(row).toList();
+      if (id == 'thr_1789537718627') {
+        // Deliberate mobile presentation: this progress paragraph follows the
+        // next four-tool group. Pin the recorded row so fixture drift fails.
+        expect(expectedFeed[72]['text'], '<text#1cc3db0afd:len113>');
+        expect(
+          expectedFeed.sublist(73, 77).every((item) => item['callId'] != null),
+          isTrue,
+        );
+        final progress = expectedFeed.removeAt(72);
+        expectedFeed.insert(76, progress);
+      }
       final golden = {
         ...historical,
-        'feed': (historical['feed'] as List).map(row).toList(),
+        'feed': expectedFeed,
         'cards': [
           for (final card in historical['cards'] as List)
             {

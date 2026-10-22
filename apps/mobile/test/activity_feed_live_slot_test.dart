@@ -81,6 +81,34 @@ List<ActivityFeedEntry> _rows(List<ActivityFeedEntry> feed) => [
 ];
 
 void main() {
+  test('a durable tool after writing began prevents a stale writing hint', () {
+    final rows = _rows(
+      _feed(
+        spans: [_span(writing: true)],
+        timeline: [
+          ThreadRunProjectionTimelineItem(
+            id: 'finished-tool',
+            sequence: 4,
+            eventType: 'tool.completed',
+            scope: 'main',
+            role: 'tool',
+            text: 'Tool: Write',
+            at: '2026-10-21T00:00:06.000Z',
+            runAttemptId: 'run',
+            metadata: const {
+              'tool': {'name': 'Write', 'status': 'completed'},
+            },
+          ),
+        ],
+      ),
+    );
+    expect(rows.single.kind, ActivityFeedKind.actionGroup);
+    expect(
+      rows.any((entry) => entry.kind == ActivityFeedKind.toolWriting),
+      isFalse,
+    );
+  });
+
   test('projection extras retain writing and native thinking identity', () {
     final extras = ConversationV2ProjectionExtras.fromJson({
       'requestSpans': [
