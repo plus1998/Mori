@@ -1207,6 +1207,15 @@ function historyTargetChanged(
   existing: ConversationMessageHistoryTarget,
   incoming: ConversationMessageHistoryTarget,
 ): boolean {
+  // Match the store's one permitted promotion of legacy provisional Codex ids.
+  if (
+    existing.activityLineId.startsWith("codex-pending:") &&
+    !existing.userMessageId &&
+    incoming.activityLineId.startsWith("sdk:") &&
+    incoming.userMessageId
+  ) {
+    return false;
+  }
   return (
     existing.activityLineId !== incoming.activityLineId ||
     (existing.userMessageId !== undefined &&

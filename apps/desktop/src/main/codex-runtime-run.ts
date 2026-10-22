@@ -191,10 +191,15 @@ export interface CodexRuntimeRunDeps {
    */
   scheduleThreadRunProjectionUpdated: (threadId: string, options?: { streaming?: boolean }) => void;
   /**
-   * Bind a Codex user item id onto the latest local user-prompt run event.
-   * Returns true when the local event was updated (caller should skip appending a duplicate).
+   * Bind a Codex user item by its follow-up client id when present; otherwise
+   * bind the pending local prompt. A true result suppresses the duplicate echo.
    */
-  bindLatestUserPromptToCodexItem?: (threadId: string, itemId: string, turnId?: string) => boolean;
+  bindLatestUserPromptToCodexItem?: (
+    threadId: string,
+    itemId: string,
+    turnId?: string,
+    clientUserMessageId?: string,
+  ) => boolean;
   /** Local prune after a successful app-server `thread/fork` rewind. */
   pruneThreadAfterCodexFork?: (ecoThreadId: string, itemId: string) => void;
   /** @deprecated Use pruneThreadAfterCodexFork. */
@@ -395,12 +400,16 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
           : projectionEvent.streamKey?.trim();
       if (
         projectionEvent.role === "user" &&
+        projectionEvent.scope === "main" &&
         projectionEvent.metadata?.itemType === "userMessage" &&
         itemId &&
         config.bindLatestUserPromptToCodexItem?.(
           projectionEvent.threadId,
           itemId,
           typeof projectionEvent.metadata?.turnId === "string" ? projectionEvent.metadata.turnId : undefined,
+          typeof projectionEvent.metadata?.clientUserMessageId === "string"
+            ? projectionEvent.metadata.clientUserMessageId
+            : undefined,
         )
       ) {
         // Projection-only: local user prompt already carries the Codex item id / rewindTarget.

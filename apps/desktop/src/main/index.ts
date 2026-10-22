@@ -3394,8 +3394,10 @@ app
           });
         }
       },
-      bindLatestUserPromptToCodexItem: (threadId, itemId, turnId) => {
-        const bound = Boolean(conversationStore.bindLatestUserRunEventToSdkMessage(threadId, itemId));
+      bindLatestUserPromptToCodexItem: (threadId, itemId, turnId, clientUserMessageId) => {
+        const bound = Boolean(
+          conversationStore.bindLatestUserRunEventToSdkMessage(threadId, itemId, clientUserMessageId),
+        );
         if (bound && turnId) conversationStore.bindCodexForkTurn(threadId, itemId, turnId);
         return bound;
       },
@@ -14522,15 +14524,24 @@ async function tryDeliverFollowUpViaMidTurn(
   // The provider has accepted the irreversible push. Only now expose the user
   // bubble and finalize the durable V2 message, using this confirmation time
   // instead of the earlier queue-acceptance time for Feed ordering.
-  await recordUserPrompt(
-    thread.id,
-    claimed.prompt.trim(),
-    claimed.attachments,
-    claimed.conversationMessageId ? [claimed.conversationMessageId] : undefined,
-    // Stamp the durable message in the explicit post-push finalization below,
-    // rather than at the time this local activity row is assembled.
-    { finalizeAcceptedMessages: false },
+  // A Codex item receipt can arrive before turn/steer returns. Its exact client
+  // id already recorded and bound the prompt; do not add another unbound source.
+  const codexReceiptRecorded = Boolean(
+    isCodex &&
+      claimed.conversationMessageId &&
+      conversationStore.conversationV2().getMessage(thread.id, claimed.conversationMessageId)?.historyTarget
+        ?.userMessageId,
   );
+  if (!codexReceiptRecorded)
+    await recordUserPrompt(
+      thread.id,
+      claimed.prompt.trim(),
+      claimed.attachments,
+      claimed.conversationMessageId ? [claimed.conversationMessageId] : undefined,
+      // Stamp the durable message in the explicit post-push finalization below,
+      // rather than at the time this local activity row is assembled.
+      { finalizeAcceptedMessages: false },
+    );
   midTurnLocalUserPromptFollowUpIds.add(claimed.id);
 
   if (followUp.conversationMessageId) {
