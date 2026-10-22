@@ -22,11 +22,28 @@ test("renders a compact file viewer and defers its directory tree until requeste
     expect(html).toContain('class="workspace-file-viewer__breadcrumbs"');
     expect(html).toContain(">repo</button>");
     expect(html).toContain(">App.tsx</button>");
+    expect(html).toContain('class="workspace-file-header__open-group"');
+    expect(html).toContain('aria-label="使用其他应用打开"');
+    expect(html).toContain(">打开</span>");
     expect(html).not.toContain("workspace-file-viewer__navigator");
   } finally {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: previousWindow,
     });
+  }
+});
+
+test("a restricted Feed file does not expose external open actions", () => {
+  const previousWindow = globalThis.window;
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { eco: undefined } });
+  try {
+    const html = renderToStaticMarkup(createElement(WorkspaceFileViewer, {
+      workspacePath: "/repo", target: { path: "/outside/private.txt", requestId: 1, restricted: true },
+    }));
+    expect(html).toContain("文件位于当前工作区之外");
+    expect(html).not.toContain("workspace-file-header__open-group");
+  } finally {
+    Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
   }
 });

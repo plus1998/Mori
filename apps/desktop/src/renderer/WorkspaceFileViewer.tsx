@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight, FolderOpen, RotateCcw, X } from "lucide-reac
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MaterialFileIcon } from "./MaterialFileIcon";
+import { WorkspaceFileOpenActions } from "./WorkspaceFileOpenActions";
 import {
   type WorkspaceFile,
   WorkspaceFilePreview,
@@ -35,6 +36,7 @@ type FileViewerTarget = WorkspaceFileReference & {
 
 export interface WorkspaceFileViewerProps {
   workspacePath: string;
+  threadId?: string;
   target?: FileViewerTarget;
   onViewedFileChange?: (target: FileViewerTarget) => void;
 }
@@ -114,7 +116,7 @@ function FileNavigatorBranch({
   );
 }
 
-export function WorkspaceFileViewer({ workspacePath, target, onViewedFileChange }: WorkspaceFileViewerProps) {
+export function WorkspaceFileViewer({ workspacePath, threadId, target, onViewedFileChange }: WorkspaceFileViewerProps) {
   const { t } = useTranslation();
   const api = window.eco as unknown as WorkspaceApi | undefined;
   const [file, setFile] = useState<WorkspaceFile | null>(null);
@@ -338,29 +340,35 @@ export function WorkspaceFileViewer({ workspacePath, target, onViewedFileChange 
   return (
     <div className="workspace-file-viewer">
       {breadcrumbs.length > 0 ? (
-        <nav
-          ref={breadcrumbRef}
-          className="workspace-file-viewer__breadcrumbs"
-          aria-label={t("fileViewer.pathLabel")}
-        >
-          {breadcrumbs.map((segment, index) => (
-            <span className="workspace-file-viewer__breadcrumb-part" key={segment.path}>
-              {index > 0 ? (
-                <ChevronRight className="workspace-file-viewer__breadcrumb-separator" aria-hidden="true" />
-              ) : null}
-              <button
-                type="button"
-                className={segment.kind === "file" ? "is-file" : ""}
-                aria-haspopup="tree"
-                aria-expanded={navigatorRoot?.path === segment.path}
-                title={t("fileViewer.openDirectory", { name: segment.name })}
-                onClick={() => openNavigator(segment)}
-              >
-                {segment.name}
-              </button>
-            </span>
-          ))}
-        </nav>
+        <div className="workspace-file-viewer__header">
+          <nav
+            ref={breadcrumbRef}
+            className="workspace-file-viewer__breadcrumbs"
+            aria-label={t("fileViewer.pathLabel")}
+          >
+            {breadcrumbs.map((segment, index) => (
+              <span className="workspace-file-viewer__breadcrumb-part" key={segment.path}>
+                {index > 0 ? (
+                  <ChevronRight className="workspace-file-viewer__breadcrumb-separator" aria-hidden="true" />
+                ) : null}
+                <button
+                  type="button"
+                  className={segment.kind === "file" ? "is-file" : ""}
+                  aria-haspopup="tree"
+                  aria-expanded={navigatorRoot?.path === segment.path}
+                  title={t("fileViewer.openDirectory", { name: segment.name })}
+                  onClick={() => openNavigator(segment)}
+                >
+                  {segment.name}
+                </button>
+              </span>
+            ))}
+          </nav>
+          {activeTarget ? (
+            <WorkspaceFileOpenActions key={activeTarget.path} filePath={activeTarget.path} requestId={activeTarget.requestId}
+              workspacePath={workspacePath} {...(threadId ? { threadId } : {})} />
+          ) : null}
+        </div>
       ) : null}
       {navigatorRoot && navigatorRootPath ? (
         <div

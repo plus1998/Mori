@@ -716,6 +716,7 @@ export function SubagentTaskDrawer({
   onSelectBackgroundTasks,
   onSelectReview,
   workspacePath,
+  threadId,
   fileTarget,
   onSelectFiles,
   onSelectFileViewer,
@@ -773,6 +774,7 @@ export function SubagentTaskDrawer({
   onSelectBackgroundTasks: () => void;
   onSelectReview: () => void;
   workspacePath: string;
+  threadId?: string;
   fileTarget?: WorkspaceFileReference & { requestId: number; restricted?: boolean };
   onSelectFiles: () => void;
   onSelectFileViewer: () => void;
@@ -1329,7 +1331,7 @@ export function SubagentTaskDrawer({
         ))}
         {filesSelected ? (
           <div id="subagent-task-tab-files" className="subagent-task-panel-tab-pane" role="tabpanel">
-            <WorkspaceFileBrowser workspacePath={workspacePath} />
+            <WorkspaceFileBrowser workspacePath={workspacePath} {...(threadId ? { threadId } : {})} />
           </div>
         ) : null}
         {fileViewerSelected ? (
@@ -1340,6 +1342,7 @@ export function SubagentTaskDrawer({
           >
             <WorkspaceFileViewer
               workspacePath={workspacePath}
+              {...(threadId ? { threadId } : {})}
               {...(fileTarget ? { target: fileTarget } : {})}
               onViewedFileChange={onViewedFileChange}
             />

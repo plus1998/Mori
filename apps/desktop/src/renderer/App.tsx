@@ -11527,6 +11527,7 @@ function App() {
               void refreshReviewDiff();
             }}
             workspacePath={currentProjectPath ?? ""}
+            {...(activeThread ? { threadId: activeThread.id } : {})}
             {...(fileTarget && { fileTarget })}
             onSelectFiles={() => {
               setOpenTaskPanelTabIds((current) => addOpenTaskPanelTab(current, TASK_PANEL_FILES_TAB_ID));

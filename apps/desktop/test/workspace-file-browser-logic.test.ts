@@ -25,6 +25,7 @@ test("keeps WorkspaceFileBrowser translation keys in both catalogs", () => {
   const source = [
     "../src/renderer/WorkspaceFileBrowser.tsx",
     "../src/renderer/WorkspaceFileViewer.tsx",
+    "../src/renderer/WorkspaceFileOpenActions.tsx",
     "../src/renderer/WorkspaceFilePreview.tsx",
     "../src/renderer/SubagentTaskDrawer.tsx",
   ]

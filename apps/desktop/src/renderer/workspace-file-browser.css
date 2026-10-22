@@ -33,17 +33,25 @@
   color: var(--text-primary, currentColor);
 }
 
-.workspace-file-viewer__breadcrumbs {
+.workspace-file-viewer__header {
   display: flex;
   flex: 0 0 43px;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 0 15px;
+  border-bottom: 1px solid var(--wfb-border);
+  background: var(--terminal-bg, var(--bg-main));
+}
+
+.workspace-file-viewer__breadcrumbs {
+  display: flex;
+  flex: 1 1 auto;
   min-width: 0;
   align-items: center;
   gap: 1px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0 15px;
-  border-bottom: 1px solid var(--wfb-border);
-  background: var(--terminal-bg, var(--bg-main));
   scrollbar-width: none;
 }
 
@@ -182,10 +190,12 @@
     border-color 0.12s ease;
 }
 
-.workspace-file-header__action-btn:hover {
+.workspace-file-header__action-btn:hover:not(:disabled) {
   background: var(--nav-hover);
   border-color: color-mix(in srgb, var(--accent) 40%, var(--wfb-border));
 }
+
+.workspace-file-header__action-btn:disabled { opacity: 0.5; cursor: default; }
 
 .workspace-file-header__action-btn--icon {
   border: 0;
@@ -250,7 +260,37 @@
 .workspace-file-header__open-menu-container {
   position: relative;
   display: inline-flex;
+  flex: 0 0 auto;
   vertical-align: middle;
+}
+
+.workspace-file-header__menu-message {
+  margin: 0;
+  padding: 8px 14px;
+  color: var(--wfb-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.workspace-file-header__menu-message.is-error,
+.workspace-file-header__action-error { color: var(--danger); }
+
+.workspace-file-header__action-error {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  width: max-content;
+  max-width: min(300px, 70vw);
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--popover-border, var(--wfb-border));
+  border-radius: 8px;
+  background: var(--popover-bg, var(--bg-menu));
+  box-shadow: var(--shadow-menu);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .workspace-file-header__open-menu-dropdown {
@@ -1010,7 +1050,7 @@
     border-bottom: 1px solid var(--wfb-border);
   }
 
-  .workspace-file-viewer__breadcrumbs {
+  .workspace-file-viewer__header {
     padding: 0 9px;
   }
 
