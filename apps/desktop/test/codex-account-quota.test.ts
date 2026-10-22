@@ -54,6 +54,34 @@ test("a quota 401 refreshes the managed token once and retries without a model t
   ]);
 });
 
+test("a gateway can hide account metadata while the quota RPC confirms the managed account", async () => {
+  const quota = await readCodexAccountQuota(quotaClient((method) => method === "account/read"
+    ? { account: null, requiresOpenaiAuth: false }
+    : { ...rateLimits, accountId: "acct-quota" }), false, "acct-quota");
+  expect(quota.planType).toBe("plus");
+  expect(quota.rateLimit.primaryWindow?.usedPercent).toBe(25);
+  expect(quota.email).toBe(""); // The gateway did not supply account metadata.
+});
+
+test("hidden gateway metadata requires an exact quota account identity", async () => {
+  for (const accountId of [undefined, "acct-other"]) {
+    await expect(readCodexAccountQuota(quotaClient((method) => method === "account/read"
+      ? { account: null, requiresOpenaiAuth: false }
+      : { ...rateLimits, accountId }), false, "acct-quota")).rejects.toThrow("未确认所查询的账号身份");
+  }
+  await expect(readCodexAccountQuota(quotaClient((method) => method === "account/read"
+    ? { account: null, requiresOpenaiAuth: false }
+    : { ...rateLimits, accountId: "acct-quota" }))).rejects.toThrow("未确认所查询的账号身份");
+});
+
+test("missing ChatGPT login and API key login remain authentication errors", async () => {
+  for (const account of [null, { type: "apiKey" }]) {
+    await expect(readCodexAccountQuota(quotaClient((method) => method === "account/read"
+      ? { account, requiresOpenaiAuth: true }
+      : { ...rateLimits, accountId: "acct-quota" }), false, "acct-quota")).rejects.toThrow("需要 ChatGPT 登录凭据");
+  }
+});
+
 test("network failures do not rotate a token and repeated authentication errors are surfaced", async () => {
   for (const [message, expectedRefreshes] of [["503 unavailable", 0], ["401 Unauthorized", 1]] as const) {
     let refreshes = 0;

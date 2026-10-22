@@ -10,6 +10,7 @@ export interface CodexQuotaClient {
 
 interface AccountResponse {
   account: { type: string; email?: string | null; planType?: string | null } | null;
+  requiresOpenaiAuth?: boolean;
 }
 
 interface RateLimitWindow {
@@ -52,7 +53,18 @@ export async function readCodexAccountQuota(client: CodexQuotaClient, refreshTok
     account = await client.request<AccountResponse>("account/read", { refreshToken: true }, requestOptions);
     result = await client.request<RateLimitsResponse>("account/rateLimits/read", undefined, requestOptions);
   }
-  if (account.account?.type !== "chatgpt") throw new Error("额度查询需要 ChatGPT 登录凭据，请重新登录该账号。");
+  // account/read describes the selected model provider. A gateway that does
+  // not require OpenAI auth returns null even with valid managed ChatGPT auth.
+  // The quota RPC authenticates separately; only accept this case when its
+  // response proves that the quota belongs to the requested account.
+  const providerHidesAccount = account.account === null && account.requiresOpenaiAuth === false;
+  if (providerHidesAccount) {
+    if (!expectedAccountId || result.accountId !== expectedAccountId) {
+      throw new Error("当前模型网关不返回登录账号信息，额度响应也未确认所查询的账号身份，无法保存额度。");
+    }
+  } else if (account.account?.type !== "chatgpt") {
+    throw new Error("额度查询需要 ChatGPT 登录凭据，请重新登录该账号。");
+  }
   if (result.accountId && expectedAccountId && result.accountId !== expectedAccountId) throw new Error("Codex 返回的额度不属于所查询的账号，请重新刷新。");
   // Do not select an unrelated premium/model bucket when a multi-bucket
   // response omits the ordinary Codex bucket.
@@ -75,8 +87,8 @@ export async function readCodexAccountQuota(client: CodexQuotaClient, refreshTok
   const limitReached = Boolean(limits.rateLimitReachedType) ||
     [primaryWindow, secondaryWindow].some((window) => window !== null && window.usedPercent >= 100);
   return {
-    planType: limits.planType ?? account.account.planType ?? "unknown",
-    email: account.account.email ?? "",
+    planType: limits.planType ?? account.account?.planType ?? "unknown",
+    email: account.account?.email ?? "",
     rateLimit: {
       allowed: result.ordinaryUsageAllowed ?? !limitReached,
       limitReached,
