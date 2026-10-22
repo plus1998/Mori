@@ -2,6 +2,7 @@ import { FolderOpen, Globe, KeyRound, ListChecks, Terminal } from "lucide-react"
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { normalizeBrowserNavigateUrl } from "../shared/browser";
+import { BrowserAddressInput } from "./BrowserAddressInput";
 import type { TaskPanelHomeTool } from "./task-panel-tabs";
 
 /** A local start page. It has no browser guest until an address is submitted. */
@@ -37,14 +38,10 @@ export function TaskPanelNewTab({
             {t("browser.address")}
           </label>
           <Globe size={14} aria-hidden className="browser-panel-address-icon" />
-          <input
+          <BrowserAddressInput
             id={addressInputId}
-            className="browser-panel-address"
             value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            placeholder={t("browser.addressPlaceholder")}
-            spellCheck={false}
-            autoComplete="off"
+            onValueChange={setAddress}
             disabled={opening}
           />
         </form>

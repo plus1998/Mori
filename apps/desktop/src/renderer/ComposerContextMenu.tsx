@@ -30,6 +30,7 @@ export interface ComposerContextMenuPanelProps {
 interface ComposerContextMenuProps extends ComposerContextMenuPanelProps {
   anchor: ComposerContextMenuAnchor;
   onClose: () => void;
+  ariaLabel?: string;
 }
 
 /** Menu clicks must not reach the document: the editor selection they act on lives behind them. */
@@ -111,6 +112,7 @@ export function ComposerContextMenu({
   onPaste,
   onSelectAll,
   onClose,
+  ariaLabel,
 }: ComposerContextMenuProps) {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -185,7 +187,7 @@ export function ComposerContextMenu({
       ref={menuRef}
       className="composer-context-menu"
       role="menu"
-      aria-label={t("composer.menu.label")}
+      aria-label={ariaLabel ?? t("composer.menu.label")}
       style={style}
       data-component="composer-context-menu"
     >
