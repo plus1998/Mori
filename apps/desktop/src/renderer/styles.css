@@ -13003,6 +13003,7 @@ button.default-agent-option:focus-visible {
   line-height: 1.55;
   resize: none;
   overflow-y: auto;
+  /* Size in layout: collapsing this field to measure it clamps the Feed's scrollTop. */
   field-sizing: content;
 }
 

@@ -6482,16 +6482,6 @@ function UserPromptBlock({
   }, [editLoading, editing]);
 
   useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    if (!editing || !textarea) {
-      return;
-    }
-    textarea.style.height = "0px";
-    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 72), Math.round(window.innerHeight * 0.42));
-    textarea.style.height = `${nextHeight}px`;
-  }, [editLoading, editText, editing, editImages.length]);
-
-  useLayoutEffect(() => {
     if (previousTextRef.current === text) {
       return;
     }
