@@ -12,6 +12,7 @@ import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "
 import { ACP_IMAGE_ONLY_PROMPT } from "@eco/runtime/acp-prompt";
 import { OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID } from "../shared/agent-orchestration";
 import { CodexQuotaReminder } from "./CodexQuotaReminder";
+import { isCodexAuthThread } from "./codex-quota-reminder";
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import {
   listPlanDelegationAgents,
@@ -12350,6 +12351,16 @@ function App() {
                     <div className="composer-footer-actions">
                       {activeThread ? (
                         <ComposerThreadUsagePills
+                          accountQuota={
+                            isCodexAuthThread(activeThread) ? (
+                              <CodexQuotaReminder
+                                key={activeThread.id}
+                                variant="billing"
+                                threads={[activeThread]}
+                                onSwitchAccount={openCodexAccountSwitch}
+                              />
+                            ) : null
+                          }
                           threadId={activeThread.id}
                           threadStatus={activeThread.status}
                           {...(threadUsageSummary && { usageSummary: threadUsageSummary })}
@@ -12653,7 +12664,6 @@ function App() {
           </div>
 
           <div className="sidebar-settings-footer">
-            <CodexQuotaReminder threads={threads} onSwitchAccount={openCodexAccountSwitch} />
             <div className="sidebar-settings">
               <button
                 type="button"

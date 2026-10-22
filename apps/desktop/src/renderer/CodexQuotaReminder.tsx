@@ -2,11 +2,13 @@ import { LoaderCircle, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ThreadSummary } from "../shared/ipc";
+import type { OpenAIAccountQuotaWindow } from "../shared/openai-account";
 import {
   CODEX_QUOTA_REFRESH_MS,
   CodexQuotaMonitor,
   type CodexQuotaReminderSnapshot,
   hasRecentCodexAuthUsage,
+  isCodexAuthThread,
   lowCodexQuotaWindows,
 } from "./codex-quota-reminder";
 import "./CodexQuotaReminder.css";
@@ -27,26 +29,45 @@ export function CodexQuotaReminderCard({
   onSwitchAccount,
   onReset,
   onDismiss,
+  variant = "reminder",
 }: {
   snapshot: CodexQuotaReminderSnapshot;
   error?: string | undefined;
   busy?: boolean;
   onSwitchAccount: () => void;
   onReset: () => void;
-  onDismiss: () => void;
+  onDismiss?: () => void;
+  variant?: "reminder" | "billing";
 }) {
   const { t, i18n } = useTranslation();
-  const windows = lowCodexQuotaWindows(snapshot.quota);
-  if (windows.length === 0) return null;
-  const percent = Math.round((100 - windows[0]!.usedPercent) * 10) / 10;
+  const windows =
+    variant === "billing"
+      ? [snapshot.quota.rateLimit.primaryWindow, snapshot.quota.rateLimit.secondaryWindow].filter(
+          (window): window is OpenAIAccountQuotaWindow =>
+            window !== null &&
+            Number.isFinite(window.usedPercent) &&
+            window.usedPercent >= 0 &&
+            window.usedPercent <= 100,
+        )
+      : lowCodexQuotaWindows(snapshot.quota);
+  if (windows.length === 0 && variant === "reminder") return null;
+  const percent = windows[0] ? Math.round((100 - windows[0].usedPercent) * 10) / 10 : 0;
   return (
-    <section className="codex-quota-reminder" aria-label={t("codexQuota.label")}>
+    <section
+      className={`codex-quota-reminder${variant === "billing" ? " codex-quota-billing" : ""}`}
+      aria-label={t(variant === "billing" ? "codexQuota.accountQuota" : "codexQuota.label")}
+    >
       <div className="codex-quota-reminder-heading">
-        <strong>{t("codexQuota.remaining", { percent })}</strong>
-        <button type="button" aria-label={t("common.close")} onClick={onDismiss}>
-          <X size={14} />
-        </button>
+        <strong>
+          {t(variant === "billing" ? "codexQuota.accountQuota" : "codexQuota.remaining", { percent })}
+        </strong>
+        {onDismiss ? (
+          <button type="button" aria-label={t("common.close")} onClick={onDismiss}>
+            <X size={14} />
+          </button>
+        ) : null}
       </div>
+      {windows.length === 0 ? <p>{t("settings.openaiAccounts.quotaIdle")}</p> : null}
       <div className="codex-quota-reminder-account" title={snapshot.accountName}>
         {t("codexQuota.currentAccount", { name: snapshot.accountName })}
       </div>
@@ -130,10 +151,12 @@ export function CodexQuotaReminder({
   threads,
   onSwitchAccount,
   eco = window.eco,
+  variant = "reminder",
 }: {
   threads: readonly ThreadSummary[];
   onSwitchAccount: () => void;
   eco?: QuotaReminderBridge | undefined;
+  variant?: "reminder" | "billing";
 }) {
   const { t } = useTranslation();
   const threadsRef = useRef(threads);
@@ -142,22 +165,31 @@ export function CodexQuotaReminder({
   const [snapshot, setSnapshot] = useState<CodexQuotaReminderSnapshot>();
   const snapshotRef = useRef<CodexQuotaReminderSnapshot | undefined>(undefined);
   const [error, setError] = useState<string>();
+  const [loading, setLoading] = useState(Boolean(eco));
   const [resetting, setResetting] = useState(false);
   const [dismissed, setDismissed] = useState<string>();
   const resetAttempt = useRef<{ accountId: string; key: string } | undefined>(undefined);
   const resettingRef = useRef(false);
-  const recentlyUsed = hasRecentCodexAuthUsage(threads);
+  const recentlyUsed =
+    variant === "billing" ? threads.some(isCodexAuthThread) : hasRecentCodexAuthUsage(threads);
   const acceptSnapshot = useCallback((next: CodexQuotaReminderSnapshot | undefined) => {
     snapshotRef.current = next;
     setSnapshot(next);
     setError(undefined);
+    setLoading(false);
   }, []);
   useEffect(() => {
     if (!eco) return;
     const instance = new CodexQuotaMonitor(eco, {
-      enabled: () => hasRecentCodexAuthUsage(threadsRef.current),
+      enabled: () =>
+        variant === "billing"
+          ? threadsRef.current.some(isCodexAuthThread)
+          : hasRecentCodexAuthUsage(threadsRef.current),
       onChange: acceptSnapshot,
-      onError: setError,
+      onError: (message) => {
+        setError(message);
+        setLoading(false);
+      },
     });
     monitor.current = instance;
     const timer = window.setInterval(() => void instance.refresh(), CODEX_QUOTA_REFRESH_MS);
@@ -168,10 +200,10 @@ export function CodexQuotaReminder({
       unsubscribe();
       monitor.current = undefined;
     };
-  }, [acceptSnapshot, eco]);
+  }, [acceptSnapshot, eco, variant]);
   useEffect(() => {
     void monitor.current?.refresh();
-  }, [recentlyUsed, eco]);
+  }, [recentlyUsed, eco, variant]);
 
   async function reset() {
     if (!snapshot || !eco || resettingRef.current) return;
@@ -209,7 +241,32 @@ export function CodexQuotaReminder({
           .sort()
           .join("/")}`
       : undefined;
-  if (!snapshot || lowWindows.length === 0 || dismissed === reminderKey) {
+  if (variant === "billing" && !snapshot && recentlyUsed) {
+    return (
+      <section
+        className="codex-quota-reminder codex-quota-billing"
+        aria-label={t("codexQuota.accountQuota")}
+        aria-busy={loading}
+      >
+        <div className="codex-quota-reminder-heading">
+          <strong>{t("codexQuota.accountQuota")}</strong>
+        </div>
+        {error ? (
+          <div className="codex-quota-refresh-error" role="alert">
+            <span>
+              {t("codexQuota.refreshFailed")}：{error}
+            </span>
+            <button type="button" onClick={() => void monitor.current?.refresh(true)}>
+              {t("common.retry")}
+            </button>
+          </div>
+        ) : (
+          <p>{t(loading ? "settings.openaiAccounts.quotaLoading" : "settings.openaiAccounts.quotaIdle")}</p>
+        )}
+      </section>
+    );
+  }
+  if (!snapshot || (variant === "reminder" && (lowWindows.length === 0 || dismissed === reminderKey))) {
     return error && recentlyUsed ? (
       <div className="codex-quota-refresh-error" role="status">
         <span>{t("codexQuota.refreshFailed")}</span>
@@ -224,9 +281,10 @@ export function CodexQuotaReminder({
       snapshot={snapshot}
       error={error}
       busy={resetting}
+      variant={variant}
       onSwitchAccount={onSwitchAccount}
       onReset={() => void reset()}
-      onDismiss={() => setDismissed(reminderKey)}
+      {...(variant === "reminder" ? { onDismiss: () => setDismissed(reminderKey) } : {})}
     />
   );
 }

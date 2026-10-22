@@ -6,6 +6,7 @@ import {
   CodexQuotaMonitor,
   type CodexQuotaReminderSnapshot,
   hasRecentCodexAuthUsage,
+  isCodexAuthThread,
   lowCodexQuotaWindows,
 } from "../src/renderer/codex-quota-reminder";
 import type { ThreadSummary } from "../src/shared/ipc";
@@ -73,6 +74,8 @@ test("recent-use tracking only enables Codex Auth within 30 minutes or while run
   expect(hasRecentCodexAuthUsage([{ ...thread, coreKind: "claude" }], now)).toBe(false);
   const old = { ...thread, updatedAt: new Date(now - CODEX_AUTH_RECENT_USE_MS - 1).toISOString() };
   expect(hasRecentCodexAuthUsage([old], now)).toBe(false);
+  expect(isCodexAuthThread(old)).toBe(true);
+  expect(isCodexAuthThread({ ...old, coreKind: "claude" })).toBe(false);
   expect(hasRecentCodexAuthUsage([{ ...old, status: "running" }], now)).toBe(true);
   expect(
     hasRecentCodexAuthUsage(
@@ -240,4 +243,37 @@ test("reminder shows reference-card content and disables reset without credits o
     );
     expect(disabled).toMatch(/<button[^>]*disabled=""[^>]*>使用重置<\/button>/);
   }
+});
+
+test("billing card shows every quota window even when no quota is low", () => {
+  const html = renderLocalized(
+    createElement(CodexQuotaReminderCard, {
+      snapshot: {
+        ...snapshot,
+        quota: {
+          ...quota,
+          rateLimit: {
+            ...quota.rateLimit,
+            primaryWindow: { ...quota.rateLimit.primaryWindow!, usedPercent: 25 },
+          },
+        },
+      },
+      variant: "billing",
+      onReset() {},
+      onSwitchAccount() {},
+    }),
+    "zh-CN",
+  );
+  for (const text of [
+    "Codex 账号额度",
+    "当前使用账号：Current",
+    "5 小时",
+    "7 天",
+    "75%",
+    "50%",
+    "切换账号",
+    "使用重置",
+  ])
+    expect(html).toContain(text);
+  expect(html).not.toContain('aria-label="关闭"');
 });

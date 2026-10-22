@@ -1,5 +1,6 @@
 import type { AcpHostUiFeatures } from "@eco/runtime/acp-host-ui-features";
 import { formatUsageBadge } from "@eco/runtime/usage";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ThreadBillingSnapshot, ThreadContextSnapshot, ThreadStatus } from "../shared/ipc";
 import {
@@ -31,6 +32,7 @@ function hasBillingData(billing?: ThreadBillingSnapshot): billing is ThreadBilli
 }
 
 export interface ComposerThreadUsagePillsProps {
+  accountQuota?: ReactNode;
   threadId?: string;
   threadStatus?: ThreadStatus;
   usageSummary?: ThreadUsageSummary;
@@ -45,6 +47,7 @@ export interface ComposerThreadUsagePillsProps {
 }
 
 export function ComposerThreadUsagePills({
+  accountQuota,
   threadId,
   threadStatus,
   usageSummary,
@@ -83,6 +86,7 @@ export function ComposerThreadUsagePills({
     <div className="composer-footer-usage">
       <ThreadInfoFloatStack
         variant="composer"
+        accountQuota={accountQuota}
         {...(threadId !== undefined && { threadId })}
         showBillingSection={showBillingSection}
         showContext={showContext}

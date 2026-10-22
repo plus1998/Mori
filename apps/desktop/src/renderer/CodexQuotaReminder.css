@@ -16,6 +16,28 @@
   -webkit-app-region: no-drag;
 }
 
+.thread-info-billing-card:has(.codex-quota-billing) {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.codex-quota-billing {
+  margin: 0 0 12px;
+  padding: 12px;
+  border-color: var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  --sidebar-item-text: var(--text-secondary);
+  --sidebar-item-active-text: var(--text-primary);
+  --bg-sidebar: var(--bg-elevated);
+}
+
+.codex-quota-billing .codex-quota-refresh-error {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+
 .codex-quota-reminder-heading,
 .codex-quota-reminder-window-label,
 .codex-quota-reminder-actions,

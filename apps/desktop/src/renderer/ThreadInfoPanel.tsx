@@ -316,6 +316,7 @@ function BillingFloatingCard({
   agentDisplayNames,
   resetKey,
   onDismiss,
+  accountQuota,
 }: {
   billing?: ThreadBillingSnapshot;
   ledgerEvents?: ThreadUsageLedgerEventView[];
@@ -326,6 +327,7 @@ function BillingFloatingCard({
   agentDisplayNames?: RuntimeAgentDisplayNames;
   resetKey?: string;
   onDismiss: () => void;
+  accountQuota?: ReactNode;
 }) {
   const showComparison = Boolean(billing && shouldShowBillingSavings(billing.savedUsd));
 
@@ -352,6 +354,8 @@ function BillingFloatingCard({
           <X size={14} aria-hidden />
         </button>
       </div>
+
+      {accountQuota}
 
       {showBilling && billing ? (
         <div
@@ -656,6 +660,7 @@ export function ThreadInfoFloatStack({
   variant = "panel",
   hostUiFeatures,
   showContext,
+  accountQuota,
 }: {
   threadId?: string;
   showBillingSection: boolean;
@@ -675,6 +680,7 @@ export function ThreadInfoFloatStack({
   variant?: "panel" | "composer";
   hostUiFeatures?: AcpHostUiFeatures;
   showContext?: boolean;
+  accountQuota?: ReactNode;
 }) {
   const { t } = useTranslation();
   const showContextFloat = showContext ?? shouldShowContextUsagePanel(threadStatus, hostUiFeatures);
@@ -728,6 +734,7 @@ export function ThreadInfoFloatStack({
                 {...(agentDisplayNames && { agentDisplayNames })}
                 {...(threadId !== undefined && { resetKey: threadId })}
                 onDismiss={closePanel}
+                accountQuota={accountQuota}
               />
             )}
           </ThreadInfoFloatControl>

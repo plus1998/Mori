@@ -4,21 +4,21 @@ import type { OpenAIAccountQuota, OpenAIAccountQuotaWindow } from "../shared/ope
 export const CODEX_QUOTA_REFRESH_MS = 2 * 60_000;
 export const CODEX_AUTH_RECENT_USE_MS = 30 * 60_000;
 
+export function isCodexAuthThread(thread: ThreadSummary): boolean {
+  if (thread.coreKind !== "codex") return false;
+  const config = thread.runtimeConfig;
+  const providerId =
+    config?.mainAgentModelOverride?.providerId ??
+    config?.resolvedOrchestrationSnapshot?.mainAgent.modelRef.providerId;
+  return (
+    providerId === "openai" ||
+    (providerId === undefined && config?.orchestrationSelection?.mainAgentConfigId === "__openai_official__")
+  );
+}
+
 export function hasRecentCodexAuthUsage(threads: readonly ThreadSummary[], now = Date.now()): boolean {
   return threads.some((thread) => {
-    if (thread.coreKind !== "codex") return false;
-    const config = thread.runtimeConfig;
-    const providerId =
-      config?.mainAgentModelOverride?.providerId ??
-      config?.resolvedOrchestrationSnapshot?.mainAgent.modelRef.providerId;
-    if (
-      providerId !== "openai" &&
-      !(
-        providerId === undefined &&
-        config?.orchestrationSelection?.mainAgentConfigId === "__openai_official__"
-      )
-    )
-      return false;
+    if (!isCodexAuthThread(thread)) return false;
     return (
       thread.status === "running" ||
       thread.status === "queued" ||
