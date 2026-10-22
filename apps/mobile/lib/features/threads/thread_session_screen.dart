@@ -719,10 +719,12 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                             ),
                             request: pendingClarification,
                             busy: _clarificationBusy,
-                            onSubmit: (selections) => _submitClarification(
-                              pendingClarification,
-                              selections,
-                            ),
+                            onSubmit: (selections, {customInputIndices}) =>
+                                _submitClarification(
+                                  pendingClarification,
+                                  selections,
+                                  customInputIndices: customInputIndices,
+                                ),
                             onDismiss: () =>
                                 _dismissClarification(pendingClarification),
                           )
@@ -1162,8 +1164,9 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
 
   Future<void> _submitClarification(
     ClarificationRequest request,
-    List<List<String>> selections,
-  ) async {
+    List<List<String>> selections, {
+    List<int>? customInputIndices,
+  }) async {
     if (_clarificationBusy) return;
     setState(() => _clarificationBusy = true);
     try {
@@ -1171,11 +1174,19 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
       if (v2.syncState != ConversationV2SyncState.uninitialized) {
         await ref
             .read(conversationV2SessionProvider(widget.threadId).notifier)
-            .submitClarification(request.toolUseId, selections);
+            .submitClarification(
+              request.toolUseId,
+              selections,
+              customInputIndices: customInputIndices,
+            );
       } else {
         await ref
             .read(threadSessionProvider(widget.threadId).notifier)
-            .submitClarification(request.toolUseId, selections);
+            .submitClarification(
+              request.toolUseId,
+              selections,
+              customInputIndices: customInputIndices,
+            );
       }
     } catch (error) {
       if (mounted) {

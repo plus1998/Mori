@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -290,7 +291,11 @@ class ClarificationDockPanel extends StatefulWidget {
 
   final ClarificationRequest request;
   final bool busy;
-  final Future<void> Function(List<List<String>> selections) onSubmit;
+  final Future<void> Function(
+    List<List<String>> selections, {
+    List<int>? customInputIndices,
+  })
+  onSubmit;
   final Future<void> Function() onDismiss;
 
   @override
@@ -298,12 +303,14 @@ class ClarificationDockPanel extends StatefulWidget {
 }
 
 class _ClarificationDockPanelState extends State<ClarificationDockPanel> {
+  static const _customOptionLabel = '其他（自定义说明）';
   static final _recommendedSuffix = RegExp(
     r'\s*(?:\(Recommended\)|（Recommended）|（推荐）)$',
     caseSensitive: false,
   );
 
   late List<List<String>> _selections;
+  late List<TextEditingController> _customTexts;
   int _questionIndex = 0;
 
   @override
@@ -315,14 +322,34 @@ class _ClarificationDockPanelState extends State<ClarificationDockPanel> {
   @override
   void didUpdateWidget(covariant ClarificationDockPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.request.toolUseId != widget.request.toolUseId) {
+    if (oldWidget.request.toolUseId != widget.request.toolUseId ||
+        oldWidget.request.questions.length != widget.request.questions.length) {
+      for (final controller in _customTexts) {
+        controller.dispose();
+      }
       _questionIndex = 0;
       _resetSelections();
     }
   }
 
   void _resetSelections() {
-    _selections = [for (final _ in widget.request.questions) <String>[]];
+    _selections = [
+      for (final question in widget.request.questions)
+        question.options.isEmpty && question.allowCustom != false
+            ? [_customOptionLabel]
+            : <String>[],
+    ];
+    _customTexts = [
+      for (final _ in widget.request.questions) TextEditingController(),
+    ];
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _customTexts) {
+      controller.dispose();
+    }
+    super.dispose();
   }
 
   bool _isRecommendedOption(ClarificationQuestionOption option) {
@@ -334,12 +361,35 @@ class _ClarificationDockPanelState extends State<ClarificationDockPanel> {
     return label.replaceFirst(_recommendedSuffix, '').trim();
   }
 
-  bool get _questionReady => _selections[_questionIndex].isNotEmpty;
+  bool _ready(int index) => _selections[index].contains(_customOptionLabel)
+      ? (widget.request.questions[index].preserveCustomText == true
+            ? _customTexts[index].text.isNotEmpty
+            : _customTexts[index].text.trim().isNotEmpty)
+      : _selections[index].isNotEmpty;
+
+  bool get _questionReady => _ready(_questionIndex);
+
+  List<List<String>> _answers() => [
+    for (var i = 0; i < _selections.length; i++)
+      if (_selections[i].contains(_customOptionLabel))
+        [
+          widget.request.questions[i].preserveCustomText == true
+              ? _customTexts[i].text
+              : _customTexts[i].text.trim(),
+        ]
+      else
+        [..._selections[i]],
+  ];
 
   void _selectOption(ClarificationQuestion question, String value) {
     if (widget.busy) return;
     setState(() {
       final selected = _selections[_questionIndex];
+      if (value == _customOptionLabel) {
+        _selections[_questionIndex] = [value];
+        return;
+      }
+      selected.remove(_customOptionLabel);
       if (question.multiSelect == true) {
         if (selected.contains(value)) {
           selected.remove(value);
@@ -377,6 +427,21 @@ class _ClarificationDockPanelState extends State<ClarificationDockPanel> {
     final colors = ecoColors(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final question = widget.request.questions[_questionIndex];
+    final options = [
+      ...question.options.where(
+        (option) =>
+            question.allowCustom != false || option.label != _customOptionLabel,
+      ),
+      if (question.allowCustom != false &&
+          !question.options.any((option) => option.label == _customOptionLabel))
+        ClarificationQuestionOption(
+          label: _customOptionLabel,
+          description: context.l10n.approvalClarificationCustomDescription,
+        ),
+    ];
+    final showCustomInput = _selections[_questionIndex].contains(
+      _customOptionLabel,
+    );
     final total = widget.request.questions.length;
     final isLast = _questionIndex == total - 1;
 
@@ -384,8 +449,23 @@ class _ClarificationDockPanelState extends State<ClarificationDockPanel> {
       top: false,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final maxPanelHeight = constraints.maxHeight * 0.58;
-          final maxOptionsHeight = constraints.maxHeight * 0.30;
+          // The real dock is a bottom-positioned Column and supplies unbounded
+          // height. Cap against the viewport, including the visible keyboard,
+          // rather than multiplying an infinite incoming constraint.
+          final media = MediaQuery.of(context);
+          final availableHeight = math.max(
+            0.0,
+            media.size.height -
+                media.viewInsets.bottom -
+                media.padding.vertical -
+                kToolbarHeight -
+                24,
+          );
+          final maxPanelHeight = math.min(
+            math.min(media.size.height * 0.58, availableHeight),
+            constraints.maxHeight,
+          );
+          final maxOptionsHeight = media.size.height * 0.30;
 
           return Padding(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
@@ -456,79 +536,113 @@ class _ClarificationDockPanelState extends State<ClarificationDockPanel> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            question.question,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  height: 1.3,
-                                ),
-                          ),
-                          if (question.header?.trim().isNotEmpty == true) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              question.header!,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: colors.textMuted,
-                                    height: 1.3,
-                                  ),
-                            ),
-                          ],
-                          const SizedBox(height: 8),
                           Flexible(
                             fit: FlexFit.loose,
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxHeight: maxOptionsHeight,
-                              ),
-                              child: SingleChildScrollView(
-                                key: const Key('clarification-options-scroll'),
-                                child: Column(
-                                  key: const Key(
-                                    'clarification-options-content',
+                            child: SingleChildScrollView(
+                              key: const Key('clarification-content-scroll'),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    question.question,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                          height: 1.3,
+                                        ),
                                   ),
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    for (
-                                      var index = 0;
-                                      index < question.options.length;
-                                      index++
-                                    ) ...[
-                                      if (index > 0) const SizedBox(height: 4),
-                                      Builder(
-                                        builder: (context) {
-                                          final option =
-                                              question.options[index];
-                                          final selected =
-                                              _selections[_questionIndex]
-                                                  .contains(option.label);
-                                          return _ClarificationOptionRow(
-                                            index: index,
-                                            option: option,
-                                            label: _formatOptionLabel(
-                                              option.label,
-                                            ),
-                                            selected: selected,
-                                            recommended: _isRecommendedOption(
-                                              option,
-                                            ),
-                                            enabled: !widget.busy,
-                                            onTap: () => _selectOption(
-                                              question,
-                                              option.label,
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ],
+                                  if (question.header?.trim().isNotEmpty ==
+                                      true) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      question.header!,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: colors.textMuted,
+                                            height: 1.3,
+                                          ),
+                                    ),
                                   ],
-                                ),
+                                  const SizedBox(height: 8),
+                                  ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      maxHeight: maxOptionsHeight,
+                                    ),
+                                    child: SingleChildScrollView(
+                                      key: const Key(
+                                        'clarification-options-scroll',
+                                      ),
+                                      child: Column(
+                                        key: const Key(
+                                          'clarification-options-content',
+                                        ),
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          for (
+                                            var index = 0;
+                                            index < options.length;
+                                            index++
+                                          ) ...[
+                                            if (index > 0)
+                                              const SizedBox(height: 4),
+                                            _ClarificationOptionRow(
+                                              index: index,
+                                              option: options[index],
+                                              label:
+                                                  options[index].label ==
+                                                      _customOptionLabel
+                                                  ? context
+                                                        .l10n
+                                                        .approvalClarificationCustomLabel
+                                                  : _formatOptionLabel(
+                                                      options[index].label,
+                                                    ),
+                                              selected:
+                                                  _selections[_questionIndex]
+                                                      .contains(
+                                                        options[index].label,
+                                                      ),
+                                              recommended: _isRecommendedOption(
+                                                options[index],
+                                              ),
+                                              enabled: !widget.busy,
+                                              onTap: () => _selectOption(
+                                                question,
+                                                options[index].label,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  if (showCustomInput) ...[
+                                    const SizedBox(height: 8),
+                                    TextField(
+                                      key: ValueKey(
+                                        'clarification-custom-$_questionIndex',
+                                      ),
+                                      controller: _customTexts[_questionIndex],
+                                      enabled: !widget.busy,
+                                      autofocus: true,
+                                      minLines: 2,
+                                      maxLines: 4,
+                                      decoration: InputDecoration(
+                                        hintText: context
+                                            .l10n
+                                            .approvalClarificationCustomHint,
+                                        border: const OutlineInputBorder(),
+                                      ),
+                                      onChanged: (_) => setState(() {}),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                           ),
@@ -536,7 +650,9 @@ class _ClarificationDockPanelState extends State<ClarificationDockPanel> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.end,
                             children: [
-                              if (!isLast && question.multiSelect == true)
+                              if (!isLast &&
+                                  (question.multiSelect == true ||
+                                      showCustomInput))
                                 FilledButton(
                                   onPressed: _questionReady && !widget.busy
                                       ? _nextQuestion
@@ -549,8 +665,22 @@ class _ClarificationDockPanelState extends State<ClarificationDockPanel> {
                                 ),
                               if (isLast)
                                 FilledButton(
-                                  onPressed: _questionReady && !widget.busy
-                                      ? () => widget.onSubmit(_selections)
+                                  onPressed:
+                                      List.generate(
+                                            total,
+                                            _ready,
+                                          ).every((ready) => ready) &&
+                                          !widget.busy
+                                      ? () => widget.onSubmit(
+                                          _answers(),
+                                          customInputIndices: [
+                                            for (var i = 0; i < total; i++)
+                                              if (_selections[i].contains(
+                                                _customOptionLabel,
+                                              ))
+                                                i,
+                                          ],
+                                        )
                                       : null,
                                   child: widget.busy
                                       ? SizedBox(

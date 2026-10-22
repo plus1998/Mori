@@ -123,3 +123,9 @@ flutter run --flavor dev -d SIMULATOR_ID -t lib/dev/feed_replay_main.dart \
 可用 `integration_test/feed_replay_test.dart` 替代启动入口，传入相同的 fixture/seq 参数，在模拟器验证单步、播放、跳转和真实拖动；`ECO_REPLAY_UI_TRACE=/tmp/name.json` 可保存检查点。宿主机 `test/feed_replay_test.dart` 也接受 `ECO_REPLAY_FIXTURE`、逗号分隔的 `ECO_REPLAY_CHECKPOINTS` 和 `ECO_REPLAY_TRACE=/tmp/name.json`，输出每个检查点的投影和 Feed 顺序。
 
 真实连接对照测试使用 `integration_test/connection_soak_test.dart`。将 `ECO_SMOKE_URL`、`ECO_SMOKE_ANON_KEY`、`ECO_SMOKE_EMAIL`、`ECO_SMOKE_PASSWORD` 放入权限为 0600 的 `/tmp` JSON，用 `--dart-define-from-file` 传入；可指定 `ECO_SMOKE_DESKTOP_ID`，否则选择当前在线的 PC。测试只登录、注册独立测试设备、连接和 ping，不发送模型消息；结束时撤销自己创建的绑定和设备。`ECO_SOAK_SECONDS` 默认为 180，之后分别中断 socket 并并发请求重连，以及再次中断后不操作、等待保活探测和定时重连，验证两种恢复路径。
+
+## 提问卡交互回归
+
+提问卡按可见屏幕和键盘剩余空间限制高度，不能依赖会话底部浮层提供有限高度。问题正文和选项可滚动，翻页、提交与关闭保留在可触达区域。支持无选项的自由输入、其他回答、多选和跨题保留文本；遵循 `allowCustom`、`preserveCustomText`，提交时携带 `customInputIndices`。回答与关闭使用当前 V2 history revision；未确认送达会报错并保留回答，不自动重发。
+
+运行 `flutter test test/clarification_dock_panel_test.dart test/clarification_actions_test.dart` 验证布局和命令。运行 `flutter test integration_test/clarification_dock_test.dart --flavor dev -d SIMULATOR_ID` 在 iOS 模拟器验证长列表点选、翻页、原生键盘输入、提交和关闭；可用 `--dart-define=ECO_QUESTION_SCREENSHOTS=/tmp/eco-mobile-question-native` 保存画面。模拟器测试使用生产布局和本地提问回调，不登录、不向模型发送回答，不能证明实际网络送达。

@@ -108,9 +108,14 @@ final conversationV2SessionProvider = StateNotifierProvider.autoDispose
                 dismissPlan: () => ref
                     .read(threadSessionProvider(conversationId).notifier)
                     .dismissPlan(),
-                submitClarification: (toolUseId, selections) => ref
-                    .read(threadSessionProvider(conversationId).notifier)
-                    .submitClarification(toolUseId, selections),
+                submitClarification:
+                    (toolUseId, selections, {customInputIndices}) => ref
+                        .read(threadSessionProvider(conversationId).notifier)
+                        .submitClarification(
+                          toolUseId,
+                          selections,
+                          customInputIndices: customInputIndices,
+                        ),
                 dismissClarification: (toolUseId) => ref
                     .read(threadSessionProvider(conversationId).notifier)
                     .dismissClarification(toolUseId),
@@ -2169,9 +2174,11 @@ class ThreadSessionNotifier extends StateNotifier<ThreadSessionState> {
 
   Future<void> submitClarification(
     String toolUseId,
-    List<List<String>> selections,
-  ) async {
+    List<List<String>> selections, {
+    List<int>? customInputIndices,
+  }) async {
     final rpc = ref.read(desktopRpcProvider);
+    if (rpc == null) throw StateError('Desktop is not available.');
     final principalId = ref
         .read(credentialsProvider)
         .valueOrNull
@@ -2182,20 +2189,21 @@ class ThreadSessionNotifier extends StateNotifier<ThreadSessionState> {
         'A signed-in principal is required to resolve a clarification.',
       );
     }
-    final expectedHistoryRevision = state.runProjection?.historyRevision ?? 0;
-    await rpc?.submitClarification(
+    // Ordered content belongs to V2; the legacy session no longer loads a run
+    // projection. Using its absent revision (0) rejects answers after edits.
+    final expectedHistoryRevision = (await rpc.conversationV2Head(
+      threadId,
+    )).historyRevision;
+    await rpc.submitClarification(
       principalId: principalId,
       clientCommandId:
-          'clarification_resolve_${conversationV2StableHash({'threadId': threadId, 'toolUseId': toolUseId, 'resolution': 'submit', 'selections': selections, 'expectedHistoryRevision': expectedHistoryRevision})}',
+          'clarification_resolve_${conversationV2StableHash({'threadId': threadId, 'toolUseId': toolUseId, 'resolution': 'submit', 'selections': selections, if (customInputIndices?.isNotEmpty == true) 'customInputIndices': customInputIndices, 'expectedHistoryRevision': expectedHistoryRevision})}',
       threadId: threadId,
       toolUseId: toolUseId,
       selections: selections,
+      customInputIndices: customInputIndices,
       expectedHistoryRevision: expectedHistoryRevision,
     );
-    if (rpc == null) {
-      state = state.copyWith(clearClarification: true);
-      return;
-    }
     final clarification = await rpc.getPendingClarification(threadId);
     if (!mounted) return;
     state = state.copyWith(
@@ -2206,6 +2214,7 @@ class ThreadSessionNotifier extends StateNotifier<ThreadSessionState> {
 
   Future<void> dismissClarification(String toolUseId) async {
     final rpc = ref.read(desktopRpcProvider);
+    if (rpc == null) throw StateError('Desktop is not available.');
     final principalId = ref
         .read(credentialsProvider)
         .valueOrNull
@@ -2216,8 +2225,10 @@ class ThreadSessionNotifier extends StateNotifier<ThreadSessionState> {
         'A signed-in principal is required to resolve a clarification.',
       );
     }
-    final expectedHistoryRevision = state.runProjection?.historyRevision ?? 0;
-    await rpc?.dismissClarification(
+    final expectedHistoryRevision = (await rpc.conversationV2Head(
+      threadId,
+    )).historyRevision;
+    await rpc.dismissClarification(
       principalId: principalId,
       clientCommandId:
           'clarification_resolve_${conversationV2StableHash({'threadId': threadId, 'toolUseId': toolUseId, 'resolution': 'dismiss', 'expectedHistoryRevision': expectedHistoryRevision})}',

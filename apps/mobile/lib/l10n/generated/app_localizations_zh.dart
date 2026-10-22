@@ -495,6 +495,15 @@ class AppLocalizationsZh extends AppLocalizations {
   String get approvalClarificationRecommended => '推荐';
 
   @override
+  String get approvalClarificationCustomLabel => '其他（自行输入）';
+
+  @override
+  String get approvalClarificationCustomDescription => '填写你自己的回答。';
+
+  @override
+  String get approvalClarificationCustomHint => '输入你的回答';
+
+  @override
   String get approvalClarificationCompleteSelection => '完成选择';
 
   @override

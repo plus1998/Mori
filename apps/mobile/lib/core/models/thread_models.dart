@@ -1289,6 +1289,8 @@ class ClarificationQuestion {
     this.header,
     required this.options,
     this.multiSelect,
+    this.allowCustom,
+    this.preserveCustomText,
   });
 
   factory ClarificationQuestion.fromJson(Map<String, dynamic> json) =>
@@ -1303,12 +1305,16 @@ class ClarificationQuestion {
             )
             .toList(),
         multiSelect: json['multiSelect'] as bool?,
+        allowCustom: json['allowCustom'] as bool?,
+        preserveCustomText: json['preserveCustomText'] as bool?,
       );
 
   final String question;
   final String? header;
   final List<ClarificationQuestionOption> options;
   final bool? multiSelect;
+  final bool? allowCustom;
+  final bool? preserveCustomText;
 }
 
 class ClarificationRequest {

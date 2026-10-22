@@ -41,7 +41,11 @@ class ConversationV2InteractionActions {
   resolveBash;
   final Future<void> Function() approvePlan;
   final Future<void> Function() dismissPlan;
-  final Future<void> Function(String toolUseId, List<List<String>> selections)
+  final Future<void> Function(
+    String toolUseId,
+    List<List<String>> selections, {
+    List<int>? customInputIndices,
+  })
   submitClarification;
   final Future<void> Function(String toolUseId) dismissClarification;
 }
@@ -381,13 +385,18 @@ class ConversationV2SessionController
 
   Future<void> submitClarification(
     String toolUseId,
-    List<List<String>> selections,
-  ) async {
+    List<List<String>> selections, {
+    List<int>? customInputIndices,
+  }) async {
     final handler = actions?.submitClarification;
     if (handler == null) {
       throw StateError('Conversation actions are unavailable.');
     }
-    await handler(toolUseId, selections);
+    await handler(
+      toolUseId,
+      selections,
+      customInputIndices: customInputIndices,
+    );
     await _refreshAfterInteraction();
   }
 

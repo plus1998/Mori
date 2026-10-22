@@ -1441,17 +1441,32 @@ class DesktopRpc implements ReadAloudRemote {
     required String toolUseId,
     required List<List<String>> selections,
     required int expectedHistoryRevision,
+    List<int>? customInputIndices,
   }) async {
-    await _client.invoke(desktopDeviceId, 'clarification:submit', [
-      {
-        'principalId': principalId,
-        'clientCommandId': clientCommandId,
-        'threadId': threadId,
-        'toolUseId': toolUseId,
-        'selections': selections,
-        'expectedHistoryRevision': expectedHistoryRevision,
-      },
-    ]);
+    final result = await _client.invoke<dynamic>(
+      desktopDeviceId,
+      'clarification:submit',
+      [
+        {
+          'principalId': principalId,
+          'clientCommandId': clientCommandId,
+          'threadId': threadId,
+          'toolUseId': toolUseId,
+          'selections': selections,
+          if (customInputIndices?.isNotEmpty == true)
+            'customInputIndices': customInputIndices,
+          'expectedHistoryRevision': expectedHistoryRevision,
+        },
+      ],
+    );
+    if (result is Map && result['delivery'] is Map) {
+      final delivery = result['delivery'] as Map;
+      if (delivery['state'] == 'unknown') {
+        throw StateError(
+          '回答已记录，但未能确认送达：${delivery['message'] ?? '原因未知'}。可重新提交或关闭问题。',
+        );
+      }
+    }
   }
 
   Future<void> dismissClarification({

@@ -1022,6 +1022,24 @@ abstract class AppLocalizations {
   /// **'Recommended'**
   String get approvalClarificationRecommended;
 
+  /// No description provided for @approvalClarificationCustomLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Other (write an answer)'**
+  String get approvalClarificationCustomLabel;
+
+  /// No description provided for @approvalClarificationCustomDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your own answer.'**
+  String get approvalClarificationCustomDescription;
+
+  /// No description provided for @approvalClarificationCustomHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Type your answer'**
+  String get approvalClarificationCustomHint;
+
   /// No description provided for @approvalClarificationCompleteSelection.
   ///
   /// In en, this message translates to:

@@ -548,6 +548,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get approvalClarificationRecommended => 'Recommended';
 
   @override
+  String get approvalClarificationCustomLabel => 'Other (write an answer)';
+
+  @override
+  String get approvalClarificationCustomDescription => 'Enter your own answer.';
+
+  @override
+  String get approvalClarificationCustomHint => 'Type your answer';
+
+  @override
   String get approvalClarificationCompleteSelection => 'Complete selection';
 
   @override
