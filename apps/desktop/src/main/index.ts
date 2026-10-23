@@ -811,6 +811,7 @@ import {
 } from "./image-generation-store";
 import { ImageViewMcpGateway } from "./image-view-mcp-gateway";
 import { IntegratedWebSearchMcpGateway } from "./integrated-web-search-mcp-gateway";
+import { testIntegratedWebSearch } from "./integrated-web-search-test";
 import {
   createIntegratedWebSearchSettingsStore,
   type IntegratedWebSearchSettingsStore,
@@ -8825,6 +8826,10 @@ function registerIpcHandlers(): void {
     }
     return integratedWebSearchSettingsStore.save(payload);
   });
+
+  registerDesktopCommand(IPC_CHANNELS.integratedWebSearchTest, async (payload: unknown) =>
+    testIntegratedWebSearch(payload, integratedWebSearchSettingsStore),
+  );
 
   registerDesktopCommand(IPC_CHANNELS.worktreeGetStatus, async (threadId: unknown) => {
     if (typeof threadId !== "string" || !threadId.trim()) {

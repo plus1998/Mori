@@ -149,6 +149,8 @@ import {
   type ImageViewReadResult,
   type IntegratedWebSearchSettingsSaveInput,
   type IntegratedWebSearchSettingsSnapshot,
+  type IntegratedWebSearchTestInput,
+  type IntegratedWebSearchTestResult,
   type IntegrationAvailabilitySnapshot,
   IPC_CHANNELS,
   type IpcChannel,
@@ -1262,6 +1264,9 @@ const api = {
     settings: IntegratedWebSearchSettingsSaveInput,
   ): Promise<IntegratedWebSearchSettingsSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.integratedWebSearchSettingsSave, settings);
+  },
+  testIntegratedWebSearch(input: IntegratedWebSearchTestInput): Promise<IntegratedWebSearchTestResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.integratedWebSearchTest, input);
   },
   getSupabaseDeployment(): Promise<SupabaseDeploymentSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.supabaseDeploymentGet);

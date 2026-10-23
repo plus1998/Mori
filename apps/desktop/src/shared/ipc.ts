@@ -236,6 +236,7 @@ export const IPC_CHANNELS = {
   proxyBridgeSettingsSave: "proxy-bridge-settings:save",
   integratedWebSearchSettingsGet: "integrated-web-search-settings:get",
   integratedWebSearchSettingsSave: "integrated-web-search-settings:save",
+  integratedWebSearchTest: "integrated-web-search:test",
   centerServerSettingsGet: "center-server-settings:get",
   supabaseDeploymentGet: "supabase-deployment:get",
   supabaseDeploymentAuthorize: "supabase-deployment:authorize",
@@ -1420,6 +1421,16 @@ export interface IntegratedWebSearchSettingsSaveInput {
   approvalMode?: WebSearchApprovalMode;
   /** Empty string clears the stored key. */
   apiKey?: string;
+}
+
+export interface IntegratedWebSearchTestInput {
+  provider: IntegratedWebSearchProvider;
+  query: string;
+}
+
+export interface IntegratedWebSearchTestResult {
+  results: Array<{ title: string; url: string; description: string }>;
+  elapsedMs: number;
 }
 
 import type { AgentTemplate } from "./agent-orchestration";

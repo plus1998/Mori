@@ -8907,6 +8907,82 @@ button.integrated-web-search-clear-key:disabled {
   cursor: not-allowed;
 }
 
+.integrated-web-search-test-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.integrated-web-search-test-controls .mcp-field-input {
+  flex: 1;
+  min-width: 140px;
+}
+
+.integrated-web-search-test-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.integrated-web-search-test-button .spinning {
+  animation: eco-spin 1s linear infinite;
+}
+
+.integrated-web-search-test-error,
+.integrated-web-search-test-success {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.integrated-web-search-test-error {
+  color: var(--danger);
+}
+
+.integrated-web-search-test-success {
+  color: var(--success);
+}
+
+.integrated-web-search-test-results {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.integrated-web-search-test-results a {
+  color: var(--accent);
+}
+
+.integrated-web-search-test-results small {
+  display: block;
+  color: var(--text-muted);
+}
+
+.integrated-web-search-test-results p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .integrated-web-search-test-button .spinning {
+    animation: none;
+  }
+}
+
 .mcp-server-name {
   font-size: 14px;
   font-weight: 600;
