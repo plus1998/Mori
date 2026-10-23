@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +10,7 @@ import '../../core/theme/eco_theme.dart';
 import '../../core/widgets/adaptive_nav_bar.dart';
 import '../../core/widgets/app_error_state.dart';
 import '../../core/widgets/eco_modal_sheet.dart';
+import '../../core/widgets/ios26_native_search_field.dart';
 import '../projects/project_providers.dart';
 import '../threads/thread_providers.dart';
 import '../threads/thread_session_route.dart';
@@ -254,10 +256,11 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
       ),
       floatingActionButton: Padding(
         padding: EdgeInsets.only(bottom: navInset),
-        child: FloatingActionButton.extended(
+        child: FloatingActionButton(
+          tooltip: l.todosAdd,
+          shape: const CircleBorder(),
           onPressed: _busy ? null : () => _edit(projects),
-          icon: const Icon(Icons.add_rounded),
-          label: Text(l.todosAdd),
+          child: const Icon(Icons.add_rounded),
         ),
       ),
       body: Center(
@@ -283,28 +286,35 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
                                 ?.copyWith(color: eco.textMuted),
                           ),
                           const SizedBox(height: 20),
-                          TextField(
-                            controller: _search,
-                            onChanged: (_) => setState(() {}),
-                            decoration: InputDecoration(
-                              hintText: l.todosSearch,
-                              prefixIcon: const Icon(Icons.search_rounded),
-                              suffixIcon: needle.isEmpty
-                                  ? null
-                                  : IconButton(
-                                      tooltip: l.commonClose,
-                                      onPressed: () =>
-                                          setState(() => _search.clear()),
-                                      icon: const Icon(Icons.close_rounded),
-                                    ),
-                              filled: true,
-                              fillColor: eco.bgInput,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                borderSide: BorderSide.none,
+                          if (PlatformInfo.isIOS)
+                            IOS26NativeSearchField(
+                              placeholder: l.todosSearch,
+                              onChanged: (value) =>
+                                  setState(() => _search.text = value),
+                            )
+                          else
+                            TextField(
+                              controller: _search,
+                              onChanged: (_) => setState(() {}),
+                              decoration: InputDecoration(
+                                hintText: l.todosSearch,
+                                prefixIcon: const Icon(Icons.search_rounded),
+                                suffixIcon: needle.isEmpty
+                                    ? null
+                                    : IconButton(
+                                        tooltip: l.commonClose,
+                                        onPressed: () =>
+                                            setState(() => _search.clear()),
+                                        icon: const Icon(Icons.close_rounded),
+                                      ),
+                                filled: true,
+                                fillColor: eco.bgInput,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  borderSide: BorderSide.none,
+                                ),
                               ),
                             ),
-                          ),
                           const SizedBox(height: 14),
                           Align(
                             alignment: Alignment.centerLeft,

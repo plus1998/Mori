@@ -316,7 +316,7 @@ void main() {
     await tester.pumpWidget(app(client, scale: 1.6));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    await tester.tap(find.text('New to-do'));
+    await tester.tap(find.byTooltip('New to-do'));
     await tester.pumpAndSettle();
     expect(find.text('Save'), findsOneWidget);
     expect(tester.takeException(), isNull);
