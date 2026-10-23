@@ -12,6 +12,7 @@
     "dev": "bun run --cwd apps/desktop dev",
     "dev:demo": "bun run --cwd apps/desktop dev:demo",
     "dev:mobile": "cd apps/mobile && flutter run --flavor dev",
+    "install:ios": "cd apps/mobile && flutter run --release --no-pub",
     "build": "bun run --cwd apps/desktop build",
     "build:apk": "cd apps/mobile && flutter build apk --flavor prod",
     "supabase:deploy": "node scripts/supabase-deploy.mjs",
