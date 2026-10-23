@@ -8,6 +8,7 @@ import {
   Folder,
   ImagePlus,
   LoaderCircle,
+  MessageSquarePlus,
   Pencil,
   Plus,
   Search,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react";
 import { type ClipboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { ThreadSummary } from "../shared/ipc";
 import {
   type ProjectTodo,
   type ProjectTodoImage,
@@ -51,10 +53,11 @@ function todoApi() {
 interface Props {
   projects: readonly SchedulingProjectOption[];
   currentProjectPath?: string | undefined;
+  threads: readonly ThreadSummary[];
   draft: TodoEditorDraft;
   onDraftChange(draft: TodoEditorDraft): void;
   onClose(): void;
-  onCompose(todo: ProjectTodo): Promise<void>;
+  onCompose(todo: ProjectTodo, threadId?: string): Promise<void>;
 }
 export function ProjectTodoPanel(props: Props) {
   const { t } = useTranslation();
@@ -73,6 +76,9 @@ export function ProjectTodoPanel(props: Props) {
   const [showCompleted, setShowCompleted] = useState(false);
   const [undo, setUndo] = useState<{ item: ProjectTodo; revision: number }>();
   const [preview, setPreview] = useState<ProjectTodoImage>();
+  const [composeTarget, setComposeTarget] = useState<ProjectTodo>();
+  const [threadQuery, setThreadQuery] = useState("");
+  const threadPickerRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -120,6 +126,21 @@ export function ProjectTodoPanel(props: Props) {
       if (previous?.isConnected) previous.focus();
     };
   }, [preview]);
+  useEffect(() => {
+    if (!composeTarget) return;
+    const previous = document.activeElement as HTMLElement | null;
+    threadPickerRef.current?.querySelector<HTMLInputElement>("input")?.focus();
+    return () => {
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [composeTarget]);
+  const targetThreads = useMemo(() => {
+    const needle = threadQuery.trim().toLocaleLowerCase();
+    return props.threads
+      .filter((thread) => thread.workspacePath === composeTarget?.projectPath &&
+        (!needle || thread.title.toLocaleLowerCase().includes(needle) || thread.prompt.toLocaleLowerCase().includes(needle)))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }, [props.threads, composeTarget?.projectPath, threadQuery]);
   const projects = useMemo(() => {
     const map = new Map(props.projects.map((project) => [project.path, project]));
     for (const item of items)
@@ -337,6 +358,20 @@ export function ProjectTodoPanel(props: Props) {
             type="button"
             className="todo-send"
             disabled={!!busy}
+            onClick={() => {
+              setThreadQuery("");
+              setError("");
+              setComposeTarget(item);
+            }}
+            aria-label={t("todos.composeExisting")}
+            title={t("todos.composeExisting")}
+          >
+            <MessageSquarePlus size={15} />
+          </button>
+          <button
+            type="button"
+            className="todo-send"
+            disabled={!!busy}
             onClick={() =>
               void action(item.id, async () => props.onCompose(await todoApi().getProjectTodo(item.id)))
             }
@@ -399,11 +434,14 @@ export function ProjectTodoPanel(props: Props) {
           if (event.key === "Escape") {
             event.stopPropagation();
             if (preview) setPreview(undefined);
+            else if (composeTarget) {
+              if (!busy) { setComposeTarget(undefined); setError(""); }
+            }
             else if (!busy) props.onClose();
           }
           if (event.key !== "Tab") return;
           const nodes = Array.from(
-            (preview ? previewRef.current : panelRef.current)?.querySelectorAll<HTMLElement>(
+            (preview ? previewRef.current : composeTarget ? threadPickerRef.current : panelRef.current)?.querySelectorAll<HTMLElement>(
               'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
             ) ?? [],
           ).filter((node) => node.getClientRects().length);
@@ -418,7 +456,7 @@ export function ProjectTodoPanel(props: Props) {
           }
         }}
       >
-        <header className="todo-header">
+        <header className="todo-header" inert={!!composeTarget}>
           <div className="todo-title-icon">
             <ClipboardList size={22} />
           </div>
@@ -436,7 +474,7 @@ export function ProjectTodoPanel(props: Props) {
             <X size={19} />
           </button>
         </header>
-        <div className="todo-layout">
+        <div className="todo-layout" inert={!!composeTarget}>
           <aside className="todo-projects" aria-label={t("todos.projects")}>
             <span className="todo-rail-label">{t("todos.projects")}</span>
             <button
@@ -618,7 +656,7 @@ export function ProjectTodoPanel(props: Props) {
                 </button>
               </div>
             </fieldset>
-            {error && (
+            {error && !composeTarget && (
               <div className="todo-error" role="alert">
                 <span>{error}</span>
                 <button type="button" disabled={!!busy} onClick={() => void refresh()}>
@@ -669,7 +707,7 @@ export function ProjectTodoPanel(props: Props) {
           </main>
         </div>
         {undo && (
-          <div className="todo-undo" role="status">
+          <div className="todo-undo" role="status" inert={!!composeTarget}>
             <Check size={14} />
             <span>{t("todos.deleted")}</span>
             <button
@@ -698,6 +736,45 @@ export function ProjectTodoPanel(props: Props) {
             >
               <X size={13} />
             </button>
+          </div>
+        )}
+        {composeTarget && (
+          <div className="todo-thread-overlay" onClick={() => {
+            if (!busy) { setComposeTarget(undefined); setError(""); }
+          }}>
+            <div className="todo-thread-picker" ref={threadPickerRef} role="dialog" aria-modal="true"
+              aria-labelledby="todo-thread-title" onClick={(event) => event.stopPropagation()}>
+              <header>
+                <div>
+                  <h3 id="todo-thread-title">{t("todos.selectThread")}</h3>
+                  <p>{projectDisplayName(projects, composeTarget.projectPath)}</p>
+                </div>
+                <button type="button" className="todo-icon" disabled={!!busy}
+                  aria-label={t("common.close")} onClick={() => { setComposeTarget(undefined); setError(""); }}>
+                  <X size={18} />
+                </button>
+              </header>
+              <label className="todo-thread-search">
+                <Search size={15} />
+                <input value={threadQuery} onChange={(event) => setThreadQuery(event.target.value)}
+                  placeholder={t("todos.searchThreads")} aria-label={t("todos.searchThreads")} />
+              </label>
+              <div className="todo-thread-list" aria-busy={!!busy}>
+                {targetThreads.map((thread) => (
+                  <button type="button" key={thread.id} disabled={!!busy}
+                    onClick={() => void action(thread.id, async () =>
+                      props.onCompose(await todoApi().getProjectTodo(composeTarget.id), thread.id))}>
+                    {busy === thread.id ? <LoaderCircle size={16} className="spinning" /> : <MessageSquarePlus size={16} />}
+                    <span>{thread.title || thread.prompt}</span>
+                  </button>
+                ))}
+                {!targetThreads.length && <p className="todo-thread-empty">
+                  {t(threadQuery.trim() ? "todos.noThreadsFound" : "todos.noThreads")}
+                </p>}
+              </div>
+              {error && <p className="todo-error" role="alert">{error}</p>}
+              <p className="todo-thread-hint">{t("todos.existingHint")}</p>
+            </div>
           </div>
         )}
         {preview && (

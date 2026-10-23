@@ -11008,15 +11008,22 @@ function App() {
     setError(undefined);
   }
 
-  async function composeProjectTodo(todo: ProjectTodo) {
+  async function composeProjectTodo(todo: ProjectTodo, threadId?: string) {
     const api = window.eco!;
+    const targetThread = threadId ? threads.find(thread => thread.id === threadId) : undefined;
+    if (threadId && (!targetThread || targetThread.workspacePath !== todo.projectPath)) {
+      throw new Error(t("todos.threadUnavailable"));
+    }
+    if (threadId && threadId === selectedThreadIdRef.current && (editingFollowUpIdRef.current || isStarting || followUpBusy)) {
+      throw new Error(t("todos.composerBusy"));
+    }
     if (!projects.some(project => project.path === todo.projectPath)) {
       // Reopen a removed project before selecting it; currentProjectPath only
       // accepts registered projects and must never fall back to another folder.
       await api.openWorkspacePath(todo.projectPath);
       registerImportedProject(todo.projectPath);
     }
-    const contextKey = composerContextKeyFromParts(undefined, todo.projectPath)!;
+    const contextKey = composerContextKeyFromParts(threadId, todo.projectPath)!;
     // Flush the target draft before replacing it. Preserve its text and original
     // images as a separate to-do, so one-click composing never destroys work.
     if (composerDraftSaveTimerRef.current?.key === contextKey) {
@@ -11055,8 +11062,12 @@ function App() {
     composerDraftsByKeyRef.current[contextKey] = { prompt: todo.text, attachments: nextAttachments };
     ++composerDraftLoadRequestRef.current;
     const sameContext = composerContextKeyRef.current === contextKey;
-    switchProject(todo.projectPath);
-    setNewThreadCoreKind(workflowSettings.defaultCoreKind ?? "claude");
+    if (targetThread) {
+      selectSearchThread(targetThread);
+    } else {
+      switchProject(todo.projectPath);
+      setNewThreadCoreKind(workflowSettings.defaultCoreKind ?? "claude");
+    }
     if (sameContext) {
       revokeComposerAttachmentPreviews(composerAttachmentsRef.current);
       composerPromptRef.current = todo.text;
@@ -11066,8 +11077,10 @@ function App() {
     }
     projectTodoComposerFocusRef.current = true;
     setProjectTodosOpen(false);
-    requestSidebarReveal("project", todo.projectPath);
-    showAppMessageSuccessRef.current(t(preserved ? "todos.draftPreserved" : "todos.composed"));
+    if (!targetThread) requestSidebarReveal("project", todo.projectPath);
+    showAppMessageSuccessRef.current(t(targetThread
+      ? preserved ? "todos.existingDraftPreserved" : "todos.composedExisting"
+      : preserved ? "todos.draftPreserved" : "todos.composed"));
   }
 
   function startNewChatWithPlan(plan: ThreadPendingPlan) {
@@ -13242,7 +13255,7 @@ function App() {
 
       {projectTodosOpen && window.eco && (
         <SuspensePanel>
-          <LazyProjectTodoPanel projects={projects} currentProjectPath={currentProjectPath}
+          <LazyProjectTodoPanel projects={projects} currentProjectPath={currentProjectPath} threads={threads}
             draft={projectTodoDraftRef.current} onDraftChange={next => { projectTodoDraftRef.current = next; }}
             onClose={() => setProjectTodosOpen(false)} onCompose={composeProjectTodo} />
         </SuspensePanel>
