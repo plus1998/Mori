@@ -1,8 +1,8 @@
-import { ArrowRight, CircleAlert, LoaderCircle, RefreshCw, UserRound, X } from "lucide-react";
+import { ArrowRight, CircleAlert, LoaderCircle, RefreshCw, Search, UserRound, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { OpenAIAccount, OpenAIAccountQuotaWindow } from "../shared/openai-account";
-import { hasAvailableCodexQuota, loadAvailableCodexAccounts } from "./codex-account-switch";
+import { hasAvailableCodexQuota, loadCodexSwitchAccounts } from "./codex-account-switch";
 import "./CodexAccountSwitchDialog.css";
 
 function QuotaWindow({ window }: { window: OpenAIAccountQuotaWindow }) {
@@ -33,6 +33,7 @@ export function CodexAccountSwitchList({
   onSelect,
   refreshingId,
   onRefresh,
+  query = "",
 }: {
   accounts: OpenAIAccount[];
   disabled: boolean;
@@ -40,16 +41,21 @@ export function CodexAccountSwitchList({
   onSelect: (accountId: string) => void;
   refreshingId: string | undefined;
   onRefresh: (accountId: string) => void;
+  query?: string;
 }) {
   const { t } = useTranslation();
+  const search = query.trim().toLocaleLowerCase();
+  const visibleAccounts = accounts.filter((account) =>
+    [account.name, account.email, account.quota?.email].some((value) => value?.toLocaleLowerCase().includes(search)),
+  );
   return (
     <div className="codex-switch-list">
-      {accounts.map((account) => (
+      {visibleAccounts.map((account) => (
         <div className="codex-switch-card" key={account.id}>
           <button
             type="button"
             className="codex-switch-account"
-            disabled={disabled}
+            disabled={disabled || !hasAvailableCodexQuota(account)}
             onClick={() => onSelect(account.id)}
           >
             <span className="codex-switch-account-top">
@@ -60,13 +66,18 @@ export function CodexAccountSwitchList({
                 <strong>{account.name}</strong>
                 <span>{account.email || account.quota?.email}</span>
               </span>
-              <span className="codex-switch-plan">{account.quota?.planType}</span>
+              {account.quota?.planType ? <span className="codex-switch-plan">{account.quota.planType}</span> : null}
               {switchingId === account.id ? (
                 <LoaderCircle size={16} className="mcp-spin" />
-              ) : (
+              ) : hasAvailableCodexQuota(account) ? (
                 <ArrowRight size={16} className="codex-switch-arrow" />
-              )}
+              ) : null}
             </span>
+            {!hasAvailableCodexQuota(account) ? (
+              <span className="codex-switch-account-status">
+                {t(account.quota ? "codexSwitch.noQuota" : "codexSwitch.unknownQuota")}
+              </span>
+            ) : null}
             <span className="codex-switch-quotas">
               {account.quota?.rateLimit.primaryWindow ? (
                 <QuotaWindow window={account.quota.rateLimit.primaryWindow} />
@@ -88,11 +99,11 @@ export function CodexAccountSwitchList({
           </button>
         </div>
       ))}
-      {accounts.length === 0 ? (
+      {visibleAccounts.length === 0 ? (
         <div className="codex-switch-empty">
           <UserRound size={26} strokeWidth={1.5} />
-          <strong>{t("codexSwitch.empty")}</strong>
-          <p>{t("codexSwitch.emptyHint")}</p>
+          <strong>{t(search ? "codexSwitch.noResults" : "codexSwitch.empty")}</strong>
+          <p>{t(search ? "codexSwitch.noResultsHint" : "codexSwitch.emptyHint")}</p>
         </div>
       ) : null}
     </div>
@@ -105,6 +116,7 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [failedCount, setFailedCount] = useState(0);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
   const [switchingId, setSwitchingId] = useState<string>();
   const [pendingId, setPendingId] = useState<string>();
   const [refreshingId, setRefreshingId] = useState<string>();
@@ -125,14 +137,10 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
       if (accountId) {
         const quota = await window.eco.openAIAccountsQueryQuota(accountId);
         if (version !== requestVersion.current) return;
-        setAccounts((previous) => previous.flatMap((account) => {
-          if (account.id !== accountId) return [account];
-          const updated = { ...account, quota };
-          return hasAvailableCodexQuota(updated) ? [updated] : [];
-        }));
+        setAccounts((previous) => previous.map((account) => account.id === accountId ? { ...account, quota } : account));
         return;
       }
-      const result = await loadAvailableCodexAccounts(window.eco, queryQuota);
+      const result = await loadCodexSwitchAccounts(window.eco, queryQuota);
       if (version !== requestVersion.current) return;
       setAccounts(result.accounts);
       setFailedCount(result.failedCount);
@@ -167,7 +175,7 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
       }
       if (event.key === "Tab") {
         const items = Array.from(
-          dialogRef.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [],
+          dialogRef.current?.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)") ?? [],
         );
         if (items.length === 0) {
           event.preventDefault();
@@ -234,13 +242,13 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
       const [list, quota] = await Promise.all([
         window.eco.openAIAccountsList(),
         window.eco.openAIAccountsQueryQuota(accountId),
-      ]).catch((error: unknown) => {
-        setAccounts((previous) => previous.filter((candidate) => candidate.id !== accountId));
-        throw error;
-      });
+      ]);
       const account = list.find((candidate) => candidate.id === accountId);
+      setAccounts((previous) => previous.flatMap((candidate) => {
+        if (candidate.id !== accountId) return [candidate];
+        return account?.isLoggedIn && account.authState === "configured" ? [{ ...account, quota }] : [];
+      }));
       if (!account || !hasAvailableCodexQuota({ ...account, quota })) {
-        setAccounts((previous) => previous.filter((candidate) => candidate.id !== accountId));
         throw new Error(t("codexSwitch.unavailable"));
       }
       const result = await window.eco.openAIAccountsSetActive(accountId);
@@ -294,6 +302,16 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
         <p id="codex-switch-description" className="codex-switch-description">
           {t("codexSwitch.description")}
         </p>
+        <div className="codex-switch-search">
+          <Search size={16} aria-hidden="true" />
+          <input
+            type="search"
+            aria-label={t("codexSwitch.search")}
+            placeholder={t("codexSwitch.search")}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
         <div className="settings-modal-body codex-switch-body" aria-busy={loading}>
           {error ? (
             <div className="codex-switch-notice is-error" role="alert">
@@ -320,6 +338,7 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
           ) : (
             <CodexAccountSwitchList
               accounts={accounts}
+              query={query}
               disabled={Boolean(switchingId || pendingId || refreshingId)}
               switchingId={switchingId}
               refreshingId={refreshingId}

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { CodexAccountSwitchList } from "../src/renderer/CodexAccountSwitchDialog";
-import { hasAvailableCodexQuota, loadAvailableCodexAccounts } from "../src/renderer/codex-account-switch";
+import { hasAvailableCodexQuota, loadCodexSwitchAccounts } from "../src/renderer/codex-account-switch";
 import type { OpenAIAccount, OpenAIAccountQuota } from "../src/shared/openai-account";
 import { renderLocalized } from "./i18n-test";
 
@@ -60,7 +60,7 @@ test("availability requires valid login and verified remaining quota in every wi
 });
 
 test("opening uses saved quotas without querying accounts", async () => {
-  const result = await loadAvailableCodexAccounts({
+  const result = await loadCodexSwitchAccounts({
     openAIAccountsList: async () => [
       account("current"), account("ready"),
       account("missing", { isLoggedIn: false }),
@@ -72,13 +72,13 @@ test("opening uses saved quotas without querying accounts", async () => {
     }),
     openAIAccountsQueryQuota: async () => { throw new Error("Opening must not query quotas"); },
   });
-  expect(result.accounts.map((item) => item.id)).toEqual(["ready"]);
+  expect(result.accounts.map((item) => item.id)).toEqual(["ready", "unknown", "exhausted"]);
   expect(result.failedCount).toBe(0);
 });
 
-test("manual refresh queries quotas and hides current, logged-out, exhausted and failed accounts", async () => {
+test("manual refresh retains exhausted and failed accounts but excludes current and logged-out accounts", async () => {
   const queried: string[] = [];
-  const result = await loadAvailableCodexAccounts({
+  const result = await loadCodexSwitchAccounts({
     openAIAccountsList: async () => [
       account("current"),
       account("ready"),
@@ -100,13 +100,15 @@ test("manual refresh queries quotas and hides current, logged-out, exhausted and
     },
   }, true);
   expect(queried.sort()).toEqual(["exhausted", "query-failed", "ready"]);
-  expect(result.accounts.map((item) => item.id)).toEqual(["ready"]);
+  expect(result.accounts.map((item) => item.id)).toEqual(["ready", "exhausted", "query-failed"]);
+  expect(result.accounts[1]?.quota?.rateLimit.limitReached).toBe(true);
+  expect(result.accounts[2]?.quota).toEqual(quota);
   expect(result.failedCount).toBe(1);
 });
 
 test("account loading failures are surfaced instead of returning an empty successful list", async () => {
   await expect(
-    loadAvailableCodexAccounts({
+    loadCodexSwitchAccounts({
       openAIAccountsList: async () => {
         throw new Error("Cannot load accounts");
       },
@@ -151,6 +153,60 @@ test("account rows show both remaining windows and empty state has no settings n
     }),
     "zh-CN",
   );
-  expect(empty).toContain("暂无可用账号");
+  expect(empty).toContain("暂无其他已登录账号");
   expect(empty).not.toContain("设置");
+});
+
+test("exhausted and unknown quota accounts stay visible with refresh enabled and switching disabled", () => {
+  const markup = renderLocalized(
+    createElement(CodexAccountSwitchList, {
+      accounts: [
+        account("Exhausted", {
+          quota: { ...quota, rateLimit: { ...quota.rateLimit, primaryWindow: { ...quota.rateLimit.primaryWindow!, usedPercent: 100 } } },
+        }),
+        account("Unknown", { quota: undefined }),
+      ],
+      disabled: false,
+      switchingId: undefined,
+      refreshingId: undefined,
+      onSelect: () => undefined,
+      onRefresh: () => undefined,
+    }),
+    "zh-CN",
+  );
+  expect(markup).toContain("Exhausted");
+  expect(markup).toContain("剩余 0%");
+  expect(markup).toContain("暂无可用额度");
+  expect(markup).toContain("尚无额度数据");
+  expect(markup.match(/class="codex-switch-account" disabled=""/g)).toHaveLength(2);
+  expect(markup).toMatch(/aria-label="刷新 Exhausted 的额度"[^>]*>/);
+  expect(markup).not.toMatch(/class="mcp-icon-button codex-switch-card-refresh"[^>]*disabled/);
+});
+
+test("search matches names and both email sources case-insensitively, including exhausted accounts", () => {
+  const accounts = [
+    account("Work", { email: "work@example.test" }),
+    account("Empty", { quota: { ...quota, email: "empty@example.test", rateLimit: { ...quota.rateLimit, limitReached: true } } }),
+  ];
+  const render = (query: string) => renderLocalized(
+    createElement(CodexAccountSwitchList, {
+      accounts,
+      query,
+      disabled: false,
+      switchingId: undefined,
+      refreshingId: undefined,
+      onSelect: () => undefined,
+      onRefresh: () => undefined,
+    }),
+    "zh-CN",
+  );
+  for (const query of ["  WORK  ", "WORK@EXAMPLE.TEST"]) {
+    expect(render(query)).toContain("<strong>Work</strong>");
+    expect(render(query)).not.toContain("<strong>Empty</strong>");
+  }
+  expect(render("EMPTY@EXAMPLE.TEST")).toContain("<strong>Empty</strong>");
+  expect(render("missing")).toContain("未找到匹配的账号");
+  expect(render("missing")).not.toContain("暂无其他已登录账号");
+  expect(render("  ")).toContain("<strong>Work</strong>");
+  expect(render("  ")).toContain("<strong>Empty</strong>");
 });

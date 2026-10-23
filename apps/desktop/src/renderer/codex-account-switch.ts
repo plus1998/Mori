@@ -20,7 +20,7 @@ type AccountSwitchBridge = Pick<
 >;
 
 /** Opening uses saved quotas; only an explicit refresh queries the accounts. */
-export async function loadAvailableCodexAccounts(eco: AccountSwitchBridge, refreshQuota = false): Promise<{
+export async function loadCodexSwitchAccounts(eco: AccountSwitchBridge, refreshQuota = false): Promise<{
   accounts: OpenAIAccount[];
   failedCount: number;
 }> {
@@ -29,7 +29,7 @@ export async function loadAvailableCodexAccounts(eco: AccountSwitchBridge, refre
     (account) =>
       account.id !== active.activeAccountId && account.isLoggedIn && account.authState === "configured",
   );
-  if (!refreshQuota) return { accounts: candidates.filter(hasAvailableCodexQuota), failedCount: 0 };
+  if (!refreshQuota) return { accounts: candidates, failedCount: 0 };
   const results = await Promise.allSettled(
     candidates.map(async (account) => ({
       ...account,
@@ -37,8 +37,8 @@ export async function loadAvailableCodexAccounts(eco: AccountSwitchBridge, refre
     })),
   );
   return {
-    accounts: results.flatMap((result) =>
-      result.status === "fulfilled" && hasAvailableCodexQuota(result.value) ? [result.value] : [],
+    accounts: results.map((result, index) =>
+      result.status === "fulfilled" ? result.value : candidates[index]!,
     ),
     failedCount: results.filter((result) => result.status === "rejected").length,
   };
