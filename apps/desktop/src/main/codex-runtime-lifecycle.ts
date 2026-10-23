@@ -4,6 +4,7 @@ import {
   CodexAppServerClient,
   type CodexAppServerClientOptions,
   type CodexAppServerNotificationHandler,
+  readCodexThreadStatus,
   resolveCodexHomeDir,
 } from "@eco/runtime";
 import type { OpenAIAccountProxyConfig } from "../shared/openai-account";
@@ -195,6 +196,10 @@ export class CodexRuntimeLifecycle {
       ...(this.options.onNotification ? { onNotification: this.options.onNotification } : {}),
     };
     const client = CodexAppServerClient.attachToProcess(child, clientOptions);
+    const spawnFailure = new Promise<never>((_resolve, reject) => {
+      child.once("error", reject);
+    });
+    child.stdin.on("error", () => client.close());
 
     child.on("exit", () => {
       if (this.child === child) {
@@ -206,7 +211,7 @@ export class CodexRuntimeLifecycle {
     this.child = child;
     this.client = client;
     try {
-      await client.initialize();
+      await Promise.race([client.initialize(), spawnFailure]);
       if (generation !== this.generation) {
         throw new Error("Codex app-server start was cancelled during initialization.");
       }
@@ -268,7 +273,7 @@ function waitForProcessExit(child: ChildProcessWithoutNullStreams, timeoutMs: nu
 }
 
 async function terminateProcess(child: ChildProcessWithoutNullStreams): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
     return;
   }
 
@@ -287,6 +292,215 @@ async function terminateProcess(child: ChildProcessWithoutNullStreams): Promise<
 
 let globalLifecycle: CodexRuntimeLifecycle | undefined;
 let globalStopPromise: Promise<void> | undefined;
+let runtimeEpoch = 0;
+let replacementTail: Promise<void> = Promise.resolve();
+const startingReplacements = new Set<CodexRuntimeLifecycle>();
+const retiringLifecycles = new Set<CodexRuntimeLifecycle>();
+const threadClients = new Map<string, CodexAppServerClient>();
+const clientReservations = new Map<CodexAppServerClient, number>();
+let retirementTimer: ReturnType<typeof setTimeout> | undefined;
+let retirementSweep: Promise<void> | undefined;
+
+export function getCodexRuntimeClients(): CodexAppServerClient[] {
+  return [
+    ...new Set(
+      [globalLifecycle, ...retiringLifecycles].flatMap((lifecycle) => {
+        const client = lifecycle?.getClient();
+        return client ? [client] : [];
+      }),
+    ),
+  ];
+}
+
+export function getCodexRuntimeClientForThread(
+  threadId: string,
+  defaultClient = globalLifecycle?.getClient(),
+): CodexAppServerClient | undefined {
+  const owner = threadClients.get(threadId);
+  const clients = getCodexRuntimeClients();
+  if (owner && clients.includes(owner)) return owner;
+  return defaultClient && clients.includes(defaultClient) ? defaultClient : globalLifecycle?.getClient();
+}
+
+/** Unload an idle thread before another generation tries to acquire its disk writer lock. */
+export async function handoffCodexRuntimeThread(
+  threadId: string,
+  target: CodexAppServerClient,
+  signal?: AbortSignal,
+): Promise<void> {
+  const owner = getCodexRuntimeClientForThread(threadId, target);
+  if (!owner || owner === target) return;
+  const release = retainCodexRuntimeClient(owner);
+  try {
+    signal?.throwIfAborted();
+    const status = await readCodexThreadStatus(owner, threadId);
+    if (status === "notLoaded") {
+      threadClients.delete(threadId);
+      return;
+    }
+    if (status !== "idle" && status !== "systemError") {
+      throw new Error(`Codex thread ${threadId} is still ${status}; cannot move it to the new runtime.`);
+    }
+    let closed!: () => void;
+    let failed!: (error: unknown) => void;
+    const done = new Promise<void>((resolve, reject) => {
+      closed = resolve;
+      failed = reject;
+    });
+    const remove = owner.addNotificationHandler((method, params) => {
+      if (method === "thread/closed" && (params as { threadId?: string })?.threadId === threadId) closed();
+    });
+    const timeout = setTimeout(
+      () => failed(new Error(`Timed out releasing Codex thread ${threadId} from its old runtime.`)),
+      15_000,
+    );
+    const onAbort = () => failed(signal?.reason);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    // Attach rejection handling before awaiting the unsubscribe RPC.
+    const completion = done.then(() => undefined);
+    void completion.catch(() => {});
+    try {
+      signal?.throwIfAborted();
+      await Promise.race([
+        owner.request<{ status: string }>("thread/unsubscribe", { threadId }).then((result) => {
+          if (result.status === "notLoaded") closed();
+          return completion;
+        }),
+        completion,
+      ]);
+      threadClients.delete(threadId);
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      remove();
+    }
+  } finally {
+    release();
+  }
+}
+
+export function recordCodexRuntimeThreadOwner(threadId: string, client: CodexAppServerClient): void {
+  threadClients.set(threadId, client);
+}
+
+/** Hold a generation across preparation, driver startup and its final event delivery. */
+export function retainCodexRuntimeClient(client: CodexAppServerClient): () => void {
+  clientReservations.set(client, (clientReservations.get(client) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const count = (clientReservations.get(client) ?? 1) - 1;
+    if (count > 0) clientReservations.set(client, count);
+    else clientReservations.delete(client);
+    scheduleRetirementSweep();
+  };
+}
+
+function scheduleRetirementSweep(): void {
+  if (globalStopPromise || retirementTimer || retirementSweep || retiringLifecycles.size === 0) return;
+  retirementTimer = setTimeout(() => {
+    retirementTimer = undefined;
+    retirementSweep = reapRetiredCodexRuntimes().finally(() => {
+      retirementSweep = undefined;
+      scheduleRetirementSweep();
+    });
+  }, 250);
+  retirementTimer.unref();
+}
+
+async function listRuntimeThreadIds(client: CodexAppServerClient): Promise<string[]> {
+  const ids: string[] = [];
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const page = await client.request<{ data: string[]; nextCursor?: string | null }>("thread/loaded/list", {
+      limit: 100,
+      ...(cursor ? { cursor } : {}),
+    });
+    if (!Array.isArray(page.data) || page.data.some((id) => typeof id !== "string" || !id.trim())) {
+      throw new Error("Cannot retire Codex runtime: invalid loaded thread list.");
+    }
+    ids.push(...page.data);
+    cursor = page.nextCursor ?? undefined;
+    if (cursor) {
+      if (cursors.has(cursor)) throw new Error("Cannot retire Codex runtime: repeated thread list cursor.");
+      cursors.add(cursor);
+    }
+  } while (cursor);
+  return ids;
+}
+
+/** Never stop an old generation while a driver or native child still owns work. */
+export async function reapRetiredCodexRuntimes(): Promise<void> {
+  for (const lifecycle of retiringLifecycles) {
+    const client = lifecycle.getClient();
+    if (client && (clientReservations.get(client) ?? 0) > 0) continue;
+    try {
+      if (client?.isInitialized) {
+        const ids = await listRuntimeThreadIds(client);
+        const statuses = await Promise.all(ids.map((id) => readCodexThreadStatus(client, id)));
+        if (statuses.some((status) => status === "active" || status === "unknown")) continue;
+        const terminals = await Promise.all(
+          ids.map((threadId) =>
+            client.request<{ data: unknown[] }>("thread/backgroundTerminals/list", { threadId, limit: 1 }),
+          ),
+        );
+        if (terminals.some((page) => page.data.length > 0)) continue;
+      }
+      // A driver may have reserved this generation while the status RPC was in flight.
+      if (client && (clientReservations.get(client) ?? 0) > 0) continue;
+      await lifecycle.stop();
+      retiringLifecycles.delete(lifecycle);
+      for (const [id, owner] of threadClients) if (owner === client) threadClients.delete(id);
+    } catch (error) {
+      process.stderr.write(`[eco-codex] retired runtime cleanup failed: ${String(error)}\n`);
+    }
+  }
+}
+
+/** Publish only an initialized replacement; the old process keeps its existing turns. */
+export async function replaceGlobalCodexRuntimeLifecycle(
+  options: CodexRuntimeLifecycleOptions,
+): Promise<CodexAppServerClient> {
+  while (globalStopPromise) await globalStopPromise;
+  const epoch = runtimeEpoch;
+  const replacement = replacementTail.then(() => replaceCodexRuntime(options, epoch));
+  replacementTail = replacement.then(
+    () => {},
+    () => {},
+  );
+  return replacement;
+}
+
+async function replaceCodexRuntime(
+  options: CodexRuntimeLifecycleOptions,
+  epoch: number,
+): Promise<CodexAppServerClient> {
+  if (epoch !== runtimeEpoch) throw new Error("Codex runtime replacement was cancelled by shutdown.");
+  while (globalStopPromise) await globalStopPromise;
+  if (epoch !== runtimeEpoch) throw new Error("Codex runtime replacement was cancelled by shutdown.");
+  const previous = globalLifecycle;
+  const replacement = new CodexRuntimeLifecycle(options);
+  startingReplacements.add(replacement);
+  let client: CodexAppServerClient;
+  try {
+    client = await replacement.start();
+    if (epoch !== runtimeEpoch) {
+      await replacement.stop();
+      throw new Error("Codex runtime replacement was cancelled by shutdown.");
+    }
+  } catch (error) {
+    await replacement.stop();
+    throw error;
+  } finally {
+    startingReplacements.delete(replacement);
+  }
+  globalLifecycle = replacement;
+  if (previous) retiringLifecycles.add(previous);
+  scheduleRetirementSweep();
+  return client;
+}
 
 export function getGlobalCodexRuntimeLifecycle(): CodexRuntimeLifecycle | undefined {
   return globalLifecycle;
@@ -312,18 +526,22 @@ export async function stopGlobalCodexRuntimeLifecycle(): Promise<void> {
   if (globalStopPromise) {
     return globalStopPromise;
   }
-  const lifecycle = globalLifecycle;
-  if (!lifecycle || typeof lifecycle.stop !== "function") {
-    return;
-  }
-
-  const stopPromise = lifecycle.stop();
+  runtimeEpoch += 1;
+  if (retirementTimer) clearTimeout(retirementTimer);
+  retirementTimer = undefined;
+  const lifecycles = [...new Set([globalLifecycle, ...retiringLifecycles, ...startingReplacements])];
+  const stopPromise = (async () => {
+    await Promise.all(lifecycles.map((lifecycle) => lifecycle?.stop?.()));
+    await replacementTail;
+    await retirementSweep;
+    retiringLifecycles.clear();
+    threadClients.clear();
+    clientReservations.clear();
+  })();
   globalStopPromise = stopPromise;
   try {
     await stopPromise;
-    if (globalLifecycle === lifecycle) {
-      globalLifecycle = undefined;
-    }
+    globalLifecycle = undefined;
   } finally {
     if (globalStopPromise === stopPromise) {
       globalStopPromise = undefined;

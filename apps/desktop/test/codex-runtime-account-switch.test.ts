@@ -51,143 +51,27 @@ async function expectShutdownToFinish(shutdown: Promise<void>): Promise<void> {
   }
 }
 
-test("account transition waits for an active Codex turn and blocks new runtime preparation", async () => {
-  let active = true;
+test("account publication does not wait for an active turn or read global idle status", async () => {
   let transitionRan = false;
-  let transitionSawIdle = false;
-  let markBusy!: () => void;
-  const busyObserved = new Promise<void>((resolve) => {
-    markBusy = resolve;
-  });
   const client = {
     isInitialized: true,
     async request(method: string) {
-      if (method === "thread/loaded/list") return { data: ["codex-active"] };
-      if (method === "thread/read") {
-        return { thread: { status: { type: active ? "active" : "idle" } } };
-      }
-      throw new Error(`Unexpected fake app-server request: ${method}`);
+      throw new Error(`Account publication must not query ${method}`);
     },
   };
-  releaseFakeActiveTurn = () => {
-    active = false;
-  };
-  setGlobalCodexRuntimeLifecycle({ getClient: () => client } as unknown as CodexRuntimeLifecycle);
-  configureCodexRuntimeRun({
-    ecoDataDir: "/tmp/eco-codex-runtime-account-switch-test",
-    listProviders: () => [],
-    threadMap: {} as CodexThreadMap,
-    appendConversationRuntimeEvent: () => {},
-    scheduleThreadRunProjectionUpdated: () => {},
-    onStderr: (message) => {
-      if (message.includes("waiting to refresh global runtime")) markBusy();
-    },
-  });
-
-  requestCodexAccountRuntimeRestart("account");
-  scheduleCodexGlobalRuntimeRefresh({
-    beforePrepare: async () => {
-      transitionRan = true;
-      transitionSawIdle = !active;
-      // Stop before config materialization: this test exercises the scheduler's
-      // active-turn gate without launching a Codex CLI process.
-      throw new Error("test-only stop before runtime preparation");
-    },
-  });
-  await busyObserved;
-
-  const blockedTaskPreparation = prepareCodexRuntime().then(
-    () => undefined,
-    (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
-  );
-  await new Promise((resolve) => setTimeout(resolve, 25));
-  expect(transitionRan).toBe(false);
-
-  active = false;
-  const preparationError = await blockedTaskPreparation;
-  expect(transitionRan).toBe(true);
-  expect(transitionSawIdle).toBe(true);
-  expect(preparationError?.message).toBe("test-only stop before runtime preparation");
-});
-
-test("shutdown interrupts the queued refresh while a Codex turn remains active", async () => {
-  let active = true;
-  let transitionRan = false;
-  let markBusy!: () => void;
-  const busy = new Promise<void>((resolve) => {
-    markBusy = resolve;
-  });
-  const errors: string[] = [];
-  const client = {
-    isInitialized: true,
-    async request(method: string) {
-      if (method === "thread/loaded/list") return { data: ["codex-active"] };
-      return { thread: { status: { type: active ? "active" : "idle" } } };
-    },
-  };
-  releaseFakeActiveTurn = () => {
-    active = false;
-  };
-  setGlobalCodexRuntimeLifecycle({ getClient: () => client } as unknown as CodexRuntimeLifecycle);
-  configureRefreshTest((message) => {
-    if (message.includes("waiting to refresh")) markBusy();
-    if (message.includes("refresh failed")) errors.push(message);
-  });
-  requestCodexAccountRuntimeRestart("account");
-  scheduleCodexGlobalRuntimeRefresh({
-    beforePrepare: async () => {
-      transitionRan = true;
-    },
-  });
-  await busy;
-  await expectShutdownToFinish(shutdownCodexGlobalRuntimeRefresh());
-  expect(active).toBe(true);
-  expect(transitionRan).toBe(false);
-  expect(errors).toEqual([]);
-  await expect(prepareCodexRuntime()).rejects.toThrow("shutting down");
-});
-
-test("shutdown interrupts an idle check whose app-server request has not returned", async () => {
-  let requestStarted!: () => void;
-  let releaseRequest!: () => void;
-  const started = new Promise<void>((resolve) => {
-    requestStarted = resolve;
-  });
-  const request = new Promise<void>((resolve) => {
-    releaseRequest = resolve;
-  });
-  let statusRequests = 0;
-  const client = {
-    isInitialized: true,
-    async request(method: string) {
-      if (method !== "thread/loaded/list") {
-        statusRequests += 1;
-        return { thread: { status: { type: "idle" } } };
-      }
-      requestStarted();
-      await request;
-      return { data: ["codex-old-runtime"] };
-    },
-  };
-  let transitionRan = false;
-  releaseFakeActiveTurn = releaseRequest;
   setGlobalCodexRuntimeLifecycle({ getClient: () => client } as unknown as CodexRuntimeLifecycle);
   configureRefreshTest();
   requestCodexAccountRuntimeRestart("account");
   scheduleCodexGlobalRuntimeRefresh({
     beforePrepare: async () => {
       transitionRan = true;
+      throw new Error("explicit account publication failure");
     },
   });
-  await started;
-  try {
-    await expectShutdownToFinish(shutdownCodexGlobalRuntimeRefresh());
-    expect(transitionRan).toBe(false);
-  } finally {
-    releaseRequest();
-  }
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(statusRequests).toBe(0);
+  await expect(prepareCodexRuntime({ requiredProviderIds: ["openai"] })).rejects.toThrow(
+    "explicit account publication failure",
+  );
+  expect(transitionRan).toBe(true);
 });
 
 test("shutdown still waits for an account transition already publishing credentials", async () => {

@@ -4,13 +4,16 @@ import os from "node:os";
 import path from "node:path";
 import type { CodexMcpServerForConfigSync } from "@eco/runtime";
 import {
+  getCodexRuntimeClients,
   getGlobalCodexRuntimeLifecycle,
+  retainCodexRuntimeClient,
   stopGlobalCodexRuntimeLifecycle,
 } from "../src/main/codex-runtime-lifecycle";
 import {
   configureCodexRuntimeRun,
   type EcoProviderForCodexCatalog,
   prepareCodexRuntime,
+  requestCodexAccountRuntimeRestart,
   scheduleCodexGlobalRuntimeRefresh,
   shutdownCodexGlobalRuntimeRefresh,
 } from "../src/main/codex-runtime-run";
@@ -38,7 +41,6 @@ realAppServerTest(
     let statusChecks = 0;
     let mcpReloads = 0;
     let contextWindowLimit = 1_048_576;
-    const idleReadStarted = Promise.withResolvers<void>();
     const releaseIdleRead = Promise.withResolvers<void>();
     const messages: string[] = [];
     try {
@@ -61,7 +63,6 @@ realAppServerTest(
       client.request = (async (method: string, params: unknown) => {
         if (method === "thread/loaded/list") {
           idleChecks += 1;
-          idleReadStarted.resolve();
           await releaseIdleRead.promise;
           return { data: ["active-other-thread"] };
         }
@@ -96,22 +97,19 @@ realAppServerTest(
       await refresh();
       expect(mcpReloads).toBe(1);
       expect(messages.some((message) => /waiting to|cold restart/.test(message))).toBe(false);
-      // A real catalog metadata change is on the allowlist. Its idle wait must
-      // remain cancellable even if a native status RPC has not returned.
-      contextWindowLimit = 65_536;
-      scheduleCodexGlobalRuntimeRefresh();
-      await idleReadStarted.promise;
-      expect(idleChecks).toBe(1);
-      await Promise.race([
-        shutdownCodexGlobalRuntimeRefresh(),
-        Bun.sleep(500).then(() => {
-          throw new Error("Catalog restart wait blocked shutdown.");
-        }),
-      ]);
-      releaseIdleRead.resolve();
-      await Bun.sleep(0);
-      expect(statusChecks).toBe(0);
-      expect(getGlobalCodexRuntimeLifecycle()?.getClient()).toBe(client);
+      // A real catalog change publishes a new process without waiting for the old turn.
+      const releaseOld = retainCodexRuntimeClient(client);
+      try {
+        contextWindowLimit = 65_536;
+        scheduleCodexGlobalRuntimeRefresh();
+        await prepareCodexRuntime({ signal: AbortSignal.timeout(10_000) });
+        expect(getGlobalCodexRuntimeLifecycle()?.getClient()).not.toBe(client);
+        expect(getCodexRuntimeClients()).toContain(client);
+        expect(idleChecks).toBe(0);
+        expect(statusChecks).toBe(0);
+      } finally {
+        releaseOld();
+      }
     } finally {
       releaseIdleRead.resolve();
       await shutdownCodexGlobalRuntimeRefresh();
@@ -122,4 +120,132 @@ realAppServerTest(
     }
   },
   15_000,
+);
+
+realAppServerTest(
+  "unchanged gateway prepares during account publication and after its failure",
+  async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "eco-codex-account-gateway-"));
+    const previousExecutable = process.env.CODEX_EXECUTABLE;
+    process.env.CODEX_EXECUTABLE = path.resolve(import.meta.dir, "../node_modules/.bin/codex");
+    let providers: EcoProviderForCodexCatalog[] = [
+      {
+        id: "vendor",
+        name: "Offline fixture",
+        enabled: true,
+        apiCompat: "openai_responses",
+        models: [{ modelId: "probe" }],
+      },
+    ];
+    const publication = Promise.withResolvers<void>();
+    try {
+      configureCodexRuntimeRun({
+        ecoDataDir: root,
+        listProviders: () => providers,
+        threadMap: {} as CodexThreadMap,
+        appendConversationRuntimeEvent: () => {},
+        scheduleThreadRunProjectionUpdated: () => {},
+      });
+      await prepareCodexRuntime();
+      const client = getGlobalCodexRuntimeLifecycle()?.getClient();
+      requestCodexAccountRuntimeRestart("account");
+      scheduleCodexGlobalRuntimeRefresh({
+        beforePrepare: async () => {
+          await publication.promise;
+          throw new Error("account publication failed");
+        },
+      });
+      const gatewayInput = {
+        mainProviderId: "vendor",
+        mainModelId: "probe",
+        signal: AbortSignal.timeout(2_000),
+      };
+      const during = await prepareCodexRuntime(gatewayInput);
+      expect(during.runtimeClient).toBe(client);
+      const login = prepareCodexRuntime({ requiredProviderIds: ["openai"] });
+      publication.resolve();
+      await expect(login).rejects.toThrow("account publication failed");
+      expect((await prepareCodexRuntime(gatewayInput)).runtimeClient).toBe(client);
+      providers = providers.map((provider) => ({ ...provider, enabled: false }));
+      await expect(prepareCodexRuntime(gatewayInput)).rejects.toThrow("account publication failed");
+    } finally {
+      publication.resolve();
+      await shutdownCodexGlobalRuntimeRefresh();
+      await stopGlobalCodexRuntimeLifecycle();
+      if (previousExecutable === undefined) delete process.env.CODEX_EXECUTABLE;
+      else process.env.CODEX_EXECUTABLE = previousExecutable;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  },
+  20_000,
+);
+
+realAppServerTest(
+  "native idle thread releases its writer and resumes on a replacement",
+  async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "eco-codex-native-handoff-"));
+    const previousExecutable = process.env.CODEX_EXECUTABLE;
+    process.env.CODEX_EXECUTABLE = path.resolve(import.meta.dir, "../node_modules/.bin/codex");
+    let contextWindowLimit = 65_536;
+    let releaseOld: (() => void) | undefined;
+    try {
+      configureCodexRuntimeRun({
+        ecoDataDir: root,
+        listProviders: () => [
+          {
+            id: "vendor",
+            name: "Offline fixture",
+            enabled: true,
+            apiCompat: "openai_responses",
+            models: [{ modelId: "probe" }],
+          },
+        ],
+        getGlobalContextWindowLimit: () => contextWindowLimit,
+        threadMap: {
+          getCodexThreadId: () => undefined,
+          getEcoThreadId: () => undefined,
+          setMapping: () => {},
+          deleteMapping: () => {},
+          getThreadAttribution: () => undefined,
+          setThreadAttribution: () => {},
+        },
+        appendConversationRuntimeEvent: () => {},
+        scheduleThreadRunProjectionUpdated: () => {},
+      });
+      await prepareCodexRuntime();
+      const old = getGlobalCodexRuntimeLifecycle()?.getClient();
+      if (!old) throw new Error("Missing native app-server");
+      releaseOld = retainCodexRuntimeClient(old);
+      const started = await old.request<{ thread: { id: string } }>("thread/start", {
+        cwd: root,
+        modelProvider: "eco_vendor",
+        model: "probe",
+      });
+      await old.request("thread/inject_items", {
+        threadId: started.thread.id,
+        items: [
+          { type: "message", role: "user", content: [{ type: "input_text", text: "offline history" }] },
+        ],
+      });
+      contextWindowLimit = 131_072;
+      scheduleCodexGlobalRuntimeRefresh();
+      await prepareCodexRuntime();
+      const current = getGlobalCodexRuntimeLifecycle()?.getClient();
+      if (!current || current === old) throw new Error("Missing replacement app-server");
+      const { handoffCodexRuntimeThread } = await import("../src/main/codex-runtime-lifecycle");
+      await handoffCodexRuntimeThread(started.thread.id, current, AbortSignal.timeout(5_000));
+      const resumed = await current.request<{ thread: { id: string } }>("thread/resume", {
+        threadId: started.thread.id,
+      });
+      expect(resumed.thread.id).toBe(started.thread.id);
+    } finally {
+      releaseOld?.();
+      await shutdownCodexGlobalRuntimeRefresh();
+      await stopGlobalCodexRuntimeLifecycle();
+      if (previousExecutable === undefined) delete process.env.CODEX_EXECUTABLE;
+      else process.env.CODEX_EXECUTABLE = previousExecutable;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  },
+  20_000,
 );

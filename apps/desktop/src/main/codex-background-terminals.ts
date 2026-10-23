@@ -22,6 +22,8 @@ interface CodexBackgroundTerminalRow {
 
 export interface CodexBackgroundTerminalServiceDeps {
   getClient(): CodexBackgroundTerminalClient | undefined;
+  getClients?(): CodexBackgroundTerminalClient[];
+  getClientForThread?(codexThreadId: string): CodexBackgroundTerminalClient | undefined;
   resolveEcoThreadId(codexThreadId: string): string | undefined;
 }
 
@@ -37,27 +39,27 @@ export class CodexBackgroundTerminalService {
   constructor(private readonly deps: CodexBackgroundTerminalServiceDeps) {}
 
   async list(): Promise<CodexBackgroundTerminal[]> {
-    const client = this.requireClient();
-    if (!client) {
-      return [];
-    }
-    const codexThreadIds = await this.listLoadedThreadIds(client);
     const terminalsByKey = new Map<string, CodexBackgroundTerminal>();
-    for (const codexThreadId of codexThreadIds) {
-      const rows = await this.listThreadTerminals(client, codexThreadId);
-      for (const row of rows) {
-        const key = `${codexThreadId}\0${row.processId}`;
-        terminalsByKey.set(key, {
-          codexThreadId,
-          threadId: this.deps.resolveEcoThreadId(codexThreadId)?.trim() || codexThreadId,
-          itemId: row.itemId,
-          processId: row.processId,
-          workspacePath: row.cwd,
-          command: row.command,
-          ...(row.osPid !== null && { osPid: row.osPid }),
-          ...(row.cpuPercent !== null && { cpuPercent: row.cpuPercent }),
-          ...(row.rssKb !== null && { rssKb: Number(row.rssKb) }),
-        });
+    const clients = this.deps.getClients?.() ?? [this.deps.getClient()];
+    for (const client of clients) {
+      if (!client?.isInitialized) continue;
+      const codexThreadIds = await this.listLoadedThreadIds(client);
+      for (const codexThreadId of codexThreadIds) {
+        const rows = await this.listThreadTerminals(client, codexThreadId);
+        for (const row of rows) {
+          const key = `${codexThreadId}\0${row.processId}`;
+          terminalsByKey.set(key, {
+            codexThreadId,
+            threadId: this.deps.resolveEcoThreadId(codexThreadId)?.trim() || codexThreadId,
+            itemId: row.itemId,
+            processId: row.processId,
+            workspacePath: row.cwd,
+            command: row.command,
+            ...(row.osPid !== null && { osPid: row.osPid }),
+            ...(row.cpuPercent !== null && { cpuPercent: row.cpuPercent }),
+            ...(row.rssKb !== null && { rssKb: Number(row.rssKb) }),
+          });
+        }
       }
     }
     return [...terminalsByKey.values()].sort(
@@ -71,7 +73,7 @@ export class CodexBackgroundTerminalService {
     codexThreadId: string;
     processId: string;
   }): Promise<CodexBackgroundTerminalTerminateResult> {
-    const client = this.requireClient();
+    const client = this.deps.getClientForThread?.(input.codexThreadId) ?? this.requireClient();
     if (!client) {
       throw new Error("Codex app-server is not running; cannot terminate the Agent Bash process.");
     }

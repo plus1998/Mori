@@ -637,6 +637,8 @@ import {
 } from "./codex-model-catalog-remote";
 import {
   getGlobalCodexRuntimeLifecycle,
+  getCodexRuntimeClientForThread,
+  getCodexRuntimeClients,
   parseElectronProxyResolution,
   setCodexAccountProxyConfigGetter,
   setCodexSystemProxyResolver,
@@ -648,6 +650,7 @@ import {
   configureCodexRuntimeRun,
   createCodexRuntimeDriver,
   ensureCodexControlPlaneClient,
+  getCodexRuntimeClientForEcoThread,
   forkCodexThreadForEcoThread,
   getCodexTurnRouteRegistry,
   requestCodexAccountRuntimeRestart,
@@ -1498,6 +1501,8 @@ backgroundTerminalTaskRegistry = new BackgroundTerminalTaskRegistry(
 function getCodexBackgroundTerminalService(): CodexBackgroundTerminalService {
   return (codexBackgroundTerminalService ??= new CodexBackgroundTerminalService({
     getClient: () => getGlobalCodexRuntimeLifecycle()?.getClient(),
+    getClients: getCodexRuntimeClients,
+    getClientForThread: getCodexRuntimeClientForThread,
     resolveEcoThreadId: (codexThreadId) => {
       const mapped = codexThreadMap?.getEcoThreadId(codexThreadId);
       if (mapped) {
@@ -1694,7 +1699,7 @@ const orchestrationGuardrails = resolveOrchestrationGuardrails();
 const codexSubagentRuntimeLimit = new CodexSubagentRuntimeLimitController({
   maxRuntimeMs: orchestrationGuardrails.maxSubagentRuntimeMs,
   interruptTurn: async ({ agentId, turnId }) => {
-    const client = getGlobalCodexRuntimeLifecycle()?.getClient();
+    const client = getCodexRuntimeClientForThread(agentId);
     if (!client?.isInitialized) {
       throw new Error(`Codex app-server is unavailable; cannot interrupt child ${agentId} turn ${turnId}.`);
     }
@@ -3545,7 +3550,7 @@ app
         if (phase === "closing" || phase === "closed") {
           throw new Error(`Codex approval feedback arrived after turn ingress closed (${phase}).`);
         }
-        const client = getGlobalCodexRuntimeLifecycle()?.getClient();
+        const client = getCodexRuntimeClientForThread(codexThreadId);
         if (!client) {
           throw new Error("Codex approval feedback cannot be delivered because Codex is not running.");
         }
@@ -6943,10 +6948,8 @@ function registerIpcHandlers(): void {
       beforePrepare: async () => {
         try {
           if (service.getPendingAccountId() === undefined) return;
-          // The global scheduler has already waited for Codex turns to go idle.
-          // Stop the old app-server before saving its final refresh and publishing
-          // credentials for the requested account.
-          await stopGlobalCodexRuntimeLifecycle();
+          // Account switching is explicit: publish immediately. Existing login
+          // requests may fail authentication; gateway turns keep running.
           await service.flushFinalAuthWriteback();
           await service.applyPendingTransition();
           if (service.getPendingAccountId() === undefined) emitSettingsUpdated();
@@ -12228,7 +12231,7 @@ async function startCodexThreadRun(
                 if (!activeRunRuntimeState.bindCodexTurn(ecoThreadId, controller, turnId)) {
                   return;
                 }
-                const client = getGlobalCodexRuntimeLifecycle()?.getClient();
+                const client = getCodexRuntimeClientForEcoThread(ecoThreadId);
                 if (!client) {
                   return;
                 }
