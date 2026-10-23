@@ -112,6 +112,8 @@ export const IPC_CHANNELS = {
   openAIAccountsCreate: "openai-accounts:create",
   openAIAccountsDelete: "openai-accounts:delete",
   openAIAccountsStartLogin: "openai-accounts:start-login",
+  openAIAccountsSubmitLoginCallback: "openai-accounts:submit-login-callback",
+  openAIAccountsCancelLogin: "openai-accounts:cancel-login",
   openAIAccountsSetActive: "openai-accounts:set-active",
   openAIAccountsGetActive: "openai-accounts:get-active",
   openAIAccountsSetAuthJson: "openai-accounts:set-auth-json",

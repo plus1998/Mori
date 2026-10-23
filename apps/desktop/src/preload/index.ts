@@ -659,8 +659,16 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsDelete, { accountId });
   },
 
-  openAIAccountsStartLogin(accountId: string): Promise<{ success: boolean; message: string }> {
-    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsStartLogin, { accountId });
+  openAIAccountsStartLogin(accountId: string, mode?: "external"): Promise<{ success: boolean; message: string; authUrl?: string; loginId?: string; expiresAt?: number }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsStartLogin, { accountId, mode });
+  },
+
+  openAIAccountsSubmitLoginCallback(accountId: string, loginId: string, callbackUrl: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsSubmitLoginCallback, { accountId, loginId, callbackUrl });
+  },
+
+  openAIAccountsCancelLogin(accountId: string, loginId: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsCancelLogin, { accountId, loginId });
   },
 
   openAIAccountsOpenAssistant(accountId: string): Promise<void> {
@@ -735,8 +743,8 @@ const api = {
     ipcRenderer.on(IPC_CHANNELS.openAIAccountsChanged, listener);
     return () => ipcRenderer.off(IPC_CHANNELS.openAIAccountsChanged, listener);
   },
-  onCodexOauthLoginResult(callback: (result: { success: boolean; message: string; accountId?: string }) => void): () => void {
-    const listener = (_event: Electron.IpcRendererEvent, result: { success: boolean; message: string; accountId?: string }) => callback(result);
+  onCodexOauthLoginResult(callback: (result: { success: boolean; message: string; accountId?: string; loginId?: string }) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, result: { success: boolean; message: string; accountId?: string; loginId?: string }) => callback(result);
     ipcRenderer.on("codex-oauth:login-result", listener);
     return () => ipcRenderer.off("codex-oauth:login-result", listener);
   },

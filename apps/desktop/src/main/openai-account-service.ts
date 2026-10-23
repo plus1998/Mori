@@ -17,7 +17,7 @@ import type {
   OpenAIAccountUpdateInput,
 } from "../shared/openai-account";
 import { OpenAIAccountStore } from "./openai-account-store";
-import { startCodexBrowserLogin } from "./codex-browser-login";
+import { startCodexBrowserLogin, type CodexBrowserLogin } from "./codex-browser-login";
 import {
   queryIsolatedCodexAccountQuota,
   readCodexAccountQuota,
@@ -219,7 +219,7 @@ export class OpenAIAccountService {
   private syncStatus: OpenAIAccountSyncStatus = { state: "ok" };
   private initialized = false;
   private readonly codexExecutableProvider: () => string | undefined;
-  private readonly activeLogins = new Map<string, { cancel: () => void; result: Promise<OpenAIAccountLoginResult> }>();
+  private readonly activeLogins = new Map<string, CodexBrowserLogin>();
   private readonly quotaQueries = new Map<string, Promise<OpenAIAccountQuota>>();
 
   constructor(
@@ -698,7 +698,7 @@ export class OpenAIAccountService {
   /** Start login for a specific account. */
   async startLogin(
     accountId: string,
-  ): Promise<{ authUrl: string; expiresAt: number; result: Promise<OpenAIAccountLoginResult>; cancel: () => void } | null> {
+  ): Promise<CodexBrowserLogin | null> {
     const account = await this.requireAccount(accountId);
     this.activeLogins.get(accountId)?.cancel();
     const codexExecutable = this.codexExecutableProvider();
@@ -752,8 +752,9 @@ export class OpenAIAccountService {
         bridge?.close();
         if (this.activeLogins.get(accountId)?.result === result) this.activeLogins.delete(accountId);
       });
-      this.activeLogins.set(accountId, { cancel: login.cancel, result });
-      return { authUrl: login.authUrl, expiresAt: login.expiresAt, result, cancel: login.cancel };
+      const session = { ...login, result };
+      this.activeLogins.set(accountId, session);
+      return session;
     } catch (error) {
       bridge?.close();
       // A failed startup is not a completed login; preserve any credential file.
@@ -762,6 +763,17 @@ export class OpenAIAccountService {
       }
       throw error;
     }
+  }
+
+  async submitLoginCallback(accountId: string, loginId: string, callbackUrl: string): Promise<void> {
+    const login = this.activeLogins.get(accountId);
+    if (!login || login.loginId !== loginId) throw new Error("登录已结束或已过期，请重新生成授权链接");
+    await login.submitCallback(callbackUrl);
+  }
+
+  cancelLogin(accountId: string, loginId: string): void {
+    const login = this.activeLogins.get(accountId);
+    if (login?.loginId === loginId) login.cancel();
   }
 
   private async saveCredentialsAfterLogin(accountId: string, content: string): Promise<void> {

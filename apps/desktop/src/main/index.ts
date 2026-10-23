@@ -7035,13 +7035,36 @@ function registerIpcHandlers(): void {
     return { success: true, pending: prevActiveId === payload.accountId };
   });
 
-  registerDesktopCommand(IPC_CHANNELS.openAIAccountsStartLogin, async (payload: { accountId: string }) => {
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsSubmitLoginCallback, async (payload: { accountId: string; loginId: string; callbackUrl: string }) => {
+    await (await getOpenAIAccountService()).submitLoginCallback(payload.accountId, payload.loginId, payload.callbackUrl);
+  });
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsCancelLogin, async (payload: { accountId: string; loginId: string }) => {
+    (await getOpenAIAccountService()).cancelLogin(payload.accountId, payload.loginId);
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsStartLogin, async (payload: { accountId: string; mode?: "external" }) => {
     const svc = await getOpenAIAccountService();
     const accounts = await svc.listAccounts();
     const account = accounts.find((a) => a.id === payload.accountId);
     const authInfo = await svc.startLogin(payload.accountId);
     if (!authInfo) {
       return { success: false, message: "Failed to start login" };
+    }
+
+    if (payload.mode === "external") {
+      void authInfo.result.then(async (result) => {
+        if (result.success && payload.accountId === await svc.getActiveAccountId()) scheduleOpenAIAccountTransition(svc);
+        return result;
+      }).catch((error: unknown) => ({
+        success: false, message: `登录结果保存失败：${error instanceof Error ? error.message : String(error)}`,
+      })).then((result) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) win.webContents.send("codex-oauth:login-result", {
+            ...result, accountId: payload.accountId, loginId: authInfo.loginId,
+          });
+        }
+      });
+      return { success: true, message: "授权链接已生成", authUrl: authInfo.authUrl, loginId: authInfo.loginId, expiresAt: authInfo.expiresAt };
     }
 
     const partition = `openai-account-auth-${payload.accountId}-${Date.now()}`;

@@ -36,6 +36,7 @@ import type {
 } from "../../shared/openai-account";
 import { type AppLocale, formatAppDateTime } from "../../shared/locale";
 import { AccountModelCatalogSection } from "./AccountModelCatalogSection";
+import { CodexExternalLoginDialog } from "./CodexExternalLoginDialog";
 
 type Translate = TFunction<"translation", undefined>;
 
@@ -391,7 +392,8 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   const [modalPassword, setModalPassword] = useState("");
   const [modalPickupUrl, setModalPickupUrl] = useState("");
   const [modalTwoFactorSecret, setModalTwoFactorSecret] = useState("");
-  const [modalMode, setModalMode] = useState<"login" | "manual">("login");
+  const [modalMode, setModalMode] = useState<"login" | "external" | "manual">("login");
+  const [externalLoginId, setExternalLoginId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importMessage, setImportMessage] = useState("");
@@ -421,7 +423,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     if (!eco) return undefined;
     void refresh();
     const unsubOauth = eco.onCodexOauthLoginResult(async (result) => {
-      if (result.accountId) {
+      if (result.accountId && !result.loginId) {
         setLoggingInId((current) => current === result.accountId ? null : current);
         if (!result.success) {
           setOperationError("");
@@ -598,6 +600,8 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             onError(error instanceof Error ? error.message : String(error));
             return;
           }
+        } else if (!saveOnly && modalMode === "external") {
+          setExternalLoginId(account.id);
         }
       }
       setModalOpen(false);
@@ -1123,6 +1127,16 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                           type="button"
                           role="menuitem"
                           className="account-action-item"
+                          onClick={() => { setMenuOpenId(null); setExternalLoginId(account.id); }}
+                          disabled={busy || loggingInId !== null}
+                        >
+                          <Globe2 size={14} />
+                          {t("settings.openaiAccounts.externalLogin")}
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="account-action-item"
                           onClick={() => {
                             setMenuOpenId(null);
                             void openEdit(account.id);
@@ -1216,6 +1230,8 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
           })}
         </div>
       )}
+
+      {externalLoginId ? <CodexExternalLoginDialog accountId={externalLoginId} onClose={() => setExternalLoginId(null)} /> : null}
 
       {/* Manual auth inline editor */}
       {manualAuthId && (
@@ -1372,6 +1388,10 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                   <LogIn size={14} />
                   {t("settings.openaiAccounts.loginMode")}
                 </button>
+                <button type="button" className={modalMode === "external" ? "modal-mode-btn active" : "modal-mode-btn"} onClick={() => setModalMode("external")}>
+                  <Globe2 size={14} />
+                  {t("settings.openaiAccounts.externalLogin")}
+                </button>
                 <button
                   type="button"
                   className={
@@ -1431,7 +1451,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                   }
                 >
                   {busy ? <Loader2 size={14} className="mcp-spin" /> : null}
-                  {modalMode === "login"
+                  {modalMode === "external" ? t("settings.openaiAccounts.externalCreate") : modalMode === "login"
                     ? modalEditId
                       ? t("common.save")
                       : t("settings.openaiAccounts.createAndLogin")
