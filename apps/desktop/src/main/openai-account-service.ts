@@ -16,6 +16,7 @@ import type {
   OpenAIAccountSyncStatus,
   OpenAIAccountUpdateInput,
 } from "../shared/openai-account";
+import { CODEX_QUOTA_REFRESH_MS } from "../shared/codex-quota-refresh";
 import { OpenAIAccountStore } from "./openai-account-store";
 import { startCodexBrowserLogin, type CodexBrowserLogin } from "./codex-browser-login";
 import {
@@ -23,6 +24,7 @@ import {
   readCodexAccountQuota,
   type CodexQuotaClient,
 } from "./codex-account-quota";
+import { CodexQuotaResetRefresher } from "./codex-quota-reset-refresh";
 import {
   buildCodexProxyEnv,
   resolveCodexProxyUrl,
@@ -212,6 +214,7 @@ export class OpenAIAccountService {
   private store: OpenAIAccountStore | undefined;
   private authWatcher: fsSync.FSWatcher | null = null;
   private authPoll: ReturnType<typeof setInterval> | undefined;
+  private quotaPoll: ReturnType<typeof setInterval> | undefined;
   private authDebounce: ReturnType<typeof setTimeout> | undefined;
   private authSyncQueue: Promise<void> = Promise.resolve();
   private isPublishingMainAuth = false;
@@ -221,6 +224,7 @@ export class OpenAIAccountService {
   private readonly codexExecutableProvider: () => string | undefined;
   private readonly activeLogins = new Map<string, CodexBrowserLogin>();
   private readonly quotaQueries = new Map<string, Promise<OpenAIAccountQuota>>();
+  private quotaResetRefresher: CodexQuotaResetRefresher | undefined;
 
   constructor(
     userDataDir: string,
@@ -254,19 +258,52 @@ export class OpenAIAccountService {
       // Reconcile credentials left by the prior process before applying a queued switch.
       await this.reconcileMainAuth({ allowPublishMissing: true }).catch((error) => this.setSyncError(error));
       if (this.store.getPendingTransition()) await this.applyPendingTransition();
+      this.quotaResetRefresher = new CodexQuotaResetRefresher(
+        (accountId) => this.queryQuota(accountId),
+        (accountId, error) => console.error(`[codex-quota] Automatic reset refresh failed for ${accountId}:`, error),
+      );
       this.authPoll = setInterval(() => {
         if (!this.authWatcherHealthy) this.startAuthWatcher();
         this.enqueueMainAuthReconcile();
       }, 5_000);
       this.authPoll.unref?.();
+      this.quotaPoll = setInterval(() => this.refreshQuotas(), CODEX_QUOTA_REFRESH_MS);
+      this.quotaPoll.unref?.();
       this.initialized = true;
+      this.refreshResetQuotas();
     } catch (error) {
+      if (this.authPoll) clearInterval(this.authPoll);
+      this.authPoll = undefined;
+      if (this.quotaPoll) clearInterval(this.quotaPoll);
+      this.quotaPoll = undefined;
+      await this.quotaResetRefresher?.dispose();
+      this.quotaResetRefresher = undefined;
+      this.initialized = false;
       this.authWatcher?.close();
       this.authWatcher = null;
       this.authWatcherHealthy = false;
       this.store.close();
       this.store = undefined;
       throw error;
+    }
+  }
+
+  private refreshResetQuotas(): void {
+    if (!this.store || !this.quotaResetRefresher) return;
+    void this.quotaResetRefresher.refreshDueAccounts(this.store.list());
+  }
+
+  private refreshQuotas(): void {
+    if (!this.store || !this.quotaResetRefresher) return;
+    const accounts = this.store.list();
+    void this.quotaResetRefresher.refreshDueAccounts(accounts);
+    const activeId = this.store.getActiveAccountId();
+    const active = activeId ? accounts.find((account) => account.id === activeId) : undefined;
+    // Keep the prior active-account cadence even when its reset time is still in the future.
+    if (active?.authJson) {
+      void this.queryQuota(active.id).catch((error) =>
+        console.error(`[codex-quota] Periodic refresh failed for ${active.id}:`, error),
+      );
     }
   }
 
@@ -567,9 +604,13 @@ export class OpenAIAccountService {
     await Promise.all(logins.map((login) => login.result)).catch((error) => this.setSyncError(error));
     if (this.authDebounce) clearTimeout(this.authDebounce);
     if (this.authPoll) clearInterval(this.authPoll);
+    if (this.quotaPoll) clearInterval(this.quotaPoll);
     this.authWatcher?.close();
     this.authWatcher = null;
     this.authPoll = undefined;
+    this.quotaPoll = undefined;
+    await this.quotaResetRefresher?.dispose();
+    this.quotaResetRefresher = undefined;
     await this.flushFinalAuthWriteback().catch((error) => this.setSyncError(error));
     this.authWatcherHealthy = false;
     this.store?.close();

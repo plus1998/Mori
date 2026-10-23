@@ -220,6 +220,69 @@ test("quota's own account-change event does not start a refresh feedback loop", 
   monitor.dispose();
 });
 
+test("background reset refresh updates the current snapshot without another quota query", async () => {
+  const api = bridge();
+  let queries = 0;
+  api.openAIAccountsQueryQuota = async () => { queries++; return quota; };
+  const updates: (CodexQuotaReminderSnapshot | undefined)[] = [];
+  const monitor = new CodexQuotaMonitor(api, { enabled: () => true,
+    onChange: (value) => updates.push(value), onError() {},
+  });
+  await monitor.refresh();
+  const refreshed = { ...quota, fetchedAt: Date.now() + 1_000,
+    rateLimit: { ...quota.rateLimit, primaryWindow: { ...quota.rateLimit.primaryWindow!, usedPercent: 0 } },
+  };
+  api.openAIAccountsList = async () => [{ ...account, quota: refreshed }];
+  await monitor.accountsChanged();
+  expect(updates.at(-1)?.quota).toEqual(refreshed);
+  expect(queries).toBe(1);
+  await monitor.accountsChanged();
+  expect(updates).toHaveLength(2);
+  monitor.dispose();
+});
+
+test("account-change events cannot replace a failed quota request with an old cached snapshot", async () => {
+  const api = bridge();
+  api.openAIAccountsList = async () => [{ ...account, quota }];
+  api.openAIAccountsQueryQuota = async () => { throw new Error("quota offline"); };
+  const updates: (CodexQuotaReminderSnapshot | undefined)[] = [];
+  const errors: string[] = [];
+  const monitor = new CodexQuotaMonitor(api, { enabled: () => true,
+    onChange: (value) => updates.push(value), onError: (value) => errors.push(value),
+  });
+  await monitor.refresh();
+  await monitor.accountsChanged();
+  expect(updates).toEqual([]);
+  expect(errors).toEqual(["quota offline"]);
+  monitor.dispose();
+});
+
+test("a background snapshot cannot cross an account switch while the account list is loading", async () => {
+  const api = bridge();
+  const updates: (CodexQuotaReminderSnapshot | undefined)[] = [];
+  const monitor = new CodexQuotaMonitor(api, {
+    enabled: () => true,
+    onChange: (value) => updates.push(value),
+    onError() {},
+  });
+  await monitor.refresh();
+  let selected = "A";
+  let finish!: (value: OpenAIAccount[]) => void;
+  const pending = new Promise<OpenAIAccount[]>((resolve) => { finish = resolve; });
+  api.openAIAccountsGetActive = async () => active(selected);
+  api.openAIAccountsList = async () => selected === "A" ? pending : [{ ...account, id: "B", name: "Other" }];
+  const event = monitor.accountsChanged();
+  await Promise.resolve();
+  selected = "B";
+  const refreshed = { ...quota, fetchedAt: Date.now() + 1_000 };
+  finish([{ ...account, quota: refreshed }]);
+  await event;
+  await monitor.refresh();
+  expect(updates.some((entry) => entry?.accountId === "A" && entry.quota === refreshed)).toBe(false);
+  expect(updates.at(-1)?.accountId).toBe("B");
+  monitor.dispose();
+});
+
 test("credential reconcile timestamps do not invalidate a quota refresh", async () => {
   // The main process rewrites syncStatus.updatedAt on every credential reconcile
   // and then emits its own accounts-changed event after saving quota. Treating that

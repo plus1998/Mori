@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 import type { ThreadSummary } from "../shared/ipc";
 import type { OpenAIAccountQuotaWindow } from "../shared/openai-account";
 import {
-  CODEX_QUOTA_REFRESH_MS,
   CodexQuotaMonitor,
   type CodexQuotaReminderSnapshot,
   codexQuotaReminderKey,
@@ -208,11 +207,9 @@ export function CodexQuotaReminder({
       },
     });
     monitor.current = instance;
-    const timer = window.setInterval(() => void instance.refresh(), CODEX_QUOTA_REFRESH_MS);
     const unsubscribe = eco.onOpenAIAccountsChanged(() => void instance.accountsChanged());
     return () => {
       instance.dispose();
-      window.clearInterval(timer);
       unsubscribe();
       monitor.current = undefined;
     };

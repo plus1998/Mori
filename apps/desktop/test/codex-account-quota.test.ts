@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { readCodexAccountQuota, type CodexQuotaClient } from "../src/main/codex-account-quota";
 import { OpenAIAccountService } from "../src/main/openai-account-service";
 
@@ -166,6 +167,50 @@ test("an expired active account refreshes through the shared client and writes S
   await expect(service.queryQuota(account.id)).rejects.toThrow("503 unavailable");
   expect(await service.getAuthJsonContent(account.id)).toBe(freshAuth);
   expect((await service.listAccounts())[0]?.quota).toEqual(quota);
+  expect(service.getSyncStatus().state).toBe("ok");
+});
+
+test("service startup refreshes a persisted account whose quota reset while Eco was closed", async () => {
+  const root = await serviceRoot();
+  const setup = new OpenAIAccountService(root, "unused", undefined, async () => quotaClient((method) =>
+    method === "account/read" ? accountResponse : rateLimits));
+  await setup.initialize();
+  const account = await setup.createAccount("Reset while closed");
+  await setup.setAuthJson(account.id, freshAuth);
+  await setup.setActiveAccount(account.id);
+  await setup.applyPendingTransition();
+  const cached = await setup.queryQuota(account.id);
+  await setup.dispose();
+  const now = Date.now();
+  cached.fetchedAt = now - 60_000;
+  if (!cached.rateLimit.primaryWindow) throw new Error("Missing primary test window");
+  cached.rateLimit.primaryWindow.resetAt = Math.floor(now / 1_000) - 1;
+  cached.rateLimit.primaryWindow.usedPercent = 100;
+  const db = new DatabaseSync(path.join(root, "eco-coding.sqlite"));
+  try {
+    db.prepare("UPDATE openai_account_quotas SET quota_json = ?, fetched_at = ? WHERE account_id = ?")
+      .run(JSON.stringify(cached), cached.fetchedAt, account.id);
+  } finally {
+    db.close();
+  }
+  let reads = 0;
+  let published!: () => void;
+  const refreshed = new Promise<void>((resolve) => { published = resolve; });
+  const service = new OpenAIAccountService(root, "unused", () => {
+    if (reads > 0) published();
+  }, async () => quotaClient((method) => {
+    if (method === "account/read") return accountResponse;
+    reads++;
+    return rateLimits;
+  }));
+  cleanups.push(() => service.dispose());
+  await service.initialize();
+  await refreshed;
+  expect(reads).toBe(1);
+  const updated = (await service.listAccounts()).find((entry) => entry.id === account.id)?.quota;
+  expect(updated?.fetchedAt).toBeGreaterThan(cached.fetchedAt);
+  expect(updated?.rateLimit.primaryWindow?.usedPercent).toBe(25);
+  expect(await service.getActiveAccountId()).toBe(account.id);
   expect(service.getSyncStatus().state).toBe("ok");
 });
 
