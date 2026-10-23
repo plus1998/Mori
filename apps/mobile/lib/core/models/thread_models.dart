@@ -10,6 +10,8 @@ import 'thread_usage_models.dart';
 
 export 'agent_orchestration.dart';
 
+enum FollowUpDeliveryMode { queue, steer }
+
 const subagentRoles = ['explore', 'architect', 'coder', 'reviewer', 'tester'];
 
 Map<String, bool> defaultSubagentAvailability() {

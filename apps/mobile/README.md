@@ -100,7 +100,7 @@ flutter test
 
 ## 移动端离线 Feed Replay（iOS 模拟器）
 
-移动端按轮次展示时保留开场说明；已出现工具分组后，夹在后续工具分组之间的进度说明放在这些工具分组之后。最终回复仍在末尾，中途用户消息、思考和独立通知会结束该整理范围，不跨轮或跨提示移动。这里只改变展示位置，原事件序号和时间保持不变。
+移动端按轮次展示时保留投影中工具与正文的先后顺序，与桌面端一致。仅相邻工具合并为分组，正文会分隔前后两组工具；后续正文出现、思考摘要让位给工具分组时，不把后面的工具移到已有正文之前。最终回复仍在末尾，中途用户消息保留轮次分段。
 
 复用桌面端只读导出的 V2 fixture，直接运行独立的移动端入口。该入口使用内存 SQLite 和生产 effect reducer、投影、Feed、Markdown、滚动组件；不会启动登录、Realtime、模型或历史工具。回退会重建内存数据库，缺少事件前缀、未知 effect、hash 错误会明确失败。
 
@@ -120,7 +120,7 @@ flutter run --flavor dev -d SIMULATOR_ID -t lib/dev/feed_replay_main.dart \
 
 界面支持播放、暂停、单步、1×/5×/20× 和按事件序号跳转。播放默认把最长空档缩短到 1000ms；时间仍使用当前系统时钟，不冻结滚动计时器。尚未虚拟化历史时钟，因此历史 running 检查点的“处理中”时长会包含录制后到现在的间隔，不能据此验收历史耗时。fixture 的 request span 快照或增量补丁会逐事件重建。只回放 effect 已携带的详情，额外导出的详情正文、历史审批操作、发送/停止、媒体和账号设置不在此入口的覆盖范围内；HTTP 请求明确阻止，不能用离线回放验证网络或 SDK。
 
-可用 `integration_test/feed_replay_test.dart` 替代启动入口，传入相同的 fixture/seq 参数，在模拟器验证单步、播放、跳转和真实拖动；`ECO_REPLAY_UI_TRACE=/tmp/name.json` 可保存检查点。宿主机 `test/feed_replay_test.dart` 也接受 `ECO_REPLAY_FIXTURE`、逗号分隔的 `ECO_REPLAY_CHECKPOINTS` 和 `ECO_REPLAY_TRACE=/tmp/name.json`，输出每个检查点的投影和 Feed 顺序。
+可用 `integration_test/feed_replay_test.dart` 替代启动入口，传入相同的 fixture/seq 参数，在模拟器验证单步、播放、跳转和真实拖动；`ECO_REPLAY_THROUGH_SEQ` 指定结束检查点（默认完整会话），配合 `ECO_REPLAY_TOOL_SEQ` 和 `ECO_REPLAY_MESSAGE_SEQ` 检查最后一轮工具分组与正文的录制顺序；`ECO_REPLAY_UI_TRACE=/tmp/name.json` 可保存检查点。宿主机 `test/feed_replay_test.dart` 也接受 `ECO_REPLAY_FIXTURE`、逗号分隔的 `ECO_REPLAY_CHECKPOINTS` 和 `ECO_REPLAY_TRACE=/tmp/name.json`，输出每个检查点的投影和 Feed 顺序。
 
 真实连接对照测试使用 `integration_test/connection_soak_test.dart`。将 `ECO_SMOKE_URL`、`ECO_SMOKE_ANON_KEY`、`ECO_SMOKE_EMAIL`、`ECO_SMOKE_PASSWORD` 放入权限为 0600 的 `/tmp` JSON，用 `--dart-define-from-file` 传入；可指定 `ECO_SMOKE_DESKTOP_ID`，否则选择当前在线的 PC。测试只登录、注册独立测试设备、连接和 ping，不发送模型消息；结束时撤销自己创建的绑定和设备。`ECO_SOAK_SECONDS` 默认为 180，之后分别中断 socket 并并发请求重连，以及再次中断后不操作、等待保活探测和定时重连，验证两种恢复路径。
 

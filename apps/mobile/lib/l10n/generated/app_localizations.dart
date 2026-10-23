@@ -1208,6 +1208,18 @@ abstract class AppLocalizations {
   /// **'Send a message...'**
   String get composerSendHint;
 
+  /// No description provided for @composerSendQueue.
+  ///
+  /// In en, this message translates to:
+  /// **'Queue'**
+  String get composerSendQueue;
+
+  /// No description provided for @composerSendSteer.
+  ///
+  /// In en, this message translates to:
+  /// **'Guide direction'**
+  String get composerSendSteer;
+
   /// No description provided for @composerFollowUp.
   ///
   /// In en, this message translates to:

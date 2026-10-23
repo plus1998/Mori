@@ -4,6 +4,8 @@ import 'package:eco_mobile/core/models/git_models.dart';
 import 'package:eco_mobile/core/models/thread_models.dart';
 import 'package:eco_mobile/core/models/thread_usage_models.dart';
 import 'package:eco_mobile/core/models/integration_models.dart';
+import 'package:eco_mobile/core/providers/app_providers.dart';
+import 'package:eco_mobile/core/storage/composer_model_preferences.dart';
 import 'package:eco_mobile/core/theme/eco_icons.dart';
 import 'package:eco_mobile/core/widgets/eco_action_sheet.dart';
 import 'package:eco_mobile/core/widgets/eco_model_cascade.dart';
@@ -17,8 +19,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   test('composer core options include the Cursor ACP runtime', () {
     final acp = composerCoreKindOptions.where(
       (option) => option.value == 'acp',
@@ -430,6 +434,137 @@ void main() {
       expect(changes.last.mainAgentModelOverride?.thinkingEffort, 'low');
     },
   );
+
+  testWidgets('new Codex composer restores the last picked model and effort', (
+    tester,
+  ) async {
+    const scope = ComposerModelPreferenceScope(
+      desktopId: 'desktop_1',
+      workspacePath: '/repo',
+      coreKind: 'codex',
+    );
+    Widget composer(ThreadRuntimeConfigInput config) => _TestApp(
+      modelSettings: modelSettings,
+      candidates: candidates,
+      overrides: [
+        selectedDesktopIdProvider.overrideWith((ref) => 'desktop_1'),
+        workflowSettingsProvider.overrideWith((ref) async => null),
+      ],
+      child: ComposerRouteSummary(
+        runtimeConfig: config,
+        threadId: '',
+        workspacePath: '/repo',
+        coreKind: 'codex',
+        canEdit: true,
+        onChanged: (_) {},
+      ),
+    );
+    await tester.pumpWidget(composer(modelRuntimeConfig));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('5.6 Sol'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reasoning'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Low'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Model'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Fast'));
+    await tester.pumpAndSettle();
+
+    // Dispose the old composer and reconstruct from fresh workflow defaults.
+    await tester.pumpWidget(const SizedBox.shrink());
+    final restored = await scope.restore(modelRuntimeConfig);
+    expect(restored.mainAgentModelOverride?.modelId, 'gpt-5.6-fast');
+    expect(restored.mainAgentModelOverride?.thinkingEffort, 'low');
+    await tester.pumpWidget(composer(restored));
+    await tester.pumpAndSettle();
+    expect(find.text('5.6 Fast'), findsOneWidget);
+    expect(find.text('Low'), findsOneWidget);
+    expect(find.text('5.6 Sol'), findsNothing);
+  });
+
+  testWidgets('send tap uses default; long press selects only this message', (
+    tester,
+  ) async {
+    final controller = TextEditingController(text: 'next message');
+    addTearDown(controller.dispose);
+    var defaultSends = 0;
+    final modes = <FollowUpDeliveryMode>[];
+    var busy = false;
+    late StateSetter rebuild;
+    await tester.pumpWidget(
+      _TestApp(
+        modelSettings: modelSettings,
+        child: StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return SessionComposer(
+              controller: controller,
+              attachments: const [],
+              runtimeConfig: modelRuntimeConfig,
+              threadId: 'thread-1',
+              isRunning: true,
+              followUpMode: true,
+              sendBusy: busy,
+              hasActivity: true,
+              onPickImage: () {},
+              onRemoveAttachment: (_) {},
+              onSend: () => defaultSends++,
+              onSendWithMode: modes.add,
+              onStop: () {},
+              onRuntimeConfigChanged: (_) {},
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final send = find.byIcon(EcoIcons.send);
+    await tester.tap(send);
+    expect(defaultSends, 1);
+
+    await tester.longPress(send);
+    await tester.pumpAndSettle();
+    expect(defaultSends, 1);
+    expect(modes, isEmpty);
+    await tester.tap(find.text('Queue'));
+    await tester.pumpAndSettle();
+    expect(modes, [FollowUpDeliveryMode.queue]);
+
+    await tester.longPress(send);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Guide direction'));
+    await tester.pumpAndSettle();
+    expect(modes, [FollowUpDeliveryMode.queue, FollowUpDeliveryMode.steer]);
+
+    await tester.longPress(send);
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    expect(modes, hasLength(2));
+    expect(controller.text, 'next message');
+    await tester.tap(send);
+    expect(defaultSends, 2);
+
+    rebuild(() => busy = true);
+    await tester.pump();
+    await tester.longPress(find.byType(CircularProgressIndicator).last);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Queue'), findsNothing);
+    expect(defaultSends, 2);
+    expect(modes, hasLength(2));
+    rebuild(() => busy = false);
+    controller.clear();
+    await tester.pumpAndSettle();
+    expect(find.byIcon(EcoIcons.send), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is Semantics && widget.properties.label == 'Stop',
+      ),
+      findsOneWidget,
+    );
+  });
 
   testWidgets(
     'composer model menu switches main agent prompt and arrangement',

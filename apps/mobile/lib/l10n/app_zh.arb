@@ -790,6 +790,8 @@
   "composerAgents": "代理",
   "composerContext": "上下文",
   "followUpReorder": "拖动调整消息顺序",
+  "composerSendQueue": "排队",
+  "composerSendSteer": "引导方向",
   "followUpGuide": "引导",
   "followUpEdit": "修改",
   "followUpEditing": "正在编辑",

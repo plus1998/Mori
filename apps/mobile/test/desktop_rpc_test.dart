@@ -915,6 +915,28 @@ void main() {
     },
   );
 
+  test(
+    'followUpEnqueue forwards per-message mode and omits default override',
+    () async {
+      final client = _RecordingEcoCenterClient();
+      final rpc = DesktopRpc(client, 'desktop_1');
+      for (final mode in [null, ...FollowUpDeliveryMode.values]) {
+        await rpc.followUpEnqueue(
+          threadId: 'thr_1',
+          prompt: 'next message',
+          deliveryMode: mode,
+        );
+        expect(client.channel, 'thread:follow-up-enqueue');
+        final request = client.args!.single as Map<String, dynamic>;
+        if (mode == null) {
+          expect(request.containsKey('followUpDeliveryMode'), isFalse);
+        } else {
+          expect(request['followUpDeliveryMode'], mode.name);
+        }
+      }
+    },
+  );
+
   test('followUpSetEditing forwards acquire and release payloads', () async {
     final client = _RecordingEcoCenterClient();
     final rpc = DesktopRpc(client, 'desktop_1');

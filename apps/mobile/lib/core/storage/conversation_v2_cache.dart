@@ -24,6 +24,8 @@ typedef ConversationV2PresentationSnapshot = ({
 abstract interface class ConversationV2CachePort {
   Future<ConversationV2CacheState?> state(String conversationId);
 
+  Future<String?> effectHash(String conversationId, int seq);
+
   Future<List<ConversationV2Message>> messages(String conversationId);
 
   Future<List<ConversationV2Tool>> tools(
@@ -104,6 +106,20 @@ class ConversationV2Cache
   final String? _databasePathOverride;
   Database? _database;
   Future<void>? _openFuture;
+
+  @override
+  Future<String?> effectHash(String conversationId, int seq) async {
+    final current = await state(conversationId);
+    if (current == null) return null;
+    final rows = await (await _db()).query(
+      'conversation_v2_effects',
+      columns: ['effect_hash'],
+      where: '${_scopeWhere(current.storeEpoch)} AND seq = ?',
+      whereArgs: [..._scopeArgs(current.storeEpoch, conversationId), seq],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.single['effect_hash'] as String;
+  }
 
   Future<void> open() async {
     if (_database != null) return;

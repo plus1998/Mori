@@ -1528,12 +1528,14 @@ class DesktopRpc implements ReadAloudRemote {
     required String threadId,
     required String prompt,
     List<PromptImageAttachment>? attachments,
+    FollowUpDeliveryMode? deliveryMode,
   }) async {
     final request = await _v2CommandEnvelope(
       threadId: threadId,
       operation: 'enqueue',
       payload: {
         'prompt': prompt,
+        if (deliveryMode != null) 'followUpDeliveryMode': deliveryMode.name,
         if (attachments != null && attachments.isNotEmpty)
           'attachments': attachments
               .map((attachment) => attachment.toWireJson())

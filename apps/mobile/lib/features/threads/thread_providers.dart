@@ -22,6 +22,7 @@ import '../../core/network/desktop_rpc.dart';
 import '../../core/storage/conversation_v2_cache.dart';
 import '../../core/sync/conversation_v2_session.dart';
 import '../../core/sync/conversation_v2_sync_engine.dart';
+import '../../core/widgets/lifecycle_tracker.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/providers/desktop_bind_ready.dart';
 import '../../core/utils/activity_display.dart';
@@ -96,6 +97,11 @@ final conversationV2SessionProvider = StateNotifierProvider.autoDispose
         conversationId: conversationId,
         cache: cache,
         remote: remote,
+        loadPendingInteractions: rpc == null
+            ? null
+            : () => ref
+                  .read(threadSessionProvider(conversationId).notifier)
+                  .readPendingInteractions(),
         actions: rpc == null
             ? null
             : ConversationV2InteractionActions(
@@ -125,6 +131,14 @@ final conversationV2SessionProvider = StateNotifierProvider.autoDispose
       );
       ref.listen(ecoEventsProvider, (_, next) {
         next.whenData((event) {
+          if ((event.kind == 'thread.bash_approval' ||
+                  event.kind == 'thread.plan' ||
+                  event.kind == 'thread.clarification') &&
+              event.payload is Map &&
+              (event.payload as Map)['threadId'] == conversationId) {
+            unawaited(controller.refreshPendingInteractions());
+            return;
+          }
           if (event.kind == 'conversation.projection_extras') {
             final rawPayload = event.payload;
             if (rawPayload is Map &&
@@ -152,6 +166,18 @@ final conversationV2SessionProvider = StateNotifierProvider.autoDispose
           );
         });
       });
+      // A lost tail has no later push to reveal its sequence gap. Reconcile
+      // the open conversation even if the transport still reports connected.
+      final reconciliationTimer = Timer.periodic(const Duration(seconds: 20), (
+        _,
+      ) {
+        if (enabled &&
+            AppLifecycleTracker.isForeground &&
+            ref.read(connectionStatusProvider).valueOrNull?.state ==
+                EcoConnectionState.connected) {
+          unawaited(controller.refresh());
+        }
+      });
       ref.listen(connectionStatusProvider, (previous, next) {
         next.whenData((status) {
           final before = previous?.valueOrNull?.state;
@@ -164,6 +190,7 @@ final conversationV2SessionProvider = StateNotifierProvider.autoDispose
       });
       unawaited(controller.start());
       ref.onDispose(() {
+        reconciliationTimer.cancel();
         unawaited(controller.close());
       });
       return controller;
@@ -2072,6 +2099,25 @@ class ThreadSessionNotifier extends StateNotifier<ThreadSessionState> {
     );
   }
 
+  /// Read the same live request registry as the desktop UI, alongside its
+  /// lifecycle summary. Neither is reconstructed from historical feed rows.
+  Future<ConversationV2PendingInteractions> readPendingInteractions() async {
+    final rpc = ref.read(desktopRpcProvider);
+    if (rpc == null) throw StateError('Desktop is not available.');
+    final revision = _threadLiveRevision;
+    final bootstrap = await rpc.sessionBootstrap(threadId);
+    if (mounted &&
+        revision == _threadLiveRevision &&
+        bootstrap.thread != null) {
+      state = state.copyWith(thread: bootstrap.thread);
+    }
+    return ConversationV2PendingInteractions(
+      bash: bootstrap.pendingBash,
+      plan: bootstrap.pendingPlan,
+      clarification: bootstrap.pendingClarification,
+    );
+  }
+
   Future<void> approvePlan() async {
     final rpc = ref.read(desktopRpcProvider);
     if (rpc == null) return;
@@ -2083,7 +2129,9 @@ class ThreadSessionNotifier extends StateNotifier<ThreadSessionState> {
     if (principalId == null || principalId.isEmpty) {
       throw StateError('A signed-in principal is required to approve a plan.');
     }
-    final expectedHistoryRevision = state.runProjection?.historyRevision ?? 0;
+    final expectedHistoryRevision = (await rpc.conversationV2Head(
+      threadId,
+    )).historyRevision;
     await rpc.approvePlan(
       principalId: principalId,
       clientCommandId:
@@ -2105,7 +2153,9 @@ class ThreadSessionNotifier extends StateNotifier<ThreadSessionState> {
     if (principalId == null || principalId.isEmpty) {
       throw StateError('A signed-in principal is required to dismiss a plan.');
     }
-    final expectedHistoryRevision = state.runProjection?.historyRevision ?? 0;
+    final expectedHistoryRevision = (await rpc.conversationV2Head(
+      threadId,
+    )).historyRevision;
     await rpc.dismissPlan(
       principalId: principalId,
       clientCommandId:
@@ -2145,7 +2195,9 @@ class ThreadSessionNotifier extends StateNotifier<ThreadSessionState> {
         'A signed-in principal is required to resolve a Bash approval.',
       );
     }
-    final expectedHistoryRevision = state.runProjection?.historyRevision ?? 0;
+    final expectedHistoryRevision = (await rpc.conversationV2Head(
+      threadId,
+    )).historyRevision;
     final normalizedFeedback = feedback?.trim();
     await rpc.resolveBashApproval(
       principalId: principalId,

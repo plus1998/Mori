@@ -18,6 +18,7 @@ import '../../core/models/thread_models.dart';
 import '../../core/models/acp_host_ui_features.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/providers/thinking_display_provider.dart';
+import '../../core/storage/composer_model_preferences.dart';
 import '../../core/widgets/activity_feed_auto_read_listener.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
@@ -81,6 +82,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
   bool _starting = false;
   var _coreKind = 'claude';
   String? _runtimeConfigScope;
+  int _landingConfigEpoch = 0;
   String? _editingFollowUpId;
   String? _followUpCancelBusyId;
   String? _followUpEscalateBusyId;
@@ -381,9 +383,8 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
       editingFollowUpId: _editingFollowUpId,
       followUpQueuePaused: thread?.followUpQueuePaused ?? false,
     );
-    // Once V2 has started, interaction state is read from V2 detail items as
-    // well. Do not let a stale legacy bootstrap row resurrect an approval or
-    // clarification after V2 has already resolved it.
+    // The V2 controller reads actionable requests from the desktop's current
+    // pending registry. A bootstrap/history summary cannot resurrect one.
     final useConversationV2Interactions =
         conversationV2.syncState != ConversationV2SyncState.uninitialized;
     final pendingBash = useConversationV2Interactions
@@ -468,10 +469,44 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
       fromRemote: _remoteImageDisplayArtifacts,
     );
 
-    final floatingComposer = hasFloatingComposerContent
+    final floatingComposer =
+        hasFloatingComposerContent || conversationV2.error != null
         ? Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (conversationV2.error != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Material(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 12),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              localizedAppError(
+                                conversationV2.error!,
+                                context.l10n,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => ref
+                                .read(
+                                  conversationV2SessionProvider(
+                                    widget.threadId,
+                                  ).notifier,
+                                )
+                                .refresh(),
+                            child: Text(context.l10n.commonRetry),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               if (hasWorkspaceChanges)
                 WorkspaceChangesPill(
                   summary: workspaceChanges,
@@ -646,6 +681,16 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                                         feedback: feedback,
                                       );
                                 }
+                              } catch (error) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        localizedAppError(error, context.l10n),
+                                      ),
+                                    ),
+                                  );
+                                }
                               } finally {
                                 if (mounted) {
                                   setState(() => _bashApprovalBusy = false);
@@ -677,6 +722,16 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                                         pendingBash.toolUseId,
                                         'denied',
                                       );
+                                }
+                              } catch (error) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        localizedAppError(error, context.l10n),
+                                      ),
+                                    ),
+                                  );
                                 }
                               } finally {
                                 if (mounted) {
@@ -778,6 +833,12 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                             onRemoveAttachment: (index) =>
                                 setState(() => _attachments.removeAt(index)),
                             onSend: () => _sendMessage(runtimeConfig),
+                            onSendWithMode: _editingFollowUpId == null
+                                ? (mode) => _sendMessage(
+                                    runtimeConfig,
+                                    deliveryMode: mode,
+                                  )
+                                : null,
                             onStop: () => _stopThread(),
                             onRuntimeConfigChanged: (config) {
                               ref.read(runtimeConfigProvider.notifier).state =
@@ -972,6 +1033,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     if (existing != null && _runtimeConfigScope == scope) return;
 
     _runtimeConfigScope = scope;
+    final epoch = ++_landingConfigEpoch;
     final modelSettings = await ref.read(modelSettingsProvider.future);
     final workflow = await ref.read(workflowSettingsProvider.future);
     final mcpSettings = await ref.read(mcpSettingsProvider.future);
@@ -982,16 +1044,47 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
           );
     if (!mounted || _runtimeConfigScope != scope) return;
     _coreKind = workflow?.defaultCoreKind ?? 'claude';
-    ref.read(runtimeConfigProvider.notifier).state = buildDefaultRuntimeConfig(
+    final defaults = buildDefaultRuntimeConfig(
       modelSettings: modelSettings,
       workflow: workflow,
       mcpServers: mcpSettings?.servers,
       orchestrationSelection: projectOrchestration?.orchestrationSelection,
       coreKind: _coreKind,
     );
+    final restored = await _restoreLandingModel(
+      defaults,
+      desktopId: currentDesktopId,
+      workspacePath: workspacePath ?? '',
+      coreKind: _coreKind,
+    );
+    if (!mounted || epoch != _landingConfigEpoch) return;
+    ref.read(runtimeConfigProvider.notifier).state = restored;
   }
 
-  void _handleLandingCoreKindChanged(String coreKind) {
+  Future<ThreadRuntimeConfigInput> _restoreLandingModel(
+    ThreadRuntimeConfigInput defaults, {
+    required String? desktopId,
+    required String workspacePath,
+    required String coreKind,
+  }) async {
+    try {
+      return await ComposerModelPreferenceScope(
+        desktopId: desktopId ?? '',
+        workspacePath: workspacePath,
+        coreKind: coreKind,
+      ).restore(defaults);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+      return defaults;
+    }
+  }
+
+  Future<void> _handleLandingCoreKindChanged(String coreKind) async {
+    final epoch = ++_landingConfigEpoch;
     final current = ref.read(runtimeConfigProvider);
     final modelSettings = ref.read(modelSettingsProvider).valueOrNull;
     final workflow = ref.read(workflowSettingsProvider).valueOrNull;
@@ -1023,7 +1116,14 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                 projectOrchestration?.orchestrationSelection,
             coreKind: coreKind,
           );
-    ref.read(runtimeConfigProvider.notifier).state = next;
+    final restored = await _restoreLandingModel(
+      next,
+      desktopId: ref.read(selectedDesktopIdProvider),
+      workspacePath: workspacePath ?? '',
+      coreKind: coreKind,
+    );
+    if (!mounted || epoch != _landingConfigEpoch) return;
+    ref.read(runtimeConfigProvider.notifier).state = restored;
     setState(() => _coreKind = coreKind);
     unawaited(_saveDefaultCoreKind(coreKind));
   }
@@ -1443,7 +1543,10 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     }
   }
 
-  Future<void> _sendMessage(ThreadRuntimeConfigInput runtimeConfig) async {
+  Future<void> _sendMessage(
+    ThreadRuntimeConfigInput runtimeConfig, {
+    FollowUpDeliveryMode? deliveryMode,
+  }) async {
     final prompt = _promptController.text.trim();
     if (prompt.isEmpty && _attachments.isEmpty) return;
     if (_sendBusy || _followUpBusy) return;
@@ -1487,6 +1590,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
             threadId: widget.threadId,
             prompt: prompt,
             attachments: stagedAttachments,
+            deliveryMode: deliveryMode,
           );
           FocusManager.instance.primaryFocus?.unfocus();
           _promptController.clear();

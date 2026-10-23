@@ -13,6 +13,8 @@ import '../../core/models/mcp_models.dart';
 import '../../core/models/thread_models.dart';
 import '../../core/models/thread_runtime_config.dart';
 import '../../core/models/acp_models.dart';
+import '../../core/providers/app_providers.dart';
+import '../../core/storage/composer_model_preferences.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/utils/model_id.dart';
@@ -138,6 +140,7 @@ class _ComposerCascadeOverlayState
     extends ConsumerState<_ComposerCascadeOverlay> {
   late ThreadRuntimeConfigInput _config;
   late String? _coreKind;
+  bool _savingModel = false;
 
   /// Null until Model / Reasoning / Agent is tapped — then the side submenu appears.
   _CascadeBranch? _branch;
@@ -206,18 +209,56 @@ class _ComposerCascadeOverlayState
     _coreKind = widget.coreKind;
   }
 
-  void _persist(MainAgentModelOverride? nextOverride, {bool dismiss = false}) {
-    if (!widget.canEdit) return;
+  Future<void> _persist(
+    MainAgentModelOverride? nextOverride, {
+    bool dismiss = false,
+  }) async {
+    if (!widget.canEdit || _savingModel) return;
+    final previous = _config;
     final next = nextOverride == null
         ? _config.copyWith(clearMainAgentModelOverride: true)
         : _config.copyWith(mainAgentModelOverride: nextOverride);
-    setState(() => _config = next);
-    persistRuntimeConfig(
+    final preference = ComposerModelPreferenceScope(
+      desktopId: ref.read(selectedDesktopIdProvider) ?? '',
+      workspacePath: widget.workspacePath,
+      coreKind: _coreKind ?? 'claude',
+    );
+    final messenger = ScaffoldMessenger.of(context);
+    final errorMessage = context.l10n.errorRpcFailed;
+    setState(() {
+      _savingModel = true;
+      _config = next;
+    });
+    var applied = next;
+    final saved = await persistRuntimeConfig(
       ref,
       threadId: widget.threadId,
       config: next,
-      onChanged: widget.onChanged,
+      onChanged: (config) {
+        applied = config;
+        widget.onChanged(config);
+      },
     );
+    if (!saved) {
+      messenger.showSnackBar(SnackBar(content: Text(errorMessage)));
+      if (mounted) {
+        setState(() {
+          _config = previous;
+          _savingModel = false;
+        });
+      }
+      return;
+    }
+    try {
+      await preference.remember(applied);
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+    if (!mounted) return;
+    setState(() {
+      _config = applied;
+      _savingModel = false;
+    });
     if (dismiss) widget.onDismiss();
   }
 

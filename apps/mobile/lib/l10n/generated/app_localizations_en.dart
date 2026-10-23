@@ -646,6 +646,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get composerSendHint => 'Send a message...';
 
   @override
+  String get composerSendQueue => 'Queue';
+
+  @override
+  String get composerSendSteer => 'Guide direction';
+
+  @override
   String get composerFollowUp => 'Follow up';
 
   @override

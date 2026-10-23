@@ -318,47 +318,10 @@ ActivityFeedEntry _buildTurnFeedEntry(
     durationMs: durationMs,
     startedAt: turn.attempt.startedAt,
     endedAt: turn.attempt.endedAt,
-    processEntries: List<ActivityFeedEntry>.unmodifiable(
-      orderTurnToolGroupsBeforeProgress(processEntries),
-    ),
+    processEntries: List<ActivityFeedEntry>.unmodifiable(processEntries),
     finalOutput: finalOutput,
     sequence: turn.afterUserSequence,
   );
-}
-
-/// Keep the opening narration in place. Once work has begun, put subsequent
-/// tool groups before the progress narration between them. This is a turn
-/// presentation order only: recorded sequence/timestamps and the final output
-/// remain intact. Notices, thinking and other distinct rows end a segment.
-List<ActivityFeedEntry> orderTurnToolGroupsBeforeProgress(
-  List<ActivityFeedEntry> entries,
-) {
-  final ordered = <ActivityFeedEntry>[];
-  final progress = <ActivityFeedEntry>[];
-  var hasTools = false;
-  void flushProgress() {
-    ordered.addAll(progress);
-    progress.clear();
-  }
-
-  for (final entry in entries) {
-    final isTool =
-        entry.kind == ActivityFeedKind.action ||
-        entry.kind == ActivityFeedKind.actionGroup ||
-        entry.kind == ActivityFeedKind.toolWriting;
-    if (isTool) {
-      ordered.add(entry);
-      hasTools = true;
-    } else if (hasTools && entry.kind == ActivityFeedKind.assistant) {
-      progress.add(entry);
-    } else {
-      flushProgress();
-      ordered.add(entry);
-      hasTools = false;
-    }
-  }
-  flushProgress();
-  return ordered;
 }
 
 ThreadRunProjectionAttempt? _resolveFeedEntryAttempt(

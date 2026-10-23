@@ -404,6 +404,18 @@ class ConversationV2SyncEngine {
     String storeEpoch,
     int maxBytes,
   ) async {
+    // Catch-up commonly commits effects whose pushes are still queued. Verify
+    // their durable receipts locally instead of serializing one RPC per token.
+    final committedHash = await _cache.effectHash(conversationId, effect.seq);
+    if (committedHash != null) {
+      if (committedHash != effect.effectHash) {
+        throw StateError(
+          'Conversation V2 duplicate push conflicts with the committed effect.',
+        );
+      }
+      return;
+    }
+    // A bootstrap snapshot has no receipts for the effects it subsumes.
     final page = await _remote.sync(
       conversationId,
       storeEpoch,
@@ -660,22 +672,22 @@ class ConversationV2SyncEngine {
       throw StateError('Conversation V2 cache has no bootstrap state.');
     }
     var current = initial;
+    // Finish the range observed at the start of this pass. Chasing a moving
+    // head can keep bootstrap in this serialized operation indefinitely and
+    // prevent queued pushes from reaching the presentation layer.
+    final head = await _remote.head(conversationId);
+    if (head.protocolVersion != 2 ||
+        head.conversationId != conversationId ||
+        head.storeEpoch != current.storeEpoch ||
+        head.lastSeq < current.appliedSeq ||
+        head.historyRevision < current.historyRevision) {
+      throw StateError(
+        'Conversation V2 head is incompatible while synchronizing.',
+      );
+    }
     while (true) {
       if (!_isCurrent(generation)) {
         return;
-      }
-      final head = await _remote.head(conversationId);
-      if (head.protocolVersion != 2 ||
-          head.conversationId != conversationId ||
-          head.storeEpoch != current.storeEpoch ||
-          head.lastSeq < 0 ||
-          head.historyRevision < current.historyRevision) {
-        throw StateError(
-          'Conversation V2 head is incompatible while synchronizing.',
-        );
-      }
-      if (head.lastSeq < current.appliedSeq) {
-        throw StateError('Conversation V2 head regressed behind the cache.');
       }
       if (current.appliedSeq >= head.lastSeq) return;
       final page = await _remote.sync(

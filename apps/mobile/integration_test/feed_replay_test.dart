@@ -25,14 +25,18 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       expect(replay.sequence, start + 1);
     }
-    final until = (replay.sequence + 30).clamp(0, replay.eventCount);
+    const throughSequence = int.fromEnvironment('ECO_REPLAY_THROUGH_SEQ');
+    final end = throughSequence > 0 ? throughSequence : replay.eventCount;
+    final until = throughSequence > 0
+        ? end
+        : (replay.sequence + 30).clamp(0, end);
     final playing = replay.play(speed: 20, maxGapMs: 10, through: until);
     while (replay.playing) {
       await tester.pump(const Duration(milliseconds: 50));
     }
     await playing;
     expect(replay.sequence, until);
-    await replay.seek(replay.eventCount);
+    await replay.seek(end);
     await tester.pump(const Duration(milliseconds: 300));
     expect(replay.error, isNull);
     final list = tester.widget<ActivityFeedList>(find.byType(ActivityFeedList));
@@ -49,7 +53,12 @@ void main() {
         (entry) => entry.sequence == messageSequence,
       );
       expect(toolIndex, greaterThanOrEqualTo(0));
-      expect(messageIndex, greaterThan(toolIndex), reason: '工具分组必须在进度说明前');
+      expect(messageIndex, greaterThanOrEqualTo(0));
+      expect(
+        toolIndex.compareTo(messageIndex),
+        toolSequence.compareTo(messageSequence),
+        reason: '工具分组与正文必须保留录制顺序',
+      );
     }
     final scroll = find.byType(Scrollable).last;
     await tester.drag(scroll, const Offset(0, -550));

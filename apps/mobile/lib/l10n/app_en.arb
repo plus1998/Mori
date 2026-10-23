@@ -240,6 +240,8 @@
   "composerStopVoiceInput": "Stop voice input",
   "composerNoSpeech": "No speech recognized",
   "composerSendHint": "Send a message...",
+  "composerSendQueue": "Queue",
+  "composerSendSteer": "Guide direction",
   "composerFollowUp": "Follow up",
   "composerRequestChanges": "Request changes",
   "composerPendingImage": "Pending image {index}",

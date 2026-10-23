@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/locale/app_localizations_ext.dart';
@@ -47,6 +47,7 @@ class SessionComposer extends ConsumerStatefulWidget {
     required this.onPickImage,
     required this.onRemoveAttachment,
     required this.onSend,
+    this.onSendWithMode,
     required this.onStop,
     required this.onRuntimeConfigChanged,
     this.inputHint,
@@ -74,6 +75,7 @@ class SessionComposer extends ConsumerStatefulWidget {
   final VoidCallback onPickImage;
   final void Function(int index) onRemoveAttachment;
   final VoidCallback onSend;
+  final ValueChanged<FollowUpDeliveryMode>? onSendWithMode;
   final VoidCallback onStop;
   final ValueChanged<ThreadRuntimeConfigInput> onRuntimeConfigChanged;
   final String? inputHint;
@@ -159,6 +161,31 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
     if (!_canSend) return;
     _focusNode.unfocus();
     widget.onSend();
+  }
+
+  Future<void> _chooseSendMode(BuildContext anchorContext) async {
+    if (!_canSend || widget.onSendWithMode == null) return;
+    HapticFeedback.selectionClick();
+    final box = anchorContext.findRenderObject() as RenderBox;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final rect = box.localToGlobal(Offset.zero, ancestor: overlay) & box.size;
+    final mode = await showMenu<FollowUpDeliveryMode>(
+      context: context,
+      position: RelativeRect.fromRect(rect, Offset.zero & overlay.size),
+      items: [
+        PopupMenuItem(
+          value: FollowUpDeliveryMode.queue,
+          child: Text(context.l10n.composerSendQueue),
+        ),
+        PopupMenuItem(
+          value: FollowUpDeliveryMode.steer,
+          child: Text(context.l10n.composerSendSteer),
+        ),
+      ],
+    );
+    if (!mounted || mode == null || !_canSend) return;
+    _focusNode.unfocus();
+    widget.onSendWithMode?.call(mode);
   }
 
   void _handleStop() {
@@ -549,6 +576,9 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                               ? _SendButton(
                                   busy: widget.sendBusy,
                                   onSend: _canSend ? _handleSend : null,
+                                  onChooseMode: widget.onSendWithMode != null
+                                      ? _chooseSendMode
+                                      : null,
                                 )
                               : _StopButton(
                                   busy: widget.stopBusy,
@@ -722,10 +752,15 @@ class _PendingImagePreview extends StatelessWidget {
 }
 
 class _SendButton extends StatelessWidget {
-  const _SendButton({required this.busy, required this.onSend});
+  const _SendButton({
+    required this.busy,
+    required this.onSend,
+    this.onChooseMode,
+  });
 
   final bool busy;
   final VoidCallback? onSend;
+  final ValueChanged<BuildContext>? onChooseMode;
 
   @override
   Widget build(BuildContext context) {
@@ -735,25 +770,30 @@ class _SendButton extends StatelessWidget {
     return Material(
       color: enabled || showBusy ? colors.composerSendBg : colors.borderSubtle,
       shape: const CircleBorder(),
-      child: InkWell(
-        onTap: onSend,
-        customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: kComposerToolbarHitSize,
-          height: kComposerToolbarHitSize,
-          child: showBusy
-              ? Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: colors.composerSendText,
+      child: Builder(
+        builder: (anchorContext) => InkWell(
+          onTap: onSend,
+          onLongPress: enabled && onChooseMode != null
+              ? () => onChooseMode!(anchorContext)
+              : null,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: kComposerToolbarHitSize,
+            height: kComposerToolbarHitSize,
+            child: showBusy
+                ? Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: colors.composerSendText,
+                    ),
+                  )
+                : Icon(
+                    EcoIcons.send,
+                    size: composerToolbarGlyphSize(EcoIcons.send),
+                    color: enabled ? colors.composerSendText : colors.textMuted,
                   ),
-                )
-              : Icon(
-                  EcoIcons.send,
-                  size: composerToolbarGlyphSize(EcoIcons.send),
-                  color: enabled ? colors.composerSendText : colors.textMuted,
-                ),
+          ),
         ),
       ),
     );

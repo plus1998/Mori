@@ -590,6 +590,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerSendHint => '发送消息…';
 
   @override
+  String get composerSendQueue => '排队';
+
+  @override
+  String get composerSendSteer => '引导方向';
+
+  @override
   String get composerFollowUp => '跟进';
 
   @override
