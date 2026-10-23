@@ -3823,7 +3823,7 @@ export class ConversationStore {
       return undefined;
     }
     const attachments = normalizeFollowUpAttachmentsForStorage(input.attachments, this.isV2OnlyStorage());
-    const prompt = input.prompt.trim() || (attachments?.length ? "请查看并分析我附上的图片。" : "");
+    const prompt = input.prompt.trim();
     if (!prompt && !attachments?.length) {
       return undefined;
     }

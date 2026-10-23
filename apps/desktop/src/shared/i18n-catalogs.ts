@@ -2483,7 +2483,6 @@ export const i18nCatalogs = {
       "app.candidateModelsFailed": "可选模型加载失败：{{detail}}",
       "app.preload.followUpEditing": "当前桌面预加载 API 不包含后续消息编辑锁，请重启应用后再试。",
       "app.contextCompacting": "上下文正在压缩中，请稍候。",
-      "app.imagePrompt": "请查看并分析我附上的图片。",
       "app.preload.followUpUpdate": "当前桌面预加载 API 不包含编辑后续消息入口，请重启应用后再试。",
       "app.preload.followUpEnqueue": "当前桌面预加载 API 不包含运行中后续消息入口，请重启应用后再试。",
       "app.configureOrchestration":
@@ -5870,7 +5869,6 @@ export const i18nCatalogs = {
       "app.preload.followUpEditing":
         "This desktop preload API does not support follow-up edit locks. Restart the app and try again.",
       "app.contextCompacting": "Context is being compacted. Please wait.",
-      "app.imagePrompt": "Please inspect and analyze the attached images.",
       "app.preload.followUpUpdate":
         "This desktop preload API does not support editing follow-up messages. Restart the app and try again.",
       "app.preload.followUpEnqueue":

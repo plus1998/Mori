@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import {
   ACP_IMAGE_ATTACHMENT_INVALID,
   ACP_IMAGE_CAPABILITY_MISSING,
-  ACP_IMAGE_ONLY_PROMPT,
   ACP_PROMPT_EMPTY,
   agentSupportsImagePrompt,
   buildAcpPromptBlocks,
@@ -46,11 +45,12 @@ test("buildAcpPromptBlocks prepends text then image blocks in input order", () =
   ]);
 });
 
-test("buildAcpPromptBlocks uses the default look-at-image sentence when text is empty", () => {
-  expect(buildAcpPromptBlocks({ prompt: "", attachments: [png], imageSupported: true })).toEqual([
-    { type: "text", text: ACP_IMAGE_ONLY_PROMPT },
-    { type: "image", mimeType: "image/png", data: "abc" },
-  ]);
+test("buildAcpPromptBlocks sends only images when text is empty or blank", () => {
+  for (const prompt of ["", "   "]) {
+    expect(buildAcpPromptBlocks({ prompt, attachments: [png], imageSupported: true })).toEqual([
+      { type: "image", mimeType: "image/png", data: "abc" },
+    ]);
+  }
 });
 
 test("buildAcpPromptBlocks throws when attachments exist but image is unsupported", () => {

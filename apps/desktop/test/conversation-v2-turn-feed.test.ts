@@ -422,12 +422,15 @@ test("a late-finalized prompt does not pull earlier compaction into a continuati
         }),
       ),
       entry(
-        item("queued-image-prompt", "请查看并分析我附上的图片。", {
+        item("queued-image-prompt", "", {
           role: "user",
           sequence: 4,
           // Delivery time is later than every event produced by attempt-1.
           at: "2026-01-01T00:00:09.000Z",
-          metadata: { liveType: "thread.user_prompt" },
+          metadata: {
+            liveType: "thread.user_prompt",
+            promptImagePreviews: [{ id: "image-only", mediaType: "image/png", data: "YWJj" }],
+          },
         }),
       ),
     ],

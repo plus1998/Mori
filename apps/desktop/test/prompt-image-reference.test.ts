@@ -34,3 +34,13 @@ test("main prompt falls back to the durable ref when no path is available", () =
   expect(prompt).toContain('ref="sha256:abc"');
   expect(prompt).not.toContain("YWJj");
 });
+
+test("image-only prompts carry tool references without adding a user instruction", () => {
+  const prompt = buildPromptWithImageReferences({
+    prompt: "",
+    attachments: [{ mediaType: "image/png", path: "/tmp/prompt-image.png" }],
+  });
+  expect(prompt).toContain('path="/tmp/prompt-image.png"');
+  expect(prompt.startsWith("Composer image references")).toBe(true);
+  expect(prompt).not.toContain("Use the supplied image references");
+});

@@ -325,3 +325,11 @@ test("collectThreadFollowUpAttachments only includes the first delivered message
 
   expect(attachments).toEqual([{ mediaType: "image/png", data: "abc" }]);
 });
+
+test("image-only follow-ups keep their attachments and empty text when delivered", () => {
+  const attachments = [{ mediaType: "image/png" as const, data: "abc" }];
+  const messages = [followUp("image-only", { prompt: "", attachments })];
+  expect(buildThreadFollowUpDisplayPrompt(messages)).toBe("");
+  expect(buildThreadFollowUpDrainPrompt(messages)).toBe("");
+  expect(collectThreadFollowUpAttachments(messages)).toEqual(attachments);
+});

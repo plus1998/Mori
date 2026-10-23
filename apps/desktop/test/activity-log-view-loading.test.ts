@@ -1425,9 +1425,12 @@ test("late-finalized image prompts do not create a completed compaction-only tur
             eventType: "thread.status",
             sequence: 4,
             role: "user",
-            text: "请查看并分析我附上的图片。",
+            text: "",
             at: "2026-01-01T00:00:09.000Z",
-            metadata: { liveType: "thread.user_prompt" },
+            metadata: {
+              liveType: "thread.user_prompt",
+              promptImagePreviews: [{ id: "image-only", mediaType: "image/png", data: "YWJj" }],
+            },
           }),
         ],
       }),
@@ -1436,7 +1439,9 @@ test("late-finalized image prompts do not create a completed compaction-only tur
 
   expect(html.match(/class="run-log-turn-toggle"/g)?.length).toBe(1);
   expect(html.match(/run-log-turn-status">已处理/g)?.length).toBe(1);
-  expect(html.indexOf("第一轮处理完成。")).toBeLessThan(html.indexOf("请查看并分析我附上的图片。"));
+  expect(html).toContain('alt="用户上传的图片 1"');
+  expect(html.indexOf("第一轮处理完成。")).toBeLessThan(html.indexOf('alt="用户上传的图片 1"'));
+  expect(html).not.toContain("请查看并分析");
 });
 
 test("a new follow-up attempt keeps its own running heading", () => {

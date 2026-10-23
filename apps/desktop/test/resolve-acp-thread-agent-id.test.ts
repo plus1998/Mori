@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { ACP_IMAGE_ONLY_PROMPT } from "@eco/runtime";
 import {
   decideAcpResume,
   isAcpLoadSessionFailure,
@@ -88,13 +87,13 @@ test("resolveAcpRunPrompt tolerates a missing prompt when attachments exist", ()
       prompt: undefined,
       attachments: [{ mediaType: "image/png", data: "abc" }],
     }),
-  ).toBe(ACP_IMAGE_ONLY_PROMPT);
+  ).toBe("");
 });
 
-test("resolveAcpRunPrompt fills the default look-at-image sentence", () => {
+test("resolveAcpRunPrompt preserves empty text for image-only turns", () => {
   expect(resolveAcpRunPrompt({ prompt: "  hi  " })).toBe("hi");
   expect(resolveAcpRunPrompt({ prompt: "  ", attachments: [{ mediaType: "image/png", data: "abc" }] })).toBe(
-    ACP_IMAGE_ONLY_PROMPT,
+    "",
   );
   expect(resolveAcpRunPrompt({ prompt: "   " })).toBe("");
 });

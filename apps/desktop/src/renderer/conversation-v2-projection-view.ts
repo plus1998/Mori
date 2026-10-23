@@ -3613,8 +3613,11 @@ export function isProjectionUserPromptItem(item: ThreadRunProjectionTimelineItem
   ) {
     return false;
   }
-  const textOk = item.text.trim().length > 0 && !isThreadFollowUpActivityMessage(item.text);
-  if (!textOk) {
+  const text = item.text.trim();
+  const hasContent = text
+    ? !isThreadFollowUpActivityMessage(text)
+    : readPromptImagePreviews(item.metadata).length > 0;
+  if (!hasContent) {
     return false;
   }
   if (isRecordedUserPromptLiveEvent(liveType)) {

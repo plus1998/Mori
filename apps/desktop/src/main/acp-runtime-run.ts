@@ -1,5 +1,4 @@
 import {
-  ACP_IMAGE_ONLY_PROMPT,
   ACP_LOAD_SESSION_UNSUPPORTED,
   AcpAgentDriver,
   type AcpAskQuestionHandler,
@@ -232,12 +231,7 @@ export function resolveAcpRunPrompt(input: {
   prompt: string | undefined;
   attachments?: readonly PromptImageAttachment[];
 }): string {
-  const text = typeof input.prompt === "string" ? input.prompt.trim() : "";
-  if (text) return text;
-  if (input.attachments && input.attachments.length > 0) {
-    return ACP_IMAGE_ONLY_PROMPT;
-  }
-  return "";
+  return typeof input.prompt === "string" ? input.prompt.trim() : "";
 }
 
 /** Resolve thread status after an ACP turn, preserving awaiting_plan when a plan is pending. */

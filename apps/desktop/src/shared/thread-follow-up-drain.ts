@@ -172,10 +172,5 @@ function nextDeliveredFollowUp(
 }
 
 function normalizeFollowUpPrompt(followUp: ThreadPendingFollowUp): string {
-  const prompt = followUp.prompt.trim();
-  if (prompt) {
-    return prompt;
-  }
-  const imageCount = followUp.attachments?.length ?? 0;
-  return imageCount > 0 ? `请查看并分析我附上的 ${imageCount} 张图片。` : "请继续。";
+  return followUp.prompt.trim();
 }

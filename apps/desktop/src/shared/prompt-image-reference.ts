@@ -17,10 +17,8 @@ export function buildPromptWithImageReferences(input: {
   if (references.length === 0) return input.prompt;
 
   const prompt = input.prompt.trim();
-  const base = prompt || "Use the supplied image references if they are relevant to the task.";
   return [
-    base,
-    "",
+    ...(prompt ? [prompt, ""] : []),
     "Composer image references are available to the image_view tool.",
     "If an image is relevant, call image_view with its path or ref and choose the prompt that best serves the task.",
     ...references,

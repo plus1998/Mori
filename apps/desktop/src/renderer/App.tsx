@@ -9,7 +9,6 @@ import { browserSelectionReference, type BrowserSelection } from "../shared/brow
 import { BrowserSelectionPreview } from "./BrowserSelectionPreview";
 import { FollowUpPromptPreview } from "./FollowUpPromptPreview";
 import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "./browser-selection-events";
-import { ACP_IMAGE_ONLY_PROMPT } from "@eco/runtime/acp-prompt";
 import { OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID } from "../shared/agent-orchestration";
 import { CodexQuotaReminder } from "./CodexQuotaReminder";
 import { isCodexAuthThread } from "./codex-quota-reminder";
@@ -8491,8 +8490,7 @@ function App() {
     requestActivityFeedForceScroll();
     const attachments =
       composerAttachments.length > 0 ? toPromptImageAttachments(composerAttachments) : undefined;
-    const messagePrompt =
-      promptForSend.trim() || (attachments?.length ? t("app.imagePrompt") || ACP_IMAGE_ONLY_PROMPT : "");
+    const messagePrompt = promptForSend.trim();
 
     if (composerFollowUpMode && activeThread) {
       if (editingFollowUpId) {

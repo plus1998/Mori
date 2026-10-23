@@ -1925,6 +1925,15 @@ test("isProjectionUserPromptItem only accepts recorded user prompts", () => {
   });
 
   expect(isProjectionUserPromptItem(recorded)).toBe(true);
+  expect(isProjectionUserPromptItem({ ...recorded, text: "" })).toBe(false);
+  expect(isProjectionUserPromptItem({
+    ...recorded,
+    text: "",
+    metadata: {
+      ...recorded.metadata,
+      promptImagePreviews: [{ id: "image-only", mediaType: "image/png", data: "YWJj" }],
+    },
+  })).toBe(true);
   expect(isProjectionUserPromptItem(followUpCancelled)).toBe(false);
   expect(isProjectionUserPromptItem(roleOnly)).toBe(false);
   expect(isProjectionUserPromptItem(unboundCodexUser)).toBe(true);

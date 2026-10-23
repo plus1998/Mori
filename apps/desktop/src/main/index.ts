@@ -55,7 +55,6 @@ const execFileAsync = promisify(execFile);
 
 import type { ResolvedModelRoute } from "@eco/model-router";
 import {
-  ACP_IMAGE_ONLY_PROMPT,
   type AgentEvent,
   acpSessionIdToDelete,
   type CodexAsyncQuestionsInput,
@@ -743,7 +742,6 @@ import {
 } from "./desktop-window-state";
 import {
   hydratePromptAttachmentsForComposerRestore,
-  resolveRestorePromptText,
   shouldClearThreadPromptAfterUnstartedDiscard,
   toSpoolStageAttachments,
 } from "./discard-unstarted-composer-restore";
@@ -11000,8 +10998,7 @@ async function discardUnstartedAcpTurn(input: {
     return;
   }
   const stored = conversationStore.getConversationUserMessageRecord(input.threadId, activityLineId);
-  const rawPrompt = stored?.text ?? input.restorePrompt;
-  const restorePrompt = resolveRestorePromptText(rawPrompt, ACP_IMAGE_ONLY_PROMPT);
+  const restorePrompt = stored?.text ?? input.restorePrompt;
   const primaryAttachments = stored?.attachments?.length ? stored.attachments : (input.attachments ?? []);
   let restoreAttachments = await hydratePromptAttachmentsForComposerRestore(
     primaryAttachments,
@@ -11258,7 +11255,7 @@ async function startAcpThreadContinuation(
     prompt: input.prompt,
     ...(attachmentsForPrompt?.length ? { attachments: attachmentsForPrompt } : {}),
   });
-  if (!prompt) {
+  if (!prompt && !attachmentsForPrompt?.length) {
     throw new Error("Message is required.");
   }
   const thread = conversationStore.getThread(input.threadId);
@@ -13798,8 +13795,8 @@ async function startNewThread(
   options: { scheduled?: boolean; threadId?: string; title?: string; occurrenceId?: string } = {},
 ): Promise<ThreadStartResult> {
   const attachments = parsePromptImageAttachments(payload.attachments);
-  const prompt = resolveThreadMessagePrompt(payload.prompt, attachments);
-  if (!prompt) {
+  const prompt = resolveThreadMessagePrompt(payload.prompt);
+  if (!prompt && attachments.length === 0) {
     throw new Error("Task prompt is required.");
   }
   // Materialize path-only spool attachments before any slow await (e.g. ACP CLI probe).
@@ -14187,8 +14184,8 @@ function parseThreadFollowUpEnqueueRequest(payload: unknown): ThreadFollowUpEnqu
   const expectedHistoryRevision = readExpectedHistoryRevision(payload.expectedHistoryRevision);
   const threadId = readRequiredString(payload.threadId, "Thread id is required.");
   const attachments = parsePromptImageAttachments(payload.attachments);
-  const prompt = resolveThreadMessagePrompt(payload.prompt, attachments);
-  if (!prompt) {
+  const prompt = resolveThreadMessagePrompt(payload.prompt);
+  if (!prompt && attachments.length === 0) {
     throw new Error("Follow-up message is required.");
   }
   const priority = payload.priority === "escalated" ? "escalated" : "normal";
@@ -14216,8 +14213,8 @@ function parseThreadFollowUpEscalateRequest(payload: unknown): ThreadFollowUpEsc
   const threadId = readRequiredString(payload.threadId, "Thread id is required.");
   const followUpId = readOptionalString(payload.followUpId);
   const attachments = parsePromptImageAttachments(payload.attachments);
-  const prompt = resolveThreadMessagePrompt(payload.prompt, attachments);
-  if (!followUpId && !prompt) {
+  const prompt = resolveThreadMessagePrompt(payload.prompt);
+  if (!followUpId && !prompt && attachments.length === 0) {
     throw new Error("Follow-up id or message is required.");
   }
   return {
@@ -14305,8 +14302,8 @@ function parseThreadFollowUpUpdateRequest(payload: unknown): ThreadFollowUpUpdat
   const threadId = readRequiredString(payload.threadId, "Thread id is required.");
   const followUpId = readRequiredString(payload.followUpId, "Follow-up id is required.");
   const attachments = parsePromptImageAttachments(payload.attachments);
-  const prompt = resolveThreadMessagePrompt(payload.prompt, attachments);
-  if (!prompt) {
+  const prompt = resolveThreadMessagePrompt(payload.prompt);
+  if (!prompt && attachments.length === 0) {
     throw new Error("Follow-up message is required.");
   }
   return {
