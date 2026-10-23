@@ -35,7 +35,7 @@ import type {
   OpenAIAccountSyncStatus,
 } from "../../shared/openai-account";
 import { type AppLocale, formatAppDateTime } from "../../shared/locale";
-import { CodexModelCatalogSection } from "./CodexModelCatalogSection";
+import { AccountModelCatalogSection } from "./AccountModelCatalogSection";
 
 type Translate = TFunction<"translation", undefined>;
 
@@ -767,9 +767,9 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
       <div className="codex-accounts-hero">
         <div className="codex-accounts-heading">
           <h2>{t("settings.models.tab.openaiAccounts")}</h2>
-          <p>{t("settings.openaiAccounts.description")}</p>
         </div>
         <div className="codex-account-header-actions">
+          <AccountModelCatalogSection />
           <button
             type="button"
             className="codex-action-secondary"
@@ -801,6 +801,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             {t("settings.openaiAccounts.addAccount")}
           </button>
         </div>
+        <p className="codex-accounts-description">{t("settings.openaiAccounts.description")}</p>
       </div>
 
       {loadError ? <div className="codex-account-sync-error">{t("settings.openaiAccounts.loadFailed", { message: loadError })}</div> : null}
@@ -812,10 +813,6 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             : t("settings.openaiAccounts.syncError", { message: syncStatus.message })}
         </div>
       ) : null}
-
-      {/* Above the account list on purpose: the list grows with every imported
-          account and would otherwise push the model catalog out of view. */}
-      <CodexModelCatalogSection />
 
       <div className="codex-accounts-toolbar">
         <span>

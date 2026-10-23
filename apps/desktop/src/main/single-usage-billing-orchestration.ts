@@ -5,6 +5,7 @@ import { shouldUpdateContextFromUsageSource } from "./billing-orchestration";
 import type { RuntimeRoute } from "./billing-resolver";
 import type { UpstreamProxyCallBilling } from "./upstream-proxy-log";
 import {
+  type CodexApiRatesLookup,
   resolveSingleUsageBillingArtifacts,
   type UsageBillingPricingLookup,
 } from "./usage-billing-artifacts";
@@ -36,6 +37,8 @@ export interface SingleUsageBillingRequest {
   attributionPending?: boolean;
   aliasModelId?: string;
   providerId?: string;
+  /** Aggregate usage has no individual request sizes for long-context tier selection. */
+  codexUsageIsAggregate?: boolean;
   apiCompat?: UpstreamApiCompat;
   /** Gateway-measured time to first upstream response chunk (ms), new-api TTFT. */
   ttftMs?: number;
@@ -53,6 +56,8 @@ export interface ResolveSingleUsageBillingOrchestrationInput {
   request: SingleUsageBillingRequest;
   runtimeRoutes: readonly RuntimeRoute[];
   lookupPricing: UsageBillingPricingLookup;
+  lookupCodexApiRates?: CodexApiRatesLookup;
+  codexPlannerModelId?: string;
 }
 
 export interface SingleUsageBillingOrchestration {
@@ -90,6 +95,8 @@ export async function resolveSingleUsageBillingOrchestration(
     usage,
     runtimeRoutes: input.runtimeRoutes,
     lookupPricing: input.lookupPricing,
+    ...(input.lookupCodexApiRates && { lookupCodexApiRates: input.lookupCodexApiRates }),
+    ...(input.codexPlannerModelId && { codexPlannerModelId: input.codexPlannerModelId }),
     ...(request.source && { source: request.source }),
     ...(sourceReportedCostUsd !== undefined && { sourceReportedCostUsd }),
     ...(request.modelId && { modelId: request.modelId }),
@@ -107,7 +114,8 @@ export async function resolveSingleUsageBillingOrchestration(
     ...(request.aliasModelId && { aliasModelId: request.aliasModelId }),
     ...(request.providerId && { providerId: request.providerId }),
     ...(request.ttftMs !== undefined && request.ttftMs > 0 && { ttftMs: request.ttftMs }),
-    ...(request.generationMs !== undefined && request.generationMs > 0 && { generationMs: request.generationMs }),
+    ...(request.generationMs !== undefined &&
+      request.generationMs > 0 && { generationMs: request.generationMs }),
     ...(request.firstHeadersMs !== undefined &&
       request.firstHeadersMs > 0 && { firstHeadersMs: request.firstHeadersMs }),
     ...(request.firstTokenMs !== undefined &&

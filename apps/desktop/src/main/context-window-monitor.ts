@@ -1,4 +1,3 @@
-import { normalizeAgentRole } from "@eco/shared";
 import {
   computeOccupancyRatio,
   computeWindowOccupancy,
@@ -9,6 +8,7 @@ import {
   type ParsedUsage,
   resolveEffectiveContextLimit,
 } from "@eco/runtime";
+import { normalizeAgentRole } from "@eco/shared";
 import type {
   AgentRole,
   ModelsDevMapping,
@@ -177,7 +177,7 @@ export class ContextWindowMonitor {
     threadId: string,
     role: RuntimeAgentRole,
     occupied: number,
-    options?: { limit?: number; agentId?: string; modelId?: string },
+    options?: { limit?: number; catalogLimit?: number; agentId?: string; modelId?: string },
   ): Promise<ContextMonitorSnapshot> {
     const state = this.getOrCreateState(threadId);
     const subagentAgentId = options?.agentId && role !== "main" ? options.agentId : undefined;
@@ -208,7 +208,17 @@ export class ContextWindowMonitor {
     }
 
     const canRefreshModelsDev = Boolean(next.modelId && next.providerBaseUrl);
-    if (canRefreshModelsDev) {
+    if (options?.catalogLimit !== undefined) {
+      // Account login has no provider row; its model-list window is authoritative,
+      // including after a provider/model switch or a restored older snapshot.
+      next.limit = this.applyGlobalLimit(options.catalogLimit);
+      next.limitsResolved = true;
+      delete next.providerBaseUrl;
+      delete next.modelsDevMapping;
+      delete next.manualSpec;
+      delete next.maxOutputTokens;
+      next.compactLimit = effectiveContextLimit(next.limit);
+    } else if (canRefreshModelsDev) {
       await this.refreshLimitForRole(next);
     }
 

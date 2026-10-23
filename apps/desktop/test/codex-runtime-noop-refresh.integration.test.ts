@@ -23,6 +23,69 @@ import { resolveCodexThreadWebSearchPlan } from "../src/main/resolve-thread-web-
 const realAppServerTest = process.env.ECO_CODEX_REAL_APP_SERVER_TEST === "1" ? test : test.skip;
 
 realAppServerTest(
+  "account context follows the settings catalog across warm runtime prepares",
+  async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "eco-codex-account-context-"));
+    const previousExecutable = process.env.CODEX_EXECUTABLE;
+    process.env.CODEX_EXECUTABLE = path.resolve(import.meta.dir, "../node_modules/.bin/codex");
+    let contextWindow = 180_000;
+    let globalLimit = 1_048_576;
+    try {
+      configureCodexRuntimeRun({
+        ecoDataDir: root,
+        listProviders: () => [],
+        listAccountModels: async () => [{ modelId: "gpt-6.1-sol", contextWindow }],
+        getGlobalContextWindowLimit: () => globalLimit,
+        threadMap: {
+          getCodexThreadId: () => undefined,
+          getEcoThreadId: () => undefined,
+          setMapping: () => {},
+          deleteMapping: () => {},
+          getThreadAttribution: () => undefined,
+          setThreadAttribution: () => {},
+        },
+        appendConversationRuntimeEvent: () => {},
+        scheduleThreadRunProjectionUpdated: () => {},
+      });
+      const prepare = () =>
+        prepareCodexRuntime({
+          mainProviderId: "openai",
+          mainModelId: "gpt-6.1-sol",
+        });
+      const readWindow = () => {
+        const catalog = JSON.parse(fs.readFileSync(path.join(root, "codex/eco-model-catalog.json"), "utf8"));
+        return catalog.models.find((model: { slug: string }) => model.slug === "gpt-6.1-sol").context_window;
+      };
+      const first = await prepare();
+      expect(first.runtimeClient?.isInitialized).toBe(true);
+      expect(readWindow()).toBe(180_000);
+      expect((await prepare()).runtimeClient).toBe(first.runtimeClient);
+      contextWindow = 272_000;
+      const refreshed = await prepare();
+      expect(refreshed.runtimeClient).not.toBe(first.runtimeClient);
+      expect(readWindow()).toBe(272_000);
+      globalLimit = 131_072;
+      scheduleCodexGlobalRuntimeRefresh();
+      await prepare();
+      expect(readWindow()).toBe(131_072);
+      await expect(
+        prepareCodexRuntime({
+          mainProviderId: "openai",
+          mainModelId: "manual-without-context",
+        }),
+      ).rejects.toThrow(/manual-without-context.*缺少上下文窗口/);
+    } finally {
+      await shutdownCodexGlobalRuntimeRefresh();
+      await stopGlobalCodexRuntimeLifecycle();
+      if (previousExecutable === undefined) delete process.env.CODEX_EXECUTABLE;
+      else process.env.CODEX_EXECUTABLE = previousExecutable;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  },
+  20_000,
+);
+
+realAppServerTest(
   "Codex account search policy reaches native thread start and resume config",
   async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "eco-codex-native-search-"));

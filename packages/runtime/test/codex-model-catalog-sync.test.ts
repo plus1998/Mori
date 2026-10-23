@@ -14,6 +14,7 @@ import {
   fingerprintEcoModelCatalogRuntime,
   mergeCodexGatewayCatalogRoutes,
   parseBundledCodexModelCatalog,
+  requireCodexAccountContextWindow,
   resolveCodexMultiAgentVersion,
   resolveEcoModelCatalogPath,
   selectFreeformApplyPatchTemplate,
@@ -363,6 +364,61 @@ test("buildEcoCodexModelCatalogDocument applies an explicit global cap after man
   expect(alias).toMatchObject({
     context_window: 131_072,
     max_context_window: 131_072,
+  });
+});
+
+test("account windows use the settings catalog while the same model on a vendor keeps provider limits", () => {
+  const accountModels = [{ modelId: "gpt-5.4", contextWindow: 272_000, maxContextWindow: 872_000 }];
+  const routes: CodexGatewayCatalogRoute[] = [
+    {
+      providerId: "openai",
+      modelId: "gpt-5.4",
+      apiCompat: "openai_responses",
+      manualSpec: { contextTokens: 999_000 },
+    },
+    {
+      providerId: "vendor",
+      modelId: "gpt-5.4",
+      apiCompat: "openai_responses",
+      manualSpec: { contextTokens: 800_000 },
+    },
+  ];
+  for (const globalLimit of [131_072, 1_048_576]) {
+    const document = buildEcoCodexModelCatalogDocument(
+      nativeModelsFixture(),
+      routes,
+      globalLimit,
+      accountModels,
+    );
+    for (const slug of ["gpt-5.4", buildCodexGatewayModelAlias("openai", "gpt-5.4", "openai_responses")]) {
+      expect(document.models.find((model) => model.slug === slug)).toMatchObject({
+        context_window: Math.min(272_000, globalLimit),
+        max_context_window: Math.min(272_000, globalLimit),
+      });
+    }
+    expect(
+      document.models.find(
+        (model) => model.slug === buildCodexGatewayModelAlias("vendor", "gpt-5.4", "openai_responses"),
+      )?.context_window,
+    ).toBe(Math.min(800_000, globalLimit));
+  }
+});
+
+test("account models with missing windows never borrow a different model's limit", () => {
+  expect(() => requireCodexAccountContextWindow([], "gpt-preview")).toThrow(/gpt-preview.*缺少上下文窗口/);
+  expect(() => requireCodexAccountContextWindow([{ modelId: "manual" }], "manual")).toThrow(/刷新/);
+  for (const contextWindow of [0, -1, NaN, Infinity]) {
+    expect(() => requireCodexAccountContextWindow([{ modelId: "bad", contextWindow }], "bad")).toThrow();
+  }
+});
+
+test("account model newer than the bundled CLI still gets its declared native window", () => {
+  const document = buildEcoCodexModelCatalogDocument(nativeModelsFixture(), [], 1_048_576, [
+    { modelId: "gpt-future", contextWindow: 300_000 },
+  ]);
+  expect(document.models.find((model) => model.slug === "gpt-future")).toMatchObject({
+    context_window: 300_000,
+    max_context_window: 300_000,
   });
 });
 

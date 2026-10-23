@@ -26,6 +26,8 @@ export interface CodexTurnRouteRecord extends CodexTurnRouteIdentity {
   turnId: string;
   /** Sum of unique model-response deltas observed for this turn. */
   appServerTokenUsage?: CodexTurnTokenUsageBreakdown;
+  /** Individual requests, present only when every observed delta matches `last`. */
+  appServerTokenUsageRequests?: CodexTurnTokenUsageBreakdown[];
 }
 
 export interface CodexTurnRoutePendingOwner {
@@ -34,6 +36,7 @@ export interface CodexTurnRoutePendingOwner {
 }
 
 interface MutableTurnRecord extends CodexTurnRouteRecord {
+  usageRequestsIncomplete?: boolean;
   lastObservedThreadTotal?: CodexTurnTokenUsageBreakdown;
   pendingOwnerGeneration?: number;
 }
@@ -143,6 +146,13 @@ export class CodexTurnRouteRegistry {
         record.appServerTokenUsage = record.appServerTokenUsage
           ? addBreakdowns(record.appServerTokenUsage, contribution)
           : cloneBreakdown(contribution);
+        if (!breakdownsEqual(contribution, last)) {
+          record.usageRequestsIncomplete = true;
+          delete record.appServerTokenUsageRequests;
+        } else if (!record.usageRequestsIncomplete) {
+          record.appServerTokenUsageRequests ??= [];
+          record.appServerTokenUsageRequests.push(cloneBreakdown(contribution));
+        }
       }
       record.lastObservedThreadTotal = cloneBreakdown(total);
     } else {
@@ -384,6 +394,9 @@ function snapshot(record: MutableTurnRecord): CodexTurnRouteRecord {
     ...(record.apiCompat && { apiCompat: record.apiCompat }),
     ...(record.appServerTokenUsage && {
       appServerTokenUsage: cloneBreakdown(record.appServerTokenUsage),
+    }),
+    ...(record.appServerTokenUsageRequests && {
+      appServerTokenUsageRequests: record.appServerTokenUsageRequests.map(cloneBreakdown),
     }),
   };
 }

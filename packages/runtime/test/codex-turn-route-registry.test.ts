@@ -174,6 +174,25 @@ test("CodexTurnRouteRegistry aggregates total deltas and ignores duplicate usage
     reasoningOutputTokens: 0,
     totalTokens: 280,
   });
+  expect(registry.peek("thread-1", "turn-1")?.appServerTokenUsageRequests).toEqual([
+    breakdown(100, 40, 10),
+    breakdown(150, 80, 20),
+  ]);
+  const firstRequest = registry.peek("thread-1", "turn-1")?.appServerTokenUsageRequests?.[0];
+  if (!firstRequest) throw new Error("Missing request snapshot");
+  firstRequest.inputTokens = 0;
+  expect(registry.peek("thread-1", "turn-1")?.appServerTokenUsageRequests?.[0]?.inputTokens).toBe(100);
+  // A missed request leaves a total delta greater than `last`: the split is unknown.
+  registry.observeTokenUsage("thread-1", "turn-1", {
+    last: breakdown(50, 20, 5),
+    total: breakdown(350, 160, 40),
+  });
+  expect(registry.peek("thread-1", "turn-1")?.appServerTokenUsageRequests).toBeUndefined();
+  registry.observeTokenUsage("thread-1", "turn-1", {
+    last: breakdown(50, 20, 5),
+    total: breakdown(400, 180, 45),
+  });
+  expect(registry.consume("thread-1", "turn-1")?.appServerTokenUsageRequests).toBeUndefined();
 });
 
 test("CodexTurnRouteRegistry uses the prior thread total as the next turn baseline", () => {

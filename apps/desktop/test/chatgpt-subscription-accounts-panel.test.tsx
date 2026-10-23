@@ -38,7 +38,8 @@ test("ChatGPT accounts panel renders no Chinese in en-US", () => {
   expect(markup).not.toMatch(CJK);
   expect(markup).toContain("ChatGPT accounts");
   expect(markup).toContain("Add account");
-  expect(markup).toContain("Sync models");
+  expect(markup).toContain("Models &amp; pricing");
+  expect(markup).toContain('aria-haspopup="dialog"');
   expect(markup).toContain("Plans &amp; workspace");
   // The count line interpolates: 0 accounts (plural form) · 0 available.
   expect(markup).toMatch(/0 accounts<span[^>]*>·<\/span>0 available/u);

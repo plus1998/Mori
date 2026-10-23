@@ -1,3 +1,5 @@
+import { createAccountUsagePricingLookup } from "./account-usage-pricing";
+import { ChatGptModelCatalogService, resolveChatGptModelCatalogCachePath } from "./chatgpt-model-catalog";
 import { ProjectTodoStore } from "./project-todo-store";
 import type { ProjectTodoSave, ProjectTodoTrash } from "../shared/project-todos";
 import { TtsReadAloudService } from "./tts-read-aloud";
@@ -90,6 +92,7 @@ import {
   resolveCodexHomeDir,
   resolveCursorAgentExecutable,
   resolveEffectiveContextLimit,
+  requireCodexAccountContextWindow,
   sanitizeCodexRoleId,
   SDK_GENERAL_PURPOSE_AGENT_KEY,
   SDK_PLAN_AGENT_KEY,
@@ -621,7 +624,10 @@ import {
   prepareAsyncClarificationReply,
   releasePendingClarification,
 } from "./codex-async-question-bridge";
-import { normalizeCodexAppServerUsage } from "./codex-app-server-usage-billing";
+import {
+  buildCodexAppServerBillingRequests,
+  normalizeCodexAppServerUsage,
+} from "./codex-app-server-usage-billing";
 import { isCodexAuthCompletionPageText } from "./codex-browser-login";
 import {
   CodexGatewayUsageDeduplicator,
@@ -1075,7 +1081,7 @@ import { type SerializedThreadUsageState, ThreadUsageAccumulator } from "./threa
 import { getUpstreamLogFilePath, logUpstream } from "./upstream-log";
 import type { UpstreamProxyCallBilling } from "./upstream-proxy-log";
 import { buildDefaultUpstreamUserAgent, setDefaultUpstreamUserAgent } from "./upstream-request-headers";
-import type { UsageBillingPricingRoute } from "./usage-billing-artifacts";
+import type { UsageBillingPricingLookup } from "./usage-billing-artifacts";
 import {
   applySdkRunBillingEffects,
   applySdkStreamPartialBillingEffects,
@@ -1810,6 +1816,7 @@ let threadRunEventLivePersister: ReturnType<typeof createThreadRunEventLivePersi
 let pricingCache: ModelsDevPricingCache;
 let pricingCatalogReady: Promise<void> = Promise.resolve();
 let codexModelCatalogService: CodexRemoteModelCatalogService | undefined;
+let chatGptModelCatalogService: ChatGptModelCatalogService | undefined;
 let billingRuntimeEnvironment: BillingRuntimeEnvironment;
 let contextMonitor: ContextWindowMonitor;
 let threadPromptCacheMonitor: ThreadPromptCacheMonitor;
@@ -2950,6 +2957,8 @@ app
         sshBookmarkStore,
       }),
     );
+    // Warm the account catalog from disk before building synchronous agent settings.
+    await getChatGptModelCatalogService().listModels();
     agentLifecycle = new AgentLifecycleService(conversationStore);
     codexThreadMap = new ConversationStoreCodexThreadMap(conversationStore);
     const defaultUpstreamUserAgent = buildDefaultUpstreamUserAgent({
@@ -2980,7 +2989,9 @@ app
             .listProvidersWithSecrets()
             .filter((provider) => provider.apiCompat !== "system_one")
             .map(async (provider) => {
-              const candidates = providerStore.listCandidateModels(provider.id);
+              const candidates = provider.authMethod === "chatgpt_subscription"
+                ? (await getChatGptModelCatalogService().listModels()).map((model) => ({ modelId: model.modelId, manualSpec: undefined, modelsDevMapping: undefined }))
+                : providerStore.listCandidateModels(provider.id);
               const modelIds = [
                 ...new Set([
                   provider.defaultModel,
@@ -3221,6 +3232,7 @@ app
       ecoDataDir: app.getPath("userData"),
       getGlobalUserRules: () => personalizationSettingsStore.get().globalRules,
       getGlobalContextWindowLimit: () => workflowSettingsStore.get().contextWindowLimitTokens,
+      listAccountModels: () => getCodexModelCatalogService().listRuntimeModels(),
       enrichCatalogRoutes: async (routes) => {
         const providers = providerStore.listProviders();
         const byId = new Map(providers.map((provider) => [provider.id, provider]));
@@ -3442,10 +3454,26 @@ app
         );
       },
       onCodexContextUpdated: (resolution) => {
-        void contextMonitor
-          .updateOccupied(resolution.ecoThreadId, resolution.billingRole, resolution.contextOccupied, {
-            limit: resolution.context.limit,
-          })
+        void (async () => {
+          const modelId = resolution.context.modelId;
+          const catalogLimit =
+            resolution.providerId === "openai" && modelId
+              ? requireCodexAccountContextWindow(
+                  await getCodexModelCatalogService().listRuntimeModels(),
+                  modelId,
+                )
+              : undefined;
+          return contextMonitor.updateOccupied(
+            resolution.ecoThreadId,
+            resolution.billingRole,
+            resolution.contextOccupied,
+            {
+              limit: resolution.context.limit,
+              ...(modelId ? { modelId } : {}),
+              ...(catalogLimit !== undefined ? { catalogLimit } : {}),
+            },
+          );
+        })()
           .then(() => contextScheduler.emitLiveFromMonitor(resolution.ecoThreadId))
           .catch((error) => {
             process.stderr.write(
@@ -3944,7 +3972,7 @@ function getModelSettingsSnapshot(): ModelSettingsSnapshot {
   } catch {
     /* app not ready yet */
   }
-  const chatGptSubscriptionModelId = providerStore.listCandidateModels("eco-coding-chatgpt")[0]?.modelId;
+  const chatGptSubscriptionModelId = getChatGptModelCatalogService().getLoadedDefaultModelId();
   const codexAuthModel = workflowSettingsStore.getCodexAuthModel();
   return {
     ...mergeAgentRegistrySettings(providerStore.getSettings(), agentOrchestrationStore, {
@@ -4025,10 +4053,20 @@ function ensureChatGptSubscriptionProvider(): void {
   emitSettingsUpdated();
 }
 
-function syncChatGptSubscriptionModels(models: Array<{ id: string; displayName?: string }>): void {
-  ensureChatGptSubscriptionProvider();
-  const result = providerStore.syncCandidateModels("eco-coding-chatgpt", models);
-  if (result.changed) emitSettingsUpdated();
+function getChatGptModelCatalogService(): ChatGptModelCatalogService {
+  if (!chatGptModelCatalogService) {
+    chatGptModelCatalogService = new ChatGptModelCatalogService({
+      cachePath: resolveChatGptModelCatalogCachePath(app.getPath("userData")),
+      fetchImpl: net.fetch.bind(net) as typeof fetch,
+      fetchModels: async (signal, accountId) => (await getChatGptSubscriptionService()).listModels(accountId, signal),
+    });
+  }
+  return chatGptModelCatalogService;
+}
+
+async function chatGptModelCatalogSnapshot(): Promise<CodexModelCatalogSnapshot> {
+  const catalog = getChatGptModelCatalogService();
+  return { models: await catalog.listModels(), status: await catalog.getStatus() };
 }
 
 /**
@@ -4040,6 +4078,7 @@ function getCodexModelCatalogService(): CodexRemoteModelCatalogService {
   if (!codexModelCatalogService) {
     codexModelCatalogService = new CodexRemoteModelCatalogService({
       cachePath: resolveCodexModelCatalogCachePath(app.getPath("userData")),
+      onContextWindowsChanged: () => scheduleCodexGlobalRuntimeRefresh(),
       // Chromium net stack honors OS system proxy (Clash / PAC / etc.); Node fetch does not.
       fetchImpl: net.fetch.bind(net) as typeof fetch,
     });
@@ -4082,10 +4121,8 @@ function isBuiltInCodexCatalogProvider(providerId: string): boolean {
 }
 
 async function codexModelCatalogSnapshot(): Promise<CodexModelCatalogSnapshot> {
-  const [models, status] = await Promise.all([
-    getCodexModelCatalogService().listModels(),
-    getCodexModelCatalogService().getStatus(),
-  ]);
+  const models = await getCodexModelCatalogService().listModels();
+  const status = await getCodexModelCatalogService().getStatus();
   return { models, status };
 }
 
@@ -6454,29 +6491,10 @@ function registerIpcHandlers(): void {
         } as const;
       }
     }
-    if (requestedProvider) {
-      const provider = requestedProvider;
-      if (provider.authMethod === "chatgpt_subscription" || payload.authMethod === "chatgpt_subscription") {
-        try {
-          const service = await getChatGptSubscriptionService();
-          const models = await service.listModels(payload.accountId);
-          syncChatGptSubscriptionModels(models);
-          return { ok: true, models } as const;
-        } catch (error) {
-          return {
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-            ...(provider?.id ? { providerId: provider.id } : {}),
-            ...(provider?.name ? { providerName: provider.name } : {}),
-          } as const;
-        }
-      }
-    } else if (payload.authMethod === "chatgpt_subscription") {
+    if (requestedProvider?.authMethod === "chatgpt_subscription" || payload.authMethod === "chatgpt_subscription") {
       try {
-        const service = await getChatGptSubscriptionService();
-        const models = await service.listModels(payload.accountId);
-        syncChatGptSubscriptionModels(models);
-        return { ok: true, models } as const;
+        const models = await getChatGptModelCatalogService().listModels();
+        return { ok: true, models: models.map((model) => ({ id: model.modelId, displayName: model.displayName })) } as const;
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) } as const;
       }
@@ -6500,6 +6518,27 @@ function registerIpcHandlers(): void {
       resolveUpstreamUserAgentOverride(proxyBridgeSettingsStore.get()),
       proxyBridgeSettingsStore.get().upstreamProxyUrl,
     );
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.chatGptModelCatalogGet, chatGptModelCatalogSnapshot);
+  registerDesktopCommand(IPC_CHANNELS.chatGptModelCatalogRefresh, async (accountId?: string) => {
+    if (accountId !== undefined && typeof accountId !== "string") throw new Error("Invalid account id.");
+    await getChatGptModelCatalogService().refresh(accountId);
+    emitSettingsUpdated();
+    return chatGptModelCatalogSnapshot();
+  });
+  registerDesktopCommand(IPC_CHANNELS.chatGptModelCatalogAdd, async (payload: unknown) => {
+    if (!payload || typeof payload !== "object") throw new Error("Invalid ChatGPT model add request.");
+    const request = payload as AddCodexCatalogModelRequest;
+    await getChatGptModelCatalogService().addManualModel(request);
+    emitSettingsUpdated();
+    return chatGptModelCatalogSnapshot();
+  });
+  registerDesktopCommand(IPC_CHANNELS.chatGptModelCatalogRemove, async (modelId: unknown) => {
+    if (typeof modelId !== "string" || !modelId.trim()) throw new Error("Model id is required.");
+    await getChatGptModelCatalogService().removeManualModel(modelId);
+    emitSettingsUpdated();
+    return chatGptModelCatalogSnapshot();
   });
 
   registerDesktopCommand(IPC_CHANNELS.chatGptSubscriptionAccountsList, async () => {
@@ -7287,6 +7326,23 @@ function registerIpcHandlers(): void {
     if (isBuiltInCodexCatalogProvider(trimmedProviderId)) {
       return codexCatalogCandidateViews(await getCodexModelCatalogService().listModels());
     }
+    if (trimmedProviderId === "eco-coding-chatgpt") {
+      const timestamps = new Date().toISOString();
+      return (await getChatGptModelCatalogService().listModels()).map((model, index) => ({
+        modelId: model.modelId,
+        displayName: model.displayName,
+        createdAt: timestamps,
+        updatedAt: timestamps,
+        id: `cand-chatgpt-${model.modelId}`,
+        providerId: trimmedProviderId,
+        sortOrder: index,
+        ...(model.apiPricing ? {
+          resolvedInputPerM: model.apiPricing.shortContext.input,
+          resolvedOutputPerM: model.apiPricing.shortContext.output,
+          ...(model.apiPricing.shortContext.cacheRead !== undefined ? { resolvedCacheReadPerM: model.apiPricing.shortContext.cacheRead } : {}),
+        } : {}),
+      }));
+    }
     const candidates = providerStore.listCandidateModels(trimmedProviderId);
     const provider = providerStore.listProviders().find((p) => p.id === trimmedProviderId);
     const baseUrl = provider?.baseUrl ?? "";
@@ -7598,6 +7654,9 @@ function registerIpcHandlers(): void {
         getModelSettingsSnapshot(),
         providerStore.listProvidersWithSecrets(),
         routesOverride ? resolveCandidateModelDefaults(routesOverride) : routesOverride,
+        (route) => lookupUsageBillingPricing(route, {
+          inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+        }),
       );
     },
   );
@@ -17586,6 +17645,7 @@ async function handleCodexAppServerTurnUsage(input: {
   codexThreadId: string;
   turnId: string;
   appServerTokenUsage: CodexTurnTokenUsageBreakdown;
+  appServerTokenUsageRequests?: CodexTurnTokenUsageBreakdown[];
 }): Promise<void> {
   const { threadId, codexThreadId, turnId, appServerTokenUsage } = input;
   const attribution = resolveCodexThreadAttribution(codexThreadMap, codexThreadId);
@@ -17640,20 +17700,30 @@ async function handleCodexAppServerTurnUsage(input: {
     modelId: roleRoute.modelId,
     ...(attribution.agentId ? { agentId: attribution.agentId } : {}),
   });
-  const billingTask = processUsageBilling({
-    threadId,
-    role: billingRole,
-    source: "codex",
-    usage,
-    modelId: roleRoute.modelId,
-    providerId: "openai",
+  const requests = buildCodexAppServerBillingRequests({
+    usage: appServerTokenUsage,
+    ...(input.appServerTokenUsageRequests && { requests: input.appServerTokenUsageRequests }),
     requestKey,
-    // The context meter is fed directly by thread/tokenUsage/updated.
-    updateContext: false,
-    ...(runAttemptId ? { runAttemptId } : {}),
-    ...(plannerAgentId ? { plannerAgentId } : {}),
-    ...(attribution.agentId ? { agentId: attribution.agentId } : {}),
-  }).then(
+  });
+  const billingTask = (async () => {
+    for (const request of requests) {
+      await processUsageBilling({
+        threadId,
+        role: billingRole,
+        source: "codex",
+        usage: { ...request.usage, modelId: roleRoute.modelId },
+        modelId: roleRoute.modelId,
+        providerId: "openai",
+        requestKey: request.requestKey,
+        codexUsageIsAggregate: request.codexUsageIsAggregate,
+        // The context meter is fed directly by thread/tokenUsage/updated.
+        updateContext: false,
+        ...(runAttemptId ? { runAttemptId } : {}),
+        ...(plannerAgentId ? { plannerAgentId } : {}),
+        ...(attribution.agentId ? { agentId: attribution.agentId } : {}),
+      });
+    }
+  })().then(
     () => undefined,
     (error) => {
       throw error;
@@ -17771,12 +17841,16 @@ async function emitProxyUsage(
   }
 }
 
-function lookupUsageBillingPricing(route: UsageBillingPricingRoute) {
-  return pricingCache.lookupForRoute({
-    baseUrl: route.provider.baseUrl,
-    modelId: route.modelId,
-    ...(route.modelsDevMapping && { mapping: route.modelsDevMapping }),
-  });
+function lookupUsageBillingPricing(...args: Parameters<UsageBillingPricingLookup>) {
+  return createAccountUsagePricingLookup({
+    lookupChatGptApiRates: (modelId, usage, aggregate) =>
+      getChatGptModelCatalogService().resolveApiRates(modelId, usage, aggregate),
+    lookupOtherPricing: (route) => pricingCache.lookupForRoute({
+      baseUrl: route.provider.baseUrl,
+      modelId: route.modelId,
+      ...(route.modelsDevMapping && { mapping: route.modelsDevMapping }),
+    }),
+  })(...args);
 }
 
 function usageBillingEffectsServices() {
@@ -17819,11 +17893,17 @@ async function processUsageBilling(
   input: SingleUsageBillingRequest,
 ): Promise<UpstreamProxyCallBilling | null> {
   const billingRuntime = await resolveBillingRuntimeContext(billingRuntimeEnvironment, input.threadId);
+  const accountPlanner = resolveRoleRoutesForThread(input.threadId).find(
+    (route) => route.role === "main" && isBuiltInCodexCatalogProvider(route.providerId),
+  );
 
   const resolved = await resolveSingleUsageBillingOrchestration({
     request: input,
     runtimeRoutes: billingRuntime.runtimeRoutes,
     lookupPricing: billingRuntime.lookupPricing,
+    lookupCodexApiRates: (modelId, usage) =>
+      getCodexModelCatalogService().resolveApiRates(modelId, usage, input.codexUsageIsAggregate),
+    ...(accountPlanner && { codexPlannerModelId: accountPlanner.modelId }),
   });
   if (!resolved) {
     return null;

@@ -767,6 +767,18 @@ const api = {
   getCodexModelCatalog(): Promise<CodexModelCatalogSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.codexModelCatalogGet);
   },
+  getChatGptModelCatalog(): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.chatGptModelCatalogGet);
+  },
+  refreshChatGptModelCatalog(accountId?: string): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.chatGptModelCatalogRefresh, accountId);
+  },
+  addChatGptModelCatalogModel(request: AddCodexCatalogModelRequest): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.chatGptModelCatalogAdd, request);
+  },
+  removeChatGptModelCatalogModel(modelId: string): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.chatGptModelCatalogRemove, modelId);
+  },
   refreshCodexModelCatalog(): Promise<CodexModelCatalogSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.codexModelCatalogRefresh);
   },

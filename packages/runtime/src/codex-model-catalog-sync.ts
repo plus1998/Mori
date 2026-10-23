@@ -81,6 +81,8 @@ export interface SyncEcoCodexModelCatalogInput {
   codexExecutable: string;
   routes: readonly CodexGatewayCatalogRoute[];
   globalContextWindowLimit?: number;
+  /** Account-login windows from the same remote catalog shown in Eco settings. */
+  accountModels?: readonly CodexAccountModelContext[];
   /**
    * Optional override for the temporary CODEX_HOME used while dumping the bundled catalog.
    * Tests inject this so the real user home is never touched.
@@ -88,6 +90,22 @@ export interface SyncEcoCodexModelCatalogInput {
   bundledDumpHomeDir?: string;
   /** Injectable process runner for tests. */
   runCodex?: typeof runCodexDebugModelsBundled;
+}
+
+export interface CodexAccountModelContext {
+  modelId: string;
+  contextWindow?: number;
+}
+
+export function requireCodexAccountContextWindow(
+  models: readonly CodexAccountModelContext[],
+  modelId: string,
+): number {
+  const window = models.find((model) => model.modelId === modelId)?.contextWindow;
+  if (window === undefined || !Number.isSafeInteger(window) || window <= 0) {
+    throw new Error(`Codex 账号模型「${modelId}」缺少上下文窗口，请刷新 Codex 模型列表。`);
+  }
+  return window;
 }
 
 export interface SyncEcoCodexModelCatalogResult {
@@ -346,13 +364,44 @@ export function buildEcoCodexModelCatalogDocument(
   nativeModels: readonly CodexBundledModelEntry[],
   routes: readonly CodexGatewayCatalogRoute[],
   globalContextWindowLimit = DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT,
+  accountModels?: readonly CodexAccountModelContext[],
 ): EcoCodexModelCatalogDocument {
   const freeformTemplate = selectFreeformApplyPatchTemplate(nativeModels);
-  const cappedNativeModels = nativeModels.map((entry) =>
-    applyGlobalCatalogContextWindowLimit(cloneCatalogEntry(entry), globalContextWindowLimit),
-  );
+  const accountById = new Map(accountModels?.map((model) => [model.modelId, model]));
+  const cappedNativeModels = nativeModels.map((native) => {
+    const entry = cloneCatalogEntry(native);
+    const account = accountById.get(entry.slug);
+    if (account?.contextWindow !== undefined) {
+      const window = requireCodexAccountContextWindow([account], entry.slug);
+      entry.context_window = window;
+      entry.max_context_window = window;
+    }
+    return applyGlobalCatalogContextWindowLimit(entry, globalContextWindowLimit);
+  });
   const nativeBySlug = new Map(cappedNativeModels.map((entry) => [entry.slug, entry]));
   const models: CodexBundledModelEntry[] = cappedNativeModels;
+  // A remote account model can arrive before the bundled CLI catalog is updated.
+  // Materialize its native slug too; otherwise Codex would use its unknown-model window.
+  for (const account of accountModels ?? []) {
+    if (nativeBySlug.has(account.modelId) || account.contextWindow === undefined) continue;
+    const { template, known } = selectNativeTemplateForModel(nativeModels, account.modelId, freeformTemplate);
+    const entry = applyGlobalCatalogContextWindowLimit(
+      buildAliasCatalogEntry(
+        account.modelId,
+        {
+          providerId: "openai",
+          modelId: account.modelId,
+          apiCompat: "openai_responses",
+          manualSpec: { contextTokens: requireCodexAccountContextWindow([account], account.modelId) },
+        },
+        template,
+        known,
+      ),
+      globalContextWindowLimit,
+    );
+    models.push(entry);
+    nativeBySlug.set(entry.slug, entry);
+  }
   const seenAliases = new Set<string>();
 
   for (const route of mergeCodexGatewayCatalogRoutes(routes)) {
@@ -365,9 +414,20 @@ export function buildEcoCodexModelCatalogDocument(
     if (isCodexGatedOptionalModelId(route.modelId)) {
       assertCodexGatedModelApiCompat({ modelId: route.modelId, apiCompat: route.apiCompat });
     }
+    const account = route.providerId === "openai" ? accountById.get(route.modelId) : undefined;
+    const effectiveRoute =
+      account?.contextWindow !== undefined
+        ? {
+            ...route,
+            manualSpec: {
+              ...route.manualSpec,
+              contextTokens: requireCodexAccountContextWindow([account], route.modelId),
+            },
+          }
+        : route;
     models.push(
       applyGlobalCatalogContextWindowLimit(
-        buildAliasCatalogEntry(alias, route, template, known),
+        buildAliasCatalogEntry(alias, effectiveRoute, template, known),
         globalContextWindowLimit,
       ),
     );
@@ -551,7 +611,12 @@ export async function syncEcoCodexModelCatalog(
     ...(input.runCodex ? { runCodex: input.runCodex } : {}),
   });
   const routes = mergeCodexGatewayCatalogRoutes(input.routes);
-  const document = buildEcoCodexModelCatalogDocument(nativeModels, routes, input.globalContextWindowLimit);
+  const document = buildEcoCodexModelCatalogDocument(
+    nativeModels,
+    routes,
+    input.globalContextWindowLimit,
+    input.accountModels,
+  );
   const catalogPath = resolveEcoModelCatalogPath(input.ecoDataDir);
   const written = await writeEcoCodexModelCatalog(catalogPath, document);
   const aliasSlugs = document.models

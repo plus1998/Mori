@@ -87,6 +87,7 @@ export interface ResolveCodexContextSnapshotInput {
 }
 
 export interface CodexContextSnapshotResolution {
+  providerId?: string;
   ecoThreadId: string;
   billingRole: RuntimeAgentRole;
   codexThreadId: string;
@@ -254,6 +255,7 @@ export function resolveCodexContextSnapshot(
   });
 
   return {
+    ...(rawModelId && { providerId: gatewayAlias?.providerId ?? "openai" }),
     ecoThreadId: input.attribution.ecoThreadId,
     billingRole,
     codexThreadId,

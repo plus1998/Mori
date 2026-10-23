@@ -20,6 +20,37 @@ function roleAwareMockCache(): ModelsDevPricingCache {
   } as ModelsDevPricingCache;
 }
 
+test("account catalog window replaces stale provider and SDK limits and follows the global cap", async () => {
+  let globalLimit = 1_048_576;
+  const monitor = new ContextWindowMonitor(mockCache(900_000), () => globalLimit);
+  await monitor.setModelContext("account", "old-model", "https://vendor.example");
+  const snapshot = await monitor.updateOccupied("account", "main", 100_000, {
+    modelId: "gpt-6.1-sol",
+    catalogLimit: 272_000,
+    limit: 249_036,
+  });
+  expect(snapshot.limit).toBe(272_000);
+  expect(snapshot.modelId).toBe("gpt-6.1-sol");
+  globalLimit = 131_072;
+  expect(
+    (
+      await monitor.updateOccupied("account", "main", 100_000, {
+        catalogLimit: 272_000,
+        limit: 249_036,
+      })
+    ).limit,
+  ).toBe(131_072);
+  expect(
+    (
+      await monitor.updateOccupied("account", "coder", 50_000, {
+        agentId: "child",
+        modelId: "gpt-6.1-sol",
+        catalogLimit: 272_000,
+      })
+    ).instances?.[0]?.limit,
+  ).toBe(131_072);
+});
+
 test("markCompactCompleted resets occupancy from Core compact post-tokens", async () => {
   const monitor = new ContextWindowMonitor(mockCache());
   await monitor.updateFromUsage("t1", {
