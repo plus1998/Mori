@@ -280,12 +280,6 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Text(
-                            l.todosSubtitle,
-                            style: Theme.of(context).textTheme.bodyLarge
-                                ?.copyWith(color: eco.textMuted),
-                          ),
-                          const SizedBox(height: 20),
                           if (PlatformInfo.isIOS)
                             IOS26NativeSearchField(
                               placeholder: l.todosSearch,
