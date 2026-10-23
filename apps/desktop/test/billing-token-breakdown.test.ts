@@ -52,8 +52,8 @@ test("buildBillingTokenBreakdown returns agent rows in AGENT_ROLES order", () =>
   );
 
   expect(breakdown?.byAgent.map((row) => row.role)).toEqual(["main", "coder"]);
-  expect(breakdown?.byAgent[0]?.label).toBe("主代理 · 主");
-  expect(breakdown?.byAgent[1]?.label).toBe("编码 · 主");
+  expect(breakdown?.byAgent[0]?.label).toBe("主 Agent · 主");
+  expect(breakdown?.byAgent[1]?.label).toBe("编程 · 主");
   expect(breakdown?.byAgent[0]?.tokenBadge).toBe("↑10k ↓1k");
 });
 

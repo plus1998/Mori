@@ -207,7 +207,7 @@
   "approvalClarificationCustomLabel": "Other (write an answer)",
   "approvalClarificationCustomDescription": "Enter your own answer.",
   "approvalClarificationCustomHint": "Type your answer",
-  "approvalClarificationCompleteSelection": "Complete selection",
+  "approvalClarificationCompleteSelection": "Confirm",
   "approvalSeverityCritical": "Critical",
   "approvalSeverityHigh": "High",
   "approvalSeverityMedium": "Medium",

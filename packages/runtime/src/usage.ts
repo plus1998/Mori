@@ -416,10 +416,11 @@ export function formatUsageBadge(usage: ParsedUsage): string {
 
 export function formatRoleModelLabel(role: string, modelId?: string): string {
   const roleLabels: Record<string, string> = {
-    main: "主代理",
+    main: "主 Agent",
+    vision: "视觉理解",
     explore: "探索",
     architect: "架构",
-    coder: "编码",
+    coder: "编程",
     reviewer: "审查",
     tester: "测试",
     thinking: "思考",

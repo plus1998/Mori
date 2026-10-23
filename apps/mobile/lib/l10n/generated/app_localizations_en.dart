@@ -557,7 +557,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get approvalClarificationCustomHint => 'Type your answer';
 
   @override
-  String get approvalClarificationCompleteSelection => 'Complete selection';
+  String get approvalClarificationCompleteSelection => 'Confirm';
 
   @override
   String get approvalSeverityCritical => 'Critical';

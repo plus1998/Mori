@@ -1043,7 +1043,7 @@ abstract class AppLocalizations {
   /// No description provided for @approvalClarificationCompleteSelection.
   ///
   /// In en, this message translates to:
-  /// **'Complete selection'**
+  /// **'Confirm'**
   String get approvalClarificationCompleteSelection;
 
   /// No description provided for @approvalSeverityCritical.

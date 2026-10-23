@@ -41,7 +41,7 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.enterText(find.byType(TextField), '  无法输入回答  ');
     await tester.pump();
-    await tester.tap(find.text('Complete selection'));
+    await tester.tap(find.text('Confirm'));
     await tester.pump();
     await tester.tap(find.byTooltip('Previous question'));
     await tester.pump();
@@ -323,9 +323,9 @@ void main() {
       ),
     );
 
-    expect(find.text('Complete selection'), findsOneWidget);
+    expect(find.text('Confirm'), findsOneWidget);
     final completeButton = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Complete selection'),
+      find.widgetWithText(FilledButton, 'Confirm'),
     );
     expect(completeButton.onPressed, isNull);
 
@@ -333,11 +333,11 @@ void main() {
     await tester.pump();
 
     final enabledButton = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Complete selection'),
+      find.widgetWithText(FilledButton, 'Confirm'),
     );
     expect(enabledButton.onPressed, isNotNull);
 
-    await tester.tap(find.text('Complete selection'));
+    await tester.tap(find.text('Confirm'));
     await tester.pump();
     expect(find.text('Confirm scope'), findsOneWidget);
   });

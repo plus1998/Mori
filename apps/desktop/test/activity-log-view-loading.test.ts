@@ -2460,7 +2460,7 @@ test("WorkspaceFloatingCards lists subagents without mounting unselected detail 
   const englishHtml = renderLocalized(element, "en-US");
 
   expect(chineseHtml).toContain("workspace-subagent-runs-list");
-  expect(chineseHtml).toContain("子智能体");
+  expect(chineseHtml).toContain("子 Agent");
   expect(chineseHtml).toContain("Goodall");
   expect(chineseHtml).toContain("Implement Drawer");
   expect(chineseHtml).not.toContain("实现抽屉");
