@@ -58,6 +58,7 @@ realAppServerTest(
       };
       const first = await prepare();
       expect(first.runtimeClient?.isInitialized).toBe(true);
+      expect(first.mainThreadModel).toEqual({ modelProvider: "openai", model: "gpt-6.1-sol" });
       expect(readWindow()).toBe(180_000);
       expect((await prepare()).runtimeClient).toBe(first.runtimeClient);
       contextWindow = 272_000;

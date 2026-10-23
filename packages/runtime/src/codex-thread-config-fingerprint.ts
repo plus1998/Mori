@@ -29,8 +29,9 @@ export function isCodexThreadConfigApplied(
 }
 
 /**
- * After remote `thread/fork`, the new Codex id inherits the source thread's loaded config.
- * Copy Eco's apply-proof so idle `thread/resume(config)` can omit a doomed reload.
+ * Copy an apply-proof only when the caller has independently verified that the
+ * target uses the same config. `thread/fork` does not guarantee config inheritance;
+ * submit its config explicitly and record a fresh proof after validating the response.
  */
 export function transferAppliedCodexThreadConfig(
   client: object,

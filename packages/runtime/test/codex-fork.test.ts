@@ -24,6 +24,49 @@ test("buildCodexThreadForkParams rejects missing lastTurnId without fallback", (
   expect(() => buildCodexThreadForkParams("codex-thread-1", " ")).toThrow(CodexForkNotAvailable);
 });
 
+test("fork submits model, provider, policy and instructions instead of taking global defaults", async () => {
+  const config = { web_search: "disabled", model_reasoning_effort: "high", mcp_servers: {} };
+  const requests: Array<{ method: string; params: unknown }> = [];
+  const client = {
+    request: async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "thread/read") {
+        return {
+          thread: {
+            cwd: "/tmp/worktree",
+            turns: [
+              { id: "keep", items: [{ type: "userMessage", id: "u1" }] },
+              { id: "drop", items: [{ type: "userMessage", id: "u2" }] },
+            ],
+          },
+        };
+      }
+      return { thread: { id: "forked" }, model: "gpt-6-luna", modelProvider: "openai" };
+    },
+  };
+  const result = await forkCodexThread(client as never, {
+    threadId: "source",
+    itemId: "u2",
+    model: "gpt-6-luna",
+    modelProvider: "openai",
+    config,
+    developerInstructions: "Thread-specific rules",
+  });
+  expect(requests[1]).toEqual({
+    method: "thread/fork",
+    params: {
+      threadId: "source",
+      lastTurnId: "keep",
+      cwd: "/tmp/worktree",
+      model: "gpt-6-luna",
+      modelProvider: "openai",
+      config,
+      developerInstructions: "Thread-specific rules",
+    },
+  });
+  expect(result).toMatchObject({ model: "gpt-6-luna", modelProvider: "openai" });
+});
+
 test("forkCodexThread sends thread/fork with lastTurnId of the previous turn", async () => {
   const stdin = new PassThrough();
   const stdout = new PassThrough();

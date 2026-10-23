@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CodexAppServerClient } from "../src/codex-app-server-client";
+import { forkCodexThread } from "../src/codex-fork";
 import { recordAppliedCodexThreadConfig } from "../src/codex-thread-config-fingerprint";
 import { resumeCodexThread } from "../src/codex-thread-resume";
 import {
@@ -127,6 +128,41 @@ realAppServerTest(
       });
       await turnCompleted;
       await waitForIdleThread(client, started.thread.id);
+
+      // A second local-only turn gives rewind a retained first turn. The global
+      // provider is "stub", so omitting fork's provider reproduces the Prod bug.
+      const secondTurn = waitForTurnCompleted(client, started.thread.id);
+      await client.request("turn/start", {
+        threadId: started.thread.id,
+        input: [{ type: "text", text: "A turn to rewind." }],
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "readOnly" },
+      });
+      await secondTurn;
+      await waitForIdleThread(client, started.thread.id);
+      const history = await client.request<{
+        thread: { turns: Array<{ items: Array<{ id: string; type: string }> }> };
+      }>("thread/read", { threadId: started.thread.id, includeTurns: true });
+      const targetItem = history.thread.turns.at(-1)?.items.find((item) => item.type === "userMessage");
+      if (!targetItem) throw new Error("Missing persisted user item for fork regression");
+      const forked = await forkCodexThread(client, {
+        threadId: started.thread.id,
+        itemId: targetItem.id,
+        model: initialModel,
+        modelProvider: "openai",
+        config: { model_reasoning_effort: "low", web_search: "disabled" },
+        developerInstructions: "Fork regression rules",
+      });
+      expect(forked.modelProvider).toBe("openai");
+      expect(forked.model).toBe(initialModel);
+      const forkResume = await client.request<{
+        modelProvider: string;
+        reasoningEffort: string;
+        cwd: string;
+      }>("thread/resume", { threadId: forked.thread?.id });
+      expect(forkResume.modelProvider).toBe("openai");
+      expect(forkResume.reasoningEffort).toBe("low");
+      expect(forkResume.cwd).toBe(fs.realpathSync(workspace));
 
       await expect(
         resumeCodexThread(client, {

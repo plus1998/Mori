@@ -657,6 +657,7 @@ import {
   ensureCodexControlPlaneClient,
   getCodexRuntimeClientForEcoThread,
   forkCodexThreadForEcoThread,
+  isCodexThreadForkPrepared,
   getCodexTurnRouteRegistry,
   requestCodexAccountRuntimeRestart,
   isCodexCliAvailable,
@@ -11992,6 +11993,9 @@ async function tryPrepareCodexThreadRewindEarly(input: {
   const targetItemId = input.target.userMessageId?.trim();
   if (!targetItemId) {
     throw new Error("该节点缺少当前 Codex 消息 id，无法安全 fork。");
+  }
+  if (!isCodexThreadForkPrepared(input.threadId)) {
+    return { completedEarly: false };
   }
   await ensureCodexControlPlaneClient();
   const status = await queryCodexThreadStatusForEcoThread(input.threadId);

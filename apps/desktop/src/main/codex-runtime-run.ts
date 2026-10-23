@@ -10,6 +10,7 @@ import {
   buildCodexConfigToml,
   buildCodexGatewayModelAlias,
   buildCodexMainAgentOrchestrationAppend,
+  buildCodexModelProviderSlug,
   buildCodexSubagentFollowupPrompt,
   type CodexAccountModelContext,
   type CodexAppServerClient,
@@ -39,7 +40,6 @@ import {
   type EcoProviderForCodexConfig,
   ensureCodexSkillsExtraRoots,
   forkCodexThread,
-  isCodexThreadConfigApplied,
   listCodexSkills,
   mergeMainAgentAppendParts,
   normalizeCodexToolPolicy,
@@ -53,7 +53,6 @@ import {
   syncCodexConfigFromEcoProviders,
   syncEcoCodexModelCatalog,
   syncOrchestrationAgentsToCodexRoles,
-  transferAppliedCodexThreadConfig,
   withCodexMcpServerDefinitions,
   withCodexNativeImageView,
   withCodexRemoteCompaction,
@@ -296,6 +295,8 @@ export interface PrepareCodexRuntimeInput {
 export type CodexRuntimeRestartReason = "account" | "account_proxy" | "model_catalog" | "launch_config";
 
 export interface PreparedCodexRuntime {
+  /** Wire settings for thread/fork, which otherwise uses the process-global defaults. */
+  mainThreadModel?: { model: string; modelProvider: string };
   runtimeClient?: CodexAppServerClient;
   releaseRuntime?: () => void;
   orchestrationAppend?: string;
@@ -344,6 +345,10 @@ export function bindPreparedCodexRuntimeToThread(ecoThreadId: string, prepared: 
 export function clearPreparedCodexRuntimeForThread(ecoThreadId: string): boolean {
   const threadId = ecoThreadId.trim();
   return threadId ? preparedRuntimeByThread.delete(threadId) : false;
+}
+
+export function isCodexThreadForkPrepared(ecoThreadId: string): boolean {
+  return Boolean(preparedRuntimeByThread.get(ecoThreadId.trim())?.mainThreadModel);
 }
 /** Skip MCP reload when the prepared server set is unchanged (keeps warm connections). */
 let lastPreparedMcpFingerprint = "";
@@ -757,24 +762,24 @@ export async function forkCodexThreadForEcoThread(input: {
     );
   }
 
+  const prepared = preparedRuntimeByThread.get(ecoThreadId);
+  if (!prepared?.mainThreadModel) {
+    throw new CodexForkNotAvailable("Codex fork requires prepared model and session configuration.", {
+      nextAction: "Prepare the current model, orchestration and MCP selection before rewinding.",
+    });
+  }
   const client = getCodexRuntimeClientForThread(codexThreadId) ?? (await ensureCodexControlPlaneClient());
   const status = await readCodexThreadStatus(client, codexThreadId);
   if (status === "notLoaded") {
-    const prepared = preparedRuntimeByThread.get(ecoThreadId);
-    if (!prepared) {
-      throw new CodexForkNotAvailable(
-        "Codex fork cannot load the thread before its session configuration is prepared.",
-        { nextAction: "Prepare the current orchestration and MCP selection, then retry rewind." },
-      );
-    }
     await resumeCodexThread(client, {
       threadId: codexThreadId,
+      ...prepared.mainThreadModel,
       config: prepared.threadConfig,
     });
     const appliedByThread = controlPlaneAppliedConfigByClient.get(client) ?? new Map<string, object>();
     appliedByThread.set(codexThreadId, prepared.threadConfig);
     controlPlaneAppliedConfigByClient.set(client, appliedByThread);
-  } else if (status !== "idle") {
+  } else if (status !== "idle" && status !== "systemError") {
     throw new CodexForkNotAvailable(`Codex fork requires an idle thread; current status is ${status}.`, {
       nextAction: "Wait for the active turn to finish, then retry rewind.",
     });
@@ -787,6 +792,9 @@ export async function forkCodexThreadForEcoThread(input: {
   const forkResult = await forkCodexThread(client, {
     threadId: codexThreadId,
     itemId: targetItemId,
+    ...prepared.mainThreadModel,
+    config: prepared.threadConfig,
+    ...(prepared.orchestrationAppend ? { developerInstructions: prepared.orchestrationAppend } : {}),
     ...(targetTurnIndex !== undefined ? { targetTurnIndex } : {}),
   });
 
@@ -810,25 +818,22 @@ export async function forkCodexThreadForEcoThread(input: {
           },
         );
       }
+      if (
+        forkResult.modelProvider !== prepared.mainThreadModel.modelProvider ||
+        forkResult.model !== prepared.mainThreadModel.model
+      ) {
+        throw new CodexForkNotAvailable(
+          `Codex fork returned unexpected model settings: requested ${prepared.mainThreadModel.modelProvider}/${prepared.mainThreadModel.model}, received ${forkResult.modelProvider ?? "(missing provider)"}/${forkResult.model ?? "(missing model)"}.`,
+          { nextAction: "Check app-server thread/fork configuration support before retrying rewind." },
+        );
+      }
       runtimeDeps.threadMap.setMapping(ecoThreadId, newCodexThreadId);
-      // Forked thread is idle/loaded with the source configuration. Eco's apply-proof lives on the
-      // source id — move fingerprint (and mark prepared policy applied) so post-fork resume can omit
-      // config instead of demanding a cold notLoaded reload that the shared app-server cannot prove.
-      transferAppliedCodexThreadConfig(client, codexThreadId, newCodexThreadId);
-      const preparedConfig = preparedRuntimeByThread.get(ecoThreadId)?.threadConfig;
-      if (preparedConfig) {
-        // Protocol: thread/fork inherits the source thread's loaded runtime. Seed Eco's apply proof
-        // even when the parent fingerprint was lost (e.g. desktop process restart with warm app-server).
-        recordAppliedCodexThreadConfig(client, newCodexThreadId, preparedConfig);
-      }
-      const preparedMatchesNew =
-        Boolean(preparedConfig) && isCodexThreadConfigApplied(client, newCodexThreadId, preparedConfig!);
-      const configToMark = previousAppliedConfig ?? (preparedMatchesNew ? preparedConfig : undefined);
-      if (configToMark) {
-        const nextApplied = controlPlaneAppliedConfigByClient.get(client) ?? new Map<string, object>();
-        nextApplied.set(newCodexThreadId, configToMark);
-        controlPlaneAppliedConfigByClient.set(client, nextApplied);
-      }
+      // This config was explicitly submitted to fork; a parent's fingerprint proves nothing here.
+      recordAppliedCodexThreadConfig(client, newCodexThreadId, prepared.threadConfig);
+      const nextApplied = controlPlaneAppliedConfigByClient.get(client) ?? new Map<string, object>();
+      nextApplied.set(newCodexThreadId, prepared.threadConfig);
+      controlPlaneAppliedConfigByClient.set(client, nextApplied);
+      recordCodexRuntimeThreadOwner(newCodexThreadId, client);
       runtimeDeps.onCodexThreadMapped?.(newCodexThreadId);
     }
 
@@ -1251,6 +1256,18 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     );
   }
   const prepared: PreparedCodexRuntime = {
+    ...(mainProviderId && mainModelId
+      ? {
+          mainThreadModel: {
+            modelProvider:
+              mainProviderId === "openai" ? "openai" : buildCodexModelProviderSlug(mainProviderId),
+            model:
+              mainProviderId === "openai"
+                ? mainModelId
+                : buildCodexGatewayModelAlias(mainProviderId, mainModelId, input.mainApiCompat),
+          },
+        }
+      : {}),
     ...(orchestrationAppend ? { orchestrationAppend } : {}),
     ...(orchestrationToolPolicy ? { orchestrationToolPolicy } : {}),
     roleIds: roleSync?.roleIds ?? [],
