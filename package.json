@@ -18,6 +18,7 @@
     "prepare": "node scripts/install-git-hooks.mjs",
     "icons": "bun run --cwd apps/desktop icons",
     "pack:mac-arm64": "bun run --cwd apps/desktop pack:mac-arm64",
+    "update:mac-arm64": "node apps/desktop/scripts/update-mac-arm64.mjs",
     "pack:mac-x64": "bun run --cwd apps/desktop pack:mac-x64",
     "pack:win-x64": "bun run --cwd apps/desktop pack:win-x64",
     "pack:linux-x64": "bun run --cwd apps/desktop pack:linux-x64",

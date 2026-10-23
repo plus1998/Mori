@@ -43,6 +43,7 @@
     "icons": "bun scripts/generate-icons.mjs",
     "pack": "bun run build && node scripts/prepare-agent-browser.mjs && node scripts/prepare-open-computer-use.mjs && node scripts/write-release-manifest.mjs && node scripts/pack-local.mjs",
     "pack:mac-arm64": "bun run build && node scripts/prepare-agent-browser.mjs && node scripts/prepare-open-computer-use.mjs && node scripts/write-release-manifest.mjs && node scripts/pack-release.mjs --mac dmg zip --arm64",
+    "update:mac-arm64": "node scripts/update-mac-arm64.mjs",
     "pack:mac-x64": "bun run build && node scripts/prepare-agent-browser.mjs && node scripts/prepare-open-computer-use.mjs && node scripts/write-release-manifest.mjs && node scripts/pack-release.mjs --mac dmg zip --x64",
     "pack:win-x64": "bun run build && node scripts/prepare-agent-browser.mjs && node scripts/prepare-open-computer-use.mjs && node scripts/write-release-manifest.mjs && node scripts/pack-release.mjs --win nsis --x64",
     "pack:linux-x64": "bun run build && node scripts/prepare-agent-browser.mjs && node scripts/prepare-open-computer-use.mjs && node scripts/write-release-manifest.mjs && node scripts/pack-release.mjs --linux AppImage --x64",

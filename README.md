@@ -54,6 +54,17 @@ bun run dev
 
 首次启动后在「设置 → 模型服务商」添加 API，再创建运行配置。macOS Beta 尚未签名，详见[使用指南](docs/USER_GUIDE.md)。
 
+### 本地更新已安装的 macOS ARM64 版
+
+在仓库根目录或 `apps/desktop` 中运行：
+
+```bash
+bun run update:mac-arm64
+# 也支持 npm run update:mac-arm64
+```
+
+脚本会执行 `bun run pack:mac-arm64 --dir`，成功后退出 `/Applications/Eco Coding.app` 的生产版进程，替换应用并重新打开。不会退出 dev 版或修改用户数据。更新任务在独立后台进程中执行，避免 Eco 退出时中断自身更新；终端会输出日志路径，用 `tail -f` 查看进度与最终结果。退出超时或安装失败会明确报错，不会强制杀进程；替换或启动失败时按日志检查旧版备份。需要当前用户有 `/Applications` 的写权限。
+
 ## 功能概览
 
 | 领域 | 能力 |
