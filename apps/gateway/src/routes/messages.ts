@@ -77,6 +77,7 @@ import { headersWithLogicalRequestIdentity, readUpstreamRequestId } from "../ups
 import {
   isDeepSeekResponsesUpstreamModel,
   sanitizeDeepSeekResponsesCustomTools,
+  sanitizeDeepSeekResponsesReasoning,
 } from "../upstream/responses-passthrough.js";
 import {
   extractResponsesErrorInfo,
@@ -521,10 +522,14 @@ async function forwardMessagesViaResponses(
     model: route.upstreamModelId,
   } as unknown as AnthropicRequest;
   const requestToolNames = extractAnthropicRequestToolNames(anthropicBody);
-  let responsesBody = sanitizeDeepSeekResponsesCustomTools(
+  const reasoningSanitized = sanitizeDeepSeekResponsesReasoning(
     anthropicToResponses(anthropicBody) as ResponsesRequest,
     route.upstreamModelId,
   );
+  if (reasoningSanitized.dropped.length > 0) {
+    onLog(`messages→responses DeepSeek sanitize provider=${route.provider.id} dropped=${reasoningSanitized.dropped.join(",")}`);
+  }
+  let responsesBody = sanitizeDeepSeekResponsesCustomTools(reasoningSanitized.body, route.upstreamModelId);
   responsesBody.model = route.upstreamModelId;
 
   // Subscription upstream requires SSE regardless of the Messages client's
