@@ -3184,4 +3184,111 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get todosTextLimit => 'To-do text cannot exceed 100,000 characters.';
+
+  @override
+  String get codexQuotaTab => 'Usage';
+
+  @override
+  String get codexQuotaTitle => 'ChatGPT Login account usage';
+
+  @override
+  String codexQuotaCurrentAccount(String name) {
+    return 'Current account: $name';
+  }
+
+  @override
+  String codexQuotaRemaining(String percent) {
+    return '$percent% remaining';
+  }
+
+  @override
+  String codexQuotaDays(String count) {
+    return '$count-day quota';
+  }
+
+  @override
+  String codexQuotaHours(String count) {
+    return '$count-hour quota';
+  }
+
+  @override
+  String codexQuotaResetsAt(String time) {
+    return 'Resets on $time';
+  }
+
+  @override
+  String codexQuotaResetCount(String count) {
+    return 'Available resets: $count';
+  }
+
+  @override
+  String get codexQuotaNoCredit => 'This account has no reset credits';
+
+  @override
+  String get codexQuotaNothingToReset =>
+      'No quota window is available to reset';
+
+  @override
+  String get codexQuotaSwitching =>
+      'Switching accounts. Reset will be available when complete.';
+
+  @override
+  String get codexQuotaSwitchAccount => 'Switch account';
+
+  @override
+  String get codexQuotaUseReset => 'Use reset';
+
+  @override
+  String get codexQuotaRefresh => 'Refresh usage';
+
+  @override
+  String get codexQuotaLoading => 'Loading account usage…';
+
+  @override
+  String get codexQuotaIdle => 'No usage data yet';
+
+  @override
+  String get codexQuotaNoAccount => 'No signed-in Codex account selected';
+
+  @override
+  String get codexQuotaSwitchDescription =>
+      'Choose another signed-in account with remaining quota. Usage is checked again before switching.';
+
+  @override
+  String get codexQuotaNoCandidates => 'No other signed-in accounts';
+
+  @override
+  String get codexQuotaSearch => 'Search accounts';
+
+  @override
+  String get codexQuotaNoResults => 'No matching accounts';
+
+  @override
+  String get codexQuotaUnavailable =>
+      'Account unavailable or out of quota. Refresh and choose another account.';
+
+  @override
+  String get codexQuotaUnknown => 'No usage data yet. Refresh to check.';
+
+  @override
+  String get codexQuotaExhausted => 'No available quota';
+
+  @override
+  String get codexQuotaDisconnected =>
+      'Desktop disconnected. Cannot read usage.';
+
+  @override
+  String get codexQuotaRemoved =>
+      'The active account was removed. Refresh to continue.';
+
+  @override
+  String get codexQuotaResetSuccess => 'Usage reset successfully';
+
+  @override
+  String codexQuotaUpdatedAt(String time) {
+    return 'Updated $time';
+  }
+
+  @override
+  String get codexQuotaBack => 'Back to usage';
 }

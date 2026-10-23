@@ -224,6 +224,11 @@ export const REMOTE_COMMAND_DEFINITIONS = [
   ]),
 
   command("model-settings:get", "Get model settings", "read", RPC_INVOKE, []),
+  command("openai-accounts:list", "List Codex accounts and saved quotas", "read", RPC_INVOKE, []),
+  command("openai-accounts:get-active", "Get active Codex account", "read", RPC_INVOKE, []),
+  command("openai-accounts:query-quota", "Refresh Codex account quota", "read", RPC_INVOKE, [objectArg(["accountId"])]),
+  command("openai-accounts:set-active", "Switch Codex account", "write_safe", RPC_INVOKE, [objectArg(["accountId"])]),
+  command("openai-accounts:reset-quota", "Use a Codex quota reset credit", "execute", RPC_INVOKE, [objectArg(["accountId", "idempotencyKey"])]),
   command("settings:digest", "Get global settings content digest", "read", RPC_INVOKE, []),
   command("cursor:models-list", "List Cursor Agent CLI models", "read", RPC_INVOKE, []),
   command("candidate-model:list", "List candidate models", "read", RPC_INVOKE, [stringArg()]),

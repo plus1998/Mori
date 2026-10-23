@@ -6942,6 +6942,7 @@ function registerIpcHandlers(): void {
       openaiAccountServicePromise = (async () => {
         const { OpenAIAccountService } = await import("./openai-account-service");
         const service = new OpenAIAccountService(app.getPath("userData"), resolveCodexExecutable, (state) => {
+          desktopEventCenter.publish({ kind: "openai-accounts.changed", payload: {}, aggregateKey: "openai-accounts" });
           for (const window of BrowserWindow.getAllWindows()) {
             if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.openAIAccountsChanged, state);
           }
@@ -7025,6 +7026,14 @@ function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsList, async () => {
     const svc = await getOpenAIAccountService();
     return svc.listAccounts();
+  }, async () => {
+    const accounts = await (await getOpenAIAccountService()).listAccounts();
+    // Keep the account contract, without proxy URLs or private profile data.
+    return accounts.map(({ id, name, email, isLoggedIn, authState, quota, proxyMode, createdAt, hasProfileData }) => ({
+      id, name, isLoggedIn, authState, proxyMode, createdAt, hasProfileData,
+      ...(email === undefined ? {} : { email }),
+      ...(quota === undefined ? {} : { quota }),
+    }));
   });
 
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsCreate, async (payload: OpenAIAccountCreateInput) => {

@@ -149,7 +149,7 @@ void main() {
     );
     expect(
       formatMcpToolDisplayName('mcp__eco_computer_use__click', l10n),
-      '电脑操控',
+      '电脑操作',
     );
     expect(
       formatMcpToolDisplayName('mcp__eco_web_search__search', l10n),

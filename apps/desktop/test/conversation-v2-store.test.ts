@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { CONVERSATION_V2_ERROR, ConversationV2Error, estimateConversationBytes } from "@eco/shared";
+import { CONVERSATION_V2_ERROR, ConversationV2Error, encodeConversationCursor, estimateConversationBytes } from "@eco/shared";
 import { removeTempDirectorySync } from "./helpers/temp-directory";
 import { appendLegacyThreadRunEventToConversationV2 } from "../src/main/conversation-v2-legacy-adapter";
 import { ConversationV2Store } from "../src/main/conversation-v2-store";
@@ -1261,6 +1261,77 @@ describe("conversation storage V2", () => {
         payload: { name: "shell", status: "running" },
       }),
     ).toThrow(expect.objectContaining({ code: CONVERSATION_V2_ERROR.integrityFailure }));
+    db.close();
+  });
+
+  test("recent bootstrap and every history page retain long-queued prompts at delivery time", () => {
+    const { db, store } = createStore();
+    const conversationId = "long_queued_prompt";
+    const at = (second: number) => new Date(Date.UTC(2026, 9, 24, 0, 0, second)).toISOString();
+    store.append({
+      conversationId, eventId: "accepted", type: "message.accepted", occurredAt: at(0),
+      messageId: "queued", turnId: "queued_turn",
+      payload: { role: "user", body: "This prompt must appear after delivery" },
+    });
+    for (let index = 1; index <= 40; index++) {
+      store.append({
+        conversationId, eventId: `answer_${index}`, type: "message.created", occurredAt: at(index),
+        messageId: `answer_${index}`, turnId: "original_turn",
+        payload: { role: "assistant", body: `Answer ${index}`, status: "final" },
+      });
+    }
+    expect(store.bootstrap(conversationId).messages.some((message) => message.messageId === "queued")).toBe(false);
+    const delivered = store.append({
+      conversationId, eventId: "delivered", type: "message.finalized", occurredAt: at(41),
+      messageId: "queued", payload: { status: "final" },
+    });
+    const bootstrap = store.bootstrap(conversationId, 2);
+    expect(bootstrap.messages.map((message) => message.messageId)).toEqual(["answer_40", "queued"]);
+    expect(bootstrap.messages[1]).toMatchObject({ createdSeq: 1, status: "final", versionSeq: delivered.event.seq });
+    expect(store.messagesPage(conversationId, undefined, 2).messages).toEqual(bootstrap.messages);
+
+    // The next page must use the same delivery-time boundary, even when the
+    // oldest visible row is the prompt with acceptance sequence 1.
+    const promptBoundary = store.bootstrap(conversationId, 1);
+    const ids = promptBoundary.messages.map((message) => message.messageId);
+    let cursor = promptBoundary.olderCursor;
+    while (cursor) {
+      const page = store.messagesPage(conversationId, cursor, 7);
+      ids.push(...page.messages.map((message) => message.messageId));
+      cursor = page.nextCursor;
+    }
+    expect(ids).toHaveLength(41);
+    expect(new Set(ids).size).toBe(41);
+    expect(ids).toContain("answer_1");
+    expect(ids.filter((id) => id === "queued")).toHaveLength(1);
+
+    // A deployed client can finish a cursor issued by the previous server.
+    const legacyCursor = encodeConversationCursor({
+      kind: "messages", storeEpoch: bootstrap.storeEpoch, historyRevision: 0,
+      createdSeq: 4, id: "answer_3",
+    });
+    expect(store.messagesPage(conversationId, legacyCursor).messages.map((message) => message.messageId))
+      .toEqual(["queued", "answer_1", "answer_2"]);
+    db.close();
+  });
+
+  test("message cursors retain their time boundary when a queued anchor is delivered later", () => {
+    const { db, store } = createStore();
+    const conversationId = "moving_message_anchor";
+    for (let index = 1; index <= 4; index++) {
+      store.append({
+        conversationId, eventId: `accepted_${index}`, type: "message.accepted",
+        occurredAt: `2026-10-24T00:00:0${index}.000Z`, messageId: `queued_${index}`,
+        turnId: `turn_${index}`, payload: { role: "user", body: `Prompt ${index}` },
+      });
+    }
+    const page = store.messagesPage(conversationId, undefined, 2);
+    store.append({
+      conversationId, eventId: "delivery", type: "message.finalized",
+      occurredAt: "2026-10-24T00:01:00.000Z", messageId: "queued_3", payload: { status: "final" },
+    });
+    expect(store.messagesPage(conversationId, page.nextCursor, 2).messages.map((message) => message.messageId))
+      .toEqual(["queued_1", "queued_2"]);
     db.close();
   });
 

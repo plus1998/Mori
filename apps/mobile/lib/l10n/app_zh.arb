@@ -996,5 +996,83 @@
   "todosDiscardTitle": "放弃本次编辑？",
   "todosDiscardHint": "尚未保存的内容将丢失。",
   "todosDiscard": "放弃编辑",
-  "todosTextLimit": "待办文字不能超过 100000 个字符。"
+  "todosTextLimit": "待办文字不能超过 100000 个字符。",
+  "codexQuotaTab": "额度",
+  "codexQuotaTitle": "ChatGPT Login 账号额度",
+  "codexQuotaCurrentAccount": "当前使用账号：{name}",
+  "codexQuotaRemaining": "剩余 {percent}%",
+  "codexQuotaDays": "{count} 天额度",
+  "codexQuotaHours": "{count} 小时额度",
+  "codexQuotaResetsAt": "将于 {time} 重置",
+  "codexQuotaResetCount": "可用重置：{count} 次",
+  "codexQuotaNoCredit": "当前账号没有可用重置次数",
+  "codexQuotaNothingToReset": "当前没有可重置的额度窗口",
+  "codexQuotaSwitching": "正在切换账号，切换完成后可使用重置",
+  "codexQuotaSwitchAccount": "切换账号",
+  "codexQuotaUseReset": "使用重置",
+  "codexQuotaRefresh": "刷新额度",
+  "codexQuotaLoading": "正在读取账号额度…",
+  "codexQuotaIdle": "暂无额度数据",
+  "codexQuotaNoAccount": "尚未选择已登录的 Codex 账号",
+  "codexQuotaSwitchDescription": "选择还有额度的已登录账号。切换前会重新检查额度。",
+  "codexQuotaNoCandidates": "没有其他已登录账号",
+  "codexQuotaSearch": "搜索账号",
+  "codexQuotaNoResults": "没有匹配的账号",
+  "codexQuotaUnavailable": "账号不可用或额度已用完，请刷新后选择其他账号",
+  "codexQuotaUnknown": "尚无额度数据，请先刷新",
+  "codexQuotaExhausted": "暂无可用额度",
+  "codexQuotaDisconnected": "电脑未连接，无法读取额度",
+  "codexQuotaRemoved": "当前使用账号已移除，请刷新",
+  "codexQuotaResetSuccess": "额度已重置",
+  "codexQuotaUpdatedAt": "更新于 {time}",
+  "codexQuotaBack": "返回额度",
+  "@codexQuotaCurrentAccount": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaRemaining": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaHours": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaResetsAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaResetCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaUpdatedAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  }
 }

@@ -5587,6 +5587,180 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'To-do text cannot exceed 100,000 characters.'**
   String get todosTextLimit;
+
+  /// No description provided for @codexQuotaTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Usage'**
+  String get codexQuotaTab;
+
+  /// No description provided for @codexQuotaTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'ChatGPT Login account usage'**
+  String get codexQuotaTitle;
+
+  /// No description provided for @codexQuotaCurrentAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Current account: {name}'**
+  String codexQuotaCurrentAccount(String name);
+
+  /// No description provided for @codexQuotaRemaining.
+  ///
+  /// In en, this message translates to:
+  /// **'{percent}% remaining'**
+  String codexQuotaRemaining(String percent);
+
+  /// No description provided for @codexQuotaDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{count}-day quota'**
+  String codexQuotaDays(String count);
+
+  /// No description provided for @codexQuotaHours.
+  ///
+  /// In en, this message translates to:
+  /// **'{count}-hour quota'**
+  String codexQuotaHours(String count);
+
+  /// No description provided for @codexQuotaResetsAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Resets on {time}'**
+  String codexQuotaResetsAt(String time);
+
+  /// No description provided for @codexQuotaResetCount.
+  ///
+  /// In en, this message translates to:
+  /// **'Available resets: {count}'**
+  String codexQuotaResetCount(String count);
+
+  /// No description provided for @codexQuotaNoCredit.
+  ///
+  /// In en, this message translates to:
+  /// **'This account has no reset credits'**
+  String get codexQuotaNoCredit;
+
+  /// No description provided for @codexQuotaNothingToReset.
+  ///
+  /// In en, this message translates to:
+  /// **'No quota window is available to reset'**
+  String get codexQuotaNothingToReset;
+
+  /// No description provided for @codexQuotaSwitching.
+  ///
+  /// In en, this message translates to:
+  /// **'Switching accounts. Reset will be available when complete.'**
+  String get codexQuotaSwitching;
+
+  /// No description provided for @codexQuotaSwitchAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch account'**
+  String get codexQuotaSwitchAccount;
+
+  /// No description provided for @codexQuotaUseReset.
+  ///
+  /// In en, this message translates to:
+  /// **'Use reset'**
+  String get codexQuotaUseReset;
+
+  /// No description provided for @codexQuotaRefresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh usage'**
+  String get codexQuotaRefresh;
+
+  /// No description provided for @codexQuotaLoading.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading account usage…'**
+  String get codexQuotaLoading;
+
+  /// No description provided for @codexQuotaIdle.
+  ///
+  /// In en, this message translates to:
+  /// **'No usage data yet'**
+  String get codexQuotaIdle;
+
+  /// No description provided for @codexQuotaNoAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'No signed-in Codex account selected'**
+  String get codexQuotaNoAccount;
+
+  /// No description provided for @codexQuotaSwitchDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose another signed-in account with remaining quota. Usage is checked again before switching.'**
+  String get codexQuotaSwitchDescription;
+
+  /// No description provided for @codexQuotaNoCandidates.
+  ///
+  /// In en, this message translates to:
+  /// **'No other signed-in accounts'**
+  String get codexQuotaNoCandidates;
+
+  /// No description provided for @codexQuotaSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Search accounts'**
+  String get codexQuotaSearch;
+
+  /// No description provided for @codexQuotaNoResults.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching accounts'**
+  String get codexQuotaNoResults;
+
+  /// No description provided for @codexQuotaUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Account unavailable or out of quota. Refresh and choose another account.'**
+  String get codexQuotaUnavailable;
+
+  /// No description provided for @codexQuotaUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'No usage data yet. Refresh to check.'**
+  String get codexQuotaUnknown;
+
+  /// No description provided for @codexQuotaExhausted.
+  ///
+  /// In en, this message translates to:
+  /// **'No available quota'**
+  String get codexQuotaExhausted;
+
+  /// No description provided for @codexQuotaDisconnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop disconnected. Cannot read usage.'**
+  String get codexQuotaDisconnected;
+
+  /// No description provided for @codexQuotaRemoved.
+  ///
+  /// In en, this message translates to:
+  /// **'The active account was removed. Refresh to continue.'**
+  String get codexQuotaRemoved;
+
+  /// No description provided for @codexQuotaResetSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Usage reset successfully'**
+  String get codexQuotaResetSuccess;
+
+  /// No description provided for @codexQuotaUpdatedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Updated {time}'**
+  String codexQuotaUpdatedAt(String time);
+
+  /// No description provided for @codexQuotaBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to usage'**
+  String get codexQuotaBack;
 }
 
 class _AppLocalizationsDelegate

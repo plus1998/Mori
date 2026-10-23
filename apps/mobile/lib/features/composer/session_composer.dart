@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,6 +22,7 @@ import '../../core/widgets/image_memory_lightbox.dart';
 import 'composer_controls.dart';
 import 'composer_plus_menu.dart';
 import 'composer_toolbar_icon.dart';
+import 'ios_composer_send_button.dart';
 import '../threads/thread_providers.dart';
 import 'voice_recording_composer.dart';
 
@@ -163,27 +165,8 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
     widget.onSend();
   }
 
-  Future<void> _chooseSendMode(BuildContext anchorContext) async {
+  void _handleSendWithMode(FollowUpDeliveryMode mode) {
     if (!_canSend || widget.onSendWithMode == null) return;
-    HapticFeedback.selectionClick();
-    final box = anchorContext.findRenderObject() as RenderBox;
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    final rect = box.localToGlobal(Offset.zero, ancestor: overlay) & box.size;
-    final mode = await showMenu<FollowUpDeliveryMode>(
-      context: context,
-      position: RelativeRect.fromRect(rect, Offset.zero & overlay.size),
-      items: [
-        PopupMenuItem(
-          value: FollowUpDeliveryMode.queue,
-          child: Text(context.l10n.composerSendQueue),
-        ),
-        PopupMenuItem(
-          value: FollowUpDeliveryMode.steer,
-          child: Text(context.l10n.composerSendSteer),
-        ),
-      ],
-    );
-    if (!mounted || mode == null || !_canSend) return;
     _focusNode.unfocus();
     widget.onSendWithMode?.call(mode);
   }
@@ -576,8 +559,8 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                               ? _SendButton(
                                   busy: widget.sendBusy,
                                   onSend: _canSend ? _handleSend : null,
-                                  onChooseMode: widget.onSendWithMode != null
-                                      ? _chooseSendMode
+                                  onSendWithMode: widget.onSendWithMode != null
+                                      ? _handleSendWithMode
                                       : null,
                                 )
                               : _StopButton(
@@ -755,26 +738,66 @@ class _SendButton extends StatelessWidget {
   const _SendButton({
     required this.busy,
     required this.onSend,
-    this.onChooseMode,
+    this.onSendWithMode,
   });
 
   final bool busy;
   final VoidCallback? onSend;
-  final ValueChanged<BuildContext>? onChooseMode;
+  final ValueChanged<FollowUpDeliveryMode>? onSendWithMode;
+
+  Future<void> _chooseMode(BuildContext context) async {
+    if (onSend == null || onSendWithMode == null) return;
+    HapticFeedback.selectionClick();
+    final box = context.findRenderObject() as RenderBox;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final rect = box.localToGlobal(Offset.zero, ancestor: overlay) & box.size;
+    final mode = await showMenu<FollowUpDeliveryMode>(
+      context: context,
+      position: RelativeRect.fromRect(rect, Offset.zero & overlay.size),
+      items: [
+        PopupMenuItem(
+          value: FollowUpDeliveryMode.queue,
+          child: Text(context.l10n.composerSendQueue),
+        ),
+        PopupMenuItem(
+          value: FollowUpDeliveryMode.steer,
+          child: Text(context.l10n.composerSendSteer),
+        ),
+      ],
+    );
+    if (context.mounted && mode != null) onSendWithMode?.call(mode);
+  }
 
   @override
   Widget build(BuildContext context) {
     final colors = ecoColors(context);
     final enabled = onSend != null;
     final showBusy = busy && !enabled;
+    if (PlatformInfo.isIOS && onSendWithMode != null) {
+      return IOSComposerSendButton(
+        size: kComposerToolbarHitSize,
+        busy: showBusy,
+        backgroundColor: enabled || showBusy
+            ? colors.composerSendBg
+            : colors.borderSubtle,
+        foregroundColor: enabled || showBusy
+            ? colors.composerSendText
+            : colors.textMuted,
+        label: context.l10n.composerSendHint,
+        queueLabel: context.l10n.composerSendQueue,
+        steerLabel: context.l10n.composerSendSteer,
+        onSend: onSend,
+        onSendWithMode: onSendWithMode!,
+      );
+    }
     return Material(
       color: enabled || showBusy ? colors.composerSendBg : colors.borderSubtle,
       shape: const CircleBorder(),
       child: Builder(
         builder: (anchorContext) => InkWell(
           onTap: onSend,
-          onLongPress: enabled && onChooseMode != null
-              ? () => onChooseMode!(anchorContext)
+          onLongPress: enabled && onSendWithMode != null
+              ? () => _chooseMode(anchorContext)
               : null,
           customBorder: const CircleBorder(),
           child: SizedBox(

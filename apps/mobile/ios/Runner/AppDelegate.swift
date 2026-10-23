@@ -25,6 +25,10 @@ import UIKit
       EcoMobileIOS26SearchFieldFactory(messenger: messenger),
       withId: "eco_mobile/ios26_search_field"
     )
+    registrar.register(
+      EcoMobileComposerSendButtonFactory(messenger: messenger),
+      withId: "eco_mobile/composer_send_button"
+    )
   }
 }
 
@@ -176,6 +180,105 @@ private final class EcoMobileLiquidGlassActionButton: NSObject,
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+}
+
+// MARK: - Composer send button
+
+private final class EcoMobileComposerSendButtonFactory: NSObject, FlutterPlatformViewFactory {
+  private let messenger: FlutterBinaryMessenger
+
+  init(messenger: FlutterBinaryMessenger) {
+    self.messenger = messenger
+    super.init()
+  }
+
+  func create(
+    withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?
+  ) -> FlutterPlatformView {
+    EcoMobileComposerSendButton(
+      frame: frame, viewIdentifier: viewId, arguments: args, messenger: messenger
+    )
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+}
+
+private final class EcoMobileComposerSendButton: NSObject, FlutterPlatformView {
+  private let button = UIButton(type: .system)
+  private let spinner = UIActivityIndicatorView(style: .medium)
+  private let channel: FlutterMethodChannel
+
+  init(
+    frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?,
+    messenger: FlutterBinaryMessenger
+  ) {
+    channel = FlutterMethodChannel(
+      name: "eco_mobile/composer_send_button_\(viewId)", binaryMessenger: messenger
+    )
+    super.init()
+    button.frame = frame
+    button.accessibilityIdentifier = "composer.send"
+    button.clipsToBounds = true
+    button.layer.cornerRadius = 18
+    button.setPreferredSymbolConfiguration(
+      UIImage.SymbolConfiguration(pointSize: 20, weight: .regular), forImageIn: .normal
+    )
+    button.addTarget(self, action: #selector(send), for: .touchUpInside)
+    // The primary action remains a normal send. UIKit opens the menu on hold.
+    button.showsMenuAsPrimaryAction = false
+    spinner.translatesAutoresizingMaskIntoConstraints = false
+    spinner.isUserInteractionEnabled = false
+    button.addSubview(spinner)
+    NSLayoutConstraint.activate([
+      spinner.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+      spinner.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+    ])
+    update(args as? [String: Any] ?? [:])
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "update" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      if let configuration = call.arguments as? [String: Any] {
+        self?.update(configuration)
+      }
+      result(nil)
+    }
+  }
+
+  func view() -> UIView { button }
+
+  private func update(_ configuration: [String: Any]) {
+    let enabled = configuration["enabled"] as? Bool ?? false
+    let busy = configuration["busy"] as? Bool ?? false
+    button.isEnabled = enabled && !busy
+    button.overrideUserInterfaceStyle = configuration["isDark"] as? Bool == true ? .dark : .light
+    button.backgroundColor = UIColor(argb: configuration["backgroundColor"] as? Int ?? 0)
+    button.tintColor = UIColor(argb: configuration["foregroundColor"] as? Int ?? 0)
+    button.accessibilityLabel = configuration["label"] as? String
+    button.setImage(busy ? nil : UIImage(systemName: "arrow.up"), for: .normal)
+    spinner.color = button.tintColor
+    if busy { spinner.startAnimating() } else { spinner.stopAnimating() }
+    // Clear the menu while disabled, including when a send begins with it open.
+    button.menu = button.isEnabled ? UIMenu(children: [
+      action("queue", title: configuration["queueLabel"] as? String ?? "", symbol: "text.line.last.and.arrowtriangle.forward"),
+      action("steer", title: configuration["steerLabel"] as? String ?? "", symbol: "arrow.turn.up.right"),
+    ]) : nil
+  }
+
+  private func action(_ mode: String, title: String, symbol: String) -> UIAction {
+    UIAction(title: title, image: UIImage(systemName: symbol)) { [weak self] _ in
+      guard let self, self.button.isEnabled else { return }
+      self.channel.invokeMethod("selected", arguments: mode)
+    }
+  }
+
+  @objc private func send() {
+    guard button.isEnabled else { return }
+    channel.invokeMethod("pressed", arguments: nil)
   }
 }
 

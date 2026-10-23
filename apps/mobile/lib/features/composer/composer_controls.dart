@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/locale/app_localizations_ext.dart';
+import '../../core/models/codex_account_models.dart';
 import '../../core/constants/bash_review_ui.dart';
 import 'composer_toolbar_icon.dart';
 import '../../core/models/acp_models.dart';
@@ -2619,9 +2620,13 @@ class ComposerRouteSummary extends ConsumerWidget {
     final occupancyPct = features.showContextUsage
         ? resolvePlannerOccupancyPct(contextSnapshot)
         : null;
+    final showCodexQuota = usesCodexAccount(runtimeConfig, coreKind, resolvedSnapshot: snapshot);
     final showRing =
-        (features.showContextUsage || showBilling) &&
-        (features.showContextUsage ? contextSnapshot != null : billing != null);
+        showCodexQuota ||
+        ((features.showContextUsage || showBilling) &&
+            (features.showContextUsage
+                ? contextSnapshot != null
+                : billing != null));
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -2663,6 +2668,7 @@ class ComposerRouteSummary extends ConsumerWidget {
               billing: showBilling ? billing : null,
               showContextUsage: features.showContextUsage,
               showBilling: showBilling,
+              showCodexQuota: showCodexQuota,
               currentMainModelId: currentMainModelId,
               mainAgentConfigName: snapshot?.mainAgentConfigName,
               threadStatus: threadStatus,

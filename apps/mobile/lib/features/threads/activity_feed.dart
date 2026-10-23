@@ -205,6 +205,7 @@ class ActivityFeedEntry {
     this.historyRevision = 0,
     this.conversationV2Detail,
     this.sequence = 0,
+    this.canRetryRequest = true,
   });
 
   final String id;
@@ -278,6 +279,9 @@ class ActivityFeedEntry {
   final Map<String, dynamic>? conversationV2Detail;
   final int sequence;
 
+  /// Runtime event recording notices are not failed model requests.
+  final bool canRetryRequest;
+
   ActivityFeedEntry withSequence(int sequence) {
     if (this.sequence == sequence) return this;
     return ActivityFeedEntry(
@@ -325,6 +329,7 @@ class ActivityFeedEntry {
       historyRevision: historyRevision,
       conversationV2Detail: conversationV2Detail,
       sequence: sequence,
+      canRetryRequest: canRetryRequest,
     );
   }
 
@@ -378,6 +383,7 @@ class ActivityFeedEntry {
       historyRevision: historyRevision,
       conversationV2Detail: conversationV2Detail,
       sequence: sequence,
+      canRetryRequest: canRetryRequest,
     );
   }
 }
@@ -1790,7 +1796,7 @@ class _ActivityFeedEntryTile extends StatelessWidget {
       case ActivityFeedKind.error:
         return _ErrorTile(
           text: entry.text,
-          onRetry: onRetryFailedRequest == null
+          onRetry: !entry.canRetryRequest || onRetryFailedRequest == null
               ? null
               : () => onRetryFailedRequest!(entry),
         );
@@ -5361,23 +5367,34 @@ class _ErrorTileState extends State<_ErrorTile> {
 
   @override
   Widget build(BuildContext context) {
+    final eco = ecoColors(context);
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: ecoColors(context).statusDenyBg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: ecoColors(context).statusDenyBorder),
+        color: eco.bgElevated,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: eco.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            widget.text,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: ecoColors(context).statusDenyText,
-              height: 1.4,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(EcoIcons.error, size: 16, color: eco.textSecondary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.text,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: eco.textSecondary,
+                    fontSize: 13,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+            ],
           ),
           if (widget.onRetry != null) ...[
             const SizedBox(height: 6),

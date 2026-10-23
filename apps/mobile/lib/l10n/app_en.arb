@@ -1041,5 +1041,83 @@
   "todosDiscardTitle": "Discard changes?",
   "todosDiscardHint": "Your unsaved changes will be lost.",
   "todosDiscard": "Discard",
-  "todosTextLimit": "To-do text cannot exceed 100,000 characters."
+  "todosTextLimit": "To-do text cannot exceed 100,000 characters.",
+  "codexQuotaTab": "Usage",
+  "codexQuotaTitle": "ChatGPT Login account usage",
+  "codexQuotaCurrentAccount": "Current account: {name}",
+  "codexQuotaRemaining": "{percent}% remaining",
+  "codexQuotaDays": "{count}-day quota",
+  "codexQuotaHours": "{count}-hour quota",
+  "codexQuotaResetsAt": "Resets on {time}",
+  "codexQuotaResetCount": "Available resets: {count}",
+  "codexQuotaNoCredit": "This account has no reset credits",
+  "codexQuotaNothingToReset": "No quota window is available to reset",
+  "codexQuotaSwitching": "Switching accounts. Reset will be available when complete.",
+  "codexQuotaSwitchAccount": "Switch account",
+  "codexQuotaUseReset": "Use reset",
+  "codexQuotaRefresh": "Refresh usage",
+  "codexQuotaLoading": "Loading account usage…",
+  "codexQuotaIdle": "No usage data yet",
+  "codexQuotaNoAccount": "No signed-in Codex account selected",
+  "codexQuotaSwitchDescription": "Choose another signed-in account with remaining quota. Usage is checked again before switching.",
+  "codexQuotaNoCandidates": "No other signed-in accounts",
+  "codexQuotaSearch": "Search accounts",
+  "codexQuotaNoResults": "No matching accounts",
+  "codexQuotaUnavailable": "Account unavailable or out of quota. Refresh and choose another account.",
+  "codexQuotaUnknown": "No usage data yet. Refresh to check.",
+  "codexQuotaExhausted": "No available quota",
+  "codexQuotaDisconnected": "Desktop disconnected. Cannot read usage.",
+  "codexQuotaRemoved": "The active account was removed. Refresh to continue.",
+  "codexQuotaResetSuccess": "Usage reset successfully",
+  "codexQuotaUpdatedAt": "Updated {time}",
+  "codexQuotaBack": "Back to usage",
+  "@codexQuotaCurrentAccount": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaRemaining": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaHours": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaResetsAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaResetCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaUpdatedAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  }
 }

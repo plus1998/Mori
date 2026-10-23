@@ -1785,7 +1785,7 @@ ActivityFeedEntry? _projectionItemToFeedEntry(
   required AppLocalizations l10n,
 }) {
   final text = item.text.trim();
-  // A V2 api.error is a failed request with a durable retry target. Handle it
+  // A V2 api.error may be a failed request or an event recording notice. Handle it
   // before the generic reconnect presentation, which is informational and
   // would otherwise hide the retry action behind a phase row.
   if (item.eventType == 'api.error') {
@@ -1800,6 +1800,10 @@ ActivityFeedEntry? _projectionItemToFeedEntry(
       requestId: item.requestId,
       at: item.at,
       sequence: item.sequence,
+      canRetryRequest:
+          item.metadata?['activityOrigin'] !=
+              'eco.runtime_event_persist_failure' &&
+          item.role != 'eco_runtime_error',
     );
   }
   final reconnect = resolveReconnectPhaseDisplay(

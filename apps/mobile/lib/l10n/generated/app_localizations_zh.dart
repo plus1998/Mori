@@ -3013,4 +3013,105 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get todosTextLimit => '待办文字不能超过 100000 个字符。';
+
+  @override
+  String get codexQuotaTab => '额度';
+
+  @override
+  String get codexQuotaTitle => 'ChatGPT Login 账号额度';
+
+  @override
+  String codexQuotaCurrentAccount(String name) {
+    return '当前使用账号：$name';
+  }
+
+  @override
+  String codexQuotaRemaining(String percent) {
+    return '剩余 $percent%';
+  }
+
+  @override
+  String codexQuotaDays(String count) {
+    return '$count 天额度';
+  }
+
+  @override
+  String codexQuotaHours(String count) {
+    return '$count 小时额度';
+  }
+
+  @override
+  String codexQuotaResetsAt(String time) {
+    return '将于 $time 重置';
+  }
+
+  @override
+  String codexQuotaResetCount(String count) {
+    return '可用重置：$count 次';
+  }
+
+  @override
+  String get codexQuotaNoCredit => '当前账号没有可用重置次数';
+
+  @override
+  String get codexQuotaNothingToReset => '当前没有可重置的额度窗口';
+
+  @override
+  String get codexQuotaSwitching => '正在切换账号，切换完成后可使用重置';
+
+  @override
+  String get codexQuotaSwitchAccount => '切换账号';
+
+  @override
+  String get codexQuotaUseReset => '使用重置';
+
+  @override
+  String get codexQuotaRefresh => '刷新额度';
+
+  @override
+  String get codexQuotaLoading => '正在读取账号额度…';
+
+  @override
+  String get codexQuotaIdle => '暂无额度数据';
+
+  @override
+  String get codexQuotaNoAccount => '尚未选择已登录的 Codex 账号';
+
+  @override
+  String get codexQuotaSwitchDescription => '选择还有额度的已登录账号。切换前会重新检查额度。';
+
+  @override
+  String get codexQuotaNoCandidates => '没有其他已登录账号';
+
+  @override
+  String get codexQuotaSearch => '搜索账号';
+
+  @override
+  String get codexQuotaNoResults => '没有匹配的账号';
+
+  @override
+  String get codexQuotaUnavailable => '账号不可用或额度已用完，请刷新后选择其他账号';
+
+  @override
+  String get codexQuotaUnknown => '尚无额度数据，请先刷新';
+
+  @override
+  String get codexQuotaExhausted => '暂无可用额度';
+
+  @override
+  String get codexQuotaDisconnected => '电脑未连接，无法读取额度';
+
+  @override
+  String get codexQuotaRemoved => '当前使用账号已移除，请刷新';
+
+  @override
+  String get codexQuotaResetSuccess => '额度已重置';
+
+  @override
+  String codexQuotaUpdatedAt(String time) {
+    return '更新于 $time';
+  }
+
+  @override
+  String get codexQuotaBack => '返回额度';
 }

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:uuid/uuid.dart';
 
 import '../models/acp_models.dart';
+import '../models/codex_account_models.dart';
 import '../models/asr_models.dart';
 import '../models/tts_models.dart';
 import '../models/eco_types.dart';
@@ -37,6 +38,76 @@ class PromptImageUploadResult {
 }
 
 class DesktopRpc implements ReadAloudRemote {
+  Future<List<CodexAccount>> listCodexAccounts() async {
+    final result = await _client.invoke<List<dynamic>>(
+      desktopDeviceId,
+      'openai-accounts:list',
+      [],
+    );
+    return result
+        .map(
+          (row) => CodexAccount.fromJson(Map<String, dynamic>.from(row as Map)),
+        )
+        .toList();
+  }
+
+  Future<CodexActiveAccount> getActiveCodexAccount() async =>
+      CodexActiveAccount.fromJson(
+        await _client.invoke<Map<String, dynamic>>(
+          desktopDeviceId,
+          'openai-accounts:get-active',
+          [],
+        ),
+      );
+
+  Future<CodexAccountQuota> queryCodexAccountQuota(String accountId) async =>
+      CodexAccountQuota.fromJson(
+        await _client.invoke<Map<String, dynamic>>(
+          desktopDeviceId,
+          'openai-accounts:query-quota',
+          [
+            {'accountId': accountId},
+          ],
+        ),
+      );
+
+  Future<bool> setActiveCodexAccount(String accountId) async {
+    final result = await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'openai-accounts:set-active',
+      [
+        {'accountId': accountId},
+      ],
+    );
+    if (result['success'] != true) {
+      throw StateError('Codex account switch failed');
+    }
+    return result['pending'] == true;
+  }
+
+  Future<String> resetCodexAccountQuota(
+    String accountId,
+    String idempotencyKey,
+  ) async {
+    final result = await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'openai-accounts:reset-quota',
+      [
+        {'accountId': accountId, 'idempotencyKey': idempotencyKey},
+      ],
+    );
+    final outcome = result['outcome'];
+    if (!const [
+      'reset',
+      'alreadyRedeemed',
+      'nothingToReset',
+      'noCredit',
+    ].contains(outcome)) {
+      throw const FormatException('Unknown Codex reset outcome');
+    }
+    return outcome as String;
+  }
+
   Future<List<ProjectTodo>> listProjectTodos() async {
     final result = await _client.invoke<List<dynamic>>(desktopDeviceId, 'project-todo:list', []);
     return result.map((row) => ProjectTodo.fromJson(Map<String, dynamic>.from(row as Map))).toList();

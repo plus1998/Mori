@@ -1210,6 +1210,13 @@ export class ConversationV2Store {
         this.backfillAgentDelegation();
       }
     }
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_conversation_messages_v2_timeline
+        ON conversation_messages_v2(
+          conversation_id, COALESCE(julianday(occurred_at), 0) DESC,
+          created_seq DESC, message_id DESC
+        )
+    `);
     // The agent registry is new, so existing conversations have no rows for the
     // agents they already ran. Role, kind, mission and boundaries only ever lived in
     // the legacy instance table; seeding them here is a plain re-derivation for the
@@ -2804,6 +2811,7 @@ export class ConversationV2Store {
       const stream = this.requireExistingStream(conversationId);
       const cursor = beforeCursor ? decodeConversationCursor(beforeCursor, "messages") : undefined;
       this.validateCursor(cursor, stream);
+      const timelineOrder = !cursor || cursor.occurredAt !== undefined;
       let messages = this.readMessages(conversationId, limit, maxBytes, cursor);
       let runIds = [
         ...new Set(
@@ -2815,7 +2823,7 @@ export class ConversationV2Store {
       let toolSummaryCounts = this.listToolSummaryCounts(conversationId, runIds);
       const buildResponse = () => {
         const last = messages.at(-1);
-        const hasMore = this.hasOlderMessages(conversationId, last);
+        const hasMore = this.hasOlderMessages(conversationId, last, timelineOrder);
         return {
           protocolVersion: CONVERSATION_V2_PROTOCOL_VERSION,
           storeEpoch: stream.store_epoch,
@@ -2835,6 +2843,7 @@ export class ConversationV2Store {
                   historyRevision: stream.history_revision,
                   createdSeq: last.createdSeq,
                   id: last.messageId,
+                  ...(timelineOrder ? { occurredAt: last.occurredAt ?? "" } : {}),
                 }),
               }
             : {}),
@@ -6246,20 +6255,33 @@ export class ConversationV2Store {
     conversationId: string,
     limit: number,
     maxBytes: number,
-    cursor?: { createdSeq: number; id: string },
+    cursor?: { createdSeq: number; id: string; occurredAt?: string },
   ): ConversationMessage[] {
     const safeLimit = normalizeLimit(limit, CONVERSATION_V2_MAX_PAGE_SIZE);
     const safeBytes = normalizeBytes(maxBytes);
     const params: Array<string | number> = [conversationId];
     let where = `conversation_id = ?`;
+    // Acceptance can precede delivery by hours. Its immutable created_seq is
+    // an entity identity, not the position of a delivered user prompt. Taking
+    // the snapshot by that sequence loses the prompt while advancing past its
+    // finalization effect. Match the Feed's placement time instead.
+    // Existing opaque cursors retain their sequence order until exhausted.
+    const timelineOrder = !cursor || cursor.occurredAt !== undefined;
     if (cursor) {
-      where += ` AND (created_seq < ? OR (created_seq = ? AND message_id < ?))`;
-      params.push(cursor.createdSeq, cursor.createdSeq, cursor.id);
+      if (timelineOrder) {
+        where += ` AND (COALESCE(julianday(occurred_at), 0), created_seq, message_id)
+          < (COALESCE(julianday(?), 0), ?, ?)`;
+        params.push(cursor.occurredAt ?? "");
+      } else {
+        where += ` AND (created_seq, message_id) < (?, ?)`;
+      }
+      params.push(cursor.createdSeq, cursor.id);
     }
     const rows = this.db
       .prepare(
         `SELECT * FROM conversation_messages_v2 WHERE ${where}
-         ORDER BY created_seq DESC, message_id DESC LIMIT ?`,
+         ORDER BY ${timelineOrder ? "COALESCE(julianday(occurred_at), 0) DESC," : ""}
+           created_seq DESC, message_id DESC LIMIT ?`,
       )
       .all(...params, safeLimit + 1) as unknown as MessageRow[];
     return fitPage(rows.map(rowToMessage), safeLimit, safeBytes);
@@ -6538,13 +6560,17 @@ export class ConversationV2Store {
     return Object.fromEntries(normalizedRunIds.map((runId) => [runId, counts.get(runId) ?? 0]));
   }
 
-  private hasOlderMessages(conversationId: string, last?: ConversationMessage): boolean {
+  private hasOlderMessages(conversationId: string, last?: ConversationMessage, timelineOrder = true): boolean {
     if (!last) return false;
+    const boundary = timelineOrder
+      ? `(COALESCE(julianday(occurred_at), 0), created_seq, message_id)
+          < (COALESCE(julianday(?), 0), ?, ?)`
+      : `(created_seq, message_id) < (?, ?)`;
     const row = this.db
       .prepare(
-        `SELECT 1 AS present FROM conversation_messages_v2 WHERE conversation_id = ? AND (created_seq < ? OR (created_seq = ? AND message_id < ?)) LIMIT 1`,
+        `SELECT 1 AS present FROM conversation_messages_v2 WHERE conversation_id = ? AND ${boundary} LIMIT 1`,
       )
-      .get(conversationId, last.createdSeq, last.createdSeq, last.messageId) as
+      .get(conversationId, ...(timelineOrder ? [last.occurredAt ?? ""] : []), last.createdSeq, last.messageId) as
       | { present?: number }
       | undefined;
     return row?.present === 1;
@@ -7441,6 +7467,7 @@ function buildBootstrapResponse(
             historyRevision: stream.history_revision,
             createdSeq: oldest.createdSeq,
             id: oldest.messageId,
+            occurredAt: oldest.occurredAt ?? "",
           }),
         }
       : {}),

@@ -9,7 +9,6 @@ import '../../core/locale/app_error_localizations.dart';
 import '../../core/models/app_error.dart';
 import '../../core/models/conversation_v2_models.dart';
 import '../../core/models/git_models.dart';
-import '../../core/models/image_display_models.dart';
 import '../../core/models/image_view_models.dart';
 import '../../core/models/project_models.dart';
 import '../../core/models/project_orchestration_settings.dart';
@@ -42,7 +41,7 @@ import 'activity_feed_scroll_coordinator.dart';
 import 'conversation_v2_activity_feed.dart';
 import '../../core/sync/conversation_v2_session.dart';
 import 'conversation_v2_projection.dart';
-import 'image_display_artifacts.dart';
+import 'image_display_provider.dart';
 import 'image_display_floating_gallery.dart';
 import 'thread_menu_sheets.dart';
 import 'thread_session_layout.dart';
@@ -52,7 +51,11 @@ import 'thread_session_route.dart';
 import 'session_content_boot_loading.dart';
 
 class ThreadSessionScreen extends ConsumerStatefulWidget {
-  const ThreadSessionScreen({super.key, required this.threadId, this.initialDraft});
+  const ThreadSessionScreen({
+    super.key,
+    required this.threadId,
+    this.initialDraft,
+  });
 
   final String threadId;
   final ThreadSessionRouteExtra? initialDraft;
@@ -72,8 +75,6 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
   final _picker = ImagePicker();
   final _imageDisplayGalleryController =
       ImageDisplayFloatingGalleryController();
-  List<ImageDisplayArtifact> _remoteImageDisplayArtifacts = const [];
-  int _imageDisplayListEpoch = 0;
   bool _bashApprovalBusy = false;
   bool _planActionBusy = false;
   bool _clarificationBusy = false;
@@ -90,7 +91,6 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
   bool _followUpQueuePauseBusy = false;
   double _lastKeyboardInset = 0;
   String? _deferredComposerRestoreRevision;
-  bool _active = true;
 
   bool get _isLanding => widget.threadId == threadSessionNewPathSegment;
 
@@ -111,14 +111,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
       }
       final thread = ref.read(threadSessionProvider(widget.threadId)).thread;
       ref.read(runtimeConfigProvider.notifier).state = thread?.runtimeConfig;
-      _scheduleImageDisplayArtifactsRefresh();
     });
-  }
-
-  @override
-  void activate() {
-    super.activate();
-    _active = true;
   }
 
   @override
@@ -187,8 +180,6 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
 
   @override
   void deactivate() {
-    _active = false;
-    _imageDisplayListEpoch += 1;
     if (_editingFollowUpId != null) {
       final rpc = ref.read(desktopRpcProvider);
       if (rpc != null) {
@@ -209,25 +200,6 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     _promptController.dispose();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  void _scheduleImageDisplayArtifactsRefresh() {
-    if (!_active || _isLanding) return;
-    final epoch = ++_imageDisplayListEpoch;
-    unawaited(_refreshImageDisplayArtifacts(epoch));
-  }
-
-  Future<void> _refreshImageDisplayArtifacts(int epoch) async {
-    if (!_active) return;
-    final rpc = ref.read(desktopRpcProvider);
-    if (rpc == null) return;
-    try {
-      final listed = await rpc.listImageDisplayArtifacts(widget.threadId);
-      if (!mounted || epoch != _imageDisplayListEpoch) return;
-      setState(() => _remoteImageDisplayArtifacts = listed);
-    } catch (_) {
-      // Projection-derived artifacts still drive the gallery; list is enrichment.
-    }
   }
 
   Future<ImageViewReadData> _loadImageDisplayArtifactBytes(
@@ -426,9 +398,6 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
             .update((revealed) => {...revealed, widget.threadId});
         _scrollCoordinator.forceScrollToEnd();
       }
-      if (!identical(previousProjection, nextProjection)) {
-        _scheduleImageDisplayArtifactsRefresh();
-      }
       final restore = next.composerRestore;
       if (restore != null &&
           restore.revision.isNotEmpty &&
@@ -463,14 +432,11 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
         queuedFollowUps.isNotEmpty ||
         _editingFollowUpId != null;
 
-    final projectionImageDisplays = collectImageDisplayArtifactsFromProjection(
-      threadId: widget.threadId,
-      projection: session.runProjection,
-    );
-    final imageDisplayArtifacts = mergeImageDisplayArtifacts(
-      fromProjection: projectionImageDisplays,
-      fromRemote: _remoteImageDisplayArtifacts,
-    );
+    final imageDisplayArtifacts =
+        ref
+            .watch(threadImageDisplayArtifactsProvider(widget.threadId))
+            .valueOrNull ??
+        const [];
     final failed =
         !isRunning &&
         (thread?.status == 'failed' || thread?.status == 'blocked');

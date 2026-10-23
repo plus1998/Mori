@@ -373,6 +373,9 @@ export function createElectronEventSink(
         case "settings.updated":
           send(IPC_CHANNELS.threadEventsSubscribe, envelope.payload);
           return;
+        case "openai-accounts.changed":
+          // Local windows receive the service's richer IPC notification directly.
+          return;
         default:
           send(IPC_CHANNELS.threadEventsSubscribe, envelope.payload);
       }

@@ -149,10 +149,7 @@ class _ImageDisplayFloatingGalleryState
 
   _ThumbLoadState _ensureLoad(String artifactId, {bool force = false}) {
     final existing = _loads[artifactId];
-    if (!force &&
-        existing != null &&
-        existing.future != null &&
-        existing.error == null) {
+    if (!force && existing != null && existing.future != null) {
       return existing;
     }
     final state = existing ?? _ThumbLoadState();
@@ -330,7 +327,9 @@ class _ImageDisplayFloatingGalleryState
                 itemCount: widget.artifacts.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
-                  final artifact = widget.artifacts[index];
+                  // Keep new screenshots visible within the bounded gallery.
+                  final artifact =
+                      widget.artifacts[widget.artifacts.length - 1 - index];
                   final load = _loads[artifact.id] ?? _ThumbLoadState();
                   return _ArtifactThumbRow(
                     artifact: artifact,
@@ -415,7 +414,7 @@ class _ArtifactThumbRow extends StatelessWidget {
     if (data != null) {
       return Image.memory(
         data!.bytes,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         filterQuality: FilterQuality.medium,
       );
     }
