@@ -30,7 +30,7 @@ test("renders the right-docked gallery as a vertical queue of three layers at mo
   ];
   const markup = renderFloat(items);
   expect(markup).toContain('class="image-gallery-float"');
-  expect(markup).toContain('aria-label="图片画廊"');
+  expect(markup).toContain('aria-label="图库"');
   // 只渲染当前张与后两张，其他图片随浏览进入视口。
   const frameCount = (markup.match(/class="image-gallery-card-frame"/g) ?? []).length;
   expect(frameCount).toBe(3);

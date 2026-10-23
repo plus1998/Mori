@@ -88,11 +88,11 @@ test("the execute menu and its new-session option are disabled for busy or empty
 });
 
 test("new-session plan execution copy exists in both catalogs", () => {
-  expect(i18nCatalogs["zh-CN"].translation["approval.plan.executeInNewSession"]).toBe("在新会话中执行");
+  expect(i18nCatalogs["zh-CN"].translation["approval.plan.executeInNewSession"]).toBe("在新对话中执行");
   expect(i18nCatalogs["zh-CN"].translation["approval.plan.executeMenuAria"]).toBe("更多计划执行选项");
   expect(i18nCatalogs["zh-CN"].translation["approval.plan.backToOptions"]).toBe("返回执行方式");
   expect(i18nCatalogs["en-US"].translation["approval.plan.executeInNewSession"]).toBe(
-    "Execute in a new session",
+    "Run in new chat",
   );
   expect(i18nCatalogs["en-US"].translation["approval.plan.executeMenuAria"]).toBe(
     "More plan execution options",

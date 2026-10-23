@@ -23,7 +23,7 @@ test("renders a compact file viewer and defers its directory tree until requeste
     expect(html).toContain(">repo</button>");
     expect(html).toContain(">App.tsx</button>");
     expect(html).toContain('class="workspace-file-header__open-group"');
-    expect(html).toContain('aria-label="使用其他应用打开"');
+    expect(html).toContain('aria-label="打开方式…"');
     expect(html).toContain(">打开</span>");
     expect(html).not.toContain("workspace-file-viewer__navigator");
   } finally {

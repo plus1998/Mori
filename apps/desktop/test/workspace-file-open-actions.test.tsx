@@ -39,7 +39,7 @@ test("open errors propagate for display rather than turning into a successful no
 test("the shared toolbar labels both the default action and the applications menu", () => {
   const html = renderLocalized(createElement(WorkspaceFileOpenActions, { filePath: "/repo/report.pdf", workspacePath: "/repo", requestId: 1 }), "en-US");
   expect(html).toContain(">Open</span>");
-  expect(html).toContain('aria-label="Open with other app"');
+  expect(html).toContain('aria-label="Open with…"');
   expect(html).toContain('aria-expanded="false"');
 });
 
