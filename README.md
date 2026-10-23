@@ -52,6 +52,8 @@ bun install
 bun run dev
 ```
 
+Dev 启动器负责转发日志和清理自己启动的进程。在 macOS/Linux 上，Ctrl+C 或关闭终端 tab 都会结束 Dev；退出时最多等待 3 秒，再强制清理未退出的进程。复用的已有 Vite 服务不受影响。
+
 首次启动后在「设置 → 模型服务商」添加 API，再创建运行配置。macOS Beta 尚未签名，详见[使用指南](docs/USER_GUIDE.md)。
 
 ### 本地更新已安装的 macOS ARM64 版
