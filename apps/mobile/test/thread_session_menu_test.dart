@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 
 import 'package:eco_mobile/core/models/git_models.dart';
 import 'package:eco_mobile/core/models/thread_models.dart';
+import 'package:eco_mobile/core/theme/eco_adaptive_icons.dart';
 import 'package:eco_mobile/core/utils/thread_session_menu_visibility.dart';
 import 'package:eco_mobile/features/threads/thread_session_menu.dart';
 import 'package:eco_mobile/l10n/generated/app_localizations.dart';
@@ -10,6 +11,35 @@ import 'package:eco_mobile/l10n/generated/app_localizations.dart';
 final _zh = lookupAppLocalizations(const Locale('zh'));
 
 void main() {
+  test('every native session menu entry has an SF Symbol', () {
+    for (final autoReadEnabled in [false, true]) {
+      for (final behindCount in [0, 2]) {
+        final entries = buildThreadSessionMenuEntries(
+          _zh,
+          hasThread: true,
+          workspacePath: '/repo',
+          isRunning: false,
+          autoReadEnabled: autoReadEnabled,
+          gitStatus: _gitStatus(behindCount: behindCount),
+          visibility: const ThreadSessionMenuVisibility(
+            showProgress: true,
+            showPlan: true,
+            showImageDisplay: true,
+            showImageGeneration: true,
+            showHtmlHost: true,
+          ),
+        );
+        for (final entry in entries) {
+          expect(
+            ecoIconSfSymbol(entry.icon),
+            isNotEmpty,
+            reason: '${entry.value} must render in the native iOS menu',
+          );
+        }
+      }
+    }
+  });
+
   test('remote sync action matches desktop fetch and pull behavior', () {
     expect(resolveGitRemoteSyncAction(0), 'fetch');
     expect(resolveGitRemoteSyncAction(2), 'pull');

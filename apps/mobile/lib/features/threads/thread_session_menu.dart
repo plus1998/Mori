@@ -72,7 +72,7 @@ List<ThreadSessionMenuEntry> buildThreadSessionMenuEntries(
   return [
     ThreadSessionMenuEntry(
       value: 'scheduled_messages',
-      icon: Icons.schedule,
+      icon: EcoIcons.schedule,
       label: l10n.schedulingMessages,
       enabled: hasThread,
     ),

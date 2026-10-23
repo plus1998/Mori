@@ -30,6 +30,9 @@ String? ecoIconSfSymbol(IconData icon) {
     EcoIcons.volume2 => 'speaker.wave.2',
     EcoIcons.speaking => 'waveform',
     EcoIcons.copy => 'doc.on.doc',
+    EcoIcons.image => 'photo',
+    EcoIcons.images => 'photo.on.rectangle',
+    EcoIcons.browser => 'macwindow',
     _ => null,
   };
 }
