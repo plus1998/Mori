@@ -5349,6 +5349,7 @@ function App() {
       return;
     }
     let cancelled = false;
+    setComposerCandidateModels([]);
     setComposerModelsError(undefined);
     setComposerModelsLoading(true);
     void eco
@@ -5372,7 +5373,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [composerModelProviderId, composerModelsRefreshNonce]);
+  }, [composerModelProviderId, composerModelsRefreshNonce, settings.providers]);
 
   const composerModelOptions = useMemo<ComposerModelOption[]>(() => {
     return templateMainModel
