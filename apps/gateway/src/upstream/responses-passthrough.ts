@@ -61,6 +61,13 @@ function buildOpenAIUpstreamHeaders(
   if (openAiProject) {
     headers["openai-project"] = openAiProject;
   }
+  // Codex uses session-id for ChatGPT cache affinity; PI's public Responses
+  // adapter sends session_id. Preserve the client's spelling and value rather
+  // than losing its session identity at the gateway boundary.
+  for (const name of ["session-id", "session_id"]) {
+    const value = clientHeaders.get(name);
+    if (value) headers[name] = value;
+  }
   applyUpstreamUserAgent(headers, clientHeaders, upstreamUserAgent);
   return headers;
 }
