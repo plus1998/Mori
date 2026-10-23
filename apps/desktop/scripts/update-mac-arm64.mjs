@@ -34,12 +34,81 @@ function assertSupportedPlatform(platform, arch) {
 }
 
 /** Match executable paths, never app names/arguments shared by production and dev. */
-export function installedAppPids(psOutput, appPath) {
+function installedAppProcesses(psOutput, appPath) {
   const prefix = `${appPath}/Contents/`;
   return psOutput.split("\n").flatMap((line) => {
-    const match = line.match(/^\s*(\d+)\s+(.+?)\s*$/);
-    return match?.[2].startsWith(prefix) ? [Number(match[1])] : [];
+    const match = line.match(/^\s*(\d+)\s+(\S+)\s+(.+?)\s*$/);
+    // Zombies have already exited and cannot respond to signals.
+    return match?.[3].startsWith(prefix) && !match[2].includes("Z")
+      ? [{ pid: Number(match[1]), executable: match[3] }]
+      : [];
   });
+}
+
+export function installedAppPids(psOutput, appPath) {
+  return installedAppProcesses(psOutput, appPath).map(({ pid }) => pid);
+}
+
+/** Also handles daemons orphaned by an earlier Eco exit, without relaunching Eco. */
+export async function quitInstalledApp({
+  target,
+  run = runCommand,
+  delay = sleep,
+  now = Date.now,
+  quitTimeoutMs = 30_000,
+  cleanupTimeoutMs = 5_000,
+  signalProcess = process.kill,
+}) {
+  const listProcesses = () =>
+    installedAppProcesses(run("/bin/ps", ["-axo", "pid=,stat=,comm="], { capture: true }), target);
+  const describe = (processes) =>
+    processes.map(({ pid, executable }) => `PID ${pid}: ${executable}`).join("\n");
+  const mainExecutable = path.join(target, "Contents", "MacOS", "Eco Coding");
+  const hasMain = (processes) => processes.some(({ executable }) => executable === mainExecutable);
+  const waitUntil = async (done, timeoutMs) => {
+    const deadline = now() + timeoutMs;
+    let remaining = listProcesses();
+    while (!done(remaining) && now() < deadline) {
+      await delay(250);
+      remaining = listProcesses();
+    }
+    return remaining;
+  };
+
+  let remaining = listProcesses();
+  if (hasMain(remaining)) {
+    // Only send AppleScript to a running main process: otherwise it launches Eco.
+    run("/usr/bin/osascript", ["-e", `tell application ${JSON.stringify(target)} to quit`], {
+      timeout: quitTimeoutMs,
+    });
+    remaining = await waitUntil((processes) => !hasMain(processes), quitTimeoutMs);
+    if (hasMain(remaining)) {
+      throw new Error(
+        `生产版 Eco 主进程未在 ${quitTimeoutMs / 1000} 秒内退出，已停止更新：\n${describe(remaining)}`,
+      );
+    }
+  }
+
+  // CLI daemons (e.g. agent-browser) may survive the main process and be reparented
+  // to launchd. Re-read exact bundle paths before each signal; never kill by name.
+  for (const signal of ["SIGTERM", "SIGKILL"]) {
+    if (remaining.length === 0) return;
+    console.log(`清理生产版残留进程（${signal}）：\n${describe(remaining)}`);
+    for (const { pid, executable } of listProcesses()) {
+      try {
+        signalProcess(pid, signal);
+      } catch (error) {
+        if (error.code === "ESRCH") continue; // Exited between ps and kill.
+        throw new Error(`无法终止生产版进程（${signal}, PID ${pid}: ${executable}）：${error.message}`, {
+          cause: error,
+        });
+      }
+    }
+    remaining = await waitUntil((processes) => processes.length === 0, cleanupTimeoutMs);
+  }
+  if (remaining.length > 0) {
+    throw new Error(`生产版 Eco 仍有进程未退出，已停止更新：\n${describe(remaining)}`);
+  }
 }
 
 /** Exported for isolated tests; importing this module never packs or quits Eco. */
@@ -52,6 +121,8 @@ export async function updateMacArm64({
   delay = sleep,
   now = Date.now,
   quitTimeoutMs = 30_000,
+  cleanupTimeoutMs = 5_000,
+  signalProcess = process.kill,
 } = {}) {
   assertSupportedPlatform(platform, arch);
   fs.accessSync(applicationsDir, fs.constants.W_OK);
@@ -71,22 +142,7 @@ export async function updateMacArm64({
   if (bundleId !== APP_ID) throw new Error(`打包产物 bundle ID 不匹配：${bundleId}`);
 
   console.log("[2/4] 退出 /Applications 中的生产版 Eco（不影响 dev 版）……");
-  const listPids = () => installedAppPids(run("/bin/ps", ["-axo", "pid=,comm="], { capture: true }), target);
-  if (listPids().length > 0) {
-    // Target the exact installed bundle, not a name that may also identify dev.
-    run("/usr/bin/osascript", ["-e", `tell application ${JSON.stringify(target)} to quit`], {
-      timeout: quitTimeoutMs,
-    });
-    const deadline = now() + quitTimeoutMs;
-    while (listPids().length > 0) {
-      if (now() >= deadline) {
-        throw new Error(
-          `生产版 Eco 未在 ${quitTimeoutMs / 1000} 秒内完全退出，已停止更新；请退出应用及其子进程后重试。`,
-        );
-      }
-      await delay(250);
-    }
-  }
+  await quitInstalledApp({ target, run, delay, now, quitTimeoutMs, cleanupTimeoutMs, signalProcess });
 
   console.log("[3/4] 替换 /Applications/Eco Coding.app……");
   // Keep the old bundle until the complete new bundle is ready on the same volume.

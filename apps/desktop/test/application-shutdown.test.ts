@@ -49,6 +49,21 @@ function createDeps(overrides: Partial<ApplicationShutdownDeps> = {}): Applicati
   };
 }
 
+test("application quit waits for browser processes before closing the remaining services", async () => {
+  let release!: () => void;
+  const stopped = new Promise<void>(resolve => { release = resolve; });
+  const order: string[] = [];
+  const shutdown = shutdownApplicationServices(createDeps({
+    disposeBrowserHost: async () => { order.push("browser-stopping"); await stopped; order.push("browser-stopped"); },
+    closeImageGenerationGateway: async () => { order.push("gateways"); },
+  }));
+  await Bun.sleep(0);
+  expect(order).toEqual(["browser-stopping"]);
+  release();
+  await shutdown;
+  expect(order).toEqual(["browser-stopping", "browser-stopped", "gateways"]);
+});
+
 test("isThreadActivelyRunning treats runtime and persisted running states as active", () => {
   expect(isThreadActivelyRunning({ status: "idle", runtimeActive: false })).toBe(false);
   expect(isThreadActivelyRunning({ status: "running", runtimeActive: false })).toBe(true);

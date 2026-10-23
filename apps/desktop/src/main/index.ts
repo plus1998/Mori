@@ -2656,7 +2656,9 @@ app
       onDeleted: ({ threadId, workspacePath }) => {
         schedulingService?.threadDeleted(threadId);
         clearThreadRuntimeMemory(threadId);
-        void requireBrowserHost().disposeThreadScope(threadId);
+        void requireBrowserHost().disposeThreadScope(threadId).catch((error) => {
+          console.error("[browser] Deleted conversation cleanup failed", error);
+        });
         emitThreadEvent(threadId, "thread.deleted", "对话已删除。", "system", false, {
           workspacePath,
         });
@@ -3889,9 +3891,9 @@ installApplicationShutdownHook(
     killAllInteractiveTerminals: () => {
       interactiveTerminalManager.killAll();
     },
-    disposeBrowserHost: () => {
+    disposeBrowserHost: async () => {
       schedulingService?.stop();
-      browserHost?.dispose();
+      await browserHost?.dispose();
       void computerUseGateway?.close();
     },
     stopAllPiRuntimes: disposeAllPiSessions,
@@ -8292,6 +8294,15 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.browserGetState, async () => requireBrowserHost().getState());
+
+  registerDesktopCommand(IPC_CHANNELS.browserAgentProcessesList, async () =>
+    requireBrowserHost().getAgentBrowserProcesses(conversationStore.listThreads().map((thread) => thread.id)),
+  );
+  registerDesktopCommand(IPC_CHANNELS.browserAgentProcessStop, async (payload: unknown) => {
+    const request = payload as { id?: unknown };
+    if (typeof request?.id !== "string") throw new Error("无效的浏览器自动化进程 ID。");
+    await requireBrowserHost().stopAgentBrowserProcess(request.id);
+  });
 
   registerDesktopCommand(IPC_CHANNELS.browserCaptureSelection, async (payload: unknown) => {
     const request = payload as { browserId?: unknown; kind?: unknown };

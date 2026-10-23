@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { type BrowserInstanceView, isPersonalBrowserScopeId } from "../shared/browser";
 import { pathToName } from "../shared/home-project";
 import type { ClaudeBackgroundTask, CodexBackgroundTerminal } from "../shared/ipc";
+import { AgentBrowserProcessesSection } from "./AgentBrowserProcessesSection";
 import { browserStateStore, useBrowserStateSelector } from "./browser-state-store";
 import { collectRunningTerminals, type RunningTerminal } from "./running-resources";
 import type { TerminalWorkspaceState } from "./terminal-panel-storage";
@@ -64,6 +65,7 @@ export function RunningResourcesPopover({
   const [closing, setClosing] = useState<Set<string>>(() => new Set());
   const closingRef = useRef(new Set<string>());
   const [refreshEpoch, setRefreshEpoch] = useState(0);
+  const [agentProcessCount, setAgentProcessCount] = useState(0);
 
   useLayoutEffect(() => {
     const update = () => {
@@ -237,9 +239,10 @@ export function RunningResourcesPopover({
       </div>
       <div className="running-resources-summary">
         <span>{t("app.running.allSessions")}</span>
-        <span>{t("app.running.resourceCount", { count: pages.length + terminals.length })}</span>
+        <span>{t("app.running.resourceCount", { count: pages.length + terminals.length + agentProcessCount })}</span>
       </div>
       <div className="running-resources-scroll">
+        <AgentBrowserProcessesSection threads={threads} onCountChange={setAgentProcessCount} />
         <section className="running-resources-section" aria-labelledby="running-resources-pages-title">
           <h3 id="running-resources-pages-title" className="running-resources-section-title">
             {t("app.running.pagesShort")}

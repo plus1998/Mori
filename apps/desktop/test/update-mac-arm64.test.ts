@@ -29,9 +29,11 @@ function fixture() {
   const state = {
     failCommand: "",
     bundleId: "com.eco.coding",
-    psSnapshots: [`123 ${path.join(target, executable)}\n`, ""],
+    psSnapshots: [`123 S ${path.join(target, executable)}\n`, ""],
   };
+  const signals: { pid: number; signal: string }[] = [];
   let psIndex = 0;
+  let elapsed = 0;
   const run = (command: string, args: string[], options: Record<string, unknown> = {}) => {
     calls.push({ command, args, options });
     if (command === state.failCommand) throw new Error(`test failure: ${command}`);
@@ -68,7 +70,21 @@ function fixture() {
     executable,
     state,
     calls,
-    options: { root, applicationsDir, platform: "darwin", arch: "arm64", run, delay: async () => {} },
+    signals,
+    options: {
+      root,
+      applicationsDir,
+      platform: "darwin",
+      arch: "arm64",
+      run,
+      now: () => elapsed,
+      delay: async (ms: number) => {
+        elapsed += ms;
+      },
+      signalProcess: (pid: number, signal: string) => {
+        signals.push({ pid, signal });
+      },
+    },
   };
 }
 
@@ -76,16 +92,18 @@ test("matches only processes executing inside the installed app, not dev or argu
   expect(
     installedAppPids(
       `
-    10 /Applications/Eco Coding.app/Contents/MacOS/Eco Coding
-    11 /Applications/Eco Coding.app/Contents/Frameworks/Eco Coding Helper.app/Contents/MacOS/Eco Coding Helper
-    12 /Applications/Eco Coding Dev.app/Contents/MacOS/Eco Coding
-    13 /repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron
-    14 /bin/sh -c echo /Applications/Eco Coding.app/Contents/MacOS/Eco Coding
-    15 /repo/release/mac-arm64/Eco Coding.app/Contents/MacOS/Eco Coding
+    10 S /Applications/Eco Coding.app/Contents/MacOS/Eco Coding
+    11 S /Applications/Eco Coding.app/Contents/Frameworks/Eco Coding Helper.app/Contents/MacOS/Eco Coding Helper
+    12 S /Applications/Eco Coding Dev.app/Contents/MacOS/Eco Coding
+    13 S /repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron
+    14 S /bin/sh -c echo /Applications/Eco Coding.app/Contents/MacOS/Eco Coding
+    15 S /repo/release/mac-arm64/Eco Coding.app/Contents/MacOS/Eco Coding
+    16 Ss /Applications/Eco Coding.app/Contents/Resources/agent-browser/agent-browser
+    17 Z /Applications/Eco Coding.app/Contents/MacOS/Eco Coding
   `,
       "/Applications/Eco Coding.app",
     ),
-  ).toEqual([10, 11]);
+  ).toEqual([10, 11, 16]);
 });
 
 test("packs, quits production, replaces the bundle and opens the exact installed path", async () => {
@@ -110,14 +128,16 @@ test("packs, quits production, replaces the bundle and opens the exact installed
     `tell application ${JSON.stringify(f.target)} to quit`,
   ]);
   expect(f.calls.at(-1)?.args).toEqual(["-a", f.target]);
+  expect(f.signals).toEqual([]);
   expect(fs.readdirSync(f.applicationsDir)).toEqual(["Eco Coding.app"]);
 });
 
 test("does not quit any app when production is not running", async () => {
   const f = fixture();
-  f.state.psSnapshots = ["42 /repo/Eco Coding Dev.app/Contents/MacOS/Electron\n"];
+  f.state.psSnapshots = ["42 S /repo/Eco Coding Dev.app/Contents/MacOS/Electron\n"];
   await updateMacArm64(f.options);
   expect(f.calls.some((call) => call.command === "/usr/bin/osascript")).toBe(false);
+  expect(f.signals).toEqual([]);
 });
 
 test("pack failure leaves the installed app and running processes untouched", async () => {
@@ -148,18 +168,112 @@ test("a quit failure stops installation", async () => {
   expect(fs.readFileSync(path.join(f.target, f.executable), "utf8")).toBe("old");
 });
 
-test("waits for production helpers as well as the main process", async () => {
+test("allows the main process to quit normally before cleaning up helpers", async () => {
   const f = fixture();
-  f.state.psSnapshots.splice(1, 0, `124 ${f.target}/Contents/Frameworks/Helper.app/Contents/MacOS/Helper\n`);
+  f.state.psSnapshots.splice(1, 0, `123 S ${path.join(f.target, f.executable)}\n`);
   await updateMacArm64(f.options);
   expect(f.calls.filter((call) => call.command === "/bin/ps")).toHaveLength(3);
+  expect(f.signals).toEqual([]);
 });
 
-test("a quit timeout does not replace the bundle or force-kill processes", async () => {
+test("terminates a bundled daemon left behind after the main process quits", async () => {
+  const f = fixture();
+  const daemon = `124 Ss ${f.target}/Contents/Resources/agent-browser/agent-browser\n`;
+  const dev = "42 S /repo/Eco Coding Dev.app/Contents/MacOS/Electron\n";
+  const main = `123 S ${path.join(f.target, f.executable)}\n`;
+  f.state.psSnapshots = [main + daemon + dev, daemon + dev, daemon + dev, dev];
+  await updateMacArm64(f.options);
+  expect(f.signals).toEqual([{ pid: 124, signal: "SIGTERM" }]);
+  expect(f.calls.some((call) => call.command === "/usr/bin/ditto")).toBe(true);
+});
+
+test("cleans up an orphan daemon without AppleScript relaunching the app", async () => {
+  const f = fixture();
+  const daemon = `124 Ss ${f.target}/Contents/Resources/agent-browser/agent-browser\n`;
+  f.state.psSnapshots = [daemon, daemon, ""];
+  await updateMacArm64(f.options);
+  expect(f.calls.some((call) => call.command === "/usr/bin/osascript")).toBe(false);
+  expect(f.signals).toEqual([{ pid: 124, signal: "SIGTERM" }]);
+});
+
+test("escalates a stuck helper to SIGKILL and verifies it exits before replacing", async () => {
+  const f = fixture();
+  f.state.psSnapshots = [`124 S ${f.target}/Contents/Frameworks/Helper.app/Contents/MacOS/Helper\n`];
+  await updateMacArm64({
+    ...f.options,
+    cleanupTimeoutMs: 500,
+    signalProcess: (pid: number, signal: string) => {
+      f.signals.push({ pid, signal });
+      expect(f.calls.some((call) => call.command === "/usr/bin/ditto")).toBe(false);
+      if (signal === "SIGKILL") f.state.psSnapshots = [""];
+    },
+  });
+  expect(f.signals).toEqual([
+    { pid: 124, signal: "SIGTERM" },
+    { pid: 124, signal: "SIGKILL" },
+  ]);
+  expect(f.calls.some((call) => call.command === "/usr/bin/ditto")).toBe(true);
+});
+
+test("rechecks executable ownership before signaling a PID that has been reused", async () => {
+  const f = fixture();
+  f.state.psSnapshots = [
+    `124 S ${f.target}/Contents/Resources/agent-browser/agent-browser\n`,
+    "124 S /repo/Eco Coding Dev.app/Contents/MacOS/Electron\n",
+  ];
+  await updateMacArm64(f.options);
+  expect(f.signals).toEqual([]);
+});
+
+test("tolerates a helper exiting between the process listing and the signal", async () => {
+  const f = fixture();
+  const daemon = `124 S ${f.target}/Contents/Resources/agent-browser/agent-browser\n`;
+  f.state.psSnapshots = [daemon, daemon, ""];
+  await updateMacArm64({
+    ...f.options,
+    signalProcess: () => {
+      throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+    },
+  });
+  expect(f.calls.some((call) => call.command === "/usr/bin/ditto")).toBe(true);
+});
+
+test("reports signal permission errors and leaves the installation untouched", async () => {
+  const f = fixture();
+  f.state.psSnapshots = [`124 S ${f.target}/Contents/Resources/agent-browser/agent-browser\n`];
+  await expect(
+    updateMacArm64({
+      ...f.options,
+      signalProcess: () => {
+        throw Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+      },
+    }),
+  ).rejects.toThrow("无法终止生产版进程（SIGTERM, PID 124:");
+  expect(f.calls.some((call) => call.command === "/usr/bin/ditto")).toBe(false);
+  expect(fs.readFileSync(path.join(f.target, f.executable), "utf8")).toBe("old");
+});
+
+test("reports the exact remaining helper after SIGKILL and stops installation", async () => {
+  const f = fixture();
+  const executable = `${f.target}/Contents/Resources/agent-browser/agent-browser`;
+  f.state.psSnapshots = [`124 S ${executable}\n`];
+  await expect(updateMacArm64({ ...f.options, cleanupTimeoutMs: 0 })).rejects.toThrow(
+    `PID 124: ${executable}`,
+  );
+  expect(f.signals).toEqual([
+    { pid: 124, signal: "SIGTERM" },
+    { pid: 124, signal: "SIGKILL" },
+  ]);
+  expect(f.calls.some((call) => call.command === "/usr/bin/ditto")).toBe(false);
+  expect(fs.readFileSync(path.join(f.target, f.executable), "utf8")).toBe("old");
+});
+
+test("a main-process quit timeout does not replace the bundle or force-kill active work", async () => {
   const f = fixture();
   f.state.psSnapshots = f.state.psSnapshots.slice(0, 1);
   await expect(updateMacArm64({ ...f.options, quitTimeoutMs: 0 })).rejects.toThrow("已停止更新");
   expect(f.calls.some((call) => call.command === "/usr/bin/ditto")).toBe(false);
+  expect(f.signals).toEqual([]);
   expect(fs.readFileSync(path.join(f.target, f.executable), "utf8")).toBe("old");
 });
 

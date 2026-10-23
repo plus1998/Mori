@@ -230,6 +230,15 @@ export function pickBrowserFaviconUrl(favicons: readonly string[] | undefined): 
   return undefined;
 }
 
+export interface AgentBrowserProcessView {
+  id: string;
+  pid: number;
+  threadId?: string;
+  browserId?: string;
+  state: "active" | "idle" | "stopping";
+  error?: string;
+}
+
 export interface BrowserViewState {
   /** UI scope currently bound for chrome / tab list (active thread or personal). */
   uiScopeId: string;

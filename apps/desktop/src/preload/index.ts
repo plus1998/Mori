@@ -1098,6 +1098,12 @@ const api = {
   getBrowserState(): Promise<BrowserViewState> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserGetState);
   },
+  listAgentBrowserProcesses(): Promise<import("../shared/browser").AgentBrowserProcessView[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserAgentProcessesList);
+  },
+  stopAgentBrowserProcess(id: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserAgentProcessStop, { id });
+  },
   browserDevPrepareAgentCdp(threadId: string): Promise<{ cdpPort: number }> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserDevPrepareAgentCdp, { threadId });
   },

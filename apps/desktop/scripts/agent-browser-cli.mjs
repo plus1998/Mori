@@ -91,7 +91,7 @@ export function runAgentBrowser(args, extraEnv = {}, options = {}) {
 
   const env = {
     ...process.env,
-    AGENT_BROWSER_IDLE_TIMEOUT_MS: "0",
+    AGENT_BROWSER_IDLE_TIMEOUT_MS: "300000",
     ...extraEnv,
   };
 
