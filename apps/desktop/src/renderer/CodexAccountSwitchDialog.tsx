@@ -31,47 +31,62 @@ export function CodexAccountSwitchList({
   disabled,
   switchingId,
   onSelect,
+  refreshingId,
+  onRefresh,
 }: {
   accounts: OpenAIAccount[];
   disabled: boolean;
   switchingId: string | undefined;
   onSelect: (accountId: string) => void;
+  refreshingId: string | undefined;
+  onRefresh: (accountId: string) => void;
 }) {
   const { t } = useTranslation();
   return (
     <div className="codex-switch-list">
       {accounts.map((account) => (
-        <button
-          type="button"
-          className="codex-switch-account"
-          key={account.id}
-          disabled={disabled}
-          onClick={() => onSelect(account.id)}
-        >
-          <span className="codex-switch-account-top">
-            <span className="codex-switch-avatar">
-              <UserRound size={18} strokeWidth={1.7} />
+        <div className="codex-switch-card" key={account.id}>
+          <button
+            type="button"
+            className="codex-switch-account"
+            disabled={disabled}
+            onClick={() => onSelect(account.id)}
+          >
+            <span className="codex-switch-account-top">
+              <span className="codex-switch-avatar">
+                <UserRound size={18} strokeWidth={1.7} />
+              </span>
+              <span className="codex-switch-identity">
+                <strong>{account.name}</strong>
+                <span>{account.email || account.quota?.email}</span>
+              </span>
+              <span className="codex-switch-plan">{account.quota?.planType}</span>
+              {switchingId === account.id ? (
+                <LoaderCircle size={16} className="mcp-spin" />
+              ) : (
+                <ArrowRight size={16} className="codex-switch-arrow" />
+              )}
             </span>
-            <span className="codex-switch-identity">
-              <strong>{account.name}</strong>
-              <span>{account.email || account.quota?.email}</span>
+            <span className="codex-switch-quotas">
+              {account.quota?.rateLimit.primaryWindow ? (
+                <QuotaWindow window={account.quota.rateLimit.primaryWindow} />
+              ) : null}
+              {account.quota?.rateLimit.secondaryWindow ? (
+                <QuotaWindow window={account.quota.rateLimit.secondaryWindow} />
+              ) : null}
             </span>
-            <span className="codex-switch-plan">{account.quota?.planType}</span>
-            {switchingId === account.id ? (
-              <LoaderCircle size={16} className="mcp-spin" />
-            ) : (
-              <ArrowRight size={16} className="codex-switch-arrow" />
-            )}
-          </span>
-          <span className="codex-switch-quotas">
-            {account.quota?.rateLimit.primaryWindow ? (
-              <QuotaWindow window={account.quota.rateLimit.primaryWindow} />
-            ) : null}
-            {account.quota?.rateLimit.secondaryWindow ? (
-              <QuotaWindow window={account.quota.rateLimit.secondaryWindow} />
-            ) : null}
-          </span>
-        </button>
+          </button>
+          <button
+            type="button"
+            className="mcp-icon-button codex-switch-card-refresh"
+            aria-label={t("codexSwitch.refreshAccount", { name: account.name })}
+            title={t("codexSwitch.refreshAccount", { name: account.name })}
+            disabled={disabled}
+            onClick={() => onRefresh(account.id)}
+          >
+            <RefreshCw size={14} className={refreshingId === account.id || refreshingId === "all" ? "mcp-spin" : undefined} />
+          </button>
+        </div>
       ))}
       {accounts.length === 0 ? (
         <div className="codex-switch-empty">
@@ -92,27 +107,44 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState("");
   const [switchingId, setSwitchingId] = useState<string>();
   const [pendingId, setPendingId] = useState<string>();
+  const [refreshingId, setRefreshingId] = useState<string>();
+  const refreshingRef = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const requestVersion = useRef(0);
   const switchingRef = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (queryQuota = false, accountId?: string) => {
+    if (refreshingRef.current || switchingRef.current) return;
+    refreshingRef.current = true;
     const version = ++requestVersion.current;
-    setLoading(true);
+    if (queryQuota) setRefreshingId(accountId ?? "all");
+    else setLoading(true);
     setError("");
     try {
       if (!window.eco) throw new Error("Desktop bridge is unavailable.");
-      const result = await loadAvailableCodexAccounts(window.eco);
+      if (accountId) {
+        const quota = await window.eco.openAIAccountsQueryQuota(accountId);
+        if (version !== requestVersion.current) return;
+        setAccounts((previous) => previous.flatMap((account) => {
+          if (account.id !== accountId) return [account];
+          const updated = { ...account, quota };
+          return hasAvailableCodexQuota(updated) ? [updated] : [];
+        }));
+        return;
+      }
+      const result = await loadAvailableCodexAccounts(window.eco, queryQuota);
       if (version !== requestVersion.current) return;
       setAccounts(result.accounts);
       setFailedCount(result.failedCount);
     } catch (error) {
       if (version !== requestVersion.current) return;
-      setAccounts([]);
-      setFailedCount(0);
       setError(error instanceof Error ? error.message : String(error));
     } finally {
-      if (version === requestVersion.current) setLoading(false);
+      if (version === requestVersion.current) {
+        refreshingRef.current = false;
+        setLoading(false);
+        setRefreshingId(undefined);
+      }
     }
   }, []);
 
@@ -120,6 +152,7 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
     void refresh();
     return () => {
       requestVersion.current++;
+      refreshingRef.current = false;
     };
   }, [refresh]);
 
@@ -191,7 +224,7 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
   }, [pendingId, onClose, t]);
 
   async function selectAccount(accountId: string) {
-    if (switchingRef.current || pendingId) return;
+    if (switchingRef.current || refreshingRef.current || pendingId) return;
     switchingRef.current = true;
     setSwitchingId(accountId);
     setError("");
@@ -287,8 +320,10 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
           ) : (
             <CodexAccountSwitchList
               accounts={accounts}
-              disabled={Boolean(switchingId || pendingId)}
+              disabled={Boolean(switchingId || pendingId || refreshingId)}
               switchingId={switchingId}
+              refreshingId={refreshingId}
+              onRefresh={(id) => void refresh(true, id)}
               onSelect={(id) => {
                 void selectAccount(id);
               }}
@@ -302,14 +337,15 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
           </span>
           <button
             type="button"
-            className="codex-switch-refresh"
+            className="mcp-icon-button codex-switch-refresh"
+            aria-label={t("codexSwitch.refreshAll")}
+            title={t("codexSwitch.refreshAll")}
             onClick={() => {
-              void refresh();
+              void refresh(true);
             }}
-            disabled={loading || Boolean(switchingId || pendingId)}
+            disabled={loading || Boolean(switchingId || pendingId || refreshingId)}
           >
-            <RefreshCw size={13} />
-            {t("common.refresh")}
+            <RefreshCw size={15} className={refreshingId === "all" ? "mcp-spin" : undefined} />
           </button>
         </footer>
       </div>

@@ -36,12 +36,22 @@
   gap: 10px;
 }
 
+.codex-switch-card {
+  position: relative;
+}
+
+.codex-switch-card-refresh {
+  position: absolute;
+  top: 15px;
+  right: 12px;
+}
+
 .codex-switch-account {
   display: flex;
   flex-direction: column;
   gap: 17px;
   width: 100%;
-  padding: 16px;
+  padding: 16px 48px 16px 16px;
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
   background: var(--bg-elevated);
@@ -248,7 +258,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 0 5px 8px;
+  padding: 6px;
   border: none;
   background: transparent;
   color: var(--text-secondary);

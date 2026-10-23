@@ -59,7 +59,24 @@ test("availability requires valid login and verified remaining quota in every wi
     expect(hasAvailableCodexQuota(unavailable)).toBe(false);
 });
 
-test("switcher refreshes quotas and hides current, logged-out, exhausted and failed accounts", async () => {
+test("opening uses saved quotas without querying accounts", async () => {
+  const result = await loadAvailableCodexAccounts({
+    openAIAccountsList: async () => [
+      account("current"), account("ready"),
+      account("missing", { isLoggedIn: false }),
+      account("unknown", { quota: undefined }),
+      account("exhausted", { quota: { ...quota, rateLimit: { ...quota.rateLimit, limitReached: true } } }),
+    ],
+    openAIAccountsGetActive: async () => ({
+      activeAccountId: "current", isLoggedIn: true, message: "", syncStatus: { state: "ok" },
+    }),
+    openAIAccountsQueryQuota: async () => { throw new Error("Opening must not query quotas"); },
+  });
+  expect(result.accounts.map((item) => item.id)).toEqual(["ready"]);
+  expect(result.failedCount).toBe(0);
+});
+
+test("manual refresh queries quotas and hides current, logged-out, exhausted and failed accounts", async () => {
   const queried: string[] = [];
   const result = await loadAvailableCodexAccounts({
     openAIAccountsList: async () => [
@@ -81,7 +98,7 @@ test("switcher refreshes quotas and hides current, logged-out, exhausted and fai
       if (id === "query-failed") throw new Error("network failure");
       return id === "exhausted" ? { ...quota, rateLimit: { ...quota.rateLimit, limitReached: true } } : quota;
     },
-  });
+  }, true);
   expect(queried.sort()).toEqual(["exhausted", "query-failed", "ready"]);
   expect(result.accounts.map((item) => item.id)).toEqual(["ready"]);
   expect(result.failedCount).toBe(1);
@@ -111,6 +128,8 @@ test("account rows show both remaining windows and empty state has no settings n
       disabled: false,
       switchingId: undefined,
       onSelect: () => undefined,
+      refreshingId: undefined,
+      onRefresh: () => undefined,
     }),
     "zh-CN",
   );
@@ -119,12 +138,16 @@ test("account rows show both remaining windows and empty state has no settings n
   expect(markup).toContain("7 天额度");
   expect(markup).toContain("剩余 70%");
   expect(markup).toContain("剩余 20%");
+  expect(markup).toContain('aria-label="刷新 Personal 的额度"');
+  expect(markup).not.toMatch(/<button[^>]*>[\s\S]*<button[\s\S]*<\/button>[\s\S]*<\/button>/);
   const empty = renderLocalized(
     createElement(CodexAccountSwitchList, {
       accounts: [],
       disabled: false,
       switchingId: undefined,
       onSelect: () => undefined,
+      refreshingId: undefined,
+      onRefresh: () => undefined,
     }),
     "zh-CN",
   );

@@ -19,8 +19,8 @@ type AccountSwitchBridge = Pick<
   "openAIAccountsList" | "openAIAccountsGetActive" | "openAIAccountsQueryQuota"
 >;
 
-/** Only a successful live quota query can put an account into the switcher. */
-export async function loadAvailableCodexAccounts(eco: AccountSwitchBridge): Promise<{
+/** Opening uses saved quotas; only an explicit refresh queries the accounts. */
+export async function loadAvailableCodexAccounts(eco: AccountSwitchBridge, refreshQuota = false): Promise<{
   accounts: OpenAIAccount[];
   failedCount: number;
 }> {
@@ -29,6 +29,7 @@ export async function loadAvailableCodexAccounts(eco: AccountSwitchBridge): Prom
     (account) =>
       account.id !== active.activeAccountId && account.isLoggedIn && account.authState === "configured",
   );
+  if (!refreshQuota) return { accounts: candidates.filter(hasAvailableCodexQuota), failedCount: 0 };
   const results = await Promise.allSettled(
     candidates.map(async (account) => ({
       ...account,
