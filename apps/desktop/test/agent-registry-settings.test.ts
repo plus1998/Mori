@@ -136,6 +136,8 @@ test("active OpenAI account adds the official model with medium reasoning by def
     modelId: "gpt-5.6-luna",
     thinkingEffort: "medium",
   });
+  expect(merged.mainAgentConfigs[0]?.name).toBe("ChatGPT Login");
+  expect(merged.providers[0]?.name).toBe("ChatGPT Login");
 });
 
 test("synced ChatGPT subscription models add a built-in Agent configuration", () => {
@@ -160,7 +162,7 @@ test("synced ChatGPT subscription models add a built-in Agent configuration", ()
 
   expect(merged.mainAgentConfigs[0]).toMatchObject({
     id: "__chatgpt_subscription__",
-    name: "ChatGPT 订阅",
+    name: "ChatGPT OAuth",
     modelRef: {
       providerId: "eco-coding-chatgpt",
       modelId: "gpt-5.6-luna",

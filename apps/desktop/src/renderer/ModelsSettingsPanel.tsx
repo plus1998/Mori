@@ -963,7 +963,7 @@ export function ModelsSettingsPanel({
                   provider.authMethod === "oauth"
                     ? "OAuth"
                     : provider.authMethod === "auth_json"
-                      ? "Codex Auth"
+                      ? t("settings.openaiAccounts.codexAuthAgent")
                       : provider.authMethod === "chatgpt_subscription"
                         ? t("settings.models.authChatGPTSubscription")
                         : "API Key";

@@ -301,8 +301,8 @@ export class CodexImageService {
         reasons.length
           ? reasons.join(" ")
           : route === "chatgpt_web"
-            ? "没有开启生图的登录账号。请在 Codex 账号设置中登录账号（支持 Free）并开启生图。"
-            : "没有开启生图的 Codex 账号。请在 Codex 账号设置中登录 Plus / Team / Pro 账号并开启生图。",
+            ? "没有开启生图的登录账号。请在 ChatGPT Login 设置中登录账号（支持 Free）并开启生图。"
+            : "没有开启生图的 ChatGPT Login 账号。请在 ChatGPT Login 设置中登录 Plus / Team / Pro 账号并开启生图。",
       );
     return candidates;
   }

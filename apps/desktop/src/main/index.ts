@@ -7080,7 +7080,7 @@ function registerIpcHandlers(): void {
     // Keep the OAuth page independent from the main window so it can move
     // across displays without being constrained by the main window's window group.
     const authWindow = createOAuthAuthWindow(undefined, partition);
-    authWindow.setTitle(`Codex 登录 · ${account?.name ?? "账号"}`);
+    authWindow.setTitle(`ChatGPT Login · ${account?.name ?? "账号"}`);
     requireAccountAssistant().attachLogin(payload.accountId, authWindow, authInfo.expiresAt);
     let loginCancelled = false;
     let proxyReleased = false;

@@ -143,7 +143,7 @@ test("profile presence identifies saved fields without exposing their values", (
 });
 
 test("the login helper window title follows the app locale", () => {
-  expect(translateCatalog("zh-CN", "assistant.windowTitle")).toBe("Codex 登录助手");
-  expect(translateCatalog("en-US", "assistant.windowTitle")).toBe("Codex login helper");
+  expect(translateCatalog("zh-CN", "assistant.windowTitle")).toBe("ChatGPT Login 助手");
+  expect(translateCatalog("en-US", "assistant.windowTitle")).toBe("ChatGPT Login helper");
   expect(translateCatalog("en-US", "assistant.inboxWindowTitle", { name: "Test" })).toBe("Inbox · Test");
 });

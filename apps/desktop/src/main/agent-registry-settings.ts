@@ -22,7 +22,7 @@ export interface AgentRegistrySettingsSource {
 /** Virtual built-in main agent config for Codex Auth (CODEX_HOME/auth.json). */
 const OPENAI_OFFICIAL_MAIN_AGENT_CONFIG: MainAgentConfigResource = {
   id: OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID,
-  name: "Codex 登录",
+  name: "ChatGPT Login",
   agentKey: "openai-official",
   modelRef: { providerId: "openai", modelId: "gpt-5.6-luna", thinkingEffort: "medium" },
   tools: { allowed: [], disallowed: [] },
@@ -35,7 +35,7 @@ const OPENAI_OFFICIAL_MAIN_AGENT_CONFIG: MainAgentConfigResource = {
 /** Virtual built-in provider for Codex Auth (auth.json). */
 const OPENAI_OFFICIAL_PROVIDER: ProviderConfigView = {
   id: "openai",
-  name: "OpenAI",
+  name: "ChatGPT Login",
   baseUrl: "",
   requestPath: "/v1",
   version: "v1",
@@ -51,7 +51,7 @@ const OPENAI_OFFICIAL_PROVIDER: ProviderConfigView = {
 function createChatGptSubscriptionMainAgentConfig(modelId: string): MainAgentConfigResource {
   return {
     id: CHATGPT_SUBSCRIPTION_MAIN_AGENT_CONFIG_ID,
-    name: "ChatGPT 订阅",
+    name: "ChatGPT OAuth",
     agentKey: "chatgpt-subscription",
     modelRef: { providerId: "eco-coding-chatgpt", modelId, thinkingEffort: "medium" },
     tools: { allowed: [], disallowed: [] },

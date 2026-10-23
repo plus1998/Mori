@@ -339,7 +339,7 @@ test("the sidebar reminder hides above 10% headroom and is dismissible when it s
   const shown = renderLocalized(createElement(CodexQuotaReminderCard, { ...props, snapshot }), "zh-CN");
   expect(shown).toContain("剩余 6% 使用量");
   expect(shown).toContain('aria-label="关闭"');
-  expect(shown).not.toContain("Codex 账号额度");
+  expect(shown).not.toContain("ChatGPT Login 账号额度");
   const high = {
     ...snapshot,
     quota: {
@@ -376,7 +376,7 @@ test("billing card shows every quota window even when no quota is low", () => {
     "zh-CN",
   );
   for (const text of [
-    "Codex 账号额度",
+    "ChatGPT Login 账号额度",
     "当前使用账号：Current",
     "5 小时",
     "7 天",

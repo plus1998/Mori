@@ -30,7 +30,7 @@ export function resolveThreadRuntimeConfig(
   if (!providersById.has("openai")) {
     providersById.set("openai", {
       id: "openai",
-      name: "OpenAI",
+      name: "ChatGPT Login",
       baseUrl: "",
       requestPath: "/v1",
       version: "v1",

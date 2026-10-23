@@ -1153,7 +1153,7 @@ function normalizeAccountProxyUrl(proxyUrl?: string): string | undefined {
 function subscriptionTestProvider(modelId: string): GatewayProvider {
   return {
     id: "eco-coding-chatgpt",
-    name: "ChatGPT subscription",
+    name: "ChatGPT OAuth",
     upstreamKind: "responses",
     baseUrl: "https://api.openai.com",
     apiKey: "local-unused",
