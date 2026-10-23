@@ -49,6 +49,30 @@ export function installedAppPids(psOutput, appPath) {
   return installedAppProcesses(psOutput, appPath).map(({ pid }) => pid);
 }
 
+/** Only detach when quitting the installed app would also terminate this caller. */
+export function isRunningInsideInstalledApp({
+  ppid = process.ppid,
+  target = path.join("/Applications", APP_NAME),
+  run = runCommand,
+} = {}) {
+  const output = run("/bin/ps", ["-axo", "pid=,ppid=,comm="], { capture: true });
+  const processes = new Map();
+  for (const line of output.split("\n")) {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/);
+    if (match) processes.set(Number(match[1]), { ppid: Number(match[2]), executable: match[3] });
+  }
+  const visited = new Set();
+  while (ppid > 1 && !visited.has(ppid)) {
+    visited.add(ppid);
+    const entry = processes.get(ppid);
+    if (!entry) throw new Error(`无法检测启动来源：父进程 PID ${ppid} 不在进程列表中。`);
+    if (entry.executable.startsWith(`${target}/Contents/`)) return true;
+    ppid = entry.ppid;
+  }
+  if (ppid > 1) throw new Error("无法检测启动来源：父进程链存在循环。");
+  return false;
+}
+
 /** Also handles daemons orphaned by an earlier Eco exit, without relaunching Eco. */
 export async function quitInstalledApp({
   target,
@@ -194,14 +218,25 @@ export async function startDetachedUpdate({
   }
 }
 
-async function main() {
-  assertSupportedPlatform(process.platform, process.arch);
-  if (process.argv[2] === "--worker") {
-    await updateMacArm64();
+export async function main({
+  args = process.argv.slice(2),
+  platform = process.platform,
+  arch = process.arch,
+  detect = isRunningInsideInstalledApp,
+  update = updateMacArm64,
+  detach = startDetachedUpdate,
+} = {}) {
+  assertSupportedPlatform(platform, arch);
+  if (args.length === 1 && args[0] === "--worker") {
+    await update();
     return;
   }
-  if (process.argv.length > 2) throw new Error("用法：bun run update:mac-arm64（无需额外参数）");
-  const { pid, logPath } = await startDetachedUpdate();
+  if (args.length > 0) throw new Error("用法：bun run update:mac-arm64（无需额外参数）");
+  if (!detect()) {
+    await update();
+    return;
+  }
+  const { pid, logPath } = await detach();
   console.log(`本地更新任务已启动（PID ${pid}），打包成功后将退出并重新打开生产版 Eco。`);
   console.log(`查看进度及最终结果：tail -f ${JSON.stringify(logPath)}`);
 }

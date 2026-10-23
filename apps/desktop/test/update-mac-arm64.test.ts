@@ -3,7 +3,99 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { installedAppPids, startDetachedUpdate, updateMacArm64 } from "../scripts/update-mac-arm64.mjs";
+import {
+  installedAppPids,
+  isRunningInsideInstalledApp,
+  main,
+  startDetachedUpdate,
+  updateMacArm64,
+} from "../scripts/update-mac-arm64.mjs";
+
+test("detects installed Eco only in the caller's ancestor chain", () => {
+  const run = () => `
+    10 1 /Applications/Eco Coding.app/Contents/MacOS/Eco Coding
+    11 10 /Applications/Eco Coding.app/Contents/Frameworks/Eco Coding Helper.app/Contents/MacOS/Eco Coding Helper
+    12 11 /bin/zsh
+    13 12 /opt/homebrew/bin/bun
+    20 1 /System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal
+    21 20 /bin/zsh
+    30 1 /repo/Eco Coding Dev.app/Contents/MacOS/Electron
+    31 30 /bin/zsh
+    40 1 /bin/sh -c echo /Applications/Eco Coding.app/Contents/MacOS/Eco Coding
+    50 1 /Applications/Eco Coding.app.backup/Contents/MacOS/Eco Coding
+  `;
+  expect(isRunningInsideInstalledApp({ ppid: 13, run })).toBe(true);
+  for (const ppid of [1, 21, 31, 40, 50]) {
+    expect(isRunningInsideInstalledApp({ ppid, run })).toBe(false);
+  }
+});
+
+test("reports process inspection failures instead of guessing the caller's origin", () => {
+  expect(() => isRunningInsideInstalledApp({ ppid: 99, run: () => "" })).toThrow("父进程 PID 99");
+  expect(() => isRunningInsideInstalledApp({ ppid: 2, run: () => "2 3 /bin/zsh\n3 2 /bin/sh" })).toThrow(
+    "父进程链存在循环",
+  );
+  expect(() =>
+    isRunningInsideInstalledApp({
+      run: () => {
+        throw new Error("ps failed");
+      },
+    }),
+  ).toThrow("ps failed");
+});
+
+test("runs updates in the foreground outside installed Eco and propagates failures", async () => {
+  const calls: string[] = [];
+  const options = {
+    args: [],
+    platform: "darwin",
+    arch: "arm64",
+    detect: () => false,
+    update: async () => {
+      calls.push("foreground");
+    },
+    detach: async () => {
+      throw new Error("must not detach");
+    },
+  };
+  await main(options);
+  expect(calls).toEqual(["foreground"]);
+  await expect(
+    main({
+      ...options,
+      update: async () => {
+        throw new Error("pack failed");
+      },
+    }),
+  ).rejects.toThrow("pack failed");
+});
+
+test("detaches inside installed Eco and workers run without detecting again", async () => {
+  const calls: string[] = [];
+  const options = {
+    args: [],
+    platform: "darwin",
+    arch: "arm64",
+    detect: () => true,
+    update: async () => {
+      calls.push("update");
+    },
+    detach: async () => {
+      calls.push("detach");
+      return { pid: 123, logPath: "/tmp/eco-update-test.log" };
+    },
+  };
+  await main(options);
+  expect(calls).toEqual(["detach"]);
+  await main({
+    ...options,
+    args: ["--worker"],
+    detect: () => {
+      throw new Error("must not inspect worker");
+    },
+  });
+  expect(calls).toEqual(["detach", "update"]);
+});
 
 const tempDirs: string[] = [];
 afterEach(() => {
