@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { CodexMcpServerForConfigSync } from "@eco/runtime";
+import type { CodexMcpServerForConfigSync, EcoAgentRuntimeConfig } from "@eco/runtime";
 import {
   getCodexRuntimeClients,
   getGlobalCodexRuntimeLifecycle,
@@ -18,8 +18,104 @@ import {
   shutdownCodexGlobalRuntimeRefresh,
 } from "../src/main/codex-runtime-run";
 import type { CodexThreadMap } from "../src/main/codex-thread-map";
+import { resolveCodexThreadWebSearchPlan } from "../src/main/resolve-thread-web-search";
 
 const realAppServerTest = process.env.ECO_CODEX_REAL_APP_SERVER_TEST === "1" ? test : test.skip;
+
+realAppServerTest(
+  "Codex account search policy reaches native thread start and resume config",
+  async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "eco-codex-native-search-"));
+    const previousExecutable = process.env.CODEX_EXECUTABLE;
+    process.env.CODEX_EXECUTABLE = path.resolve(import.meta.dir, "../node_modules/.bin/codex");
+    const agentRegistry: EcoAgentRuntimeConfig = {
+      templates: [],
+      orchestration: {
+        mainAgent: {
+          agentKey: "main",
+          name: "Main",
+          systemPromptPreset: "core_native",
+          prompt: "",
+          modelRef: { providerId: "openai", modelId: "gpt-6.1-sol" },
+          tools: { allowed: [], disallowed: [], network: { webSearch: true, webFetch: true } },
+          skills: [],
+        },
+        agents: [],
+        strategy: { kind: "autonomous" },
+      },
+    };
+    try {
+      configureCodexRuntimeRun({
+        ecoDataDir: root,
+        listProviders: () => [],
+        threadMap: {
+          getCodexThreadId: () => undefined,
+          getEcoThreadId: () => undefined,
+          setMapping: () => {},
+          deleteMapping: () => {},
+          getThreadAttribution: () => undefined,
+          setThreadAttribution: () => {},
+        },
+        appendConversationRuntimeEvent: () => {},
+        scheduleThreadRunProjectionUpdated: () => {},
+      });
+      let threadId: string | undefined;
+      for (const enabled of [true, false, true]) {
+        agentRegistry.orchestration.mainAgent.tools.network = { webSearch: enabled, webFetch: true };
+        const plan = resolveCodexThreadWebSearchPlan({
+          mainProviderId: "openai",
+          networkWebSearch: enabled,
+          integratedSettings: {
+            enabled: true,
+            provider: "doubao",
+            hasApiKey: true,
+            approvalMode: "always_allow",
+          },
+          integratedApiKey: "test-search-key",
+        });
+        const prepared = await prepareCodexRuntime({
+          agentRegistry,
+          mainProviderId: "openai",
+          mainModelId: "gpt-6.1-sol",
+          ...(plan.backend === "native" ? {} : { webSearchOverride: "disabled" as const }),
+        });
+        expect(prepared.threadConfig?.web_search).toBe(enabled ? "live" : "disabled");
+        const client = getGlobalCodexRuntimeLifecycle()?.getClient();
+        if (!client) throw new Error("Missing native app-server");
+        const result = await client.request<{ thread: { id: string } }>(
+          threadId ? "thread/resume" : "thread/start",
+          {
+            ...(threadId ? { threadId } : {}),
+            cwd: root,
+            modelProvider: "openai",
+            model: "gpt-6.1-sol",
+            config: prepared.threadConfig,
+          },
+        );
+        if (!threadId) {
+          await client.request("thread/inject_items", {
+            threadId: result.thread.id,
+            items: [
+              {
+                type: "message",
+                role: "user",
+                content: [{ type: "input_text", text: "offline search config test" }],
+              },
+            ],
+          });
+        }
+        threadId = result.thread.id;
+      }
+    } finally {
+      await shutdownCodexGlobalRuntimeRefresh();
+      await stopGlobalCodexRuntimeLifecycle();
+      if (previousExecutable === undefined) delete process.env.CODEX_EXECUTABLE;
+      else process.env.CODEX_EXECUTABLE = previousExecutable;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  },
+  15_000,
+);
 
 realAppServerTest(
   "no-op saves, candidate capabilities, and MCP reloads never wait for active turns",

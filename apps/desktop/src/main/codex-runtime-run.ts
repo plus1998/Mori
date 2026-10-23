@@ -137,7 +137,7 @@ export interface RunThreadRequestWithRuntimeProxyInput {
   resolveSkillConfig?: () => readonly { path: string; enabled: boolean }[];
   /** CWD used to discover and explicitly disable Codex's built-in imagegen Skill. */
   skillDiscoveryCwd?: string;
-  /** Force Codex native web_search on roles + thread config when Eco Integrated search is armed. */
+  /** Disable native search on roles + thread config when search is off or Eco Integrated is selected. */
   resolveWebSearchOverride?: () => CodexWebSearchMode | undefined;
   /** Wait for thread-selected MCP servers to leave `starting` before the turn. */
   ensureMcpReady?: () => Promise<void>;
@@ -1200,9 +1200,12 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
   const baseThreadConfig =
     roleSync?.threadConfig ??
     withCodexMcpServerDefinitions(buildDenyAllMcpThreadConfig(threadMcpServers), threadMcpServers);
-  const threadConfigWithWebSearch = input.webSearchOverride
-    ? { ...baseThreadConfig, web_search: input.webSearchOverride }
-    : baseThreadConfig;
+  // web_search is a thread config field, not a turn/start permission. Materializing
+  // orchestrationToolPolicy alone does not register the native tool on the main actor.
+  const threadConfigWithWebSearch = {
+    ...baseThreadConfig,
+    web_search: orchestrationToolPolicy?.webSearch ?? DEFAULT_CODEX_TOOL_POLICY.webSearch,
+  };
   const mainProviderId =
     input.mainProviderId ?? input.agentRegistry?.orchestration.mainAgent.modelRef.providerId;
   const mainModelId = input.mainModelId ?? input.agentRegistry?.orchestration.mainAgent.modelRef.modelId;

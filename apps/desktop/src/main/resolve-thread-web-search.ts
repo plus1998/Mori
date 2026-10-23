@@ -1,8 +1,4 @@
-import {
-  resolveSupportsNativeWebSearch,
-  resolveWebSearchContext,
-  type WebSearchBackend,
-} from "@eco/runtime";
+import { resolveSupportsNativeWebSearch, resolveWebSearchContext, type WebSearchBackend } from "@eco/runtime";
 import type {
   IntegratedWebSearchProvider,
   IntegratedWebSearchSettingsSnapshot,
@@ -15,12 +11,28 @@ export interface ThreadWebSearchPlan {
   provider?: IntegratedWebSearchProvider;
 }
 
-export function resolveThreadWebSearchPlan(input: {
+interface ThreadWebSearchPlanInput {
   networkWebSearch: boolean | undefined;
   plannerManualSpec?: RouteManualSpec;
   integratedSettings: IntegratedWebSearchSettingsSnapshot;
   integratedApiKey?: string;
-}): ThreadWebSearchPlan {
+}
+
+/** The built-in Codex account route can search without an Integrated Search API key. */
+export function resolveCodexThreadWebSearchPlan(
+  input: ThreadWebSearchPlanInput & { mainProviderId: string | undefined },
+): ThreadWebSearchPlan {
+  if (
+    input.mainProviderId === "openai" &&
+    input.networkWebSearch !== false &&
+    resolveSupportsNativeWebSearch(input.plannerManualSpec)
+  ) {
+    return { backend: "native" };
+  }
+  return resolveThreadWebSearchPlan(input);
+}
+
+export function resolveThreadWebSearchPlan(input: ThreadWebSearchPlanInput): ThreadWebSearchPlan {
   const context = resolveWebSearchContext({
     networkWebSearch: input.networkWebSearch,
     supportsNativeWebSearch: resolveSupportsNativeWebSearch(input.plannerManualSpec),

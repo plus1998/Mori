@@ -912,7 +912,7 @@ import { REMOTE_THREAD_LIST_INITIAL_LIMIT_PER_WORKSPACE } from "./remote-thread-
 import { sendToLiveRenderer } from "./renderer-send";
 import { formatUserFacingRequestError, type RequestAttemptResult } from "./request-retry";
 import { resolveCommandExecutable } from "./resolve-command-executable";
-import { resolveThreadWebSearchPlan } from "./resolve-thread-web-search";
+import { resolveCodexThreadWebSearchPlan, resolveThreadWebSearchPlan } from "./resolve-thread-web-search";
 import { reconcileSdkAgentTerminalEvent } from "./sdk-agent-terminal-reconciliation";
 import type { resolveSdkEventUsageBilling, SdkRunUsageBillingInput } from "./sdk-event-usage-billing";
 import { resolveSdkHintPermission } from "./sdk-hint-approval";
@@ -11974,7 +11974,8 @@ async function startCodexThreadRun(
     const integratedWebSearchApiKey = integratedWebSearchSettings.enabled
       ? integratedWebSearchSettingsStore.getApiKey()
       : undefined;
-    const codexWebSearchPlan = resolveThreadWebSearchPlan({
+    const codexWebSearchPlan = resolveCodexThreadWebSearchPlan({
+      mainProviderId: codexPlannerRoute?.providerId,
       networkWebSearch: codexAgentRegistry
         ? materializeEcoToolPolicy(codexAgentRegistry.orchestration.mainAgent.tools).network?.webSearch
         : undefined,
@@ -12043,7 +12044,7 @@ async function startCodexThreadRun(
             return rewriteEcoMcpHubPromptForCodexServer(append, codexHubServerName(input.thread.id));
           },
           resolveWebSearchOverride: () =>
-            sessionIntegratedWebSearchEnabled ? ("disabled" as const) : undefined,
+            codexWebSearchPlan.backend === "native" ? undefined : ("disabled" as const),
           resolveExecutionConfirmationMode: () =>
             ensureThreadRuntimeConfig(conversationStore.getThread(input.thread.id) ?? input.thread)
               .runtimeConfig?.bashReviewMode ?? "always",
