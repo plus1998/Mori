@@ -71,6 +71,37 @@ test("inline code mark uses markdown-inline-code class in the document model", (
   expect(html).toContain(">foo<");
 });
 
+test("renders CJK emphasis beside punctuation without inserting spaces", () => {
+  const cases: Array<[string, string]> = [
+    [
+      "**混用登录模型和自定义模型的子代理，需要单独设计。**原生子代理由父进程创建。",
+      "<strong>混用登录模型和自定义模型的子代理，需要单独设计。</strong>原生子代理由父进程创建。",
+    ],
+    [
+      "**两个进程仍能修改同一个项目目录。**分开 `CODEX_HOME` 隔离的是 Codex 自身状态。",
+      '<strong>两个进程仍能修改同一个项目目录。</strong>分开 <code class="markdown-inline-code">CODEX_HOME</code> 隔离的是 Codex 自身状态。',
+    ],
+    ["请看**「重要」**说明。", "请看<strong>「重要」</strong>说明。"],
+    ["这里*强调。*继续。", "这里<em>强调。</em>继续。"],
+    ["这里***重要。***继续。", "这里<strong><em>重要。</em></strong>继续。"],
+    ["**テスト。**続き", "<strong>テスト。</strong>続き"],
+  ];
+  for (const [source, html] of cases) {
+    expect(renderFeedMarkdownHtml(source)).toBe(`<p>${html}</p>`);
+  }
+});
+
+test("CJK emphasis keeps literal markers in code and escaped text", () => {
+  expect(renderFeedMarkdownHtml("`**中文。**后续`")).toBe(
+    '<p><code class="markdown-inline-code">**中文。**后续</code></p>',
+  );
+  expect(renderFeedMarkdownHtml("\\*\\*中文。\\*\\*后续")).toBe("<p>**中文。**后续</p>");
+  const fenced = renderFeedMarkdownHtml("```text\n**中文。**后续\n```");
+  expect(fenced).toContain("**中文。**后续");
+  expect(fenced).not.toContain("<strong>");
+  expect(renderFeedMarkdownHtml("**English.**continuation")).toBe("<p>**English.**continuation</p>");
+});
+
 test("renderFeedMarkdownHtml serializes tables blockquotes and file refs", () => {
   const html = renderFeedMarkdownHtml(
     ["> note", "", "| h |", "| --- |", "| c |", "", "See /tmp/x.ts"].join("\n"),
@@ -145,9 +176,13 @@ test("createFeedMarkdownDoc keeps raw HTML blocks and does not invent file refs"
 
 test("renderFeedMarkdownHtml emits raw HTML for block tags", () => {
   const html = renderFeedMarkdownHtml(
-    ['<div style="color:red"><strong>提示框</strong></div>', "", "| A | B |", "| --- | --- |", "| 1 | 2 |"].join(
-      "\n",
-    ),
+    [
+      '<div style="color:red"><strong>提示框</strong></div>',
+      "",
+      "| A | B |",
+      "| --- | --- |",
+      "| 1 | 2 |",
+    ].join("\n"),
   );
   expect(html).toContain('<div style="color:red"><strong>提示框</strong></div>');
   expect(html).toContain("markdown-table");

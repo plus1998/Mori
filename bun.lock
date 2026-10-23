@@ -48,6 +48,7 @@
         "jose": "^6.2.3",
         "koffi": "^3.2.1",
         "markdown-it": "^15.0.0",
+        "markdown-it-cjk-friendly": "3.0.0",
         "material-icon-theme": "5.37.0",
         "mermaid": "^11.17.2",
         "node-pty": "^1.0.0",
@@ -1491,6 +1492,8 @@
     "luxon": ["luxon@3.7.2", "", {}, "sha512-vtEhXh/gNjI9Yg1u4jX/0YVPMvxzHuGgCm6tC5kZyb08yjGWGnqAjGJvcXbqQR2P3MyMEFnRbpcdFS6PBcLqew=="],
 
     "markdown-it": ["markdown-it@15.0.0", "https://registry.npmmirror.com/markdown-it/-/markdown-it-15.0.0.tgz", { "dependencies": { "argparse": "^3.0.0", "entities": "^8.0.0", "linkify-it": "^6.0.0", "mdurl": "^2.1.0", "punycode.js": "^2.3.1", "uc.micro": "^3.0.0" }, "bin": { "markdown-it": "bin/markdown-it.mjs" } }, "sha512-Lf8ajvVNdRpzSNB4VegxNy7gjs8gU35l4b4+ET49LrQC5PKYwLZ72u60LeJ9gv3qiaesuYjJWCyVeQmv/QWKQw=="],
+
+    "markdown-it-cjk-friendly": ["markdown-it-cjk-friendly@3.0.0", "", { "dependencies": { "get-east-asian-width": "^1.4.0" }, "peerDependencies": { "@types/markdown-it": ">=14.2.0", "markdown-it": "*" }, "optionalPeers": ["@types/markdown-it"] }, "sha512-y4OkqwenFXmb1i3w7qfh9E60qNX6U4KzECke8N/7io9SARFSvbR/wde0q/l6/Az9doieLOIw7ZsbDSgl27DR4g=="],
 
     "marked": ["marked@16.4.2", "https://registry.npmmirror.com/marked/-/marked-16.4.2.tgz", { "bin": { "marked": "bin/marked.js" } }, "sha512-TI3V8YYWvkVf3KJe1dRkpnjs68JUPyEa5vjKrp1XEEJUAOaQc+Qj+L1qWbPd0SJuAdQkFU0h73sXXqwDYxsiDA=="],
 

@@ -1,4 +1,5 @@
 import MarkdownIt from "markdown-it";
+import markdownItCjkFriendly from "markdown-it-cjk-friendly";
 import { defaultMarkdownParser, MarkdownParser, schema as markdownSchema } from "prosemirror-markdown";
 import { Fragment, type Mark, type NodeSpec, type Node as PMNode, Schema } from "prosemirror-model";
 import { Plugin } from "prosemirror-state";
@@ -348,6 +349,8 @@ const tokenizer = MarkdownIt({
   breaks: true,
   linkify: false,
 });
+// CommonMark flanking rules miss emphasis like **中文。**后续 (commonmark-spec#650).
+tokenizer.use(markdownItCjkFriendly);
 installHtmlContainerStitch(tokenizer);
 
 export const feedMarkdownParser = new MarkdownParser(
