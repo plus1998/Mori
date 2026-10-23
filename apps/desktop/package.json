@@ -75,6 +75,7 @@
     "@uiw/react-codemirror": "^4.25.11",
     "agent-browser": "0.33.2",
     "cron-parser": "^5.10.1",
+    "cronstrue": "^3.38.0",
     "electron-updater": "6.8.9",
     "fix-path": "^5.0.0",
     "ghostty-web": "^0.4.0",

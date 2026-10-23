@@ -1883,7 +1883,7 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
           {/* No V2 event has landed yet, so the prompt bubble is the entire feed. The
               run is already under way — keep the waiting line up rather than leaving a
               blank pane under the prompt, which is what a first send used to look like. */}
-          <RunLogActiveTail waiting stopping={Boolean(props.thread.cancelling)} />
+          <RunLogActiveTail stopping={Boolean(props.thread.cancelling)} />
         </div>
       );
     }
@@ -2036,6 +2036,16 @@ function ConversationV2ProjectionActivityLogViewImpl({
     () => buildThreadRunTurnFeedSections(viewModel.mainFeedEntries, projection),
     [projection, viewModel.mainFeedEntries],
   );
+  // Late output can sort last in the raw timeline but render inside an earlier turn.
+  // Live status must follow the same order as the sections the reader actually sees.
+  const orderedFeedEntries = useMemo(
+    () => feedSections.flatMap((section) =>
+      section.kind === "turn"
+        ? [...section.processEntries, ...(section.finalEntry ? [section.finalEntry] : [])]
+        : section.kind === "entry" ? [section.entry] : [],
+    ),
+    [feedSections],
+  );
   const paceTargetKey = useMemo(() => resolveFeedPaceTargetKey(feedSections), [feedSections]);
   const retryTargets = useMemo(
     () =>
@@ -2104,8 +2114,8 @@ function ConversationV2ProjectionActivityLogViewImpl({
   // A tool that is still genuinely running keeps its row: with parallel calls the running
   // activity is the thing to narrate, so a wait label may not hide it.
   const liveSlotEntry = useMemo(
-    () => resolveFeedLiveSlotEntry(viewModel.mainFeedEntries, requestSpansById),
-    [viewModel.mainFeedEntries, requestSpansById],
+    () => resolveFeedLiveSlotEntry(orderedFeedEntries, requestSpansById),
+    [orderedFeedEntries, requestSpansById],
   );
   const latestContentIsToolGroup = liveSlotEntry?.kind === "tool-group";
   const runningContextCompactionVisible = viewModel.mainFeedEntries.some((entry) =>
@@ -2130,16 +2140,12 @@ function ConversationV2ProjectionActivityLogViewImpl({
   // empty "正在思考" — never render both as sibling WaitingThinkingBlocks.
   const liveReasoningStageLabel =
     conversationActive && !pendingThinking
-      ? resolveLiveReasoningStageLabel(viewModel.mainFeedEntries)
+      ? resolveLiveReasoningStageLabel(orderedFeedEntries)
       : undefined;
   const deferReasoningStageTip =
     conversationActive && !runningToolVisible && !runningContextCompactionVisible;
-  // Sending has to look acknowledged even before the request span exists. Every prompt
-  // opens a window where the agent side has produced nothing for it yet, and the active
-  // tail would render an empty shell — a blank feed under your own message reads as "the
-  // send did nothing". Widest on a thread's first message (cold runtime start), but
-  // present after every follow-up too.
-  const awaitingAgentAnswer = isAwaitingAgentAnswer(viewModel.mainFeedEntries);
+  // A prompt needs acknowledgement even before its request span exists.
+  const awaitingAgentAnswer = isAwaitingAgentAnswer(orderedFeedEntries);
   const waitingThinkingVisible =
     (!runningToolVisible || thinkingTakesLiveSlot) &&
     !runningContextCompactionVisible &&
@@ -2284,6 +2290,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
   */
   const activeTailVisible =
     conversationActive &&
+    (waitingThinkingVisible || Boolean(toolWritingIndicator) || Boolean(thread?.cancelling)) &&
     !runningContextCompactionVisible &&
     (writingTakesLiveSlot || thinkingTakesLiveSlot || (!runningToolVisible && !latestContentIsToolGroup));
   // The live tail is a row of the Feed, not decoration appended after it. The
@@ -2372,7 +2379,6 @@ function ConversationV2ProjectionActivityLogViewImpl({
     if (section.kind === "active-tail") {
       return (
         <RunLogActiveTail
-          waiting={waitingThinkingVisible || Boolean(toolWritingIndicator)}
           stopping={Boolean(thread?.cancelling)}
           writing={Boolean(toolWritingLabel)}
           {...(toolWritingLabel
@@ -4677,11 +4683,6 @@ export const ProjectionSubagentDetailFeed = memo(function ProjectionSubagentDeta
           ) : (
             <p className="subagent-task-detail-empty">{i18n.t("activity.noDetails")}</p>
           )}
-          {running && !pendingThinking ? (
-            <div className="run-log-feed-entry run-log-feed-entry--tight run-log-active-tail">
-              <RunLogConversationTail />
-            </div>
-          ) : null}
         </div>
       </div>
       <ProjectionSubagentRunInstanceStrip agent={agent} />
@@ -5820,7 +5821,10 @@ function resolveFeedLiveSlotEntry(
       continue;
     }
     if (entry.kind === "timeline" || entry.kind === "agent-echo") {
-      if (isWaitingThinkingItem(entry.item, requestSpansById)) {
+      if (
+        isDeferredThinkingStatusItem(entry.item, requestSpansById, true) ||
+        (!isProjectionUserPromptItem(entry.item) && !projectionItemToDetailBlock(entry.item))
+      ) {
         continue;
       }
     }
@@ -5836,23 +5840,11 @@ function isRunningContextCompactionFeedEntry(entry: ThreadRunProjectionMainFeedE
   return entry.item.eventType === "context.compaction.started";
 }
 
-function RunLogConversationTail() {
-  return (
-    <div
-      className="run-log-conversation-tail"
-      role="status"
-      aria-label={i18n.t("activity.conversationActive")}
-    />
-  );
-}
-
 function RunLogActiveTail({
-  waiting,
   stopping = false,
   label,
   writing = false,
 }: {
-  waiting: boolean;
   stopping?: boolean;
   /** Live Summary tip label; when waiting without tip, defaults to「正在思考」. */
   label?: string;
@@ -5863,15 +5855,11 @@ function RunLogActiveTail({
   const statusLabel = stopping ? i18n.t("activity.stopping") : label?.trim() ? label.trim() : undefined;
   return (
     <div className="run-log-feed-entry run-log-feed-entry--tight run-log-active-tail">
-      {waiting ? (
-        <WaitingThinkingBlock
-          active
-          {...(statusLabel ? { label: statusLabel } : {})}
-          {...(writing && !stopping ? { spinner: true } : {})}
-        />
-      ) : (
-        <RunLogConversationTail />
-      )}
+      <WaitingThinkingBlock
+        active
+        {...(statusLabel ? { label: statusLabel } : {})}
+        {...(writing && !stopping ? { spinner: true } : {})}
+      />
     </div>
   );
 }

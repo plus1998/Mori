@@ -16,6 +16,7 @@ import { resolveProviderAccentColor } from "../shared/commit-model-options";
 import { formatIpcInvokeError } from "./AppMessage";
 import { messageDurationFromSeconds } from "./scheduled-message-form";
 import { localizeMainAgentConfigName } from "./main-agent-config-display";
+import { scheduleCronLabel } from "./schedule-cron-label";
 import { localScheduleDate as localDate, scheduleCatchUpSeconds, scheduleIntervalDuration, scheduleIntervalLabel, scheduleTriggerFor as triggerFor, type ScheduleTimingForm } from "./schedule-form";
 import "./scheduling.css";
 
@@ -194,7 +195,7 @@ export function SchedulingPanel(props: Props) {
   const history = snapshot.occurrences.filter(item => item.definition.kind === "scheduled_task" && (!selectedId || item.scheduleId === selectedId)).slice(0, 30);
   const labelInterval = (seconds: number) => { const interval = scheduleIntervalLabel(seconds); return t(interval.key, interval.options); };
   const labelTrigger = (trigger: ScheduleTrigger) => trigger.type === "at" ? formatTime(trigger.at)
-    : trigger.type === "cron" ? `${trigger.expression} · ${trigger.timezone}` : labelInterval(trigger.everySeconds);
+    : trigger.type === "cron" ? scheduleCronLabel(trigger, i18n.language) : labelInterval(trigger.everySeconds);
   const labelModel = (profile: ScheduleExecutionProfile) => profile.coreKind === "acp"
     ? profile.runtimeConfig.cursorModelId ?? coreDisplayName("acp")
     : profile.runtimeConfig.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId ?? coreDisplayName(profile.coreKind);
@@ -222,7 +223,7 @@ export function SchedulingPanel(props: Props) {
         <aside className="scheduling-list" aria-label={t("scheduling.scheduled_task")}>
           {loading ? <p>{t("common.loading")}</p> : items.length === 0 ? <p className="scheduling-empty">{t("scheduling.empty")}</p> : items.map(item => <button key={item.id} className={`scheduling-item ${selectedId === item.id ? "selected" : ""}`} onClick={() => { setSelectedId(item.id); setForm(undefined); setError(""); }}>
             <span className="scheduling-item-title">{item.name}<span className={`scheduling-badge ${item.error ? "error" : ""}`}>{t(item.error ? "scheduling.needsAttention" : item.enabled ? "scheduling.enabled" : "scheduling.paused")}</span></span>
-            <span>{labelTrigger(item.trigger)}</span>
+            <span title={item.trigger.type === "cron" ? `${item.trigger.expression} · ${item.trigger.timezone}` : undefined}>{labelTrigger(item.trigger)}</span>
             {item.executionProfile && <span className="scheduling-item-meta"><img className="scheduling-core-icon" src={coreIconSrc(item.executionProfile.coreKind)} alt="" aria-hidden/>{labelModel(item.executionProfile)}</span>}
           </button>)}
         </aside>

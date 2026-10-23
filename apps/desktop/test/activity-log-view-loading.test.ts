@@ -406,9 +406,9 @@ test("ActivityLogView waits for thread stop before exposing final output copy", 
   );
 
   expect(html).not.toContain('aria-label="复制消息"');
-  expect(html).toContain('class="run-log-conversation-tail"');
+  expect(html).not.toContain('class="run-log-conversation-tail"');
   expect(html).not.toContain("run-log-streaming-dots");
-  expect(html).toContain("run-log-active-tail");
+  expect(html).not.toContain("run-log-active-tail");
 });
 
 test("ActivityLogView shows thinking when the prompt is the only row on the feed", () => {
@@ -641,6 +641,53 @@ test("native thinking start takes the live slot after a settled tool", () => {
   expect(html).toContain("正在思考");
   expect(html.match(/run-log-thinking streaming empty/g)?.length).toBe(1);
 });
+
+for (const activity of ["thinking", "writing", "idle"] as const) {
+  test(`late output from an earlier turn cannot displace the current tool slot (${activity})`, () => {
+    const html = renderToStaticMarkup(
+      createElement(ProjectionActivityLogView, {
+        projection: projection({
+          status: "running",
+          attempts: [
+            {
+              attemptId: "old-turn", phase: "execution", retryIndex: 0, status: "completed",
+              startedAt: "2026-01-01T00:00:00.000Z", endedAt: "2026-01-01T00:00:01.000Z",
+            },
+            {
+              attemptId: "current-turn", phase: "follow_up", retryIndex: 0, status: "running",
+              startedAt: "2026-01-01T00:00:02.000Z",
+            },
+          ],
+          timeline: [
+            item({
+              id: "current-tool", sequence: 1, eventType: "tool.completed",
+              runAttemptId: "current-turn", at: "2026-01-01T00:00:03.000Z", text: "Tool: Write",
+              metadata: { tool: { name: "Write", detail: "src/app.ts", status: "completed" } },
+            }),
+            item({
+              id: "late-old-output", sequence: 2, eventType: "message.delta",
+              runAttemptId: "old-turn", at: "2026-01-01T00:00:04.000Z", text: "上一轮迟到的输出",
+            }),
+          ],
+          requestSpans: activity === "idle" ? [] : [{
+            ...requestSpan({ requestId: "current-request" }),
+            ...(activity === "thinking"
+              ? { pendingThinkingSince: "2026-01-01T00:00:04.000Z" }
+              : { writingTool: { kind: "file" as const, target: "src/next.ts", since: "2026-01-01T00:00:04.000Z" } }),
+          }],
+        }),
+      }),
+    );
+    expect(html).not.toContain("run-log-conversation-tail");
+    if (activity === "idle") {
+      expect(html).toContain("run-log-tool-group");
+      expect(html).not.toContain("run-log-active-tail");
+    } else {
+      expect(html).not.toContain("run-log-tool-group");
+      expect(html).toContain(activity === "thinking" ? "正在思考" : "正在写入 src/next.ts");
+    }
+  });
+}
 
 test("ActivityLogView removes the waiting indicator after the first stream output", () => {
   const html = renderToStaticMarkup(

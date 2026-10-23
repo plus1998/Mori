@@ -6,6 +6,7 @@ import type { ScheduleDefinition, ScheduleOccurrence } from "../shared/schedulin
 import { isExpiredOneShotSchedule } from "../shared/scheduling";
 import { formatIpcInvokeError } from "./AppMessage";
 import { scheduleIntervalLabel } from "./schedule-form";
+import { scheduleCronLabel } from "./schedule-cron-label";
 
 export function ScheduledMessagesCardBody({ messages, occurrences, onEdit, onRefresh, onError }: {
   messages: readonly ScheduleDefinition[];
@@ -44,7 +45,7 @@ export function ScheduledMessagesCardBody({ messages, occurrences, onEdit, onRef
       return <article key={message.id} className="workspace-scheduled-message">
         <div className="workspace-scheduled-message-heading"><Clock3 size={14} aria-hidden/><strong title={message.name}>{message.name}</strong><span>{t(status)}</span></div>
         {time && <time dateTime={time}>{new Date(time).toLocaleString(i18n.language)}</time>}
-        {message.trigger.type !== "at" && <small>{message.trigger.type === "cron" ? `${message.trigger.expression} · ${message.trigger.timezone}` : labelInterval(message.trigger.everySeconds)}</small>}
+        {message.trigger.type !== "at" && <small title={message.trigger.type === "cron" ? `${message.trigger.expression} · ${message.trigger.timezone}` : undefined}>{message.trigger.type === "cron" ? scheduleCronLabel(message.trigger, i18n.language) : labelInterval(message.trigger.everySeconds)}</small>}
         {message.prompt !== message.name && <p className="workspace-scheduled-message-content" title={message.prompt}>{message.prompt}</p>}
         {message.error && <p className="workspace-scheduled-message-error">{message.error}</p>}
         <div className="workspace-scheduled-message-actions">

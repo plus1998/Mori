@@ -15174,14 +15174,6 @@ button.default-agent-option:focus-visible {
   margin-bottom: 0;
 }
 
-.run-log-conversation-tail {
-  display: flex;
-  align-items: center;
-  min-height: 18px;
-  margin-top: 4px;
-  color: var(--codex-log-muted, #a3a3a3);
-}
-
 .markdown-content--streaming-body .markdown-pre {
   transition: opacity 0.15s ease-out;
 }
@@ -30439,7 +30431,7 @@ html:not([data-platform="darwin"])
 }
 
 /*
- * Active tail (「正在思考」/会话进行中). Inside the Feed it is a row of its own, so the
+ * Active tail (thinking / tool writing). Inside the Feed it is a row of its own, so the
  * rhythm lives on the tail element within its `.run-log-virtual-row`; the short
  * pre-projection feed still renders it as a bare `.run-log` child. Always continue
  * the process rhythm — never step/12px special cases (those made 命令→正在思考 look glued
@@ -30875,8 +30867,7 @@ html:not([data-platform="darwin"])
   min-height: 24px;
 }
 
-.codex-main:not(.codex-main-landing) .run-log-active-tail > .run-log-thinking.empty,
-.codex-main:not(.codex-main-landing) .run-log-active-tail > .run-log-conversation-tail {
+.codex-main:not(.codex-main-landing) .run-log-active-tail > .run-log-thinking.empty {
   display: flex;
   align-items: center;
   min-height: 24px;
