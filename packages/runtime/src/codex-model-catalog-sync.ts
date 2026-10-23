@@ -113,6 +113,8 @@ export interface SyncEcoCodexModelCatalogResult {
   fingerprint: string;
   /** Model behavior only; display labels must not restart the app-server. */
   runtimeFingerprint: string;
+  /** All registered model identities, including native account model slugs. */
+  modelSlugs: string[];
   aliasSlugs: string[];
   nativeModelCount: number;
   changed: boolean;
@@ -627,6 +629,7 @@ export async function syncEcoCodexModelCatalog(
     catalogPath,
     fingerprint: written.fingerprint,
     runtimeFingerprint: fingerprintEcoModelCatalogRuntime(document),
+    modelSlugs: [...new Set(document.models.map((entry) => entry.slug))].sort(),
     aliasSlugs: [...new Set(aliasSlugs)].sort(),
     nativeModelCount: nativeModels.length,
     changed: written.changed,

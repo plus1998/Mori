@@ -1,6 +1,7 @@
 import { createAccountUsagePricingLookup } from "./account-usage-pricing";
 import { ChatGptModelCatalogService, resolveChatGptModelCatalogCachePath } from "./chatgpt-model-catalog";
 import { ProjectTodoStore } from "./project-todo-store";
+import { resolveProjectTodoUploads } from "./project-todo-uploads";
 import type { ProjectTodoSave, ProjectTodoTrash } from "../shared/project-todos";
 import { TtsReadAloudService } from "./tts-read-aloud";
 import { execFile, spawn } from "node:child_process";
@@ -4822,12 +4823,22 @@ function showDesktopNotification(content: { title: string; body: string }, threa
 
 function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.projectTodoList, () => projectTodoStore.list());
-  registerDesktopCommand(IPC_CHANNELS.projectTodoGet, (id: string) => {
+  registerDesktopCommand(IPC_CHANNELS.projectTodoGet, (id: string, includeImageData: boolean = true) => {
     if (typeof id !== "string") throw new Error("Invalid todo ID.");
-    return projectTodoStore.get(id);
+    return projectTodoStore.get(id, includeImageData);
   });
-  registerDesktopCommand(IPC_CHANNELS.projectTodoSave, (input: ProjectTodoSave) => projectTodoStore.save(input));
-  registerDesktopCommand(IPC_CHANNELS.projectTodoTrash, (input: ProjectTodoTrash) => projectTodoStore.trash(input));
+  registerDesktopCommand(IPC_CHANNELS.projectTodoImageRead, (input: Parameters<ProjectTodoStore["readImageChunk"]>[0]) => projectTodoStore.readImageChunk(input));
+  registerDesktopCommand(IPC_CHANNELS.projectTodoSave, async (input: ProjectTodoSave) => {
+    const resolved = await resolveProjectTodoUploads(input, ref => promptImageFileStore.readContentRefAttachment(ref));
+    const saved = projectTodoStore.save(resolved);
+    desktopEventCenter.publish({ kind: "project-todo.changed", payload: {}, aggregateKey: "project-todos:global" });
+    return saved;
+  });
+  registerDesktopCommand(IPC_CHANNELS.projectTodoTrash, (input: ProjectTodoTrash) => {
+    const revision = projectTodoStore.trash(input);
+    desktopEventCenter.publish({ kind: "project-todo.changed", payload: {}, aggregateKey: "project-todos:global" });
+    return revision;
+  });
   registerDesktopCommand(IPC_CHANNELS.schedulingList, () => schedulingService.store.snapshot());
   registerDesktopCommand(IPC_CHANNELS.schedulingCreate, (input: ScheduleCreateInput) => {
     if (input.kind === "scheduled_task")

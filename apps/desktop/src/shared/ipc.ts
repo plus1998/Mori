@@ -153,6 +153,8 @@ export const IPC_CHANNELS = {
   threadGet: "thread:get",
   projectTodoList: "project-todo:list",
   projectTodoGet: "project-todo:get",
+  projectTodoImageRead: "project-todo:image-read",
+  projectTodoChanged: "project-todo:changed",
   projectTodoSave: "project-todo:save",
   projectTodoTrash: "project-todo:trash",
   composerDraftGet: "composer-draft:get",

@@ -3049,4 +3049,139 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get schedulingSaved => 'Schedule saved';
+
+  @override
+  String get todosTitle => 'To-dos';
+
+  @override
+  String get todosSubtitle => 'A clear space for your next step.';
+
+  @override
+  String get todosAdd => 'New to-do';
+
+  @override
+  String get todosEdit => 'Edit to-do';
+
+  @override
+  String get todosAllProjects => 'All projects';
+
+  @override
+  String get todosProject => 'Choose project';
+
+  @override
+  String get todosSearchProjects => 'Search project name or path';
+
+  @override
+  String get todosSearch => 'Search to-dos or projects';
+
+  @override
+  String get todosPending => 'To do';
+
+  @override
+  String get todosCompleted => 'Completed';
+
+  @override
+  String get todosMarkComplete => 'Mark complete';
+
+  @override
+  String get todosMarkPending => 'Mark incomplete';
+
+  @override
+  String get todosEmpty => 'Make room for your next step';
+
+  @override
+  String get todosEmptyHint =>
+      'Save ideas, questions or screenshots, then bring them into a conversation when you are ready.';
+
+  @override
+  String get todosNoResults => 'No matching to-dos';
+
+  @override
+  String get todosNoResultsHint =>
+      'Try another search or choose a different project.';
+
+  @override
+  String get todosNoPending => 'Nothing left to do here';
+
+  @override
+  String get todosNoProjects =>
+      'No projects available. Open a project from Sessions first.';
+
+  @override
+  String get todosInputHint =>
+      'What would you like to do? You can add screenshots too…';
+
+  @override
+  String get todosImagesHint => 'Up to 5 images, 5 MB each';
+
+  @override
+  String get todosAddImage => 'Add image';
+
+  @override
+  String get todosRemoveImage => 'Remove image';
+
+  @override
+  String get todosPreviewImage => 'View image';
+
+  @override
+  String get todosImageInvalid =>
+      'Choose a valid PNG, JPEG, GIF or WebP image.';
+
+  @override
+  String get todosImageTooLarge => 'Images must be no larger than 5 MB.';
+
+  @override
+  String get todosImageLimit => 'You can add up to 5 images.';
+
+  @override
+  String get todosSaved => 'To-do saved';
+
+  @override
+  String get todosDeleted => 'To-do deleted';
+
+  @override
+  String get todosUndo => 'Undo';
+
+  @override
+  String get todosMore => 'To-do actions';
+
+  @override
+  String get todosCompose => 'Bring into conversation';
+
+  @override
+  String get todosNewConversation => 'New conversation';
+
+  @override
+  String get todosComposeHint =>
+      'Fills the composer for you to review and send. Your to-do stays here.';
+
+  @override
+  String get todosSearchThreads => 'Search conversations in this project';
+
+  @override
+  String get todosLoadFailed => 'Unable to load to-dos';
+
+  @override
+  String get todosConflict =>
+      'This to-do changed on another device. Keep your text, close the editor and reopen it before saving.';
+
+  @override
+  String get todosMissing =>
+      'This to-do or image was deleted. Refresh the list.';
+
+  @override
+  String get todosUpgrade =>
+      'Update Eco on the connected computer to use remote to-dos.';
+
+  @override
+  String get todosDiscardTitle => 'Discard changes?';
+
+  @override
+  String get todosDiscardHint => 'Your unsaved changes will be lost.';
+
+  @override
+  String get todosDiscard => 'Discard';
+
+  @override
+  String get todosTextLimit => 'To-do text cannot exceed 100,000 characters.';
 }

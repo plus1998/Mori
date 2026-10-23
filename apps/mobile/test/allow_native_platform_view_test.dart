@@ -6,6 +6,7 @@ void main() {
   group('isShellCoveredLocation', () {
     test('allows only bare shell tab roots', () {
       expect(isShellCoveredLocation('/threads'), isFalse);
+      expect(isShellCoveredLocation('/todos'), isFalse);
       expect(isShellCoveredLocation('/settings'), isFalse);
     });
 

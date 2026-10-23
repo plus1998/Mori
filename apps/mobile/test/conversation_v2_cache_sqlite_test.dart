@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:eco_mobile/core/models/conversation_v2_models.dart';
 import 'package:eco_mobile/core/storage/conversation_v2_cache.dart';
@@ -9,6 +10,96 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   sqfliteFfiInit();
+
+  test(
+    'full push and bounded bootstrap tool summaries survive database reopen',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'eco-tool-summary-reopen-',
+      );
+      final databasePath = p.join(directory.path, 'cache.sqlite');
+      addTearDown(() async {
+        await databaseFactoryFfi.deleteDatabase(databasePath);
+        await directory.delete(recursive: true);
+      });
+      final fullOutput = List.filled(4825, 'a').join();
+      final summaryOutput = '${fullOutput.substring(0, 4000)}…';
+      ConversationV2Tool tool(String output) => ConversationV2Tool(
+        toolCallId: 'tool-reopen',
+        conversationId: _conversationId,
+        runId: 'run-1',
+        name: 'Bash',
+        status: 'completed',
+        createdSeq: 1,
+        versionSeq: 2,
+        occurredAt: '2026-10-23T00:00:00.000Z',
+        providerRole: 'tool',
+        input: const {'command': 'read a long file'},
+        output: output,
+      );
+      ConversationV2Bootstrap bootstrap(String output) =>
+          ConversationV2Bootstrap(
+            protocolVersion: 2,
+            storeEpoch: _storeEpoch,
+            conversationId: _conversationId,
+            snapshotSeq: 2,
+            historyRevision: 0,
+            messages: const [],
+            runs: const [],
+            tools: [tool(output)],
+            olderCursor: null,
+            hasOlder: false,
+          );
+      final initial = _cache(databasePath);
+      await initial.installBootstrap(bootstrap(fullOutput));
+      await initial.close();
+      // Reproduce an existing installation that cached an unbounded push before
+      // upgrading. It must recover without deleting the cache or relaxing checks.
+      final database = await databaseFactoryFfi.openDatabase(databasePath);
+      await database.update(
+        'conversation_v2_tools',
+        {'output_json': jsonEncode(fullOutput)},
+        where: 'tool_call_id = ?',
+        whereArgs: ['tool-reopen'],
+      );
+      await database.close();
+      final reopened = _cache(databasePath);
+      addTearDown(reopened.close);
+      await reopened.installBootstrap(bootstrap(summaryOutput));
+      final payload = <String, dynamic>{
+        'type': 'tool.summary.upsert',
+        'toolCall': tool(fullOutput).toJson(),
+      };
+      await reopened.applySyncPage(
+        _page(
+          fromSeq: 3,
+          throughSeq: 3,
+          headSeq: 3,
+          effects: [
+            ConversationV2Effect(
+              seq: 3,
+              effectVersion: 1,
+              effectHash: conversationV2StableHash(payload),
+              type: 'tool.summary.upsert',
+              payload: payload,
+            ),
+          ],
+        ),
+      );
+      final saved = (await reopened.tools(_conversationId)).single;
+      expect(saved.output, summaryOutput);
+      expect(saved.occurredAt, '2026-10-23T00:00:00.000Z');
+      expect(saved.providerRole, 'tool');
+      await expectLater(
+        reopened.installBootstrap(bootstrap('different output')),
+        throwsStateError,
+      );
+      expect(
+        (await reopened.tools(_conversationId)).single.output,
+        summaryOutput,
+      );
+    },
+  );
 
   test(
     'queued text and image edits survive sync and database reopen',

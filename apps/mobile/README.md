@@ -7,6 +7,7 @@ Flutter 远程客户端，通过用户自建的 **Supabase Center** 操控已绑
 - 账号注册/登录，注册 `mobile` 设备
 - 扫码或手输配对码绑定 PC
 - 会话列表、新建/继续对话、图片附件
+- 底部「待办」页管理桌面端同一份项目待办，支持搜索、项目筛选、图文编辑、完成切换与删除撤销；可把图文带入新会话或已有会话的输入框，确认后再发送
 - 实时事件流（`eco.event`）
 - Plan / Bash / Clarification 审批
 - Plan Mode、Bash Review、Agent Profile 运行时配置
@@ -84,6 +85,8 @@ Supabase  →  Eco Desktop (local execution)
 ```
 
 执行仍在 Desktop 本地完成；Mobile 只做远程操控。
+
+待办也存储在已连接的 Desktop 本地，需要电脑在线并使用支持远程待办的版本。图片每条最多 5 张、每张不超过 5 MB；列表加载缩略图，原图按需分块读取，新图片通过现有附件通道分块上传。桌面端与移动端通过 `project-todo.changed` 通知刷新列表，并用 revision 检查拒绝覆盖另一端已经保存的修改。
 
 ## 流式 Markdown
 

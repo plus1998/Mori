@@ -49,12 +49,29 @@ export class ProjectTodoStore {
       .all() as Row[];
     return rows.map((row) => this.record(row, false));
   }
-  get(id: string): ProjectTodo {
+  get(id: string, includeImageData = true): ProjectTodo {
     const row = this.db.prepare("SELECT * FROM project_todos WHERE id=? AND deleted_at IS NULL").get(id) as
       | Row
       | undefined;
     if (!row) throw new Error("Todo no longer exists.");
-    return this.record(row, true);
+    return this.record(row, includeImageData);
+  }
+  readImageChunk(input: { id: string; revision: number; imageId: string; offset: number }) {
+    if (!input || typeof input.id !== "string" || typeof input.imageId !== "string" ||
+      !Number.isInteger(input.revision) || !Number.isInteger(input.offset) || input.offset < 0) {
+      throw new Error("Invalid todo image chunk request.");
+    }
+    const todo = this.db.prepare("SELECT revision FROM project_todos WHERE id=? AND deleted_at IS NULL")
+      .get(input.id) as { revision: number } | undefined;
+    if (!todo) throw new Error("Todo no longer exists.");
+    if (todo.revision !== input.revision) throw new Error("Todo changed. Reopen it before saving.");
+    const row = this.db.prepare("SELECT data FROM project_todo_images WHERE todo_id=? AND id=?")
+      .get(input.id, input.imageId) as { data: string } | undefined;
+    if (!row) throw new Error("Todo image no longer exists.");
+    const bytes = Buffer.from(row.data, "base64");
+    if (input.offset > bytes.length) throw new Error("Invalid todo image chunk offset.");
+    const chunk = bytes.subarray(input.offset, input.offset + 64 * 1024);
+    return { data: chunk.toString("base64"), totalBytes: bytes.length, nextOffset: input.offset + chunk.length };
   }
   private record(row: Row, full: boolean): ProjectTodo {
     const images = this.db

@@ -1515,6 +1515,11 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.threadGet, threadId);
   },
   listProjectTodos(): Promise<ProjectTodo[]> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoList); },
+  onProjectTodosChanged(callback: () => void): () => void {
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.projectTodoChanged, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.projectTodoChanged, listener);
+  },
   getProjectTodo(id: string): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoGet, id); },
   saveProjectTodo(input: ProjectTodoSave): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoSave, input); },
   trashProjectTodo(input: ProjectTodoTrash): Promise<number> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoTrash, input); },

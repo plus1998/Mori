@@ -2887,4 +2887,130 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get schedulingSaved => '已保存定时安排';
+
+  @override
+  String get todosTitle => '待办';
+
+  @override
+  String get todosSubtitle => '记下想法，让下一步更清晰。';
+
+  @override
+  String get todosAdd => '新建待办';
+
+  @override
+  String get todosEdit => '编辑待办';
+
+  @override
+  String get todosAllProjects => '全部项目';
+
+  @override
+  String get todosProject => '选择项目';
+
+  @override
+  String get todosSearchProjects => '搜索项目名称或路径';
+
+  @override
+  String get todosSearch => '搜索待办或项目';
+
+  @override
+  String get todosPending => '未完成';
+
+  @override
+  String get todosCompleted => '已完成';
+
+  @override
+  String get todosMarkComplete => '标记完成';
+
+  @override
+  String get todosMarkPending => '恢复为未完成';
+
+  @override
+  String get todosEmpty => '给下一步留个位置';
+
+  @override
+  String get todosEmptyHint => '把想法、问题或截图存进待办，准备好后再带入会话。';
+
+  @override
+  String get todosNoResults => '没有匹配的待办';
+
+  @override
+  String get todosNoResultsHint => '试试其他关键词，或切换项目。';
+
+  @override
+  String get todosNoPending => '当前没有未完成待办';
+
+  @override
+  String get todosNoProjects => '没有可选项目，请先在会话页打开项目。';
+
+  @override
+  String get todosInputHint => '记下想做的事，也可以添加截图…';
+
+  @override
+  String get todosImagesHint => '最多 5 张图片，每张不超过 5 MB';
+
+  @override
+  String get todosAddImage => '添加图片';
+
+  @override
+  String get todosRemoveImage => '移除图片';
+
+  @override
+  String get todosPreviewImage => '查看图片';
+
+  @override
+  String get todosImageInvalid => '请选择有效的 PNG、JPEG、GIF 或 WebP 图片。';
+
+  @override
+  String get todosImageTooLarge => '图片不能超过 5 MB。';
+
+  @override
+  String get todosImageLimit => '最多只能添加 5 张图片。';
+
+  @override
+  String get todosSaved => '待办已保存';
+
+  @override
+  String get todosDeleted => '待办已删除';
+
+  @override
+  String get todosUndo => '撤销';
+
+  @override
+  String get todosMore => '待办操作';
+
+  @override
+  String get todosCompose => '带入会话';
+
+  @override
+  String get todosNewConversation => '新建会话';
+
+  @override
+  String get todosComposeHint => '只填入输入框，由你确认发送。待办会保留。';
+
+  @override
+  String get todosSearchThreads => '搜索此项目的会话';
+
+  @override
+  String get todosLoadFailed => '无法加载待办';
+
+  @override
+  String get todosConflict => '这条待办已在另一端修改。请保留当前内容，关闭编辑后重新打开再保存。';
+
+  @override
+  String get todosMissing => '这条待办或图片已被删除，请刷新列表。';
+
+  @override
+  String get todosUpgrade => '当前电脑版本不支持远程待办，请升级电脑端 Eco。';
+
+  @override
+  String get todosDiscardTitle => '放弃本次编辑？';
+
+  @override
+  String get todosDiscardHint => '尚未保存的内容将丢失。';
+
+  @override
+  String get todosDiscard => '放弃编辑';
+
+  @override
+  String get todosTextLimit => '待办文字不能超过 100000 个字符。';
 }

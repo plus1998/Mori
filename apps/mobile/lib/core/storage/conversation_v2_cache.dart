@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/conversation_v2_models.dart';
 import '../utils/conversation_v2_hash.dart';
+import '../utils/conversation_v2_tool_summary.dart';
 
 class ConversationV2EntityRepairError extends StateError {
   ConversationV2EntityRepairError(super.message);
@@ -2015,6 +2016,7 @@ class ConversationV2Cache
     String epoch,
     ConversationV2Tool tool,
   ) async {
+    tool = limitConversationV2ToolSummaryPayload(tool);
     _validateToolMetadata(tool);
     final rows = await txn.query(
       'conversation_v2_tools',
@@ -2030,6 +2032,8 @@ class ConversationV2Cache
         'status',
         'created_seq',
         'version_seq',
+        'occurred_at',
+        'provider_role',
         'input_json',
         'output_json',
       ],
@@ -2525,7 +2529,7 @@ ConversationV2Tool _toolFromRow(Map<String, Object?> row) {
     output: _decodeJson(_rowOptionalString(row, 'output_json')),
   );
   _validateToolMetadata(tool);
-  return tool;
+  return limitConversationV2ToolSummaryPayload(tool);
 }
 
 ConversationV2Agent _agentFromRow(Map<String, Object?> row) {

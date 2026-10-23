@@ -5335,6 +5335,258 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Schedule saved'**
   String get schedulingSaved;
+
+  /// No description provided for @todosTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'To-dos'**
+  String get todosTitle;
+
+  /// No description provided for @todosSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A clear space for your next step.'**
+  String get todosSubtitle;
+
+  /// No description provided for @todosAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'New to-do'**
+  String get todosAdd;
+
+  /// No description provided for @todosEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit to-do'**
+  String get todosEdit;
+
+  /// No description provided for @todosAllProjects.
+  ///
+  /// In en, this message translates to:
+  /// **'All projects'**
+  String get todosAllProjects;
+
+  /// No description provided for @todosProject.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose project'**
+  String get todosProject;
+
+  /// No description provided for @todosSearchProjects.
+  ///
+  /// In en, this message translates to:
+  /// **'Search project name or path'**
+  String get todosSearchProjects;
+
+  /// No description provided for @todosSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Search to-dos or projects'**
+  String get todosSearch;
+
+  /// No description provided for @todosPending.
+  ///
+  /// In en, this message translates to:
+  /// **'To do'**
+  String get todosPending;
+
+  /// No description provided for @todosCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get todosCompleted;
+
+  /// No description provided for @todosMarkComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark complete'**
+  String get todosMarkComplete;
+
+  /// No description provided for @todosMarkPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark incomplete'**
+  String get todosMarkPending;
+
+  /// No description provided for @todosEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Make room for your next step'**
+  String get todosEmpty;
+
+  /// No description provided for @todosEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Save ideas, questions or screenshots, then bring them into a conversation when you are ready.'**
+  String get todosEmptyHint;
+
+  /// No description provided for @todosNoResults.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching to-dos'**
+  String get todosNoResults;
+
+  /// No description provided for @todosNoResultsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Try another search or choose a different project.'**
+  String get todosNoResultsHint;
+
+  /// No description provided for @todosNoPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing left to do here'**
+  String get todosNoPending;
+
+  /// No description provided for @todosNoProjects.
+  ///
+  /// In en, this message translates to:
+  /// **'No projects available. Open a project from Sessions first.'**
+  String get todosNoProjects;
+
+  /// No description provided for @todosInputHint.
+  ///
+  /// In en, this message translates to:
+  /// **'What would you like to do? You can add screenshots too…'**
+  String get todosInputHint;
+
+  /// No description provided for @todosImagesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Up to 5 images, 5 MB each'**
+  String get todosImagesHint;
+
+  /// No description provided for @todosAddImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Add image'**
+  String get todosAddImage;
+
+  /// No description provided for @todosRemoveImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove image'**
+  String get todosRemoveImage;
+
+  /// No description provided for @todosPreviewImage.
+  ///
+  /// In en, this message translates to:
+  /// **'View image'**
+  String get todosPreviewImage;
+
+  /// No description provided for @todosImageInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a valid PNG, JPEG, GIF or WebP image.'**
+  String get todosImageInvalid;
+
+  /// No description provided for @todosImageTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'Images must be no larger than 5 MB.'**
+  String get todosImageTooLarge;
+
+  /// No description provided for @todosImageLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'You can add up to 5 images.'**
+  String get todosImageLimit;
+
+  /// No description provided for @todosSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'To-do saved'**
+  String get todosSaved;
+
+  /// No description provided for @todosDeleted.
+  ///
+  /// In en, this message translates to:
+  /// **'To-do deleted'**
+  String get todosDeleted;
+
+  /// No description provided for @todosUndo.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo'**
+  String get todosUndo;
+
+  /// No description provided for @todosMore.
+  ///
+  /// In en, this message translates to:
+  /// **'To-do actions'**
+  String get todosMore;
+
+  /// No description provided for @todosCompose.
+  ///
+  /// In en, this message translates to:
+  /// **'Bring into conversation'**
+  String get todosCompose;
+
+  /// No description provided for @todosNewConversation.
+  ///
+  /// In en, this message translates to:
+  /// **'New conversation'**
+  String get todosNewConversation;
+
+  /// No description provided for @todosComposeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Fills the composer for you to review and send. Your to-do stays here.'**
+  String get todosComposeHint;
+
+  /// No description provided for @todosSearchThreads.
+  ///
+  /// In en, this message translates to:
+  /// **'Search conversations in this project'**
+  String get todosSearchThreads;
+
+  /// No description provided for @todosLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load to-dos'**
+  String get todosLoadFailed;
+
+  /// No description provided for @todosConflict.
+  ///
+  /// In en, this message translates to:
+  /// **'This to-do changed on another device. Keep your text, close the editor and reopen it before saving.'**
+  String get todosConflict;
+
+  /// No description provided for @todosMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'This to-do or image was deleted. Refresh the list.'**
+  String get todosMissing;
+
+  /// No description provided for @todosUpgrade.
+  ///
+  /// In en, this message translates to:
+  /// **'Update Eco on the connected computer to use remote to-dos.'**
+  String get todosUpgrade;
+
+  /// No description provided for @todosDiscardTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard changes?'**
+  String get todosDiscardTitle;
+
+  /// No description provided for @todosDiscardHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Your unsaved changes will be lost.'**
+  String get todosDiscardHint;
+
+  /// No description provided for @todosDiscard.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get todosDiscard;
+
+  /// No description provided for @todosTextLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'To-do text cannot exceed 100,000 characters.'**
+  String get todosTextLimit;
 }
 
 class _AppLocalizationsDelegate

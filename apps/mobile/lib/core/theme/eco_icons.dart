@@ -21,6 +21,7 @@ abstract final class EcoIcons {
   static const IconData refresh = LucideIcons.refreshCw;
   static const IconData more = LucideIcons.ellipsis;
   static const IconData notifications = LucideIcons.bell;
+  static const IconData schedule = LucideIcons.clock;
   static const IconData add = LucideIcons.plus;
   static const IconData send = LucideIcons.arrowUp;
   static const IconData expandDown = LucideIcons.chevronDown;

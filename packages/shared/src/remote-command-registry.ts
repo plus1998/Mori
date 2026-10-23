@@ -27,6 +27,17 @@ const RPC_INVOKE = ["rpc:invoke"] as const;
 const APPROVAL_DECIDE = ["rpc:invoke", "approval:decide"] as const;
 
 export const REMOTE_COMMAND_DEFINITIONS = [
+  command("project-todo:list", "List project todos", "read", RPC_INVOKE, []),
+  command("project-todo:get", "Get project todo", "read", RPC_INVOKE, [stringArg(), { kind: "boolean", optional: true }]),
+  command("project-todo:image-read", "Read project todo image chunk", "read", RPC_INVOKE, [
+    objectArg(["id", "revision", "imageId", "offset"]),
+  ]),
+  command("project-todo:save", "Save project todo", "write_safe", RPC_INVOKE, [
+    objectArg(["projectPath", "text", "images", "completed"]),
+  ]),
+  command("project-todo:trash", "Delete or restore project todo", "write_safe", RPC_INVOKE, [
+    objectArg(["id", "revision", "deleted"]),
+  ]),
   command("scheduling:list", "List schedules", "read", RPC_INVOKE, []),
   command("scheduling:create", "Create schedule", "write_safe", RPC_INVOKE, [
     objectArg(["requestId", "kind", "name", "prompt", "trigger"]),

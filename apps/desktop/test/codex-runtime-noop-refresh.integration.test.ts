@@ -51,6 +51,7 @@ realAppServerTest(
         prepareCodexRuntime({
           mainProviderId: "openai",
           mainModelId: "gpt-6.1-sol",
+          requiredCatalogRoutes: [{ providerId: "openai", modelId: "gpt-6.1-sol" }],
         });
       const readWindow = () => {
         const catalog = JSON.parse(fs.readFileSync(path.join(root, "codex/eco-model-catalog.json"), "utf8"));

@@ -52,9 +52,10 @@ import 'thread_session_route.dart';
 import 'session_content_boot_loading.dart';
 
 class ThreadSessionScreen extends ConsumerStatefulWidget {
-  const ThreadSessionScreen({super.key, required this.threadId});
+  const ThreadSessionScreen({super.key, required this.threadId, this.initialDraft});
 
   final String threadId;
+  final ThreadSessionRouteExtra? initialDraft;
 
   @override
   ConsumerState<ThreadSessionScreen> createState() =>
@@ -96,6 +97,8 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
   @override
   void initState() {
     super.initState();
+    _promptController.text = widget.initialDraft?.prompt ?? '';
+    _attachments.addAll(widget.initialDraft?.attachments ?? const []);
     WidgetsBinding.instance.addObserver(this);
     _promptController.addListener(() {
       if (_isLanding && mounted) setState(() {});
@@ -468,12 +471,54 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
       fromProjection: projectionImageDisplays,
       fromRemote: _remoteImageDisplayArtifacts,
     );
+    final failed =
+        !isRunning &&
+        (thread?.status == 'failed' || thread?.status == 'blocked');
+    final failureMessage = failed ? thread?.message.trim() : null;
 
     final floatingComposer =
-        hasFloatingComposerContent || conversationV2.error != null
+        hasFloatingComposerContent || conversationV2.error != null || failed
         ? Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (failed)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Semantics(
+                    liveRegion: true,
+                    child: Material(
+                      key: const ValueKey('thread-run-failure-notice'),
+                      color: Theme.of(context).colorScheme.errorContainer,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              context.l10n.threadRunFailed,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (failureMessage?.isNotEmpty == true) ...[
+                              const SizedBox(height: 4),
+                              ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxHeight:
+                                      MediaQuery.sizeOf(context).height * 0.2,
+                                ),
+                                child: SingleChildScrollView(
+                                  child: SelectableText(failureMessage!),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               if (conversationV2.error != null)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),

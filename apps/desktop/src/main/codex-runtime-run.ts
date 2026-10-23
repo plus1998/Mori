@@ -327,7 +327,7 @@ let globalRuntimeRefreshShuttingDown = false;
 let globalRefreshIdleAbortController = new AbortController();
 let beforeGlobalRuntimeRefresh: (() => Promise<void>) | undefined;
 let forcedRuntimeRestart: "account" | "account_proxy" | undefined;
-let loadedModelCatalogAliases: readonly string[] = [];
+let loadedModelCatalogSlugs: readonly string[] = [];
 let loadedGlobalMcpServerNames: readonly string[] = [];
 let loadedGatewayProviderFingerprint = "";
 let loadedAccountModelContexts = "";
@@ -388,7 +388,7 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
   globalRefreshIdleAbortController = new AbortController();
   beforeGlobalRuntimeRefresh = undefined;
   forcedRuntimeRestart = undefined;
-  loadedModelCatalogAliases = [];
+  loadedModelCatalogSlugs = [];
   loadedGlobalMcpServerNames = [];
   loadedGatewayProviderFingerprint = "";
   loadedAccountModelContexts = "";
@@ -507,7 +507,10 @@ function emitCodexTurnTokenUsage(config: CodexRuntimeRunDeps, event: ThreadRunEv
     turnId,
     appServerTokenUsage: appServerTokenUsage as CodexTurnTokenUsageBreakdown,
     ...(Array.isArray(event.metadata?.appServerTokenUsageRequests)
-      ? { appServerTokenUsageRequests: event.metadata.appServerTokenUsageRequests as CodexTurnTokenUsageBreakdown[] }
+      ? {
+          appServerTokenUsageRequests: event.metadata
+            .appServerTokenUsageRequests as CodexTurnTokenUsageBreakdown[],
+        }
       : {}),
   });
 }
@@ -1102,7 +1105,7 @@ function canUseGatewayRuntimeDuringAccountRefresh(input: PrepareCodexRuntimeInpu
     requiredProviders.length > 0 &&
     requiredProviders.every((id) => id !== "openai") &&
     loadedGatewayProviderFingerprint === gatewayProviderFingerprint() &&
-    catalogRoutesAreAvailable(input.requiredCatalogRoutes ?? [], loadedModelCatalogAliases)
+    catalogRoutesAreAvailable(input.requiredCatalogRoutes ?? [], loadedModelCatalogSlugs)
   );
 }
 
@@ -1336,7 +1339,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     (baselineInput.accountModelContexts === undefined ||
       baselineInput.accountModelContexts === loadedAccountModelContexts)
   ) {
-    assertCatalogRoutesAvailable(input.requiredCatalogRoutes ?? [], loadedModelCatalogAliases);
+    assertCatalogRoutesAvailable(input.requiredCatalogRoutes ?? [], loadedModelCatalogSlugs);
     assertThreadMcpServersAvailable(input.threadEnabledMcpServerNames ?? [], [
       ...loadedGlobalMcpServerNames,
       ...threadMcpServers.map((server) => server.name),
@@ -1350,7 +1353,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
           providers.find((provider) => provider.id === role.providerId)?.apiCompat ??
           "openai_responses",
       })),
-      loadedModelCatalogAliases,
+      loadedModelCatalogSlugs,
     );
     const client = await startSharedCodexRuntimeLifecycle(runtimeDeps, codexExecutable);
     if (!client.isInitialized) {
@@ -1454,7 +1457,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     `[eco-codex] config ${configSync.configPath} gateway=${configSync.gatewayBaseUrl} providers=${configSync.providerSlugs.join(",")} mcp=${configSync.mcpServerNames.join(",") || "(none)"} catalog=${configSync.modelCatalogJsonPath ?? "(none)"}`,
   );
 
-  assertCatalogRoutesAvailable(input.requiredCatalogRoutes ?? [], catalogSync.aliasSlugs);
+  assertCatalogRoutesAvailable(input.requiredCatalogRoutes ?? [], catalogSync.modelSlugs);
   assertCatalogRoutesAvailable(
     (roleSync?.roles ?? []).map((role) => ({
       providerId: role.providerId,
@@ -1464,7 +1467,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
         providers.find((provider) => provider.id === role.providerId)?.apiCompat ??
         "openai_responses",
     })),
-    catalogSync.aliasSlugs,
+    catalogSync.modelSlugs,
   );
 
   // Global MCP has a native reload RPC; candidate capabilities are thread
@@ -1489,7 +1492,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     await ensureCodexRuntimeRestart(
       runtimeDeps,
       codexExecutable,
-      catalogSync.aliasSlugs,
+      catalogSync.modelSlugs,
       configSync.mcpServerNames,
       catalogSync.runtimeFingerprint,
       globalConfigFingerprint,
@@ -1506,7 +1509,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
 
   if (input.globalOnly && !getGlobalCodexRuntimeLifecycle()?.getClient()) {
     markLoadedGlobalRuntimeBaseline(
-      catalogSync.aliasSlugs,
+      catalogSync.modelSlugs,
       configSync.mcpServerNames,
       catalogSync.runtimeFingerprint,
       globalConfigFingerprint,
@@ -1523,7 +1526,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
   if (!catalogNeedsRestart && !configNeedsRestart) {
     // First successful prepare or unchanged baseline still pins the loaded fingerprints.
     markLoadedGlobalRuntimeBaseline(
-      catalogSync.aliasSlugs,
+      catalogSync.modelSlugs,
       configSync.mcpServerNames,
       catalogSync.runtimeFingerprint,
       globalConfigFingerprint,
@@ -1636,7 +1639,8 @@ function assertCatalogRoutesAvailable(
     if (!providerId || !modelId) {
       continue;
     }
-    const alias = buildCodexGatewayModelAlias(providerId, modelId, route.apiCompat);
+    const alias =
+      providerId === "openai" ? modelId : buildCodexGatewayModelAlias(providerId, modelId, route.apiCompat);
     if (!available.has(alias)) {
       throw new Error(
         `Codex model '${providerId}/${modelId}' is not registered in the global model catalog. Save it as a candidate model or route configuration, then wait for the global runtime refresh to finish.`,
@@ -1656,7 +1660,9 @@ function catalogRoutesAreAvailable(
     return (
       !providerId ||
       !modelId ||
-      available.has(buildCodexGatewayModelAlias(providerId, modelId, route.apiCompat))
+      available.has(
+        providerId === "openai" ? modelId : buildCodexGatewayModelAlias(providerId, modelId, route.apiCompat),
+      )
     );
   });
 }
@@ -1694,13 +1700,13 @@ function fingerprintAccountModelContexts(models: readonly CodexAccountModelConte
 }
 
 function markLoadedGlobalRuntimeBaseline(
-  aliases: readonly string[],
+  modelSlugs: readonly string[],
   mcpServerNames: readonly string[],
   catalogFingerprint: string,
   configFingerprint: string,
   input: RuntimeBaselineInput,
 ): void {
-  loadedModelCatalogAliases = [...new Set(aliases)].sort();
+  loadedModelCatalogSlugs = [...new Set(modelSlugs)].sort();
   loadedGlobalMcpServerNames = [...new Set(mcpServerNames.map((name) => name.trim()).filter(Boolean))].sort();
   lastPreparedModelCatalogFingerprint = catalogFingerprint;
   lastPreparedGlobalConfigFingerprint = configFingerprint;
@@ -1724,7 +1730,7 @@ function markLoadedGlobalRuntimeBaseline(
 async function ensureCodexRuntimeRestart(
   runtimeDeps: CodexRuntimeRunDeps,
   codexExecutable: string,
-  nextAliases: readonly string[],
+  nextModelSlugs: readonly string[],
   nextMcpServerNames: readonly string[],
   nextCatalogFingerprint: string,
   nextConfigFingerprint: string,
@@ -1740,7 +1746,7 @@ async function ensureCodexRuntimeRestart(
   if (!client?.isInitialized) {
     // Not started yet — the first start after config write will load this baseline.
     markLoadedGlobalRuntimeBaseline(
-      nextAliases,
+      nextModelSlugs,
       nextMcpServerNames,
       nextCatalogFingerprint,
       nextConfigFingerprint,
@@ -1763,7 +1769,7 @@ async function ensureCodexRuntimeRestart(
   await startSharedCodexRuntimeLifecycle(runtimeDeps, codexExecutable, true);
   clearCodexModelCatalogCache();
   markLoadedGlobalRuntimeBaseline(
-    nextAliases,
+    nextModelSlugs,
     nextMcpServerNames,
     nextCatalogFingerprint,
     nextConfigFingerprint,

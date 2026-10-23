@@ -93,3 +93,45 @@ test("image-only notes work; empty notes, invalid projects, excess images and un
   ).toThrow();
   expect(() => store.save({ ...note, images: [{ id: "missing", mediaType: "image/png" }] })).toThrow();
 });
+
+test("remote image chunks preserve original bytes and reject mixed revisions or deleted todos", () => {
+  const store = open();
+  const original = Buffer.alloc(150_000, 137);
+  const saved = store.save({ ...note, images: [{ ...image, data: original.toString("base64") }] });
+  expect(store.get(saved.id, false).images[0]?.data).toBeUndefined();
+  const chunks: Buffer[] = [];
+  let offset = 0;
+  while (offset < original.length) {
+    const chunk = store.readImageChunk({ id: saved.id, revision: saved.revision, imageId: image.id, offset });
+    expect(chunk.totalBytes).toBe(original.length);
+    expect(chunk.nextOffset).toBeGreaterThan(offset);
+    chunks.push(Buffer.from(chunk.data, "base64"));
+    offset = chunk.nextOffset;
+  }
+  expect(Buffer.concat(chunks)).toEqual(original);
+  expect(() => store.readImageChunk({ id: saved.id, revision: saved.revision, imageId: image.id, offset: -1 })).toThrow();
+  expect(() => store.readImageChunk({ id: saved.id, revision: saved.revision, imageId: image.id, offset: 0.5 })).toThrow();
+  expect(() => store.readImageChunk({ id: saved.id, revision: saved.revision, imageId: image.id, offset: original.length + 1 })).toThrow();
+  const updated = store.save({ ...saved, text: "Edited on desktop" });
+  expect(() => store.readImageChunk({ id: saved.id, revision: saved.revision, imageId: image.id, offset: 0 })).toThrow("changed");
+  store.trash({ id: updated.id, revision: updated.revision, deleted: true });
+  expect(() => store.readImageChunk({ id: updated.id, revision: updated.revision, imageId: image.id, offset: 0 })).toThrow("no longer exists");
+});
+
+test("mobile uploads resolve to durable todo bytes and keep optimistic conflict checks", async () => {
+  const { resolveProjectTodoUploads } = await import("../src/main/project-todo-uploads");
+  const store = open();
+  const saved = store.save(note);
+  const resolver = async (ref: string) => {
+    expect(ref).toBe("sha256:uploaded");
+    return { mediaType: image.mediaType, byteLength: Buffer.from(image.data, "base64").length, dataBase64: image.data };
+  };
+  const input = { ...saved, images: [{ id: image.id, mediaType: image.mediaType, thumbnail: image.thumbnail, contentRef: "sha256:uploaded" }] };
+  const resolved = await resolveProjectTodoUploads(input, resolver);
+  const updated = store.save(resolved);
+  expect(store.get(updated.id).images[0]?.data).toBe(image.data);
+  expect(() => store.save(resolved)).toThrow("changed");
+  await expect(resolveProjectTodoUploads(input, async () => ({ mediaType: "image/jpeg", byteLength: 1, dataBase64: image.data }))).rejects.toThrow("Invalid todo image");
+  await expect(resolveProjectTodoUploads(input, async () => ({ mediaType: image.mediaType, byteLength: TODO_MAX_IMAGE_BYTES + 1, dataBase64: image.data }))).rejects.toThrow("Invalid todo image");
+  expect(store.get(updated.id).revision).toBe(updated.revision);
+});

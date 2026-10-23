@@ -100,7 +100,7 @@ class _ThreadsScreenState extends ConsumerState<ThreadsScreen> {
               children: [
                 AdaptiveToolbarIcon(
                   tooltip: context.l10n.schedulingTitle,
-                  icon: Icons.schedule,
+                  icon: EcoIcons.schedule,
                   size: sessionToolbarButtonSize,
                   onPressed: () => showSchedulingScreen(context),
                 ),

@@ -19,6 +19,7 @@ import '../models/project_orchestration_settings.dart';
 import '../models/skill_models.dart';
 import '../models/thread_models.dart';
 import '../models/scheduling_models.dart';
+import '../models/project_todo_models.dart';
 import '../network/eco_center_client.dart';
 import '../storage/conversation_v2_cache.dart';
 import '../utils/conversation_v2_hash.dart';
@@ -36,6 +37,46 @@ class PromptImageUploadResult {
 }
 
 class DesktopRpc implements ReadAloudRemote {
+  Future<List<ProjectTodo>> listProjectTodos() async {
+    final result = await _client.invoke<List<dynamic>>(desktopDeviceId, 'project-todo:list', []);
+    return result.map((row) => ProjectTodo.fromJson(Map<String, dynamic>.from(row as Map))).toList();
+  }
+
+  Future<ProjectTodo> getProjectTodo(String id) async {
+    final result = await _client.invoke<Map<String, dynamic>>(desktopDeviceId, 'project-todo:get', [id, false]);
+    return ProjectTodo.fromJson(result);
+  }
+
+  Future<ProjectTodo> saveProjectTodo(Map<String, dynamic> input) async {
+    final result = await _client.invoke<Map<String, dynamic>>(desktopDeviceId, 'project-todo:save', [input]);
+    return ProjectTodo.fromJson(result);
+  }
+
+  Future<int> trashProjectTodo({required String id, required int revision, required bool deleted}) =>
+      _client.invoke<int>(desktopDeviceId, 'project-todo:trash', [{'id': id, 'revision': revision, 'deleted': deleted}]);
+
+  Future<String> downloadProjectTodoImage(ProjectTodo todo, ProjectTodoImage image) async {
+    final bytes = BytesBuilder(copy: false);
+    int? total;
+    var offset = 0;
+    do {
+      final result = await _client.invoke<Map<String, dynamic>>(desktopDeviceId, 'project-todo:image-read', [{
+        'id': todo.id, 'revision': todo.revision, 'imageId': image.id, 'offset': offset,
+      }]);
+      final chunk = base64Decode(result['data'] as String);
+      final next = result['nextOffset'] as int;
+      final size = result['totalBytes'] as int;
+      if (size <= 0 || size > todoMaxImageBytes || (total != null && total != size) ||
+          next != offset + chunk.length || next <= offset || next > size) {
+        throw const FormatException('Invalid todo image chunk.');
+      }
+      total = size;
+      offset = next;
+      bytes.add(chunk);
+    } while (offset < total);
+    return base64Encode(bytes.takeBytes());
+  }
+
   Future<SchedulingSnapshot> listSchedules() async =>
       SchedulingSnapshot.fromJson(
         Map<String, dynamic>.from(

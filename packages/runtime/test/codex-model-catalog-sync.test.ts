@@ -492,6 +492,8 @@ test("syncEcoCodexModelCatalog writes catalog under CODEX_HOME with freeform ali
   const written = JSON.parse(await fs.readFile(result.catalogPath, "utf8")) as {
     models: CodexBundledModelEntry[];
   };
+  expect(result.modelSlugs).toEqual([...new Set(written.models.map((entry) => entry.slug))].sort());
+  expect(result.modelSlugs.length).toBeGreaterThan(result.aliasSlugs.length);
   const alias = written.models.find((entry) => entry.slug.startsWith("eco_route_v1."));
   expect(alias?.apply_patch_tool_type).toBe("freeform");
   expect(alias?.context_window).toBe(96_000);

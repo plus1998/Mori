@@ -110,6 +110,7 @@ export function ProjectTodoPanel(props: Props) {
   }, []);
   useEffect(() => {
     void refresh();
+    return todoApi().onProjectTodosChanged(() => { void refresh(); });
   }, [refresh]);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;

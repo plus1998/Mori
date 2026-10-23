@@ -24,7 +24,7 @@ export interface ProjectTodoSave {
   revision?: number;
   projectPath: string;
   text: string;
-  images: Array<Pick<ProjectTodoImage, "id" | "mediaType" | "data"> & { thumbnail?: string }>;
+  images: Array<Pick<ProjectTodoImage, "id" | "mediaType" | "data"> & { thumbnail?: string; contentRef?: string }>;
   completed: boolean;
 }
 export interface ProjectTodoTrash {
