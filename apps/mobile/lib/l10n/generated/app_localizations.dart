@@ -1208,6 +1208,12 @@ abstract class AppLocalizations {
   /// **'Send a message...'**
   String get composerSendHint;
 
+  /// No description provided for @composerSendScheduled.
+  ///
+  /// In en, this message translates to:
+  /// **'Schedule send'**
+  String get composerSendScheduled;
+
   /// No description provided for @composerSendQueue.
   ///
   /// In en, this message translates to:
@@ -5011,6 +5017,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Used for automatic tool reviews; supports chat models and SystemOne (Jev)'**
   String get composerApprovalModelHintAcp;
+
+  /// No description provided for @schedulingContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Content'**
+  String get schedulingContent;
+
+  /// No description provided for @schedulingTiming.
+  ///
+  /// In en, this message translates to:
+  /// **'When to run'**
+  String get schedulingTiming;
+
+  /// No description provided for @schedulingAdvanced.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced'**
+  String get schedulingAdvanced;
+
+  /// No description provided for @schedulingImageLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'You can add up to 20 images.'**
+  String get schedulingImageLimit;
 
   /// No description provided for @schedulingTitle.
   ///

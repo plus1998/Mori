@@ -43,6 +43,8 @@ void main() {
       });
 
       var sends = 0;
+      var schedules = 0;
+      var scheduling = false;
       final modes = <FollowUpDeliveryMode>[];
       var busy = false;
       var enabled = true;
@@ -66,8 +68,10 @@ void main() {
                     label: 'Send',
                     queueLabel: queueLabel,
                     steerLabel: steerLabel,
+                    scheduleLabel: '定时发送',
                     onSend: enabled ? () => sends++ : null,
-                    onSendWithMode: modes.add,
+                    onSendWithMode: scheduling ? null : modes.add,
+                    onSchedule: scheduling ? () => schedules++ : null,
                   ),
                 ),
               );
@@ -145,6 +149,30 @@ void main() {
       await native('selected', 'steer');
       expect(modes.last, FollowUpDeliveryMode.steer);
       expect(modes, hasLength(3));
+
+      rebuild(() => scheduling = true);
+      await tester.pump();
+      expect(updates.last['allowSchedule'], isTrue);
+      expect(updates.last['allowDelivery'], isFalse);
+      expect(updates.last['scheduleLabel'], '定时发送');
+      await native('selected', 'queue');
+      expect(modes, hasLength(3));
+      await native('selected', 'schedule');
+      expect(schedules, 1);
+      expect(sends, 2);
+      rebuild(() => busy = true);
+      await tester.pump();
+      await native('selected', 'schedule');
+      expect(schedules, 1);
+      rebuild(() {
+        busy = false;
+        scheduling = false;
+      });
+      await tester.pump();
+      expect(updates.last['allowDelivery'], isTrue);
+      expect(updates.last['allowSchedule'], isFalse);
+      await native('selected', 'schedule');
+      expect(schedules, 1);
 
       await tester.pumpWidget(const SizedBox.shrink());
       await native('pressed');

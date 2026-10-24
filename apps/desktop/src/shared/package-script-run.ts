@@ -37,7 +37,7 @@ export function buildRunCommand(packageManager: PackageManagerKind, script: stri
 /** Join a leading shell command and the package-manager argv for display / clipboard. */
 export function joinPrefixedCommand(prefix: string | undefined, command: readonly string[]): string {
   const normalizedPrefix = normalizeCommandPrefix(prefix);
-  const body = command.join(" ");
+  const body = command.map(quoteCommandArg).join(" ");
   return normalizedPrefix ? `${normalizedPrefix} && ${body}` : body;
 }
 
@@ -58,9 +58,55 @@ export function formatRunCommand(
   args?: string,
   prefix?: string,
 ): string {
-  return joinPrefixedCommand(prefix, buildRunCommand(packageManager, script, args));
+  const base = joinPrefixedCommand(prefix, buildRunCommand(packageManager, script));
+  const trailingArgs = args?.trim();
+  if (!trailingArgs) return base;
+  const separator = packageManager !== "bun" && !/^--(?:\s|$)/.test(trailingArgs) ? " --" : "";
+  // Keep the authored shell syntax for preview/copy, including incomplete edits.
+  return `${base}${separator} ${trailingArgs}`;
 }
 
+function quoteCommandArg(value: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
+  return `"${value.replace(/[\\"$`]/g, "\\$&")}"`;
+}
+
+/** Parse quoting/escaping only; argument input does not expand shell expressions. */
 function splitShellArgs(value: string): string[] {
-  return value.split(/\s+/).filter(Boolean);
+  const tokens: string[] = [];
+  let token = "";
+  let quote: "'" | '"' | undefined;
+  let started = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value.charAt(index);
+    if (char === "\\" && quote !== "'") {
+      const next = value[index + 1];
+      if (next === undefined) throw new Error("Trailing escape in script arguments.");
+      if (!quote || /[\\"$`\n]/.test(next)) {
+        if (next !== "\n") {
+          token += next;
+          started = true;
+        }
+        index += 1;
+        continue;
+      }
+    }
+    if (quote) {
+      if (char === quote) quote = undefined;
+      else token += char;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+      started = true;
+    } else if (/\s/.test(char)) {
+      if (started) tokens.push(token);
+      token = "";
+      started = false;
+    } else {
+      token += char;
+      started = true;
+    }
+  }
+  if (quote) throw new Error("Unclosed quote in script arguments.");
+  if (started) tokens.push(token);
+  return tokens;
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -8,6 +9,10 @@ import '../../core/models/scheduling_models.dart';
 import '../../core/models/thread_models.dart';
 import '../../core/models/thread_runtime_config.dart';
 import '../../core/theme/eco_theme.dart';
+import '../../core/theme/eco_icons.dart';
+import '../../core/utils/prompt_image_attachment.dart';
+import '../../core/utils/prompt_image_upload.dart';
+import 'schedule_widgets.dart';
 import '../composer/composer_controls.dart';
 import '../projects/project_providers.dart';
 import '../threads/thread_providers.dart';
@@ -18,6 +23,7 @@ Future<bool?> showScheduleEditor(
   ScheduleDefinition? definition,
   String? threadId,
   String initialPrompt = '',
+  List<PromptImageAttachment> initialAttachments = const [],
 }) => Navigator.of(context, rootNavigator: true).push<bool>(
   MaterialPageRoute(
     fullscreenDialog: true,
@@ -25,6 +31,7 @@ Future<bool?> showScheduleEditor(
       definition: definition,
       threadId: threadId,
       initialPrompt: initialPrompt,
+      initialAttachments: initialAttachments,
     ),
   ),
 );
@@ -35,10 +42,12 @@ class ScheduleEditor extends ConsumerStatefulWidget {
     this.definition,
     this.threadId,
     this.initialPrompt = '',
+    this.initialAttachments = const [],
   });
   final ScheduleDefinition? definition;
   final String? threadId;
   final String initialPrompt;
+  final List<PromptImageAttachment> initialAttachments;
   @override
   ConsumerState<ScheduleEditor> createState() => _ScheduleEditorState();
 }
@@ -61,6 +70,7 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
   List<String>? _preview;
   ThreadRuntimeConfig? _config;
   String? _coreKind;
+  final _attachments = <PromptImageAttachment>[];
   bool get _isMessage =>
       widget.definition?.isMessage ?? widget.threadId != null;
 
@@ -70,6 +80,7 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
     final d = widget.definition;
     _at = DateTime.now().add(const Duration(hours: 1));
     _prompt.text = d?.prompt ?? widget.initialPrompt;
+    _attachments.addAll(d?.attachments ?? widget.initialAttachments);
     _name.text = d?.name ?? '';
     _workspace.text = d?.workspacePath ?? '';
     _workspaceInitialized = d != null;
@@ -146,11 +157,11 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
       throw FormatException(context.l10n.schedulingExpired);
     }
     return _type == 'at'
-        ? {'type': 'at', 'at': at.toUtc().toIso8601String()}
+        ? {'type': 'at', 'at': scheduleTimestamp(at)}
         : {
             'type': 'interval',
             'everySeconds': _seconds(_interval),
-            'anchorAt': at.toUtc().toIso8601String(),
+            'anchorAt': scheduleTimestamp(at),
           };
   }
 
@@ -204,17 +215,41 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
         ? _name.text.trim()
         : (_isMessage && prompt.isNotEmpty
               ? prompt.split('\n').first.characters.take(200).toString()
-              : '');
-    if (prompt.isEmpty ||
+              : (_isMessage && _attachments.isNotEmpty ? l.composerImage : ''));
+    if ((prompt.isEmpty && (!_isMessage || _attachments.isEmpty)) ||
         name.isEmpty ||
         (!_isMessage && _workspace.text.trim().isEmpty)) {
       throw FormatException(l.schedulingRequired);
     }
     final rpc = ref.read(desktopRpcProvider);
     if (rpc == null) throw StateError('Desktop is not connected');
+    if (_isMessage) {
+      for (var i = 0; i < _attachments.length; i++) {
+        if (_attachments[i].contentRef?.isNotEmpty == true) continue;
+        final index = i;
+        await stagePromptImageAttachments(
+          rpc: rpc,
+          contextKey:
+              'thread:${widget.threadId ?? widget.definition!.threadId}',
+          attachments: [_attachments[index]],
+          onUpdate: (next) {
+            if (mounted) setState(() => _attachments[index] = next.single);
+          },
+        );
+      }
+    }
     final fields = <String, dynamic>{
       'name': name,
       'prompt': prompt,
+      if (_isMessage)
+        'attachments': [
+          for (final a in _attachments)
+            {
+              'mediaType': a.mediaType,
+              'contentRef': a.contentRef,
+              'byteLength': a.byteLength,
+            },
+        ],
       'maxLatenessSeconds': _seconds(_catchUp, minimum: 0, maximum: 86400),
     };
     if (!_isMessage) {
@@ -268,6 +303,27 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
     ref.invalidate(schedulingSnapshotProvider);
     if (mounted) Navigator.of(context).pop(true);
   });
+
+  Future<void> _pickImage() async {
+    if (_busy) return;
+    await _run(() async {
+      if (_attachments.length >= 20) {
+        throw FormatException(context.l10n.schedulingImageLimit);
+      }
+      final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+      if (file == null || !mounted) return;
+      final result = await promptImageAttachmentFromXFile(file);
+      if (!mounted) return;
+      if (result.failure != null) {
+        throw FormatException(
+          result.failure == PromptImagePickFailure.tooLarge
+              ? context.l10n.composerImageTooLarge
+              : context.l10n.composerUnsupportedImage,
+        );
+      }
+      setState(() => _attachments.add(result.attachment!));
+    });
+  }
 
   Widget _field(
     TextEditingController c,
@@ -366,213 +422,290 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
                 child: ListView(
                   padding: const EdgeInsets.all(20),
                   children: [
-                    Text(
-                      _isMessage
-                          ? l.schedulingMessageHint
-                          : l.schedulingTaskHint,
+                    ScheduleSection(
+                      title: l.schedulingContent,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _field(_prompt, l.schedulingPrompt, lines: 4),
+                          _field(
+                            _name,
+                            _isMessage
+                                ? l.schedulingOptionalName
+                                : l.schedulingName,
+                          ),
+                          if (_isMessage) ...[
+                            if (_attachments.isNotEmpty)
+                              ScheduleImages(
+                                attachments: _attachments,
+                                threadId:
+                                    widget.threadId ??
+                                    widget.definition!.threadId!,
+                                onRemove: _busy
+                                    ? null
+                                    : (index) => setState(
+                                        () => _attachments.removeAt(index),
+                                      ),
+                              ),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton.icon(
+                                onPressed: _busy ? null : _pickImage,
+                                icon: const Icon(EcoIcons.image, size: 18),
+                                label: Text(l.composerAddImage),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      l.schedulingHint,
-                      style: TextStyle(color: ecoColors(context).textSecondary),
-                    ),
-                    const SizedBox(height: 20),
-                    _field(_prompt, l.schedulingPrompt, lines: 4),
-                    _field(
-                      _name,
-                      _isMessage ? l.schedulingOptionalName : l.schedulingName,
-                    ),
+                    const SizedBox(height: 16),
                     if (!_isMessage) ...[
-                      if ((ref.watch(projectListProvider).valueOrNull ?? [])
-                          .isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: DropdownButtonFormField<String>(
-                            initialValue: null,
-                            isExpanded: true,
+                      ScheduleSection(
+                        title: l.schedulingRuntime,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if ((ref.watch(projectListProvider).valueOrNull ??
+                                    [])
+                                .isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: null,
+                                  isExpanded: true,
+                                  decoration: InputDecoration(
+                                    labelText: l.schedulingWorkspace,
+                                  ),
+                                  items: [
+                                    for (final p
+                                        in ref
+                                                .watch(projectListProvider)
+                                                .valueOrNull ??
+                                            [])
+                                      DropdownMenuItem(
+                                        value: p.path,
+                                        child: Text(
+                                          p.name,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                  ],
+                                  onChanged: _busy
+                                      ? null
+                                      : (value) => setState(() {
+                                          _workspaceInitialized = true;
+                                          _workspace.text = value ?? '';
+                                        }),
+                                ),
+                              ),
+                            _field(_workspace, l.schedulingWorkspace),
+                            if (settings?.hasError == true ||
+                                workflow?.hasError == true) ...[
+                              Text(
+                                localizedAppError(
+                                  settings?.error ?? workflow!.error!,
+                                  l,
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  ref.invalidate(modelSettingsProvider);
+                                  ref.invalidate(workflowSettingsProvider);
+                                },
+                                child: Text(l.commonRetry),
+                              ),
+                            ] else if (_config == null)
+                              const LinearProgressIndicator()
+                            else ...[
+                              DropdownButtonFormField<String>(
+                                initialValue: _coreKind,
+                                decoration: const InputDecoration(
+                                  labelText: 'Agent',
+                                ),
+                                items: [
+                                  for (final option in composerCoreKindOptions)
+                                    DropdownMenuItem(
+                                      value: option.value,
+                                      child: Text(option.label),
+                                    ),
+                                ],
+                                onChanged: _busy
+                                    ? null
+                                    : (value) => setState(() {
+                                        _coreKind = value!;
+                                        _config = buildDefaultRuntimeConfig(
+                                          modelSettings: settings?.valueOrNull,
+                                          workflow: workflow?.valueOrNull,
+                                          mcpServers: mcp,
+                                          coreKind: value,
+                                        );
+                                      }),
+                              ),
+                              if (_coreKind != 'acp' &&
+                                  settings?.valueOrNull != null)
+                                OrchestrationCompositionSelectors(
+                                  settings: settings!.valueOrNull!,
+                                  runtimeConfig: _config!,
+                                  threadId: '',
+                                  canEdit: !_busy,
+                                  workspacePath: '',
+                                  mcpServers: mcp ?? [],
+                                  onChanged: (c) => setState(() => _config = c),
+                                ),
+                              ComposerRouteSummary(
+                                runtimeConfig: _config!,
+                                threadId: '',
+                                canEdit: !_busy,
+                                onChanged: (c) => setState(() => _config = c),
+                                coreKind: _coreKind,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    ScheduleSection(
+                      title: l.schedulingTiming,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            _isMessage
+                                ? l.schedulingMessageHint
+                                : l.schedulingTaskHint,
+                            style: TextStyle(
+                              color: ecoColors(context).textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          DropdownButtonFormField<String>(
+                            initialValue: _type,
                             decoration: InputDecoration(
-                              labelText: l.schedulingWorkspace,
+                              labelText: l.schedulingTrigger,
                             ),
                             items: [
-                              for (final p
-                                  in ref
-                                          .watch(projectListProvider)
-                                          .valueOrNull ??
-                                      [])
-                                DropdownMenuItem(
-                                  value: p.path,
-                                  child: Text(
-                                    p.name,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
+                              DropdownMenuItem(
+                                value: 'at',
+                                child: Text(l.schedulingOnce),
+                              ),
+                              DropdownMenuItem(
+                                value: 'interval',
+                                child: Text(l.schedulingInterval),
+                              ),
+                              DropdownMenuItem(
+                                value: 'cron',
+                                child: Text(l.schedulingCron),
+                              ),
                             ],
                             onChanged: _busy
                                 ? null
-                                : (value) => setState(() {
-                                    _workspaceInitialized = true;
-                                    _workspace.text = value ?? '';
-                                  }),
+                                : (value) {
+                                    _type = value!;
+                                    _changed();
+                                  },
                           ),
-                        ),
-                      _field(_workspace, l.schedulingWorkspace),
-                      Text(
-                        l.schedulingRuntime,
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      if (settings?.hasError == true ||
-                          workflow?.hasError == true) ...[
-                        Text(
-                          localizedAppError(
-                            settings?.error ?? workflow!.error!,
-                            l,
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            ref.invalidate(modelSettingsProvider);
-                            ref.invalidate(workflowSettingsProvider);
-                          },
-                          child: Text(l.commonRetry),
-                        ),
-                      ] else if (_config == null)
-                        const LinearProgressIndicator()
-                      else ...[
-                        DropdownButtonFormField<String>(
-                          initialValue: _coreKind,
-                          decoration: const InputDecoration(labelText: 'Agent'),
-                          items: [
-                            for (final option in composerCoreKindOptions)
-                              DropdownMenuItem(
-                                value: option.value,
-                                child: Text(option.label),
+                          const SizedBox(height: 16),
+                          if (_type != 'cron') ...[
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(l.schedulingDelay),
+                              subtitle: Text(l.schedulingAt),
+                              value: _useDelay,
+                              onChanged: _busy
+                                  ? null
+                                  : (value) {
+                                      _useDelay = value;
+                                      _changed();
+                                    },
+                            ),
+                            if (_useDelay)
+                              _field(
+                                _delay,
+                                l.schedulingDelayMinutes,
+                                numeric: true,
+                                timing: true,
+                              )
+                            else
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(l.schedulingLocalTime),
+                                subtitle: Text(
+                                  DateFormat.yMd(
+                                    l.localeName,
+                                  ).add_Hm().format(_at),
+                                ),
+                                trailing: const Icon(
+                                  Icons.calendar_today_outlined,
+                                ),
+                                onTap: _busy ? null : _pickTime,
                               ),
+                            if (_type == 'interval')
+                              _field(
+                                _interval,
+                                l.schedulingIntervalMinutes,
+                                numeric: true,
+                                timing: true,
+                              ),
+                          ] else ...[
+                            _field(
+                              _cron,
+                              l.schedulingCronExpression,
+                              timing: true,
+                            ),
+                            _field(
+                              _timezone,
+                              l.schedulingTimezone,
+                              timing: true,
+                            ),
                           ],
-                          onChanged: _busy
-                              ? null
-                              : (value) => setState(() {
-                                  _coreKind = value!;
-                                  _config = buildDefaultRuntimeConfig(
-                                    modelSettings: settings?.valueOrNull,
-                                    workflow: workflow?.valueOrNull,
-                                    mcpServers: mcp,
-                                    coreKind: value,
-                                  );
-                                }),
-                        ),
-                        if (_coreKind != 'acp' && settings?.valueOrNull != null)
-                          OrchestrationCompositionSelectors(
-                            settings: settings!.valueOrNull!,
-                            runtimeConfig: _config!,
-                            threadId: '',
-                            canEdit: !_busy,
-                            workspacePath: '',
-                            mcpServers: mcp ?? [],
-                            onChanged: (c) => setState(() => _config = c),
-                          ),
-                        ComposerRouteSummary(
-                          runtimeConfig: _config!,
-                          threadId: '',
-                          canEdit: !_busy,
-                          onChanged: (c) => setState(() => _config = c),
-                          coreKind: _coreKind,
-                        ),
-                      ],
-                      const SizedBox(height: 20),
-                    ],
-                    DropdownButtonFormField<String>(
-                      initialValue: _type,
-                      decoration: InputDecoration(
-                        labelText: l.schedulingTrigger,
+                        ],
                       ),
-                      items: [
-                        DropdownMenuItem(
-                          value: 'at',
-                          child: Text(l.schedulingOnce),
-                        ),
-                        DropdownMenuItem(
-                          value: 'interval',
-                          child: Text(l.schedulingInterval),
-                        ),
-                        DropdownMenuItem(
-                          value: 'cron',
-                          child: Text(l.schedulingCron),
-                        ),
-                      ],
-                      onChanged: _busy
-                          ? null
-                          : (value) {
-                              _type = value!;
-                              _changed();
-                            },
                     ),
                     const SizedBox(height: 16),
-                    if (_type != 'cron') ...[
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(l.schedulingDelay),
-                        subtitle: Text(l.schedulingAt),
-                        value: _useDelay,
-                        onChanged: _busy
-                            ? null
-                            : (value) {
-                                _useDelay = value;
-                                _changed();
-                              },
+                    ExpansionTile(
+                      title: Text(l.schedulingAdvanced),
+                      tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+                      childrenPadding: const EdgeInsets.symmetric(
+                        horizontal: 4,
                       ),
-                      if (_useDelay)
-                        _field(
-                          _delay,
-                          l.schedulingDelayMinutes,
-                          numeric: true,
-                          timing: true,
-                        )
-                      else
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(l.schedulingLocalTime),
-                          subtitle: Text(
-                            DateFormat.yMd(l.localeName).add_Hm().format(_at),
-                          ),
-                          trailing: const Icon(Icons.calendar_today_outlined),
-                          onTap: _busy ? null : _pickTime,
-                        ),
-                      if (_type == 'interval')
-                        _field(
-                          _interval,
-                          l.schedulingIntervalMinutes,
-                          numeric: true,
-                          timing: true,
-                        ),
-                    ] else ...[
-                      _field(_cron, l.schedulingCronExpression, timing: true),
-                      _field(_timezone, l.schedulingTimezone, timing: true),
-                    ],
-                    const SizedBox(height: 16),
-                    _field(_catchUp, l.schedulingCatchUp, numeric: true),
-                    OutlinedButton(
-                      onPressed: _busy
-                          ? null
-                          : () => _run(() async {
-                              final rpc = ref.read(desktopRpcProvider);
-                              if (rpc == null) {
-                                throw StateError('Desktop is not connected');
-                              }
-                              final times = await rpc.previewSchedule(
-                                _trigger(),
-                              );
-                              if (mounted) setState(() => _preview = times);
-                            }),
-                      child: Text(l.schedulingPreview),
-                    ),
-                    if (_preview != null) ...[
-                      for (final time in _preview!)
+                      children: [
                         Text(
-                          DateFormat.yMd(
-                            l.localeName,
-                          ).add_Hms().format(DateTime.parse(time).toLocal()),
+                          l.schedulingHint,
+                          style: TextStyle(
+                            color: ecoColors(context).textSecondary,
+                          ),
                         ),
-                    ],
+                        const SizedBox(height: 16),
+                        _field(_catchUp, l.schedulingCatchUp, numeric: true),
+                        OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _run(() async {
+                                  final rpc = ref.read(desktopRpcProvider);
+                                  if (rpc == null) {
+                                    throw StateError(
+                                      'Desktop is not connected',
+                                    );
+                                  }
+                                  final times = await rpc.previewSchedule(
+                                    _trigger(),
+                                  );
+                                  if (mounted) setState(() => _preview = times);
+                                }),
+                          child: Text(l.schedulingPreview),
+                        ),
+                        if (_preview != null) ...[
+                          for (final time in _preview!)
+                            Text(
+                              DateFormat.yMd(l.localeName).add_Hms().format(
+                                DateTime.parse(time).toLocal(),
+                              ),
+                            ),
+                        ],
+                      ],
+                    ),
                     const SizedBox(height: 24),
                   ],
                 ),

@@ -772,6 +772,16 @@ export class ConversationStore {
         if (row.attachments_json) collectPromptImageContentRefs(row.attachments_json, refs);
       }
     }
+    // Pending schedules survive draft deletion. Occurrence history also owns
+    // references so previews remain readable after one-shot cleanup/restart.
+    for (const table of ["schedule_definitions", "schedule_occurrences"]) {
+      if (!this.tableExists(table)) continue;
+      for (const row of this.db.prepare(`SELECT data FROM ${table}`).all() as Array<{ data: string }>) {
+        const value = JSON.parse(row.data);
+        const definition = table === "schedule_definitions" ? value : value.definition;
+        collectPromptImageContentRefs(definition?.attachments, refs);
+      }
+    }
     return new Set([...refs].filter((ref) => isPromptImageContentRef(ref)));
   }
 
@@ -798,6 +808,17 @@ export class ConversationStore {
     const threadId = key.slice("thread:".length).trim();
     if (!threadId) return false;
     if (this.v2.hasPromptImageContentRef(threadId, ref)) return true;
+    for (const table of ["schedule_definitions", "schedule_occurrences"]) {
+      if (!this.tableExists(table)) continue;
+      const target = table === "schedule_definitions" ? "$.threadId" : "$.definition.threadId";
+      const rows = this.db.prepare(`SELECT data FROM ${table} WHERE json_extract(data, '${target}') = ?`)
+        .all(threadId) as Array<{ data: string }>;
+      for (const row of rows) {
+        const value = JSON.parse(row.data);
+        const definition = table === "schedule_definitions" ? value : value.definition;
+        if (collectPromptImageContentRefs(definition?.attachments).has(ref)) return true;
+      }
+    }
     if (this.isV2OnlyStorage()) return false;
 
     for (const [table, column] of [

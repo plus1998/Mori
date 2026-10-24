@@ -263,10 +263,15 @@ private final class EcoMobileComposerSendButton: NSObject, FlutterPlatformView {
     spinner.color = button.tintColor
     if busy { spinner.startAnimating() } else { spinner.stopAnimating() }
     // Clear the menu while disabled, including when a send begins with it open.
-    button.menu = button.isEnabled ? UIMenu(children: [
-      action("queue", title: configuration["queueLabel"] as? String ?? "", symbol: "text.line.last.and.arrowtriangle.forward"),
-      action("steer", title: configuration["steerLabel"] as? String ?? "", symbol: "arrow.turn.up.right"),
-    ]) : nil
+    var actions: [UIAction] = []
+    if configuration["allowDelivery"] as? Bool == true {
+      actions.append(action("queue", title: configuration["queueLabel"] as? String ?? "", symbol: "text.line.last.and.arrowtriangle.forward"))
+      actions.append(action("steer", title: configuration["steerLabel"] as? String ?? "", symbol: "arrow.turn.up.right"))
+    }
+    if configuration["allowSchedule"] as? Bool == true {
+      actions.append(action("schedule", title: configuration["scheduleLabel"] as? String ?? "", symbol: "clock"))
+    }
+    button.menu = button.isEnabled && !actions.isEmpty ? UIMenu(children: actions) : nil
   }
 
   private func action(_ mode: String, title: String, symbol: String) -> UIAction {

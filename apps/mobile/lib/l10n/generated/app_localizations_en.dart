@@ -646,6 +646,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get composerSendHint => 'Send a message...';
 
   @override
+  String get composerSendScheduled => 'Schedule send';
+
+  @override
   String get composerSendQueue => 'Queue';
 
   @override
@@ -2879,6 +2882,18 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get composerApprovalModelHintAcp =>
       'Used for automatic tool reviews; supports chat models and SystemOne (Jev)';
+
+  @override
+  String get schedulingContent => 'Content';
+
+  @override
+  String get schedulingTiming => 'When to run';
+
+  @override
+  String get schedulingAdvanced => 'Advanced';
+
+  @override
+  String get schedulingImageLimit => 'You can add up to 20 images.';
 
   @override
   String get schedulingTitle => 'Scheduled tasks';

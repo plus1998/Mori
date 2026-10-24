@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
+import '../models/tts_models.dart';
 import '../utils/markdown_to_speech_text.dart';
 import '../utils/speech_text_segments.dart';
 
@@ -39,10 +40,6 @@ class SystemTtsService extends ChangeNotifier {
     await _engine.setVolume(1.0);
     await _engine.setPitch(1.0);
 
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
-      await _engine.setSharedInstance(true);
-    }
-
     _engine.setStartHandler(() {
       if (!_isActiveGeneration(_activeGeneration)) return;
       _state = SystemTtsState.speaking;
@@ -67,6 +64,25 @@ class SystemTtsService extends ChangeNotifier {
   }
 
   bool _isActiveGeneration(int generation) => generation == _playbackGeneration;
+
+  Future<void> _prepareAudioSession() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+
+    // iOS shares this session with recording and online audio playback. Restore
+    // it for every utterance, including after the previous one deactivated it.
+    final configured = await _engine.setIosAudioCategory(
+      IosTextToSpeechAudioCategory.playback,
+      [IosTextToSpeechAudioCategoryOptions.duckOthers],
+      IosTextToSpeechAudioMode.spokenAudio,
+    );
+    if (configured != 1) {
+      throw const ReadAloudException('无法配置 iOS 朗读音频会话，请重试。');
+    }
+    final activated = await _engine.setSharedInstance(true);
+    if (activated != 1) {
+      throw const ReadAloudException('无法激活 iOS 朗读音频会话，请重试。');
+    }
+  }
 
   void _finishPlayback() {
     _state = SystemTtsState.idle;
@@ -231,6 +247,9 @@ class SystemTtsService extends ChangeNotifier {
       _finishPlayback();
       return false;
     }
+
+    await _prepareAudioSession();
+    if (_disposed || !_isActiveGeneration(generation)) return false;
 
     final result = await _engine.speak(plainText);
     if (!_isActiveGeneration(generation)) return false;

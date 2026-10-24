@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -117,6 +118,62 @@ test("buildRunCommand builds argv for each package manager", () => {
 test("formatRunCommand joins argv into a shell command", () => {
   expect(formatRunCommand("pnpm", "test", "-- --coverage")).toBe("pnpm run test -- --coverage");
   expect(formatRunCommand("npm", "start")).toBe("npm run start");
+});
+
+test("script arguments parse quotes, escapes and empty values", () => {
+  for (const manager of ["bun", "npm", "pnpm", "yarn"] as const) {
+    expect(buildRunCommand(manager, "install:ios", '-d "苹 果 时 期 Pro"').slice(-2)).toEqual([
+      "-d",
+      "苹 果 时 期 Pro",
+    ]);
+  }
+  expect(buildRunCommand("bun", "dev", String.raw`'a b' c\ d --title="e f" "" "a\"b"`).slice(3)).toEqual([
+    "a b",
+    "c d",
+    "--title=e f",
+    "",
+    'a"b',
+  ]);
+  expect(() => buildRunCommand("bun", "dev", '-d "unfinished')).toThrow("Unclosed quote");
+  expect(() => buildRunCommand("bun", "dev", "trailing\\")).toThrow("Trailing escape");
+});
+
+test("preview preserves authored quoting and labels quote parsed arguments", () => {
+  const args = '-d "苹 果 时 期 Pro"';
+  expect(formatRunCommand("bun", "install:ios", args)).toBe(`bun run install:ios ${args}`);
+  expect(joinPrefixedCommand(undefined, buildRunCommand("bun", "install:ios", args))).toBe(
+    `bun run install:ios ${args}`,
+  );
+  expect(formatRunCommand("bun", "dev", '-d "unfinished')).toBe('bun run dev -d "unfinished');
+});
+
+test("Bun and npm deliver a quoted device name as one argument to the package script", async () => {
+  const probeDir = path.join(tempDir, "mobile");
+  await fs.mkdir(probeDir);
+  await fs.writeFile(
+    path.join(probeDir, "probe.cjs"),
+    'console.log("ARGV=" + JSON.stringify(process.argv.slice(2)))',
+  );
+  await fs.writeFile(
+    path.join(tempDir, "package.json"),
+    JSON.stringify({
+      scripts: { "install:ios": "cd mobile && node probe.cjs --release --no-pub" },
+    }),
+  );
+  for (const manager of ["bun", "npm"] as const) {
+    const command = buildRunCommand(manager, "install:ios", '-d "苹 果 时 期 Pro"');
+    const output = execFileSync(manager, command.slice(1), { cwd: tempDir, encoding: "utf8" });
+    const result = output.split(/\r?\n/).find((line) => line.startsWith("ARGV="));
+    if (!result) throw new Error(`Missing argument probe output: ${output}`);
+    expect(JSON.parse(result.slice(5))).toEqual(["--release", "--no-pub", "-d", "苹 果 时 期 Pro"]);
+    if (process.platform !== "win32") {
+      const prefixedOutput = execFileSync("/bin/sh", ["-c", buildPrefixedShellLine("true", command)], {
+        cwd: tempDir,
+        encoding: "utf8",
+      });
+      expect(prefixedOutput).toContain(result);
+    }
+  }
 });
 
 test("preparePackageScriptRun rejects unknown script names", async () => {

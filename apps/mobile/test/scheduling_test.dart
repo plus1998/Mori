@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:eco_mobile/core/models/eco_types.dart';
 import 'package:eco_mobile/core/models/scheduling_models.dart';
@@ -60,6 +61,20 @@ class Client extends EcoCenterClient {
         (channel == 'scheduling:run-now' && failRun)) {
       throw EcoCenterException.native('response lost');
     }
+    if (channel == 'prompt-image:upload-begin') {
+      return {'receivedBytes': 0} as T;
+    }
+    if (channel == 'prompt-image:upload-chunk') {
+      return {'receivedBytes': base64Decode(args.single['data']).length} as T;
+    }
+    if (channel == 'prompt-image:upload-finish') {
+      return {
+            'path': '/tmp/staged-schedule-image.png',
+            'contentRef': 'sha256:${'a' * 64}',
+            'byteLength': args.single['totalBytes'],
+          }
+          as T;
+    }
     final dynamic result = channel == 'scheduling:list'
         ? snapshot
         : channel == 'scheduling:preview'
@@ -104,6 +119,15 @@ class SelectedProjectPathNotifierForTest extends SelectedProjectPathNotifier {
 }
 
 void main() {
+  test(
+    'wire schedule timestamps preserve the instant with UTC millisecond precision',
+    () {
+      expect(
+        scheduleTimestamp(DateTime.parse('2026-10-24T02:00:00.123456+08:00')),
+        '2026-10-23T18:00:00.123Z',
+      );
+    },
+  );
   test(
     'relative creation retries freeze both time and request id; edits rotate the identity',
     () {
@@ -244,6 +268,107 @@ void main() {
   });
 
   testWidgets(
+    'todo image-only draft uploads once and keeps exact scheduling identity on retry',
+    (tester) async {
+      const png =
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nGkAAAAASUVORK5CYII=';
+      final client = Client()..failCreate = true;
+      await tester.pumpWidget(
+        app(
+          client,
+          const ScheduleEditor(
+            threadId: 'thread_1',
+            initialAttachments: [
+              PromptImageAttachment(
+                id: 'todo_image',
+                mediaType: 'image/png',
+                data: png,
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      final first = client.calls.last.args.single as Map;
+      expect(first['prompt'], '');
+      expect(first['name'], 'Image');
+      expect(first['attachments'], [
+        {
+          'mediaType': 'image/png',
+          'contentRef': 'sha256:${'a' * 64}',
+          'byteLength': base64Decode(png).length,
+        },
+      ]);
+      expect(find.text('response lost'), findsOneWidget);
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(client.calls.last.args.single, first);
+      expect(
+        client.calls.where((c) => c.channel == 'prompt-image:upload-finish'),
+        hasLength(1),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('unreadable scheduled images show an explicit read failure', (
+    tester,
+  ) async {
+    final d = definition()
+      ..['attachments'] = [
+        {
+          'mediaType': 'image/png',
+          'contentRef': 'sha256:${'a' * 64}',
+          'byteLength': 68,
+        },
+      ];
+    await tester.pumpWidget(
+      app(Client(), ScheduleEditor(definition: ScheduleDefinition.fromJson(d))),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Failed to read the image.'), findsOneWidget);
+  });
+
+  testWidgets(
+    'editing a schedule keeps images, or explicitly removes them without changing its date',
+    (tester) async {
+      final client = Client();
+      final d = definition()
+        ..['attachments'] = [
+          {
+            'mediaType': 'image/png',
+            'contentRef': 'sha256:${'a' * 64}',
+            'byteLength': 68,
+            'data':
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nGkAAAAASUVORK5CYII=',
+          },
+        ];
+      await tester.pumpWidget(
+        app(client, ScheduleEditor(definition: ScheduleDefinition.fromJson(d))),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      final saved = client.calls.single.args.single as Map;
+      expect(saved['attachments'], hasLength(1));
+      expect(saved.containsKey('trigger'), false);
+      expect((saved['attachments'] as List).single.containsKey('data'), false);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(
+        app(client, ScheduleEditor(definition: ScheduleDefinition.fromJson(d))),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byTooltip('Remove image 1'));
+      await tester.tap(find.byTooltip('Remove image 1'));
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(client.calls.last.args.single['attachments'], isEmpty);
+    },
+  );
+
+  testWidgets(
     'editing content preserves the original schedule without resetting time',
     (tester) async {
       final client = Client();
@@ -286,6 +411,28 @@ void main() {
     },
   );
 
+  testWidgets('due pending messages show their execution status in the list', (
+    tester,
+  ) async {
+    final client = Client();
+    final d = definition();
+    client.snapshot['schedules'] = [d];
+    client.snapshot['occurrences'] = [
+      {
+        'scheduleId': 'sch_1',
+        'scheduledAt': '2026-10-23T18:00:00Z',
+        'status': 'pending',
+        'definition': d,
+      },
+    ];
+    await tester.pumpWidget(
+      app(client, const SchedulingScreen(threadId: 'thread_1')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Pending'), findsOneWidget);
+    expect(find.textContaining('Enabled'), findsNothing);
+  });
+
   testWidgets(
     'manager filters current-thread messages and reuses immediate-send request on retry',
     (tester) async {
@@ -307,6 +454,8 @@ void main() {
       await tester.tap(find.text('Submit'));
       await tester.pumpAndSettle();
       final first = client.calls.single.args.single;
+      await tester.tap(find.text('Reminder'));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Send now'));
       await tester.tap(find.text('Send now'));
       await tester.pumpAndSettle();

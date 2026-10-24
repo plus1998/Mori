@@ -8,6 +8,8 @@ import { SchedulingService, type SchedulingDeps } from "../src/main/scheduling-s
 import { SchedulingMcpGateway } from "../src/main/scheduling-mcp-gateway";
 import type { ScheduleCreateInput, ScheduleExecutionProfile, ScheduleOccurrence } from "../src/shared/scheduling";
 import { buildAcpThreadRuntimeConfig } from "../src/shared/thread-runtime-config";
+import { canDispatchScheduledMessageStatus } from "../src/main/scheduling-dispatch-policy";
+import type { ThreadStatus } from "../src/shared/ipc";
 import { SystemSleepBlocker } from "../src/main/system-sleep-blocker";
 
 const baseTime = Date.parse("2026-10-08T00:00:00Z");
@@ -390,4 +392,43 @@ test("MCP authenticates conversation and rejects Core/model choice in Agent tool
   const revoked = await call("schedule_message", { requestId: "late-after-stop", name: "late", prompt: "check", delaySeconds: 60 });
   assert.equal(revoked.result.isError, true);
   assert.equal(f.store.list().length, 1);
+});
+
+
+test("due messages wait for active work, then dispatch once after a failed run", async t => {
+  let status: ThreadStatus = "running";
+  let active = true;
+  let paused = false;
+  let approval = false;
+  const f = await fixture(t, {
+    canDispatch: () => canDispatchScheduledMessageStatus(status) && !active && !paused && !approval,
+  });
+  f.service.create({ kind: "session_message", requestId: "after-failure", name: "reminder",
+    prompt: "Continue after the previous run ends", threadId: "source",
+    trigger: { type: "at", at: new Date(baseTime + 60_000).toISOString() } });
+  f.setNow(baseTime + 60_000);
+  await f.service.tick();
+  assert.equal(f.store.occurrences()[0]?.status, "pending");
+  status = "failed";
+  await f.service.tick();
+  assert.equal(f.dispatched.length, 0, "the terminal projection cannot bypass an active runtime");
+  active = false; paused = true;
+  await f.service.tick();
+  assert.equal(f.dispatched.length, 0);
+  paused = false; approval = true;
+  await f.service.tick();
+  assert.equal(f.dispatched.length, 0);
+  approval = false;
+  await f.service.tick();
+  assert.equal(f.dispatched.length, 1);
+  assert.equal(f.store.occurrences()[0]?.status, "running");
+  await f.service.tick();
+  assert.equal(f.dispatched.length, 1);
+});
+
+test("scheduled message terminal statuses exclude running, queued and plan approval", () => {
+  for (const status of ["idle", "completed", "failed", "blocked"] as const)
+    assert.equal(canDispatchScheduledMessageStatus(status), true);
+  for (const status of ["running", "queued", "awaiting_plan"] as const)
+    assert.equal(canDispatchScheduledMessageStatus(status), false);
 });

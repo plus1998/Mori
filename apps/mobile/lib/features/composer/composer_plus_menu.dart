@@ -41,6 +41,7 @@ Future<void> showComposerPlusMenu({
   required VoidCallback onPickImage,
   required String workspacePath,
   String initialPrompt = '',
+  List<PromptImageAttachment> initialAttachments = const [],
   VoidCallback? onMessageScheduled,
 }) {
   final box = anchorKey.currentContext?.findRenderObject() as RenderBox?;
@@ -82,6 +83,7 @@ Future<void> showComposerPlusMenu({
               onPickImage: onPickImage,
               workspacePath: workspacePath,
               initialPrompt: initialPrompt,
+              initialAttachments: initialAttachments,
               onMessageScheduled: onMessageScheduled,
             );
           });
@@ -105,6 +107,7 @@ void _handlePlusMenuAction({
   required VoidCallback onPickImage,
   required String workspacePath,
   required String initialPrompt,
+  required List<PromptImageAttachment> initialAttachments,
   required VoidCallback? onMessageScheduled,
 }) {
   switch (action) {
@@ -115,6 +118,7 @@ void _handlePlusMenuAction({
           context,
           threadId: threadId,
           initialPrompt: initialPrompt,
+          initialAttachments: initialAttachments,
         ).then((saved) {
           if (saved == true && context.mounted) onMessageScheduled?.call();
         }),

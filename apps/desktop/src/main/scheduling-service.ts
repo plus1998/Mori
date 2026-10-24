@@ -4,6 +4,7 @@ import type {
 } from "../shared/scheduling";
 import { stableHash } from "@eco/shared";
 import { normalizeScheduleTrigger, nextScheduleTime } from "./schedule-time";
+import { normalizeSchedulingAttachments } from "./scheduling-attachments";
 import { newScheduleId, SchedulingStore } from "./scheduling-store";
 
 export interface SchedulingActor { source: "user" | "agent"; threadId?: string; wakeDelaySeconds?: number }
@@ -40,10 +41,14 @@ export class SchedulingService {
     const requestId = requiredText(input.requestId, "请求标识", 200);
     const key = `${actor.source}:${actor.threadId ?? "local"}:${requestId}`;
     const name = requiredText(input.name, "名称", 200);
-    const prompt = requiredText(input.prompt, "指令");
+    const attachments = normalizeSchedulingAttachments("attachments" in input ? input.attachments : undefined);
+    if (input.kind !== "session_message" && attachments.length) throw new Error("独立任务不支持定时消息图片。");
+    const prompt = attachments.length && typeof input.prompt === "string" && !input.prompt.trim()
+      ? "" : requiredText(input.prompt, "指令");
     const maxLatenessSeconds = lateness(input.maxLatenessSeconds);
     const requestedTrigger = normalizeScheduleTrigger(input.trigger);
     const creationSignature = stableHash({ kind: input.kind, name, prompt, maxLatenessSeconds,
+      ...(attachments.length ? { attachments } : {}),
       trigger: actor.source === "agent" && input.kind === "session_message" && actor.wakeDelaySeconds !== undefined
         ? { delaySeconds: actor.wakeDelaySeconds } : requestedTrigger,
       ...(input.kind === "session_message" ? { threadId: input.threadId } : actor.source === "user" ? { workspacePath: input.workspacePath, executionProfile: input.executionProfile } : {}),
@@ -80,6 +85,7 @@ export class SchedulingService {
     } else throw new Error("不支持的定时类型。");
     const definition: ScheduleDefinition = {
       id: newScheduleId(), kind: input.kind, name, prompt, trigger, enabled: true, maxLatenessSeconds, creationSignature,
+      ...(attachments.length ? { attachments } : {}),
       source: actor.source, ...(actor.threadId ? { originThreadId: actor.threadId } : {}), ...structuredClone(target),
       revision: 1, nextRunAt, createdAt: now, updatedAt: now,
     };
@@ -114,10 +120,15 @@ export class SchedulingService {
     const nextRunAt = triggerChanged || (enabled && !current.enabled)
       ? nextScheduleTime(trigger, this.clock()) : current.nextRunAt;
     if (enabled && !nextRunAt && (triggerChanged || !current.enabled)) throw new Error("一次性项目已到期，请设置新的未来时间。");
+    const attachments = normalizeSchedulingAttachments(input.attachments ?? current.attachments);
+    if (current.kind !== "session_message" && attachments.length) throw new Error("独立任务不支持定时消息图片。");
+    const prompt = input.prompt ?? current.prompt;
+    if (!attachments.length || prompt.trim()) requiredText(prompt, "指令");
     const { error: _error, ...clean } = current;
     const updated: ScheduleDefinition = {
       ...clean, ...(input.name !== undefined ? { name: requiredText(input.name, "名称", 200) } : {}),
-      ...(input.prompt !== undefined ? { prompt: requiredText(input.prompt, "指令") } : {}),
+      ...(input.prompt !== undefined ? { prompt: prompt.trim() } : {}),
+      ...(input.attachments !== undefined ? { attachments } : {}),
       ...(input.executionProfile ? { executionProfile: structuredClone(input.executionProfile) } : {}),
       ...(input.workspacePath !== undefined ? { workspacePath: requiredText(input.workspacePath, "工作目录") } : {}),
       maxLatenessSeconds: lateness(input.maxLatenessSeconds ?? current.maxLatenessSeconds),

@@ -45,7 +45,10 @@ import { previewSchedule } from "./schedule-time";
 import { inspectScheduledRun } from "./scheduling-inspection";
 import { SchedulingMcpGateway } from "./scheduling-mcp-gateway";
 import { freezeSchedulingProfile } from "./scheduling-profile";
+import { verifySchedulingAttachments } from "./scheduling-attachments";
+import { enqueueScheduledMessage } from "./scheduling-message-dispatch";
 import { SchedulingService } from "./scheduling-service";
+import { canDispatchScheduledMessageStatus } from "./scheduling-dispatch-policy";
 import { SchedulingStore } from "./scheduling-store";
 import { TtsMcpGateway } from "./tts-mcp-gateway";
 import { createTtsStore, type TtsStore } from "./tts-store";
@@ -4840,15 +4843,18 @@ function registerIpcHandlers(): void {
     return revision;
   });
   registerDesktopCommand(IPC_CHANNELS.schedulingList, () => schedulingService.store.snapshot());
-  registerDesktopCommand(IPC_CHANNELS.schedulingCreate, (input: ScheduleCreateInput) => {
+  registerDesktopCommand(IPC_CHANNELS.schedulingCreate, async (input: ScheduleCreateInput) => {
+    if (input.kind === "session_message" && input.attachments !== undefined)
+      input = { ...input, attachments: await verifySchedulingAttachments(input.attachments, ref => promptImageFileStore.readContentRefAttachment(ref)) };
     if (input.kind === "scheduled_task")
       input = { ...input, executionProfile: pinSchedulingProfile(input.executionProfile) };
     return schedulingService.create(input);
   });
-  registerDesktopCommand(IPC_CHANNELS.schedulingUpdate, (input: ScheduleUpdateInput) =>
+  registerDesktopCommand(IPC_CHANNELS.schedulingUpdate, async (input: ScheduleUpdateInput) =>
     schedulingService.update({
       ...input,
       ...(input.executionProfile ? { executionProfile: pinSchedulingProfile(input.executionProfile) } : {}),
+      ...(input.attachments !== undefined ? { attachments: await verifySchedulingAttachments(input.attachments, ref => promptImageFileStore.readContentRefAttachment(ref)) } : {}),
     }),
   );
   registerDesktopCommand(IPC_CHANNELS.schedulingDelete, (id: string) => schedulingService.remove(id));
@@ -13750,7 +13756,7 @@ function createSchedulingService(dbPath: string): SchedulingService {
       return (
         !activeRunRuntimeState.hasRun(thread.id) &&
         !contextMonitor.isCompactInFlight(thread.id) &&
-        (thread.status === "idle" || thread.status === "completed") &&
+        canDispatchScheduledMessageStatus(thread.status) &&
         !thread.followUpQueuePaused &&
         !getPendingPlanApprovalForThread(thread.id) &&
         !getPendingBashApprovalForThread(thread.id) &&
@@ -13779,28 +13785,7 @@ function createSchedulingService(dbPath: string): SchedulingService {
         return { threadId: result.thread.id };
       }
       const threadId = definition.threadId!;
-      if (!conversationStore.getThread(threadId)) throw new Error("目标会话已删除。");
-      const prompt = definition.prompt;
-      const accepted = conversationStore.conversationV2().sendMessage({
-        principalId: "eco-scheduler",
-        conversationId: threadId,
-        clientCommandId: occurrence.id,
-        messageId: `message_${occurrence.id}`,
-        text: prompt,
-        origin: { kind: "scheduled_message", scheduleId: definition.id, name: definition.name },
-      });
-      const existing = conversationStore
-        .listThreadFollowUps(threadId)
-        .find((item) => item.conversationMessageId === accepted.messageId);
-      const followUp =
-        existing ??
-        conversationStore.enqueueThreadFollowUp({
-          threadId,
-          prompt,
-          conversationMessageId: accepted.messageId,
-          deliveryMode: "queued",
-          priority: "normal",
-        });
+      const followUp = await enqueueScheduledMessage(occurrence, conversationStore, promptImageFileStore);
       emitThreadFollowUpEvent(followUp, "thread.follow_up.queued", formatFollowUpQueuedMessage(followUp));
       void drainQueuedThreadFollowUpsAfterRun(threadId);
       return { threadId, followUpId: followUp.id };

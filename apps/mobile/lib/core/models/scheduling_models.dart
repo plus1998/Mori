@@ -1,6 +1,14 @@
 import 'dart:convert';
+import 'thread_models.dart';
 
 import 'package:uuid/uuid.dart';
+
+/// The desktop wire format uses UTC milliseconds, while Dart clocks can carry
+/// microseconds. Keep compatibility with desktops that validate this precision.
+String scheduleTimestamp(DateTime value) => DateTime.fromMillisecondsSinceEpoch(
+  value.millisecondsSinceEpoch,
+  isUtc: true,
+).toIso8601String();
 
 class ScheduleDefinition {
   ScheduleDefinition.fromJson(Map<String, dynamic> json)
@@ -9,6 +17,13 @@ class ScheduleDefinition {
       name = json['name'] as String,
       prompt = json['prompt'] as String,
       trigger = Map<String, dynamic>.from(json['trigger'] as Map),
+      attachments = (json['attachments'] as List? ?? const [])
+          .map(
+            (a) => PromptImageAttachment.fromJson(
+              Map<String, dynamic>.from(a as Map),
+            ),
+          )
+          .toList(),
       enabled = json['enabled'] as bool,
       revision = json['revision'] as int,
       maxLatenessSeconds = json['maxLatenessSeconds'] as int,
@@ -22,6 +37,7 @@ class ScheduleDefinition {
 
   final String id, kind, name, prompt;
   final Map<String, dynamic> trigger;
+  final List<PromptImageAttachment> attachments;
   final bool enabled;
   final int revision, maxLatenessSeconds;
   final String? threadId, workspacePath, nextRunAt, error;

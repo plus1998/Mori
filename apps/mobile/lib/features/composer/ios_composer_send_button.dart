@@ -17,8 +17,10 @@ class IOSComposerSendButton extends StatefulWidget {
     required this.label,
     required this.queueLabel,
     required this.steerLabel,
+    required this.scheduleLabel,
     required this.onSend,
-    required this.onSendWithMode,
+    this.onSendWithMode,
+    this.onSchedule,
   });
 
   final double size;
@@ -28,8 +30,10 @@ class IOSComposerSendButton extends StatefulWidget {
   final String label;
   final String queueLabel;
   final String steerLabel;
+  final String scheduleLabel;
   final VoidCallback? onSend;
-  final ValueChanged<FollowUpDeliveryMode> onSendWithMode;
+  final ValueChanged<FollowUpDeliveryMode>? onSendWithMode;
+  final VoidCallback? onSchedule;
 
   @override
   State<IOSComposerSendButton> createState() => _IOSComposerSendButtonState();
@@ -47,9 +51,11 @@ class _IOSComposerSendButtonState extends State<IOSComposerSendButton> {
       case 'selected':
         switch (call.arguments) {
           case 'queue':
-            widget.onSendWithMode(FollowUpDeliveryMode.queue);
+            widget.onSendWithMode?.call(FollowUpDeliveryMode.queue);
+          case 'schedule':
+            widget.onSchedule?.call();
           case 'steer':
-            widget.onSendWithMode(FollowUpDeliveryMode.steer);
+            widget.onSendWithMode?.call(FollowUpDeliveryMode.steer);
         }
     }
   }
@@ -57,12 +63,15 @@ class _IOSComposerSendButtonState extends State<IOSComposerSendButton> {
   Map<String, Object> _configuration() => {
     'enabled': widget.onSend != null && !widget.busy,
     'busy': widget.busy,
+    'allowDelivery': widget.onSendWithMode != null,
+    'allowSchedule': widget.onSchedule != null,
     'backgroundColor': widget.backgroundColor.toARGB32(),
     'foregroundColor': widget.foregroundColor.toARGB32(),
     'isDark': Theme.of(context).brightness == Brightness.dark,
     'label': widget.label,
     'queueLabel': widget.queueLabel,
     'steerLabel': widget.steerLabel,
+    'scheduleLabel': widget.scheduleLabel,
   };
 
   @override

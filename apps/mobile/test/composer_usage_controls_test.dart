@@ -484,6 +484,72 @@ void main() {
     expect(find.text('5.6 Sol'), findsNothing);
   });
 
+  testWidgets(
+    'idle long press offers scheduling; selection transfers text and images',
+    (tester) async {
+      final controller = TextEditingController(text: 'Schedule this idea');
+      addTearDown(controller.dispose);
+      final images = [
+        PromptImageAttachment(
+          id: 'draft-image',
+          mediaType: 'image/png',
+          data:
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nGkAAAAASUVORK5CYII=',
+        ),
+      ];
+      var sends = 0;
+      await tester.pumpWidget(
+        _TestApp(
+          modelSettings: modelSettings,
+          child: StatefulBuilder(
+            builder: (context, rebuild) => SessionComposer(
+              controller: controller,
+              attachments: images,
+              runtimeConfig: modelRuntimeConfig,
+              threadId: 'thread-1',
+              isRunning: false,
+              hasActivity: true,
+              onPickImage: () {},
+              onRemoveAttachment: (i) => rebuild(() => images.removeAt(i)),
+              onSend: () => sends++,
+              onStop: () {},
+              onRuntimeConfigChanged: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.longPress(find.byIcon(EcoIcons.send));
+      await tester.pumpAndSettle();
+      expect(find.text('Schedule send'), findsOneWidget);
+      expect(find.byType(CloseButton), findsNothing);
+      expect(controller.text, 'Schedule this idea');
+      expect(images, hasLength(1));
+      // Dismissing the menu must not consume the draft.
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(controller.text, 'Schedule this idea');
+      expect(images, hasLength(1));
+      await tester.longPress(find.byIcon(EcoIcons.send));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Schedule send'));
+      await tester.pumpAndSettle();
+      expect(
+        find.widgetWithText(TextField, 'Schedule this idea'),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('Remove image 1'), findsOneWidget);
+      expect(sends, 0);
+      expect(controller.text, isEmpty);
+      expect(images, isEmpty);
+      await tester.tap(find.byType(CloseButton));
+      await tester.pumpAndSettle();
+      expect(controller.text, isEmpty);
+      expect(images, isEmpty);
+      expect(sends, 0);
+    },
+  );
+
   testWidgets('send tap uses default; long press selects only this message', (
     tester,
   ) async {

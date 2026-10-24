@@ -590,6 +590,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerSendHint => '发送消息…';
 
   @override
+  String get composerSendScheduled => '定时发送';
+
+  @override
   String get composerSendQueue => '排队';
 
   @override
@@ -2725,6 +2728,18 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get composerApprovalModelHintAcp =>
       '用于工具自动审批，支持普通模型及 SystemOne（Jev）决策模型';
+
+  @override
+  String get schedulingContent => '内容';
+
+  @override
+  String get schedulingTiming => '执行时间';
+
+  @override
+  String get schedulingAdvanced => '高级设置';
+
+  @override
+  String get schedulingImageLimit => '最多添加 20 张图片。';
 
   @override
   String get schedulingTitle => '定时任务';

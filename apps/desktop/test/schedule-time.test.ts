@@ -9,6 +9,12 @@ describe("schedule time", () => {
     expect(latestScheduleTime(trigger, Date.parse("2026-10-08T06:20:00Z"), "2026-10-08T04:00:00.000Z")).toBe("2026-10-08T05:30:00.000Z");
     expect(() => normalizeScheduleTrigger({ type: "interval", anchorAt: "2026-10-08T12:00:00Z", everySeconds: 59 })).toThrow();
   });
+  test("mobile microsecond timestamps normalize to durable millisecond timestamps", () => {
+    expect(normalizeScheduleTrigger({ type: "at", at: "2026-10-24T02:00:00.123456+08:00" }))
+      .toEqual({ type: "at", at: "2026-10-23T18:00:00.123Z" });
+    expect(normalizeScheduleTrigger({ type: "interval", everySeconds: 60, anchorAt: "2026-10-24T02:00:00.654321Z" }))
+      .toEqual({ type: "interval", everySeconds: 60, anchorAt: "2026-10-24T02:00:00.654Z" });
+  });
   test("five-field cron, explicit timezone, no random jitter", () => {
     const trigger = normalizeScheduleTrigger({ type: "cron", expression: "0 9 * * MON-FRI", timezone: "Asia/Shanghai" });
     expect(previewSchedule(trigger, Date.parse("2026-10-08T00:00:00Z"))[0]).toBe("2026-10-08T01:00:00.000Z");

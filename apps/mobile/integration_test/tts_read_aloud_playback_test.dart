@@ -51,6 +51,27 @@ class _Engine extends FlutterTts {
   Future<dynamic> stop() async => 1;
 }
 
+class _ObservedSystemEngine extends FlutterTts {
+  int started = 0;
+  int completed = 0;
+
+  @override
+  void setStartHandler(VoidCallback callback) {
+    super.setStartHandler(() {
+      started++;
+      callback();
+    });
+  }
+
+  @override
+  void setCompletionHandler(VoidCallback callback) {
+    super.setCompletionHandler(() {
+      completed++;
+      callback();
+    });
+  }
+}
+
 class _Remote implements ReadAloudRemote {
   final bytes = _wav();
   final second = Completer<ReadAloudSegmentResult>();
@@ -154,7 +175,11 @@ void main() {
         remote.second.complete(
           ReadAloudSegmentResult('audio/wav', remote.bytes.length),
         );
-        expect(await playback.timeout(const Duration(seconds: 30)), isTrue);
+        expect(
+          await playback.timeout(const Duration(seconds: 30)),
+          isTrue,
+          reason: service.lastError,
+        );
         expect(player.started, 3);
         expect(service.state, TtsPlaybackState.idle);
         service.dispose();
@@ -213,6 +238,48 @@ void main() {
         expect(remote.cancelled, 1);
       });
       await tester.pumpWidget(const SizedBox());
+    },
+  );
+  testWidgets(
+    'system engine reads Chinese locally and restores iOS audio after recording',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({'read_aloud_engine': 'system'});
+      final engine = _ObservedSystemEngine();
+      final service = EcoTtsService(
+        engine: engine,
+        remote: () => throw StateError('Local speech must not use Desktop'),
+      );
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: Text('System TTS test'))),
+      );
+      await tester.runAsync(() async {
+        try {
+          for (var index = 1; index <= 2; index++) {
+            // Reproduce the shared session left by a recorder, including a
+            // deactivated session before the second utterance.
+            await engine.setIosAudioCategory(
+              IosTextToSpeechAudioCategory.playAndRecord,
+              [IosTextToSpeechAudioCategoryOptions.defaultToSpeaker],
+              IosTextToSpeechAudioMode.voiceChat,
+            );
+            await engine.setSharedInstance(false);
+            expect(
+              await service.speak(
+                entryId: 'local-$index',
+                sourceText: '你好，这是手机本地朗读。',
+                locale: const Locale('zh'),
+              ),
+              isTrue,
+              reason: service.lastError,
+            );
+            await _until(() => engine.started == index);
+            await _until(() => engine.completed == index);
+            expect(service.state, TtsPlaybackState.idle);
+          }
+        } finally {
+          service.dispose();
+        }
+      });
     },
   );
 }
