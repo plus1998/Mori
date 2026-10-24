@@ -2157,6 +2157,8 @@ export function buildSdkProcessEnv(options: BuildSdkProcessEnvOptions): Record<s
   }
   env.ANTHROPIC_BASE_URL = options.baseUrl.replace(/\/+$/, "");
   env.CLAUDE_AGENT_SDK_CLIENT_APP = "eco-coding";
+  // Request-scoped classification lets Bridge distinguish native compaction from turns.
+  env.CLAUDE_CODE_GATEWAY_HINT_HEADERS = "1";
   if (options.contextWindow !== undefined) {
     env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = serializeSdkContextWindow(options.contextWindow);
   }
@@ -2287,6 +2289,7 @@ export function applyEcoSdkSettings(
       ...existingEnv,
       ANTHROPIC_BASE_URL: baseUrl.replace(/\/+$/, ""),
       CLAUDE_CODE_ATTRIBUTION_HEADER: "0",
+      CLAUDE_CODE_GATEWAY_HINT_HEADERS: "1",
       ...(options.contextWindow !== undefined
         ? {
             CLAUDE_CODE_MAX_CONTEXT_TOKENS: serializeSdkContextWindow(options.contextWindow),

@@ -35,6 +35,7 @@ import '../../core/widgets/streaming_eco_markdown.dart';
 import '../../core/widgets/eco_surface_card.dart';
 import '../../core/widgets/image_memory_lightbox.dart';
 import '../../core/widgets/paced_stream_text.dart';
+import '../../core/widgets/run_activity_indicator.dart';
 import '../../core/widgets/shimmer_text.dart';
 import '../../core/theme/subagent_theme.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -1351,6 +1352,7 @@ class ActivityFeedList extends StatefulWidget {
     this.showScrollJumpButton = true,
     this.scrollJumpBottomInset = 0,
     this.stopping = false,
+    this.running = false,
     this.showMessageCopyAndTime = true,
     this.padding,
   });
@@ -1377,6 +1379,7 @@ class ActivityFeedList extends StatefulWidget {
   final bool showScrollJumpButton;
   final double scrollJumpBottomInset;
   final bool stopping;
+  final bool running;
 
   /// Copy/time (and speak) under messages — only after the conversation stopped.
   final bool showMessageCopyAndTime;
@@ -1392,6 +1395,8 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
   bool _showScrollJump = false;
   bool _loadingEarlier = false;
   bool _loadEarlierFailed = false;
+  Timer? _silenceTimer;
+  bool _silent = false;
 
   @override
   void initState() {
@@ -1400,12 +1405,20 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
         widget.scrollCoordinator ??
         ActivityFeedScrollCoordinator(widget.scrollController);
     _layoutSignature = activityFeedLayoutSignature(widget.entries);
+    _syncSilenceTimer();
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadEarlier());
   }
 
   @override
   void didUpdateWidget(ActivityFeedList oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if ((widget.running || oldWidget.running) &&
+        (oldWidget.running != widget.running ||
+            oldWidget.stopping != widget.stopping ||
+            _feedWorkSignature(oldWidget.entries) !=
+                _feedWorkSignature(widget.entries))) {
+      _syncSilenceTimer();
+    }
     final nextSignature = activityFeedLayoutSignature(widget.entries);
     if (nextSignature != _layoutSignature) {
       _layoutSignature = nextSignature;
@@ -1415,6 +1428,33 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
         (!oldWidget.hasEarlier && widget.hasEarlier)) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadEarlier());
     }
+  }
+
+  void _syncSilenceTimer() {
+    _silenceTimer?.cancel();
+    _silenceTimer = null;
+    _silent = false;
+    if (!widget.running || widget.stopping) return;
+    if (widget.entries.isNotEmpty) {
+      final tail = _liveFeedTail(widget.entries);
+      // These rows already animate their own waiting/thinking/writing state.
+      if (tail.kind == ActivityFeedKind.reasoningStage ||
+          tail.kind == ActivityFeedKind.toolWriting ||
+          (tail.kind == ActivityFeedKind.thinking && tail.streaming) ||
+          _isEmptyLiveThinkingStatus(tail) ||
+          widget.entries.any(_containsRunningContextCompaction)) {
+        return;
+      }
+    }
+    _silenceTimer = Timer(const Duration(milliseconds: 500), () {
+      if (mounted) setState(() => _silent = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _silenceTimer?.cancel();
+    super.dispose();
   }
 
   void _scheduleLayoutScroll() {
@@ -1566,11 +1606,51 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
                 },
               ),
             ),
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: widget.scrollJumpBottomInset + 4,
+            child: IgnorePointer(
+              child: Center(
+                child: AnimatedSwitcher(
+                  duration: MediaQuery.disableAnimationsOf(context)
+                      ? Duration.zero
+                      : const Duration(milliseconds: 160),
+                  child: _silent
+                      ? const RunActivityIndicator(
+                          key: ValueKey('activity-run-indicator'),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 }
+
+// The silence clock tracks visible content, including nested tool lifecycles
+// and same-length text edits. Elapsed time and projection refreshes do not
+// constitute new output and must not keep postponing the indicator.
+int _feedWorkSignature(List<ActivityFeedEntry> entries) => Object.hashAll(
+  entries.map(
+    (entry) => Object.hash(
+      entry.id,
+      entry.kind,
+      entry.text,
+      entry.streaming,
+      entry.lifecycle,
+      entry.running,
+      _feedWorkSignature(entry.processEntries),
+      _feedWorkSignature(entry.actionChildren),
+      entry.finalOutput == null
+          ? null
+          : _feedWorkSignature([entry.finalOutput!]),
+    ),
+  ),
+);
 
 class _ScrollToBottomButton extends StatelessWidget {
   const _ScrollToBottomButton({required this.onPressed});

@@ -95,6 +95,8 @@ export interface GatewayConfig {
     | {
         contextTokens?: number;
         maxOutputTokens?: number;
+        /** Verified compact request only: resolved model capacity before the session cap. */
+        compactionContextTokens?: number;
       }
     | undefined
   >;

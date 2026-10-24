@@ -21,6 +21,8 @@ export interface ClaudeBridgeBindingRoute {
   thinkingEffort?: ThinkingEffort;
   maxOutputTokens?: number;
   contextTokens?: number;
+  /** Resolved model capacity before the session cap; only tagged compact requests use it. */
+  compactionContextTokens?: number;
   supportsImageInput?: boolean;
 }
 
@@ -83,6 +85,7 @@ export interface ClaudeBridgeBinding {
   pendingSettles: Set<Promise<unknown>>;
   /** Upstream provider request ids adopted per logical request for this binding. */
   adoptedUpstreamRequestIdsByLogical: Map<string, Set<string>>;
+  compactionLogicalRequestIds: Set<string>;
 }
 
 export interface CreateClaudeBridgeBindingInput {
@@ -124,6 +127,7 @@ export class ClaudeBridgeBindingRegistry {
       inFlight: 0,
       pendingSettles: new Set(),
       adoptedUpstreamRequestIdsByLogical: new Map(),
+      compactionLogicalRequestIds: new Set(),
     };
     this.byCredential.set(credential, binding);
     this.byBindingId.set(bindingId, binding);

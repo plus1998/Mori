@@ -2,6 +2,7 @@ import 'package:eco_mobile/core/models/conversation_v2_models.dart';
 import 'package:eco_mobile/core/models/conversation_v2_projection_models.dart';
 import 'package:eco_mobile/core/preferences/thinking_display_preferences.dart';
 import 'package:eco_mobile/core/utils/tool_writing_indicator.dart';
+import 'package:eco_mobile/core/widgets/run_activity_indicator.dart';
 import 'package:eco_mobile/features/threads/activity_feed.dart';
 import 'package:eco_mobile/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -81,6 +82,156 @@ List<ActivityFeedEntry> _rows(List<ActivityFeedEntry> feed) => [
 ];
 
 void main() {
+  testWidgets('quiet running feed shows activity without moving its content', (
+    tester,
+  ) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    Future<void> render({
+      String text = '检查实现',
+      bool running = true,
+      bool stopping = false,
+      int durationMs = 0,
+    }) => tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ActivityFeedList(
+            entries: [
+              ActivityFeedEntry(
+                id: 'turn',
+                kind: ActivityFeedKind.turn,
+                text: '',
+                running: true,
+                durationMs: durationMs,
+                processEntries: [
+                  ActivityFeedEntry(
+                    id: 'message',
+                    kind: ActivityFeedKind.assistant,
+                    text: text,
+                    streaming: true,
+                  ),
+                ],
+              ),
+            ],
+            running: running,
+            stopping: stopping,
+            scrollController: scroll,
+            scrollJumpBottomInset: 120,
+            padding: const EdgeInsets.only(bottom: 160),
+          ),
+        ),
+      ),
+    );
+
+    await render();
+    await tester.pump(const Duration(milliseconds: 499));
+    expect(find.byType(RunActivityIndicator), findsNothing);
+    // A clock refresh is not new content: keep the original silence deadline.
+    await render(durationMs: 1000);
+    final before = tester.getRect(find.byKey(const ValueKey('message')));
+    final offset = scroll.offset;
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump(const Duration(milliseconds: 180));
+    expect(find.byType(RunActivityIndicator), findsOneWidget);
+    expect(tester.getRect(find.byKey(const ValueKey('message'))), before);
+    expect(scroll.offset, offset);
+    final mark = tester.getRect(find.byType(RunActivityIndicator));
+    expect(mark.bottom, lessThanOrEqualTo(600 - 120));
+
+    // Same-length content changes also count as visible output.
+    await render(text: '更新实现');
+    await tester.pump(const Duration(milliseconds: 180));
+    expect(find.byType(RunActivityIndicator), findsNothing);
+    await tester.pump(const Duration(milliseconds: 320));
+    expect(find.byType(RunActivityIndicator), findsOneWidget);
+    await render(stopping: true);
+    await tester.pump(const Duration(milliseconds: 180));
+    expect(find.byType(RunActivityIndicator), findsNothing);
+    await render(running: false);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(RunActivityIndicator), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('existing nested waiting states own their activity indicator', (
+    tester,
+  ) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    for (final kind in [
+      ActivityFeedKind.thinking,
+      ActivityFeedKind.reasoningStage,
+      ActivityFeedKind.toolWriting,
+    ]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: ActivityFeedList(
+              entries: [
+                ActivityFeedEntry(
+                  id: 'turn',
+                  kind: ActivityFeedKind.turn,
+                  text: '',
+                  running: true,
+                  processEntries: [
+                    ActivityFeedEntry(
+                      id: 'waiting',
+                      kind: kind,
+                      text: kind == ActivityFeedKind.thinking ? '' : '检查实现',
+                      streaming: true,
+                    ),
+                  ],
+                ),
+              ],
+              running: true,
+              scrollController: scroll,
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        find.byType(RunActivityIndicator),
+        findsNothing,
+        reason: kind.name,
+      );
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('reduced motion keeps a static mark with a screen reader label', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const MediaQuery(
+          data: MediaQueryData(disableAnimations: true),
+          child: Center(child: RunActivityIndicator()),
+        ),
+      ),
+    );
+    expect(find.text('Processing'), findsNothing);
+    expect(find.bySemanticsLabel('Processing'), findsOneWidget);
+    expect(
+      tester.getSize(find.byType(RunActivityIndicator)),
+      const Size(28, 12),
+    );
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.binding.hasScheduledFrame, isFalse);
+    semantics.dispose();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   test('a durable tool after writing began prevents a stale writing hint', () {
     final rows = _rows(
       _feed(

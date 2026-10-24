@@ -1900,6 +1900,7 @@ class _ActivityFeedView extends ConsumerWidget {
         themeSource: themeSource,
         thinkingDefaultExpanded: thinkingDisplayMode.defaultExpanded,
         stopping: stopping,
+        running: isRunning && conversationV2.error == null,
         showMessageCopyAndTime: isThreadStoppedForMessageMeta(
           isRunning ? 'running' : (threadStatus ?? 'idle'),
         ),

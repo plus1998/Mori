@@ -21664,9 +21664,11 @@ function startRuntimeProxy(
             modelId: route.modelId,
             ...(route.modelsDevMapping && { mapping: route.modelsDevMapping }),
           });
+          const compactionContextTokens = route.manualSpec?.contextTokens ?? catalog?.limits.contextTokens;
           return runtimeRouteToProxyRoute(route, {
             globalMaxOutputTokens: workflowSettingsStore.get().maxOutputLimitTokens,
             ...(contextTokens !== undefined && { contextTokens }),
+            ...(compactionContextTokens !== undefined && { compactionContextTokens }),
             contextTokensResolved: (route.manualSpec?.contextTokens ?? 0) > 0 || (catalog?.limits.contextTokens ?? 0) > 0,
             ...(catalog?.limits.maxOutputTokens !== undefined && {
               catalogMaxOutputTokens: catalog.limits.maxOutputTokens,

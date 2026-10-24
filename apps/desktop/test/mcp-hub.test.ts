@@ -1,5 +1,95 @@
 import { expect, test } from "bun:test";
 import { McpHub } from "../src/main/mcp-hub";
+import { ECO_MCP_HUB_SEARCH_QUERY_DESCRIPTION } from "../src/shared/mcp-hub-tool-usage";
+
+test("MCP Hub finds browser tools with the multi-keyword query that failed in Prod", async () => {
+  const listed: string[] = [];
+  const schema = { type: "object", properties: { url: { type: "string" } } };
+  const hub = new McpHub();
+  hub.registerServer({
+    name: "eco_agent_browser",
+    listTools: async () => {
+      listed.push("browser");
+      return { tools: [
+        { name: "agent_browser_close", description: "Close the current tab." },
+        { name: "agent_browser_tools_profiles", description: "List browser profiles / skills." },
+        { name: "agent_browser_open", description: "Navigate to a URL.", inputSchema: schema },
+        { name: "agent_browser_read", description: "Read the current page." },
+      ] };
+    },
+    callTool: async () => ({}),
+  });
+  hub.registerServer({
+    name: "other",
+    listTools: async () => {
+      listed.push("other");
+      return { tools: [{ name: "search_navigate_read_skill" }] };
+    },
+    callTool: async () => ({}),
+  });
+  hub.bindSession({ sessionId: "thread", token: "token" });
+  const result = await hub.searchTools({ token: "token", query: "eco_agent_browser search navigate read skill", limit: 2 });
+  expect(result).toEqual({
+    tools: [
+      { name: "eco_agent_browser:agent_browser_read", description: "Read the current page." },
+      { name: "eco_agent_browser:agent_browser_tools_profiles", description: "List browser profiles / skills." },
+    ],
+    total: 3,
+    hasMore: true,
+  });
+  expect(listed).toEqual(["browser"]);
+  expect((await hub.searchTools({ token: "token", query: "eco_agent_browser:agent_browser_open" })).tools)
+    .toEqual([{ name: "eco_agent_browser:agent_browser_open", description: "Navigate to a URL.", inputSchema: schema }]);
+  expect((await hub.searchTools({ token: "token", query: "eco_agent_browser nonexistent" })).tools).toEqual([]);
+  expect((await hub.searchTools({ token: "token", query: "eco_agent_browser" })).total).toBe(4);
+});
+
+test("MCP Hub ranks any-keyword matches by coverage then name matches, with stable ties", async () => {
+  const hub = new McpHub();
+  hub.registerServer({
+    name: "records",
+    listTools: async () => ({ tools: [
+      { name: "help", description: "Read records" },
+      { name: "read" },
+      { name: "read_next" },
+      { name: "guide", description: "Read and search records" },
+      { name: "search", description: "Read records" },
+      { name: "search_read" },
+      { name: "write" },
+    ] }),
+    callTool: async () => ({}),
+  });
+  hub.registerServer({ name: "notes", listTools: async () => ({ tools: [{ name: "search_notes" }, { name: "查看", description: "搜索 文档" }] }), callTool: async () => ({}) });
+  hub.bindSession({ sessionId: "thread", token: "token" });
+  const result = await hub.searchTools({ token: "token", query: "  READ\tsearch\nread  " });
+  expect(result.tools.map((tool) => tool.name)).toEqual([
+    "records:search_read", "records:search", "records:guide",
+    "records:read", "records:read_next", "notes:search_notes", "records:help",
+  ]);
+  expect((await hub.searchTools({ token: "token", query: "搜索 查看" })).tools.map((tool) => tool.name)).toEqual(["notes:查看"]);
+  expect((await hub.searchTools({ token: "token", query: "nonexistent" })).total).toBe(0);
+  expect((await hub.searchTools({ token: "token", query: "  " })).total).toBe(9);
+  expect((await hub.searchTools({ token: "token", query: "RECORDS notes search" })).total).toBe(4);
+});
+
+test("MCP Hub multi-keyword searches preserve server and tool permissions before ranking", async () => {
+  const hub = new McpHub();
+  hub.registerServer({
+    name: "records",
+    listTools: async () => ({ tools: [{ name: "search_read" }, { name: "read" }, { name: "search" }] }),
+    callTool: async () => ({}),
+  });
+  hub.registerServer({ name: "disabled", listTools: async () => { throw new Error("must not list disabled server"); }, callTool: async () => ({}) });
+  hub.bindSession({ sessionId: "parent", token: "parent", allowedServers: ["records"], allowedTools: ["records:read", "records:search_read"] });
+  hub.bindSession({ sessionId: "child", token: "child", parentSessionId: "parent", allowedServers: ["records", "disabled"] });
+  hub.revokeTool({ token: "parent", toolId: "records:search_read" });
+  expect(await hub.searchTools({ token: "child", query: "records search read", limit: 1 })).toEqual({
+    tools: [{ name: "records:read" }], total: 1, hasMore: false,
+  });
+  expect((await hub.searchTools({ token: "child", query: "disabled read" })).tools).toEqual([]);
+  expect((await hub.searchTools({ token: "child", query: "disabled:read" })).tools).toEqual([]);
+  expect((await hub.searchTools({ token: "child", query: "records nonexistent" })).tools).toEqual([]);
+});
 
 test("MCP service directory shares search permissions, omits schemas and bypasses search result limits", async () => {
   const listed: string[] = [];
@@ -211,6 +301,10 @@ test("MCP Hub exposes only fixed search and call wrappers to the transport", asy
   const handlers = hub.createStreamableHttpHandlers();
   const listed = await handlers.listTools({ headers: {}, signal: new AbortController().signal });
   expect(listed.tools.map((tool) => tool.name)).toEqual(["search_tools", "call_tool"]);
+  expect(listed.tools[0]?.description).toContain(ECO_MCP_HUB_SEARCH_QUERY_DESCRIPTION);
+  expect(listed.tools[0]?.inputSchema).toMatchObject({
+    properties: { query: { type: "string", description: ECO_MCP_HUB_SEARCH_QUERY_DESCRIPTION } },
+  });
   const search = await handlers.callTool({
     name: "search_tools",
     arguments: {},

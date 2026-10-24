@@ -1,5 +1,5 @@
 import type { McpStreamableHttpHandlers, McpToolCallResult, McpToolDefinition } from "./mcp-streamable-http";
-import type { McpHubServiceDirectoryEntry } from "../shared/mcp-hub-tool-usage";
+import { ECO_MCP_HUB_SEARCH_QUERY_DESCRIPTION, type McpHubServiceDirectoryEntry } from "../shared/mcp-hub-tool-usage";
 
 export type McpHubSession = {
   sessionId: string;
@@ -223,10 +223,19 @@ export class McpHub {
   }): Promise<McpHubSearchResult> {
     const session = this.resolveSession(input.token);
     const query = String(input.query ?? "").trim().toLowerCase();
+    const keywords = [...new Set(query.split(/\s+/).filter(Boolean))];
+    // A named server is a scope, not an OR term that would match every tool.
+    // Recognize registered but unauthorized servers too: their names must not
+    // broaden a query to unrelated authorized services.
+    const scopedServers = new Set(keywords
+      .map((keyword) => keyword.split(":")[0]!)
+      .filter((name) => this.servers.has(name)));
+    const terms = keywords.filter((keyword) => !scopedServers.has(keyword));
     const limit = Math.max(1, Math.min(200, Math.floor(input.limit ?? 50)));
-    const visible: McpToolDefinition[] = [];
+    const visible: Array<{ tool: McpToolDefinition; matches: number; nameMatches: number }> = [];
     for (const [serverName, server] of this.servers) {
       if (!this.effectiveServers(session).has(serverName)) continue;
+      if (scopedServers.size > 0 && !scopedServers.has(serverName)) continue;
       const listed = await server.listTools({
         signal: input.signal ?? new AbortController().signal,
         session,
@@ -237,13 +246,27 @@ export class McpHub {
         const toolId = `${serverName}:${leaf}`;
         const policy = this.effectiveToolPolicy(session);
         if (!isToolAuthorized(policy, toolId, leaf)) continue;
-        if (query && !`${toolId} ${tool.description ?? ""}`.toLowerCase().includes(query)) continue;
+        const name = toolId.toLowerCase();
+        const description = (tool.description ?? "").toLowerCase();
+        let matches = 0;
+        let nameMatches = 0;
+        for (const term of terms) {
+          if (name.includes(term)) {
+            matches++;
+            nameMatches++;
+          } else if (description.includes(term)) {
+            matches++;
+          }
+        }
+        if (terms.length > 0 && matches === 0) continue;
         this.catalog.set(toolId, { ...tool, name: toolId });
-        visible.push({ ...tool, name: toolId });
+        visible.push({ tool: { ...tool, name: toolId }, matches, nameMatches });
       }
     }
+    // Stable ties preserve server/tool order, including empty and server-only queries.
+    visible.sort((a, b) => b.matches - a.matches || b.nameMatches - a.nameMatches);
     this.hooks.onAudit?.({ kind: "search", sessionId: session.sessionId, at: new Date().toISOString() });
-    return { tools: visible.slice(0, limit), total: visible.length, hasMore: visible.length > limit };
+    return { tools: visible.slice(0, limit).map(({ tool }) => tool), total: visible.length, hasMore: visible.length > limit };
   }
 
   async callTool(input: {
@@ -348,10 +371,13 @@ export class McpHub {
         tools: [
           {
             name: "search_tools",
-            description: "Search tools authorized for this Eco session.",
+            description: `Search tools authorized for this Eco session. ${ECO_MCP_HUB_SEARCH_QUERY_DESCRIPTION}`,
             inputSchema: {
               type: "object",
-              properties: { query: { type: "string" }, limit: { type: "number" } },
+              properties: {
+                query: { type: "string", description: ECO_MCP_HUB_SEARCH_QUERY_DESCRIPTION },
+                limit: { type: "number" },
+              },
               additionalProperties: false,
             },
           },
