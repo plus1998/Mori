@@ -9395,6 +9395,23 @@ button.integrated-web-search-clear-key:disabled {
   border-radius: 50%;
   background: var(--codex-blue);
 }
+.codex-catalog-dialog.codex-wake-dialog {
+  width: min(440px, calc(100vw - 48px));
+}
+
+.codex-wake-model-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.codex-wake-model-setting select { width: 100%; }
+.codex-wake-model-error { margin: 0; color: var(--danger); }
+.codex-wake-account-name { color: var(--text-primary); overflow-wrap: anywhere; }
+.codex-wake-model-setting .codex-account-wake-status { margin: 0; }
+
 .codex-accounts-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -9634,6 +9651,36 @@ button.integrated-web-search-clear-key:disabled {
   padding-left: 24px;
   border-left: 1px solid var(--border-subtle);
 }
+.codex-account-wake-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.codex-account-wake-status > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.codex-account-wake-status[data-phase="done"] > svg {
+  color: var(--success);
+}
+
+.codex-account-wake-status[data-phase="error"] {
+  color: var(--danger);
+}
+
+.codex-account-wake-status p {
+  margin: 4px 0 0;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .codex-account-details {
   margin-top: 16px;
   border-top: 1px solid var(--border-subtle);

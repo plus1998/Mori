@@ -7258,6 +7258,24 @@ function registerIpcHandlers(): void {
     return quota;
   });
 
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsWake, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.accountId !== "string" || !payload.accountId.trim()) {
+      throw new Error("唤醒账号参数无效。");
+    }
+    return (await getOpenAIAccountService()).wakeAccount(payload.accountId);
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsGetWakeModel, async () =>
+    (await getOpenAIAccountService()).getWakeModel(),
+  );
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsSetWakeModel, async (payload: unknown) => {
+    if (!isRecord(payload) || (payload.modelId !== null &&
+      (typeof payload.modelId !== "string" || !payload.modelId.trim()))) {
+      throw new Error("唤醒模型参数无效。");
+    }
+    (await getOpenAIAccountService()).setWakeModel(payload.modelId as string | null);
+  });
+
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsResetQuota, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.accountId !== "string" || !payload.accountId.trim() ||
       typeof payload.idempotencyKey !== "string" || !/^[0-9a-f-]{36}$/i.test(payload.idempotencyKey)) {

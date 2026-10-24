@@ -127,6 +127,45 @@ function auth(exp: number, refresh: string, stamp: string): string {
 const expiredAuth = auth(1, "old-refresh", "2026-01-01T00:00:00Z");
 const freshAuth = auth(2_000_000_000, "new-refresh", "2026-10-22T00:00:00Z");
 
+test("wake deduplicates hi, keeps the selected account and reports a post-reply quota failure separately", async () => {
+  const root = await serviceRoot();
+  let notify: ((method: string, params: unknown) => void) | undefined;
+  let turns = 0;
+  let reads = 0;
+  const client = quotaClient((method, params) => {
+    if (method === "account/read") return accountResponse;
+    if (method === "account/rateLimits/read") {
+      if (++reads > 1) throw new Error("quota offline after reply");
+      return rateLimits;
+    }
+    if (method === "model/list") return { data: [{ model: "gpt-6-luna", isDefault: true }] };
+    if (method === "thread/start") {
+      expect(params).toMatchObject({ model: "gpt-5.6-luna" });
+      return { thread: { id: "wake" } };
+    }
+    if (method === "turn/start") {
+      turns++;
+      notify?.("turn/completed", { threadId: "wake", turn: { id: "turn", status: "completed", items: [{ type: "agentMessage", text: "hi!" }] } });
+      return { turn: { id: "turn" } };
+    }
+    return {};
+  });
+  client.addNotificationHandler = (handler) => { notify = handler; return () => { notify = undefined; }; };
+  const service = new OpenAIAccountService(root, "unused", undefined, async () => client);
+  await service.initialize();
+  cleanups.push(() => service.dispose());
+  const account = await service.createAccount("Wake");
+  await service.setAuthJson(account.id, freshAuth);
+  await service.setActiveAccount(account.id);
+  await service.applyPendingTransition();
+  service.setWakeModel("gpt-5.6-luna");
+  const first = service.wakeAccount(account.id);
+  expect(service.wakeAccount(account.id)).toBe(first);
+  expect(await first).toEqual({ reply: "hi!", quotaError: "quota offline after reply" });
+  expect(turns).toBe(1);
+  expect(await service.getActiveAccountId()).toBe(account.id);
+});
+
 async function serviceRoot(): Promise<string> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "eco-quota-test-"));
   cleanups.push(() => fs.rm(root, { recursive: true, force: true }));
@@ -212,6 +251,51 @@ test("service startup refreshes a persisted account whose quota reset while Eco 
   expect(updated?.rateLimit.primaryWindow?.usedPercent).toBe(25);
   expect(await service.getActiveAccountId()).toBe(account.id);
   expect(service.getSyncStatus().state).toBe("ok");
+});
+
+test.skipIf(process.platform === "win32")("inactive wake uses its own credentials and proxy home, refreshes quota and preserves the running account", async () => {
+  const root = await serviceRoot();
+  const executable = path.join(root, "fake-codex-wake");
+  await fs.writeFile(executable, `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const readline = require('node:readline');
+const send = (id, result) => process.stdout.write(JSON.stringify({ id, result }) + '\\n');
+const notify = (method, params) => process.stdout.write(JSON.stringify({ method, params }) + '\\n');
+readline.createInterface({ input: process.stdin }).on('line', line => {
+  const req = JSON.parse(line);
+  if (req.method === 'initialize') send(req.id, {});
+  else if (req.method === 'account/read') {
+    if (req.params.refreshToken) fs.writeFileSync(path.join(process.env.CODEX_HOME, 'auth.json'), ${JSON.stringify(freshAuth)});
+    send(req.id, ${JSON.stringify(accountResponse)});
+  } else if (req.method === 'account/rateLimits/read') send(req.id, ${JSON.stringify(rateLimits)});
+  else if (req.method === 'model/list') send(req.id, {data:[{model:'gpt-6-luna',isDefault:true}]});
+  else if (req.method === 'thread/start') {
+    if (!req.params.ephemeral || req.params.modelProvider !== 'openai') process.exit(20);
+    send(req.id, {thread:{id:'wake'}});
+  } else if (req.method === 'turn/start') {
+    if (req.params.input[0].text !== 'hi') process.exit(21);
+    send(req.id, {turn:{id:'turn',status:'inProgress'}});
+    notify('turn/completed', {threadId:'wake',turn:{id:'turn',status:'completed',items:[{type:'agentMessage',text:'Hello!'}]}});
+  } else if (req.method === 'thread/unsubscribe') send(req.id, {});
+});
+`, { mode: 0o755 });
+  const service = new OpenAIAccountService(root, executable);
+  await service.initialize();
+  cleanups.push(() => service.dispose());
+  const active = await service.createAccount("Running");
+  await service.setAuthJson(active.id, freshAuth.replaceAll("acct-quota", "acct-running"));
+  await service.setActiveAccount(active.id);
+  await service.applyPendingTransition();
+  const original = await fs.readFile(path.join(root, "codex", "auth.json"), "utf8");
+  const inactive = await service.createAccount("Wake inactive");
+  await service.setAuthJson(inactive.id, expiredAuth);
+  expect(await service.wakeAccount(inactive.id)).toEqual({ reply: "Hello!" });
+  expect(await service.getActiveAccountId()).toBe(active.id);
+  expect(await fs.readFile(path.join(root, "codex", "auth.json"), "utf8")).toBe(original);
+  expect(await service.getAuthJsonContent(inactive.id)).toBe(freshAuth);
+  expect((await service.listAccounts()).find((entry) => entry.id === inactive.id)?.quota?.rateLimit.primaryWindow?.usedPercent).toBe(25);
+  expect((await fs.readdir(path.join(root, "codex-accounts"))).some((name) => name.startsWith("quota-"))).toBe(false);
 });
 
 test.skipIf(process.platform === "win32")("inactive account query rotates its own auth, deduplicates requests, and preserves the running account", async () => {

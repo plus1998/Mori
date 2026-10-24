@@ -328,6 +328,15 @@ export class OpenAIAccountStore {
     return this.setting(ACTIVE_KEY) || null;
   }
 
+  getWakeModel(): string | null {
+    return this.setting("wake_model_id") || null;
+  }
+
+  setWakeModel(modelId: string | null): void {
+    if (modelId !== null && !modelId.trim()) throw new Error("唤醒模型不能为空。");
+    this.setSetting("wake_model_id", modelId?.trim() ?? "");
+  }
+
   getPendingTransition(): PendingAccountTransition | undefined {
     const target = this.setting(PENDING_KEY);
     if (target === undefined) return undefined;

@@ -695,6 +695,18 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsQueryQuota, { accountId });
   },
 
+  openAIAccountsWake(accountId: string): Promise<import("../shared/openai-account").OpenAIAccountWakeResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsWake, { accountId });
+  },
+
+  openAIAccountsGetWakeModel(): Promise<string | null> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsGetWakeModel);
+  },
+
+  openAIAccountsSetWakeModel(modelId: string | null): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsSetWakeModel, { modelId });
+  },
+
   openAIAccountsResetQuota(accountId: string, idempotencyKey: string): Promise<{
     outcome: import("../shared/openai-account").CodexQuotaResetOutcome;
   }> {

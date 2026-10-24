@@ -21,6 +21,25 @@ async function createService(): Promise<{ root: string; service: OpenAIAccountSe
   return { root, service };
 }
 
+test("wake model defaults to automatic Luna and remembers an explicit choice across restarts", async () => {
+  const { root, service } = await createService();
+  expect(service.getWakeModel()).toBeNull();
+  service.setWakeModel(" gpt-5.6-luna ");
+  expect(service.getWakeModel()).toBe("gpt-5.6-luna");
+  service.dispose();
+  const reopened = new OpenAIAccountService(root, "codex-test");
+  try {
+    await reopened.initialize();
+    expect(reopened.getWakeModel()).toBe("gpt-5.6-luna");
+    expect(() => reopened.setWakeModel(" ")).toThrow("不能为空");
+    expect(reopened.getWakeModel()).toBe("gpt-5.6-luna");
+    reopened.setWakeModel(null);
+    expect(reopened.getWakeModel()).toBeNull();
+  } finally {
+    reopened.dispose();
+  }
+});
+
 function jwtWithExpiry(exp: number): string {
   const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url");
   const payload = Buffer.from(JSON.stringify({ exp })).toString("base64url");

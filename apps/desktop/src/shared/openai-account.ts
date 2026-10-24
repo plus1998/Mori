@@ -48,6 +48,12 @@ export interface OpenAIAccountQuota {
 
 export type CodexQuotaResetOutcome = "reset" | "alreadyRedeemed" | "nothingToReset" | "noCredit";
 
+export interface OpenAIAccountWakeResult {
+  reply: string;
+  /** A greeting succeeded even if the subsequent quota refresh failed. */
+  quotaError?: string;
+}
+
 /** The image_gen balance queried by chatgpt2api, not a verified Codex-only balance. */
 export interface OpenAIAccountImageQuota {
   source: "chatgpt_image_gen";

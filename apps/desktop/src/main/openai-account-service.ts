@@ -15,6 +15,7 @@ import type {
   OpenAIAccountImageQuota,
   OpenAIAccountSyncStatus,
   OpenAIAccountUpdateInput,
+  OpenAIAccountWakeResult,
 } from "../shared/openai-account";
 import { CODEX_QUOTA_REFRESH_MS } from "../shared/codex-quota-refresh";
 import { OpenAIAccountStore } from "./openai-account-store";
@@ -25,6 +26,7 @@ import {
   type CodexQuotaClient,
 } from "./codex-account-quota";
 import { CodexQuotaResetRefresher } from "./codex-quota-reset-refresh";
+import { wakeCodexAccount } from "./codex-account-wake";
 import {
   buildCodexProxyEnv,
   resolveCodexProxyUrl,
@@ -224,6 +226,7 @@ export class OpenAIAccountService {
   private readonly codexExecutableProvider: () => string | undefined;
   private readonly activeLogins = new Map<string, CodexBrowserLogin>();
   private readonly quotaQueries = new Map<string, Promise<OpenAIAccountQuota>>();
+  private readonly wakeRequests = new Map<string, Promise<OpenAIAccountWakeResult>>();
   private quotaResetRefresher: CodexQuotaResetRefresher | undefined;
 
   constructor(
@@ -1009,7 +1012,43 @@ export class OpenAIAccountService {
     return work;
   }
 
-  private async queryQuotaUnlocked(accountId: string): Promise<OpenAIAccountQuota> {
+  getWakeModel(): string | null {
+    return this.getStore().getWakeModel();
+  }
+
+  setWakeModel(modelId: string | null): void {
+    this.getStore().setWakeModel(modelId);
+  }
+
+  wakeAccount(accountId: string): Promise<OpenAIAccountWakeResult> {
+    const existing = this.wakeRequests.get(accountId);
+    if (existing) return existing;
+    const modelId = this.getWakeModel();
+    const work = this.authSyncQueue.then(async () => {
+      let reply: string | undefined;
+      try {
+        await this.queryQuotaUnlocked(accountId, async (client, refreshToken, expectedAccountId) => {
+          // Verify this account and renew expired credentials before spending any quota.
+          await readCodexAccountQuota(client, refreshToken, expectedAccountId);
+          reply = await wakeCodexAccount(client, modelId);
+        });
+      } catch (error) {
+        if (reply === undefined) throw error;
+        return { reply, quotaError: error instanceof Error ? error.message : String(error) };
+      }
+      if (reply === undefined) throw new Error("Codex 唤醒未收到回复。");
+      return { reply };
+    });
+    this.authSyncQueue = work.then(() => undefined, () => undefined);
+    this.wakeRequests.set(accountId, work);
+    void work.finally(() => this.wakeRequests.delete(accountId)).catch(() => undefined);
+    return work;
+  }
+
+  private async queryQuotaUnlocked(
+    accountId: string,
+    beforeRead?: (client: CodexQuotaClient, refreshToken: boolean, expectedAccountId: string) => Promise<void>,
+  ): Promise<OpenAIAccountQuota> {
     const active = this.getStore().getActiveAccountId() === accountId;
     if (active) {
       await this.reconcileMainAuth();
@@ -1026,7 +1065,9 @@ export class OpenAIAccountService {
     if (active) {
       if (!this.getActiveQuotaClient) throw new Error("当前账号的 Codex 额度查询客户端不可用。");
       try {
-        quota = await readCodexAccountQuota(await this.getActiveQuotaClient(), refreshToken, chatgptAccountId);
+        const client = await this.getActiveQuotaClient();
+        await beforeRead?.(client, refreshToken, chatgptAccountId);
+        quota = await readCodexAccountQuota(client, beforeRead ? false : refreshToken, chatgptAccountId);
       } finally {
         // A token refresh may have succeeded even if the later quota read failed.
         await this.reconcileMainAuth();
@@ -1051,6 +1092,7 @@ export class OpenAIAccountService {
         try {
           quota = await queryIsolatedCodexAccountQuota({
             executable, codexHomeDir, refreshToken, expectedAccountId: chatgptAccountId,
+            beforeRead,
             proxy: proxyUrl ? { mode: "proxy", url: proxyUrl } : { mode: "direct" },
           });
         } finally {

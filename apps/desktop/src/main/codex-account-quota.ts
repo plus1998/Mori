@@ -6,6 +6,7 @@ import { buildCodexAppServerEnv } from "./codex-runtime-lifecycle";
 
 export interface CodexQuotaClient {
   request<T = unknown>(method: string, params?: unknown, options?: { timeoutMs?: number }): Promise<T>;
+  addNotificationHandler?: (handler: (method: string, params: unknown) => void) => () => void;
 }
 
 interface AccountResponse {
@@ -107,6 +108,7 @@ export async function queryIsolatedCodexAccountQuota(input: {
   proxy: CodexProxyEnvironment;
   refreshToken: boolean;
   expectedAccountId: string;
+  beforeRead?: ((client: CodexQuotaClient, refreshToken: boolean, expectedAccountId: string) => Promise<void>) | undefined;
 }): Promise<OpenAIAccountQuota> {
   const env = buildCodexAppServerEnv(process.env, input.codexHomeDir, input.proxy);
   // These would override the account's file-backed login in the child process.
@@ -125,8 +127,12 @@ export async function queryIsolatedCodexAccountQuota(input: {
     client.close();
   });
   try {
-    await client.initialize({ clientInfo: { name: "eco_coding", title: "Eco Coding", version: "0.1.0" } });
-    return await readCodexAccountQuota(client, input.refreshToken, input.expectedAccountId);
+    await client.initialize({
+      clientInfo: { name: "eco_coding", title: "Eco Coding", version: "0.1.0" },
+      ...(input.beforeRead ? { capabilities: { experimentalApi: true } } : {}),
+    });
+    await input.beforeRead?.(client, input.refreshToken, input.expectedAccountId);
+    return await readCodexAccountQuota(client, input.beforeRead ? false : input.refreshToken, input.expectedAccountId);
   } catch (error) {
     throw spawnError ?? error;
   } finally {

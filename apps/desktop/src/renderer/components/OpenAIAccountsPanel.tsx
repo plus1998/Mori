@@ -22,6 +22,7 @@ import {
   KeyRound,
   Inbox,
   ChevronDown,
+  Zap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -37,6 +38,8 @@ import type {
 import { type AppLocale, formatAppDateTime } from "../../shared/locale";
 import { AccountModelCatalogSection } from "./AccountModelCatalogSection";
 import { CodexExternalLoginDialog } from "./CodexExternalLoginDialog";
+import type { CodexModelCatalogSnapshot } from "../../shared/models";
+import { latestLunaModelId } from "../../shared/codex-wake-model";
 
 type Translate = TFunction<"translation", undefined>;
 
@@ -372,6 +375,16 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   const [quotaErrors, setQuotaErrors] = useState<Record<string, string>>({});
   const [quotaLoading, setQuotaLoading] = useState(false);
   const [quotaLoadingId, setQuotaLoadingId] = useState<string | null>(null);
+  const wakingRef = useRef(false);
+  const [wakeStatus, setWakeStatus] = useState<Record<string, { phase: "waking" | "done" | "error"; message: string; reply?: string }>>({});
+  const [wakeModel, setWakeModel] = useState<string | null>(null);
+  const [wakeModelReady, setWakeModelReady] = useState(false);
+  const [wakeModelSaving, setWakeModelSaving] = useState(false);
+  const [wakeModelError, setWakeModelError] = useState("");
+  const [wakeDialogAccountId, setWakeDialogAccountId] = useState<string | null>(null);
+  const wakeDialogRef = useRef<HTMLDialogElement>(null);
+  const [wakeModels, setWakeModels] = useState<CodexModelCatalogSnapshot["models"]>([]);
+  const onCatalogSnapshot = useCallback((snapshot: CodexModelCatalogSnapshot) => setWakeModels(snapshot.models), []);
   const [imageOperation, setImageOperation] = useState<{ accountId: string; kind: "toggle" | "quota" } | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({
@@ -418,6 +431,44 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
       setLoadError(error instanceof Error ? error.message : String(error));
     }
   }, [eco]);
+
+  useEffect(() => {
+    if (!eco) return;
+    let cancelled = false;
+    void eco.openAIAccountsGetWakeModel().then((modelId) => {
+      if (cancelled) return;
+      setWakeModel(modelId);
+      setWakeModelReady(true);
+    }).catch((error) => {
+      if (!cancelled) setWakeModelError(error instanceof Error ? error.message : String(error));
+    });
+    return () => { cancelled = true; };
+  }, [eco]);
+
+  useEffect(() => {
+    if (!wakeDialogAccountId) return;
+    const dialog = wakeDialogRef.current;
+    if (!dialog) return;
+    dialog.showModal();
+    return () => {
+      dialog.close();
+      menuTriggerRef.current?.focus();
+    };
+  }, [wakeDialogAccountId]);
+
+  async function handleWakeModelChange(modelId: string | null) {
+    if (!eco || wakeModelSaving) return;
+    setWakeModelSaving(true);
+    setWakeModelError("");
+    try {
+      await eco.openAIAccountsSetWakeModel(modelId);
+      setWakeModel(modelId);
+    } catch (error) {
+      setWakeModelError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setWakeModelSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (!eco) return undefined;
@@ -501,6 +552,33 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
       setQuotaErrors((previous) => ({ ...previous, [accountId]: error instanceof Error ? error.message : String(error) }));
     }
   }, [eco]);
+
+  async function handleWake(accountId: string) {
+    if (!eco || wakingRef.current) return;
+    wakingRef.current = true;
+    setBusy(true);
+    setMenuOpenId(null);
+    setWakeStatus((previous) => ({ ...previous, [accountId]: { phase: "waking", message: t("settings.openaiAccounts.waking") } }));
+    try {
+      const result = await eco.openAIAccountsWake(accountId);
+      setWakeStatus((previous) => ({ ...previous, [accountId]: {
+        phase: "done",
+        message: result.quotaError
+          ? t("settings.openaiAccounts.wokeQuotaFailed", { message: result.quotaError })
+          : t("settings.openaiAccounts.woke"),
+        reply: result.reply,
+      } }));
+      await refresh();
+    } catch (error) {
+      setWakeStatus((previous) => ({ ...previous, [accountId]: {
+        phase: "error",
+        message: t("settings.openaiAccounts.wakeFailed", { message: error instanceof Error ? error.message : String(error) }),
+      } }));
+    } finally {
+      wakingRef.current = false;
+      setBusy(false);
+    }
+  }
 
   async function handleImageEnabled(accountId: string, enabled: boolean) {
     if (!eco || imageOperation) return;
@@ -762,6 +840,9 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   }, [eco, refresh]);
 
   const loggedInCount = accounts.filter((account) => account.isLoggedIn).length;
+  const defaultWakeModel = latestLunaModelId(wakeModels.map((model) => model.modelId));
+  const wakeAccount = accounts.find((account) => account.id === wakeDialogAccountId);
+  const currentWakeStatus = wakeDialogAccountId ? wakeStatus[wakeDialogAccountId] : undefined;
   const activeAccount = accounts.find(
     (account) => account.id === activeAccountId,
   );
@@ -773,7 +854,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
           <h2>{t("settings.models.tab.openaiAccounts")}</h2>
         </div>
         <div className="codex-account-header-actions">
-          <AccountModelCatalogSection />
+          <AccountModelCatalogSection onSnapshot={onCatalogSnapshot} />
           <button
             type="button"
             className="codex-action-secondary"
@@ -1172,6 +1253,25 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                           type="button"
                           role="menuitem"
                           className="account-action-item"
+                          disabled={busy || account.authState === "missing" || isPending || loggingInId !== null}
+                          title={t("settings.openaiAccounts.wakeHint")}
+                          onClick={() => {
+                            setMenuOpenId(null);
+                            setWakeStatus((previous) => {
+                              const next = { ...previous };
+                              delete next[account.id];
+                              return next;
+                            });
+                            setWakeDialogAccountId(account.id);
+                          }}
+                        >
+                          <Zap size={14} />
+                          {t("settings.openaiAccounts.wake")}
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="account-action-item"
                           disabled={busy || !account.isLoggedIn || imageOperation !== null}
                           onClick={() => {
                             setMenuOpenId(null);
@@ -1262,6 +1362,67 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
           </div>
         </div>
       )}
+
+      {wakeDialogAccountId ? createPortal(
+        <dialog
+          ref={wakeDialogRef}
+          className="codex-catalog-dialog codex-wake-dialog"
+          aria-labelledby="codex-wake-dialog-title"
+          onCancel={(event) => {
+            event.preventDefault();
+            if (!busy && !wakeModelSaving) setWakeDialogAccountId(null);
+          }}
+          onClose={() => setWakeDialogAccountId(null)}
+          onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !busy && !wakeModelSaving) setWakeDialogAccountId(null);
+          }}
+        >
+          <header className="settings-modal-header">
+            <h2 className="settings-modal-title" id="codex-wake-dialog-title">{t("settings.openaiAccounts.wake")}</h2>
+            <button type="button" className="mcp-icon-button" aria-label={t("common.close")} disabled={busy || wakeModelSaving} onClick={() => setWakeDialogAccountId(null)}><X size={18} /></button>
+          </header>
+          <div className="settings-modal-body codex-wake-model-setting">
+            <div className="codex-wake-account-name">{wakeAccount?.name}</div>
+            <label className="mcp-field">
+              <span className="mcp-field-label">{t("settings.openaiAccounts.wakeModel")}</span>
+              <select
+                className="mcp-field-input"
+                value={wakeModel ?? ""}
+                disabled={busy || !wakeModelReady || wakeModelSaving}
+                onChange={(event) => { void handleWakeModelChange(event.target.value || null); }}
+              >
+                <option value="">{t("settings.openaiAccounts.wakeModelAuto")}{defaultWakeModel ? ` · ${defaultWakeModel}` : ""}</option>
+                {wakeModel && !wakeModels.some((model) => model.modelId === wakeModel) ? <option value={wakeModel}>{wakeModel}</option> : null}
+                {wakeModels.map((model) => <option key={model.modelId} value={model.modelId}>{model.displayName || model.modelId}</option>)}
+              </select>
+            </label>
+            <span>{t(wakeModelSaving ? "settings.openaiAccounts.wakeModelSaving" : "settings.openaiAccounts.wakeModelHint")}</span>
+            {wakeModelError ? <p className="codex-wake-model-error" role="alert">{t("settings.openaiAccounts.wakeModelFailed", { message: wakeModelError })}</p> : null}
+            {currentWakeStatus ? (
+              <div className="codex-account-wake-status" data-phase={currentWakeStatus.phase} role="status" aria-live="polite">
+                {currentWakeStatus.phase === "waking" ? <Loader2 size={13} className="mcp-spin" /> : <Zap size={13} />}
+                <div>
+                  <span>{currentWakeStatus.message}</span>
+                  {currentWakeStatus.reply ? <p>{currentWakeStatus.reply}</p> : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <footer className="settings-modal-footer">
+            <button type="button" className="settings-modal-cancel" disabled={busy || wakeModelSaving} onClick={() => setWakeDialogAccountId(null)}>{t("common.close")}</button>
+            <button
+              type="button"
+              className="plan-button primary"
+              disabled={busy || !wakeModelReady || wakeModelSaving || !wakeAccount || wakeAccount.authState === "missing" || currentWakeStatus?.phase === "done"}
+              onClick={() => void handleWake(wakeDialogAccountId)}
+            >
+              {currentWakeStatus?.phase === "waking" ? <Loader2 size={14} className="mcp-spin" /> : <Zap size={14} />}
+              {t("settings.openaiAccounts.wakeSend")}
+            </button>
+          </footer>
+        </dialog>, document.body,
+      ) : null}
 
       {importOpen ? (
         <div className="settings-modal-backdrop">
