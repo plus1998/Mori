@@ -6,7 +6,7 @@ import type { CodexAppServerClient } from "@eco/runtime";
 import {
   buildCodexAppServerEnv,
   CodexRuntimeLifecycle,
-  setCodexAccountProxyUrlGetter,
+  setCodexAccountProxyConfigGetter,
 } from "../src/main/codex-runtime-lifecycle";
 
 const realAppServerTest = process.env.ECO_CODEX_REAL_APP_SERVER_TEST === "1" ? test : test.skip;
@@ -68,9 +68,9 @@ realAppServerTest(
 
     const proxyUrl = `http://127.0.0.1:${proxyServer.port}`;
     let proxyLookups = 0;
-    setCodexAccountProxyUrlGetter(() => {
+    setCodexAccountProxyConfigGetter(() => {
       proxyLookups += 1;
-      return proxyUrl;
+      return { mode: "manual", proxyUrl };
     });
     let lifecycle: CodexRuntimeLifecycle | undefined;
     let client: CodexAppServerClient | undefined;
@@ -109,7 +109,7 @@ realAppServerTest(
     } finally {
       client?.close();
       await lifecycle?.stop();
-      setCodexAccountProxyUrlGetter(undefined);
+      setCodexAccountProxyConfigGetter(undefined);
       targetServer.stop(true);
       proxyServer.stop(true);
       removeTempDirBestEffort(ecoDataDir);

@@ -1,15 +1,16 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { CodexMcpServerForConfigSync } from "@eco/runtime";
+import type { GenerationExecutionContext } from "../shared/generation-tools";
 import {
   buildImageGenerationPromptAppend,
   ECO_IMAGE_GENERATION_FULL_TOOL,
   ECO_IMAGE_GENERATION_MCP_SERVER,
   ECO_IMAGE_GENERATION_TOOL,
-  type ImageGenerationArtifact,
-  ImageGenerationError,
   IMAGE_GENERATION_CODEX_TOOL_TIMEOUT_SEC,
   IMAGE_GENERATION_MCP_TOOL_TIMEOUT_MS,
+  type ImageGenerationArtifact,
+  ImageGenerationError,
   type ImageGenerationToolInput,
 } from "../shared/image-generation";
 import type { McpSdkConfig } from "../shared/mcp";
@@ -242,22 +243,79 @@ export class ImageGenerationMcpGateway {
       throw new Error(`未知创意绘画工具：${name}`);
     }
     const claim = this.resolveThread(authToken);
-    signal?.throwIfAborted();
     const threadId = claim.threadId;
     const workspacePath = this.deps.resolveWorkspacePath(threadId)?.trim();
     const generationRoot = this.deps.resolveGenerationRoot(threadId)?.trim();
     if (!workspacePath || !generationRoot) {
       throw new Error("创意绘画会话缺少 workspace 或运行目录。");
     }
-    const config = this.deps.store.getActiveClientConfig();
-    const normalized = normalizeImageGenerationToolInput(
+    const result = await this.generate(
+      { ...claim, workspacePath, generationRoot },
       rawArgs as unknown as ImageGenerationToolInput,
-      config,
+      { ...(signal ? { signal } : {}) },
     );
+    const { artifact, providerStatus, requestId } = result;
+    const structuredContent =
+      artifact.status === "failed"
+        ? {
+            status: "failed",
+            artifactId: artifact.id,
+            code: artifact.errorCode,
+            message: artifact.errorMessage,
+            partialImages: artifact.images,
+          }
+        : {
+            status: "completed",
+            artifactId: artifact.id,
+            provider: artifact.provider,
+            model: artifact.model,
+            images: artifact.images,
+          };
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              ...structuredContent,
+              ...(providerStatus ? { providerStatus } : {}),
+              ...(requestId ? { requestId } : {}),
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+      ...(artifact.status === "failed" ? { isError: true } : {}),
+      structuredContent,
+    };
+  }
+
+  /** Shared generation path for MCP and the explicit desktop tool form. */
+  async generate(
+    context: GenerationExecutionContext,
+    rawInput: ImageGenerationToolInput,
+    options: { signal?: AbortSignal; profileId?: string; profileUpdatedAt?: string } = {},
+  ): Promise<{ artifact: ImageGenerationArtifact; providerStatus?: number; requestId?: string }> {
+    const { threadId, workspacePath, generationRoot, toolUseId } = context;
+    const { signal } = options;
+    signal?.throwIfAborted();
+    if (!this.deps.store.getSettings().enabled) throw new Error("创意绘画集成已关闭。");
+    const config = this.deps.store.getActiveClientConfig();
+    const currentProfile = options.profileUpdatedAt
+      ? this.deps.store.getSettings().profiles.find((profile) => profile.id === config.profileId)
+      : undefined;
+    if (
+      (options.profileId && options.profileId !== config.profileId) ||
+      (options.profileUpdatedAt && options.profileUpdatedAt !== currentProfile?.updatedAt)
+    ) {
+      throw new Error("生成配置已改变，请刷新工具后重试。");
+    }
+    const normalized = normalizeImageGenerationToolInput(rawInput, config);
     const { prompt, ...parameters } = normalized;
     const artifact = this.deps.store.createArtifact({
       threadId,
-      ...(claim.toolUseId && { toolUseId: claim.toolUseId }),
+      ...(toolUseId && { toolUseId }),
       prompt,
       parameters,
       config,
@@ -277,21 +335,7 @@ export class ImageGenerationMcpGateway {
       });
       const completed = this.deps.store.completeArtifact(artifact.id, images);
       this.deps.onArtifactChanged(completed);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ status: "completed", artifactId: artifact.id, images }, null, 2),
-          },
-        ],
-        structuredContent: {
-          status: "completed",
-          artifactId: artifact.id,
-          provider: config.provider,
-          model: config.model,
-          images,
-        },
-      };
+      return { artifact: completed };
     } catch (error) {
       const failure =
         error instanceof ImageGenerationError
@@ -308,32 +352,9 @@ export class ImageGenerationMcpGateway {
       );
       this.deps.onArtifactChanged(failed);
       return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(
-              {
-                status: "failed",
-                artifactId: artifact.id,
-                code: failure.code,
-                message: failure.message,
-                ...(failure.providerStatus ? { providerStatus: failure.providerStatus } : {}),
-                ...(failure.requestId ? { requestId: failure.requestId } : {}),
-                partialImages: failure.partialImages,
-              },
-              null,
-              2,
-            ),
-          },
-        ],
-        isError: true,
-        structuredContent: {
-          status: "failed",
-          artifactId: artifact.id,
-          code: failure.code,
-          message: failure.message,
-          partialImages: failure.partialImages,
-        },
+        artifact: failed,
+        ...(failure.providerStatus ? { providerStatus: failure.providerStatus } : {}),
+        ...(failure.requestId ? { requestId: failure.requestId } : {}),
       };
     }
   }

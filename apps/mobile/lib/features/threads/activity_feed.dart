@@ -35,6 +35,7 @@ import '../../core/widgets/streaming_eco_markdown.dart';
 import '../../core/widgets/eco_surface_card.dart';
 import '../../core/widgets/image_memory_lightbox.dart';
 import '../../core/widgets/paced_stream_text.dart';
+import '../../core/widgets/run_activity_indicator.dart';
 import '../../core/widgets/shimmer_text.dart';
 import '../../core/theme/subagent_theme.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -205,6 +206,7 @@ class ActivityFeedEntry {
     this.historyRevision = 0,
     this.conversationV2Detail,
     this.sequence = 0,
+    this.canRetryRequest = true,
   });
 
   final String id;
@@ -278,6 +280,9 @@ class ActivityFeedEntry {
   final Map<String, dynamic>? conversationV2Detail;
   final int sequence;
 
+  /// Runtime event recording notices are not failed model requests.
+  final bool canRetryRequest;
+
   ActivityFeedEntry withSequence(int sequence) {
     if (this.sequence == sequence) return this;
     return ActivityFeedEntry(
@@ -325,6 +330,7 @@ class ActivityFeedEntry {
       historyRevision: historyRevision,
       conversationV2Detail: conversationV2Detail,
       sequence: sequence,
+      canRetryRequest: canRetryRequest,
     );
   }
 
@@ -378,6 +384,7 @@ class ActivityFeedEntry {
       historyRevision: historyRevision,
       conversationV2Detail: conversationV2Detail,
       sequence: sequence,
+      canRetryRequest: canRetryRequest,
     );
   }
 }
@@ -467,7 +474,27 @@ List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
   required AppLocalizations l10n,
 }) {
   if (!isRunning) return entries;
-  final writingSpan = resolveToolWritingSpan(projection.requestSpans);
+  final writingSpan = resolveToolWritingSpan(
+    projection.requestSpans.where((span) {
+      final writing = span.writingTool;
+      if (writing == null) return true;
+      // Extras and V2 effects arrive independently. A started/completed tool
+      // already proves that argument writing has ended, even when the older
+      // extras snapshot still carries its hint. Keep the durable tool in place.
+      return !projection.timeline.any(
+        (item) =>
+            item.scope == 'main' &&
+            (item.eventType == 'tool.started' ||
+                item.eventType == 'tool.completed' ||
+                item.eventType == 'tool.failed') &&
+            item.at.compareTo(writing.since) >= 0 &&
+            (writing.name == null ||
+                writing.name!.isEmpty ||
+                readProjectionToolMetadata(item.metadata)?.name ==
+                    writing.name),
+      );
+    }),
+  );
   ThreadRunProjectionRequestSpan? pendingThinking;
   for (final span in projection.requestSpans) {
     if (span.ownerAgentId != null || span.pendingThinkingSince == null) {
@@ -1325,6 +1352,7 @@ class ActivityFeedList extends StatefulWidget {
     this.showScrollJumpButton = true,
     this.scrollJumpBottomInset = 0,
     this.stopping = false,
+    this.running = false,
     this.showMessageCopyAndTime = true,
     this.padding,
   });
@@ -1351,6 +1379,7 @@ class ActivityFeedList extends StatefulWidget {
   final bool showScrollJumpButton;
   final double scrollJumpBottomInset;
   final bool stopping;
+  final bool running;
 
   /// Copy/time (and speak) under messages — only after the conversation stopped.
   final bool showMessageCopyAndTime;
@@ -1366,6 +1395,8 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
   bool _showScrollJump = false;
   bool _loadingEarlier = false;
   bool _loadEarlierFailed = false;
+  Timer? _silenceTimer;
+  bool _silent = false;
 
   @override
   void initState() {
@@ -1374,12 +1405,20 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
         widget.scrollCoordinator ??
         ActivityFeedScrollCoordinator(widget.scrollController);
     _layoutSignature = activityFeedLayoutSignature(widget.entries);
+    _syncSilenceTimer();
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadEarlier());
   }
 
   @override
   void didUpdateWidget(ActivityFeedList oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if ((widget.running || oldWidget.running) &&
+        (oldWidget.running != widget.running ||
+            oldWidget.stopping != widget.stopping ||
+            _feedWorkSignature(oldWidget.entries) !=
+                _feedWorkSignature(widget.entries))) {
+      _syncSilenceTimer();
+    }
     final nextSignature = activityFeedLayoutSignature(widget.entries);
     if (nextSignature != _layoutSignature) {
       _layoutSignature = nextSignature;
@@ -1389,6 +1428,33 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
         (!oldWidget.hasEarlier && widget.hasEarlier)) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadEarlier());
     }
+  }
+
+  void _syncSilenceTimer() {
+    _silenceTimer?.cancel();
+    _silenceTimer = null;
+    _silent = false;
+    if (!widget.running || widget.stopping) return;
+    if (widget.entries.isNotEmpty) {
+      final tail = _liveFeedTail(widget.entries);
+      // These rows already animate their own waiting/thinking/writing state.
+      if (tail.kind == ActivityFeedKind.reasoningStage ||
+          tail.kind == ActivityFeedKind.toolWriting ||
+          (tail.kind == ActivityFeedKind.thinking && tail.streaming) ||
+          _isEmptyLiveThinkingStatus(tail) ||
+          widget.entries.any(_containsRunningContextCompaction)) {
+        return;
+      }
+    }
+    _silenceTimer = Timer(const Duration(milliseconds: 500), () {
+      if (mounted) setState(() => _silent = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _silenceTimer?.cancel();
+    super.dispose();
   }
 
   void _scheduleLayoutScroll() {
@@ -1540,11 +1606,51 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
                 },
               ),
             ),
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: widget.scrollJumpBottomInset + 4,
+            child: IgnorePointer(
+              child: Center(
+                child: AnimatedSwitcher(
+                  duration: MediaQuery.disableAnimationsOf(context)
+                      ? Duration.zero
+                      : const Duration(milliseconds: 160),
+                  child: _silent
+                      ? const RunActivityIndicator(
+                          key: ValueKey('activity-run-indicator'),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 }
+
+// The silence clock tracks visible content, including nested tool lifecycles
+// and same-length text edits. Elapsed time and projection refreshes do not
+// constitute new output and must not keep postponing the indicator.
+int _feedWorkSignature(List<ActivityFeedEntry> entries) => Object.hashAll(
+  entries.map(
+    (entry) => Object.hash(
+      entry.id,
+      entry.kind,
+      entry.text,
+      entry.streaming,
+      entry.lifecycle,
+      entry.running,
+      _feedWorkSignature(entry.processEntries),
+      _feedWorkSignature(entry.actionChildren),
+      entry.finalOutput == null
+          ? null
+          : _feedWorkSignature([entry.finalOutput!]),
+    ),
+  ),
+);
 
 class _ScrollToBottomButton extends StatelessWidget {
   const _ScrollToBottomButton({required this.onPressed});
@@ -1770,7 +1876,7 @@ class _ActivityFeedEntryTile extends StatelessWidget {
       case ActivityFeedKind.error:
         return _ErrorTile(
           text: entry.text,
-          onRetry: onRetryFailedRequest == null
+          onRetry: !entry.canRetryRequest || onRetryFailedRequest == null
               ? null
               : () => onRetryFailedRequest!(entry),
         );
@@ -5341,23 +5447,34 @@ class _ErrorTileState extends State<_ErrorTile> {
 
   @override
   Widget build(BuildContext context) {
+    final eco = ecoColors(context);
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: ecoColors(context).statusDenyBg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: ecoColors(context).statusDenyBorder),
+        color: eco.bgElevated,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: eco.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            widget.text,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: ecoColors(context).statusDenyText,
-              height: 1.4,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(EcoIcons.error, size: 16, color: eco.textSecondary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.text,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: eco.textSecondary,
+                    fontSize: 13,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+            ],
           ),
           if (widget.onRetry != null) ...[
             const SizedBox(height: 6),

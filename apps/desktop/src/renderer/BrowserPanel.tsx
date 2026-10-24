@@ -1,4 +1,6 @@
 import {
+  AudioLines,
+  Palette,
   ArrowLeft,
   ArrowRight,
   ExternalLink,
@@ -24,6 +26,7 @@ import { useBrowserInstanceIds } from "./browser-state-store";
 import type { TaskPanelHomeTool } from "./task-panel-tabs";
 import { insertBrowserSelection } from "./browser-selection-events";
 import { formatIpcInvokeError } from "./AppMessage";
+import { BrowserAddressInput } from "./BrowserAddressInput";
 
 const ICON_SIZE = 15;
 
@@ -49,8 +52,15 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
   const [selecting, setSelecting] = useState<"element" | "text">();
   const [selectionError, setSelectionError] = useState<string>();
   const [showDownloads, setShowDownloads] = useState(false);
+  const [openingExternal, setOpeningExternal] = useState(false);
+  const [externalOpenError, setExternalOpenError] = useState<{
+    browserId: string;
+    url: string;
+    message: string;
+  }>();
   const selectionRequest = useRef(0);
   const addressInputId = useId();
+  const [addressMenuOpen, setAddressMenuOpen] = useState(false);
   /** Main drops a closed browser from its guest list — never focus a page that is gone. */
   const liveBrowserIds = useBrowserInstanceIds();
 
@@ -93,14 +103,14 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
       if (!active) {
         return;
       }
-      if (!document.activeElement || document.activeElement.id !== addressInputId) {
+      if (!addressMenuOpen && document.activeElement?.id !== addressInputId) {
         const url = next.instances.find((i) => i.id === browserId)?.url;
         if (url === undefined) return;
         setAddress(url === "about:blank" ? "" : url);
       }
     });
     return () => unsubscribe?.();
-  }, [active, addressInputId, browserId]);
+  }, [active, addressInputId, addressMenuOpen, browserId]);
 
   async function submitAddress(event: FormEvent) {
     event.preventDefault();
@@ -140,6 +150,20 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
       if (request === selectionRequest.current) setSelectionError(formatIpcInvokeError(error));
     } finally {
       if (request === selectionRequest.current) setSelecting(undefined);
+    }
+  }
+
+  async function openExternal() {
+    if (openingExternal) return;
+    setOpeningExternal(true);
+    setExternalOpenError(undefined);
+    try {
+      if (!window.eco?.browserOpenExternal) throw new Error(t("browser.openExternalUnavailable"));
+      await window.eco.browserOpenExternal(browserId);
+    } catch (error) {
+      setExternalOpenError({ browserId, url: displayUrl, message: formatIpcInvokeError(error) });
+    } finally {
+      setOpeningExternal(false);
     }
   }
 
@@ -186,14 +210,12 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
             {t("browser.address")}
           </label>
           <Globe size={14} aria-hidden className="browser-panel-address-icon" />
-          <input
+          <BrowserAddressInput
             id={addressInputId}
-            className="browser-panel-address"
             value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            placeholder={t("browser.addressPlaceholder")}
-            spellCheck={false}
-            autoComplete="off"
+            onValueChange={setAddress}
+            onMenuOpenChange={setAddressMenuOpen}
+            active={active}
           />
         </form>
         <button type="button" className={`browser-panel-icon-btn${selecting === "element" ? " is-active" : ""}`}
@@ -228,14 +250,20 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
         <button
           type="button"
           className="browser-panel-icon-btn"
-          disabled={!displayUrl || displayUrl === "about:blank"}
-          onClick={() => void window.eco?.browserOpenExternal?.(browserId)}
+          disabled={!displayUrl || displayUrl === "about:blank" || openingExternal}
+          onClick={() => void openExternal()}
+          aria-busy={openingExternal}
           aria-label={t("browser.openExternal")}
           title={t("browser.openExternal")}
         >
           <ExternalLink size={ICON_SIZE} />
         </button>
       </div>
+      {externalOpenError?.browserId === browserId && externalOpenError.url === displayUrl ? (
+        <div className="browser-viewport-error" role="alert">
+          {t("browser.openExternalFailed", { error: externalOpenError.message })}
+        </div>
+      ) : null}
       {showDownloads ? <BrowserDownloadsPanel browserId={browserId} files={downloads ?? []} /> : null}
       {viewportControlsVisible ? (
         <BrowserViewportControls browserId={browserId} viewport={instance?.viewport} onChange={setState} />
@@ -269,6 +297,14 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
             <button type="button" onClick={() => onOpenTool(browserId, "sshBookmarks")}>
               <KeyRound size={17} aria-hidden />
               <span>{t("app.sshBookmarks.title")}</span>
+            </button>
+            <button type="button" onClick={() => onOpenTool(browserId, "imageGeneration")}>
+              <Palette size={17} aria-hidden />
+              <span>{t("settings.imageGeneration.title")}</span>
+            </button>
+            <button type="button" onClick={() => onOpenTool(browserId, "speechGeneration")}>
+              <AudioLines size={17} aria-hidden />
+              <span>{t("settings.tts.title")}</span>
             </button>
           </section>
         ) : null}

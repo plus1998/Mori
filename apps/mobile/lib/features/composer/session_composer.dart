@@ -1,14 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'dart:ui';
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/locale/app_localizations_ext.dart';
 import '../../core/locale/app_error_localizations.dart';
 import '../../core/models/asr_models.dart';
+import '../../core/models/scheduling_models.dart';
 import '../../core/models/thread_models.dart';
 import '../../core/models/acp_host_ui_features.dart';
 import '../../core/models/thread_runtime_config.dart';
@@ -21,7 +25,9 @@ import '../../core/widgets/image_memory_lightbox.dart';
 import 'composer_controls.dart';
 import 'composer_plus_menu.dart';
 import 'composer_toolbar_icon.dart';
+import 'ios_composer_send_button.dart';
 import '../threads/thread_providers.dart';
+import '../scheduling/schedule_editor.dart';
 import 'voice_recording_composer.dart';
 
 bool shouldCancelMobileAsrOnDispose({
@@ -47,6 +53,7 @@ class SessionComposer extends ConsumerStatefulWidget {
     required this.onPickImage,
     required this.onRemoveAttachment,
     required this.onSend,
+    this.onSendWithMode,
     required this.onStop,
     required this.onRuntimeConfigChanged,
     this.inputHint,
@@ -59,6 +66,7 @@ class SessionComposer extends ConsumerStatefulWidget {
     this.coreKind,
     this.onCoreKindChanged,
     this.hostUiFeatures = AcpHostUiFeatures.showAll,
+    this.onScheduledThreadCreated,
   });
 
   final TextEditingController controller;
@@ -74,6 +82,7 @@ class SessionComposer extends ConsumerStatefulWidget {
   final VoidCallback onPickImage;
   final void Function(int index) onRemoveAttachment;
   final VoidCallback onSend;
+  final ValueChanged<FollowUpDeliveryMode>? onSendWithMode;
   final VoidCallback onStop;
   final ValueChanged<ThreadRuntimeConfigInput> onRuntimeConfigChanged;
   final String? inputHint;
@@ -86,6 +95,7 @@ class SessionComposer extends ConsumerStatefulWidget {
   final String? coreKind;
   final ValueChanged<String>? onCoreKindChanged;
   final AcpHostUiFeatures hostUiFeatures;
+  final ValueChanged<String>? onScheduledThreadCreated;
 
   @override
   ConsumerState<SessionComposer> createState() => _SessionComposerState();
@@ -93,7 +103,8 @@ class SessionComposer extends ConsumerStatefulWidget {
 
 class _SessionComposerState extends ConsumerState<SessionComposer> {
   final _focusNode = FocusNode();
-  final _plusMenuAnchorKey = GlobalKey();
+  final _composerCardKey = GlobalKey();
+  ComposerPlusMenuRoute? _plusMenuRoute;
   bool _speechBusy = false;
   bool _speechFinishing = false;
   bool _discardSpeechResult = false;
@@ -110,6 +121,7 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
   @override
   void didUpdateWidget(covariant SessionComposer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _plusMenuRoute?.refresh();
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_handleControllerChanged);
       widget.controller.addListener(_handleControllerChanged);
@@ -117,11 +129,18 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
   }
 
   void _handleControllerChanged() {
+    _plusMenuRoute?.refresh();
     setState(() {});
   }
 
   @override
   void dispose() {
+    final route = _plusMenuRoute;
+    if (route != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (route.isActive) route.navigator?.removeRoute(route);
+      });
+    }
     if (shouldCancelMobileAsrOnDispose(
       speechBusy: _speechBusy,
       speechFinishing: _speechFinishing,
@@ -159,6 +178,113 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
     if (!_canSend) return;
     _focusNode.unfocus();
     widget.onSend();
+  }
+
+  void _handleSendWithMode(FollowUpDeliveryMode mode) {
+    if (!_canSend || widget.onSendWithMode == null) return;
+    _focusNode.unfocus();
+    widget.onSendWithMode?.call(mode);
+  }
+
+  Future<void> _togglePlusMenu() async {
+    final existing = _plusMenuRoute;
+    if (existing != null) {
+      existing.close();
+      return;
+    }
+    final route = ComposerPlusMenuRoute(
+      anchorKey: _composerCardKey,
+      dismissLabel: context.l10n.commonClose,
+      reduceMotion: MediaQuery.disableAnimationsOf(context),
+      builder: (context) => ComposerPlusMenuPanel(
+        runtimeConfig: widget.runtimeConfig,
+        threadId: widget.threadId,
+        canEdit: !widget.isRunning,
+        canEditStatelessModels: true,
+        onChanged: widget.onRuntimeConfigChanged,
+        workspacePath: widget.workspacePath,
+        coreKind: widget.coreKind,
+        onCoreKindChanged: widget.onCoreKindChanged,
+        canSchedule: _canSchedule,
+      ),
+    );
+    setState(() => _plusMenuRoute = route);
+    final action = await Navigator.of(context).push(route);
+    if (!mounted) return;
+    setState(() => _plusMenuRoute = null);
+    await route.completed;
+    if (!mounted) return;
+    switch (action) {
+      case ComposerPlusMenuAction.plan:
+      case ComposerPlusMenuAction.ask:
+        if (widget.isRunning) return;
+        final mode = action == ComposerPlusMenuAction.plan ? 'plan' : 'ask';
+        await persistRuntimeConfig(
+          ref,
+          threadId: widget.threadId,
+          previousConfig: widget.runtimeConfig,
+          config: widget.runtimeConfig.copyWith(
+            sessionMode: widget.runtimeConfig.sessionMode == mode
+                ? 'agent'
+                : mode,
+          ),
+          onChanged: widget.onRuntimeConfigChanged,
+          reportFailure: true,
+        );
+      case ComposerPlusMenuAction.image:
+        widget.onPickImage();
+      case ComposerPlusMenuAction.schedule:
+        await _handleSchedule();
+      case null:
+        break;
+    }
+  }
+
+  Future<void> _handleSchedule() async {
+    if (!_canSchedule) return;
+    final draft = widget.controller.text;
+    final images = List<PromptImageAttachment>.of(widget.attachments);
+    final isNew = widget.threadId.isEmpty;
+    final threadId = isNew ? 'thr_${const Uuid().v4()}' : widget.threadId;
+    _focusNode.unfocus();
+    final editor = showScheduleEditor(
+      context,
+      threadId: threadId,
+      initialPrompt: draft,
+      initialAttachments: images,
+      newThread: isNew
+          ? ScheduledMessageNewThread(
+              workspacePath: widget.workspacePath,
+              coreKind: widget.coreKind!,
+              runtimeConfig: widget.runtimeConfig,
+            )
+          : null,
+    );
+    _clearScheduledDraft(draft, images);
+    final saved = await editor;
+    if (mounted && isNew && saved == true) {
+      widget.onScheduledThreadCreated?.call(threadId);
+    }
+  }
+
+  // Scheduling is independent of the active run; due messages join its queue.
+  bool get _canSchedule =>
+      !widget.sendBusy &&
+      (widget.threadId.isNotEmpty ||
+          (widget.workspacePath.trim().isNotEmpty &&
+              widget.coreKind != null &&
+              widget.onScheduledThreadCreated != null));
+
+  void _clearScheduledDraft(String draft, List<PromptImageAttachment> images) {
+    if (!mounted ||
+        widget.controller.text != draft ||
+        !listEquals(widget.attachments, images)) {
+      return;
+    }
+    widget.controller.clear();
+    for (var i = images.length - 1; i >= 0; i--) {
+      widget.onRemoveAttachment(i);
+    }
   }
 
   void _handleStop() {
@@ -283,9 +409,6 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
   @override
   Widget build(BuildContext context) {
     final canEditConfig = !widget.isRunning;
-    // Auxiliary / approval / vision requests are stateless single-shot calls, so the
-    // host accepts switching them mid-run; they take effect on the next such request.
-    const canEditStatelessModelConfig = true;
     final showSpeechInput =
         _speechBusy || ref.watch(desktopRpcProvider) != null;
     final asrModel = ref.watch(asrStatusProvider).valueOrNull?.model;
@@ -304,6 +427,7 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
         child: ClipRRect(
+          key: _composerCardKey,
           borderRadius: BorderRadius.circular(24),
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
@@ -454,35 +578,20 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         ComposerToolbarIconButton(
-                          key: _plusMenuAnchorKey,
-                          onPressed: () {
-                            final scheduledDraft = widget.controller.text;
-                            unawaited(
-                              showComposerPlusMenu(
-                                context: context,
-                                ref: ref,
-                                anchorKey: _plusMenuAnchorKey,
-                                runtimeConfig: widget.runtimeConfig,
-                                threadId: widget.threadId,
-                                canEdit: canEditConfig,
-                                onChanged: widget.onRuntimeConfigChanged,
-                                onPickImage: widget.onPickImage,
-                                workspacePath: widget.workspacePath,
-                                initialPrompt: scheduledDraft,
-                                onMessageScheduled: () {
-                                  if (mounted &&
-                                      widget.controller.text ==
-                                          scheduledDraft) {
-                                    widget.controller.clear();
-                                  }
-                                },
-                              ),
-                            );
-                          },
+                          onPressed: _togglePlusMenu,
                           tooltip: context.l10n.composerPlusMenu,
-                          icon: ComposerToolbarIcon(
-                            icon: EcoIcons.add,
-                            color: ecoColors(context).textSecondary,
+                          icon: AnimatedRotation(
+                            turns: _plusMenuRoute == null ? 0 : 0.125,
+                            duration: Duration(
+                              milliseconds:
+                                  MediaQuery.disableAnimationsOf(context)
+                                  ? 0
+                                  : 200,
+                            ),
+                            child: ComposerToolbarIcon(
+                              icon: EcoIcons.add,
+                              color: ecoColors(context).textSecondary,
+                            ),
                           ),
                         ),
                         if (widget.runtimeConfig.sessionMode == 'plan' ||
@@ -512,15 +621,12 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                               runtimeConfig: widget.runtimeConfig,
                               threadId: widget.threadId,
                               canEdit: canEditConfig,
-                              canEditStatelessModels:
-                                  canEditStatelessModelConfig,
                               onChanged: widget.onRuntimeConfigChanged,
                               billing: widget.billing,
                               contextSnapshot: widget.contextSnapshot,
                               threadStatus: widget.threadStatus,
                               workspacePath: widget.workspacePath,
                               coreKind: widget.coreKind,
-                              onCoreKindChanged: widget.onCoreKindChanged,
                               hostUiFeatures: widget.hostUiFeatures,
                             ),
                           ),
@@ -549,6 +655,12 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                               ? _SendButton(
                                   busy: widget.sendBusy,
                                   onSend: _canSend ? _handleSend : null,
+                                  onSchedule: _canSchedule
+                                      ? _handleSchedule
+                                      : null,
+                                  onSendWithMode: widget.onSendWithMode != null
+                                      ? _handleSendWithMode
+                                      : null,
                                 )
                               : _StopButton(
                                   busy: widget.stopBusy,
@@ -563,6 +675,7 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                           _SendButton(
                             busy: widget.sendBusy,
                             onSend: _canSend ? _handleSend : null,
+                            onSchedule: _canSchedule ? _handleSchedule : null,
                           ),
                       ],
                     ),
@@ -722,38 +835,112 @@ class _PendingImagePreview extends StatelessWidget {
 }
 
 class _SendButton extends StatelessWidget {
-  const _SendButton({required this.busy, required this.onSend});
+  const _SendButton({
+    required this.busy,
+    required this.onSend,
+    this.onSendWithMode,
+    this.onSchedule,
+  });
 
   final bool busy;
   final VoidCallback? onSend;
+  final ValueChanged<FollowUpDeliveryMode>? onSendWithMode;
+  final VoidCallback? onSchedule;
+
+  Future<void> _chooseMode(BuildContext context) async {
+    if (busy ||
+        (onSchedule == null && (onSend == null || onSendWithMode == null))) {
+      return;
+    }
+    HapticFeedback.selectionClick();
+    final box = context.findRenderObject() as RenderBox;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final rect = box.localToGlobal(Offset.zero, ancestor: overlay) & box.size;
+    final mode = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(rect, Offset.zero & overlay.size),
+      items: [
+        if (onSend != null && onSendWithMode != null)
+          PopupMenuItem(
+            value: 'queue',
+            child: Text(context.l10n.composerSendQueue),
+          ),
+        if (onSend != null && onSendWithMode != null)
+          PopupMenuItem(
+            value: 'steer',
+            child: Text(context.l10n.composerSendSteer),
+          ),
+        if (onSchedule != null)
+          PopupMenuItem(
+            value: 'schedule',
+            child: Text(context.l10n.composerSendScheduled),
+          ),
+      ],
+    );
+    if (!context.mounted) return;
+    switch (mode) {
+      case 'queue':
+        onSendWithMode?.call(FollowUpDeliveryMode.queue);
+      case 'steer':
+        onSendWithMode?.call(FollowUpDeliveryMode.steer);
+      case 'schedule':
+        onSchedule?.call();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final colors = ecoColors(context);
     final enabled = onSend != null;
     final showBusy = busy && !enabled;
+    if (PlatformInfo.isIOS && (onSendWithMode != null || onSchedule != null)) {
+      return IOSComposerSendButton(
+        size: kComposerToolbarHitSize,
+        busy: showBusy,
+        backgroundColor: enabled || showBusy
+            ? colors.composerSendBg
+            : colors.borderSubtle,
+        foregroundColor: enabled || showBusy
+            ? colors.composerSendText
+            : colors.textMuted,
+        label: context.l10n.composerSendHint,
+        queueLabel: context.l10n.composerSendQueue,
+        steerLabel: context.l10n.composerSendSteer,
+        scheduleLabel: context.l10n.composerSendScheduled,
+        onSend: onSend,
+        onSendWithMode: onSendWithMode,
+        onSchedule: onSchedule,
+      );
+    }
     return Material(
       color: enabled || showBusy ? colors.composerSendBg : colors.borderSubtle,
       shape: const CircleBorder(),
-      child: InkWell(
-        onTap: onSend,
-        customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: kComposerToolbarHitSize,
-          height: kComposerToolbarHitSize,
-          child: showBusy
-              ? Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: colors.composerSendText,
+      child: Builder(
+        builder: (anchorContext) => InkWell(
+          onTap: onSend,
+          onLongPress: busy || (!enabled && onSchedule == null)
+              ? null
+              : (onSchedule != null || onSendWithMode != null)
+              ? () => _chooseMode(anchorContext)
+              : null,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: kComposerToolbarHitSize,
+            height: kComposerToolbarHitSize,
+            child: showBusy
+                ? Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: colors.composerSendText,
+                    ),
+                  )
+                : Icon(
+                    EcoIcons.send,
+                    size: composerToolbarGlyphSize(EcoIcons.send),
+                    color: enabled ? colors.composerSendText : colors.textMuted,
                   ),
-                )
-              : Icon(
-                  EcoIcons.send,
-                  size: composerToolbarGlyphSize(EcoIcons.send),
-                  color: enabled ? colors.composerSendText : colors.textMuted,
-                ),
+          ),
         ),
       ),
     );

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mapApiCompatToUpstreamKind, type ResolvedProviderRoute, type UpstreamKind } from "@eco/gateway";
 import {
   applyThinkingToMessagesBody,
@@ -80,6 +80,7 @@ export interface AnthropicProxyRoute {
   /** Resolved catalog/manual context window; drives SDK `[1m]` alias suffix when >= 1M. */
   contextTokens?: number;
   contextTokensResolved?: boolean;
+  compactionContextTokens?: number;
   supportsImageInput?: boolean;
 }
 
@@ -121,6 +122,7 @@ export interface RuntimeRouteToProxyOptions {
   globalMaxOutputTokens?: GlobalMaxOutputTokens;
   contextTokens?: number;
   contextTokensResolved?: boolean;
+  compactionContextTokens?: number;
   catalogMaxOutputTokens?: number;
 }
 
@@ -155,6 +157,9 @@ export function runtimeRouteToProxyRoute(
       supportsImageInput: route.manualSpec.supportsImageInput,
     }),
     ...(options?.contextTokens !== undefined && { contextTokens: options.contextTokens }),
+    ...(options?.compactionContextTokens !== undefined && {
+      compactionContextTokens: options.compactionContextTokens,
+    }),
   };
 }
 
@@ -175,6 +180,7 @@ export function resolveGatewayBindingModelLimits(route: ResolvedProviderRoute):
   | {
       contextTokens?: number;
       maxOutputTokens?: number;
+      compactionContextTokens?: number;
     }
   | undefined {
   if (!route.bridgeBindingId) return undefined;
@@ -188,9 +194,20 @@ export function resolveGatewayBindingModelLimits(route: ResolvedProviderRoute):
   ) {
     throw new Error(`Model-limit binding does not match ${route.requestedModel}.`);
   }
+  const compact = Boolean(
+    route.logicalRequestId && binding.compactionLogicalRequestIds.has(route.logicalRequestId),
+  );
+  if (
+    compact &&
+    (!Number.isSafeInteger(boundRoute.compactionContextTokens) ||
+      (boundRoute.compactionContextTokens ?? 0) < 2)
+  ) {
+    throw new Error(`Compaction requires a resolved model context capacity for ${route.upstreamModelId}.`);
+  }
   return {
     ...(boundRoute.contextTokens !== undefined && { contextTokens: boundRoute.contextTokens }),
     ...(boundRoute.maxOutputTokens !== undefined && { maxOutputTokens: boundRoute.maxOutputTokens }),
+    ...(compact && { compactionContextTokens: boundRoute.compactionContextTokens }),
   };
 }
 
@@ -282,6 +299,9 @@ export async function startAnthropicModelProxy(
     ...(route.maxOutputTokens !== undefined && { maxOutputTokens: route.maxOutputTokens }),
     ...(route.contextTokens !== undefined && { contextTokens: route.contextTokens }),
     ...(route.contextTokensResolved !== undefined && { contextTokensResolved: route.contextTokensResolved }),
+    ...(route.compactionContextTokens !== undefined && {
+      compactionContextTokens: route.compactionContextTokens,
+    }),
     ...(route.supportsImageInput !== undefined && { supportsImageInput: route.supportsImageInput }),
   }));
 
@@ -294,6 +314,9 @@ export async function startAnthropicModelProxy(
     ...(route.thinkingEffort ? { thinkingEffort: route.thinkingEffort } : {}),
     ...(route.maxOutputTokens !== undefined ? { maxOutputTokens: route.maxOutputTokens } : {}),
     ...(route.contextTokens !== undefined ? { contextTokens: route.contextTokens } : {}),
+    ...(route.compactionContextTokens !== undefined
+      ? { compactionContextTokens: route.compactionContextTokens }
+      : {}),
     ...(route.supportsImageInput !== undefined ? { supportsImageInput: route.supportsImageInput } : {}),
   }));
 
@@ -613,6 +636,9 @@ async function prepareAgainstBinding(
 
   const body = input.body;
   const countTokens = input.path.includes("count_tokens");
+  // Native gateway hint, authenticated by this binding; never infer from prompt text
+  // or a session-wide "compacting" flag (background requests can overlap turns).
+  const compact = input.headers?.get("x-claude-code-request-class") === "compaction";
 
   const imageRejection = rejectDisabledImageInput(
     route,
@@ -727,6 +753,11 @@ async function prepareAgainstBinding(
   ) as UpstreamKind;
 
   body.model = route.modelId;
+  if (compact) {
+    logicalRequestId ??= `compact_${randomUUID()}`;
+    binding.compactionLogicalRequestIds.add(logicalRequestId);
+  }
+  const compactRequestId = compact ? logicalRequestId : undefined;
   return {
     kind: "forward",
     resolution: {
@@ -740,7 +771,10 @@ async function prepareAgainstBinding(
     ...(binding.threadId ? { threadId: binding.threadId } : {}),
     ...(binding.runAttemptId ? { runAttemptId: binding.runAttemptId } : {}),
     ...(logicalRequestId ? { logicalRequestId } : {}),
-    releaseLease,
+    releaseLease: () => {
+      if (compactRequestId) binding.compactionLogicalRequestIds.delete(compactRequestId);
+      releaseLease();
+    },
     entry: {
       role: route.role,
       providerId: route.provider.id,

@@ -1,5 +1,5 @@
-import { ChevronDown, LinkIcon } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { ChevronDown, LinkIcon, LoaderCircle, Search } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   WEB_SEARCH_APPROVAL_MODES,
@@ -9,6 +9,7 @@ import type {
   IntegratedWebSearchProvider,
   IntegratedWebSearchSettingsSaveInput,
   IntegratedWebSearchSettingsSnapshot,
+  IntegratedWebSearchTestResult,
 } from "../shared/ipc";
 import { ProviderPresetIcon } from "./ProviderPresetTabs";
 
@@ -43,7 +44,7 @@ const PROVIDERS: readonly {
     apiKeyUrl: "https://api-dashboard.search.brave.com/",
     iconSrc: "./provider-icons/brave.svg",
   },
-]
+];
 
 export function IntegratedWebSearchSettingsSection({
   settings,
@@ -53,9 +54,22 @@ export function IntegratedWebSearchSettingsSection({
   const { t } = useTranslation();
   const enableId = useId();
   const approvalId = useId();
+  const queryId = useId();
   const [enabled, setEnabled] = useState(settings.enabled);
   const [provider, setProvider] = useState(settings.provider);
   const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [testQuery, setTestQuery] = useState("OpenAI");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<IntegratedWebSearchTestResult>();
+  const [testError, setTestError] = useState<string>();
+  const testRequest = useRef(0);
+
+  useEffect(() => {
+    setTestResult(undefined);
+    setTestError(undefined);
+    setTesting(false);
+    return () => { testRequest.current += 1; };
+  }, [provider, settings.provider, settings.hasApiKey, apiKeyDraft, testQuery, enabled]);
 
   useEffect(() => {
     setEnabled(settings.enabled);
@@ -66,7 +80,27 @@ export function IntegratedWebSearchSettingsSection({
   }, [settings.provider]);
 
   const selectedProvider = PROVIDERS.find((entry) => entry.id === provider) ?? PROVIDERS[0]!;
-  const fieldsDisabled = disabled || !enabled;
+  const fieldsDisabled = disabled || !enabled || testing;
+  const canTest = !fieldsDisabled && provider === settings.provider && settings.hasApiKey &&
+    !apiKeyDraft.trim() && Boolean(testQuery.trim());
+
+  async function testSearch() {
+    if (!canTest || !window.eco) return;
+    const request = ++testRequest.current;
+    setTesting(true);
+    setTestResult(undefined);
+    setTestError(undefined);
+    try {
+      const result = await window.eco.testIntegratedWebSearch({ provider, query: testQuery.trim() });
+      if (request === testRequest.current) setTestResult(result);
+    } catch (error) {
+      if (request === testRequest.current) {
+        setTestError(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (request === testRequest.current) setTesting(false);
+    }
+  }
 
   function commitEnabled(nextEnabled: boolean) {
     setEnabled(nextEnabled);
@@ -78,6 +112,7 @@ export function IntegratedWebSearchSettingsSection({
 
   function commitProvider(nextProvider: IntegratedWebSearchProvider) {
     setProvider(nextProvider);
+    setApiKeyDraft("");
     if (nextProvider === settings.provider) {
       return;
     }
@@ -118,7 +153,7 @@ export function IntegratedWebSearchSettingsSection({
           <input
             type="checkbox"
             checked={enabled}
-            disabled={disabled}
+            disabled={disabled || testing}
             aria-labelledby={enableId}
             onChange={(event) => commitEnabled(event.target.checked)}
           />
@@ -200,6 +235,66 @@ export function IntegratedWebSearchSettingsSection({
         />
       </label>
 
+      <div className="mcp-field integrated-web-search-test">
+        <label className="mcp-field-label" htmlFor={queryId}>
+          {t("settings.integratedWebSearch.testQuery")}
+        </label>
+        <div className="integrated-web-search-test-controls">
+          <input
+            id={queryId}
+            className="mcp-field-input"
+            value={testQuery}
+            maxLength={128}
+            disabled={fieldsDisabled}
+            onChange={(event) => setTestQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                void testSearch();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="mcp-save-button integrated-web-search-test-button"
+            disabled={!canTest}
+            onClick={() => void testSearch()}
+          >
+            {testing ? <LoaderCircle size={14} className="spinning" aria-hidden /> : <Search size={14} aria-hidden />}
+            {t(testing ? "settings.integratedWebSearch.testing" : "settings.integratedWebSearch.test")}
+          </button>
+        </div>
+        <small className="mcp-field-hint">{t("settings.integratedWebSearch.testHint")}</small>
+        <div role="status" aria-live="polite" aria-busy={testing}>
+          {testError ? (
+            <p className="integrated-web-search-test-error">
+              {t("settings.integratedWebSearch.testFailed", { error: testError })}
+            </p>
+          ) : null}
+          {testResult ? (
+            <>
+              <p className={testResult.results.length ? "integrated-web-search-test-success" : "mcp-field-hint"}>
+                {t(testResult.results.length ? "settings.integratedWebSearch.testPassed" : "settings.integratedWebSearch.testEmpty", {
+                  count: testResult.results.length,
+                  duration: (testResult.elapsedMs / 1000).toFixed(2),
+                })}
+              </p>
+              <ul className="integrated-web-search-test-results">
+                {testResult.results.map((result, index) => (
+                  <li key={`${index}-${result.url}`}>
+                    {/^https?:\/\//i.test(result.url) ? (
+                      <a href={result.url} target="_blank" rel="noreferrer">{result.title || result.url}</a>
+                    ) : <strong>{result.title || result.url}</strong>}
+                    {result.url ? <small>{result.url}</small> : null}
+                    {result.description ? <p>{result.description}</p> : null}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </div>
+      </div>
+
       {enabled ? (
         <div className="mcp-field models-toggle-field provider-enable-row">
           <span className="integrated-web-search-enable-copy" id={approvalId}>
@@ -210,7 +305,7 @@ export function IntegratedWebSearchSettingsSection({
             <span className="sr-only">{t("settings.integratedWebSearch.approvalMode")}</span>
             <select
               value={settings.approvalMode}
-              disabled={disabled}
+              disabled={disabled || testing}
               aria-labelledby={approvalId}
               onChange={(event) => commitApprovalMode(event.target.value as WebSearchApprovalMode)}
             >

@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import electronPath from "electron";
+import { createDevProcesses } from "./dev-processes.mjs";
 import { resolveDevEcoGatewayPortForLog } from "./dev-gateway-port.mjs";
 import {
   devRemoteDebuggingElectronArgs,
@@ -7,70 +8,47 @@ import {
 
 const rendererPort = readPort(process.env.ECO_RENDERER_PORT ?? "5173", "renderer");
 const rendererUrl = `http://127.0.0.1:${rendererPort}/`;
-const children = new Set();
+const { start, run, fail } = createDevProcesses();
 
-await run("bun", ["run", "build:main"]);
-await run("bun", ["run", "build:preload"]);
+async function main() {
+  await run("bun", ["run", "build:main"]);
+  await run("bun", ["run", "build:preload"]);
 
-console.error("[eco] 主进程仅在 dev 启动时编译一次；修改 apps/desktop/src/main 后请重启 bun run dev。");
-console.error(
-  "[eco] Dev userData 追加后缀 Dev（可用 ECO_DEV_USER_DATA_SUFFIX 覆盖），可与已安装的发布版并行。",
-);
-const devCdpPort = resolveDevRemoteDebuggingPort();
-if (devCdpPort !== undefined) {
-  console.error(`[eco] Dev CDP: http://127.0.0.1:${devCdpPort}/json（Electron 主窗口；关闭: ECO_DEV_CDP=0）`);
-}
-const devGatewayPort = resolveDevEcoGatewayPortForLog();
-console.error(
-  `[eco] Dev eco-bridge: http://127.0.0.1:${devGatewayPort}/（发布版默认 18765；可用 ECO_GATEWAY_PORT 覆盖）`,
-);
+  console.error("[eco] 主进程仅在 dev 启动时编译一次；修改 apps/desktop/src/main 后请重启 bun run dev。");
+  console.error(
+    "[eco] Dev userData 追加后缀 Dev（可用 ECO_DEV_USER_DATA_SUFFIX 覆盖），可与已安装的发布版并行。",
+  );
+  const devCdpPort = resolveDevRemoteDebuggingPort();
+  if (devCdpPort !== undefined) {
+    console.error(`[eco] Dev CDP: http://127.0.0.1:${devCdpPort}/json（Electron 主窗口；关闭: ECO_DEV_CDP=0）`);
+  }
+  const devGatewayPort = resolveDevEcoGatewayPortForLog();
+  console.error(
+    `[eco] Dev eco-bridge: http://127.0.0.1:${devGatewayPort}/（发布版默认 18765；可用 ECO_GATEWAY_PORT 覆盖）`,
+  );
 
-const rendererAlreadyRunning = await isRendererReady();
-if (!rendererAlreadyRunning) {
-  start("./node_modules/.bin/vite", ["--host", "127.0.0.1", "--strictPort", "--port", String(rendererPort)], {
-    name: "renderer",
-  });
-  await waitForRenderer();
-}
+  const rendererAlreadyRunning = await isRendererReady();
+  if (!rendererAlreadyRunning) {
+    start("./node_modules/.bin/vite", ["--host", "127.0.0.1", "--strictPort", "--port", String(rendererPort)]);
+    await waitForRenderer();
+  }
 
-start(
-  "./node_modules/.bin/electron",
-  [".", "--enable-logging", ...devRemoteDebuggingElectronArgs(devCdpPort)],
-  {
-    name: "electron",
-    env: {
-      ...process.env,
-      VITE_DEV_SERVER_URL: rendererUrl,
-      ELECTRON_ENABLE_LOGGING: "1",
-      ECO_DEV_CDP: process.env.ECO_DEV_CDP ?? "1",
-      ...(devCdpPort !== undefined ? { ECO_DEV_CDP_PORT: String(devCdpPort) } : {}),
+  start(
+    electronPath,
+    [".", "--enable-logging", ...devRemoteDebuggingElectronArgs(devCdpPort)],
+    {
+      env: {
+        ...process.env,
+        VITE_DEV_SERVER_URL: rendererUrl,
+        ELECTRON_ENABLE_LOGGING: "1",
+        ECO_DEV_CDP: process.env.ECO_DEV_CDP ?? "1",
+        ...(devCdpPort !== undefined ? { ECO_DEV_CDP_PORT: String(devCdpPort) } : {}),
+      },
     },
-  },
-);
-
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
-
-function start(command, args, options = {}) {
-  const child = spawn(command, args, {
-    cwd: process.cwd(),
-    env: options.env ?? process.env,
-    stdio: "inherit",
-  });
-  children.add(child);
-  child.on("exit", () => children.delete(child));
-  return child;
+  );
 }
 
-function run(command, args) {
-  return new Promise((resolve, reject) => {
-    const child = start(command, args);
-    child.on("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`${command} ${args.join(" ")} exited with ${code}`));
-    });
-  });
-}
+void main().catch(fail);
 
 async function waitForRenderer() {
   const startedAt = Date.now();
@@ -100,11 +78,4 @@ function readPort(raw, label) {
     throw new Error(`Invalid ${label} port: ${raw}`);
   }
   return port;
-}
-
-function shutdown() {
-  for (const child of children) {
-    child.kill("SIGTERM");
-  }
-  process.exit(0);
 }

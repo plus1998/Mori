@@ -390,6 +390,7 @@ export function mergeConversationV2OlderPage(
     runs,
     tools,
     agents,
+    details: mergeConversationV2PageDetails(state, page.details, page.readSeq),
     ...(toolSummaryCounts.size > 0 ? { toolSummaryCounts } : {}),
     hasOlder: page.hasMore,
     ...(page.nextCursor ? { olderCursor: page.nextCursor } : {}),
@@ -400,6 +401,22 @@ export function mergeConversationV2OlderPage(
     delete merged.olderCursor;
   }
   return merged;
+}
+
+function mergeConversationV2PageDetails(
+  state: ConversationV2RendererState,
+  items: ConversationDetailItem[] | undefined,
+  readSeq: number,
+): ReadonlyMap<string, ConversationDetailItem> {
+  if (items === undefined) return state.details;
+  if (!Array.isArray(items)) throw new Error("Conversation V2 page details must be an array.");
+  const details = new Map(state.details);
+  for (const detail of items) {
+    validateDetail(detail, state.conversationId, readSeq, "page detail");
+    const existing = details.get(detail.itemId);
+    if (!existing || detail.versionSeq > existing.versionSeq) details.set(detail.itemId, detail);
+  }
+  return details;
 }
 
 /**
@@ -492,7 +509,12 @@ export function mergeConversationV2ToolPage(
   if (previousCount === undefined || page.totalCount > previousCount) {
     toolSummaryCounts.set(page.runId, page.totalCount);
   }
-  return { ...state, tools, toolSummaryCounts };
+  return {
+    ...state,
+    tools,
+    toolSummaryCounts,
+    details: mergeConversationV2PageDetails(state, page.details, page.readSeq),
+  };
 }
 
 interface EffectMap<T> {
@@ -1207,6 +1229,15 @@ function historyTargetChanged(
   existing: ConversationMessageHistoryTarget,
   incoming: ConversationMessageHistoryTarget,
 ): boolean {
+  // Match the store's one permitted promotion of legacy provisional Codex ids.
+  if (
+    existing.activityLineId.startsWith("codex-pending:") &&
+    !existing.userMessageId &&
+    incoming.activityLineId.startsWith("sdk:") &&
+    incoming.userMessageId
+  ) {
+    return false;
+  }
   return (
     existing.activityLineId !== incoming.activityLineId ||
     (existing.userMessageId !== undefined &&

@@ -1,3 +1,5 @@
+import { useCodexQuotaResetRefresh } from "../useCodexQuotaResetRefresh";
+import { QuotaRefreshedAt } from "../QuotaRefreshedAt";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -12,6 +14,7 @@ import {
   Pencil,
   RefreshCw,
   MoreHorizontal,
+  GripVertical,
   Globe2,
   ShieldCheck,
   UserRound,
@@ -21,12 +24,31 @@ import {
   Mail,
   KeyRound,
   Inbox,
+  ChevronDown,
+  Zap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import type { OpenAIAccount, OpenAIAccountDetails, OpenAIAccountImageQuota, OpenAIAccountQuota, OpenAIAccountQuotaWindow, OpenAIAccountSyncStatus } from "../../shared/openai-account";
+import type {
+  OpenAIAccount,
+  OpenAIAccountDetails,
+  OpenAIAccountImageQuota,
+  OpenAIAccountProxyMode,
+  OpenAIAccountQuota,
+  OpenAIAccountQuotaWindow,
+  OpenAIAccountSyncStatus,
+} from "../../shared/openai-account";
 import { type AppLocale, formatAppDateTime } from "../../shared/locale";
-import { CodexModelCatalogSection } from "./CodexModelCatalogSection";
+import { AccountModelCatalogSection } from "./AccountModelCatalogSection";
+import { CodexExternalLoginDialog } from "./CodexExternalLoginDialog";
+import type { CodexModelCatalogSnapshot } from "../../shared/models";
+import { latestLunaModelId } from "../../shared/codex-wake-model";
+import {
+  moveOpenAIAccount,
+  OPENAI_ACCOUNT_ORDER_STORAGE_KEY,
+  readOpenAIAccountOrder,
+  sortOpenAIAccounts,
+} from "../openai-account-order";
 
 type Translate = TFunction<"translation", undefined>;
 
@@ -54,48 +76,53 @@ function formatQuotaResetTime(resetAt: number, t: Translate): string {
   return t("settings.openaiAccounts.quotaResetsIn", { duration: h > 0 ? `${d}d ${h}h` : `${d}d` });
 }
 
-function QuotaRefreshedAt({ fetchedAt }: { fetchedAt: number }) {
-  const { t, i18n } = useTranslation();
-  const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
-  const refreshedAt = new Date(fetchedAt);
-  return (
-    <time
-      className="codex-quota-refreshed-at"
-      dateTime={refreshedAt.toISOString()}
-      title={formatAppDateTime(locale, refreshedAt)}
-    >
-      {t("settings.openaiAccounts.lastRefreshed", {
-        time: formatAppDateTime(locale, refreshedAt, {
-          month: "numeric",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        }),
-      })}
-    </time>
-  );
-}
-
-export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error }: {
+export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error, showRefreshedAt = true }: {
   quota: OpenAIAccountQuota | undefined;
   isLoggedIn: boolean;
   loading: boolean;
   error: string | undefined;
+  showRefreshedAt?: boolean;
 }) {
   const { t } = useTranslation();
-  if (!quota && !isLoggedIn) return null;
-  const primary = quota?.rateLimit.primaryWindow;
-  return <span className="codex-quota-summary" aria-busy={loading}>
+  if (!quota && !isLoggedIn && !loading && !error) return null;
+  return <span className="codex-quota-summary codex-text-quota-summary" aria-busy={loading}>
     {loading ? <Loader2 size={13} className="mcp-spin" aria-label={t("settings.openaiAccounts.refreshingQuotaAria")} /> : null}
+    {error ? <span className="codex-quota-error is-error" role="alert">{t("settings.openaiAccounts.quotaError", { message: error })}</span> : null}
     {quota ? <>
-      <b>{quota.planType}</b>
-      {primary ? <em className={quota.rateLimit.limitReached ? "is-limited" : "is-ok"}>{t("settings.openaiAccounts.usedPercent", { percent: Math.round(primary.usedPercent) })}</em> : null}
-      {primary && (primary.resetAt > 0 || primary.resetAfterSeconds > 0) ? <span>{formatResetTime(primary, quota.fetchedAt, t)}</span> : null}
-      {quota.resetCreditsAvailable > 0 ? <span>{t("settings.openaiAccounts.resetCredits", { count: quota.resetCreditsAvailable })}</span> : null}
-      <QuotaRefreshedAt fetchedAt={quota.fetchedAt} />
-      {error ? <em className="is-error" title={error} role="status">{t("settings.openaiAccounts.quotaFailedCached")}</em> : null}
-    </> : <span className={error ? "is-error" : undefined} title={error}>{error ? t("settings.openaiAccounts.quotaError") : loading ? t("settings.openaiAccounts.quotaLoading") : t("settings.openaiAccounts.quotaIdle")}</span>}
+      {[quota.rateLimit.primaryWindow, quota.rateLimit.secondaryWindow].map((window, index) => {
+        if (!window) return null;
+        const remaining = Math.min(100, Math.max(0, 100 - window.usedPercent));
+        const tone = remaining <= 10 ? "is-limited" : remaining <= 20 ? "is-low" : "is-ok";
+        const label = window.limitWindowSeconds === 604_800
+          ? t("settings.openaiAccounts.weeklyQuota")
+          : window.limitWindowSeconds > 0
+            ? t("settings.openaiAccounts.windowHours", { count: window.limitWindowSeconds / 3_600 })
+            : t("settings.openaiAccounts.quotaWindow");
+        const remainingText = t("codexSwitch.remaining", { percent: Math.round(remaining) });
+        return (
+          <span className="codex-quota-window" key={index}>
+            <span className="codex-quota-window-heading">
+              <span>{label}</span>
+              <em className={tone}>{remainingText}</em>
+            </span>
+            <span
+              className={`codex-quota-energy ${tone}`}
+              role="meter"
+              aria-label={label}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={remaining}
+              aria-valuetext={remainingText}
+            >
+              <span style={{ width: `${remaining}%` }} />
+            </span>
+            {window.resetAt > 0 || window.resetAfterSeconds > 0 ? <span className="codex-quota-window-reset">{formatResetTime(window, quota.fetchedAt, t)}</span> : null}
+          </span>
+        );
+      })}
+      {quota.resetCreditsAvailable > 0 ? <span className="codex-quota-note">{t("settings.openaiAccounts.resetCredits", { count: quota.resetCreditsAvailable })}</span> : null}
+      {showRefreshedAt ? <QuotaRefreshedAt fetchedAt={quota.fetchedAt} /> : null}
+    </> : <span>{loading ? t("settings.openaiAccounts.quotaLoading") : t("settings.openaiAccounts.quotaIdle")}</span>}
   </span>;
 }
 
@@ -134,21 +161,95 @@ function ProfileSecretInput({
   );
 }
 
-export function OpenAIAccountImageQuotaSummary({ account, loading }: { account: OpenAIAccount; loading: boolean }) {
+export function OpenAIAccountProxyFields({
+  mode,
+  proxyUrl,
+  onModeChange,
+  onProxyUrlChange,
+  disabled = false,
+}: {
+  mode: OpenAIAccountProxyMode;
+  proxyUrl: string;
+  onModeChange: (mode: OpenAIAccountProxyMode) => void;
+  onProxyUrlChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const { t } = useTranslation();
+  const options: Array<{ mode: OpenAIAccountProxyMode; label: string; hint: string }> = [
+    {
+      mode: "system",
+      label: t("settings.openaiAccounts.proxyModeSystem"),
+      hint: t("settings.openaiAccounts.proxyModeSystemHint"),
+    },
+    {
+      mode: "direct",
+      label: t("settings.openaiAccounts.proxyModeDirect"),
+      hint: t("settings.openaiAccounts.proxyModeDirectHint"),
+    },
+    {
+      mode: "manual",
+      label: t("settings.openaiAccounts.proxyModeManual"),
+      hint: t("settings.openaiAccounts.proxyModeManualHint"),
+    },
+  ];
+  const selected = options.find((option) => option.mode === mode) ?? options[0]!;
+  return (
+    <div className="openai-proxy-fields">
+      <span className="mcp-field-label">{t("settings.openaiAccounts.proxyMode")}</span>
+      <div
+        className="openai-proxy-mode-toggle"
+        role="radiogroup"
+        aria-label={t("settings.openaiAccounts.proxyMode")}
+      >
+        {options.map((option) => (
+          <button
+            key={option.mode}
+            type="button"
+            role="radio"
+            aria-checked={option.mode === mode}
+            className={option.mode === mode ? "is-active" : ""}
+            disabled={disabled}
+            onClick={() => onModeChange(option.mode)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <p className="mcp-field-hint">{selected.hint}</p>
+      {mode === "manual" ? (
+        <label className="mcp-field openai-manual-proxy-field">
+          <span className="mcp-field-label">{t("settings.openaiAccounts.proxyUrl")}</span>
+          <input
+            className="mcp-field-input"
+            type="url"
+            value={proxyUrl}
+            placeholder="http://127.0.0.1:7890"
+            disabled={disabled}
+            onChange={(event) => onProxyUrlChange(event.target.value)}
+          />
+        </label>
+      ) : null}
+    </div>
+  );
+}
+
+export function OpenAIAccountImageQuotaSummary({ account, loading, showRefreshedAt = true }: { account: OpenAIAccount; loading: boolean; showRefreshedAt?: boolean }) {
   const { t, i18n } = useTranslation();
   const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
   const quota: OpenAIAccountImageQuota | undefined = account.imageQuota;
   const resetAt = quota?.status === "available" && quota.resetAt ? Date.parse(quota.resetAt) : undefined;
   return <div className="codex-quota-summary codex-image-quota-summary" aria-busy={loading}>
     {loading ? <Loader2 size={13} className="mcp-spin" aria-label={t("settings.openaiAccounts.imageQuotaLoadingAria")} /> : null}
-    <b title={t("settings.openaiAccounts.imageQuotaTooltip")}>{t("settings.openaiAccounts.imageQuotaLabel")}</b>
-    {quota?.status === "available" ? <>
-      <em className={quota.remaining === 0 ? "is-limited" : "is-ok"}>{t("settings.openaiAccounts.imageQuotaRemaining", { total: quota.remaining })}</em>
-      {resetAt !== undefined && Number.isFinite(resetAt) ? <span title={t("settings.openaiAccounts.imageQuotaRestoresAt", { time: formatAppDateTime(locale, new Date(resetAt)) })}>{formatQuotaResetTime(resetAt, t)}</span> : null}
-    </> : <span className={quota?.status === "error" ? "is-error" : undefined} title={quota?.error}>
-      {quota?.status === "error" ? t("settings.openaiAccounts.imageQuotaFailed") : t("settings.openaiAccounts.imageQuotaIdle")}
-    </span>}
-    {quota ? <QuotaRefreshedAt fetchedAt={quota.fetchedAt} /> : null}
+    <span className="codex-quota-window-heading" title={t("settings.openaiAccounts.imageQuotaTooltip")}>
+      <b>{t("settings.openaiAccounts.imageQuotaLabel")}</b>
+      {quota?.status === "available" ? (
+        <em className={quota.remaining === 0 ? "is-limited" : "is-ok"}>{t("settings.openaiAccounts.imageQuotaRemaining", { total: quota.remaining })}</em>
+      ) : <span className={quota?.status === "error" ? "is-error" : undefined} title={quota?.error}>
+        {quota?.status === "error" ? t("settings.openaiAccounts.imageQuotaFailed") : t("settings.openaiAccounts.imageQuotaIdle")}
+      </span>}
+    </span>
+    {resetAt !== undefined && Number.isFinite(resetAt) ? <span className="codex-quota-window-reset" title={t("settings.openaiAccounts.imageQuotaRestoresAt", { time: formatAppDateTime(locale, new Date(resetAt)) })}>{formatQuotaResetTime(resetAt, t)}</span> : null}
+    {quota && showRefreshedAt ? <QuotaRefreshedAt fetchedAt={quota.fetchedAt} /> : null}
     {quota?.status === "error" ? <span className="codex-image-quota-error is-error" role="alert">{quota.error}</span> : null}
   </div>;
 }
@@ -249,6 +350,9 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
   const eco = window.eco;
   const [accounts, setAccounts] = useState<OpenAIAccount[]>([]);
+  const [accountOrder, setAccountOrder] = useState<string[]>([]);
+  const [draggedAccountId, setDraggedAccountId] = useState<string | null>(null);
+  const [accountDropTarget, setAccountDropTarget] = useState<{ id: string; position: "before" | "after" } | null>(null);
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
   const [pendingAccountId, setPendingAccountId] = useState<string | null | undefined>();
   const [syncStatus, setSyncStatus] = useState<OpenAIAccountSyncStatus>({ state: "ok" });
@@ -258,9 +362,19 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   const [statusFilter, setStatusFilter] = useState<"all" | "ready" | "missing">("all");
   const [busy, setBusy] = useState(false);
   const [loggingInId, setLoggingInId] = useState<string | null>(null);
-  const [quotaErrors, setQuotaErrors] = useState<Record<string, string>>({});
+  const [quotaErrors, setQuotaErrors] = useState<Record<string, { message: string; attemptedAt: number }>>({});
   const [quotaLoading, setQuotaLoading] = useState(false);
   const [quotaLoadingId, setQuotaLoadingId] = useState<string | null>(null);
+  const wakingRef = useRef(false);
+  const [wakeStatus, setWakeStatus] = useState<Record<string, { phase: "waking" | "done" | "error"; message: string; reply?: string }>>({});
+  const [wakeModel, setWakeModel] = useState<string | null>(null);
+  const [wakeModelReady, setWakeModelReady] = useState(false);
+  const [wakeModelSaving, setWakeModelSaving] = useState(false);
+  const [wakeModelError, setWakeModelError] = useState("");
+  const [wakeDialogAccountId, setWakeDialogAccountId] = useState<string | null>(null);
+  const wakeDialogRef = useRef<HTMLDialogElement>(null);
+  const [wakeModels, setWakeModels] = useState<CodexModelCatalogSnapshot["models"]>([]);
+  const onCatalogSnapshot = useCallback((snapshot: CodexModelCatalogSnapshot) => setWakeModels(snapshot.models), []);
   const [imageOperation, setImageOperation] = useState<{ accountId: string; kind: "toggle" | "quota" } | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({
@@ -270,17 +384,29 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   const menuRef = useRef<HTMLDivElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
 
+  useEffect(() => {
+    try {
+      setAccountOrder(readOpenAIAccountOrder(window.localStorage));
+    } catch (error) {
+      setOperationError(t("settings.openaiAccounts.orderLoadFailed", {
+        message: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }, [t]);
+
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [modalEditId, setModalEditId] = useState<string | null>(null);
   const [modalName, setModalName] = useState("");
+  const [modalProxyMode, setModalProxyMode] = useState<OpenAIAccountProxyMode>("system");
   const [modalProxy, setModalProxy] = useState("");
   const [modalAuthJson, setModalAuthJson] = useState("");
   const [modalEmail, setModalEmail] = useState("");
   const [modalPassword, setModalPassword] = useState("");
   const [modalPickupUrl, setModalPickupUrl] = useState("");
   const [modalTwoFactorSecret, setModalTwoFactorSecret] = useState("");
-  const [modalMode, setModalMode] = useState<"login" | "manual">("login");
+  const [modalMode, setModalMode] = useState<"login" | "external" | "manual">("login");
+  const [externalLoginId, setExternalLoginId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importMessage, setImportMessage] = useState("");
@@ -297,6 +423,10 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         eco.openAIAccountsGetActive(),
       ]);
       setAccounts(list);
+      setQuotaErrors((previous) => Object.fromEntries(Object.entries(previous).filter(([id, error]) => {
+        const account = list.find((entry) => entry.id === id);
+        return account && (account.quota?.fetchedAt ?? 0) < error.attemptedAt;
+      })));
       setActiveAccountId(active.activeAccountId);
       setPendingAccountId(active.pendingAccountId);
       setSyncStatus(active.syncStatus);
@@ -307,10 +437,48 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   }, [eco]);
 
   useEffect(() => {
+    if (!eco) return;
+    let cancelled = false;
+    void eco.openAIAccountsGetWakeModel().then((modelId) => {
+      if (cancelled) return;
+      setWakeModel(modelId);
+      setWakeModelReady(true);
+    }).catch((error) => {
+      if (!cancelled) setWakeModelError(error instanceof Error ? error.message : String(error));
+    });
+    return () => { cancelled = true; };
+  }, [eco]);
+
+  useEffect(() => {
+    if (!wakeDialogAccountId) return;
+    const dialog = wakeDialogRef.current;
+    if (!dialog) return;
+    dialog.showModal();
+    return () => {
+      dialog.close();
+      menuTriggerRef.current?.focus();
+    };
+  }, [wakeDialogAccountId]);
+
+  async function handleWakeModelChange(modelId: string | null) {
+    if (!eco || wakeModelSaving) return;
+    setWakeModelSaving(true);
+    setWakeModelError("");
+    try {
+      await eco.openAIAccountsSetWakeModel(modelId);
+      setWakeModel(modelId);
+    } catch (error) {
+      setWakeModelError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setWakeModelSaving(false);
+    }
+  }
+
+  useEffect(() => {
     if (!eco) return undefined;
     void refresh();
     const unsubOauth = eco.onCodexOauthLoginResult(async (result) => {
-      if (result.accountId) {
+      if (result.accountId && !result.loginId) {
         setLoggingInId((current) => current === result.accountId ? null : current);
         if (!result.success) {
           setOperationError("");
@@ -385,9 +553,36 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         return next;
       });
     } catch (error) {
-      setQuotaErrors((previous) => ({ ...previous, [accountId]: error instanceof Error ? error.message : String(error) }));
+      setQuotaErrors((previous) => ({ ...previous, [accountId]: { message: error instanceof Error ? error.message : String(error), attemptedAt: Date.now() } }));
     }
   }, [eco]);
+
+  async function handleWake(accountId: string) {
+    if (!eco || wakingRef.current) return;
+    wakingRef.current = true;
+    setBusy(true);
+    setMenuOpenId(null);
+    setWakeStatus((previous) => ({ ...previous, [accountId]: { phase: "waking", message: t("settings.openaiAccounts.waking") } }));
+    try {
+      const result = await eco.openAIAccountsWake(accountId);
+      setWakeStatus((previous) => ({ ...previous, [accountId]: {
+        phase: "done",
+        message: result.quotaError
+          ? t("settings.openaiAccounts.wokeQuotaFailed", { message: result.quotaError })
+          : t("settings.openaiAccounts.woke"),
+        reply: result.reply,
+      } }));
+      await refresh();
+    } catch (error) {
+      setWakeStatus((previous) => ({ ...previous, [accountId]: {
+        phase: "error",
+        message: t("settings.openaiAccounts.wakeFailed", { message: error instanceof Error ? error.message : String(error) }),
+      } }));
+    } finally {
+      wakingRef.current = false;
+      setBusy(false);
+    }
+  }
 
   async function handleImageEnabled(accountId: string, enabled: boolean) {
     if (!eco || imageOperation) return;
@@ -421,20 +616,44 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     if (!eco || accounts.length === 0 || quotaLoading || quotaLoadingId !== null) return;
     setQuotaLoading(true);
     try {
-      await Promise.all(accounts.filter((account) => account.isLoggedIn).map((account) => refreshAccountQuota(account.id)));
+      await Promise.all(accounts.filter((account) => account.authState !== "missing").map((account) => refreshAccountQuota(account.id)));
       await refresh();
     } finally {
       setQuotaLoading(false);
     }
   }, [accounts, eco, quotaLoading, quotaLoadingId, refreshAccountQuota, refresh]);
 
-  // Filtered accounts
+  const orderedAccounts = useMemo(
+    () => sortOpenAIAccounts(accounts, accountOrder, activeAccountId),
+    [accounts, accountOrder, activeAccountId],
+  );
+
+  function reorderAccount(draggedId: string, targetId: string, position: "before" | "after") {
+    if (draggedId === targetId) return;
+    const next = moveOpenAIAccount(orderedAccounts.map((account) => account.id), draggedId, targetId, position);
+    try {
+      window.localStorage.setItem(OPENAI_ACCOUNT_ORDER_STORAGE_KEY, JSON.stringify(next));
+      setAccountOrder(next);
+    } catch (error) {
+      setOperationError(t("settings.openaiAccounts.orderSaveFailed", {
+        message: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }
+
+  function clearAccountDrag() {
+    setDraggedAccountId(null);
+    setAccountDropTarget(null);
+  }
+
+  // Filter after ordering so hidden accounts retain their saved positions.
   const filteredAccounts = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return accounts.filter((a) => (!query || a.name.toLowerCase().includes(query) || a.email?.toLowerCase().includes(query))
-      && (statusFilter === "all" || (statusFilter === "ready" ? a.isLoggedIn : !a.isLoggedIn)))
-      .sort((a, b) => Number(b.id === activeAccountId) - Number(a.id === activeAccountId));
-  }, [accounts, searchQuery, statusFilter, activeAccountId]);
+    return orderedAccounts.filter((a) => (!query || a.name.toLowerCase().includes(query) || a.email?.toLowerCase().includes(query))
+      && (statusFilter === "all" || (statusFilter === "ready" ? a.isLoggedIn : !a.isLoggedIn)));
+  }, [orderedAccounts, searchQuery, statusFilter]);
+
+  useCodexQuotaResetRefresh(filteredAccounts, eco, refresh, onError);
 
   const handleCreate = useCallback(async (saveOnly = false) => {
     const name = modalName.trim();
@@ -447,7 +666,8 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         await eco.openAIAccountsUpdate({
           accountId: modalEditId,
           name,
-          proxyUrl: modalProxy.trim(),
+          proxyMode: modalProxyMode,
+          proxyUrl: modalProxyMode === "manual" ? modalProxy.trim() : "",
           email: modalEmail,
           password: modalPassword,
           pickupUrl: modalPickupUrl,
@@ -464,7 +684,8 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         // Create mode
         const account = await eco.openAIAccountsCreate({
           name,
-          proxyUrl: modalProxy.trim(),
+          proxyMode: modalProxyMode,
+          ...(modalProxyMode === "manual" ? { proxyUrl: modalProxy.trim() } : {}),
           email: modalEmail,
           password: modalPassword,
           pickupUrl: modalPickupUrl,
@@ -485,11 +706,14 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             onError(error instanceof Error ? error.message : String(error));
             return;
           }
+        } else if (!saveOnly && modalMode === "external") {
+          setExternalLoginId(account.id);
         }
       }
       setModalOpen(false);
       setModalEditId(null);
       setModalName("");
+      setModalProxyMode("system");
       setModalProxy("");
       setModalAuthJson("");
       setModalEmail("");
@@ -506,6 +730,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   }, [
     eco,
     modalName,
+    modalProxyMode,
     modalProxy,
     modalEmail,
     modalPassword,
@@ -596,6 +821,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
       const detail: OpenAIAccountDetails = await eco.openAIAccountsGetDetails(accountId);
       setModalEditId(detail.id);
       setModalName(detail.name);
+      setModalProxyMode(detail.proxyMode);
       setModalProxy(detail.proxyUrl ?? "");
       setModalEmail(detail.email ?? "");
       setModalPassword(detail.password ?? "");
@@ -642,6 +868,9 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   }, [eco, refresh]);
 
   const loggedInCount = accounts.filter((account) => account.isLoggedIn).length;
+  const defaultWakeModel = latestLunaModelId(wakeModels.map((model) => model.modelId));
+  const wakeAccount = accounts.find((account) => account.id === wakeDialogAccountId);
+  const currentWakeStatus = wakeDialogAccountId ? wakeStatus[wakeDialogAccountId] : undefined;
   const activeAccount = accounts.find(
     (account) => account.id === activeAccountId,
   );
@@ -651,9 +880,9 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
       <div className="codex-accounts-hero">
         <div className="codex-accounts-heading">
           <h2>{t("settings.models.tab.openaiAccounts")}</h2>
-          <p>{t("settings.openaiAccounts.description")}</p>
         </div>
         <div className="codex-account-header-actions">
+          <AccountModelCatalogSection onSnapshot={onCatalogSnapshot} />
           <button
             type="button"
             className="codex-action-secondary"
@@ -670,6 +899,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             onClick={() => {
               setModalEditId(null);
               setModalName(t("settings.openaiAccounts.defaultAccountName", { index: accounts.length + 1 }));
+              setModalProxyMode("system");
               setModalProxy("");
               setModalAuthJson("");
               setModalEmail("");
@@ -684,6 +914,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             {t("settings.openaiAccounts.addAccount")}
           </button>
         </div>
+        <p className="codex-accounts-description">{t("settings.openaiAccounts.description")}</p>
       </div>
 
       {loadError ? <div className="codex-account-sync-error">{t("settings.openaiAccounts.loadFailed", { message: loadError })}</div> : null}
@@ -695,10 +926,6 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             : t("settings.openaiAccounts.syncError", { message: syncStatus.message })}
         </div>
       ) : null}
-
-      {/* Above the account list on purpose: the list grows with every imported
-          account and would otherwise push the model catalog out of view. */}
-      <CodexModelCatalogSection />
 
       <div className="codex-accounts-toolbar">
         <span>
@@ -723,7 +950,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             type="button"
             className="chatgpt-inline-link"
             onClick={() => void refreshQuotas()}
-            disabled={quotaLoading || quotaLoadingId !== null || !accounts.some((account) => account.isLoggedIn)}
+            disabled={quotaLoading || quotaLoadingId !== null || !accounts.some((account) => account.authState !== "missing")}
           >
             <RefreshCw
               size={13}
@@ -810,7 +1037,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         </div>
       ) : (
         <div className="codex-account-list">
-          {filteredAccounts.map((account) => {
+          {filteredAccounts.map((account, accountIndex) => {
             const accountQuota = account.quota;
             const isActive = activeAccountId === account.id;
             const isPending = pendingAccountId === account.id || (pendingAccountId !== undefined && isActive);
@@ -837,17 +1064,43 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                 ? "ready"
                 : "muted";
             const email = account.email || accountQuota?.email;
+            const isQuotaLoading = (quotaLoading && account.authState !== "missing") || quotaLoadingId === account.id;
+            const showTextQuota = Boolean(accountQuota || account.isLoggedIn || isQuotaLoading || quotaErrors[account.id]);
+            const showImageQuota = Boolean(account.imageGenerationEnabled || account.imageQuota);
             return (
               <article
                 key={account.id}
-                className={`codex-account-card ${isActive ? "is-active" : ""}`}
+                className={`codex-account-card ${isActive ? "is-active" : ""} ${draggedAccountId === account.id ? "is-dragging" : ""} ${accountDropTarget?.id === account.id ? `is-drop-${accountDropTarget.position}` : ""}`}
+                onDragOver={(event) => {
+                  if (!draggedAccountId || busy || draggedAccountId === account.id) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const position = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                  setAccountDropTarget((current) => current?.id === account.id && current.position === position
+                    ? current : { id: account.id, position });
+                }}
+                onDragLeave={(event) => {
+                  if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+                  setAccountDropTarget((current) => current?.id === account.id ? null : current);
+                }}
+                onDrop={(event) => {
+                  if (!draggedAccountId || busy) return;
+                  event.preventDefault();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  reorderAccount(draggedAccountId, account.id, event.clientY < rect.top + rect.height / 2 ? "before" : "after");
+                  clearAccountDrag();
+                }}
               >
                 <div className="codex-account-card-main">
                   <div className="codex-account-avatar">
                     <span>{(email || account.name).slice(0, 1).toUpperCase()}</span>
                   </div>
                   <div className="codex-account-identity">
-                    <strong title={account.name}>{account.name}</strong>
+                    <div className="codex-account-identity-title">
+                      <strong title={account.name}>{account.name}</strong>
+                      {accountQuota?.planType ? <span className="codex-account-plan">{accountQuota.planType}</span> : null}
+                    </div>
                     <span title={email}>
                       {email ||
                         (account.isLoggedIn
@@ -860,6 +1113,34 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                     {status}
                   </span>
                   <div className="codex-account-actions">
+                    <button
+                      type="button"
+                      className="mcp-icon-button codex-account-drag-handle"
+                      draggable={!busy}
+                      disabled={busy}
+                      aria-label={t("settings.openaiAccounts.reorderAccount", { name: account.name })}
+                      title={t("settings.openaiAccounts.reorderHint")}
+                      aria-keyshortcuts="ArrowUp ArrowDown"
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", account.id);
+                        const card = event.currentTarget.closest("article");
+                        if (card) event.dataTransfer.setDragImage(card, 24, 24);
+                        setMenuOpenId(null);
+                        setDraggedAccountId(account.id);
+                      }}
+                      onDragEnd={clearAccountDrag}
+                      onKeyDown={(event) => {
+                        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+                        if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                        event.preventDefault();
+                        const previous = event.key === "ArrowUp";
+                        const target = filteredAccounts[accountIndex + (previous ? -1 : 1)];
+                        if (target) reorderAccount(account.id, target.id, previous ? "before" : "after");
+                      }}
+                    >
+                      <GripVertical size={15} />
+                    </button>
                     {!isActive && account.isLoggedIn ? (
                       <button
                         type="button"
@@ -921,34 +1202,56 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                     </button>
                   </div>
                 </div>
-                <div className="codex-account-meta">
-                  <OpenAIAccountProfilePresence fields={account.profileFields} />
-                  <button
-                    type="button"
-                    className="codex-proxy-link"
-                    disabled={busy}
-                    onClick={() => {
-                      void openEdit(account.id);
-                    }}
-                  >
-                    <Globe2 size={13} />
-                    {account.proxyUrl ? t("settings.openaiAccounts.proxyOwn") : t("settings.openaiAccounts.proxySystem")}
-                  </button>
-                  <span>
-                    {account.lastLogin
-                      ? t("settings.openaiAccounts.lastLogin", {
-                          time: formatAppDateTime(locale, new Date(account.lastLogin), {
-                            month: "numeric",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          }),
-                        })
-                      : t("settings.openaiAccounts.notLoggedIn")}
-                  </span>
-                  <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={account.isLoggedIn} loading={(quotaLoading && account.isLoggedIn) || quotaLoadingId === account.id} error={quotaErrors[account.id]} />
-                  <OpenAIAccountImageQuotaSummary account={account} loading={imageOperation?.accountId === account.id && imageOperation.kind === "quota"} />
-                </div>
+                {showTextQuota || showImageQuota ? (
+                  <div className={`codex-account-quotas ${showTextQuota && showImageQuota ? "has-image-quota" : ""}`}>
+                    {showTextQuota ? <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={account.isLoggedIn} loading={isQuotaLoading} error={account.quotaRefresh?.error ?? quotaErrors[account.id]?.message} showRefreshedAt={true} /> : null}
+                    {showImageQuota ? <OpenAIAccountImageQuotaSummary account={account} loading={imageOperation?.accountId === account.id && imageOperation.kind === "quota"} showRefreshedAt={false} /> : null}
+                  </div>
+                ) : null}
+                <details className="codex-account-details">
+                  <summary>
+                    {t("settings.openaiAccounts.accountDetails")}
+                    <ChevronDown size={13} />
+                  </summary>
+                  <div className="codex-account-details-content">
+                    <OpenAIAccountProfilePresence fields={account.profileFields} />
+                    <div className="codex-account-details-row">
+                      <button
+                        type="button"
+                        className="codex-proxy-link"
+                        disabled={busy}
+                        onClick={() => void openEdit(account.id)}
+                      >
+                        <Globe2 size={13} />
+                        {account.proxyMode === "manual"
+                          ? t("settings.openaiAccounts.proxyOwn")
+                          : account.proxyMode === "direct"
+                            ? t("settings.openaiAccounts.proxyDirect")
+                            : t("settings.openaiAccounts.proxySystem")}
+                      </button>
+                      <span>
+                        {account.lastLogin
+                          ? t("settings.openaiAccounts.lastLogin", {
+                              time: formatAppDateTime(locale, new Date(account.lastLogin), {
+                                month: "numeric",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              }),
+                            })
+                          : t("settings.openaiAccounts.notLoggedIn")}
+                      </span>
+                    </div>
+                    {accountQuota ? <div className="codex-account-details-row">
+                      <span>Codex</span>
+                      <QuotaRefreshedAt fetchedAt={accountQuota.fetchedAt} />
+                    </div> : null}
+                    {account.imageQuota ? <div className="codex-account-details-row">
+                      <span>{t("settings.openaiAccounts.imageQuotaLabel")}</span>
+                      <QuotaRefreshedAt fetchedAt={account.imageQuota.fetchedAt} />
+                    </div> : null}
+                  </div>
+                </details>
                 {menuOpenId === account.id
                   ? createPortal(
                       <div
@@ -981,6 +1284,16 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                           type="button"
                           role="menuitem"
                           className="account-action-item"
+                          onClick={() => { setMenuOpenId(null); setExternalLoginId(account.id); }}
+                          disabled={busy || loggingInId !== null}
+                        >
+                          <Globe2 size={14} />
+                          {t("settings.openaiAccounts.externalLogin")}
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="account-action-item"
                           onClick={() => {
                             setMenuOpenId(null);
                             void openEdit(account.id);
@@ -1006,11 +1319,30 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                             }
                           }}
                           disabled={
-                            !account.isLoggedIn || quotaLoading || quotaLoadingId !== null
+                            account.authState === "missing" || quotaLoading || quotaLoadingId !== null
                           }
                         >
                           <RefreshCw size={14} />
                           {t("settings.openaiAccounts.refreshQuota")}
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="account-action-item"
+                          disabled={busy || account.authState === "missing" || isPending || loggingInId !== null}
+                          title={t("settings.openaiAccounts.wakeHint")}
+                          onClick={() => {
+                            setMenuOpenId(null);
+                            setWakeStatus((previous) => {
+                              const next = { ...previous };
+                              delete next[account.id];
+                              return next;
+                            });
+                            setWakeDialogAccountId(account.id);
+                          }}
+                        >
+                          <Zap size={14} />
+                          {t("settings.openaiAccounts.wake")}
                         </button>
                         <button
                           type="button"
@@ -1075,6 +1407,8 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         </div>
       )}
 
+      {externalLoginId ? <CodexExternalLoginDialog accountId={externalLoginId} onClose={() => setExternalLoginId(null)} /> : null}
+
       {/* Manual auth inline editor */}
       {manualAuthId && (
         <div className="manual-auth-panel">
@@ -1104,6 +1438,67 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
           </div>
         </div>
       )}
+
+      {wakeDialogAccountId ? createPortal(
+        <dialog
+          ref={wakeDialogRef}
+          className="codex-catalog-dialog codex-wake-dialog"
+          aria-labelledby="codex-wake-dialog-title"
+          onCancel={(event) => {
+            event.preventDefault();
+            if (!busy && !wakeModelSaving) setWakeDialogAccountId(null);
+          }}
+          onClose={() => setWakeDialogAccountId(null)}
+          onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !busy && !wakeModelSaving) setWakeDialogAccountId(null);
+          }}
+        >
+          <header className="settings-modal-header">
+            <h2 className="settings-modal-title" id="codex-wake-dialog-title">{t("settings.openaiAccounts.wake")}</h2>
+            <button type="button" className="mcp-icon-button" aria-label={t("common.close")} disabled={busy || wakeModelSaving} onClick={() => setWakeDialogAccountId(null)}><X size={18} /></button>
+          </header>
+          <div className="settings-modal-body codex-wake-model-setting">
+            <div className="codex-wake-account-name">{wakeAccount?.name}</div>
+            <label className="mcp-field">
+              <span className="mcp-field-label">{t("settings.openaiAccounts.wakeModel")}</span>
+              <select
+                className="mcp-field-input"
+                value={wakeModel ?? ""}
+                disabled={busy || !wakeModelReady || wakeModelSaving}
+                onChange={(event) => { void handleWakeModelChange(event.target.value || null); }}
+              >
+                <option value="">{t("settings.openaiAccounts.wakeModelAuto")}{defaultWakeModel ? ` · ${defaultWakeModel}` : ""}</option>
+                {wakeModel && !wakeModels.some((model) => model.modelId === wakeModel) ? <option value={wakeModel}>{wakeModel}</option> : null}
+                {wakeModels.map((model) => <option key={model.modelId} value={model.modelId}>{model.displayName || model.modelId}</option>)}
+              </select>
+            </label>
+            <span>{t(wakeModelSaving ? "settings.openaiAccounts.wakeModelSaving" : "settings.openaiAccounts.wakeModelHint")}</span>
+            {wakeModelError ? <p className="codex-wake-model-error" role="alert">{t("settings.openaiAccounts.wakeModelFailed", { message: wakeModelError })}</p> : null}
+            {currentWakeStatus ? (
+              <div className="codex-account-wake-status" data-phase={currentWakeStatus.phase} role="status" aria-live="polite">
+                {currentWakeStatus.phase === "waking" ? <Loader2 size={13} className="mcp-spin" /> : <Zap size={13} />}
+                <div>
+                  <span>{currentWakeStatus.message}</span>
+                  {currentWakeStatus.reply ? <p>{currentWakeStatus.reply}</p> : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <footer className="settings-modal-footer">
+            <button type="button" className="settings-modal-cancel" disabled={busy || wakeModelSaving} onClick={() => setWakeDialogAccountId(null)}>{t("common.close")}</button>
+            <button
+              type="button"
+              className="plan-button primary"
+              disabled={busy || !wakeModelReady || wakeModelSaving || !wakeAccount || wakeAccount.authState === "missing" || currentWakeStatus?.phase === "done"}
+              onClick={() => void handleWake(wakeDialogAccountId)}
+            >
+              {currentWakeStatus?.phase === "waking" ? <Loader2 size={14} className="mcp-spin" /> : <Zap size={14} />}
+              {t("settings.openaiAccounts.wakeSend")}
+            </button>
+          </footer>
+        </dialog>, document.body,
+      ) : null}
 
       {importOpen ? (
         <div className="settings-modal-backdrop">
@@ -1208,19 +1603,13 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                 onTwoFactorSecretChange={setModalTwoFactorSecret}
               />
 
-              {/* Proxy - always visible */}
-              <label className="mcp-field modal-proxy-field">
-                <span className="mcp-field-label">
-                  {t("settings.openaiAccounts.proxy")}
-                </span>
-                <input
-                  className="mcp-field-input"
-                  type="text"
-                  value={modalProxy}
-                  placeholder="http://127.0.0.1:7890"
-                  onChange={(e) => setModalProxy(e.target.value)}
-                />
-              </label>
+              <OpenAIAccountProxyFields
+                mode={modalProxyMode}
+                proxyUrl={modalProxy}
+                disabled={busy}
+                onModeChange={setModalProxyMode}
+                onProxyUrlChange={setModalProxy}
+              />
 
               {/* Mode toggle */}
               <div className="modal-mode-toggle">
@@ -1235,6 +1624,10 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                 >
                   <LogIn size={14} />
                   {t("settings.openaiAccounts.loginMode")}
+                </button>
+                <button type="button" className={modalMode === "external" ? "modal-mode-btn active" : "modal-mode-btn"} onClick={() => setModalMode("external")}>
+                  <Globe2 size={14} />
+                  {t("settings.openaiAccounts.externalLogin")}
                 </button>
                 <button
                   type="button"
@@ -1278,7 +1671,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                   type="button"
                   className="settings-modal-cancel"
                   onClick={() => void handleCreate(true)}
-                  disabled={busy || !modalName.trim()}
+                  disabled={busy || !modalName.trim() || (modalProxyMode === "manual" && !modalProxy.trim())}
                 >
                   {busy ? t("settings.openaiAccounts.saving") : t("settings.openaiAccounts.saveProfileOnly")}
                 </button>
@@ -1290,11 +1683,12 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                   disabled={
                     busy ||
                     !modalName.trim() ||
+                    (modalProxyMode === "manual" && !modalProxy.trim()) ||
                     (modalMode === "manual" && !modalAuthJson.trim())
                   }
                 >
                   {busy ? <Loader2 size={14} className="mcp-spin" /> : null}
-                  {modalMode === "login"
+                  {modalMode === "external" ? t("settings.openaiAccounts.externalCreate") : modalMode === "login"
                     ? modalEditId
                       ? t("common.save")
                       : t("settings.openaiAccounts.createAndLogin")

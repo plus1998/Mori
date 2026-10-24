@@ -1,8 +1,5 @@
 import {
-  ChevronDown,
   ChevronRight,
-  ExternalLink,
-  FolderOpen,
   PanelLeft,
   RefreshCw,
   RotateCcw,
@@ -13,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { MaterialFileIcon } from "./MaterialFileIcon";
 import { WorkspaceExplorerTree } from "./WorkspaceExplorerTree";
 import { type WorkspaceFile, WorkspaceFilePreview } from "./WorkspaceFilePreview";
+import { WorkspaceFileOpenActions } from "./WorkspaceFileOpenActions";
 import {
   ancestorDirectories,
   basename,
@@ -24,28 +22,8 @@ import {
   type WorkspaceTreeItem,
   workspacePathSegments,
 } from "./workspace-file-browser-logic";
+import { isWorkspacePathContained } from "./workspace-file-reference";
 import "./workspace-file-browser.css";
-
-function isHtmlFile(filePath: string | undefined): boolean {
-  if (!filePath) return false;
-  const ext = filePath.toLowerCase().split(".").pop();
-  return ext === "html" || ext === "htm" || ext === "xhtml" || ext === "shtml";
-}
-
-async function openFileDefault(filePath: string): Promise<void> {
-  const ecoApi = window.eco;
-  if (!ecoApi) return;
-
-  // HTML files: open the on-disk file in the built-in browser (main converts the
-  // absolute path to a file:// URL). Other files: system default program.
-  if (isHtmlFile(filePath)) {
-    await ecoApi.browserOpen?.({ url: filePath, reveal: true, activate: true });
-    return;
-  }
-
-  // Other files: use system default program
-  await ecoApi.openFileExternally(filePath);
-}
 
 interface WorkspaceApi {
   listWorkspaceEntries(input: { workspacePath: string; directoryPath: string }): Promise<WorkspaceEntry[]>;
@@ -59,7 +37,8 @@ interface WorkspaceApi {
 
 export interface WorkspaceFileBrowserProps {
   workspacePath: string;
-  target?: { path: string; line?: number; column?: number; requestId: number; restricted?: boolean };
+  threadId?: string;
+  target?: { path: string; line?: number; column?: number; requestId: number };
 }
 
 function filterWorkspaceItems(
@@ -93,7 +72,7 @@ function filterWorkspaceItems(
   return result;
 }
 
-export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBrowserProps) {
+export function WorkspaceFileBrowser({ workspacePath, threadId, target }: WorkspaceFileBrowserProps) {
   const { t } = useTranslation();
   const api = window.eco as unknown as WorkspaceApi | undefined;
   const [items, setItems] = useState<Record<string, WorkspaceTreeItem>>(() =>
@@ -113,13 +92,8 @@ export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBro
   dirtyRef.current = dirty;
   const requestRef = useRef(0);
   const appliedTargetRequestRef = useRef<number | undefined>(undefined);
-  const [openMenuOpen, setOpenMenuOpen] = useState(false);
-  const openMenuRef = useRef<HTMLDivElement | null>(null);
   const [treeVisible, setTreeVisible] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [associatedApps, setAssociatedApps] = useState<Array<{ name: string; bundleId: string; iconBase64?: string; isDefault?: boolean }>>([]);
-
-  const defaultApp = associatedApps.find((app) => app.isDefault) ?? associatedApps[0];
 
   const confirmDiscardIfDirty = useCallback(() => {
     if (!dirtyRef.current) return true;
@@ -184,40 +158,6 @@ export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBro
     [api, t, workspacePath],
   );
 
-  const fetchAssociatedAppsRequestIdRef = useRef(0);
-
-  const fetchAssociatedApps = useCallback(
-    async (filePath: string) => {
-      const ecoApi = window.eco;
-      if (!ecoApi?.getAssociatedApps) {
-        console.warn("[FileBrowser] getAssociatedApps API not available");
-        setAssociatedApps([]);
-        return;
-      }
-      // 使用 request ID 防止快速切换时旧结果覆盖新结果
-      const currentRequestId = ++fetchAssociatedAppsRequestIdRef.current;
-      try {
-        const apps = await ecoApi.getAssociatedApps(filePath);
-        // 只处理最新的请求结果
-        if (currentRequestId !== fetchAssociatedAppsRequestIdRef.current) {
-          console.log("[FileBrowser] stale associated apps result, ignored");
-          return;
-        }
-        console.log("[FileBrowser] associated apps:", apps.length, JSON.stringify(apps));
-        setAssociatedApps(apps);
-      } catch (error) {
-        // 只处理最新的请求结果
-        if (currentRequestId !== fetchAssociatedAppsRequestIdRef.current) {
-          console.log("[FileBrowser] stale associated apps error, ignored");
-          return;
-        }
-        console.error("[FileBrowser] failed to get associated apps:", error);
-        setAssociatedApps([]);
-      }
-    },
-    [],
-  );
-
   const selectFile = useCallback(
     (filePath: string) => {
       if (filePath === activeTarget?.path) return;
@@ -228,11 +168,9 @@ export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBro
       setActiveTarget({ path: filePath, requestId });
       setFile(null);
       setDirty(false);
-      setAssociatedApps([]);
       void readFile(filePath, requestId);
-      void fetchAssociatedApps(filePath);
     },
-    [activeTarget?.path, confirmDiscardIfDirty, fetchAssociatedApps, readFile],
+    [activeTarget?.path, confirmDiscardIfDirty, readFile],
   );
 
   useEffect(() => {
@@ -248,20 +186,10 @@ export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBro
     setFocusedItem(target.path);
     setActiveTarget({ ...target, requestId });
     setDirty(false);
-    setAssociatedApps([]);
-    if (target.restricted) {
-      setFile(null);
-      setStatus("idle");
-      setErrorMessage(null);
-    } else {
-      setFile(null);
-      void readFile(target.path, requestId);
-    }
-    if (!target.restricted) {
-      void fetchAssociatedApps(target.path);
-    }
+    setFile(null);
+    void readFile(target.path, requestId);
     void (async () => {
-      if (!api) return;
+      if (!api || !isWorkspacePathContained(workspacePath, target.path)) return;
       const directories = ancestorDirectories(workspacePath, target.path);
       let parent = workspacePath;
       try {
@@ -280,7 +208,7 @@ export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBro
   }, [api, confirmDiscardIfDirty, loadDirectory, readFile, target, workspacePath]);
 
   const retryActiveFile = () => {
-    if (!activeTarget || activeTarget.restricted) return;
+    if (!activeTarget) return;
     if (!confirmDiscardIfDirty()) return;
     const requestId = ++requestRef.current;
     setActiveTarget({ ...activeTarget, requestId });
@@ -301,13 +229,12 @@ export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBro
       // per call), so reload them in parallel and keep going when one fails:
       // loadDirectory already surfaces the first failure through treeError.
       await Promise.all(collectRefreshDirectories(workspacePath, expandedItems).map(loadDirectory));
-      if (activeTarget && !activeTarget.restricted) {
+      if (activeTarget) {
         const requestId = ++requestRef.current;
         setActiveTarget({ ...activeTarget, requestId });
         setDirty(false);
         // Awaited so the refresh icon keeps spinning until the open file is back on screen.
         await readFile(activeTarget.path, requestId);
-        void fetchAssociatedApps(activeTarget.path);
       }
     } catch {
       // loadDirectory catches expected IPC failures; this keeps an unexpected failure local.
@@ -320,7 +247,6 @@ export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBro
     api,
     confirmDiscardIfDirty,
     expandedItems,
-    fetchAssociatedApps,
     loadDirectory,
     readFile,
     t,
@@ -342,31 +268,11 @@ export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBro
 
   const breadcrumbs = useMemo(
     () =>
-      activeTarget && !activeTarget.restricted
+      activeTarget
         ? workspacePathSegments(workspacePath, activeTarget.path)
         : [],
     [activeTarget, workspacePath],
   );
-
-  useEffect(() => {
-    if (!openMenuOpen) return;
-    const closeOnClickOutside = (event: MouseEvent) => {
-      const node = event.target as Node;
-      if (!openMenuRef.current?.contains(node)) {
-        setOpenMenuOpen(false);
-      }
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpenMenuOpen(false);
-    };
-    // Use click instead of pointerdown to avoid race condition with button click
-    document.addEventListener("click", closeOnClickOutside, true);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("click", closeOnClickOutside, true);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [openMenuOpen]);
 
   return (
     <div className={treeVisible ? "workspace-file-browser" : "workspace-file-browser is-tree-hidden"}>
@@ -475,85 +381,15 @@ export function WorkspaceFileBrowser({ workspacePath, target }: WorkspaceFileBro
               >
                 <PanelLeft size={15} aria-hidden="true" />
               </button>
-              <div ref={openMenuRef} className="workspace-file-header__open-menu-container">
-                <div className="workspace-file-header__open-group">
-                  {/* Main button: open directly with default */}
-                  <button
-                    type="button"
-                    className="workspace-file-header__action-btn workspace-file-header__open-btn"
-                    onClick={() => {
-                      if (activeTarget?.path) {
-                        void openFileDefault(activeTarget.path);
-                      }
-                    }}
-                  >
-                    {isHtmlFile(activeTarget?.path) ? (
-                      <img src="./icon.png" alt="" className="workspace-file-header__app-icon" />
-                    ) : defaultApp?.iconBase64 ? (
-                      <img src={defaultApp.iconBase64} alt="" className="workspace-file-header__app-icon" />
-                    ) : (
-                      <ExternalLink size={14} aria-hidden="true" />
-                    )}
-                    <span>{t("fileViewer.open")}</span>
-                  </button>
-                  {/* Dropdown trigger: show more options */}
-                  <button
-                    type="button"
-                    className="workspace-file-header__action-btn workspace-file-header__dropdown-btn"
-                    aria-haspopup="menu"
-                    aria-expanded={openMenuOpen}
-                    onClick={() => setOpenMenuOpen((prev) => !prev)}
-                  >
-                    <ChevronDown size={13} aria-hidden="true" />
-                  </button>
-                </div>
-                {openMenuOpen ? (
-                  <div className="workspace-file-header__open-menu-dropdown" role="menu">
-                    {/* Associated apps (exclude default only for non-HTML files) */}
-                    {associatedApps.filter((app) => isHtmlFile(activeTarget?.path) || !app.isDefault).map((app) => (
-                      <button
-                        key={app.bundleId}
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setOpenMenuOpen(false);
-                          if (activeTarget?.path) {
-                            void window.eco?.openFileWithApp?.(activeTarget.path, app.bundleId);
-                          }
-                        }}
-                      >
-                        {app.iconBase64 ? (
-                          <img src={app.iconBase64} alt="" className="workspace-file-header__app-icon" />
-                        ) : (
-                          <ExternalLink size={14} aria-hidden="true" />
-                        )}
-                        <span>{app.name}</span>
-                      </button>
-                    ))}
-                    {/* Show in folder */}
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setOpenMenuOpen(false);
-                        if (activeTarget?.path) {
-                          void window.eco?.openContainingFolder(activeTarget.path);
-                        }
-                      }}
-                    >
-                      <FolderOpen size={14} aria-hidden="true" />
-                      <span>{t("fileViewer.openContainingFolder")}</span>
-                    </button>
-                  </div>
-                ) : null}
-              </div> {/* end workspace-file-header__open-menu-container */}
+              {activeTarget ? (
+                <WorkspaceFileOpenActions key={activeTarget.path} filePath={activeTarget.path} requestId={activeTarget.requestId}
+                  workspacePath={workspacePath} {...(threadId ? { threadId } : {})} />
+              ) : null}
             </div>
           </div>
         ) : null}
         <div className="workspace-file-browser__preview-content">
-        {activeTarget?.restricted ? (
-          <div className="workspace-file-browser__message">{t("fileBrowser.restricted")}</div>
-        ) : status === "loading" ? (
+        {status === "loading" ? (
           <div className="workspace-file-browser__message">
             {t("fileBrowser.loadingFile", { name: basename(activeTarget?.path || "") })}
           </div>

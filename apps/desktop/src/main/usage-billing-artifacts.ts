@@ -15,7 +15,6 @@ import {
   resolveRatesForRoute,
   resolveUsageRoute,
 } from "./billing-resolver";
-import { resolveBuiltInOpenAiDefaultRates } from "./built-in-openai-pricing";
 import {
   PROXY_PENDING_ATTRIBUTION_REASON,
   PROXY_PENDING_PARENT_UNMAPPED_REASON,
@@ -38,7 +37,7 @@ import {
 } from "./usage-ledger-cost-metadata";
 
 export interface UsageBillingPricingRoute {
-  provider: { baseUrl: string };
+  provider: { baseUrl: string; authMethod?: string };
   modelId: string;
   modelsDevMapping?: ModelsDevMapping;
   manualSpec?: RouteManualSpec;
@@ -46,7 +45,19 @@ export interface UsageBillingPricingRoute {
 
 export type UsageBillingPricingLookup = (
   route: UsageBillingPricingRoute,
+  usage?: ParsedUsage,
+  isAggregate?: boolean,
 ) => Promise<ModelPricingLookup | null>;
+
+function resolveUsageRates(
+  lookup: ModelPricingLookup | null,
+  route?: UsageBillingPricingRoute,
+): ModelCostRates | null {
+  if (route?.provider.authMethod === "chatgpt_subscription") return lookup?.rates ?? null;
+  return resolveRatesForRoute(lookup, route?.manualSpec);
+}
+
+export type CodexApiRatesLookup = (modelId: string, usage: ParsedUsage) => Promise<ModelCostRates | null>;
 
 export interface UsageBillingContextUpdate {
   role: RuntimeAgentRole;
@@ -78,6 +89,8 @@ export interface ResolveSingleUsageBillingArtifactsInput {
   usage: ParsedUsage;
   runtimeRoutes: readonly RuntimeRoute[];
   lookupPricing: UsageBillingPricingLookup;
+  lookupCodexApiRates?: CodexApiRatesLookup;
+  codexPlannerModelId?: string;
   source?: BillingUsageSource;
   sourceReportedCostUsd?: number;
   modelId?: string;
@@ -131,22 +144,33 @@ export async function resolveSingleUsageBillingArtifacts(
     billingRole = input.routeRole ? input.role : (usageRoute?.role ?? input.role);
   }
 
-  const actualLookup = usageRoute ? await input.lookupPricing(usageRoute) : null;
-  const plannerLookup = plannerRoute ? await input.lookupPricing(plannerRoute) : null;
-  let actualRates = resolveRatesForRoute(actualLookup, usageRoute?.manualSpec);
-  let plannerRates = resolveRatesForRoute(plannerLookup, plannerRoute?.manualSpec);
-  // Built-in OpenAI (ChatGPT/auth.json) Codex models are not served through the
-  // gateway and are not in the models.dev catalog, so the lookups above return
-  // nothing. Fall back to public list prices so the billing card can show cost.
-  if (input.providerId === "openai") {
-    const pricingModelId = resolvedModelId ?? input.modelId;
-    if (!actualRates && pricingModelId) {
-      actualRates = resolveBuiltInOpenAiDefaultRates(pricingModelId);
-    }
-    const plannerModelId = plannerRoute?.modelId ?? pricingModelId;
-    if (!plannerRates && plannerModelId) {
-      plannerRates = resolveBuiltInOpenAiDefaultRates(plannerModelId);
-    }
+  const actualLookup = usageRoute
+    ? await input.lookupPricing(
+        usageRoute.provider.authMethod === "chatgpt_subscription"
+          ? { ...usageRoute, modelId: resolvedModelId ?? usageRoute.modelId }
+          : usageRoute,
+        input.usage,
+        source !== "proxy",
+      )
+    : null;
+  const plannerLookup = plannerRoute
+    ? await input.lookupPricing(plannerRoute, input.usage, source !== "proxy")
+    : null;
+  let actualRates = resolveUsageRates(actualLookup, usageRoute);
+  let plannerRates = resolveUsageRates(plannerLookup, plannerRoute);
+  // Account usage uses the same manually refreshed official Standard prices as
+  // the model list. Unknown prices stay unresolved, including cached-token rates.
+  if (source === "codex" && input.providerId === "openai") {
+    const pricingModelId = input.modelId ?? resolvedModelId;
+    actualRates =
+      pricingModelId && input.lookupCodexApiRates
+        ? await input.lookupCodexApiRates(pricingModelId, input.usage)
+        : null;
+  }
+  if (input.codexPlannerModelId) {
+    plannerRates = input.lookupCodexApiRates
+      ? await input.lookupCodexApiRates(input.codexPlannerModelId, input.usage)
+      : null;
   }
   const requestKey =
     input.requestKey ??
@@ -163,8 +187,7 @@ export async function resolveSingleUsageBillingArtifacts(
   const requestBilling = computeRequestBilling(input.usage, actualRates, plannerRates);
   const { savedUsd } = computeSavings(requestBilling.plannerTokenCostUsd, requestBilling.ecoCostUsd);
   const ledgerAgentId =
-    input.agentId ??
-    (!input.attributionPending && billingRole === "main" ? input.plannerAgentId : undefined);
+    input.agentId ?? (!input.attributionPending && billingRole === "main" ? input.plannerAgentId : undefined);
   const pendingAttributionReason = input.parentToolUseId
     ? PROXY_PENDING_PARENT_UNMAPPED_REASON
     : PROXY_PENDING_ATTRIBUTION_REASON;
@@ -272,14 +295,13 @@ export async function resolveSdkStreamPartialBillingArtifacts(
 ): Promise<SdkStreamPartialBillingArtifacts> {
   const usageRoute = resolveUsageRoute(input.role, input.modelId, input.runtimeRoutes);
   const plannerRoute = input.runtimeRoutes.find((route) => route.role === "main");
-  const actualLookup = usageRoute ? await input.lookupPricing(usageRoute) : null;
-  const plannerLookup = plannerRoute ? await input.lookupPricing(plannerRoute) : null;
-  const actualRates = resolveRatesForRoute(actualLookup, usageRoute?.manualSpec);
-  const plannerRates = resolveRatesForRoute(plannerLookup, plannerRoute?.manualSpec);
+  const actualLookup = usageRoute ? await input.lookupPricing(usageRoute, input.usage, true) : null;
+  const plannerLookup = plannerRoute ? await input.lookupPricing(plannerRoute, input.usage, true) : null;
+  const actualRates = resolveUsageRates(actualLookup, usageRoute);
+  const plannerRates = resolveUsageRates(plannerLookup, plannerRoute);
   const computedBilling = computeRequestBilling(input.usage, actualRates, plannerRates);
   const resolvedModelId = usageRoute?.modelId ?? input.modelId;
-  const ledgerAgentId =
-    input.subagentAgentId ?? (input.role === "main" ? input.plannerAgentId : undefined);
+  const ledgerAgentId = input.subagentAgentId ?? (input.role === "main" ? input.plannerAgentId : undefined);
   const requestKey = `sdk-stream:${input.eventId}`;
   const contextUpdate = usageRoute ? contextUpdateFromRoute(input.role, usageRoute) : undefined;
 
@@ -341,14 +363,23 @@ export async function resolveSdkRunBillingModels(
   input: ResolveSdkRunBillingModelsInput,
 ): Promise<SdkRunBillingModels> {
   const plannerRoute = input.runtimeRoutes.find((route) => route.role === "main");
-  const plannerLookup = plannerRoute ? await input.lookupPricing(plannerRoute) : null;
-  const plannerRates = resolveRatesForRoute(plannerLookup, plannerRoute?.manualSpec);
+  const combinedUsage = input.models.reduce<ParsedUsage>(
+    (sum, entry) => ({
+      inputTokens: sum.inputTokens + entry.usage.inputTokens,
+      outputTokens: sum.outputTokens + entry.usage.outputTokens,
+      cacheReadTokens: sum.cacheReadTokens + entry.usage.cacheReadTokens,
+      cacheCreationTokens: sum.cacheCreationTokens + entry.usage.cacheCreationTokens,
+    }),
+    { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
+  );
+  const plannerLookup = plannerRoute ? await input.lookupPricing(plannerRoute, combinedUsage, true) : null;
+  const plannerRates = resolveUsageRates(plannerLookup, plannerRoute);
   const models = await Promise.all(
     input.models.map(async (entry) => {
       const usageRoute = resolveUsageRoute(input.role, entry.modelId, input.runtimeRoutes);
       const billingRole = usageRoute?.role ?? input.role;
-      const actualLookup = usageRoute ? await input.lookupPricing(usageRoute) : null;
-      const actualRates = resolveRatesForRoute(actualLookup, usageRoute?.manualSpec);
+      const actualLookup = usageRoute ? await input.lookupPricing(usageRoute, entry.usage, true) : null;
+      const actualRates = resolveUsageRates(actualLookup, usageRoute);
       const computedBilling = computeRequestBilling(entry.usage, actualRates, plannerRates);
       return {
         role: billingRole,

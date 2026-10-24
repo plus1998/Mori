@@ -80,11 +80,11 @@ function isTerminalFollowUp(item: ThreadPendingFollowUp): boolean {
   return item.status !== "queued" && item.status !== "delivered";
 }
 
-export function formatThreadFollowUpPreview(followUp: ThreadPendingFollowUp): string {
+export function formatThreadFollowUpPreview(followUp: ThreadPendingFollowUp, maxLength = 120): string {
   const replies = parseCodexAsyncQuestionReplyText(followUp.prompt);
   const prompt = replies ? formatCodexAsyncQuestionReplySummary(replies) : followUp.prompt.trim();
   const imageCount = followUp.attachments?.length ?? 0;
-  const clipped = prompt.length > 120 ? `${prompt.slice(0, 117)}...` : prompt;
+  const clipped = prompt.length > maxLength ? `${prompt.slice(0, maxLength - 3)}...` : prompt;
   const imageLabel = i18n.t("thread.followUpImages", { count: imageCount });
   if (clipped && imageCount > 0) {
     return `${clipped} (${imageLabel})`;

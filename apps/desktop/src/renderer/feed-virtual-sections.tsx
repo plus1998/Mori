@@ -493,6 +493,8 @@ export function useFeedSectionVirtualizer(input: {
     // the committed geometry before that frame is painted.
     useAnimationFrameWithResizeObserver: true,
   });
+  const virtualItems = enabled ? virtualizer.getVirtualItems() : ([] as VirtualItem[]);
+  const totalSize = enabled ? virtualizer.getTotalSize() : 0;
 
   const measureElement = useCallback(
     (node: Element | null) => {
@@ -508,16 +510,20 @@ export function useFeedSectionVirtualizer(input: {
     [virtualizer],
   );
 
-  // Reconcile structural changes after the spacers commit. Composer edits and
-  // stream-only renders must leave measurement corrections to virtual-core;
-  // pinning on every commit races its still-pending ResizeObserver updates.
+  // Reconcile after the measured window and its spacers commit. Swapping a
+  // spacer for rows can transiently shorten the DOM and clamp scrollTop even
+  // when the section keys and model totalSize stay unchanged. Pinning only on
+  // structural changes misses that clamp and leaves the live tail below the
+  // Composer. Depend on virtual geometry, so Composer/text-only renders with
+  // unchanged measurements do not compete with pending ResizeObserver work.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Committed virtual geometry invalidates the DOM scroll position.
   useLayoutEffect(() => {
     if (!enabled || userDetached) return;
     const element = getScrollElement();
     if (!element) return;
     const end = Math.max(0, element.scrollHeight - element.clientHeight);
     if (Math.abs(element.scrollTop - end) > 1) element.scrollTop = end;
-  }, [enabled, userDetached, getScrollElement, getItemKey]);
+  }, [enabled, userDetached, getScrollElement, getItemKey, totalSize, virtualItems]);
 
   useLayoutEffect(() => {
     if (!enabled) {
@@ -587,8 +593,8 @@ export function useFeedSectionVirtualizer(input: {
   return {
     enabled,
     virtualizer,
-    virtualItems: enabled ? virtualizer.getVirtualItems() : ([] as VirtualItem[]),
-    totalSize: enabled ? virtualizer.getTotalSize() : 0,
+    virtualItems,
+    totalSize,
     scrollMargin: enabled ? scrollMargin : 0,
     // The scroll element's own padding is real DOM space already, so anything
     // laid out from the model has to take it back out again.

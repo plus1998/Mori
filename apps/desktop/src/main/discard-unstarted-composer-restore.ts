@@ -1,10 +1,5 @@
 import type { PromptImageAttachment } from "../shared/ipc";
 
-/** Image-only turns store a placeholder prompt; restore the empty composer text instead. */
-export function resolveRestorePromptText(rawPrompt: string, imageOnlyPrompt: string): string {
-  return rawPrompt.trim() === imageOnlyPrompt ? "" : rawPrompt;
-}
-
 /**
  * After discarding the only user turn, `threads.prompt` must be cleared or the Feed
  * re-shows it via `showThreadPrompt`.

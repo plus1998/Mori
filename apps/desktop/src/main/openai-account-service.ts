@@ -2,23 +2,37 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import http from "node:http";
-import https from "node:https";
 import net from "node:net";
 import path from "node:path";
-import { createUpstreamFetchController } from "@eco/gateway";
-import { SocksProxyAgent } from "socks-proxy-agent";
 import { SocksClient } from "socks";
 import type {
   OpenAIAccount as OpenAIAccountShared,
   OpenAIAccountCreateInput,
   OpenAIAccountDetails,
+  OpenAIAccountProxyConfig,
+  OpenAIAccountProxyMode,
   OpenAIAccountQuota,
   OpenAIAccountImageQuota,
   OpenAIAccountSyncStatus,
   OpenAIAccountUpdateInput,
+  OpenAIAccountWakeResult,
 } from "../shared/openai-account";
+import { CODEX_QUOTA_REFRESH_MS } from "../shared/codex-quota-refresh";
 import { OpenAIAccountStore } from "./openai-account-store";
-import { startCodexBrowserLogin } from "./codex-browser-login";
+import { startCodexBrowserLogin, type CodexBrowserLogin } from "./codex-browser-login";
+import {
+  queryIsolatedCodexAccountQuota,
+  readCodexAccountQuota,
+  type CodexQuotaClient,
+} from "./codex-account-quota";
+import { CodexQuotaRefreshPolicy, type QuotaRefreshReason } from "./codex-quota-refresh-policy";
+import { wakeCodexAccount } from "./codex-account-wake";
+import {
+  buildCodexProxyEnv,
+  resolveCodexProxyUrl,
+  type CodexProxyEnvironment,
+  type SystemProxyResolver,
+} from "./codex-proxy";
 
 export type { OpenAIAccount, OpenAIAccountQuota } from "../shared/openai-account";
 
@@ -46,6 +60,12 @@ export interface OpenAIAccountLoginResult {
 }
 
 const ACCOUNT_ID_PATTERN = /^oa_[A-Za-z0-9_-]+$/;
+
+function assertProxyMode(value: unknown): asserts value is OpenAIAccountProxyMode | undefined {
+  if (value !== undefined && value !== "system" && value !== "direct" && value !== "manual") {
+    throw new Error("账号代理模式无效。");
+  }
+}
 
 function parseAuthJson(content: string): Record<string, unknown> {
   let parsed: unknown;
@@ -111,15 +131,6 @@ export function readAuthAccountId(content: string): string | undefined {
     return typeof accountId === "string" ? accountId : undefined;
   } catch {
     return undefined;
-  }
-}
-
-function proxyEndpointForLog(proxyUrl: string): string {
-  try {
-    const parsed = new URL(proxyUrl);
-    return `${parsed.protocol}//${parsed.hostname}${parsed.port ? `:${parsed.port}` : ""}`;
-  } catch {
-    return "invalid-proxy-url";
   }
 }
 
@@ -205,6 +216,7 @@ export class OpenAIAccountService {
   private store: OpenAIAccountStore | undefined;
   private authWatcher: fsSync.FSWatcher | null = null;
   private authPoll: ReturnType<typeof setInterval> | undefined;
+  private quotaPoll: ReturnType<typeof setInterval> | undefined;
   private authDebounce: ReturnType<typeof setTimeout> | undefined;
   private authSyncQueue: Promise<void> = Promise.resolve();
   private isPublishingMainAuth = false;
@@ -212,12 +224,19 @@ export class OpenAIAccountService {
   private syncStatus: OpenAIAccountSyncStatus = { state: "ok" };
   private initialized = false;
   private readonly codexExecutableProvider: () => string | undefined;
-  private readonly activeLogins = new Map<string, { cancel: () => void; result: Promise<OpenAIAccountLoginResult> }>();
+  private readonly activeLogins = new Map<string, CodexBrowserLogin>();
+  private readonly quotaQueries = new Map<string, Promise<OpenAIAccountQuota>>();
+  private readonly wakeRequests = new Map<string, Promise<OpenAIAccountWakeResult>>();
+  private readonly quotaRefreshPolicy = new CodexQuotaRefreshPolicy();
+  private readonly quotaUsage = new Map<string, string>();
+  private disposing = false;
 
   constructor(
     userDataDir: string,
     codexExecutable: string | (() => string | undefined) = () => undefined,
     private readonly onAccountsChanged?: (state: { syncStatus: OpenAIAccountSyncStatus }) => void,
+    private readonly getActiveQuotaClient?: () => Promise<CodexQuotaClient>,
+    private readonly resolveSystemProxy?: SystemProxyResolver,
   ) {
     this.accountsDir = path.join(userDataDir, "codex-accounts");
     this.mainCodexDir = path.join(userDataDir, "codex");
@@ -227,6 +246,7 @@ export class OpenAIAccountService {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
+    this.disposing = false;
     await fs.mkdir(this.accountsDir, { recursive: true });
     await fs.mkdir(this.mainCodexDir, { recursive: true });
     this.store = await OpenAIAccountStore.open(this.databasePath);
@@ -251,6 +271,11 @@ export class OpenAIAccountService {
       this.authPoll.unref?.();
       this.initialized = true;
     } catch (error) {
+      if (this.authPoll) clearInterval(this.authPoll);
+      this.authPoll = undefined;
+      if (this.quotaPoll) clearInterval(this.quotaPoll);
+      this.quotaPoll = undefined;
+      this.initialized = false;
       this.authWatcher?.close();
       this.authWatcher = null;
       this.authWatcherHealthy = false;
@@ -258,6 +283,46 @@ export class OpenAIAccountService {
       this.store = undefined;
       throw error;
     }
+  }
+
+  /** Called by the main-process task lifecycle; queued/idle/UI state is not usage. */
+  setQuotaUsage(taskId: string, running: boolean): void {
+    if (!this.store || this.disposing) return;
+    const previous = this.quotaUsage.get(taskId);
+    if (running) {
+      if (previous) return;
+      const activeId = this.store.getActiveAccountId();
+      if (!activeId || !this.store.get(activeId)?.authJson) return;
+      this.quotaUsage.set(taskId, activeId);
+      this.refreshUsageQuota(activeId);
+      if (!this.quotaPoll) {
+        this.quotaPoll = setInterval(() => {
+          for (const id of new Set(this.quotaUsage.values())) this.refreshUsageQuota(id);
+        }, CODEX_QUOTA_REFRESH_MS);
+        this.quotaPoll.unref?.();
+      }
+    } else if (previous) {
+      this.quotaUsage.delete(taskId);
+      this.refreshUsageQuota(previous);
+      if (this.quotaUsage.size === 0 && this.quotaPoll) {
+        clearInterval(this.quotaPoll);
+        this.quotaPoll = undefined;
+      }
+    }
+  }
+
+  private refreshUsageQuota(accountId: string): void {
+    // Do not start isolated processes for accounts no longer in use.
+    if (!this.store || this.store.getActiveAccountId() !== accountId) return;
+    const account = this.store.get(accountId);
+    if (!account?.authJson) return;
+    try {
+      const decision = this.quotaRefreshPolicy.check(accountId, contentFingerprint(account.authJson), account.quota, "usage");
+      if (decision !== "query") return;
+    } catch { return; } // The recorded failure remains visible; no retry before its deadline.
+    void this.queryQuota(accountId, "usage").catch((error) =>
+      console.error(`[codex-quota] Usage refresh failed for ${accountId}:`, error),
+    );
   }
 
   /**
@@ -552,14 +617,19 @@ export class OpenAIAccountService {
 
   /** Stop file polling and close the SQLite handle after the final writeback. */
   async dispose(): Promise<void> {
+    this.disposing = true;
     const logins = [...this.activeLogins.values()];
     for (const login of logins) login.cancel();
     await Promise.all(logins.map((login) => login.result)).catch((error) => this.setSyncError(error));
     if (this.authDebounce) clearTimeout(this.authDebounce);
     if (this.authPoll) clearInterval(this.authPoll);
+    if (this.quotaPoll) clearInterval(this.quotaPoll);
     this.authWatcher?.close();
     this.authWatcher = null;
     this.authPoll = undefined;
+    this.quotaPoll = undefined;
+    this.quotaUsage.clear();
+    await Promise.allSettled(this.quotaQueries.values());
     await this.flushFinalAuthWriteback().catch((error) => this.setSyncError(error));
     this.authWatcherHealthy = false;
     this.store?.close();
@@ -619,9 +689,11 @@ export class OpenAIAccountService {
         hasProfileData,
         profileFields: { email: Boolean(account.email), password: Boolean(account.password), pickupUrl: Boolean(account.pickupUrl), twoFactorSecret: Boolean(account.twoFactorSecret) },
         ...(account.email ? { email: account.email } : {}),
+        proxyMode: account.proxyMode,
         ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
         ...(lastLogin ? { lastLogin } : {}),
         ...(account.quota ? { quota: account.quota } : {}),
+        ...(this.quotaState(account.id, account.authJson) ? { quotaRefresh: this.quotaState(account.id, account.authJson)! } : {}),
         imageGenerationEnabled: account.imageGenerationEnabled ?? false,
         ...(account.imageQuota ? { imageQuota: account.imageQuota } : {}),
       };
@@ -633,6 +705,10 @@ export class OpenAIAccountService {
     const input: OpenAIAccountCreateInput = typeof nameOrInput === "string"
       ? { name: nameOrInput, ...(proxyUrl !== undefined ? { proxyUrl } : {}) }
       : nameOrInput;
+    assertProxyMode(input.proxyMode);
+    if ((input.proxyMode ?? (input.proxyUrl?.trim() ? "manual" : "system")) === "manual" && !input.proxyUrl?.trim()) {
+      throw new Error("手动代理模式需要填写代理地址。");
+    }
     const account = this.getStore().create(input);
     await fs.mkdir(this.accountDir(account.id), { recursive: true });
     this.onAccountsChanged?.({ syncStatus: this.syncStatus });
@@ -646,6 +722,7 @@ export class OpenAIAccountService {
       hasProfileData: Boolean(account.email || account.password || account.pickupUrl || account.twoFactorSecret),
       profileFields: { email: Boolean(account.email), password: Boolean(account.password), pickupUrl: Boolean(account.pickupUrl), twoFactorSecret: Boolean(account.twoFactorSecret) },
       ...(account.email ? { email: account.email } : {}),
+      proxyMode: account.proxyMode,
       ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
     };
   }
@@ -653,6 +730,7 @@ export class OpenAIAccountService {
   /** Delete an account and its auth data. */
   async deleteAccount(accountId: string): Promise<void> {
     await this.requireAccount(accountId);
+    this.quotaRefreshPolicy.forget(accountId);
     const store = this.getStore();
     const activeId = store.getActiveAccountId();
     const pending = store.getPendingTransition();
@@ -682,7 +760,7 @@ export class OpenAIAccountService {
   /** Start login for a specific account. */
   async startLogin(
     accountId: string,
-  ): Promise<{ authUrl: string; expiresAt: number; result: Promise<OpenAIAccountLoginResult>; cancel: () => void } | null> {
+  ): Promise<CodexBrowserLogin | null> {
     const account = await this.requireAccount(accountId);
     this.activeLogins.get(accountId)?.cancel();
     const codexExecutable = this.codexExecutableProvider();
@@ -690,19 +768,22 @@ export class OpenAIAccountService {
     const codexHomeDir = path.join(this.accountDir(accountId), `oauth-login-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
     let bridge: { close: () => void } | undefined;
     try {
-      let proxyUrl = account.proxyUrl?.trim();
+      let proxyUrl = await resolveCodexProxyUrl({
+        mode: account.proxyMode,
+        ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
+      }, this.resolveSystemProxy);
       if (proxyUrl && new URL(proxyUrl).protocol.startsWith("socks")) {
         const socksBridge = await startSocksToHttpBridge(proxyUrl);
         bridge = socksBridge;
         proxyUrl = `http://127.0.0.1:${socksBridge.port}`;
       }
+      const proxyEnvironment: CodexProxyEnvironment = proxyUrl
+        ? { mode: "proxy", url: proxyUrl }
+        : { mode: "direct" };
       const login = await startCodexBrowserLogin({
         executable: codexExecutable,
         codexHomeDir,
-        ...(proxyUrl ? { env: {
-          HTTP_PROXY: proxyUrl, HTTPS_PROXY: proxyUrl, http_proxy: proxyUrl, https_proxy: proxyUrl,
-          NO_PROXY: "localhost,127.0.0.1,::1", no_proxy: "localhost,127.0.0.1,::1",
-        } } : {}),
+        env: buildCodexProxyEnv(process.env, proxyEnvironment),
         onAuthenticated: async (signal) => {
           let saveError: unknown;
           for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -733,8 +814,9 @@ export class OpenAIAccountService {
         bridge?.close();
         if (this.activeLogins.get(accountId)?.result === result) this.activeLogins.delete(accountId);
       });
-      this.activeLogins.set(accountId, { cancel: login.cancel, result });
-      return { authUrl: login.authUrl, expiresAt: login.expiresAt, result, cancel: login.cancel };
+      const session = { ...login, result };
+      this.activeLogins.set(accountId, session);
+      return session;
     } catch (error) {
       bridge?.close();
       // A failed startup is not a completed login; preserve any credential file.
@@ -743,6 +825,17 @@ export class OpenAIAccountService {
       }
       throw error;
     }
+  }
+
+  async submitLoginCallback(accountId: string, loginId: string, callbackUrl: string): Promise<void> {
+    const login = this.activeLogins.get(accountId);
+    if (!login || login.loginId !== loginId) throw new Error("登录已结束或已过期，请重新生成授权链接");
+    await login.submitCallback(callbackUrl);
+  }
+
+  cancelLogin(accountId: string, loginId: string): void {
+    const login = this.activeLogins.get(accountId);
+    if (login?.loginId === loginId) login.cancel();
   }
 
   private async saveCredentialsAfterLogin(accountId: string, content: string): Promise<void> {
@@ -843,7 +936,13 @@ export class OpenAIAccountService {
   }
 
   async getAccountDetails(accountId: string): Promise<OpenAIAccountDetails> {
-    return await this.requireAccount(accountId);
+    const account = await this.requireAccount(accountId);
+    const quotaRefresh = this.quotaState(account.id, account.authJson);
+    return { ...account, ...(quotaRefresh ? { quotaRefresh } : {}) };
+  }
+
+  private quotaState(accountId: string, authJson: string | null) {
+    return authJson ? this.quotaRefreshPolicy.state(accountId, contentFingerprint(authJson)) : undefined;
   }
 
   /** Update account metadata and optional profile fields; empty strings explicitly clear. */
@@ -863,7 +962,16 @@ export class OpenAIAccountService {
     } else {
       input = inputOrId;
     }
-    await this.requireAccount(input.accountId);
+    const existing = await this.requireAccount(input.accountId);
+    assertProxyMode(input.proxyMode);
+    const effectiveManualProxy = input.proxyUrl !== undefined
+      ? input.proxyUrl.trim()
+      : existing.proxyMode === "manual"
+        ? existing.proxyUrl?.trim()
+        : undefined;
+    if (input.proxyMode === "manual" && !effectiveManualProxy) {
+      throw new Error("手动代理模式需要填写代理地址。");
+    }
     this.getStore().update(input);
     this.onAccountsChanged?.({ syncStatus: this.syncStatus });
     return { success: true };
@@ -900,206 +1008,184 @@ export class OpenAIAccountService {
   }
 
   /** Quota/usage data for an OpenAI account. */
-  async getActiveProxyUrl(): Promise<string | undefined> {
+  async getActiveProxyConfig(): Promise<OpenAIAccountProxyConfig> {
     const activeId = await this.getActiveAccountId();
-    if (!activeId) return undefined;
-    return (await this.requireAccount(activeId)).proxyUrl?.trim() || undefined;
+    if (!activeId) return { mode: "system" };
+    const account = await this.requireAccount(activeId);
+    return {
+      mode: account.proxyMode,
+      ...(account.proxyMode === "manual" && account.proxyUrl ? { proxyUrl: account.proxyUrl.trim() } : {}),
+    };
   }
 
-  async queryQuota(accountId: string): Promise<OpenAIAccountQuota> {
-    const account = await this.requireAccount(accountId);
-    let auth: {
-      access_token?: string;
-      account_id?: string;
-      tokens?: { access_token?: string; account_id?: string };
+  async getActiveProxyUrl(): Promise<string | undefined> {
+    const config = await this.getActiveProxyConfig();
+    return config.mode === "manual" ? config.proxyUrl : undefined;
+  }
+
+  queryQuota(accountId: string, reason: QuotaRefreshReason = "manual"): Promise<OpenAIAccountQuota> {
+    const existing = this.quotaQueries.get(accountId);
+    if (existing) return existing;
+    // Hold the auth queue until credential writeback finishes. Account switches
+    // must not publish this account's old refresh token while a query rotates it.
+    const work = this.authSyncQueue.then(async () => {
+      const account = await this.requireAccount(accountId);
+      if (!account.authJson) throw new Error("该账号没有登录凭据，请先登录。");
+      const credentials = contentFingerprint(account.authJson);
+      const decision = this.quotaRefreshPolicy.check(accountId, credentials, account.quota, reason);
+      if (decision !== "query") {
+        if (account.quota) return account.quota;
+        throw new Error("尚无额度数据，请手动刷新。");
+      }
+      return this.trackQuotaQuery(accountId, () => this.queryQuotaUnlocked(accountId));
+    });
+    // An unavailable quota endpoint is not an auth-file synchronization error.
+    this.authSyncQueue = work.then(() => undefined, () => undefined);
+    this.quotaQueries.set(accountId, work);
+    void work.finally(() => this.quotaQueries.delete(accountId)).catch(() => undefined);
+    return work;
+  }
+
+  private async trackQuotaQuery<T>(accountId: string, operation: () => Promise<T>): Promise<T> {
+    const before = await this.requireAccount(accountId);
+    if (!before.authJson) throw new Error("该账号没有登录凭据，请先登录。");
+    const original = contentFingerprint(before.authJson);
+    this.quotaRefreshPolicy.begin(accountId, original);
+    const credentials = () => {
+      const auth = this.getStore().get(accountId)?.authJson;
+      // A replaced identity must not inherit the previous identity's request outcome.
+      return auth && readAuthAccountId(auth) === readAuthAccountId(before.authJson!) ? contentFingerprint(auth) : original;
     };
     try {
-      const content = account.authJson;
-      if (!content) throw new Error("missing auth.json");
-      auth = JSON.parse(content);
-    } catch (e) {
-      console.error(`[openai-quota] Failed to read auth.json for ${accountId}.`);
-      throw new Error("OpenAI account auth.json could not be read.");
+      const result = await operation();
+      this.quotaRefreshPolicy.succeed(accountId, credentials());
+      return result;
+    } catch (error) {
+      this.quotaRefreshPolicy.fail(accountId, credentials(), error);
+      throw error;
+    } finally {
+      this.onAccountsChanged?.({ syncStatus: this.syncStatus });
     }
+  }
 
-    // Token can be at top level or nested under "tokens"
-    const accessToken = auth.access_token ?? auth.tokens?.access_token;
-    const chatgptAccountId = auth.account_id ?? auth.tokens?.account_id;
-    if (!accessToken || !chatgptAccountId) {
-      console.error(`[openai-quota] Missing access_token or account_id for ${accountId}`);
-      throw new Error("OpenAI account credentials are incomplete.");
+  /** Execute a reset and publish its required fresh read before releasing the auth queue. */
+  async resetQuota<T>(accountId: string, operation: (client: CodexQuotaClient) => Promise<T>): Promise<T> {
+    return this.withActiveAccount(accountId, () => this.trackQuotaQuery(accountId, async () => {
+      let result!: T;
+      await this.queryQuotaUnlocked(accountId, async (client) => { result = await operation(client); });
+      return result;
+    }));
+  }
+
+  getWakeModel(): string | null {
+    return this.getStore().getWakeModel();
+  }
+
+  setWakeModel(modelId: string | null): void {
+    this.getStore().setWakeModel(modelId);
+  }
+
+  wakeAccount(accountId: string): Promise<OpenAIAccountWakeResult> {
+    const existing = this.wakeRequests.get(accountId);
+    if (existing) return existing;
+    const modelId = this.getWakeModel();
+    const work = this.authSyncQueue.then(async () => {
+      let reply: string | undefined;
+      try {
+        await this.trackQuotaQuery(accountId, () => this.queryQuotaUnlocked(accountId, async (client, refreshToken, expectedAccountId) => {
+          // Verify this account and renew expired credentials before spending any quota.
+          await readCodexAccountQuota(client, refreshToken, expectedAccountId);
+          reply = await wakeCodexAccount(client, modelId);
+        }));
+      } catch (error) {
+        if (reply === undefined) throw error;
+        return { reply, quotaError: error instanceof Error ? error.message : String(error) };
+      }
+      if (reply === undefined) throw new Error("Codex 唤醒未收到回复。");
+      return { reply };
+    });
+    this.authSyncQueue = work.then(() => undefined, () => undefined);
+    this.wakeRequests.set(accountId, work);
+    void work.finally(() => this.wakeRequests.delete(accountId)).catch(() => undefined);
+    return work;
+  }
+
+  private async queryQuotaUnlocked(
+    accountId: string,
+    beforeRead?: (client: CodexQuotaClient, refreshToken: boolean, expectedAccountId: string) => Promise<void>,
+  ): Promise<OpenAIAccountQuota> {
+    const active = this.getStore().getActiveAccountId() === accountId;
+    if (active) {
+      await this.reconcileMainAuth();
+      if (this.getPendingAccountId() !== undefined || this.syncStatus.state !== "ok") {
+        throw new Error("当前账号凭据正在更新、切换或同步失败，请稍后重新刷新额度。");
+      }
     }
-
-    // Get the account's proxy URL.
-    const proxyUrl = account.proxyUrl?.trim() || undefined;
-
+    const account = await this.requireAccount(accountId);
+    if (!account.authJson) throw new Error("该账号没有登录凭据，请先登录。");
+    const chatgptAccountId = readAuthAccountId(account.authJson);
+    if (!chatgptAccountId) throw new Error("账号凭据缺少 ChatGPT 账号身份，请重新登录。");
+    const refreshToken = this.readAuthState(account.authJson) === "expired";
     let quota: OpenAIAccountQuota;
-    try {
-      console.log(
-        `[openai-quota] Querying usage for account ${accountId}${proxyUrl ? ` via proxy ${proxyEndpointForLog(proxyUrl)}` : ""}`,
-      );
-
-      let resp: { status: number; ok: boolean; json: () => Promise<unknown>; text: () => Promise<string> };
-
-      if (proxyUrl) {
-        const parsed = new URL(proxyUrl);
-        if (parsed.protocol.startsWith("socks")) {
-          // Use SocksProxyAgent (supports auth)
-          const agent = new SocksProxyAgent(proxyUrl);
-          const data = await new Promise<{ status: number; body: string }>((resolve, reject) => {
-            const req = https.request(
-              {
-                host: "chatgpt.com",
-                port: 443,
-                path: "/backend-api/wham/usage",
-                method: "GET",
-                agent,
-                timeout: 20000,
-                headers: {
-                  authorization: `Bearer ${accessToken}`,
-                  "chatgpt-account-id": chatgptAccountId,
-                  "openai-beta": "codex-1",
-                  "oai-language": "zh-CN",
-                  originator: "Codex Desktop",
-                  accept: "application/json",
-                  "sec-fetch-site": "none",
-                  "sec-fetch-mode": "no-cors",
-                  "sec-fetch-dest": "empty",
-                  priority: "u=4, i",
-                },
-              },
-              (res) => {
-                let body = "";
-                res.on("data", (chunk) => (body += chunk));
-                res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
-              },
-            );
-            req.on("error", reject);
-            req.on("timeout", () => { req.destroy(); reject(new Error("timeout")); });
-            req.end();
+    if (active) {
+      if (!this.getActiveQuotaClient) throw new Error("当前账号的 Codex 额度查询客户端不可用。");
+      try {
+        const client = await this.getActiveQuotaClient();
+        await beforeRead?.(client, refreshToken, chatgptAccountId);
+        quota = await readCodexAccountQuota(client, beforeRead ? false : refreshToken, chatgptAccountId);
+      } finally {
+        // A token refresh may have succeeded even if the later quota read failed.
+        await this.reconcileMainAuth();
+      }
+    } else {
+      const executable = this.codexExecutableProvider();
+      if (!executable) throw new Error("Codex CLI 未找到，无法刷新账号额度。");
+      const codexHomeDir = await fs.mkdtemp(path.join(this.accountsDir, `quota-${accountId}-`));
+      let bridge: { close: () => void } | undefined;
+      let preserveCredentials = false;
+      try {
+        await fs.writeFile(path.join(codexHomeDir, "auth.json"), account.authJson, { mode: 0o600 });
+        let proxyUrl = await resolveCodexProxyUrl({
+          mode: account.proxyMode,
+          ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
+        }, this.resolveSystemProxy);
+        if (proxyUrl && new URL(proxyUrl).protocol.startsWith("socks")) {
+          const socksBridge = await startSocksToHttpBridge(proxyUrl);
+          bridge = socksBridge;
+          proxyUrl = `http://127.0.0.1:${socksBridge.port}`;
+        }
+        try {
+          quota = await queryIsolatedCodexAccountQuota({
+            executable, codexHomeDir, refreshToken, expectedAccountId: chatgptAccountId,
+            beforeRead,
+            proxy: proxyUrl ? { mode: "proxy", url: proxyUrl } : { mode: "direct" },
           });
-          resp = {
-            status: data.status,
-            ok: data.status === 200,
-            json: async () => JSON.parse(data.body),
-            text: async () => data.body,
-          };
-        } else {
-          // HTTP proxy: use undici via createUpstreamFetchController
-          const controller = createUpstreamFetchController(proxyUrl);
-          try {
-            const fetcher = controller.fetch;
-            const r = await fetcher("https://chatgpt.com/backend-api/wham/usage", {
-              method: "GET",
-              headers: {
-                authorization: `Bearer ${accessToken}`,
-                "chatgpt-account-id": chatgptAccountId,
-                "openai-beta": "codex-1",
-                "oai-language": "zh-CN",
-                originator: "Codex Desktop",
-                accept: "application/json",
-                "sec-fetch-site": "none",
-                "sec-fetch-mode": "no-cors",
-                "sec-fetch-dest": "empty",
-                priority: "u=4, i",
-              },
-            });
-            resp = r;
-          } finally {
-            controller.close();
+        } finally {
+          const updatedAuth = await this.readFileOrNull(path.join(codexHomeDir, "auth.json"));
+          if (updatedAuth !== null && updatedAuth !== account.authJson) {
+            try {
+              parseAuthJson(updatedAuth);
+              if (readAuthAccountId(updatedAuth) !== chatgptAccountId) throw new Error("刷新后的账号身份不匹配");
+              if (this.getStore().get(accountId)?.authJson !== account.authJson) throw new Error("查询期间账号凭据已变更");
+              this.getStore().saveAuthJson(accountId, updatedAuth);
+              this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+            } catch (error) {
+              preserveCredentials = true;
+              throw new Error(`额度查询后的凭据保存失败，新凭据已保留在 ${codexHomeDir}：${error instanceof Error ? error.message : String(error)}`);
+            }
           }
         }
-      } else {
-        const r = await fetch("https://chatgpt.com/backend-api/wham/usage", {
-          method: "GET",
-          headers: {
-            authorization: `Bearer ${accessToken}`,
-            "chatgpt-account-id": chatgptAccountId,
-            "openai-beta": "codex-1",
-            "oai-language": "zh-CN",
-            originator: "Codex Desktop",
-            accept: "application/json",
-            "sec-fetch-site": "none",
-            "sec-fetch-mode": "no-cors",
-            "sec-fetch-dest": "empty",
-            priority: "u=4, i",
-          },
-        });
-        resp = r;
+      } finally {
+        bridge?.close();
+        if (!preserveCredentials) await fs.rm(codexHomeDir, { recursive: true, force: true });
       }
-
-      console.log(`[openai-quota] Response status: ${resp.status}`);
-      if (!resp.ok) {
-        await resp.text().catch(() => "");
-        console.error(`[openai-quota] Non-OK response for ${accountId}: ${resp.status}`);
-        throw new Error(`OpenAI quota request failed with status ${resp.status}.`);
-      }
-
-      const data = (await resp.json()) as {
-        plan_type?: string;
-        email?: string;
-        rate_limit?: {
-          allowed?: boolean;
-          limit_reached?: boolean;
-          primary_window?: {
-            used_percent?: number;
-            limit_window_seconds?: number;
-            reset_after_seconds?: number;
-            reset_at?: number;
-          };
-          secondary_window?: {
-            used_percent?: number;
-            limit_window_seconds?: number;
-            reset_after_seconds?: number;
-            reset_at?: number;
-          };
-        };
-        rate_limit_reset_credits?: {
-          available_count?: number;
-        };
-      };
-
-      quota = {
-        planType: data.plan_type ?? "unknown",
-        email: data.email ?? "",
-        rateLimit: {
-          allowed: data.rate_limit?.allowed ?? true,
-          limitReached: data.rate_limit?.limit_reached ?? false,
-          primaryWindow: data.rate_limit?.primary_window
-            ? {
-                usedPercent: data.rate_limit.primary_window.used_percent ?? 0,
-                limitWindowSeconds: data.rate_limit.primary_window.limit_window_seconds ?? 0,
-                resetAfterSeconds: data.rate_limit.primary_window.reset_after_seconds ?? 0,
-                resetAt: data.rate_limit.primary_window.reset_at ?? 0,
-              }
-            : null,
-          secondaryWindow: data.rate_limit?.secondary_window
-            ? {
-                usedPercent: data.rate_limit.secondary_window.used_percent ?? 0,
-                limitWindowSeconds: data.rate_limit.secondary_window.limit_window_seconds ?? 0,
-                resetAfterSeconds: data.rate_limit.secondary_window.reset_after_seconds ?? 0,
-                resetAt: data.rate_limit.secondary_window.reset_at ?? 0,
-              }
-            : null,
-        },
-        resetCreditsAvailable: data.rate_limit_reset_credits?.available_count ?? 0,
-        fetchedAt: Date.now(),
-      };
-    } catch (e) {
-      if (e instanceof Error && e.message.startsWith("OpenAI quota request failed with status")) {
-        throw e;
-      }
-      console.error(`[openai-quota] Request failed for ${accountId}.`);
-      throw new Error("OpenAI quota request failed.");
     }
-    // Only a successful refresh updates the snapshot and its timestamp. Keep
-    // storage errors distinct from network errors and do not claim success.
+    // Failed reads leave the previous successful quota and timestamp untouched.
     try {
       this.getStore().saveQuota(accountId, chatgptAccountId, quota);
     } catch (error) {
       throw new Error(`额度已获取，但保存缓存失败：${error instanceof Error ? error.message : String(error)}`);
     }
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
     return quota;
   }
 }

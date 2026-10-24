@@ -52,7 +52,10 @@ function requireString(value: unknown, label: string): string {
 
 function isContained(workspacePath: string, targetPath: string): boolean {
   const relative = path.relative(workspacePath, targetPath);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return (
+    relative === "" ||
+    (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+  );
 }
 
 function sameFile(left: { dev: number; ino: number }, right: { dev: number; ino: number }): boolean {
@@ -111,13 +114,16 @@ async function resolveContainedTarget(
   return { workspaceRealPath, requestedPath, realPath };
 }
 
+async function resolvePreviewTarget(targetPath: string) {
+  const requestedPath = requireString(targetPath, "Path");
+  if (!path.isAbsolute(requestedPath)) throw new Error("Preview path must be absolute.");
+  return { requestedPath, realPath: await fs.realpath(requestedPath) };
+}
+
 export async function listWorkspaceEntries(
   request: WorkspaceFileBrowserRequest,
 ): Promise<WorkspaceFileEntry[]> {
-  const { requestedPath, realPath } = await resolveContainedTarget(
-    request.workspacePath,
-    request.directoryPath,
-  );
+  const { requestedPath, realPath } = await resolvePreviewTarget(request.directoryPath);
   const stat = await fs.stat(realPath);
   if (!stat.isDirectory()) {
     throw new Error("Directory path must be a directory.");
@@ -126,19 +132,19 @@ export async function listWorkspaceEntries(
   const result: WorkspaceFileEntry[] = [];
   for (const entry of entries) {
     const entryPath = path.join(requestedPath, entry.name);
-    const entryStat = await fs.lstat(entryPath);
-    if (entryStat.isSymbolicLink()) {
-      continue;
-    }
+    const entryStat = await fs.stat(entryPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT" || error.code === "ELOOP") return undefined;
+      throw error;
+    });
+    if (!entryStat) continue;
     if (entryStat.isDirectory()) {
       result.push({ name: entry.name, path: entryPath, kind: "directory" });
     } else if (entryStat.isFile()) {
       result.push({ name: entry.name, path: entryPath, kind: "file", size: entryStat.size });
     }
   }
-  const finalWorkspacePath = await resolveWorkspace(request.workspacePath);
   const finalDirectoryPath = await fs.realpath(requestedPath);
-  if (!isContained(finalWorkspacePath, finalDirectoryPath) || finalDirectoryPath !== realPath) {
+  if (finalDirectoryPath !== realPath) {
     throw new Error("Directory changed while it was being read.");
   }
   return result.sort((left, right) => {
@@ -263,24 +269,27 @@ export const workspaceFileStreams = new WorkspaceFileStreams(openWorkspaceFileFo
 export async function openWorkspaceFileForStreaming(
   request: WorkspaceFileReadRequest,
 ): Promise<{ handle: fs.FileHandle; size: number; revision: string }> {
-  const { requestedPath } = await resolveContainedTarget(request.workspacePath, request.filePath);
-  const handle = await fs.open(requestedPath, openReadFlags());
+  const { requestedPath, realPath } = await resolveContainedTarget(request.workspacePath, request.filePath);
+  return openPreviewFile(requestedPath, realPath, request.revision);
+}
+
+async function openPreviewFile(requestedPath: string, realPath: string, expectedRevision?: string) {
+  const handle = await fs.open(realPath, openReadFlags());
   try {
     const fileStat = await handle.stat();
     if (!fileStat.isFile()) {
       throw new Error("File path must be a regular file.");
     }
-    const refreshedWorkspacePath = await resolveWorkspace(request.workspacePath);
     const refreshedFilePath = await fs.realpath(requestedPath);
-    if (!isContained(refreshedWorkspacePath, refreshedFilePath)) {
-      throw new Error("Path must be inside the workspace.");
+    if (refreshedFilePath !== realPath) {
+      throw new Error("File changed while it was being opened.");
     }
     const pathStat = await fs.stat(requestedPath);
     if (!sameFile(fileStat, pathStat)) {
       throw new Error("File changed while it was being opened.");
     }
     const revision = `${fileStat.dev}:${fileStat.ino}:${fileStat.size}:${fileStat.mtimeMs}`;
-    if (request.revision !== undefined && request.revision !== revision)
+    if (expectedRevision !== undefined && expectedRevision !== revision)
       throw new Error("File changed. Reopen it before loading more content.");
     return { handle, size: fileStat.size, revision };
   } catch (error) {
@@ -290,14 +299,14 @@ export async function openWorkspaceFileForStreaming(
 }
 
 export async function readWorkspaceFile(request: WorkspaceFileReadRequest): Promise<WorkspaceFileReadResult> {
-  const { workspaceRealPath, requestedPath, realPath } = await resolveContainedTarget(
-    request.workspacePath,
-    request.filePath,
-  );
+  const { requestedPath, realPath } = await resolvePreviewTarget(request.filePath);
+  const workspaceRealPath = await resolveWorkspace(request.workspacePath);
+  // External files get a directory-scoped stream capability for sibling resources.
+  const streamRoot = isContained(workspaceRealPath, realPath) ? workspaceRealPath : path.dirname(realPath);
   const name = path.basename(requestedPath);
   const extension = path.extname(name).toLowerCase();
   const media = MEDIA_TYPES.get(extension);
-  const { handle, size, revision } = await openWorkspaceFileForStreaming(request);
+  const { handle, size, revision } = await openPreviewFile(requestedPath, realPath, request.revision);
   try {
     if (media) {
       const mediaBuffer = await readHandleBytes(handle, Math.min(size, MEDIA_SIGNATURE_BYTES));
@@ -315,7 +324,7 @@ export async function readWorkspaceFile(request: WorkspaceFileReadRequest): Prom
         size,
         kind: media.kind,
         mimeType: media.mimeType,
-        url: workspaceFileStreams.urlForFile(workspaceRealPath, realPath),
+        url: workspaceFileStreams.urlForFile(streamRoot, realPath),
       };
     }
     const offset = request.offset ?? 0;
@@ -336,7 +345,8 @@ export async function readWorkspaceFile(request: WorkspaceFileReadRequest): Prom
       size,
       kind: "text",
       mimeType: "text/plain",
-      url: workspaceFileStreams.urlForFile(workspaceRealPath, realPath),
+      url: workspaceFileStreams.urlForFile(streamRoot, realPath),
+      readOnly: !isContained(workspaceRealPath, realPath) || (await fs.lstat(requestedPath)).isSymbolicLink(),
       content: text.content,
       revision,
       ...(text.truncated

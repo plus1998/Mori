@@ -427,7 +427,7 @@ function BillingFloatingCard({
   );
 }
 
-function ThreadInfoFloatControl({
+export function ThreadInfoFloatControl({
   label,
   ariaLabel,
   hoverTooltip,
@@ -656,6 +656,7 @@ export function ThreadInfoFloatStack({
   variant = "panel",
   hostUiFeatures,
   showContext,
+  accountQuota,
 }: {
   threadId?: string;
   showBillingSection: boolean;
@@ -675,6 +676,7 @@ export function ThreadInfoFloatStack({
   variant?: "panel" | "composer";
   hostUiFeatures?: AcpHostUiFeatures;
   showContext?: boolean;
+  accountQuota?: ReactNode;
 }) {
   const { t } = useTranslation();
   const showContextFloat = showContext ?? shouldShowContextUsagePanel(threadStatus, hostUiFeatures);
@@ -684,7 +686,7 @@ export function ThreadInfoFloatStack({
   const floatOpenOn = variant === "composer" ? "click" : "hover";
   const floatAlign = variant === "composer" ? "end" : "start";
 
-  if (!showBillingFloat && !showContextFloat) {
+  if (!showBillingFloat && !showContextFloat && !accountQuota) {
     return null;
   }
 
@@ -699,6 +701,7 @@ export function ThreadInfoFloatStack({
           .filter(Boolean)
           .join(" ")}
       >
+        {accountQuota}
         {showBillingFloat ? (
           <ThreadInfoFloatControl
             label={

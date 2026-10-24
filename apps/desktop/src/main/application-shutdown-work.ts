@@ -69,7 +69,7 @@ export interface ApplicationShutdownDeps {
   ) => void;
   stopAllBackgroundTasks: () => void;
   killAllInteractiveTerminals: () => void;
-  disposeBrowserHost: () => void;
+  disposeBrowserHost: () => void | Promise<void>;
   stopAllPiRuntimes: () => Promise<void>;
   closeImageGenerationGateway: () => Promise<void>;
   closeImageViewGateway: () => Promise<void>;
@@ -252,7 +252,7 @@ export async function shutdownApplicationServices(deps: ApplicationShutdownDeps)
   await deps.stopAllPiRuntimes();
   deps.disposeSystemSleepBlocker();
   deps.disposeDesktopUpdateService();
-  deps.disposeBrowserHost();
+  await deps.disposeBrowserHost();
   await deps.closeImageGenerationGateway();
   await deps.closeImageViewGateway();
   await deps.closeImageDisplayGateway();

@@ -1,4 +1,3 @@
-export const ACP_IMAGE_ONLY_PROMPT = "请查看并分析我附上的图片。";
 export const ACP_IMAGE_CAPABILITY_MISSING = "Cursor ACP 未声明图片输入能力，无法发送附件。";
 export const ACP_IMAGE_ATTACHMENT_INVALID = "ACP 图片附件无效：缺少 data 或 mimeType 不受支持。";
 export const ACP_PROMPT_EMPTY = "ACP prompt is empty";
@@ -53,5 +52,5 @@ export function buildAcpPromptBlocks(input: {
       data,
     });
   }
-  return [{ type: "text", text: text || ACP_IMAGE_ONLY_PROMPT }, ...images];
+  return text ? [{ type: "text", text }, ...images] : images;
 }

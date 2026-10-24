@@ -161,7 +161,7 @@ test("draft Core heading is switchable in both locales", () => {
   expect(chineseMarkup).toContain('aria-haspopup="menu"');
   expect(chineseMarkup).toContain('aria-expanded="false"');
   expect(chineseMarkup).toContain("lucide-chevron-down");
-  expect(chineseMarkup).toContain('aria-label="搜索会话和项目"');
+  expect(chineseMarkup).toContain('aria-label="搜索对话和项目"');
   expect(chineseMarkup).toContain('aria-label="需要关注的通知"');
   expect(chineseMarkup).toContain("lucide-bell");
   expect(englishMarkup).toContain('aria-label="Search threads and projects"');
@@ -174,7 +174,7 @@ test("bound thread Core heading is read-only in both locales", () => {
 
   expect(chineseMarkup).toContain("Codex");
   expect(chineseMarkup).not.toContain('aria-haspopup="menu"');
-  expect(chineseMarkup).toContain('aria-label="搜索会话和项目"');
+  expect(chineseMarkup).toContain('aria-label="搜索对话和项目"');
   expect(chineseMarkup).toContain('aria-label="需要关注的通知"');
   expect(englishMarkup).toContain('aria-label="Search threads and projects"');
   expect(englishMarkup).toContain('aria-label="Attention notifications"');

@@ -1,3 +1,5 @@
+import type { CodexModelCatalogSnapshot } from "../shared/models";
+import { AccountModelCatalogSection } from "./components/AccountModelCatalogSection";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Copy, ExternalLink, Globe2, KeyRound, MoreHorizontal, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
@@ -87,43 +89,42 @@ export function ChatGPTSubscriptionAccountsPanel({
     }
   }, []);
 
+  const applyCatalogSnapshot = useCallback((snapshot: CodexModelCatalogSnapshot) => {
+    const next = snapshot.models.map((model) => ({ id: model.modelId, displayName: model.displayName }));
+    setModels(next);
+    setSelectedModel((current) => next.some((model) => model.id === current) ? current : next[0]?.id ?? "");
+  }, []);
+
+  const loadModels = useCallback(async () => {
+    if (!window.eco?.getChatGptModelCatalog) return;
+    try {
+      applyCatalogSnapshot(await window.eco.getChatGptModelCatalog());
+    } catch (error) {
+      setModelsError(error instanceof Error ? error.message : String(error));
+    }
+  }, [applyCatalogSnapshot]);
+
   const refreshModels = useCallback(async (accountId?: string) => {
-    if (!window.eco?.listProviderModels) return;
+    if (!window.eco?.refreshChatGptModelCatalog) return;
     setModelsLoading(true);
     setModelsError(undefined);
     try {
-      const result = await window.eco.listProviderModels({
-        providerId: "eco-coding-chatgpt",
-        authMethod: "chatgpt_subscription",
-        ...(accountId ? { accountId } : {}),
-      });
-      if (!result.ok) throw new Error(result.error);
-      setModels(result.models as ModelOption[]);
-      setSelectedModel((current) => result.models.some((model) => model.id === current) ? current : result.models[0]?.id ?? "");
+      applyCatalogSnapshot(await window.eco.refreshChatGptModelCatalog(accountId));
     } catch (error) {
-      setModels([]);
-      setSelectedModel("");
       setModelsError(error instanceof Error ? error.message : String(error));
     } finally {
       setModelsLoading(false);
     }
-  }, []);
+  }, [applyCatalogSnapshot]);
 
   useEffect(() => {
-    void (async () => {
-      const next = await refresh();
-      if (
-        !initialAccountId &&
-        next?.some((account) => account.enabled && account.hasCredentials && account.status === "ready")
-      ) {
-        await refreshModels();
-      }
-    })();
+    void refresh();
+    void loadModels();
     return window.eco?.onChatGptSubscriptionLoginResult((result) => {
       setMessage(result.success ? undefined : result.message || t("settings.chatgptAccounts.authFailed"));
-      void refresh().then(() => refreshModels());
+      void refresh();
     });
-  }, [initialAccountId, refresh, refreshModels, t]);
+  }, [refresh, loadModels, t]);
 
   useEffect(() => {
     const targetAccountId = initialAccountId?.trim();
@@ -144,9 +145,9 @@ export function ChatGPTSubscriptionAccountsPanel({
     handledInitialAccountIdRef.current = targetAccountId;
     setTestResult(undefined);
     setTestDialog(account);
-    void refreshModels(account.accountId);
+    void loadModels();
     onInitialAccountHandled?.();
-  }, [accounts, initialAccountId, onInitialAccountHandled, refreshModels, t]);
+  }, [accounts, initialAccountId, onInitialAccountHandled, loadModels, t]);
 
   useEffect(() => {
     if (!dialog && !proxyAccount && !testDialog) return;
@@ -214,7 +215,7 @@ export function ChatGPTSubscriptionAccountsPanel({
       } else {
         const result = await window.eco.chatGptSubscriptionAccountLogin(account.accountId);
         if (!result.success) throw new Error(result.message);
-        await refreshModels();
+        await loadModels();
       }
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
@@ -294,9 +295,12 @@ export function ChatGPTSubscriptionAccountsPanel({
       <div className="chatgpt-subscription-hero">
         <div className="chatgpt-subscription-heading">
           <h2>{t("settings.models.tab.chatgptAccounts")}</h2>
-          <p><ShieldCheck size={14} />{t("settings.chatgptAccounts.description")}</p>
         </div>
-        <button type="button" className="settings-primary-button" disabled={busy} onClick={openAddDialog}><Plus size={15} /> {t("settings.chatgptAccounts.addAccount")}</button>
+        <div className="chatgpt-header-actions">
+          <AccountModelCatalogSection kind="chatgpt" onSnapshot={applyCatalogSnapshot} />
+          <button type="button" className="settings-primary-button" disabled={busy} onClick={openAddDialog}><Plus size={15} /> {t("settings.chatgptAccounts.addAccount")}</button>
+        </div>
+        <p className="chatgpt-subscription-description"><ShieldCheck size={14} />{t("settings.chatgptAccounts.description")}</p>
       </div>
 
       <div className="chatgpt-list-toolbar">
@@ -306,7 +310,6 @@ export function ChatGPTSubscriptionAccountsPanel({
           {t("settings.chatgptAccounts.availableCount", { total: availableCount })}
         </span>
         <div className="chatgpt-toolbar-links">
-          <button type="button" className="chatgpt-inline-link" disabled={busy || modelsLoading || !availableCount} onClick={() => void refreshModels()}><RefreshCw size={13} className={modelsLoading ? "mcp-spin" : undefined} />{modelsLoading ? t("settings.chatgptAccounts.syncing") : t("settings.chatgptAccounts.syncModels")}</button>
           <a className="chatgpt-inline-link" href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer">{t("settings.chatgptAccounts.plansAndWorkspace")} <ExternalLink size={12} /></a>
         </div>
       </div>
@@ -330,7 +333,7 @@ export function ChatGPTSubscriptionAccountsPanel({
                 <div className="chatgpt-account-identity"><strong title={account.displayName}>{account.displayName}</strong><span title={account.email}>{account.email || t("settings.chatgptAccounts.emailUnbound")}</span></div>
                 <span className={`chatgpt-status-badge is-${tone}`}><i />{statusLabel(account, t)}</span>
                 <div className="chatgpt-account-actions">
-                  {account.hasCredentials && account.status !== "reauthorization_required" ? <button type="button" className="chatgpt-action-secondary" disabled={busy} onClick={() => { setTestResult(undefined); setTestDialog(account); if (!models.length) void refreshModels(account.accountId); }}>{t("settings.chatgptAccounts.testConnection")}</button> : <button type="button" className="chatgpt-action-primary" disabled={busy} onClick={() => void login(account.accountId)}><KeyRound size={14} />{account.hasCredentials ? t("settings.chatgptAccounts.reauthorize") : t("settings.chatgptAccounts.startAuthorization")}</button>}
+                  {account.hasCredentials && account.status !== "reauthorization_required" ? <button type="button" className="chatgpt-action-secondary" disabled={busy} onClick={() => { setTestResult(undefined); setTestDialog(account);  }}>{t("settings.chatgptAccounts.testConnection")}</button> : <button type="button" className="chatgpt-action-primary" disabled={busy} onClick={() => void login(account.accountId)}><KeyRound size={14} />{account.hasCredentials ? t("settings.chatgptAccounts.reauthorize") : t("settings.chatgptAccounts.startAuthorization")}</button>}
                   <button type="button" className="mcp-icon-button" aria-label={t("settings.openaiAccounts.moreActionsAria", { name: account.displayName })} aria-haspopup="menu" aria-expanded={menu?.account.accountId === account.accountId} disabled={busy} onClick={(event) => {
                     if (menu?.account.accountId === account.accountId) { setMenu(undefined); return; }
                     menuTriggerRef.current = event.currentTarget;

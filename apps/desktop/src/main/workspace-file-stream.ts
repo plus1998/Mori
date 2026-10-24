@@ -54,7 +54,7 @@ export class WorkspaceFileStreams {
 
   urlForFile(workspacePath: string, filePath: string): string {
     const relative = path.relative(workspacePath, filePath);
-    if (!relative || relative.startsWith("..") || path.isAbsolute(relative))
+    if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
       throw new Error("File must be inside the workspace.");
     let token = this.tokens.get(workspacePath);
     if (!token) {
@@ -88,7 +88,8 @@ export class WorkspaceFileStreams {
         return new Response(null, { status: 403, headers });
       const filePath = path.resolve(root, `.${decodeURIComponent(url.pathname)}`);
       const relative = path.relative(root, filePath);
-      if (relative.startsWith("..") || path.isAbsolute(relative)) return new Response(null, { status: 403, headers });
+      if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+        return new Response(null, { status: 403, headers });
       const file = await this.openFile({ workspacePath: root, filePath });
       handle = file.handle;
       const mime = MIME_TYPES[path.extname(filePath).toLowerCase()] ?? "text/plain; charset=utf-8";

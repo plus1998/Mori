@@ -65,6 +65,24 @@ test("empty user text is usable for continuation but not prompt replay", () => {
   });
 });
 
+test("image-only user messages remain retryable after a request failure", () => {
+  const imageOnly = {
+    ...userPrompt,
+    text: "",
+    metadata: {
+      ...userPrompt.metadata,
+      promptImagePreviews: [{ id: "image-only", mediaType: "image/png", data: "YWJj" }],
+    },
+  };
+  const failure = item({ id: "image-failure", sequence: 2, eventType: "api.error", text: "HTTP 502" });
+  const targets = buildRequestFailureRetryTargets({
+    items: [imageOnly, failure],
+    coreKind: "claude",
+    threadStatus: "failed",
+  });
+  expect(targets.get("image-failure")).toEqual({ activityLineId: "user:abc", prompt: "", hasImages: true });
+});
+
 test("readUserPromptRetryIdentity prefers rewindTarget then streamKey", () => {
   expect(readUserPromptRetryIdentity(userPrompt)).toEqual({
     activityLineId: "user:abc",

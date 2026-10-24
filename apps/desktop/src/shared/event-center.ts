@@ -27,7 +27,9 @@ export type EventCenterEventKind =
   | "conversation.sync_effect"
   | "conversation.projection_extras"
   | "settings.updated"
+  | "openai-accounts.changed"
   | "scheduling.changed"
+  | "project-todo.changed"
   | "workspace.terminal"
   | "workspace.package_json_changed"
   | "workspace.git_remote_fetched"
@@ -36,7 +38,9 @@ export type EventCenterEventKind =
 
 export type ThreadEventCenterEventKind = Exclude<
   EventCenterEventKind,
+  | "openai-accounts.changed"
   | "scheduling.changed"
+  | "project-todo.changed"
   | "workspace.terminal"
   | "workspace.package_json_changed"
   | "workspace.git_remote_fetched"
@@ -140,7 +144,9 @@ export interface EventCenterPayloadMap {
     conversationId: string;
   };
   "settings.updated": ThreadLiveEvent;
+  "openai-accounts.changed": Record<string, never>;
   "scheduling.changed": Record<string, never>;
+  "project-todo.changed": Record<string, never>;
   "workspace.terminal": TerminalStreamEvent;
   "workspace.package_json_changed": EventCenterPackageJsonChangedPayload;
   "workspace.git_remote_fetched": EventCenterGitRemoteFetchedPayload;

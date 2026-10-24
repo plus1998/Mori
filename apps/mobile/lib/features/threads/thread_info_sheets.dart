@@ -12,6 +12,7 @@ import '../../core/widgets/eco_grouped_list.dart';
 import '../../core/utils/model_id.dart';
 import '../../core/utils/thread_usage_display.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'codex_quota_page.dart';
 
 Future<void> showThreadContextSheet({
   required BuildContext context,
@@ -23,6 +24,7 @@ Future<void> showThreadContextSheet({
   SubagentThemeSource? themeSource,
   bool showContextUsage = true,
   bool showBilling = true,
+  bool showCodexQuota = false,
 }) {
   return showEcoActionSheet<void>(
     context: context,
@@ -39,6 +41,7 @@ Future<void> showThreadContextSheet({
           themeSource: themeSource,
           showContextUsage: showContextUsage,
           showBilling: showBilling,
+          showCodexQuota: showCodexQuota,
         ),
       );
     },
@@ -55,6 +58,7 @@ class _ContextBillingTabs extends StatefulWidget {
     required this.themeSource,
     this.showContextUsage = true,
     this.showBilling = true,
+    this.showCodexQuota = false,
   });
 
   final ThreadContextSnapshot? contextSnapshot;
@@ -65,6 +69,7 @@ class _ContextBillingTabs extends StatefulWidget {
   final SubagentThemeSource? themeSource;
   final bool showContextUsage;
   final bool showBilling;
+  final bool showCodexQuota;
 
   @override
   State<_ContextBillingTabs> createState() => _ContextBillingTabsState();
@@ -120,6 +125,11 @@ class _ContextBillingTabsState extends State<_ContextBillingTabs> {
           currentMainModelId: widget.currentMainModelId,
         ),
       );
+    }
+
+    if (widget.showCodexQuota) {
+      labels.add(context.l10n.codexQuotaTab);
+      pages.add(const CodexQuotaPage());
     }
 
     return Column(

@@ -85,7 +85,9 @@ async function createDemoWindow(): Promise<BrowserWindow> {
     ...(isMac
       ? {
           titleBarStyle: "hiddenInset" as const,
-          transparent: true,
+          // Match production: vibrancy supplies translucency without an
+          // alpha-shaped native window shadow around sidebar content.
+          transparent: false,
           backgroundColor: "#00000000",
           vibrancy: "under-window" as const,
           visualEffectState: "followWindow" as const,

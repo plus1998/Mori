@@ -15,7 +15,7 @@ import {
  * must not invent one, otherwise a stale constant silently replaces a failed refresh.
  */
 export const CODEX_AUTH_MODELS_UNAVAILABLE_ERROR =
-  "Codex 账号（auth.json）没有上游 /v1/models 接口，模型列表来自 codex-rs models.json，请在「模型设置 → Codex 账号」中刷新。";
+  "ChatGPT Login（auth.json）没有上游 /v1/models 接口，模型列表来自 codex-rs models.json，请在「模型设置 → ChatGPT Login」中刷新。";
 
 import type { ThinkingEffort } from "../shared/ipc";
 import type {

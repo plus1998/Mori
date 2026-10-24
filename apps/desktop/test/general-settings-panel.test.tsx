@@ -19,13 +19,13 @@ test("appearance settings renders theme and typography controls in Chinese", () 
   expect(markup).toContain("外观");
   expect(markup).toContain("主题");
   expect(markup).toContain("UI 字号");
-  expect(markup).toContain("代码字体大小");
+  expect(markup).toContain("代码字号");
   expect(markup).not.toContain("语言");
   expect(markup).not.toContain("模型吞吐");
   expect(markup).toContain("14<small>px</small>");
   expect(markup).toContain("12<small>px</small>");
   expect(markup).toContain('aria-label="减小UI 字号"');
-  expect(markup).toContain('aria-label="增大代码字体大小"');
+  expect(markup).toContain('aria-label="增大代码字号"');
 });
 
 test("appearance settings renders English labels without language section", () => {
@@ -73,27 +73,27 @@ test("preferences panel puts language under the general section", () => {
   expect(markup).toContain("English");
   expect(markup).toContain("通知");
   expect(markup).toContain("显示");
-  expect(markup).toContain("Cache break 提示");
-  expect(markup).toContain("配置漂移、缓存失效、命中率骤降与长闲置时显示 prompt cache 提示。");
-  expect(markup).toContain("跟进处理方式");
-  expect(markup).toContain("加入队列");
+  expect(markup).toContain("缓存失效提醒");
+  expect(markup).toContain("配置漂移、缓存失效、命中率骤降与长闲置时显示提示词缓存提示。");
+  expect(markup).toContain("追加消息处理");
+  expect(markup).toContain("排队执行");
   expect(markup).toContain("调整方向");
   expect(markup).toContain("默认审批模式");
-  expect(markup).toContain("新建会话时 Composer 默认使用的执行审批档位。");
+  expect(markup).toContain("新建对话时 Composer 默认使用的执行审批档位。");
   expect(markup).toContain("请求批准");
   expect(markup).toContain("替我审批");
   expect(markup).toContain("完全访问");
-  expect(markup).toContain("思考内容");
+  expect(markup).toContain("思考过程");
   expect(markup).toContain("生成时显示，完成后自动隐藏。");
-  expect(markup).toContain(">折叠<");
+  expect(markup).toContain(">收起<");
   expect(markup).toContain(">展开<");
 
   const generalIdx = markup.indexOf('settings-section-label">常规<');
   const notificationsIdx = markup.indexOf('settings-section-label">通知<');
   const displayIdx = markup.indexOf('settings-section-label">显示<');
-  const billingIdx = markup.indexOf("显示计费");
-  const thinkingLabelIdx = markup.indexOf("<strong>思考内容</strong>");
-  const cacheIdx = markup.indexOf("Cache break 提示");
+  const billingIdx = markup.indexOf("显示用量");
+  const thinkingLabelIdx = markup.indexOf("<strong>思考过程</strong>");
+  const cacheIdx = markup.indexOf("缓存失效提醒");
   const tokenIdx = markup.indexOf("模型吞吐");
   expect(generalIdx).toBeGreaterThan(-1);
   expect(notificationsIdx).toBeGreaterThan(generalIdx);
@@ -169,8 +169,8 @@ test("preferences panel renders the Composer billing toggle", () => {
     "zh-CN",
   );
 
-  expect(markup).toContain("显示计费");
-  expect(markup).toContain("在 Composer 中显示会话累计用量和费用。");
+  expect(markup).toContain("显示用量");
+  expect(markup).toContain("在 Composer 中显示对话累计用量和费用。");
   expect(markup).toContain("模型吞吐");
   expect(markup).toContain("显示首字时间（TTFT）与总吞吐。");
   expect(markup).toContain(">隐藏<");

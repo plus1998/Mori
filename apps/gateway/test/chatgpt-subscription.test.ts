@@ -67,6 +67,53 @@ function terminalSse(response: unknown): string {
 }
 
 describe("ChatGPT subscription gateway adapter", () => {
+  for (const sessionHeader of ["session-id", "session_id"]) {
+    test(`Responses preserves ${sessionHeader} across growing requests and distinct sessions`, async () => {
+      const sent: { headers: Headers; body: Record<string, unknown> }[] = [];
+      const handler = createGatewayFetchHandler({
+        host: "127.0.0.1",
+        port: 0,
+        providers: [provider],
+        resolveCredential: async () => ({ accessToken: "oauth-access" }),
+      }, async (_url, init) => {
+        sent.push({ headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
+        return new Response(terminalSse(completedResponse), { headers: { "content-type": "text/event-stream" } });
+      });
+
+      for (const [session, additions] of [
+        ["session-a", ["first"]],
+        ["session-a", ["first", "follow-up"]],
+        ["session-b", ["other"]],
+      ] as const) {
+        const response = await handler(new Request("http://127.0.0.1/v1/responses", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            [GATEWAY_PROVIDER_ID_HEADER]: provider.id,
+            [sessionHeader]: session,
+            "x-eco-private-context": "local-only",
+            authorization: "Bearer local-bridge-secret",
+          },
+          body: JSON.stringify({
+            ...validBody,
+            prompt_cache_key: session,
+            input: [...validBody.input, ...additions.map((text) => ({ role: "user", content: text }))],
+          }),
+        }));
+        expect(response.status).toBe(200);
+        await response.text();
+      }
+
+      expect(sent.map((request) => request.headers.get(sessionHeader))).toEqual(["session-a", "session-a", "session-b"]);
+      expect(sent.map((request) => request.body.prompt_cache_key)).toEqual(["session-a", "session-a", "session-b"]);
+      for (const { headers } of sent) {
+        expect(headers.get("authorization")).toBe("Bearer oauth-access");
+        expect(headers.has("x-eco-private-context")).toBe(false);
+        expect(headers.has(GATEWAY_PROVIDER_ID_HEADER)).toBe(false);
+      }
+    });
+  }
+
   for (const endpoint of ["responses", "messages"]) {
     test(`${endpoint} preserves a local paused-pool error without calling upstream`, async () => {
       let upstreamCalls = 0;

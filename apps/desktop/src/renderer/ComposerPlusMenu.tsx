@@ -18,6 +18,7 @@ interface MenuActions {
   onPickImage: () => void;
   onOpenRoute: () => void;
   onAddScheduledMessage?: (() => void) | undefined;
+  newConversation?: boolean | undefined;
 }
 
 export function ComposerPlusMenu({
@@ -96,6 +97,7 @@ export function ComposerPlusMenuPanel({
   onPickImage,
   onOpenRoute,
   onAddScheduledMessage,
+  newConversation,
 }: MenuActions) {
   const { t } = useTranslation();
   return (
@@ -149,7 +151,7 @@ export function ComposerPlusMenuPanel({
         <PlusMenuRow
           icon={<Clock3 size={18} aria-hidden />}
           label={t("scheduling.messageAction")}
-          description={t("composer.plus.scheduleHint")}
+          description={t(newConversation ? "composer.plus.firstMessageHint" : "composer.plus.scheduleHint")}
           next
           onSelect={onAddScheduledMessage}
         />

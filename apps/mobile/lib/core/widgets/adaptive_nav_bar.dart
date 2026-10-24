@@ -114,8 +114,8 @@ class AdaptiveNavBar extends StatelessWidget {
         ? Align(
             alignment: Alignment.bottomCenter,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: adaptiveNavBarAndroidMaxWidth,
+              constraints: BoxConstraints(
+                maxWidth: adaptiveNavBarAndroidMaxWidth * destinations.length / 2,
               ),
               child: tabBar,
             ),

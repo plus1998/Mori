@@ -184,8 +184,8 @@ test("buildAgentTemplatePermissionChips summarizes capability policy", () => {
 test("template form rejects protected and malformed ids", () => {
   const baseForm = templateForm({ id: "builtin.custom.agent" });
 
-  expect(() => buildAgentTemplateFromForm(baseForm)).toThrow("内置子代理模板 id 不可用于用户配置");
-  expect(() => buildAgentTemplateFromForm({ ...baseForm, id: "bad id" })).toThrow("子代理模板 id 只能包含");
+  expect(() => buildAgentTemplateFromForm(baseForm)).toThrow("内置子 Agent 模板 id 不可用于用户配置");
+  expect(() => buildAgentTemplateFromForm({ ...baseForm, id: "bad id" })).toThrow("子 Agent 模板 id 只能包含");
 });
 
 test("createUniqueTemplateId increments suffixes", () => {

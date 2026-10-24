@@ -301,7 +301,7 @@ test("buildMainAgentConfigFromForm requires candidate model selection", () => {
   );
   form.mainCandidateModelId = "";
 
-  expect(() => buildMainAgentConfigFromForm(form)).toThrow(/候选模型|candidate model/i);
+  expect(() => buildMainAgentConfigFromForm(form)).toThrow(/可选模型|candidate model/i);
 });
 
 test("mainAgentConfig and subagent orchestration round-trip apiCompat", () => {

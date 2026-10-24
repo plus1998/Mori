@@ -14,6 +14,20 @@ export interface CodexModelCatalogEntryView {
 /** Where a Codex-account model came from: the codex-rs catalog or a manual add. */
 export type CodexCatalogModelOrigin = "remote" | "manual";
 
+/** Official API Standard rates, USD per million tokens. Missing cache rates are unknown. */
+export interface CodexApiTokenRates {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
+export interface CodexApiPricing {
+  shortContext: CodexApiTokenRates;
+  longContext?: CodexApiTokenRates;
+  shortContextMaxInputTokens?: number;
+}
+
 /** Trimmed codex-rs models-manager entry as shown in the Codex 账号 model list. */
 export interface CodexCatalogModelView {
   modelId: string;
@@ -27,6 +41,7 @@ export interface CodexCatalogModelView {
   priority?: number;
   hidden: boolean;
   origin: CodexCatalogModelOrigin;
+  apiPricing?: CodexApiPricing;
 }
 
 export interface CodexModelCatalogStatusView {
@@ -37,6 +52,8 @@ export interface CodexModelCatalogStatusView {
   lastError?: string;
   remoteCount: number;
   manualCount: number;
+  pricingSourceUrl: string;
+  pricingFetchedAt?: number;
 }
 
 export interface CodexModelCatalogSnapshot {

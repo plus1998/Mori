@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import {
+  OpenAIAccountProxyFields,
   OpenAIAccountProfileFields,
   OpenAIAccountQuotaSummary,
   OpenAIAccountSwitchStatus,
@@ -73,6 +74,29 @@ test("account profile editor labels every field in English for en-US", () => {
   expect(markup).not.toMatch(/[\u3400-\u9fff]/u);
 });
 
+test("account proxy editor exposes system, direct, and manual modes", () => {
+  const render = (locale: "zh-CN" | "en-US", mode: "system" | "direct" | "manual") =>
+    renderLocalized(createElement(OpenAIAccountProxyFields, {
+      mode,
+      proxyUrl: "http://127.0.0.1:7890",
+      onModeChange: () => undefined,
+      onProxyUrlChange: () => undefined,
+    }), locale);
+
+  const zh = render("zh-CN", "system");
+  expect(zh).toContain("系统代理");
+  expect(zh).toContain("不使用代理");
+  expect(zh).toContain("手动代理");
+  expect(zh).not.toContain('type="url"');
+  expect(render("zh-CN", "manual")).toContain('type="url"');
+
+  const en = render("en-US", "direct");
+  expect(en).toContain("System proxy");
+  expect(en).toContain("No proxy");
+  expect(en).toContain("Manual proxy");
+  expect(en).not.toMatch(/[\u3400-\u9fff]/u);
+});
+
 test("pending account switch shows the last target and a cancel action", () => {
   const markup = renderLocalized(
     createElement(OpenAIAccountSwitchStatus, {
@@ -135,7 +159,7 @@ test("cached quota shows the last successful refresh time after credentials expi
     }),
     "zh-CN",
   );
-  expect(markup).toContain("37% 已使用");
+  expect(markup).toContain("剩余 63%");
   expect(markup).toContain("2 次重置");
   expect(markup).toContain('dateTime="2025-01-01T08:30:00.000Z"');
   expect(markup).toContain("上次刷新");
@@ -153,7 +177,7 @@ test("cached quota renders English quota copy and app-locale timestamps for en-U
     }),
     "en-US",
   );
-  expect(markup).toContain("37% used");
+  expect(markup).toContain("63% left");
   expect(markup).toContain("2 resets");
   expect(markup).toContain("Last refreshed");
   expect(markup).toContain("Reset due, waiting to refresh");
@@ -173,27 +197,31 @@ test("refreshing quota keeps the cached values visible with a loading indicator"
   );
   expect(markup).toContain('aria-busy="true"');
   expect(markup).toContain('aria-label="正在刷新额度"');
-  expect(markup).toContain("37% 已使用");
+  expect(markup).toContain("剩余 63%");
   expect(markup).toContain("上次刷新");
 });
 
-test("quota errors preserve cached values and expose the actual failure", () => {
-  const markup = renderLocalized(
-    createElement(OpenAIAccountQuotaSummary, {
-      quota: cachedQuota,
-      isLoggedIn: true,
-      loading: false,
-      error: "OpenAI quota request failed with status 503.",
-    }),
-    "zh-CN",
-  );
-  expect(markup).toContain("37% 已使用");
-  expect(markup).toContain("刷新失败，显示缓存");
-  expect(markup).toContain('title="OpenAI quota request failed with status 503."');
-  expect(markup).toContain('dateTime="2025-01-01T08:30:00.000Z"');
+test("quota failures show the actual error alongside explicitly timestamped cached values", () => {
+  for (const loading of [false, true]) {
+    const markup = renderLocalized(
+      createElement(OpenAIAccountQuotaSummary, {
+        quota: cachedQuota,
+        isLoggedIn: true,
+        loading,
+        error: "OpenAI quota request failed with status 503.",
+      }),
+      "zh-CN",
+    );
+    expect(markup).toContain('role="alert">额度刷新失败：OpenAI quota request failed with status 503.</span>');
+    expect(markup).toContain("剩余 63%");
+    expect(markup).toContain('role="meter"');
+    expect(markup).toContain("2 次重置");
+    expect(markup).toContain("已到重置时间，待刷新");
+    expect(markup).toContain("上次刷新");
+  }
 });
 
-test("quota error fallback text is localized for en-US", () => {
+test("quota error shows the actual failure with a localized label for en-US", () => {
   const markup = renderLocalized(
     createElement(OpenAIAccountQuotaSummary, {
       quota: undefined,
@@ -203,6 +231,61 @@ test("quota error fallback text is localized for en-US", () => {
     }),
     "en-US",
   );
-  expect(markup).toContain("Quota refresh failed");
+  expect(markup).toContain('role="alert">Quota refresh failed: OpenAI quota request failed with status 503.</span>');
   expect(markup).not.toMatch(/[\u3400-\u9fff]/u);
+});
+
+test("quota summary shows five-hour and weekly windows with their own usage and reset times", () => {
+  const fetchedAt = Date.now();
+  const quota: OpenAIAccountQuota = {
+    ...cachedQuota,
+    fetchedAt,
+    rateLimit: {
+      allowed: false,
+      limitReached: true,
+      primaryWindow: { usedPercent: 37, limitWindowSeconds: 18_000, resetAfterSeconds: 3_600, resetAt: 0 },
+      secondaryWindow: { usedPercent: 100, limitWindowSeconds: 604_800, resetAfterSeconds: 172_800, resetAt: 0 },
+    },
+  };
+  const render = (locale: "zh-CN" | "en-US") => renderLocalized(createElement(OpenAIAccountQuotaSummary, {
+    quota, isLoggedIn: true, loading: false, error: undefined,
+  }), locale);
+  const zh = render("zh-CN");
+  expect(zh).toContain("5 小时额度");
+  expect(zh).toContain("周额度");
+  expect(zh).toMatch(/class="is-ok">剩余 63%/u);
+  expect(zh).toMatch(/class="is-limited">剩余 0%/u);
+  expect(zh).toContain('aria-valuenow="63"');
+  expect(zh).toContain('aria-valuenow="0"');
+  expect(zh).toContain("1h 后重置");
+  expect(zh).toContain("2d 后重置");
+  const en = render("en-US");
+  expect(en).toContain("5-hour quota");
+  expect(en).toContain("Weekly quota");
+});
+
+test("a single returned weekly window is labelled by duration without inventing a five-hour window", () => {
+  const markup = renderLocalized(createElement(OpenAIAccountQuotaSummary, {
+    quota: {
+      ...cachedQuota,
+      rateLimit: { ...cachedQuota.rateLimit, primaryWindow: {
+        usedPercent: 12, limitWindowSeconds: 604_800, resetAfterSeconds: 0, resetAt: 0,
+      } },
+    },
+    isLoggedIn: true, loading: false, error: undefined,
+  }), "zh-CN");
+  expect(markup).toContain("周额度");
+  expect(markup).toContain("剩余 88%");
+  expect(markup).not.toContain("5 小时额度");
+});
+
+test("expired accounts without cached quota still show refresh progress and the actual failure", () => {
+  for (const loading of [true, false]) {
+    const markup = renderLocalized(createElement(OpenAIAccountQuotaSummary, {
+      quota: undefined, isLoggedIn: false, loading,
+      error: loading ? undefined : "refresh token expired; sign in again",
+    }), "zh-CN");
+    expect(markup).toContain(loading ? "正在刷新额度" : "额度刷新失败");
+    if (!loading) expect(markup).toContain('role="alert">额度刷新失败：refresh token expired; sign in again</span>');
+  }
 });

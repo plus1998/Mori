@@ -1,9 +1,15 @@
+import 'package:eco_mobile/core/network/desktop_rpc.dart';
+import 'package:eco_mobile/core/network/eco_center_client.dart';
+import 'package:eco_mobile/core/storage/credential_store.dart';
+import 'package:eco_mobile/core/theme/eco_theme.dart';
+import 'package:eco_mobile/features/composer/composer_plus_menu.dart';
 import 'package:eco_mobile/core/models/acp_host_ui_features.dart';
 import 'package:eco_mobile/core/models/acp_models.dart';
-import 'package:eco_mobile/core/models/git_models.dart';
 import 'package:eco_mobile/core/models/thread_models.dart';
 import 'package:eco_mobile/core/models/thread_usage_models.dart';
 import 'package:eco_mobile/core/models/integration_models.dart';
+import 'package:eco_mobile/core/providers/app_providers.dart';
+import 'package:eco_mobile/core/storage/composer_model_preferences.dart';
 import 'package:eco_mobile/core/theme/eco_icons.dart';
 import 'package:eco_mobile/core/widgets/eco_action_sheet.dart';
 import 'package:eco_mobile/core/widgets/eco_model_cascade.dart';
@@ -11,14 +17,17 @@ import 'package:eco_mobile/features/composer/composer_context_ring.dart';
 import 'package:eco_mobile/features/composer/composer_controls.dart';
 import 'package:eco_mobile/features/composer/composer_toolbar_icon.dart';
 import 'package:eco_mobile/features/composer/session_composer.dart';
+import 'package:eco_mobile/features/scheduling/schedule_editor.dart';
 import 'package:eco_mobile/features/threads/thread_providers.dart';
 import 'package:eco_mobile/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   test('composer core options include the Cursor ACP runtime', () {
     final acp = composerCoreKindOptions.where(
       (option) => option.value == 'acp',
@@ -356,56 +365,24 @@ void main() {
 
       await tester.tap(modelLabel);
       await tester.pumpAndSettle();
-      expect(find.text('Profile'), findsOneWidget);
       expect(find.text('Model'), findsOneWidget);
       expect(find.text('Reasoning'), findsOneWidget);
-      expect(find.text('Advanced'), findsOneWidget);
-      // Toolbar + primary detail both show current effort.
+      for (final duplicate in [
+        'Profile',
+        'Main agent',
+        'Advanced',
+        'Prompt',
+        'Subagents',
+        'Aux',
+        'Auxiliary model',
+        'Approval model',
+        'Vision',
+        'Vision model',
+      ]) {
+        expect(find.text(duplicate), findsNothing);
+      }
       expect(find.text('High'), findsWidgets);
-      // Primary only until a row is tapped — no submenu yet.
       expect(find.text('Fast'), findsNothing);
-      // Advanced starts collapsed — extra items are hidden.
-      expect(find.text('Prompt'), findsNothing);
-      expect(find.text('Subagents'), findsNothing);
-      expect(find.text('Agent'), findsNothing);
-      expect(find.text('Aux'), findsNothing);
-      expect(find.text('Vision'), findsNothing);
-      // Profile remains visible at the top without expanding Advanced.
-      expect(find.text('Coding'), findsWidgets);
-
-      await tester.tap(find.text('Advanced'));
-      await tester.pumpAndSettle();
-      expect(find.text('Prompt'), findsOneWidget);
-      expect(find.text('Subagents'), findsOneWidget);
-      expect(find.text('Harness'), findsOneWidget);
-      expect(find.text('Aux'), findsOneWidget);
-      expect(find.text('Vision'), findsOneWidget);
-      expect(find.text('None'), findsWidgets);
-      expect(find.text('No subagents'), findsOneWidget);
-      // Expanding Advanced does not open a side submenu by itself.
-      expect(find.text('Fast'), findsNothing);
-      expect(find.text('Claude Code'), findsNothing);
-      expect(
-        tester.getTopLeft(find.text('Harness')).dy,
-        lessThan(tester.getTopLeft(find.text('Prompt')).dy),
-      );
-      expect(
-        tester.getTopLeft(find.text('Prompt')).dy,
-        lessThan(tester.getTopLeft(find.text('Subagents')).dy),
-      );
-      expect(
-        tester.getTopLeft(find.text('Subagents')).dy,
-        lessThan(tester.getTopLeft(find.text('Aux')).dy),
-      );
-      expect(
-        tester.getTopLeft(find.text('Aux')).dy,
-        lessThan(tester.getTopLeft(find.text('Vision')).dy),
-      );
-
-      await tester.tap(find.text('Aux'));
-      await tester.pumpAndSettle();
-      // Primary Aux/Vision values + submenu None option.
-      expect(find.text('None'), findsWidgets);
 
       await tester.tap(find.text('Model'));
       await tester.pumpAndSettle();
@@ -431,68 +408,331 @@ void main() {
     },
   );
 
-  testWidgets(
-    'composer model menu switches main agent prompt and arrangement',
-    (tester) async {
-      final changes = <ThreadRuntimeConfigInput>[];
+  testWidgets('new Codex composer restores the last picked model and effort', (
+    tester,
+  ) async {
+    const scope = ComposerModelPreferenceScope(
+      desktopId: 'desktop_1',
+      workspacePath: '/repo',
+      coreKind: 'codex',
+    );
+    Widget composer(ThreadRuntimeConfigInput config) => _TestApp(
+      modelSettings: modelSettings,
+      candidates: candidates,
+      overrides: [
+        selectedDesktopIdProvider.overrideWith((ref) => 'desktop_1'),
+        workflowSettingsProvider.overrideWith((ref) async => null),
+      ],
+      child: ComposerRouteSummary(
+        runtimeConfig: config,
+        threadId: '',
+        workspacePath: '/repo',
+        coreKind: 'codex',
+        canEdit: true,
+        onChanged: (_) {},
+      ),
+    );
+    await tester.pumpWidget(composer(modelRuntimeConfig));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('5.6 Sol'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reasoning'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Low'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Model'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Fast'));
+    await tester.pumpAndSettle();
+
+    // Dispose the old composer and reconstruct from fresh workflow defaults.
+    await tester.pumpWidget(const SizedBox.shrink());
+    final restored = await scope.restore(modelRuntimeConfig);
+    expect(restored.mainAgentModelOverride?.modelId, 'gpt-5.6-fast');
+    expect(restored.mainAgentModelOverride?.thinkingEffort, 'low');
+    await tester.pumpWidget(composer(restored));
+    await tester.pumpAndSettle();
+    expect(find.text('5.6 Fast'), findsOneWidget);
+    expect(find.text('Low'), findsOneWidget);
+    expect(find.text('5.6 Sol'), findsNothing);
+  });
+
+  for (final newThread in [false, true]) {
+    testWidgets('long press transfers text and images for newThread=$newThread', (
+      tester,
+    ) async {
+      final controller = TextEditingController(text: 'Schedule this idea');
+      addTearDown(controller.dispose);
+      final images = [
+        PromptImageAttachment(
+          id: 'draft-image',
+          mediaType: 'image/png',
+          data:
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nGkAAAAASUVORK5CYII=',
+        ),
+      ];
+      var sends = 0;
       await tester.pumpWidget(
         _TestApp(
           modelSettings: modelSettings,
-          candidates: candidates,
-          child: ComposerRouteSummary(
-            runtimeConfig: modelRuntimeConfig,
-            threadId: 'thread-1',
-            canEdit: true,
-            onChanged: changes.add,
+          child: StatefulBuilder(
+            builder: (context, rebuild) => SessionComposer(
+              controller: controller,
+              attachments: images,
+              runtimeConfig: modelRuntimeConfig,
+              threadId: newThread ? '' : 'thread-1',
+              workspacePath: '/workspace',
+              coreKind: 'claude',
+              onScheduledThreadCreated: (_) =>
+                  fail('Cancel must not create a thread'),
+              isRunning: false,
+              hasActivity: true,
+              onPickImage: () {},
+              onRemoveAttachment: (i) => rebuild(() => images.removeAt(i)),
+              onSend: () => sends++,
+              onStop: () {},
+              onRuntimeConfigChanged: (_) {},
+            ),
           ),
         ),
       );
       await tester.pumpAndSettle();
-
-      await tester.tap(find.text('5.6 Sol'));
+      await tester.longPress(find.byIcon(EcoIcons.send));
       await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Profile'));
+      expect(find.text('Schedule send'), findsOneWidget);
+      expect(find.byType(CloseButton), findsNothing);
+      expect(controller.text, 'Schedule this idea');
+      expect(images, hasLength(1));
+      // Dismissing the menu must not consume the draft.
+      await tester.tapAt(const Offset(5, 5));
       await tester.pumpAndSettle();
-      expect(find.text('Research'), findsOneWidget);
-      await tester.tap(find.text('Research'));
+      expect(controller.text, 'Schedule this idea');
+      expect(images, hasLength(1));
+      await tester.longPress(find.byIcon(EcoIcons.send));
       await tester.pumpAndSettle();
-      expect(changes, isNotEmpty);
-      expect(changes.last.orchestrationSelection?.mainAgentConfigId, 'main-2');
-      expect(changes.last.mainAgentModelOverride, isNull);
+      await tester.tap(find.text('Schedule send'));
+      await tester.pumpAndSettle();
       expect(
-        changes.last.resolvedOrchestrationSnapshot?.mainAgentConfigName,
-        'Research',
+        find.widgetWithText(TextField, 'Schedule this idea'),
+        findsOneWidget,
       );
+      expect(find.byTooltip('Remove image 1'), findsOneWidget);
+      final editor = tester.widget<ScheduleEditor>(find.byType(ScheduleEditor));
+      expect(editor.newThread?.workspacePath, newThread ? '/workspace' : null);
+      expect(editor.newThread?.coreKind, newThread ? 'claude' : null);
+      expect(editor.threadId, newThread ? startsWith('thr_') : 'thread-1');
+      expect(sends, 0);
+      expect(controller.text, isEmpty);
+      expect(images, isEmpty);
+      await tester.tap(find.byType(CloseButton));
+      await tester.pumpAndSettle();
+      expect(controller.text, isEmpty);
+      expect(images, isEmpty);
+      expect(sends, 0);
+    });
+  }
 
-      await tester.tap(find.text('Advanced'));
+  testWidgets(
+    'empty new conversation can long press to compose its first scheduled message',
+    (tester) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      var sends = 0;
+      await tester.pumpWidget(
+        _TestApp(
+          modelSettings: modelSettings,
+          child: SessionComposer(
+            controller: controller,
+            attachments: const [],
+            runtimeConfig: modelRuntimeConfig,
+            threadId: '',
+            workspacePath: '/workspace',
+            coreKind: 'claude',
+            isRunning: false,
+            hasActivity: false,
+            onPickImage: () {},
+            onRemoveAttachment: (_) {},
+            onSend: () => sends++,
+            onStop: () {},
+            onRuntimeConfigChanged: (_) {},
+            onScheduledThreadCreated: (_) => fail('Not saved'),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Prompt'));
+      await tester.tap(find.byIcon(EcoIcons.send));
+      expect(sends, 0);
+      await tester.longPress(find.byIcon(EcoIcons.send));
       await tester.pumpAndSettle();
-      expect(find.text('Strict style'), findsOneWidget);
-      await tester.tap(find.text('Strict style'));
+      await tester.tap(find.text('Schedule send'));
       await tester.pumpAndSettle();
-      final prompt = changes.last.orchestrationSelection?.mainPrompt;
-      expect(prompt, isA<CustomAppendMainAgentPromptSelection>());
+      expect(find.byType(ScheduleEditor), findsOneWidget);
       expect(
-        (prompt as CustomAppendMainAgentPromptSelection).promptId,
-        'prompt-1',
+        tester.widget<ScheduleEditor>(find.byType(ScheduleEditor)).newThread,
+        isNotNull,
       );
-
-      await tester.tap(find.text('Subagents'));
-      await tester.pumpAndSettle();
-      expect(find.text('Coding Subagents'), findsOneWidget);
-      await tester.tap(find.text('Coding Subagents'));
-      await tester.pumpAndSettle();
-      final subagents = changes.last.orchestrationSelection?.subagents;
-      expect(subagents, isA<OrchestrationSubagentSelection>());
-      expect(
-        (subagents as OrchestrationSubagentSelection).orchestrationId,
-        'orch-1',
-      );
+      expect(sends, 0);
     },
   );
+
+  testWidgets('send tap uses default; long press selects only this message', (
+    tester,
+  ) async {
+    final controller = TextEditingController(text: 'next message');
+    addTearDown(controller.dispose);
+    var defaultSends = 0;
+    final modes = <FollowUpDeliveryMode>[];
+    var busy = false;
+    late StateSetter rebuild;
+    await tester.pumpWidget(
+      _TestApp(
+        modelSettings: modelSettings,
+        child: StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return SessionComposer(
+              controller: controller,
+              attachments: const [],
+              runtimeConfig: modelRuntimeConfig,
+              threadId: 'thread-1',
+              isRunning: true,
+              followUpMode: true,
+              sendBusy: busy,
+              hasActivity: true,
+              onPickImage: () {},
+              onRemoveAttachment: (_) {},
+              onSend: () => defaultSends++,
+              onSendWithMode: modes.add,
+              onStop: () {},
+              onRuntimeConfigChanged: (_) {},
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final send = find.byIcon(EcoIcons.send);
+    await tester.tap(send);
+    expect(defaultSends, 1);
+
+    await tester.longPress(send);
+    await tester.pumpAndSettle();
+    expect(defaultSends, 1);
+    expect(modes, isEmpty);
+    await tester.tap(find.text('Queue'));
+    await tester.pumpAndSettle();
+    expect(modes, [FollowUpDeliveryMode.queue]);
+
+    await tester.longPress(send);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Guide direction'));
+    await tester.pumpAndSettle();
+    expect(modes, [FollowUpDeliveryMode.queue, FollowUpDeliveryMode.steer]);
+
+    await tester.longPress(send);
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    expect(modes, hasLength(2));
+    expect(controller.text, 'next message');
+    await tester.tap(send);
+    expect(defaultSends, 2);
+
+    rebuild(() => busy = true);
+    await tester.pump();
+    await tester.longPress(find.byType(CircularProgressIndicator).last);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Queue'), findsNothing);
+    expect(defaultSends, 2);
+    expect(modes, hasLength(2));
+    rebuild(() => busy = false);
+    controller.clear();
+    await tester.pumpAndSettle();
+    expect(find.byIcon(EcoIcons.send), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is Semantics && widget.properties.label == 'Stop',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('runtime config switches main agent prompt and subagents', (
+    tester,
+  ) async {
+    final changes = <ThreadRuntimeConfigInput>[];
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    var config = modelRuntimeConfig;
+    await tester.pumpWidget(
+      _TestApp(
+        modelSettings: modelSettings,
+        candidates: candidates,
+        child: StatefulBuilder(
+          builder: (context, setState) => Align(
+            alignment: Alignment.bottomCenter,
+            child: SessionComposer(
+              controller: controller,
+              attachments: const [],
+              runtimeConfig: config,
+              threadId: 'thread-1',
+              isRunning: false,
+              hasActivity: true,
+              onPickImage: () {},
+              onRemoveAttachment: (_) {},
+              onSend: () {},
+              onStop: () {},
+              onRuntimeConfigChanged: (next) {
+                changes.add(next);
+                setState(() => config = next);
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(EcoIcons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Runtime config'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Main agent'));
+    await tester.pumpAndSettle();
+    expect(find.text('Research'), findsOneWidget);
+    await tester.tap(find.text('Research'));
+    await tester.pumpAndSettle();
+    expect(changes, isNotEmpty);
+    expect(changes.last.orchestrationSelection?.mainAgentConfigId, 'main-2');
+    expect(changes.last.mainAgentModelOverride, isNull);
+    expect(
+      changes.last.resolvedOrchestrationSnapshot?.mainAgentConfigName,
+      'Research',
+    );
+
+    await tester.tap(find.text('Prompt'));
+    await tester.pumpAndSettle();
+    expect(find.text('Strict style'), findsOneWidget);
+    await tester.tap(find.text('Strict style'));
+    await tester.pumpAndSettle();
+    final prompt = changes.last.orchestrationSelection?.mainPrompt;
+    expect(prompt, isA<CustomAppendMainAgentPromptSelection>());
+    expect(
+      (prompt as CustomAppendMainAgentPromptSelection).promptId,
+      'prompt-1',
+    );
+
+    await tester.tap(find.text('Subagents'));
+    await tester.pumpAndSettle();
+    expect(find.text('Coding Subagents'), findsOneWidget);
+    await tester.tap(find.text('Coding Subagents'));
+    await tester.pumpAndSettle();
+    final subagents = changes.last.orchestrationSelection?.subagents;
+    expect(subagents, isA<OrchestrationSubagentSelection>());
+    expect(
+      (subagents as OrchestrationSubagentSelection).orchestrationId,
+      'orch-1',
+    );
+  });
 
   testWidgets(
     'composer route category sheet shows locked skills mcp or subagents',
@@ -644,6 +884,505 @@ void main() {
     },
   );
 
+  Widget menuComposer(
+    TextEditingController controller, {
+    ThreadRuntimeConfigInput config = modelRuntimeConfig,
+    ValueChanged<ThreadRuntimeConfigInput>? onChanged,
+    bool running = false,
+    bool followUpMode = false,
+    bool sendBusy = false,
+    String threadId = 'thread-1',
+    String? coreKind,
+    ValueChanged<String>? onScheduledThreadCreated,
+  }) => Align(
+    alignment: Alignment.bottomCenter,
+    child: SessionComposer(
+      controller: controller,
+      attachments: const [],
+      runtimeConfig: config,
+      threadId: threadId,
+      workspacePath: '/workspace',
+      coreKind: coreKind,
+      isRunning: running,
+      followUpMode: followUpMode,
+      sendBusy: sendBusy,
+      hasActivity: threadId.isNotEmpty,
+      onPickImage: () {},
+      onRemoveAttachment: (_) {},
+      onSend: () {},
+      onStop: () {},
+      onRuntimeConfigChanged: onChanged ?? (_) {},
+      onScheduledThreadCreated: onScheduledThreadCreated,
+    ),
+  );
+
+  testWidgets(
+    'plus menu matches the card and navigates runtime configuration',
+    (tester) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      var config = modelRuntimeConfig;
+      await tester.pumpWidget(
+        _TestApp(
+          modelSettings: modelSettings,
+          child: StatefulBuilder(
+            builder: (context, setState) => menuComposer(
+              controller,
+              config: config,
+              onChanged: (next) => setState(() => config = next),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final card = tester.getRect(
+        find
+            .descendant(
+              of: find.byType(SessionComposer),
+              matching: find.byType(ClipRRect),
+            )
+            .first,
+      );
+      await tester.tap(find.byIcon(EcoIcons.add));
+      await tester.pumpAndSettle();
+      final panel = find.byKey(const ValueKey('composer-plus-panel'));
+      final rect = tester.getRect(panel);
+      expect(rect.width, closeTo(card.width, 0.1));
+      expect(rect.left, closeTo(card.left, 0.1));
+      expect(rect.bottom, closeTo(card.top - 10, 0.1));
+      expect(rect.height, lessThanOrEqualTo(420));
+      await tester.tap(find.text('Runtime config'));
+      await tester.pumpAndSettle();
+      expect(find.text('Main agent'), findsOneWidget);
+      expect(find.text('Prompt'), findsOneWidget);
+      expect(find.text('Auxiliary model'), findsOneWidget);
+      expect(find.text('Approval model'), findsOneWidget);
+      expect(find.text('Vision model'), findsOneWidget);
+      await tester.tap(find.text('Prompt'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Strict style'));
+      await tester.pumpAndSettle();
+      expect(find.text('Strict style'), findsOneWidget);
+      expect(
+        config.orchestrationSelection?.mainPrompt,
+        isA<CustomAppendMainAgentPromptSelection>(),
+      );
+      expect(find.text('Subagents'), findsOneWidget);
+      expect(find.text('Integrations'), findsNothing);
+      expect(find.text('MCP Servers'), findsNothing);
+      expect(find.text('Skills'), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Modes and session'), findsOneWidget);
+      for (final category in [
+        (label: 'Integrations', value: ComposerRouteCategory.integrations),
+        (label: 'MCP Servers', value: ComposerRouteCategory.mcp),
+        (label: 'Skills', value: ComposerRouteCategory.skills),
+        (label: 'Subagents', value: ComposerRouteCategory.subagents),
+      ]) {
+        await tester.ensureVisible(find.text(category.label));
+        await tester.tap(find.text(category.label));
+        await tester.pumpAndSettle();
+        final sheet = tester.widget<ComposerRouteSheet>(
+          find.byType(ComposerRouteSheet),
+        );
+        expect(sheet.initialCategory, category.value);
+        expect(sheet.lockCategory, isTrue);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(find.text('Modes and session'), findsOneWidget);
+      }
+      await tester.ensureVisible(find.text('Runtime config'));
+      await tester.tap(find.text('Runtime config'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Back to menu'));
+      await tester.pumpAndSettle();
+      expect(find.text('Modes and session'), findsOneWidget);
+      // The outside barrier at the trigger position dismisses the menu.
+      await tester.tapAt(tester.getCenter(find.byIcon(EcoIcons.add)));
+      await tester.pumpAndSettle();
+      expect(panel, findsNothing);
+      await tester.tap(find.byIcon(EcoIcons.add));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Runtime config'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(panel, findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('plus menu toggles an active mode and switches between modes', (
+    tester,
+  ) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    var config = modelRuntimeConfig;
+    await tester.pumpWidget(
+      _TestApp(
+        modelSettings: modelSettings,
+        child: StatefulBuilder(
+          builder: (context, setState) => menuComposer(
+            controller,
+            config: config,
+            onChanged: (value) => setState(() => config = value),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    for (final mode in ['Plan', 'Ask', 'Ask']) {
+      await tester.tap(find.byIcon(EcoIcons.add));
+      await tester.pumpAndSettle();
+      if (config.sessionMode != 'agent') {
+        expect(find.text('Enabled'), findsOneWidget);
+      }
+      await tester.tap(find.text(mode));
+      await tester.pumpAndSettle();
+    }
+    expect(config.sessionMode, 'agent');
+  });
+
+  testWidgets(
+    'open config refreshes and keeps stateless models editable during a run',
+    (tester) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      var running = false;
+      var config = modelRuntimeConfig;
+      late StateSetter rebuild;
+      await tester.pumpWidget(
+        _TestApp(
+          modelSettings: modelSettings,
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return menuComposer(controller, config: config, running: running);
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(EcoIcons.add));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Runtime config'));
+      await tester.pumpAndSettle();
+      rebuild(() {
+        running = true;
+        config = config.copyWith(
+          auxiliaryModel: const AuxiliaryModelSelection(
+            providerId: 'provider-1',
+            modelId: 'new-model',
+            candidateModelId: 'new-candidate',
+          ),
+        );
+      });
+      await tester.pumpAndSettle();
+      final selectors = tester.widget<OrchestrationCompositionSelectors>(
+        find.byType(OrchestrationCompositionSelectors),
+      );
+      expect(selectors.canEdit, isFalse);
+      expect(selectors.canEditStatelessModels, isTrue);
+      expect(find.text('new-model'), findsOneWidget);
+      await tester.tap(find.text('Main agent'));
+      await tester.pumpAndSettle();
+      expect(find.byType(EcoSheetScaffold), findsNothing);
+      await tester.tap(find.text('Auxiliary model'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ComposerAuxiliaryModelSection), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Back to menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Plan'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ComposerPlusMenuPanel), findsOneWidget);
+      expect(config.sessionMode, 'agent');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final newThread in [false, true]) {
+    testWidgets(
+      'plus menu schedules ${newThread ? "first" : "existing"} message via the composer flow',
+      (tester) async {
+        final controller = TextEditingController(
+          text: 'Schedule from plus menu',
+        );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          _TestApp(
+            modelSettings: modelSettings,
+            child: menuComposer(
+              controller,
+              threadId: newThread ? '' : 'thread-1',
+              coreKind: 'claude',
+              onScheduledThreadCreated: (_) => fail('Not saved'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byIcon(EcoIcons.add));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Add scheduled message'));
+        await tester.pumpAndSettle();
+        final editor = tester.widget<ScheduleEditor>(
+          find.byType(ScheduleEditor),
+        );
+        expect(editor.initialPrompt, 'Schedule from plus menu');
+        expect(
+          editor.newThread?.workspacePath,
+          newThread ? '/workspace' : null,
+        );
+        expect(editor.threadId, newThread ? startsWith('thr_') : 'thread-1');
+        expect(find.byType(ComposerPlusMenuPanel), findsNothing);
+        expect(controller.text, isEmpty);
+        await tester.tap(find.byType(CloseButton));
+        await tester.pumpAndSettle();
+      },
+    );
+  }
+
+  for (final scenario in [
+    (running: true, followUp: true, draft: ''),
+    (running: true, followUp: true, draft: 'Later while running'),
+    (running: true, followUp: false, draft: 'Later'),
+    (running: false, followUp: true, draft: 'Paused queue'),
+  ]) {
+    testWidgets('schedule current conversation from plus menu: $scenario', (
+      tester,
+    ) async {
+      final controller = TextEditingController(text: scenario.draft);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        _TestApp(
+          modelSettings: modelSettings,
+          child: menuComposer(
+            controller,
+            running: scenario.running,
+            followUpMode: scenario.followUp,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(EcoIcons.add));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add scheduled message'));
+      await tester.pumpAndSettle();
+      final editor = tester.widget<ScheduleEditor>(find.byType(ScheduleEditor));
+      expect(editor.threadId, 'thread-1');
+      expect(editor.newThread, isNull);
+      expect(editor.initialPrompt, scenario.draft);
+      expect(controller.text, isEmpty);
+    });
+  }
+
+  testWidgets('running follow-up send menu can schedule without sending now', (
+    tester,
+  ) async {
+    final controller = TextEditingController(text: 'Send later');
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      _TestApp(
+        modelSettings: modelSettings,
+        child: menuComposer(controller, running: true, followUpMode: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.longPress(find.byIcon(EcoIcons.send));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Schedule send'));
+    await tester.pumpAndSettle();
+    final editor = tester.widget<ScheduleEditor>(find.byType(ScheduleEditor));
+    expect(editor.threadId, 'thread-1');
+    expect(editor.initialPrompt, 'Send later');
+    expect(controller.text, isEmpty);
+  });
+
+  testWidgets(
+    'sending a message still locks scheduling and preserves the draft',
+    (tester) async {
+      final controller = TextEditingController(text: 'Sending draft');
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        _TestApp(
+          modelSettings: modelSettings,
+          child: menuComposer(
+            controller,
+            running: true,
+            followUpMode: true,
+            sendBusy: true,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.byIcon(EcoIcons.add));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Add scheduled message'));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(ScheduleEditor), findsNothing);
+      expect(controller.text, 'Sending draft');
+    },
+  );
+
+  for (final scenario in [
+    (
+      size: const Size(320, 700),
+      locale: const Locale('en'),
+      scale: 1.0,
+      dark: false,
+      platform: TargetPlatform.android,
+    ),
+    (
+      size: const Size(390, 844),
+      locale: const Locale('zh'),
+      scale: 2.0,
+      dark: true,
+      platform: TargetPlatform.iOS,
+    ),
+    (
+      size: const Size(844, 390),
+      locale: const Locale('en'),
+      scale: 1.4,
+      dark: true,
+      platform: TargetPlatform.android,
+    ),
+    (
+      size: const Size(390, 844),
+      locale: const Locale('en'),
+      scale: 1.0,
+      dark: false,
+      platform: TargetPlatform.iOS,
+    ),
+  ]) {
+    testWidgets(
+      'plus menu fits ${scenario.size} ${scenario.locale} scale ${scenario.scale}',
+      (tester) async {
+        tester.view.physicalSize = scenario.size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final controller = TextEditingController();
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          _TestApp(
+            modelSettings: modelSettings,
+            locale: scenario.locale,
+            textScaler: TextScaler.linear(scenario.scale),
+            theme: (scenario.dark ? buildEcoDarkTheme() : buildEcoLightTheme())
+                .copyWith(platform: scenario.platform),
+            child: menuComposer(controller),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byIcon(EcoIcons.add));
+        await tester.pumpAndSettle();
+        final panel = find.byKey(const ValueKey('composer-plus-panel'));
+        final rect = tester.getRect(panel);
+        expect(rect.top, greaterThanOrEqualTo(8));
+        expect(rect.left, greaterThanOrEqualTo(8));
+        expect(rect.right, lessThanOrEqualTo(scenario.size.width - 8));
+        expect(rect.bottom, lessThan(scenario.size.height));
+        final configLabel = scenario.locale.languageCode == 'zh'
+            ? '运行配置'
+            : 'Runtime config';
+        await tester.ensureVisible(find.text(configLabel));
+        await tester.tap(find.text(configLabel));
+        await tester.pumpAndSettle();
+        final visionLabel = scenario.locale.languageCode == 'zh'
+            ? '视觉模型'
+            : 'Vision model';
+        await tester.ensureVisible(find.text(visionLabel));
+        expect(find.text('Skills'), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.tapAt(const Offset(1, 1));
+        await tester.pumpAndSettle();
+        expect(panel, findsNothing);
+      },
+    );
+  }
+
+  testWidgets(
+    'plus menu tracks keyboard and cleans up when composer is removed',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      var visible = true;
+      late StateSetter rebuild;
+      await tester.pumpWidget(
+        _TestApp(
+          modelSettings: modelSettings,
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return visible
+                  ? menuComposer(controller)
+                  : const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(EcoIcons.add));
+      await tester.pumpAndSettle();
+      final panel = find.byKey(const ValueKey('composer-plus-panel'));
+      final original = tester.getRect(panel);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await tester.pumpAndSettle();
+      final moved = tester.getRect(panel);
+      expect(moved.bottom, closeTo(original.bottom - 300, 0.1));
+      expect(moved.top, greaterThanOrEqualTo(8));
+      tester.view.physicalSize = const Size(844, 390);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 200);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Runtime config'));
+      await tester.tap(find.text('Runtime config'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      rebuild(() => visible = false);
+      await tester.pumpAndSettle();
+      expect(panel, findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'runtime save failure restores the supplied config and reports the error',
+    (tester) async {
+      final updates = <ThreadRuntimeConfigInput>[];
+      await tester.pumpWidget(
+        _TestApp(
+          overrides: [
+            desktopRpcProvider.overrideWithValue(_FailingConfigRpc()),
+          ],
+          child: Consumer(
+            builder: (context, ref, _) => TextButton(
+              onPressed: () => persistRuntimeConfig(
+                ref,
+                threadId: 'thread-1',
+                config: modelRuntimeConfig.copyWith(sessionMode: 'plan'),
+                previousConfig: modelRuntimeConfig,
+                onChanged: updates.add,
+                reportFailure: true,
+              ),
+              child: const Text('Save'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(updates.map((value) => value.sessionMode), ['plan', 'agent']);
+      expect(find.text('The Desktop request failed.'), findsOneWidget);
+    },
+  );
+
   testWidgets('session composer plus menu exposes modes and tools', (
     tester,
   ) async {
@@ -688,6 +1427,10 @@ void main() {
     expect(find.text('Plan'), findsOneWidget);
     expect(find.text('Ask'), findsOneWidget);
     expect(find.text('Image'), findsOneWidget);
+    expect(find.text('Modes and session'), findsOneWidget);
+    expect(find.text('Add and actions'), findsOneWidget);
+    expect(find.text('Configuration'), findsOneWidget);
+    expect(find.text('Runtime config'), findsOneWidget);
     expect(find.text('Integrations'), findsOneWidget);
     expect(find.text('Skills'), findsOneWidget);
     expect(find.text('MCP Servers'), findsOneWidget);
@@ -821,26 +1564,6 @@ void main() {
         isDefault: false,
       ),
     ];
-    const auxOptions = [
-      CommitModelOptionView(
-        id: 'opt-1',
-        candidateModelId: 'candidate-aux-1',
-        providerId: 'provider-1',
-        providerName: 'OpenAI',
-        modelId: 'gpt-5.6-mini',
-        modelLabel: '5.6 Mini',
-        providerColor: '#10a37f',
-      ),
-      CommitModelOptionView(
-        id: 'opt-2',
-        candidateModelId: 'candidate-aux-2',
-        providerId: 'provider-2',
-        providerName: 'Anthropic',
-        modelId: 'claude-haiku-4.5',
-        modelLabel: 'Haiku 4.5',
-        providerColor: '#d97757',
-      ),
-    ];
 
     /// The split catalogue's columns are the only vertical scrollables in an
     /// open cascade, so their geometry is what "fits the panel" means.
@@ -854,7 +1577,6 @@ void main() {
       required Size surface,
       String? coreKind,
       bool canEdit = true,
-      bool canEditStatelessModels = true,
     }) async {
       // The overlay lays out from MediaQuery.size, which follows the view's
       // physical size / dpr — `setSurfaceSize` only moves the coordinate
@@ -862,15 +1584,13 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
       tester.view.physicalSize = surface;
       addTearDown(tester.view.reset);
+      await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpWidget(
         _TestApp(
           modelSettings: modelSettings,
           candidates: candidates,
           overrides: [
             cursorModelsProvider.overrideWith((ref) async => cursorModels),
-            auxiliaryModelOptionsProvider(
-              'main-1',
-            ).overrideWith((ref) async => auxOptions),
           ],
           child: ComposerRouteSummary(
             runtimeConfig: coreKind == 'acp'
@@ -878,7 +1598,6 @@ void main() {
                 : modelRuntimeConfig,
             threadId: 'thread-1',
             canEdit: canEdit,
-            canEditStatelessModels: canEditStatelessModels,
             coreKind: coreKind,
             onChanged: (_) {},
           ),
@@ -893,50 +1612,106 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('aux/vision cascade fits the default 800x600 surface', (
+    testWidgets('model and reasoning menus fit a narrow surface', (
       tester,
     ) async {
-      await openSheet(tester, surface: const Size(800, 600));
-      await tester.tap(find.text('Advanced'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Aux'));
-      await tester.pumpAndSettle();
-
-      // This is the case that used to overflow by ~85px at 800x600: the panel is
-      // capped at 48% of the viewport while the catalogue wanted a fixed 280.
-      expect(tester.takeException(), isNull);
-      expect(find.byType(EcoModelCascadeList), findsOneWidget);
-      expect(find.byType(TextField), findsOneWidget);
-      expect(find.text('None'), findsWidgets);
-      final bodies = bodyRects(tester);
-      expect(bodies, isNotEmpty);
-      for (final body in bodies) {
-        expect(body.height, lessThan(280));
-        expect(body.bottom, lessThanOrEqualTo(600));
-      }
-    });
-
-    testWidgets('cascades keep the full catalogue on a tall surface', (
-      tester,
-    ) async {
-      const surface = Size(800, 900);
+      const surface = Size(320, 600);
       await openSheet(tester, surface: surface);
-      await tester.tap(find.text('Advanced'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Vision'));
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      final bodies = bodyRects(tester);
-      expect(bodies, isNotEmpty);
-      for (final body in bodies) {
-        // ~275 rather than 280: the panel prefers 380 and the search box + rows
-        // take a little more than the 100px that leaves, so the body lands just
-        // under its preference instead of being visibly squeezed.
-        expect(body.height, greaterThan(270));
-        expect(body.bottom, lessThanOrEqualTo(surface.height));
+      for (final label in ['Model', 'Reasoning']) {
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        final option = find.text(label == 'Model' ? 'Fast' : 'Low');
+        expect(option, findsOneWidget);
+        final rect = tester.getRect(option);
+        expect(rect.left, greaterThanOrEqualTo(0));
+        expect(rect.right, lessThanOrEqualTo(surface.width));
+        expect(rect.bottom, lessThanOrEqualTo(surface.height));
       }
     });
+
+    testWidgets('Harness switching lives in plus menu instead of model popup', (
+      tester,
+    ) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      String? picked;
+      await tester.pumpWidget(
+        _TestApp(
+          modelSettings: modelSettings,
+          candidates: candidates,
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: SessionComposer(
+              controller: controller,
+              attachments: const [],
+              runtimeConfig: modelRuntimeConfig,
+              threadId: '',
+              workspacePath: '/workspace',
+              isRunning: false,
+              hasActivity: false,
+              coreKind: 'claude',
+              onCoreKindChanged: (kind) => picked = kind,
+              onPickImage: () {},
+              onRemoveAttachment: (_) {},
+              onSend: () {},
+              onStop: () {},
+              onRuntimeConfigChanged: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('5.6 Sol'));
+      await tester.pumpAndSettle();
+      expect(find.text('Harness'), findsNothing);
+      expect(find.text('Model'), findsOneWidget);
+      expect(find.text('Reasoning'), findsOneWidget);
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(EcoIcons.add));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Harness'));
+      expect(find.text('Claude Code'), findsOneWidget);
+      await tester.tap(find.text('Harness'));
+      await tester.pumpAndSettle();
+      expect(find.text('Cursor · ACP'), findsOneWidget);
+      await tester.tap(find.text('Codex'));
+      await tester.pumpAndSettle();
+      expect(picked, 'codex');
+      expect(find.byType(ComposerPlusMenuPanel), findsNothing);
+    });
+
+    for (final running in [false, true]) {
+      testWidgets(
+        'Harness menu stays locked in an existing session running=$running',
+        (tester) async {
+          final controller = TextEditingController();
+          addTearDown(controller.dispose);
+          await tester.pumpWidget(
+            _TestApp(
+              modelSettings: modelSettings,
+              child: menuComposer(
+                controller,
+                coreKind: 'claude',
+                running: running,
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.byIcon(EcoIcons.add));
+          await tester.pumpAndSettle();
+          await tester.ensureVisible(find.text('Harness'));
+          await tester.tap(find.text('Harness'));
+          await tester.pumpAndSettle();
+          expect(find.text('Codex'), findsNothing);
+          expect(
+            find.textContaining('The Harness is locked for this session'),
+            findsOneWidget,
+          );
+        },
+      );
+    }
 
     testWidgets('cursor model cascade fits the default and a short surface', (
       tester,
@@ -960,31 +1735,19 @@ void main() {
       }
     });
 
-    testWidgets(
-      'running sessions lock session rows but still switch aux / approval / vision',
-      (tester) async {
-        // Auxiliary / approval / vision requests are stateless single-shot calls, so
-        // switching them mid-run is allowed; the session-bound rows stay locked.
+    testWidgets('running sessions cannot open the model panel', (tester) async {
+      for (final coreKind in ['acp', 'claude']) {
         await openSheet(
           tester,
           surface: const Size(800, 900),
-          coreKind: 'acp',
+          coreKind: coreKind,
           canEdit: false,
-          canEditStatelessModels: true,
         );
-
-        // Locked: the Cursor model row cannot open its catalogue.
-        await tester.tap(find.text('Model'));
-        await tester.pumpAndSettle();
+        expect(find.text('Model'), findsNothing);
+        expect(find.text('Reasoning'), findsNothing);
         expect(find.byType(EcoModelCascadeList), findsNothing);
-
-        // Live: the auxiliary row still opens the catalogue.
-        await tester.tap(find.text('Aux'));
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
-        expect(find.byType(EcoModelCascadeList), findsOneWidget);
-      },
-    );
+      }
+    });
   });
 }
 
@@ -996,8 +1759,14 @@ class _TestApp extends StatelessWidget {
     this.integrationAvailability,
     this.integrationAvailabilityError,
     this.overrides = const [],
+    this.locale = const Locale('en'),
+    this.textScaler = TextScaler.noScaling,
+    this.theme,
   });
 
+  final Locale locale;
+  final TextScaler textScaler;
+  final ThemeData? theme;
   final Widget child;
   final ModelSettingsSnapshot? modelSettings;
   final List<CandidateModelView> candidates;
@@ -1022,7 +1791,12 @@ class _TestApp extends StatelessWidget {
         ...overrides,
       ],
       child: MaterialApp(
-        locale: const Locale('en'),
+        locale: locale,
+        theme: theme,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+          child: child!,
+        ),
         localizationsDelegates: const [
           AppLocalizations.delegate,
           GlobalMaterialLocalizations.delegate,
@@ -1034,4 +1808,15 @@ class _TestApp extends StatelessWidget {
       ),
     );
   }
+}
+
+class _FailingConfigRpc extends DesktopRpc {
+  _FailingConfigRpc()
+    : super(EcoCenterClient(store: CredentialStore()), 'desktop');
+
+  @override
+  Future<ThreadSummary> updateRuntimeConfig({
+    required String threadId,
+    required ThreadRuntimeConfigInput runtimeConfig,
+  }) async => throw StateError('Save rejected');
 }

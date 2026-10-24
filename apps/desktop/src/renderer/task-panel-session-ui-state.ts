@@ -3,7 +3,6 @@ import type { WorkspaceFileReference } from "./workspace-file-reference";
 
 export type TaskPanelSessionFileTarget = WorkspaceFileReference & {
   requestId?: number;
-  restricted?: boolean;
 };
 
 export type TaskPanelSessionUiState = {
@@ -125,9 +124,6 @@ function normalizeFileTarget(value: unknown): TaskPanelSessionFileTarget | undef
   }
   if (typeof record.requestId === "number" && Number.isFinite(record.requestId)) {
     target.requestId = Math.trunc(record.requestId);
-  }
-  if (record.restricted === true) {
-    target.restricted = true;
   }
   return target;
 }

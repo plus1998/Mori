@@ -17,8 +17,8 @@ test("formatUsageBreakdownAgentLabel uses runtime agent names with instance id",
 });
 
 test("formatUsageBreakdownAgentLabel falls back to role labels", () => {
-  expect(formatUsageBreakdownAgentLabel("coder", "agent_coder_123456789")).toBe("编码 · #23456789");
-  expect(formatUsageBreakdownAgentLabel("vision", "vision:thread:abcdef12")).toBe("看图 · #abcdef12");
+  expect(formatUsageBreakdownAgentLabel("coder", "agent_coder_123456789")).toBe("编程 · #23456789");
+  expect(formatUsageBreakdownAgentLabel("vision", "vision:thread:abcdef12")).toBe("视觉理解 · #abcdef12");
 });
 
 test("formatLedgerEventTime ignores invalid timestamps", () => {

@@ -61,6 +61,13 @@ function buildOpenAIUpstreamHeaders(
   if (openAiProject) {
     headers["openai-project"] = openAiProject;
   }
+  // Codex uses session-id for ChatGPT cache affinity; PI's public Responses
+  // adapter sends session_id. Preserve the client's spelling and value rather
+  // than losing its session identity at the gateway boundary.
+  for (const name of ["session-id", "session_id"]) {
+    const value = clientHeaders.get(name);
+    if (value) headers[name] = value;
+  }
   applyUpstreamUserAgent(headers, clientHeaders, upstreamUserAgent);
   return headers;
 }
@@ -73,6 +80,23 @@ function buildOpenAIUpstreamHeaders(
 export function isDeepSeekResponsesUpstreamModel(modelId: string): boolean {
   const id = modelId.trim();
   return /\bdeepseek\b/i.test(id) || /^deepseek/i.test(id);
+}
+
+/**
+ * DeepSeek does not generate reasoning summaries. Some compatible upstreams
+ * reject the OpenAI-only summary selector with `json: unknown field "summary"`.
+ * Keep effort and replayed reasoning input intact; only omit the selector.
+ */
+export function sanitizeDeepSeekResponsesReasoning(
+  body: ResponsesRequest,
+  upstreamModelId: string,
+): { body: ResponsesRequest; dropped: string[] } {
+  if (!isDeepSeekResponsesUpstreamModel(upstreamModelId) || !body.reasoning || !("summary" in body.reasoning)) {
+    return { body, dropped: [] };
+  }
+  const reasoning = { ...body.reasoning };
+  delete reasoning.summary;
+  return { body: { ...body, reasoning }, dropped: ["reasoning.summary"] };
 }
 
 export function sanitizeDeepSeekResponsesCustomTools(
@@ -204,7 +228,11 @@ export async function forwardResponsesPassthrough(
   lifecycle?: RequestLifecycleContext,
   onToolWriteStarted?: GatewayToolWriteObserver,
 ): Promise<Response> {
-  const deepSeekSanitized = sanitizeDeepSeekResponsesCustomTools(responsesBody, route.upstreamModelId);
+  const reasoningSanitized = sanitizeDeepSeekResponsesReasoning(responsesBody, route.upstreamModelId);
+  if (reasoningSanitized.dropped.length > 0) {
+    onLog(`responses DeepSeek sanitize provider=${route.provider.id} dropped=${reasoningSanitized.dropped.join(",")}`);
+  }
+  const deepSeekSanitized = sanitizeDeepSeekResponsesCustomTools(reasoningSanitized.body, route.upstreamModelId);
   const longCatSanitized = sanitizeLongCatResponsesAgentMessages(deepSeekSanitized, route.provider.baseUrl);
   if (longCatSanitized.converted > 0) {
     onLog(

@@ -1022,10 +1022,28 @@ abstract class AppLocalizations {
   /// **'Recommended'**
   String get approvalClarificationRecommended;
 
+  /// No description provided for @approvalClarificationCustomLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Other (write an answer)'**
+  String get approvalClarificationCustomLabel;
+
+  /// No description provided for @approvalClarificationCustomDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your own answer.'**
+  String get approvalClarificationCustomDescription;
+
+  /// No description provided for @approvalClarificationCustomHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Type your answer'**
+  String get approvalClarificationCustomHint;
+
   /// No description provided for @approvalClarificationCompleteSelection.
   ///
   /// In en, this message translates to:
-  /// **'Complete selection'**
+  /// **'Confirm'**
   String get approvalClarificationCompleteSelection;
 
   /// No description provided for @approvalSeverityCritical.
@@ -1142,6 +1160,108 @@ abstract class AppLocalizations {
   /// **'Image'**
   String get composerImage;
 
+  /// No description provided for @composerPlusModeSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Modes and session'**
+  String get composerPlusModeSection;
+
+  /// No description provided for @composerPlusActionSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Add and actions'**
+  String get composerPlusActionSection;
+
+  /// No description provided for @composerPlusConfigSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Configuration'**
+  String get composerPlusConfigSection;
+
+  /// No description provided for @composerPlusPlanHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Plan the steps before making changes'**
+  String get composerPlusPlanHint;
+
+  /// No description provided for @composerPlusAskHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask questions and analyze without editing files'**
+  String get composerPlusAskHint;
+
+  /// No description provided for @composerPlusImageHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Attach designs, screenshots or local images'**
+  String get composerPlusImageHint;
+
+  /// No description provided for @composerPlusScheduleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Send later or repeat in this conversation'**
+  String get composerPlusScheduleHint;
+
+  /// No description provided for @composerPlusFirstMessageHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Send the first message at a scheduled time'**
+  String get composerPlusFirstMessageHint;
+
+  /// No description provided for @composerPlusConfigHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Main agent, prompt, subagents and models'**
+  String get composerPlusConfigHint;
+
+  /// No description provided for @composerPlusIntegrationsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Built-in browser, computer use and more'**
+  String get composerPlusIntegrationsHint;
+
+  /// No description provided for @composerPlusMcpHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect external services and tools'**
+  String get composerPlusMcpHint;
+
+  /// No description provided for @composerPlusSkillsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose skills for this conversation'**
+  String get composerPlusSkillsHint;
+
+  /// No description provided for @composerPlusSubagentsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'View subagents and their enabled status'**
+  String get composerPlusSubagentsHint;
+
+  /// No description provided for @composerPlusEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Enabled'**
+  String get composerPlusEnabled;
+
+  /// No description provided for @composerPlusBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to menu'**
+  String get composerPlusBack;
+
+  /// No description provided for @composerPrimaryAgent.
+  ///
+  /// In en, this message translates to:
+  /// **'Main agent'**
+  String get composerPrimaryAgent;
+
+  /// No description provided for @composerRuntimeConfig.
+  ///
+  /// In en, this message translates to:
+  /// **'Runtime config'**
+  String get composerRuntimeConfig;
+
   /// No description provided for @composerPlusMenu.
   ///
   /// In en, this message translates to:
@@ -1189,6 +1309,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Send a message...'**
   String get composerSendHint;
+
+  /// No description provided for @composerSendScheduled.
+  ///
+  /// In en, this message translates to:
+  /// **'Schedule send'**
+  String get composerSendScheduled;
+
+  /// No description provided for @composerSendQueue.
+  ///
+  /// In en, this message translates to:
+  /// **'Queue'**
+  String get composerSendQueue;
+
+  /// No description provided for @composerSendSteer.
+  ///
+  /// In en, this message translates to:
+  /// **'Guide direction'**
+  String get composerSendSteer;
 
   /// No description provided for @composerFollowUp.
   ///
@@ -4982,6 +5120,30 @@ abstract class AppLocalizations {
   /// **'Used for automatic tool reviews; supports chat models and SystemOne (Jev)'**
   String get composerApprovalModelHintAcp;
 
+  /// No description provided for @schedulingContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Content'**
+  String get schedulingContent;
+
+  /// No description provided for @schedulingTiming.
+  ///
+  /// In en, this message translates to:
+  /// **'When to run'**
+  String get schedulingTiming;
+
+  /// No description provided for @schedulingAdvanced.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced'**
+  String get schedulingAdvanced;
+
+  /// No description provided for @schedulingImageLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'You can add up to 20 images.'**
+  String get schedulingImageLimit;
+
   /// No description provided for @schedulingTitle.
   ///
   /// In en, this message translates to:
@@ -5305,6 +5467,432 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Schedule saved'**
   String get schedulingSaved;
+
+  /// No description provided for @todosTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'To-dos'**
+  String get todosTitle;
+
+  /// No description provided for @todosSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A clear space for your next step.'**
+  String get todosSubtitle;
+
+  /// No description provided for @todosAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'New to-do'**
+  String get todosAdd;
+
+  /// No description provided for @todosEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit to-do'**
+  String get todosEdit;
+
+  /// No description provided for @todosAllProjects.
+  ///
+  /// In en, this message translates to:
+  /// **'All projects'**
+  String get todosAllProjects;
+
+  /// No description provided for @todosProject.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose project'**
+  String get todosProject;
+
+  /// No description provided for @todosSearchProjects.
+  ///
+  /// In en, this message translates to:
+  /// **'Search project name or path'**
+  String get todosSearchProjects;
+
+  /// No description provided for @todosSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Search to-dos or projects'**
+  String get todosSearch;
+
+  /// No description provided for @todosPending.
+  ///
+  /// In en, this message translates to:
+  /// **'To do'**
+  String get todosPending;
+
+  /// No description provided for @todosCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get todosCompleted;
+
+  /// No description provided for @todosMarkComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark complete'**
+  String get todosMarkComplete;
+
+  /// No description provided for @todosMarkPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark incomplete'**
+  String get todosMarkPending;
+
+  /// No description provided for @todosEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Make room for your next step'**
+  String get todosEmpty;
+
+  /// No description provided for @todosEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Save ideas, questions or screenshots, then bring them into a conversation when you are ready.'**
+  String get todosEmptyHint;
+
+  /// No description provided for @todosNoResults.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching to-dos'**
+  String get todosNoResults;
+
+  /// No description provided for @todosNoResultsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Try another search or choose a different project.'**
+  String get todosNoResultsHint;
+
+  /// No description provided for @todosNoPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing left to do here'**
+  String get todosNoPending;
+
+  /// No description provided for @todosNoProjects.
+  ///
+  /// In en, this message translates to:
+  /// **'No projects available. Open a project from Sessions first.'**
+  String get todosNoProjects;
+
+  /// No description provided for @todosInputHint.
+  ///
+  /// In en, this message translates to:
+  /// **'What would you like to do? You can add screenshots too…'**
+  String get todosInputHint;
+
+  /// No description provided for @todosImagesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Up to 5 images, 5 MB each'**
+  String get todosImagesHint;
+
+  /// No description provided for @todosAddImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Add image'**
+  String get todosAddImage;
+
+  /// No description provided for @todosRemoveImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove image'**
+  String get todosRemoveImage;
+
+  /// No description provided for @todosPreviewImage.
+  ///
+  /// In en, this message translates to:
+  /// **'View image'**
+  String get todosPreviewImage;
+
+  /// No description provided for @todosImageInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a valid PNG, JPEG, GIF or WebP image.'**
+  String get todosImageInvalid;
+
+  /// No description provided for @todosImageTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'Images must be no larger than 5 MB.'**
+  String get todosImageTooLarge;
+
+  /// No description provided for @todosImageLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'You can add up to 5 images.'**
+  String get todosImageLimit;
+
+  /// No description provided for @todosSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'To-do saved'**
+  String get todosSaved;
+
+  /// No description provided for @todosDeleted.
+  ///
+  /// In en, this message translates to:
+  /// **'To-do deleted'**
+  String get todosDeleted;
+
+  /// No description provided for @todosUndo.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo'**
+  String get todosUndo;
+
+  /// No description provided for @todosMore.
+  ///
+  /// In en, this message translates to:
+  /// **'To-do actions'**
+  String get todosMore;
+
+  /// No description provided for @todosCompose.
+  ///
+  /// In en, this message translates to:
+  /// **'Bring into conversation'**
+  String get todosCompose;
+
+  /// No description provided for @todosNewConversation.
+  ///
+  /// In en, this message translates to:
+  /// **'New conversation'**
+  String get todosNewConversation;
+
+  /// No description provided for @todosComposeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Fills the composer for you to review and send. Your to-do stays here.'**
+  String get todosComposeHint;
+
+  /// No description provided for @todosSearchThreads.
+  ///
+  /// In en, this message translates to:
+  /// **'Search conversations in this project'**
+  String get todosSearchThreads;
+
+  /// No description provided for @todosLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load to-dos'**
+  String get todosLoadFailed;
+
+  /// No description provided for @todosConflict.
+  ///
+  /// In en, this message translates to:
+  /// **'This to-do changed on another device. Keep your text, close the editor and reopen it before saving.'**
+  String get todosConflict;
+
+  /// No description provided for @todosMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'This to-do or image was deleted. Refresh the list.'**
+  String get todosMissing;
+
+  /// No description provided for @todosUpgrade.
+  ///
+  /// In en, this message translates to:
+  /// **'Update Eco on the connected computer to use remote to-dos.'**
+  String get todosUpgrade;
+
+  /// No description provided for @todosDiscardTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard changes?'**
+  String get todosDiscardTitle;
+
+  /// No description provided for @todosDiscardHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Your unsaved changes will be lost.'**
+  String get todosDiscardHint;
+
+  /// No description provided for @todosDiscard.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get todosDiscard;
+
+  /// No description provided for @todosTextLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'To-do text cannot exceed 100,000 characters.'**
+  String get todosTextLimit;
+
+  /// No description provided for @codexQuotaTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Usage'**
+  String get codexQuotaTab;
+
+  /// No description provided for @codexQuotaTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'ChatGPT Login account usage'**
+  String get codexQuotaTitle;
+
+  /// No description provided for @codexQuotaCurrentAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Current account: {name}'**
+  String codexQuotaCurrentAccount(String name);
+
+  /// No description provided for @codexQuotaRemaining.
+  ///
+  /// In en, this message translates to:
+  /// **'{percent}% remaining'**
+  String codexQuotaRemaining(String percent);
+
+  /// No description provided for @codexQuotaDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{count}-day quota'**
+  String codexQuotaDays(String count);
+
+  /// No description provided for @codexQuotaHours.
+  ///
+  /// In en, this message translates to:
+  /// **'{count}-hour quota'**
+  String codexQuotaHours(String count);
+
+  /// No description provided for @codexQuotaResetsAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Resets on {time}'**
+  String codexQuotaResetsAt(String time);
+
+  /// No description provided for @codexQuotaResetCount.
+  ///
+  /// In en, this message translates to:
+  /// **'Available resets: {count}'**
+  String codexQuotaResetCount(String count);
+
+  /// No description provided for @codexQuotaNoCredit.
+  ///
+  /// In en, this message translates to:
+  /// **'This account has no reset credits'**
+  String get codexQuotaNoCredit;
+
+  /// No description provided for @codexQuotaNothingToReset.
+  ///
+  /// In en, this message translates to:
+  /// **'No quota window is available to reset'**
+  String get codexQuotaNothingToReset;
+
+  /// No description provided for @codexQuotaSwitching.
+  ///
+  /// In en, this message translates to:
+  /// **'Switching accounts. Reset will be available when complete.'**
+  String get codexQuotaSwitching;
+
+  /// No description provided for @codexQuotaSwitchAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch account'**
+  String get codexQuotaSwitchAccount;
+
+  /// No description provided for @codexQuotaUseReset.
+  ///
+  /// In en, this message translates to:
+  /// **'Use reset'**
+  String get codexQuotaUseReset;
+
+  /// No description provided for @codexQuotaRefresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh usage'**
+  String get codexQuotaRefresh;
+
+  /// No description provided for @codexQuotaLoading.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading account usage…'**
+  String get codexQuotaLoading;
+
+  /// No description provided for @codexQuotaIdle.
+  ///
+  /// In en, this message translates to:
+  /// **'No usage data yet'**
+  String get codexQuotaIdle;
+
+  /// No description provided for @codexQuotaNoAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'No signed-in Codex account selected'**
+  String get codexQuotaNoAccount;
+
+  /// No description provided for @codexQuotaSwitchDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose another signed-in account with remaining quota. Usage is checked again before switching.'**
+  String get codexQuotaSwitchDescription;
+
+  /// No description provided for @codexQuotaNoCandidates.
+  ///
+  /// In en, this message translates to:
+  /// **'No other signed-in accounts'**
+  String get codexQuotaNoCandidates;
+
+  /// No description provided for @codexQuotaSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Search accounts'**
+  String get codexQuotaSearch;
+
+  /// No description provided for @codexQuotaNoResults.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching accounts'**
+  String get codexQuotaNoResults;
+
+  /// No description provided for @codexQuotaUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Account unavailable or out of quota. Refresh and choose another account.'**
+  String get codexQuotaUnavailable;
+
+  /// No description provided for @codexQuotaUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'No usage data yet. Refresh to check.'**
+  String get codexQuotaUnknown;
+
+  /// No description provided for @codexQuotaExhausted.
+  ///
+  /// In en, this message translates to:
+  /// **'No available quota'**
+  String get codexQuotaExhausted;
+
+  /// No description provided for @codexQuotaDisconnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop disconnected. Cannot read usage.'**
+  String get codexQuotaDisconnected;
+
+  /// No description provided for @codexQuotaRemoved.
+  ///
+  /// In en, this message translates to:
+  /// **'The active account was removed. Refresh to continue.'**
+  String get codexQuotaRemoved;
+
+  /// No description provided for @codexQuotaResetSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Usage reset successfully'**
+  String get codexQuotaResetSuccess;
+
+  /// No description provided for @codexQuotaUpdatedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Updated {time}'**
+  String codexQuotaUpdatedAt(String time);
+
+  /// No description provided for @codexQuotaBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to usage'**
+  String get codexQuotaBack;
 }
 
 class _AppLocalizationsDelegate

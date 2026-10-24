@@ -12,6 +12,7 @@ import {
   type BrowserInstanceView,
   type BrowserLoadError,
   type BrowserViewState,
+  type AgentBrowserProcessView,
   browserAgentSessionKey,
   browserPersonalScopeId,
   buildEcoAgentBrowserPromptAppend,
@@ -41,6 +42,7 @@ import type { McpSdkConfig } from "../shared/mcp";
 import type { AgentBrowserMcpToolResult } from "./agent-browser-cli-bridge";
 import { callAgentBrowserToolViaCli, resolveAgentBrowserTabIndex } from "./agent-browser-cli-bridge";
 import { resolveAgentBrowserBinary } from "./agent-browser-resolve";
+import { AGENT_BROWSER_IDLE_TIMEOUT_MS, agentBrowserProcesses } from "./agent-browser-processes";
 import { type BrowserCdpProxy, type BrowserCdpTarget, assertBrowserGuestWebContents, startMultiBrowserCdpProxy } from "./browser-cdp-proxy";
 import { writeBrowserHtmlPreviewTempFile } from "./browser-html-preview";
 import { BrowserMcpGateway, mergeEcoBrowserSdkConfig } from "./browser-mcp-gateway";
@@ -79,16 +81,12 @@ function resolveAgentBrowserSocketDir(): string {
 function ensureAgentBrowserRuntimeEnv(cdpPort: number, threadId: string): Record<string, string> {
   const sessionKey = browserAgentSessionKey(threadId);
   const socketDir = path.join(resolveAgentBrowserSocketDir(), sessionKey);
-  try {
-    fs.mkdirSync(socketDir, { recursive: true });
-  } catch {
-    // Agent may still fail later; injection keeps trying with the path.
-  }
+  fs.mkdirSync(socketDir, { recursive: true });
   return {
     AGENT_BROWSER_SOCKET_DIR: socketDir,
     AGENT_BROWSER_SESSION: sessionKey,
     AGENT_BROWSER_CDP: String(cdpPort),
-    AGENT_BROWSER_IDLE_TIMEOUT_MS: "0",
+    AGENT_BROWSER_IDLE_TIMEOUT_MS: String(AGENT_BROWSER_IDLE_TIMEOUT_MS),
     AGENT_BROWSER_AUTOSAVE_INTERVAL_MS: "0",
   };
 }
@@ -213,6 +211,44 @@ export class BrowserHost {
   private readonly agentPointerMoveAt = new Map<string, number>();
 
   constructor(private readonly deps: BrowserHostDeps) {}
+
+  private readonly browserCleanups = new Map<string, Promise<void>>();
+  private readonly disposedThreadScopes = new Set<string>();
+
+  async getAgentBrowserProcesses(threadIds: readonly string[] = []): Promise<AgentBrowserProcessView[]> {
+    const binary = resolveAgentBrowserBinary();
+    if (!binary.binaryPath) throw new Error(binary.reason ?? "agent-browser 不可用");
+    const owners = new Map(
+      [...threadIds, ...this.scopes.keys()].map((id) => [browserAgentSessionKey(id), id]),
+    );
+    return agentBrowserProcesses.list(resolveAgentBrowserSocketDir(), binary.binaryPath, owners);
+  }
+
+  async stopAgentBrowserProcess(id: string): Promise<void> {
+    if (!/^e[a-f0-9]{10}$/.test(id)) throw new Error("无效的浏览器自动化进程 ID。");
+    await this.getAgentBrowserProcesses();
+    await agentBrowserProcesses.stop(resolveAgentBrowserSocketDir(), new Set([id]));
+  }
+
+  private async stopThreadAgentBrowserProcesses(threadId: string): Promise<void> {
+    const processes = await this.getAgentBrowserProcesses([threadId]);
+    const ids = new Set([browserAgentSessionKey(threadId)]);
+    for (const resource of processes) if (resource.threadId === threadId) ids.add(resource.id);
+    for (const browser of this.scopes.get(threadId)?.browsers.values() ?? []) {
+      ids.add(browserAgentSessionKey(`reference:${browser.id}`));
+    }
+    await agentBrowserProcesses.stop(resolveAgentBrowserSocketDir(), ids);
+  }
+
+  private async drainBrowserCleanups(): Promise<void> {
+    const cleanups = [...this.browserCleanups.values()];
+    this.browserCleanups.clear();
+    const results = await Promise.allSettled(cleanups);
+    const errors = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+    if (errors.length) {
+      throw new AggregateError(errors, `浏览器后台资源清理失败：${errors.map(String).join("\n")}`);
+    }
+  }
 
   private gateway(): BrowserMcpGateway {
     if (!this.browserMcpGateway) {
@@ -575,17 +611,7 @@ export class BrowserHost {
     return [...scope.browsers.values()].flatMap((browser) => {
       const wc = browser.webContents;
       const alive = wc && !wc.isDestroyed();
-      let url = alive
-        ? wc.getURL() || HOME_URL
-        : browser.detachedUrl?.trim() || browser.pendingUrl?.trim() || HOME_URL;
-      if (
-        alive &&
-        isBrowserPlaceholderUrl(url) &&
-        browser.detachedUrl?.trim() &&
-        !isBrowserPlaceholderUrl(browser.detachedUrl)
-      ) {
-        url = browser.detachedUrl.trim();
-      }
+      const url = this.resolveBrowserTabUrl(browser);
       if (
         !shouldSurfaceBrowserInstance({
           url,
@@ -980,7 +1006,7 @@ export class BrowserHost {
     return this.getState();
   }
 
-  closeBrowser(browserId: string): BrowserViewState {
+  async closeBrowser(browserId: string): Promise<BrowserViewState> {
     const found = this.findBrowser(browserId);
     if (!found) {
       return this.getState();
@@ -996,6 +1022,11 @@ export class BrowserHost {
       this.revealBrowserId = scope.focusedBrowserId;
     }
     this.emit();
+    if (scope.browsers.size === 0) {
+      await this.stopThreadAgentBrowserProcesses(scope.threadId);
+      await this.tearDownScopeCdp(scope);
+    }
+    await this.drainBrowserCleanups();
     return this.getState();
   }
 
@@ -1005,14 +1036,20 @@ export class BrowserHost {
     void this.downloads.removeBrowser(browser.id).catch(error => console.error("[browser] Download cleanup failed", error));
     const proxy = this.referenceProxies.get(browser.id);
     this.referenceProxies.delete(browser.id);
-    if (proxy) void proxy.then(async value => {
-      try {
-        const binary = resolveAgentBrowserBinary();
-        if (binary.binaryPath) await callAgentBrowserToolViaCli({ binaryPath: binary.binaryPath, cdpPort: value.port,
-          sessionKey: browserAgentSessionKey(`reference:${browser.id}`), env: ensureAgentBrowserRuntimeEnv(value.port, `reference:${browser.id}`),
-          toolName: "agent_browser_close", args: {}, timeoutMs: 3000 });
-      } finally { await value.close(); }
-    }).catch(() => {});
+    if (proxy) {
+      const cleanup = proxy.then(async (value) => {
+        try {
+          await agentBrowserProcesses.stop(
+            resolveAgentBrowserSocketDir(),
+            new Set([browserAgentSessionKey(`reference:${browser.id}`)]),
+          );
+        } finally {
+          await value.close();
+        }
+      });
+      this.browserCleanups.set(browser.id, cleanup);
+      void cleanup.catch((error) => console.error("[browser] Reference process cleanup failed", error));
+    }
     if (browser.guestLoadTimer) {
       clearTimeout(browser.guestLoadTimer);
       browser.guestLoadTimer = undefined;
@@ -1155,11 +1192,13 @@ export class BrowserHost {
 
   async openExternalCurrent(browserId?: string): Promise<void> {
     const browser = this.requireFocusedOrId(browserId);
-    const wc = browser.webContents;
-    const url = wc && !wc.isDestroyed() ? wc.getURL() : (browser.pendingUrl ?? "");
-    if (isBrowserHttpUrl(url)) {
-      await shell.openExternal(url);
+    // Use the address shown in the toolbar, including while a guest is being
+    // recreated. Its WebContents may still be blank or already destroyed.
+    const url = this.resolveBrowserTabUrl(browser);
+    if (!isBrowserHttpUrl(url)) {
+      throw new Error("Only HTTP and HTTPS pages can be opened in the system browser.");
     }
+    await shell.openExternal(url);
   }
 
   private async waitForGuestWebContents(browserId: string, timeoutMs = 30_000): Promise<WebContents> {
@@ -1416,6 +1455,13 @@ export class BrowserHost {
     this.downloads.cancel(browserId, fileId);
   }
 
+  async removeDownloadForUi(browserId: string, fileId: string): Promise<void> {
+    const found = this.findBrowser(browserId);
+    if (!found || found.scope.threadId !== this.uiScopeId) throw new Error("Browser is not in the current UI scope.");
+    await this.downloads.remove(browserId, fileId);
+    this.emit();
+  }
+
   /** Resolve a real guest for human-selected content, never the Eco main window. */
   getSelectionTarget(browserId: string): { guest: WebContents; instance: BrowserInstanceView } {
     const found = this.findBrowser(browserId);
@@ -1433,9 +1479,10 @@ export class BrowserHost {
     if (["url", "href", "session", "cdp", "tabId", "browserId", "targetId", "extraArgs"].some(key => Object.hasOwn(args, key))) throw new Error("网页引用不能改用其他地址、会话或标签页。");
     const previous = this.referenceCalls.get(browserId) ?? Promise.resolve();
     const call = previous.catch(() => {}).then(async () => {
+      if (this.disposed) throw new Error("浏览器服务已关闭。");
       signal?.throwIfAborted();
       const found = this.findBrowser(browserId);
-      if (!found || !shouldSurfaceBrowserInstance({ url: this.resolveBrowserTabUrl(found.browser), surfacePlaceholder: found.browser.surfacePlaceholder })) throw new Error("引用的网页已关闭。");
+      if (!found || this.disposedThreadScopes.has(found.scope.threadId) || !shouldSurfaceBrowserInstance({ url: this.resolveBrowserTabUrl(found.browser), surfacePlaceholder: found.browser.surfacePlaceholder })) throw new Error("引用的网页已关闭。");
       const guest = await this.waitForGuestWebContents(browserId);
       this.noteAgentPresence(browserId);
       if (action === "agent_browser_screenshot") {
@@ -1454,11 +1501,13 @@ export class BrowserHost {
         pending.catch(() => { if (this.referenceProxies.get(browserId) === pending) this.referenceProxies.delete(browserId); });
       }
       const proxy = await pending;
+      if (this.disposed || this.disposedThreadScopes.has(found.scope.threadId) || !this.findBrowser(browserId)) throw new Error("引用的网页已关闭。");
       const binary = resolveAgentBrowserBinary();
       if (!binary.available || !binary.binaryPath) throw new Error(binary.reason ?? "agent-browser 不可用");
       const sessionId = `reference:${browserId}`;
       return callAgentBrowserToolViaCli({ binaryPath: binary.binaryPath, cdpPort: proxy.port, cdpTargetId: browserId,
-        sessionKey: browserAgentSessionKey(sessionId), env: ensureAgentBrowserRuntimeEnv(proxy.port, sessionId), toolName: action, args, ...(signal ? { signal } : {}) });
+        sessionKey: browserAgentSessionKey(sessionId), threadId: found.scope.threadId, browserId,
+        env: ensureAgentBrowserRuntimeEnv(proxy.port, sessionId), toolName: action, args, ...(signal ? { signal } : {}) });
     });
     this.referenceCalls.set(browserId, call);
     try { return await call; } finally { if (this.referenceCalls.get(browserId) === call) this.referenceCalls.delete(browserId); }
@@ -1618,7 +1667,7 @@ export class BrowserHost {
     return agentBrowserTextResult(`Switched to t${index + 1}`);
   }
 
-  private invokeNativeAgentBrowserTabClose(threadId: string): AgentBrowserMcpToolResult {
+  private async invokeNativeAgentBrowserTabClose(threadId: string): Promise<AgentBrowserMcpToolResult> {
     const scope = this.scopes.get(threadId.trim());
     if (!scope || scope.browsers.size === 0) {
       throw new Error("No tabs to close");
@@ -1627,7 +1676,7 @@ export class BrowserHost {
     if (!browserId) {
       throw new Error("No tabs to close");
     }
-    this.closeBrowser(browserId);
+    await this.closeBrowser(browserId);
     return agentBrowserTextResult("Tab closed");
   }
 
@@ -1712,6 +1761,7 @@ export class BrowserHost {
     if (!scope) {
       return;
     }
+    await this.stopThreadAgentBrowserProcesses(scopeId);
     await this.tearDownScopeCdp(scope);
     for (const browser of [...scope.browsers.values()]) {
       this.destroyBrowser(scope, browser);
@@ -1721,6 +1771,7 @@ export class BrowserHost {
       this.revealBrowserId = undefined;
     }
     this.emit();
+    await this.drainBrowserCleanups();
   }
 
   isFeatureAvailable(): { available: boolean; reason?: string } {
@@ -1881,15 +1932,14 @@ export class BrowserHost {
   }
 
   async disposeThreadScope(threadId: string): Promise<void> {
-    this.gateway().disposeThread(threadId);
+    this.disposedThreadScopes.add(threadId);
+    this.browserMcpGateway?.disposeThread(threadId);
+    await this.stopThreadAgentBrowserProcesses(threadId);
     const scope = this.scopes.get(threadId);
     if (!scope) {
       return;
     }
-    if (scope.cdp) {
-      await scope.cdp.close();
-      scope.cdp = undefined;
-    }
+    await this.tearDownScopeCdp(scope);
     for (const browser of [...scope.browsers.values()]) {
       this.destroyBrowser(scope, browser);
     }
@@ -1898,24 +1948,36 @@ export class BrowserHost {
       this.uiScopeId = ECO_BROWSER_PERSONAL_SCOPE_ID;
     }
     this.emit();
+    await this.drainBrowserCleanups();
   }
 
-  dispose(): void {
+  async dispose(): Promise<void> {
     this.disposed = true;
+    agentBrowserProcesses.beginShutdown(resolveAgentBrowserSocketDir());
     if (this.downloadEmitTimer) clearTimeout(this.downloadEmitTimer);
     for (const remove of this.partitionHandlers.values()) remove();
     this.partitionHandlers.clear();
     this.revealBrowserId = undefined;
-    void this.browserMcpGateway?.close();
+    const gatewayClosing = this.browserMcpGateway?.close();
     this.browserMcpGateway = undefined;
-    for (const scope of this.scopes.values()) {
-      void scope.cdp?.close();
-      for (const browser of [...scope.browsers.values()]) {
-        this.destroyBrowser(scope, browser);
-      }
-    }
+    const results = await Promise.allSettled([
+      gatewayClosing,
+      (async () => {
+        await this.getAgentBrowserProcesses();
+        await agentBrowserProcesses.stop(resolveAgentBrowserSocketDir());
+      })(),
+      ...[...this.scopes.values()].map(async (scope) => {
+        await this.tearDownScopeCdp(scope);
+        for (const browser of [...scope.browsers.values()]) this.destroyBrowser(scope, browser);
+      }),
+      this.downloads.dispose(),
+    ]);
     this.scopes.clear();
-    void this.downloads.dispose().catch(error => console.error("[browser] Download cleanup failed", error));
+    await this.drainBrowserCleanups();
+    const errors = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+    if (errors.length) {
+      throw new AggregateError(errors, `浏览器后台资源未完全退出：${errors.map(String).join("\n")}`);
+    }
   }
 }
 

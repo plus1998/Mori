@@ -1,10 +1,14 @@
 import { expect, test } from "bun:test";
 import type { CodexTurnTokenUsageBreakdown } from "@eco/runtime";
 import { projectBillingFromUsageLedger } from "../src/main/billing-projector";
-import { resolveBuiltInOpenAiDefaultRates } from "../src/main/built-in-openai-pricing";
-import { normalizeCodexAppServerUsage } from "../src/main/codex-app-server-usage-billing";
+import {
+  buildCodexAppServerBillingRequests,
+  normalizeCodexAppServerUsage,
+} from "../src/main/codex-app-server-usage-billing";
+import { parseOpenAiApiPricing, resolveOpenAiApiRates } from "../src/main/openai-api-pricing";
 import { resolveSingleUsageBillingArtifacts } from "../src/main/usage-billing-artifacts";
 import { buildThreadUsageLedgerEventView } from "../src/main/usage-ledger-view";
+import { PRICING_MARKDOWN } from "./openai-api-pricing-fixture";
 
 test("Codex input buckets are disjoint even with a low cache hit rate", () => {
   expect(
@@ -36,32 +40,6 @@ test("Codex invalid cached input fails instead of silently clamping tokens", () 
   ).toThrow("cachedInputTokens must be a subset of inputTokens");
 });
 
-test("GPT-6 model variants use their own public rates and unknown models stay unresolved", () => {
-  expect(resolveBuiltInOpenAiDefaultRates("gpt-6-luna-max")).toEqual({
-    input: 0.1,
-    output: 0.5,
-    cacheRead: 0.01,
-    cacheWrite: 0.125,
-  });
-  expect(resolveBuiltInOpenAiDefaultRates("gpt-6-sol-xhigh")).toMatchObject({
-    input: 2,
-    output: 10,
-    cacheRead: 0.2,
-  });
-  expect(resolveBuiltInOpenAiDefaultRates("gpt-6.1-sol")).toMatchObject({
-    input: 2,
-    output: 10,
-    cacheRead: 0.1,
-  });
-  expect(resolveBuiltInOpenAiDefaultRates("gpt-6-astra-high")).toMatchObject({
-    input: 10,
-    output: 50,
-    cacheRead: 1,
-  });
-  expect(resolveBuiltInOpenAiDefaultRates("gpt-6-unknown")).toBeNull();
-  expect(resolveBuiltInOpenAiDefaultRates("gpt-6-lunatic")).toBeNull();
-});
-
 test("Codex Luna turn usage stays consistent through ledger, totals and event display", async () => {
   // Regression counts: each entry is a turn's model-request sum, not its context window.
   const turns: CodexTurnTokenUsageBreakdown[] = [
@@ -91,6 +69,10 @@ test("Codex Luna turn usage stays consistent through ledger, totals and event di
         usage: normalizeCodexAppServerUsage(turn),
         runtimeRoutes: [],
         lookupPricing: async () => null,
+        codexPlannerModelId: "gpt-6-luna",
+        // This regression fixture represents sums of multiple short requests.
+        lookupCodexApiRates: async () =>
+          parseOpenAiApiPricing(PRICING_MARKDOWN)["gpt-6-luna"]?.shortContext ?? null,
         requestKey: `codex-turn-usage:thread:turn-${index}`,
         plannerAgentId: `main:attempt-${index}`,
       }),
@@ -132,4 +114,58 @@ test("unknown direct OpenAI models cannot produce a resolved Astra estimate", as
   });
   expect(result.requestBilling.pricingResolved).toBe(false);
   expect(result.actualRates).toBeNull();
+});
+
+test("request-level pricing does not turn a sum of short requests into a long-context charge", async () => {
+  const one = {
+    inputTokens: 200_000,
+    cachedInputTokens: 100_000,
+    outputTokens: 1000,
+    reasoningOutputTokens: 0,
+    totalTokens: 201_000,
+  };
+  const two = { ...one, inputTokens: 300_000, totalTokens: 301_000 };
+  const total = {
+    inputTokens: 500_000,
+    cachedInputTokens: 200_000,
+    outputTokens: 2000,
+    reasoningOutputTokens: 0,
+    totalTokens: 502_000,
+  };
+  const prices = parseOpenAiApiPricing(PRICING_MARKDOWN);
+  const requests = buildCodexAppServerBillingRequests({
+    usage: total,
+    requests: [one, two],
+    requestKey: "turn",
+  });
+  const artifacts = await Promise.all(
+    requests.map(async (request) =>
+      resolveSingleUsageBillingArtifacts({
+        threadId: "thr_tier",
+        role: "main",
+        source: "codex",
+        providerId: "openai",
+        modelId: "gpt-6.1-sol",
+        codexPlannerModelId: "gpt-6.1-sol",
+        usage: request.usage,
+        runtimeRoutes: [],
+        lookupPricing: async () => null,
+        lookupCodexApiRates: async (id, usage) =>
+          resolveOpenAiApiRates(prices[id], usage, request.codexUsageIsAggregate),
+        requestKey: request.requestKey,
+      }),
+    ),
+  );
+  expect(artifacts[0]?.actualRates?.input).toBe(2);
+  expect(artifacts[1]?.actualRates?.input).toBe(4);
+  expect(artifacts.reduce((sum, result) => sum + result.requestBilling.ecoCostUsd, 0)).toBeCloseTo(1.055, 6);
+  expect(requests.map((request) => request.requestKey)).toEqual(["turn:request:0", "turn:request:1"]);
+  const [aggregate] = buildCodexAppServerBillingRequests({ usage: total, requestKey: "turn" });
+  if (!aggregate) throw new Error("Missing aggregate request");
+  expect(
+    resolveOpenAiApiRates(prices["gpt-6.1-sol"], aggregate.usage, aggregate.codexUsageIsAggregate),
+  ).toBeNull();
+  expect(() =>
+    buildCodexAppServerBillingRequests({ usage: total, requests: [one], requestKey: "turn" }),
+  ).toThrow(/does not match/);
 });

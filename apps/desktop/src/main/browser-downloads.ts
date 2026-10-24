@@ -105,6 +105,18 @@ export class BrowserDownloads {
     file.item.cancel();
   }
 
+  async remove(browserId: string, id: string): Promise<void> {
+    const file = this.requireFile(browserId, id);
+    if (file.metadata.state === "pending") throw new Error("Cancel the download before deleting it.");
+    // Only this retained download's private directory is removed. Keep the
+    // record visible if cleanup fails so the user can retry the operation.
+    if (file.path) {
+      await fs.promises.rm(path.dirname(file.path), { recursive: true, force: true, maxRetries: 3 });
+    }
+    this.files.delete(id);
+    this.changed();
+  }
+
   async removeBrowser(browserId: string): Promise<void> {
     const directories: string[] = [];
     for (const [id, file] of this.files) {

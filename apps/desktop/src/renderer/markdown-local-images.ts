@@ -55,7 +55,7 @@ export function isPathInsideWorkspace(workspacePath: string, targetPath: string)
   const win = isWindowsPath(workspace);
   const left = win ? workspace.toLowerCase() : workspace;
   const right = win ? target.toLowerCase() : target;
-  return right === left || right.startsWith(`${left}/`);
+  return right === left || right.startsWith(left.endsWith("/") ? left : `${left}/`);
 }
 
 export function isSkippableImageSrc(src: string): boolean {
@@ -79,9 +79,9 @@ export function stripImageSrcDecorations(src: string): string {
 }
 
 /**
- * Resolve a markdown/HTML image src to an absolute workspace file path.
+ * Resolve a markdown/HTML image src to an absolute local file path.
  * Relative paths are against the markdown file directory (GitHub-like).
- * Leading `/` paths that are not under the workspace are treated as workspace-root relative.
+ * Workspace documents retain workspace-root-relative `/` paths; external documents use disk paths.
  */
 export function resolveMarkdownImagePath(
   workspacePath: string,
@@ -100,14 +100,14 @@ export function resolveMarkdownImagePath(
     candidate = normalizePathSegments(src);
   } else if (src.startsWith("/")) {
     const asAbsolute = normalizePathSegments(src);
-    candidate = isPathInsideWorkspace(workspace, asAbsolute)
-      ? asAbsolute
-      : normalizePathSegments(`${workspace}/${src.replace(/^\/+/, "")}`);
+    candidate =
+      !isPathInsideWorkspace(workspace, markdownFilePath) || isPathInsideWorkspace(workspace, asAbsolute)
+        ? asAbsolute
+        : normalizePathSegments(`${workspace}/${src.replace(/^\/+/, "")}`);
   } else {
     candidate = normalizePathSegments(`${mdDir}/${src}`);
   }
 
-  if (!isPathInsideWorkspace(workspace, candidate)) return undefined;
   return candidate;
 }
 
@@ -204,10 +204,7 @@ export async function resolveLocalImageDataUrls(input: {
   workspacePath: string;
   markdownFilePath: string;
   srcs: readonly string[];
-  readFile: (request: {
-    workspacePath: string;
-    filePath: string;
-  }) => Promise<WorkspaceImageReadResult>;
+  readFile: (request: { workspacePath: string; filePath: string }) => Promise<WorkspaceImageReadResult>;
 }): Promise<Map<string, string>> {
   const urlBySrc = new Map<string, string>();
   const uniqueSrcs = [...new Set(input.srcs)];

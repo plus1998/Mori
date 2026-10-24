@@ -39,6 +39,8 @@ test("local new tabs replace tools in place and create a browser only after addr
     [/审查|Review/, "review"],
     [/文件|Files/, "files"],
     [/SSH/, "ssh-bookmarks"],
+    [/创意绘画|Creative Drawing/, "image-generation"],
+    [/语音合成|Speech Generation/, "speech-generation"],
     [/审查|Review/, "review"],
   ] as const) {
     await page.locator(".subagent-task-panel-tab-add").click();

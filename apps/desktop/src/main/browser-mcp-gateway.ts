@@ -53,6 +53,7 @@ export class BrowserMcpGateway {
   private controlServer: http.Server | undefined;
   private controlPort: number | undefined;
   private disposed = false;
+  private readonly disposedThreads = new Set<string>();
   private readonly threadCalls = new Map<string, Promise<unknown>>();
 
   constructor(private readonly deps: BrowserMcpGatewayDeps) {}
@@ -105,6 +106,8 @@ export class BrowserMcpGateway {
     codexServer: CodexMcpServerForConfigSync;
     promptAppend: string;
   }> {
+    if (this.disposed) throw new Error("浏览器服务已关闭。");
+    this.disposedThreads.delete(threadId);
     await this.start();
     const record = this.auth.ensure(threadId);
     const http = buildEcoHttpInjection({
@@ -144,6 +147,7 @@ export class BrowserMcpGateway {
     args: Record<string, unknown>,
     signal?: AbortSignal,
   ) {
+    if (this.disposed || this.disposedThreads.has(threadId)) throw new Error("浏览器会话已关闭。");
     const resolved = resolveAgentBrowserBinary();
     if (!resolved.available || !resolved.binaryPath) {
       throw new Error(resolved.reason ?? "agent-browser 不可用");
@@ -157,6 +161,7 @@ export class BrowserMcpGateway {
         ? { cdpTargetId: this.deps.getFocusedTargetId(threadId) }
         : {}),
       sessionKey,
+      threadId,
       env,
       toolName,
       args,
@@ -193,6 +198,7 @@ export class BrowserMcpGateway {
     args: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<AgentBrowserMcpToolResult> {
+    if (this.disposed || this.disposedThreads.has(threadId)) throw new Error("浏览器会话已关闭。");
     this.deps.onToolCall?.(threadId, name);
     signal?.throwIfAborted();
     const nativeResult = await this.deps.invokeNativeTool?.(threadId, name, args, signal);
@@ -291,6 +297,7 @@ export class BrowserMcpGateway {
   }
 
   disposeThread(threadId: string): void {
+    this.disposedThreads.add(threadId);
     this.auth.revokeThread(threadId);
   }
 

@@ -1,3 +1,4 @@
+import type { PromptImageAttachment } from "./ipc";
 import type { CoreKind } from "@eco/runtime";
 import type { ThreadRuntimeConfig } from "./thread-runtime-config";
 import { buildEcoMcpHubToolUsage } from "./mcp-hub-tool-usage";
@@ -12,6 +13,12 @@ export interface ScheduleExecutionProfile {
   runtimeConfig: ThreadRuntimeConfig;
 }
 
+/** Reserve an idle conversation and its first scheduled message in one commit. */
+export interface ScheduledMessageNewThread {
+  workspacePath: string;
+  executionProfile: ScheduleExecutionProfile;
+}
+
 export type ScheduleCreateInput = {
   /** Stable key: retries of the same creation return the same definition. */
   requestId: string;
@@ -19,7 +26,7 @@ export type ScheduleCreateInput = {
   trigger: ScheduleTrigger;
   maxLatenessSeconds?: number;
 } & (
-  | { kind: "session_message"; threadId: string; prompt: string }
+  | { kind: "session_message"; threadId: string; prompt: string; attachments?: PromptImageAttachment[]; newThread?: ScheduledMessageNewThread }
   | { kind: "scheduled_task"; workspacePath: string; prompt: string; executionProfile: ScheduleExecutionProfile }
 );
 
@@ -28,6 +35,7 @@ export interface ScheduleDefinition {
   kind: "session_message" | "scheduled_task";
   name: string;
   prompt: string;
+  attachments?: PromptImageAttachment[];
   trigger: ScheduleTrigger;
   enabled: boolean;
   maxLatenessSeconds: number;
@@ -50,6 +58,7 @@ export interface ScheduleUpdateInput {
   expectedRevision: number;
   name?: string;
   prompt?: string;
+  attachments?: PromptImageAttachment[];
   trigger?: ScheduleTrigger;
   enabled?: boolean;
   maxLatenessSeconds?: number;

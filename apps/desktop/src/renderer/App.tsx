@@ -1,3 +1,5 @@
+import type { ProjectTodo } from "../shared/project-todos";
+import type { TodoEditorDraft } from "./ProjectTodoPanel";
 import { ReadAloudControls, ReadAloudThreadContext } from "./ReadAloud";
 import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
 import { ComposerReferencesMenu } from "./ComposerReferencesMenu";
@@ -5,10 +7,11 @@ import { useComposerReferences } from "./use-composer-references";
 import { composerReferenceToken } from "../shared/composer-references";
 import { browserSelectionReference, type BrowserSelection } from "../shared/browser-selection";
 import { BrowserSelectionPreview } from "./BrowserSelectionPreview";
+import { FollowUpPromptPreview } from "./FollowUpPromptPreview";
 import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "./browser-selection-events";
-import { ACP_IMAGE_ONLY_PROMPT } from "@eco/runtime/acp-prompt";
 import { OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID } from "../shared/agent-orchestration";
 import { CodexQuotaReminder } from "./CodexQuotaReminder";
+import { isCodexAuthThread } from "./codex-quota-reminder";
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import {
   listPlanDelegationAgents,
@@ -26,6 +29,7 @@ import {
   ChevronLeft,
   ChevronUp,
   Clock3,
+  ClipboardList,
   Cloud,
   Cog,
   CornerDownRight,
@@ -208,7 +212,7 @@ import {
   resolvePromptCacheOrchestrationLabel,
 } from "../shared/prompt-cache-config";
 import { resolveDraftCoreKindWhenAcpHidden } from "../shared/resolve-draft-core-kind-when-acp-hidden";
-import type { ScheduleDefinition } from "../shared/scheduling";
+import type { ScheduleDefinition, ScheduledMessageNewThread } from "../shared/scheduling";
 import {
   dedupeSkillsByName,
   isSkillAvailableForCore,
@@ -403,6 +407,7 @@ import {
   LazyProxySettingsPanel,
   LazyScheduledMessageDialog,
   LazySchedulingPanel,
+  LazyProjectTodoPanel,
   LazySkillsSettingsPanel,
   LazyStorageSettingsPanel,
   LazySubagentTaskDrawer,
@@ -471,6 +476,8 @@ import {
   TASK_PANEL_FILE_VIEWER_TAB_ID,
   TASK_PANEL_FILES_TAB_ID,
   TASK_PANEL_HOME_TAB_ID,
+  TASK_PANEL_IMAGE_GENERATION_TAB_ID,
+  TASK_PANEL_SPEECH_GENERATION_TAB_ID,
   TASK_PANEL_PLAN_TAB_ID,
   TASK_PANEL_REVIEW_TAB_ID,
   TASK_PANEL_SSH_BOOKMARKS_TAB_ID,
@@ -505,7 +512,6 @@ import {
 } from "./thinking-display-preferences";
 import {
   canEscalateThreadFollowUp,
-  formatThreadFollowUpPreview,
   mergeThreadFollowUp,
   mergeThreadFollowUps,
   queuedThreadFollowUps,
@@ -544,7 +550,6 @@ import { WorkspaceFloatingCards } from "./WorkspaceFloatingCards";
 import { isThreadActivelyViewed, subscribeToWindowFocus } from "./window-focus";
 import {
   isAbsoluteLocalFilePath,
-  isWorkspacePathContained,
   WORKSPACE_FILE_REFERENCE_EVENT,
   type WorkspaceFileReference,
 } from "./workspace-file-reference";
@@ -1244,6 +1249,9 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [codexAccountSwitchOpen, setCodexAccountSwitchOpen] = useState(false);
   const [schedulingOpen, setSchedulingOpen] = useState(false);
+  const [projectTodosOpen, setProjectTodosOpen] = useState(false);
+  const projectTodoComposerFocusRef = useRef(false);
+  const projectTodoDraftRef = useRef<TodoEditorDraft>({ projectPath: "", text: "", images: [], completed: false });
   const scheduling = useSchedulingSnapshot();
   const scheduledMessages = useMemo(
     () => scheduling.snapshot.schedules.filter((item) => item.kind === "session_message"),
@@ -1252,6 +1260,8 @@ function App() {
   const [scheduledMessageEditor, setScheduledMessageEditor] = useState<{
     threadId: string;
     definition?: ScheduleDefinition;
+    newThread?: ScheduledMessageNewThread;
+    draft?: { contextKey: string; prompt: string; attachments: ComposerImageAttachment[] };
   }>();
   const [scheduledMessagesReveal, setScheduledMessagesReveal] = useState<{
     threadId: string;
@@ -1660,12 +1670,15 @@ function App() {
   const [prompt, setPrompt] = useState("");
   const [composerRewindTarget, setComposerRewindTarget] = useState<ComposerRewindTarget>();
   const [composerAttachments, setComposerAttachments] = useState<ComposerImageAttachment[]>([]);
-  const [composerLightbox, setComposerLightbox] = useState<{
-    src: string;
-    alt: string;
-    label: string;
-  } | null>(null);
-  const closeComposerLightbox = useCallback(() => setComposerLightbox(null), []);
+  const [composerLightboxId, setComposerLightboxId] = useState<string | null>(null);
+  const composerPreviewAttachments = composerAttachments.filter((attachment) => attachment.previewUrl);
+  const composerLightboxIndex = composerPreviewAttachments.findIndex(
+    (attachment) => attachment.id === composerLightboxId,
+  );
+  const composerLightbox = composerPreviewAttachments[composerLightboxIndex];
+  const composerLightboxNumber = composerLightbox ? composerAttachments.indexOf(composerLightbox) + 1 : 0;
+  const composerLightboxAlt = `${t("app.pastedImages")} ${composerLightboxNumber}`;
+  const closeComposerLightbox = useCallback(() => setComposerLightboxId(null), []);
   const [plannerCapability, setPlannerCapability] = useState<RouteCapabilityHint>();
   const [composerImageNotice, setComposerImageNotice] = useState<string>();
   const [isOpening, setIsOpening] = useState(false);
@@ -2304,7 +2317,7 @@ function App() {
   const reviewDiffManualRefreshRef = useRef(false);
   reviewDiffRef.current = reviewDiff;
   const [fileTarget, setFileTarget] = useState<
-    (WorkspaceFileReference & { requestId: number; restricted?: boolean }) | undefined
+    (WorkspaceFileReference & { requestId: number }) | undefined
   >();
   liveTaskPanelUiRef.current = captureTaskPanelSessionUiState({
     open: taskDrawerOpen && !taskPanelExiting && !taskPanelClosingRef.current,
@@ -2368,7 +2381,7 @@ function App() {
       .finally(() => setCursorModelsLoading(false));
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     selectedThreadIdRef.current = selectedThreadId;
   }, [selectedThreadId]);
 
@@ -2588,7 +2601,7 @@ function App() {
           eco.showThreadClarificationNotification({
             threadId,
             toolUseId,
-            activelyViewed: isThreadActivelyViewed(selectedThreadIdRef.current, threadId, document.hasFocus()),
+            threadSelected: selectedThreadIdRef.current === threadId,
           }),
           "clarification",
         );
@@ -2729,7 +2742,7 @@ function App() {
 
       if (event.type === "thread.unstarted_turn_discarded") {
         if (event.threadId === selectedThreadIdRef.current && event.composerRestore) {
-          persistComposerDraftSnapshot(composerDraftsByKeyRef.current, `thread:${event.threadId}`, {
+          updateComposerDraftSnapshot(`thread:${event.threadId}`, {
             prompt: event.composerRestore.prompt,
             attachments: fromPromptImageAttachments(event.composerRestore.attachments ?? []),
           });
@@ -2738,7 +2751,7 @@ function App() {
           setComposerRewindTarget(undefined);
           setError(event.message);
         } else if (event.composerRestore) {
-          persistComposerDraftSnapshot(composerDraftsByKeyRef.current, `thread:${event.threadId}`, {
+          updateComposerDraftSnapshot(`thread:${event.threadId}`, {
             prompt: event.composerRestore.prompt,
             attachments: fromPromptImageAttachments(event.composerRestore.attachments ?? []),
           });
@@ -2856,7 +2869,7 @@ function App() {
         reportDesktopNotification(
           window.eco!.showThreadCompletionNotification({
             threadId: event.threadId,
-            activelyViewed,
+            threadSelected: selectedThreadIdRef.current === event.threadId,
           }),
           "task completion",
         );
@@ -2911,16 +2924,11 @@ function App() {
             ? "bash"
             : undefined;
       if (approvalNotificationKind) {
-        const activelyViewed = isThreadActivelyViewed(
-          selectedThreadIdRef.current,
-          event.threadId,
-          document.hasFocus(),
-        );
         reportDesktopNotification(
           window.eco!.showThreadApprovalNotification({
             threadId: event.threadId,
             kind: approvalNotificationKind,
-            activelyViewed,
+            threadSelected: selectedThreadIdRef.current === event.threadId,
           }),
           `${approvalNotificationKind} approval`,
         );
@@ -4065,6 +4073,18 @@ function App() {
     [activeThread?.id, currentProjectPath],
   );
   const composerDraftsByKeyRef = useRef<Record<string, ComposerDraft>>({});
+  const [composerDraftPresenceByThread, setComposerDraftPresenceByThread] = useState<Record<string, boolean>>(
+    {},
+  );
+  const draftThreadIds = useMemo(
+    () =>
+      new Set(
+        threads
+          .filter((thread) => composerDraftPresenceByThread[thread.id] ?? thread.hasComposerDraft)
+          .map((thread) => thread.id),
+      ),
+    [threads, composerDraftPresenceByThread],
+  );
   const pendingPlanComposerHandoffRef = useRef<ComposerPlanHandoff | undefined>(undefined);
   const prevComposerContextKeyRef = useRef<string | undefined>(undefined);
   const composerContextKeyRef = useRef(composerContextKey);
@@ -4077,6 +4097,12 @@ function App() {
   composerPromptRef.current = prompt;
   composerAttachmentsRef.current = composerAttachments;
   composerRewindTargetRef.current = composerRewindTarget;
+  useEffect(() => {
+    if (projectTodosOpen || !projectTodoComposerFocusRef.current) return;
+    projectTodoComposerFocusRef.current = false;
+    // Run after the closing panel restores its trigger focus.
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }, [projectTodosOpen, composerContextKey]);
   useEffect(() => {
     saveTerminalWorkspaceState(terminalByProject);
   }, [terminalByProject]);
@@ -5315,6 +5341,10 @@ function App() {
     templateMainModel?.providerId,
     composerRuntimeConfig?.mainAgentModelOverride,
   );
+  const composerUsesCodexAccount = activeThread
+    ? isCodexAuthThread(activeThread)
+    : composerCoreKind === "codex" &&
+      (composerMainAgentModelOverride?.providerId ?? templateMainModel?.providerId) === "openai";
   const refreshComposerCandidateModels = useCallback(() => {
     setComposerModelsRefreshNonce((current) => current + 1);
   }, []);
@@ -5328,6 +5358,7 @@ function App() {
       return;
     }
     let cancelled = false;
+    setComposerCandidateModels([]);
     setComposerModelsError(undefined);
     setComposerModelsLoading(true);
     void eco
@@ -5351,7 +5382,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [composerModelProviderId, composerModelsRefreshNonce]);
+  }, [composerModelProviderId, composerModelsRefreshNonce, settings.providers]);
 
   const composerModelOptions = useMemo<ComposerModelOption[]>(() => {
     return templateMainModel
@@ -5546,6 +5577,19 @@ function App() {
     ? resolveLatestThreadActivityAt(runProjection.timeline)
     : undefined;
 
+  function updateComposerDraftPresence(contextKey: string, hasDraft: boolean): void {
+    const threadId = threadIdFromComposerContextKey(contextKey);
+    if (!threadId) return;
+    setComposerDraftPresenceByThread((current) =>
+      current[threadId] === hasDraft ? current : { ...current, [threadId]: hasDraft },
+    );
+  }
+
+  function updateComposerDraftSnapshot(contextKey: string, snapshot: ComposerDraft): void {
+    persistComposerDraftSnapshot(composerDraftsByKeyRef.current, contextKey, snapshot);
+    updateComposerDraftPresence(contextKey, Boolean(snapshot.prompt.trim() || snapshot.attachments.length));
+  }
+
   function saveComposerDraftInBackground(
     contextKey: string,
     value: string,
@@ -5573,6 +5617,7 @@ function App() {
     if (!contextKey) {
       return;
     }
+    updateComposerDraftPresence(contextKey, false);
     if (composerContextKeyRef.current === contextKey) {
       composerPromptRef.current = "";
     }
@@ -5637,7 +5682,7 @@ function App() {
   useEffect(() => {
     const prevKey = prevComposerContextKeyRef.current;
     if (prevKey !== undefined && prevKey !== composerContextKey) {
-      persistComposerDraftSnapshot(composerDraftsByKeyRef.current, prevKey, {
+      updateComposerDraftSnapshot(prevKey, {
         prompt: composerPromptRef.current,
         attachments: composerAttachmentsRef.current,
         ...(composerRewindTargetRef.current ? { rewindTarget: composerRewindTargetRef.current } : {}),
@@ -5684,6 +5729,7 @@ function App() {
           : undefined,
       );
       setComposerImageNotice(undefined);
+      setComposerLightboxId(null);
       prevComposerContextKeyRef.current = composerContextKey;
 
       if (promptResolution.handoffConsumed) {
@@ -5718,7 +5764,7 @@ function App() {
               prompt: persisted.prompt,
               attachments: fromPromptImageAttachments(persisted.attachments ?? []),
             };
-            composerDraftsByKeyRef.current[composerContextKey] = restored;
+            updateComposerDraftSnapshot(composerContextKey, restored);
             composerPromptRef.current = persisted.prompt;
             setPrompt(persisted.prompt);
             setComposerAttachments(restored.attachments);
@@ -5799,7 +5845,7 @@ function App() {
       }
       return;
     }
-    persistComposerDraftSnapshot(composerDraftsByKeyRef.current, composerContextKey, {
+    updateComposerDraftSnapshot(composerContextKey, {
       prompt,
       attachments: composerAttachmentsRef.current,
       ...(composerRewindTargetRef.current ? { rewindTarget: composerRewindTargetRef.current } : {}),
@@ -5993,7 +6039,6 @@ function App() {
         requestId: fileReferenceRequestIdRef.current,
         ...(typeof restored.fileTarget.line === "number" ? { line: restored.fileTarget.line } : {}),
         ...(typeof restored.fileTarget.column === "number" ? { column: restored.fileTarget.column } : {}),
-        ...(restored.fileTarget.restricted === true ? { restricted: true } : {}),
       });
     } else {
       setFileTarget(undefined);
@@ -6172,7 +6217,6 @@ function App() {
       setFileTarget({
         ...reference,
         requestId: fileReferenceRequestIdRef.current,
-        restricted: !isWorkspacePathContained(currentProjectPath, reference.path),
       });
       setOpenTaskPanelTabIds((current) => addOpenTaskPanelTab(current, TASK_PANEL_FILE_VIEWER_TAB_ID));
       setTaskPanelActiveTab(TASK_PANEL_FILE_VIEWER_TAB_ID);
@@ -6356,6 +6400,8 @@ function App() {
           tabId === TASK_PANEL_BACKGROUND_TERMINAL_TAB_ID ||
           tabId === TASK_PANEL_PLAN_TAB_ID ||
           tabId === TASK_PANEL_SSH_BOOKMARKS_TAB_ID ||
+          tabId === TASK_PANEL_IMAGE_GENERATION_TAB_ID ||
+          tabId === TASK_PANEL_SPEECH_GENERATION_TAB_ID ||
           isNewTaskPanelTabId(tabId) ||
           activeSubagentCards.some((card) => card.key === tabId)
         ) {
@@ -8143,7 +8189,7 @@ function App() {
         threadId: activeThread.id,
         ...input,
       });
-      persistComposerDraftSnapshot(composerDraftsByKeyRef.current, `thread:${result.thread.id}`, {
+      updateComposerDraftSnapshot(`thread:${result.thread.id}`, {
         prompt: result.draft.prompt,
         attachments: fromPromptImageAttachments(result.draft.attachments),
       });
@@ -8455,8 +8501,7 @@ function App() {
     requestActivityFeedForceScroll();
     const attachments =
       composerAttachments.length > 0 ? toPromptImageAttachments(composerAttachments) : undefined;
-    const messagePrompt =
-      promptForSend.trim() || (attachments?.length ? t("app.imagePrompt") || ACP_IMAGE_ONLY_PROMPT : "");
+    const messagePrompt = promptForSend.trim();
 
     if (composerFollowUpMode && activeThread) {
       if (editingFollowUpId) {
@@ -9550,6 +9595,8 @@ function App() {
             review: TASK_PANEL_REVIEW_TAB_ID,
             files: TASK_PANEL_FILES_TAB_ID,
             sshBookmarks: TASK_PANEL_SSH_BOOKMARKS_TAB_ID,
+            imageGeneration: TASK_PANEL_IMAGE_GENERATION_TAB_ID,
+            speechGeneration: TASK_PANEL_SPEECH_GENERATION_TAB_ID,
           }[tool];
           setOpenTaskPanelTabIds((current) => replaceOpenTaskPanelTab(current, sourceTabId, tabId));
           taskPanelActiveTabRef.current = tabId;
@@ -10972,6 +11019,82 @@ function App() {
     setError(undefined);
   }
 
+  async function composeProjectTodo(todo: ProjectTodo, threadId?: string) {
+    const api = window.eco!;
+    const targetThread = threadId ? threads.find(thread => thread.id === threadId) : undefined;
+    if (threadId && (!targetThread || targetThread.workspacePath !== todo.projectPath)) {
+      throw new Error(t("todos.threadUnavailable"));
+    }
+    if (threadId && threadId === selectedThreadIdRef.current && (editingFollowUpIdRef.current || isStarting || followUpBusy)) {
+      throw new Error(t("todos.composerBusy"));
+    }
+    if (!projects.some(project => project.path === todo.projectPath)) {
+      // Reopen a removed project before selecting it; currentProjectPath only
+      // accepts registered projects and must never fall back to another folder.
+      await api.openWorkspacePath(todo.projectPath);
+      registerImportedProject(todo.projectPath);
+    }
+    const contextKey = composerContextKeyFromParts(threadId, todo.projectPath)!;
+    // Flush the target draft before replacing it. Preserve its text and original
+    // images as a separate to-do, so one-click composing never destroys work.
+    if (composerDraftSaveTimerRef.current?.key === contextKey) {
+      window.clearTimeout(composerDraftSaveTimerRef.current.timer);
+      composerDraftSaveTimerRef.current = undefined;
+    }
+    const memory = composerContextKeyRef.current === contextKey
+      ? { prompt: composerPromptRef.current, attachments: composerAttachmentsRef.current }
+      : composerDraftsByKeyRef.current[contextKey];
+    if (memory) await api.saveComposerDraft({ contextKey, prompt: memory.prompt, attachments: toPromptImageAttachments(memory.attachments) });
+    const previous = await api.getComposerDraft(contextKey);
+    let preserved = false;
+    if (previous && (previous.prompt.trim() || previous.attachments?.length)) {
+      const images = await hydrateComposerImageAttachments(fromPromptImageAttachments(previous.attachments ?? []), contextKey, request => api.readPromptImageChunk(request));
+      try {
+        const matchesTodo = previous.prompt === todo.text && images.length === todo.images.length &&
+          images.every((image, index) => image.mediaType === todo.images[index]?.mediaType && image.data === todo.images[index]?.data);
+        if (!matchesTodo) {
+          const { createTodoImage } = await import("./project-todo-images");
+          await api.saveProjectTodo({ projectPath: todo.projectPath, text: previous.prompt, completed: false,
+            images: await Promise.all(images.map(image => {
+              if (!image.data) throw new Error(t("todos.draftSaveFailed"));
+              return createTodoImage(image.id, image.mediaType, image.data);
+            })),
+          });
+          preserved = true;
+        }
+      } finally { revokeComposerAttachmentPreviews(images); }
+    }
+    const attachments = todo.images.map(image => {
+      if (!image.data) throw new Error(t("todos.imageInvalid"));
+      return { mediaType: image.mediaType, data: image.data };
+    });
+    await api.saveComposerDraft({ contextKey, prompt: todo.text, attachments });
+    await api.markProjectTodoComposed({ id: todo.id, revision: todo.revision });
+    const nextAttachments = fromPromptImageAttachments(attachments);
+    composerDraftsByKeyRef.current[contextKey] = { prompt: todo.text, attachments: nextAttachments };
+    ++composerDraftLoadRequestRef.current;
+    const sameContext = composerContextKeyRef.current === contextKey;
+    if (targetThread) {
+      selectSearchThread(targetThread);
+    } else {
+      switchProject(todo.projectPath);
+      setNewThreadCoreKind(workflowSettings.defaultCoreKind ?? "claude");
+    }
+    if (sameContext) {
+      revokeComposerAttachmentPreviews(composerAttachmentsRef.current);
+      composerPromptRef.current = todo.text;
+      setPrompt(todo.text);
+      setComposerAttachments(nextAttachments);
+      setComposerImageNotice(undefined);
+    }
+    projectTodoComposerFocusRef.current = true;
+    setProjectTodosOpen(false);
+    if (!targetThread) requestSidebarReveal("project", todo.projectPath);
+    showAppMessageSuccessRef.current(t(targetThread
+      ? preserved ? "todos.existingDraftPreserved" : "todos.composedExisting"
+      : preserved ? "todos.draftPreserved" : "todos.composed"));
+  }
+
   function startNewChatWithPlan(plan: ThreadPendingPlan) {
     const contextKey = composerContextKeyFromParts(undefined, currentProjectPath);
     if (!contextKey) {
@@ -11527,6 +11650,7 @@ function App() {
               void refreshReviewDiff();
             }}
             workspacePath={currentProjectPath ?? ""}
+            {...(activeThread ? { threadId: activeThread.id } : {})}
             {...(fileTarget && { fileTarget })}
             onSelectFiles={() => {
               setOpenTaskPanelTabIds((current) => addOpenTaskPanelTab(current, TASK_PANEL_FILES_TAB_ID));
@@ -11553,6 +11677,15 @@ function App() {
                 target.requestId,
               );
               setFileTarget(target);
+            }}
+            generationToolsActive={!settingsOpen}
+            onOpenGenerationSettings={(kind) => {
+              setSettingsSection(kind === "image" ? "imageGeneration" : "tts");
+              setSettingsOpen(true);
+            }}
+            onSelectGenerationTool={(tabId) => {
+              setTaskPanelActiveTab(tabId);
+              setSelectedSubagentAgentId(undefined);
             }}
             onOpenHomeTool={(sourceTabId, tool) => void openTaskPanelHomeTool(sourceTabId, tool)}
             onNavigateNewTab={navigateNewTaskPanelTab}
@@ -11770,6 +11903,28 @@ function App() {
             ? t("thread.action.saveFollowUp")
             : t("thread.action.send");
   const composerActionClassName = ["send-button", composerActionMode].filter(Boolean).join(" ");
+  const scheduledMessageEditorOnComposer = Boolean(scheduledMessageEditor && (
+    scheduledMessageEditor.threadId === activeThread?.id || scheduledMessageEditor.draft?.contextKey === composerContextKey
+  ));
+  const scheduledMessageUsesCodexAccount = scheduledMessageEditor?.newThread
+    ? isCodexAuthThread({
+        coreKind: scheduledMessageEditor.newThread.executionProfile.coreKind,
+        runtimeConfig: scheduledMessageEditor.newThread.executionProfile.runtimeConfig,
+      })
+    : Boolean(scheduledMessageEditor && threads.some((thread) =>
+        thread.id === scheduledMessageEditor.threadId && isCodexAuthThread(thread),
+      ));
+  function openComposerScheduledMessage() {
+    if (!window.eco || !composerContextKey || (!activeThread && (!currentProjectPath || !composerRuntimeConfig))) return;
+    setScheduledMessageEditor({
+      threadId: activeThread?.id ?? `thr_${crypto.randomUUID()}`,
+      ...(!activeThread ? { newThread: {
+        workspacePath: currentProjectPath!,
+        executionProfile: { coreKind: composerCoreKind, runtimeConfig: structuredClone(composerRuntimeConfig!) },
+      } } : {}),
+      draft: { contextKey: composerContextKey, prompt: composerPromptRef.current, attachments: [...composerAttachmentsRef.current] },
+    });
+  }
   const composerCompact = !showLanding;
   useLayoutEffect(() => {
     // The same editor survives landing → conversation. Its CSS minimum height
@@ -12123,11 +12278,7 @@ function App() {
                               disabled={!attachment.previewUrl}
                               onClick={() => {
                                 if (!attachment.previewUrl) return;
-                                setComposerLightbox({
-                                  src: attachment.previewUrl,
-                                  alt,
-                                  label: openLabel,
-                                });
+                                setComposerLightboxId(attachment.id);
                               }}
                               aria-label={attachment.previewUrl ? openLabel : t("app.imagePreviewUnavailable")}
                             >
@@ -12152,12 +12303,26 @@ function App() {
                       })}
                     </ul>
                   ) : null}
-                  {composerLightbox ? (
+                  {composerLightbox?.previewUrl ? (
                     <ImageLightbox
-                      src={composerLightbox.src}
-                      alt={composerLightbox.alt}
-                      title={composerLightbox.alt}
-                      dialogLabel={composerLightbox.label}
+                      src={composerLightbox.previewUrl}
+                      alt={composerLightboxAlt}
+                      title={composerLightboxAlt}
+                      dialogLabel={t("app.openPastedImage", { count: composerLightboxNumber })}
+                      {...(composerPreviewAttachments.length > 1
+                        ? {
+                            navigation: {
+                              index: composerLightboxIndex,
+                              count: composerPreviewAttachments.length,
+                              onPrevious: () => setComposerLightboxId(
+                                composerPreviewAttachments[composerLightboxIndex - 1]?.id ?? composerLightbox.id,
+                              ),
+                              onNext: () => setComposerLightboxId(
+                                composerPreviewAttachments[composerLightboxIndex + 1]?.id ?? composerLightbox.id,
+                              ),
+                            },
+                          }
+                        : {})}
                       onClose={closeComposerLightbox}
                     />
                   ) : null}
@@ -12187,7 +12352,7 @@ function App() {
                         buttonRef={composerPlusButtonRef}
                         anchorRef={composerAnchorRef}
                         open={composerPlusMenuOpen}
-                        panelActive={composerPlusMenuOpen || composerRoutePopoverOpen || Boolean(scheduledMessageEditor && scheduledMessageEditor.threadId === activeThread?.id)}
+                        panelActive={composerPlusMenuOpen || composerRoutePopoverOpen || scheduledMessageEditorOnComposer}
                         sessionMode={composerRuntimeConfig?.sessionMode ?? "agent"}
                         canEditMode={canEditComposerConfig}
                         canOpenRoute={canOpenComposerRoute}
@@ -12196,10 +12361,11 @@ function App() {
                         onSelectMode={(mode) => void selectComposerSessionMode(mode)}
                         onPickImage={() => composerImageInputRef.current?.click()}
                         onAddScheduledMessage={
-                          activeThread && window.eco
-                            ? () => setScheduledMessageEditor({ threadId: activeThread.id })
+                          window.eco && composerContextKey && (activeThread || (currentProjectPath && composerRuntimeConfig))
+                            ? openComposerScheduledMessage
                             : undefined
                         }
+                        newConversation={!activeThread}
                         onOpenRoute={() => {
                           openComposerRoutePopover("plus");
                         }}
@@ -12251,23 +12417,33 @@ function App() {
                       }}
                     />
                     <div className="composer-footer-actions">
-                      {activeThread ? (
-                        <ComposerThreadUsagePills
-                          threadId={activeThread.id}
-                          threadStatus={activeThread.status}
-                          {...(threadUsageSummary && { usageSummary: threadUsageSummary })}
-                          showBilling={workflowSettings.showBilling !== false}
-                          {...(activeThread.hostUiFeatures && {
-                            hostUiFeatures: activeThread.hostUiFeatures,
-                          })}
-                          contextCompactionInFlight={contextCompactionInFlight}
-                          autoCompactSuspended={autoCompactSuspended}
-                          promptCacheInvalidated={promptCacheInvalidated}
-                          agentDisplayNames={activeRuntimeAgentDisplayNames}
-                          agentThemes={activeRuntimeAgentThemes}
-                          agentModelLabels={agentModelLabels}
-                        />
-                      ) : null}
+                      <ComposerThreadUsagePills
+                        accountQuota={
+                          composerUsesCodexAccount ? (
+                            <CodexQuotaReminder
+                              key={activeThread?.id ?? "draft"}
+                              variant="composer"
+                              threads={activeThread ? [activeThread] : []}
+                              onSwitchAccount={openCodexAccountSwitch}
+                            />
+                          ) : null
+                        }
+                        {...(activeThread && {
+                          threadId: activeThread.id,
+                          threadStatus: activeThread.status,
+                        })}
+                        {...(threadUsageSummary && { usageSummary: threadUsageSummary })}
+                        showBilling={workflowSettings.showBilling !== false}
+                        {...(activeThread?.hostUiFeatures && {
+                          hostUiFeatures: activeThread.hostUiFeatures,
+                        })}
+                        contextCompactionInFlight={contextCompactionInFlight}
+                        autoCompactSuspended={autoCompactSuspended}
+                        promptCacheInvalidated={promptCacheInvalidated}
+                        agentDisplayNames={activeRuntimeAgentDisplayNames}
+                        agentThemes={activeRuntimeAgentThemes}
+                        agentModelLabels={agentModelLabels}
+                      />
                       {renderComposerModelControl()}
                       {asrComposerConfigured ? (
                         <AsrMicButton session={asrSession} disabled={composerDisabled} />
@@ -12497,6 +12673,13 @@ function App() {
               <Clock3 size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
               {t("scheduling.title")}
             </button>
+            <button type="button" className="sidebar-action muted" onClick={() => {
+              if (!projectTodoDraftRef.current.id && !projectTodoDraftRef.current.text && !projectTodoDraftRef.current.images.length) projectTodoDraftRef.current = { ...projectTodoDraftRef.current, projectPath: currentProjectPath ?? projects[0]?.path ?? "" };
+              setProjectTodosOpen(true);
+            }}>
+              <ClipboardList size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
+              {t("todos.title")}
+            </button>
             <div className="sidebar-section sidebar-section-grow">
               <button
                 type="button"
@@ -12525,6 +12708,7 @@ function App() {
                 revealTarget={sidebarRevealTarget}
                 unreadThreadIds={unreadThreadIds}
                 pinnedThreadIds={pinnedThreadIds}
+                draftThreadIds={draftThreadIds}
                 onSwitchProject={switchProject}
                 onSelectThread={selectThread}
                 onToggleProjectCollapsed={toggleProjectCollapsed}
@@ -12548,7 +12732,11 @@ function App() {
           </div>
 
           <div className="sidebar-settings-footer">
-            <CodexQuotaReminder threads={threads} onSwitchAccount={openCodexAccountSwitch} />
+            <CodexQuotaReminder
+              threads={threads}
+              activeThreadId={selectedThreadId}
+              onSwitchAccount={openCodexAccountSwitch}
+            />
             <div className="sidebar-settings">
               <button
                 type="button"
@@ -13119,6 +13307,15 @@ function App() {
         />
       ) : null}
 
+      {projectTodosOpen && window.eco && (
+        <SuspensePanel>
+          <LazyProjectTodoPanel projects={projects} currentProjectPath={currentProjectPath} threads={threads}
+            pinnedThreadIds={pinnedThreadIds}
+            draft={projectTodoDraftRef.current} onDraftChange={next => { projectTodoDraftRef.current = next; }}
+            onClose={() => setProjectTodosOpen(false)} onCompose={composeProjectTodo} />
+        </SuspensePanel>
+      )}
+
       {schedulingOpen && window.eco && (
         <SuspensePanel>
           <LazySchedulingPanel
@@ -13151,18 +13348,38 @@ function App() {
       )}
       {scheduledMessageEditor &&
         window.eco &&
-        threads.find((thread) => thread.id === scheduledMessageEditor.threadId) && (
+        (scheduledMessageEditor.newThread || threads.some((thread) => thread.id === scheduledMessageEditor.threadId)) && (
           <SuspensePanel>
             <LazyScheduledMessageDialog
               key={scheduledMessageEditor.definition?.id ?? scheduledMessageEditor.threadId}
-              thread={threads.find((thread) => thread.id === scheduledMessageEditor.threadId)!}
+              threadId={scheduledMessageEditor.threadId}
+              newThread={scheduledMessageEditor.newThread}
+              usesChatGptLogin={scheduledMessageUsesCodexAccount}
+              initialPrompt={scheduledMessageEditor.draft?.prompt}
+              initialAttachments={scheduledMessageEditor.draft?.attachments}
+              imageContextKey={scheduledMessageEditor.draft?.contextKey}
               definition={scheduledMessageEditor.definition}
-              anchorRef={scheduledMessageEditor.threadId === activeThread?.id ? composerAnchorRef : undefined}
+              anchorRef={scheduledMessageEditorOnComposer ? composerAnchorRef : undefined}
               triggerRef={composerPlusButtonRef}
               onBack={() => { setScheduledMessageEditor(undefined); setComposerPlusMenuOpen(true); }}
               occurrences={scheduling.snapshot.occurrences}
               onClose={() => setScheduledMessageEditor(undefined)}
-              onSaved={() => {
+              onSaved={async () => {
+                const createdThread = scheduledMessageEditor.newThread
+                  ? await window.eco!.getThread(scheduledMessageEditor.threadId) : undefined;
+                if (scheduledMessageEditor.newThread && !createdThread) throw new Error(t("scheduling.threadMissing"));
+                const draft = scheduledMessageEditor.draft;
+                if (draft && composerContextKeyRef.current === draft.contextKey &&
+                  composerPromptRef.current === draft.prompt && composerAttachmentsRef.current.length === draft.attachments.length &&
+                  composerAttachmentsRef.current.every((image, index) => image === draft.attachments[index])) {
+                  removeComposerDraft(draft.contextKey);
+                  revokeComposerAttachmentPreviews(composerAttachmentsRef.current);
+                  composerAttachmentsRef.current = [];
+                  setPrompt("");
+                  setComposerAttachments([]);
+                  setComposerRewindTarget(undefined);
+                  setComposerImageNotice(undefined);
+                }
                 dismissTaskPanel();
                 void scheduling.refresh();
                 setScheduledMessagesReveal({
@@ -13170,7 +13387,11 @@ function App() {
                   requestId: Date.now(),
                 });
                 setScheduledMessageEditor(undefined);
-                if (scheduledMessageEditor.threadId === activeThread?.id) setComposerPlusMenuOpen(true);
+                if (createdThread) {
+                  setThreads(current => current.some(thread => thread.id === createdThread.id)
+                    ? current.map(thread => thread.id === createdThread.id ? createdThread : thread) : [createdThread, ...current]);
+                  selectThread(createdThread);
+                }
               }}
             />
           </SuspensePanel>
@@ -14033,7 +14254,7 @@ function FollowUpQueuePanel({
                 >
                   <GripVertical size={14} aria-hidden />
                 </span>
-                <span className="follow-up-card-text">{formatThreadFollowUpPreview(followUp)}</span>
+                <FollowUpPromptPreview followUp={followUp} />
               </div>
               <div className="follow-up-card-actions">
                 {isEditing ? (

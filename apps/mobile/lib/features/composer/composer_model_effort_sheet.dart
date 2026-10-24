@@ -8,14 +8,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/locale/app_localizations_ext.dart';
-import '../../core/models/git_models.dart';
-import '../../core/models/mcp_models.dart';
 import '../../core/models/thread_models.dart';
-import '../../core/models/thread_runtime_config.dart';
 import '../../core/models/acp_models.dart';
+import '../../core/providers/app_providers.dart';
+import '../../core/storage/composer_model_preferences.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
-import '../../core/utils/model_id.dart';
 import '../../core/utils/acp_model_vendor.dart';
 import '../../core/widgets/eco_action_sheet.dart';
 import '../../core/widgets/eco_android_glass.dart';
@@ -26,18 +24,7 @@ import '../../l10n/generated/app_localizations.dart';
 import '../threads/thread_providers.dart';
 import 'composer_controls.dart';
 
-enum _CascadeBranch {
-  mainAgent,
-  prompt,
-  arrangement,
-  model,
-  effort,
-  agent,
-  auxiliary,
-  approval,
-  vision,
-  cursorModel,
-}
+enum _CascadeBranch { model, effort, cursorModel }
 
 /// Floating glass cascade: primary menu + side submenu (screenshot style).
 Future<void> showComposerModelEffortSheet(
@@ -51,9 +38,7 @@ Future<void> showComposerModelEffortSheet(
   OrchestrationModelRef? templateModel,
   String workspacePath = '',
   String? coreKind,
-  ValueChanged<String>? onCoreKindChanged,
   bool canEdit = true,
-  bool canEditStatelessModels = true,
 }) {
   final box = anchorKey.currentContext?.findRenderObject() as RenderBox?;
   if (box == null || !box.hasSize) return Future<void>.value();
@@ -82,9 +67,7 @@ Future<void> showComposerModelEffortSheet(
         templateModel: templateModel,
         workspacePath: workspacePath,
         coreKind: coreKind,
-        onCoreKindChanged: onCoreKindChanged,
         canEdit: canEdit,
-        canEditStatelessModels: canEditStatelessModels,
         onDismiss: dismiss,
       );
     },
@@ -106,9 +89,7 @@ class _ComposerCascadeOverlay extends ConsumerStatefulWidget {
     required this.onDismiss,
     this.workspacePath = '',
     this.coreKind,
-    this.onCoreKindChanged,
     this.canEdit = true,
-    this.canEditStatelessModels = true,
   });
 
   final Rect anchorRect;
@@ -120,13 +101,9 @@ class _ComposerCascadeOverlay extends ConsumerStatefulWidget {
   final OrchestrationModelRef? templateModel;
   final String workspacePath;
   final String? coreKind;
-  final ValueChanged<String>? onCoreKindChanged;
-  /// Session-bound rows: main model / effort / core kind / orchestration.
-  final bool canEdit;
 
-  /// Auxiliary / approval / vision requests are stateless single-shot calls, so those
-  /// three pickers stay editable while a run is active.
-  final bool canEditStatelessModels;
+  /// Session-bound model and reasoning controls.
+  final bool canEdit;
   final VoidCallback onDismiss;
 
   @override
@@ -137,46 +114,33 @@ class _ComposerCascadeOverlay extends ConsumerStatefulWidget {
 class _ComposerCascadeOverlayState
     extends ConsumerState<_ComposerCascadeOverlay> {
   late ThreadRuntimeConfigInput _config;
-  late String? _coreKind;
+  bool _savingModel = false;
 
-  /// Null until Model / Reasoning / Agent is tapped — then the side submenu appears.
+  /// Null until Model / Reasoning is tapped — then the side submenu appears.
   _CascadeBranch? _branch;
-
-  /// Advanced is an inline disclosure, not a cascade branch.
-  var _advancedExpanded = false;
 
   static const _primaryWidth = 208.0;
   static const _submenuWidthIdeal = 260.0;
   static const _cascadeSubmenuWidth = 320.0;
   static const _panelGap = 8.0;
   static const _rowHeight = 44.0;
-  static const _rowHeightWithSubtitle = 54.0;
   static const _radius = 16.0;
   static const _edgePad = 12.0;
 
-  /// Cursor/aux/vision cascade panel height (search + split catalogue).
+  /// Cursor cascade panel height (search + split catalogue).
   static const _cursorCascadeHeight = 380.0;
   static const _cascadeBodyHeight = 280.0;
 
   double get _primaryHeight {
-    final rows = 4 + (_advancedExpanded ? 5 : 0);
+    final rows = widget.coreKind == 'acp' ? 1 : 2;
     return rows * _rowHeight + (rows - 1) * 0.5;
   }
 
   /// Vertical offset of a primary row from the top of the primary panel.
   double _primaryRowTop(_CascadeBranch branch) {
     final index = switch (branch) {
-      _CascadeBranch.cursorModel => 0,
-      _CascadeBranch.mainAgent => 0,
-      _CascadeBranch.model => 1,
-      _CascadeBranch.effort => 2,
-      // Advanced header occupies index 3; items below it start at 4.
-      _CascadeBranch.agent => 4,
-      _CascadeBranch.prompt => 5,
-      _CascadeBranch.arrangement => 6,
-      _CascadeBranch.auxiliary => 7,
-      _CascadeBranch.approval => 8,
-      _CascadeBranch.vision => 9,
+      _CascadeBranch.cursorModel || _CascadeBranch.model => 0,
+      _CascadeBranch.effort => 1,
     };
     return index * (_rowHeight + 0.5);
   }
@@ -203,30 +167,59 @@ class _ComposerCascadeOverlayState
   void initState() {
     super.initState();
     _config = widget.runtimeConfig;
-    _coreKind = widget.coreKind;
   }
 
-  void _persist(MainAgentModelOverride? nextOverride, {bool dismiss = false}) {
-    if (!widget.canEdit) return;
+  Future<void> _persist(
+    MainAgentModelOverride? nextOverride, {
+    bool dismiss = false,
+  }) async {
+    if (!widget.canEdit || _savingModel) return;
+    final previous = _config;
     final next = nextOverride == null
         ? _config.copyWith(clearMainAgentModelOverride: true)
         : _config.copyWith(mainAgentModelOverride: nextOverride);
-    setState(() => _config = next);
-    persistRuntimeConfig(
+    final preference = ComposerModelPreferenceScope(
+      desktopId: ref.read(selectedDesktopIdProvider) ?? '',
+      workspacePath: widget.workspacePath,
+      coreKind: widget.coreKind ?? 'claude',
+    );
+    final messenger = ScaffoldMessenger.of(context);
+    final errorMessage = context.l10n.errorRpcFailed;
+    setState(() {
+      _savingModel = true;
+      _config = next;
+    });
+    var applied = next;
+    final saved = await persistRuntimeConfig(
       ref,
       threadId: widget.threadId,
       config: next,
-      onChanged: widget.onChanged,
+      onChanged: (config) {
+        applied = config;
+        widget.onChanged(config);
+      },
     );
+    if (!saved) {
+      messenger.showSnackBar(SnackBar(content: Text(errorMessage)));
+      if (mounted) {
+        setState(() {
+          _config = previous;
+          _savingModel = false;
+        });
+      }
+      return;
+    }
+    try {
+      await preference.remember(applied);
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+    if (!mounted) return;
+    setState(() {
+      _config = applied;
+      _savingModel = false;
+    });
     if (dismiss) widget.onDismiss();
-  }
-
-  void _selectCoreKind(String value) {
-    if (!widget.canEdit) return;
-    if (_coreKind == value) return;
-    setState(() => _coreKind = value);
-    widget.onCoreKindChanged?.call(value);
-    widget.onDismiss();
   }
 
   void _selectCursorModel(String? modelId) {
@@ -255,7 +248,10 @@ class _ComposerCascadeOverlayState
           ModelCascadeEntry(
             key: model.id,
             providerKey: classifyAcpModelVendor(model).toString(),
-            providerName: acpModelVendorLabel(l10n, classifyAcpModelVendor(model)),
+            providerName: acpModelVendorLabel(
+              l10n,
+              classifyAcpModelVendor(model),
+            ),
             modelId: model.id,
             title: model.displayName,
             subtitle: model.id,
@@ -281,104 +277,6 @@ class _ComposerCascadeOverlayState
     );
   }
 
-  /// Auxiliary / vision model picker: the unified provider → model cascade
-  /// with a search box, so the catalogue is never a flat list.
-  Widget _buildAuxVisionCascade({
-    required AppLocalizations l10n,
-    required AsyncValue<List<CommitModelOptionView>>? auxOptions,
-    required bool isVision,
-    bool isApproval = false,
-  }) {
-    final selectedCandidateId = isApproval
-        ? _config.approvalModel?.candidateModelId
-        : isVision
-        ? _config.visionModel?.candidateModelId
-        : _config.auxiliaryModel?.candidateModelId;
-    final isNotConfigured = isApproval
-        ? _config.approvalModel == null
-        : isVision
-        ? _config.visionModel == null
-        : _config.auxiliaryModel == null;
-    final statusStyle = Theme.of(context)
-        .textTheme
-        .bodyMedium
-        ?.copyWith(color: ecoColors(context).textMuted);
-    final body = auxOptions == null
-        ? Padding(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            child: Text(l10n.commonUnavailable,
-                textAlign: TextAlign.center, style: statusStyle),
-          )
-        : auxOptions.when(
-            data: (items) => EcoModelCascadeList(
-              layout: EcoModelCascadeLayout.split,
-              height: _cascadeBodyHeight,
-              flexibleBody: true,
-              options: [
-                for (final option in items)
-                  ModelCascadeEntry(
-                    key: option.candidateModelId,
-                    providerKey: option.providerId,
-                    providerName: option.providerName,
-                    modelId: option.modelId,
-                    title: option.modelLabel,
-                    subtitle: option.modelId,
-                  ),
-              ],
-              selectedKey: selectedCandidateId,
-              onSelected: (key) {
-                for (final option in items) {
-                  if (option.candidateModelId == key) {
-                    HapticFeedback.selectionClick();
-                    if (isApproval) {
-                      _selectApproval(option);
-                    } else if (isVision) {
-                      _selectVision(option);
-                    } else {
-                      _selectAuxiliary(option);
-                    }
-                    break;
-                  }
-                }
-              },
-            ),
-            loading: () => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              child: Text(l10n.commonLoading,
-                  textAlign: TextAlign.center, style: statusStyle),
-            ),
-            error: (_, _) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              child: Text(l10n.composerModelLoadFailed,
-                  textAlign: TextAlign.center, style: statusStyle),
-            ),
-          );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        EcoSheetOptionTile(
-          title: l10n.composerNone,
-          selected: isNotConfigured,
-          onTap: () {
-            HapticFeedback.selectionClick();
-            if (isApproval) {
-              _selectApproval(null);
-            } else if (isVision) {
-              _selectVision(null);
-            } else {
-              _selectAuxiliary(null);
-            }
-          },
-        ),
-        const EcoGroupedDivider(indent: 12),
-        // Fill the rest of the panel rather than demanding a fixed 280 body:
-        // a short surface (or the 48% viewport cap) hands down less here.
-        Flexible(child: body),
-      ],
-    );
-  }
-
   void _persistConfig(ThreadRuntimeConfigInput next) {
     setState(() => _config = next);
     persistRuntimeConfig(
@@ -389,139 +287,8 @@ class _ComposerCascadeOverlayState
     );
   }
 
-  void _applyOrchestrationPatch({
-    required ModelSettingsSnapshot? settings,
-    required List<McpServerConfigView> mcpServers,
-    Map<String, bool>? rememberedMcp,
-    String? mainAgentConfigId,
-    MainAgentPromptSelection? mainPrompt,
-    SubagentSelection? subagents,
-  }) {
-    if (!widget.canEdit) return;
-    final nextConfig = applyOrchestrationSelectionPatch(
-      settings: settings,
-      runtimeConfig: _config,
-      servers: mcpServers,
-      remembered: rememberedMcp,
-      mainAgentConfigId: mainAgentConfigId,
-      mainPrompt: mainPrompt,
-      subagents: subagents,
-    );
-    _persistConfig(nextConfig);
-    final selection = nextConfig.orchestrationSelection;
-    if (widget.threadId.isEmpty &&
-        widget.workspacePath.trim().isNotEmpty &&
-        hasCompleteOrchestrationSelection(selection)) {
-      unawaited(
-        persistProjectOrchestrationSelection(
-          ref,
-          workspacePath: widget.workspacePath,
-          selection: selection!,
-        ),
-      );
-    }
-  }
-
-  void _selectAuxiliary(CommitModelOptionView? option) {
-    if (!widget.canEditStatelessModels) return;
-    final selection = option == null
-        ? null
-        : AuxiliaryModelSelection(
-            providerId: option.providerId,
-            modelId: option.modelId,
-            candidateModelId: option.candidateModelId,
-          );
-    var next = option == null
-        ? _config.copyWith(clearAuxiliaryModel: true)
-        : _config.copyWith(auxiliaryModel: selection);
-    _persistConfig(next);
-    persistAuxiliaryModelWorkflowDefault(
-      ref,
-      selection: selection,
-    ).catchError((_) {});
-  }
-
-  void _selectApproval(CommitModelOptionView? option) {
-    if (!widget.canEditStatelessModels) return;
-    final selection = option == null
-        ? null
-        : ApprovalModelSelection(
-            providerId: option.providerId,
-            modelId: option.modelId,
-            candidateModelId: option.candidateModelId,
-          );
-    var next = option == null
-        ? _config.copyWith(clearApprovalModel: true)
-        : _config.copyWith(approvalModel: selection);
-    next = downgradeApprovalDependentFeatures(next);
-    _persistConfig(next);
-    persistApprovalModelWorkflowDefault(ref, selection: selection).catchError((
-      Object error,
-    ) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
-      }
-    });
-  }
-
-  void _selectVision(CommitModelOptionView? option) {
-    if (!widget.canEditStatelessModels) return;
-    final selection = option == null
-        ? null
-        : VisionModelSelection(
-            providerId: option.providerId,
-            modelId: option.modelId,
-            candidateModelId: option.candidateModelId,
-          );
-    final next = option == null
-        ? _config.copyWith(clearVisionModel: true)
-        : _config.copyWith(visionModel: selection);
-    _persistConfig(next);
-    persistVisionModelWorkflowDefault(
-      ref,
-      selection: selection,
-    ).catchError((_) {});
-  }
-
-  ({String label, String? badge}) _coreKindDisplay(AppLocalizations l10n) {
-    for (final option in composerCoreKindOptions) {
-      if (option.value == _coreKind) {
-        return (label: option.label, badge: option.badge);
-      }
-    }
-    return (label: l10n.commonUnavailable, badge: null);
-  }
-
-  String _modelSelectionLabel(AppLocalizations l10n, {required bool vision}) {
-    if (vision) {
-      final selection = _config.visionModel;
-      if (selection == null) return l10n.composerNone;
-      return composerModelDisplayName(selection.modelId);
-    }
-    final selection = _config.auxiliaryModel;
-    if (selection == null) return l10n.composerNone;
-    return composerModelDisplayName(selection.modelId);
-  }
-
   void _setBranch(_CascadeBranch? branch) {
     setState(() => _branch = branch);
-  }
-
-  void _toggleAdvanced() {
-    setState(() {
-      _advancedExpanded = !_advancedExpanded;
-      if (!_advancedExpanded &&
-          (_branch == _CascadeBranch.prompt ||
-              _branch == _CascadeBranch.arrangement ||
-              _branch == _CascadeBranch.agent ||
-              _branch == _CascadeBranch.auxiliary ||
-              _branch == _CascadeBranch.approval ||
-              _branch == _CascadeBranch.vision)) {
-        _branch = null;
-      }
-    });
   }
 
   double _safeClamp(double value, double min, double max) {
@@ -547,7 +314,11 @@ class _ComposerCascadeOverlayState
   OrchestrationModelRef get _activeTemplateModel {
     return _config.resolvedOrchestrationSnapshot?.mainAgent.modelRef ??
         widget.templateModel ??
-        const OrchestrationModelRef(providerId: '', modelId: '', thinkingEffort: null);
+        const OrchestrationModelRef(
+          providerId: '',
+          modelId: '',
+          thinkingEffort: null,
+        );
   }
 
   ModelProviderView _resolveProvider(ModelSettingsSnapshot? settings) {
@@ -579,16 +350,14 @@ class _ComposerCascadeOverlayState
     final showSubmenu = branch != null;
     final isAcp = widget.coreKind == 'acp';
 
-    final cursorModels = ref.watch(cursorModelsProvider).valueOrNull ?? const [];
+    final cursorModels =
+        ref.watch(cursorModelsProvider).valueOrNull ?? const [];
     final cursorModelName = isAcp
         ? resolveCursorModelDisplayName(cursorModels, _config.cursorModelId)
         : '';
 
     final modelSettingsAsync = ref.watch(modelSettingsProvider);
     final modelSettings = modelSettingsAsync.valueOrNull;
-    final workflow = ref.watch(workflowSettingsProvider).valueOrNull;
-    final mcpServers =
-        ref.watch(mcpSettingsProvider).valueOrNull?.servers ?? const [];
     final provider = isAcp ? null : _resolveProvider(modelSettings);
     final templateModel = isAcp ? null : _activeTemplateModel;
 
@@ -615,33 +384,18 @@ class _ComposerCascadeOverlayState
         : 'off';
     final effortLabel = composerThinkingEffortLabel(currentEffort, l10n);
     final modelName = composerModelDisplayName(currentModel.modelId);
-    final reasoningUnavailable = provider != null && currentModel.supportsReasoning == false;
+    final reasoningUnavailable =
+        provider != null && currentModel.supportsReasoning == false;
     final templateSelected = provider != null
         ? composerTemporaryModelMatchesTemplate(currentModel, templateModel!)
         : false;
 
-    final mainAgentConfigId =
-        _config.orchestrationSelection?.mainAgentConfigId.trim() ?? '';
-    final auxOptionsAsync = isAcp
-        ? ref.watch(auxiliaryModelOptionsProvider(''))
-        : (mainAgentConfigId.isEmpty
-            ? null
-            : ref.watch(auxiliaryModelOptionsProvider(mainAgentConfigId)));
-
-    final orchestrationLabels = _orchestrationPrimaryLabels(
-      l10n: l10n,
-      settings: modelSettings,
-    );
-
     final availableWidth =
         overlaySize.width - viewPadding.left - viewPadding.right - _edgePad * 2;
-    final cascadeSubmenu = showSubmenu &&
-        (branch == _CascadeBranch.cursorModel ||
-            branch == _CascadeBranch.auxiliary ||
-            branch == _CascadeBranch.approval ||
-            branch == _CascadeBranch.vision);
-    final idealSubmenuWidth =
-        cascadeSubmenu ? _cascadeSubmenuWidth : _submenuWidthIdeal;
+    final cascadeSubmenu = branch == _CascadeBranch.cursorModel;
+    final idealSubmenuWidth = cascadeSubmenu
+        ? _cascadeSubmenuWidth
+        : _submenuWidthIdeal;
     final sideBySide =
         showSubmenu && availableWidth >= _primaryWidth + _panelGap + 160;
     final submenuWidth = sideBySide
@@ -663,16 +417,17 @@ class _ComposerCascadeOverlayState
             modelOverride: modelOverride,
             currentModel: currentModel,
             currentEffort: currentEffort,
-            templateModel: templateModel ?? const OrchestrationModelRef(providerId: '', modelId: '', thinkingEffort: null),
+            templateModel:
+                templateModel ??
+                const OrchestrationModelRef(
+                  providerId: '',
+                  modelId: '',
+                  thinkingEffort: null,
+                ),
             templateSelected: templateSelected,
             reasoningUnavailable: reasoningUnavailable,
             candidatesLoading: candidates.isLoading,
             candidatesError: candidates.hasError,
-            settings: modelSettings,
-            settingsLoading: modelSettingsAsync.isLoading,
-            settingsError: modelSettingsAsync.hasError,
-            mcpServers: mcpServers,
-            rememberedMcp: workflow?.mcpServersEnabled,
           )
         : const <_SubmenuItem>[];
 
@@ -685,33 +440,22 @@ class _ComposerCascadeOverlayState
     final minTop = math.max(viewPadding.top, media.viewInsets.top) + _edgePad;
     final maxSubmenuHeight = math.max(0.0, maxBottom - minTop);
 
-    final auxVisionCascade =
-        branch == _CascadeBranch.auxiliary ||
-                branch == _CascadeBranch.approval ||
-                branch == _CascadeBranch.vision
-            ? _buildAuxVisionCascade(
-                l10n: l10n,
-                auxOptions: branch == _CascadeBranch.approval
-                    ? ref.watch(approvalModelOptionsProvider(mainAgentConfigId))
-                    : auxOptionsAsync,
-                isVision: branch == _CascadeBranch.vision,
-                isApproval: branch == _CascadeBranch.approval,
-              )
-            : null;
-
     final cursorModelCascade = branch == _CascadeBranch.cursorModel
         ? _buildCursorModelCascade(l10n: l10n, models: cursorModels)
         : null;
 
-    final customCascade = cursorModelCascade ?? auxVisionCascade;
+    final customCascade = cursorModelCascade;
 
     final submenuContentHeight = showSubmenu
         ? customCascade != null
-            // Preferred height for a model cascade: search box + rows + a full
-            // catalogue body. Cascades are built with `flexibleBody`, so a
-            // smaller viewport only shrinks the list — it never overflows.
-            ? _cursorCascadeHeight
-            : submenuItems.fold<double>(8, (sum, item) => sum + item.rowHeight)
+              // Preferred height for a model cascade: search box + rows + a full
+              // catalogue body. Cascades are built with `flexibleBody`, so a
+              // smaller viewport only shrinks the list — it never overflows.
+              ? _cursorCascadeHeight
+              : submenuItems.fold<double>(
+                  8,
+                  (sum, item) => sum + item.rowHeight,
+                )
         : 0.0;
     final submenuHeight = showSubmenu
         ? math.min(
@@ -772,11 +516,6 @@ class _ComposerCascadeOverlayState
         isAcp: isAcp,
         modelName: modelName,
         effortLabel: effortLabel,
-        mainAgentLabel: orchestrationLabels.mainAgent,
-        promptLabel: orchestrationLabels.prompt,
-        arrangementLabel: orchestrationLabels.arrangement,
-        canPickOrchestration: modelSettings != null,
-        settingsLoading: modelSettingsAsync.isLoading,
         cursorModelName: cursorModelName,
       ),
     );
@@ -843,328 +582,42 @@ class _ComposerCascadeOverlayState
     );
   }
 
-  ({String mainAgent, String prompt, String arrangement})
-  _orchestrationPrimaryLabels({
-    required AppLocalizations l10n,
-    required ModelSettingsSnapshot? settings,
-  }) {
-    if (settings == null) {
-      return (
-        mainAgent: l10n.commonUnavailable,
-        prompt: l10n.commonUnavailable,
-        arrangement: l10n.commonUnavailable,
-      );
-    }
-
-    final mainAgentConfigs = settings.mainAgentConfigs;
-    final mainAgentPrompts = settings.mainAgentPrompts
-        .where((prompt) => prompt.mode == 'custom_append')
-        .toList(growable: false);
-    final subagentOrchestrations = settings.subagentOrchestrations;
-    final selection =
-        _config.orchestrationSelection ?? emptyOrchestrationSelection();
-    final selectedMainAgentConfigId = selection.mainAgentConfigId;
-    final mainAgentConfigId =
-        mainAgentConfigs.any((config) => config.id == selectedMainAgentConfigId)
-        ? selectedMainAgentConfigId
-        : '';
-    final selectedMainPromptValue = mainPromptSelectionValue(
-      selection.mainPrompt,
-    );
-    final mainPromptValue =
-        selectedMainPromptValue == builtinMainPromptValue ||
-            mainAgentPrompts.any(
-              (prompt) => prompt.id == selectedMainPromptValue,
-            )
-        ? selectedMainPromptValue
-        : '';
-    final subagentsValue = subagentSelectionValue(selection.subagents);
-    final subagentOrchestrationId =
-        subagentsValue != subagentsNoneValue &&
-            subagentOrchestrations.any(
-              (orchestration) => orchestration.id == subagentsValue,
-            )
-        ? subagentsValue
-        : subagentsValue == subagentsNoneValue
-        ? subagentsNoneValue
-        : '';
-
-    final selectedMainAgent = mainAgentConfigs
-        .where((config) => config.id == mainAgentConfigId)
-        .firstOrNull;
-    final selectedMainAgentLabel = selectedMainAgent == null
-        ? l10n.commonNotConfigured
-        : selectedMainAgent.name;
-
-    final selectedPromptLabel = mainPromptValue.isEmpty
-        ? l10n.commonNotConfigured
-        : mainPromptValue == builtinMainPromptValue
-        ? l10n.composerNone
-        : mainAgentPrompts
-                  .where((prompt) => prompt.id == mainPromptValue)
-                  .firstOrNull
-                  ?.name ??
-              l10n.commonNotConfigured;
-
-    final selectedSubagent = subagentOrchestrations
-        .where((orchestration) => orchestration.id == subagentOrchestrationId)
-        .firstOrNull;
-    final selectedSubagentLabel = subagentOrchestrationId.isEmpty
-        ? l10n.commonNotConfigured
-        : subagentOrchestrationId == subagentsNoneValue
-        ? l10n.composerNoSubagentOrchestration
-        : selectedSubagent?.name ?? l10n.commonNotConfigured;
-
-    return (
-      mainAgent: selectedMainAgentLabel,
-      prompt: selectedPromptLabel,
-      arrangement: selectedSubagentLabel,
-    );
-  }
-
   Widget _buildPrimaryPanel({
     required AppLocalizations l10n,
     required EcoColors eco,
     required bool isAcp,
     required String modelName,
     required String effortLabel,
-    required String mainAgentLabel,
-    required String promptLabel,
-    required String arrangementLabel,
-    required bool canPickOrchestration,
-    required bool settingsLoading,
     required String cursorModelName,
   }) {
-    final mainAgentConfigId =
-        _config.orchestrationSelection?.mainAgentConfigId.trim() ?? '';
-    // Auxiliary / approval / vision requests are stateless single-shot calls, so those
-    // three pickers stay switchable while a run locks the session-bound rows.
-    final canPickAuxVision =
-        (mainAgentConfigId.isNotEmpty || isAcp) && widget.canEditStatelessModels;
-    final canEditSession = widget.canEdit;
-    final orchestrationEnabled =
-        canPickOrchestration && !settingsLoading && canEditSession;
-    final coreKindDisplay = _coreKindDisplay(l10n);
-
-    if (isAcp) {
-      return _GlassPanel(
-        radius: _radius,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _PrimaryRow(
-              label: l10n.composerModel,
-              value: cursorModelName,
-              selected: _branch == _CascadeBranch.cursorModel,
-              enabled: canEditSession,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                _setBranch(_CascadeBranch.cursorModel);
-              },
-            ),
-            _Hairline(eco: eco),
-            _PrimaryRow(
-              label: l10n.composerCoreKind,
-              value: coreKindDisplay.label,
-              valueBadge: coreKindDisplay.badge,
-              selected: _branch == _CascadeBranch.agent,
-              enabled: canEditSession,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                _setBranch(_CascadeBranch.agent);
-              },
-            ),
-            _Hairline(eco: eco),
-            _PrimaryRow(
-              label: l10n.composerAux,
-              value: _modelSelectionLabel(l10n, vision: false),
-              selected: _branch == _CascadeBranch.auxiliary,
-              enabled: canPickAuxVision,
-              onTap: () {
-                if (!canPickAuxVision) return;
-                HapticFeedback.selectionClick();
-                _setBranch(_CascadeBranch.auxiliary);
-              },
-            ),
-            _Hairline(eco: eco),
-            _PrimaryRow(
-              label: l10n.composerApprovalModel,
-              value: _config.approvalModel == null
-                  ? l10n.composerNone
-                  : composerModelDisplayName(_config.approvalModel!.modelId),
-              selected: _branch == _CascadeBranch.approval,
-              enabled: widget.canEditStatelessModels,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                _setBranch(_CascadeBranch.approval);
-              },
-            ),
-            _Hairline(eco: eco),
-            _PrimaryRow(
-              label: l10n.composerVision,
-              value: _modelSelectionLabel(l10n, vision: true),
-              selected: _branch == _CascadeBranch.vision,
-              enabled: canPickAuxVision,
-              onTap: () {
-                if (!canPickAuxVision) return;
-                HapticFeedback.selectionClick();
-                _setBranch(_CascadeBranch.vision);
-              },
-            ),
-          ],
-        ),
-      );
-    }
-
+    final modelBranch = isAcp
+        ? _CascadeBranch.cursorModel
+        : _CascadeBranch.model;
     return _GlassPanel(
       radius: _radius,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           _PrimaryRow(
-            label: l10n.composerMainAgent,
-            value: settingsLoading ? l10n.commonLoading : mainAgentLabel,
-            selected: _branch == _CascadeBranch.mainAgent,
-            enabled: orchestrationEnabled,
-            onTap: () {
-              if (!orchestrationEnabled) return;
-              HapticFeedback.selectionClick();
-              _setBranch(_CascadeBranch.mainAgent);
-            },
-          ),
-          _Hairline(eco: eco),
-          _PrimaryRow(
             label: l10n.composerModel,
-            value: modelName,
-            selected: _branch == _CascadeBranch.model,
-            enabled: canEditSession,
+            value: isAcp ? cursorModelName : modelName,
+            selected: _branch == modelBranch,
+            enabled: widget.canEdit && !_savingModel,
             onTap: () {
               HapticFeedback.selectionClick();
-              _setBranch(_CascadeBranch.model);
+              _setBranch(modelBranch);
             },
           ),
-          _Hairline(eco: eco),
-          _PrimaryRow(
-            label: l10n.composerReasoningIntensity,
-            value: effortLabel,
-            selected: _branch == _CascadeBranch.effort,
-            enabled: canEditSession,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              _setBranch(_CascadeBranch.effort);
-            },
-          ),
-          _Hairline(eco: eco),
-          EcoPressable(
-            scale: 0.98,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              _toggleAdvanced();
-            },
-            child: SizedBox(
-              height: _rowHeight,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        l10n.composerAdvanced,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w400,
-                          letterSpacing: -0.2,
-                          color: eco.textMuted,
-                        ),
-                      ),
-                    ),
-                    Icon(
-                      _advancedExpanded
-                          ? EcoIcons.expandUp
-                          : EcoIcons.expandDown,
-                      size: 14,
-                      color: eco.textMuted,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          if (_advancedExpanded) ...[
+          if (!isAcp) ...[
             _Hairline(eco: eco),
             _PrimaryRow(
-              label: l10n.composerAgent,
-              value: coreKindDisplay.label,
-              valueBadge: coreKindDisplay.badge,
-              selected: _branch == _CascadeBranch.agent,
-              enabled: _coreKind != null && canEditSession,
-              onTap: () {
-                if (_coreKind == null) return;
-                HapticFeedback.selectionClick();
-                _setBranch(_CascadeBranch.agent);
-              },
-            ),
-            _Hairline(eco: eco),
-            _PrimaryRow(
-              label: l10n.composerMainAgentPrompt,
-              value: settingsLoading ? l10n.commonLoading : promptLabel,
-              selected: _branch == _CascadeBranch.prompt,
-              enabled: orchestrationEnabled,
-              onTap: () {
-                if (!orchestrationEnabled) return;
-                HapticFeedback.selectionClick();
-                _setBranch(_CascadeBranch.prompt);
-              },
-            ),
-            _Hairline(eco: eco),
-            _PrimaryRow(
-              label: l10n.composerSubagentOrchestration,
-              value: settingsLoading ? l10n.commonLoading : arrangementLabel,
-              selected: _branch == _CascadeBranch.arrangement,
-              enabled: orchestrationEnabled,
-              onTap: () {
-                if (!orchestrationEnabled) return;
-                HapticFeedback.selectionClick();
-                _setBranch(_CascadeBranch.arrangement);
-              },
-            ),
-            _Hairline(eco: eco),
-            _PrimaryRow(
-              label: l10n.composerAux,
-              value: _modelSelectionLabel(l10n, vision: false),
-              selected: _branch == _CascadeBranch.auxiliary,
-              enabled: canPickAuxVision,
-              onTap: () {
-                if (!canPickAuxVision) return;
-                HapticFeedback.selectionClick();
-                _setBranch(_CascadeBranch.auxiliary);
-              },
-            ),
-            _Hairline(eco: eco),
-            _PrimaryRow(
-              label: l10n.composerApprovalModel,
-              value: _config.approvalModel == null
-                  ? l10n.composerNone
-                  : composerModelDisplayName(_config.approvalModel!.modelId),
-              selected: _branch == _CascadeBranch.approval,
-              enabled: widget.canEditStatelessModels,
+              label: l10n.composerReasoningIntensity,
+              value: effortLabel,
+              selected: _branch == _CascadeBranch.effort,
+              enabled: widget.canEdit && !_savingModel,
               onTap: () {
                 HapticFeedback.selectionClick();
-                _setBranch(_CascadeBranch.approval);
-              },
-            ),
-            _Hairline(eco: eco),
-            _PrimaryRow(
-              label: l10n.composerVision,
-              value: _modelSelectionLabel(l10n, vision: true),
-              selected: _branch == _CascadeBranch.vision,
-              enabled: canPickAuxVision,
-              onTap: () {
-                if (!canPickAuxVision) return;
-                HapticFeedback.selectionClick();
-                _setBranch(_CascadeBranch.vision);
+                _setBranch(_CascadeBranch.effort);
               },
             ),
           ],
@@ -1198,29 +651,11 @@ class _ComposerCascadeOverlayState
     required bool reasoningUnavailable,
     required bool candidatesLoading,
     required bool candidatesError,
-    required ModelSettingsSnapshot? settings,
-    required bool settingsLoading,
-    required bool settingsError,
-    required List<McpServerConfigView> mcpServers,
-    required Map<String, bool>? rememberedMcp,
   }) {
     if (_branch == _CascadeBranch.cursorModel) {
       // Rendered as a custom provider → model cascade panel (search + vendor
       // groups) in the submenu slot — never a flat model list.
       return const [];
-    }
-
-    if (_branch == _CascadeBranch.mainAgent ||
-        _branch == _CascadeBranch.prompt ||
-        _branch == _CascadeBranch.arrangement) {
-      return _buildOrchestrationSubmenuItems(
-        l10n: l10n,
-        settings: settings,
-        settingsLoading: settingsLoading,
-        settingsError: settingsError,
-        mcpServers: mcpServers,
-        rememberedMcp: rememberedMcp,
-      );
     }
 
     if (_branch == _CascadeBranch.model) {
@@ -1306,166 +741,7 @@ class _ComposerCascadeOverlayState
       ];
     }
 
-    if (_branch == _CascadeBranch.agent) {
-      return [
-        for (final option in composerCoreKindOptions)
-          _SubmenuItem(
-            label: option.label,
-            badge: option.badge,
-            selected: _coreKind == option.value,
-            enabled: widget.onCoreKindChanged != null,
-            onTap: () {
-              if (widget.onCoreKindChanged == null) return;
-              HapticFeedback.selectionClick();
-              _selectCoreKind(option.value);
-            },
-          ),
-      ];
-    }
-
-    // auxiliary / vision fall through here: rendered as a custom provider →
-    // model cascade panel (search + grouped) in the submenu slot — never a
-    // flat model list.
     return const [];
-  }
-
-  List<_SubmenuItem> _buildOrchestrationSubmenuItems({
-    required AppLocalizations l10n,
-    required ModelSettingsSnapshot? settings,
-    required bool settingsLoading,
-    required bool settingsError,
-    required List<McpServerConfigView> mcpServers,
-    required Map<String, bool>? rememberedMcp,
-  }) {
-    if (settingsLoading) {
-      return [
-        _SubmenuItem(
-          label: l10n.commonLoading,
-          selected: false,
-          enabled: false,
-          onTap: () {},
-        ),
-      ];
-    }
-    if (settingsError || settings == null) {
-      return [
-        _SubmenuItem(
-          label: settingsError
-              ? l10n.composerModelLoadFailed
-              : l10n.commonUnavailable,
-          selected: false,
-          enabled: false,
-          onTap: () {},
-        ),
-      ];
-    }
-
-    final selection =
-        _config.orchestrationSelection ?? emptyOrchestrationSelection();
-
-    if (_branch == _CascadeBranch.mainAgent) {
-      final configs = settings.mainAgentConfigs;
-      if (configs.isEmpty) {
-        return [
-          _SubmenuItem(
-            label: l10n.commonNotConfigured,
-            selected: false,
-            enabled: false,
-            onTap: () {},
-          ),
-        ];
-      }
-      return [
-        for (final config in configs)
-          _SubmenuItem(
-            label: config.name,
-            subtitle: shortenModelId(config.modelRef.modelId),
-            selected: selection.mainAgentConfigId == config.id,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              _applyOrchestrationPatch(
-                settings: settings,
-                mcpServers: mcpServers,
-                rememberedMcp: rememberedMcp,
-                mainAgentConfigId: config.id,
-              );
-            },
-          ),
-      ];
-    }
-
-    if (_branch == _CascadeBranch.prompt) {
-      final prompts = settings.mainAgentPrompts
-          .where((prompt) => prompt.mode == 'custom_append')
-          .toList(growable: false);
-      final selectedValue = mainPromptSelectionValue(selection.mainPrompt);
-      return [
-        _SubmenuItem(
-          label: l10n.composerNone,
-          selected: selectedValue == builtinMainPromptValue,
-          onTap: () {
-            HapticFeedback.selectionClick();
-            _applyOrchestrationPatch(
-              settings: settings,
-              mcpServers: mcpServers,
-              rememberedMcp: rememberedMcp,
-              mainPrompt: const BuiltinMainAgentPromptSelection(),
-            );
-          },
-        ),
-        for (final prompt in prompts)
-          _SubmenuItem(
-            label: prompt.name,
-            selected: selectedValue == prompt.id,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              _applyOrchestrationPatch(
-                settings: settings,
-                mcpServers: mcpServers,
-                rememberedMcp: rememberedMcp,
-                mainPrompt: CustomAppendMainAgentPromptSelection(
-                  promptId: prompt.id,
-                ),
-              );
-            },
-          ),
-      ];
-    }
-
-    final orchestrations = settings.subagentOrchestrations;
-    final selectedValue = subagentSelectionValue(selection.subagents);
-    return [
-      _SubmenuItem(
-        label: l10n.composerNoSubagentOrchestration,
-        selected: selectedValue == subagentsNoneValue,
-        onTap: () {
-          HapticFeedback.selectionClick();
-          _applyOrchestrationPatch(
-            settings: settings,
-            mcpServers: mcpServers,
-            rememberedMcp: rememberedMcp,
-            subagents: const NoneSubagentSelection(),
-          );
-        },
-      ),
-      for (final orchestration in orchestrations)
-        _SubmenuItem(
-          label: orchestration.name,
-          subtitle: l10n.composerAgentsCount(orchestration.agents.length),
-          selected: selectedValue == orchestration.id,
-          onTap: () {
-            HapticFeedback.selectionClick();
-            _applyOrchestrationPatch(
-              settings: settings,
-              mcpServers: mcpServers,
-              rememberedMcp: rememberedMcp,
-              subagents: OrchestrationSubagentSelection(
-                orchestrationId: orchestration.id,
-              ),
-            );
-          },
-        ),
-    ];
   }
 }
 
@@ -1562,21 +838,15 @@ class _SubmenuItem {
     required this.label,
     required this.selected,
     required this.onTap,
-    this.subtitle,
-    this.badge,
     this.enabled = true,
   });
 
   final String label;
-  final String? subtitle;
-  final String? badge;
   final bool selected;
   final bool enabled;
   final VoidCallback onTap;
 
-  double get rowHeight => subtitle == null
-      ? _ComposerCascadeOverlayState._rowHeight
-      : _ComposerCascadeOverlayState._rowHeightWithSubtitle;
+  double get rowHeight => _ComposerCascadeOverlayState._rowHeight;
 }
 
 class _GlassPanel extends StatelessWidget {
@@ -1650,13 +920,11 @@ class _PrimaryRow extends StatelessWidget {
     required this.value,
     required this.selected,
     required this.onTap,
-    this.valueBadge,
     this.enabled = true,
   });
 
   final String label;
   final String value;
-  final String? valueBadge;
   final bool selected;
   final bool enabled;
   final VoidCallback onTap;
@@ -1704,9 +972,10 @@ class _PrimaryRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: _ComposerLabelWithBadge(
-                    label: value,
-                    badge: valueBadge,
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.right,
                     style: TextStyle(
                       fontSize: 15,
@@ -1727,68 +996,6 @@ class _PrimaryRow extends StatelessWidget {
   }
 }
 
-class _ComposerLabelWithBadge extends StatelessWidget {
-  const _ComposerLabelWithBadge({
-    required this.label,
-    required this.style,
-    required this.textAlign,
-    this.badge,
-  });
-
-  final String label;
-  final String? badge;
-  final TextStyle style;
-  final TextAlign textAlign;
-
-  @override
-  Widget build(BuildContext context) {
-    final eco = ecoColors(context);
-    final badgeText = badge?.trim();
-
-    return Row(
-      mainAxisSize: MainAxisSize.max,
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: textAlign,
-            style: style,
-          ),
-        ),
-        if (badgeText != null && badgeText.isNotEmpty) ...[
-          const SizedBox(width: 5),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: eco.accentSoft,
-              border: Border.all(
-                color: eco.accent.withValues(alpha: 0.24),
-                width: 0.5,
-              ),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              child: Text(
-                badgeText,
-                maxLines: 1,
-                style: TextStyle(
-                  color: eco.accentText,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.25,
-                  height: 1,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
 class _SubmenuRow extends StatelessWidget {
   const _SubmenuRow({required this.item});
 
@@ -1797,7 +1004,6 @@ class _SubmenuRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final eco = ecoColors(context);
-    final subtitle = item.subtitle?.trim();
     return EcoPressable(
       enabled: item.enabled,
       scale: 0.98,
@@ -1815,9 +1021,10 @@ class _SubmenuRow extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _ComposerLabelWithBadge(
-                        label: item.label,
-                        badge: item.badge,
+                      Text(
+                        item.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.left,
                         style: TextStyle(
                           fontSize: 16,
@@ -1829,21 +1036,6 @@ class _SubmenuRow extends StatelessWidget {
                           color: eco.textPrimary,
                         ),
                       ),
-                      if (subtitle != null && subtitle.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w400,
-                            letterSpacing: -0.1,
-                            height: 1.1,
-                            color: eco.textMuted,
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),

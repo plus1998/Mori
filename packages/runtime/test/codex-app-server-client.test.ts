@@ -175,6 +175,25 @@ test("CodexAppServerClient rejects JSON-RPC errors", async () => {
   await expect(pending).rejects.toThrow("thread/start failed: Not initialized");
 });
 
+test("CodexAppServerClient preserves upstream error data for quota retry policy", async () => {
+  const { stdin, stdout } = createMockTransport();
+  const client = new CodexAppServerClient(stdin, stdout);
+  const handshake = client.initialize();
+  await Bun.sleep(0);
+  writeResponse(stdout, { id: 1, result: {} });
+  await handshake;
+  const pending = client.request("account/rateLimits/read");
+  writeResponse(stdout, { id: 2, error: { code: 429, message: "Limited", data: { retryAfter: 600 } } });
+  try {
+    await pending;
+    throw new Error("Expected upstream rejection");
+  } catch (error) {
+    expect(error).toBeInstanceOf(CodexAppServerRequestError);
+    expect((error as CodexAppServerRequestError).code).toBe(429);
+    expect((error as CodexAppServerRequestError).data).toEqual({ retryAfter: 600 });
+  } finally { client.close(); }
+});
+
 test("CodexAppServerClient returns the explicit server-request handler result", async () => {
   const { stdin, stdout } = createMockTransport();
   const received: Array<{ method: string; params: unknown }> = [];

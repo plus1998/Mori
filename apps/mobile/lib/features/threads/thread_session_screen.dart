@@ -9,7 +9,6 @@ import '../../core/locale/app_error_localizations.dart';
 import '../../core/models/app_error.dart';
 import '../../core/models/conversation_v2_models.dart';
 import '../../core/models/git_models.dart';
-import '../../core/models/image_display_models.dart';
 import '../../core/models/image_view_models.dart';
 import '../../core/models/project_models.dart';
 import '../../core/models/project_orchestration_settings.dart';
@@ -18,6 +17,7 @@ import '../../core/models/thread_models.dart';
 import '../../core/models/acp_host_ui_features.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/providers/thinking_display_provider.dart';
+import '../../core/storage/composer_model_preferences.dart';
 import '../../core/widgets/activity_feed_auto_read_listener.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
@@ -41,7 +41,7 @@ import 'activity_feed_scroll_coordinator.dart';
 import 'conversation_v2_activity_feed.dart';
 import '../../core/sync/conversation_v2_session.dart';
 import 'conversation_v2_projection.dart';
-import 'image_display_artifacts.dart';
+import 'image_display_provider.dart';
 import 'image_display_floating_gallery.dart';
 import 'thread_menu_sheets.dart';
 import 'thread_session_layout.dart';
@@ -51,9 +51,14 @@ import 'thread_session_route.dart';
 import 'session_content_boot_loading.dart';
 
 class ThreadSessionScreen extends ConsumerStatefulWidget {
-  const ThreadSessionScreen({super.key, required this.threadId});
+  const ThreadSessionScreen({
+    super.key,
+    required this.threadId,
+    this.initialDraft,
+  });
 
   final String threadId;
+  final ThreadSessionRouteExtra? initialDraft;
 
   @override
   ConsumerState<ThreadSessionScreen> createState() =>
@@ -70,8 +75,6 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
   final _picker = ImagePicker();
   final _imageDisplayGalleryController =
       ImageDisplayFloatingGalleryController();
-  List<ImageDisplayArtifact> _remoteImageDisplayArtifacts = const [];
-  int _imageDisplayListEpoch = 0;
   bool _bashApprovalBusy = false;
   bool _planActionBusy = false;
   bool _clarificationBusy = false;
@@ -81,19 +84,21 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
   bool _starting = false;
   var _coreKind = 'claude';
   String? _runtimeConfigScope;
+  int _landingConfigEpoch = 0;
   String? _editingFollowUpId;
   String? _followUpCancelBusyId;
   String? _followUpEscalateBusyId;
   bool _followUpQueuePauseBusy = false;
   double _lastKeyboardInset = 0;
   String? _deferredComposerRestoreRevision;
-  bool _active = true;
 
   bool get _isLanding => widget.threadId == threadSessionNewPathSegment;
 
   @override
   void initState() {
     super.initState();
+    _promptController.text = widget.initialDraft?.prompt ?? '';
+    _attachments.addAll(widget.initialDraft?.attachments ?? const []);
     WidgetsBinding.instance.addObserver(this);
     _promptController.addListener(() {
       if (_isLanding && mounted) setState(() {});
@@ -106,14 +111,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
       }
       final thread = ref.read(threadSessionProvider(widget.threadId)).thread;
       ref.read(runtimeConfigProvider.notifier).state = thread?.runtimeConfig;
-      _scheduleImageDisplayArtifactsRefresh();
     });
-  }
-
-  @override
-  void activate() {
-    super.activate();
-    _active = true;
   }
 
   @override
@@ -182,8 +180,6 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
 
   @override
   void deactivate() {
-    _active = false;
-    _imageDisplayListEpoch += 1;
     if (_editingFollowUpId != null) {
       final rpc = ref.read(desktopRpcProvider);
       if (rpc != null) {
@@ -204,25 +200,6 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     _promptController.dispose();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  void _scheduleImageDisplayArtifactsRefresh() {
-    if (!_active || _isLanding) return;
-    final epoch = ++_imageDisplayListEpoch;
-    unawaited(_refreshImageDisplayArtifacts(epoch));
-  }
-
-  Future<void> _refreshImageDisplayArtifacts(int epoch) async {
-    if (!_active) return;
-    final rpc = ref.read(desktopRpcProvider);
-    if (rpc == null) return;
-    try {
-      final listed = await rpc.listImageDisplayArtifacts(widget.threadId);
-      if (!mounted || epoch != _imageDisplayListEpoch) return;
-      setState(() => _remoteImageDisplayArtifacts = listed);
-    } catch (_) {
-      // Projection-derived artifacts still drive the gallery; list is enrichment.
-    }
   }
 
   Future<ImageViewReadData> _loadImageDisplayArtifactBytes(
@@ -381,9 +358,8 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
       editingFollowUpId: _editingFollowUpId,
       followUpQueuePaused: thread?.followUpQueuePaused ?? false,
     );
-    // Once V2 has started, interaction state is read from V2 detail items as
-    // well. Do not let a stale legacy bootstrap row resurrect an approval or
-    // clarification after V2 has already resolved it.
+    // The V2 controller reads actionable requests from the desktop's current
+    // pending registry. A bootstrap/history summary cannot resurrect one.
     final useConversationV2Interactions =
         conversationV2.syncState != ConversationV2SyncState.uninitialized;
     final pendingBash = useConversationV2Interactions
@@ -422,9 +398,6 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
             .update((revealed) => {...revealed, widget.threadId});
         _scrollCoordinator.forceScrollToEnd();
       }
-      if (!identical(previousProjection, nextProjection)) {
-        _scheduleImageDisplayArtifactsRefresh();
-      }
       final restore = next.composerRestore;
       if (restore != null &&
           restore.revision.isNotEmpty &&
@@ -459,19 +432,92 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
         queuedFollowUps.isNotEmpty ||
         _editingFollowUpId != null;
 
-    final projectionImageDisplays = collectImageDisplayArtifactsFromProjection(
-      threadId: widget.threadId,
-      projection: session.runProjection,
-    );
-    final imageDisplayArtifacts = mergeImageDisplayArtifacts(
-      fromProjection: projectionImageDisplays,
-      fromRemote: _remoteImageDisplayArtifacts,
-    );
+    final imageDisplayArtifacts =
+        ref
+            .watch(threadImageDisplayArtifactsProvider(widget.threadId))
+            .valueOrNull ??
+        const [];
+    final failed =
+        !isRunning &&
+        (thread?.status == 'failed' || thread?.status == 'blocked');
+    final failureMessage = failed ? thread?.message.trim() : null;
 
-    final floatingComposer = hasFloatingComposerContent
+    final floatingComposer =
+        hasFloatingComposerContent || conversationV2.error != null || failed
         ? Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (failed)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Semantics(
+                    liveRegion: true,
+                    child: Material(
+                      key: const ValueKey('thread-run-failure-notice'),
+                      color: Theme.of(context).colorScheme.errorContainer,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              context.l10n.threadRunFailed,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (failureMessage?.isNotEmpty == true) ...[
+                              const SizedBox(height: 4),
+                              ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxHeight:
+                                      MediaQuery.sizeOf(context).height * 0.2,
+                                ),
+                                child: SingleChildScrollView(
+                                  child: SelectableText(failureMessage!),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (conversationV2.error != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Material(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 12),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              localizedAppError(
+                                conversationV2.error!,
+                                context.l10n,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => ref
+                                .read(
+                                  conversationV2SessionProvider(
+                                    widget.threadId,
+                                  ).notifier,
+                                )
+                                .refresh(),
+                            child: Text(context.l10n.commonRetry),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               if (hasWorkspaceChanges)
                 WorkspaceChangesPill(
                   summary: workspaceChanges,
@@ -646,6 +692,16 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                                         feedback: feedback,
                                       );
                                 }
+                              } catch (error) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        localizedAppError(error, context.l10n),
+                                      ),
+                                    ),
+                                  );
+                                }
                               } finally {
                                 if (mounted) {
                                   setState(() => _bashApprovalBusy = false);
@@ -677,6 +733,16 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                                         pendingBash.toolUseId,
                                         'denied',
                                       );
+                                }
+                              } catch (error) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        localizedAppError(error, context.l10n),
+                                      ),
+                                    ),
+                                  );
                                 }
                               } finally {
                                 if (mounted) {
@@ -719,10 +785,12 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                             ),
                             request: pendingClarification,
                             busy: _clarificationBusy,
-                            onSubmit: (selections) => _submitClarification(
-                              pendingClarification,
-                              selections,
-                            ),
+                            onSubmit: (selections, {customInputIndices}) =>
+                                _submitClarification(
+                                  pendingClarification,
+                                  selections,
+                                  customInputIndices: customInputIndices,
+                                ),
                             onDismiss: () =>
                                 _dismissClarification(pendingClarification),
                           )
@@ -776,6 +844,12 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                             onRemoveAttachment: (index) =>
                                 setState(() => _attachments.removeAt(index)),
                             onSend: () => _sendMessage(runtimeConfig),
+                            onSendWithMode: _editingFollowUpId == null
+                                ? (mode) => _sendMessage(
+                                    runtimeConfig,
+                                    deliveryMode: mode,
+                                  )
+                                : null,
                             onStop: () => _stopThread(),
                             onRuntimeConfigChanged: (config) {
                               ref.read(runtimeConfigProvider.notifier).state =
@@ -946,6 +1020,13 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                             onRemoveAttachment: (index) =>
                                 setState(() => _attachments.removeAt(index)),
                             onSend: _startNewThread,
+                            onScheduledThreadCreated: (threadId) {
+                              unawaited(
+                                ref.read(threadListProvider.notifier).refresh(),
+                              );
+                              ref.invalidate(projectWorkspaceContextProvider);
+                              context.go('/threads/$threadId');
+                            },
                             onStop: () {},
                             onRuntimeConfigChanged: (config) {
                               ref.read(runtimeConfigProvider.notifier).state =
@@ -970,6 +1051,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     if (existing != null && _runtimeConfigScope == scope) return;
 
     _runtimeConfigScope = scope;
+    final epoch = ++_landingConfigEpoch;
     final modelSettings = await ref.read(modelSettingsProvider.future);
     final workflow = await ref.read(workflowSettingsProvider.future);
     final mcpSettings = await ref.read(mcpSettingsProvider.future);
@@ -980,16 +1062,47 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
           );
     if (!mounted || _runtimeConfigScope != scope) return;
     _coreKind = workflow?.defaultCoreKind ?? 'claude';
-    ref.read(runtimeConfigProvider.notifier).state = buildDefaultRuntimeConfig(
+    final defaults = buildDefaultRuntimeConfig(
       modelSettings: modelSettings,
       workflow: workflow,
       mcpServers: mcpSettings?.servers,
       orchestrationSelection: projectOrchestration?.orchestrationSelection,
       coreKind: _coreKind,
     );
+    final restored = await _restoreLandingModel(
+      defaults,
+      desktopId: currentDesktopId,
+      workspacePath: workspacePath ?? '',
+      coreKind: _coreKind,
+    );
+    if (!mounted || epoch != _landingConfigEpoch) return;
+    ref.read(runtimeConfigProvider.notifier).state = restored;
   }
 
-  void _handleLandingCoreKindChanged(String coreKind) {
+  Future<ThreadRuntimeConfigInput> _restoreLandingModel(
+    ThreadRuntimeConfigInput defaults, {
+    required String? desktopId,
+    required String workspacePath,
+    required String coreKind,
+  }) async {
+    try {
+      return await ComposerModelPreferenceScope(
+        desktopId: desktopId ?? '',
+        workspacePath: workspacePath,
+        coreKind: coreKind,
+      ).restore(defaults);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+      return defaults;
+    }
+  }
+
+  Future<void> _handleLandingCoreKindChanged(String coreKind) async {
+    final epoch = ++_landingConfigEpoch;
     final current = ref.read(runtimeConfigProvider);
     final modelSettings = ref.read(modelSettingsProvider).valueOrNull;
     final workflow = ref.read(workflowSettingsProvider).valueOrNull;
@@ -1021,7 +1134,14 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                 projectOrchestration?.orchestrationSelection,
             coreKind: coreKind,
           );
-    ref.read(runtimeConfigProvider.notifier).state = next;
+    final restored = await _restoreLandingModel(
+      next,
+      desktopId: ref.read(selectedDesktopIdProvider),
+      workspacePath: workspacePath ?? '',
+      coreKind: coreKind,
+    );
+    if (!mounted || epoch != _landingConfigEpoch) return;
+    ref.read(runtimeConfigProvider.notifier).state = restored;
     setState(() => _coreKind = coreKind);
     unawaited(_saveDefaultCoreKind(coreKind));
   }
@@ -1162,8 +1282,9 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
 
   Future<void> _submitClarification(
     ClarificationRequest request,
-    List<List<String>> selections,
-  ) async {
+    List<List<String>> selections, {
+    List<int>? customInputIndices,
+  }) async {
     if (_clarificationBusy) return;
     setState(() => _clarificationBusy = true);
     try {
@@ -1171,11 +1292,19 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
       if (v2.syncState != ConversationV2SyncState.uninitialized) {
         await ref
             .read(conversationV2SessionProvider(widget.threadId).notifier)
-            .submitClarification(request.toolUseId, selections);
+            .submitClarification(
+              request.toolUseId,
+              selections,
+              customInputIndices: customInputIndices,
+            );
       } else {
         await ref
             .read(threadSessionProvider(widget.threadId).notifier)
-            .submitClarification(request.toolUseId, selections);
+            .submitClarification(
+              request.toolUseId,
+              selections,
+              customInputIndices: customInputIndices,
+            );
       }
     } catch (error) {
       if (mounted) {
@@ -1432,7 +1561,10 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     }
   }
 
-  Future<void> _sendMessage(ThreadRuntimeConfigInput runtimeConfig) async {
+  Future<void> _sendMessage(
+    ThreadRuntimeConfigInput runtimeConfig, {
+    FollowUpDeliveryMode? deliveryMode,
+  }) async {
     final prompt = _promptController.text.trim();
     if (prompt.isEmpty && _attachments.isEmpty) return;
     if (_sendBusy || _followUpBusy) return;
@@ -1476,6 +1608,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
             threadId: widget.threadId,
             prompt: prompt,
             attachments: stagedAttachments,
+            deliveryMode: deliveryMode,
           );
           FocusManager.instance.primaryFocus?.unfocus();
           _promptController.clear();
@@ -1767,6 +1900,7 @@ class _ActivityFeedView extends ConsumerWidget {
         themeSource: themeSource,
         thinkingDefaultExpanded: thinkingDisplayMode.defaultExpanded,
         stopping: stopping,
+        running: isRunning && conversationV2.error == null,
         showMessageCopyAndTime: isThreadStoppedForMessageMeta(
           isRunning ? 'running' : (threadStatus ?? 'idle'),
         ),

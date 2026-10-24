@@ -130,6 +130,9 @@ export class ImageGenerationStore {
       CREATE INDEX IF NOT EXISTS image_generation_artifacts_thread_idx
         ON image_generation_artifacts(thread_id, created_at DESC);
     `);
+    this.db.prepare(
+      "UPDATE image_generation_artifacts SET status = 'failed', error_code = 'interrupted', error_message = ?, updated_at = ? WHERE status = 'running'",
+    ).run("应用退出时图片生成尚未完成，请重新生成。", new Date().toISOString());
     this.ensureProfileColumns();
     this.ensureCodexProvider();
     const count = Number(

@@ -1362,6 +1362,13 @@ function isMainTimelineNoiseItem(
   if (isSpuriousClarificationAnsweredItem(item)) {
     return true;
   }
+  const clarificationToolUseId = projectionLiveType(item) === "clarification.requested"
+    ? readProjectionToolMetadata(item)?.toolUseId : undefined;
+  if (clarificationToolUseId && timeline.some(candidate =>
+    projectionLiveType(candidate) === "clarification.answered" &&
+    !isSpuriousClarificationAnsweredItem(candidate) &&
+    readProjectionToolMetadata(candidate)?.toolUseId === clarificationToolUseId
+  )) return true;
   if (isSupersededAskUserQuestionToolItem(item, timeline)) {
     return true;
   }
@@ -1376,7 +1383,7 @@ function isMainTimelineNoiseItem(
     liveType === "plan.ready" ||
     liveType === "thread.awaiting_plan" ||
     liveType === "thread.plan_cleared" ||
-    liveType === "clarification.requested" ||
+    (liveType === "clarification.requested" && !item.metadata?.clarificationRows) ||
     liveType === "plan_approval.requested"
   ) {
     return true;
@@ -1432,7 +1439,8 @@ function isSupersededAskUserQuestionToolItem(
     return false;
   }
   return timeline.some((candidate) => {
-    if (projectionLiveType(candidate) !== "clarification.answered") {
+    const liveType = projectionLiveType(candidate);
+    if (liveType !== "clarification.answered" && !(liveType === "clarification.requested" && candidate.metadata?.clarificationRows)) {
       return false;
     }
     if (isSpuriousClarificationAnsweredItem(candidate)) {
@@ -3613,8 +3621,11 @@ export function isProjectionUserPromptItem(item: ThreadRunProjectionTimelineItem
   ) {
     return false;
   }
-  const textOk = item.text.trim().length > 0 && !isThreadFollowUpActivityMessage(item.text);
-  if (!textOk) {
+  const text = item.text.trim();
+  const hasContent = text
+    ? !isThreadFollowUpActivityMessage(text)
+    : readPromptImagePreviews(item.metadata).length > 0;
+  if (!hasContent) {
     return false;
   }
   if (isRecordedUserPromptLiveEvent(liveType)) {

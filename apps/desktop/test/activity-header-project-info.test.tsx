@@ -53,10 +53,10 @@ test("project info panel shows project name, session count, path, and thread id"
     "zh-CN",
   );
   expect(markup).toContain("eco-coding");
-  expect(markup).toContain("3 个会话");
+  expect(markup).toContain("3 个对话");
   expect(markup).toContain("项目路径");
   expect(markup).toContain("/Users/plus/Desktop/workspace/ai/eco-coding");
-  expect(markup).toContain("会话 ID");
+  expect(markup).toContain("对话 ID");
   expect(markup).toContain("thr_1234567890");
   expect(markup).not.toContain("Cursor 会话 ID");
   expect(markup).toContain("在文件管理器中打开");
@@ -93,7 +93,7 @@ test("project info panel shows Cursor ACP session id next to the eco thread id",
     }),
     "zh-CN",
   );
-  expect(markup).toContain("会话 ID");
+  expect(markup).toContain("对话 ID");
   expect(markup).toContain("thr_1234567890");
   expect(markup).toContain("Cursor 会话 ID");
   expect(markup).toContain("cursor-acp-session-abc");

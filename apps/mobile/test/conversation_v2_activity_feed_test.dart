@@ -13,6 +13,190 @@ import 'package:eco_mobile/features/threads/conversation_v2_projection.dart';
 void main() {
   mainSessionRunningClocks();
 
+  for (final status in ['completed', 'failed']) {
+    test('terminal error selection follows the run status: $status', () {
+      final projection = buildConversationV2Projection(
+        conversationId: 'thread_terminal',
+        messages: [
+          for (final (seq, role, channel, body) in [
+            (1, 'assistant', 'answer', 'Progress reply'),
+            (2, 'system', 'system', 'Request failed'),
+          ])
+            ConversationV2Message(
+              messageId: 'message_$seq',
+              conversationId: 'thread_terminal',
+              turnId: 'turn_1',
+              runId: 'run_1',
+              role: role,
+              channel: channel,
+              createdSeq: seq,
+              versionSeq: seq,
+              contentVersion: 1,
+              body: body,
+              status: ConversationV2MessageStatus.finalised,
+              isDeleted: false,
+            ),
+        ],
+        runs: [
+          ConversationV2Run(
+            runId: 'run_1',
+            conversationId: 'thread_terminal',
+            turnId: 'turn_1',
+            status: status,
+            versionSeq: 3,
+            timingQuality: 'recorded',
+          ),
+        ],
+        tools: const [],
+      );
+      final turn = buildActivityFeed(
+        runProjection: projection,
+        l10n: lookupAppLocalizations(const Locale('zh')),
+      ).singleWhere((entry) => entry.kind == ActivityFeedKind.turn);
+      expect(
+        turn.finalOutput?.text.trim(),
+        status == 'failed' ? 'Request failed' : 'Progress reply',
+      );
+      expect(turn.processEntries, hasLength(1));
+    });
+  }
+
+  for (final mode in ThinkingDisplayMode.values) {
+    test(
+      'SDK state diagnostics stay off the Feed and preserve the final answer: $mode',
+      () {
+        ConversationV2Message message(
+          int seq,
+          String role,
+          String channel,
+          String body,
+        ) => ConversationV2Message(
+          messageId: 'message_$seq',
+          conversationId: 'thread_diagnostics',
+          turnId: 'turn_1',
+          runId: 'run_1',
+          role: role,
+          channel: channel,
+          providerRole: role == 'assistant' ? 'main' : null,
+          createdSeq: seq,
+          versionSeq: seq,
+          contentVersion: 1,
+          body: body,
+          status: ConversationV2MessageStatus.finalised,
+          isDeleted: false,
+        );
+        final projection = buildConversationV2Projection(
+          conversationId: 'thread_diagnostics',
+          messages: [
+            message(1, 'user', 'answer', 'question'),
+            message(2, 'system', 'commentary', 'Session state: running'),
+            message(
+              3,
+              'system',
+              'commentary',
+              'Session state: requires_action',
+            ),
+            message(4, 'assistant', 'commentary', 'I will edit the file.'),
+            message(5, 'assistant', 'answer', 'The real answer'),
+            message(6, 'system', 'commentary', 'Session state: idle'),
+            message(7, 'system', 'commentary', 'Available commands updated.'),
+            message(8, 'system', 'system', 'HTTP 503 request failed'),
+          ],
+          runs: const [
+            ConversationV2Run(
+              runId: 'run_1',
+              conversationId: 'thread_diagnostics',
+              turnId: 'turn_1',
+              status: 'completed',
+              versionSeq: 9,
+              timingQuality: 'recorded',
+            ),
+          ],
+          tools: const [],
+        );
+        expect(
+          projection.timeline.where((item) => item.eventType == 'diagnostic'),
+          hasLength(4),
+        );
+        expect(projection.timeline.last.eventType, 'api.error');
+        expect(projection.status, 'completed');
+        final entries = buildActivityFeed(
+          threadId: 'thread_diagnostics',
+          runProjection: projection,
+          l10n: lookupAppLocalizations(const Locale('zh')),
+          thinkingDisplayMode: mode,
+        );
+        final turn = entries.singleWhere(
+          (entry) => entry.kind == ActivityFeedKind.turn,
+        );
+        expect(turn.finalOutput?.text.trim(), 'The real answer');
+        final visible = [
+          for (final entry in entries)
+            if (entry.kind == ActivityFeedKind.turn) ...[
+              ...entry.processEntries,
+              ?entry.finalOutput,
+            ] else
+              entry,
+        ];
+        expect(
+          visible.any((entry) => entry.text.contains('Session state:')),
+          isFalse,
+        );
+        expect(
+          visible.any(
+            (entry) => entry.text.contains('Available commands updated.'),
+          ),
+          isFalse,
+        );
+        expect(
+          visible.any((entry) => entry.text.contains('I will edit the file.')),
+          isTrue,
+        );
+        expect(
+          visible.any((entry) => entry.kind == ActivityFeedKind.error),
+          isTrue,
+        );
+      },
+    );
+  }
+
+  test('ordinary messages quoting SDK state text remain visible', () {
+    final projection = buildConversationV2Projection(
+      conversationId: 'thread_state_quote',
+      messages: [
+        for (final role in ['user', 'assistant'])
+          ConversationV2Message(
+            messageId: 'quote_$role',
+            conversationId: 'thread_state_quote',
+            turnId: 'turn_1',
+            role: role,
+            channel: 'commentary',
+            createdSeq: role == 'user' ? 1 : 2,
+            versionSeq: role == 'user' ? 1 : 2,
+            contentVersion: 1,
+            body: 'Session state: running',
+            status: ConversationV2MessageStatus.finalised,
+            isDeleted: false,
+          ),
+      ],
+      runs: const [],
+      tools: const [],
+    );
+    expect(
+      projection.timeline.every((item) => item.eventType == 'message.final'),
+      isTrue,
+    );
+    final entries = buildActivityFeed(
+      runProjection: projection,
+      l10n: lookupAppLocalizations(const Locale('zh')),
+      groupTurns: false,
+    );
+    expect(
+      entries.where((entry) => entry.text.trim() == 'Session state: running'),
+      hasLength(2),
+    );
+  });
+
   test('renders a running V2 context compaction detail in the feed', () {
     final projection = buildConversationV2Projection(
       conversationId: 'thread_compaction',

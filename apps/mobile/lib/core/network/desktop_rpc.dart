@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:uuid/uuid.dart';
 
 import '../models/acp_models.dart';
+import '../models/codex_account_models.dart';
 import '../models/asr_models.dart';
 import '../models/tts_models.dart';
 import '../models/eco_types.dart';
@@ -19,6 +20,7 @@ import '../models/project_orchestration_settings.dart';
 import '../models/skill_models.dart';
 import '../models/thread_models.dart';
 import '../models/scheduling_models.dart';
+import '../models/project_todo_models.dart';
 import '../network/eco_center_client.dart';
 import '../storage/conversation_v2_cache.dart';
 import '../utils/conversation_v2_hash.dart';
@@ -36,6 +38,116 @@ class PromptImageUploadResult {
 }
 
 class DesktopRpc implements ReadAloudRemote {
+  Future<List<CodexAccount>> listCodexAccounts() async {
+    final result = await _client.invoke<List<dynamic>>(
+      desktopDeviceId,
+      'openai-accounts:list',
+      [],
+    );
+    return result
+        .map(
+          (row) => CodexAccount.fromJson(Map<String, dynamic>.from(row as Map)),
+        )
+        .toList();
+  }
+
+  Future<CodexActiveAccount> getActiveCodexAccount() async =>
+      CodexActiveAccount.fromJson(
+        await _client.invoke<Map<String, dynamic>>(
+          desktopDeviceId,
+          'openai-accounts:get-active',
+          [],
+        ),
+      );
+
+  Future<CodexAccountQuota> queryCodexAccountQuota(String accountId) async =>
+      CodexAccountQuota.fromJson(
+        await _client.invoke<Map<String, dynamic>>(
+          desktopDeviceId,
+          'openai-accounts:query-quota',
+          [
+            {'accountId': accountId},
+          ],
+        ),
+      );
+
+  Future<bool> setActiveCodexAccount(String accountId) async {
+    final result = await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'openai-accounts:set-active',
+      [
+        {'accountId': accountId},
+      ],
+    );
+    if (result['success'] != true) {
+      throw StateError('Codex account switch failed');
+    }
+    return result['pending'] == true;
+  }
+
+  Future<String> resetCodexAccountQuota(
+    String accountId,
+    String idempotencyKey,
+  ) async {
+    final result = await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'openai-accounts:reset-quota',
+      [
+        {'accountId': accountId, 'idempotencyKey': idempotencyKey},
+      ],
+    );
+    final outcome = result['outcome'];
+    if (!const [
+      'reset',
+      'alreadyRedeemed',
+      'nothingToReset',
+      'noCredit',
+    ].contains(outcome)) {
+      throw const FormatException('Unknown Codex reset outcome');
+    }
+    return outcome as String;
+  }
+
+  Future<List<ProjectTodo>> listProjectTodos() async {
+    final result = await _client.invoke<List<dynamic>>(desktopDeviceId, 'project-todo:list', []);
+    return result.map((row) => ProjectTodo.fromJson(Map<String, dynamic>.from(row as Map))).toList();
+  }
+
+  Future<ProjectTodo> getProjectTodo(String id) async {
+    final result = await _client.invoke<Map<String, dynamic>>(desktopDeviceId, 'project-todo:get', [id, false]);
+    return ProjectTodo.fromJson(result);
+  }
+
+  Future<ProjectTodo> saveProjectTodo(Map<String, dynamic> input) async {
+    final result = await _client.invoke<Map<String, dynamic>>(desktopDeviceId, 'project-todo:save', [input]);
+    return ProjectTodo.fromJson(result);
+  }
+
+  Future<int> trashProjectTodo({required String id, required int revision, required bool deleted}) =>
+      _client.invoke<int>(desktopDeviceId, 'project-todo:trash', [{'id': id, 'revision': revision, 'deleted': deleted}]);
+
+  Future<String> downloadProjectTodoImage(ProjectTodo todo, ProjectTodoImage image) async {
+    final bytes = BytesBuilder(copy: false);
+    int? total;
+    var offset = 0;
+    do {
+      final result = await _client.invoke<Map<String, dynamic>>(desktopDeviceId, 'project-todo:image-read', [{
+        'id': todo.id, 'revision': todo.revision, 'imageId': image.id, 'offset': offset,
+      }]);
+      final chunk = base64Decode(result['data'] as String);
+      final next = result['nextOffset'] as int;
+      final size = result['totalBytes'] as int;
+      if (size <= 0 || size > todoMaxImageBytes || (total != null && total != size) ||
+          next != offset + chunk.length || next <= offset || next > size) {
+        throw const FormatException('Invalid todo image chunk.');
+      }
+      total = size;
+      offset = next;
+      bytes.add(chunk);
+    } while (offset < total);
+    return base64Encode(bytes.takeBytes());
+  }
+
   Future<SchedulingSnapshot> listSchedules() async =>
       SchedulingSnapshot.fromJson(
         Map<String, dynamic>.from(
@@ -1441,17 +1553,32 @@ class DesktopRpc implements ReadAloudRemote {
     required String toolUseId,
     required List<List<String>> selections,
     required int expectedHistoryRevision,
+    List<int>? customInputIndices,
   }) async {
-    await _client.invoke(desktopDeviceId, 'clarification:submit', [
-      {
-        'principalId': principalId,
-        'clientCommandId': clientCommandId,
-        'threadId': threadId,
-        'toolUseId': toolUseId,
-        'selections': selections,
-        'expectedHistoryRevision': expectedHistoryRevision,
-      },
-    ]);
+    final result = await _client.invoke<dynamic>(
+      desktopDeviceId,
+      'clarification:submit',
+      [
+        {
+          'principalId': principalId,
+          'clientCommandId': clientCommandId,
+          'threadId': threadId,
+          'toolUseId': toolUseId,
+          'selections': selections,
+          if (customInputIndices?.isNotEmpty == true)
+            'customInputIndices': customInputIndices,
+          'expectedHistoryRevision': expectedHistoryRevision,
+        },
+      ],
+    );
+    if (result is Map && result['delivery'] is Map) {
+      final delivery = result['delivery'] as Map;
+      if (delivery['state'] == 'unknown') {
+        throw StateError(
+          '回答已记录，但未能确认送达：${delivery['message'] ?? '原因未知'}。可重新提交或关闭问题。',
+        );
+      }
+    }
   }
 
   Future<void> dismissClarification({
@@ -1513,12 +1640,14 @@ class DesktopRpc implements ReadAloudRemote {
     required String threadId,
     required String prompt,
     List<PromptImageAttachment>? attachments,
+    FollowUpDeliveryMode? deliveryMode,
   }) async {
     final request = await _v2CommandEnvelope(
       threadId: threadId,
       operation: 'enqueue',
       payload: {
         'prompt': prompt,
+        if (deliveryMode != null) 'followUpDeliveryMode': deliveryMode.name,
         if (attachments != null && attachments.isNotEmpty)
           'attachments': attachments
               .map((attachment) => attachment.toWireJson())

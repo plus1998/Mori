@@ -509,6 +509,9 @@ function handleTurnCompleted(ctx: AdapterContext, params: Record<string, unknown
       turnId,
       status,
       ...(appServerTokenUsage ? { appServerTokenUsage } : {}),
+      ...(turnRoute?.appServerTokenUsageRequests
+        ? { appServerTokenUsageRequests: turnRoute.appServerTokenUsageRequests }
+        : {}),
       ...(errorMessage ? { errorMessage } : {}),
     },
   });

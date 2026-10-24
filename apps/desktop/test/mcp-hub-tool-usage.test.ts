@@ -13,6 +13,7 @@ import {
   buildEcoMcpHubDirectoryPrompt,
   mergeEcoMcpHubPromptParts,
   rewriteEcoMcpHubPromptForCodexServer,
+  ECO_MCP_HUB_SEARCH_QUERY_DESCRIPTION,
 } from "../src/shared/mcp-hub-tool-usage";
 
 test("Hub tool usage tells agents to search and dispatch by the canonical tool id", () => {
@@ -22,6 +23,9 @@ test("Hub tool usage tells agents to search and dispatch by the canonical tool i
   expect(prompt).toContain("eco_image_view:view_image");
   expect(prompt).toContain("tool id in `name`");
   expect(prompt).toContain("Use direct MCP tools only when explicitly listed");
+  expect(prompt).toContain(ECO_MCP_HUB_SEARCH_QUERY_DESCRIPTION);
+  expect(prompt).toContain("eco_agent_browser navigate read");
+  expect(prompt).toContain("retry with the exact Hub target alone");
 });
 
 test("external service directory bounds real capability excerpts and keeps missing metadata explicit", () => {
@@ -46,6 +50,7 @@ test("external service directory bounds real capability excerpts and keeps missi
   expect(prompt).not.toContain("secretParameter");
   expect(prompt).not.toContain("inputSchema");
   expect(prompt).toContain("Use each server name as the Hub search query");
+  expect(prompt).toContain("optionally followed by multiple capability keywords");
   expect(buildEcoMcpHubDirectoryPrompt([])).toBeUndefined();
 });
 

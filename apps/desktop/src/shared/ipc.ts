@@ -36,6 +36,8 @@ export const IPC_CHANNELS = {
   schedulingChanged: "scheduling:changed",
   appMenuCommand: "app:menu-command",
   appRendererReady: "app:renderer-ready",
+  displayControlGet: "display-control:get",
+  displayControlSet: "display-control:set",
   appScreenRecordingAppLabel: "app:screen-recording-app-label",
   appSetThemeSource: "app:set-theme-source",
   appSetWindowTitlebarMode: "app:set-window-titlebar-mode",
@@ -101,6 +103,10 @@ export const IPC_CHANNELS = {
   chatGptSubscriptionAccountResetAvailability: "chatgpt-subscription:account-reset-availability",
   chatGptSubscriptionAccountSetProxy: "chatgpt-subscription:account-set-proxy",
   chatGptSubscriptionAccountTest: "chatgpt-subscription:account-test",
+  chatGptModelCatalogGet: "chatgpt-model-catalog:get",
+  chatGptModelCatalogRefresh: "chatgpt-model-catalog:refresh",
+  chatGptModelCatalogAdd: "chatgpt-model-catalog:add",
+  chatGptModelCatalogRemove: "chatgpt-model-catalog:remove",
   codexOAuthGetStatus: "codex-oauth:get-status",
   codexOAuthStartLogin: "codex-oauth:start-login",
   codexOAuthLogout: "codex-oauth:logout",
@@ -108,10 +114,15 @@ export const IPC_CHANNELS = {
   openAIAccountsCreate: "openai-accounts:create",
   openAIAccountsDelete: "openai-accounts:delete",
   openAIAccountsStartLogin: "openai-accounts:start-login",
+  openAIAccountsSubmitLoginCallback: "openai-accounts:submit-login-callback",
+  openAIAccountsCancelLogin: "openai-accounts:cancel-login",
   openAIAccountsSetActive: "openai-accounts:set-active",
   openAIAccountsGetActive: "openai-accounts:get-active",
   openAIAccountsSetAuthJson: "openai-accounts:set-auth-json",
   openAIAccountsQueryQuota: "openai-accounts:query-quota",
+  openAIAccountsWake: "openai-accounts:wake",
+  openAIAccountsGetWakeModel: "openai-accounts:wake-model:get",
+  openAIAccountsSetWakeModel: "openai-accounts:wake-model:set",
   openAIAccountsResetQuota: "openai-accounts:reset-quota",
   openAIAccountsImageEnabled: "openai-accounts:image-enabled",
   openAIAccountsImageQuota: "openai-accounts:image-quota",
@@ -145,6 +156,13 @@ export const IPC_CHANNELS = {
   threadListInitial: "thread:list-initial",
   threadListMore: "thread:list-more",
   threadGet: "thread:get",
+  projectTodoList: "project-todo:list",
+  projectTodoGet: "project-todo:get",
+  projectTodoImageRead: "project-todo:image-read",
+  projectTodoChanged: "project-todo:changed",
+  projectTodoSave: "project-todo:save",
+  projectTodoCompose: "project-todo:compose",
+  projectTodoTrash: "project-todo:trash",
   composerDraftGet: "composer-draft:get",
   composerDraftSave: "composer-draft:save",
   composerDraftDelete: "composer-draft:delete",
@@ -232,6 +250,7 @@ export const IPC_CHANNELS = {
   proxyBridgeSettingsSave: "proxy-bridge-settings:save",
   integratedWebSearchSettingsGet: "integrated-web-search-settings:get",
   integratedWebSearchSettingsSave: "integrated-web-search-settings:save",
+  integratedWebSearchTest: "integrated-web-search:test",
   centerServerSettingsGet: "center-server-settings:get",
   supabaseDeploymentGet: "supabase-deployment:get",
   supabaseDeploymentAuthorize: "supabase-deployment:authorize",
@@ -340,6 +359,8 @@ export const IPC_CHANNELS = {
   browserRegisterGuest: "browser:register-guest",
   browserSetVisible: "browser:set-visible",
   browserGetState: "browser:get-state",
+  browserAgentProcessesList: "browser:agent-processes-list",
+  browserAgentProcessStop: "browser:agent-process-stop",
   /** Dev-only: mint thread-scoped browser CDP for smoke/probe scripts. */
   browserDevPrepareAgentCdp: "browser:dev-prepare-agent-cdp",
   browserOpenExternal: "browser:open-external",
@@ -357,6 +378,8 @@ export const IPC_CHANNELS = {
   imageGenerationProfileSave: "image-generation-profile:save",
   imageGenerationProfileDelete: "image-generation-profile:delete",
   imageGenerationProfileActivate: "image-generation-profile:activate",
+  imageGenerationCreate: "image-generation:create",
+  imageGenerationPickInputs: "image-generation:pick-inputs",
   imageGenerationArtifactsList: "image-generation-artifacts:list",
   imageGenerationArtifactRead: "image-generation-artifact:read",
   imageGenerationArtifactReveal: "image-generation-artifact:reveal",
@@ -373,6 +396,7 @@ export const IPC_CHANNELS = {
   ttsProfileSave: "tts-profile:save",
   ttsProfileDelete: "tts-profile:delete",
   ttsProfileActivate: "tts-profile:activate",
+  ttsCreate: "tts:create",
   ttsArtifactsList: "tts-artifacts:list",
   ttsArtifactRead: "tts-artifact:read",
   ttsArtifactReveal: "tts-artifact:reveal",
@@ -810,6 +834,8 @@ export interface WorkspaceFileReadResult {
   truncated?: boolean;
   reason?: string;
   revision?: string;
+  /** Previewing local files is unrestricted; editing remains scoped to the workspace. */
+  readOnly?: boolean;
 }
 
 export type PackageManagerKind = "bun" | "pnpm" | "yarn" | "npm";
@@ -1418,6 +1444,16 @@ export interface IntegratedWebSearchSettingsSaveInput {
   apiKey?: string;
 }
 
+export interface IntegratedWebSearchTestInput {
+  provider: IntegratedWebSearchProvider;
+  query: string;
+}
+
+export interface IntegratedWebSearchTestResult {
+  results: Array<{ title: string; url: string; description: string }>;
+  elapsedMs: number;
+}
+
 import type { AgentTemplate } from "./agent-orchestration";
 import type { UpstreamApiCompat } from "./api-compat";
 import type { WebSearchApprovalMode } from "./integrated-web-search";
@@ -1840,6 +1876,8 @@ export interface ThreadSummary {
   cancelling?: boolean;
   /** Live-only: desktop is currently auto-generating the thread title. Never persisted. */
   titleGenerating?: boolean;
+  /** Derived from the saved composer draft; never persisted on the thread itself. */
+  hasComposerDraft?: boolean;
   /** Harness permanently selected for this thread after first run. */
   coreKind?: import("@eco/runtime/core-runtime").CoreKind;
   /** ACP agent under `coreKind: "acp"` (MVP: `"cursor"`). */
@@ -1865,8 +1903,8 @@ export interface ThreadSummary {
 
 export interface ThreadCompletionNotificationRequest {
   threadId: string;
-  /** Whether the user is actively viewing this thread (window focused + selected). */
-  activelyViewed: boolean;
+  /** Whether this thread is selected. Native window focus is checked in main. */
+  threadSelected: boolean;
 }
 
 export interface ThreadCompletionNotificationResult {
@@ -1885,7 +1923,7 @@ export type ThreadApprovalNotificationKind = "plan" | "bash";
 export interface ThreadApprovalNotificationRequest {
   threadId: string;
   kind: ThreadApprovalNotificationKind;
-  activelyViewed: boolean;
+  threadSelected: boolean;
 }
 
 export interface ThreadApprovalNotificationResult {
@@ -1902,7 +1940,7 @@ export interface ThreadApprovalNotificationResult {
 export interface ThreadClarificationNotificationRequest {
   threadId: string;
   toolUseId: string;
-  activelyViewed: boolean;
+  threadSelected: boolean;
 }
 
 export interface ThreadClarificationNotificationResult {

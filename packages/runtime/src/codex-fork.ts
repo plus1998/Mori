@@ -5,7 +5,15 @@ export const CODEX_FORK_METHOD = "thread/fork";
 /** @deprecated Prefer CODEX_FORK_METHOD — production rewind no longer uses thread/rollback. */
 export const CODEX_ROLLBACK_METHOD = "thread/rollback";
 
-export interface CodexThreadForkInput {
+export interface CodexThreadForkOverrides {
+  model?: string;
+  modelProvider?: string;
+  cwd?: string;
+  config?: Record<string, unknown>;
+  developerInstructions?: string;
+}
+
+export interface CodexThreadForkInput extends CodexThreadForkOverrides {
   threadId: string;
   /** Codex user item id of the turn being rewound (dropped + replayed). */
   itemId: string;
@@ -13,12 +21,15 @@ export interface CodexThreadForkInput {
   targetTurnIndex?: number;
 }
 
-export interface CodexThreadForkParams {
+export interface CodexThreadForkParams extends CodexThreadForkOverrides {
   threadId: string;
   lastTurnId: string;
 }
 
 export interface CodexThreadForkResult {
+  /** Effective settings returned by app-server, never inferred from the source thread. */
+  model?: string;
+  modelProvider?: string;
   /** When true, drop Eco↔Codex mapping so the next turn uses thread/start. */
   clearMapping: boolean;
   /** Present when fork copied history; absent when clearMapping. */
@@ -118,7 +129,11 @@ function codexItemIds(item: { id?: unknown; clientId?: unknown }): string[] {
   return ids;
 }
 
-export function buildCodexThreadForkParams(threadId: string, lastTurnId: string): CodexThreadForkParams {
+export function buildCodexThreadForkParams(
+  threadId: string,
+  lastTurnId: string,
+  overrides: CodexThreadForkOverrides = {},
+): CodexThreadForkParams {
   const trimmedThreadId = threadId.trim();
   const trimmedLastTurnId = lastTurnId.trim();
   if (!trimmedThreadId || !trimmedLastTurnId) {
@@ -126,7 +141,17 @@ export function buildCodexThreadForkParams(threadId: string, lastTurnId: string)
       nextAction: "Retry from a Codex-backed user message after reloading turn history with turn ids.",
     });
   }
-  return { threadId: trimmedThreadId, lastTurnId: trimmedLastTurnId };
+  return {
+    threadId: trimmedThreadId,
+    lastTurnId: trimmedLastTurnId,
+    ...(overrides.model !== undefined ? { model: overrides.model } : {}),
+    ...(overrides.modelProvider !== undefined ? { modelProvider: overrides.modelProvider } : {}),
+    ...(overrides.cwd !== undefined ? { cwd: overrides.cwd } : {}),
+    ...(overrides.config !== undefined ? { config: overrides.config } : {}),
+    ...(overrides.developerInstructions !== undefined
+      ? { developerInstructions: overrides.developerInstructions }
+      : {}),
+  };
 }
 
 function readTurnId(turn: CodexTurnReadShape, index: number): string {
@@ -162,7 +187,7 @@ export async function forkCodexThread(
   }
 
   const read = await client.request<{
-    thread?: { turns?: CodexTurnReadShape[] };
+    thread?: { turns?: CodexTurnReadShape[]; cwd?: string };
   }>("thread/read", { threadId, includeTurns: true });
   const turns = read.thread?.turns;
   if (!Array.isArray(turns)) {
@@ -195,7 +220,15 @@ export async function forkCodexThread(
   const lastTurnId = readTurnId(lastKeptTurn, targetTurnIndex - 1);
   const forked = await client.request<{
     thread?: { id?: unknown; forkedFromId?: unknown };
-  }>(CODEX_FORK_METHOD, buildCodexThreadForkParams(threadId, lastTurnId));
+    model?: string;
+    modelProvider?: string;
+  }>(
+    CODEX_FORK_METHOD,
+    buildCodexThreadForkParams(threadId, lastTurnId, {
+      ...input,
+      ...(input.cwd === undefined && read.thread?.cwd ? { cwd: read.thread.cwd } : {}),
+    }),
+  );
 
   const newThreadId = typeof forked.thread?.id === "string" ? forked.thread.id.trim() : "";
   if (!newThreadId) {
@@ -208,6 +241,8 @@ export async function forkCodexThread(
 
   return {
     clearMapping: false,
+    ...(forked.model !== undefined ? { model: forked.model } : {}),
+    ...(forked.modelProvider !== undefined ? { modelProvider: forked.modelProvider } : {}),
     sourceThreadId: threadId,
     lastTurnId,
     thread: {

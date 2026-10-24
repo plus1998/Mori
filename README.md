@@ -52,7 +52,20 @@ bun install
 bun run dev
 ```
 
+Dev 启动器负责转发日志和清理自己启动的进程。在 macOS/Linux 上，Ctrl+C 或关闭终端 tab 都会结束 Dev；退出时最多等待 3 秒，再强制清理未退出的进程。每个子进程由独立监护进程持有日志管道，通过 IPC 监测启动器是否仍在运行，因此在 Agent 终端点击停止、启动器被强杀时也会清理子进程。复用的已有 Vite 服务不受影响。
+
 首次启动后在「设置 → 模型服务商」添加 API，再创建运行配置。macOS Beta 尚未签名，详见[使用指南](docs/USER_GUIDE.md)。
+
+### 本地更新已安装的 macOS ARM64 版
+
+在仓库根目录或 `apps/desktop` 中运行：
+
+```bash
+bun run update:mac-arm64
+# 也支持 npm run update:mac-arm64
+```
+
+脚本会执行 `bun run pack:mac-arm64 --dir`，成功后退出 `/Applications/Eco Coding.app` 的生产版进程，替换应用并重新打开。不会退出 dev 版或修改用户数据。启动时会检查父进程链：从生产版 Eco 内启动时，更新任务在独立后台进程中执行，避免 Eco 退出时中断自身更新；终端会输出日志路径，用 `tail -f` 查看进度与最终结果。从外部终端或 dev 版启动时，直接在前台执行并实时打印日志。退出超时或安装失败会明确报错，不会强制杀进程；替换或启动失败时按日志检查旧版备份。需要当前用户有 `/Applications` 的写权限。
 
 ## 功能概览
 

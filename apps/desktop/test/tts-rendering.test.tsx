@@ -96,7 +96,7 @@ test("Doubao cards keep the full voice ID on its own row and offer in-app playba
   // The ID is emitted verbatim; CSS ellipsis (not a mid-word break) handles narrow panels.
   expect(markup).toContain('class="tts-artifact-voice" title="zh_female_qingxinnvsheng_uranus_bigtts"');
   expect(markup).toContain("seed-tts-2.0");
-  expect(markup).toContain("在文件浏览器中播放");
+  expect(markup).toContain("打开音频");
   expect(markup).toContain("在文件夹中显示");
   // The transcript renders once; the duplicate 朗读文本 disclosure used to repeat it.
   expect(markup.split(doubao.text).length - 1).toBe(1);
@@ -169,7 +169,7 @@ test("settings expose the Gemini model and custom Base URL; integration selectio
     onError: () => {},
   });
   const markup = renderLocalized(panel, "zh-CN");
-  expect(markup).toContain("语音生成");
+  expect(markup).toContain("语音合成");
   expect(markup).toContain("gemini-3.8-flash-tts");
   expect(markup).toContain("https://custom.example/v1beta");
   expect(markup).not.toContain("图片编辑");

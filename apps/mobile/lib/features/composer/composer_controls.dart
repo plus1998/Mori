@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/locale/app_localizations_ext.dart';
+import '../../core/models/codex_account_models.dart';
 import '../../core/constants/bash_review_ui.dart';
 import 'composer_toolbar_icon.dart';
 import '../../core/models/acp_models.dart';
@@ -148,7 +149,8 @@ String _thinkingEffortLabel(String? effort, AppLocalizations l10n) {
 String composerThinkingEffortLabel(String? effort, AppLocalizations l10n) =>
     _thinkingEffortLabel(effort, l10n);
 
-String composerModelDisplayName(String modelId) => shortenModelId(formatModelDisplayName(modelId));
+String composerModelDisplayName(String modelId) =>
+    shortenModelId(formatModelDisplayName(modelId));
 
 MainAgentModelOverride? buildComposerTemporaryModelOverride({
   required ComposerTemporaryModelOption model,
@@ -326,8 +328,14 @@ Future<bool> persistRuntimeConfig(
   required String threadId,
   required ThreadRuntimeConfigInput config,
   required ValueChanged<ThreadRuntimeConfigInput> onChanged,
+  ThreadRuntimeConfigInput? previousConfig,
+  bool reportFailure = false,
 }) async {
-  final previous = ref.read(runtimeConfigProvider);
+  final previous = previousConfig ?? ref.read(runtimeConfigProvider);
+  final messenger = reportFailure
+      ? ScaffoldMessenger.maybeOf(ref.context)
+      : null;
+  final failureMessage = reportFailure ? ref.context.l10n.errorRpcFailed : null;
   onChanged(config);
   if (threadId.isEmpty) return true;
   final rpc = ref.read(desktopRpcProvider);
@@ -346,6 +354,9 @@ Future<bool> persistRuntimeConfig(
     if (previous != null) {
       onChanged(previous);
     }
+    if (messenger != null && messenger.mounted) {
+      messenger.showSnackBar(SnackBar(content: Text(failureMessage!)));
+    }
     return false;
   }
 }
@@ -357,6 +368,9 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
     required this.runtimeConfig,
     required this.threadId,
     required this.canEdit,
+    this.canEditStatelessModels,
+    this.isAcp = false,
+    this.mainAgentLabel,
     required this.onChanged,
     required this.workspacePath,
     this.mcpServers = const [],
@@ -371,6 +385,9 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
   final ThreadRuntimeConfigInput runtimeConfig;
   final String threadId;
   final bool canEdit;
+  final bool? canEditStatelessModels;
+  final bool isAcp;
+  final String? mainAgentLabel;
   final ValueChanged<ThreadRuntimeConfigInput> onChanged;
   final String workspacePath;
   final List<McpServerConfigView> mcpServers;
@@ -431,6 +448,8 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
       );
       persistRuntimeConfig(
         ref,
+        previousConfig: runtimeConfig,
+        reportFailure: true,
         threadId: threadId,
         config: nextConfig,
         onChanged: onChanged,
@@ -481,11 +500,12 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
         ? null
         : context.l10n.composerAgentsCount(selectedSubagent.agents.length);
 
+    final canEditModels = canEditStatelessModels ?? canEdit;
     final children = <Widget>[];
     if (showOrchestrationPickers) {
       children.addAll([
         _OrchestrationPickerRow(
-          label: context.l10n.composerMainAgent,
+          label: mainAgentLabel ?? context.l10n.composerMainAgent,
           value: selectedMainAgentLabel,
           detail: selectedMainAgentDetail,
           enabled: canEdit && mainAgentConfigs.isNotEmpty,
@@ -493,7 +513,7 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
               ? null
               : () => _showOrchestrationOptionSheet(
                   context,
-                  title: context.l10n.composerMainAgent,
+                  title: mainAgentLabel ?? context.l10n.composerMainAgent,
                   options: [
                     for (final config in mainAgentConfigs)
                       _OrchestrationPickerOption(
@@ -582,16 +602,17 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
           value: runtimeConfig.auxiliaryModel == null
               ? context.l10n.commonNotConfigured
               : shortenModelId(runtimeConfig.auxiliaryModel!.modelId),
-          enabled: canEdit,
-          onTap: !canEdit
+          enabled: canEditModels,
+          onTap: !canEditModels
               ? null
               : () => showComposerAuxiliaryModelPickerSheet(
                   context,
                   runtimeConfig: runtimeConfig,
                   threadId: threadId,
-                  canEdit: canEdit,
+                  canEdit: canEditModels,
                   onChanged: onChanged,
                   mainAgentConfigId: mainAgentConfigId,
+                  isAcp: isAcp,
                 ),
         ),
       );
@@ -606,16 +627,17 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
           value: runtimeConfig.approvalModel == null
               ? context.l10n.commonNotConfigured
               : shortenModelId(runtimeConfig.approvalModel!.modelId),
-          enabled: canEdit,
-          onTap: !canEdit
+          enabled: canEditModels,
+          onTap: !canEditModels
               ? null
               : () => showComposerApprovalModelPickerSheet(
                   context,
                   runtimeConfig: runtimeConfig,
                   threadId: threadId,
-                  canEdit: canEdit,
+                  canEdit: canEditModels,
                   onChanged: onChanged,
                   mainAgentConfigId: mainAgentConfigId,
+                  isAcp: isAcp,
                 ),
         ),
       );
@@ -630,16 +652,17 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
           value: runtimeConfig.visionModel == null
               ? context.l10n.commonNotConfigured
               : shortenModelId(runtimeConfig.visionModel!.modelId),
-          enabled: canEdit,
-          onTap: !canEdit
+          enabled: canEditModels,
+          onTap: !canEditModels
               ? null
               : () => showComposerVisionModelPickerSheet(
                   context,
                   runtimeConfig: runtimeConfig,
                   threadId: threadId,
-                  canEdit: canEdit,
+                  canEdit: canEditModels,
                   onChanged: onChanged,
                   mainAgentConfigId: mainAgentConfigId,
+                  isAcp: isAcp,
                 ),
         ),
       );
@@ -873,6 +896,8 @@ class _ComposerSubagentSwitchList extends ConsumerWidget {
                         next[role] = value;
                         persistRuntimeConfig(
                           ref,
+                          previousConfig: runtimeConfig,
+                          reportFailure: true,
                           threadId: threadId,
                           config: runtimeConfig.copyWith(subagentEnabled: next),
                           onChanged: onChanged,
@@ -1290,6 +1315,8 @@ class _ComposerRouteSheetState extends ConsumerState<ComposerRouteSheet> {
                                           )..[integration.id] = value;
                                           persistRuntimeConfig(
                                             ref,
+                                            previousConfig: runtimeConfig,
+                                            reportFailure: true,
                                             threadId: threadId,
                                             config: runtimeConfig.copyWith(
                                               integrationsEnabled: next,
@@ -1364,6 +1391,8 @@ class _ComposerRouteSheetState extends ConsumerState<ComposerRouteSheet> {
                                               )..[serverKey] = value;
                                           persistRuntimeConfig(
                                             ref,
+                                            previousConfig: runtimeConfig,
+                                            reportFailure: true,
                                             threadId: threadId,
                                             config: runtimeConfig.copyWith(
                                               mcpServersEnabled: nextSettings,
@@ -1427,6 +1456,8 @@ class _ComposerRouteSheetState extends ConsumerState<ComposerRouteSheet> {
                                               )..[key] = value;
                                           persistRuntimeConfig(
                                             ref,
+                                            previousConfig: runtimeConfig,
+                                            reportFailure: true,
                                             threadId: threadId,
                                             config: runtimeConfig.copyWith(
                                               skillsEnabled: nextSettings,
@@ -1674,6 +1705,8 @@ class ComposerAuxiliaryModelSection extends ConsumerWidget {
           : runtimeConfig.copyWith(auxiliaryModel: selection);
       persistRuntimeConfig(
         ref,
+        previousConfig: runtimeConfig,
+        reportFailure: true,
         threadId: threadId,
         config: next,
         onChanged: onChanged,
@@ -1686,7 +1719,6 @@ class ComposerAuxiliaryModelSection extends ConsumerWidget {
         Navigator.pop(context);
       }
     }
-
 
     return _auxiliaryModelSection(
       context,
@@ -1761,7 +1793,9 @@ class ComposerAuxiliaryModelSection extends ConsumerWidget {
     return EcoGroupedSection(
       label: showSectionHeader ? context.l10n.composerAuxiliaryModel : null,
       caption: showSectionHeader
-          ? (isAcp ? context.l10n.composerAuxiliaryModelHintAcp : context.l10n.composerAuxiliaryModelHint)
+          ? (isAcp
+                ? context.l10n.composerAuxiliaryModelHintAcp
+                : context.l10n.composerAuxiliaryModelHint)
           : null,
       topSpacing: topSpacing,
       child: child,
@@ -1783,7 +1817,9 @@ Future<void> showComposerAuxiliaryModelPickerSheet(
     isScrollControlled: true,
     builder: (context) => EcoSheetScaffold(
       title: context.l10n.composerAuxiliaryModel,
-      subtitle: isAcp ? context.l10n.composerAuxiliaryModelHintAcp : context.l10n.composerAuxiliaryModelHint,
+      subtitle: isAcp
+          ? context.l10n.composerAuxiliaryModelHintAcp
+          : context.l10n.composerAuxiliaryModelHint,
       maxHeightFactor: 0.7,
       child: ListView(
         shrinkWrap: true,
@@ -1847,6 +1883,8 @@ class ComposerApprovalModelSection extends ConsumerWidget {
       next = downgradeApprovalDependentFeatures(next);
       persistRuntimeConfig(
         ref,
+        previousConfig: runtimeConfig,
+        reportFailure: true,
         threadId: threadId,
         config: next,
         onChanged: onChanged,
@@ -2025,6 +2063,8 @@ class ComposerVisionModelSection extends ConsumerWidget {
           : runtimeConfig.copyWith(visionModel: selection);
       persistRuntimeConfig(
         ref,
+        previousConfig: runtimeConfig,
+        reportFailure: true,
         threadId: threadId,
         config: next,
         onChanged: onChanged,
@@ -2040,7 +2080,9 @@ class ComposerVisionModelSection extends ConsumerWidget {
 
     return EcoGroupedSection(
       label: context.l10n.composerVisionModel,
-      caption: isAcp ? context.l10n.composerVisionModelHintAcp : context.l10n.composerVisionModelHint,
+      caption: isAcp
+          ? context.l10n.composerVisionModelHintAcp
+          : context.l10n.composerVisionModelHint,
       topSpacing: topSpacing,
       child: Column(
         children: [
@@ -2124,7 +2166,9 @@ Future<void> showComposerVisionModelPickerSheet(
     isScrollControlled: true,
     builder: (context) => EcoSheetScaffold(
       title: context.l10n.composerVisionModel,
-      subtitle: isAcp ? context.l10n.composerVisionModelHintAcp : context.l10n.composerVisionModelHint,
+      subtitle: isAcp
+          ? context.l10n.composerVisionModelHintAcp
+          : context.l10n.composerVisionModelHint,
       maxHeightFactor: 0.7,
       child: ListView(
         shrinkWrap: true,
@@ -2566,9 +2610,7 @@ class ComposerRouteSummary extends ConsumerWidget {
     this.threadStatus,
     this.workspacePath = '',
     this.coreKind,
-    this.onCoreKindChanged,
     this.hostUiFeatures = AcpHostUiFeatures.showAll,
-    this.canEditStatelessModels,
   });
 
   final ThreadRuntimeConfigInput runtimeConfig;
@@ -2580,12 +2622,7 @@ class ComposerRouteSummary extends ConsumerWidget {
   final String? threadStatus;
   final String workspacePath;
   final String? coreKind;
-  final ValueChanged<String>? onCoreKindChanged;
   final AcpHostUiFeatures hostUiFeatures;
-
-  /// Auxiliary / approval / vision requests are stateless, so those pickers stay
-  /// editable during a run. Defaults to [canEdit].
-  final bool? canEditStatelessModels;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -2619,9 +2656,17 @@ class ComposerRouteSummary extends ConsumerWidget {
     final occupancyPct = features.showContextUsage
         ? resolvePlannerOccupancyPct(contextSnapshot)
         : null;
+    final showCodexQuota = usesCodexAccount(
+      runtimeConfig,
+      coreKind,
+      resolvedSnapshot: snapshot,
+    );
     final showRing =
-        (features.showContextUsage || showBilling) &&
-        (features.showContextUsage ? contextSnapshot != null : billing != null);
+        showCodexQuota ||
+        ((features.showContextUsage || showBilling) &&
+            (features.showContextUsage
+                ? contextSnapshot != null
+                : billing != null));
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -2632,10 +2677,8 @@ class ComposerRouteSummary extends ConsumerWidget {
               runtimeConfig: runtimeConfig,
               threadId: threadId,
               canEdit: canEdit,
-              canEditStatelessModels: canEditStatelessModels ?? canEdit,
               onChanged: onChanged,
               coreKind: coreKind,
-              onCoreKindChanged: onCoreKindChanged,
             ),
           )
         else if (snapshot != null && modelProvider != null)
@@ -2644,13 +2687,11 @@ class ComposerRouteSummary extends ConsumerWidget {
               runtimeConfig: runtimeConfig,
               threadId: threadId,
               canEdit: canEdit,
-              canEditStatelessModels: canEditStatelessModels ?? canEdit,
               onChanged: onChanged,
               provider: modelProvider,
               templateModel: snapshot.mainAgent.modelRef,
               workspacePath: workspacePath,
               coreKind: coreKind,
-              onCoreKindChanged: onCoreKindChanged,
             ),
           ),
         if (showRing)
@@ -2663,6 +2704,7 @@ class ComposerRouteSummary extends ConsumerWidget {
               billing: showBilling ? billing : null,
               showContextUsage: features.showContextUsage,
               showBilling: showBilling,
+              showCodexQuota: showCodexQuota,
               currentMainModelId: currentMainModelId,
               mainAgentConfigName: snapshot?.mainAgentConfigName,
               threadStatus: threadStatus,
@@ -2690,8 +2732,6 @@ class ComposerAcpModelControl extends ConsumerStatefulWidget {
     required this.canEdit,
     required this.onChanged,
     this.coreKind,
-    this.onCoreKindChanged,
-    this.canEditStatelessModels,
   });
 
   final ThreadRuntimeConfigInput runtimeConfig;
@@ -2699,11 +2739,6 @@ class ComposerAcpModelControl extends ConsumerStatefulWidget {
   final bool canEdit;
   final ValueChanged<ThreadRuntimeConfigInput> onChanged;
   final String? coreKind;
-  final ValueChanged<String>? onCoreKindChanged;
-
-  /// Auxiliary / approval / vision requests are stateless, so those pickers stay
-  /// editable during a run. Defaults to [canEdit].
-  final bool? canEditStatelessModels;
 
   @override
   ConsumerState<ComposerAcpModelControl> createState() =>
@@ -2713,9 +2748,6 @@ class ComposerAcpModelControl extends ConsumerStatefulWidget {
 class _ComposerAcpModelControlState
     extends ConsumerState<ComposerAcpModelControl> {
   final GlobalKey _anchorKey = GlobalKey();
-
-  bool get _canEditStatelessModels =>
-      widget.canEditStatelessModels ?? widget.canEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -2754,7 +2786,7 @@ class _ComposerAcpModelControlState
       ),
     );
 
-    final interactive = widget.canEdit || _canEditStatelessModels
+    final interactive = widget.canEdit
         ? EcoPressable(
             borderRadius: BorderRadius.circular(8),
             scale: 0.96,
@@ -2770,9 +2802,7 @@ class _ComposerAcpModelControlState
                   threadId: widget.threadId,
                   onChanged: widget.onChanged,
                   coreKind: widget.coreKind,
-                  onCoreKindChanged: widget.onCoreKindChanged,
                   canEdit: widget.canEdit,
-                  canEditStatelessModels: _canEditStatelessModels,
                 ),
               );
             },
@@ -2781,7 +2811,7 @@ class _ComposerAcpModelControlState
         : label;
 
     return Semantics(
-      button: widget.canEdit || _canEditStatelessModels,
+      button: widget.canEdit,
       label: modelName,
       child: fullModelName.isEmpty
           ? interactive
@@ -2802,9 +2832,7 @@ Future<void> showComposerAcpModelPickerSheet(
   required String threadId,
   required ValueChanged<ThreadRuntimeConfigInput> onChanged,
   String? coreKind,
-  ValueChanged<String>? onCoreKindChanged,
   bool canEdit = true,
-  bool canEditStatelessModels = true,
 }) {
   return showComposerModelEffortSheet(
     context,
@@ -2816,9 +2844,7 @@ Future<void> showComposerAcpModelPickerSheet(
     provider: null,
     templateModel: null,
     coreKind: coreKind,
-    onCoreKindChanged: onCoreKindChanged,
     canEdit: canEdit,
-    canEditStatelessModels: canEditStatelessModels,
   );
 }
 
@@ -2833,8 +2859,6 @@ class ComposerModelEffortControl extends ConsumerStatefulWidget {
     required this.templateModel,
     this.workspacePath = '',
     this.coreKind,
-    this.onCoreKindChanged,
-    this.canEditStatelessModels,
   });
 
   final ThreadRuntimeConfigInput runtimeConfig;
@@ -2845,11 +2869,6 @@ class ComposerModelEffortControl extends ConsumerStatefulWidget {
   final OrchestrationModelRef templateModel;
   final String workspacePath;
   final String? coreKind;
-  final ValueChanged<String>? onCoreKindChanged;
-
-  /// Auxiliary / approval / vision requests are stateless, so those pickers stay
-  /// editable during a run. Defaults to [canEdit].
-  final bool? canEditStatelessModels;
 
   @override
   ConsumerState<ComposerModelEffortControl> createState() =>
@@ -2859,9 +2878,6 @@ class ComposerModelEffortControl extends ConsumerStatefulWidget {
 class _ComposerModelEffortControlState
     extends ConsumerState<ComposerModelEffortControl> {
   final GlobalKey _anchorKey = GlobalKey();
-
-  bool get _canEditStatelessModels =>
-      widget.canEditStatelessModels ?? widget.canEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -2926,7 +2942,7 @@ class _ComposerModelEffortControlState
       ),
     );
 
-    final interactive = widget.canEdit || _canEditStatelessModels
+    final interactive = widget.canEdit
         ? EcoPressable(
             borderRadius: BorderRadius.circular(8),
             scale: 0.96,
@@ -2944,9 +2960,7 @@ class _ComposerModelEffortControlState
                   templateModel: widget.templateModel,
                   workspacePath: widget.workspacePath,
                   coreKind: widget.coreKind,
-                  onCoreKindChanged: widget.onCoreKindChanged,
                   canEdit: widget.canEdit,
-                  canEditStatelessModels: _canEditStatelessModels,
                 ),
               );
             },
@@ -2955,7 +2969,7 @@ class _ComposerModelEffortControlState
         : label;
 
     return Semantics(
-      button: widget.canEdit || _canEditStatelessModels,
+      button: widget.canEdit,
       label: '$modelName $effort',
       child: fullModelName.isEmpty
           ? interactive

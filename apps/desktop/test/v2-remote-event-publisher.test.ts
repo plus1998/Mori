@@ -56,3 +56,13 @@ test("remote publisher forwards V2 effects and throttles V2 projection extras", 
   });
   publisher.reset();
 });
+
+test("account change signals reach mobile without publishing account credentials", () => {
+  const delivered: EventCenterJsonRpcNotification[] = [];
+  const publisher = new MobileRemoteEventPublisher({ deliver: (event) => delivered.push(event) });
+  const item = notification("openai-accounts.changed", {});
+  publisher.publish(item.envelope, item.notification);
+  expect(delivered).toHaveLength(1);
+  expect((delivered[0]!.params as EventCenterEnvelope).payload).toEqual({});
+  publisher.reset();
+});

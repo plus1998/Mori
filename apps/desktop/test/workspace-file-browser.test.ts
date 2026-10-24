@@ -156,30 +156,45 @@ test("large media returns a stream descriptor without reading the whole file", a
   expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(4));
 });
 
-test("rejects directories, workspace escapes, and symlink escapes", async () => {
+test("previews external files, including symlinks, and keeps them read-only", async () => {
   await expect(readWorkspaceFile({ workspacePath, filePath: workspacePath })).rejects.toThrow("regular file");
-
-  const outsideFile = path.join(outsidePath, "secret.txt");
-  await fs.writeFile(outsideFile, "secret");
-  await expect(readWorkspaceFile({ workspacePath, filePath: outsideFile })).rejects.toThrow(
-    "inside the workspace",
-  );
-
-  const symlinkPath = path.join(workspacePath, "secret.txt");
+  const outsideFile = path.join(outsidePath, "external.txt");
+  await fs.writeFile(outsideFile, "external content");
+  const symlinkPath = path.join(workspacePath, "linked.txt");
   await fs.symlink(outsideFile, symlinkPath);
-  await expect(readWorkspaceFile({ workspacePath, filePath: symlinkPath })).rejects.toThrow(
-    "inside the workspace",
-  );
+  for (const filePath of [outsideFile, symlinkPath]) {
+    const result = await readWorkspaceFile({ workspacePath, filePath });
+    expect(result).toMatchObject({
+      path: filePath,
+      kind: "text",
+      content: "external content",
+      readOnly: true,
+    });
+    const response = await workspaceFileStreams.respond(new Request(result.url!));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("external content");
+  }
+  await expect(readWorkspaceFile({ workspacePath, filePath: "relative.txt" })).rejects.toThrow("absolute");
 });
 
-test("does not expose symlink entries", async () => {
+test("lists external directories and file/directory symlinks, skipping dangling links", async () => {
   const outsideDirectory = path.join(outsidePath, "outside-dir");
   await fs.mkdir(outsideDirectory);
-  await fs.symlink(outsideDirectory, path.join(workspacePath, "linked-dir"));
-  await fs.writeFile(path.join(workspacePath, "visible.txt"), "visible");
-
+  await fs.writeFile(path.join(outsideDirectory, "note.txt"), "visible");
+  const linkedDirectory = path.join(workspacePath, "linked-dir");
+  await fs.symlink(outsideDirectory, linkedDirectory);
+  await fs.symlink(path.join(outsideDirectory, "note.txt"), path.join(workspacePath, "linked.txt"));
+  await fs.symlink(path.join(outsidePath, "missing"), path.join(workspacePath, "dangling"));
   const entries = await listWorkspaceEntries({ workspacePath, directoryPath: workspacePath });
-  expect(entries.map((entry) => entry.name)).toEqual(["visible.txt"]);
+  expect(entries.map((entry) => [entry.name, entry.kind])).toEqual([
+    ["linked-dir", "directory"],
+    ["linked.txt", "file"],
+  ]);
+  for (const directoryPath of [outsideDirectory, linkedDirectory]) {
+    expect(await listWorkspaceEntries({ workspacePath, directoryPath })).toEqual([
+      { name: "note.txt", kind: "file", path: path.join(directoryPath, "note.txt"), size: 7 },
+    ]);
+  }
 });
 
 test("writes UTF-8 text into an existing workspace file", async () => {
@@ -227,7 +242,7 @@ test("does not create missing files when writing", async () => {
 });
 
 test("large UTF-8 text can be loaded across chunk boundaries without losing multibyte characters", async () => {
-  const filePath = path.join(workspacePath, "large.txt");
+  const filePath = path.join(outsidePath, "large.txt");
   const content = `${"a".repeat(2 * 1024 * 1024 - 2)}😀最后一段`;
   await fs.writeFile(filePath, content);
   const first = await readWorkspaceFile({ workspacePath, filePath });
@@ -255,11 +270,25 @@ test("PDF and extra native image/video formats are recognized without Base64 pay
     ["image.avif", Buffer.from("\x00\x00\x00\x18ftypavif", "latin1"), "image"],
     ["video.mov", Buffer.from("\x00\x00\x00\x18ftypqt  ", "latin1"), "video"],
   ] as const) {
-    const filePath = path.join(workspacePath, name);
+    const filePath = path.join(outsidePath, name);
     await fs.writeFile(filePath, header);
     const result = await readWorkspaceFile({ workspacePath, filePath });
     expect(result.kind).toBe(kind);
     expect(result.url).toStartWith("eco-workspace://");
     expect(result.base64).toBeUndefined();
   }
+});
+
+test("external HTML retains sibling resources without granting access to parent directories", async () => {
+  const filePath = path.join(outsidePath, "page.html");
+  await fs.writeFile(filePath, '<link rel="stylesheet" href="style.css"><h1>Hello</h1>');
+  await fs.writeFile(path.join(outsidePath, "style.css"), "h1 { color: red }");
+  const result = await readWorkspaceFile({ workspacePath, filePath });
+  const style = await workspaceFileStreams.respond(new Request(new URL("./style.css", result.url!)));
+  expect(style.status).toBe(200);
+  expect(await style.text()).toBe("h1 { color: red }");
+  const host = new URL(result.url!).host;
+  expect(
+    (await workspaceFileStreams.respond(new Request(`eco-workspace://${host}/%2e%2e%2foutside`))).status,
+  ).toBe(403);
 });

@@ -9,7 +9,7 @@ import '../../core/network/desktop_rpc.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/utils/thread_session_menu_visibility.dart';
 import 'html_host_artifacts.dart';
-import 'image_display_artifacts.dart';
+import 'image_display_provider.dart';
 import 'thread_providers.dart';
 
 class ThreadSessionMenuCards {
@@ -77,10 +77,11 @@ final threadSessionMenuCardsProvider = FutureProvider.autoDispose
         });
       });
 
-      final fromProjectionDisplay = collectImageDisplayArtifactsFromProjection(
-        threadId: threadId,
-        projection: session.projection,
-      );
+      final imageDisplay =
+          ref
+              .watch(threadImageDisplayArtifactsProvider(threadId))
+              .valueOrNull ??
+          const <ImageDisplayArtifact>[];
       final fromProjectionHtml = collectHtmlHostArtifactsFromProjection(
         threadId: threadId,
         projection: session.projection,
@@ -91,10 +92,10 @@ final threadSessionMenuCardsProvider = FutureProvider.autoDispose
         return ThreadSessionMenuCards(
           showProgress: threadMenuShouldShowProgress(todos),
           showPlan: false,
-          showImageDisplay: fromProjectionDisplay.isNotEmpty,
+          showImageDisplay: imageDisplay.isNotEmpty,
           showImageGeneration: false,
           showHtmlHost: fromProjectionHtml.isNotEmpty,
-          imageDisplayArtifacts: fromProjectionDisplay,
+          imageDisplayArtifacts: imageDisplay,
           htmlHostArtifacts: fromProjectionHtml,
         );
       }
@@ -103,7 +104,7 @@ final threadSessionMenuCardsProvider = FutureProvider.autoDispose
         rpc: rpc,
         threadId: threadId,
         todos: todos,
-        fromProjectionDisplay: fromProjectionDisplay,
+        imageDisplay: imageDisplay,
         fromProjectionHtml: fromProjectionHtml,
       );
       return loaded;
@@ -113,16 +114,12 @@ Future<ThreadSessionMenuCards> _loadMenuCardsRemote({
   required DesktopRpc rpc,
   required String threadId,
   required List<CoderTodoItem> todos,
-  required List<ImageDisplayArtifact> fromProjectionDisplay,
+  required List<ImageDisplayArtifact> imageDisplay,
   required List<HtmlHostArtifact> fromProjectionHtml,
 }) async {
   final approvedPlan = await _safeMenuCardsLoad(
     () => rpc.getApprovedPlan(threadId),
     null,
-  );
-  final remoteDisplay = await _safeMenuCardsLoad(
-    () => rpc.listImageDisplayArtifacts(threadId),
-    const <ImageDisplayArtifact>[],
   );
   final imageGeneration = await _safeMenuCardsLoad(
     () => rpc.listImageGenerationArtifacts(threadId),
@@ -133,10 +130,6 @@ Future<ThreadSessionMenuCards> _loadMenuCardsRemote({
     const <HtmlHostArtifact>[],
   );
 
-  final imageDisplay = mergeImageDisplayArtifacts(
-    fromProjection: fromProjectionDisplay,
-    fromRemote: remoteDisplay,
-  );
   final htmlHost = mergeHtmlHostArtifacts(
     fromProjection: fromProjectionHtml,
     fromRemote: remoteHtml,

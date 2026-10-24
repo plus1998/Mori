@@ -343,6 +343,9 @@ export function createElectronEventSink(
   return {
     publish(envelope, _notification) {
       switch (envelope.kind) {
+        case "project-todo.changed":
+          send(IPC_CHANNELS.projectTodoChanged, undefined);
+          return;
         case "scheduling.changed":
           send(IPC_CHANNELS.schedulingChanged, undefined);
           return;
@@ -369,6 +372,9 @@ export function createElectronEventSink(
           return;
         case "settings.updated":
           send(IPC_CHANNELS.threadEventsSubscribe, envelope.payload);
+          return;
+        case "openai-accounts.changed":
+          // Local windows receive the service's richer IPC notification directly.
           return;
         default:
           send(IPC_CHANNELS.threadEventsSubscribe, envelope.payload);

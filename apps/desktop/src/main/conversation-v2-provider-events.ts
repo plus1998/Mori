@@ -385,6 +385,7 @@ export function appendProviderEventToConversationV2(
           message: event.message,
           ...(event.metadata?.bashApproval ? { bashApproval: event.metadata.bashApproval } : {}),
           ...(event.metadata?.clarification ? { clarification: event.metadata.clarification } : {}),
+          ...(event.metadata?.clarificationAnswers ? { answers: event.metadata.clarificationAnswers } : {}),
           ...(event.metadata?.plan ? { plan: event.metadata.plan } : {}),
           ...(event.metadata?.planApproval ? { planApproval: event.metadata.planApproval } : {}),
         }),

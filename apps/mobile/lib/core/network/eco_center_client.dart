@@ -94,6 +94,7 @@ class EcoCenterClient {
   Timer? _reconnectTimer;
   Timer? _keepaliveTimer;
   Timer? _deviceSessionRefreshTimer;
+  Future<void> _channelCleanup = Future<void>.value();
   bool _transportProbeInFlight = false;
   bool _intentionallyStopped = true;
   bool _presenceOnlyMode = false;
@@ -243,6 +244,7 @@ class EcoCenterClient {
       // next one. Full Presence teardown stays on [disconnect] (picker entry).
       _clearReconnectTimer();
       _clearKeepalive();
+      _clearDeviceSessionRefresh();
       _teardownBindChannel();
       // Abort any in-flight connect so it cannot resurrect the old bind after
       // credentials flip. The next explicit [connect] clears this again.
@@ -668,7 +670,8 @@ class EcoCenterClient {
     }
 
     _intentionallyStopped = false;
-    if (_presenceChannel != null) {
+    if (_presenceChannel?.canPush == true &&
+        _supabase?.realtime.isConnected == true) {
       // Reuse the live Presence socket, but keep bind/RPC deferred for the picker.
       _presenceOnlyMode = true;
       return;
@@ -967,6 +970,7 @@ class EcoCenterClient {
     final client = _supabase;
     _teardownBindChannel();
     _teardownPresenceChannel();
+    await _channelCleanup;
     await _authSub?.cancel();
     _authSub = null;
     _supabase = null;
@@ -1239,6 +1243,7 @@ class EcoCenterClient {
   Future<void> _subscribeBindChannel(String bindingId) async {
     final client = await _ensureSupabaseClient();
     _teardownBindChannel();
+    await _channelCleanup;
     final topic = EcoRealtimeTopics.bindTopic(bindingId);
     final channel = client.channel(
       topic,
@@ -1250,7 +1255,12 @@ class EcoCenterClient {
         _handleBroadcastPayload(payload);
       },
     );
-    await _awaitChannelSubscription(channel, topic);
+    try {
+      await _awaitChannelSubscription(channel, topic);
+    } catch (_) {
+      await client.removeChannel(channel);
+      rethrow;
+    }
     _bindChannel = channel;
     _subscribedBindingId = bindingId;
     final presence = _presenceChannel;
@@ -1297,7 +1307,7 @@ class EcoCenterClient {
     _bindChannel = null;
     _subscribedBindingId = null;
     if (channel != null) {
-      unawaited(channel.unsubscribe());
+      _retireChannel(channel);
     }
     for (final pending in _pendingInvokes.values) {
       if (!pending.isCompleted) {
@@ -1326,7 +1336,12 @@ class EcoCenterClient {
         deviceId.isEmpty) {
       throw EcoCenterException.app(EcoCenterErrorKind.reauthRequired);
     }
-    if (_presenceChannel != null) return;
+    if (_presenceChannel?.canPush == true &&
+        _supabase?.realtime.isConnected == true) {
+      return;
+    }
+    _teardownPresenceChannel();
+    await _channelCleanup;
 
     final client = await _ensureSupabaseClient();
     final topic = EcoRealtimeTopics.userTopic(userId);
@@ -1381,7 +1396,7 @@ class EcoCenterClient {
         },
       );
     } catch (_) {
-      await channel.unsubscribe();
+      await client.removeChannel(channel);
       rethrow;
     }
     _presenceChannel = channel;
@@ -1474,8 +1489,19 @@ class EcoCenterClient {
     _presenceChannel = null;
     _onlineDesktopDeviceIds.clear();
     if (channel != null) {
-      unawaited(channel.unsubscribe());
+      _retireChannel(channel);
     }
+  }
+
+  // The SDK keeps channels in its registry until removal finishes. Serialize
+  // retirement before joins so the old topic's phx_leave cannot overlap the
+  // replacement subscription.
+  void _retireChannel(RealtimeChannel channel) {
+    final client = _supabase;
+    if (client == null) return;
+    _channelCleanup = _channelCleanup.then((_) async {
+      await client.removeChannel(channel);
+    });
   }
 
   Future<void> _sendRpc(Map<String, dynamic> message) async {
@@ -1552,7 +1578,7 @@ class EcoCenterClient {
           unawaited(connectPresence().catchError((Object _) {}));
         } else {
           // _connectOnce publishes the concrete error state before rethrowing.
-          unawaited(_connectOnce().catchError((Object _) {}));
+          unawaited(connect().catchError((Object _) {}));
         }
       }
     });

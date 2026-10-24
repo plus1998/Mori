@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight, FolderOpen, RotateCcw, X } from "lucide-reac
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MaterialFileIcon } from "./MaterialFileIcon";
+import { WorkspaceFileOpenActions } from "./WorkspaceFileOpenActions";
 import {
   type WorkspaceFile,
   WorkspaceFilePreview,
@@ -30,11 +31,11 @@ interface WorkspaceApi {
 
 type FileViewerTarget = WorkspaceFileReference & {
   requestId: number;
-  restricted?: boolean;
 };
 
 export interface WorkspaceFileViewerProps {
   workspacePath: string;
+  threadId?: string;
   target?: FileViewerTarget;
   onViewedFileChange?: (target: FileViewerTarget) => void;
 }
@@ -114,7 +115,12 @@ function FileNavigatorBranch({
   );
 }
 
-export function WorkspaceFileViewer({ workspacePath, target, onViewedFileChange }: WorkspaceFileViewerProps) {
+export function WorkspaceFileViewer({
+  workspacePath,
+  threadId,
+  target,
+  onViewedFileChange,
+}: WorkspaceFileViewerProps) {
   const { t } = useTranslation();
   const api = window.eco as unknown as WorkspaceApi | undefined;
   const [file, setFile] = useState<WorkspaceFile | null>(null);
@@ -146,8 +152,7 @@ export function WorkspaceFileViewer({ workspacePath, target, onViewedFileChange 
   }, [t]);
 
   const breadcrumbs = useMemo(
-    () =>
-      activeTarget && !activeTarget.restricted ? workspacePathSegments(workspacePath, activeTarget.path) : [],
+    () => (activeTarget ? workspacePathSegments(workspacePath, activeTarget.path) : []),
     [activeTarget, workspacePath],
   );
 
@@ -228,7 +233,7 @@ export function WorkspaceFileViewer({ workspacePath, target, onViewedFileChange 
     setFile(null);
     setDirty(false);
     setErrorMessage(null);
-    if (!target || target.restricted) {
+    if (!target) {
       setStatus("idle");
       return;
     }
@@ -310,7 +315,7 @@ export function WorkspaceFileViewer({ workspacePath, target, onViewedFileChange 
   );
 
   const retry = () => {
-    if (!activeTarget || activeTarget.restricted) return;
+    if (!activeTarget) return;
     if (!confirmDiscardIfDirty()) return;
     const requestId = ++requestRef.current;
     const nextTarget = { ...activeTarget, requestId };
@@ -338,29 +343,40 @@ export function WorkspaceFileViewer({ workspacePath, target, onViewedFileChange 
   return (
     <div className="workspace-file-viewer">
       {breadcrumbs.length > 0 ? (
-        <nav
-          ref={breadcrumbRef}
-          className="workspace-file-viewer__breadcrumbs"
-          aria-label={t("fileViewer.pathLabel")}
-        >
-          {breadcrumbs.map((segment, index) => (
-            <span className="workspace-file-viewer__breadcrumb-part" key={segment.path}>
-              {index > 0 ? (
-                <ChevronRight className="workspace-file-viewer__breadcrumb-separator" aria-hidden="true" />
-              ) : null}
-              <button
-                type="button"
-                className={segment.kind === "file" ? "is-file" : ""}
-                aria-haspopup="tree"
-                aria-expanded={navigatorRoot?.path === segment.path}
-                title={t("fileViewer.openDirectory", { name: segment.name })}
-                onClick={() => openNavigator(segment)}
-              >
-                {segment.name}
-              </button>
-            </span>
-          ))}
-        </nav>
+        <div className="workspace-file-viewer__header">
+          <nav
+            ref={breadcrumbRef}
+            className="workspace-file-viewer__breadcrumbs"
+            aria-label={t("fileViewer.pathLabel")}
+          >
+            {breadcrumbs.map((segment, index) => (
+              <span className="workspace-file-viewer__breadcrumb-part" key={segment.path}>
+                {index > 0 ? (
+                  <ChevronRight className="workspace-file-viewer__breadcrumb-separator" aria-hidden="true" />
+                ) : null}
+                <button
+                  type="button"
+                  className={segment.kind === "file" ? "is-file" : ""}
+                  aria-haspopup="tree"
+                  aria-expanded={navigatorRoot?.path === segment.path}
+                  title={t("fileViewer.openDirectory", { name: segment.name })}
+                  onClick={() => openNavigator(segment)}
+                >
+                  {segment.name}
+                </button>
+              </span>
+            ))}
+          </nav>
+          {activeTarget ? (
+            <WorkspaceFileOpenActions
+              key={activeTarget.path}
+              filePath={activeTarget.path}
+              requestId={activeTarget.requestId}
+              workspacePath={workspacePath}
+              {...(threadId ? { threadId } : {})}
+            />
+          ) : null}
+        </div>
       ) : null}
       {navigatorRoot && navigatorRootPath ? (
         <div
@@ -419,9 +435,7 @@ export function WorkspaceFileViewer({ workspacePath, target, onViewedFileChange 
         </div>
       ) : null}
       <div className="workspace-file-viewer__preview">
-        {activeTarget?.restricted ? (
-          <div className="workspace-file-browser__message">{t("fileBrowser.restricted")}</div>
-        ) : status === "loading" ? (
+        {status === "loading" ? (
           <div className="workspace-file-browser__message">
             {t("fileBrowser.loadingFile", { name: basename(activeTarget?.path || "") })}
           </div>

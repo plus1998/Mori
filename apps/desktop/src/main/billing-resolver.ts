@@ -437,14 +437,18 @@ export async function lookupRoutePricingHints(
   settings: ModelSettingsSnapshot,
   providers: readonly ProviderConfigSecret[],
   routesOverride?: readonly RuntimeRoleRouteConfig[],
+  lookupAccountPricing?: (route: RuntimeRoute) => Promise<ModelPricingLookup | null>,
 ): Promise<RoutePricingHint[]> {
   const routes = resolveRuntimeRoutesFromSettings(settings, providers, routesOverride);
   const hints: RoutePricingHint[] = [];
 
   for (const route of routes) {
-    const lookup = await cache.lookupForRoute(routeLookupFromRuntime(route));
+    const isAccount = route.provider.authMethod === "chatgpt_subscription";
+    const lookup = isAccount
+      ? ((await lookupAccountPricing?.(route)) ?? null)
+      : await cache.lookupForRoute(routeLookupFromRuntime(route));
     const catalogSummary = lookup ? buildModelPricingSummary(lookup) : null;
-    const effectivePricing = resolveEffectivePricingSummary(lookup, route.manualSpec);
+    const effectivePricing = resolveEffectivePricingSummary(lookup, isAccount ? undefined : route.manualSpec);
     hints.push({
       role: route.role,
       modelId: route.modelId,

@@ -37,6 +37,7 @@ import 'features/threads/thread_providers.dart';
 import 'features/threads/thread_session_route.dart';
 import 'features/threads/thread_session_screen.dart';
 import 'features/threads/threads_screen.dart';
+import 'features/todos/project_todos_screen.dart';
 import 'l10n/generated/app_localizations.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -122,6 +123,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           pendingRecovery != null || !overview.setupComplete;
       if (mustLeaveShell &&
           (location.startsWith('/threads') ||
+              location.startsWith('/todos') ||
               location.startsWith('/settings'))) {
         return '/connect';
       }
@@ -156,12 +158,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                         ),
                         name: state.name,
                         arguments: state.extra,
-                        child: ThreadSessionScreen(threadId: rawThreadId),
+                        child: ThreadSessionScreen(threadId: rawThreadId,
+                          initialDraft: state.extra is ThreadSessionRouteExtra ? state.extra as ThreadSessionRouteExtra : null),
                       );
                     },
                   ),
                 ],
               ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/todos', builder: (context, state) => const ProjectTodosScreen()),
             ],
           ),
           StatefulShellBranch(
@@ -265,6 +273,10 @@ class MainShell extends ConsumerWidget {
                     AdaptiveNavDestination(
                       icon: EcoIcons.sessions,
                       label: context.l10n.navSessions,
+                    ),
+                    AdaptiveNavDestination(
+                      icon: EcoIcons.todos,
+                      label: context.l10n.todosTitle,
                     ),
                     AdaptiveNavDestination(
                       icon: EcoIcons.settings,

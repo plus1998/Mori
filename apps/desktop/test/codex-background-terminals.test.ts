@@ -116,3 +116,41 @@ test("reports an unavailable app-server instead of pretending termination succee
     "Codex app-server is not running",
   );
 });
+
+test("background terminals remain visible and controllable on a retiring generation", async () => {
+  const old = createClient(({ method }) => {
+    if (method === "thread/loaded/list") return { data: ["old-thread"], nextCursor: null };
+    if (method === "thread/backgroundTerminals/list")
+      return {
+        data: [
+          {
+            itemId: "old-item",
+            processId: "old-process",
+            command: "bun run dev",
+            cwd: "/workspace",
+            osPid: null,
+            cpuPercent: null,
+            rssKb: null,
+          },
+        ],
+        nextCursor: null,
+      };
+    if (method === "thread/backgroundTerminals/terminate") return { terminated: true };
+    throw new Error(`Unexpected old method ${method}`);
+  });
+  const current = createClient(({ method }) => {
+    if (method === "thread/loaded/list") return { data: [], nextCursor: null };
+    throw new Error(`Wrong generation for ${method}`);
+  });
+  const service = new CodexBackgroundTerminalService({
+    getClient: () => current.client,
+    getClients: () => [current.client, old.client],
+    getClientForThread: () => old.client,
+    resolveEcoThreadId: () => "eco-thread",
+  });
+  expect((await service.list()).map((terminal) => terminal.processId)).toEqual(["old-process"]);
+  expect(await service.terminate({ codexThreadId: "old-thread", processId: "old-process" })).toEqual({
+    terminated: true,
+  });
+  expect(current.calls.map((call) => call.method)).toEqual(["thread/loaded/list"]);
+});

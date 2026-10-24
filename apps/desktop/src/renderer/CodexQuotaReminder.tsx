@@ -1,14 +1,19 @@
+import { QuotaRefreshedAt } from "./QuotaRefreshedAt";
+import { hasUnrefreshedCodexQuotaReset } from "../shared/codex-quota-refresh";
 import { LoaderCircle, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ThreadSummary } from "../shared/ipc";
+import type { OpenAIAccountQuotaWindow } from "../shared/openai-account";
 import {
-  CODEX_QUOTA_REFRESH_MS,
   CodexQuotaMonitor,
   type CodexQuotaReminderSnapshot,
-  hasRecentCodexAuthUsage,
+  codexQuotaDisplayWindow,
+  codexQuotaReminderKey,
+  isCodexAuthConversation,
   lowCodexQuotaWindows,
 } from "./codex-quota-reminder";
+import { ThreadInfoFloatControl } from "./ThreadInfoPanel";
 import "./CodexQuotaReminder.css";
 
 type QuotaReminderBridge = Pick<
@@ -20,6 +25,21 @@ type QuotaReminderBridge = Pick<
   | "onOpenAIAccountsChanged"
 >;
 
+function quotaWindows(snapshot?: CodexQuotaReminderSnapshot): OpenAIAccountQuotaWindow[] {
+  if (!snapshot) return [];
+  return [snapshot.quota.rateLimit.primaryWindow, snapshot.quota.rateLimit.secondaryWindow].filter(
+    (window): window is OpenAIAccountQuotaWindow =>
+      window !== null &&
+      Number.isFinite(window.usedPercent) &&
+      window.usedPercent >= 0 &&
+      window.usedPercent <= 100,
+  );
+}
+
+function quotaLevel(remaining: number): "normal" | "warning" | "low" {
+  return remaining <= 10 ? "low" : remaining <= 25 ? "warning" : "normal";
+}
+
 export function CodexQuotaReminderCard({
   snapshot,
   error,
@@ -27,26 +47,42 @@ export function CodexQuotaReminderCard({
   onSwitchAccount,
   onReset,
   onDismiss,
+  onRefresh,
+  variant = "reminder",
 }: {
   snapshot: CodexQuotaReminderSnapshot;
   error?: string | undefined;
   busy?: boolean;
   onSwitchAccount: () => void;
   onReset: () => void;
-  onDismiss: () => void;
+  onDismiss?: () => void;
+  onRefresh?: () => void;
+  variant?: "reminder" | "billing";
 }) {
   const { t, i18n } = useTranslation();
-  const windows = lowCodexQuotaWindows(snapshot.quota);
-  if (windows.length === 0) return null;
-  const percent = Math.round((100 - windows[0]!.usedPercent) * 10) / 10;
+  const windows = variant === "reminder" ? lowCodexQuotaWindows(snapshot.quota) : quotaWindows(snapshot);
+  // The reminder variant is driven by `lowCodexQuotaWindows`; when nothing is low it renders
+  // nothing at all, which is what keeps the sidebar card hidden above 10% headroom.
+  if (windows.length === 0 && variant === "reminder") return null;
+  const percent = windows[0] ? Math.round((100 - windows[0].usedPercent) * 10) / 10 : 0;
+  const showsAccountQuota = variant === "billing";
+  const variantClass = variant === "billing" ? " codex-quota-billing" : "";
   return (
-    <section className="codex-quota-reminder" aria-label={t("codexQuota.label")}>
+    <section
+      className={`codex-quota-reminder${variantClass}`}
+      aria-label={t(showsAccountQuota ? "codexQuota.accountQuota" : "codexQuota.label")}
+    >
       <div className="codex-quota-reminder-heading">
-        <strong>{t("codexQuota.remaining", { percent })}</strong>
-        <button type="button" aria-label={t("common.close")} onClick={onDismiss}>
-          <X size={14} />
-        </button>
+        <strong>
+          {t(showsAccountQuota ? "codexQuota.accountQuota" : "codexQuota.remaining", { percent })}
+        </strong>
+        {onDismiss ? (
+          <button type="button" aria-label={t("common.close")} onClick={onDismiss}>
+            <X size={14} />
+          </button>
+        ) : null}
       </div>
+      {windows.length === 0 ? <p>{t("settings.openaiAccounts.quotaIdle")}</p> : null}
       <div className="codex-quota-reminder-account" title={snapshot.accountName}>
         {t("codexQuota.currentAccount", { name: snapshot.accountName })}
       </div>
@@ -64,7 +100,7 @@ export function CodexQuotaReminderCard({
               ? snapshot.quota.fetchedAt + window.resetAfterSeconds * 1000
               : undefined;
         return (
-          <div className="codex-quota-reminder-window" key={index}>
+          <div className="codex-quota-reminder-window" key={index} data-level={quotaLevel(remaining)}>
             <div className="codex-quota-reminder-window-label">
               <span>{label}</span>
               <span>{t("codexSwitch.remaining", { percent: remaining })}</span>
@@ -94,6 +130,8 @@ export function CodexQuotaReminderCard({
           </div>
         );
       })}
+      <QuotaRefreshedAt fetchedAt={snapshot.quota.fetchedAt} />
+      {hasUnrefreshedCodexQuotaReset(snapshot.quota) ? <p>{t("settings.openaiAccounts.quotaResetDue")}</p> : null}
       {error ? (
         <p className="codex-quota-reminder-error" role="alert">
           {error}
@@ -106,6 +144,7 @@ export function CodexQuotaReminderCard({
         })}
       </p>
       <div className="codex-quota-reminder-actions">
+        {onRefresh ? <button type="button" onClick={onRefresh} disabled={busy}>{t("settings.openaiAccounts.refreshQuota")}</button> : null}
         <button type="button" onClick={onSwitchAccount} disabled={busy}>
           {t("codexQuota.switchAccount")}
         </button>
@@ -130,48 +169,68 @@ export function CodexQuotaReminder({
   threads,
   onSwitchAccount,
   eco = window.eco,
+  variant = "reminder",
+  activeThreadId,
 }: {
   threads: readonly ThreadSummary[];
   onSwitchAccount: () => void;
   eco?: QuotaReminderBridge | undefined;
+  /** The conversation on screen; the sidebar reminder only shows while it uses the Codex account. */
+  activeThreadId?: string | undefined;
+  /**
+   * reminder: 侧边栏提醒，仅当当前会话使用 Codex 账号且某个窗口剩余不足 10% 时出现。
+   * composer: 输入框上的迷你额度入口与独立弹层。
+   */
+  variant?: "reminder" | "composer";
 }) {
   const { t } = useTranslation();
   const threadsRef = useRef(threads);
   threadsRef.current = threads;
+  const activeThreadIdRef = useRef(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
   const monitor = useRef<CodexQuotaMonitor | undefined>(undefined);
   const [snapshot, setSnapshot] = useState<CodexQuotaReminderSnapshot>();
   const snapshotRef = useRef<CodexQuotaReminderSnapshot | undefined>(undefined);
   const [error, setError] = useState<string>();
+  const [loading, setLoading] = useState(Boolean(eco));
   const [resetting, setResetting] = useState(false);
   const [dismissed, setDismissed] = useState<string>();
   const resetAttempt = useRef<{ accountId: string; key: string } | undefined>(undefined);
   const resettingRef = useRef(false);
-  const recentlyUsed = hasRecentCodexAuthUsage(threads);
+  const recentlyUsed =
+    variant === "composer" || isCodexAuthConversation(threads, activeThreadId);
   const acceptSnapshot = useCallback((next: CodexQuotaReminderSnapshot | undefined) => {
     snapshotRef.current = next;
     setSnapshot(next);
     setError(undefined);
+    setLoading(false);
   }, []);
   useEffect(() => {
     if (!eco) return;
     const instance = new CodexQuotaMonitor(eco, {
-      enabled: () => hasRecentCodexAuthUsage(threadsRef.current),
+      // Composer visibility is gated by its selected provider, including a fresh draft.
+      enabled: () => variant === "composer" ||
+        isCodexAuthConversation(threadsRef.current, activeThreadIdRef.current),
       onChange: acceptSnapshot,
-      onError: setError,
+      onError: (message) => {
+        setError(message);
+        setLoading(false);
+      },
     });
     monitor.current = instance;
-    const timer = window.setInterval(() => void instance.refresh(), CODEX_QUOTA_REFRESH_MS);
     const unsubscribe = eco.onOpenAIAccountsChanged(() => void instance.accountsChanged());
+    const onVisibility = () => { if (!document.hidden) void instance.refresh(); };
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
       instance.dispose();
-      window.clearInterval(timer);
       unsubscribe();
       monitor.current = undefined;
     };
-  }, [acceptSnapshot, eco]);
+  }, [acceptSnapshot, eco, variant]);
   useEffect(() => {
     void monitor.current?.refresh();
-  }, [recentlyUsed, eco]);
+  }, [recentlyUsed, eco, variant]);
 
   async function reset() {
     if (!snapshot || !eco || resettingRef.current) return;
@@ -185,7 +244,7 @@ export function CodexQuotaReminder({
     try {
       const result = await eco.openAIAccountsResetQuota(accountId, resetAttempt.current.key);
       resetAttempt.current = undefined;
-      await monitor.current?.refresh(true);
+      await monitor.current?.refresh();
       if (
         snapshotRef.current?.accountId === accountId &&
         (result.outcome === "noCredit" || result.outcome === "nothingToReset")
@@ -201,15 +260,101 @@ export function CodexQuotaReminder({
       setResetting(false);
     }
   }
-  const lowWindows = snapshot ? lowCodexQuotaWindows(snapshot.quota) : [];
-  const reminderKey =
-    snapshot && lowWindows.length > 0
-      ? `${snapshot.accountId}:${lowWindows
-          .map((window) => `${window.limitWindowSeconds}:${window.resetAt}`)
-          .sort()
-          .join("/")}`
+  const reminderKey = snapshot ? codexQuotaReminderKey(snapshot) : undefined;
+
+  if (variant === "composer") {
+    if (!recentlyUsed) return null;
+    const windows = quotaWindows(snapshot);
+    const displayWindow = codexQuotaDisplayWindow(windows);
+    const remaining = displayWindow
+      ? Math.round((100 - displayWindow.usedPercent) * 10) / 10
       : undefined;
-  if (!snapshot || lowWindows.length === 0 || dismissed === reminderKey) {
+    const statusText = error
+      ? t("codexQuota.refreshFailed")
+      : remaining !== undefined
+        ? t("codexSwitch.remaining", { percent: remaining })
+        : t(loading ? "settings.openaiAccounts.quotaLoading" : "settings.openaiAccounts.quotaIdle");
+    return (
+      <ThreadInfoFloatControl
+        label={
+          <span
+            className="codex-quota-mini"
+            data-level={error ? "error" : remaining === undefined ? "unknown" : quotaLevel(remaining)}
+            aria-hidden="true"
+          >
+            <span className="codex-quota-mini-bars">
+              {(windows.length ? windows : [null]).map((window) => (
+                <span
+                  className="codex-quota-mini-track"
+                  key={window?.limitWindowSeconds ?? "unknown"}
+                  data-level={window ? quotaLevel(100 - window.usedPercent) : "unknown"}
+                >
+                  {window ? <span style={{ width: `${100 - window.usedPercent}%` }} /> : null}
+                </span>
+              ))}
+            </span>
+            <span className="codex-quota-mini-value">
+              {error ? "!" : remaining === undefined ? "—" : `${remaining}%`}
+            </span>
+          </span>
+        }
+        ariaLabel={`${t("codexQuota.accountQuota")} · ${statusText}`}
+        hoverTooltip={`Codex · ${statusText}`}
+        resetKey={activeThreadId ?? threads[0]?.id}
+        width={320}
+        minHeight={snapshot ? 280 : 140}
+        openOn="click"
+        align="end"
+      >
+        {(closePanel) => (
+          <div className="codex-quota-popover">
+            {snapshot ? (
+              <CodexQuotaReminderCard
+                snapshot={snapshot}
+                error={error}
+                busy={resetting}
+                variant="billing"
+                onSwitchAccount={() => {
+                  closePanel();
+                  onSwitchAccount();
+                }}
+                onReset={() => void reset()}
+                onRefresh={() => void monitor.current?.refresh(true)}
+                onDismiss={closePanel}
+              />
+            ) : (
+              <section className="codex-quota-reminder codex-quota-billing" aria-busy={loading}>
+                <div className="codex-quota-reminder-heading">
+                  <strong>{t("codexQuota.accountQuota")}</strong>
+                  <button type="button" aria-label={t("common.close")} onClick={closePanel}>
+                    <X size={14} />
+                  </button>
+                </div>
+                {error ? (
+                  <div className="codex-quota-refresh-error" role="alert">
+                    <span>
+                      {t("codexQuota.refreshFailed")}：{error}
+                    </span>
+                    <button type="button" onClick={() => void monitor.current?.refresh(true)}>
+                      {t("common.retry")}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <p>{statusText}</p>
+                    <button type="button" onClick={() => void monitor.current?.refresh(true)}>
+                      {t("settings.openaiAccounts.refreshQuota")}
+                    </button>
+                  </>
+                )}
+              </section>
+            )}
+          </div>
+        )}
+      </ThreadInfoFloatControl>
+    );
+  }
+  if (!snapshot || reminderKey === undefined || dismissed === reminderKey) {
     return error && recentlyUsed ? (
       <div className="codex-quota-refresh-error" role="status">
         <span>{t("codexQuota.refreshFailed")}</span>
@@ -226,6 +371,7 @@ export function CodexQuotaReminder({
       busy={resetting}
       onSwitchAccount={onSwitchAccount}
       onReset={() => void reset()}
+      onRefresh={() => void monitor.current?.refresh(true)}
       onDismiss={() => setDismissed(reminderKey)}
     />
   );

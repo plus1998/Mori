@@ -225,3 +225,40 @@ test("resolveSingleUsageBillingArtifacts does not pre-attribute pending planner-
   });
   expect(artifacts.ledgerEvent.agentId).toBeUndefined();
 });
+
+test("Codex account billing reads refreshed prices for the actual and distinct planner model", async () => {
+  const called: string[] = [];
+  const result = await resolveSingleUsageBillingArtifacts({
+    threadId: "thr_official",
+    role: "coder",
+    source: "codex",
+    providerId: "openai",
+    modelId: "gpt-6-luna",
+    codexPlannerModelId: "gpt-6.1-sol",
+    usage: usage(),
+    runtimeRoutes: routes,
+    lookupPricing,
+    lookupCodexApiRates: async (id) => {
+      called.push(id);
+      return id === "gpt-6-luna" ? { input: 0.1, output: 0.5 } : { input: 2, output: 10 };
+    },
+  });
+  expect(called).toEqual(["gpt-6-luna", "gpt-6.1-sol"]);
+  expect(result.requestBilling.ecoCostUsd).toBeCloseTo(0.0015);
+  expect(result.requestBilling.plannerTokenCostUsd).toBeCloseTo(0.03);
+  const unknown = await resolveSingleUsageBillingArtifacts({
+    threadId: "thr_unknown",
+    role: "main",
+    source: "codex",
+    providerId: "openai",
+    modelId: "gpt-6-luna",
+    codexPlannerModelId: "gpt-6-luna",
+    usage: usage(),
+    runtimeRoutes: routes,
+    lookupPricing,
+    lookupCodexApiRates: async () => null,
+  });
+  expect(unknown.requestBilling.pricingResolved).toBe(false);
+  expect(unknown.actualRates).toBeNull();
+  expect(unknown.plannerRates).toBeNull();
+});

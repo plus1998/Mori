@@ -204,7 +204,10 @@
   "approvalClarificationPrevious": "Previous question",
   "approvalClarificationNext": "Next question",
   "approvalClarificationRecommended": "Recommended",
-  "approvalClarificationCompleteSelection": "Complete selection",
+  "approvalClarificationCustomLabel": "Other (write an answer)",
+  "approvalClarificationCustomDescription": "Enter your own answer.",
+  "approvalClarificationCustomHint": "Type your answer",
+  "approvalClarificationCompleteSelection": "Confirm",
   "approvalSeverityCritical": "Critical",
   "approvalSeverityHigh": "High",
   "approvalSeverityMedium": "Medium",
@@ -224,6 +227,23 @@
   "approvalAutoReviewErrorHint": "The reviewer did not return a valid result; escalated to a human. Raw error below.",
   "composerAddImage": "Add image",
   "composerImage": "Image",
+  "composerPlusModeSection": "Modes and session",
+  "composerPlusActionSection": "Add and actions",
+  "composerPlusConfigSection": "Configuration",
+  "composerPlusPlanHint": "Plan the steps before making changes",
+  "composerPlusAskHint": "Ask questions and analyze without editing files",
+  "composerPlusImageHint": "Attach designs, screenshots or local images",
+  "composerPlusScheduleHint": "Send later or repeat in this conversation",
+  "composerPlusFirstMessageHint": "Send the first message at a scheduled time",
+  "composerPlusConfigHint": "Main agent, prompt, subagents and models",
+  "composerPlusIntegrationsHint": "Built-in browser, computer use and more",
+  "composerPlusMcpHint": "Connect external services and tools",
+  "composerPlusSkillsHint": "Choose skills for this conversation",
+  "composerPlusSubagentsHint": "View subagents and their enabled status",
+  "composerPlusEnabled": "Enabled",
+  "composerPlusBack": "Back to menu",
+  "composerPrimaryAgent": "Main agent",
+  "composerRuntimeConfig": "Runtime config",
   "composerPlusMenu": "More",
   "composerExitSessionMode": "Exit {mode}",
   "@composerExitSessionMode": {
@@ -237,6 +257,9 @@
   "composerStopVoiceInput": "Stop voice input",
   "composerNoSpeech": "No speech recognized",
   "composerSendHint": "Send a message...",
+  "composerSendScheduled": "Schedule send",
+  "composerSendQueue": "Queue",
+  "composerSendSteer": "Guide direction",
   "composerFollowUp": "Follow up",
   "composerRequestChanges": "Request changes",
   "composerPendingImage": "Pending image {index}",
@@ -941,6 +964,10 @@
   "composerApprovalModelManualFallback": "Configure an approval model to enable automatic reviews",
   "composerApprovalModelNeedsMainAgent": "Configure the main Agent before selecting an approval model",
   "composerApprovalModelHintAcp": "Used for automatic tool reviews; supports chat models and SystemOne (Jev)",
+  "schedulingContent": "Content",
+  "schedulingTiming": "When to run",
+  "schedulingAdvanced": "Advanced",
+  "schedulingImageLimit": "You can add up to 20 images.",
   "schedulingTitle": "Scheduled tasks",
   "schedulingMessages": "Scheduled messages",
   "schedulingNewTask": "New scheduled task",
@@ -994,5 +1021,125 @@
   "schedulingUnknown": "Unknown",
   "schedulingCancelled": "Cancelled",
   "schedulingLoadFailed": "Unable to load schedules",
-  "schedulingSaved": "Schedule saved"
+  "schedulingSaved": "Schedule saved",
+  "todosTitle": "To-dos",
+  "todosSubtitle": "A clear space for your next step.",
+  "todosAdd": "New to-do",
+  "todosEdit": "Edit to-do",
+  "todosAllProjects": "All projects",
+  "todosProject": "Choose project",
+  "todosSearchProjects": "Search project name or path",
+  "todosSearch": "Search to-dos or projects",
+  "todosPending": "To do",
+  "todosCompleted": "Completed",
+  "todosMarkComplete": "Mark complete",
+  "todosMarkPending": "Mark incomplete",
+  "todosEmpty": "Make room for your next step",
+  "todosEmptyHint": "Save ideas, questions or screenshots, then bring them into a conversation when you are ready.",
+  "todosNoResults": "No matching to-dos",
+  "todosNoResultsHint": "Try another search or choose a different project.",
+  "todosNoPending": "Nothing left to do here",
+  "todosNoProjects": "No projects available. Open a project from Sessions first.",
+  "todosInputHint": "What would you like to do? You can add screenshots too…",
+  "todosImagesHint": "Up to 5 images, 5 MB each",
+  "todosAddImage": "Add image",
+  "todosRemoveImage": "Remove image",
+  "todosPreviewImage": "View image",
+  "todosImageInvalid": "Choose a valid PNG, JPEG, GIF or WebP image.",
+  "todosImageTooLarge": "Images must be no larger than 5 MB.",
+  "todosImageLimit": "You can add up to 5 images.",
+  "todosSaved": "To-do saved",
+  "todosDeleted": "To-do deleted",
+  "todosUndo": "Undo",
+  "todosMore": "To-do actions",
+  "todosCompose": "Bring into conversation",
+  "todosNewConversation": "New conversation",
+  "todosComposeHint": "Fills the composer for you to review and send. Your to-do stays here.",
+  "todosSearchThreads": "Search conversations in this project",
+  "todosLoadFailed": "Unable to load to-dos",
+  "todosConflict": "This to-do changed on another device. Keep your text, close the editor and reopen it before saving.",
+  "todosMissing": "This to-do or image was deleted. Refresh the list.",
+  "todosUpgrade": "Update Eco on the connected computer to use remote to-dos.",
+  "todosDiscardTitle": "Discard changes?",
+  "todosDiscardHint": "Your unsaved changes will be lost.",
+  "todosDiscard": "Discard",
+  "todosTextLimit": "To-do text cannot exceed 100,000 characters.",
+  "codexQuotaTab": "Usage",
+  "codexQuotaTitle": "ChatGPT Login account usage",
+  "codexQuotaCurrentAccount": "Current account: {name}",
+  "codexQuotaRemaining": "{percent}% remaining",
+  "codexQuotaDays": "{count}-day quota",
+  "codexQuotaHours": "{count}-hour quota",
+  "codexQuotaResetsAt": "Resets on {time}",
+  "codexQuotaResetCount": "Available resets: {count}",
+  "codexQuotaNoCredit": "This account has no reset credits",
+  "codexQuotaNothingToReset": "No quota window is available to reset",
+  "codexQuotaSwitching": "Switching accounts. Reset will be available when complete.",
+  "codexQuotaSwitchAccount": "Switch account",
+  "codexQuotaUseReset": "Use reset",
+  "codexQuotaRefresh": "Refresh usage",
+  "codexQuotaLoading": "Loading account usage…",
+  "codexQuotaIdle": "No usage data yet",
+  "codexQuotaNoAccount": "No signed-in Codex account selected",
+  "codexQuotaSwitchDescription": "Choose another signed-in account with remaining quota. Usage is checked again before switching.",
+  "codexQuotaNoCandidates": "No other signed-in accounts",
+  "codexQuotaSearch": "Search accounts",
+  "codexQuotaNoResults": "No matching accounts",
+  "codexQuotaUnavailable": "Account unavailable or out of quota. Refresh and choose another account.",
+  "codexQuotaUnknown": "No usage data yet. Refresh to check.",
+  "codexQuotaExhausted": "No available quota",
+  "codexQuotaDisconnected": "Desktop disconnected. Cannot read usage.",
+  "codexQuotaRemoved": "The active account was removed. Refresh to continue.",
+  "codexQuotaResetSuccess": "Usage reset successfully",
+  "codexQuotaUpdatedAt": "Updated {time}",
+  "codexQuotaBack": "Back to usage",
+  "@codexQuotaCurrentAccount": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaRemaining": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaHours": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaResetsAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaResetCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@codexQuotaUpdatedAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  }
 }

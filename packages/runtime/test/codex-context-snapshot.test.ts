@@ -78,6 +78,7 @@ test("resolveCodexContextSnapshot unwraps provider-scoped Codex gateway aliases"
   });
 
   expect(resolved?.context.modelId).toBe("vendor-model");
+  expect(resolved?.providerId).toBe("custom-provider");
   expect(resolved?.context.roles?.[0]?.modelId).toBe("vendor-model");
 });
 
@@ -89,7 +90,23 @@ test("resolveCodexContextSnapshot unwraps V1 route aliases", () => {
   });
 
   expect(resolved?.context.modelId).toBe("vendor/model.__v1");
+  expect(resolved?.providerId).toBe("custom.__provider");
   expect(resolved?.context.roles?.[0]?.modelId).toBe("vendor/model.__v1");
+});
+
+test("native model identity identifies account login without confusing a vendor using the same model", () => {
+  const native = resolveCodexContextSnapshot({
+    params: tokenUsagePayload(),
+    attribution: MAIN_ATTRIBUTION,
+    modelId: "gpt-6.1-sol",
+  });
+  const vendor = resolveCodexContextSnapshot({
+    params: tokenUsagePayload(),
+    attribution: MAIN_ATTRIBUTION,
+    modelId: buildCodexGatewayModelAlias("vendor", "gpt-6.1-sol", "openai_responses"),
+  });
+  expect(native?.providerId).toBe("openai");
+  expect(vendor?.providerId).toBe("vendor");
 });
 
 test("resolveCodexContextSnapshot rejects malformed reserved V1 aliases", () => {

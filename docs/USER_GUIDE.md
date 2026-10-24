@@ -80,7 +80,7 @@ API Key 会通过系统安全存储保存。系统安全存储不可用时，Eco
 
 Eco Coding 支持三种 Harness：
 
-- **Codex**：使用 OpenAI Codex runtime。
+- **Codex**：使用 OpenAI Codex runtime。账号登录模型优先使用原生 `web_search`，即使配置了 Eco 集成搜索也不会因此关闭原生搜索；编排中关闭网络搜索时仍不暴露搜索工具。第三方模型路由沿用集成搜索选择规则。
 - **Claude Code**：使用 Claude Agent SDK / Claude Code runtime。
 - **PI**：使用 [earendil-works/pi](https://github.com/earendil-works/pi) 的 coding-agent（`@earendil-works/pi-coding-agent`）。支持 Agent / Plan / Ask；内置 read/write/edit/bash（Ask/Plan 的 bash 仅只读 allowlist）；**Web Search**：默认走 Provider 原生搜索（[pi-web-search](https://github.com/ttttmr/pi-web-search) 注入 `web_search` 工具）；可在候选模型规格中关闭「Provider 原生 Web Search」，并在 **设置 → 网络搜索** 配置 **Integrated Web Search**（**Tavily**、**豆包搜索（Doubao）** 或 **Brave**）；该后端对 Claude / Codex / PI 共用；编排层 `network.webSearch === false` 时不暴露搜索工具；chat-completions 等不支持原生搜索的模型需关 native 并配 Integrated 搜索，否则工具会报错（Phase 1 不自动降级）；Eco 按会话注入 Skills 与 MCP（`.agents/skills` / `.pi/skills` + 线程私有 `pi-agent/<threadId>/skills`；Composer 选中的 MCP / 浏览器 / 图片集成经官方 MCP 扩展按会话注入（工具以 `mcp__<服务器>__<工具>` 命名，如 Hub 的 `mcp__eco_mcp__search_tools` / `mcp__eco_mcp__call_tool`），Ask/Plan 规划阶段不暴露 MCP；设置 → 个性化「全局规则」追加进父会话系统提示）；会话 JSONL 持久化在 `userData/pi-agent/<threadId>/sessions/`（跨重启可续跑；改 MCP 会重建进程内 AgentSession 但续跑同一份 JSONL；改模型路由/思考强度会新开会话）。主代理与子代理的「思考强度」会传给 PI（`off` 关闭思考；`low`–`max` 对应 PI thinkingLevel）；Agent 模式支持按会话编排快照委派子代理；工具审批由 Eco 桥接（同 Claude BashApproval）；Plan 经 `finalize_plan` 落盘后异步确认，批准后新开 Agent（退出保留待批准计划）。**Mobile 对 PI 线程工具/计划审批未验证**。
 

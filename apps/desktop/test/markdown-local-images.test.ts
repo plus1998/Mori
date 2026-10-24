@@ -20,9 +20,7 @@ test("normalizePathSegments collapses dot segments", () => {
 });
 
 test("resolveMarkdownImagePath resolves relative to markdown file", () => {
-  expect(resolveMarkdownImagePath(workspace, nested, "../assets/demo.png")).toBe(
-    "C:/repo/assets/demo.png",
-  );
+  expect(resolveMarkdownImagePath(workspace, nested, "../assets/demo.png")).toBe("C:/repo/assets/demo.png");
   expect(resolveMarkdownImagePath(workspace, readme, "docs/assets/demo.png")).toBe(
     "C:/repo/docs/assets/demo.png",
   );
@@ -39,8 +37,12 @@ test("resolveMarkdownImagePath skips remote and data urls", () => {
   expect(resolveMarkdownImagePath(workspace, readme, "data:image/png;base64,xx")).toBeUndefined();
 });
 
-test("resolveMarkdownImagePath rejects paths outside workspace", () => {
-  expect(resolveMarkdownImagePath(workspace, nested, "../../outside.png")).toBeUndefined();
+test("resolveMarkdownImagePath supports images outside the workspace", () => {
+  expect(resolveMarkdownImagePath(workspace, nested, "../../outside.png")).toBe("C:/outside.png");
+  expect(resolveMarkdownImagePath("/repo", "/tmp/report/readme.md", "./images/a.png")).toBe(
+    "/tmp/report/images/a.png",
+  );
+  expect(resolveMarkdownImagePath("/repo", "/tmp/report/readme.md", "/tmp/a.png")).toBe("/tmp/a.png");
   expect(isPathInsideWorkspace(workspace, "C:/other/a.png")).toBe(false);
 });
 

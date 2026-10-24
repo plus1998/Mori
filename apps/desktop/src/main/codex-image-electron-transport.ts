@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
-import { net, session, type Session } from "electron";
+import { net, type Session, session } from "electron";
 import type { OpenAIAccountDetails } from "../shared/openai-account";
 import type { CodexImageConnection } from "./codex-image-service";
 import { startSocksToHttpBridge } from "./openai-account-service";
@@ -17,14 +17,16 @@ export async function connectCodexImageAccount(account: OpenAIAccountDetails): P
   const auth = account.authJson ? JSON.parse(account.authJson) : {};
   const identity = auth.tokens?.account_id ?? auth.account_id ?? "";
   const key = createHash("sha256")
-    .update(`${account.id}\0${identity}\0${account.proxyUrl ?? ""}`)
+    .update(`${account.id}\0${identity}\0${account.proxyMode}\0${account.proxyUrl ?? ""}`)
     .digest("hex");
   let network = networks.get(key);
   if (!network) {
     network = (async () => {
       const isolated = session.fromPartition(`eco-codex-images-${key}`, { cache: false });
       const entry: NetworkEntry = { session: isolated };
-      if (account.proxyUrl) {
+      if (account.proxyMode === "direct") {
+        await isolated.setProxy({ mode: "direct" });
+      } else if (account.proxyMode === "manual" && account.proxyUrl) {
         const proxy = new URL(account.proxyUrl);
         if (proxy.protocol.startsWith("socks")) {
           const bridge = await startSocksToHttpBridge(account.proxyUrl);
@@ -40,6 +42,8 @@ export async function connectCodexImageAccount(account: OpenAIAccountDetails): P
             proxyBypassRules: "<-loopback>",
           });
         } else throw new Error("Codex 生图账号代理协议不受支持。");
+      } else if (account.proxyMode === "manual") {
+        throw new Error("Codex 生图账号未填写手动代理地址。");
       }
       return entry;
     })();

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -41,7 +40,11 @@ class ConversationV2InteractionActions {
   resolveBash;
   final Future<void> Function() approvePlan;
   final Future<void> Function() dismissPlan;
-  final Future<void> Function(String toolUseId, List<List<String>> selections)
+  final Future<void> Function(
+    String toolUseId,
+    List<List<String>> selections, {
+    List<int>? customInputIndices,
+  })
   submitClarification;
   final Future<void> Function(String toolUseId) dismissClarification;
 }
@@ -61,8 +64,9 @@ class ConversationV2SessionState {
     this.pendingBash,
     this.pendingPlan,
     this.pendingClarification,
-    this.error,
-  });
+    Object? error,
+    this.pendingInteractionsError,
+  }) : _error = error;
 
   final List<ConversationV2Message> messages;
   final List<ConversationV2Run> runs;
@@ -81,7 +85,9 @@ class ConversationV2SessionState {
   final BashApprovalRequest? pendingBash;
   final ThreadPendingPlan? pendingPlan;
   final ClarificationRequest? pendingClarification;
-  final Object? error;
+  final Object? _error;
+  final Object? pendingInteractionsError;
+  Object? get error => _error ?? pendingInteractionsError;
 
   ConversationV2SessionState copyWith({
     List<ConversationV2Message>? messages,
@@ -101,6 +107,8 @@ class ConversationV2SessionState {
     bool replacePendingInteractions = false,
     Object? error,
     bool clearError = false,
+    Object? pendingInteractionsError,
+    bool clearPendingInteractionsError = false,
   }) {
     return ConversationV2SessionState(
       messages: messages ?? this.messages,
@@ -128,7 +136,10 @@ class ConversationV2SessionState {
           : clearPendingInteractions
           ? null
           : (pendingClarification ?? this.pendingClarification),
-      error: clearError ? null : (error ?? this.error),
+      error: clearError ? null : (error ?? _error),
+      pendingInteractionsError: clearPendingInteractionsError
+          ? null
+          : (pendingInteractionsError ?? this.pendingInteractionsError),
     );
   }
 }
@@ -143,6 +154,7 @@ class ConversationV2SessionController
     required ConversationV2Cache cache,
     required ConversationV2Remote remote,
     this.actions,
+    this.loadPendingInteractions,
     this.enabled = true,
     bool closeCacheOnClose = true,
   }) : _cache = cache,
@@ -151,9 +163,7 @@ class ConversationV2SessionController
        super(const ConversationV2SessionState()) {
     _stateSubscription = _engine.states.listen((syncState) {
       unawaited(
-        _reload(
-          syncState: syncState,
-        ).then((_) => _hydratePendingDetails()).catchError((error, _) {
+        _reload(syncState: syncState).catchError((error, _) {
           if (_disposed) return;
           _update(state.copyWith(syncState: syncState, error: error));
         }),
@@ -164,6 +174,11 @@ class ConversationV2SessionController
   final String conversationId;
   final bool enabled;
   final ConversationV2InteractionActions? actions;
+
+  /// The desktop's live pending registry owns actionable requests. Historical
+  /// detail rows contain display summaries, not complete permission requests.
+  final Future<ConversationV2PendingInteractions> Function()?
+  loadPendingInteractions;
   final ConversationV2Cache _cache;
   final bool _closeCacheOnClose;
   final ConversationV2SyncEngine _engine;
@@ -174,31 +189,33 @@ class ConversationV2SessionController
   Future<void>? _pushReloadInFlight;
   bool _pushReloadRequested = false;
   bool _projectionExtrasReloadRequested = false;
+  bool _pendingInteractionsReloadRequested = false;
+  Future<void>? _synchronizationInFlight;
+  Future<void>? _interactionsInFlight;
+  int _interactionGeneration = 0;
 
-  Future<void> start() async {
-    if (_disposed || !enabled) return;
-    try {
-      await _engine.start(conversationId);
-      await _reload();
-      await reloadProjectionExtras();
-      await _hydratePendingDetails();
-      await _replayPendingCommands();
-    } catch (error) {
-      state = state.copyWith(syncState: _engine.state, error: error);
-    }
-  }
+  Future<void> start() => _synchronize(bootstrap: true);
 
-  Future<void> refresh() async {
-    if (_disposed || !enabled) return;
-    try {
-      await _engine.refresh(conversationId);
-      await _reload();
-      await reloadProjectionExtras();
-      await _hydratePendingDetails();
-      await _replayPendingCommands();
-    } catch (error) {
-      state = state.copyWith(syncState: _engine.state, error: error);
-    }
+  Future<void> refresh() => _synchronize(bootstrap: false);
+
+  Future<void> _synchronize({required bool bootstrap}) {
+    if (_disposed || !enabled) return Future<void>.value();
+    return _synchronizationInFlight ??= () async {
+      try {
+        if (bootstrap) {
+          await _engine.start(conversationId);
+        } else {
+          await _engine.refresh(conversationId);
+        }
+        await _replayPendingCommands();
+        await Future.wait([
+          reloadProjectionExtras(),
+          refreshPendingInteractions(),
+        ]);
+      } catch (error) {
+        _update(state.copyWith(syncState: _engine.state, error: error));
+      }
+    }().whenComplete(() => _synchronizationInFlight = null);
   }
 
   Future<void> acceptPushEnvelope(Map<String, dynamic> envelope) async {
@@ -216,6 +233,16 @@ class ConversationV2SessionController
         final effect = receipt is Map ? receipt['effect'] : null;
         if (effect is Map && _refreshesProjectionExtras(effect)) {
           _projectionExtrasReloadRequested = true;
+        }
+        final detail = effect is Map ? effect['detail'] : null;
+        final detailType = detail is Map ? detail['type'] : null;
+        if (effect is Map &&
+            (effect['type'] == 'run.upsert' ||
+                (effect['type'] == 'detail.upsert' &&
+                    detailType is String &&
+                    (detailType.startsWith('approval.') ||
+                        detailType.startsWith('clarification.'))))) {
+          _pendingInteractionsReloadRequested = true;
         }
       }
       await _reloadAfterPush();
@@ -357,8 +384,11 @@ class ConversationV2SessionController
     if (handler == null) {
       throw StateError('Conversation actions are unavailable.');
     }
-    await handler(toolUseId, decision, feedback: feedback);
-    await _refreshAfterInteraction();
+    try {
+      await handler(toolUseId, decision, feedback: feedback);
+    } finally {
+      await _refreshAfterInteraction();
+    }
   }
 
   Future<void> approvePlan() async {
@@ -366,8 +396,11 @@ class ConversationV2SessionController
     if (handler == null) {
       throw StateError('Conversation actions are unavailable.');
     }
-    await handler();
-    await _refreshAfterInteraction();
+    try {
+      await handler();
+    } finally {
+      await _refreshAfterInteraction();
+    }
   }
 
   Future<void> dismissPlan() async {
@@ -375,20 +408,31 @@ class ConversationV2SessionController
     if (handler == null) {
       throw StateError('Conversation actions are unavailable.');
     }
-    await handler();
-    await _refreshAfterInteraction();
+    try {
+      await handler();
+    } finally {
+      await _refreshAfterInteraction();
+    }
   }
 
   Future<void> submitClarification(
     String toolUseId,
-    List<List<String>> selections,
-  ) async {
+    List<List<String>> selections, {
+    List<int>? customInputIndices,
+  }) async {
     final handler = actions?.submitClarification;
     if (handler == null) {
       throw StateError('Conversation actions are unavailable.');
     }
-    await handler(toolUseId, selections);
-    await _refreshAfterInteraction();
+    try {
+      await handler(
+        toolUseId,
+        selections,
+        customInputIndices: customInputIndices,
+      );
+    } finally {
+      await _refreshAfterInteraction();
+    }
   }
 
   Future<void> dismissClarification(String toolUseId) async {
@@ -396,8 +440,11 @@ class ConversationV2SessionController
     if (handler == null) {
       throw StateError('Conversation actions are unavailable.');
     }
-    await handler(toolUseId);
-    await _refreshAfterInteraction();
+    try {
+      await handler(toolUseId);
+    } finally {
+      await _refreshAfterInteraction();
+    }
   }
 
   Future<ConversationV2SendMessageResult> sendMessage({
@@ -471,7 +518,6 @@ class ConversationV2SessionController
         hasOlder: snapshot.cacheState?.hasOlder ?? false,
         historyRevision: snapshot.cacheState?.historyRevision ?? 0,
         details: compactionDetails,
-        clearPendingInteractions: true,
         clearError: syncState != ConversationV2SyncState.error,
       ),
     );
@@ -495,7 +541,10 @@ class ConversationV2SessionController
               _projectionExtrasReloadRequested = false;
               await reloadProjectionExtras();
             }
-            await _hydratePendingDetails();
+            if (_pendingInteractionsReloadRequested) {
+              _pendingInteractionsReloadRequested = false;
+              await refreshPendingInteractions();
+            }
           } while (_pushReloadRequested && !_disposed);
         }().whenComplete(() async {
           _pushReloadInFlight = null;
@@ -505,58 +554,44 @@ class ConversationV2SessionController
     return operation;
   }
 
-  Future<void> _hydratePendingDetails({bool force = false}) async {
-    if (_disposed || !enabled) return;
-    final generation = _reloadGeneration;
-    final selectedRun = _selectInteractionRun(state.runs);
-    if (selectedRun == null) return;
-
-    var details = await _cache.details(conversationId, selectedRun.runId);
-    if ((force || details.isEmpty) && !_disposed) {
-      try {
-        await _engine.loadDetails(conversationId, selectedRun.runId);
-        details = await _cache.details(conversationId, selectedRun.runId);
-      } catch (_) {
-        // The feed remains available when the optional interaction detail page
-        // is temporarily unavailable. A later push/refresh retries hydration.
-      }
+  Future<void> refreshPendingInteractions() {
+    if (_disposed || !enabled || loadPendingInteractions == null) {
+      return Future<void>.value();
     }
-    if (_disposed || generation != _reloadGeneration) return;
-    final pending = resolveConversationV2PendingInteractions(
-      conversationId,
-      details,
-    );
-    final visibleDetails = _mergeConversationV2Details(
-      state.details.where(
-        (detail) => isConversationV2ContextCompactionType(detail.type),
-      ),
-      details,
-    );
-    _update(
-      state.copyWith(
-        details: visibleDetails,
-        pendingBash: pending.bash,
-        pendingPlan: pending.plan,
-        pendingClarification: pending.clarification,
-        replacePendingInteractions: true,
-      ),
-    );
+    _interactionGeneration++;
+    return _interactionsInFlight ??= () async {
+      while (!_disposed) {
+        final generation = _interactionGeneration;
+        try {
+          final pending = await loadPendingInteractions!();
+          if (_disposed) return;
+          // A resolution/event arrived while this snapshot was being read.
+          // Discard the old reply and read the registry again before publishing.
+          if (generation != _interactionGeneration) continue;
+          _update(
+            state.copyWith(
+              pendingBash: pending.bash,
+              pendingPlan: pending.plan,
+              pendingClarification: pending.clarification,
+              replacePendingInteractions: true,
+              clearPendingInteractionsError: true,
+            ),
+          );
+        } catch (error) {
+          if (_disposed) return;
+          if (generation != _interactionGeneration) continue;
+          _update(state.copyWith(pendingInteractionsError: error));
+        }
+        return;
+      }
+    }().whenComplete(() => _interactionsInFlight = null);
   }
 
   Future<void> _refreshAfterInteraction() async {
-    if (_disposed) return;
-    await _engine.refresh(conversationId);
-    await _reload();
-    await _hydratePendingDetails(force: true);
-  }
-
-  ConversationV2Run? _selectInteractionRun(List<ConversationV2Run> runs) {
-    final ordered = [...runs]
-      ..sort((left, right) => right.versionSeq.compareTo(left.versionSeq));
-    for (final run in ordered) {
-      if (run.status == 'queued' || run.status == 'running') return run;
-    }
-    return ordered.isEmpty ? null : ordered.first;
+    // Invalidate any registry read started before the user's action, even if
+    // refresh() joins an already running synchronization pass.
+    await refreshPendingInteractions();
+    await refresh();
   }
 
   Future<void> _replayPendingCommands() async {
@@ -592,20 +627,6 @@ class ConversationV2SessionController
   }
 }
 
-List<ConversationV2Detail> _mergeConversationV2Details(
-  Iterable<ConversationV2Detail> first,
-  Iterable<ConversationV2Detail> second,
-) {
-  final byId = <String, ConversationV2Detail>{
-    for (final detail in first) detail.itemId: detail,
-    for (final detail in second) detail.itemId: detail,
-  };
-  return byId.values.toList()..sort((left, right) {
-    final sequence = left.createdSeq.compareTo(right.createdSeq);
-    return sequence != 0 ? sequence : left.itemId.compareTo(right.itemId);
-  });
-}
-
 class ConversationV2PendingInteractions {
   const ConversationV2PendingInteractions({
     this.bash,
@@ -617,111 +638,3 @@ class ConversationV2PendingInteractions {
   final ThreadPendingPlan? plan;
   final ClarificationRequest? clarification;
 }
-
-ConversationV2PendingInteractions resolveConversationV2PendingInteractions(
-  String conversationId,
-  List<ConversationV2Detail> details,
-) {
-  final approvals = <String, Map<String, dynamic>>{};
-  final clarifications = <String, Map<String, dynamic>>{};
-  final ordered = [...details]
-    ..sort((left, right) {
-      final sequence = left.createdSeq.compareTo(right.createdSeq);
-      return sequence != 0 ? sequence : left.itemId.compareTo(right.itemId);
-    });
-  for (final detail in ordered) {
-    final payload = _detailPayload(detail);
-    final key = detail.toolCallId?.trim().isNotEmpty == true
-        ? detail.toolCallId!.trim()
-        : detail.itemId;
-    final type = detail.type.trim();
-    final resolved =
-        type.endsWith('.resolved') ||
-        _stringValue(payload?['liveType'])?.endsWith('.approved') == true ||
-        _stringValue(payload?['liveType'])?.endsWith('.answered') == true ||
-        _stringValue(payload?['liveType'])?.endsWith('.denied') == true ||
-        _stringValue(payload?['liveType'])?.endsWith('.rejected') == true;
-    if (type == 'clarification.requested' ||
-        _stringValue(payload?['liveType']) == 'clarification.requested') {
-      if (resolved) {
-        clarifications.remove(key);
-      } else if (payload?['clarification'] is Map) {
-        clarifications[key] = _mapValue(payload!['clarification'])!;
-      }
-      continue;
-    }
-    if (type == 'clarification.resolved' ||
-        _stringValue(payload?['liveType']) == 'clarification.resolved') {
-      clarifications.remove(key);
-      continue;
-    }
-    if (type == 'approval.requested' ||
-        _stringValue(payload?['liveType'])?.endsWith('.requested') == true) {
-      if (resolved) {
-        approvals.remove(key);
-      } else if (payload != null) {
-        approvals[key] = payload;
-      }
-      continue;
-    }
-    if (type == 'approval.resolved' || resolved) {
-      approvals.remove(key);
-    }
-  }
-
-  BashApprovalRequest? bash;
-  ThreadPendingPlan? plan;
-  for (final payload in approvals.values) {
-    final rawBash = _mapValue(payload['bashApproval']);
-    if (rawBash != null) {
-      bash = BashApprovalRequest.fromJson({
-        ...rawBash,
-        'threadId': conversationId,
-      });
-      continue;
-    }
-    final rawPlan =
-        _mapValue(payload['plan']) ?? _mapValue(payload['planApproval']);
-    if (rawPlan != null) {
-      plan = ThreadPendingPlan.fromJson({
-        ...rawPlan,
-        'threadId': conversationId,
-        'workspacePath': rawPlan['workspacePath'] ?? '',
-        'worktreePath': rawPlan['worktreePath'] ?? '',
-      });
-    }
-  }
-
-  ClarificationRequest? clarification;
-  final rawClarification = clarifications.values.lastOrNull;
-  if (rawClarification != null) {
-    clarification = ClarificationRequest.fromJson({
-      ...rawClarification,
-      'threadId': conversationId,
-    });
-  }
-  return ConversationV2PendingInteractions(
-    bash: bash,
-    plan: plan,
-    clarification: clarification,
-  );
-}
-
-Map<String, dynamic>? _detailPayload(ConversationV2Detail detail) {
-  final content = detail.content?.trim();
-  if (content == null || content.isEmpty) return null;
-  try {
-    final decoded = jsonDecode(content);
-    return _mapValue(decoded);
-  } on Object {
-    return null;
-  }
-}
-
-Map<String, dynamic>? _mapValue(dynamic value) {
-  if (value is! Map) return null;
-  return value.map((key, nested) => MapEntry(key.toString(), nested));
-}
-
-String? _stringValue(dynamic value) =>
-    value is String && value.trim().isNotEmpty ? value.trim() : null;

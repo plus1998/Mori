@@ -1,3 +1,4 @@
+import { coalesceResponsesCompactionInput } from "./compaction-input.js";
 import type { GatewayLogFn } from "./server.js";
 import type { GatewayConfig, ResolvedProviderRoute } from "./types.js";
 
@@ -49,9 +50,10 @@ export function withDynamicOutputBudget(
       const boundLimits = await config.resolveModelLimits?.(route);
       const configuredWindow = route.provider.modelContextTokens?.[route.upstreamModelId];
       const window =
-        configuredWindow === undefined
+        boundLimits?.compactionContextTokens ??
+        (configuredWindow === undefined
           ? undefined
-          : Math.min(configuredWindow, boundLimits?.contextTokens ?? configuredWindow);
+          : Math.min(configuredWindow, boundLimits?.contextTokens ?? configuredWindow));
       if (window === undefined || !Number.isSafeInteger(window) || window < 2) {
         throw new Error(
           `Dynamic max output requires a resolved context window for ${route.upstreamModelId}.`,
@@ -61,6 +63,9 @@ export function withDynamicOutputBudget(
       if (typeof init?.body !== "string")
         throw new Error("Dynamic max output requires the final JSON request body.");
       const body = JSON.parse(init.body) as Record<string, unknown>;
+      if (boundLimits?.compactionContextTokens !== undefined && route.upstreamKind === "responses") {
+        coalesceResponsesCompactionInput(body);
+      }
       const count = await config.countInputTokens({
         route,
         body,

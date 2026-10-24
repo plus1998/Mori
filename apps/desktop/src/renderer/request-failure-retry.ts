@@ -45,7 +45,8 @@ export function readUserPromptRetryIdentity(
     return undefined;
   }
   const prompt = item.text.trim();
-  if (!prompt && !options?.allowEmptyPrompt) {
+  const hasImages = readPromptImagePreviews(item.metadata).length > 0;
+  if (!prompt && !hasImages && !options?.allowEmptyPrompt) {
     return undefined;
   }
   // Retry operates on the durable Eco message even after native fork/edit identities
@@ -62,7 +63,7 @@ export function readUserPromptRetryIdentity(
   return {
     activityLineId,
     prompt,
-    hasImages: readPromptImagePreviews(item.metadata).length > 0,
+    hasImages,
   };
 }
 

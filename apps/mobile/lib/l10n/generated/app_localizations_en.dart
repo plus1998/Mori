@@ -548,7 +548,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get approvalClarificationRecommended => 'Recommended';
 
   @override
-  String get approvalClarificationCompleteSelection => 'Complete selection';
+  String get approvalClarificationCustomLabel => 'Other (write an answer)';
+
+  @override
+  String get approvalClarificationCustomDescription => 'Enter your own answer.';
+
+  @override
+  String get approvalClarificationCustomHint => 'Type your answer';
+
+  @override
+  String get approvalClarificationCompleteSelection => 'Confirm';
 
   @override
   String get approvalSeverityCritical => 'Critical';
@@ -611,6 +620,64 @@ class AppLocalizationsEn extends AppLocalizations {
   String get composerImage => 'Image';
 
   @override
+  String get composerPlusModeSection => 'Modes and session';
+
+  @override
+  String get composerPlusActionSection => 'Add and actions';
+
+  @override
+  String get composerPlusConfigSection => 'Configuration';
+
+  @override
+  String get composerPlusPlanHint => 'Plan the steps before making changes';
+
+  @override
+  String get composerPlusAskHint =>
+      'Ask questions and analyze without editing files';
+
+  @override
+  String get composerPlusImageHint =>
+      'Attach designs, screenshots or local images';
+
+  @override
+  String get composerPlusScheduleHint =>
+      'Send later or repeat in this conversation';
+
+  @override
+  String get composerPlusFirstMessageHint =>
+      'Send the first message at a scheduled time';
+
+  @override
+  String get composerPlusConfigHint =>
+      'Main agent, prompt, subagents and models';
+
+  @override
+  String get composerPlusIntegrationsHint =>
+      'Built-in browser, computer use and more';
+
+  @override
+  String get composerPlusMcpHint => 'Connect external services and tools';
+
+  @override
+  String get composerPlusSkillsHint => 'Choose skills for this conversation';
+
+  @override
+  String get composerPlusSubagentsHint =>
+      'View subagents and their enabled status';
+
+  @override
+  String get composerPlusEnabled => 'Enabled';
+
+  @override
+  String get composerPlusBack => 'Back to menu';
+
+  @override
+  String get composerPrimaryAgent => 'Main agent';
+
+  @override
+  String get composerRuntimeConfig => 'Runtime config';
+
+  @override
   String get composerPlusMenu => 'More';
 
   @override
@@ -635,6 +702,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get composerSendHint => 'Send a message...';
+
+  @override
+  String get composerSendScheduled => 'Schedule send';
+
+  @override
+  String get composerSendQueue => 'Queue';
+
+  @override
+  String get composerSendSteer => 'Guide direction';
 
   @override
   String get composerFollowUp => 'Follow up';
@@ -2866,6 +2942,18 @@ class AppLocalizationsEn extends AppLocalizations {
       'Used for automatic tool reviews; supports chat models and SystemOne (Jev)';
 
   @override
+  String get schedulingContent => 'Content';
+
+  @override
+  String get schedulingTiming => 'When to run';
+
+  @override
+  String get schedulingAdvanced => 'Advanced';
+
+  @override
+  String get schedulingImageLimit => 'You can add up to 20 images.';
+
+  @override
   String get schedulingTitle => 'Scheduled tasks';
 
   @override
@@ -3034,4 +3122,246 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get schedulingSaved => 'Schedule saved';
+
+  @override
+  String get todosTitle => 'To-dos';
+
+  @override
+  String get todosSubtitle => 'A clear space for your next step.';
+
+  @override
+  String get todosAdd => 'New to-do';
+
+  @override
+  String get todosEdit => 'Edit to-do';
+
+  @override
+  String get todosAllProjects => 'All projects';
+
+  @override
+  String get todosProject => 'Choose project';
+
+  @override
+  String get todosSearchProjects => 'Search project name or path';
+
+  @override
+  String get todosSearch => 'Search to-dos or projects';
+
+  @override
+  String get todosPending => 'To do';
+
+  @override
+  String get todosCompleted => 'Completed';
+
+  @override
+  String get todosMarkComplete => 'Mark complete';
+
+  @override
+  String get todosMarkPending => 'Mark incomplete';
+
+  @override
+  String get todosEmpty => 'Make room for your next step';
+
+  @override
+  String get todosEmptyHint =>
+      'Save ideas, questions or screenshots, then bring them into a conversation when you are ready.';
+
+  @override
+  String get todosNoResults => 'No matching to-dos';
+
+  @override
+  String get todosNoResultsHint =>
+      'Try another search or choose a different project.';
+
+  @override
+  String get todosNoPending => 'Nothing left to do here';
+
+  @override
+  String get todosNoProjects =>
+      'No projects available. Open a project from Sessions first.';
+
+  @override
+  String get todosInputHint =>
+      'What would you like to do? You can add screenshots too…';
+
+  @override
+  String get todosImagesHint => 'Up to 5 images, 5 MB each';
+
+  @override
+  String get todosAddImage => 'Add image';
+
+  @override
+  String get todosRemoveImage => 'Remove image';
+
+  @override
+  String get todosPreviewImage => 'View image';
+
+  @override
+  String get todosImageInvalid =>
+      'Choose a valid PNG, JPEG, GIF or WebP image.';
+
+  @override
+  String get todosImageTooLarge => 'Images must be no larger than 5 MB.';
+
+  @override
+  String get todosImageLimit => 'You can add up to 5 images.';
+
+  @override
+  String get todosSaved => 'To-do saved';
+
+  @override
+  String get todosDeleted => 'To-do deleted';
+
+  @override
+  String get todosUndo => 'Undo';
+
+  @override
+  String get todosMore => 'To-do actions';
+
+  @override
+  String get todosCompose => 'Bring into conversation';
+
+  @override
+  String get todosNewConversation => 'New conversation';
+
+  @override
+  String get todosComposeHint =>
+      'Fills the composer for you to review and send. Your to-do stays here.';
+
+  @override
+  String get todosSearchThreads => 'Search conversations in this project';
+
+  @override
+  String get todosLoadFailed => 'Unable to load to-dos';
+
+  @override
+  String get todosConflict =>
+      'This to-do changed on another device. Keep your text, close the editor and reopen it before saving.';
+
+  @override
+  String get todosMissing =>
+      'This to-do or image was deleted. Refresh the list.';
+
+  @override
+  String get todosUpgrade =>
+      'Update Eco on the connected computer to use remote to-dos.';
+
+  @override
+  String get todosDiscardTitle => 'Discard changes?';
+
+  @override
+  String get todosDiscardHint => 'Your unsaved changes will be lost.';
+
+  @override
+  String get todosDiscard => 'Discard';
+
+  @override
+  String get todosTextLimit => 'To-do text cannot exceed 100,000 characters.';
+
+  @override
+  String get codexQuotaTab => 'Usage';
+
+  @override
+  String get codexQuotaTitle => 'ChatGPT Login account usage';
+
+  @override
+  String codexQuotaCurrentAccount(String name) {
+    return 'Current account: $name';
+  }
+
+  @override
+  String codexQuotaRemaining(String percent) {
+    return '$percent% remaining';
+  }
+
+  @override
+  String codexQuotaDays(String count) {
+    return '$count-day quota';
+  }
+
+  @override
+  String codexQuotaHours(String count) {
+    return '$count-hour quota';
+  }
+
+  @override
+  String codexQuotaResetsAt(String time) {
+    return 'Resets on $time';
+  }
+
+  @override
+  String codexQuotaResetCount(String count) {
+    return 'Available resets: $count';
+  }
+
+  @override
+  String get codexQuotaNoCredit => 'This account has no reset credits';
+
+  @override
+  String get codexQuotaNothingToReset =>
+      'No quota window is available to reset';
+
+  @override
+  String get codexQuotaSwitching =>
+      'Switching accounts. Reset will be available when complete.';
+
+  @override
+  String get codexQuotaSwitchAccount => 'Switch account';
+
+  @override
+  String get codexQuotaUseReset => 'Use reset';
+
+  @override
+  String get codexQuotaRefresh => 'Refresh usage';
+
+  @override
+  String get codexQuotaLoading => 'Loading account usage…';
+
+  @override
+  String get codexQuotaIdle => 'No usage data yet';
+
+  @override
+  String get codexQuotaNoAccount => 'No signed-in Codex account selected';
+
+  @override
+  String get codexQuotaSwitchDescription =>
+      'Choose another signed-in account with remaining quota. Usage is checked again before switching.';
+
+  @override
+  String get codexQuotaNoCandidates => 'No other signed-in accounts';
+
+  @override
+  String get codexQuotaSearch => 'Search accounts';
+
+  @override
+  String get codexQuotaNoResults => 'No matching accounts';
+
+  @override
+  String get codexQuotaUnavailable =>
+      'Account unavailable or out of quota. Refresh and choose another account.';
+
+  @override
+  String get codexQuotaUnknown => 'No usage data yet. Refresh to check.';
+
+  @override
+  String get codexQuotaExhausted => 'No available quota';
+
+  @override
+  String get codexQuotaDisconnected =>
+      'Desktop disconnected. Cannot read usage.';
+
+  @override
+  String get codexQuotaRemoved =>
+      'The active account was removed. Refresh to continue.';
+
+  @override
+  String get codexQuotaResetSuccess => 'Usage reset successfully';
+
+  @override
+  String codexQuotaUpdatedAt(String time) {
+    return 'Updated $time';
+  }
+
+  @override
+  String get codexQuotaBack => 'Back to usage';
 }

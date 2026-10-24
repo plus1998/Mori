@@ -10,7 +10,10 @@ export const TASK_PANEL_PLAN_TAB_ID = "__plan__";
 /** @deprecated Single-browser tab id; use browserTaskTabId(browserId). */
 export const TASK_PANEL_BROWSER_TAB_ID = "__browser__";
 
-export type TaskPanelHomeTool = "review" | "files" | "terminal" | "sshBookmarks";
+export const TASK_PANEL_IMAGE_GENERATION_TAB_ID = "__image_generation_tool__";
+export const TASK_PANEL_SPEECH_GENERATION_TAB_ID = "__speech_generation_tool__";
+
+export type TaskPanelHomeTool = "review" | "files" | "terminal" | "sshBookmarks" | "imageGeneration" | "speechGeneration";
 
 const NEW_TASK_PANEL_TAB_PREFIX = "new-tab:";
 

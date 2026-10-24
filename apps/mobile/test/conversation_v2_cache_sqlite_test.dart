@@ -1,14 +1,237 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:eco_mobile/core/models/conversation_v2_models.dart';
 import 'package:eco_mobile/core/storage/conversation_v2_cache.dart';
 import 'package:eco_mobile/core/utils/conversation_v2_hash.dart';
+import 'package:eco_mobile/features/threads/activity_feed.dart';
+import 'package:eco_mobile/features/threads/conversation_v2_projection.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   sqfliteFfiInit();
+
+  for (final liveDelivery in [false, true]) {
+    test('delivered queued prompt stays visible across SQLite reopen '
+        '(live delivery: $liveDelivery)', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'eco-queued-reopen-',
+      );
+      final databasePath = p.join(directory.path, 'cache.sqlite');
+      addTearDown(() async {
+        await databaseFactoryFfi.deleteDatabase(databasePath);
+        await directory.delete(recursive: true);
+      });
+      ConversationV2Message prompt(bool delivered) => ConversationV2Message(
+        messageId: 'long-queued',
+        conversationId: _conversationId,
+        turnId: 'queued-turn',
+        role: 'user',
+        channel: 'answer',
+        createdSeq: 1,
+        versionSeq: delivered ? 41 : 1,
+        contentVersion: 0,
+        body: '排队很久后才实际发出的完整消息',
+        isDeleted: false,
+        status: delivered
+            ? ConversationV2MessageStatus.finalised
+            : ConversationV2MessageStatus.queued,
+        occurredAt: delivered
+            ? '2026-10-24T01:00:00.000Z'
+            : '2026-10-24T00:00:00.000Z',
+      );
+      const answer = ConversationV2Message(
+        messageId: 'previous-answer',
+        conversationId: _conversationId,
+        turnId: 'previous-turn',
+        runId: 'previous-run',
+        role: 'assistant',
+        providerRole: 'main',
+        channel: 'answer',
+        createdSeq: 40,
+        versionSeq: 40,
+        contentVersion: 0,
+        body: '之前一轮的回复',
+        isDeleted: false,
+        status: ConversationV2MessageStatus.finalised,
+        occurredAt: '2026-10-24T00:59:00.000Z',
+      );
+      ConversationV2Bootstrap snapshot(bool delivered) =>
+          ConversationV2Bootstrap(
+            protocolVersion: 2,
+            storeEpoch: _storeEpoch,
+            conversationId: _conversationId,
+            snapshotSeq: delivered ? 41 : 40,
+            historyRevision: 0,
+            messages: [answer, prompt(delivered)],
+            runs: const [],
+            tools: const [],
+            olderCursor: 'opaque-history-boundary',
+            hasOlder: true,
+          );
+      Future<List<String>> displayed(ConversationV2Cache cache) async =>
+          buildActivityFeed(
+                threadId: _conversationId,
+                runProjection: buildConversationV2Projection(
+                  conversationId: _conversationId,
+                  messages: await cache.messages(_conversationId),
+                  runs: const [],
+                  tools: const [],
+                ),
+              )
+              .map(
+                (entry) => entry.kind == ActivityFeedKind.user
+                    ? entry.text
+                    : entry.finalOutput?.text ?? entry.text,
+              )
+              .toList();
+
+      final cache = _cache(databasePath);
+      await cache.installBootstrap(snapshot(false));
+      expect(await displayed(cache), ['之前一轮的回复']);
+      if (liveDelivery) {
+        final payload = <String, dynamic>{
+          'type': 'message.finalize',
+          'messageId': 'long-queued',
+          'versionSeq': 41,
+          'contentVersion': 0,
+          'status': 'final',
+          'occurredAt': '2026-10-24T01:00:00.000Z',
+        };
+        await cache.applySyncPage(
+          _page(
+            fromSeq: 41,
+            throughSeq: 41,
+            headSeq: 41,
+            effects: [
+              ConversationV2Effect(
+                seq: 41,
+                effectVersion: 1,
+                effectHash: conversationV2StableHash(payload),
+                type: 'message.finalize',
+                payload: payload,
+              ),
+            ],
+          ),
+        );
+        expect(await displayed(cache), ['之前一轮的回复', '排队很久后才实际发出的完整消息']);
+      }
+      // Re-entry may skip the delivery effect by installing a later snapshot.
+      // That snapshot must carry the final prompt even though createdSeq is 1.
+      await cache.installBootstrap(snapshot(true));
+      expect(await displayed(cache), ['之前一轮的回复', '排队很久后才实际发出的完整消息']);
+      await cache.close();
+      final reopened = _cache(databasePath);
+      addTearDown(reopened.close);
+      await reopened.installBootstrap(snapshot(true));
+      expect(await displayed(reopened), ['之前一轮的回复', '排队很久后才实际发出的完整消息']);
+      await reopened.applyMessagePage(
+        ConversationV2MessagePage(
+          protocolVersion: 2,
+          storeEpoch: _storeEpoch,
+          conversationId: _conversationId,
+          readSeq: 41,
+          historyRevision: 0,
+          messages: [prompt(false)],
+          nextCursor: null,
+          hasMore: false,
+        ),
+      );
+      expect(await displayed(reopened), ['之前一轮的回复', '排队很久后才实际发出的完整消息']);
+    });
+  }
+
+  test(
+    'full push and bounded bootstrap tool summaries survive database reopen',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'eco-tool-summary-reopen-',
+      );
+      final databasePath = p.join(directory.path, 'cache.sqlite');
+      addTearDown(() async {
+        await databaseFactoryFfi.deleteDatabase(databasePath);
+        await directory.delete(recursive: true);
+      });
+      final fullOutput = List.filled(4825, 'a').join();
+      final summaryOutput = '${fullOutput.substring(0, 4000)}…';
+      ConversationV2Tool tool(String output) => ConversationV2Tool(
+        toolCallId: 'tool-reopen',
+        conversationId: _conversationId,
+        runId: 'run-1',
+        name: 'Bash',
+        status: 'completed',
+        createdSeq: 1,
+        versionSeq: 2,
+        occurredAt: '2026-10-23T00:00:00.000Z',
+        providerRole: 'tool',
+        input: const {'command': 'read a long file'},
+        output: output,
+      );
+      ConversationV2Bootstrap bootstrap(String output) =>
+          ConversationV2Bootstrap(
+            protocolVersion: 2,
+            storeEpoch: _storeEpoch,
+            conversationId: _conversationId,
+            snapshotSeq: 2,
+            historyRevision: 0,
+            messages: const [],
+            runs: const [],
+            tools: [tool(output)],
+            olderCursor: null,
+            hasOlder: false,
+          );
+      final initial = _cache(databasePath);
+      await initial.installBootstrap(bootstrap(fullOutput));
+      await initial.close();
+      // Reproduce an existing installation that cached an unbounded push before
+      // upgrading. It must recover without deleting the cache or relaxing checks.
+      final database = await databaseFactoryFfi.openDatabase(databasePath);
+      await database.update(
+        'conversation_v2_tools',
+        {'output_json': jsonEncode(fullOutput)},
+        where: 'tool_call_id = ?',
+        whereArgs: ['tool-reopen'],
+      );
+      await database.close();
+      final reopened = _cache(databasePath);
+      addTearDown(reopened.close);
+      await reopened.installBootstrap(bootstrap(summaryOutput));
+      final payload = <String, dynamic>{
+        'type': 'tool.summary.upsert',
+        'toolCall': tool(fullOutput).toJson(),
+      };
+      await reopened.applySyncPage(
+        _page(
+          fromSeq: 3,
+          throughSeq: 3,
+          headSeq: 3,
+          effects: [
+            ConversationV2Effect(
+              seq: 3,
+              effectVersion: 1,
+              effectHash: conversationV2StableHash(payload),
+              type: 'tool.summary.upsert',
+              payload: payload,
+            ),
+          ],
+        ),
+      );
+      final saved = (await reopened.tools(_conversationId)).single;
+      expect(saved.output, summaryOutput);
+      expect(saved.occurredAt, '2026-10-23T00:00:00.000Z');
+      expect(saved.providerRole, 'tool');
+      await expectLater(
+        reopened.installBootstrap(bootstrap('different output')),
+        throwsStateError,
+      );
+      expect(
+        (await reopened.tools(_conversationId)).single.output,
+        summaryOutput,
+      );
+    },
+  );
 
   test(
     'queued text and image edits survive sync and database reopen',

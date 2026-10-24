@@ -25,6 +25,10 @@ const corpus: Array<[string, string]> = [
   ["pipe-lookalike", "a | b\n--- | --\n\n后续\n\n"],
   ["pipe-to-table", "a | b\n--- | ---\n1 | 2\n\n后续\n\n"],
   ["inline-marks", "**粗体** 和 `code`\n\n> 引用\n> 第二行\n\n"],
+  [
+    "cjk-emphasis",
+    "**两个进程仍能修改同一个项目目录。**分开 `CODEX_HOME` 隔离。\n\n请看**「重要」**说明。\n\n这里***重要。***继续。\n\n",
+  ],
   ["ordered", "1. one\n2. two\n\n3. three\n\n"],
   ["indented-code", "  缩进代码\n\n普通\n\n"],
   ["nested-list", "- 外层\n  - 内层\n\n    - 更深\n\n结束\n\n"],

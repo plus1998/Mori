@@ -6109,6 +6109,73 @@ void main() {
     },
   );
 
+  testWidgets('runtime recording notices are neutral and cannot retry requests', (
+    tester,
+  ) async {
+    const message =
+        '记录 tool.failed 事件失败：Tool call exec-d332b063-113f-4b33-8df4-c18f487e904a belongs to another run.';
+    final entries = buildActivityFeed(
+      runProjection: const ThreadRunProjectionSnapshot(
+        threadId: 'runtime-notice',
+        status: 'completed',
+        generatedAt: '',
+        sourceEventCount: 1,
+        agents: [],
+        timeline: [
+          ThreadRunProjectionTimelineItem(
+            id: 'runtime-error',
+            sequence: 1,
+            eventType: 'api.error',
+            scope: 'main',
+            role: 'eco_runtime_error',
+            text: message,
+            at: '2026-10-23T00:00:00Z',
+            metadata: {'activityOrigin': 'eco.runtime_event_persist_failure'},
+          ),
+        ],
+      ),
+      groupTurns: false,
+    );
+    expect(entries.single.canRetryRequest, isFalse);
+    expect(entries.single.withSequence(2).canRetryRequest, isFalse);
+    expect(
+      entries.single
+          .withIdAtSequence(id: 'runtime-error-copy', sequence: 3)
+          .canRetryRequest,
+      isFalse,
+    );
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    for (final theme in [buildEcoLightTheme(), buildEcoDarkTheme()]) {
+      await tester.pumpWidget(
+        _localizedMaterialApp(
+          theme: theme,
+          home: Scaffold(
+            body: ActivityFeedList(
+              entries: entries,
+              scrollController: controller,
+              onRetryFailedRequest: (_) async => fail('Notice must not retry'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(message), findsOneWidget);
+      expect(find.text('重试'), findsNothing);
+      final context = tester.element(find.text(message));
+      final surface = tester.widget<Container>(
+        find
+            .ancestor(of: find.text(message), matching: find.byType(Container))
+            .first,
+      );
+      expect(
+        (surface.decoration as BoxDecoration).color,
+        ecoColors(context).bgElevated,
+      );
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   testWidgets('ActivityFeedList exposes V2 retry on failed request rows', (
     tester,
   ) async {

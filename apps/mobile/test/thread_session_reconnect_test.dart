@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:eco_mobile/core/models/eco_types.dart';
+import 'package:eco_mobile/core/models/conversation_v2_models.dart';
 import 'package:eco_mobile/core/models/thread_models.dart';
 import 'package:eco_mobile/core/network/desktop_rpc.dart';
 import 'package:eco_mobile/core/network/eco_center_client.dart';
@@ -13,6 +14,93 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'registry reconciliation updates stale lifecycle and preserves full MCP requests',
+    () async {
+      final rpc = _TrackingDesktopRpc();
+      final container = ProviderContainer(
+        overrides: [
+          desktopRpcProvider.overrideWithValue(rpc),
+          desktopBindReadyOverrideProvider.overrideWithValue(true),
+          ecoEventsProvider.overrideWith((ref) => const Stream.empty()),
+          connectionStatusProvider.overrideWith((ref) => const Stream.empty()),
+        ],
+      );
+      final subscription = container.listen(
+        threadSessionProvider('thr_1'),
+        (_, _) {},
+      );
+      addTearDown(() {
+        subscription.close();
+        container.dispose();
+      });
+      await _waitUntil(
+        () => container.read(threadSessionProvider('thr_1')).thread != null,
+      );
+      rpc.bootstrapReply = Completer()
+        ..complete(
+          ThreadSessionBootstrapResult(
+            thread: _thread.copyWith(status: 'completed'),
+            pendingBash: const BashApprovalRequest(
+              toolUseId: 'mcp',
+              threadId: 'thr_1',
+              command: 'MCP service/write',
+              cwd: '/workspace',
+              reason: 'write document',
+              riskScore: 2,
+              riskLevel: 'medium',
+              mcpToolServerName: 'service',
+              mcpToolName: 'write',
+            ),
+          ),
+        );
+      final pending = await container
+          .read(threadSessionProvider('thr_1').notifier)
+          .readPendingInteractions();
+      expect(
+        container.read(threadSessionProvider('thr_1')).thread?.status,
+        'completed',
+      );
+      expect(pending.bash?.reason, 'write document');
+      expect(pending.bash?.mcpToolName, 'write');
+    },
+  );
+
+  test(
+    'approval commands use the current V2 history revision after rewrites',
+    () async {
+      final rpc = _TrackingDesktopRpc();
+      final container = ProviderContainer(
+        overrides: [
+          desktopRpcProvider.overrideWithValue(rpc),
+          desktopBindReadyOverrideProvider.overrideWithValue(true),
+          ecoEventsProvider.overrideWith((ref) => const Stream.empty()),
+          connectionStatusProvider.overrideWith((ref) => const Stream.empty()),
+          credentialsProvider.overrideWith(
+            (ref) async =>
+                const AppCredentials(supabaseUrl: '', userId: 'user'),
+          ),
+        ],
+      );
+      final subscription = container.listen(
+        threadSessionProvider('thr_1'),
+        (_, _) {},
+      );
+      addTearDown(() {
+        subscription.close();
+        container.dispose();
+      });
+      await container.read(credentialsProvider.future);
+      await _waitUntil(
+        () => container.read(threadSessionProvider('thr_1')).thread != null,
+      );
+      final notifier = container.read(threadSessionProvider('thr_1').notifier);
+      await notifier.approvePlan();
+      await notifier.dismissPlan();
+      await notifier.resolveBash('mcp', 'approved_remember_mcp_tool');
+      expect(rpc.resolutionRevisions, [7, 7, 7]);
+    },
+  );
   test(
     'a delayed queue snapshot cannot undo live delivery or remove a new row',
     () async {
@@ -381,6 +469,53 @@ class _TrackingDesktopRpc extends DesktopRpc {
     : super(EcoCenterClient(store: CredentialStore()), 'desktop_1');
 
   final bool failComposerDraft;
+  final resolutionRevisions = <int>[];
+
+  @override
+  Future<ConversationV2Head> conversationV2Head(String conversationId) async =>
+      ConversationV2Head(
+        protocolVersion: 2,
+        storeEpoch: 'epoch',
+        conversationId: conversationId,
+        lastSeq: 1,
+        historyRevision: 7,
+      );
+  @override
+  Future<void> approvePlan({
+    required String principalId,
+    required String clientCommandId,
+    required String threadId,
+    required int expectedHistoryRevision,
+  }) async {
+    resolutionRevisions.add(expectedHistoryRevision);
+  }
+
+  @override
+  Future<void> dismissPlan({
+    required String principalId,
+    required String clientCommandId,
+    required String threadId,
+    required int expectedHistoryRevision,
+  }) async {
+    resolutionRevisions.add(expectedHistoryRevision);
+  }
+
+  @override
+  Future<void> resolveBashApproval({
+    required String principalId,
+    required String clientCommandId,
+    required String threadId,
+    required String toolUseId,
+    required String decision,
+    required int expectedHistoryRevision,
+    String? feedback,
+  }) async {
+    resolutionRevisions.add(expectedHistoryRevision);
+  }
+
+  @override
+  Future<BashApprovalRequest?> getPendingBashApproval(String threadId) async =>
+      null;
   var sessionBootstrapRequests = 0;
   var retiredProjectionCalls = 0;
   final composerDraftRequests = <String>[];

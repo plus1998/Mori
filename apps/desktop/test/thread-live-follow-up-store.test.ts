@@ -394,6 +394,12 @@ test("queue edits atomically replace the accepted body/images and survive reopen
   const reopened = await createConversationStore(dbPath);
   expect(reopened.getThreadFollowUp("thr_followup", queued.id)?.prompt).toBe("新内容");
   expect(reopened.conversationV2().listQueuedUserMessages()[0]?.body).toBe("新内容");
+  reopened.updateThreadFollowUp("thr_followup", queued.id, { prompt: "", attachments: [image] });
+  expect(reopened.getThreadFollowUp("thr_followup", queued.id)).toMatchObject({ prompt: "", attachments: [image] });
+  expect(reopened.conversationV2().getMessage("thr_followup", accepted.messageId)).toMatchObject({
+    body: "", attachments: [image],
+  });
+  expect(() => reopened.conversationV2().validateIntegrity("thr_followup")).not.toThrow();
   reopened.updateThreadFollowUp("thr_followup", queued.id, { prompt: "删除图片后的内容" });
   expect(reopened.conversationV2().getMessage("thr_followup", accepted.messageId)?.attachments).toEqual([]);
   expect(reopened.getThreadFollowUp("thr_followup", queued.id)?.attachments).toBeUndefined();

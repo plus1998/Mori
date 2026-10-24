@@ -365,3 +365,14 @@ test("schedule changes reach desktop and paired mobile through one event", () =>
   expect(sent).toEqual([{ channel: IPC_CHANNELS.schedulingChanged, payload: undefined }]);
   expect(remote).toMatchObject([{ params: { kind: "scheduling.changed", payload: {}, aggregateKey: "scheduling:global" } }]);
 });
+
+test("todo updates notify desktop panels and paired phones without entering thread streams", () => {
+  const center = new DesktopEventCenter({ now: fixedNow });
+  const sent: { channel: string; payload: unknown }[] = [];
+  const remote: unknown[] = [];
+  center.subscribe(createElectronEventSink((channel, payload) => sent.push({ channel, payload })));
+  center.subscribe({ publish(_envelope, notification) { remote.push(notification); } });
+  center.publish({ kind: "project-todo.changed", payload: {}, aggregateKey: "project-todos:global" });
+  expect(sent).toEqual([{ channel: IPC_CHANNELS.projectTodoChanged, payload: undefined }]);
+  expect(remote).toMatchObject([{ params: { kind: "project-todo.changed", payload: {} } }]);
+});

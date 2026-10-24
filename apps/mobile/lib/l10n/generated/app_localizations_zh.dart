@@ -9,19 +9,19 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
-  String get readAloudTitle => '正文朗读';
+  String get readAloudTitle => '朗读';
 
   @override
   String get readAloudEngine => '朗读引擎（此设备）';
 
   @override
-  String get readAloudOnline => '在线 TTS';
+  String get readAloudOnline => '在线语音';
 
   @override
   String get readAloudOnlineHint => '使用已连接电脑的 TTS 配置，电脑需要在线。';
 
   @override
-  String get readAloudSystem => '系统 TTS';
+  String get readAloudSystem => '系统语音';
 
   @override
   String get readAloudSystemHint => '使用此设备的系统音色。';
@@ -33,13 +33,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get readAloudVoice => '音色';
 
   @override
-  String get readAloudConfigHint => '音色、风格和供应商请在电脑的语音生成设置中修改。';
+  String get readAloudConfigHint => '音色、风格和服务商请在电脑的语音合成设置中修改。';
 
   @override
   String get appTitle => 'Eco';
 
   @override
-  String get navSessions => '会话';
+  String get navSessions => '对话';
 
   @override
   String get navSettings => '设置';
@@ -54,7 +54,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get connectionLostReconnecting => '连接断开，正在连接…';
 
   @override
-  String get connectionLiveChannelDisconnected => '实时通道已断开';
+  String get connectionLiveChannelDisconnected => '实时连接已断开';
 
   @override
   String get connectionStillUnreachable => '暂时无法连接 Center Server，请检查网络后重试';
@@ -93,13 +93,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsLanguageEnglish => 'English';
 
   @override
-  String get settingsShowBilling => '显示计费';
+  String get settingsShowBilling => '显示用量';
 
   @override
-  String get settingsShowBillingSubtitle => '在 Composer 中显示会话累计用量和费用。';
+  String get settingsShowBillingSubtitle => '在 Composer 中显示对话累计用量和费用。';
 
   @override
-  String get settingsThinkingContent => '思考内容';
+  String get settingsThinkingContent => '思考过程';
 
   @override
   String get settingsThinkingContentEphemeral => '阅后即焚';
@@ -108,7 +108,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsThinkingContentEphemeralHint => '生成时显示，完成后自动隐藏。';
 
   @override
-  String get settingsThinkingContentCollapsed => '折叠';
+  String get settingsThinkingContentCollapsed => '收起';
 
   @override
   String get settingsThinkingContentCollapsedHint => '完成后默认收起，可随时展开。';
@@ -132,20 +132,20 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsDefaultMode => '默认模式';
 
   @override
-  String get settingsDefaultModeCaption => '新建会话时的 Composer 模式';
+  String get settingsDefaultModeCaption => '新建对话时的 Composer 模式';
 
   @override
   String get settingsDefaultBashReviewMode => '默认审批模式';
 
   @override
   String get settingsDefaultBashReviewModeCaption =>
-      '新建会话时 Composer 默认使用的执行审批档位';
+      '新建对话时 Composer 默认使用的执行审批档位';
 
   @override
   String get settingsContextWindow => '上下文';
 
   @override
-  String get settingsContextWindowCaption => '全局限制所有会话；模型窗口更小时以模型自身为准';
+  String get settingsContextWindowCaption => '全局限制所有对话；模型窗口更小时以模型自身为准';
 
   @override
   String settingsContextWindowTokens(int tokens) {
@@ -157,7 +157,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsMaxOutputDynamicCaption =>
-      '每次请求按实际窗口 − 本次完整输入 tokens − 1 计算，且不超过模型输出上限。输入计数遵循提供商设置；本地估算并非精确值。';
+      '每次请求按实际窗口 − 本次完整输入 tokens − 1 计算，且不超过模型输出上限。输入计数遵循服务商设置；本地估算并非精确值。';
 
   @override
   String get settingsMaxOutput => '最大输出';
@@ -181,19 +181,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsModels => '更多模型';
 
   @override
-  String get settingsModelsCaption => '新建会话的默认辅助模型、审批模型与视觉模型';
+  String get settingsModelsCaption => '新建对话的默认辅助模型、审批模型与视觉模型';
 
   @override
   String get settingsAccount => '账户';
 
   @override
-  String get settingsSwitchPc => '切换 PC';
+  String get settingsSwitchPc => '切换电脑';
 
   @override
   String get settingsSwitchPcSubtitle => '选择或绑定其他 Desktop 设备';
 
   @override
-  String get setupUnpairPc => '删除 PC';
+  String get setupUnpairPc => '移除电脑';
 
   @override
   String setupUnpairPcTitle(String name) {
@@ -228,7 +228,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsSignedOut => '已退出登录';
 
   @override
-  String get settingsRealtimeStatus => '实时通道';
+  String get settingsRealtimeStatus => '实时连接';
 
   @override
   String get settingsRealtimeConnected => '已连接';
@@ -243,7 +243,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsRealtimeError => '连接异常';
 
   @override
-  String get sessionModeAgentDescription => '代理直接处理任务，并按需要调用已启用的子代理。';
+  String get sessionModeAgentDescription => 'Agent 直接处理任务，并按需要调用已启用的子 Agent。';
 
   @override
   String get sessionModePlanDescription => '先生成计划并等待确认，批准后再进入执行。';
@@ -354,19 +354,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get commonNotSelected => '未选择';
 
   @override
-  String get toolbarSearch => '搜索会话和项目';
+  String get toolbarSearch => '搜索对话和项目';
 
   @override
   String get toolbarOpenProject => '打开项目';
 
   @override
-  String get toolbarSwitchPc => '切换 PC';
+  String get toolbarSwitchPc => '切换电脑';
 
   @override
-  String get threadsTitle => '会话';
+  String get threadsTitle => '对话';
 
   @override
-  String get threadNew => '新建会话';
+  String get threadNew => '新建对话';
 
   @override
   String get threadTitleGenerating => '正在生成标题…';
@@ -378,13 +378,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get threadAttentionTitle => '需要关注';
 
   @override
-  String get threadAttentionEmpty => '暂无需要处理的会话';
+  String get threadAttentionEmpty => '暂无需要处理的对话';
 
   @override
-  String get threadAttentionPlan => '等待计划审批';
+  String get threadAttentionPlan => '计划审批';
 
   @override
-  String get threadAttentionBash => '等待操作审批';
+  String get threadAttentionBash => '操作审批';
 
   @override
   String get threadBackToBottom => '回到底部';
@@ -393,13 +393,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get threadWorkspaceCopied => '工作目录已复制';
 
   @override
-  String get threadNoSessions => '暂无会话';
+  String get threadNoSessions => '暂无对话';
 
   @override
-  String get threadsLoadFailedTitle => '无法加载会话列表';
+  String get threadsLoadFailedTitle => '无法加载对话列表';
 
   @override
-  String get threadSearchHint => '搜索会话标题或项目';
+  String get threadSearchHint => '搜索对话标题或项目';
 
   @override
   String get threadSearchClear => '清除';
@@ -408,13 +408,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get threadSearchRunning => '正在运行';
 
   @override
-  String get threadSearchSessions => '会话';
+  String get threadSearchSessions => '对话';
 
   @override
   String get threadSearchProjects => '项目';
 
   @override
-  String get threadSearchNoResults => '没有匹配的会话或项目';
+  String get threadSearchNoResults => '没有匹配的对话或项目';
 
   @override
   String get projectFallbackName => '项目';
@@ -480,7 +480,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get approvalToolReadTitle => '工具读取确认';
 
   @override
-  String get approvalBashTitle => 'Bash 执行确认';
+  String get approvalBashTitle => '命令执行授权';
 
   @override
   String get approvalNeedsClarification => '需要澄清';
@@ -495,7 +495,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get approvalClarificationRecommended => '推荐';
 
   @override
-  String get approvalClarificationCompleteSelection => '完成选择';
+  String get approvalClarificationCustomLabel => '其他（自行输入）';
+
+  @override
+  String get approvalClarificationCustomDescription => '填写你自己的回答。';
+
+  @override
+  String get approvalClarificationCustomHint => '输入你的回答';
+
+  @override
+  String get approvalClarificationCompleteSelection => '确认选择';
 
   @override
   String get approvalSeverityCritical => '严重';
@@ -555,6 +564,57 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerImage => '图片';
 
   @override
+  String get composerPlusModeSection => '对话模式';
+
+  @override
+  String get composerPlusActionSection => '更多操作';
+
+  @override
+  String get composerPlusConfigSection => '配置';
+
+  @override
+  String get composerPlusPlanHint => '先制定计划，再执行修改';
+
+  @override
+  String get composerPlusAskHint => '问答与分析，不直接修改文件';
+
+  @override
+  String get composerPlusImageHint => '上传设计稿、截图或本地图片';
+
+  @override
+  String get composerPlusScheduleHint => '延时发送或按周期发送到当前对话';
+
+  @override
+  String get composerPlusFirstMessageHint => '让第一条消息在指定时间发送';
+
+  @override
+  String get composerPlusConfigHint => '主 Agent、提示词、子代理与模型设置';
+
+  @override
+  String get composerPlusIntegrationsHint => '浏览器、电脑操作等内置能力';
+
+  @override
+  String get composerPlusMcpHint => '连接外部服务与工具';
+
+  @override
+  String get composerPlusSkillsHint => '选择当前对话可用的技能';
+
+  @override
+  String get composerPlusSubagentsHint => '查看当前方案的子代理与启用状态';
+
+  @override
+  String get composerPlusEnabled => '当前开启';
+
+  @override
+  String get composerPlusBack => '返回菜单';
+
+  @override
+  String get composerPrimaryAgent => '主 Agent';
+
+  @override
+  String get composerRuntimeConfig => '运行配置';
+
+  @override
   String get composerPlusMenu => '更多';
 
   @override
@@ -579,6 +639,15 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get composerSendHint => '发送消息…';
+
+  @override
+  String get composerSendScheduled => '定时发送';
+
+  @override
+  String get composerSendQueue => '排队';
+
+  @override
+  String get composerSendSteer => '引导方向';
 
   @override
   String get composerFollowUp => '跟进';
@@ -681,7 +750,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get setupManualConfiguration => '手动配置';
 
   @override
-  String get setupSelectPc => '选择 PC';
+  String get setupSelectPc => '选择电脑';
 
   @override
   String get setupSelectPcHint => '选中一台已登录的 Desktop 进入应用。扫码仅用于连接服务器。';
@@ -717,10 +786,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get setupWizardLoginTitle => '注册 / 登录';
 
   @override
-  String get setupWizardBindTitle => '发现 PC';
+  String get setupWizardBindTitle => '查找电脑';
 
   @override
-  String get setupWizardSelectTitle => '选择 PC';
+  String get setupWizardSelectTitle => '选择电脑';
 
   @override
   String get setupWizardServerSubtitle => '填写 Supabase 项目 URL 与 anon key';
@@ -756,7 +825,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get setupStatusRegisteringDevice => '正在注册本机设备…';
 
   @override
-  String get setupStatusLiveChannel => '实时通道 (Realtime)';
+  String get setupStatusLiveChannel => '实时连接 (Realtime)';
 
   @override
   String get setupStatusCenterConnected => '已连接 Supabase';
@@ -780,7 +849,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get setupStatusConnecting => '正在连接…';
 
   @override
-  String get setupStatusPairPc => '发现 PC';
+  String get setupStatusPairPc => '查找电脑';
 
   @override
   String setupStatusBoundCount(int count) {
@@ -862,7 +931,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get setupLegacyQr => '二维码缺少服务器信息。请先手动填写 Supabase URL 与 anon key，再登录。';
 
   @override
-  String get setupServerReachable => '服务器可达';
+  String get setupServerReachable => '服务器连接正常';
 
   @override
   String get setupServerUnreachable => '无法访问服务器，请检查地址与网络';
@@ -883,7 +952,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerWorkMode => '工作模式';
 
   @override
-  String get composerWorkModeSubtitle => '选择当前会话的运行方式';
+  String get composerWorkModeSubtitle => '选择当前对话的运行方式';
 
   @override
   String get composerMode => '模式';
@@ -926,7 +995,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerImageTooLarge => '图片不能超过 20 MB';
 
   @override
-  String get composerOrchestrationSelection => '编排组合';
+  String get composerOrchestrationSelection => '协作配置';
 
   @override
   String activityToolIncomplete(Object text) {
@@ -963,7 +1032,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String activityCalledSubagents(Object count) {
-    return '已调用 $count 个子代理';
+    return '已调用 $count 个子 Agent';
   }
 
   @override
@@ -1008,7 +1077,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String activityDetailAgent(Object suffix) {
-    return '调用了子代理$suffix';
+    return '调用了子 Agent$suffix';
   }
 
   @override
@@ -1058,7 +1127,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String activitySummaryComputerUse(Object count) {
-    return '电脑操控 $count 次';
+    return '电脑操作 $count 次';
   }
 
   @override
@@ -1098,7 +1167,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String activityRunningAgent(Object suffix) {
-    return '正在调用子代理$suffix';
+    return '正在调用子 Agent$suffix';
   }
 
   @override
@@ -1198,11 +1267,11 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String activityDoneAgent(Object suffix) {
-    return '调用了子代理$suffix';
+    return '调用了子 Agent$suffix';
   }
 
   @override
-  String get activityDoneAgentFallback => '调用了子代理';
+  String get activityDoneAgentFallback => '调用了子 Agent';
 
   @override
   String activityDoneTaskCreate(Object suffix) {
@@ -1265,7 +1334,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activityNamedCreateImage => '生成图片';
 
   @override
-  String get activityNamedComputerUse => '电脑操控';
+  String get activityNamedComputerUse => '电脑操作';
 
   @override
   String get activityNamedViewImage => '查看图像';
@@ -1502,10 +1571,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activityImageViewErrorReadFailed => '读取图片失败。';
 
   @override
-  String get activityCallingSubagent => '正在调用子代理';
+  String get activityCallingSubagent => '正在调用子 Agent';
 
   @override
-  String get activityCalledSubagent => '已调用子代理';
+  String get activityCalledSubagent => '已调用子 Agent';
 
   @override
   String get activityExecuting => '正在执行';
@@ -1607,7 +1676,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String activitySubagentTask(Object title) {
-    return '$title 子代理任务';
+    return '$title 子 Agent 任务';
   }
 
   @override
@@ -1677,7 +1746,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activityWebSearchFindInPage => '页内查找';
 
   @override
-  String get activityPromptCacheDrop => 'Prompt cache 命中率大幅下降';
+  String get activityPromptCacheDrop => '提示词缓存命中率大幅下降';
 
   @override
   String get activityPreparingRetry => '准备重试';
@@ -1697,7 +1766,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activityReadSkill => '读取技能';
 
   @override
-  String get activityStartSubagent => '启动子代理';
+  String get activityStartSubagent => '启动子 Agent';
 
   @override
   String get activityConnectionFailed => '连接失败';
@@ -1713,7 +1782,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get roleVision => '看图';
+  String get roleVision => '视觉理解';
 
   @override
   String get roleExplore => '探索';
@@ -1722,7 +1791,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get roleArchitect => '架构';
 
   @override
-  String get roleCoder => '编码';
+  String get roleCoder => '编程';
 
   @override
   String get roleReviewer => '审查';
@@ -1791,10 +1860,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get threadCommitPush => '提交与推送';
 
   @override
-  String get threadStartFirstForTasks => '请先开始会话后再查看任务进度';
+  String get threadStartFirstForTasks => '请先开始对话后再查看任务进度';
 
   @override
-  String get threadSelectOrchestrationFirst => '请先在 Composer 设置中选择编排组合';
+  String get threadSelectOrchestrationFirst => '请先在 Composer 设置中选择协作配置';
 
   @override
   String get threadLoadingCommit => '正在加载提交信息…';
@@ -1918,7 +1987,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get threadOutputTruncated => '输出过长，已仅保留最近内容';
 
   @override
-  String get threadDelete => '删除会话';
+  String get threadDelete => '删除对话';
 
   @override
   String threadDeleteConfirm(Object title) {
@@ -1926,13 +1995,13 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get threadDeleted => '会话已删除';
+  String get threadDeleted => '对话已删除';
 
   @override
   String get threadEditGuidanceHint => '编辑引导消息…';
 
   @override
-  String get feedOpening => '正在加载会话';
+  String get feedOpening => '正在加载对话';
 
   @override
   String get threadProjectionLoading => '运行投影加载中…';
@@ -1941,7 +2010,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get threadProjectionUnavailable => '运行投影尚未就绪';
 
   @override
-  String get threadNoSubagentDetails => '暂无子代理详情';
+  String get threadNoSubagentDetails => '暂无子 Agent 详情';
 
   @override
   String get threadNoToolDetails => '暂无工具详情';
@@ -1973,7 +2042,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get threadEditingGuidance => '正在编辑引导消息';
 
   @override
-  String get billingTitle => '计费';
+  String get billingTitle => '用量与费用';
 
   @override
   String get billingComparison => '费用对比';
@@ -2187,7 +2256,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerReasoningMaximum => '最高';
 
   @override
-  String get composerNoSubagents => '当前方案未配置子代理';
+  String get composerNoSubagents => '当前方案未配置子 Agent';
 
   @override
   String get composerOrchestrationNotConfigured => '编排未配置';
@@ -2271,22 +2340,22 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerOrchestration => '编排';
 
   @override
-  String get composerSubagents => '子代理';
+  String get composerSubagents => '子 Agent';
 
   @override
-  String get composerOrchestrationComponents => '编排组件';
+  String get composerOrchestrationComponents => '协作配置';
 
   @override
-  String get composerSessionOnly => '配置仅作用于当前会话';
+  String get composerSessionOnly => '配置仅作用于当前对话';
 
   @override
   String get composerRuntimeCore => 'Harness';
 
   @override
-  String get composerRuntimeCoreLocked => '当前会话的 Harness 已锁定';
+  String get composerRuntimeCoreLocked => '当前对话的 Harness 已锁定';
 
   @override
-  String get composerOrchestrationLocked => '当前会话不可编辑编排';
+  String get composerOrchestrationLocked => '当前对话不可编辑编排';
 
   @override
   String get composerMainAgent => '配置';
@@ -2298,7 +2367,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerBuiltinMainAgentPrompt => '跟随 Agent 内置提示词';
 
   @override
-  String get composerNoSubagentOrchestration => '不使用子代理';
+  String get composerNoSubagentOrchestration => '不使用子 Agent';
 
   @override
   String composerAgentsCount(int count) {
@@ -2309,10 +2378,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerAlwaysEnabled => '始终启用';
 
   @override
-  String get composerMcpDisabledHint => '关闭后当前会话不再调用该服务器工具';
+  String get composerMcpDisabledHint => '关闭后当前对话不再调用该服务器工具';
 
   @override
-  String get composerNoSwitchableAgent => '当前会话未提供可切换的 Agent';
+  String get composerNoSwitchableAgent => '当前对话未提供可切换的 Agent';
 
   @override
   String get composerNoSwitchableModel => '当前方案未配置可切换模型';
@@ -2321,7 +2390,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerNoReasoningOptions => '当前方案未配置推理强度';
 
   @override
-  String get composerNoOrchestrationResources => '暂无可用编排资源';
+  String get composerNoOrchestrationResources => '暂无可用协作配置';
 
   @override
   String get composerNoMcpServers => '未配置 MCP 服务器';
@@ -2346,25 +2415,25 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerNotEnabled => '未启用';
 
   @override
-  String get composerModelCandidatesHint => '仅显示当前方案 Provider 的候选模型';
+  String get composerModelCandidatesHint => '仅显示当前方案 Provider 的可选模型';
 
   @override
-  String get composerModelLocked => '当前会话不可切换模型';
+  String get composerModelLocked => '当前对话不可切换模型';
 
   @override
-  String get composerModelLoadFailed => '候选模型加载失败';
+  String get composerModelLoadFailed => '可选模型加载失败';
 
   @override
   String get composerReasoningUnsupported => '当前模型不支持推理';
 
   @override
-  String get composerSessionReasoningOnly => '仅影响当前会话';
+  String get composerSessionReasoningOnly => '仅影响当前对话';
 
   @override
   String get composerSelectOrchestration => '选择编排';
 
   @override
-  String get composerSelectOrchestrationSelection => '选择编排组合';
+  String get composerSelectOrchestrationSelection => '选择协作配置';
 
   @override
   String composerOrchestrationSummary(Object summary) {
@@ -2372,10 +2441,10 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get composerSubagentOrchestration => '子代理';
+  String get composerSubagentOrchestration => '子 Agent';
 
   @override
-  String get composerSubagentOrchestrationSubtitle => '控制当前会话可调用的子代理';
+  String get composerSubagentOrchestrationSubtitle => '控制当前对话可调用的子 Agent';
 
   @override
   String get composerAgents => '代理';
@@ -2435,7 +2504,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get bashApprovalRememberPrefix => '是，且对于以后续内容开头的命令不再询问 ';
 
   @override
-  String get mcpApprovalRememberTool => '允许此工具，下次不再询问（此电脑所有会话） ';
+  String get mcpApprovalRememberTool => '允许此工具，下次不再询问（此电脑所有对话） ';
 
   @override
   String get bashApprovalDenyAdjust => '否，请告知 Eco 如何调整';
@@ -2452,7 +2521,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activityThinkingLabel => '思考';
 
   @override
-  String get activitySubagentFallback => '子代理';
+  String get activitySubagentFallback => '子 Agent';
 
   @override
   String get threadNpmScripts => 'npm scripts';
@@ -2467,7 +2536,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerIntegrations => '集成';
 
   @override
-  String get composerIntegrationsHint => '在 Desktop 完成全局配置后，可为当前会话开启集成';
+  String get composerIntegrationsHint => '在 Desktop 完成全局配置后，可为当前对话开启集成';
 
   @override
   String get composerIntegrationsLoadFailed => '无法从 Desktop 加载集成';
@@ -2482,7 +2551,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerImageGeneration => '创意绘画';
 
   @override
-  String get composerComputerUse => '电脑操控';
+  String get composerComputerUse => '电脑操作';
 
   @override
   String get composerSkills => 'Skills';
@@ -2643,7 +2712,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get threadProjectionNoPcSelected => '未选择 PC，无法请求投影详情';
 
   @override
-  String get threadEarlierHistoryLoadFailed => '加载更早的会话记录失败，请在顶部再次下拉重试';
+  String get threadEarlierHistoryLoadFailed => '加载更早的对话记录失败，请在顶部再次下拉重试';
 
   @override
   String get modelCascadeSearchHint => '搜索服务商或模型…';
@@ -2712,6 +2781,18 @@ class AppLocalizationsZh extends AppLocalizations {
       '用于工具自动审批，支持普通模型及 SystemOne（Jev）决策模型';
 
   @override
+  String get schedulingContent => '内容';
+
+  @override
+  String get schedulingTiming => '执行时间';
+
+  @override
+  String get schedulingAdvanced => '高级设置';
+
+  @override
+  String get schedulingImageLimit => '最多添加 20 张图片。';
+
+  @override
   String get schedulingTitle => '定时任务';
 
   @override
@@ -2733,10 +2814,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get schedulingHint => '由已连接的电脑执行，Eco 需保持运行且电脑处于唤醒状态。';
 
   @override
-  String get schedulingTaskHint => '每次在新会话运行，请填写完整背景和预期结果。';
+  String get schedulingTaskHint => '每次在新对话运行，请填写完整背景和预期结果。';
 
   @override
-  String get schedulingMessageHint => '到时间后发送到当前会话；会话忙碌时等待当前轮结束。';
+  String get schedulingMessageHint => '到时间后发送到当前对话；对话忙碌时等待当前轮结束。';
 
   @override
   String get schedulingName => '名称';
@@ -2793,7 +2874,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get schedulingCatchUp => '错过后允许补跑（分钟，0–1440）';
 
   @override
-  String get schedulingPreview => '预览接下来 5 次';
+  String get schedulingPreview => '未来 5 次执行';
 
   @override
   String get schedulingEnabled => '已启用';
@@ -2823,10 +2904,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get schedulingNext => '下次执行';
 
   @override
-  String get schedulingOpenThread => '打开会话';
+  String get schedulingOpenThread => '打开对话';
 
   @override
-  String get schedulingDeleteConfirm => '删除此安排？已经开始的会话会继续运行。';
+  String get schedulingDeleteConfirm => '删除此安排？已经开始的对话会继续运行。';
 
   @override
   String get schedulingRunConfirm => '现在执行此安排？一次性安排执行后将消耗原定时间。';
@@ -2872,4 +2953,231 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get schedulingSaved => '已保存定时安排';
+
+  @override
+  String get todosTitle => '待办';
+
+  @override
+  String get todosSubtitle => '记下想法，让下一步更清晰。';
+
+  @override
+  String get todosAdd => '新建待办';
+
+  @override
+  String get todosEdit => '编辑待办';
+
+  @override
+  String get todosAllProjects => '全部项目';
+
+  @override
+  String get todosProject => '选择项目';
+
+  @override
+  String get todosSearchProjects => '搜索项目名称或路径';
+
+  @override
+  String get todosSearch => '搜索待办或项目';
+
+  @override
+  String get todosPending => '未完成';
+
+  @override
+  String get todosCompleted => '已完成';
+
+  @override
+  String get todosMarkComplete => '标记完成';
+
+  @override
+  String get todosMarkPending => '恢复为未完成';
+
+  @override
+  String get todosEmpty => '给下一步留个位置';
+
+  @override
+  String get todosEmptyHint => '把想法、问题或截图存进待办，准备好后再带入会话。';
+
+  @override
+  String get todosNoResults => '没有匹配的待办';
+
+  @override
+  String get todosNoResultsHint => '试试其他关键词，或切换项目。';
+
+  @override
+  String get todosNoPending => '当前没有未完成待办';
+
+  @override
+  String get todosNoProjects => '没有可选项目，请先在会话页打开项目。';
+
+  @override
+  String get todosInputHint => '记下想做的事，也可以添加截图…';
+
+  @override
+  String get todosImagesHint => '最多 5 张图片，每张不超过 5 MB';
+
+  @override
+  String get todosAddImage => '添加图片';
+
+  @override
+  String get todosRemoveImage => '移除图片';
+
+  @override
+  String get todosPreviewImage => '查看图片';
+
+  @override
+  String get todosImageInvalid => '请选择有效的 PNG、JPEG、GIF 或 WebP 图片。';
+
+  @override
+  String get todosImageTooLarge => '图片不能超过 5 MB。';
+
+  @override
+  String get todosImageLimit => '最多只能添加 5 张图片。';
+
+  @override
+  String get todosSaved => '待办已保存';
+
+  @override
+  String get todosDeleted => '待办已删除';
+
+  @override
+  String get todosUndo => '撤销';
+
+  @override
+  String get todosMore => '待办操作';
+
+  @override
+  String get todosCompose => '带入会话';
+
+  @override
+  String get todosNewConversation => '新建会话';
+
+  @override
+  String get todosComposeHint => '只填入输入框，由你确认发送。待办会保留。';
+
+  @override
+  String get todosSearchThreads => '搜索此项目的会话';
+
+  @override
+  String get todosLoadFailed => '无法加载待办';
+
+  @override
+  String get todosConflict => '这条待办已在另一端修改。请保留当前内容，关闭编辑后重新打开再保存。';
+
+  @override
+  String get todosMissing => '这条待办或图片已被删除，请刷新列表。';
+
+  @override
+  String get todosUpgrade => '当前电脑版本不支持远程待办，请升级电脑端 Eco。';
+
+  @override
+  String get todosDiscardTitle => '放弃本次编辑？';
+
+  @override
+  String get todosDiscardHint => '尚未保存的内容将丢失。';
+
+  @override
+  String get todosDiscard => '放弃编辑';
+
+  @override
+  String get todosTextLimit => '待办文字不能超过 100000 个字符。';
+
+  @override
+  String get codexQuotaTab => '额度';
+
+  @override
+  String get codexQuotaTitle => 'ChatGPT Login 账号额度';
+
+  @override
+  String codexQuotaCurrentAccount(String name) {
+    return '当前使用账号：$name';
+  }
+
+  @override
+  String codexQuotaRemaining(String percent) {
+    return '剩余 $percent%';
+  }
+
+  @override
+  String codexQuotaDays(String count) {
+    return '$count 天额度';
+  }
+
+  @override
+  String codexQuotaHours(String count) {
+    return '$count 小时额度';
+  }
+
+  @override
+  String codexQuotaResetsAt(String time) {
+    return '将于 $time 重置';
+  }
+
+  @override
+  String codexQuotaResetCount(String count) {
+    return '可用重置：$count 次';
+  }
+
+  @override
+  String get codexQuotaNoCredit => '当前账号没有可用重置次数';
+
+  @override
+  String get codexQuotaNothingToReset => '当前没有可重置的额度窗口';
+
+  @override
+  String get codexQuotaSwitching => '正在切换账号，切换完成后可使用重置';
+
+  @override
+  String get codexQuotaSwitchAccount => '切换账号';
+
+  @override
+  String get codexQuotaUseReset => '使用重置';
+
+  @override
+  String get codexQuotaRefresh => '刷新额度';
+
+  @override
+  String get codexQuotaLoading => '正在读取账号额度…';
+
+  @override
+  String get codexQuotaIdle => '暂无额度数据';
+
+  @override
+  String get codexQuotaNoAccount => '尚未选择已登录的 Codex 账号';
+
+  @override
+  String get codexQuotaSwitchDescription => '选择还有额度的已登录账号。切换前会重新检查额度。';
+
+  @override
+  String get codexQuotaNoCandidates => '没有其他已登录账号';
+
+  @override
+  String get codexQuotaSearch => '搜索账号';
+
+  @override
+  String get codexQuotaNoResults => '没有匹配的账号';
+
+  @override
+  String get codexQuotaUnavailable => '账号不可用或额度已用完，请刷新后选择其他账号';
+
+  @override
+  String get codexQuotaUnknown => '尚无额度数据，请先刷新';
+
+  @override
+  String get codexQuotaExhausted => '暂无可用额度';
+
+  @override
+  String get codexQuotaDisconnected => '电脑未连接，无法读取额度';
+
+  @override
+  String get codexQuotaRemoved => '当前使用账号已移除，请刷新';
+
+  @override
+  String get codexQuotaResetSuccess => '额度已重置';
+
+  @override
+  String codexQuotaUpdatedAt(String time) {
+    return '更新于 $time';
+  }
+
+  @override
+  String get codexQuotaBack => '返回额度';
 }

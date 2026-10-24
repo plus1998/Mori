@@ -1,3 +1,9 @@
+import {
+  clarificationHistoryRows,
+  readClarificationHistoryContent,
+  parseClarificationAnswersSummary,
+  type ClarificationHistoryRow,
+} from "./clarification-history";
 import { isMainAgentRole, normalizeAgentRole } from "@eco/shared";
 import { ReadAloudButton, useReadAloudAutoRead } from "./ReadAloud";
 import { isSubagentMissionEnvelope, resolveMissionDisplayText } from "@eco/runtime/agent-mission";
@@ -1005,9 +1011,18 @@ export function buildConversationV2OnlyProjection(
     );
   }
 
+  const clarificationRequests = new Map(
+    [...conversationV2.details.values()]
+      .filter(detail => detail.type === "clarification.requested" && detail.toolCallId)
+      .map(detail => [detail.toolCallId!, detail]),
+  );
   for (const detail of conversationV2.details.values()) {
-    if (!isContextCompactionEventType(detail.type)) continue;
-    const item = conversationV2CompactionToTimelineItem(detail);
+    const item = isContextCompactionEventType(detail.type)
+      ? conversationV2CompactionToTimelineItem(detail)
+      : detail.type === "clarification.requested" || detail.type === "clarification.resolved"
+        ? conversationV2ClarificationToTimelineItem(detail, conversationV2, detail.toolCallId ? clarificationRequests.get(detail.toolCallId) : undefined)
+        : undefined;
+    if (!item) continue;
     const agentId = detail.agentId && cardAgentIds.has(detail.agentId) ? detail.agentId : undefined;
     if (agentId) {
       item.scope = "agent";
@@ -1099,6 +1114,42 @@ export function buildConversationV2OnlyProjection(
     ...(conversationV2.projectionExtras?.subagentMetrics
       ? { subagentMetrics: conversationV2.projectionExtras.subagentMetrics }
       : {}),
+  };
+}
+
+function conversationV2ClarificationToTimelineItem(
+  detail: ConversationDetailItem,
+  state: Pick<ConversationV2RendererState, "tools" | "runs">,
+  recordedRequest?: ConversationDetailItem,
+): ThreadRunProjectionTimelineItem | undefined {
+  const content = readClarificationHistoryContent(detail);
+  const resolved = detail.type === "clarification.resolved";
+  const request = resolved ? recordedRequest : detail;
+  const rows = clarificationHistoryRows(
+    request ? readClarificationHistoryContent(request) : undefined,
+    resolved ? content : undefined,
+  );
+  // Submission receipts are not answers. Only recorded questions/answers form a card.
+  if (rows.length === 0) return undefined;
+  const tool = detail.toolCallId ? state.tools.get(detail.toolCallId) : undefined;
+  return {
+    id: detail.itemId,
+    sequence: detail.createdSeq,
+    eventType: "message.final",
+    scope: "main",
+    role: "main",
+    text: resolved && typeof content.message === "string"
+      ? content.message : rows.map(row => row.question).join("\n"),
+    at: tool?.occurredAt ?? state.runs.get(detail.runId)?.startedAt ?? "1970-01-01T00:00:00.000Z",
+    runAttemptId: detail.runId,
+    ...(detail.agentId ? { agentId: detail.agentId } : {}),
+    metadata: {
+      liveType: resolved ? "clarification.answered" : "clarification.requested",
+      clarificationRows: rows,
+      ...(detail.toolCallId ? {
+        tool: { name: "AskUserQuestion", toolUseId: detail.toolCallId, status: resolved ? "completed" : "started" },
+      } : {}),
+    },
   };
 }
 
@@ -1883,7 +1934,7 @@ export const ActivityLogView = memo(function ActivityLogView(props: ActivityLogV
           {/* No V2 event has landed yet, so the prompt bubble is the entire feed. The
               run is already under way — keep the waiting line up rather than leaving a
               blank pane under the prompt, which is what a first send used to look like. */}
-          <RunLogActiveTail waiting stopping={Boolean(props.thread.cancelling)} />
+          <RunLogActiveTail stopping={Boolean(props.thread.cancelling)} />
         </div>
       );
     }
@@ -2036,6 +2087,16 @@ function ConversationV2ProjectionActivityLogViewImpl({
     () => buildThreadRunTurnFeedSections(viewModel.mainFeedEntries, projection),
     [projection, viewModel.mainFeedEntries],
   );
+  // Late output can sort last in the raw timeline but render inside an earlier turn.
+  // Live status must follow the same order as the sections the reader actually sees.
+  const orderedFeedEntries = useMemo(
+    () => feedSections.flatMap((section) =>
+      section.kind === "turn"
+        ? [...section.processEntries, ...(section.finalEntry ? [section.finalEntry] : [])]
+        : section.kind === "entry" ? [section.entry] : [],
+    ),
+    [feedSections],
+  );
   const paceTargetKey = useMemo(() => resolveFeedPaceTargetKey(feedSections), [feedSections]);
   const retryTargets = useMemo(
     () =>
@@ -2104,8 +2165,8 @@ function ConversationV2ProjectionActivityLogViewImpl({
   // A tool that is still genuinely running keeps its row: with parallel calls the running
   // activity is the thing to narrate, so a wait label may not hide it.
   const liveSlotEntry = useMemo(
-    () => resolveFeedLiveSlotEntry(viewModel.mainFeedEntries, requestSpansById),
-    [viewModel.mainFeedEntries, requestSpansById],
+    () => resolveFeedLiveSlotEntry(orderedFeedEntries, requestSpansById),
+    [orderedFeedEntries, requestSpansById],
   );
   const latestContentIsToolGroup = liveSlotEntry?.kind === "tool-group";
   const runningContextCompactionVisible = viewModel.mainFeedEntries.some((entry) =>
@@ -2130,16 +2191,12 @@ function ConversationV2ProjectionActivityLogViewImpl({
   // empty "正在思考" — never render both as sibling WaitingThinkingBlocks.
   const liveReasoningStageLabel =
     conversationActive && !pendingThinking
-      ? resolveLiveReasoningStageLabel(viewModel.mainFeedEntries)
+      ? resolveLiveReasoningStageLabel(orderedFeedEntries)
       : undefined;
   const deferReasoningStageTip =
     conversationActive && !runningToolVisible && !runningContextCompactionVisible;
-  // Sending has to look acknowledged even before the request span exists. Every prompt
-  // opens a window where the agent side has produced nothing for it yet, and the active
-  // tail would render an empty shell — a blank feed under your own message reads as "the
-  // send did nothing". Widest on a thread's first message (cold runtime start), but
-  // present after every follow-up too.
-  const awaitingAgentAnswer = isAwaitingAgentAnswer(viewModel.mainFeedEntries);
+  // A prompt needs acknowledgement even before its request span exists.
+  const awaitingAgentAnswer = isAwaitingAgentAnswer(orderedFeedEntries);
   const waitingThinkingVisible =
     (!runningToolVisible || thinkingTakesLiveSlot) &&
     !runningContextCompactionVisible &&
@@ -2284,6 +2341,7 @@ function ConversationV2ProjectionActivityLogViewImpl({
   */
   const activeTailVisible =
     conversationActive &&
+    (waitingThinkingVisible || Boolean(toolWritingIndicator) || Boolean(thread?.cancelling)) &&
     !runningContextCompactionVisible &&
     (writingTakesLiveSlot || thinkingTakesLiveSlot || (!runningToolVisible && !latestContentIsToolGroup));
   // The live tail is a row of the Feed, not decoration appended after it. The
@@ -2372,7 +2430,6 @@ function ConversationV2ProjectionActivityLogViewImpl({
     if (section.kind === "active-tail") {
       return (
         <RunLogActiveTail
-          waiting={waitingThinkingVisible || Boolean(toolWritingIndicator)}
           stopping={Boolean(thread?.cancelling)}
           writing={Boolean(toolWritingLabel)}
           {...(toolWritingLabel
@@ -4677,11 +4734,6 @@ export const ProjectionSubagentDetailFeed = memo(function ProjectionSubagentDeta
           ) : (
             <p className="subagent-task-detail-empty">{i18n.t("activity.noDetails")}</p>
           )}
-          {running && !pendingThinking ? (
-            <div className="run-log-feed-entry run-log-feed-entry--tight run-log-active-tail">
-              <RunLogConversationTail />
-            </div>
-          ) : null}
         </div>
       </div>
       <ProjectionSubagentRunInstanceStrip agent={agent} />
@@ -5820,7 +5872,10 @@ function resolveFeedLiveSlotEntry(
       continue;
     }
     if (entry.kind === "timeline" || entry.kind === "agent-echo") {
-      if (isWaitingThinkingItem(entry.item, requestSpansById)) {
+      if (
+        isDeferredThinkingStatusItem(entry.item, requestSpansById, true) ||
+        (!isProjectionUserPromptItem(entry.item) && !projectionItemToDetailBlock(entry.item))
+      ) {
         continue;
       }
     }
@@ -5836,23 +5891,11 @@ function isRunningContextCompactionFeedEntry(entry: ThreadRunProjectionMainFeedE
   return entry.item.eventType === "context.compaction.started";
 }
 
-function RunLogConversationTail() {
-  return (
-    <div
-      className="run-log-conversation-tail"
-      role="status"
-      aria-label={i18n.t("activity.conversationActive")}
-    />
-  );
-}
-
 function RunLogActiveTail({
-  waiting,
   stopping = false,
   label,
   writing = false,
 }: {
-  waiting: boolean;
   stopping?: boolean;
   /** Live Summary tip label; when waiting without tip, defaults to「正在思考」. */
   label?: string;
@@ -5863,15 +5906,11 @@ function RunLogActiveTail({
   const statusLabel = stopping ? i18n.t("activity.stopping") : label?.trim() ? label.trim() : undefined;
   return (
     <div className="run-log-feed-entry run-log-feed-entry--tight run-log-active-tail">
-      {waiting ? (
-        <WaitingThinkingBlock
-          active
-          {...(statusLabel ? { label: statusLabel } : {})}
-          {...(writing && !stopping ? { spinner: true } : {})}
-        />
-      ) : (
-        <RunLogConversationTail />
-      )}
+      <WaitingThinkingBlock
+        active
+        {...(statusLabel ? { label: statusLabel } : {})}
+        {...(writing && !stopping ? { spinner: true } : {})}
+      />
     </div>
   );
 }
@@ -6482,16 +6521,6 @@ function UserPromptBlock({
   }, [editLoading, editing]);
 
   useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    if (!editing || !textarea) {
-      return;
-    }
-    textarea.style.height = "0px";
-    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 72), Math.round(window.innerHeight * 0.42));
-    textarea.style.height = `${nextHeight}px`;
-  }, [editLoading, editText, editing, editImages.length]);
-
-  useLayoutEffect(() => {
     if (previousTextRef.current === text) {
       return;
     }
@@ -6764,47 +6793,20 @@ function UserPromptBlock({
   );
 }
 
-const CLARIFICATION_ANSWER_PREFIX = "澄清回答：";
-
-function parseClarificationAnswersSummary(text: string): Array<{ question: string; answer: string }> | null {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith(CLARIFICATION_ANSWER_PREFIX)) {
-    return null;
-  }
-
-  const rest = trimmed.slice(CLARIFICATION_ANSWER_PREFIX.length).trim();
-  if (!rest) {
-    return [];
-  }
-
-  // formatClarificationAnswersSummary uses "；" between questions and " → " between question and answer.
-  const parts = rest
-    .split("；")
-    .map((p) => p.trim())
-    .filter(Boolean);
-
-  const rows = parts.map((part) => {
-    const segs = part.split(/\s*→\s*/u);
-    const question = (segs[0] ?? "").trim() || part.trim();
-    const answer = segs.slice(1).join(" → ").trim();
-    return { question, answer };
-  });
-
-  return rows;
-}
-
 function ClarificationAnswersCard({
   rows,
   variant,
+  pending = false,
 }: {
-  rows: Array<{ question: string; answer: string }>;
+  rows: ClarificationHistoryRow[];
+  pending?: boolean;
   variant?: "user";
 }) {
   return (
     <div
       className={`clarification-answer-card${variant === "user" ? " clarification-answer-card--user" : ""}`}
       role="group"
-      aria-label={i18n.t("activity.clarificationAnswer")}
+      aria-label={i18n.t(pending ? "activity.clarificationQuestion" : "activity.clarificationAnswer")}
     >
       <div className="clarification-answer-header">
         <span className="clarification-answer-title">
@@ -6814,14 +6816,14 @@ function ClarificationAnswersCard({
             strokeWidth={ICON_STROKE}
             aria-hidden
           />
-          {i18n.t("activity.clarificationAnswer")}
+          {i18n.t(pending ? "activity.clarificationQuestion" : "activity.clarificationAnswer")}
         </span>
       </div>
       <div className="clarification-answer-rows">
         {rows.map((row, index) => (
           <div key={index} className="clarification-answer-row">
             <div className="clarification-answer-question">{row.question}</div>
-            <div className="clarification-answer-answer">{row.answer}</div>
+            {row.answer !== undefined ? <div className="clarification-answer-answer">{row.answer}</div> : null}
           </div>
         ))}
       </div>
@@ -8209,11 +8211,11 @@ function RunLogNarrative({
       : undefined;
   const showStickyMessageMeta = showFinalMessageMeta && (stickyMessageMeta || Boolean(forkAction));
   const waitingEmpty = Boolean(streaming) && !hasBody;
-  const clarificationRows = !streaming ? parseClarificationAnswersSummary(text) : null;
+  const clarificationRows = !streaming ? (item?.metadata?.clarificationRows as ClarificationHistoryRow[] | undefined) ?? parseClarificationAnswersSummary(text) : null;
   const worktreeMergeSummary = !streaming ? parseWorktreeMergeMessage(text) : null;
 
   if (clarificationRows) {
-    return <ClarificationAnswersCard rows={clarificationRows} />;
+    return <ClarificationAnswersCard rows={clarificationRows} pending={item?.metadata?.liveType === "clarification.requested"} />;
   }
   if (worktreeMergeSummary) {
     return <WorkspaceChangesCard summary={worktreeMergeSummary} />;

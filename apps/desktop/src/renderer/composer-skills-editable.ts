@@ -16,6 +16,11 @@ function isBlockElement(node: ChildNode): node is HTMLElement {
   return node instanceof HTMLElement && (node.tagName === "DIV" || node.tagName === "P");
 }
 
+function isEmptyBlock(node: Node): boolean {
+  return node instanceof HTMLElement && (node.tagName === "DIV" || node.tagName === "P") &&
+    node.childNodes.length === 1 && node.firstChild instanceof HTMLElement && node.firstChild.tagName === "BR";
+}
+
 function isSkillElement(node: ChildNode): node is HTMLElement {
   return node instanceof HTMLElement && node.matches(SKILL_SELECTOR);
 }
@@ -34,20 +39,28 @@ type EditableChildRange = {
   end: number;
 };
 
-function directChildRanges(root: HTMLElement): EditableChildRange[] {
+function chipRanges(root: HTMLElement): EditableChildRange[] {
   const ranges: EditableChildRange[] = [];
-  let offset = 0;
-  const children = [...root.childNodes];
-  for (let index = 0; index < children.length; index += 1) {
-    const child = children[index]!;
-    if (index > 0 && needsBlockSeparator(children[index - 1]!, child)) {
-      offset += 1;
+  function visit(parent: Node, start: number): number {
+    if (isEmptyBlock(parent)) return start;
+    let offset = start;
+    const children = parent.childNodes;
+    for (let index = 0; index < children.length; index += 1) {
+      const child = children[index]!;
+      if (index > 0 && needsBlockSeparator(children[index - 1]!, child)) offset += 1;
+      if (isAtomicChipElement(child)) {
+        const end = offset + serializedLength(child);
+        ranges.push({ node: child, start: offset, end });
+        offset = end;
+      } else if (child instanceof HTMLElement && child.tagName !== "BR") {
+        offset = visit(child, offset);
+      } else {
+        offset += serializedLength(child);
+      }
     }
-    const start = offset;
-    const end = start + serializedLength(child);
-    ranges.push({ node: child, start, end });
-    offset = end;
+    return offset;
   }
+  visit(root, 0);
   return ranges;
 }
 
@@ -111,7 +124,7 @@ function serializeNode(node: ChildNode): string {
     return filePath ? fileAttachmentToken(filePath) : "";
   }
   if (isBlockElement(node)) {
-    return serializeChildren(node);
+    return isEmptyBlock(node) ? "" : serializeChildren(node);
   }
   return serializeChildren(node);
 }
@@ -133,6 +146,7 @@ function serializedLength(node: ChildNode): number {
   if (isFileElement(node)) {
     return fileTokenLength(node);
   }
+  if (isEmptyBlock(node)) return 0;
   const element = node as HTMLElement;
   const children = [...element.childNodes];
   let length = 0;
@@ -147,6 +161,7 @@ function serializedLength(node: ChildNode): number {
 }
 
 function sumChildLengths(parent: Node, childIndex: number): number {
+  if (isEmptyBlock(parent)) return 0;
   let length = 0;
   const children = parent.childNodes;
   for (let index = 0; index < childIndex && index < children.length; index += 1) {
@@ -239,17 +254,14 @@ export function setSelectionOffsets(root: HTMLElement, start: number, end: numbe
   if (!startPos || !endPos) {
     return;
   }
-  const range = document.createRange();
-  range.setStart(startPos.node, startPos.offset);
-  range.setEnd(endPos.node, endPos.offset);
-  selection.removeAllRanges();
-  selection.addRange(range);
+  selection.setBaseAndExtent(startPos.node, startPos.offset, endPos.node, endPos.offset);
 }
 
 export function handleFileChipDeletion(
   root: HTMLElement,
   direction: "backward" | "forward",
 ): "selected" | "deleted" | null {
+  if (!root.querySelector(`${FILE_SELECTOR}, ${REFERENCE_SELECTOR}`)) return null;
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) {
     return null;
@@ -265,7 +277,7 @@ export function handleFileChipDeletion(
   const start = Math.min(offsets.start, offsets.end);
   const end = Math.max(offsets.start, offsets.end);
   const serialized = serializeEditable(root);
-  const ranges = directChildRanges(root);
+  const ranges = chipRanges(root);
 
   if (start !== end) {
     const selectedFile = ranges.find(
@@ -313,6 +325,7 @@ function locatePosition(root: HTMLElement, target: number): { node: Node; offset
 }
 
 function locateInParent(parent: Node, target: number): { node: Node; offset: number } | null {
+  if (isEmptyBlock(parent)) return { node: parent, offset: 0 };
   let remaining = target;
   const children = parent.childNodes;
 
@@ -437,6 +450,33 @@ function appendReferenceChip(root: HTMLElement, reference: ComposerReference): v
   root.appendChild(span);
 }
 
+const textGraphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function appendEditableText(parent: HTMLElement, value: string): void {
+  if (value.length < 8192) {
+    parent.appendChild(document.createTextNode(value));
+    return;
+  }
+  // Independent inline formatting contexts bound shaping/line-breaking memory
+  // even for a pasted paragraph with no newlines. These spans add no characters
+  // or block separators to the selection/serialized prompt.
+  const graphemes = textGraphemes.segment(value);
+  for (let start = 0; start < value.length;) {
+    let end = Math.min(start + 2048, value.length);
+    if (end < value.length) {
+      const boundary = graphemes.containing(end)!;
+      end = boundary.index > start ? boundary.index : boundary.index + boundary.segment.length;
+    }
+    const span = document.createElement("span");
+    span.style.display = "inline-block";
+    span.style.maxWidth = "100%";
+    span.style.verticalAlign = "top";
+    span.textContent = value.slice(start, end);
+    parent.appendChild(span);
+    start = end;
+  }
+}
+
 export function renderEditablePrompt(
   root: HTMLElement,
   text: string,
@@ -446,63 +486,34 @@ export function renderEditablePrompt(
   if (!text) {
     return;
   }
+  // Huge inline formatting contexts trigger costly Chromium line layout.
+  // Keep large multiline drafts in independent blocks, without changing text.
+  const useLines = text.length >= 16_384 && text.includes("\n");
+  const appendLine = () => {
+    const line = document.createElement("div");
+    line.style.minHeight = "1lh";
+    root.appendChild(line);
+    return line;
+  };
+  let parent = useLines ? appendLine() : root;
   for (const segment of parsePromptSegments(text)) {
     if (segment.type === "text") {
-      appendTextWithNewlines(root, segment.value);
+      if (useLines) {
+        const lines = segment.value.split("\n");
+        for (let index = 0; index < lines.length; index += 1) {
+          if (index > 0) parent = appendLine();
+          if (lines[index]) appendEditableText(parent, lines[index]!);
+        }
+      } else {
+        appendEditableText(parent, segment.value);
+      }
       continue;
     }
     if (segment.type === "skill") {
-      appendSkillChip(root, segment.name, skillsByName);
+      appendSkillChip(parent, segment.name, skillsByName);
       continue;
     }
-    if (segment.type === "reference") appendReferenceChip(root, segment.reference);
-    else appendFileChip(root, segment.path);
+    if (segment.type === "reference") appendReferenceChip(parent, segment.reference);
+    else appendFileChip(parent, segment.path);
   }
-}
-
-function appendTextWithNewlines(root: HTMLElement, value: string): void {
-  const parts = value.split("\n");
-  for (let index = 0; index < parts.length; index += 1) {
-    if (parts[index]) {
-      root.appendChild(document.createTextNode(parts[index]!));
-    }
-    if (index < parts.length - 1) {
-      root.appendChild(document.createElement("br"));
-    }
-  }
-}
-
-export function insertPlainTextAtSelection(text: string): void {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) {
-    return;
-  }
-  selection.deleteFromDocument();
-  if (!text) {
-    // Cut: the selection is already gone and Chromium has collapsed the caret to its start.
-    return;
-  }
-  const range = selection.getRangeAt(0);
-  const node = document.createTextNode(text);
-  range.insertNode(node);
-  range.setStartAfter(node);
-  range.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(range);
-}
-
-/** Insert a line break at the current selection without rebuilding the editor from React state. */
-export function insertNewlineAtSelection(): void {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) {
-    return;
-  }
-  selection.deleteFromDocument();
-  const range = selection.getRangeAt(0);
-  const br = document.createElement("br");
-  range.insertNode(br);
-  range.setStartAfter(br);
-  range.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(range);
 }

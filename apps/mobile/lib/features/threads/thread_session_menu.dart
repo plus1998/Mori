@@ -18,6 +18,7 @@ import '../composer/commit_push_sheet.dart';
 import 'thread_menu_sheets.dart';
 import 'thread_providers.dart';
 import 'thread_session_menu_cards.dart';
+import 'image_display_provider.dart';
 import '../scheduling/scheduling_screen.dart';
 
 final _openingCommitPushWorkspaces = <String>{};
@@ -72,7 +73,7 @@ List<ThreadSessionMenuEntry> buildThreadSessionMenuEntries(
   return [
     ThreadSessionMenuEntry(
       value: 'scheduled_messages',
-      icon: Icons.schedule,
+      icon: EcoIcons.schedule,
       label: l10n.schedulingMessages,
       enabled: hasThread,
     ),
@@ -171,10 +172,13 @@ class ThreadSessionMenuButton extends ConsumerWidget {
     final cards = _hasThread
         ? ref.watch(threadSessionMenuCardsProvider(threadId!)).valueOrNull
         : null;
+    final imageDisplay = _hasThread
+        ? ref.watch(threadImageDisplayArtifactsProvider(threadId!)).valueOrNull
+        : null;
     final visibility = ThreadSessionMenuVisibility(
       showProgress: cards?.showProgress ?? false,
       showPlan: cards?.showPlan ?? false,
-      showImageDisplay: cards?.showImageDisplay ?? false,
+      showImageDisplay: imageDisplay?.isNotEmpty ?? false,
       showImageGeneration: cards?.showImageGeneration ?? false,
       showHtmlHost: cards?.showHtmlHost ?? false,
     );

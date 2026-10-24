@@ -20,6 +20,7 @@ String? ecoIconSfSymbol(IconData icon) {
     EcoIcons.newThread => 'square.and.pencil',
     EcoIcons.more => 'ellipsis.circle',
     EcoIcons.notifications => 'bell',
+    EcoIcons.schedule => 'clock',
     EcoIcons.todos => 'checklist',
     EcoIcons.planApproval => 'checklist',
     EcoIcons.codeReview => 'doc.text.magnifyingglass',
@@ -29,6 +30,9 @@ String? ecoIconSfSymbol(IconData icon) {
     EcoIcons.volume2 => 'speaker.wave.2',
     EcoIcons.speaking => 'waveform',
     EcoIcons.copy => 'doc.on.doc',
+    EcoIcons.image => 'photo',
+    EcoIcons.images => 'photo.on.rectangle',
+    EcoIcons.browser => 'macwindow',
     _ => null,
   };
 }

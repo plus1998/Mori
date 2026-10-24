@@ -737,6 +737,7 @@ test("Node SQLite persists composer drafts and clears deleted thread drafts", as
     createdAt: now,
     updatedAt: now,
   });
+  assert.equal(reloaded.listThreads()[0]?.hasComposerDraft, undefined);
   const versioned = reloaded.saveComposerDraft(
     "thread:thr_composer_draft",
     "thread draft",
@@ -744,6 +745,10 @@ test("Node SQLite persists composer drafts and clears deleted thread drafts", as
     "Cursor session failed",
   );
   assert.equal(reloaded.getComposerDraft("thread:thr_composer_draft")?.prompt, "thread draft");
+  const reopened = await createConversationStore(databasePath);
+  assert.equal(reopened.listThreads()[0]?.hasComposerDraft, true);
+  assert.equal(reopened.listInitialThreads().threads[0]?.hasComposerDraft, true);
+  assert.equal(reopened.listThreadPage("/tmp/project").threads[0]?.hasComposerDraft, true);
   const autosaved = reloaded.saveComposerDraft("thread:thr_composer_draft", "thread draft");
   assert.equal(autosaved?.recoveryReason, "Cursor session failed");
   assert.equal(autosaved?.revision, versioned?.revision);
@@ -753,6 +758,15 @@ test("Node SQLite persists composer drafts and clears deleted thread drafts", as
   assert.equal(reloaded.deleteComposerDraft("thread:thr_composer_draft", "stale-version"), false);
   assert.equal(reloaded.getComposerDraft("thread:thr_composer_draft")?.revision, edited?.revision);
   assert.equal(reloaded.deleteComposerDraft("thread:thr_composer_draft", edited?.revision), true);
+  assert.equal(reloaded.getThread("thr_composer_draft")?.hasComposerDraft, undefined);
+  reloaded.saveComposerDraft("thread:thr_composer_draft", " \t\n\r ");
+  assert.equal(reloaded.listThreads()[0]?.hasComposerDraft, undefined);
+  reloaded.saveComposerDraft("thread:thr_composer_draft", "", [
+    { mediaType: "image/png", data: "base64-image" },
+  ]);
+  assert.equal(reloaded.listThreads()[0]?.hasComposerDraft, true);
+  reloaded.saveComposerDraft("thread:thr_composer_draft", "");
+  assert.equal(reloaded.listThreads()[0]?.hasComposerDraft, undefined);
   reloaded.saveComposerDraft("thread:thr_composer_draft", "thread draft");
 
   reloaded.deleteThread("thr_composer_draft");

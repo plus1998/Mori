@@ -1,3 +1,7 @@
+import type { GenerationToolRequest } from "../shared/generation-tools";
+import type { ImageGenerationToolInput } from "../shared/image-generation";
+import type { TtsToolInput } from "../shared/tts";
+import type { ProjectTodo, ProjectTodoCompose, ProjectTodoSave, ProjectTodoTrash } from "../shared/project-todos";
 import type { ReadAloudSettingsInput, ReadAloudSettingsSnapshot, ReadAloudStatus, ReadAloudStartInput, ReadAloudStartResult, ReadAloudSegmentInput, ReadAloudSegmentResult, ReadAloudReadInput, ReadAloudReadResult } from "../shared/tts";
 import type { TtsArtifact, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSnapshot } from "../shared/tts";
 import type { ScheduleCreateInput, ScheduleUpdateInput, ScheduleTrigger, ScheduleDefinition, ScheduleOccurrence, SchedulingSnapshot } from "../shared/scheduling";
@@ -148,6 +152,8 @@ import {
   type ImageViewReadResult,
   type IntegratedWebSearchSettingsSaveInput,
   type IntegratedWebSearchSettingsSnapshot,
+  type IntegratedWebSearchTestInput,
+  type IntegratedWebSearchTestResult,
   type IntegrationAvailabilitySnapshot,
   IPC_CHANNELS,
   type IpcChannel,
@@ -303,6 +309,12 @@ function resolvePreloadScreenRecordingAppLabel(): string {
 
 const api = {
   platform: process.platform,
+  getDisplayControlState(): Promise<import("../shared/display-control").DisplayControlState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.displayControlGet);
+  },
+  setDisplayControl(input: import("../shared/display-control").DisplayControlChange): Promise<import("../shared/display-control").DisplayControlState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.displayControlSet, input);
+  },
   isPackaged: preloadIsPackaged,
   /** System Settings → Screen Recording toggle target for this process. */
   screenRecordingAppLabel: resolvePreloadScreenRecordingAppLabel(),
@@ -656,8 +668,16 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsDelete, { accountId });
   },
 
-  openAIAccountsStartLogin(accountId: string): Promise<{ success: boolean; message: string }> {
-    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsStartLogin, { accountId });
+  openAIAccountsStartLogin(accountId: string, mode?: "external"): Promise<{ success: boolean; message: string; authUrl?: string; loginId?: string; expiresAt?: number }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsStartLogin, { accountId, mode });
+  },
+
+  openAIAccountsSubmitLoginCallback(accountId: string, loginId: string, callbackUrl: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsSubmitLoginCallback, { accountId, loginId, callbackUrl });
+  },
+
+  openAIAccountsCancelLogin(accountId: string, loginId: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsCancelLogin, { accountId, loginId });
   },
 
   openAIAccountsOpenAssistant(accountId: string): Promise<void> {
@@ -680,8 +700,20 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsSetAuthJson, { accountId, content });
   },
 
-  openAIAccountsQueryQuota(accountId: string): Promise<OpenAIAccountQuota> {
-    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsQueryQuota, { accountId });
+  openAIAccountsQueryQuota(accountId: string, reason: "manual" | "switch" | "reset" = "manual"): Promise<OpenAIAccountQuota> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsQueryQuota, { accountId, reason });
+  },
+
+  openAIAccountsWake(accountId: string): Promise<import("../shared/openai-account").OpenAIAccountWakeResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsWake, { accountId });
+  },
+
+  openAIAccountsGetWakeModel(): Promise<string | null> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsGetWakeModel);
+  },
+
+  openAIAccountsSetWakeModel(modelId: string | null): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsSetWakeModel, { modelId });
   },
 
   openAIAccountsResetQuota(accountId: string, idempotencyKey: string): Promise<{
@@ -732,8 +764,8 @@ const api = {
     ipcRenderer.on(IPC_CHANNELS.openAIAccountsChanged, listener);
     return () => ipcRenderer.off(IPC_CHANNELS.openAIAccountsChanged, listener);
   },
-  onCodexOauthLoginResult(callback: (result: { success: boolean; message: string; accountId?: string }) => void): () => void {
-    const listener = (_event: Electron.IpcRendererEvent, result: { success: boolean; message: string; accountId?: string }) => callback(result);
+  onCodexOauthLoginResult(callback: (result: { success: boolean; message: string; accountId?: string; loginId?: string }) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, result: { success: boolean; message: string; accountId?: string; loginId?: string }) => callback(result);
     ipcRenderer.on("codex-oauth:login-result", listener);
     return () => ipcRenderer.off("codex-oauth:login-result", listener);
   },
@@ -763,6 +795,18 @@ const api = {
   },
   getCodexModelCatalog(): Promise<CodexModelCatalogSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.codexModelCatalogGet);
+  },
+  getChatGptModelCatalog(): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.chatGptModelCatalogGet);
+  },
+  refreshChatGptModelCatalog(accountId?: string): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.chatGptModelCatalogRefresh, accountId);
+  },
+  addChatGptModelCatalogModel(request: AddCodexCatalogModelRequest): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.chatGptModelCatalogAdd, request);
+  },
+  removeChatGptModelCatalogModel(modelId: string): Promise<CodexModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.chatGptModelCatalogRemove, modelId);
   },
   refreshCodexModelCatalog(): Promise<CodexModelCatalogSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.codexModelCatalogRefresh);
@@ -953,6 +997,12 @@ const api = {
   activateImageGenerationProfile(id: string): Promise<ImageGenerationSettingsSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationProfileActivate, { id });
   },
+  createImageGeneration(input: GenerationToolRequest<ImageGenerationToolInput>): Promise<ImageGenerationArtifact> {
+    return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationCreate, input);
+  },
+  pickImageGenerationInputs(): Promise<string[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationPickInputs);
+  },
   listImageGenerationArtifacts(threadId: string): Promise<ImageGenerationArtifact[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationArtifactsList, { threadId });
   },
@@ -987,6 +1037,9 @@ const api = {
   },
   activateTtsProfile(id: string): Promise<TtsSettingsSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.ttsProfileActivate, { id });
+  },
+  createTts(input: GenerationToolRequest<TtsToolInput>): Promise<TtsArtifact> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsCreate, input);
   },
   listTtsArtifacts(threadId: string): Promise<TtsArtifact[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.ttsArtifactsList, { threadId });
@@ -1082,6 +1135,12 @@ const api = {
   },
   getBrowserState(): Promise<BrowserViewState> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserGetState);
+  },
+  listAgentBrowserProcesses(): Promise<import("../shared/browser").AgentBrowserProcessView[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserAgentProcessesList);
+  },
+  stopAgentBrowserProcess(id: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserAgentProcessStop, { id });
   },
   browserDevPrepareAgentCdp(threadId: string): Promise<{ cdpPort: number }> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserDevPrepareAgentCdp, { threadId });
@@ -1261,6 +1320,9 @@ const api = {
     settings: IntegratedWebSearchSettingsSaveInput,
   ): Promise<IntegratedWebSearchSettingsSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.integratedWebSearchSettingsSave, settings);
+  },
+  testIntegratedWebSearch(input: IntegratedWebSearchTestInput): Promise<IntegratedWebSearchTestResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.integratedWebSearchTest, input);
   },
   getSupabaseDeployment(): Promise<SupabaseDeploymentSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.supabaseDeploymentGet);
@@ -1482,6 +1544,16 @@ const api = {
   getThread(threadId: string): Promise<ThreadSummary | undefined> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadGet, threadId);
   },
+  listProjectTodos(): Promise<ProjectTodo[]> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoList); },
+  onProjectTodosChanged(callback: () => void): () => void {
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.projectTodoChanged, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.projectTodoChanged, listener);
+  },
+  getProjectTodo(id: string): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoGet, id); },
+  saveProjectTodo(input: ProjectTodoSave): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoSave, input); },
+  markProjectTodoComposed(input: ProjectTodoCompose): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoCompose, input); },
+  trashProjectTodo(input: ProjectTodoTrash): Promise<number> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoTrash, input); },
   getComposerDraft(contextKey: string): Promise<ComposerDraftRecord | undefined> {
     return ipcRenderer.invoke(IPC_CHANNELS.composerDraftGet, contextKey);
   },

@@ -5,14 +5,23 @@ export interface OpenAIAccountProfile {
   twoFactorSecret?: string;
 }
 
+export type OpenAIAccountProxyMode = "system" | "direct" | "manual";
+
 export interface OpenAIAccountCreateInput extends OpenAIAccountProfile {
   name: string;
+  proxyMode?: OpenAIAccountProxyMode;
   proxyUrl?: string;
 }
 
 export interface OpenAIAccountUpdateInput extends OpenAIAccountProfile {
   accountId: string;
   name: string;
+  proxyMode?: OpenAIAccountProxyMode;
+  proxyUrl?: string;
+}
+
+export interface OpenAIAccountProxyConfig {
+  mode: OpenAIAccountProxyMode;
   proxyUrl?: string;
 }
 
@@ -37,7 +46,21 @@ export interface OpenAIAccountQuota {
   fetchedAt: number;
 }
 
+/** Last query outcome, separate from the last successful quota snapshot. */
+export interface OpenAIAccountQuotaRefreshState {
+  attemptedAt: number;
+  retryAt?: number;
+  error?: string;
+  authRequired?: boolean;
+}
+
 export type CodexQuotaResetOutcome = "reset" | "alreadyRedeemed" | "nothingToReset" | "noCredit";
+
+export interface OpenAIAccountWakeResult {
+  reply: string;
+  /** A greeting succeeded even if the subsequent quota refresh failed. */
+  quotaError?: string;
+}
 
 /** The image_gen balance queried by chatgpt2api, not a verified Codex-only balance. */
 export interface OpenAIAccountImageQuota {
@@ -55,6 +78,7 @@ export interface OpenAIAccount {
   id: string;
   name: string;
   email?: string;
+  proxyMode: OpenAIAccountProxyMode;
   proxyUrl?: string;
   /** Whether this account has usable, non-expired Codex credentials. */
   isLoggedIn: boolean;
@@ -65,6 +89,7 @@ export interface OpenAIAccount {
   hasProfileData: boolean;
   profileFields?: { email: boolean; password: boolean; pickupUrl: boolean; twoFactorSecret: boolean };
   quota?: OpenAIAccountQuota;
+  quotaRefresh?: OpenAIAccountQuotaRefreshState;
 }
 
 export interface OpenAIAccountAssistantState {
@@ -101,11 +126,13 @@ export interface OpenAIAccountDetails extends OpenAIAccountProfile {
   imageQuota?: OpenAIAccountImageQuota;
   id: string;
   name: string;
+  proxyMode: OpenAIAccountProxyMode;
   proxyUrl?: string;
   createdAt: string;
   updatedAt: string;
   authJson: string | null;
   quota?: OpenAIAccountQuota;
+  quotaRefresh?: OpenAIAccountQuotaRefreshState;
 }
 
 export interface OpenAIAccountSyncStatus {

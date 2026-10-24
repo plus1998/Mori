@@ -87,24 +87,8 @@ export function buildComposerModelOptions(input: {
     });
   }
 
-  const templateModelId = templateModel.modelId.trim();
-  const defaultModel = provider.defaultModel.trim();
-  if (defaultModel && !seenModelIds.has(defaultModel)) {
-    seenModelIds.add(defaultModel);
-    options.push(
-      defaultModel === templateModelId
-        ? { ...templateModel, modelId: defaultModel }
-        : {
-            providerId: provider.id,
-            providerName: provider.name,
-            modelId: defaultModel,
-          },
-    );
-  }
-
-  if (templateModelId && !seenModelIds.has(templateModelId)) {
-    options.unshift({ ...templateModel, modelId: templateModelId });
-  }
+  // Candidates are the only selectable models. A config/default can outlive its
+  // candidate; inserting it here would make a deleted model selectable again.
   return options;
 }
 
@@ -334,7 +318,11 @@ export function ComposerModelSelector({
   // available even when the trigger is disabled.
   const providerName = currentModel.providerName.trim();
   const tooltipLabel = providerName || triggerLabel;
-  const currentOverrideMissing = Boolean(value && !selectedOption);
+  const currentModelMissing = !loading && !error && !selectedOption;
+  const currentModelUnavailable = Boolean(loading || error || !selectedOption);
+  const templateModelUnavailable = Boolean(
+    loading || error || !options.some((option) => modelIdentityMatchesOption(templateModel, option)),
+  );
   const selectedModelKey = selectedOption ? modelOptionKey(selectedOption) : undefined;
   const selectedModelIndex = Math.max(
     0,
@@ -371,7 +359,7 @@ export function ComposerModelSelector({
     }
     const itemCount = activeMenu === "models" ? Math.max(options.length, 1) : THINKING_EFFORT_OPTIONS.length;
     const statusRows =
-      activeMenu === "models" && (loading || error || currentOverrideMissing || options.length === 0) ? 1 : 0;
+      activeMenu === "models" && (loading || error || currentModelMissing || options.length === 0) ? 1 : 0;
     const placement = resolveComposerCascadePlacement({
       rootRect: domRectValue(rootPanel.getBoundingClientRect()),
       anchorRect: domRectValue(anchor.getBoundingClientRect()),
@@ -391,7 +379,7 @@ export function ComposerModelSelector({
       },
       overlay: placement.overlay,
     });
-  }, [activeMenu, currentOverrideMissing, error, loading, options.length]);
+  }, [activeMenu, currentModelMissing, error, loading, options.length]);
 
   const closePanel = useCallback((restoreFocus: boolean) => {
     setOpen(false);
@@ -621,13 +609,16 @@ export function ComposerModelSelector({
   }, [closePanel, interactionDisabled, open]);
 
   function commitModel(option: ComposerModelOption) {
+    if (loading || error || !options.includes(option)) {
+      return;
+    }
     const thinkingEffort = option.supportsReasoning === false ? "off" : currentEffort;
     onChange(buildComposerMainAgentOverride({ model: option, thinkingEffort, templateModel }));
     closePanel(true);
   }
 
   function commitEffort(thinkingEffort: ThinkingEffort) {
-    if (reasoningUnavailable && thinkingEffort !== "off") {
+    if (currentModelUnavailable || (reasoningUnavailable && thinkingEffort !== "off")) {
       return;
     }
     onChange(buildComposerMainAgentOverride({ model: currentModel, thinkingEffort, templateModel }));
@@ -635,7 +626,7 @@ export function ComposerModelSelector({
   }
 
   function clearOverride() {
-    if (!value) {
+    if (!value || templateModelUnavailable) {
       return;
     }
     onChange(undefined);
@@ -767,6 +758,7 @@ export function ComposerModelSelector({
                     type="button"
                     role="menuitemradio"
                     aria-checked={selected}
+                    disabled={Boolean(loading || error)}
                     tabIndex={focusSurface === "submenu" && focusedModelIndex === index ? 0 : -1}
                     className={
                       selected ? "composer-model-submenu-item is-selected" : "composer-model-submenu-item"
@@ -794,7 +786,7 @@ export function ComposerModelSelector({
           ) : options.length === 0 ? (
             <p className="composer-model-menu-status">{t("composer.model.noCandidates")}</p>
           ) : null}
-          {currentOverrideMissing ? (
+          {currentModelMissing ? (
             <p className="composer-model-menu-status is-warning" role="status">
               {t("composer.model.overrideMissing")}
             </p>
@@ -809,7 +801,7 @@ export function ComposerModelSelector({
         <>
           <ul className="composer-model-submenu-list">
             {THINKING_EFFORT_OPTIONS.map((option, index) => {
-              const unavailable = reasoningUnavailable && option.value !== "off";
+              const unavailable = currentModelUnavailable || (reasoningUnavailable && option.value !== "off");
               const selected = option.value === currentEffort;
               return (
                 <li key={option.value}>
@@ -922,6 +914,7 @@ export function ComposerModelSelector({
                 }}
                 type="button"
                 role="menuitem"
+                disabled={templateModelUnavailable}
                 tabIndex={focusSurface === "root" && focusedRootIndex === ROOT_RESET_INDEX ? 0 : -1}
                 className="composer-model-root-item composer-model-reset-item"
                 onMouseEnter={() => setActiveMenu(undefined)}

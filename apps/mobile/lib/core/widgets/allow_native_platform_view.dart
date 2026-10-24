@@ -41,5 +41,5 @@ bool isShellCoveredByRootDetail(BuildContext context) {
 /// Only bare shell tab roots keep nested Platform Views. Everything else
 /// (sessions, settings subpages, switch-PC `/connect`) covers the shell.
 bool isShellCoveredLocation(String path) {
-  return path != '/threads' && path != '/settings';
+  return path != '/threads' && path != '/todos' && path != '/settings';
 }

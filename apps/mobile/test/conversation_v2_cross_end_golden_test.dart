@@ -28,6 +28,8 @@ import 'package:eco_mobile/l10n/generated/app_localizations.dart';
 /// Feed localizes the action label and prefers a structured target; the desktop Feed prints
 /// `Tool: Name · target`), which is recorded as a deliberate divergence in
 /// `docs/plans/feed-regression-test-plan.md` §4.13 K10.
+/// Feed order is compared directly with the desktop fixtures, including progress
+/// narration between tool groups; no rows are reordered for the comparison.
 void main() {
   final fixtures = '../desktop/test/fixtures/feed-parity';
   // Read from the fixtures, not from a list kept here: a hand-written list stops at the
@@ -79,9 +81,10 @@ void main() {
             ? null
             : normalizeAgentRole(item['role'] as String),
       };
+      final expectedFeed = (historical['feed'] as List).map(row).toList();
       final golden = {
         ...historical,
-        'feed': (historical['feed'] as List).map(row).toList(),
+        'feed': expectedFeed,
         'cards': [
           for (final card in historical['cards'] as List)
             {

@@ -76,7 +76,6 @@ describe("buildComposerModelOptions", () => {
 
     expect(options.map((option) => `${option.providerId}:${option.modelId}`)).toEqual([
       "provider-current:gpt-5.6-sol",
-      "provider-current:gpt-5.6-terra",
     ]);
   });
 
@@ -99,7 +98,7 @@ describe("buildComposerModelOptions", () => {
     ).toEqual([]);
   });
 
-  test("preserves template identity when it matches the provider default", () => {
+  test("does not reinsert a deleted template even when it is still the provider default", () => {
     expect(
       buildComposerModelOptions({
         provider: {
@@ -117,15 +116,70 @@ describe("buildComposerModelOptions", () => {
           thinkingEffort: "high",
         },
       }),
-    ).toEqual([
+    ).toEqual([]);
+  });
+
+  test("deleting the configured candidate removes it while preserving remaining candidates", () => {
+    const provider = {
+      id: "provider-current",
+      name: "Current Backend",
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+    };
+    const templateModel = {
+      providerId: provider.id,
+      providerName: provider.name,
+      modelId: "gpt-5.6-sol",
+      candidateModelId: "candidate-sol",
+      thinkingEffort: "high" as const,
+    };
+    const candidates = [
+      { id: "candidate-sol", providerId: provider.id, modelId: "gpt-5.6-sol" },
+      { id: "candidate-terra", providerId: provider.id, modelId: "gpt-5.6-terra" },
+    ];
+    expect(
+      buildComposerModelOptions({ provider, templateModel, candidates }).map((model) => model.modelId),
+    ).toEqual(["gpt-5.6-sol", "gpt-5.6-terra"]);
+    expect(buildComposerModelOptions({ provider, templateModel, candidates: candidates.slice(1) })).toEqual([
       {
-        providerId: "provider-current",
-        providerName: "Current Backend",
-        modelId: "gpt-5.6-sol",
-        candidateModelId: "candidate-sol",
-        thinkingEffort: "high",
+        providerId: provider.id,
+        providerName: provider.name,
+        modelId: "gpt-5.6-terra",
+        candidateModelId: "candidate-terra",
       },
     ]);
+  });
+
+  test("does not reinsert legacy models without candidate references", () => {
+    expect(
+      buildComposerModelOptions({
+        provider: { id: "provider-current", name: "Current Backend", defaultModel: "old-default", enabled: true },
+        templateModel: { providerId: "provider-current", providerName: "Current Backend", modelId: "old-template" },
+        candidates: [],
+      }),
+    ).toEqual([]);
+  });
+
+  test("filters empty, duplicate, foreign and disabled-provider models", () => {
+    const provider = {
+      id: "provider-current",
+      name: "Current Backend",
+      defaultModel: "old-default",
+      enabled: true,
+    };
+    const templateModel = { providerId: provider.id, providerName: provider.name, modelId: "old-template" };
+    const candidates = [
+      { id: "empty", providerId: provider.id, modelId: "  " },
+      { id: "sol", providerId: provider.id, modelId: " gpt-5.6-sol " },
+      { id: "duplicate", providerId: provider.id, modelId: "gpt-5.6-sol" },
+      { id: "foreign", providerId: "other", modelId: "gpt-5.6-luna" },
+    ];
+    expect(
+      buildComposerModelOptions({ provider, templateModel, candidates }).map((model) => model.candidateModelId),
+    ).toEqual(["sol"]);
+    expect(
+      buildComposerModelOptions({ provider: { ...provider, enabled: false }, templateModel, candidates }),
+    ).toEqual([]);
   });
 });
 

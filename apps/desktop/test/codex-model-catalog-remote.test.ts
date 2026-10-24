@@ -8,6 +8,8 @@ import {
   parseCodexModelsJson,
   resolveCodexModelCatalogCachePath,
 } from "../src/main/codex-model-catalog-remote";
+import { OPENAI_API_PRICING_URL } from "../src/main/openai-api-pricing";
+import { PRICING_MARKDOWN } from "./openai-api-pricing-fixture";
 
 const MODELS_JSON = JSON.stringify({
   models: [
@@ -50,7 +52,7 @@ function fetchReturning(body: string, status = 200): { fetchImpl: typeof fetch; 
   const calls: string[] = [];
   const fetchImpl = (async (input: RequestInfo | URL) => {
     calls.push(String(input));
-    return new Response(body, { status });
+    return new Response(String(input) === OPENAI_API_PRICING_URL ? PRICING_MARKDOWN : body, { status });
   }) as unknown as typeof fetch;
   return { fetchImpl, calls };
 }
@@ -90,100 +92,184 @@ describe("parseCodexModelsJson", () => {
 });
 
 describe("CodexRemoteModelCatalogService", () => {
-  test("fetches once, hides hidden models, orders by priority, and reuses the disk cache", async () => {
+  test("reads never fetch; concurrent manual refreshes share one request per source", async () => {
     const cachePath = await tempCachePath();
-    const first = fetchReturning(MODELS_JSON);
-    const service = new CodexRemoteModelCatalogService({ cachePath, fetchImpl: first.fetchImpl });
-
-    const models = await service.listModels();
-    expect(first.calls).toEqual([CODEX_MODELS_JSON_URL]);
-    expect(models.map((model) => model.modelId)).toEqual(["gpt-6.1-sol", "gpt-6-astra"]);
-
-    const status = await service.getStatus();
-    expect(status).toMatchObject({ sourceUrl: CODEX_MODELS_JSON_URL, remoteCount: 3, manualCount: 0 });
-    expect(typeof status.fetchedAt).toBe("number");
-
-    const second = fetchReturning(MODELS_JSON);
-    const reloaded = new CodexRemoteModelCatalogService({ cachePath, fetchImpl: second.fetchImpl });
-    const cached = await reloaded.listModels();
-    expect(second.calls).toEqual([]);
-    expect(cached.map((model) => model.modelId)).toEqual(["gpt-6.1-sol", "gpt-6-astra"]);
-    expect((await reloaded.getStatus()).fetchedAt).toBe(status.fetchedAt);
+    const responses = {
+      models: Promise.withResolvers<Response>(),
+      prices: Promise.withResolvers<Response>(),
+    };
+    const calls: string[] = [];
+    const service = new CodexRemoteModelCatalogService({
+      cachePath,
+      fetchImpl: (async (input) => {
+        calls.push(String(input));
+        return String(input) === OPENAI_API_PRICING_URL ? responses.prices.promise : responses.models.promise;
+      }) as typeof fetch,
+    });
+    expect(await service.listModels()).toEqual([]);
+    expect(await service.listRuntimeModels()).toEqual([]);
+    expect(calls).toEqual([]);
+    const refreshed = [service.refresh(), service.refresh()];
+    responses.models.resolve(new Response(MODELS_JSON));
+    responses.prices.resolve(new Response(PRICING_MARKDOWN));
+    const results = await Promise.all(refreshed);
+    expect(calls.sort()).toEqual([CODEX_MODELS_JSON_URL, OPENAI_API_PRICING_URL].sort());
+    expect(results[0]?.[0]?.contextWindow).toBe(272_000);
+    expect(results[1]?.[0]?.apiPricing?.shortContext.input).toBe(2);
   });
 
-  test("manual adds survive a refresh and a restart, and can be removed", async () => {
+  test("runtime includes hidden models; only changed windows notify the runtime", async () => {
+    let changed = 0;
+    let body = MODELS_JSON;
+    const service = new CodexRemoteModelCatalogService({
+      cachePath: await tempCachePath(),
+      fetchImpl: (async (input) =>
+        new Response(String(input) === OPENAI_API_PRICING_URL ? PRICING_MARKDOWN : body)) as typeof fetch,
+      onContextWindowsChanged: () => {
+        changed += 1;
+      },
+    });
+    await service.refresh();
+    expect((await service.listRuntimeModels()).map((model) => model.modelId)).toContain("codex-auto-review");
+    expect(changed).toBe(1);
+    body = MODELS_JSON.replace("Flagship.", "Renamed description.");
+    await service.refresh();
+    expect(changed).toBe(1);
+    body = MODELS_JSON.replaceAll("272000", "300000");
+    await service.refresh();
+    expect(changed).toBe(2);
+  });
+
+  test("models and official prices share a persisted snapshot and never refresh on stale reads", async () => {
+    const cachePath = await tempCachePath();
+    const first = fetchReturning(MODELS_JSON);
+    const service = new CodexRemoteModelCatalogService({
+      cachePath,
+      fetchImpl: first.fetchImpl,
+      now: () => 1000,
+    });
+    const models = await service.refresh();
+    expect(models.map((model) => model.modelId)).toEqual(["gpt-6.1-sol", "gpt-6-astra"]);
+    expect(models[0]?.apiPricing?.shortContext.input).toBe(2);
+    expect(await service.getStatus()).toMatchObject({
+      fetchedAt: 1000,
+      pricingFetchedAt: 1000,
+      pricingSourceUrl: OPENAI_API_PRICING_URL,
+    });
+    const second = fetchReturning("", 500);
+    const reloaded = new CodexRemoteModelCatalogService({
+      cachePath,
+      fetchImpl: second.fetchImpl,
+      now: () => 999999999,
+    });
+    expect(await reloaded.listModels()).toEqual(models);
+    expect(
+      await reloaded.resolveApiRates("gpt-6.1-sol", {
+        inputTokens: 100,
+        outputTokens: 10,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+      }),
+    ).toMatchObject({ input: 2, output: 10 });
+    expect(
+      await reloaded.resolveApiRates("gpt-6.1-sol-preview", {
+        inputTokens: 100,
+        outputTokens: 10,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+      }),
+    ).toBeNull();
+    expect(second.calls).toEqual([]);
+  });
+
+  test("manual models survive refresh/restart without triggering network requests", async () => {
     const cachePath = await tempCachePath();
     const first = fetchReturning(MODELS_JSON);
     const service = new CodexRemoteModelCatalogService({ cachePath, fetchImpl: first.fetchImpl });
     await service.addManualModel({ modelId: "gpt-6.1-sol-preview", displayName: "Preview" });
-
+    expect(first.calls).toEqual([]);
+    await service.refresh();
     await expect(service.addManualModel({ modelId: "gpt-6.1-sol-preview" })).rejects.toThrow(/已在手动添加/);
     await expect(service.addManualModel({ modelId: "gpt-6-astra" })).rejects.toThrow(
       /已存在于 Codex 模型目录/,
     );
-    await expect(service.addManualModel({ modelId: "  " })).rejects.toThrow(/不能为空/);
-
-    const reloaded = new CodexRemoteModelCatalogService({
-      cachePath,
-      fetchImpl: fetchReturning(MODELS_JSON).fetchImpl,
-    });
+    await expect(service.addManualModel({ modelId: " " })).rejects.toThrow(/不能为空/);
+    const reloaded = new CodexRemoteModelCatalogService({ cachePath, fetchImpl: first.fetchImpl });
     expect((await reloaded.listModels()).at(-1)).toMatchObject({
       modelId: "gpt-6.1-sol-preview",
-      displayName: "Preview",
       origin: "manual",
     });
+    expect((await reloaded.listModels()).at(-1)?.apiPricing).toBeUndefined();
     expect(await reloaded.removeManualModel("gpt-6.1-sol-preview")).toBe(true);
     expect(await reloaded.removeManualModel("gpt-6-astra")).toBe(false);
-    expect((await reloaded.listModels()).some((model) => model.origin === "manual")).toBe(false);
   });
 
-  test("a failed refresh keeps the cached list but reports the error", async () => {
+  test("either source failing preserves both old snapshots and exposes an error across restart", async () => {
     const cachePath = await tempCachePath();
-    const good = fetchReturning(MODELS_JSON);
-    const service = new CodexRemoteModelCatalogService({ cachePath, fetchImpl: good.fetchImpl });
-    const before = await service.listModels();
-    const fetchedAt = (await service.getStatus()).fetchedAt;
-
-    const failing = new CodexRemoteModelCatalogService({
+    const service = new CodexRemoteModelCatalogService({
       cachePath,
-      fetchImpl: fetchReturning("", 503).fetchImpl,
+      fetchImpl: fetchReturning(MODELS_JSON).fetchImpl,
+      now: () => 1000,
     });
-    await expect(failing.refresh()).rejects.toThrow(/HTTP 503/);
-    const status = await failing.getStatus();
-    expect(status.fetchedAt).toBe(fetchedAt);
-    expect(status.lastError).toContain("HTTP 503");
-    expect((await failing.listModels()).map((model) => model.modelId)).toEqual(
-      before.map((model) => model.modelId),
-    );
+    const before = await service.refresh();
+    for (const failedSource of [CODEX_MODELS_JSON_URL, OPENAI_API_PRICING_URL]) {
+      const failing = new CodexRemoteModelCatalogService({
+        cachePath,
+        now: () => 2000,
+        fetchImpl: (async (input) =>
+          new Response(
+            String(input) === OPENAI_API_PRICING_URL
+              ? PRICING_MARKDOWN
+              : MODELS_JSON.replaceAll("272000", "400000"),
+            { status: String(input) === failedSource ? 503 : 200 },
+          )) as typeof fetch,
+      });
+      await expect(failing.refresh()).rejects.toThrow(/HTTP 503/);
+      expect(await failing.listModels()).toEqual(before);
+      expect(await failing.getStatus()).toMatchObject({
+        fetchedAt: 1000,
+        pricingFetchedAt: 1000,
+        lastError: expect.stringContaining("HTTP 503"),
+      });
+    }
+    const reloaded = new CodexRemoteModelCatalogService({ cachePath });
+    expect(await reloaded.listModels()).toEqual(before);
+    expect((await reloaded.getStatus()).lastError).toContain("HTTP 503");
   });
 
-  test("a malformed upstream body never replaces the cached catalog", async () => {
+  test("changed pricing markup cannot partially replace the model snapshot", async () => {
     const cachePath = await tempCachePath();
     const service = new CodexRemoteModelCatalogService({
       cachePath,
       fetchImpl: fetchReturning(MODELS_JSON).fetchImpl,
     });
-    await service.listModels();
-
+    const before = await service.refresh();
     const broken = new CodexRemoteModelCatalogService({
       cachePath,
-      fetchImpl: fetchReturning("<html>proxy intercepted</html>").fetchImpl,
+      fetchImpl: (async (input) =>
+        new Response(
+          String(input) === OPENAI_API_PRICING_URL
+            ? "<html>denied</html>"
+            : MODELS_JSON.replaceAll("272000", "400000"),
+        )) as typeof fetch,
     });
-    await expect(broken.refresh()).rejects.toThrow(/解析失败/);
-    expect((await broken.listModels()).length).toBe(2);
-    expect((await broken.getStatus()).lastError).toContain("解析失败");
+    await expect(broken.refresh()).rejects.toThrow(/官方 API/);
+    expect(await broken.listModels()).toEqual(before);
   });
 
-  test("with no cache and a dead network the picker reports the failure instead of inventing models", async () => {
+  test("v1 caches keep their models without inventing prices or fetching on migration", async () => {
     const cachePath = await tempCachePath();
-    const dead = fetchReturning("", 599);
-    const service = new CodexRemoteModelCatalogService({ cachePath, fetchImpl: dead.fetchImpl });
-    expect(await service.listModels()).toEqual([]);
-    expect((await service.getStatus()).lastError).toContain("HTTP 599");
-
-    // Repeated picker opens must not each wait for the fetch timeout.
-    await service.listModels();
-    expect(dead.calls.length).toBe(1);
+    await fs.writeFile(
+      cachePath,
+      JSON.stringify({ version: 1, remote: parseCodexModelsJson(MODELS_JSON), manual: [], fetchedAt: 123 }),
+    );
+    const service = new CodexRemoteModelCatalogService({
+      cachePath,
+      fetchImpl: fetchReturning("", 599).fetchImpl,
+    });
+    expect((await service.listModels()).length).toBe(2);
+    expect((await service.listModels())[0]?.apiPricing).toBeUndefined();
+    expect((await service.getStatus()).pricingFetchedAt).toBeUndefined();
   });
 
   test("cache path lives next to the other desktop caches", () => {

@@ -357,6 +357,8 @@ export interface ConversationCursor {
   historyRevision: number;
   createdSeq: number;
   id: string;
+  /** Message timeline boundary; absent on legacy sequence-ordered cursors. */
+  occurredAt?: string;
 }
 
 export interface ConversationCapabilities {
@@ -432,6 +434,8 @@ export interface ConversationMessagesPage {
   /** Total tool summaries per run; fetch the remainder through tools.page. */
   toolSummaryCounts?: Record<string, number>;
   agents?: ConversationAgent[];
+  /** Interaction records for the tools in this page. */
+  details?: ConversationDetailItem[];
   nextCursor?: string;
   hasMore: boolean;
 }
@@ -456,6 +460,7 @@ export interface ConversationToolsPage {
   readSeq: number;
   historyRevision: number;
   tools: ConversationToolCall[];
+  details?: ConversationDetailItem[];
   totalCount: number;
   nextCursor?: string;
   hasMore: boolean;
@@ -587,6 +592,7 @@ function isConversationCursor(value: unknown): value is ConversationCursor {
     typeof createdSeq === "number" &&
     Number.isInteger(createdSeq) &&
     createdSeq > 0 &&
+    (cursor.occurredAt === undefined || typeof cursor.occurredAt === "string") &&
     typeof cursor.id === "string" &&
     cursor.id.length > 0
   );

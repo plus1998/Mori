@@ -2,7 +2,7 @@ import { CronExpressionParser } from "cron-parser";
 import type { ScheduleTrigger } from "../shared/scheduling";
 
 const timestamp = (value: string): number => {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/i.test(value) || !Number.isFinite(Date.parse(value))) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})$/i.test(value) || !Number.isFinite(Date.parse(value))) {
     throw new Error("时间必须是包含时区的 ISO 时间戳。");
   }
   return Date.parse(value);

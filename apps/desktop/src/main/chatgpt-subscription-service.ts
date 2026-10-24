@@ -735,7 +735,7 @@ export class ChatGptSubscriptionService {
    * ChatGPT subscription providers must use this path instead of the generic
    * API-key model discovery request.
    */
-  async listModels(accountId?: string): Promise<Array<{ id: string; displayName?: string }>> {
+  async listModels(accountId?: string, signal?: AbortSignal): Promise<Array<{ id: string; displayName?: string }>> {
     this.assertInitialized();
     let account: StoredAccount;
     if (accountId) {
@@ -760,6 +760,7 @@ export class ChatGptSubscriptionService {
     refreshed.updatedAt = Date.now();
     const response = await this.fetchFor(refreshed)("https://api.openai.com/v1/models", {
       method: "GET",
+      ...(signal ? { signal } : {}),
       headers: {
         accept: "application/json",
         authorization: `Bearer ${refreshed.accessToken}`,
@@ -1152,7 +1153,7 @@ function normalizeAccountProxyUrl(proxyUrl?: string): string | undefined {
 function subscriptionTestProvider(modelId: string): GatewayProvider {
   return {
     id: "eco-coding-chatgpt",
-    name: "ChatGPT subscription",
+    name: "ChatGPT OAuth",
     upstreamKind: "responses",
     baseUrl: "https://api.openai.com",
     apiKey: "local-unused",

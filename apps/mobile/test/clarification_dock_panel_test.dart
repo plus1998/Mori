@@ -1,11 +1,211 @@
 import 'package:eco_mobile/core/models/thread_models.dart';
 import 'package:eco_mobile/features/approvals/approval_sheets.dart';
+import 'package:eco_mobile/features/composer/composer_dock_shell.dart';
+import 'package:eco_mobile/features/threads/thread_session_layout.dart';
 import 'package:eco_mobile/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('free-form answers work without options and survive paging', (
+    tester,
+  ) async {
+    List<List<String>>? submitted;
+    await tester.pumpWidget(
+      _LocalizedTestApp(
+        conversationDock: true,
+        child: ClarificationDockPanel(
+          request: const ClarificationRequest(
+            toolUseId: 'text-only',
+            threadId: 'thread-1',
+            questions: [
+              ClarificationQuestion(
+                question: 'Describe the issue',
+                options: [],
+              ),
+              ClarificationQuestion(
+                question: 'Pick a scope',
+                options: [ClarificationQuestionOption(label: 'Mobile')],
+              ),
+            ],
+          ),
+          busy: false,
+          onSubmit: (answers, {customInputIndices}) async =>
+              submitted = answers,
+          onDismiss: () async {},
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    await tester.enterText(find.byType(TextField), '  无法输入回答  ');
+    await tester.pump();
+    await tester.tap(find.text('Confirm'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Previous question'));
+    await tester.pump();
+    expect(find.text('  无法输入回答  '), findsOneWidget);
+    await tester.tap(find.byTooltip('Next question'));
+    await tester.pump();
+    await tester.tap(find.text('Mobile'));
+    await tester.pump();
+    await tester.tap(find.text('Submit'));
+    await tester.pump();
+    expect(submitted, [
+      ['无法输入回答'],
+      ['Mobile'],
+    ]);
+  });
+
+  testWidgets('keyboard keeps submit and close reachable in the real dock', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    var dismissed = false;
+    List<List<String>>? submitted;
+    await tester.pumpWidget(
+      _LocalizedTestApp(
+        conversationDock: true,
+        child: ClarificationDockPanel(
+          request: const ClarificationRequest(
+            toolUseId: 'keyboard',
+            threadId: 'thread-1',
+            questions: [
+              ClarificationQuestion(
+                question: 'Describe the issue in detail',
+                options: [],
+                preserveCustomText: true,
+              ),
+            ],
+          ),
+          busy: false,
+          onSubmit: (answers, {customInputIndices}) async =>
+              submitted = answers,
+          onDismiss: () async => dismissed = true,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), '  keep whitespace\n');
+    await tester.pump();
+    final submit = find.text('Submit');
+    final close = find.byTooltip('Close');
+    expect(tester.getBottomRight(submit).dy, lessThanOrEqualTo(360));
+    expect(tester.getTopLeft(close).dy, greaterThanOrEqualTo(0));
+    await tester.tap(submit);
+    await tester.pump();
+    expect(submitted, [
+      ['  keep whitespace\n'],
+    ]);
+    await tester.tap(close);
+    await tester.pump();
+    expect(dismissed, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('custom option accepts text but never submits its UI label', (
+    tester,
+  ) async {
+    List<List<String>>? submitted;
+    List<int>? submittedCustomIndices;
+    await tester.pumpWidget(
+      _LocalizedTestApp(
+        conversationDock: true,
+        child: ClarificationDockPanel(
+          request: const ClarificationRequest(
+            toolUseId: 'custom',
+            threadId: 'thread-1',
+            questions: [
+              ClarificationQuestion(
+                question: 'Choose one',
+                options: [ClarificationQuestionOption(label: 'First option')],
+              ),
+            ],
+          ),
+          busy: false,
+          onSubmit: (answers, {customInputIndices}) async {
+            submitted = answers;
+            submittedCustomIndices = customInputIndices;
+          },
+          onDismiss: () async {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Other (write an answer)'));
+    await tester.pump();
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+      isNull,
+    );
+    await tester.enterText(find.byType(TextField), '  another answer  ');
+    await tester.pump();
+    await tester.tap(find.text('Submit'));
+    await tester.pump();
+    expect(submitted, [
+      ['another answer'],
+    ]);
+    expect(submittedCustomIndices, [0]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('question remains interactive in the real conversation dock', (
+    tester,
+  ) async {
+    var dismissed = false;
+    List<List<String>>? submitted;
+    await tester.pumpWidget(
+      _LocalizedTestApp(
+        conversationDock: true,
+        child: ClarificationDockPanel(
+          request: ClarificationRequest(
+            toolUseId: 'real-dock',
+            threadId: 'thread-1',
+            questions: [
+              ClarificationQuestion(
+                question: 'Choose one',
+                options: [
+                  const ClarificationQuestionOption(label: 'First option'),
+                  for (var i = 0; i < 12; i++)
+                    ClarificationQuestionOption(
+                      label: 'Option $i',
+                      description:
+                          'A detailed description that wraps across lines on a phone screen.',
+                    ),
+                ],
+              ),
+            ],
+          ),
+          busy: false,
+          onSubmit: (answers, {customInputIndices}) async =>
+              submitted = answers,
+          onDismiss: () async => dismissed = true,
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.getSize(find.byKey(const Key('clarification-dock-panel'))).height,
+      lessThanOrEqualTo(600 * 0.58),
+    );
+    await tester.tap(find.text('First option'));
+    await tester.pump();
+    await tester.tap(find.text('Submit'));
+    await tester.pump();
+    expect(submitted, [
+      ['First option'],
+    ]);
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pump();
+    expect(dismissed, isTrue);
+  });
+
   test('clarification option preserves description from JSON', () {
     final option = ClarificationQuestionOption.fromJson({
       'label': 'Use workspace defaults',
@@ -15,6 +215,14 @@ void main() {
 
     expect(option.description, 'Keeps the current project configuration.');
     expect(option.recommended, isTrue);
+    final question = ClarificationQuestion.fromJson({
+      'question': 'Choose one',
+      'options': [],
+      'allowCustom': false,
+      'preserveCustomText': true,
+    });
+    expect(question.allowCustom, isFalse);
+    expect(question.preserveCustomText, isTrue);
   });
 
   testWidgets('clarification dock pages questions and submits selections', (
@@ -51,7 +259,7 @@ void main() {
         child: ClarificationDockPanel(
           request: request,
           busy: false,
-          onSubmit: (selections) async {
+          onSubmit: (selections, {customInputIndices}) async {
             submitted = selections;
           },
           onDismiss: () async {},
@@ -109,15 +317,15 @@ void main() {
         child: ClarificationDockPanel(
           request: request,
           busy: false,
-          onSubmit: (_) async {},
+          onSubmit: (_, {customInputIndices}) async {},
           onDismiss: () async {},
         ),
       ),
     );
 
-    expect(find.text('Complete selection'), findsOneWidget);
+    expect(find.text('Confirm'), findsOneWidget);
     final completeButton = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Complete selection'),
+      find.widgetWithText(FilledButton, 'Confirm'),
     );
     expect(completeButton.onPressed, isNull);
 
@@ -125,11 +333,11 @@ void main() {
     await tester.pump();
 
     final enabledButton = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Complete selection'),
+      find.widgetWithText(FilledButton, 'Confirm'),
     );
     expect(enabledButton.onPressed, isNotNull);
 
-    await tester.tap(find.text('Complete selection'));
+    await tester.tap(find.text('Confirm'));
     await tester.pump();
     expect(find.text('Confirm scope'), findsOneWidget);
   });
@@ -144,12 +352,13 @@ void main() {
             questions: [
               ClarificationQuestion(
                 question: 'Choose one',
+                allowCustom: false,
                 options: [ClarificationQuestionOption(label: 'Only option')],
               ),
             ],
           ),
           busy: false,
-          onSubmit: (_) async {},
+          onSubmit: (_, {customInputIndices}) async {},
           onDismiss: () async {},
         ),
       ),
@@ -178,7 +387,7 @@ void main() {
             ],
           ),
           busy: false,
-          onSubmit: (_) async {},
+          onSubmit: (_, {customInputIndices}) async {},
           onDismiss: () async {},
         ),
       ),
@@ -214,7 +423,7 @@ void main() {
             ],
           ),
           busy: false,
-          onSubmit: (_) async {},
+          onSubmit: (_, {customInputIndices}) async {},
           onDismiss: () async {},
         ),
       ),
@@ -261,7 +470,7 @@ void main() {
             ],
           ),
           busy: false,
-          onSubmit: (_) async {},
+          onSubmit: (_, {customInputIndices}) async {},
           onDismiss: () async {},
         ),
       ),
@@ -275,9 +484,10 @@ void main() {
 }
 
 class _LocalizedTestApp extends StatelessWidget {
-  const _LocalizedTestApp({required this.child});
+  const _LocalizedTestApp({required this.child, this.conversationDock = false});
 
   final Widget child;
+  final bool conversationDock;
 
   @override
   Widget build(BuildContext context) {
@@ -290,8 +500,22 @@ class _LocalizedTestApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: AppLocalizations.supportedLocales,
-      home: Scaffold(
-        body: Align(alignment: Alignment.bottomCenter, child: child),
+      home: Builder(
+        builder: (context) => Scaffold(
+          resizeToAvoidBottomInset: false,
+          body: conversationDock
+              ? ThreadSessionConversationLayout(
+                  feedBuilder: (_, _, _) => const SizedBox.expand(),
+                  composer: AnimatedPadding(
+                    duration: const Duration(milliseconds: 100),
+                    padding: EdgeInsets.only(
+                      bottom: MediaQuery.viewInsetsOf(context).bottom,
+                    ),
+                    child: ComposerDockShell(child: child),
+                  ),
+                )
+              : Align(alignment: Alignment.bottomCenter, child: child),
+        ),
       ),
     );
   }

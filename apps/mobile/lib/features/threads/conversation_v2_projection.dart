@@ -257,8 +257,14 @@ ThreadRunProjectionTimelineItem? _messageTimelineItem(
   // `message.final` the notice became the turn's *final answer* — the reader was shown the
   // failure text as what the agent said, instead of the answer that preceded it.
   final isNotice = !isThinking && message.channel == 'system';
+  // SDK state/command updates use system commentary, as on desktop. Keep them
+  // as diagnostics so the Feed cannot present them as speech or a final answer.
+  final isDiagnostic =
+      message.role == 'system' && message.channel == 'commentary';
   final eventType = isNotice
       ? 'api.error'
+      : isDiagnostic
+      ? 'diagnostic'
       : isThinking
       ? _messageEventType(message.status, thinking: true)
       : _messageEventType(message.status);

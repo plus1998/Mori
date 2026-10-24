@@ -146,10 +146,10 @@ export interface CodexDriverTurnOverrides {
 
 // Codex app-server can return the same thread id for overlapping thread/start
 // requests. Serialize only creation per client; turns on distinct threads stay parallel.
-const threadStartTailByClient = new WeakMap<CodexAppServerClient, Promise<void>>();
+const threadStartTailByClient = new WeakMap<object, Promise<void>>();
 
-async function startCodexThreadSerially<T>(
-  client: CodexAppServerClient,
+export async function startCodexThreadSerially<T>(
+  client: object,
   start: () => Promise<T>,
 ): Promise<T> {
   const previous = threadStartTailByClient.get(client) ?? Promise.resolve();

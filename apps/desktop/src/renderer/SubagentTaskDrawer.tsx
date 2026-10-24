@@ -1,7 +1,11 @@
+import { ImageGenerationArtifactDetail } from "./ImageGenerationArtifactDetail";
+import { ImageGenerationToolPanel, SpeechGenerationToolPanel } from "./GenerationToolPanel";
 import { parseTtsTaskTabId, ttsTaskTabId, type TtsArtifact } from "../shared/tts";
 import { TtsArtifactPlayer } from "./TtsArtifactPlayer";
 import { shortenModelId } from "@eco/runtime/usage";
 import {
+  AudioLines,
+  Palette,
   Bot,
   Check,
   Circle,
@@ -52,7 +56,6 @@ import { ImageLightbox } from "./image-lightbox";
 import {
   createImageObjectUrlFromBase64,
   revokeImageObjectUrl,
-  revokeImageObjectUrls,
 } from "./image-object-url";
 import { MarkdownContent } from "./MarkdownContent";
 import { type RuntimeAgentDisplayNames, resolveRuntimeAgentName } from "./runtime-agent-display";
@@ -70,6 +73,8 @@ import {
   TASK_PANEL_FILES_TAB_ID,
   TASK_PANEL_FILE_VIEWER_TAB_ID,
   TASK_PANEL_HOME_TAB_ID,
+  TASK_PANEL_IMAGE_GENERATION_TAB_ID,
+  TASK_PANEL_SPEECH_GENERATION_TAB_ID,
   TASK_PANEL_PLAN_TAB_ID,
   TASK_PANEL_REVIEW_TAB_ID,
   TASK_PANEL_SSH_BOOKMARKS_TAB_ID,
@@ -456,115 +461,6 @@ function PlanDetailPanel({ plan }: { plan: ThreadPendingPlan }) {
   );
 }
 
-function ImageGenerationArtifactDetail({ artifact }: { artifact: ImageGenerationArtifact }) {
-  const { t } = useTranslation();
-  const [images, setImages] = useState<string[]>([]);
-  const [loadError, setLoadError] = useState<string>();
-  const [revealError, setRevealError] = useState<string>();
-
-  useEffect(() => {
-    let cancelled = false;
-    const objectUrls: string[] = [];
-    setImages([]);
-    setLoadError(undefined);
-    setRevealError(undefined);
-    if (artifact.images.length === 0 || !window.eco?.readImageGenerationArtifact) return;
-    void Promise.all(
-      artifact.images.map((_, imageIndex) =>
-        window.eco!.readImageGenerationArtifact({ artifactId: artifact.id, imageIndex }),
-      ),
-    )
-      .then((results) => {
-        for (const result of results) {
-          const url = createImageObjectUrlFromBase64(result.mimeType, result.dataBase64);
-          if (cancelled) {
-            revokeImageObjectUrl(url);
-            continue;
-          }
-          objectUrls.push(url);
-        }
-        if (!cancelled) {
-          setImages([...objectUrls]);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
-      });
-    return () => {
-      cancelled = true;
-      revokeImageObjectUrls(objectUrls);
-    };
-  }, [artifact.id, artifact.images.length]);
-
-  async function handleRevealImage(imageIndex: number) {
-    if (!window.eco?.revealImageGenerationArtifact) {
-      setRevealError(t("task.image.openLocationUnavailable"));
-      return;
-    }
-    setRevealError(undefined);
-    try {
-      await window.eco.revealImageGenerationArtifact({ artifactId: artifact.id, imageIndex });
-    } catch (error) {
-      setRevealError(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  return (
-    <section className="image-artifact-detail">
-      <header>
-        <span className={`image-artifact-status is-${artifact.status}`}>
-          {t(`task.image.status.${artifact.status}`)}
-        </span>
-        <span>
-          {artifact.profileName} · {artifact.model}
-        </span>
-      </header>
-      <section>
-        <h3>{t("task.image.prompt")}</h3>
-        <p className="image-artifact-prompt">{artifact.prompt}</p>
-      </section>
-      <section>
-        <h3>{t("task.image.parameters")}</h3>
-        <pre>{JSON.stringify(artifact.parameters, null, 2)}</pre>
-      </section>
-      {artifact.errorMessage ? (
-        <section className="image-artifact-error">
-          <h3>{artifact.errorCode ?? t("task.image.error")}</h3>
-          <p>{artifact.errorMessage}</p>
-        </section>
-      ) : null}
-      {loadError ? <p className="image-artifact-error">{loadError}</p> : null}
-      {revealError ? (
-        <p className="image-artifact-error" role="alert">
-          {revealError}
-        </p>
-      ) : null}
-      {images.length > 0 ? (
-        <div className="image-artifact-gallery">
-          {images.map((source, index) => (
-            <figure key={artifact.images[index]?.relativePath ?? index}>
-              <img src={source} alt={`${t("task.image.generated")} ${index + 1}`} />
-              <figcaption className="image-artifact-caption">
-                <span>{artifact.images[index]?.relativePath}</span>
-                <button
-                  type="button"
-                  className="image-artifact-location-button"
-                  onClick={() => void handleRevealImage(index)}
-                  title={t("task.image.openLocation")}
-                  aria-label={t("task.image.openLocation")}
-                >
-                  <FolderOpen size={13} aria-hidden />
-                  <span>{t("task.image.openLocation")}</span>
-                </button>
-              </figcaption>
-            </figure>
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
 function ImageDisplayArtifactDetail({ artifact }: { artifact: ImageDisplayArtifact }) {
   const { t } = useTranslation();
   const [src, setSrc] = useState<string>();
@@ -716,12 +612,16 @@ export function SubagentTaskDrawer({
   onSelectBackgroundTasks,
   onSelectReview,
   workspacePath,
+  threadId,
   fileTarget,
   onSelectFiles,
   onSelectFileViewer,
   onSelectBrowser,
   browserInstances,
   onViewedFileChange,
+  generationToolsActive = true,
+  onOpenGenerationSettings,
+  onSelectGenerationTool,
   onOpenHomeTool,
   onNavigateNewTab,
   onSelectNewTab,
@@ -773,12 +673,16 @@ export function SubagentTaskDrawer({
   onSelectBackgroundTasks: () => void;
   onSelectReview: () => void;
   workspacePath: string;
-  fileTarget?: WorkspaceFileReference & { requestId: number; restricted?: boolean };
+  threadId?: string;
+  fileTarget?: WorkspaceFileReference & { requestId: number };
   onSelectFiles: () => void;
   onSelectFileViewer: () => void;
   onSelectBrowser: (browserId?: string) => void;
   browserInstances?: readonly TaskPanelBrowserInstance[];
   onViewedFileChange: (target: WorkspaceFileReference & { requestId: number }) => void;
+  generationToolsActive?: boolean;
+  onOpenGenerationSettings: (kind: "image" | "speech") => void;
+  onSelectGenerationTool: (tabId: string) => void;
   onOpenHomeTool: (sourceTabId: string, tool: TaskPanelHomeTool) => void;
   onNavigateNewTab: (tabId: string, url: string) => Promise<void>;
   onSelectNewTab: (tabId: string) => void;
@@ -872,6 +776,8 @@ export function SubagentTaskDrawer({
     !planSelected &&
     !terminalTasksSelected &&
     !sshBookmarksSelected &&
+    activeTab !== TASK_PANEL_IMAGE_GENERATION_TAB_ID &&
+    activeTab !== TASK_PANEL_SPEECH_GENERATION_TAB_ID &&
     !browserSelected &&
     !newTabSelected &&
     !activeTtsArtifactId &&
@@ -1303,6 +1209,37 @@ export function SubagentTaskDrawer({
               </button>
             </span>
           ) : null}
+          {[
+            { id: TASK_PANEL_IMAGE_GENERATION_TAB_ID, label: t("settings.imageGeneration.title"), Icon: Palette, pane: "image-generation" },
+            { id: TASK_PANEL_SPEECH_GENERATION_TAB_ID, label: t("settings.tts.title"), Icon: AudioLines, pane: "speech-generation" },
+          ].filter((tool) => openTabIds.includes(tool.id)).map(({ id, label, Icon, pane }) => (
+            <span
+              key={id}
+              data-task-panel-tab-id={id}
+              className={`subagent-task-panel-tab-shell${activeTab === id ? " is-active" : ""}`}
+            >
+              <button
+                type="button"
+                className={`subagent-task-panel-tab${activeTab === id ? " is-active" : ""}`}
+                role="tab"
+                aria-selected={activeTab === id}
+                aria-controls={`subagent-task-tab-${pane}`}
+                onClick={() => onSelectGenerationTool(id)}
+              >
+                <Icon size={15} aria-hidden />
+                <span>{label}</span>
+              </button>
+              <button
+                type="button"
+                className="subagent-task-panel-tab-close"
+                aria-label={t("task.closeTab", { label })}
+                title={t("task.closeTabTitle")}
+                onClick={() => onCloseTab(id)}
+              >
+                <X size={13} aria-hidden />
+              </button>
+            </span>
+          ))}
           <button
             type="button"
             className="subagent-task-panel-tab-add"
@@ -1316,6 +1253,25 @@ export function SubagentTaskDrawer({
       </header>
 
       <div className="subagent-task-panel-body">
+        {[
+          { id: TASK_PANEL_IMAGE_GENERATION_TAB_ID, pane: "image-generation", kind: "image" as const, Panel: ImageGenerationToolPanel },
+          { id: TASK_PANEL_SPEECH_GENERATION_TAB_ID, pane: "speech-generation", kind: "speech" as const, Panel: SpeechGenerationToolPanel },
+        ].filter((tool) => openTabIds.includes(tool.id)).map(({ id, pane, kind, Panel }) => (
+          <div
+            key={id}
+            id={`subagent-task-tab-${pane}`}
+            className={`subagent-task-panel-tab-pane ${activeTab === id ? "is-active" : "is-inactive"}`}
+            role="tabpanel"
+            hidden={activeTab !== id}
+          >
+            <Panel
+              key={`${workspacePath}:${threadId ?? ""}`}
+              context={{ workspacePath, ...(threadId ? { threadId } : {}) }}
+              active={surfaceActive && generationToolsActive && activeTab === id}
+              onOpenSettings={() => onOpenGenerationSettings(kind)}
+            />
+          </div>
+        ))}
         {newTabIds.map((tabId) => (
           <div
             key={tabId}
@@ -1329,7 +1285,7 @@ export function SubagentTaskDrawer({
         ))}
         {filesSelected ? (
           <div id="subagent-task-tab-files" className="subagent-task-panel-tab-pane" role="tabpanel">
-            <WorkspaceFileBrowser workspacePath={workspacePath} />
+            <WorkspaceFileBrowser workspacePath={workspacePath} {...(threadId ? { threadId } : {})} />
           </div>
         ) : null}
         {fileViewerSelected ? (
@@ -1340,6 +1296,7 @@ export function SubagentTaskDrawer({
           >
             <WorkspaceFileViewer
               workspacePath={workspacePath}
+              {...(threadId ? { threadId } : {})}
               {...(fileTarget ? { target: fileTarget } : {})}
               onViewedFileChange={onViewedFileChange}
             />

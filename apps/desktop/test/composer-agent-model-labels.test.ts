@@ -51,7 +51,7 @@ test("buildComposerAgentModelLabels localizes legacy coding labels", async () =>
 
   expect(labels[0]).toMatchObject({
     role: "main",
-    displayName: "Main agent",
+    displayName: "Main Agent",
     main: true,
     modelId: "main-model",
   });

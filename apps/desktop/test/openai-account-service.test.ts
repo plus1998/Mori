@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { removeTempDirectory } from "./helpers/temp-directory";
 import { OpenAIAccountService } from "../src/main/openai-account-service";
 import { writeFakeCodexLogin } from "../test-support/fake-codex-login";
@@ -19,6 +20,25 @@ async function createService(): Promise<{ root: string; service: OpenAIAccountSe
   await service.initialize();
   return { root, service };
 }
+
+test("wake model defaults to automatic Luna and remembers an explicit choice across restarts", async () => {
+  const { root, service } = await createService();
+  expect(service.getWakeModel()).toBeNull();
+  service.setWakeModel(" gpt-5.6-luna ");
+  expect(service.getWakeModel()).toBe("gpt-5.6-luna");
+  service.dispose();
+  const reopened = new OpenAIAccountService(root, "codex-test");
+  try {
+    await reopened.initialize();
+    expect(reopened.getWakeModel()).toBe("gpt-5.6-luna");
+    expect(() => reopened.setWakeModel(" ")).toThrow("不能为空");
+    expect(reopened.getWakeModel()).toBe("gpt-5.6-luna");
+    reopened.setWakeModel(null);
+    expect(reopened.getWakeModel()).toBeNull();
+  } finally {
+    reopened.dispose();
+  }
+});
 
 function jwtWithExpiry(exp: number): string {
   const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url");
@@ -82,8 +102,87 @@ test("active account proxy is available without listing accounts first", async (
   await service.setActiveAccount(account.id);
   await service.applyPendingTransition();
 
+  expect(await service.getActiveProxyConfig()).toEqual({
+    mode: "manual",
+    proxyUrl: "http://user:secret@127.0.0.1:7890",
+  });
   expect(await service.getActiveProxyUrl()).toBe("http://user:secret@127.0.0.1:7890");
 
+  service.dispose();
+});
+
+test("account proxy modes keep system, direct, and manual states distinct", async () => {
+  const { service } = await createService();
+  await expect(service.createAccount({ name: "Missing manual URL", proxyMode: "manual" })).rejects.toThrow(
+    "手动代理模式需要填写代理地址",
+  );
+  const system = await service.createAccount({ name: "System", proxyMode: "system" });
+  const direct = await service.createAccount({ name: "Direct", proxyMode: "direct" });
+  const manual = await service.createAccount({
+    name: "Manual",
+    proxyMode: "manual",
+    proxyUrl: "socks5://127.0.0.1:7890",
+  });
+
+  expect(system).toMatchObject({ proxyMode: "system" });
+  expect(system.proxyUrl).toBeUndefined();
+  expect(direct).toMatchObject({ proxyMode: "direct" });
+  expect(direct.proxyUrl).toBeUndefined();
+  expect(manual).toMatchObject({ proxyMode: "manual", proxyUrl: "socks5://127.0.0.1:7890" });
+
+  await service.updateAccount({
+    accountId: manual.id,
+    name: manual.name,
+    proxyMode: "direct",
+    proxyUrl: "",
+  });
+  expect((await service.listAccounts()).find((account) => account.id === manual.id)).toMatchObject({
+    proxyMode: "direct",
+  });
+  expect((await service.listAccounts()).find((account) => account.id === manual.id)?.proxyUrl).toBeUndefined();
+
+  service.dispose();
+});
+
+test("proxy mode migration maps legacy blank and configured URLs to system and manual", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "eco-openai-accounts-"));
+  tempDirs.push(root);
+  const db = new DatabaseSync(path.join(root, "eco-coding.sqlite"));
+  db.exec(`
+    CREATE TABLE openai_accounts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      proxy_url TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      email TEXT,
+      password TEXT,
+      pickup_url TEXT,
+      two_factor_secret TEXT,
+      auth_json TEXT
+    )
+  `);
+  const insert = db.prepare(`
+    INSERT INTO openai_accounts
+      (id, name, proxy_url, created_at, updated_at, email, password, pickup_url, two_factor_secret, auth_json)
+    VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL)
+  `);
+  insert.run("oa_legacy_system", "Legacy system", null, "2026-10-01T00:00:00.000Z", "2026-10-01T00:00:00.000Z");
+  insert.run(
+    "oa_legacy_manual",
+    "Legacy manual",
+    "http://127.0.0.1:7890",
+    "2026-10-01T00:00:00.000Z",
+    "2026-10-01T00:00:00.000Z",
+  );
+  db.close();
+
+  const service = new OpenAIAccountService(root, "codex-test");
+  await service.initialize();
+  expect((await service.listAccounts()).map((account) => [account.id, account.proxyMode, account.proxyUrl])).toEqual([
+    ["oa_legacy_system", "system", undefined],
+    ["oa_legacy_manual", "manual", "http://127.0.0.1:7890"],
+  ]);
   service.dispose();
 });
 

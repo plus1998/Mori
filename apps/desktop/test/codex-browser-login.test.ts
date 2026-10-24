@@ -17,7 +17,7 @@ test("recognizes the provider page that is waiting for the local callback", () =
   expect(isCodexAuthCompletionPageText("Signed in to Codex")).toBe(false);
 });
 
-async function start(options: { completed?: boolean; unrelated?: boolean; rpcError?: boolean; exit?: boolean } = {}, onAuthenticated: (signal: AbortSignal) => Promise<void> = async () => {}) {
+async function start(options: { completed?: boolean; unrelated?: boolean; rpcError?: boolean; exit?: boolean; callback?: boolean; callbackStatus?: number; callbackHost?: string; redirectLocation?: string } = {}, onAuthenticated: (signal: AbortSignal) => Promise<void> = async () => {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "eco-browser-login-"));
   cleanup.push(() => fs.rm(root, { recursive: true, force: true }));
   const executable = path.join(root, "codex");
@@ -32,6 +32,29 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   else if (request.method === 'account/login/start') {
     if (request.params.type !== 'chatgpt') process.exit(10);
     if (options.rpcError) return send({ id: request.id, error: { code: -32000, message: 'Login unavailable' } });
+    if (options.callback) {
+      let received = false;
+      const server = require('node:http').createServer((req, res) => {
+        const url = new URL(req.url, 'http://localhost');
+        if (url.pathname === '/success' && received) {
+          res.writeHead(200); res.end('Signed in');
+          send({ method: 'account/login/completed', params: { loginId: 'test-login', success: true } });
+          return;
+        }
+        if (url.pathname !== '/auth/callback' || url.searchParams.get('code') !== 'test-code' || url.searchParams.get('state') !== 'test-state') {
+          res.writeHead(400); res.end(); return;
+        }
+        received = true;
+        res.writeHead(options.callbackStatus || 302, { Location: options.redirectLocation || '/success' }); res.end();
+      });
+      server.listen(0, '127.0.0.1', () => {
+        const auth = new URL('https://auth.openai.com/oauth/authorize');
+        auth.searchParams.set('redirect_uri', 'http://' + (options.callbackHost || '127.0.0.1') + ':' + server.address().port + '/auth/callback');
+        auth.searchParams.set('state', 'test-state');
+        send({ id: request.id, result: { type: 'chatgpt', loginId: 'test-login', authUrl: auth.href } });
+      });
+      return;
+    }
     const response = { id: request.id, result: { type: 'chatgpt', loginId: 'test-login', authUrl: 'https://auth.openai.com/oauth/authorize?client_id=test' } };
     const notification = { method: 'account/login/completed', params: { loginId: 'test-login', success: true } };
     if (options.unrelated) {
@@ -99,4 +122,64 @@ posixOnly("an exit without a completion notification cannot be reported as succe
   const result = await login.result;
   expect(result.success).toBe(false);
   expect(result.message).toContain("登录进程提前退出");
+});
+
+function callbackFor(authUrl: string): URL {
+  const callback = new URL(new URL(authUrl).searchParams.get("redirect_uri")!);
+  callback.searchParams.set("state", "test-state");
+  callback.searchParams.set("code", "test-code");
+  return callback;
+}
+
+for (const host of ["localhost", "127.0.0.1"]) {
+  posixOnly(`pasted ${host} callback visits CLI success page and saves credentials before success`, async () => {
+    let saved = false;
+    const login = await start({ callback: true, callbackHost: host }, async () => { saved = true; });
+    expect(saved).toBe(false);
+    await login.submitCallback(`  ${callbackFor(login.authUrl).href}  `);
+    expect(await login.result).toEqual({ success: true, message: "登录成功" });
+    expect(saved).toBe(true);
+    await expect(login.submitCallback(callbackFor(login.authUrl).href)).rejects.toThrow("本次登录已结束");
+  });
+}
+
+posixOnly("invalid callback destinations and OAuth parameters leave the login available for correction", async () => {
+  const login = await start({ callback: true });
+  const valid = callbackFor(login.authUrl);
+  const invalid = [
+    "not a url",
+    valid.href.replace("127.0.0.1", "example.com"),
+    valid.href.replace("http:", "https:"),
+    valid.href.replace("/auth/callback", "/other"),
+    valid.href.replace("test-state", "another-login"),
+    valid.href.replace("code=test-code", "code="),
+    valid.href + "&state=test-state",
+    valid.href + "&code=other",
+    valid.href + "#fragment",
+    valid.href + "&error=access_denied",
+    valid.href.replace("127.0.0.1:", "user:password@127.0.0.1:"),
+  ];
+  for (const callback of invalid) await expect(login.submitCallback(callback)).rejects.toThrow();
+  await login.submitCallback(valid.href);
+  expect((await login.result).success).toBe(true);
+});
+
+posixOnly("a rejected callback is surfaced without reporting login success", async () => {
+  const login = await start({ callback: true, callbackStatus: 400 });
+  await expect(login.submitCallback(callbackFor(login.authUrl).href)).rejects.toThrow("HTTP 400");
+  login.cancel();
+  expect((await login.result).success).toBe(false);
+});
+
+posixOnly("callback submission never follows redirects outside the CLI success page", async () => {
+  const login = await start({ callback: true, redirectLocation: '/cancel' });
+  await login.submitCallback(callbackFor(login.authUrl).href);
+  login.cancel();
+  expect((await login.result).success).toBe(false);
+});
+
+posixOnly("cancelled logins reject pasted callbacks", async () => {
+  const login = await start({ callback: true });
+  login.cancel();
+  await expect(login.submitCallback(callbackFor(login.authUrl).href)).rejects.toThrow("本次登录已结束");
 });

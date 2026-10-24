@@ -112,7 +112,7 @@ void main() {
       final rows = buildFlatSubagentContextRows(context, l10n: _zh);
       expect(rows, hasLength(1));
       expect(rows.first.key, 'agent_coder_1');
-      expect(rows.first.title, contains('编码'));
+      expect(rows.first.title, contains('编程'));
       expect(rows.first.accentColor, resolveSubagentThemeColor('coder'));
     },
   );

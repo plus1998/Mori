@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
 test("editing a multiline Composer does not clamp its sibling Feed's reading position", async ({ page }) => {
-  const { rendererUrl } = JSON.parse(readFileSync(new URL("../.e2e-env.json", import.meta.url), "utf8"));
+  const rendererUrl = process.env.ECO_COMPOSER_TEST_URL ??
+    JSON.parse(readFileSync(new URL("../.e2e-env.json", import.meta.url), "utf8")).rendererUrl;
   await page.goto(new URL("/e2e/fixtures/composer-height.html", rendererUrl).href);
   const composer = page.getByRole("textbox");
   const feed = page.getByTestId("feed");

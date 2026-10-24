@@ -8,6 +8,21 @@ import 'package:eco_mobile/core/utils/conversation_v2_hash.dart';
 
 void main() {
   test(
+    'catch-up finishes its observed range while the desktop keeps writing',
+    () async {
+      final cache = _FakeCache();
+      final remote = _AdvancingHeadRemote();
+      final engine = ConversationV2SyncEngine(cache: cache, remote: remote);
+      await engine.start('thread_1');
+      expect(remote.headCalls, 1);
+      expect(cache.current?.appliedSeq, 2);
+      expect(engine.state, ConversationV2SyncState.live);
+      await engine.acceptPush(_effect(3), 'thread_1');
+      expect(cache.current?.appliedSeq, 3);
+      await engine.dispose();
+    },
+  );
+  test(
     'negotiates capabilities once for a burst, and again on refresh',
     () async {
       final cache = _FakeCache();
@@ -592,6 +607,42 @@ class _FakeRemote implements ConversationV2Remote {
   );
 }
 
+class _AdvancingHeadRemote extends _FakeRemote {
+  int headCalls = 0;
+  @override
+  Future<ConversationV2Head> head(String conversationId) async {
+    if (++headCalls > 4) throw StateError('Catch-up never yielded to pushes');
+    return ConversationV2Head(
+      protocolVersion: 2,
+      storeEpoch: 'epoch_1',
+      conversationId: conversationId,
+      lastSeq: headCalls + 1,
+      historyRevision: 0,
+    );
+  }
+
+  @override
+  Future<ConversationV2SyncPage> sync(
+    String conversationId,
+    String storeEpoch,
+    int afterSeq, {
+    int? throughSeq,
+    int maxEvents = 200,
+    int maxBytes = 512 * 1024,
+  }) async => ConversationV2SyncPage(
+    protocolVersion: 2,
+    storeEpoch: storeEpoch,
+    conversationId: conversationId,
+    fromSeq: afterSeq + 1,
+    throughSeq: throughSeq!,
+    headSeq: throughSeq + 1,
+    hasMore: true,
+    effects: [
+      for (var seq = afterSeq + 1; seq <= throughSeq; seq++) _effect(seq),
+    ],
+  );
+}
+
 class _HeadAtBootstrapRemote extends _FakeRemote {
   @override
   Future<ConversationV2Bootstrap> bootstrap(
@@ -830,6 +881,9 @@ class _UnknownPrefixRemote extends _FakeRemote {
 }
 
 class _FakeCache implements ConversationV2CachePort {
+  @override
+  Future<String?> effectHash(String conversationId, int seq) async => null;
+
   ConversationV2CacheState? current;
 
   @override

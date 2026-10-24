@@ -149,6 +149,7 @@ interface ThreadRow {
   runtime_config_json: string | null;
   external_session_id: string | null;
   follow_up_queue_paused: number | null;
+  has_composer_draft?: number;
 }
 
 export interface ThreadListCursor {
@@ -614,7 +615,7 @@ const CONVERSATION_V2_RUN_RECONCILE_SOURCE_PREFIX = "desktop:run-reconciled";
  * repair has already run, so startup and conversation loads stop rescanning a
  * conversation that has nothing left to fix.
  */
-const CONVERSATION_V2_REPAIR_CODEX_USER_DUPLICATES = "codex-user-echo-duplicate";
+const CONVERSATION_V2_REPAIR_CODEX_USER_DUPLICATES = "codex-user-echo-duplicate-v2";
 const CONVERSATION_V2_REPAIR_ACCEPTED_PROMPT_DUPLICATES = "accepted-prompt-duplicate";
 
 function normalizeLegacyRunAttemptStatus(value: string): RunAttemptStatus | undefined {
@@ -771,6 +772,16 @@ export class ConversationStore {
         if (row.attachments_json) collectPromptImageContentRefs(row.attachments_json, refs);
       }
     }
+    // Pending schedules survive draft deletion. Occurrence history also owns
+    // references so previews remain readable after one-shot cleanup/restart.
+    for (const table of ["schedule_definitions", "schedule_occurrences"]) {
+      if (!this.tableExists(table)) continue;
+      for (const row of this.db.prepare(`SELECT data FROM ${table}`).all() as Array<{ data: string }>) {
+        const value = JSON.parse(row.data);
+        const definition = table === "schedule_definitions" ? value : value.definition;
+        collectPromptImageContentRefs(definition?.attachments, refs);
+      }
+    }
     return new Set([...refs].filter((ref) => isPromptImageContentRef(ref)));
   }
 
@@ -797,6 +808,17 @@ export class ConversationStore {
     const threadId = key.slice("thread:".length).trim();
     if (!threadId) return false;
     if (this.v2.hasPromptImageContentRef(threadId, ref)) return true;
+    for (const table of ["schedule_definitions", "schedule_occurrences"]) {
+      if (!this.tableExists(table)) continue;
+      const target = table === "schedule_definitions" ? "$.threadId" : "$.definition.threadId";
+      const rows = this.db.prepare(`SELECT data FROM ${table} WHERE json_extract(data, '${target}') = ?`)
+        .all(threadId) as Array<{ data: string }>;
+      for (const row of rows) {
+        const value = JSON.parse(row.data);
+        const definition = table === "schedule_definitions" ? value : value.definition;
+        if (collectPromptImageContentRefs(definition?.attachments).has(ref)) return true;
+      }
+    }
     if (this.isV2OnlyStorage()) return false;
 
     for (const [table, column] of [
@@ -2962,7 +2984,7 @@ export class ConversationStore {
       .filter((entry): entry is ThreadMetricsRecord => entry !== undefined);
   }
 
-  saveThread(thread: ThreadSummary): void {
+  saveThread(thread: ThreadSummary, persistRelated?: (db: DatabaseSyncType) => void): void {
     const now = new Date().toISOString();
     const coreKind = thread.coreKind ?? "claude";
     if (!isCoreKind(coreKind)) {
@@ -3023,6 +3045,7 @@ export class ConversationStore {
       if (!existingThread) {
         this.v2.ensureConversationInCurrentTransaction(thread.id);
       }
+      persistRelated?.(this.db);
       this.db.exec("COMMIT");
     } catch (error) {
       try {
@@ -3822,7 +3845,7 @@ export class ConversationStore {
       return undefined;
     }
     const attachments = normalizeFollowUpAttachmentsForStorage(input.attachments, this.isV2OnlyStorage());
-    const prompt = input.prompt.trim() || (attachments?.length ? "请查看并分析我附上的图片。" : "");
+    const prompt = input.prompt.trim();
     if (!prompt && !attachments?.length) {
       return undefined;
     }
@@ -5115,6 +5138,7 @@ export class ConversationStore {
   bindLatestUserRunEventToSdkMessage(
     threadId: string,
     userMessageId: string,
+    clientUserMessageId?: string,
   ): ThreadActivityLine | undefined {
     const id = userMessageId.trim();
     if (!threadId.trim() || !id) {
@@ -5142,7 +5166,42 @@ export class ConversationStore {
           | { activity_line_id: string; text: string; attachments_json: string | null; created_at: string }
           | undefined);
 
-    const sourceEvents = hasV2Conversation ? this.listConversationRuntimeSources(threadId) : [];
+    let sourceEvents = hasV2Conversation ? this.listConversationRuntimeSources(threadId) : [];
+    const clientId = clientUserMessageId?.trim();
+    if (clientId) {
+      // turn/steer can emit item/completed before its response reaches the host.
+      // The durable queue id identifies the acceptance even when recordUserPrompt
+      // has not run yet. Never bind an explicit client id to an unrelated latest row.
+      const followUp = this.getThreadFollowUp(threadId, clientId);
+      const message = followUp?.conversationMessageId
+        ? this.v2.getMessage(threadId, followUp.conversationMessageId)
+        : undefined;
+      if (!message || message.isDeleted || message.role !== "user") return undefined;
+      if (message.historyTarget?.userMessageId && message.historyTarget.userMessageId !== id) {
+        throw new Error("Codex follow-up receipt conflicts with its accepted message identity.");
+      }
+      sourceEvents = sourceEvents.filter((event) => sourceMessageId(event.metadata) === message.messageId);
+      if (!sourceEvents.length) {
+        const receipt = this.appendConversationRuntimeEvent({
+          id: `codex-follow-up-receipt:${clientId}:${id}`,
+          threadId,
+          eventType: "thread.status",
+          scope: "main",
+          role: "user",
+          streamState: "none",
+          message: message.body,
+          observedAt: new Date().toISOString(),
+          ...(followUp?.sourceRunAttemptId ? { runAttemptId: followUp.sourceRunAttemptId } : {}),
+          metadata: {
+            liveType: "thread.user_prompt",
+            conversationV2MessageId: message.messageId,
+            clientUserMessageId: clientId,
+            rewindTarget: { activityLineId: `codex-pending:${clientId}` },
+          },
+        });
+        sourceEvents = [receipt];
+      }
+    }
     const isUnboundCodexPrompt = (event: ThreadRunEvent): boolean => {
       if (event.role !== "user" || event.eventType !== "thread.status") return false;
       if (event.metadata?.liveType !== "thread.user_prompt") return false;
@@ -6583,9 +6642,9 @@ export class ConversationStore {
   /**
    * Repair the Codex user-item echo that older V2 runtime builds could record
    * beside the already accepted local prompt. A repair is only safe when the
-   * provider echo has a Codex user id and an earlier, same-text local prompt
-   * source identifies exactly which V2 message it belongs to. Ambiguous text
-   * matches are left visible and reported instead of being guessed.
+   * provider echo has a Codex user id and its client id identifies the accepted
+   * follow-up. Older receipts without a client id still require an earlier local
+   * prompt source. A client-id match also covers receipts that preceded that source.
    */
   reconcileConversationV2CodexUserMessageDuplicates(threadId: string): {
     scanned: number;
@@ -6611,6 +6670,7 @@ export class ConversationStore {
     const echoes = sources.filter(
       (event) =>
         event.role === "user" &&
+        event.scope === "main" &&
         event.eventType === "message.final" &&
         event.metadata?.liveType === "message.user" &&
         Boolean(readRewindTarget(event.metadata)?.userMessageId),
@@ -6638,12 +6698,23 @@ export class ConversationStore {
           )
           .filter((candidate) => userMessagesById.has(candidate.messageId))
           .sort((left, right) => right.prompt.sequence - left.prompt.sequence);
-        const canonical = candidates[0];
-        if (!canonical) continue;
-        const equallyRecent = candidates.filter(
-          (candidate) => candidate.prompt.sequence === canonical.prompt.sequence,
-        );
-        if (equallyRecent.length > 1) {
+        const clientId =
+          typeof echo.metadata?.clientUserMessageId === "string"
+            ? echo.metadata.clientUserMessageId.trim()
+            : "";
+        const acceptedId = clientId
+          ? this.getThreadFollowUp(id, clientId)?.conversationMessageId
+          : candidates[0]?.messageId;
+        const canonical = acceptedId ? userMessagesById.get(acceptedId) : undefined;
+        if (!canonical || canonical.isDeleted || canonical.messageId === duplicateMessageId) continue;
+        const equallyRecent = clientId
+          ? []
+          : candidates.filter((candidate) => candidate.prompt.sequence === candidates[0]?.prompt.sequence);
+        if (
+          equallyRecent.length > 1 ||
+          (canonical.historyTarget?.userMessageId &&
+            canonical.historyTarget.userMessageId !== providerUserMessageId)
+        ) {
           ambiguous += 1;
           continue;
         }
@@ -6653,6 +6724,19 @@ export class ConversationStore {
           userMessageId: providerUserMessageId,
         };
         const sourceKey = `desktop:codex-user-duplicate-repair:${id}:${duplicateMessageId}:${canonical.messageId}`;
+        if (canonical.status === "queued") {
+          results.push(
+            this.v2.appendInCurrentTransaction({
+              conversationId: id,
+              eventId: `codex_user_duplicate_finalize_${stableHash(sourceKey)}`,
+              sourceEventKey: `${sourceKey}:finalize`,
+              type: "message.finalized",
+              occurredAt: echo.observedAt,
+              messageId: canonical.messageId,
+              payload: { status: "final" },
+            }),
+          );
+        }
         results.push(
           this.v2.appendInCurrentTransaction({
             conversationId: id,
@@ -6662,6 +6746,39 @@ export class ConversationStore {
             occurredAt: echo.observedAt,
             messageId: canonical.messageId,
             payload: { historyTarget },
+          }),
+        );
+        const localPrompts = promptSources.filter(
+          (prompt) => sourceMessageId(prompt.metadata) === canonical.messageId,
+        );
+        if (localPrompts.length) {
+          this.appendV2ProviderPatch(
+            id,
+            localPrompts.map((prompt) => prompt.id),
+            {
+              streamKey: historyTarget.activityLineId,
+              metadataMerge: {
+                rewindTarget: historyTarget,
+                ...(typeof echo.metadata?.turnId === "string"
+                  ? { codexForkTurnId: echo.metadata.turnId }
+                  : {}),
+              },
+            },
+            `${sourceKey}:source`,
+            { inCurrentTransaction: true, onAppendResult: (result) => results.push(result) },
+          );
+        }
+        // Publish the concrete removal as well as the history revision below.
+        // Incremental clients can drop the duplicate before reloading history.
+        results.push(
+          this.v2.appendInCurrentTransaction({
+            conversationId: id,
+            eventId: `codex_user_duplicate_tombstone_${stableHash(sourceKey)}`,
+            sourceEventKey: `${sourceKey}:tombstone`,
+            type: "message.tombstoned",
+            occurredAt: echo.observedAt,
+            messageId: duplicateMessageId,
+            payload: {},
           }),
         );
         results.push(
@@ -10770,7 +10887,13 @@ const THREAD_SUMMARY_SELECT = `SELECT threads.id AS id,
                 threads.sdk_cwd AS sdk_cwd,
                 threads.runtime_config_json AS runtime_config_json,
                 threads.follow_up_queue_paused AS follow_up_queue_paused,
-                sessions.external_session_id AS external_session_id
+                sessions.external_session_id AS external_session_id,
+                EXISTS (
+                  SELECT 1 FROM composer_drafts
+                  WHERE context_key = 'thread:' || threads.id
+                    AND (TRIM(prompt, char(9, 10, 13, 32)) <> ''
+                      OR (attachments_json IS NOT NULL AND attachments_json <> '[]'))
+                ) AS has_composer_draft
          FROM threads
          LEFT JOIN thread_core_sessions AS sessions ON sessions.thread_id = threads.id`;
 
@@ -10809,6 +10932,7 @@ function rowToThread(row: ThreadRow): ThreadSummary {
     ...(row.external_session_id?.trim() ? { externalSessionId: row.external_session_id.trim() } : {}),
     ...(runtimeConfig ? { runtimeConfig } : {}),
     ...(row.follow_up_queue_paused ? { followUpQueuePaused: true } : {}),
+    ...(row.has_composer_draft ? { hasComposerDraft: true } : {}),
   };
 }
 

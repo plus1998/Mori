@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
+import { AGENT_BROWSER_IDLE_TIMEOUT_MS, agentBrowserProcesses } from "./agent-browser-processes";
 
 export type AgentBrowserCliBridgeInput = {
   binaryPath: string;
@@ -8,6 +9,8 @@ export type AgentBrowserCliBridgeInput = {
   /** Eco page id; never confuse Eco's positional tN labels with CLI tab ids. */
   cdpTargetId?: string;
   sessionKey: string;
+  threadId?: string;
+  browserId?: string;
   env: Record<string, string>;
   toolName: string;
   args: Record<string, unknown>;
@@ -335,11 +338,23 @@ export async function callAgentBrowserToolViaCli(
   input: AgentBrowserCliBridgeInput,
 ): Promise<AgentBrowserMcpToolResult> {
   input.signal?.throwIfAborted();
+  return agentBrowserProcesses.run(input, input.signal, (signal) =>
+    executeAgentBrowserToolViaCli({ ...input, signal }),
+  );
+}
+
+async function executeAgentBrowserToolViaCli(
+  input: AgentBrowserCliBridgeInput,
+): Promise<AgentBrowserMcpToolResult> {
+  input.signal?.throwIfAborted();
   const cliArgs = mapAgentBrowserToolToCliArgs(input.toolName, input.args);
   const cdpEndpoint = input.cdpTargetId
     ? `ws://127.0.0.1:${input.cdpPort}/devtools/browser?targetId=${encodeURIComponent(input.cdpTargetId)}`
     : String(input.cdpPort);
-  const spawnArgs = ["--cdp", cdpEndpoint, "--session", input.sessionKey, "--idle-timeout", "0", ...cliArgs];
+  const spawnArgs = [
+    "--cdp", cdpEndpoint, "--session", input.sessionKey,
+    "--idle-timeout", `${AGENT_BROWSER_IDLE_TIMEOUT_MS}ms`, ...cliArgs,
+  ];
   const timeoutMs = input.timeoutMs ?? 120_000;
 
   return new Promise((resolve) => {
@@ -349,7 +364,7 @@ export async function callAgentBrowserToolViaCli(
         ...input.env,
         AGENT_BROWSER_CDP: cdpEndpoint,
         AGENT_BROWSER_SESSION: input.sessionKey,
-        AGENT_BROWSER_IDLE_TIMEOUT_MS: "0",
+        AGENT_BROWSER_IDLE_TIMEOUT_MS: String(AGENT_BROWSER_IDLE_TIMEOUT_MS),
       },
       windowsHide: true,
     });
