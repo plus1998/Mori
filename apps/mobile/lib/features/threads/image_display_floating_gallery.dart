@@ -19,6 +19,7 @@ typedef ImageDisplayBytesLoader =
 /// Desktop-like floating gallery for `display_image` artifacts.
 ///
 /// Collapsed: bubble with count on the trailing edge.
+/// Starts collapsed and loads image bytes only after an explicit reveal.
 /// Expanded: frosted card with thumbnails; tap opens fullscreen lightbox.
 /// Failed thumbs retry on tap; loading shows percent when available.
 class ImageDisplayFloatingGallery extends StatefulWidget {
@@ -71,7 +72,7 @@ class _ThumbLoadState {
 class _ImageDisplayFloatingGalleryState
     extends State<ImageDisplayFloatingGallery>
     with SingleTickerProviderStateMixin {
-  var _expanded = true;
+  var _expanded = false;
   var _pulse = false;
   String? _highlightId;
   int _lastSeenCount = 0;
@@ -88,9 +89,6 @@ class _ImageDisplayFloatingGalleryState
       duration: const Duration(milliseconds: 700),
     );
     widget.controller?.addListener(_onController);
-    for (final artifact in widget.artifacts) {
-      _ensureLoad(artifact.id);
-    }
   }
 
   @override
@@ -103,7 +101,6 @@ class _ImageDisplayFloatingGalleryState
     final nextCount = widget.artifacts.length;
     if (nextCount > _lastSeenCount) {
       _lastSeenCount = nextCount;
-      _expanded = true;
       _triggerPulse();
       final newest = widget.artifacts.isEmpty ? null : widget.artifacts.last.id;
       _highlightId = newest;
@@ -112,9 +109,7 @@ class _ImageDisplayFloatingGalleryState
     }
     final liveIds = widget.artifacts.map((item) => item.id).toSet();
     _loads.removeWhere((id, _) => !liveIds.contains(id));
-    for (final artifact in widget.artifacts) {
-      _ensureLoad(artifact.id);
-    }
+    if (_expanded) _loadArtifacts();
   }
 
   @override
@@ -133,8 +128,20 @@ class _ImageDisplayFloatingGalleryState
         _expanded = true;
         _highlightId = controller.focusArtifactId;
       });
+      _loadArtifacts();
       _triggerPulse();
     }
+  }
+
+  void _loadArtifacts() {
+    for (final artifact in widget.artifacts) {
+      _ensureLoad(artifact.id);
+    }
+  }
+
+  void _expand() {
+    setState(() => _expanded = true);
+    _loadArtifacts();
   }
 
   void _triggerPulse() {
@@ -264,7 +271,7 @@ class _ImageDisplayFloatingGalleryState
         frosted: true,
         stadium: true,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        onTap: () => setState(() => _expanded = true),
+        onTap: _expand,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

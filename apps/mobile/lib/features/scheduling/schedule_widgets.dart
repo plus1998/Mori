@@ -48,10 +48,12 @@ class ScheduleImages extends StatelessWidget {
     super.key,
     required this.attachments,
     required this.threadId,
+    this.contextKey,
     this.onRemove,
   });
   final List<PromptImageAttachment> attachments;
   final String threadId;
+  final String? contextKey;
   final ValueChanged<int>? onRemove;
 
   @override
@@ -62,7 +64,7 @@ class ScheduleImages extends StatelessWidget {
       for (var i = 0; i < attachments.length; i++)
         _ScheduleImage(
           attachment: attachments[i],
-          threadId: threadId,
+          contextKey: contextKey ?? 'thread:$threadId',
           index: i,
           onRemove: onRemove == null ? null : () => onRemove!(i),
         ),
@@ -73,12 +75,12 @@ class ScheduleImages extends StatelessWidget {
 class _ScheduleImage extends ConsumerStatefulWidget {
   const _ScheduleImage({
     required this.attachment,
-    required this.threadId,
+    required this.contextKey,
     required this.index,
     this.onRemove,
   });
   final PromptImageAttachment attachment;
-  final String threadId;
+  final String contextKey;
   final int index;
   final VoidCallback? onRemove;
   @override
@@ -120,7 +122,7 @@ class _ScheduleImageState extends ConsumerState<_ScheduleImage> {
     final rpc = ref.watch(desktopRpcProvider);
     final identity = (
       rpc?.desktopDeviceId,
-      widget.threadId,
+      widget.contextKey,
       a.contentRef,
       a.mediaType,
       a.data,
@@ -133,7 +135,7 @@ class _ScheduleImageState extends ConsumerState<_ScheduleImage> {
           throw StateError('Image content is unavailable');
         }
         return rpc.downloadPromptImage(
-          contextKey: 'thread:${widget.threadId}',
+          contextKey: widget.contextKey,
           contentRef: a.contentRef!,
           mediaType: a.mediaType,
         );

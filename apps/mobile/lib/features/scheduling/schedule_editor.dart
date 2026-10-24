@@ -24,6 +24,7 @@ Future<bool?> showScheduleEditor(
   String? threadId,
   String initialPrompt = '',
   List<PromptImageAttachment> initialAttachments = const [],
+  ScheduledMessageNewThread? newThread,
 }) => Navigator.of(context, rootNavigator: true).push<bool>(
   MaterialPageRoute(
     fullscreenDialog: true,
@@ -32,6 +33,7 @@ Future<bool?> showScheduleEditor(
       threadId: threadId,
       initialPrompt: initialPrompt,
       initialAttachments: initialAttachments,
+      newThread: newThread,
     ),
   ),
 );
@@ -43,11 +45,13 @@ class ScheduleEditor extends ConsumerStatefulWidget {
     this.threadId,
     this.initialPrompt = '',
     this.initialAttachments = const [],
+    this.newThread,
   });
   final ScheduleDefinition? definition;
   final String? threadId;
   final String initialPrompt;
   final List<PromptImageAttachment> initialAttachments;
+  final ScheduledMessageNewThread? newThread;
   @override
   ConsumerState<ScheduleEditor> createState() => _ScheduleEditorState();
 }
@@ -229,8 +233,9 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
         final index = i;
         await stagePromptImageAttachments(
           rpc: rpc,
-          contextKey:
-              'thread:${widget.threadId ?? widget.definition!.threadId}',
+          contextKey: widget.newThread != null
+              ? 'landing:${widget.newThread!.workspacePath}'
+              : 'thread:${widget.threadId ?? widget.definition!.threadId}',
           attachments: [_attachments[index]],
           onUpdate: (next) {
             if (mounted) setState(() => _attachments[index] = next.single);
@@ -286,6 +291,7 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
           'kind': _isMessage ? 'session_message' : 'scheduled_task',
           ...fields,
           if (_isMessage) 'threadId': widget.threadId,
+          if (widget.newThread != null) 'newThread': widget.newThread!.toJson(),
         },
         _trigger,
         timingIdentity: [
@@ -438,6 +444,9 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
                             if (_attachments.isNotEmpty)
                               ScheduleImages(
                                 attachments: _attachments,
+                                contextKey: widget.newThread != null
+                                    ? 'landing:${widget.newThread!.workspacePath}'
+                                    : null,
                                 threadId:
                                     widget.threadId ??
                                     widget.definition!.threadId!,

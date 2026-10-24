@@ -1,28 +1,41 @@
 import { ArrowLeft, ChevronDown, Clock3, X } from "lucide-react";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import type { ThreadSummary } from "../shared/ipc";
-import type { ScheduleCreateInput, ScheduleDefinition, ScheduleOccurrence } from "../shared/scheduling";
+import type { PromptImageAttachment } from "../shared/ipc";
+import type { ScheduleCreateInput, ScheduleDefinition, ScheduleOccurrence, ScheduledMessageNewThread } from "../shared/scheduling";
 import { initialScheduledMessageForm, scheduledMessageLatenessFor, scheduledMessageName, scheduledMessageTriggerFor, type ScheduledMessageForm } from "./scheduled-message-form";
 import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { ScheduleDurationField } from "./ScheduleDurationField";
+import { fromPromptImageAttachments, hydrateComposerImageAttachments, revokeComposerAttachmentPreviews, type ComposerImageAttachment } from "./composer-attachments";
+import { stageScheduledMessageImages } from "./scheduled-message-attachments";
 import "./scheduling.css";
 
-export function ScheduledMessageDialog({ thread, definition, occurrences, onClose, onSaved, anchorRef, triggerRef, onBack }: {
-  thread: ThreadSummary;
+export function ScheduledMessageDialog({ threadId, newThread, initialPrompt = "", initialAttachments = [], imageContextKey, definition, occurrences, onClose, onSaved, anchorRef, triggerRef, onBack }: {
+  threadId: string;
+  newThread?: ScheduledMessageNewThread | undefined;
+  initialPrompt?: string | undefined;
+  initialAttachments?: readonly ComposerImageAttachment[] | undefined;
+  imageContextKey?: string | undefined;
   anchorRef?: RefObject<HTMLElement | null> | undefined;
   triggerRef?: RefObject<HTMLElement | null> | undefined;
   onBack?: (() => void) | undefined;
   definition?: ScheduleDefinition | undefined;
   occurrences: readonly ScheduleOccurrence[];
   onClose(): void;
-  onSaved(): void;
+  onSaved(): void | Promise<void>;
 }) {
   const { t, i18n } = useTranslation();
   const dialogRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const preparedCreate = useRef<{ formKey: string; input: ScheduleCreateInput } | null>(null);
-  const [form, setForm] = useState(() => initialScheduledMessageForm(definition));
+  const [form, setForm] = useState(() => ({ ...initialScheduledMessageForm(definition), ...(!definition ? { prompt: initialPrompt } : {}) }));
+  const [images, setImages] = useState(() => definition
+    ? fromPromptImageAttachments(definition.attachments ?? [])
+    : initialAttachments.map(image => ({ ...image, previewUrl: "" })));
+  const initialImages = useRef(images);
+  const imagePreviews = useRef<ComposerImageAttachment[]>([]);
+  const uploadedImages = useRef(new Map<string, PromptImageAttachment>());
+  const contextKey = imageContextKey ?? `thread:${threadId}`;
   const [advanced, setAdvanced] = useState(() => Boolean(definition && definition.trigger.type !== "at"));
   // The open/closed choice the user made themselves, if any; otherwise the send type drives it.
   const advancedManual = useRef<boolean | undefined>(undefined);
@@ -38,21 +51,38 @@ export function ScheduledMessageDialog({ thread, definition, occurrences, onClos
     return () => { if (previous?.isConnected) previous.focus(); };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    for (const image of initialImages.current.filter(item => !item.previewUrl)) {
+      void hydrateComposerImageAttachments([image], contextKey, request => window.eco!.readPromptImageChunk(request))
+        .then(([loaded]) => {
+          if (!loaded) return;
+          if (!loaded.previewUrl) throw new Error("图片预览不可用 / Image preview is unavailable");
+          if (cancelled) { revokeComposerAttachmentPreviews([loaded]); return; }
+          imagePreviews.current.push(loaded);
+          setImages(current => current.map(item => item.id === image.id ? loaded : item));
+        }).catch(caught => { if (!cancelled) setError(String(caught)); });
+    }
+    return () => { cancelled = true; };
+  }, [contextKey]);
+  useEffect(() => () => revokeComposerAttachmentPreviews(imagePreviews.current), []);
+
   async function save() {
     setBusy(true); setError("");
     try {
       const api = window.eco!;
-      const common = { name: scheduledMessageName(form), prompt: form.prompt, maxLatenessSeconds: scheduledMessageLatenessFor(form) };
+      const attachments = await stageScheduledMessageImages(images, contextKey, request => api.stagePromptImage(request), uploadedImages.current);
+      const common = { name: scheduledMessageName(form) || (attachments.length ? t("scheduling.imageMessage") : ""), prompt: form.prompt, attachments, maxLatenessSeconds: scheduledMessageLatenessFor(form) };
       if (definition) await api.updateSchedule({ id: definition.id, expectedRevision: definition.revision, enabled: form.enabled, trigger: scheduledMessageTriggerFor(form), ...common });
       else {
         // Keep both the request ID and absolute deadline stable if an IPC response is lost.
-        const formKey = JSON.stringify(form);
+        const formKey = JSON.stringify({ form, attachments, threadId, newThread });
         if (preparedCreate.current?.formKey !== formKey) preparedCreate.current = {
-          formKey, input: { kind: "session_message", requestId: crypto.randomUUID(), threadId: thread.id, trigger: scheduledMessageTriggerFor(form), ...common },
+          formKey, input: { kind: "session_message", requestId: crypto.randomUUID(), threadId, ...(newThread ? { newThread } : {}), trigger: scheduledMessageTriggerFor(form), ...common },
         };
         await api.createSchedule(preparedCreate.current.input);
       }
-      onSaved();
+      await onSaved();
     } catch (caught) { setError(String(caught)); }
     finally { setBusy(false); }
   }
@@ -81,9 +111,16 @@ export function ScheduledMessageDialog({ thread, definition, occurrences, onClos
       </div><button disabled={busy} className="scheduling-icon" onClick={onClose} aria-label={t("common.close")}><X size={20}/></button></header>
       <main className="scheduling-detail">
         {error && <p className="scheduling-error" role="alert">{error}</p>}
+        {newThread && <p className="scheduling-hint">{t("scheduling.newConversationHint")}</p>}
         <form id="scheduled-message-form" onSubmit={event => { event.preventDefault(); void save(); }}>
           <fieldset disabled={busy}>
-            <label>{t("scheduling.messageContent")}<textarea data-panel-autofocus ref={promptRef} required rows={anchorRef ? 3 : 4} value={form.prompt} placeholder={t("scheduling.messagePlaceholder")} onChange={event => update({ prompt: event.target.value })}/></label>
+            <label>{t("scheduling.messageContent")}<textarea data-panel-autofocus ref={promptRef} required={!images.length} rows={anchorRef ? 3 : 4} value={form.prompt} placeholder={t("scheduling.messagePlaceholder")} onChange={event => update({ prompt: event.target.value })}/></label>
+            {images.length > 0 && <ul className="composer-attachments" aria-label={t("app.pastedImages")}>
+              {images.map((image, index) => <li key={image.id} className="composer-attachment">
+                {image.previewUrl ? <img className="scheduled-message-image" src={image.previewUrl} alt={`${t("app.pastedImages")} ${index + 1}`}/> : <span className="composer-attachment-preview-missing">{t("app.imagePreviewUnavailable")}</span>}
+                <button type="button" className="composer-attachment-remove" aria-label={t("app.removeImage")} onClick={() => setImages(current => current.filter(item => item.id !== image.id))}><X size={14}/></button>
+              </li>)}
+            </ul>}
             <label>{t("scheduling.sendTiming")}<select value={form.timingMode} onChange={event => {
               const timingMode = event.target.value as ScheduledMessageForm["timingMode"];
               update({ timingMode });

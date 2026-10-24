@@ -44,26 +44,31 @@ class _IOSComposerSendButtonState extends State<IOSComposerSendButton> {
   Map<String, Object>? _lastConfiguration;
 
   Future<void> _handleMethodCall(MethodCall call) async {
-    if (!mounted || widget.busy || widget.onSend == null) return;
+    if (!mounted || widget.busy) return;
     switch (call.method) {
       case 'pressed':
-        widget.onSend!();
+        widget.onSend?.call();
       case 'selected':
         switch (call.arguments) {
           case 'queue':
-            widget.onSendWithMode?.call(FollowUpDeliveryMode.queue);
+            if (widget.onSend != null) {
+              widget.onSendWithMode?.call(FollowUpDeliveryMode.queue);
+            }
           case 'schedule':
             widget.onSchedule?.call();
           case 'steer':
-            widget.onSendWithMode?.call(FollowUpDeliveryMode.steer);
+            if (widget.onSend != null) {
+              widget.onSendWithMode?.call(FollowUpDeliveryMode.steer);
+            }
         }
     }
   }
 
   Map<String, Object> _configuration() => {
-    'enabled': widget.onSend != null && !widget.busy,
+    'enabled':
+        (widget.onSend != null || widget.onSchedule != null) && !widget.busy,
     'busy': widget.busy,
-    'allowDelivery': widget.onSendWithMode != null,
+    'allowDelivery': widget.onSend != null && widget.onSendWithMode != null,
     'allowSchedule': widget.onSchedule != null,
     'backgroundColor': widget.backgroundColor.toARGB32(),
     'foregroundColor': widget.foregroundColor.toARGB32(),

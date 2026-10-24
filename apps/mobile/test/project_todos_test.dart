@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:eco_mobile/core/models/eco_types.dart';
 import 'package:eco_mobile/core/models/project_models.dart';
@@ -17,6 +18,7 @@ import 'package:eco_mobile/features/todos/todo_editor.dart';
 import 'package:eco_mobile/features/todos/todo_providers.dart';
 import 'package:eco_mobile/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -52,6 +54,7 @@ class TodoClient extends EcoCenterClient {
   bool malformedChunk = false;
   final deleted = <String>{};
   final imageBytes = List<int>.generate(150000, (i) => i % 251);
+  final uploadedImageBytes = <int>[];
 
   @override
   Future<T> invoke<T>(
@@ -63,6 +66,18 @@ class TodoClient extends EcoCenterClient {
     calls.add((channel: channel, args: args));
     dynamic result;
     switch (channel) {
+      case 'prompt-image:upload-begin':
+        result = {'receivedBytes': uploadedImageBytes.length};
+      case 'prompt-image:upload-chunk':
+        final input = args.first as Map;
+        uploadedImageBytes.addAll(base64Decode(input['data'] as String));
+        result = {'receivedBytes': uploadedImageBytes.length};
+      case 'prompt-image:upload-finish':
+        result = {
+          'path': '/desktop/todo.png',
+          'contentRef': 'todo-image-ref',
+          'byteLength': uploadedImageBytes.length,
+        };
       case 'workspace:open-path':
         result = {
           'path': args.first,
@@ -166,6 +181,67 @@ Widget app(TodoClient client, {Widget? home, double scale = 1}) =>
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  testWidgets(
+    'adding a todo image avoids full photo metadata and uploads on save',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(390, 844);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final directory = Directory.systemTemp.createTempSync('eco-todo-image-');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final bytes = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGNQSlv1H4QZYAwASUAIxW/CcsIAAAAASUVORK5CYII=',
+      );
+      final file = File('${directory.path}/todo.png')..writeAsBytesSync(bytes);
+      const channel = MethodChannel('plugins.flutter.io/image_picker');
+      final picks = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        picks.add(call);
+        return file.path;
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        ),
+      );
+      final client = TodoClient();
+      await tester.pumpWidget(app(client));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('New to-do'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Add image'));
+        for (var attempt = 0; attempt < 100; attempt++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          await tester.pump();
+          if (find.byTooltip('Remove image').evaluate().isNotEmpty) break;
+        }
+      });
+      await tester.pumpAndSettle();
+      expect(picks.single.method, 'pickImage');
+      expect((picks.single.arguments as Map)['requestFullMetadata'], isFalse);
+      expect(find.byTooltip('Remove image'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      expect(client.uploadedImageBytes, isEmpty);
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TodoEditor), findsNothing);
+      expect(client.uploadedImageBytes, bytes);
+      final saved = client.calls.lastWhere(
+        (c) => c.channel == 'project-todo:save',
+      );
+      final image =
+          ((saved.args.single as Map)['images'] as List).single as Map;
+      expect(image['contentRef'], 'todo-image-ref');
+      expect(image['thumbnail'], startsWith('data:image/png;base64,'));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   test(
     'downloads original image chunks and rejects a stalled transfer',
     () async {

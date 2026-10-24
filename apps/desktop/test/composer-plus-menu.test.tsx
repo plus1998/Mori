@@ -41,3 +41,13 @@ test("plus menu can hide the runtime configuration row", () => {
   expect(markup).not.toContain("配置");
   expect(markup).not.toContain("定时消息");
 });
+
+test("an unstarted conversation offers scheduling its first message", () => {
+  const markup = renderLocalized(createElement(ComposerPlusMenuPanel, {
+    sessionMode: "agent", canEditMode: true, canOpenRoute: true,
+    newConversation: true, onSelectMode: () => {}, onPickImage: () => {},
+    onOpenRoute: () => {}, onAddScheduledMessage: () => {},
+  }), "zh-CN");
+  expect(markup).toContain("定时消息");
+  expect(markup).toContain("让第一条消息在指定时间发送");
+});

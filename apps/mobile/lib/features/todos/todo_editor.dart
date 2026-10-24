@@ -107,7 +107,10 @@ class _TodoEditorState extends ConsumerState<TodoEditor> {
       _error = null;
     });
     try {
-      final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+      final file = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        requestFullMetadata: false,
+      );
       if (file == null || !mounted) return;
       if (await file.length() > todoMaxImageBytes) {
         if (mounted) setState(() => _error = l.todosImageTooLarge);
@@ -120,24 +123,16 @@ class _TodoEditorState extends ConsumerState<TodoEditor> {
       }
       final bytes = await file.readAsBytes();
       final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-      late ui.Codec codec;
-      try {
-        final descriptor = await ui.ImageDescriptor.encoded(buffer);
-        try {
-          final scale = math.min(
-            1.0,
-            224 / math.max(descriptor.width, descriptor.height),
+      final codec = await ui.instantiateImageCodecWithSize(
+        buffer,
+        getTargetSize: (width, height) {
+          final scale = math.min(1.0, 224 / math.max(width, height));
+          return ui.TargetImageSize(
+            width: math.max(1, (width * scale).round()),
+            height: math.max(1, (height * scale).round()),
           );
-          codec = await descriptor.instantiateCodec(
-            targetWidth: math.max(1, (descriptor.width * scale).round()),
-            targetHeight: math.max(1, (descriptor.height * scale).round()),
-          );
-        } finally {
-          descriptor.dispose();
-        }
-      } finally {
-        buffer.dispose();
-      }
+        },
+      );
       String thumbnail;
       try {
         final frame = await codec.getNextFrame();

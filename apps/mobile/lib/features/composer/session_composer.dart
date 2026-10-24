@@ -7,10 +7,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/locale/app_localizations_ext.dart';
 import '../../core/locale/app_error_localizations.dart';
 import '../../core/models/asr_models.dart';
+import '../../core/models/scheduling_models.dart';
 import '../../core/models/thread_models.dart';
 import '../../core/models/acp_host_ui_features.dart';
 import '../../core/models/thread_runtime_config.dart';
@@ -64,6 +66,7 @@ class SessionComposer extends ConsumerStatefulWidget {
     this.coreKind,
     this.onCoreKindChanged,
     this.hostUiFeatures = AcpHostUiFeatures.showAll,
+    this.onScheduledThreadCreated,
   });
 
   final TextEditingController controller;
@@ -92,6 +95,7 @@ class SessionComposer extends ConsumerStatefulWidget {
   final String? coreKind;
   final ValueChanged<String>? onCoreKindChanged;
   final AcpHostUiFeatures hostUiFeatures;
+  final ValueChanged<String>? onScheduledThreadCreated;
 
   @override
   ConsumerState<SessionComposer> createState() => _SessionComposerState();
@@ -174,19 +178,42 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
   }
 
   Future<void> _handleSchedule() async {
-    if (!_canSend || widget.threadId.isEmpty || widget.followUpMode) return;
+    if (!_canSchedule ||
+        widget.followUpMode ||
+        widget.sendBusy ||
+        widget.isRunning) {
+      return;
+    }
     final draft = widget.controller.text;
     final images = List<PromptImageAttachment>.of(widget.attachments);
+    final isNew = widget.threadId.isEmpty;
+    final threadId = isNew ? 'thr_${const Uuid().v4()}' : widget.threadId;
     _focusNode.unfocus();
     final editor = showScheduleEditor(
       context,
-      threadId: widget.threadId,
+      threadId: threadId,
       initialPrompt: draft,
       initialAttachments: images,
+      newThread: isNew
+          ? ScheduledMessageNewThread(
+              workspacePath: widget.workspacePath,
+              coreKind: widget.coreKind!,
+              runtimeConfig: widget.runtimeConfig,
+            )
+          : null,
     );
     _clearScheduledDraft(draft, images);
-    await editor;
+    final saved = await editor;
+    if (mounted && isNew && saved == true) {
+      widget.onScheduledThreadCreated?.call(threadId);
+    }
   }
+
+  bool get _canSchedule =>
+      widget.threadId.isNotEmpty ||
+      (widget.workspacePath.trim().isNotEmpty &&
+          widget.coreKind != null &&
+          widget.onScheduledThreadCreated != null);
 
   void _clearScheduledDraft(String draft, List<PromptImageAttachment> images) {
     if (!mounted ||
@@ -607,9 +634,7 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                           _SendButton(
                             busy: widget.sendBusy,
                             onSend: _canSend ? _handleSend : null,
-                            onSchedule: widget.threadId.isNotEmpty
-                                ? _handleSchedule
-                                : null,
+                            onSchedule: _canSchedule ? _handleSchedule : null,
                           ),
                       ],
                     ),
@@ -782,7 +807,8 @@ class _SendButton extends StatelessWidget {
   final VoidCallback? onSchedule;
 
   Future<void> _chooseMode(BuildContext context) async {
-    if (onSend == null || (onSendWithMode == null && onSchedule == null)) {
+    if (busy ||
+        (onSchedule == null && (onSend == null || onSendWithMode == null))) {
       return;
     }
     HapticFeedback.selectionClick();
@@ -793,12 +819,12 @@ class _SendButton extends StatelessWidget {
       context: context,
       position: RelativeRect.fromRect(rect, Offset.zero & overlay.size),
       items: [
-        if (onSendWithMode != null)
+        if (onSend != null && onSendWithMode != null)
           PopupMenuItem(
             value: 'queue',
             child: Text(context.l10n.composerSendQueue),
           ),
-        if (onSendWithMode != null)
+        if (onSend != null && onSendWithMode != null)
           PopupMenuItem(
             value: 'steer',
             child: Text(context.l10n.composerSendSteer),
@@ -851,7 +877,7 @@ class _SendButton extends StatelessWidget {
       child: Builder(
         builder: (anchorContext) => InkWell(
           onTap: onSend,
-          onLongPress: !enabled
+          onLongPress: busy || (!enabled && onSchedule == null)
               ? null
               : (onSchedule != null || onSendWithMode != null)
               ? () => _chooseMode(anchorContext)

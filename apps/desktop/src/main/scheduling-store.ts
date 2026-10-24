@@ -54,13 +54,15 @@ export class SchedulingStore {
     `).get());
   }
   insert(definition: ScheduleDefinition, creationKey: string): ScheduleDefinition {
-    this.transaction(() => {
-      this.db.prepare("INSERT INTO schedule_definitions(id, creation_key, enabled, next_run_at, data) VALUES(?,?,?,?,?)")
-        .run(definition.id, creationKey, Number(definition.enabled), definition.nextRunAt, JSON.stringify(definition));
-      this.db.prepare("INSERT INTO schedule_creation_receipts(creation_key,schedule_id) VALUES(?,?)").run(creationKey, definition.id);
-      if (definition.source === "agent" && definition.kind === "session_message") this.db.prepare("INSERT INTO schedule_agent_wakeups(id,thread_id,created_at) VALUES(?,?,?)").run(definition.id, definition.threadId!, definition.createdAt);
-    });
+    this.transaction(() => this.insertInTransaction(this.db, definition, creationKey));
     return definition;
+  }
+  /** The caller owns the transaction, including creation of a new conversation. */
+  insertInTransaction(db: DatabaseSync, definition: ScheduleDefinition, creationKey: string): void {
+    db.prepare("INSERT INTO schedule_definitions(id, creation_key, enabled, next_run_at, data) VALUES(?,?,?,?,?)")
+      .run(definition.id, creationKey, Number(definition.enabled), definition.nextRunAt, JSON.stringify(definition));
+    db.prepare("INSERT INTO schedule_creation_receipts(creation_key,schedule_id) VALUES(?,?)").run(creationKey, definition.id);
+    if (definition.source === "agent" && definition.kind === "session_message") db.prepare("INSERT INTO schedule_agent_wakeups(id,thread_id,created_at) VALUES(?,?,?)").run(definition.id, definition.threadId!, definition.createdAt);
   }
   save(definition: ScheduleDefinition): void {
     this.db.prepare("UPDATE schedule_definitions SET enabled=?, next_run_at=?, data=? WHERE id=?")

@@ -45,6 +45,7 @@ class Client extends EcoCenterClient {
   final calls = <({String channel, List<dynamic> args})>[];
   bool failCreate = false;
   bool failRun = false;
+  String? imageData;
   Map<String, dynamic> snapshot = {
     'schedules': <dynamic>[],
     'occurrences': <dynamic>[],
@@ -60,6 +61,20 @@ class Client extends EcoCenterClient {
     if ((channel == 'scheduling:create' && failCreate) ||
         (channel == 'scheduling:run-now' && failRun)) {
       throw EcoCenterException.native('response lost');
+    }
+    if (channel == 'prompt-image:read-chunk' && imageData != null) {
+      final input = args.single as Map;
+      final length = base64Decode(imageData!).length;
+      return {
+            'contentRef': input['contentRef'],
+            'mediaType': input['mediaType'],
+            'offset': 0,
+            'nextOffset': length,
+            'totalBytes': length,
+            'data': imageData,
+            'complete': true,
+          }
+          as T;
     }
     if (channel == 'prompt-image:upload-begin') {
       return {'receivedBytes': 0} as T;
@@ -266,6 +281,115 @@ void main() {
     expect(client.calls.last.args.single, first);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'new conversation schedule stages images under landing and retries one creation',
+    (tester) async {
+      final client = Client()..failCreate = true;
+      const newThread = ScheduledMessageNewThread(
+        workspacePath: '/workspace',
+        coreKind: 'acp',
+        runtimeConfig: ThreadRuntimeConfig(
+          subagentEnabled: {},
+          sessionMode: 'agent',
+          bashReviewMode: 'manual',
+          cursorModelId: 'fixed-model',
+        ),
+      );
+      await tester.pumpWidget(
+        app(
+          client,
+          const ScheduleEditor(
+            threadId: 'thr_reserved',
+            newThread: newThread,
+            initialPrompt: 'First message at the scheduled time',
+            initialAttachments: [
+              PromptImageAttachment(
+                id: 'first-image',
+                mediaType: 'image/png',
+                data:
+                    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nGkAAAAASUVORK5CYII=',
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        client.calls,
+        isEmpty,
+        reason: 'Opening or cancelling creates no server records',
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(
+        client.calls.first.args.single['contextKey'],
+        'landing:/workspace',
+      );
+      final first = client.calls.last.args.single as Map;
+      expect(first['kind'], 'session_message');
+      expect(first['threadId'], 'thr_reserved');
+      expect(first['newThread'], newThread.toJson());
+      expect(first['prompt'], 'First message at the scheduled time');
+      expect(first['attachments'], hasLength(1));
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(client.calls.last.args.single, first);
+      expect(
+        client.calls.where((c) => c.channel == 'prompt-image:upload-finish'),
+        hasLength(1),
+      );
+      expect(client.calls.where((c) => c.channel == 'thread:start'), isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'new conversation previews restored images using their landing authorization',
+    (tester) async {
+      final client = Client()
+        ..imageData =
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nGkAAAAASUVORK5CYII=';
+      await tester.pumpWidget(
+        app(
+          client,
+          ScheduleEditor(
+            threadId: 'thr_not_created_yet',
+            newThread: const ScheduledMessageNewThread(
+              workspacePath: '/workspace',
+              coreKind: 'acp',
+              runtimeConfig: ThreadRuntimeConfig(
+                subagentEnabled: {},
+                sessionMode: 'agent',
+                bashReviewMode: 'manual',
+                cursorModelId: 'fixed-model',
+              ),
+            ),
+            initialAttachments: [
+              PromptImageAttachment(
+                mediaType: 'image/png',
+                data: '',
+                contentRef: 'sha256:${'a' * 64}',
+                byteLength: base64Decode(client.imageData!).length,
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final reads = client.calls.where(
+        (c) => c.channel == 'prompt-image:read-chunk',
+      );
+      expect(reads, hasLength(1));
+      expect(reads.single.args.single['contextKey'], 'landing:/workspace');
+      expect(find.text('Failed to read the image.'), findsNothing);
+      expect(
+        client.calls.where((c) => c.channel == 'scheduling:create'),
+        isEmpty,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'todo image-only draft uploads once and keeps exact scheduling identity on retry',

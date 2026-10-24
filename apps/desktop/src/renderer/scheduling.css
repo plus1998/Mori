@@ -118,10 +118,11 @@
 .composer-schedule-panel .scheduling-form-actions button { border-radius: 999px; padding: 6px 12px; font-size: 11px; line-height: 1.3; }
 .composer-schedule-panel .scheduling-error { padding: 8px 0; }
 .scheduled-message-dialog > .scheduling-form-actions { flex-shrink: 0; margin: 0; padding: 14px 26px 20px; }
-.composer-schedule-panel .scheduling-detail { max-height: 320px; }
 .composer-schedule-panel .scheduled-message-dialog > .scheduling-form-actions { margin: 0; padding: 6px 12px 8px; border-top: 1px solid var(--border-subtle); }
 
 .composer-schedule-panel .scheduling-detail label { gap: 5px; margin-bottom: 10px; }
 .composer-schedule-panel .scheduled-message-duration-field { margin-bottom: 10px; }
 
 .composer-schedule-panel .scheduling-hint { margin-bottom: 8px; }
+.scheduled-message-dialog button.composer-attachment-remove { padding: 0; border: 0; border-radius: 999px; background: rgba(0,0,0,.62); color: #fff; }
+.scheduled-message-dialog button.composer-attachment-remove:hover { background: rgba(0,0,0,.85); }

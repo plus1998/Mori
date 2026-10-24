@@ -10,6 +10,24 @@ String scheduleTimestamp(DateTime value) => DateTime.fromMillisecondsSinceEpoch(
   isUtc: true,
 ).toIso8601String();
 
+class ScheduledMessageNewThread {
+  const ScheduledMessageNewThread({
+    required this.workspacePath,
+    required this.coreKind,
+    required this.runtimeConfig,
+  });
+  final String workspacePath, coreKind;
+  final ThreadRuntimeConfigInput runtimeConfig;
+
+  Map<String, dynamic> toJson() => {
+    'workspacePath': workspacePath,
+    'executionProfile': {
+      'coreKind': coreKind,
+      'runtimeConfig': runtimeConfig.toJson(),
+    },
+  };
+}
+
 class ScheduleDefinition {
   ScheduleDefinition.fromJson(Map<String, dynamic> json)
     : id = json['id'] as String,

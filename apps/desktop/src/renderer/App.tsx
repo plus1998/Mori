@@ -212,7 +212,7 @@ import {
   resolvePromptCacheOrchestrationLabel,
 } from "../shared/prompt-cache-config";
 import { resolveDraftCoreKindWhenAcpHidden } from "../shared/resolve-draft-core-kind-when-acp-hidden";
-import type { ScheduleDefinition } from "../shared/scheduling";
+import type { ScheduleDefinition, ScheduledMessageNewThread } from "../shared/scheduling";
 import {
   dedupeSkillsByName,
   isSkillAvailableForCore,
@@ -1259,6 +1259,8 @@ function App() {
   const [scheduledMessageEditor, setScheduledMessageEditor] = useState<{
     threadId: string;
     definition?: ScheduleDefinition;
+    newThread?: ScheduledMessageNewThread;
+    draft?: { contextKey: string; prompt: string; attachments: ComposerImageAttachment[] };
   }>();
   const [scheduledMessagesReveal, setScheduledMessagesReveal] = useState<{
     threadId: string;
@@ -11880,6 +11882,20 @@ function App() {
             ? t("thread.action.saveFollowUp")
             : t("thread.action.send");
   const composerActionClassName = ["send-button", composerActionMode].filter(Boolean).join(" ");
+  const scheduledMessageEditorOnComposer = Boolean(scheduledMessageEditor && (
+    scheduledMessageEditor.threadId === activeThread?.id || scheduledMessageEditor.draft?.contextKey === composerContextKey
+  ));
+  function openComposerScheduledMessage() {
+    if (!window.eco || !composerContextKey || (!activeThread && (!currentProjectPath || !composerRuntimeConfig))) return;
+    setScheduledMessageEditor({
+      threadId: activeThread?.id ?? `thr_${crypto.randomUUID()}`,
+      ...(!activeThread ? { newThread: {
+        workspacePath: currentProjectPath!,
+        executionProfile: { coreKind: composerCoreKind, runtimeConfig: structuredClone(composerRuntimeConfig!) },
+      } } : {}),
+      draft: { contextKey: composerContextKey, prompt: composerPromptRef.current, attachments: [...composerAttachmentsRef.current] },
+    });
+  }
   const composerCompact = !showLanding;
   useLayoutEffect(() => {
     // The same editor survives landing → conversation. Its CSS minimum height
@@ -12297,7 +12313,7 @@ function App() {
                         buttonRef={composerPlusButtonRef}
                         anchorRef={composerAnchorRef}
                         open={composerPlusMenuOpen}
-                        panelActive={composerPlusMenuOpen || composerRoutePopoverOpen || Boolean(scheduledMessageEditor && scheduledMessageEditor.threadId === activeThread?.id)}
+                        panelActive={composerPlusMenuOpen || composerRoutePopoverOpen || scheduledMessageEditorOnComposer}
                         sessionMode={composerRuntimeConfig?.sessionMode ?? "agent"}
                         canEditMode={canEditComposerConfig}
                         canOpenRoute={canOpenComposerRoute}
@@ -12306,10 +12322,11 @@ function App() {
                         onSelectMode={(mode) => void selectComposerSessionMode(mode)}
                         onPickImage={() => composerImageInputRef.current?.click()}
                         onAddScheduledMessage={
-                          activeThread && window.eco
-                            ? () => setScheduledMessageEditor({ threadId: activeThread.id })
+                          window.eco && composerContextKey && (activeThread || (currentProjectPath && composerRuntimeConfig))
+                            ? openComposerScheduledMessage
                             : undefined
                         }
+                        newConversation={!activeThread}
                         onOpenRoute={() => {
                           openComposerRoutePopover("plus");
                         }}
@@ -13291,18 +13308,37 @@ function App() {
       )}
       {scheduledMessageEditor &&
         window.eco &&
-        threads.find((thread) => thread.id === scheduledMessageEditor.threadId) && (
+        (scheduledMessageEditor.newThread || threads.some((thread) => thread.id === scheduledMessageEditor.threadId)) && (
           <SuspensePanel>
             <LazyScheduledMessageDialog
               key={scheduledMessageEditor.definition?.id ?? scheduledMessageEditor.threadId}
-              thread={threads.find((thread) => thread.id === scheduledMessageEditor.threadId)!}
+              threadId={scheduledMessageEditor.threadId}
+              newThread={scheduledMessageEditor.newThread}
+              initialPrompt={scheduledMessageEditor.draft?.prompt}
+              initialAttachments={scheduledMessageEditor.draft?.attachments}
+              imageContextKey={scheduledMessageEditor.draft?.contextKey}
               definition={scheduledMessageEditor.definition}
-              anchorRef={scheduledMessageEditor.threadId === activeThread?.id ? composerAnchorRef : undefined}
+              anchorRef={scheduledMessageEditorOnComposer ? composerAnchorRef : undefined}
               triggerRef={composerPlusButtonRef}
               onBack={() => { setScheduledMessageEditor(undefined); setComposerPlusMenuOpen(true); }}
               occurrences={scheduling.snapshot.occurrences}
               onClose={() => setScheduledMessageEditor(undefined)}
-              onSaved={() => {
+              onSaved={async () => {
+                const createdThread = scheduledMessageEditor.newThread
+                  ? await window.eco!.getThread(scheduledMessageEditor.threadId) : undefined;
+                if (scheduledMessageEditor.newThread && !createdThread) throw new Error(t("scheduling.threadMissing"));
+                const draft = scheduledMessageEditor.draft;
+                if (draft && composerContextKeyRef.current === draft.contextKey &&
+                  composerPromptRef.current === draft.prompt && composerAttachmentsRef.current.length === draft.attachments.length &&
+                  composerAttachmentsRef.current.every((image, index) => image === draft.attachments[index])) {
+                  removeComposerDraft(draft.contextKey);
+                  revokeComposerAttachmentPreviews(composerAttachmentsRef.current);
+                  composerAttachmentsRef.current = [];
+                  setPrompt("");
+                  setComposerAttachments([]);
+                  setComposerRewindTarget(undefined);
+                  setComposerImageNotice(undefined);
+                }
                 dismissTaskPanel();
                 void scheduling.refresh();
                 setScheduledMessagesReveal({
@@ -13310,7 +13346,11 @@ function App() {
                   requestId: Date.now(),
                 });
                 setScheduledMessageEditor(undefined);
-                if (scheduledMessageEditor.threadId === activeThread?.id) setComposerPlusMenuOpen(true);
+                if (createdThread) {
+                  setThreads(current => current.some(thread => thread.id === createdThread.id)
+                    ? current.map(thread => thread.id === createdThread.id ? createdThread : thread) : [createdThread, ...current]);
+                  selectThread(createdThread);
+                }
               }}
             />
           </SuspensePanel>

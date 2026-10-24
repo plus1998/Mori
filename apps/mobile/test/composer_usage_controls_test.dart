@@ -13,6 +13,7 @@ import 'package:eco_mobile/features/composer/composer_context_ring.dart';
 import 'package:eco_mobile/features/composer/composer_controls.dart';
 import 'package:eco_mobile/features/composer/composer_toolbar_icon.dart';
 import 'package:eco_mobile/features/composer/session_composer.dart';
+import 'package:eco_mobile/features/scheduling/schedule_editor.dart';
 import 'package:eco_mobile/features/threads/thread_providers.dart';
 import 'package:eco_mobile/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -484,9 +485,10 @@ void main() {
     expect(find.text('5.6 Sol'), findsNothing);
   });
 
-  testWidgets(
-    'idle long press offers scheduling; selection transfers text and images',
-    (tester) async {
+  for (final newThread in [false, true]) {
+    testWidgets('long press transfers text and images for newThread=$newThread', (
+      tester,
+    ) async {
       final controller = TextEditingController(text: 'Schedule this idea');
       addTearDown(controller.dispose);
       final images = [
@@ -506,7 +508,11 @@ void main() {
               controller: controller,
               attachments: images,
               runtimeConfig: modelRuntimeConfig,
-              threadId: 'thread-1',
+              threadId: newThread ? '' : 'thread-1',
+              workspacePath: '/workspace',
+              coreKind: 'claude',
+              onScheduledThreadCreated: (_) =>
+                  fail('Cancel must not create a thread'),
               isRunning: false,
               hasActivity: true,
               onPickImage: () {},
@@ -539,6 +545,10 @@ void main() {
         findsOneWidget,
       );
       expect(find.byTooltip('Remove image 1'), findsOneWidget);
+      final editor = tester.widget<ScheduleEditor>(find.byType(ScheduleEditor));
+      expect(editor.newThread?.workspacePath, newThread ? '/workspace' : null);
+      expect(editor.newThread?.coreKind, newThread ? 'claude' : null);
+      expect(editor.threadId, newThread ? startsWith('thr_') : 'thread-1');
       expect(sends, 0);
       expect(controller.text, isEmpty);
       expect(images, isEmpty);
@@ -546,6 +556,49 @@ void main() {
       await tester.pumpAndSettle();
       expect(controller.text, isEmpty);
       expect(images, isEmpty);
+      expect(sends, 0);
+    });
+  }
+
+  testWidgets(
+    'empty new conversation can long press to compose its first scheduled message',
+    (tester) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      var sends = 0;
+      await tester.pumpWidget(
+        _TestApp(
+          modelSettings: modelSettings,
+          child: SessionComposer(
+            controller: controller,
+            attachments: const [],
+            runtimeConfig: modelRuntimeConfig,
+            threadId: '',
+            workspacePath: '/workspace',
+            coreKind: 'claude',
+            isRunning: false,
+            hasActivity: false,
+            onPickImage: () {},
+            onRemoveAttachment: (_) {},
+            onSend: () => sends++,
+            onStop: () {},
+            onRuntimeConfigChanged: (_) {},
+            onScheduledThreadCreated: (_) => fail('Not saved'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(EcoIcons.send));
+      expect(sends, 0);
+      await tester.longPress(find.byIcon(EcoIcons.send));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Schedule send'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ScheduleEditor), findsOneWidget);
+      expect(
+        tester.widget<ScheduleEditor>(find.byType(ScheduleEditor)).newThread,
+        isNotNull,
+      );
       expect(sends, 0);
     },
   );

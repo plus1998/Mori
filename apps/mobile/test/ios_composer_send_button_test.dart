@@ -160,10 +160,23 @@ void main() {
       await native('selected', 'schedule');
       expect(schedules, 1);
       expect(sends, 2);
+      rebuild(() => enabled = false);
+      await tester.pump();
+      expect(
+        updates.last['enabled'],
+        isTrue,
+        reason: 'Empty composer still offers scheduling',
+      );
+      await native('pressed');
+      expect(sends, 2);
+      await native('selected', 'schedule');
+      expect(schedules, 2);
+      rebuild(() => enabled = true);
+      await tester.pump();
       rebuild(() => busy = true);
       await tester.pump();
       await native('selected', 'schedule');
-      expect(schedules, 1);
+      expect(schedules, 2);
       rebuild(() {
         busy = false;
         scheduling = false;
@@ -172,7 +185,7 @@ void main() {
       expect(updates.last['allowDelivery'], isTrue);
       expect(updates.last['allowSchedule'], isFalse);
       await native('selected', 'schedule');
-      expect(schedules, 1);
+      expect(schedules, 2);
 
       await tester.pumpWidget(const SizedBox.shrink());
       await native('pressed');

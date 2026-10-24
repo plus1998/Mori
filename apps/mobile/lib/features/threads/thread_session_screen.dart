@@ -1020,6 +1020,13 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                             onRemoveAttachment: (index) =>
                                 setState(() => _attachments.removeAt(index)),
                             onSend: _startNewThread,
+                            onScheduledThreadCreated: (threadId) {
+                              unawaited(
+                                ref.read(threadListProvider.notifier).refresh(),
+                              );
+                              ref.invalidate(projectWorkspaceContextProvider);
+                              context.go('/threads/$threadId');
+                            },
                             onStop: () {},
                             onRuntimeConfigChanged: (config) {
                               ref.read(runtimeConfigProvider.notifier).state =

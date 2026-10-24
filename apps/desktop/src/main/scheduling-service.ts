@@ -1,6 +1,7 @@
 import type {
   ScheduleCreateInput, ScheduleDefinition, ScheduleExecutionProfile, ScheduleOccurrence,
   ScheduleOccurrenceStatus, ScheduleUpdateInput,
+  ScheduledMessageNewThread,
 } from "../shared/scheduling";
 import { stableHash } from "@eco/shared";
 import { normalizeScheduleTrigger, nextScheduleTime } from "./schedule-time";
@@ -12,6 +13,7 @@ export interface SchedulingDeps {
   inheritProfile(threadId: string): { workspacePath: string; executionProfile: ScheduleExecutionProfile };
   validateProfile(profile: ScheduleExecutionProfile): void;
   assertThread(threadId: string): void;
+  createThreadWithSchedule?(definition: ScheduleDefinition, creationKey: string, input: ScheduledMessageNewThread): void;
   canDispatch(occurrence: ScheduleOccurrence): boolean;
   dispatch(occurrence: ScheduleOccurrence): Promise<{ threadId: string; followUpId?: string }>;
   inspect(occurrence: ScheduleOccurrence): { status: ScheduleOccurrenceStatus; error?: string };
@@ -46,9 +48,12 @@ export class SchedulingService {
     const prompt = attachments.length && typeof input.prompt === "string" && !input.prompt.trim()
       ? "" : requiredText(input.prompt, "指令");
     const maxLatenessSeconds = lateness(input.maxLatenessSeconds);
+    const newThread = input.kind === "session_message" ? input.newThread : undefined;
+    if (newThread && actor.source !== "user") throw new Error("Agent 不能预建定时消息会话。");
     const requestedTrigger = normalizeScheduleTrigger(input.trigger);
     const creationSignature = stableHash({ kind: input.kind, name, prompt, maxLatenessSeconds,
       ...(attachments.length ? { attachments } : {}),
+      ...(newThread ? { newThread } : {}),
       trigger: actor.source === "agent" && input.kind === "session_message" && actor.wakeDelaySeconds !== undefined
         ? { delaySeconds: actor.wakeDelaySeconds } : requestedTrigger,
       ...(input.kind === "session_message" ? { threadId: input.threadId } : actor.source === "user" ? { workspacePath: input.workspacePath, executionProfile: input.executionProfile } : {}),
@@ -67,7 +72,12 @@ export class SchedulingService {
     if (!nextRunAt) throw new Error("触发时间必须在未来。");
     let target: Pick<ScheduleDefinition, "threadId" | "workspacePath" | "executionProfile">;
     if (input.kind === "session_message") {
-      this.deps.assertThread(input.threadId);
+      requiredText(input.threadId, "目标会话", 200);
+      if (newThread) {
+        requiredText(newThread.workspacePath, "工作目录");
+        this.deps.validateProfile(newThread.executionProfile);
+        if (!this.deps.createThreadWithSchedule) throw new Error("当前服务不支持新会话定时消息。");
+      } else this.deps.assertThread(input.threadId);
       if (actor.source === "agent") {
         if (actor.threadId !== input.threadId) throw new Error("Agent 只能唤醒当前会话。");
         if (trigger.type !== "at" || Date.parse(nextRunAt) - nowMs < 60_000 || Date.parse(nextRunAt) - nowMs > 86400_000) throw new Error("Agent 唤醒必须为 60 秒至 24 小时之间的一次性消息。");
@@ -89,7 +99,8 @@ export class SchedulingService {
       source: actor.source, ...(actor.threadId ? { originThreadId: actor.threadId } : {}), ...structuredClone(target),
       revision: 1, nextRunAt, createdAt: now, updatedAt: now,
     };
-    this.store.insert(definition, key);
+    if (newThread) this.deps.createThreadWithSchedule!(definition, key, newThread);
+    else this.store.insert(definition, key);
     this.deps.onChanged();
     return definition;
   }

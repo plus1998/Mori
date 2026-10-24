@@ -13,6 +13,12 @@ export interface ScheduleExecutionProfile {
   runtimeConfig: ThreadRuntimeConfig;
 }
 
+/** Reserve an idle conversation and its first scheduled message in one commit. */
+export interface ScheduledMessageNewThread {
+  workspacePath: string;
+  executionProfile: ScheduleExecutionProfile;
+}
+
 export type ScheduleCreateInput = {
   /** Stable key: retries of the same creation return the same definition. */
   requestId: string;
@@ -20,7 +26,7 @@ export type ScheduleCreateInput = {
   trigger: ScheduleTrigger;
   maxLatenessSeconds?: number;
 } & (
-  | { kind: "session_message"; threadId: string; prompt: string; attachments?: PromptImageAttachment[] }
+  | { kind: "session_message"; threadId: string; prompt: string; attachments?: PromptImageAttachment[]; newThread?: ScheduledMessageNewThread }
   | { kind: "scheduled_task"; workspacePath: string; prompt: string; executionProfile: ScheduleExecutionProfile }
 );
 

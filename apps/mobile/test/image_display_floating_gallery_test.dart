@@ -11,7 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
-    'live image appears, opens fullscreen and reveals again from the menu',
+    'live images stay collapsed until tapped, then open fullscreen and reveal from the menu',
     (tester) async {
       final controller = ImageDisplayFloatingGalleryController();
       addTearDown(controller.dispose);
@@ -41,6 +41,11 @@ void main() {
       );
       expect(find.byType(Image), findsNothing);
       rebuild(() => artifacts = [_artifact]);
+      await tester.pumpAndSettle();
+      expect(find.text('Menu screenshot'), findsNothing);
+      expect(find.text('1'), findsOneWidget);
+      expect(reads, 0);
+      await tester.tap(find.byIcon(Icons.photo_library_outlined));
       await tester.pumpAndSettle();
       expect(find.text('Menu screenshot'), findsOneWidget);
       expect(
@@ -80,6 +85,79 @@ void main() {
   );
 
   testWidgets(
+    'entering and reentering a session defers image reads until revealed',
+    (tester) async {
+      final controller = ImageDisplayFloatingGalleryController();
+      addTearDown(controller.dispose);
+      var artifacts = <ImageDisplayArtifact>[_artifact];
+      var inSession = true;
+      var reads = 0;
+      late StateSetter rebuild;
+      await tester.pumpWidget(
+        _app(
+          StatefulBuilder(
+            builder: (_, setState) {
+              rebuild = setState;
+              return Stack(
+                children: [
+                  if (inSession)
+                    ImageDisplayFloatingGallery(
+                      artifacts: artifacts,
+                      controller: controller,
+                      loadBytes: (_, {onProgress}) async {
+                        reads++;
+                        return _image;
+                      },
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
+      expect(find.byType(Image), findsNothing);
+      expect(reads, 0);
+
+      rebuild(() {});
+      await tester.pumpAndSettle();
+      expect(reads, 0, reason: 'Feed rebuilds do not read collapsed images');
+
+      controller.reveal(artifactId: _artifact.id);
+      await tester.pumpAndSettle();
+      expect(find.byType(Image), findsOneWidget);
+      expect(reads, 1);
+      await tester.tap(find.byTooltip('Collapse'));
+      await tester.pumpAndSettle();
+
+      rebuild(() => artifacts = [_artifact, _newestArtifact]);
+      await tester.pumpAndSettle();
+      expect(find.text('2'), findsOneWidget);
+      expect(find.byType(Image), findsNothing);
+      expect(reads, 1, reason: 'New images do not load while collapsed');
+
+      await tester.tap(find.byIcon(Icons.photo_library_outlined));
+      await tester.pumpAndSettle();
+      expect(reads, 2, reason: 'Reopening reuses the previously loaded image');
+      expect(find.text('Newest screenshot'), findsOneWidget);
+
+      rebuild(() => inSession = false);
+      await tester.pumpAndSettle();
+      rebuild(() => inSession = true);
+      await tester.pumpAndSettle();
+      expect(find.text('2'), findsOneWidget);
+      expect(find.byType(Image), findsNothing);
+      expect(reads, 2, reason: 'Reentering a session does not reload images');
+
+      controller.reveal(artifactId: _newestArtifact.id);
+      await tester.pumpAndSettle();
+      expect(find.text('Newest screenshot'), findsOneWidget);
+      expect(reads, 4, reason: 'Explicitly revealing loads the current images');
+    },
+  );
+
+  testWidgets(
     'failed images do not retry on feed rebuilds; a tap retries once',
     (tester) async {
       var reads = 0;
@@ -109,6 +187,9 @@ void main() {
           ),
         ),
       );
+      await tester.pumpAndSettle();
+      expect(reads, 0);
+      await tester.tap(find.byIcon(Icons.photo_library_outlined));
       await tester.pumpAndSettle();
       expect(reads, 1);
       rebuild(() {});

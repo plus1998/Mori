@@ -2984,7 +2984,7 @@ export class ConversationStore {
       .filter((entry): entry is ThreadMetricsRecord => entry !== undefined);
   }
 
-  saveThread(thread: ThreadSummary): void {
+  saveThread(thread: ThreadSummary, persistRelated?: (db: DatabaseSyncType) => void): void {
     const now = new Date().toISOString();
     const coreKind = thread.coreKind ?? "claude";
     if (!isCoreKind(coreKind)) {
@@ -3045,6 +3045,7 @@ export class ConversationStore {
       if (!existingThread) {
         this.v2.ensureConversationInCurrentTransaction(thread.id);
       }
+      persistRelated?.(this.db);
       this.db.exec("COMMIT");
     } catch (error) {
       try {

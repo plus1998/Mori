@@ -47,6 +47,7 @@ import { SchedulingMcpGateway } from "./scheduling-mcp-gateway";
 import { freezeSchedulingProfile } from "./scheduling-profile";
 import { verifySchedulingAttachments } from "./scheduling-attachments";
 import { enqueueScheduledMessage } from "./scheduling-message-dispatch";
+import { saveNewScheduledMessageThread } from "./scheduling-new-thread";
 import { SchedulingService } from "./scheduling-service";
 import { canDispatchScheduledMessageStatus } from "./scheduling-dispatch-policy";
 import { SchedulingStore } from "./scheduling-store";
@@ -4848,6 +4849,13 @@ function registerIpcHandlers(): void {
       input = { ...input, attachments: await verifySchedulingAttachments(input.attachments, ref => promptImageFileStore.readContentRefAttachment(ref)) };
     if (input.kind === "scheduled_task")
       input = { ...input, executionProfile: pinSchedulingProfile(input.executionProfile) };
+    if (input.kind === "session_message" && input.newThread) {
+      const workspacePath = input.newThread.workspacePath;
+      if (typeof workspacePath !== "string" || !workspacePath.trim()) throw new Error("工作目录不能为空。");
+      const workspace = await inspectWorkspace(path.resolve(workspacePath));
+      input = { ...input, newThread: { workspacePath: workspace.path,
+        executionProfile: pinSchedulingProfile(input.newThread.executionProfile) } };
+    }
     return schedulingService.create(input);
   });
   registerDesktopCommand(IPC_CHANNELS.schedulingUpdate, async (input: ScheduleUpdateInput) =>
@@ -13736,6 +13744,10 @@ function createSchedulingService(dbPath: string): SchedulingService {
     validateProfile: validateSchedulingProfile,
     assertThread: (threadId) => {
       if (!conversationStore.getThread(threadId)) throw new Error("目标会话不存在。");
+    },
+    createThreadWithSchedule: (definition, creationKey, input) => {
+      const thread = saveNewScheduledMessageThread(definition, creationKey, input, conversationStore, schedulingService.store);
+      emitThreadEvent(thread.id, "thread.created", "");
     },
     canDispatch: (occurrence) => {
       if (occurrence.definition.kind === "scheduled_task") {
