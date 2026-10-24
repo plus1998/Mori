@@ -1,6 +1,6 @@
 import type { ThreadSummary } from "./ipc";
 
-export function isCodexAuthThread(thread: ThreadSummary): boolean {
+export function isCodexAuthThread(thread: Pick<ThreadSummary, "coreKind" | "runtimeConfig">): boolean {
   if (thread.coreKind !== "codex") return false;
   const config = thread.runtimeConfig;
   const providerId =

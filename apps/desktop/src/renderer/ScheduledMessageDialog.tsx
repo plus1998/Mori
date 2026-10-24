@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, Clock3, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, Clock3, LoaderCircle, X } from "lucide-react";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type { PromptImageAttachment } from "../shared/ipc";
@@ -8,11 +8,15 @@ import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { ScheduleDurationField } from "./ScheduleDurationField";
 import { fromPromptImageAttachments, hydrateComposerImageAttachments, revokeComposerAttachmentPreviews, type ComposerImageAttachment } from "./composer-attachments";
 import { stageScheduledMessageImages } from "./scheduled-message-attachments";
+import { CodexQuotaMonitor, type CodexQuotaReminderSnapshot } from "./codex-quota-reminder";
+import { nextScheduledMessageQuotaReset } from "./scheduled-message-quota";
+import { localScheduleDate } from "./schedule-form";
 import "./scheduling.css";
 
-export function ScheduledMessageDialog({ threadId, newThread, initialPrompt = "", initialAttachments = [], imageContextKey, definition, occurrences, onClose, onSaved, anchorRef, triggerRef, onBack }: {
+export function ScheduledMessageDialog({ threadId, newThread, usesChatGptLogin = false, initialPrompt = "", initialAttachments = [], imageContextKey, definition, occurrences, onClose, onSaved, anchorRef, triggerRef, onBack }: {
   threadId: string;
   newThread?: ScheduledMessageNewThread | undefined;
+  usesChatGptLogin?: boolean;
   initialPrompt?: string | undefined;
   initialAttachments?: readonly ComposerImageAttachment[] | undefined;
   imageContextKey?: string | undefined;
@@ -42,8 +46,64 @@ export function ScheduledMessageDialog({ threadId, newThread, initialPrompt = ""
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<string[]>([]);
+  const quotaMonitor = useRef<CodexQuotaMonitor | undefined>(undefined);
+  const quotaSnapshotRef = useRef<CodexQuotaReminderSnapshot | undefined>(undefined);
+  const quotaErrorRef = useRef<string | undefined>(undefined);
+  const [quotaSnapshot, setQuotaSnapshot] = useState<CodexQuotaReminderSnapshot>();
+  const [quotaLoading, setQuotaLoading] = useState(false);
+  const [quotaError, setQuotaError] = useState<string>();
+  const showQuotaReset = usesChatGptLogin && !definition;
+  const quotaResetAt = quotaSnapshot ? nextScheduledMessageQuotaReset(quotaSnapshot.quota) : undefined;
   const update = (value: Partial<typeof form>) => { setForm(current => ({ ...current, ...value })); setPreview([]); setError(""); };
   const formatTime = (at: string) => new Date(at).toLocaleString(i18n.language);
+
+  useEffect(() => {
+    const api = window.eco;
+    if (!showQuotaReset || !api) return;
+    const monitor = new CodexQuotaMonitor(api, {
+      enabled: () => true,
+      onChange: (snapshot) => {
+        quotaSnapshotRef.current = snapshot;
+        setQuotaSnapshot(snapshot);
+        quotaErrorRef.current = undefined;
+        setQuotaError(undefined);
+      },
+      onError: (message) => {
+        quotaErrorRef.current = message;
+        setQuotaError(message);
+      },
+    });
+    quotaMonitor.current = monitor;
+    const unsubscribe = api.onOpenAIAccountsChanged(() => { void monitor.accountsChanged(); });
+    setQuotaLoading(true);
+    void monitor.refresh().finally(() => {
+      if (quotaMonitor.current === monitor) setQuotaLoading(false);
+    });
+    return () => {
+      quotaMonitor.current = undefined;
+      quotaSnapshotRef.current = undefined;
+      unsubscribe();
+      monitor.dispose();
+    };
+  }, [showQuotaReset]);
+
+  async function selectQuotaReset() {
+    const monitor = quotaMonitor.current;
+    if (!monitor || quotaLoading) return;
+    setQuotaLoading(true);
+    setQuotaError(undefined);
+    quotaErrorRef.current = undefined;
+    // Choosing this shortcut explicitly refreshes the current account once.
+    await monitor.refresh(true);
+    if (quotaMonitor.current !== monitor) return;
+    const snapshot = quotaSnapshotRef.current;
+    const at = snapshot && !snapshot.switching ? nextScheduledMessageQuotaReset(snapshot.quota) : undefined;
+    if (!quotaErrorRef.current) {
+      if (at) update({ timingMode: "schedule", at: localScheduleDate(at), originalAt: at });
+      else setQuotaError(t("scheduling.quotaResetUnavailable"));
+    }
+    setQuotaLoading(false);
+  }
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -113,7 +173,7 @@ export function ScheduledMessageDialog({ threadId, newThread, initialPrompt = ""
         {error && <p className="scheduling-error" role="alert">{error}</p>}
         {newThread && <p className="scheduling-hint">{t("scheduling.newConversationHint")}</p>}
         <form id="scheduled-message-form" onSubmit={event => { event.preventDefault(); void save(); }}>
-          <fieldset disabled={busy}>
+          <fieldset disabled={busy || quotaLoading}>
             <label>{t("scheduling.messageContent")}<textarea data-panel-autofocus ref={promptRef} required={!images.length} rows={anchorRef ? 3 : 4} value={form.prompt} placeholder={t("scheduling.messagePlaceholder")} onChange={event => update({ prompt: event.target.value })}/></label>
             {images.length > 0 && <ul className="composer-attachments" aria-label={t("app.pastedImages")}>
               {images.map((image, index) => <li key={image.id} className="composer-attachment">
@@ -131,6 +191,13 @@ export function ScheduledMessageDialog({ threadId, newThread, initialPrompt = ""
               <option value="delay">{t("scheduling.delayMode")}</option><option value="schedule">{t("scheduling.atMode")}</option>
               <option value="interval">{t("scheduling.interval")}</option><option value="cron">{t("scheduling.cronTiming")}</option>
             </select></label>
+            {showQuotaReset ? <div className="scheduled-message-quota-reset">
+              <button type="button" aria-busy={quotaLoading} onClick={() => void selectQuotaReset()}>
+                {quotaLoading ? <LoaderCircle size={14} className="mcp-spin"/> : <Clock3 size={14}/>}{t("scheduling.atQuotaReset")}
+              </button>
+              {quotaResetAt ? <span className="scheduling-hint">{formatTime(quotaResetAt)}</span> : null}
+              {quotaError ? <p className="scheduling-error" role="alert">{quotaError}</p> : null}
+            </div> : null}
             {form.timingMode === "delay" || form.timingMode === "interval" ? <ScheduleDurationField label={t(form.timingMode === "delay" ? "scheduling.sendAfter" : "scheduling.repeatInterval")} value={form.duration} minSeconds={60} suffix={form.timingMode === "delay" ? t("scheduling.afterSend") : undefined} onChange={duration => update({ duration })}/> : null}
             {form.timingMode === "schedule" || form.timingMode === "interval" ? <label>{t(form.timingMode === "interval" ? "scheduling.firstSendTime" : "scheduling.sendTime")}<input type="datetime-local" step={1} required value={form.at} onChange={event => update({ at: event.target.value })}/></label> : null}
             {form.timingMode === "cron" ? <div className="scheduling-fields">
@@ -152,7 +219,7 @@ export function ScheduledMessageDialog({ threadId, newThread, initialPrompt = ""
           </fieldset>
         </form>
       </main>
-      <footer className="scheduling-form-actions"><button disabled={busy} form="scheduled-message-form" className="scheduling-primary" type="submit">{t(busy ? "scheduling.saving" : definition ? "scheduling.save" : "scheduling.scheduleSend")}</button></footer>
+      <footer className="scheduling-form-actions"><button disabled={busy || quotaLoading} form="scheduled-message-form" className="scheduling-primary" type="submit">{t(busy ? "scheduling.saving" : definition ? "scheduling.save" : "scheduling.scheduleSend")}</button></footer>
     </div>;
   return anchorRef ? <ComposerAbovePanel anchorRef={anchorRef} triggerRef={triggerRef} className="composer-schedule-panel" label={t(definition ? "scheduling.editMessage" : "scheduling.addMessage")} onClose={() => { if (!busy) onClose(); }}>{content}</ComposerAbovePanel>
     : <div className="scheduling-backdrop" onClick={() => { if (!busy) onClose(); }}>{content}</div>;

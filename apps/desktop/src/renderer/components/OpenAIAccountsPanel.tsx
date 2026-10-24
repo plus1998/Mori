@@ -14,6 +14,7 @@ import {
   Pencil,
   RefreshCw,
   MoreHorizontal,
+  GripVertical,
   Globe2,
   ShieldCheck,
   UserRound,
@@ -42,6 +43,12 @@ import { AccountModelCatalogSection } from "./AccountModelCatalogSection";
 import { CodexExternalLoginDialog } from "./CodexExternalLoginDialog";
 import type { CodexModelCatalogSnapshot } from "../../shared/models";
 import { latestLunaModelId } from "../../shared/codex-wake-model";
+import {
+  moveOpenAIAccount,
+  OPENAI_ACCOUNT_ORDER_STORAGE_KEY,
+  readOpenAIAccountOrder,
+  sortOpenAIAccounts,
+} from "../openai-account-order";
 
 type Translate = TFunction<"translation", undefined>;
 
@@ -343,6 +350,9 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
   const eco = window.eco;
   const [accounts, setAccounts] = useState<OpenAIAccount[]>([]);
+  const [accountOrder, setAccountOrder] = useState<string[]>([]);
+  const [draggedAccountId, setDraggedAccountId] = useState<string | null>(null);
+  const [accountDropTarget, setAccountDropTarget] = useState<{ id: string; position: "before" | "after" } | null>(null);
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
   const [pendingAccountId, setPendingAccountId] = useState<string | null | undefined>();
   const [syncStatus, setSyncStatus] = useState<OpenAIAccountSyncStatus>({ state: "ok" });
@@ -373,6 +383,16 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   });
   const menuRef = useRef<HTMLDivElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    try {
+      setAccountOrder(readOpenAIAccountOrder(window.localStorage));
+    } catch (error) {
+      setOperationError(t("settings.openaiAccounts.orderLoadFailed", {
+        message: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }, [t]);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -603,13 +623,35 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     }
   }, [accounts, eco, quotaLoading, quotaLoadingId, refreshAccountQuota, refresh]);
 
-  // Filtered accounts
+  const orderedAccounts = useMemo(
+    () => sortOpenAIAccounts(accounts, accountOrder, activeAccountId),
+    [accounts, accountOrder, activeAccountId],
+  );
+
+  function reorderAccount(draggedId: string, targetId: string, position: "before" | "after") {
+    if (draggedId === targetId) return;
+    const next = moveOpenAIAccount(orderedAccounts.map((account) => account.id), draggedId, targetId, position);
+    try {
+      window.localStorage.setItem(OPENAI_ACCOUNT_ORDER_STORAGE_KEY, JSON.stringify(next));
+      setAccountOrder(next);
+    } catch (error) {
+      setOperationError(t("settings.openaiAccounts.orderSaveFailed", {
+        message: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }
+
+  function clearAccountDrag() {
+    setDraggedAccountId(null);
+    setAccountDropTarget(null);
+  }
+
+  // Filter after ordering so hidden accounts retain their saved positions.
   const filteredAccounts = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return accounts.filter((a) => (!query || a.name.toLowerCase().includes(query) || a.email?.toLowerCase().includes(query))
-      && (statusFilter === "all" || (statusFilter === "ready" ? a.isLoggedIn : !a.isLoggedIn)))
-      .sort((a, b) => Number(b.id === activeAccountId) - Number(a.id === activeAccountId));
-  }, [accounts, searchQuery, statusFilter, activeAccountId]);
+    return orderedAccounts.filter((a) => (!query || a.name.toLowerCase().includes(query) || a.email?.toLowerCase().includes(query))
+      && (statusFilter === "all" || (statusFilter === "ready" ? a.isLoggedIn : !a.isLoggedIn)));
+  }, [orderedAccounts, searchQuery, statusFilter]);
 
   useCodexQuotaResetRefresh(filteredAccounts, eco, refresh, onError);
 
@@ -995,7 +1037,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         </div>
       ) : (
         <div className="codex-account-list">
-          {filteredAccounts.map((account) => {
+          {filteredAccounts.map((account, accountIndex) => {
             const accountQuota = account.quota;
             const isActive = activeAccountId === account.id;
             const isPending = pendingAccountId === account.id || (pendingAccountId !== undefined && isActive);
@@ -1028,7 +1070,27 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             return (
               <article
                 key={account.id}
-                className={`codex-account-card ${isActive ? "is-active" : ""}`}
+                className={`codex-account-card ${isActive ? "is-active" : ""} ${draggedAccountId === account.id ? "is-dragging" : ""} ${accountDropTarget?.id === account.id ? `is-drop-${accountDropTarget.position}` : ""}`}
+                onDragOver={(event) => {
+                  if (!draggedAccountId || busy || draggedAccountId === account.id) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const position = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                  setAccountDropTarget((current) => current?.id === account.id && current.position === position
+                    ? current : { id: account.id, position });
+                }}
+                onDragLeave={(event) => {
+                  if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+                  setAccountDropTarget((current) => current?.id === account.id ? null : current);
+                }}
+                onDrop={(event) => {
+                  if (!draggedAccountId || busy) return;
+                  event.preventDefault();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  reorderAccount(draggedAccountId, account.id, event.clientY < rect.top + rect.height / 2 ? "before" : "after");
+                  clearAccountDrag();
+                }}
               >
                 <div className="codex-account-card-main">
                   <div className="codex-account-avatar">
@@ -1051,6 +1113,34 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                     {status}
                   </span>
                   <div className="codex-account-actions">
+                    <button
+                      type="button"
+                      className="mcp-icon-button codex-account-drag-handle"
+                      draggable={!busy}
+                      disabled={busy}
+                      aria-label={t("settings.openaiAccounts.reorderAccount", { name: account.name })}
+                      title={t("settings.openaiAccounts.reorderHint")}
+                      aria-keyshortcuts="ArrowUp ArrowDown"
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", account.id);
+                        const card = event.currentTarget.closest("article");
+                        if (card) event.dataTransfer.setDragImage(card, 24, 24);
+                        setMenuOpenId(null);
+                        setDraggedAccountId(account.id);
+                      }}
+                      onDragEnd={clearAccountDrag}
+                      onKeyDown={(event) => {
+                        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+                        if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                        event.preventDefault();
+                        const previous = event.key === "ArrowUp";
+                        const target = filteredAccounts[accountIndex + (previous ? -1 : 1)];
+                        if (target) reorderAccount(account.id, target.id, previous ? "before" : "after");
+                      }}
+                    >
+                      <GripVertical size={15} />
+                    </button>
                     {!isActive && account.isLoggedIn ? (
                       <button
                         type="button"

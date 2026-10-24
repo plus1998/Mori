@@ -51,6 +51,11 @@
 .scheduled-message-dialog .scheduling-header { padding-bottom: 0; }
 .scheduled-message-dialog .scheduling-detail { flex: 1; min-height: 0; }
 .scheduled-message-dialog fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.scheduled-message-quota-reset { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: -4px 0 14px; }
+.scheduled-message-quota-reset button { display: inline-flex; align-items: center; gap: 6px; }
+.scheduled-message-quota-reset .scheduling-hint,
+.scheduled-message-quota-reset .scheduling-error { margin: 0; }
+.scheduled-message-quota-reset .scheduling-error { flex-basis: 100%; }
 .scheduled-message-duration-field { margin-bottom: 15px; }
 .scheduled-message-duration-field label { margin-bottom: 7px; }
 .scheduled-message-duration { display: flex; align-items: center; gap: 8px; }

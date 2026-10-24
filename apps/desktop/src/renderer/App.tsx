@@ -1668,12 +1668,15 @@ function App() {
   const [prompt, setPrompt] = useState("");
   const [composerRewindTarget, setComposerRewindTarget] = useState<ComposerRewindTarget>();
   const [composerAttachments, setComposerAttachments] = useState<ComposerImageAttachment[]>([]);
-  const [composerLightbox, setComposerLightbox] = useState<{
-    src: string;
-    alt: string;
-    label: string;
-  } | null>(null);
-  const closeComposerLightbox = useCallback(() => setComposerLightbox(null), []);
+  const [composerLightboxId, setComposerLightboxId] = useState<string | null>(null);
+  const composerPreviewAttachments = composerAttachments.filter((attachment) => attachment.previewUrl);
+  const composerLightboxIndex = composerPreviewAttachments.findIndex(
+    (attachment) => attachment.id === composerLightboxId,
+  );
+  const composerLightbox = composerPreviewAttachments[composerLightboxIndex];
+  const composerLightboxNumber = composerLightbox ? composerAttachments.indexOf(composerLightbox) + 1 : 0;
+  const composerLightboxAlt = `${t("app.pastedImages")} ${composerLightboxNumber}`;
+  const closeComposerLightbox = useCallback(() => setComposerLightboxId(null), []);
   const [plannerCapability, setPlannerCapability] = useState<RouteCapabilityHint>();
   const [composerImageNotice, setComposerImageNotice] = useState<string>();
   const [isOpening, setIsOpening] = useState(false);
@@ -5724,6 +5727,7 @@ function App() {
           : undefined,
       );
       setComposerImageNotice(undefined);
+      setComposerLightboxId(null);
       prevComposerContextKeyRef.current = composerContextKey;
 
       if (promptResolution.handoffConsumed) {
@@ -11886,6 +11890,14 @@ function App() {
   const scheduledMessageEditorOnComposer = Boolean(scheduledMessageEditor && (
     scheduledMessageEditor.threadId === activeThread?.id || scheduledMessageEditor.draft?.contextKey === composerContextKey
   ));
+  const scheduledMessageUsesCodexAccount = scheduledMessageEditor?.newThread
+    ? isCodexAuthThread({
+        coreKind: scheduledMessageEditor.newThread.executionProfile.coreKind,
+        runtimeConfig: scheduledMessageEditor.newThread.executionProfile.runtimeConfig,
+      })
+    : Boolean(scheduledMessageEditor && threads.some((thread) =>
+        thread.id === scheduledMessageEditor.threadId && isCodexAuthThread(thread),
+      ));
   function openComposerScheduledMessage() {
     if (!window.eco || !composerContextKey || (!activeThread && (!currentProjectPath || !composerRuntimeConfig))) return;
     setScheduledMessageEditor({
@@ -12250,11 +12262,7 @@ function App() {
                               disabled={!attachment.previewUrl}
                               onClick={() => {
                                 if (!attachment.previewUrl) return;
-                                setComposerLightbox({
-                                  src: attachment.previewUrl,
-                                  alt,
-                                  label: openLabel,
-                                });
+                                setComposerLightboxId(attachment.id);
                               }}
                               aria-label={attachment.previewUrl ? openLabel : t("app.imagePreviewUnavailable")}
                             >
@@ -12279,12 +12287,26 @@ function App() {
                       })}
                     </ul>
                   ) : null}
-                  {composerLightbox ? (
+                  {composerLightbox?.previewUrl ? (
                     <ImageLightbox
-                      src={composerLightbox.src}
-                      alt={composerLightbox.alt}
-                      title={composerLightbox.alt}
-                      dialogLabel={composerLightbox.label}
+                      src={composerLightbox.previewUrl}
+                      alt={composerLightboxAlt}
+                      title={composerLightboxAlt}
+                      dialogLabel={t("app.openPastedImage", { count: composerLightboxNumber })}
+                      {...(composerPreviewAttachments.length > 1
+                        ? {
+                            navigation: {
+                              index: composerLightboxIndex,
+                              count: composerPreviewAttachments.length,
+                              onPrevious: () => setComposerLightboxId(
+                                composerPreviewAttachments[composerLightboxIndex - 1]?.id ?? composerLightbox.id,
+                              ),
+                              onNext: () => setComposerLightboxId(
+                                composerPreviewAttachments[composerLightboxIndex + 1]?.id ?? composerLightbox.id,
+                              ),
+                            },
+                          }
+                        : {})}
                       onClose={closeComposerLightbox}
                     />
                   ) : null}
@@ -13272,6 +13294,7 @@ function App() {
       {projectTodosOpen && window.eco && (
         <SuspensePanel>
           <LazyProjectTodoPanel projects={projects} currentProjectPath={currentProjectPath} threads={threads}
+            pinnedThreadIds={pinnedThreadIds}
             draft={projectTodoDraftRef.current} onDraftChange={next => { projectTodoDraftRef.current = next; }}
             onClose={() => setProjectTodosOpen(false)} onCompose={composeProjectTodo} />
         </SuspensePanel>
@@ -13315,6 +13338,7 @@ function App() {
               key={scheduledMessageEditor.definition?.id ?? scheduledMessageEditor.threadId}
               threadId={scheduledMessageEditor.threadId}
               newThread={scheduledMessageEditor.newThread}
+              usesChatGptLogin={scheduledMessageUsesCodexAccount}
               initialPrompt={scheduledMessageEditor.draft?.prompt}
               initialAttachments={scheduledMessageEditor.draft?.attachments}
               imageContextKey={scheduledMessageEditor.draft?.contextKey}

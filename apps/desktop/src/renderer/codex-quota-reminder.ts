@@ -32,6 +32,18 @@ export function lowCodexQuotaWindows(quota: OpenAIAccountQuota): OpenAIAccountQu
     .sort((a, b) => b.usedPercent - a.usedPercent);
 }
 
+/** Show the shortest quota period unless another period is fully exhausted. */
+export function codexQuotaDisplayWindow(
+  windows: readonly OpenAIAccountQuotaWindow[],
+): OpenAIAccountQuotaWindow | undefined {
+  let shortest: OpenAIAccountQuotaWindow | undefined;
+  for (const window of windows) {
+    if (window.usedPercent === 100) return window;
+    if (!shortest || window.limitWindowSeconds < shortest.limitWindowSeconds) shortest = window;
+  }
+  return shortest;
+}
+
 export interface CodexQuotaReminderSnapshot {
   accountId: string;
   accountName: string;

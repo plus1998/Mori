@@ -33,6 +33,7 @@ import {
   revokeComposerAttachmentPreview,
 } from "./composer-attachments";
 import { createTodoImage } from "./project-todo-images";
+import { sortThreadsForSidebar } from "./project-sidebar-order";
 import { projectDisplayName, type SchedulingProjectOption } from "./SchedulingProjectField";
 import "./project-todos.css";
 
@@ -54,6 +55,7 @@ interface Props {
   projects: readonly SchedulingProjectOption[];
   currentProjectPath?: string | undefined;
   threads: readonly ThreadSummary[];
+  pinnedThreadIds: ReadonlySet<string>;
   draft: TodoEditorDraft;
   onDraftChange(draft: TodoEditorDraft): void;
   onClose(): void;
@@ -137,11 +139,12 @@ export function ProjectTodoPanel(props: Props) {
   }, [composeTarget]);
   const targetThreads = useMemo(() => {
     const needle = threadQuery.trim().toLocaleLowerCase();
-    return props.threads
-      .filter((thread) => thread.workspacePath === composeTarget?.projectPath &&
-        (!needle || thread.title.toLocaleLowerCase().includes(needle) || thread.prompt.toLocaleLowerCase().includes(needle)))
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }, [props.threads, composeTarget?.projectPath, threadQuery]);
+    return sortThreadsForSidebar(
+      props.threads.filter((thread) => thread.workspacePath === composeTarget?.projectPath &&
+        (!needle || thread.title.toLocaleLowerCase().includes(needle) || thread.prompt.toLocaleLowerCase().includes(needle))),
+      props.pinnedThreadIds,
+    );
+  }, [props.threads, props.pinnedThreadIds, composeTarget?.projectPath, threadQuery]);
   const projects = useMemo(() => {
     const map = new Map(props.projects.map((project) => [project.path, project]));
     for (const item of items)

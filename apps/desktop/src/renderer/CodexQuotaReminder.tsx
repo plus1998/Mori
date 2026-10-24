@@ -8,6 +8,7 @@ import type { OpenAIAccountQuotaWindow } from "../shared/openai-account";
 import {
   CodexQuotaMonitor,
   type CodexQuotaReminderSnapshot,
+  codexQuotaDisplayWindow,
   codexQuotaReminderKey,
   isCodexAuthConversation,
   lowCodexQuotaWindows,
@@ -264,9 +265,9 @@ export function CodexQuotaReminder({
   if (variant === "composer") {
     if (!recentlyUsed) return null;
     const windows = quotaWindows(snapshot);
-    // The tighter window determines how much usable headroom the account has.
-    const remaining = windows.length
-      ? Math.round(Math.min(...windows.map((window) => 100 - window.usedPercent)) * 10) / 10
+    const displayWindow = codexQuotaDisplayWindow(windows);
+    const remaining = displayWindow
+      ? Math.round((100 - displayWindow.usedPercent) * 10) / 10
       : undefined;
     const statusText = error
       ? t("codexQuota.refreshFailed")

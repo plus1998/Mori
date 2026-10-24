@@ -9495,6 +9495,7 @@ button.integrated-web-search-clear-key:disabled {
   overscroll-behavior: contain;
 }
 .codex-account-card {
+  position: relative;
   flex: 0 0 auto;
   min-width: 0;
   padding: 18px 20px 10px;
@@ -9509,6 +9510,22 @@ button.integrated-web-search-clear-key:disabled {
 .codex-account-card.is-active {
   border-color: color-mix(in srgb, var(--codex-blue) 30%, var(--border-subtle));
 }
+.codex-account-card.is-dragging { opacity: 0.5; }
+.codex-account-card.is-drop-before::before,
+.codex-account-card.is-drop-after::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--codex-blue);
+  pointer-events: none;
+}
+.codex-account-card.is-drop-before::before { top: -7px; }
+.codex-account-card.is-drop-after::after { bottom: -7px; }
+.codex-account-drag-handle { cursor: grab; }
+.codex-account-drag-handle:active { cursor: grabbing; }
+.codex-account-drag-handle:disabled { cursor: default; }
 .codex-account-card-main {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr) auto auto;

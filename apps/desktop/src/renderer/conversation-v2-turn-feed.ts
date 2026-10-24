@@ -192,7 +192,7 @@ export function buildThreadRunTurnFeedSections(
     }
     const matched = [...turnBySegmentKey.values()].find((turn) => turn.key === section.key);
     const turnEntries = matched?.entries ?? [];
-    const finalEntry = section.running ? undefined : resolveFinalOutputEntry(turnEntries);
+    const finalEntry = section.running ? undefined : resolveFinalOutputEntry(turnEntries, section.attempt.status);
     const continuation = seenAttemptIds.has(section.attempt.attemptId);
     seenAttemptIds.add(section.attempt.attemptId);
     return {
@@ -327,7 +327,17 @@ function readEntryAttemptId(entry: ThreadRunProjectionMainFeedEntry): string | u
 
 function resolveFinalOutputEntry(
   entries: readonly ThreadRunProjectionMainFeedEntry[],
+  status: ThreadRunProjectionAttempt["status"],
 ): ThreadRunProjectionMainFeedEntry | undefined {
+  // A progress message before a terminal failure must not hide the reason the run stopped.
+  if (status === "failed") {
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const entry = entries[index];
+      if (entry?.kind !== "timeline") continue;
+      const block = projectionItemToDetailBlock(entry.item);
+      if (block?.kind === "api-error" || block?.kind === "tool-failed") return entry;
+    }
+  }
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (entry?.kind !== "timeline" || entry.item.eventType !== "message.final") {

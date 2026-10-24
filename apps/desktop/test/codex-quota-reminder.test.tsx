@@ -6,6 +6,7 @@ import {
   CODEX_AUTH_RECENT_USE_MS,
   CodexQuotaMonitor,
   type CodexQuotaReminderSnapshot,
+  codexQuotaDisplayWindow,
   codexQuotaReminderKey,
   hasRecentCodexAuthUsage,
   isCodexAuthConversation,
@@ -63,6 +64,19 @@ const bridge = () => ({
   openAIAccountsGetActive: async () => active(),
   openAIAccountsList: async () => [{ ...account, quota }],
   openAIAccountsQueryQuota: async (_id: string) => quota,
+});
+
+test("composer quota prefers the shortest period unless a longer period is exhausted", () => {
+  const fiveHour = { ...quota.rateLimit.primaryWindow!, usedPercent: 13 };
+  const weekly = { ...quota.rateLimit.secondaryWindow!, usedPercent: 26 };
+  expect(codexQuotaDisplayWindow([fiveHour, weekly])).toBe(fiveHour);
+  expect(codexQuotaDisplayWindow([weekly, fiveHour])).toBe(fiveHour);
+  expect(codexQuotaDisplayWindow([fiveHour, { ...weekly, usedPercent: 99.9 }])).toBe(fiveHour);
+  const exhausted = { ...weekly, usedPercent: 100 };
+  expect(codexQuotaDisplayWindow([fiveHour, exhausted])).toBe(exhausted);
+  expect(codexQuotaDisplayWindow([exhausted, fiveHour])).toBe(exhausted);
+  expect(codexQuotaDisplayWindow([weekly])).toBe(weekly);
+  expect(codexQuotaDisplayWindow([])).toBeUndefined();
 });
 
 test("a fresh composer renders the account quota control without thread usage", () => {

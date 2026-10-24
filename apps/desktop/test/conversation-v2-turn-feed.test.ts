@@ -98,6 +98,34 @@ test("running turn keeps every narrative in the expanded process", () => {
   expect(sections[0].running).toBe(true);
 });
 
+test("a terminal error stays outside the collapsed process even after a progress reply", () => {
+  for (const eventType of ["api.error", "tool.failed"]) {
+    const progress = entry(item("progress", "好的，开始修改。", { runAttemptId: "attempt-1" }));
+    const error = entry(item("failure", "You've hit your usage limit.", {
+      eventType, sequence: 2, runAttemptId: "attempt-1", at: "2026-01-01T00:00:07.000Z",
+    }));
+    const sections = buildThreadRunTurnFeedSections([progress, error], {
+      attempts: [attempt("failed")], timeline: [],
+    });
+    const section = sections[0];
+    if (section?.kind !== "turn") throw new Error("expected turn section");
+    expect(section.finalEntry?.key).toBe(error.key);
+    expect(section.processEntries.map((value) => value.key)).toEqual([progress.key]);
+  }
+});
+
+test("a recovered error does not replace a successful final reply", () => {
+  const error = entry(item("recovered", "temporary error", {
+    eventType: "api.error", sequence: 1, runAttemptId: "attempt-1",
+  }));
+  const final = entry(item("final", "已完成。", { sequence: 2, runAttemptId: "attempt-1" }));
+  const sections = buildThreadRunTurnFeedSections([error, final], { attempts: [attempt("completed")], timeline: [] });
+  const section = sections[0];
+  if (section?.kind !== "turn") throw new Error("expected turn section");
+  expect(section.finalEntry?.key).toBe(final.key);
+  expect(section.processEntries.map((value) => value.key)).toEqual([error.key]);
+});
+
 test("running attempt renders immediately before the first process event", () => {
   const sections = buildThreadRunTurnFeedSections(
     [

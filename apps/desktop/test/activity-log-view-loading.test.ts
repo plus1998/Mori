@@ -102,6 +102,27 @@ test("running turn heading switches to stopping while cancelling", async () => {
   expect(formatRunLogTurnHeading(true, "running", 4_000, true)).toBe("停止中 4s");
 });
 
+test("a failed turn shows its terminal error while its earlier progress stays collapsed", () => {
+  const errorMessage = "You've hit your usage limit. Try again at 3:37 PM.";
+  const html = renderToStaticMarkup(createElement(ProjectionActivityLogView, {
+    projection: projection({
+      status: "failed",
+      attempts: [{ attemptId: "failed-turn", phase: "execution", retryIndex: 0, status: "failed",
+        startedAt: "2026-01-01T00:00:00.000Z", endedAt: "2026-01-01T00:00:08.000Z" }],
+      timeline: [
+        item({ id: "progress", sequence: 1, eventType: "message.final", text: "先开始修改。",
+          runAttemptId: "failed-turn", at: "2026-01-01T00:00:01.000Z" }),
+        item({ id: "terminal-error", sequence: 2, eventType: "api.error", text: errorMessage,
+          runAttemptId: "failed-turn", at: "2026-01-01T00:00:07.000Z" }),
+      ],
+    }),
+  }));
+  expect(html).toContain('class="run-log-turn-final"');
+  expect(html).toContain("hit your usage limit. Try again at 3:37 PM.");
+  expect(html).toContain('aria-expanded="false"');
+  expect(html).not.toContain("先开始修改。");
+});
+
 test("an active thread summary restores running during a provisional idle V2 projection", () => {
   const snapshot = projection({
     status: "idle",
