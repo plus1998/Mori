@@ -13,6 +13,54 @@ import 'package:eco_mobile/features/threads/conversation_v2_projection.dart';
 void main() {
   mainSessionRunningClocks();
 
+  for (final status in ['completed', 'failed']) {
+    test('terminal error selection follows the run status: $status', () {
+      final projection = buildConversationV2Projection(
+        conversationId: 'thread_terminal',
+        messages: [
+          for (final (seq, role, channel, body) in [
+            (1, 'assistant', 'answer', 'Progress reply'),
+            (2, 'system', 'system', 'Request failed'),
+          ])
+            ConversationV2Message(
+              messageId: 'message_$seq',
+              conversationId: 'thread_terminal',
+              turnId: 'turn_1',
+              runId: 'run_1',
+              role: role,
+              channel: channel,
+              createdSeq: seq,
+              versionSeq: seq,
+              contentVersion: 1,
+              body: body,
+              status: ConversationV2MessageStatus.finalised,
+              isDeleted: false,
+            ),
+        ],
+        runs: [
+          ConversationV2Run(
+            runId: 'run_1',
+            conversationId: 'thread_terminal',
+            turnId: 'turn_1',
+            status: status,
+            versionSeq: 3,
+            timingQuality: 'recorded',
+          ),
+        ],
+        tools: const [],
+      );
+      final turn = buildActivityFeed(
+        runProjection: projection,
+        l10n: lookupAppLocalizations(const Locale('zh')),
+      ).singleWhere((entry) => entry.kind == ActivityFeedKind.turn);
+      expect(
+        turn.finalOutput?.text.trim(),
+        status == 'failed' ? 'Request failed' : 'Progress reply',
+      );
+      expect(turn.processEntries, hasLength(1));
+    });
+  }
+
   for (final mode in ThinkingDisplayMode.values) {
     test(
       'SDK state diagnostics stay off the Feed and preserve the final answer: $mode',

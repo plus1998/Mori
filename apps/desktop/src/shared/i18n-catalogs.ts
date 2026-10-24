@@ -3,7 +3,8 @@ import type { AppLocale } from "./locale";
 export const i18nCatalogs = {
   "zh-CN": {
     translation: {
-      "app.running.displayCount": "已检测到 {{count}} 块显示器",
+      "app.running.displayCount_one": "已检测到 {{count}} 块显示器",
+      "app.running.displayCount_other": "已检测到 {{count}} 块显示器",
       "app.running.displayDetails": "说明与显示器详情",
       "app.running.connectedDisplays": "已连接的显示器",
       "app.running.internalDisplay": "内建显示器 {{number}}",
@@ -15,7 +16,8 @@ export const i18nCatalogs = {
       "app.running.displayStatus.unsupported": "不支持调暗",
       "app.running.displayStatus.restorePending": "待恢复",
       "app.running.softwareDimmingHint": "软件调暗不改变真实背光，部分 HDR 内容可能不受影响。仅有外屏时，请按 ⌘⇧L 恢复全部。",
-      "app.running.pendingDisplayRestores": "{{count}} 块显示器尚待恢复，Eco 会继续重试；已断开的屏幕请重新连接。",
+      "app.running.pendingDisplayRestores_one": "{{count}} 块显示器尚待恢复，Eco 会继续重试；已断开的屏幕请重新连接。",
+      "app.running.pendingDisplayRestores_other": "{{count}} 块显示器尚待恢复，Eco 会继续重试；已断开的屏幕请重新连接。",
       "app.running.displayControls": "屏幕与锁屏",
       "app.running.preventAutoLock": "阻止自动锁屏",
       "app.running.preventAutoLockHint": "保持桌面可操作；关闭或退出 Eco 后恢复。手动锁屏、合盖仍有效。",
@@ -3365,7 +3367,8 @@ export const i18nCatalogs = {
   },
   "en-US": {
     translation: {
-      "app.running.displayCount": "{{count}} displays detected",
+      "app.running.displayCount_one": "{{count}} display detected",
+      "app.running.displayCount_other": "{{count}} displays detected",
       "app.running.displayDetails": "Help and display details",
       "app.running.connectedDisplays": "Connected displays",
       "app.running.internalDisplay": "Built-in display {{number}}",
@@ -3377,7 +3380,8 @@ export const i18nCatalogs = {
       "app.running.displayStatus.unsupported": "Unsupported",
       "app.running.displayStatus.restorePending": "Restore pending",
       "app.running.softwareDimmingHint": "Software dimming does not change the backlight; some HDR content may remain visible. With external displays only, press ⌘⇧L to restore all.",
-      "app.running.pendingDisplayRestores": "{{count}} displays still need restoration. Eco will retry; reconnect any disconnected displays.",
+      "app.running.pendingDisplayRestores_one": "{{count}} display awaiting restoration. Eco will retry; reconnect any disconnected display.",
+      "app.running.pendingDisplayRestores_other": "{{count}} displays awaiting restoration. Eco will retry; reconnect any disconnected displays.",
       "app.running.displayControls": "Display and lock screen",
       "app.running.preventAutoLock": "Prevent automatic locking",
       "app.running.preventAutoLockHint": "Keep the desktop available until disabled or Eco quits. Manual locking and lid closing still apply.",

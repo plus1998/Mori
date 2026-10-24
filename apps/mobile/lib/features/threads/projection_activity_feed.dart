@@ -295,7 +295,7 @@ ActivityFeedEntry _buildTurnFeedEntry(
 }) {
   final finalOutput = turn.attempt.isRunning
       ? null
-      : _resolveFinalProjectionOutput(turn.entries);
+      : _resolveFinalProjectionOutput(turn.entries, turn.attempt.status);
   final processEntries = finalOutput == null
       ? turn.entries
       : turn.entries.where((entry) => entry.id != finalOutput.id).toList();
@@ -346,7 +346,15 @@ ThreadRunProjectionAttempt? _resolveFeedEntryAttempt(
 
 ActivityFeedEntry? _resolveFinalProjectionOutput(
   List<ActivityFeedEntry> entries,
+  String status,
 ) {
+  // Match desktop: a failed turn must end with its error, not an earlier progress reply.
+  if (status == 'failed') {
+    for (var index = entries.length - 1; index >= 0; index -= 1) {
+      final entry = entries[index];
+      if (entry.kind == ActivityFeedKind.error) return entry;
+    }
+  }
   for (var index = entries.length - 1; index >= 0; index -= 1) {
     final entry = entries[index];
     if (entry.kind == ActivityFeedKind.assistant &&
