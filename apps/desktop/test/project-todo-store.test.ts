@@ -52,6 +52,60 @@ test("project notes and original images survive reopening; list only returns thu
   expect(reopened.get(saved.id).projectPath).toBe("/project/a");
 });
 
+test("handoff markers survive reopening and completion changes without invalidating content revisions", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "eco-todo-composed-"));
+  directories.push(directory);
+  const filename = path.join(directory, "notes.sqlite");
+  const first = open(filename);
+  const saved = first.save({ ...note, images: [image] });
+  expect(saved.composedAt).toBeUndefined();
+  const marked = first.markComposed({ id: saved.id, revision: saved.revision });
+  expect(Number.isFinite(Date.parse(marked.composedAt ?? ""))).toBe(true);
+  expect(marked.revision).toBe(saved.revision);
+  expect(marked.completed).toBe(false);
+  expect(marked.images[0]?.data).toBeUndefined();
+  expect(first.get(saved.id).images[0]?.data).toBe(image.data);
+  const completed = first.save({ ...saved, completed: true });
+  expect(completed.composedAt).toBe(marked.composedAt);
+  first.close();
+  stores.splice(stores.indexOf(first), 1);
+  const reopened = open(filename);
+  expect(reopened.list()[0]?.composedAt).toBe(marked.composedAt);
+  expect(reopened.get(saved.id).images[0]?.data).toBe(image.data);
+});
+
+test("stale, deleted and invalid todos cannot be marked as transferred", () => {
+  const store = open();
+  const saved = store.save(note);
+  const edited = store.save({ ...saved, text: "Changed before handoff" });
+  expect(() => store.markComposed(saved)).toThrow("changed");
+  expect(store.get(saved.id).composedAt).toBeUndefined();
+  expect(() => store.markComposed({ id: "", revision: 1 })).toThrow("Invalid");
+  expect(() => store.markComposed({ id: saved.id, revision: 1.5 })).toThrow("Invalid");
+  store.trash({ id: edited.id, revision: edited.revision, deleted: true });
+  expect(() => store.markComposed(edited)).toThrow("changed");
+});
+
+test("existing databases gain handoff metadata without marking old notes or losing data", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "eco-todo-upgrade-"));
+  directories.push(directory);
+  const filename = path.join(directory, "notes.sqlite");
+  const legacy = new DatabaseSync(filename);
+  legacy.exec(`CREATE TABLE project_todos (
+    id TEXT PRIMARY KEY, revision INTEGER NOT NULL, project_path TEXT NOT NULL,
+    text TEXT NOT NULL, completed INTEGER NOT NULL, created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL, deleted_at TEXT
+  )`);
+  legacy.prepare("INSERT INTO project_todos VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .run("legacy", 1, note.projectPath, note.text, 0, "2026-01-01", "2026-01-01", null);
+  legacy.close();
+  const store = open(filename);
+  const old = store.get("legacy");
+  expect(old.text).toBe(note.text);
+  expect(old.composedAt).toBeUndefined();
+  expect(store.markComposed(old).composedAt).toBeDefined();
+});
+
 test("stale edits and deletes cannot overwrite newer changes; deletion can be undone", () => {
   const store = open();
   const saved = store.save(note);

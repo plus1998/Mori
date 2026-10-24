@@ -64,6 +64,7 @@
 .todo-panel .todo-text { display:block; padding:0; width:100%; text-align:left; border-radius:2px; background:transparent; line-height:1.7; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; }
 .todo-card.is-completed .todo-text { color:var(--text-muted); text-decoration:line-through; text-decoration-color:color-mix(in srgb,var(--text-muted) 40%,transparent); }
 .todo-image-label { color:var(--text-muted); font-size:12px; line-height:1.7; }
+.todo-composed-badge { display:inline-flex; align-items:center; align-self:flex-start; gap:4px; margin-top:5px; padding:2px 6px; border-radius:5px; background:var(--accent-soft); color:var(--accent-text); font-size:10px; line-height:1.5; }
 .todo-thumbnails { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; }
 .todo-thumbnails button { padding:0; border-radius:7px; overflow:hidden; background:var(--bg-input); }
 .todo-thumbnails img { display:block; width:76px; height:58px; object-fit:cover; transition:transform .18s; }

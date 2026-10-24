@@ -18,6 +18,8 @@ export interface ProjectTodo {
   completed: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Last successful transfer into a conversation composer. */
+  composedAt?: string;
 }
 export interface ProjectTodoSave {
   id?: string;
@@ -31,4 +33,8 @@ export interface ProjectTodoTrash {
   id: string;
   revision: number;
   deleted: boolean;
+}
+export interface ProjectTodoCompose {
+  id: string;
+  revision: number;
 }

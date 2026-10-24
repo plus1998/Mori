@@ -11063,6 +11063,7 @@ function App() {
       return { mediaType: image.mediaType, data: image.data };
     });
     await api.saveComposerDraft({ contextKey, prompt: todo.text, attachments });
+    await api.markProjectTodoComposed({ id: todo.id, revision: todo.revision });
     const nextAttachments = fromPromptImageAttachments(attachments);
     composerDraftsByKeyRef.current[contextKey] = { prompt: todo.text, attachments: nextAttachments };
     ++composerDraftLoadRequestRef.current;

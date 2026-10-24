@@ -161,6 +161,7 @@ export const IPC_CHANNELS = {
   projectTodoImageRead: "project-todo:image-read",
   projectTodoChanged: "project-todo:changed",
   projectTodoSave: "project-todo:save",
+  projectTodoCompose: "project-todo:compose",
   projectTodoTrash: "project-todo:trash",
   composerDraftGet: "composer-draft:get",
   composerDraftSave: "composer-draft:save",

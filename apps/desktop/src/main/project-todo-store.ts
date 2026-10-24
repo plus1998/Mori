@@ -3,6 +3,7 @@ import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import {
   type ProjectTodo,
+  type ProjectTodoCompose,
   type ProjectTodoImage,
   type ProjectTodoSave,
   type ProjectTodoTrash,
@@ -18,6 +19,7 @@ type Row = {
   completed: number;
   created_at: string;
   updated_at: string;
+  composed_at: string | null;
 };
 type ImageRow = { id: string; media_type: ProjectTodoImage["mediaType"]; thumbnail: string; data?: string };
 const MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
@@ -32,13 +34,17 @@ export class ProjectTodoStore {
       CREATE TABLE IF NOT EXISTS project_todos (
         id TEXT PRIMARY KEY, revision INTEGER NOT NULL, project_path TEXT NOT NULL,
         text TEXT NOT NULL, completed INTEGER NOT NULL, created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL, deleted_at TEXT
+        updated_at TEXT NOT NULL, deleted_at TEXT, composed_at TEXT
       );
       CREATE TABLE IF NOT EXISTS project_todo_images (
         todo_id TEXT NOT NULL REFERENCES project_todos(id) ON DELETE CASCADE,
         id TEXT NOT NULL, position INTEGER NOT NULL, media_type TEXT NOT NULL,
         thumbnail TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(todo_id, id)
       );`);
+    const columns = db.prepare("PRAGMA table_info(project_todos)").all() as { name: string }[];
+    if (!columns.some((column) => column.name === "composed_at")) {
+      db.exec("ALTER TABLE project_todos ADD COLUMN composed_at TEXT");
+    }
     db.prepare("DELETE FROM project_todos WHERE deleted_at < ?").run(
       new Date(Date.now() - 30 * 86400_000).toISOString(),
     );
@@ -87,6 +93,7 @@ export class ProjectTodoStore {
       completed: Boolean(row.completed),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      ...(row.composed_at ? { composedAt: row.composed_at } : {}),
       images: images.map((image) => ({
         id: image.id,
         mediaType: image.media_type,
@@ -173,6 +180,17 @@ export class ProjectTodoStore {
       throw error;
     }
     return this.record(this.db.prepare("SELECT * FROM project_todos WHERE id=?").get(id) as Row, false);
+  }
+  markComposed(input: ProjectTodoCompose): ProjectTodo {
+    if (!input || typeof input.id !== "string" || !input.id || !Number.isInteger(input.revision)) {
+      throw new Error("Invalid todo handoff.");
+    }
+    // Handoff metadata does not change the content revision or invalidate image reads/edits.
+    const result = this.db.prepare(
+      "UPDATE project_todos SET composed_at=? WHERE id=? AND revision=? AND deleted_at IS NULL",
+    ).run(new Date().toISOString(), input.id, input.revision);
+    if (!result.changes) throw new Error("Todo changed. Refresh before trying again.");
+    return this.get(input.id, false);
   }
   trash(input: ProjectTodoTrash): number {
     if (

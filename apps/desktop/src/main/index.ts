@@ -3,7 +3,7 @@ import { createAccountUsagePricingLookup } from "./account-usage-pricing";
 import { ChatGptModelCatalogService, resolveChatGptModelCatalogCachePath } from "./chatgpt-model-catalog";
 import { ProjectTodoStore } from "./project-todo-store";
 import { resolveProjectTodoUploads } from "./project-todo-uploads";
-import type { ProjectTodoSave, ProjectTodoTrash } from "../shared/project-todos";
+import type { ProjectTodoCompose, ProjectTodoSave, ProjectTodoTrash } from "../shared/project-todos";
 import { TtsReadAloudService } from "./tts-read-aloud";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -4859,6 +4859,11 @@ function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.projectTodoSave, async (input: ProjectTodoSave) => {
     const resolved = await resolveProjectTodoUploads(input, ref => promptImageFileStore.readContentRefAttachment(ref));
     const saved = projectTodoStore.save(resolved);
+    desktopEventCenter.publish({ kind: "project-todo.changed", payload: {}, aggregateKey: "project-todos:global" });
+    return saved;
+  });
+  registerDesktopCommand(IPC_CHANNELS.projectTodoCompose, (input: ProjectTodoCompose) => {
+    const saved = projectTodoStore.markComposed(input);
     desktopEventCenter.publish({ kind: "project-todo.changed", payload: {}, aggregateKey: "project-todos:global" });
     return saved;
   });

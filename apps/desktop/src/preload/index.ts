@@ -1,4 +1,4 @@
-import type { ProjectTodo, ProjectTodoSave, ProjectTodoTrash } from "../shared/project-todos";
+import type { ProjectTodo, ProjectTodoCompose, ProjectTodoSave, ProjectTodoTrash } from "../shared/project-todos";
 import type { ReadAloudSettingsInput, ReadAloudSettingsSnapshot, ReadAloudStatus, ReadAloudStartInput, ReadAloudStartResult, ReadAloudSegmentInput, ReadAloudSegmentResult, ReadAloudReadInput, ReadAloudReadResult } from "../shared/tts";
 import type { TtsArtifact, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSnapshot } from "../shared/tts";
 import type { ScheduleCreateInput, ScheduleUpdateInput, ScheduleTrigger, ScheduleDefinition, ScheduleOccurrence, SchedulingSnapshot } from "../shared/scheduling";
@@ -1540,6 +1540,7 @@ const api = {
   },
   getProjectTodo(id: string): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoGet, id); },
   saveProjectTodo(input: ProjectTodoSave): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoSave, input); },
+  markProjectTodoComposed(input: ProjectTodoCompose): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoCompose, input); },
   trashProjectTodo(input: ProjectTodoTrash): Promise<number> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoTrash, input); },
   getComposerDraft(contextKey: string): Promise<ComposerDraftRecord | undefined> {
     return ipcRenderer.invoke(IPC_CHANNELS.composerDraftGet, contextKey);

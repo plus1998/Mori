@@ -62,7 +62,7 @@ interface Props {
   onCompose(todo: ProjectTodo, threadId?: string): Promise<void>;
 }
 export function ProjectTodoPanel(props: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const reducedMotion = useReducedMotion();
   const [items, setItems] = useState<ProjectTodo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -306,6 +306,13 @@ export function ProjectTodoPanel(props: Props) {
           ) : (
             <span className="todo-image-label">{t("todos.imageTodo")}</span>
           )}
+          {item.composedAt ? (
+            <span className="todo-composed-badge" title={t("todos.composedAt", {
+              time: new Date(item.composedAt).toLocaleString(i18n.language),
+            })}>
+              <Send size={11} aria-hidden/>{t("todos.composedBadge")}
+            </span>
+          ) : null}
           {!!item.images.length && (
             <div className="todo-thumbnails">
               {item.images.map((image, index) => (
