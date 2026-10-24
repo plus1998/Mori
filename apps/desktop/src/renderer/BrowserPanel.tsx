@@ -1,4 +1,6 @@
 import {
+  AudioLines,
+  Palette,
   ArrowLeft,
   ArrowRight,
   ExternalLink,
@@ -295,6 +297,14 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
             <button type="button" onClick={() => onOpenTool(browserId, "sshBookmarks")}>
               <KeyRound size={17} aria-hidden />
               <span>{t("app.sshBookmarks.title")}</span>
+            </button>
+            <button type="button" onClick={() => onOpenTool(browserId, "imageGeneration")}>
+              <Palette size={17} aria-hidden />
+              <span>{t("settings.imageGeneration.title")}</span>
+            </button>
+            <button type="button" onClick={() => onOpenTool(browserId, "speechGeneration")}>
+              <AudioLines size={17} aria-hidden />
+              <span>{t("settings.tts.title")}</span>
             </button>
           </section>
         ) : null}

@@ -1,6 +1,7 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { CodexMcpServerForConfigSync } from "@eco/runtime";
+import type { GenerationExecutionContext } from "../shared/generation-tools";
 import type { McpSdkConfig } from "../shared/mcp";
 import {
   buildTtsPromptAppend,
@@ -250,20 +251,78 @@ export class TtsMcpGateway {
       throw new Error(`未知语音生成工具：${name}`);
     }
     const claim = this.resolveThread(authToken);
-    signal?.throwIfAborted();
     const threadId = claim.threadId;
     const workspacePath = this.deps.resolveWorkspacePath(threadId)?.trim();
     const generationRoot = this.deps.resolveGenerationRoot(threadId)?.trim();
     if (!workspacePath || !generationRoot) {
       throw new Error("语音生成会话缺少 workspace 或运行目录。");
     }
+    const result = await this.generate(
+      { ...claim, workspacePath, generationRoot },
+      rawArgs as unknown as TtsToolInput,
+      { ...(signal ? { signal } : {}) },
+    );
+    const { artifact, providerStatus, requestId } = result;
+    const structuredContent =
+      artifact.status === "failed"
+        ? {
+            status: "failed",
+            artifactId: artifact.id,
+            code: artifact.errorCode,
+            message: artifact.errorMessage,
+          }
+        : {
+            status: "completed",
+            artifactId: artifact.id,
+            provider: artifact.provider,
+            model: artifact.model,
+            audio: artifact.audio,
+          };
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              ...structuredContent,
+              ...(providerStatus ? { providerStatus } : {}),
+              ...(requestId ? { requestId } : {}),
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+      ...(artifact.status === "failed" ? { isError: true } : {}),
+      structuredContent,
+    };
+  }
+
+  /** Shared generation path for MCP and the explicit desktop tool form. */
+  async generate(
+    context: GenerationExecutionContext,
+    rawInput: TtsToolInput,
+    options: { signal?: AbortSignal; profileId?: string; profileUpdatedAt?: string } = {},
+  ): Promise<{ artifact: TtsArtifact; providerStatus?: number; requestId?: string }> {
+    const { threadId, workspacePath, generationRoot, toolUseId } = context;
+    const { signal } = options;
+    signal?.throwIfAborted();
     if (!this.deps.store.getSettings().enabled) throw new Error("语音生成集成已关闭。");
     const config = this.deps.store.getActiveClientConfig();
-    const normalized = normalizeTtsToolInput(rawArgs as unknown as TtsToolInput);
+    const currentProfile = options.profileUpdatedAt
+      ? this.deps.store.getSettings().profiles.find((profile) => profile.id === config.profileId)
+      : undefined;
+    if (
+      (options.profileId && options.profileId !== config.profileId) ||
+      (options.profileUpdatedAt && options.profileUpdatedAt !== currentProfile?.updatedAt)
+    ) {
+      throw new Error("生成配置已改变，请刷新工具后重试。");
+    }
+    const normalized = normalizeTtsToolInput(rawInput);
     const { text, ...parameters } = normalized;
     const artifact = this.deps.store.createArtifact({
       threadId,
-      ...(claim.toolUseId && { toolUseId: claim.toolUseId }),
+      ...(toolUseId && { toolUseId }),
       text,
       parameters,
       config,
@@ -281,21 +340,7 @@ export class TtsMcpGateway {
       });
       const completed = this.deps.store.completeArtifact(artifact.id, audio);
       this.deps.onArtifactChanged(completed);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ status: "completed", artifactId: artifact.id, audio }, null, 2),
-          },
-        ],
-        structuredContent: {
-          status: "completed",
-          artifactId: artifact.id,
-          provider: config.provider,
-          model: config.model,
-          audio,
-        },
-      };
+      return { artifact: completed };
     } catch (error) {
       const failure =
         error instanceof TtsError
@@ -304,30 +349,9 @@ export class TtsMcpGateway {
       const failed = this.deps.store.failArtifact(artifact.id, failure.code, failure.message);
       this.deps.onArtifactChanged(failed);
       return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(
-              {
-                status: "failed",
-                artifactId: artifact.id,
-                code: failure.code,
-                message: failure.message,
-                ...(failure.providerStatus ? { providerStatus: failure.providerStatus } : {}),
-                ...(failure.requestId ? { requestId: failure.requestId } : {}),
-              },
-              null,
-              2,
-            ),
-          },
-        ],
-        isError: true,
-        structuredContent: {
-          status: "failed",
-          artifactId: artifact.id,
-          code: failure.code,
-          message: failure.message,
-        },
+        artifact: failed,
+        ...(failure.providerStatus ? { providerStatus: failure.providerStatus } : {}),
+        ...(failure.requestId ? { requestId: failure.requestId } : {}),
       };
     }
   }

@@ -476,6 +476,8 @@ import {
   TASK_PANEL_FILE_VIEWER_TAB_ID,
   TASK_PANEL_FILES_TAB_ID,
   TASK_PANEL_HOME_TAB_ID,
+  TASK_PANEL_IMAGE_GENERATION_TAB_ID,
+  TASK_PANEL_SPEECH_GENERATION_TAB_ID,
   TASK_PANEL_PLAN_TAB_ID,
   TASK_PANEL_REVIEW_TAB_ID,
   TASK_PANEL_SSH_BOOKMARKS_TAB_ID,
@@ -6398,6 +6400,8 @@ function App() {
           tabId === TASK_PANEL_BACKGROUND_TERMINAL_TAB_ID ||
           tabId === TASK_PANEL_PLAN_TAB_ID ||
           tabId === TASK_PANEL_SSH_BOOKMARKS_TAB_ID ||
+          tabId === TASK_PANEL_IMAGE_GENERATION_TAB_ID ||
+          tabId === TASK_PANEL_SPEECH_GENERATION_TAB_ID ||
           isNewTaskPanelTabId(tabId) ||
           activeSubagentCards.some((card) => card.key === tabId)
         ) {
@@ -9591,6 +9595,8 @@ function App() {
             review: TASK_PANEL_REVIEW_TAB_ID,
             files: TASK_PANEL_FILES_TAB_ID,
             sshBookmarks: TASK_PANEL_SSH_BOOKMARKS_TAB_ID,
+            imageGeneration: TASK_PANEL_IMAGE_GENERATION_TAB_ID,
+            speechGeneration: TASK_PANEL_SPEECH_GENERATION_TAB_ID,
           }[tool];
           setOpenTaskPanelTabIds((current) => replaceOpenTaskPanelTab(current, sourceTabId, tabId));
           taskPanelActiveTabRef.current = tabId;
@@ -11671,6 +11677,15 @@ function App() {
                 target.requestId,
               );
               setFileTarget(target);
+            }}
+            generationToolsActive={!settingsOpen}
+            onOpenGenerationSettings={(kind) => {
+              setSettingsSection(kind === "image" ? "imageGeneration" : "tts");
+              setSettingsOpen(true);
+            }}
+            onSelectGenerationTool={(tabId) => {
+              setTaskPanelActiveTab(tabId);
+              setSelectedSubagentAgentId(undefined);
             }}
             onOpenHomeTool={(sourceTabId, tool) => void openTaskPanelHomeTool(sourceTabId, tool)}
             onNavigateNewTab={navigateNewTaskPanelTab}

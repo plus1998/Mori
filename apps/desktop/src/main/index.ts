@@ -1,3 +1,6 @@
+import { resolveGenerationToolContext } from "./generation-tool-context";
+import type { ImageGenerationToolInput } from "../shared/image-generation";
+import type { TtsToolInput } from "../shared/tts";
 import { isCodexAuthThread } from "../shared/codex-auth-thread";
 import { createAccountUsagePricingLookup } from "./account-usage-pricing";
 import { ChatGptModelCatalogService, resolveChatGptModelCatalogCachePath } from "./chatgpt-model-catalog";
@@ -8125,6 +8128,41 @@ function registerIpcHandlers(): void {
     if (!isRecord(payload) || typeof payload.id !== "string") throw new Error("创意绘画 Profile ID 无效。");
     const saved = imageGenerationStore.activateProfile(payload.id);
     return saved;
+  });
+  const directGenerationRequests = new Set<string>();
+  async function runDirectGeneration(kind: "image" | "speech", payload: unknown) {
+    if (!isRecord(payload) || !isRecord(payload.input) || typeof payload.profileId !== "string" || !payload.profileId || typeof payload.profileUpdatedAt !== "string" || !payload.profileUpdatedAt) {
+      throw new Error("生成工具请求无效。");
+    }
+    const context = await resolveGenerationToolContext(payload.context, (id) => {
+      const thread = conversationStore.getThread(id);
+      return thread ? {
+        workspacePath: thread.workspacePath,
+        generationRoot: activeRunRuntimeState.worktreePlan(id)?.worktreePath ?? thread.sdkCwd ?? thread.workspacePath,
+      } : undefined;
+    });
+    const key = `${kind}:${context.threadId}`;
+    if (directGenerationRequests.has(key)) throw new Error("生成正在进行，请等待当前任务结束。");
+    directGenerationRequests.add(key);
+    try {
+      const options = { profileId: payload.profileId, profileUpdatedAt: payload.profileUpdatedAt };
+      const result = kind === "image"
+        ? await imageGenerationGateway.generate(context, payload.input as unknown as ImageGenerationToolInput, options)
+        : await ttsGateway.generate(context, payload.input as unknown as TtsToolInput, options);
+      return result.artifact;
+    } finally {
+      directGenerationRequests.delete(key);
+    }
+  }
+  registerDesktopCommand(IPC_CHANNELS.imageGenerationCreate, (payload: unknown) => runDirectGeneration("image", payload));
+  registerDesktopCommand(IPC_CHANNELS.ttsCreate, (payload: unknown) => runDirectGeneration("speech", payload));
+  registerDesktopCommand(IPC_CHANNELS.imageGenerationPickInputs, async () => {
+    const result = await dialog.showOpenDialog({
+      title: "选择参考图片",
+      properties: ["openFile", "multiSelections"],
+      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp"] }],
+    });
+    return result.canceled ? [] : result.filePaths;
   });
   registerDesktopCommand(IPC_CHANNELS.imageGenerationArtifactsList, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.threadId !== "string") throw new Error("threadId 无效。");

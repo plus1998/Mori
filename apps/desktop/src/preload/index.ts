@@ -1,3 +1,6 @@
+import type { GenerationToolRequest } from "../shared/generation-tools";
+import type { ImageGenerationToolInput } from "../shared/image-generation";
+import type { TtsToolInput } from "../shared/tts";
 import type { ProjectTodo, ProjectTodoCompose, ProjectTodoSave, ProjectTodoTrash } from "../shared/project-todos";
 import type { ReadAloudSettingsInput, ReadAloudSettingsSnapshot, ReadAloudStatus, ReadAloudStartInput, ReadAloudStartResult, ReadAloudSegmentInput, ReadAloudSegmentResult, ReadAloudReadInput, ReadAloudReadResult } from "../shared/tts";
 import type { TtsArtifact, TtsArtifactReadRequest, TtsArtifactReadResult, TtsProfileSaveInput, TtsProfileSnapshot, TtsSettingsSnapshot } from "../shared/tts";
@@ -994,6 +997,12 @@ const api = {
   activateImageGenerationProfile(id: string): Promise<ImageGenerationSettingsSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationProfileActivate, { id });
   },
+  createImageGeneration(input: GenerationToolRequest<ImageGenerationToolInput>): Promise<ImageGenerationArtifact> {
+    return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationCreate, input);
+  },
+  pickImageGenerationInputs(): Promise<string[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationPickInputs);
+  },
   listImageGenerationArtifacts(threadId: string): Promise<ImageGenerationArtifact[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationArtifactsList, { threadId });
   },
@@ -1028,6 +1037,9 @@ const api = {
   },
   activateTtsProfile(id: string): Promise<TtsSettingsSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.ttsProfileActivate, { id });
+  },
+  createTts(input: GenerationToolRequest<TtsToolInput>): Promise<TtsArtifact> {
+    return ipcRenderer.invoke(IPC_CHANNELS.ttsCreate, input);
   },
   listTtsArtifacts(threadId: string): Promise<TtsArtifact[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.ttsArtifactsList, { threadId });
