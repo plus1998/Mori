@@ -5337,6 +5337,10 @@ function App() {
     templateMainModel?.providerId,
     composerRuntimeConfig?.mainAgentModelOverride,
   );
+  const composerUsesCodexAccount = activeThread
+    ? isCodexAuthThread(activeThread)
+    : composerCoreKind === "codex" &&
+      (composerMainAgentModelOverride?.providerId ?? templateMainModel?.providerId) === "openai";
   const refreshComposerCandidateModels = useCallback(() => {
     setComposerModelsRefreshNonce((current) => current + 1);
   }, []);
@@ -12378,33 +12382,33 @@ function App() {
                       }}
                     />
                     <div className="composer-footer-actions">
-                      {activeThread ? (
-                        <ComposerThreadUsagePills
-                          accountQuota={
-                            isCodexAuthThread(activeThread) ? (
-                              <CodexQuotaReminder
-                                key={activeThread.id}
-                                variant="composer"
-                                threads={[activeThread]}
-                                onSwitchAccount={openCodexAccountSwitch}
-                              />
-                            ) : null
-                          }
-                          threadId={activeThread.id}
-                          threadStatus={activeThread.status}
-                          {...(threadUsageSummary && { usageSummary: threadUsageSummary })}
-                          showBilling={workflowSettings.showBilling !== false}
-                          {...(activeThread.hostUiFeatures && {
-                            hostUiFeatures: activeThread.hostUiFeatures,
-                          })}
-                          contextCompactionInFlight={contextCompactionInFlight}
-                          autoCompactSuspended={autoCompactSuspended}
-                          promptCacheInvalidated={promptCacheInvalidated}
-                          agentDisplayNames={activeRuntimeAgentDisplayNames}
-                          agentThemes={activeRuntimeAgentThemes}
-                          agentModelLabels={agentModelLabels}
-                        />
-                      ) : null}
+                      <ComposerThreadUsagePills
+                        accountQuota={
+                          composerUsesCodexAccount ? (
+                            <CodexQuotaReminder
+                              key={activeThread?.id ?? "draft"}
+                              variant="composer"
+                              threads={activeThread ? [activeThread] : []}
+                              onSwitchAccount={openCodexAccountSwitch}
+                            />
+                          ) : null
+                        }
+                        {...(activeThread && {
+                          threadId: activeThread.id,
+                          threadStatus: activeThread.status,
+                        })}
+                        {...(threadUsageSummary && { usageSummary: threadUsageSummary })}
+                        showBilling={workflowSettings.showBilling !== false}
+                        {...(activeThread?.hostUiFeatures && {
+                          hostUiFeatures: activeThread.hostUiFeatures,
+                        })}
+                        contextCompactionInFlight={contextCompactionInFlight}
+                        autoCompactSuspended={autoCompactSuspended}
+                        promptCacheInvalidated={promptCacheInvalidated}
+                        agentDisplayNames={activeRuntimeAgentDisplayNames}
+                        agentThemes={activeRuntimeAgentThemes}
+                        agentModelLabels={agentModelLabels}
+                      />
                       {renderComposerModelControl()}
                       {asrComposerConfigured ? (
                         <AsrMicButton session={asrSession} disabled={composerDisabled} />

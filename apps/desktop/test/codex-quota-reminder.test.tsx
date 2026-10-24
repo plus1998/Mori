@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
-import { CodexQuotaReminderCard } from "../src/renderer/CodexQuotaReminder";
+import { CodexQuotaReminder, CodexQuotaReminderCard } from "../src/renderer/CodexQuotaReminder";
+import { ComposerThreadUsagePills } from "../src/renderer/ComposerThreadUsagePills";
 import {
   CODEX_AUTH_RECENT_USE_MS,
   CodexQuotaMonitor,
@@ -62,6 +63,24 @@ const bridge = () => ({
   openAIAccountsGetActive: async () => active(),
   openAIAccountsList: async () => [account],
   openAIAccountsQueryQuota: async (_id: string) => quota,
+});
+
+test("a fresh composer renders the account quota control without thread usage", () => {
+  const markup = renderLocalized(createElement(ComposerThreadUsagePills, {
+    accountQuota: createElement(CodexQuotaReminder, {
+      variant: "composer",
+      threads: [],
+      onSwitchAccount: () => undefined,
+      eco: {
+        ...bridge(),
+        openAIAccountsResetQuota: async () => ({ outcome: "nothingToReset" as const }),
+        onOpenAIAccountsChanged: () => () => undefined,
+      },
+    }),
+  }), "zh-CN");
+  expect(markup).toContain("codex-quota-mini");
+  expect(markup).not.toContain("thread-info-float-pill-cost");
+  expect(markup).not.toContain("thread-info-context-ring");
 });
 
 test("recent-use tracking only enables Codex Auth within 30 minutes or while running", () => {

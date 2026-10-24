@@ -8,7 +8,6 @@ import {
   type CodexQuotaReminderSnapshot,
   codexQuotaReminderKey,
   isCodexAuthConversation,
-  isCodexAuthThread,
   lowCodexQuotaWindows,
 } from "./codex-quota-reminder";
 import { ThreadInfoFloatControl } from "./ThreadInfoPanel";
@@ -191,9 +190,7 @@ export function CodexQuotaReminder({
   const resetAttempt = useRef<{ accountId: string; key: string } | undefined>(undefined);
   const resettingRef = useRef(false);
   const recentlyUsed =
-    variant === "reminder"
-      ? isCodexAuthConversation(threads, activeThreadId)
-      : threads.some(isCodexAuthThread);
+    variant === "composer" || isCodexAuthConversation(threads, activeThreadId);
   const acceptSnapshot = useCallback((next: CodexQuotaReminderSnapshot | undefined) => {
     snapshotRef.current = next;
     setSnapshot(next);
@@ -203,10 +200,9 @@ export function CodexQuotaReminder({
   useEffect(() => {
     if (!eco) return;
     const instance = new CodexQuotaMonitor(eco, {
-      enabled: () =>
-        variant === "composer"
-          ? threadsRef.current.some(isCodexAuthThread)
-          : isCodexAuthConversation(threadsRef.current, activeThreadIdRef.current),
+      // Composer visibility is gated by its selected provider, including a fresh draft.
+      enabled: () => variant === "composer" ||
+        isCodexAuthConversation(threadsRef.current, activeThreadIdRef.current),
       onChange: acceptSnapshot,
       onError: (message) => {
         setError(message);
