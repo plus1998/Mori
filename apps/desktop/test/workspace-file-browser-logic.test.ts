@@ -105,6 +105,8 @@ test("builds and merges a sorted lazy tree", () => {
 
 test("returns ancestor directories in loading order", () => {
   expect(ancestorDirectories("/repo", "/repo/src/lib/file.ts")).toEqual(["/repo/src", "/repo/src/lib"]);
+  expect(ancestorDirectories("/", "/tmp/report/file.ts")).toEqual(["/tmp", "/tmp/report"]);
+  expect(ancestorDirectories("D:/", "D:/report/file.ts")).toEqual(["D:/report"]);
   expect(basename("/repo/")).toBe("repo");
 });
 
@@ -136,6 +138,16 @@ test("builds clickable workspace breadcrumb hierarchy", () => {
     { name: "src", path: "/src", kind: "directory" },
     { name: "App.tsx", path: "/src/App.tsx", kind: "file" },
   ]);
-  expect(workspacePathSegments("/repo", "/outside/file.ts")).toEqual([]);
+  expect(workspacePathSegments("/repo", "/outside/file.ts")).toEqual([
+    { name: "/", path: "/", kind: "directory" },
+    { name: "outside", path: "/outside", kind: "directory" },
+    { name: "file.ts", path: "/outside/file.ts", kind: "file" },
+  ]);
+  expect(workspacePathSegments("C:/repo", "D:/images/photo.png")).toEqual([
+    { name: "D:", path: "D:/", kind: "directory" },
+    { name: "images", path: "D:/images", kind: "directory" },
+    { name: "photo.png", path: "D:/images/photo.png", kind: "file" },
+  ]);
+  expect(parentDirectory("D:/photo.png")).toBe("D:/");
   expect(parentDirectory("/repo/src/App.tsx")).toBe("/repo/src");
 });

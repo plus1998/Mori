@@ -28,7 +28,7 @@ describe("task panel session ui state", () => {
         openTabIds: [TASK_PANEL_FILES_TAB_ID, TASK_PANEL_REVIEW_TAB_ID, TASK_PANEL_FILES_TAB_ID],
         fullscreen: true,
         selectedSubagentAgentId: "agent-1",
-        fileTarget: { path: "/tmp/a.ts", line: 12, requestId: 3, restricted: true },
+        fileTarget: { path: "/tmp/a.ts", line: 12, requestId: 3 },
       }),
     ).toEqual({
       open: true,
@@ -36,7 +36,7 @@ describe("task panel session ui state", () => {
       openTabIds: [TASK_PANEL_FILES_TAB_ID, TASK_PANEL_REVIEW_TAB_ID],
       fullscreen: true,
       selectedSubagentAgentId: "agent-1",
-      fileTarget: { path: "/tmp/a.ts", line: 12, requestId: 3, restricted: true },
+      fileTarget: { path: "/tmp/a.ts", line: 12, requestId: 3 },
     });
   });
 
@@ -93,4 +93,12 @@ describe("task panel session ui state", () => {
       fullscreen: false,
     });
   });
+});
+
+test("restores legacy external file targets without the obsolete restriction", () => {
+  expect(
+    normalizeTaskPanelSessionUiState({
+      fileTarget: { path: "/outside/file.txt", line: 3, restricted: true },
+    }).fileTarget,
+  ).toEqual({ path: "/outside/file.txt", line: 3 });
 });

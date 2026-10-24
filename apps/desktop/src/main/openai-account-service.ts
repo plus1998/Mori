@@ -25,7 +25,7 @@ import {
   readCodexAccountQuota,
   type CodexQuotaClient,
 } from "./codex-account-quota";
-import { CodexQuotaResetRefresher } from "./codex-quota-reset-refresh";
+import { CodexQuotaRefreshPolicy, type QuotaRefreshReason } from "./codex-quota-refresh-policy";
 import { wakeCodexAccount } from "./codex-account-wake";
 import {
   buildCodexProxyEnv,
@@ -227,7 +227,9 @@ export class OpenAIAccountService {
   private readonly activeLogins = new Map<string, CodexBrowserLogin>();
   private readonly quotaQueries = new Map<string, Promise<OpenAIAccountQuota>>();
   private readonly wakeRequests = new Map<string, Promise<OpenAIAccountWakeResult>>();
-  private quotaResetRefresher: CodexQuotaResetRefresher | undefined;
+  private readonly quotaRefreshPolicy = new CodexQuotaRefreshPolicy();
+  private readonly quotaUsage = new Map<string, string>();
+  private disposing = false;
 
   constructor(
     userDataDir: string,
@@ -244,6 +246,7 @@ export class OpenAIAccountService {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
+    this.disposing = false;
     await fs.mkdir(this.accountsDir, { recursive: true });
     await fs.mkdir(this.mainCodexDir, { recursive: true });
     this.store = await OpenAIAccountStore.open(this.databasePath);
@@ -261,26 +264,17 @@ export class OpenAIAccountService {
       // Reconcile credentials left by the prior process before applying a queued switch.
       await this.reconcileMainAuth({ allowPublishMissing: true }).catch((error) => this.setSyncError(error));
       if (this.store.getPendingTransition()) await this.applyPendingTransition();
-      this.quotaResetRefresher = new CodexQuotaResetRefresher(
-        (accountId) => this.queryQuota(accountId),
-        (accountId, error) => console.error(`[codex-quota] Automatic reset refresh failed for ${accountId}:`, error),
-      );
       this.authPoll = setInterval(() => {
         if (!this.authWatcherHealthy) this.startAuthWatcher();
         this.enqueueMainAuthReconcile();
       }, 5_000);
       this.authPoll.unref?.();
-      this.quotaPoll = setInterval(() => this.refreshQuotas(), CODEX_QUOTA_REFRESH_MS);
-      this.quotaPoll.unref?.();
       this.initialized = true;
-      this.refreshResetQuotas();
     } catch (error) {
       if (this.authPoll) clearInterval(this.authPoll);
       this.authPoll = undefined;
       if (this.quotaPoll) clearInterval(this.quotaPoll);
       this.quotaPoll = undefined;
-      await this.quotaResetRefresher?.dispose();
-      this.quotaResetRefresher = undefined;
       this.initialized = false;
       this.authWatcher?.close();
       this.authWatcher = null;
@@ -291,23 +285,44 @@ export class OpenAIAccountService {
     }
   }
 
-  private refreshResetQuotas(): void {
-    if (!this.store || !this.quotaResetRefresher) return;
-    void this.quotaResetRefresher.refreshDueAccounts(this.store.list());
+  /** Called by the main-process task lifecycle; queued/idle/UI state is not usage. */
+  setQuotaUsage(taskId: string, running: boolean): void {
+    if (!this.store || this.disposing) return;
+    const previous = this.quotaUsage.get(taskId);
+    if (running) {
+      if (previous) return;
+      const activeId = this.store.getActiveAccountId();
+      if (!activeId || !this.store.get(activeId)?.authJson) return;
+      this.quotaUsage.set(taskId, activeId);
+      this.refreshUsageQuota(activeId);
+      if (!this.quotaPoll) {
+        this.quotaPoll = setInterval(() => {
+          for (const id of new Set(this.quotaUsage.values())) this.refreshUsageQuota(id);
+        }, CODEX_QUOTA_REFRESH_MS);
+        this.quotaPoll.unref?.();
+      }
+    } else if (previous) {
+      this.quotaUsage.delete(taskId);
+      this.refreshUsageQuota(previous);
+      if (this.quotaUsage.size === 0 && this.quotaPoll) {
+        clearInterval(this.quotaPoll);
+        this.quotaPoll = undefined;
+      }
+    }
   }
 
-  private refreshQuotas(): void {
-    if (!this.store || !this.quotaResetRefresher) return;
-    const accounts = this.store.list();
-    void this.quotaResetRefresher.refreshDueAccounts(accounts);
-    const activeId = this.store.getActiveAccountId();
-    const active = activeId ? accounts.find((account) => account.id === activeId) : undefined;
-    // Keep the prior active-account cadence even when its reset time is still in the future.
-    if (active?.authJson) {
-      void this.queryQuota(active.id).catch((error) =>
-        console.error(`[codex-quota] Periodic refresh failed for ${active.id}:`, error),
-      );
-    }
+  private refreshUsageQuota(accountId: string): void {
+    // Do not start isolated processes for accounts no longer in use.
+    if (!this.store || this.store.getActiveAccountId() !== accountId) return;
+    const account = this.store.get(accountId);
+    if (!account?.authJson) return;
+    try {
+      const decision = this.quotaRefreshPolicy.check(accountId, contentFingerprint(account.authJson), account.quota, "usage");
+      if (decision !== "query") return;
+    } catch { return; } // The recorded failure remains visible; no retry before its deadline.
+    void this.queryQuota(accountId, "usage").catch((error) =>
+      console.error(`[codex-quota] Usage refresh failed for ${accountId}:`, error),
+    );
   }
 
   /**
@@ -602,6 +617,7 @@ export class OpenAIAccountService {
 
   /** Stop file polling and close the SQLite handle after the final writeback. */
   async dispose(): Promise<void> {
+    this.disposing = true;
     const logins = [...this.activeLogins.values()];
     for (const login of logins) login.cancel();
     await Promise.all(logins.map((login) => login.result)).catch((error) => this.setSyncError(error));
@@ -612,8 +628,8 @@ export class OpenAIAccountService {
     this.authWatcher = null;
     this.authPoll = undefined;
     this.quotaPoll = undefined;
-    await this.quotaResetRefresher?.dispose();
-    this.quotaResetRefresher = undefined;
+    this.quotaUsage.clear();
+    await Promise.allSettled(this.quotaQueries.values());
     await this.flushFinalAuthWriteback().catch((error) => this.setSyncError(error));
     this.authWatcherHealthy = false;
     this.store?.close();
@@ -677,6 +693,7 @@ export class OpenAIAccountService {
         ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
         ...(lastLogin ? { lastLogin } : {}),
         ...(account.quota ? { quota: account.quota } : {}),
+        ...(this.quotaState(account.id, account.authJson) ? { quotaRefresh: this.quotaState(account.id, account.authJson)! } : {}),
         imageGenerationEnabled: account.imageGenerationEnabled ?? false,
         ...(account.imageQuota ? { imageQuota: account.imageQuota } : {}),
       };
@@ -713,6 +730,7 @@ export class OpenAIAccountService {
   /** Delete an account and its auth data. */
   async deleteAccount(accountId: string): Promise<void> {
     await this.requireAccount(accountId);
+    this.quotaRefreshPolicy.forget(accountId);
     const store = this.getStore();
     const activeId = store.getActiveAccountId();
     const pending = store.getPendingTransition();
@@ -918,7 +936,13 @@ export class OpenAIAccountService {
   }
 
   async getAccountDetails(accountId: string): Promise<OpenAIAccountDetails> {
-    return await this.requireAccount(accountId);
+    const account = await this.requireAccount(accountId);
+    const quotaRefresh = this.quotaState(account.id, account.authJson);
+    return { ...account, ...(quotaRefresh ? { quotaRefresh } : {}) };
+  }
+
+  private quotaState(accountId: string, authJson: string | null) {
+    return authJson ? this.quotaRefreshPolicy.state(accountId, contentFingerprint(authJson)) : undefined;
   }
 
   /** Update account metadata and optional profile fields; empty strings explicitly clear. */
@@ -999,17 +1023,58 @@ export class OpenAIAccountService {
     return config.mode === "manual" ? config.proxyUrl : undefined;
   }
 
-  queryQuota(accountId: string): Promise<OpenAIAccountQuota> {
+  queryQuota(accountId: string, reason: QuotaRefreshReason = "manual"): Promise<OpenAIAccountQuota> {
     const existing = this.quotaQueries.get(accountId);
     if (existing) return existing;
     // Hold the auth queue until credential writeback finishes. Account switches
     // must not publish this account's old refresh token while a query rotates it.
-    const work = this.authSyncQueue.then(() => this.queryQuotaUnlocked(accountId));
+    const work = this.authSyncQueue.then(async () => {
+      const account = await this.requireAccount(accountId);
+      if (!account.authJson) throw new Error("该账号没有登录凭据，请先登录。");
+      const credentials = contentFingerprint(account.authJson);
+      const decision = this.quotaRefreshPolicy.check(accountId, credentials, account.quota, reason);
+      if (decision !== "query") {
+        if (account.quota) return account.quota;
+        throw new Error("尚无额度数据，请手动刷新。");
+      }
+      return this.trackQuotaQuery(accountId, () => this.queryQuotaUnlocked(accountId));
+    });
     // An unavailable quota endpoint is not an auth-file synchronization error.
     this.authSyncQueue = work.then(() => undefined, () => undefined);
     this.quotaQueries.set(accountId, work);
     void work.finally(() => this.quotaQueries.delete(accountId)).catch(() => undefined);
     return work;
+  }
+
+  private async trackQuotaQuery<T>(accountId: string, operation: () => Promise<T>): Promise<T> {
+    const before = await this.requireAccount(accountId);
+    if (!before.authJson) throw new Error("该账号没有登录凭据，请先登录。");
+    const original = contentFingerprint(before.authJson);
+    this.quotaRefreshPolicy.begin(accountId, original);
+    const credentials = () => {
+      const auth = this.getStore().get(accountId)?.authJson;
+      // A replaced identity must not inherit the previous identity's request outcome.
+      return auth && readAuthAccountId(auth) === readAuthAccountId(before.authJson!) ? contentFingerprint(auth) : original;
+    };
+    try {
+      const result = await operation();
+      this.quotaRefreshPolicy.succeed(accountId, credentials());
+      return result;
+    } catch (error) {
+      this.quotaRefreshPolicy.fail(accountId, credentials(), error);
+      throw error;
+    } finally {
+      this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+    }
+  }
+
+  /** Execute a reset and publish its required fresh read before releasing the auth queue. */
+  async resetQuota<T>(accountId: string, operation: (client: CodexQuotaClient) => Promise<T>): Promise<T> {
+    return this.withActiveAccount(accountId, () => this.trackQuotaQuery(accountId, async () => {
+      let result!: T;
+      await this.queryQuotaUnlocked(accountId, async (client) => { result = await operation(client); });
+      return result;
+    }));
   }
 
   getWakeModel(): string | null {
@@ -1027,11 +1092,11 @@ export class OpenAIAccountService {
     const work = this.authSyncQueue.then(async () => {
       let reply: string | undefined;
       try {
-        await this.queryQuotaUnlocked(accountId, async (client, refreshToken, expectedAccountId) => {
+        await this.trackQuotaQuery(accountId, () => this.queryQuotaUnlocked(accountId, async (client, refreshToken, expectedAccountId) => {
           // Verify this account and renew expired credentials before spending any quota.
           await readCodexAccountQuota(client, refreshToken, expectedAccountId);
           reply = await wakeCodexAccount(client, modelId);
-        });
+        }));
       } catch (error) {
         if (reply === undefined) throw error;
         return { reply, quotaError: error instanceof Error ? error.message : String(error) };
@@ -1121,7 +1186,6 @@ export class OpenAIAccountService {
     } catch (error) {
       throw new Error(`额度已获取，但保存缓存失败：${error instanceof Error ? error.message : String(error)}`);
     }
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
     return quota;
   }
 }

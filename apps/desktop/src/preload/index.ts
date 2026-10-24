@@ -691,8 +691,8 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsSetAuthJson, { accountId, content });
   },
 
-  openAIAccountsQueryQuota(accountId: string): Promise<OpenAIAccountQuota> {
-    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsQueryQuota, { accountId });
+  openAIAccountsQueryQuota(accountId: string, reason: "manual" | "switch" | "reset" = "manual"): Promise<OpenAIAccountQuota> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsQueryQuota, { accountId, reason });
   },
 
   openAIAccountsWake(accountId: string): Promise<import("../shared/openai-account").OpenAIAccountWakeResult> {

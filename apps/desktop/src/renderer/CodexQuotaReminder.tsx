@@ -1,3 +1,5 @@
+import { QuotaRefreshedAt } from "./QuotaRefreshedAt";
+import { hasUnrefreshedCodexQuotaReset } from "../shared/codex-quota-refresh";
 import { LoaderCircle, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -44,6 +46,7 @@ export function CodexQuotaReminderCard({
   onSwitchAccount,
   onReset,
   onDismiss,
+  onRefresh,
   variant = "reminder",
 }: {
   snapshot: CodexQuotaReminderSnapshot;
@@ -52,6 +55,7 @@ export function CodexQuotaReminderCard({
   onSwitchAccount: () => void;
   onReset: () => void;
   onDismiss?: () => void;
+  onRefresh?: () => void;
   variant?: "reminder" | "billing";
 }) {
   const { t, i18n } = useTranslation();
@@ -125,6 +129,8 @@ export function CodexQuotaReminderCard({
           </div>
         );
       })}
+      <QuotaRefreshedAt fetchedAt={snapshot.quota.fetchedAt} />
+      {hasUnrefreshedCodexQuotaReset(snapshot.quota) ? <p>{t("settings.openaiAccounts.quotaResetDue")}</p> : null}
       {error ? (
         <p className="codex-quota-reminder-error" role="alert">
           {error}
@@ -137,6 +143,7 @@ export function CodexQuotaReminderCard({
         })}
       </p>
       <div className="codex-quota-reminder-actions">
+        {onRefresh ? <button type="button" onClick={onRefresh} disabled={busy}>{t("settings.openaiAccounts.refreshQuota")}</button> : null}
         <button type="button" onClick={onSwitchAccount} disabled={busy}>
           {t("codexQuota.switchAccount")}
         </button>
@@ -211,7 +218,10 @@ export function CodexQuotaReminder({
     });
     monitor.current = instance;
     const unsubscribe = eco.onOpenAIAccountsChanged(() => void instance.accountsChanged());
+    const onVisibility = () => { if (!document.hidden) void instance.refresh(); };
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
       instance.dispose();
       unsubscribe();
       monitor.current = undefined;
@@ -233,7 +243,7 @@ export function CodexQuotaReminder({
     try {
       const result = await eco.openAIAccountsResetQuota(accountId, resetAttempt.current.key);
       resetAttempt.current = undefined;
-      await monitor.current?.refresh(true);
+      await monitor.current?.refresh();
       if (
         snapshotRef.current?.accountId === accountId &&
         (result.outcome === "noCredit" || result.outcome === "nothingToReset")
@@ -308,6 +318,7 @@ export function CodexQuotaReminder({
                   onSwitchAccount();
                 }}
                 onReset={() => void reset()}
+                onRefresh={() => void monitor.current?.refresh(true)}
                 onDismiss={closePanel}
               />
             ) : (
@@ -328,7 +339,12 @@ export function CodexQuotaReminder({
                     </button>
                   </div>
                 ) : (
-                  <p>{statusText}</p>
+                  <>
+                    <p>{statusText}</p>
+                    <button type="button" onClick={() => void monitor.current?.refresh(true)}>
+                      {t("settings.openaiAccounts.refreshQuota")}
+                    </button>
+                  </>
                 )}
               </section>
             )}
@@ -354,6 +370,7 @@ export function CodexQuotaReminder({
       busy={resetting}
       onSwitchAccount={onSwitchAccount}
       onReset={() => void reset()}
+      onRefresh={() => void monitor.current?.refresh(true)}
       onDismiss={() => setDismissed(reminderKey)}
     />
   );

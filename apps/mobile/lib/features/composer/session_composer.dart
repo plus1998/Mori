@@ -103,7 +103,8 @@ class SessionComposer extends ConsumerStatefulWidget {
 
 class _SessionComposerState extends ConsumerState<SessionComposer> {
   final _focusNode = FocusNode();
-  final _plusMenuAnchorKey = GlobalKey();
+  final _composerCardKey = GlobalKey();
+  ComposerPlusMenuRoute? _plusMenuRoute;
   bool _speechBusy = false;
   bool _speechFinishing = false;
   bool _discardSpeechResult = false;
@@ -120,6 +121,7 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
   @override
   void didUpdateWidget(covariant SessionComposer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _plusMenuRoute?.refresh();
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_handleControllerChanged);
       widget.controller.addListener(_handleControllerChanged);
@@ -127,11 +129,18 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
   }
 
   void _handleControllerChanged() {
+    _plusMenuRoute?.refresh();
     setState(() {});
   }
 
   @override
   void dispose() {
+    final route = _plusMenuRoute;
+    if (route != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (route.isActive) route.navigator?.removeRoute(route);
+      });
+    }
     if (shouldCancelMobileAsrOnDispose(
       speechBusy: _speechBusy,
       speechFinishing: _speechFinishing,
@@ -177,13 +186,62 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
     widget.onSendWithMode?.call(mode);
   }
 
-  Future<void> _handleSchedule() async {
-    if (!_canSchedule ||
-        widget.followUpMode ||
-        widget.sendBusy ||
-        widget.isRunning) {
+  Future<void> _togglePlusMenu() async {
+    final existing = _plusMenuRoute;
+    if (existing != null) {
+      existing.close();
       return;
     }
+    final route = ComposerPlusMenuRoute(
+      anchorKey: _composerCardKey,
+      dismissLabel: context.l10n.commonClose,
+      reduceMotion: MediaQuery.disableAnimationsOf(context),
+      builder: (context) => ComposerPlusMenuPanel(
+        runtimeConfig: widget.runtimeConfig,
+        threadId: widget.threadId,
+        canEdit: !widget.isRunning,
+        canEditStatelessModels: true,
+        onChanged: widget.onRuntimeConfigChanged,
+        workspacePath: widget.workspacePath,
+        coreKind: widget.coreKind,
+        onCoreKindChanged: widget.onCoreKindChanged,
+        canSchedule: _canSchedule,
+      ),
+    );
+    setState(() => _plusMenuRoute = route);
+    final action = await Navigator.of(context).push(route);
+    if (!mounted) return;
+    setState(() => _plusMenuRoute = null);
+    await route.completed;
+    if (!mounted) return;
+    switch (action) {
+      case ComposerPlusMenuAction.plan:
+      case ComposerPlusMenuAction.ask:
+        if (widget.isRunning) return;
+        final mode = action == ComposerPlusMenuAction.plan ? 'plan' : 'ask';
+        await persistRuntimeConfig(
+          ref,
+          threadId: widget.threadId,
+          previousConfig: widget.runtimeConfig,
+          config: widget.runtimeConfig.copyWith(
+            sessionMode: widget.runtimeConfig.sessionMode == mode
+                ? 'agent'
+                : mode,
+          ),
+          onChanged: widget.onRuntimeConfigChanged,
+          reportFailure: true,
+        );
+      case ComposerPlusMenuAction.image:
+        widget.onPickImage();
+      case ComposerPlusMenuAction.schedule:
+        await _handleSchedule();
+      case null:
+        break;
+    }
+  }
+
+  Future<void> _handleSchedule() async {
+    if (!_canSchedule) return;
     final draft = widget.controller.text;
     final images = List<PromptImageAttachment>.of(widget.attachments);
     final isNew = widget.threadId.isEmpty;
@@ -209,11 +267,13 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
     }
   }
 
+  // Scheduling is independent of the active run; due messages join its queue.
   bool get _canSchedule =>
-      widget.threadId.isNotEmpty ||
-      (widget.workspacePath.trim().isNotEmpty &&
-          widget.coreKind != null &&
-          widget.onScheduledThreadCreated != null);
+      !widget.sendBusy &&
+      (widget.threadId.isNotEmpty ||
+          (widget.workspacePath.trim().isNotEmpty &&
+              widget.coreKind != null &&
+              widget.onScheduledThreadCreated != null));
 
   void _clearScheduledDraft(String draft, List<PromptImageAttachment> images) {
     if (!mounted ||
@@ -349,9 +409,6 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
   @override
   Widget build(BuildContext context) {
     final canEditConfig = !widget.isRunning;
-    // Auxiliary / approval / vision requests are stateless single-shot calls, so the
-    // host accepts switching them mid-run; they take effect on the next such request.
-    const canEditStatelessModelConfig = true;
     final showSpeechInput =
         _speechBusy || ref.watch(desktopRpcProvider) != null;
     final asrModel = ref.watch(asrStatusProvider).valueOrNull?.model;
@@ -370,6 +427,7 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
         child: ClipRRect(
+          key: _composerCardKey,
           borderRadius: BorderRadius.circular(24),
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
@@ -520,37 +578,20 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         ComposerToolbarIconButton(
-                          key: _plusMenuAnchorKey,
-                          onPressed: () {
-                            final scheduledDraft = widget.controller.text;
-                            final scheduledImages =
-                                List<PromptImageAttachment>.of(
-                                  widget.attachments,
-                                );
-                            unawaited(
-                              showComposerPlusMenu(
-                                context: context,
-                                ref: ref,
-                                anchorKey: _plusMenuAnchorKey,
-                                runtimeConfig: widget.runtimeConfig,
-                                threadId: widget.threadId,
-                                canEdit: canEditConfig,
-                                onChanged: widget.onRuntimeConfigChanged,
-                                onPickImage: widget.onPickImage,
-                                workspacePath: widget.workspacePath,
-                                initialPrompt: scheduledDraft,
-                                initialAttachments: scheduledImages,
-                                onMessageScheduled: () => _clearScheduledDraft(
-                                  scheduledDraft,
-                                  scheduledImages,
-                                ),
-                              ),
-                            );
-                          },
+                          onPressed: _togglePlusMenu,
                           tooltip: context.l10n.composerPlusMenu,
-                          icon: ComposerToolbarIcon(
-                            icon: EcoIcons.add,
-                            color: ecoColors(context).textSecondary,
+                          icon: AnimatedRotation(
+                            turns: _plusMenuRoute == null ? 0 : 0.125,
+                            duration: Duration(
+                              milliseconds:
+                                  MediaQuery.disableAnimationsOf(context)
+                                  ? 0
+                                  : 200,
+                            ),
+                            child: ComposerToolbarIcon(
+                              icon: EcoIcons.add,
+                              color: ecoColors(context).textSecondary,
+                            ),
                           ),
                         ),
                         if (widget.runtimeConfig.sessionMode == 'plan' ||
@@ -580,15 +621,12 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                               runtimeConfig: widget.runtimeConfig,
                               threadId: widget.threadId,
                               canEdit: canEditConfig,
-                              canEditStatelessModels:
-                                  canEditStatelessModelConfig,
                               onChanged: widget.onRuntimeConfigChanged,
                               billing: widget.billing,
                               contextSnapshot: widget.contextSnapshot,
                               threadStatus: widget.threadStatus,
                               workspacePath: widget.workspacePath,
                               coreKind: widget.coreKind,
-                              onCoreKindChanged: widget.onCoreKindChanged,
                               hostUiFeatures: widget.hostUiFeatures,
                             ),
                           ),
@@ -617,6 +655,9 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                               ? _SendButton(
                                   busy: widget.sendBusy,
                                   onSend: _canSend ? _handleSend : null,
+                                  onSchedule: _canSchedule
+                                      ? _handleSchedule
+                                      : null,
                                   onSendWithMode: widget.onSendWithMode != null
                                       ? _handleSendWithMode
                                       : null,

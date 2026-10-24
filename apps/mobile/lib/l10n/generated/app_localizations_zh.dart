@@ -564,6 +564,57 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerImage => '图片';
 
   @override
+  String get composerPlusModeSection => '对话模式';
+
+  @override
+  String get composerPlusActionSection => '更多操作';
+
+  @override
+  String get composerPlusConfigSection => '配置';
+
+  @override
+  String get composerPlusPlanHint => '先制定计划，再执行修改';
+
+  @override
+  String get composerPlusAskHint => '问答与分析，不直接修改文件';
+
+  @override
+  String get composerPlusImageHint => '上传设计稿、截图或本地图片';
+
+  @override
+  String get composerPlusScheduleHint => '延时发送或按周期发送到当前对话';
+
+  @override
+  String get composerPlusFirstMessageHint => '让第一条消息在指定时间发送';
+
+  @override
+  String get composerPlusConfigHint => '主 Agent、提示词、子代理与模型设置';
+
+  @override
+  String get composerPlusIntegrationsHint => '浏览器、电脑操作等内置能力';
+
+  @override
+  String get composerPlusMcpHint => '连接外部服务与工具';
+
+  @override
+  String get composerPlusSkillsHint => '选择当前对话可用的技能';
+
+  @override
+  String get composerPlusSubagentsHint => '查看当前方案的子代理与启用状态';
+
+  @override
+  String get composerPlusEnabled => '当前开启';
+
+  @override
+  String get composerPlusBack => '返回菜单';
+
+  @override
+  String get composerPrimaryAgent => '主 Agent';
+
+  @override
+  String get composerRuntimeConfig => '运行配置';
+
+  @override
   String get composerPlusMenu => '更多';
 
   @override

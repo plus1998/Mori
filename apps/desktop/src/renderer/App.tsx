@@ -548,7 +548,6 @@ import { WorkspaceFloatingCards } from "./WorkspaceFloatingCards";
 import { isThreadActivelyViewed, subscribeToWindowFocus } from "./window-focus";
 import {
   isAbsoluteLocalFilePath,
-  isWorkspacePathContained,
   WORKSPACE_FILE_REFERENCE_EVENT,
   type WorkspaceFileReference,
 } from "./workspace-file-reference";
@@ -2313,7 +2312,7 @@ function App() {
   const reviewDiffManualRefreshRef = useRef(false);
   reviewDiffRef.current = reviewDiff;
   const [fileTarget, setFileTarget] = useState<
-    (WorkspaceFileReference & { requestId: number; restricted?: boolean }) | undefined
+    (WorkspaceFileReference & { requestId: number }) | undefined
   >();
   liveTaskPanelUiRef.current = captureTaskPanelSessionUiState({
     open: taskDrawerOpen && !taskPanelExiting && !taskPanelClosingRef.current,
@@ -6034,7 +6033,6 @@ function App() {
         requestId: fileReferenceRequestIdRef.current,
         ...(typeof restored.fileTarget.line === "number" ? { line: restored.fileTarget.line } : {}),
         ...(typeof restored.fileTarget.column === "number" ? { column: restored.fileTarget.column } : {}),
-        ...(restored.fileTarget.restricted === true ? { restricted: true } : {}),
       });
     } else {
       setFileTarget(undefined);
@@ -6213,7 +6211,6 @@ function App() {
       setFileTarget({
         ...reference,
         requestId: fileReferenceRequestIdRef.current,
-        restricted: !isWorkspacePathContained(currentProjectPath, reference.path),
       });
       setOpenTaskPanelTabIds((current) => addOpenTaskPanelTab(current, TASK_PANEL_FILE_VIEWER_TAB_ID));
       setTaskPanelActiveTab(TASK_PANEL_FILE_VIEWER_TAB_ID);

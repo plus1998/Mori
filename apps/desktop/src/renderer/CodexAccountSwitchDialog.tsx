@@ -1,3 +1,5 @@
+import { QuotaRefreshedAt } from "./QuotaRefreshedAt";
+import { hasUnrefreshedCodexQuotaReset } from "../shared/codex-quota-refresh";
 import { ArrowRight, CircleAlert, LoaderCircle, RefreshCw, Search, UserRound, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -86,6 +88,9 @@ export function CodexAccountSwitchList({
                 <QuotaWindow window={account.quota.rateLimit.secondaryWindow} />
               ) : null}
             </span>
+            {account.quota ? <QuotaRefreshedAt fetchedAt={account.quota.fetchedAt} /> : null}
+            {account.quota && hasUnrefreshedCodexQuotaReset(account.quota) ? <span>{t("settings.openaiAccounts.quotaResetDue")}</span> : null}
+            {account.quotaRefresh?.error ? <span role="alert">{t("settings.openaiAccounts.quotaError", { message: account.quotaRefresh.error })}</span> : null}
           </button>
           <button
             type="button"
@@ -137,7 +142,13 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
       if (accountId) {
         const quota = await window.eco.openAIAccountsQueryQuota(accountId);
         if (version !== requestVersion.current) return;
-        setAccounts((previous) => previous.map((account) => account.id === accountId ? { ...account, quota } : account));
+        const latest = await window.eco.openAIAccountsList();
+        if (version !== requestVersion.current) return;
+        setAccounts((previous) => previous.flatMap((account) => {
+          if (account.id !== accountId) return [account];
+          const updated = latest.find((entry) => entry.id === accountId);
+          return updated ? [{ ...updated, quota }] : [];
+        }));
         return;
       }
       const result = await loadCodexSwitchAccounts(window.eco, queryQuota);
@@ -241,7 +252,7 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
       // Recheck the selected account before committing the switch.
       const [list, quota] = await Promise.all([
         window.eco.openAIAccountsList(),
-        window.eco.openAIAccountsQueryQuota(accountId),
+        window.eco.openAIAccountsQueryQuota(accountId, "switch"),
       ]);
       const account = list.find((candidate) => candidate.id === accountId);
       setAccounts((previous) => previous.flatMap((candidate) => {

@@ -954,3 +954,112 @@ for (const deferred of [false, true]) {
     db.close();
   });
 }
+
+// Advance quota time without waking the independent five-second credential poll.
+function quotaClock(t: test.TestContext) {
+  let now = Date.now();
+  t.mock.method(Date, "now", () => now);
+  const intervals: { callback: () => void; timer: ReturnType<typeof setInterval> }[] = [];
+  const original = globalThis.setInterval;
+  t.mock.method(globalThis, "setInterval", (callback: () => void, delay: number) => {
+    const timer = original(callback, delay);
+    if (delay === 5 * 60_000) intervals.push({ callback, timer });
+    return timer;
+  });
+  const cleared = t.mock.method(globalThis, "clearInterval");
+  return { intervals, cleared, advance: (ms: number) => { now += ms; } };
+}
+
+async function activeQuotaFixture(t: test.TestContext) {
+  const fixture = await makeQuotaService(t);
+  const account = await fixture.service.createAccount("Usage policy");
+  await fixture.service.setAuthJson(account.id, authJson({ accountId: "chatgpt-policy", refreshToken: "quota", stamp: "2026-10-05T01:00:00.000Z" }));
+  await activateQuotaAccount(fixture.service, account.id);
+  return { ...fixture, account };
+}
+
+test("idle has no quota timer; tasks share freshness, background polling stops after the last task", async (t) => {
+  const clock = quotaClock(t);
+  const { service, quotaRead, account } = await activeQuotaFixture(t);
+  assert.equal(clock.intervals.length, 0);
+  const first = await service.queryQuota(account.id);
+  assert.deepEqual(await service.queryQuota(account.id, "switch"), first);
+  service.setQuotaUsage("one", true);
+  service.setQuotaUsage("one", true);
+  service.setQuotaUsage("two", true);
+  await service.flushFinalAuthWriteback();
+  assert.equal(quotaRead.mock.callCount(), 1);
+  assert.equal(clock.intervals.length, 1);
+  clock.advance(5 * 60_000);
+  clock.intervals[0]!.callback();
+  await service.flushFinalAuthWriteback();
+  assert.equal(quotaRead.mock.callCount(), 2);
+  service.setQuotaUsage("one", false);
+  assert.equal(clock.cleared.mock.callCount(), 0);
+  service.setQuotaUsage("two", false);
+  await service.flushFinalAuthWriteback();
+  assert.ok(clock.cleared.mock.calls.some((call) => call.arguments[0] === clock.intervals[0]!.timer));
+  clock.advance(30 * 60_000);
+  clock.intervals[0]!.callback();
+  await service.listAccounts();
+  assert.equal(quotaRead.mock.callCount(), 2);
+});
+
+test("repeated task and switch requests honor failure backoff; manual refresh retries immediately", async (t) => {
+  const clock = quotaClock(t);
+  const { service, quotaRead, account } = await activeQuotaFixture(t);
+  const cached = await service.queryQuota(account.id);
+  quotaRead.mock.mockImplementation(async () => { throw new Error("503 quota offline"); });
+  await assert.rejects(service.queryQuota(account.id), /503 quota offline/);
+  service.setQuotaUsage("task", true);
+  clock.advance(5 * 60_000);
+  await assert.rejects(service.queryQuota(account.id, "switch"), /503 quota offline/);
+  assert.equal(quotaRead.mock.callCount(), 3);
+  const state = (await service.listAccounts())[0]!.quotaRefresh;
+  assert.equal(state?.error, "503 quota offline");
+  assert.equal(state?.retryAt, Date.now() + 15 * 60_000);
+  assert.deepEqual((await service.listAccounts())[0]!.quota, cached);
+  clock.intervals[0]!.callback();
+  await service.flushFinalAuthWriteback();
+  assert.equal(quotaRead.mock.callCount(), 3);
+  quotaRead.mock.mockImplementation(async () => quotaResponse(50));
+  const refreshed = await service.queryQuota(account.id);
+  assert.equal(refreshed.rateLimit.primaryWindow?.usedPercent, 50);
+  assert.equal((await service.listAccounts())[0]!.quotaRefresh?.error, undefined);
+});
+
+test("manual and automatic requests for the same account share the in-flight query", async (t) => {
+  quotaClock(t);
+  const { service, quotaRead, account } = await activeQuotaFixture(t);
+  let release!: (response: ReturnType<typeof quotaResponse>) => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  quotaRead.mock.mockImplementation(() => {
+    entered();
+    return new Promise((resolve) => { release = resolve; });
+  });
+  const first = service.queryQuota(account.id, "usage");
+  await started;
+  assert.equal(service.queryQuota(account.id), first);
+  assert.equal(service.queryQuota(account.id, "switch"), first);
+  release(quotaResponse());
+  await first;
+  assert.equal(quotaRead.mock.callCount(), 1);
+});
+
+test("quota reset saves and publishes exactly one fresh read, and reports a post-reset read failure", async (t) => {
+  const { service, quotaRead, account } = await activeQuotaFixture(t);
+  const cached = await service.queryQuota(account.id);
+  let consumed = 0;
+  quotaRead.mock.mockImplementation(async () => quotaResponse(0));
+  const result = await service.resetQuota(account.id, async () => { consumed++; return { outcome: "reset" }; });
+  assert.deepEqual(result, { outcome: "reset" });
+  assert.equal(consumed, 1);
+  assert.equal(quotaRead.mock.callCount(), 2);
+  assert.equal((await service.listAccounts())[0]!.quota?.rateLimit.primaryWindow?.usedPercent, 0);
+  quotaRead.mock.mockImplementation(async () => { throw new Error("post reset offline"); });
+  await assert.rejects(service.resetQuota(account.id, async () => { consumed++; return {}; }), /post reset offline/);
+  assert.equal(consumed, 2);
+  assert.equal((await service.listAccounts())[0]!.quotaRefresh?.error, "post reset offline");
+  assert.ok((await service.listAccounts())[0]!.quota!.fetchedAt >= cached.fetchedAt);
+});

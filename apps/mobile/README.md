@@ -12,7 +12,7 @@ Flutter 远程客户端，通过用户自建的 **Supabase Center** 操控已绑
 - Plan / Bash / Clarification 审批
 - Plan Mode、Bash Review、Agent Profile 运行时配置
 - Workflow 全局 Plan Mode 开关
-- 输入框「+」定时发送消息，会话更多菜单查看和管理定时消息
+- 输入框「+」打开与输入卡片等宽的分组菜单，支持 Plan / Ask 模式开关、图片和定时消息（已有会话运行中也可添加）；Harness 内核选择位于主菜单；「运行配置」仅展示主 Agent、提示词、子代理方案及辅助 / 审批 / 视觉模型，集成 / MCP / Skills / 子代理入口直接列在主菜单，菜单限高并支持向下滚动；发送键左侧模型面板仅保留主模型和推理强度，会话更多菜单查看和管理定时消息
 - 会话列表时钟入口新增、编辑、暂停、启用、删除或立即执行定时任务，查看执行记录并打开运行会话；支持一次性、固定间隔和 Cron，执行仍由保持运行且唤醒的电脑完成
 
 ## 前置条件
@@ -100,6 +100,8 @@ Supabase  →  Eco Desktop (local execution)
 cd apps/mobile
 flutter test
 ```
+
+Composer 原生菜单冒烟：`flutter test integration_test/composer_plus_menu_test.dart --flavor dev -d SIMULATOR_ID`，验证深浅主题、模型菜单去重、配置返回、模式开关和原生键盘下的定位。使用生产 Composer 与本地回调，不连接账号或调用模型；可用 `--dart-define=ECO_COMPOSER_SCREENSHOTS=/tmp/eco-mobile-composer-native` 保存截图。
 
 ## 移动端离线 Feed Replay（iOS 模拟器）
 

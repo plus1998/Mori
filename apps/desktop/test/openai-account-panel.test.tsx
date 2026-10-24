@@ -201,7 +201,7 @@ test("refreshing quota keeps the cached values visible with a loading indicator"
   expect(markup).toContain("上次刷新");
 });
 
-test("quota errors replace cached values with the actual failure, including during retry", () => {
+test("quota failures show the actual error alongside explicitly timestamped cached values", () => {
   for (const loading of [false, true]) {
     const markup = renderLocalized(
       createElement(OpenAIAccountQuotaSummary, {
@@ -213,12 +213,11 @@ test("quota errors replace cached values with the actual failure, including duri
       "zh-CN",
     );
     expect(markup).toContain('role="alert">额度刷新失败：OpenAI quota request failed with status 503.</span>');
-    expect(markup).not.toContain("剩余 63%");
-    expect(markup).not.toContain('role="meter"');
-    expect(markup).not.toContain("2 次重置");
-    expect(markup).not.toContain("已到重置时间，待刷新");
-    expect(markup).not.toContain("上次刷新");
-    expect(markup).not.toContain("显示缓存");
+    expect(markup).toContain("剩余 63%");
+    expect(markup).toContain('role="meter"');
+    expect(markup).toContain("2 次重置");
+    expect(markup).toContain("已到重置时间，待刷新");
+    expect(markup).toContain("上次刷新");
   }
 });
 

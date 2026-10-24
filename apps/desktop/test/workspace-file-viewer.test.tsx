@@ -34,15 +34,19 @@ test("renders a compact file viewer and defers its directory tree until requeste
   }
 });
 
-test("a restricted Feed file does not expose external open actions", () => {
+test("an external Feed file exposes breadcrumbs and open actions", () => {
   const previousWindow = globalThis.window;
   Object.defineProperty(globalThis, "window", { configurable: true, value: { eco: undefined } });
   try {
-    const html = renderToStaticMarkup(createElement(WorkspaceFileViewer, {
-      workspacePath: "/repo", target: { path: "/outside/private.txt", requestId: 1, restricted: true },
-    }));
-    expect(html).toContain("文件位于当前工作区之外");
-    expect(html).not.toContain("workspace-file-header__open-group");
+    const html = renderToStaticMarkup(
+      createElement(WorkspaceFileViewer, {
+        workspacePath: "/repo",
+        target: { path: "/outside/private.txt", requestId: 1 },
+      }),
+    );
+    expect(html).toContain(">outside</button>");
+    expect(html).toContain(">private.txt</button>");
+    expect(html).toContain("workspace-file-header__open-group");
   } finally {
     Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
   }

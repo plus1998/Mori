@@ -31,7 +31,6 @@ interface WorkspaceApi {
 
 type FileViewerTarget = WorkspaceFileReference & {
   requestId: number;
-  restricted?: boolean;
 };
 
 export interface WorkspaceFileViewerProps {
@@ -116,7 +115,12 @@ function FileNavigatorBranch({
   );
 }
 
-export function WorkspaceFileViewer({ workspacePath, threadId, target, onViewedFileChange }: WorkspaceFileViewerProps) {
+export function WorkspaceFileViewer({
+  workspacePath,
+  threadId,
+  target,
+  onViewedFileChange,
+}: WorkspaceFileViewerProps) {
   const { t } = useTranslation();
   const api = window.eco as unknown as WorkspaceApi | undefined;
   const [file, setFile] = useState<WorkspaceFile | null>(null);
@@ -148,8 +152,7 @@ export function WorkspaceFileViewer({ workspacePath, threadId, target, onViewedF
   }, [t]);
 
   const breadcrumbs = useMemo(
-    () =>
-      activeTarget && !activeTarget.restricted ? workspacePathSegments(workspacePath, activeTarget.path) : [],
+    () => (activeTarget ? workspacePathSegments(workspacePath, activeTarget.path) : []),
     [activeTarget, workspacePath],
   );
 
@@ -230,7 +233,7 @@ export function WorkspaceFileViewer({ workspacePath, threadId, target, onViewedF
     setFile(null);
     setDirty(false);
     setErrorMessage(null);
-    if (!target || target.restricted) {
+    if (!target) {
       setStatus("idle");
       return;
     }
@@ -312,7 +315,7 @@ export function WorkspaceFileViewer({ workspacePath, threadId, target, onViewedF
   );
 
   const retry = () => {
-    if (!activeTarget || activeTarget.restricted) return;
+    if (!activeTarget) return;
     if (!confirmDiscardIfDirty()) return;
     const requestId = ++requestRef.current;
     const nextTarget = { ...activeTarget, requestId };
@@ -365,8 +368,13 @@ export function WorkspaceFileViewer({ workspacePath, threadId, target, onViewedF
             ))}
           </nav>
           {activeTarget ? (
-            <WorkspaceFileOpenActions key={activeTarget.path} filePath={activeTarget.path} requestId={activeTarget.requestId}
-              workspacePath={workspacePath} {...(threadId ? { threadId } : {})} />
+            <WorkspaceFileOpenActions
+              key={activeTarget.path}
+              filePath={activeTarget.path}
+              requestId={activeTarget.requestId}
+              workspacePath={workspacePath}
+              {...(threadId ? { threadId } : {})}
+            />
           ) : null}
         </div>
       ) : null}
@@ -427,9 +435,7 @@ export function WorkspaceFileViewer({ workspacePath, threadId, target, onViewedF
         </div>
       ) : null}
       <div className="workspace-file-viewer__preview">
-        {activeTarget?.restricted ? (
-          <div className="workspace-file-browser__message">{t("fileBrowser.restricted")}</div>
-        ) : status === "loading" ? (
+        {status === "loading" ? (
           <div className="workspace-file-browser__message">
             {t("fileBrowser.loadingFile", { name: basename(activeTarget?.path || "") })}
           </div>

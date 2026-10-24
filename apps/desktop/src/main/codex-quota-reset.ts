@@ -22,7 +22,7 @@ export async function consumeCodexQuotaReset(
   ) {
     throw new Error("Codex 返回了未知的额度重置结果。");
   }
-  // Official protocol requires a fresh read; never infer the new windows locally.
-  await client.request("account/rateLimits/read");
+  // OpenAIAccountService.resetQuota performs and saves the required fresh read
+  // under the same auth lock. Never infer new windows locally.
   return { outcome };
 }

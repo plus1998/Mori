@@ -82,6 +82,14 @@ test("cancelling a large response closes the descriptor without buffering the fi
   await closed;
 });
 
+test("names beginning with two dots are ordinary files, not parent traversal", async () => {
+  const file = path.join(root, "..notes.txt");
+  await fs.writeFile(file, "local notes");
+  const response = await streams.respond(new Request(streams.urlForFile(root, file)));
+  expect(response.status).toBe(200);
+  expect(await response.text()).toBe("local notes");
+});
+
 test("HTML and relative stylesheets retain the workspace scope with scripts and network disabled", async () => {
   const file = path.join(root, "page.html");
   await fs.writeFile(file, "<h1>Hello</h1>");

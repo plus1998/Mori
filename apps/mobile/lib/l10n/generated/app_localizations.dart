@@ -1160,6 +1160,108 @@ abstract class AppLocalizations {
   /// **'Image'**
   String get composerImage;
 
+  /// No description provided for @composerPlusModeSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Modes and session'**
+  String get composerPlusModeSection;
+
+  /// No description provided for @composerPlusActionSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Add and actions'**
+  String get composerPlusActionSection;
+
+  /// No description provided for @composerPlusConfigSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Configuration'**
+  String get composerPlusConfigSection;
+
+  /// No description provided for @composerPlusPlanHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Plan the steps before making changes'**
+  String get composerPlusPlanHint;
+
+  /// No description provided for @composerPlusAskHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask questions and analyze without editing files'**
+  String get composerPlusAskHint;
+
+  /// No description provided for @composerPlusImageHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Attach designs, screenshots or local images'**
+  String get composerPlusImageHint;
+
+  /// No description provided for @composerPlusScheduleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Send later or repeat in this conversation'**
+  String get composerPlusScheduleHint;
+
+  /// No description provided for @composerPlusFirstMessageHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Send the first message at a scheduled time'**
+  String get composerPlusFirstMessageHint;
+
+  /// No description provided for @composerPlusConfigHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Main agent, prompt, subagents and models'**
+  String get composerPlusConfigHint;
+
+  /// No description provided for @composerPlusIntegrationsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Built-in browser, computer use and more'**
+  String get composerPlusIntegrationsHint;
+
+  /// No description provided for @composerPlusMcpHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect external services and tools'**
+  String get composerPlusMcpHint;
+
+  /// No description provided for @composerPlusSkillsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose skills for this conversation'**
+  String get composerPlusSkillsHint;
+
+  /// No description provided for @composerPlusSubagentsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'View subagents and their enabled status'**
+  String get composerPlusSubagentsHint;
+
+  /// No description provided for @composerPlusEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Enabled'**
+  String get composerPlusEnabled;
+
+  /// No description provided for @composerPlusBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to menu'**
+  String get composerPlusBack;
+
+  /// No description provided for @composerPrimaryAgent.
+  ///
+  /// In en, this message translates to:
+  /// **'Main agent'**
+  String get composerPrimaryAgent;
+
+  /// No description provided for @composerRuntimeConfig.
+  ///
+  /// In en, this message translates to:
+  /// **'Runtime config'**
+  String get composerRuntimeConfig;
+
   /// No description provided for @composerPlusMenu.
   ///
   /// In en, this message translates to:

@@ -620,6 +620,64 @@ class AppLocalizationsEn extends AppLocalizations {
   String get composerImage => 'Image';
 
   @override
+  String get composerPlusModeSection => 'Modes and session';
+
+  @override
+  String get composerPlusActionSection => 'Add and actions';
+
+  @override
+  String get composerPlusConfigSection => 'Configuration';
+
+  @override
+  String get composerPlusPlanHint => 'Plan the steps before making changes';
+
+  @override
+  String get composerPlusAskHint =>
+      'Ask questions and analyze without editing files';
+
+  @override
+  String get composerPlusImageHint =>
+      'Attach designs, screenshots or local images';
+
+  @override
+  String get composerPlusScheduleHint =>
+      'Send later or repeat in this conversation';
+
+  @override
+  String get composerPlusFirstMessageHint =>
+      'Send the first message at a scheduled time';
+
+  @override
+  String get composerPlusConfigHint =>
+      'Main agent, prompt, subagents and models';
+
+  @override
+  String get composerPlusIntegrationsHint =>
+      'Built-in browser, computer use and more';
+
+  @override
+  String get composerPlusMcpHint => 'Connect external services and tools';
+
+  @override
+  String get composerPlusSkillsHint => 'Choose skills for this conversation';
+
+  @override
+  String get composerPlusSubagentsHint =>
+      'View subagents and their enabled status';
+
+  @override
+  String get composerPlusEnabled => 'Enabled';
+
+  @override
+  String get composerPlusBack => 'Back to menu';
+
+  @override
+  String get composerPrimaryAgent => 'Main agent';
+
+  @override
+  String get composerRuntimeConfig => 'Runtime config';
+
+  @override
   String get composerPlusMenu => 'More';
 
   @override

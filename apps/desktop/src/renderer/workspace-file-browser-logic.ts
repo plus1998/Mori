@@ -32,6 +32,7 @@ export function basename(filePath: string): string {
 
 export function parentDirectory(filePath: string): string {
   const normalized = filePath.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (/^[A-Za-z]:(?:\/[^/]*)?$/.test(normalized)) return `${normalized.slice(0, 2)}/`;
   const separator = normalized.lastIndexOf("/");
   if (separator <= 0) return normalized.slice(0, Math.max(separator, 1)) || normalized;
   return normalized.slice(0, separator);
@@ -40,9 +41,10 @@ export function parentDirectory(filePath: string): string {
 export function workspacePathSegments(workspacePath: string, filePath: string): WorkspacePathSegment[] {
   const normalize = (value: string) => {
     const normalized = value.replace(/\\/g, "/").replace(/\/+$/, "");
+    if (/^[A-Za-z]:$/.test(normalized)) return `${normalized}/`;
     return normalized || (value.startsWith("/") ? "/" : normalized);
   };
-  const root = normalize(workspacePath);
+  let root = normalize(workspacePath);
   const target = normalize(filePath);
   if (!root || !target) return [];
   const windowsPath = /^[A-Za-z]:\//.test(root);
@@ -51,16 +53,20 @@ export function workspacePathSegments(workspacePath: string, filePath: string): 
   if (comparableTarget === comparableRoot) {
     return [{ name: basename(root) || root, path: root, kind: "directory" }];
   }
-  const rootPrefix = root === "/" ? root : `${root}/`;
+  let rootPrefix = root.endsWith("/") ? root : `${root}/`;
   const comparablePrefix = windowsPath ? rootPrefix.toLowerCase() : rootPrefix;
-  if (!comparableTarget.startsWith(comparablePrefix)) return [];
+  if (!comparableTarget.startsWith(comparablePrefix)) {
+    // A file reference may point anywhere on disk. Show its full local hierarchy.
+    root = /^[A-Za-z]:\//.test(target) ? target.slice(0, 3) : "/";
+    rootPrefix = root;
+  }
 
   const relativeSegments = target.slice(rootPrefix.length).split("/").filter(Boolean);
   let currentPath = root;
   return [
     { name: basename(root) || root, path: root, kind: "directory" as const },
     ...relativeSegments.map((name, index) => {
-      currentPath = currentPath === "/" ? `/${name}` : `${currentPath}/${name}`;
+      currentPath = currentPath.endsWith("/") ? `${currentPath}${name}` : `${currentPath}/${name}`;
       return {
         name,
         path: currentPath,
@@ -132,7 +138,7 @@ export function joinWorkspacePath(...parts: string[]): string {
 }
 
 export function ancestorDirectories(workspacePath: string, filePath: string): string[] {
-  const root = workspacePath.replace(/[\\/]+$/, "");
+  const root = workspacePath.replace(/[\\/]+$/, "") || (workspacePath.startsWith("/") ? "/" : "");
   const relative = filePath.slice(root.length).replace(/^[/\\]+/, "");
   const segments = relative.split(/[\\/]+/).filter(Boolean);
   segments.pop();

@@ -368,7 +368,7 @@ function serverRequestMethodNotFound(method: string): CodexAppServerRequestError
 
 function unwrapJsonRpcResponse<T>(response: JsonRpcResponse, method: string): T {
   if (response.error) {
-    throw new Error(`${method} failed: ${response.error.message}`);
+    throw new CodexAppServerRequestError(response.error.code, `${method} failed: ${response.error.message}`, response.error.data);
   }
   return response.result as T;
 }

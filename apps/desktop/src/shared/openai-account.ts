@@ -46,6 +46,14 @@ export interface OpenAIAccountQuota {
   fetchedAt: number;
 }
 
+/** Last query outcome, separate from the last successful quota snapshot. */
+export interface OpenAIAccountQuotaRefreshState {
+  attemptedAt: number;
+  retryAt?: number;
+  error?: string;
+  authRequired?: boolean;
+}
+
 export type CodexQuotaResetOutcome = "reset" | "alreadyRedeemed" | "nothingToReset" | "noCredit";
 
 export interface OpenAIAccountWakeResult {
@@ -81,6 +89,7 @@ export interface OpenAIAccount {
   hasProfileData: boolean;
   profileFields?: { email: boolean; password: boolean; pickupUrl: boolean; twoFactorSecret: boolean };
   quota?: OpenAIAccountQuota;
+  quotaRefresh?: OpenAIAccountQuotaRefreshState;
 }
 
 export interface OpenAIAccountAssistantState {
@@ -123,6 +132,7 @@ export interface OpenAIAccountDetails extends OpenAIAccountProfile {
   updatedAt: string;
   authJson: string | null;
   quota?: OpenAIAccountQuota;
+  quotaRefresh?: OpenAIAccountQuotaRefreshState;
 }
 
 export interface OpenAIAccountSyncStatus {

@@ -775,7 +775,7 @@ export function SubagentTaskDrawer({
   onSelectReview: () => void;
   workspacePath: string;
   threadId?: string;
-  fileTarget?: WorkspaceFileReference & { requestId: number; restricted?: boolean };
+  fileTarget?: WorkspaceFileReference & { requestId: number };
   onSelectFiles: () => void;
   onSelectFileViewer: () => void;
   onSelectBrowser: (browserId?: string) => void;

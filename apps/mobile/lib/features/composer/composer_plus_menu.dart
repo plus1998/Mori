@@ -1,7 +1,5 @@
-import 'dart:async';
-import 'dart:ui';
+import 'dart:math' as math;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,487 +10,485 @@ import '../../core/locale/app_localizations_ext.dart';
 import '../../core/models/thread_models.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
-import '../../core/widgets/eco_android_glass.dart';
 import '../../core/widgets/eco_pressable.dart';
+import '../../core/widgets/eco_action_sheet.dart';
+import '../threads/thread_providers.dart';
 import 'composer_controls.dart';
 import 'composer_toolbar_icon.dart';
-import '../scheduling/schedule_editor.dart';
 
-enum ComposerPlusMenuAction {
-  plan,
-  ask,
-  image,
-  schedule,
-  integrations,
-  skills,
-  mcp,
-  subagents,
-}
+enum ComposerPlusMenuAction { plan, ask, image, schedule }
 
-/// Anchored glass “+” menu — modes + Image / Skills / MCP / Subagents.
-Future<void> showComposerPlusMenu({
-  required BuildContext context,
-  required WidgetRef ref,
-  required GlobalKey anchorKey,
-  required ThreadRuntimeConfigInput runtimeConfig,
-  required String threadId,
-  required bool canEdit,
-  required ValueChanged<ThreadRuntimeConfigInput> onChanged,
-  required VoidCallback onPickImage,
-  required String workspacePath,
-  String initialPrompt = '',
-  List<PromptImageAttachment> initialAttachments = const [],
-  VoidCallback? onMessageScheduled,
-}) {
-  final box = anchorKey.currentContext?.findRenderObject() as RenderBox?;
-  if (box == null || !box.hasSize) return Future<void>.value();
+/// One route for the menu and runtime configuration, anchored to the input card.
+class ComposerPlusMenuRoute extends PopupRoute<ComposerPlusMenuAction> {
+  ComposerPlusMenuRoute({
+    required this.anchorKey,
+    required this.builder,
+    required this.dismissLabel,
+    required this.reduceMotion,
+  }) : super(requestFocus: false);
 
-  final overlayState = Overlay.of(context);
-  final overlayBox = overlayState.context.findRenderObject() as RenderBox;
-  final origin = box.localToGlobal(Offset.zero, ancestor: overlayBox);
-  final anchorRect = origin & box.size;
-  final completer = Completer<void>();
-  late OverlayEntry entry;
-
-  void dismiss() {
-    if (entry.mounted) entry.remove();
-    if (!completer.isCompleted) completer.complete();
-  }
-
-  entry = OverlayEntry(
-    builder: (overlayContext) {
-      return _ComposerPlusMenuOverlay(
-        anchorRect: anchorRect,
-        runtimeConfig: runtimeConfig,
-        canEdit: canEdit,
-        canSchedule: threadId.isNotEmpty,
-        onDismiss: dismiss,
-        onAction: (action) {
-          dismiss();
-          // Defer so the overlay is gone before sheets / pickers open.
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!context.mounted) return;
-            _handlePlusMenuAction(
-              context: context,
-              ref: ref,
-              action: action,
-              runtimeConfig: runtimeConfig,
-              threadId: threadId,
-              canEdit: canEdit,
-              onChanged: onChanged,
-              onPickImage: onPickImage,
-              workspacePath: workspacePath,
-              initialPrompt: initialPrompt,
-              initialAttachments: initialAttachments,
-              onMessageScheduled: onMessageScheduled,
-            );
-          });
-        },
-      );
-    },
-  );
-
-  overlayState.insert(entry);
-  return completer.future;
-}
-
-void _handlePlusMenuAction({
-  required BuildContext context,
-  required WidgetRef ref,
-  required ComposerPlusMenuAction action,
-  required ThreadRuntimeConfigInput runtimeConfig,
-  required String threadId,
-  required bool canEdit,
-  required ValueChanged<ThreadRuntimeConfigInput> onChanged,
-  required VoidCallback onPickImage,
-  required String workspacePath,
-  required String initialPrompt,
-  required List<PromptImageAttachment> initialAttachments,
-  required VoidCallback? onMessageScheduled,
-}) {
-  switch (action) {
-    case ComposerPlusMenuAction.schedule:
-      if (threadId.isEmpty) return;
-      unawaited(
-        showScheduleEditor(
-          context,
-          threadId: threadId,
-          initialPrompt: initialPrompt,
-          initialAttachments: initialAttachments,
-        ).then((saved) {
-          if (saved == true && context.mounted) onMessageScheduled?.call();
-        }),
-      );
-    case ComposerPlusMenuAction.plan:
-      if (!canEdit) return;
-      if (runtimeConfig.sessionMode == 'plan') return;
-      persistRuntimeConfig(
-        ref,
-        threadId: threadId,
-        config: runtimeConfig.copyWith(sessionMode: 'plan'),
-        onChanged: onChanged,
-      );
-    case ComposerPlusMenuAction.ask:
-      if (!canEdit) return;
-      if (runtimeConfig.sessionMode == 'ask') return;
-      persistRuntimeConfig(
-        ref,
-        threadId: threadId,
-        config: runtimeConfig.copyWith(sessionMode: 'ask'),
-        onChanged: onChanged,
-      );
-    case ComposerPlusMenuAction.image:
-      onPickImage();
-    case ComposerPlusMenuAction.integrations:
-      unawaited(
-        showComposerRouteCategorySheet(
-          context: context,
-          runtimeConfig: runtimeConfig,
-          threadId: threadId,
-          canEdit: canEdit,
-          onChanged: onChanged,
-          workspacePath: workspacePath,
-          category: ComposerRouteCategory.integrations,
-        ),
-      );
-    case ComposerPlusMenuAction.skills:
-      unawaited(
-        showComposerRouteCategorySheet(
-          context: context,
-          runtimeConfig: runtimeConfig,
-          threadId: threadId,
-          canEdit: canEdit,
-          onChanged: onChanged,
-          workspacePath: workspacePath,
-          category: ComposerRouteCategory.skills,
-        ),
-      );
-    case ComposerPlusMenuAction.mcp:
-      unawaited(
-        showComposerRouteCategorySheet(
-          context: context,
-          runtimeConfig: runtimeConfig,
-          threadId: threadId,
-          canEdit: canEdit,
-          onChanged: onChanged,
-          workspacePath: workspacePath,
-          category: ComposerRouteCategory.mcp,
-        ),
-      );
-    case ComposerPlusMenuAction.subagents:
-      unawaited(
-        showComposerRouteCategorySheet(
-          context: context,
-          runtimeConfig: runtimeConfig,
-          threadId: threadId,
-          canEdit: canEdit,
-          onChanged: onChanged,
-          workspacePath: workspacePath,
-          category: ComposerRouteCategory.subagents,
-        ),
-      );
-  }
-}
-
-class _ComposerPlusMenuOverlay extends StatefulWidget {
-  const _ComposerPlusMenuOverlay({
-    required this.anchorRect,
-    required this.runtimeConfig,
-    required this.canEdit,
-    required this.canSchedule,
-    required this.onDismiss,
-    required this.onAction,
-  });
-
-  final Rect anchorRect;
-  final ThreadRuntimeConfigInput runtimeConfig;
-  final bool canEdit;
-  final bool canSchedule;
-  final VoidCallback onDismiss;
-  final ValueChanged<ComposerPlusMenuAction> onAction;
+  final GlobalKey anchorKey;
+  final WidgetBuilder builder;
+  final String dismissLabel;
+  final bool reduceMotion;
+  bool _refreshPending = false;
+  late final _metricsObserver = _MenuMetricsObserver(refresh);
 
   @override
-  State<_ComposerPlusMenuOverlay> createState() =>
-      _ComposerPlusMenuOverlayState();
-}
-
-class _ComposerPlusMenuOverlayState extends State<_ComposerPlusMenuOverlay>
-    with SingleTickerProviderStateMixin {
-  static const _menuWidth = 220.0;
-  static const _radius = 16.0;
-  static const _rowHeight = 44.0;
-  static const _sectionGap = 5.0;
-  static const _edgePad = 12.0;
-  static const _anchorGap = 8.0;
-
-  late final AnimationController _controller;
-  late final Animation<double> _fade;
-  late final Animation<double> _scale;
+  Color? get barrierColor => null;
+  @override
+  bool get barrierDismissible => false;
+  @override
+  String get barrierLabel => dismissLabel;
+  @override
+  Duration get transitionDuration => const Duration(milliseconds: 200);
 
   @override
-  void initState() {
-    super.initState();
-    final reduceMotion = WidgetsBinding
-        .instance
-        .platformDispatcher
-        .accessibilityFeatures
-        .disableAnimations;
-    _controller = AnimationController(
-      vsync: this,
-      duration: Duration(milliseconds: reduceMotion ? 120 : 280),
-    );
-    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
-    // Critically damped feel — no overshoot on a menu that just appeared.
-    _scale = Tween<double>(
-      begin: reduceMotion ? 1 : 0.92,
-      end: 1,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
-    _controller.forward();
+  void install() {
+    super.install();
+    WidgetsBinding.instance.addObserver(_metricsObserver);
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    WidgetsBinding.instance.removeObserver(_metricsObserver);
     super.dispose();
   }
 
-  Future<void> _dismiss() async {
-    await _controller.reverse();
-    widget.onDismiss();
+  /// Read the anchor after its new layout (keyboard, typing or rotation).
+  void refresh() {
+    if (_refreshPending) return;
+    _refreshPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshPending = false;
+      if (isActive) changedExternalState();
+    });
+  }
+
+  void close() {
+    if (isCurrent) navigator?.pop();
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) {
     final media = MediaQuery.of(context);
-    final viewPadding = media.viewPadding;
-    final screen = media.size;
-    final modeRows = 2;
-    final toolRows = 6;
-    final menuHeight =
-        modeRows * _rowHeight +
-        _sectionGap +
-        0.5 +
-        toolRows * _rowHeight +
-        8; // vertical padding
-
-    // Prefer opening above the “+”; flip below if needed.
-    var top = widget.anchorRect.top - menuHeight - _anchorGap;
-    if (top < viewPadding.top + 8) {
-      top = widget.anchorRect.bottom + _anchorGap;
-    }
-    top = top.clamp(
-      viewPadding.top + 8,
-      screen.height - menuHeight - viewPadding.bottom - 8,
-    );
-
-    // Align near the trigger; keep inside horizontal edges.
-    var left = widget.anchorRect.left;
-    left = left.clamp(_edgePad, screen.width - _menuWidth - _edgePad);
-
-    final originX = ((widget.anchorRect.center.dx - left) / _menuWidth).clamp(
-      0.0,
-      1.0,
-    );
-    final openingAbove = top + menuHeight <= widget.anchorRect.top + 1;
-    final originY = openingAbove ? 1.0 : 0.0;
-
-    final sessionMode = widget.runtimeConfig.sessionMode;
-    final l10n = context.l10n;
-
-    return Material(
-      type: MaterialType.transparency,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: _dismiss,
-              behavior: HitTestBehavior.opaque,
-              child: FadeTransition(
-                opacity: _fade,
-                child: ColoredBox(
-                  color: ecoColors(context).shadowScrim.withValues(alpha: 0.10),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final box = anchorKey.currentContext?.findRenderObject() as RenderBox?;
+        final overlay =
+            navigator?.overlay?.context.findRenderObject() as RenderBox?;
+        if (box == null || !box.attached || !box.hasSize || overlay == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (isActive) navigator?.removeRoute(this);
+          });
+          return const SizedBox.shrink();
+        }
+        final anchor =
+            box.localToGlobal(Offset.zero, ancestor: overlay) & box.size;
+        final safeTop = media.padding.top + 8;
+        final width = math.min(
+          anchor.width,
+          math.max(0.0, constraints.maxWidth - 16),
+        );
+        final left = anchor.left
+            .clamp(8.0, math.max(8.0, constraints.maxWidth - width - 8))
+            .toDouble();
+        final maxHeight = math.min(
+          420.0,
+          math.max(0.0, anchor.top - 10 - safeTop),
+        );
+        final curved = animation.drive(CurveTween(curve: Curves.easeOutCubic));
+        return Material(
+          type: MaterialType.transparency,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Semantics(
+                  label: dismissLabel,
+                  button: true,
+                  onTap: close,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: close,
+                    child: const SizedBox.expand(),
+                  ),
                 ),
               ),
-            ),
-          ),
-          Positioned(
-            left: left,
-            top: top,
-            width: _menuWidth,
-            child: FadeTransition(
-              opacity: _fade,
-              child: ScaleTransition(
-                scale: _scale,
-                alignment: Alignment(originX * 2 - 1, originY * 2 - 1),
-                child: _PlusMenuGlassPanel(
-                  radius: _radius,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _PlusMenuRow(
-                          icon: sessionModeIcon('plan'),
-                          label: sessionModeUi('plan', l10n).title,
-                          selected: sessionMode == 'plan',
-                          enabled: widget.canEdit,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            widget.onAction(ComposerPlusMenuAction.plan);
-                          },
-                        ),
-                        _PlusMenuRow(
-                          icon: sessionModeIcon('ask'),
-                          label: sessionModeUi('ask', l10n).title,
-                          selected: sessionMode == 'ask',
-                          enabled: widget.canEdit,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            widget.onAction(ComposerPlusMenuAction.ask);
-                          },
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: _sectionGap / 2,
-                          ),
-                          child: Divider(
-                            height: 0.5,
-                            thickness: 0.5,
-                            color: ecoColors(
-                              context,
-                            ).borderSubtle.withValues(alpha: 0.7),
-                          ),
-                        ),
-                        _PlusMenuRow(
-                          icon: Icons.schedule,
-                          label: l10n.schedulingNewMessage,
-                          enabled: widget.canSchedule,
-                          onTap: () =>
-                              widget.onAction(ComposerPlusMenuAction.schedule),
-                        ),
-                        _PlusMenuRow(
-                          icon: EcoIcons.image,
-                          label: l10n.composerImage,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            widget.onAction(ComposerPlusMenuAction.image);
-                          },
-                        ),
-                        _PlusMenuRow(
-                          icon: EcoIcons.skills,
-                          label: l10n.composerSkills,
-                          showChevron: true,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            widget.onAction(ComposerPlusMenuAction.skills);
-                          },
-                        ),
-                        _PlusMenuRow(
-                          icon: EcoIcons.mcp,
-                          label: l10n.composerMcpServers,
-                          showChevron: true,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            widget.onAction(ComposerPlusMenuAction.mcp);
-                          },
-                        ),
-                        _PlusMenuRow(
-                          icon: Icons.extension_outlined,
-                          label: l10n.composerIntegrations,
-                          showChevron: true,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            widget.onAction(
-                              ComposerPlusMenuAction.integrations,
-                            );
-                          },
-                        ),
-                        _PlusMenuRow(
-                          icon: EcoIcons.subagents,
-                          label: l10n.composerSubagents,
-                          showChevron: true,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            widget.onAction(ComposerPlusMenuAction.subagents);
-                          },
-                        ),
-                      ],
+              Positioned(
+                left: left,
+                bottom: constraints.maxHeight - anchor.top + 10,
+                width: width,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: maxHeight),
+                  child: FadeTransition(
+                    opacity: curved,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: reduceMotion
+                            ? Offset.zero
+                            : const Offset(0, 0.025),
+                        end: Offset.zero,
+                      ).animate(curved),
+                      child: builder(context),
                     ),
                   ),
                 ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => child;
 }
 
-class _PlusMenuGlassPanel extends StatelessWidget {
-  const _PlusMenuGlassPanel({required this.child, required this.radius});
+class _MenuMetricsObserver extends WidgetsBindingObserver {
+  _MenuMetricsObserver(this.onMetricsChanged);
+  final VoidCallback onMetricsChanged;
 
-  final Widget child;
-  final double radius;
+  @override
+  void didChangeMetrics() => onMetricsChanged();
+}
+
+class ComposerPlusMenuPanel extends ConsumerStatefulWidget {
+  const ComposerPlusMenuPanel({
+    super.key,
+    required this.runtimeConfig,
+    required this.threadId,
+    required this.canEdit,
+    required this.canEditStatelessModels,
+    required this.onChanged,
+    required this.workspacePath,
+    required this.canSchedule,
+    this.coreKind,
+    this.onCoreKindChanged,
+  });
+
+  final ThreadRuntimeConfigInput runtimeConfig;
+  final String threadId;
+  final bool canEdit;
+  final bool canEditStatelessModels;
+  final ValueChanged<ThreadRuntimeConfigInput> onChanged;
+  final String workspacePath;
+  final bool canSchedule;
+  final String? coreKind;
+  final ValueChanged<String>? onCoreKindChanged;
+
+  @override
+  ConsumerState<ComposerPlusMenuPanel> createState() =>
+      _ComposerPlusMenuPanelState();
+}
+
+class _ComposerPlusMenuPanelState extends ConsumerState<ComposerPlusMenuPanel> {
+  bool _showConfig = false;
 
   @override
   Widget build(BuildContext context) {
     final eco = ecoColors(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderRadius = BorderRadius.circular(radius);
-    final panel = Material(type: MaterialType.transparency, child: child);
-
-    final Widget surface;
-    if (PlatformInfo.isIOS26OrHigher()) {
-      surface = AdaptiveBlurView(
-        blurStyle: BlurStyle.systemThinMaterial,
-        borderRadius: borderRadius,
-        child: panel,
-      );
-    } else if (PlatformInfo.isAndroid) {
-      surface = EcoAndroidGlassSurface(
-        borderRadius: borderRadius,
-        child: panel,
-      );
-    } else {
-      surface = ClipRRect(
-        borderRadius: borderRadius,
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: borderRadius,
-              color: isDark ? const Color(0xCC1C1C1E) : const Color(0xE6F2F2F7),
-              border: Border.all(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.10)
-                    : Colors.black.withValues(alpha: 0.06),
-                width: 0.5,
-              ),
+    final l10n = context.l10n;
+    return PopScope<ComposerPlusMenuAction>(
+      canPop: !_showConfig,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _showConfig) setState(() => _showConfig = false);
+      },
+      child: Semantics(
+        scopesRoute: true,
+        explicitChildNodes: true,
+        namesRoute: true,
+        label: _showConfig ? l10n.composerRuntimeConfig : l10n.composerPlusMenu,
+        child: Material(
+          key: const ValueKey('composer-plus-panel'),
+          color: eco.bgMenu,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          elevation: 8,
+          shadowColor: eco.shadowScrim.withValues(alpha: 0.16),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // On short keyboard/landscape viewports the header scrolls too.
+                final scrollHeader = constraints.maxHeight < 96;
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_showConfig && !scrollHeader) _header(context),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        key: ValueKey(_showConfig),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (_showConfig && scrollHeader) _header(context),
+                            _showConfig ? _config(context) : _menu(context),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
-            child: panel,
           ),
         ),
-      );
-    }
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: borderRadius,
-        boxShadow: [
-          BoxShadow(
-            color: eco.shadowScrim.withValues(alpha: isDark ? 0.40 : 0.12),
-            blurRadius: 32,
-            spreadRadius: -2,
-            offset: const Offset(0, 12),
-          ),
-        ],
       ),
-      child: surface,
     );
   }
+
+  Widget _header(BuildContext context) {
+    final l10n = context.l10n;
+    final eco = ecoColors(context);
+    return Row(
+      children: [
+        IconButton(
+          tooltip: l10n.composerPlusBack,
+          icon: const Icon(EcoIcons.back, size: 18),
+          onPressed: () => setState(() => _showConfig = false),
+        ),
+        Expanded(
+          child: Text(
+            l10n.composerRuntimeConfig,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: eco.textPrimary,
+            ),
+          ),
+        ),
+        IconButton(
+          tooltip: l10n.commonClose,
+          icon: const Icon(EcoIcons.close, size: 18),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ],
+    );
+  }
+
+  void _select(ComposerPlusMenuAction action) {
+    HapticFeedback.selectionClick();
+    Navigator.pop(context, action);
+  }
+
+  Widget _menu(BuildContext context) {
+    final l10n = context.l10n;
+    final mode = widget.runtimeConfig.sessionMode;
+    final harness = composerCoreKindOptions
+        .where((option) => option.value == widget.coreKind)
+        .firstOrNull;
+    final harnessLabel = harness == null
+        ? l10n.commonUnavailable
+        : harness.badge == null
+        ? harness.label
+        : '${harness.label} · ${harness.badge}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _MenuSection(l10n.composerPlusModeSection),
+        for (final sessionMode in ['plan', 'ask'])
+          _PlusMenuRow(
+            icon: sessionModeIcon(sessionMode),
+            label: sessionModeUi(sessionMode, l10n).title,
+            description: sessionMode == 'plan'
+                ? l10n.composerPlusPlanHint
+                : l10n.composerPlusAskHint,
+            selected: mode == sessionMode,
+            toggle: true,
+            enabled: widget.canEdit,
+            onTap: () => _select(
+              sessionMode == 'plan'
+                  ? ComposerPlusMenuAction.plan
+                  : ComposerPlusMenuAction.ask,
+            ),
+          ),
+        _MenuSection(l10n.composerPlusActionSection),
+        _PlusMenuRow(
+          icon: EcoIcons.image,
+          label: l10n.composerImage,
+          description: l10n.composerPlusImageHint,
+          onTap: () => _select(ComposerPlusMenuAction.image),
+        ),
+        _PlusMenuRow(
+          icon: EcoIcons.schedule,
+          label: l10n.schedulingNewMessage,
+          description: widget.threadId.isEmpty
+              ? l10n.composerPlusFirstMessageHint
+              : l10n.composerPlusScheduleHint,
+          showChevron: true,
+          enabled: widget.canSchedule,
+          onTap: () => _select(ComposerPlusMenuAction.schedule),
+        ),
+        _MenuSection(l10n.composerPlusConfigSection),
+        if (widget.coreKind != null)
+          _PlusMenuRow(
+            icon: EcoIcons.agent,
+            label: l10n.composerCoreKind,
+            description: widget.onCoreKindChanged == null
+                ? '$harnessLabel · ${l10n.composerRuntimeCoreLocked}'
+                : harnessLabel,
+            showChevron: true,
+            enabled: widget.canEdit && widget.onCoreKindChanged != null,
+            onTap: _chooseHarness,
+          ),
+        _PlusMenuRow(
+          icon: EcoIcons.orchestration,
+          label: l10n.composerRuntimeConfig,
+          description: l10n.composerPlusConfigHint,
+          showChevron: true,
+          onTap: () => setState(() => _showConfig = true),
+        ),
+        for (final category in ComposerRouteCategory.values)
+          _PlusMenuRow(
+            icon: switch (category) {
+              ComposerRouteCategory.integrations => Icons.extension_outlined,
+              ComposerRouteCategory.mcp => EcoIcons.mcp,
+              ComposerRouteCategory.skills => EcoIcons.skills,
+              ComposerRouteCategory.subagents => EcoIcons.subagents,
+            },
+            label: switch (category) {
+              ComposerRouteCategory.integrations => l10n.composerIntegrations,
+              ComposerRouteCategory.mcp => l10n.composerMcpServers,
+              ComposerRouteCategory.skills => l10n.composerSkills,
+              ComposerRouteCategory.subagents => l10n.composerSubagents,
+            },
+            description: switch (category) {
+              ComposerRouteCategory.integrations =>
+                l10n.composerPlusIntegrationsHint,
+              ComposerRouteCategory.mcp => l10n.composerPlusMcpHint,
+              ComposerRouteCategory.skills => l10n.composerPlusSkillsHint,
+              ComposerRouteCategory.subagents => l10n.composerPlusSubagentsHint,
+            },
+            showChevron: true,
+            onTap: () => showComposerRouteCategorySheet(
+              context: context,
+              runtimeConfig: widget.runtimeConfig,
+              threadId: widget.threadId,
+              canEdit: widget.canEdit,
+              onChanged: widget.onChanged,
+              workspacePath: widget.workspacePath,
+              category: category,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _chooseHarness() async {
+    if (!widget.canEdit || widget.onCoreKindChanged == null) return;
+    final value = await showEcoActionSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const EcoSheetGrabber(),
+              EcoSheetHeader(title: context.l10n.composerCoreKind),
+              for (final option in composerCoreKindOptions)
+                EcoSheetOptionTile(
+                  title: option.badge == null
+                      ? option.label
+                      : '${option.label} · ${option.badge}',
+                  selected: widget.coreKind == option.value,
+                  onTap: () => Navigator.of(context).pop(option.value),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted ||
+        value == null ||
+        value == widget.coreKind ||
+        !widget.canEdit ||
+        widget.onCoreKindChanged == null) {
+      return;
+    }
+    Navigator.of(context).pop();
+    widget.onCoreKindChanged!(value);
+  }
+
+  Widget _config(BuildContext context) {
+    final l10n = context.l10n;
+    final settings = ref.watch(modelSettingsProvider);
+    final workflow = ref.watch(workflowSettingsProvider).valueOrNull;
+    final mcp = ref.watch(mcpSettingsProvider).valueOrNull;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        settings.when(
+          data: (settings) => settings == null
+              ? Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(l10n.commonNotConfigured),
+                )
+              : OrchestrationCompositionSelectors(
+                  settings: settings,
+                  mainAgentLabel: l10n.composerPrimaryAgent,
+                  runtimeConfig: widget.runtimeConfig,
+                  threadId: widget.threadId,
+                  canEdit: widget.canEdit,
+                  canEditStatelessModels: widget.canEditStatelessModels,
+                  onChanged: widget.onChanged,
+                  workspacePath: widget.workspacePath,
+                  mcpServers: mcp?.servers ?? const [],
+                  rememberedMcp: workflow?.mcpServersEnabled,
+                  isAcp: widget.coreKind == 'acp',
+                  showOrchestrationPickers: widget.coreKind != 'acp',
+                  showAuxiliaryModelPicker: true,
+                  showApprovalModelPicker: true,
+                  showVisionModelPicker: true,
+                ),
+          loading: () => const Padding(
+            padding: EdgeInsets.all(12),
+            child: LinearProgressIndicator(),
+          ),
+          error: (_, _) => Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                Text(l10n.composerModelLoadFailed),
+                TextButton(
+                  onPressed: () => ref.invalidate(modelSettingsProvider),
+                  child: Text(l10n.commonRetry),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MenuSection extends StatelessWidget {
+  const _MenuSection(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+    child: Text(
+      label,
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w500,
+        color: ecoColors(context).textMuted,
+      ),
+    ),
+  );
 }
 
 class _PlusMenuRow extends StatelessWidget {
@@ -500,7 +496,9 @@ class _PlusMenuRow extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.description,
     this.selected = false,
+    this.toggle = false,
     this.enabled = true,
     this.showChevron = false,
   });
@@ -508,62 +506,99 @@ class _PlusMenuRow extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final String? description;
   final bool selected;
+  final bool toggle;
   final bool enabled;
   final bool showChevron;
 
   @override
   Widget build(BuildContext context) {
     final eco = ecoColors(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final color = !enabled
-        ? eco.textMuted.withValues(alpha: 0.55)
-        : eco.textPrimary;
-    final iconColor = !enabled
-        ? eco.textMuted.withValues(alpha: 0.45)
-        : (selected ? eco.accent : eco.textSecondary);
-
-    return EcoPressable(
+    final labelWidget = Text(
+      label,
+      style: TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.w500,
+        color: eco.textPrimary,
+      ),
+    );
+    final hint = description == null
+        ? null
+        : Text(
+            description!,
+            style: TextStyle(fontSize: 12, color: eco.textMuted),
+          );
+    return Semantics(
+      button: true,
       enabled: enabled,
-      scale: 0.98,
-      onTap: onTap,
-      child: Opacity(
-        opacity: enabled ? 1 : 0.55,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            curve: Curves.easeOutCubic,
-            height: _ComposerPlusMenuOverlayState._rowHeight - 4,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+      checked: toggle ? selected : null,
+      child: EcoPressable(
+        enabled: enabled,
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(24),
+        child: Opacity(
+          opacity: enabled ? 1 : 0.5,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 44),
+            margin: const EdgeInsets.symmetric(vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: selected
-                  ? (isDark
-                        ? Colors.white.withValues(alpha: 0.12)
-                        : Colors.black.withValues(alpha: 0.06))
+                  ? eco.textPrimary.withValues(alpha: 0.06)
                   : Colors.transparent,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(24),
             ),
-            child: Row(
-              children: [
-                Icon(icon, size: 18, color: iconColor),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: -0.25,
-                      color: color,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final stacked =
+                    constraints.maxWidth <= 340 ||
+                    MediaQuery.textScalerOf(context).scale(15) > 18;
+                return Row(
+                  children: [
+                    Icon(
+                      icon,
+                      size: 18,
+                      color: selected ? eco.accent : eco.textSecondary,
                     ),
-                  ),
-                ),
-                if (showChevron)
-                  Icon(EcoIcons.chevronRight, size: 16, color: eco.textMuted),
-              ],
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: stacked
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [labelWidget, ?hint],
+                            )
+                          : Row(
+                              children: [
+                                labelWidget,
+                                if (hint != null) ...[
+                                  const SizedBox(width: 10),
+                                  Expanded(child: hint),
+                                ],
+                              ],
+                            ),
+                    ),
+                    if (selected) ...[
+                      const SizedBox(width: 6),
+                      Icon(EcoIcons.check, size: 14, color: eco.accent),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          context.l10n.composerPlusEnabled,
+                          style: TextStyle(fontSize: 11, color: eco.textMuted),
+                        ),
+                      ),
+                    ] else if (showChevron) ...[
+                      const SizedBox(width: 6),
+                      Icon(
+                        EcoIcons.chevronRight,
+                        size: 15,
+                        color: eco.textMuted,
+                      ),
+                    ],
+                  ],
+                );
+              },
             ),
           ),
         ),

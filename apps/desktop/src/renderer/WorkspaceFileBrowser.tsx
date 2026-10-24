@@ -22,6 +22,7 @@ import {
   type WorkspaceTreeItem,
   workspacePathSegments,
 } from "./workspace-file-browser-logic";
+import { isWorkspacePathContained } from "./workspace-file-reference";
 import "./workspace-file-browser.css";
 
 interface WorkspaceApi {
@@ -37,7 +38,7 @@ interface WorkspaceApi {
 export interface WorkspaceFileBrowserProps {
   workspacePath: string;
   threadId?: string;
-  target?: { path: string; line?: number; column?: number; requestId: number; restricted?: boolean };
+  target?: { path: string; line?: number; column?: number; requestId: number };
 }
 
 function filterWorkspaceItems(
@@ -185,16 +186,10 @@ export function WorkspaceFileBrowser({ workspacePath, threadId, target }: Worksp
     setFocusedItem(target.path);
     setActiveTarget({ ...target, requestId });
     setDirty(false);
-    if (target.restricted) {
-      setFile(null);
-      setStatus("idle");
-      setErrorMessage(null);
-    } else {
-      setFile(null);
-      void readFile(target.path, requestId);
-    }
+    setFile(null);
+    void readFile(target.path, requestId);
     void (async () => {
-      if (!api) return;
+      if (!api || !isWorkspacePathContained(workspacePath, target.path)) return;
       const directories = ancestorDirectories(workspacePath, target.path);
       let parent = workspacePath;
       try {
@@ -213,7 +208,7 @@ export function WorkspaceFileBrowser({ workspacePath, threadId, target }: Worksp
   }, [api, confirmDiscardIfDirty, loadDirectory, readFile, target, workspacePath]);
 
   const retryActiveFile = () => {
-    if (!activeTarget || activeTarget.restricted) return;
+    if (!activeTarget) return;
     if (!confirmDiscardIfDirty()) return;
     const requestId = ++requestRef.current;
     setActiveTarget({ ...activeTarget, requestId });
@@ -234,7 +229,7 @@ export function WorkspaceFileBrowser({ workspacePath, threadId, target }: Worksp
       // per call), so reload them in parallel and keep going when one fails:
       // loadDirectory already surfaces the first failure through treeError.
       await Promise.all(collectRefreshDirectories(workspacePath, expandedItems).map(loadDirectory));
-      if (activeTarget && !activeTarget.restricted) {
+      if (activeTarget) {
         const requestId = ++requestRef.current;
         setActiveTarget({ ...activeTarget, requestId });
         setDirty(false);
@@ -273,7 +268,7 @@ export function WorkspaceFileBrowser({ workspacePath, threadId, target }: Worksp
 
   const breadcrumbs = useMemo(
     () =>
-      activeTarget && !activeTarget.restricted
+      activeTarget
         ? workspacePathSegments(workspacePath, activeTarget.path)
         : [],
     [activeTarget, workspacePath],
@@ -394,9 +389,7 @@ export function WorkspaceFileBrowser({ workspacePath, threadId, target }: Worksp
           </div>
         ) : null}
         <div className="workspace-file-browser__preview-content">
-        {activeTarget?.restricted ? (
-          <div className="workspace-file-browser__message">{t("fileBrowser.restricted")}</div>
-        ) : status === "loading" ? (
+        {status === "loading" ? (
           <div className="workspace-file-browser__message">
             {t("fileBrowser.loadingFile", { name: basename(activeTarget?.path || "") })}
           </div>

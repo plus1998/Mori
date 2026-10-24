@@ -1,3 +1,5 @@
+import { useCodexQuotaResetRefresh } from "../useCodexQuotaResetRefresh";
+import { QuotaRefreshedAt } from "../QuotaRefreshedAt";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -67,29 +69,6 @@ function formatQuotaResetTime(resetAt: number, t: Translate): string {
   return t("settings.openaiAccounts.quotaResetsIn", { duration: h > 0 ? `${d}d ${h}h` : `${d}d` });
 }
 
-function QuotaRefreshedAt({ fetchedAt }: { fetchedAt: number }) {
-  const { t, i18n } = useTranslation();
-  const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
-  const refreshedAt = new Date(fetchedAt);
-  return (
-    <time
-      className="codex-quota-refreshed-at"
-      dateTime={refreshedAt.toISOString()}
-      title={formatAppDateTime(locale, refreshedAt)}
-    >
-      {t("settings.openaiAccounts.lastRefreshed", {
-        time: formatAppDateTime(locale, refreshedAt, {
-          month: "numeric",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        }),
-      })}
-    </time>
-  );
-}
-
 export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error, showRefreshedAt = true }: {
   quota: OpenAIAccountQuota | undefined;
   isLoggedIn: boolean;
@@ -101,7 +80,8 @@ export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error, s
   if (!quota && !isLoggedIn && !loading && !error) return null;
   return <span className="codex-quota-summary codex-text-quota-summary" aria-busy={loading}>
     {loading ? <Loader2 size={13} className="mcp-spin" aria-label={t("settings.openaiAccounts.refreshingQuotaAria")} /> : null}
-    {error ? <span className="codex-quota-error is-error" role="alert">{t("settings.openaiAccounts.quotaError", { message: error })}</span> : quota ? <>
+    {error ? <span className="codex-quota-error is-error" role="alert">{t("settings.openaiAccounts.quotaError", { message: error })}</span> : null}
+    {quota ? <>
       {[quota.rateLimit.primaryWindow, quota.rateLimit.secondaryWindow].map((window, index) => {
         if (!window) return null;
         const remaining = Math.min(100, Math.max(0, 100 - window.usedPercent));
@@ -372,7 +352,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   const [statusFilter, setStatusFilter] = useState<"all" | "ready" | "missing">("all");
   const [busy, setBusy] = useState(false);
   const [loggingInId, setLoggingInId] = useState<string | null>(null);
-  const [quotaErrors, setQuotaErrors] = useState<Record<string, string>>({});
+  const [quotaErrors, setQuotaErrors] = useState<Record<string, { message: string; attemptedAt: number }>>({});
   const [quotaLoading, setQuotaLoading] = useState(false);
   const [quotaLoadingId, setQuotaLoadingId] = useState<string | null>(null);
   const wakingRef = useRef(false);
@@ -423,6 +403,10 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         eco.openAIAccountsGetActive(),
       ]);
       setAccounts(list);
+      setQuotaErrors((previous) => Object.fromEntries(Object.entries(previous).filter(([id, error]) => {
+        const account = list.find((entry) => entry.id === id);
+        return account && (account.quota?.fetchedAt ?? 0) < error.attemptedAt;
+      })));
       setActiveAccountId(active.activeAccountId);
       setPendingAccountId(active.pendingAccountId);
       setSyncStatus(active.syncStatus);
@@ -549,7 +533,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         return next;
       });
     } catch (error) {
-      setQuotaErrors((previous) => ({ ...previous, [accountId]: error instanceof Error ? error.message : String(error) }));
+      setQuotaErrors((previous) => ({ ...previous, [accountId]: { message: error instanceof Error ? error.message : String(error), attemptedAt: Date.now() } }));
     }
   }, [eco]);
 
@@ -626,6 +610,8 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
       && (statusFilter === "all" || (statusFilter === "ready" ? a.isLoggedIn : !a.isLoggedIn)))
       .sort((a, b) => Number(b.id === activeAccountId) - Number(a.id === activeAccountId));
   }, [accounts, searchQuery, statusFilter, activeAccountId]);
+
+  useCodexQuotaResetRefresh(filteredAccounts, eco, refresh, onError);
 
   const handleCreate = useCallback(async (saveOnly = false) => {
     const name = modalName.trim();
@@ -1128,7 +1114,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                 </div>
                 {showTextQuota || showImageQuota ? (
                   <div className={`codex-account-quotas ${showTextQuota && showImageQuota ? "has-image-quota" : ""}`}>
-                    {showTextQuota ? <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={account.isLoggedIn} loading={isQuotaLoading} error={quotaErrors[account.id]} showRefreshedAt={false} /> : null}
+                    {showTextQuota ? <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={account.isLoggedIn} loading={isQuotaLoading} error={account.quotaRefresh?.error ?? quotaErrors[account.id]?.message} showRefreshedAt={true} /> : null}
                     {showImageQuota ? <OpenAIAccountImageQuotaSummary account={account} loading={imageOperation?.accountId === account.id && imageOperation.kind === "quota"} showRefreshedAt={false} /> : null}
                   </div>
                 ) : null}

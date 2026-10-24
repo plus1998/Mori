@@ -1,22 +1,13 @@
+import { isCodexAuthThread } from "../shared/codex-auth-thread";
 import type { ThreadSummary } from "../shared/ipc";
-import type { OpenAIAccountQuota, OpenAIAccountQuotaWindow } from "../shared/openai-account";
-import { CODEX_QUOTA_REFRESH_MS } from "../shared/codex-quota-refresh";
+import type { OpenAIAccountQuota, OpenAIAccountQuotaWindow, OpenAIAccountQuotaRefreshState } from "../shared/openai-account";
+import { CODEX_QUOTA_REFRESH_MS, nextCodexQuotaResetCheckAt } from "../shared/codex-quota-refresh";
 
 export { CODEX_QUOTA_REFRESH_MS } from "../shared/codex-quota-refresh";
 
 export const CODEX_AUTH_RECENT_USE_MS = 30 * 60_000;
 
-export function isCodexAuthThread(thread: ThreadSummary): boolean {
-  if (thread.coreKind !== "codex") return false;
-  const config = thread.runtimeConfig;
-  const providerId =
-    config?.mainAgentModelOverride?.providerId ??
-    config?.resolvedOrchestrationSnapshot?.mainAgent.modelRef.providerId;
-  return (
-    providerId === "openai" ||
-    (providerId === undefined && config?.orchestrationSelection?.mainAgentConfigId === "__openai_official__")
-  );
-}
+export { isCodexAuthThread } from "../shared/codex-auth-thread";
 
 export function hasRecentCodexAuthUsage(threads: readonly ThreadSummary[], now = Date.now()): boolean {
   return threads.some((thread) => {
@@ -46,6 +37,7 @@ export interface CodexQuotaReminderSnapshot {
   accountName: string;
   quota: OpenAIAccountQuota;
   switching: boolean;
+  refreshState?: OpenAIAccountQuotaRefreshState;
 }
 
 /**
@@ -88,16 +80,17 @@ function activeAccountSignature(active: Awaited<ReturnType<QuotaBridge["openAIAc
   ]);
 }
 
-/** One current-account request at a time; invalidated responses cannot cross account switches. */
+/** Cache reads on UI events; upstream reads only on manual refresh or a due reset. */
 export class CodexQuotaMonitor {
   private inFlight: Promise<void> | undefined;
+  private manualInFlight = false;
+  private queuedManual: Promise<void> | undefined;
   private generation = 0;
   private refreshAgain = false;
   private disposed = false;
   private activeSignature: string | undefined;
-  private accountEventVersion = 0;
-  private quotaRequestedAt = 0;
-  private quotaAcceptedAt = 0;
+  private resetTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly resetChecks = new Map<string, { at: number; error?: string }>();
 
   constructor(
     private readonly eco: QuotaBridge,
@@ -111,63 +104,67 @@ export class CodexQuotaMonitor {
   invalidate(): void {
     this.generation++;
     this.options.onChange(undefined);
-    void this.refresh(true);
+    if (this.inFlight) this.refreshAgain = true;
+    else void this.refresh();
   }
 
-  async accountsChanged(): Promise<void> {
-    if (this.disposed || !this.options.enabled()) return;
-    const version = ++this.accountEventVersion;
-    try {
-      const active = await this.eco.openAIAccountsGetActive();
-      if (this.disposed || version !== this.accountEventVersion) return;
-      const signature = activeAccountSignature(active);
-      // queryQuota itself emits this event. Only identity/transition changes
-      // invalidate a request, otherwise quota refresh would feed back forever.
-      if (signature === this.activeSignature) {
-        // Main-process reset refreshes publish a new cached snapshot. Read it
-        // without querying again, including when our own quota read emits this event.
-        if (this.inFlight || !active.activeAccountId || !active.isLoggedIn) return;
-        const accounts = await this.eco.openAIAccountsList();
-        const confirmed = await this.eco.openAIAccountsGetActive();
-        if (this.disposed || version !== this.accountEventVersion || !this.options.enabled()) return;
-        if (activeAccountSignature(confirmed) !== signature) {
-          this.invalidate();
-          return;
-        }
-        const account = accounts.find((entry) => entry.id === active.activeAccountId);
-        const quota = account?.quota;
-        // An old cache must not replace a failed request or a newer accepted result.
-        if (!account || !quota || quota.fetchedAt <= Math.max(this.quotaRequestedAt, this.quotaAcceptedAt))
-          return;
-        this.quotaAcceptedAt = quota.fetchedAt;
-        this.options.onChange({
-          accountId: account.id,
-          accountName: account.name,
-          quota,
-          switching: confirmed.pendingAccountId !== undefined,
-        });
-        return;
-      }
-      this.activeSignature = signature;
-      this.invalidate();
-    } catch (error) {
-      if (!this.disposed && version === this.accountEventVersion) {
-        this.options.onError(error instanceof Error ? error.message : String(error));
-      }
-    }
+  accountsChanged(): Promise<void> {
+    if (this.disposed || !this.options.enabled()) return Promise.resolve();
+    if (this.inFlight) this.refreshAgain = true;
+    return this.refresh();
   }
 
   dispose(): void {
     this.disposed = true;
     this.generation++;
+    if (this.resetTimer) clearTimeout(this.resetTimer);
   }
 
-  refresh(force = false): Promise<void> {
+  private scheduleReset(snapshot: CodexQuotaReminderSnapshot): void {
+    if (this.resetTimer) clearTimeout(this.resetTimer);
+    this.resetTimer = undefined;
+    if (snapshot.switching || (typeof document !== "undefined" && document.hidden)) return;
+    const resetAt = nextCodexQuotaResetCheckAt(snapshot.quota, snapshot.refreshState);
+    if (resetAt === undefined) return;
+    const dueAt = Math.max(resetAt, (this.resetChecks.get(snapshot.accountId)?.at ?? 0) + CODEX_QUOTA_REFRESH_MS);
+    // Re-evaluate distant resets before the platform timeout limit (about 24 days).
+    const delay = Math.min(2_147_483_647, Math.max(0, dueAt - Date.now()));
+    this.resetTimer = setTimeout(() => {
+      this.resetTimer = undefined;
+      if (this.disposed || !this.options.enabled() || (typeof document !== "undefined" && document.hidden)) return;
+      void (async () => {
+        try {
+          const active = await this.eco.openAIAccountsGetActive();
+          if (this.disposed || !this.options.enabled() || active.activeAccountId !== snapshot.accountId ||
+            !active.isLoggedIn || active.pendingAccountId !== undefined || active.syncStatus.state !== "ok") return;
+          if (Date.now() >= dueAt) {
+            this.resetChecks.set(snapshot.accountId, { at: Date.now() });
+            await this.eco.openAIAccountsQueryQuota(snapshot.accountId, "reset");
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.resetChecks.set(snapshot.accountId, { at: Date.now(), error: message });
+          if (!this.disposed) this.options.onError(message);
+        } finally {
+          if (!this.disposed) await this.refresh();
+        }
+      })();
+    }, delay);
+    this.resetTimer.unref?.();
+  }
+
+  refresh(manual = false): Promise<void> {
     if (this.disposed) return Promise.resolve();
     if (this.inFlight) {
-      this.refreshAgain ||= force;
-      return force ? this.inFlight.then(() => this.inFlight) : this.inFlight;
+      // A user request waits for a cache read, then still performs its explicit refresh.
+      if (!manual || this.manualInFlight) return this.inFlight;
+      if (!this.queuedManual) {
+        this.queuedManual = this.inFlight.then(() => this.refresh(true)).finally(() => { this.queuedManual = undefined; });
+      }
+      return this.queuedManual;
     }
+    if (this.resetTimer) clearTimeout(this.resetTimer);
+    this.resetTimer = undefined;
     const generation = this.generation;
     const current = () => !this.disposed && generation === this.generation;
     const request = (async () => {
@@ -178,47 +175,50 @@ export class CodexQuotaMonitor {
         }
         const active = await this.eco.openAIAccountsGetActive();
         if (!current()) return;
-        this.activeSignature = activeAccountSignature(active);
-        if (active.syncStatus.state !== "ok") throw new Error(active.syncStatus.message || "账号同步失败");
+        const signature = activeAccountSignature(active);
+        if (this.activeSignature !== undefined && this.activeSignature !== signature) this.options.onChange(undefined);
+        this.activeSignature = signature;
         if (!active.activeAccountId || !active.isLoggedIn) {
           this.options.onChange(undefined);
           return;
         }
         const accountId = active.activeAccountId;
-        this.quotaRequestedAt = Date.now();
-        const [accounts, quota] = await Promise.all([
-          this.eco.openAIAccountsList(),
-          this.eco.openAIAccountsQueryQuota(accountId),
-        ]);
+        if (manual) await this.eco.openAIAccountsQueryQuota(accountId, "manual");
+        const accounts = await this.eco.openAIAccountsList();
         const confirmed = await this.eco.openAIAccountsGetActive();
         if (!current()) return;
-        if (!this.options.enabled()) {
-          this.options.onChange(undefined);
-          return;
-        }
-        if (confirmed.activeAccountId !== accountId || !confirmed.isLoggedIn) {
+        if (!this.options.enabled()) { this.options.onChange(undefined); return; }
+        if (activeAccountSignature(confirmed) !== signature) {
           this.options.onChange(undefined);
           this.refreshAgain = true;
           return;
         }
-        if (confirmed.syncStatus.state !== "ok")
-          throw new Error(confirmed.syncStatus.message || "账号同步失败");
         const account = accounts.find((entry) => entry.id === accountId);
         if (!account) throw new Error("当前使用账号已从账号列表移除。");
-        this.quotaAcceptedAt = quota.fetchedAt;
-        this.options.onChange({
-          accountId,
-          accountName: account.name,
-          quota,
-          switching: confirmed.pendingAccountId !== undefined,
-        });
+        const quota = account.quota;
+        if (quota) {
+          const snapshot: CodexQuotaReminderSnapshot = {
+            accountId, accountName: account.name, quota,
+            switching: confirmed.pendingAccountId !== undefined,
+            ...(account.quotaRefresh ? { refreshState: account.quotaRefresh } : {}),
+          };
+          this.options.onChange(snapshot);
+          this.scheduleReset(snapshot);
+        } else this.options.onChange(undefined);
+        const resetCheck = this.resetChecks.get(accountId);
+        if (quota && resetCheck && quota.fetchedAt >= resetCheck.at) this.resetChecks.delete(accountId);
+        const error = account.quotaRefresh?.error ?? this.resetChecks.get(accountId)?.error ??
+          (confirmed.syncStatus.state !== "ok" ? confirmed.syncStatus.message || "账号同步失败" : undefined);
+        if (error) this.options.onError(error);
       } catch (error) {
         if (current()) this.options.onError(error instanceof Error ? error.message : String(error));
       }
     })();
     this.inFlight = request;
+    this.manualInFlight = manual;
     void request.finally(() => {
       this.inFlight = undefined;
+      this.manualInFlight = false;
       if (this.refreshAgain && !this.disposed) {
         this.refreshAgain = false;
         void this.refresh();

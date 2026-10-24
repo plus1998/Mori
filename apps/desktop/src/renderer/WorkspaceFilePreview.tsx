@@ -322,7 +322,7 @@ export function WorkspaceFilePreview({
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const editable = file.kind === "text" && !file.truncated && Boolean(workspacePath);
+  const editable = file.kind === "text" && !file.truncated && !file.readOnly && Boolean(workspacePath);
   const [viewMode, setViewMode] = useState<"edit" | "preview">("preview");
   const baselineRef = useRef(file.content ?? "");
   const [draft, setDraft] = useState(file.content ?? "");
@@ -535,10 +535,10 @@ export function WorkspaceFilePreview({
                 type="button"
                 className={`workspace-file-browser__mode-btn ${viewMode === "edit" ? "is-active" : ""}`}
                 onClick={() => setViewMode("edit")}
-                title={t("fileBrowser.editMode")}
+                title={t(editable ? "fileBrowser.editMode" : "fileBrowser.source")}
               >
                 <Pencil size={14} />
-                <span>{t("fileBrowser.edit")}</span>
+                <span>{t(editable ? "fileBrowser.edit" : "fileBrowser.source")}</span>
               </button>
             </>
           )}
@@ -584,6 +584,9 @@ export function WorkspaceFilePreview({
         <p role="alert" className="workspace-file-browser__error">
           {pageError}
         </p>
+      ) : null}
+      {file.readOnly ? (
+        <div className="workspace-file-browser__status">{t("fileBrowser.readOnly")}</div>
       ) : null}
       {statusMessage ? (
         <div

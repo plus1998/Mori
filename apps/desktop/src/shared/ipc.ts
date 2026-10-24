@@ -828,6 +828,8 @@ export interface WorkspaceFileReadResult {
   truncated?: boolean;
   reason?: string;
   revision?: string;
+  /** Previewing local files is unrestricted; editing remains scoped to the workspace. */
+  readOnly?: boolean;
 }
 
 export type PackageManagerKind = "bun" | "pnpm" | "yarn" | "npm";

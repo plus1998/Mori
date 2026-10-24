@@ -209,7 +209,7 @@ test("an expired active account refreshes through the shared client and writes S
   expect(service.getSyncStatus().state).toBe("ok");
 });
 
-test("service startup refreshes a persisted account whose quota reset while Eco was closed", async () => {
+test("startup keeps reset-due cache without querying; actual usage refreshes it", async () => {
   const root = await serviceRoot();
   const setup = new OpenAIAccountService(root, "unused", undefined, async () => quotaClient((method) =>
     method === "account/read" ? accountResponse : rateLimits));
@@ -221,7 +221,7 @@ test("service startup refreshes a persisted account whose quota reset while Eco 
   const cached = await setup.queryQuota(account.id);
   await setup.dispose();
   const now = Date.now();
-  cached.fetchedAt = now - 60_000;
+  cached.fetchedAt = now - 6 * 60_000;
   if (!cached.rateLimit.primaryWindow) throw new Error("Missing primary test window");
   cached.rateLimit.primaryWindow.resetAt = Math.floor(now / 1_000) - 1;
   cached.rateLimit.primaryWindow.usedPercent = 100;
@@ -244,6 +244,9 @@ test("service startup refreshes a persisted account whose quota reset while Eco 
   }));
   cleanups.push(() => service.dispose());
   await service.initialize();
+  expect(reads).toBe(0);
+  expect((await service.listAccounts())[0]?.quota).toEqual(cached);
+  service.setQuotaUsage("task", true);
   await refreshed;
   expect(reads).toBe(1);
   const updated = (await service.listAccounts()).find((entry) => entry.id === account.id)?.quota;

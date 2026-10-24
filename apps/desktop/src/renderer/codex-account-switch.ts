@@ -31,7 +31,7 @@ export async function loadCodexSwitchAccounts(eco: AccountSwitchBridge, refreshQ
   );
   if (!refreshQuota) return { accounts: candidates, failedCount: 0 };
   const results = await Promise.allSettled(
-    candidates.map(async (account) => ({
+    candidates.map(async ({ quotaRefresh: _previousRefresh, ...account }) => ({
       ...account,
       quota: await eco.openAIAccountsQueryQuota(account.id),
     })),

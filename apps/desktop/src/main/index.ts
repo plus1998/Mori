@@ -1,3 +1,4 @@
+import { isCodexAuthThread } from "../shared/codex-auth-thread";
 import { createAccountUsagePricingLookup } from "./account-usage-pricing";
 import { ChatGptModelCatalogService, resolveChatGptModelCatalogCachePath } from "./chatgpt-model-catalog";
 import { ProjectTodoStore } from "./project-todo-store";
@@ -875,7 +876,6 @@ import {
   bindPendingPlanApprovalCommand,
   cancelPlanApprovalsForThread,
   clearPlanApprovalCommandBinding,
-  getPendingPlanApprovalByToolUseId,
   getPendingPlanApprovalCommand,
   getPendingPlanApprovalForThread,
   getPendingPlanApprovalWaitForThread,
@@ -6963,6 +6963,9 @@ function registerIpcHandlers(): void {
         }, ensureCodexControlPlaneClient, resolveSystemProxyUrl);
         await service.initialize();
         openaiAccountService = service;
+        for (const thread of conversationStore.listThreads()) {
+          if (thread.status === "running" && activeRunRuntimeState.hasRun(thread.id) && isCodexAuthThread(thread)) service.setQuotaUsage(thread.id, true);
+        }
         return service;
       })().finally(() => {
         openaiAccountServicePromise = undefined;
@@ -7043,10 +7046,11 @@ function registerIpcHandlers(): void {
   }, async () => {
     const accounts = await (await getOpenAIAccountService()).listAccounts();
     // Keep the account contract, without proxy URLs or private profile data.
-    return accounts.map(({ id, name, email, isLoggedIn, authState, quota, proxyMode, createdAt, hasProfileData }) => ({
+    return accounts.map(({ id, name, email, isLoggedIn, authState, quota, quotaRefresh, proxyMode, createdAt, hasProfileData }) => ({
       id, name, isLoggedIn, authState, proxyMode, createdAt, hasProfileData,
       ...(email === undefined ? {} : { email }),
       ...(quota === undefined ? {} : { quota }),
+      ...(quotaRefresh === undefined ? {} : { quotaRefresh }),
     }));
   });
 
@@ -7252,9 +7256,13 @@ function registerIpcHandlers(): void {
     },
   );
 
-  registerDesktopCommand(IPC_CHANNELS.openAIAccountsQueryQuota, async (payload: { accountId: string }) => {
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsQueryQuota, async (payload: { accountId: string; reason?: "manual" | "switch" | "reset" }) => {
+    if (!payload || typeof payload.accountId !== "string" || !payload.accountId.trim() ||
+      (payload.reason !== undefined && !["manual", "switch", "reset"].includes(payload.reason))) {
+      throw new Error("额度查询参数无效。");
+    }
     const svc = await getOpenAIAccountService();
-    const quota = await svc.queryQuota(payload.accountId);
+    const quota = await svc.queryQuota(payload.accountId, payload.reason ?? "manual");
     return quota;
   });
 
@@ -7283,10 +7291,7 @@ function registerIpcHandlers(): void {
     }
     const { accountId, idempotencyKey } = payload;
     const svc = await getOpenAIAccountService();
-    return svc.withActiveAccount(accountId, async () => {
-      const client = await ensureCodexControlPlaneClient();
-      return consumeCodexQuotaReset(client, idempotencyKey);
-    });
+    return svc.resetQuota(accountId, (client) => consumeCodexQuotaReset(client, idempotencyKey));
   });
 
   codexImages = new CodexImageService(
@@ -18879,6 +18884,8 @@ function updateThread(threadId: string, patch: Pick<ThreadSummary, "message" | "
 
   const message = normalizeThreadMessage(patch.status, patch.message);
   conversationStore.updateThread(threadId, { ...patch, message });
+  const quotaThread = conversationStore.getThread(threadId);
+  openaiAccountService?.setQuotaUsage(threadId, patch.status === "running" && !!quotaThread && isCodexAuthThread(quotaThread));
   const followUpQueuePaused = autoPauseFollowUpQueueForErrorStatus(threadId, patch.status);
   const pendingPlan =
     patch.status === "awaiting_plan" ? conversationStore.getPendingPlan(threadId) : undefined;
@@ -18919,6 +18926,8 @@ function patchThreadSummary(threadId: string, patch: Pick<ThreadSummary, "messag
 
   const message = normalizeThreadMessage(patch.status, patch.message);
   conversationStore.updateThread(threadId, { ...patch, message });
+  const quotaThread = conversationStore.getThread(threadId);
+  openaiAccountService?.setQuotaUsage(threadId, patch.status === "running" && !!quotaThread && isCodexAuthThread(quotaThread));
   autoPauseFollowUpQueueForErrorStatus(threadId, patch.status);
   // Status can leave running/queued here (e.g. markThreadInterrupted → blocked)
   // without going through updateThread; keep the sleep blocker in sync.
@@ -20167,7 +20176,10 @@ function createThreadHookContext(threadId: string): EcoHookContext {
   return {
     awaitPlanApproval: async (request) => {
       const existingWait = getPendingPlanApprovalWaitForThread(threadId);
-      if (existingWait && getPendingPlanApprovalByToolUseId(request.toolUseId)) {
+      // canUseTool and PermissionRequest can report the same ExitPlanMode with
+      // different ids (the latter may only have permission:<session_id>).
+      // Both SDK waiters must share the one user decision and command binding.
+      if (existingWait) {
         return existingWait;
       }
       const thread = conversationStore.getThread(threadId);
@@ -20208,7 +20220,7 @@ function createThreadHookContext(threadId: string): EcoHookContext {
             conversationStore.savePendingPlan(plan);
           },
           emitAwaitingPlan: () => {
-            // Bridge path keeps the thread running until the user approves.
+            // The approval bridge publishes awaiting_plan after persisting.
           },
         },
       });
@@ -20270,15 +20282,9 @@ function createThreadHookContext(threadId: string): EcoHookContext {
         return [];
       }
     },
-    onNotification: ({ message, notificationType }) => {
-      if (notificationType === "permission_prompt") {
-        updateThread(threadId, { status: "running", message: "" });
-        return;
-      }
-      if (notificationType === "idle_prompt") {
-        updateThread(threadId, { status: "running", message: "" });
-      }
-    },
+    // SDK permission/idle notifications do not indicate execution progress.
+    // Approval and run lifecycle events own the thread status; registering a
+    // Notification handler here must not overwrite awaiting_plan or a terminal.
   };
 }
 
