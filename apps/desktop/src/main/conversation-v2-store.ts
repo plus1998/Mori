@@ -2725,7 +2725,7 @@ export class ConversationV2Store {
           toolSummaryCounts,
           this.listAgents(conversationId),
           this.listTodos(conversationId),
-          details,
+          [...details, ...this.listClarificationDetails(tools)],
           (oldest) => this.hasOlderMessages(conversationId, oldest),
         );
       let response = buildResponse();
@@ -2835,6 +2835,7 @@ export class ConversationV2Store {
           tools,
           toolSummaryCounts,
           agents: this.listAgents(conversationId),
+          details: this.listClarificationDetails(tools),
           ...(last && hasMore
             ? {
                 nextCursor: encodeConversationCursor({
@@ -3015,6 +3016,7 @@ export class ConversationV2Store {
           readSeq: stream.last_seq,
           historyRevision: stream.history_revision,
           tools: [...pageTools].reverse(),
+          details: this.listClarificationDetails(pageTools),
           totalCount,
           ...(last && hasMore
             ? {
@@ -6526,6 +6528,20 @@ export class ConversationV2Store {
     // tool detail remains available through detailsPage().
     const tools = rows.map(rowToTool).map(limitConversationToolSummaryPayload);
     return limit === undefined ? tools : tools.reverse();
+  }
+
+  private listClarificationDetails(tools: readonly ConversationToolCall[]): ConversationDetailItem[] {
+    const questionTools = tools.filter((tool) => tool.name === "AskUserQuestion");
+    if (questionTools.length === 0) return [];
+    const rows = this.db
+      .prepare(
+      `SELECT * FROM conversation_detail_items_v2
+       WHERE conversation_id = ? AND tool_call_id IN (${questionTools.map(() => "?").join(", ")})
+         AND type IN ('clarification.requested', 'clarification.resolved')
+       ORDER BY created_seq ASC, item_id ASC`,
+      )
+      .all(questionTools[0]!.conversationId, ...questionTools.map((tool) => tool.toolCallId)) as unknown as DetailRow[];
+    return rows.map(rowToDetail);
   }
 
   private listToolSummaryCounts(

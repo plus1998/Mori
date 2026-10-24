@@ -6,6 +6,7 @@ import { type BrowserInstanceView, isPersonalBrowserScopeId } from "../shared/br
 import { pathToName } from "../shared/home-project";
 import type { ClaudeBackgroundTask, CodexBackgroundTerminal } from "../shared/ipc";
 import { AgentBrowserProcessesSection } from "./AgentBrowserProcessesSection";
+import { DisplayControlsSection } from "./DisplayControlsSection";
 import { browserStateStore, useBrowserStateSelector } from "./browser-state-store";
 import { collectRunningTerminals, type RunningTerminal } from "./running-resources";
 import type { TerminalWorkspaceState } from "./terminal-panel-storage";
@@ -242,6 +243,7 @@ export function RunningResourcesPopover({
         <span>{t("app.running.resourceCount", { count: pages.length + terminals.length + agentProcessCount })}</span>
       </div>
       <div className="running-resources-scroll">
+        <DisplayControlsSection />
         <AgentBrowserProcessesSection threads={threads} onCountChange={setAgentProcessCount} />
         <section className="running-resources-section" aria-labelledby="running-resources-pages-title">
           <h3 id="running-resources-pages-title" className="running-resources-section-title">

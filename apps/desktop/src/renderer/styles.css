@@ -6906,30 +6906,30 @@ button.sidebar-settings-meta {
 .clarification-answer-rows {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 14px;
 }
 
 .clarification-answer-row {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 5px;
 }
 
 .clarification-answer-question {
   color: var(--codex-log-text);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
 }
 
 .clarification-answer-answer {
   color: var(--codex-log-muted);
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
 }
 
 .clarification-answer-card--user {
@@ -40032,6 +40032,131 @@ body,
   overscroll-behavior: contain;
   padding: 0 6px 8px;
   scrollbar-width: thin;
+}
+
+.running-display-controls {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.running-display-control {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 28px;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.running-display-control > svg {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+
+.running-display-control > span {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.running-display-control input {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 17px;
+  margin: 0;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--text-muted);
+  cursor: pointer;
+}
+
+.running-display-control input::before {
+  display: block;
+  content: "";
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: white;
+}
+
+.running-display-control input:checked {
+  background: var(--accent);
+}
+
+.running-display-control input:checked::before {
+  transform: translateX(11px);
+}
+
+.running-display-control input:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.running-display-control input:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 3px;
+}
+
+.running-display-details {
+  padding: 0 6px 0 31px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.running-display-details > summary {
+  width: fit-content;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.running-display-details > summary:hover {
+  color: var(--text-secondary);
+}
+
+.running-display-details > summary:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.running-display-monitor-summary,
+.running-display-monitor-hint {
+  margin: 5px 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.running-display-monitors ul {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+}
+
+.running-display-monitors li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.running-display-monitor-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.running-display-monitor-status {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
 }
 
 .running-resources-section + .running-resources-section {

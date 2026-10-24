@@ -434,6 +434,8 @@ export interface ConversationMessagesPage {
   /** Total tool summaries per run; fetch the remainder through tools.page. */
   toolSummaryCounts?: Record<string, number>;
   agents?: ConversationAgent[];
+  /** Interaction records for the tools in this page. */
+  details?: ConversationDetailItem[];
   nextCursor?: string;
   hasMore: boolean;
 }
@@ -458,6 +460,7 @@ export interface ConversationToolsPage {
   readSeq: number;
   historyRevision: number;
   tools: ConversationToolCall[];
+  details?: ConversationDetailItem[];
   totalCount: number;
   nextCursor?: string;
   hasMore: boolean;

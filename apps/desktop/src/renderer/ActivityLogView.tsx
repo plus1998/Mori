@@ -1,3 +1,9 @@
+import {
+  clarificationHistoryRows,
+  readClarificationHistoryContent,
+  parseClarificationAnswersSummary,
+  type ClarificationHistoryRow,
+} from "./clarification-history";
 import { isMainAgentRole, normalizeAgentRole } from "@eco/shared";
 import { ReadAloudButton, useReadAloudAutoRead } from "./ReadAloud";
 import { isSubagentMissionEnvelope, resolveMissionDisplayText } from "@eco/runtime/agent-mission";
@@ -1005,9 +1011,18 @@ export function buildConversationV2OnlyProjection(
     );
   }
 
+  const clarificationRequests = new Map(
+    [...conversationV2.details.values()]
+      .filter(detail => detail.type === "clarification.requested" && detail.toolCallId)
+      .map(detail => [detail.toolCallId!, detail]),
+  );
   for (const detail of conversationV2.details.values()) {
-    if (!isContextCompactionEventType(detail.type)) continue;
-    const item = conversationV2CompactionToTimelineItem(detail);
+    const item = isContextCompactionEventType(detail.type)
+      ? conversationV2CompactionToTimelineItem(detail)
+      : detail.type === "clarification.requested" || detail.type === "clarification.resolved"
+        ? conversationV2ClarificationToTimelineItem(detail, conversationV2, detail.toolCallId ? clarificationRequests.get(detail.toolCallId) : undefined)
+        : undefined;
+    if (!item) continue;
     const agentId = detail.agentId && cardAgentIds.has(detail.agentId) ? detail.agentId : undefined;
     if (agentId) {
       item.scope = "agent";
@@ -1099,6 +1114,42 @@ export function buildConversationV2OnlyProjection(
     ...(conversationV2.projectionExtras?.subagentMetrics
       ? { subagentMetrics: conversationV2.projectionExtras.subagentMetrics }
       : {}),
+  };
+}
+
+function conversationV2ClarificationToTimelineItem(
+  detail: ConversationDetailItem,
+  state: Pick<ConversationV2RendererState, "tools" | "runs">,
+  recordedRequest?: ConversationDetailItem,
+): ThreadRunProjectionTimelineItem | undefined {
+  const content = readClarificationHistoryContent(detail);
+  const resolved = detail.type === "clarification.resolved";
+  const request = resolved ? recordedRequest : detail;
+  const rows = clarificationHistoryRows(
+    request ? readClarificationHistoryContent(request) : undefined,
+    resolved ? content : undefined,
+  );
+  // Submission receipts are not answers. Only recorded questions/answers form a card.
+  if (rows.length === 0) return undefined;
+  const tool = detail.toolCallId ? state.tools.get(detail.toolCallId) : undefined;
+  return {
+    id: detail.itemId,
+    sequence: detail.createdSeq,
+    eventType: "message.final",
+    scope: "main",
+    role: "main",
+    text: resolved && typeof content.message === "string"
+      ? content.message : rows.map(row => row.question).join("\n"),
+    at: tool?.occurredAt ?? state.runs.get(detail.runId)?.startedAt ?? "1970-01-01T00:00:00.000Z",
+    runAttemptId: detail.runId,
+    ...(detail.agentId ? { agentId: detail.agentId } : {}),
+    metadata: {
+      liveType: resolved ? "clarification.answered" : "clarification.requested",
+      clarificationRows: rows,
+      ...(detail.toolCallId ? {
+        tool: { name: "AskUserQuestion", toolUseId: detail.toolCallId, status: resolved ? "completed" : "started" },
+      } : {}),
+    },
   };
 }
 
@@ -6742,47 +6793,20 @@ function UserPromptBlock({
   );
 }
 
-const CLARIFICATION_ANSWER_PREFIX = "澄清回答：";
-
-function parseClarificationAnswersSummary(text: string): Array<{ question: string; answer: string }> | null {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith(CLARIFICATION_ANSWER_PREFIX)) {
-    return null;
-  }
-
-  const rest = trimmed.slice(CLARIFICATION_ANSWER_PREFIX.length).trim();
-  if (!rest) {
-    return [];
-  }
-
-  // formatClarificationAnswersSummary uses "；" between questions and " → " between question and answer.
-  const parts = rest
-    .split("；")
-    .map((p) => p.trim())
-    .filter(Boolean);
-
-  const rows = parts.map((part) => {
-    const segs = part.split(/\s*→\s*/u);
-    const question = (segs[0] ?? "").trim() || part.trim();
-    const answer = segs.slice(1).join(" → ").trim();
-    return { question, answer };
-  });
-
-  return rows;
-}
-
 function ClarificationAnswersCard({
   rows,
   variant,
+  pending = false,
 }: {
-  rows: Array<{ question: string; answer: string }>;
+  rows: ClarificationHistoryRow[];
+  pending?: boolean;
   variant?: "user";
 }) {
   return (
     <div
       className={`clarification-answer-card${variant === "user" ? " clarification-answer-card--user" : ""}`}
       role="group"
-      aria-label={i18n.t("activity.clarificationAnswer")}
+      aria-label={i18n.t(pending ? "activity.clarificationQuestion" : "activity.clarificationAnswer")}
     >
       <div className="clarification-answer-header">
         <span className="clarification-answer-title">
@@ -6792,14 +6816,14 @@ function ClarificationAnswersCard({
             strokeWidth={ICON_STROKE}
             aria-hidden
           />
-          {i18n.t("activity.clarificationAnswer")}
+          {i18n.t(pending ? "activity.clarificationQuestion" : "activity.clarificationAnswer")}
         </span>
       </div>
       <div className="clarification-answer-rows">
         {rows.map((row, index) => (
           <div key={index} className="clarification-answer-row">
             <div className="clarification-answer-question">{row.question}</div>
-            <div className="clarification-answer-answer">{row.answer}</div>
+            {row.answer !== undefined ? <div className="clarification-answer-answer">{row.answer}</div> : null}
           </div>
         ))}
       </div>
@@ -8187,11 +8211,11 @@ function RunLogNarrative({
       : undefined;
   const showStickyMessageMeta = showFinalMessageMeta && (stickyMessageMeta || Boolean(forkAction));
   const waitingEmpty = Boolean(streaming) && !hasBody;
-  const clarificationRows = !streaming ? parseClarificationAnswersSummary(text) : null;
+  const clarificationRows = !streaming ? (item?.metadata?.clarificationRows as ClarificationHistoryRow[] | undefined) ?? parseClarificationAnswersSummary(text) : null;
   const worktreeMergeSummary = !streaming ? parseWorktreeMergeMessage(text) : null;
 
   if (clarificationRows) {
-    return <ClarificationAnswersCard rows={clarificationRows} />;
+    return <ClarificationAnswersCard rows={clarificationRows} pending={item?.metadata?.liveType === "clarification.requested"} />;
   }
   if (worktreeMergeSummary) {
     return <WorkspaceChangesCard summary={worktreeMergeSummary} />;

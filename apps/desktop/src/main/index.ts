@@ -149,6 +149,7 @@ import {
   type BrowserWindowConstructorOptions,
   clipboard,
   dialog,
+  globalShortcut,
   type Event,
   ipcMain,
   Menu,
@@ -973,6 +974,9 @@ import { SupabaseCloudDeployment } from "./supabase-cloud-deployment";
 import { readSupabaseDeploymentBundle } from "./supabase-deployment-bundle";
 import { createDesktopSettingsSyncHooks } from "./supabase-settings-sync-hooks";
 import { SystemSleepBlocker } from "./system-sleep-blocker";
+import { DisplayControl } from "./display-control";
+import { createMacActivityAssertion, createMacBrightnessApi } from "./mac-display-native";
+import { DISPLAY_RESTORE_ACCELERATOR } from "../shared/display-control";
 import { normalizeTelemetryBillingRole } from "./telemetry-billing-role";
 import { resolveThreadApprovePlanRoute } from "./thread-approve-plan-route";
 import { ThreadCacheHitMonitor } from "./thread-cache-hit-monitor";
@@ -1474,6 +1478,20 @@ let backgroundTerminalTaskRegistry: BackgroundTerminalTaskRegistry;
 let codexBackgroundTerminalService: CodexBackgroundTerminalService | undefined;
 const claudeBackgroundTaskRegistry = new ClaudeBackgroundTaskRegistry();
 const systemSleepBlocker = new SystemSleepBlocker(powerSaveBlocker);
+const displayControl: DisplayControl = new DisplayControl(
+  process.platform,
+  createMacActivityAssertion,
+  () => createMacBrightnessApi((id) => screen.getAllDisplays().find((display) => display.id === id)?.label),
+  {
+    register: () => {
+      if (!globalShortcut.register(DISPLAY_RESTORE_ACCELERATOR, () => {
+        try { displayControl.set({ control: "dimmed", enabled: false }); }
+        catch (error) { process.stderr.write(`[eco] display restoration failed: ${String(error)}\n`); }
+      })) throw new Error("Screen recovery shortcut is unavailable (Command+Shift+L).");
+    },
+    unregister: () => globalShortcut.unregister(DISPLAY_RESTORE_ACCELERATOR),
+  },
+);
 let applicationShutdownDeps: ApplicationShutdownDeps | undefined;
 
 function syncSystemSleepBlocker(options: { refresh?: boolean } = {}): void {
@@ -3938,7 +3956,11 @@ installApplicationShutdownHook(
       desktopUpdateService.dispose();
     },
     disposeSystemSleepBlocker: () => {
-      systemSleepBlocker.dispose();
+      try {
+        displayControl.dispose();
+      } finally {
+        systemSleepBlocker.dispose();
+      }
     },
     clearCodexSubagentRuntimeLimit: () => {
       codexSubagentRuntimeLimit.clear();
@@ -4826,6 +4848,8 @@ function showDesktopNotification(content: { title: string; body: string }, threa
 }
 
 function registerIpcHandlers(): void {
+  registerDesktopCommand(IPC_CHANNELS.displayControlGet, () => displayControl.getState());
+  registerDesktopCommand(IPC_CHANNELS.displayControlSet, (input: import("../shared/display-control").DisplayControlChange) => displayControl.set(input));
   registerDesktopCommand(IPC_CHANNELS.projectTodoList, () => projectTodoStore.list());
   registerDesktopCommand(IPC_CHANNELS.projectTodoGet, (id: string, includeImageData: boolean = true) => {
     if (typeof id !== "string") throw new Error("Invalid todo ID.");
@@ -20162,6 +20186,7 @@ async function handleThreadAskUserQuestion(
     false,
     {
       tool: buildClarificationToolMetadata(parsed.toolUseId, "completed"),
+      metadata: { clarificationAnswers: answers },
     },
   );
   void retryDeferredRunCleanupIfNeeded(threadId);

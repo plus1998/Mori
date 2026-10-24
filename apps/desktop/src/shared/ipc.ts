@@ -36,6 +36,8 @@ export const IPC_CHANNELS = {
   schedulingChanged: "scheduling:changed",
   appMenuCommand: "app:menu-command",
   appRendererReady: "app:renderer-ready",
+  displayControlGet: "display-control:get",
+  displayControlSet: "display-control:set",
   appScreenRecordingAppLabel: "app:screen-recording-app-label",
   appSetThemeSource: "app:set-theme-source",
   appSetWindowTitlebarMode: "app:set-window-titlebar-mode",

@@ -306,6 +306,12 @@ function resolvePreloadScreenRecordingAppLabel(): string {
 
 const api = {
   platform: process.platform,
+  getDisplayControlState(): Promise<import("../shared/display-control").DisplayControlState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.displayControlGet);
+  },
+  setDisplayControl(input: import("../shared/display-control").DisplayControlChange): Promise<import("../shared/display-control").DisplayControlState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.displayControlSet, input);
+  },
   isPackaged: preloadIsPackaged,
   /** System Settings → Screen Recording toggle target for this process. */
   screenRecordingAppLabel: resolvePreloadScreenRecordingAppLabel(),
