@@ -1,3 +1,4 @@
+import { coalesceResponsesCompactionInput } from "./compaction-input.js";
 import type { GatewayLogFn } from "./server.js";
 import type { GatewayConfig, ResolvedProviderRoute } from "./types.js";
 
@@ -62,6 +63,9 @@ export function withDynamicOutputBudget(
       if (typeof init?.body !== "string")
         throw new Error("Dynamic max output requires the final JSON request body.");
       const body = JSON.parse(init.body) as Record<string, unknown>;
+      if (boundLimits?.compactionContextTokens !== undefined && route.upstreamKind === "responses") {
+        coalesceResponsesCompactionInput(body);
+      }
       const count = await config.countInputTokens({
         route,
         body,
