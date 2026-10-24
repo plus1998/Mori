@@ -28,30 +28,33 @@ ThreadRunProjectionRequestSpan _span({
   },
 });
 
-ThreadRunProjectionTimelineItem _tool({bool running = false}) =>
-    ThreadRunProjectionTimelineItem(
-      id: 'tool',
-      sequence: 1,
-      eventType: running ? 'tool.started' : 'tool.completed',
-      scope: 'main',
-      role: 'tool',
-      text: 'Tool: Write',
-      at: _start,
-      runAttemptId: 'run',
-      metadata: {
-        'tool': {
-          'name': 'Write',
-          'detail': 'src/app.ts',
-          'status': running ? 'started' : 'completed',
-        },
-      },
-    );
+ThreadRunProjectionTimelineItem _tool({
+  bool running = false,
+  String runAttemptId = 'run',
+}) => ThreadRunProjectionTimelineItem(
+  id: '$runAttemptId-tool',
+  sequence: 1,
+  eventType: running ? 'tool.started' : 'tool.completed',
+  scope: 'main',
+  role: 'tool',
+  text: 'Tool: Write',
+  at: _start,
+  runAttemptId: runAttemptId,
+  metadata: {
+    'tool': {
+      'name': 'Write',
+      'detail': 'src/app.ts',
+      'status': running ? 'started' : 'completed',
+    },
+  },
+);
 
 List<ActivityFeedEntry> _feed({
   List<ThreadRunProjectionRequestSpan> spans = const [],
   List<ThreadRunProjectionTimelineItem>? timeline,
   bool live = true,
   bool grouped = true,
+  List<ThreadRunProjectionAttempt> earlierAttempts = const [],
 }) => buildActivityFeed(
   runProjection: ThreadRunProjectionSnapshot(
     threadId: 'thread',
@@ -60,6 +63,7 @@ List<ActivityFeedEntry> _feed({
     sourceEventCount: 1,
     agents: const [],
     attempts: [
+      ...earlierAttempts,
       ThreadRunProjectionAttempt(
         attemptId: 'run',
         phase: 'main',
@@ -285,7 +289,7 @@ void main() {
     expect(span.pendingThinkingMessageId, 'native-thinking');
   });
 
-  test('tool, writing and native thinking take turns owning one live row', () {
+  test('writing and native thinking preserve the completed tool history', () {
     final states = [
       _feed(timeline: [_tool(running: true)]),
       _feed(),
@@ -293,13 +297,16 @@ void main() {
       _feed(spans: [_span(thinking: true)]),
       _feed(timeline: [_tool(running: true)]),
     ];
-    expect(states.map((feed) => _rows(feed).single.kind), [
-      ActivityFeedKind.actionGroup,
-      ActivityFeedKind.actionGroup,
-      ActivityFeedKind.toolWriting,
-      ActivityFeedKind.thinking,
-      ActivityFeedKind.actionGroup,
-    ]);
+    expect(
+      states.map((feed) => _rows(feed).map((entry) => entry.kind).toList()),
+      [
+        [ActivityFeedKind.actionGroup],
+        [ActivityFeedKind.actionGroup],
+        [ActivityFeedKind.actionGroup, ActivityFeedKind.toolWriting],
+        [ActivityFeedKind.actionGroup, ActivityFeedKind.thinking],
+        [ActivityFeedKind.actionGroup],
+      ],
+    );
     for (final feed in states) {
       final display = resolveThreadSessionDisplayFeedEntries(
         feedEntries: feed,
@@ -307,10 +314,11 @@ void main() {
         threadPrompt: '',
         isRunning: true,
       );
-      expect(_rows(display), hasLength(1));
+      expect(_rows(display), hasLength(_rows(feed).length));
+      expect(_rows(display).first.kind, ActivityFeedKind.actionGroup);
       expect(display.any((entry) => entry.id == 'pending-agent'), isFalse);
     }
-    expect(_rows(states[2]).single.text, '正在写入 src/main.ts');
+    expect(_rows(states[2]).last.text, '正在写入 src/main.ts');
   });
 
   test(
@@ -322,6 +330,82 @@ void main() {
         );
         expect(rows.single.kind, ActivityFeedKind.actionGroup);
       }
+    },
+  );
+
+  for (final eventType in ['tool.started', 'context.compaction.started']) {
+    test('$eventType in a finished attempt cannot hide the live status', () {
+      for (final status in ['completed', 'cancelled', 'failed']) {
+        for (final span in [_span(writing: true), _span(thinking: true)]) {
+          final rows = _rows(
+            _feed(
+              spans: [span],
+              grouped: false,
+              earlierAttempts: [
+                ThreadRunProjectionAttempt(
+                  attemptId: 'old-run',
+                  phase: 'main',
+                  retryIndex: 0,
+                  status: status,
+                  startedAt: '2026-10-20T00:00:00.000Z',
+                  endedAt: _start,
+                ),
+              ],
+              timeline: [
+                if (eventType == 'tool.started')
+                  _tool(running: true, runAttemptId: 'old-run')
+                else
+                  ThreadRunProjectionTimelineItem(
+                    id: 'old-compaction',
+                    sequence: 0,
+                    eventType: eventType,
+                    scope: 'main',
+                    text: '',
+                    at: _start,
+                    runAttemptId: 'old-run',
+                  ),
+                // Adjacent tools merge into a group spanning both attempts.
+                _tool(),
+              ],
+            ),
+          );
+          expect(
+            rows.last.kind,
+            span.writingTool != null
+                ? ActivityFeedKind.toolWriting
+                : ActivityFeedKind.thinking,
+            reason: '$eventType in $status attempt',
+          );
+        }
+      }
+    });
+  }
+
+  test(
+    'a running current tool in a cross-attempt group still owns the slot',
+    () {
+      final rows = _rows(
+        _feed(
+          spans: [_span(thinking: true)],
+          grouped: false,
+          earlierAttempts: const [
+            ThreadRunProjectionAttempt(
+              attemptId: 'old-run',
+              phase: 'main',
+              retryIndex: 0,
+              status: 'completed',
+              startedAt: '2026-10-20T00:00:00.000Z',
+              endedAt: _start,
+            ),
+          ],
+          timeline: [
+            _tool(running: true, runAttemptId: 'old-run'),
+            _tool(running: true),
+          ],
+        ),
+      );
+      expect(rows.single.kind, ActivityFeedKind.actionGroup);
+      expect(rows.single.actionChildren, hasLength(2));
     },
   );
 
@@ -353,7 +437,10 @@ void main() {
         ],
       ),
     );
-    expect(rows.single.kind, ActivityFeedKind.toolWriting);
+    expect(rows.map((entry) => entry.kind), [
+      ActivityFeedKind.actionGroup,
+      ActivityFeedKind.toolWriting,
+    ]);
   });
 
   test('thinking body replaces its pending fact before extras catch up', () {

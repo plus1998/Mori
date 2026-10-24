@@ -447,11 +447,8 @@ List<ActivityFeedEntry> buildActivityFeed({
       ? groupActivityFeedActionEntries(projected, l10n: strings)
       : projected;
   final groupedThinking = groupConsecutiveThinkingEntries(groupedActions);
-  final groupedEphemeralTail = replaceLatestToolWithReasoningStage(
-    groupedThinking,
-  );
   final liveEntries = resolveActivityFeedLiveSlot(
-    groupedEphemeralTail,
+    groupedThinking,
     projection: runProjection,
     isRunning:
         conversationLive ??
@@ -463,10 +460,10 @@ List<ActivityFeedEntry> buildActivityFeed({
       : liveEntries;
 }
 
-/// The main Feed has one live slot. Thinking, summary and writing replace each
-/// other; a genuinely running tool or compaction owns the row until it settles.
-/// Resolve before turn grouping so replacing a tool cannot leave a sibling
-/// waiting line outside the turn.
+/// Thinking, summary and writing share one temporary status row. Completed
+/// tools are durable history and stay visible while the next request starts.
+/// A running tool or compaction already describes current work and suppresses
+/// the extra status row. Resolve before turn grouping to keep it in the turn.
 List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
   List<ActivityFeedEntry> entries, {
   required ThreadRunProjectionSnapshot projection,
@@ -531,17 +528,20 @@ List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
       content.add(entry);
     }
   }
-  if (content.any(_containsRunningTool) ||
-      content.any(_containsRunningContextCompaction)) {
+  final finishedAttemptIds = {
+    for (final attempt in projection.attempts)
+      if (!attempt.isRunning) attempt.attemptId,
+  };
+  // Background commands can outlive their attempt and retain a running tool
+  // lifecycle in history. They must not hide a later attempt's thinking row.
+  // Groups can span attempts, so inspect each child's owner independently.
+  if (content.any(
+    (entry) => _containsCurrentRunningWork(entry, finishedAttemptIds),
+  )) {
     return content;
   }
 
   final owner = content.lastOrNull;
-  final replacesTool = owner != null && _isToolAggregateEntry(owner);
-  if (replacesTool && writingSpan == null && pendingThinking == null) {
-    return content;
-  }
-
   final ActivityFeedEntry? status;
   if (writingSpan != null) {
     status = ActivityFeedEntry(
@@ -567,17 +567,21 @@ List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
     status = summary ?? waiting;
   }
   if (status == null) return content;
-  if (replacesTool) {
-    return [
-      ...content.take(content.length - 1),
-      status.withIdAtSequence(
-        id: owner.id,
-        at: owner.at,
-        sequence: owner.sequence,
-      ),
-    ];
-  }
   return [...content, status];
+}
+
+bool _containsCurrentRunningWork(
+  ActivityFeedEntry entry,
+  Set<String> finishedAttemptIds,
+) {
+  if (entry.actionChildren.isNotEmpty) {
+    return entry.actionChildren.any(
+      (child) => _containsCurrentRunningWork(child, finishedAttemptIds),
+    );
+  }
+  if (finishedAttemptIds.contains(entry.runAttemptId)) return false;
+  return _containsRunningTool(entry) ||
+      _containsRunningContextCompaction(entry);
 }
 
 bool _isEmptyLiveThinkingStatus(ActivityFeedEntry entry) {
@@ -636,64 +640,6 @@ List<ActivityFeedEntry> resolveThreadSessionDisplayFeedEntries({
     ];
   }
   return const [];
-}
-
-/// Summary and the current tool aggregate share one temporary tail slot.
-List<ActivityFeedEntry> replaceLatestToolWithReasoningStage(
-  List<ActivityFeedEntry> entries,
-) {
-  var summaryIndex = -1;
-  var toolIndex = -1;
-  for (var index = entries.length - 1; index >= 0; index -= 1) {
-    final entry = entries[index];
-    if (summaryIndex < 0 && entry.kind == ActivityFeedKind.reasoningStage) {
-      summaryIndex = index;
-    }
-    if (summaryIndex >= 0 && _isToolAggregateEntry(entry)) {
-      if (!_hasReasoningSummaryBoundaryBetween(
-        entries,
-        entry,
-        entries[summaryIndex],
-      )) {
-        toolIndex = index;
-        break;
-      }
-    }
-  }
-  if (summaryIndex <= toolIndex || summaryIndex < 0 || toolIndex < 0) {
-    return entries;
-  }
-  final summary = entries[summaryIndex];
-  final tool = entries[toolIndex];
-  final replacement = summary.withIdAtSequence(
-    id: tool.id,
-    at: tool.at,
-    sequence: tool.sequence,
-  );
-  return [
-    ...entries.take(toolIndex),
-    replacement,
-    ...entries.skip(toolIndex + 1).take(summaryIndex - toolIndex - 1),
-    ...entries.skip(summaryIndex + 1),
-  ];
-}
-
-bool _isToolAggregateEntry(ActivityFeedEntry entry) {
-  return entry.kind == ActivityFeedKind.action ||
-      entry.kind == ActivityFeedKind.actionGroup;
-}
-
-bool _hasReasoningSummaryBoundaryBetween(
-  List<ActivityFeedEntry> entries,
-  ActivityFeedEntry tool,
-  ActivityFeedEntry summary,
-) {
-  return entries.any((entry) {
-    if (entry.kind != ActivityFeedKind.assistant || entry.text.trim().isEmpty) {
-      return false;
-    }
-    return entry.sequence > tool.sequence && entry.sequence < summary.sequence;
-  });
 }
 
 List<ActivityFeedEntry> groupActivityFeedActionEntries(
