@@ -21,15 +21,80 @@
   --bg-sidebar: var(--bg-elevated);
 }
 
-.thread-info-billing-card:has(.codex-quota-billing) {
+.codex-quota-billing {
+  margin: 0 0 12px;
+  padding: 12px;
+}
+
+.codex-quota-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--composer-context-text);
+}
+
+.codex-quota-mini-bars {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 24px;
+  height: 14px;
+}
+
+.codex-quota-mini-track {
+  display: block;
+  width: 100%;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.codex-quota-mini-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: currentColor;
+}
+
+.codex-quota-mini-value {
+  min-width: 3.5ch;
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.codex-quota-mini[data-level="normal"],
+.codex-quota-mini-track[data-level="normal"],
+.codex-quota-reminder-window[data-level="normal"] .codex-quota-reminder-track {
+  color: var(--success);
+}
+
+.codex-quota-mini[data-level="warning"],
+.codex-quota-mini-track[data-level="warning"],
+.codex-quota-reminder-window[data-level="warning"] .codex-quota-reminder-track {
+  color: var(--status-warn-text);
+}
+
+.codex-quota-mini[data-level="low"],
+.codex-quota-mini-track[data-level="low"],
+.codex-quota-reminder-window[data-level="low"] .codex-quota-reminder-track,
+.codex-quota-mini[data-level="error"] {
+  color: var(--danger);
+}
+
+.codex-quota-popover {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
-.codex-quota-billing {
-  margin: 0 0 12px;
-  padding: 12px;
+.codex-quota-popover .codex-quota-billing {
+  margin: 0;
+  border: 0;
+  background: transparent;
 }
 
 .codex-quota-billing .codex-quota-refresh-error {

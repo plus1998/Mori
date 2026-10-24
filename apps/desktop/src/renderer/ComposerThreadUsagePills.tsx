@@ -78,7 +78,7 @@ export function ComposerThreadUsagePills({
     shouldShowBillingUsagePanel(threadStatus, hostUiFeatures) &&
     (showBilling || threadStatus !== undefined);
 
-  if (!showBillingSection && !showContext) {
+  if (!showBillingSection && !showContext && !accountQuota) {
     return null;
   }
 

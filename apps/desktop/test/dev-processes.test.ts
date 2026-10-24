@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -14,16 +14,21 @@ afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-function launch({ ignoreTerm = false, duringBuild = false, grandchild = false } = {}) {
+function launch({ ignoreTerm = false, duringBuild = false, grandchild = false, quiet = false } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "eco-dev-processes-"));
   directories.push(directory);
   const marker = join(directory, "child-exited");
   const childCode = `
     const fs = require('node:fs');
+    fs.writeFileSync(${JSON.stringify(join(directory, "child-pid"))}, String(process.pid));
+    process.on('uncaughtExceptionMonitor', (error) => {
+      fs.writeFileSync(${JSON.stringify(join(directory, "child-error"))}, String(error));
+    });
     process.on('SIGHUP', () => {});
     process.on('SIGTERM', () => {
       ${ignoreTerm ? "return;" : `
       console.info('shutdown log after terminal closes');
+      process.stderr.write('direct stderr write during shutdown\\n');
       setTimeout(() => {
         fs.writeFileSync(${JSON.stringify(marker)}, 'clean');
         process.exit(0);
@@ -42,7 +47,7 @@ function launch({ ignoreTerm = false, duringBuild = false, grandchild = false } 
     `)}]);
     descendant.stdout.pipe(process.stdout);
     ` : "console.log('READY');"}
-    setInterval(() => console.log('still running'), 30);
+    setInterval(() => { ${quiet ? "" : "console.log('still running');"} }, 30);
   `;
   const code = `
     import { createDevProcesses } from ${JSON.stringify(supervisorUrl)};
@@ -75,7 +80,7 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     expect(await instance.exited).toBe(0);
     expect(readFileSync(instance.marker, "utf8")).toBe("clean");
     expect(instance.output()).toContain("shutdown log after terminal closes");
-    expect(instance.errors()).toBe("");
+    expect(instance.errors()).toBe("direct stderr write during shutdown\n");
   });
 }
 
@@ -85,7 +90,7 @@ test("dev handles terminal loss during the initial build", async () => {
   instance.worker.kill("SIGHUP");
   expect(await instance.exited).toBe(0);
   expect(readFileSync(instance.marker, "utf8")).toBe("clean");
-  expect(instance.errors()).toBe("");
+  expect(instance.errors()).toBe("direct stderr write during shutdown\n");
 });
 
 test("dev stops children when the output reader disappears without a signal", async () => {
@@ -94,7 +99,7 @@ test("dev stops children when the output reader disappears without a signal", as
   instance.worker.stdout!.destroy();
   expect(await instance.exited).toBe(0);
   expect(readFileSync(instance.marker, "utf8")).toBe("clean");
-  expect(instance.errors()).toBe("");
+  expect(instance.errors()).toBe("direct stderr write during shutdown\n");
 });
 
 test("dev kills a child that refuses to terminate", async () => {
@@ -105,6 +110,29 @@ test("dev kills a child that refuses to terminate", async () => {
   expect(instance.errors()).toBe("");
 });
 
+for (const quiet of [false, true]) {
+  test(`dev cleans up after the launcher is SIGKILLed (${quiet ? "idle" : "logging"} child)`, async () => {
+    const instance = launch({ quiet });
+    await instance.ready;
+    instance.worker.kill("SIGKILL");
+    await instance.exited;
+    const deadline = Date.now() + 3_000;
+    while (!existsSync(instance.marker) && Date.now() < deadline) await Bun.sleep(20);
+    expect(readFileSync(instance.marker, "utf8")).toBe("clean");
+    expect(existsSync(join(instance.directory, "child-error"))).toBe(false);
+    const pid = Number(readFileSync(join(instance.directory, "child-pid"), "utf8"));
+    let alive = true;
+    while (alive && Date.now() < deadline) {
+      try { process.kill(pid, 0); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+        alive = false;
+      }
+      if (alive) await Bun.sleep(20);
+    }
+    expect(alive).toBe(false);
+  });
+}
+
 test.skipIf(process.platform === "win32")("dev stops the build's descendant processes too", async () => {
   const instance = launch({ grandchild: true, duringBuild: true });
   await instance.ready;
@@ -112,5 +140,5 @@ test.skipIf(process.platform === "win32")("dev stops the build's descendant proc
   expect(await instance.exited).toBe(0);
   expect(readFileSync(instance.marker, "utf8")).toBe("clean");
   expect(readFileSync(join(instance.directory, "grandchild-exited"), "utf8")).toBe("clean");
-  expect(instance.errors()).toBe("");
+  expect(instance.errors()).toBe("direct stderr write during shutdown\n");
 });

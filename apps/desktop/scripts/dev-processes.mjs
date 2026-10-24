@@ -1,7 +1,14 @@
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const childSupervisorPath = fileURLToPath(new URL("./dev-child-process.mjs", import.meta.url));
 
 /** Own child output and lifetime; a closed PTY must never reach Electron's console. */
-export function createDevProcesses({ cwd = process.cwd(), shutdownTimeoutMs = 3_000 } = {}) {
+export function createDevProcesses({
+  cwd = process.cwd(),
+  shutdownTimeoutMs = 3_000,
+  superviseChildren = true,
+} = {}) {
   const children = new Set();
   let shuttingDown = false;
 
@@ -22,13 +29,21 @@ export function createDevProcesses({ cwd = process.cwd(), shutdownTimeoutMs = 3_
 
   function start(command, args, options = {}) {
     if (shuttingDown) throw new Error("Dev is shutting down");
-    const child = spawn(command, args, {
+    // A signal handler cannot run when an Agent terminal kills this launcher
+    // with SIGKILL. Each child therefore has an independent supervisor that
+    // owns its output pipes and observes this launcher's IPC connection.
+    const child = spawn(superviseChildren ? process.execPath : command, superviseChildren ? [
+      childSupervisorPath,
+      String(Math.max(1, shutdownTimeoutMs - 100)),
+      command,
+      ...args,
+    ] : args, {
       cwd,
       env: options.env ?? process.env,
       // A build may spawn its own processes. Own the Unix process group so
       // shutdown reaches those too, without killing the terminal's shell.
       detached: process.platform !== "win32",
-      stdio: ["inherit", "pipe", "pipe"],
+      stdio: superviseChildren ? ["inherit", "pipe", "pipe", "ipc"] : ["inherit", "pipe", "pipe"],
     });
     children.add(child);
     // Keep draining pipes until children exit, even after the terminal disappears.

@@ -12384,7 +12384,7 @@ function App() {
                             isCodexAuthThread(activeThread) ? (
                               <CodexQuotaReminder
                                 key={activeThread.id}
-                                variant="billing"
+                                variant="composer"
                                 threads={[activeThread]}
                                 onSwitchAccount={openCodexAccountSwitch}
                               />
