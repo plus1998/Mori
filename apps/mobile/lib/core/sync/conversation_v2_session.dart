@@ -51,6 +51,7 @@ class ConversationV2InteractionActions {
 
 class ConversationV2SessionState {
   const ConversationV2SessionState({
+    this.storeEpoch,
     this.messages = const [],
     this.runs = const [],
     this.tools = const [],
@@ -69,6 +70,7 @@ class ConversationV2SessionState {
   }) : _error = error;
 
   final List<ConversationV2Message> messages;
+  final String? storeEpoch;
   final List<ConversationV2Run> runs;
   final List<ConversationV2Tool> tools;
 
@@ -90,6 +92,7 @@ class ConversationV2SessionState {
   Object? get error => _error ?? pendingInteractionsError;
 
   ConversationV2SessionState copyWith({
+    String? storeEpoch,
     List<ConversationV2Message>? messages,
     List<ConversationV2Run>? runs,
     List<ConversationV2Tool>? tools,
@@ -111,6 +114,7 @@ class ConversationV2SessionState {
     bool clearPendingInteractionsError = false,
   }) {
     return ConversationV2SessionState(
+      storeEpoch: storeEpoch ?? this.storeEpoch,
       messages: messages ?? this.messages,
       runs: runs ?? this.runs,
       tools: tools ?? this.tools,
@@ -509,6 +513,7 @@ class ConversationV2SessionController
     if (_disposed || generation != _reloadGeneration) return;
     _update(
       state.copyWith(
+        storeEpoch: snapshot.cacheState?.storeEpoch,
         messages: snapshot.messages,
         runs: snapshot.runs,
         tools: snapshot.tools,

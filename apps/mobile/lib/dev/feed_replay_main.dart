@@ -10,6 +10,7 @@ import '../core/storage/conversation_v2_cache.dart';
 import '../core/theme/eco_theme.dart';
 import '../core/widgets/progressive_blur.dart';
 import '../features/threads/activity_feed.dart';
+import '../features/threads/projection_activity_feed.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'feed_replay.dart';
 
@@ -66,6 +67,7 @@ class MobileFeedReplayScreen extends StatefulWidget {
 }
 
 class _ReplayScreenState extends State<MobileFeedReplayScreen> {
+  final _feedCache = ProjectionActivityFeedCache();
   final _scroll = ScrollController();
   final _sequence = TextEditingController();
   double _speed = 1;
@@ -110,6 +112,8 @@ class _ReplayScreenState extends State<MobileFeedReplayScreen> {
     final entries = projection == null
         ? <ActivityFeedEntry>[]
         : buildActivityFeed(
+            presentationCache: _feedCache,
+            l10n: AppLocalizations.of(context),
             runProjection: projection,
             conversationLive: projection.status == 'running',
           );

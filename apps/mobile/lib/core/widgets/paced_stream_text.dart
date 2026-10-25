@@ -80,11 +80,10 @@ class _PacedStreamTextState extends State<PacedStreamText>
 
   void _onTick() {
     _revealTimer = null;
-    final nextText = revealPacedStreamText(
-      _displayText,
-      _targetText,
-      streaming: widget.streaming,
-    );
+    // Coalesce arrivals, then publish the whole batch. Replaying an already
+    // received batch one grapheme per tick creates extra Markdown layouts and
+    // leaves the screen seconds behind a fast stream.
+    final nextText = _targetText;
     if (nextText != _displayText && mounted) {
       setState(() => _displayText = nextText);
     }

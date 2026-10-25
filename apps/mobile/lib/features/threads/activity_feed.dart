@@ -442,6 +442,7 @@ List<ActivityFeedEntry> buildActivityFeed({
   bool groupActions = true,
   ThinkingDisplayMode thinkingDisplayMode = defaultThinkingDisplayMode,
   bool? conversationLive,
+  ProjectionActivityFeedCache? presentationCache,
 }) {
   if (!isProjectionFeedReady(runProjection)) {
     return const [];
@@ -455,6 +456,7 @@ List<ActivityFeedEntry> buildActivityFeed({
     l10n: strings,
     thinkingDisplayMode: thinkingDisplayMode,
     conversationLive: conversationLive,
+    cache: presentationCache,
   );
   final groupedActions = groupActions
       ? groupActivityFeedActionEntries(projected, l10n: strings)
@@ -1474,7 +1476,34 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
 
   @override
   Widget build(BuildContext context) {
-    final displayEntries = widget.entries.reversed.toList(growable: false);
+    // A running turn can contain hundreds of process rows. Keeping those in
+    // the turn's Column defeats ListView's laziness and lays out all of them
+    // for every streamed update. Give each process row its own list slot.
+    final rows =
+        <({ActivityFeedEntry entry, bool turnHeader, bool finalOutput})>[
+          for (final entry in widget.entries)
+            if (entry.kind == ActivityFeedKind.turn && entry.running) ...[
+              (entry: entry, turnHeader: true, finalOutput: false),
+              for (final process in entry.processEntries)
+                (entry: process, turnHeader: false, finalOutput: false),
+              if (entry.finalOutput case final output?)
+                (entry: output, turnHeader: false, finalOutput: true),
+            ] else
+              (entry: entry, turnHeader: false, finalOutput: false),
+        ];
+    final displayRows = rows.reversed.toList(growable: false);
+    final rowIndices = {
+      for (var index = 0; index < displayRows.length; index++)
+        ValueKey(displayRows[index].entry.id): index,
+    };
+    final processStartIds = {
+      for (final entry in widget.entries)
+        if (entry.kind == ActivityFeedKind.turn &&
+            entry.running &&
+            !entry.continuation &&
+            entry.processEntries.isNotEmpty)
+          entry.processEntries.first.id,
+    };
     final finalMetaId = widget.showMessageCopyAndTime
         ? _resolveFinalTurnMetaId(widget.entries)
         : null;
@@ -1516,9 +1545,10 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
                       threadSessionFeedHorizontalPadding,
                       0,
                     ),
-                itemCount: displayEntries.length + (_loadingEarlier ? 1 : 0),
+                findChildIndexCallback: (key) => rowIndices[key],
+                itemCount: displayRows.length + (_loadingEarlier ? 1 : 0),
                 itemBuilder: (context, index) {
-                  if (index == displayEntries.length) {
+                  if (index == displayRows.length) {
                     return const SizedBox(
                       height: 44,
                       child: Center(
@@ -1529,10 +1559,11 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
                       ),
                     );
                   }
-                  final entry = displayEntries[index];
-                  return _ActivityFeedEntryTile(
-                    key: ValueKey(entry.id),
+                  final row = displayRows[index];
+                  final entry = row.entry;
+                  final tile = _ActivityFeedEntryTile(
                     entry: entry,
+                    virtualizeRunningTurn: row.turnHeader,
                     themeSource: widget.themeSource,
                     onOpenAgentDetail: widget.onOpenAgentDetail,
                     loadToolDetail: widget.loadToolDetail,
@@ -1551,6 +1582,23 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
                     finalMetaEntryId: finalMetaId,
                     paceTargetEntryId: paceTargetId,
                     showMessageCopyAndTime: widget.showMessageCopyAndTime,
+                  );
+                  return KeyedSubtree(
+                    key: ValueKey(entry.id),
+                    child: row.finalOutput
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 9),
+                            child: Semantics(
+                              label: context.l10n.activityFinalOutput,
+                              child: tile,
+                            ),
+                          )
+                        : processStartIds.contains(entry.id)
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 7),
+                            child: tile,
+                          )
+                        : tile,
                   );
                 },
               ),
@@ -1706,6 +1754,7 @@ class _ActivityFeedEntryTile extends StatelessWidget {
     this.paceTargetEntryId,
     this.hideMessageActions = false,
     this.showMessageCopyAndTime = true,
+    this.virtualizeRunningTurn = false,
   });
 
   final ActivityFeedEntry entry;
@@ -1726,6 +1775,7 @@ class _ActivityFeedEntryTile extends StatelessWidget {
   final String? paceTargetEntryId;
   final bool hideMessageActions;
   final bool showMessageCopyAndTime;
+  final bool virtualizeRunningTurn;
 
   @override
   Widget build(BuildContext context) {
@@ -1748,6 +1798,7 @@ class _ActivityFeedEntryTile extends StatelessWidget {
           paceTargetEntryId: paceTargetEntryId,
           onRetryFailedRequest: onRetryFailedRequest,
           resolveFailedRequestAction: resolveFailedRequestAction,
+          virtualizeRunningTurn: virtualizeRunningTurn,
         );
       case ActivityFeedKind.user:
         return _UserPromptTile(
@@ -1875,6 +1926,7 @@ class _TurnFeedTile extends StatefulWidget {
     this.paceTargetEntryId,
     this.onRetryFailedRequest,
     this.resolveFailedRequestAction,
+    this.virtualizeRunningTurn = false,
   });
 
   final ActivityFeedEntry entry;
@@ -1891,6 +1943,7 @@ class _TurnFeedTile extends StatefulWidget {
   final String? paceTargetEntryId;
   final ActivityFeedFailedRequestRetryHandler? onRetryFailedRequest;
   final ActivityFeedFailedRequestActionResolver? resolveFailedRequestAction;
+  final bool virtualizeRunningTurn;
 
   @override
   State<_TurnFeedTile> createState() => _TurnFeedTileState();
@@ -2044,43 +2097,45 @@ class _TurnFeedTileState extends State<_TurnFeedTile> {
                 ),
               ),
             ),
-          ClipRect(
-            child: AnimatedSize(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              alignment: Alignment.topCenter,
-              child: _expanded
-                  ? Padding(
-                      padding: EdgeInsets.only(top: showHeading ? 7 : 0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (final child in process)
-                            _ActivityFeedEntryTile(
-                              key: ValueKey(child.id),
-                              entry: child,
-                              themeSource: widget.themeSource,
-                              onOpenAgentDetail: widget.onOpenAgentDetail,
-                              loadToolDetail: widget.loadToolDetail,
-                              loadToolDetailPage: widget.loadToolDetailPage,
-                              loadImageView: widget.loadImageView,
-                              onOpenImageDisplayArtifact:
-                                  widget.onOpenImageDisplayArtifact,
-                              thinkingDefaultExpanded:
-                                  widget.thinkingDefaultExpanded,
-                              paceTargetEntryId: widget.paceTargetEntryId,
-                              onRetryFailedRequest: widget.onRetryFailedRequest,
-                              resolveFailedRequestAction:
-                                  widget.resolveFailedRequestAction,
-                              showMessageCopyAndTime:
-                                  widget.showMessageCopyAndTime,
-                            ),
-                        ],
-                      ),
-                    )
-                  : const SizedBox.shrink(),
+          if (!widget.virtualizeRunningTurn)
+            ClipRect(
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                alignment: Alignment.topCenter,
+                child: _expanded
+                    ? Padding(
+                        padding: EdgeInsets.only(top: showHeading ? 7 : 0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final child in process)
+                              _ActivityFeedEntryTile(
+                                key: ValueKey(child.id),
+                                entry: child,
+                                themeSource: widget.themeSource,
+                                onOpenAgentDetail: widget.onOpenAgentDetail,
+                                loadToolDetail: widget.loadToolDetail,
+                                loadToolDetailPage: widget.loadToolDetailPage,
+                                loadImageView: widget.loadImageView,
+                                onOpenImageDisplayArtifact:
+                                    widget.onOpenImageDisplayArtifact,
+                                thinkingDefaultExpanded:
+                                    widget.thinkingDefaultExpanded,
+                                paceTargetEntryId: widget.paceTargetEntryId,
+                                onRetryFailedRequest:
+                                    widget.onRetryFailedRequest,
+                                resolveFailedRequestAction:
+                                    widget.resolveFailedRequestAction,
+                                showMessageCopyAndTime:
+                                    widget.showMessageCopyAndTime,
+                              ),
+                          ],
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
             ),
-          ),
           if (_detailLoading)
             const Padding(
               padding: EdgeInsets.only(top: 6),
@@ -2107,7 +2162,8 @@ class _TurnFeedTileState extends State<_TurnFeedTile> {
                 ],
               ),
             ),
-          if (widget.entry.finalOutput != null) ...[
+          if (!widget.virtualizeRunningTurn &&
+              widget.entry.finalOutput != null) ...[
             Padding(
               padding: const EdgeInsets.only(top: 9),
               child: Semantics(

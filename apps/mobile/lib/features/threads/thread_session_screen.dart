@@ -41,6 +41,7 @@ import 'activity_feed_scroll_coordinator.dart';
 import 'conversation_v2_activity_feed.dart';
 import '../../core/sync/conversation_v2_session.dart';
 import 'conversation_v2_projection.dart';
+import 'projection_activity_feed.dart';
 import 'image_display_provider.dart';
 import 'image_display_floating_gallery.dart';
 import 'interrupted_codex_continue.dart';
@@ -302,7 +303,21 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
       ),
     );
     final conversationV2 = ref.watch(
-      conversationV2SessionProvider(widget.threadId),
+      conversationV2SessionProvider(widget.threadId).select(
+        (state) => (
+          syncState: state.syncState,
+          pendingBash: state.pendingBash,
+          pendingPlan: state.pendingPlan,
+          pendingClarification: state.pendingClarification,
+          error: state.error,
+          projectionExtras: state.projectionExtras,
+          v2Running: resolveSessionRunning(
+            lifecycleRunning: false,
+            v2StreamTrusted: _v2OwnsRunState(state),
+            runs: state.runs,
+          ),
+        ),
+      ),
     );
     final conversationV2ContentReady =
         conversationV2.syncState != ConversationV2SyncState.uninitialized &&
@@ -331,7 +346,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     final changesLoading = ref.watch(
       workspacePillLoadingProvider(workspacePath),
     );
-    final isRunning = _isSessionRunning(thread, conversationV2);
+    final isRunning = _isRunning(thread) || conversationV2.v2Running;
     _syncSessionWakeLock(thread);
     final stopping = _stopBusy || (thread?.cancelling == true);
     final sessionContentBooting = isSessionContentBooting(
@@ -1787,6 +1802,14 @@ class _ThreadSessionFeedPane extends ConsumerWidget {
   }
 }
 
+final _threadFeedCachesProvider = Provider.autoDispose
+    .family<_ThreadFeedCaches, String>((ref, _) => _ThreadFeedCaches());
+
+class _ThreadFeedCaches {
+  final projection = ConversationV2ProjectionCache();
+  final feed = ProjectionActivityFeedCache();
+}
+
 class _ActivityFeedView extends ConsumerWidget {
   const _ActivityFeedView({
     required this.threadId,
@@ -1820,6 +1843,7 @@ class _ActivityFeedView extends ConsumerWidget {
       threadSessionProvider(threadId).select((state) => state.thread?.coreKind),
     );
     final conversationV2 = ref.watch(conversationV2SessionProvider(threadId));
+    final caches = ref.watch(_threadFeedCachesProvider(threadId));
     final modelSettings = ref.watch(modelSettingsProvider).valueOrNull;
     final runtimeConfig = ref.watch(
       threadSessionProvider(
@@ -1841,6 +1865,8 @@ class _ActivityFeedView extends ConsumerWidget {
       projectionExtras: conversationV2.projectionExtras,
       hasEarlier: conversationV2.hasOlder,
       historyRevision: conversationV2.historyRevision,
+      storeEpoch: conversationV2.storeEpoch,
+      cache: conversationV2.storeEpoch == null ? null : caches.projection,
     );
     // Once the V2 controller has started, its state owns the ordered message
     // window even when that window is empty or failed. Falling back based on
@@ -1855,6 +1881,7 @@ class _ActivityFeedView extends ConsumerWidget {
       l10n: context.l10n,
       thinkingDisplayMode: thinkingDisplayMode,
       conversationLive: isRunning,
+      presentationCache: caches.feed,
     );
     final displayFeedEntries = resolveThreadSessionDisplayFeedEntries(
       feedEntries: feedEntries,

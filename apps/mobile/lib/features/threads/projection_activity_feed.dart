@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -14,6 +15,111 @@ import '../../core/utils/subagent_projection_feed.dart';
 import '../../core/utils/thread_status.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'activity_feed.dart';
+
+/// Reuses a row's display conversion while its immutable projection item,
+/// inferred Feed identity, owner and localization stay the same. Weak keys
+/// release rows once they leave the projection window.
+class ProjectionActivityFeedCache {
+  final _rows =
+      Expando<
+        Map<(String, String?, String?, AppLocalizations), ActivityFeedEntry?>
+      >();
+
+  ActivityFeedEntry? _entry(
+    ThreadRunProjectionTimelineItem item,
+    String feedId,
+    String? agentRole,
+    String? agentId,
+    AppLocalizations l10n,
+    ActivityFeedEntry? Function() build,
+  ) {
+    final entries = _rows[item] ??= {};
+    final key = (feedId, agentRole, agentId, l10n);
+    if (entries.containsKey(key)) return entries[key];
+    return entries[key] = build();
+  }
+}
+
+/// Read-only indices for one ordered timeline and one Feed build. Inference
+/// and duplicate checks must not rescan the entire history for every row.
+class _IndexedProjectionTimeline
+    extends ListBase<ThreadRunProjectionTimelineItem> {
+  _IndexedProjectionTimeline(List<ThreadRunProjectionTimelineItem> items)
+    : _items = List.unmodifiable(items) {
+    var precedingUserSequence = 0;
+    ThreadRunProjectionTimelineItem? maximum;
+    for (var index = 0; index < _items.length; index++) {
+      final item = _items[index];
+      if (maximum == null || _compareTimelineItems(maximum, item) < 0) {
+        maximum = item;
+      }
+      _prefixMaxima.add(maximum);
+      positions.putIfAbsent(item.id, () => index);
+      _precedingUserSequences.add(precedingUserSequence);
+      if (_isProjectionUserPromptItem(item)) {
+        precedingUserSequence = item.sequence;
+      }
+      if (!_isStreamDisplayTimelineItem(item)) continue;
+      final text = item.text.trim();
+      if (_isExplicitStreamBlockItem(item)) {
+        explicitFinals.putIfAbsent((item.eventType, text), () => []).add(item);
+      }
+      final requestId = item.requestId?.trim();
+      if (requestId != null && requestId.isNotEmpty) {
+        requestedStreams
+            .putIfAbsent((
+              item.streamKey?.trim(),
+              _streamDisplayChannel(item),
+              text,
+            ), () => [])
+            .add(item);
+      }
+    }
+    _precedingUserSequences.add(precedingUserSequence);
+  }
+
+  final List<ThreadRunProjectionTimelineItem> _items;
+  final positions = <String, int>{};
+  final _prefixMaxima = <ThreadRunProjectionTimelineItem>[];
+  final _precedingUserSequences = <int>[];
+  final explicitFinals =
+      <(String, String), List<ThreadRunProjectionTimelineItem>>{};
+  final requestedStreams =
+      <(String?, String, String), List<ThreadRunProjectionTimelineItem>>{};
+
+  int precedingUserSequence(ThreadRunProjectionTimelineItem item) {
+    // Find the first row at/after this key, matching the former linear scan
+    // even for a merged row or a partially ordered detail page.
+    var low = 0;
+    var high = length;
+    while (low < high) {
+      final middle = (low + high) ~/ 2;
+      if (_compareTimelineItems(_prefixMaxima[middle], item) < 0) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    return _precedingUserSequences[low];
+  }
+
+  @override
+  int get length => _items.length;
+  @override
+  set length(int value) => throw UnsupportedError('Read-only Feed timeline');
+  @override
+  ThreadRunProjectionTimelineItem operator [](int index) => _items[index];
+  @override
+  void operator []=(int index, ThreadRunProjectionTimelineItem value) =>
+      throw UnsupportedError('Read-only Feed timeline');
+}
+
+int _timelineItemIndex(
+  List<ThreadRunProjectionTimelineItem> timeline,
+  ThreadRunProjectionTimelineItem item,
+) => timeline is _IndexedProjectionTimeline
+    ? timeline.positions[item.id] ?? -1
+    : timeline.indexWhere((entry) => entry.id == item.id);
 
 class _ProjectionFeedSlot {
   const _ProjectionFeedSlot({
@@ -379,6 +485,7 @@ List<ActivityFeedEntry> buildProjectionActivityFeed({
   required AppLocalizations l10n,
   ThinkingDisplayMode thinkingDisplayMode = defaultThinkingDisplayMode,
   bool? conversationLive,
+  ProjectionActivityFeedCache? cache,
 }) {
   final requestSpansById = {
     for (final span in projection.requestSpans) span.requestId: span,
@@ -532,6 +639,7 @@ List<ActivityFeedEntry> buildProjectionActivityFeed({
       requestSpansById,
       rawMainTimeline,
       l10n: l10n,
+      cache: cache,
     );
     if (entry == null) continue;
     final sortAnchor = _resolveFeedEntrySortAnchor(item, toolSortAnchors);
@@ -659,6 +767,7 @@ ActivityFeedEntry? _buildProjectionFeedEntry(
   String? agentId,
   String? agentRole,
   required AppLocalizations l10n,
+  ProjectionActivityFeedCache? cache,
 }) {
   final feedId = _projectionMainFeedEntryKey(
     item,
@@ -666,13 +775,16 @@ ActivityFeedEntry? _buildProjectionFeedEntry(
     rawMainTimeline,
     agentId: agentId,
   );
-  return _projectionItemToFeedEntry(
+  ActivityFeedEntry? build() => _projectionItemToFeedEntry(
     item,
     feedId: feedId,
     agentRole: agentRole,
     agentId: agentId,
     l10n: l10n,
   );
+  return cache == null
+      ? build()
+      : cache._entry(item, feedId, agentRole, agentId, l10n, build);
 }
 
 String _projectionMainFeedEntryKey(
@@ -721,11 +833,20 @@ List<ThreadRunProjectionTimelineItem> _mainProjectionTimelineItems(
     if (sequenceDelta != 0) return sequenceDelta;
     return left.id.compareTo(right.id);
   });
-  return items;
+  return _IndexedProjectionTimeline(items);
 }
 
 bool _isProjectionUserPromptItem(ThreadRunProjectionTimelineItem item) {
   final liveType = _projectionLiveType(item);
+  // Most rows are tools or assistant output. Check their structured identity
+  // before parsing text/attachments; stream boundary searches call this for
+  // the same historical rows many times.
+  if (!isRecordedUserPromptLiveEvent(liveType) &&
+      (liveType != 'message.user' ||
+          item.role != 'user' ||
+          item.scope == 'agent')) {
+    return false;
+  }
   final hasText = item.text.trim().isNotEmpty;
   final hasAttachments = _promptImagePreviews(item).isNotEmpty;
   if ((!hasText && !hasAttachments) ||
@@ -900,6 +1021,9 @@ List<ThreadRunProjectionTimelineItem> _filterProjectionTimelineForDetailFeed(
   bool conversationLive = true,
   Set<String> terminalAttemptIds = const {},
 }) {
+  if (timeline is! _IndexedProjectionTimeline) {
+    timeline = _IndexedProjectionTimeline(timeline);
+  }
   final built = _buildProjectionDisplayTimelineItems(
     timeline,
     requestSpansById,
@@ -1051,7 +1175,10 @@ bool _isDuplicateStreamBlockFinalEcho(
     return false;
   }
   final channel = _streamDisplayChannel(item);
-  return timeline.any((other) {
+  final candidates = timeline is _IndexedProjectionTimeline
+      ? timeline.requestedStreams[(streamKey, channel, text)] ?? const []
+      : timeline;
+  return candidates.any((other) {
     if (other.id == item.id || other.streamKey?.trim() != streamKey) {
       return false;
     }
@@ -1081,7 +1208,10 @@ bool _isDuplicateLegacyStreamFinalEcho(
     return false;
   }
   final channel = _streamDisplayChannel(item);
-  return timeline.any((other) {
+  final candidates = timeline is _IndexedProjectionTimeline
+      ? timeline.explicitFinals[(item.eventType, text)] ?? const []
+      : timeline;
+  return candidates.any((other) {
     if (other.id == item.id || !_isExplicitStreamBlockItem(other)) {
       return false;
     }
@@ -1129,8 +1259,8 @@ bool _hasUserPromptBetween(
   ThreadRunProjectionTimelineItem current,
   ThreadRunProjectionTimelineItem item,
 ) {
-  final currentIndex = timeline.indexWhere((entry) => entry.id == current.id);
-  final itemIndex = timeline.indexWhere((entry) => entry.id == item.id);
+  final currentIndex = _timelineItemIndex(timeline, current);
+  final itemIndex = _timelineItemIndex(timeline, item);
   if (currentIndex < 0 || itemIndex < 0 || itemIndex <= currentIndex) {
     return false;
   }
@@ -1160,8 +1290,8 @@ bool _hasThinkingStreamBoundaryBetween(
   ThreadRunProjectionTimelineItem current,
   ThreadRunProjectionTimelineItem item,
 ) {
-  final currentIndex = timeline.indexWhere((entry) => entry.id == current.id);
-  final itemIndex = timeline.indexWhere((entry) => entry.id == item.id);
+  final currentIndex = _timelineItemIndex(timeline, current);
+  final itemIndex = _timelineItemIndex(timeline, item);
   if (currentIndex < 0 || itemIndex < 0 || itemIndex <= currentIndex) {
     return false;
   }
@@ -1187,7 +1317,7 @@ bool _hasOnlyEmptyThinkingBefore(
   List<ThreadRunProjectionTimelineItem> timeline,
   ThreadRunProjectionTimelineItem item,
 ) {
-  final itemIndex = timeline.indexWhere((entry) => entry.id == item.id);
+  final itemIndex = _timelineItemIndex(timeline, item);
   if (itemIndex <= 0) {
     return false;
   }
@@ -1445,7 +1575,7 @@ String? _resolveNearestStreamRequestIdInUserTurn(
   List<ThreadRunProjectionTimelineItem> timeline,
   Map<String, ThreadRunProjectionRequestSpan> requestSpansById,
 ) {
-  final itemIndex = timeline.indexWhere((entry) => entry.id == item.id);
+  final itemIndex = _timelineItemIndex(timeline, item);
   if (itemIndex < 0) {
     return null;
   }
@@ -1491,7 +1621,7 @@ String? _resolveNearestPlannerRequestId(
   List<ThreadRunProjectionTimelineItem> timeline,
   Map<String, ThreadRunProjectionRequestSpan> requestSpansById,
 ) {
-  final itemIndex = timeline.indexWhere((entry) => entry.id == item.id);
+  final itemIndex = _timelineItemIndex(timeline, item);
   if (itemIndex < 0) {
     return null;
   }
@@ -1571,7 +1701,7 @@ String? _resolveEffectiveStreamRequestId(
     if (plannerRequestId != null) {
       return plannerRequestId;
     }
-    final itemIndex = timeline.indexWhere((entry) => entry.id == item.id);
+    final itemIndex = _timelineItemIndex(timeline, item);
     final turnBoundaryIndex = itemIndex >= 0
         ? _resolveTurnBoundaryIndex(timeline, itemIndex)
         : -1;
@@ -1643,6 +1773,9 @@ int _resolvePrecedingUserPromptSequence(
   ThreadRunProjectionTimelineItem item,
   List<ThreadRunProjectionTimelineItem> timeline,
 ) {
+  if (timeline is _IndexedProjectionTimeline) {
+    return timeline.precedingUserSequence(item);
+  }
   var sequence = 0;
   for (final entry in timeline) {
     if (_compareTimelineItems(entry, item) >= 0) {

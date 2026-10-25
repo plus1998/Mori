@@ -6,6 +6,63 @@ import '../../core/utils/activity_display.dart';
 import '../../core/utils/agent_role.dart';
 import '../../core/utils/file_change.dart';
 
+/// Retains only the current window's row adapters. Versions are authoritative
+/// within an epoch; history targets can also be enriched at the same version.
+class ConversationV2ProjectionCache {
+  (String, String, int)? _scope;
+  final _messages = <String, (Object, ThreadRunProjectionTimelineItem?)>{};
+  final _tools = <String, (Object, ThreadRunProjectionTimelineItem)>{};
+  final _seenMessages = <String>{};
+  final _seenTools = <String>{};
+
+  void _begin(String epoch, String conversationId, int revision) {
+    final scope = (epoch, conversationId, revision);
+    if (_scope != scope) {
+      _scope = scope;
+      _messages.clear();
+      _tools.clear();
+    }
+    _seenMessages.clear();
+    _seenTools.clear();
+  }
+
+  void _finish() {
+    _messages.removeWhere((id, _) => !_seenMessages.contains(id));
+    _tools.removeWhere((id, _) => !_seenTools.contains(id));
+  }
+
+  ThreadRunProjectionTimelineItem? _message(
+    ConversationV2Message message,
+    String? agentId,
+  ) {
+    _seenMessages.add(message.messageId);
+    final key = (
+      message.versionSeq,
+      agentId,
+      message.historyTarget?.activityLineId,
+      message.historyTarget?.userMessageId,
+    );
+    final cached = _messages[message.messageId];
+    if (cached != null && cached.$1 == key) return cached.$2;
+    final item = _messageTimelineItem(message, agentId: agentId);
+    _messages[message.messageId] = (key, item);
+    return item;
+  }
+
+  ThreadRunProjectionTimelineItem _tool(
+    ConversationV2Tool tool,
+    String? agentId,
+  ) {
+    _seenTools.add(tool.toolCallId);
+    final key = (tool.versionSeq, agentId);
+    final cached = _tools[tool.toolCallId];
+    if (cached != null && cached.$1 == key) return cached.$2;
+    final item = _toolTimelineItem(tool, agentId: agentId);
+    _tools[tool.toolCallId] = (key, item);
+    return item;
+  }
+}
+
 /// Converts the V2 read models into the presentation projection consumed by
 /// the existing mobile Feed.
 ///
@@ -24,7 +81,15 @@ ThreadRunProjectionSnapshot buildConversationV2Projection({
   ConversationV2ProjectionExtras? projectionExtras,
   bool hasEarlier = false,
   int historyRevision = 0,
+  ConversationV2ProjectionCache? cache,
+  String? storeEpoch,
 }) {
+  if (cache != null) {
+    if (storeEpoch == null || storeEpoch.isEmpty) {
+      throw ArgumentError('A projection cache requires its store epoch.');
+    }
+    cache._begin(storeEpoch, conversationId, historyRevision);
+  }
   final sortedRuns = [...runs]
     ..sort((left, right) {
       final sequence = left.versionSeq.compareTo(right.versionSeq);
@@ -106,7 +171,9 @@ ThreadRunProjectionSnapshot buildConversationV2Projection({
     // owner without a card (orphan agent id) stays on the Feed, because showing
     // the content beats hiding it where nothing can render it.
     final agentId = isCardOwner(ownerAgentId) ? ownerAgentId : null;
-    final item = _messageTimelineItem(message, agentId: agentId);
+    final item = cache == null
+        ? _messageTimelineItem(message, agentId: agentId)
+        : cache._message(message, agentId);
     if (item == null) continue;
     if (agentId == null) {
       mainTimeline.add(item);
@@ -120,7 +187,7 @@ ThreadRunProjectionSnapshot buildConversationV2Projection({
     // A tool whose owner has no card stays on the Feed rather than disappearing: the card
     // is where the Feed would draw it, and a row it cannot draw somewhere is a lost row.
     if (isCardOwner(agentId)) continue;
-    mainTimeline.add(_toolTimelineItem(tool));
+    mainTimeline.add(cache?._tool(tool, null) ?? _toolTimelineItem(tool));
   }
 
   for (final detail in sortedDetails) {
@@ -149,9 +216,11 @@ ThreadRunProjectionSnapshot buildConversationV2Projection({
         toolsByAgent[agentId] ?? const [],
         messagesByAgent[agentId] ?? const [],
         registry[agentId],
+        cache: cache,
       ),
   ];
   mainTimeline.sort(_compareTimelineItems);
+  cache?._finish();
 
   return ThreadRunProjectionSnapshot(
     threadId: conversationId,
@@ -338,7 +407,7 @@ ThreadRunProjectionTimelineItem _toolTimelineItem(
         ? 'Tool: ${tool.name}'
         : 'Tool: ${tool.name} · $detail',
     at: _v2RowTime(tool.occurredAt, tool.createdSeq),
-    metadata: {
+    metadata: ToolDisplayMetadata({
       'v2': true,
       'liveType': 'tool.$status',
       'conversationV2ToolCallId': tool.toolCallId,
@@ -352,7 +421,7 @@ ThreadRunProjectionTimelineItem _toolTimelineItem(
       'tool': toolMetadata,
       if (toolMetadata['bashApproval'] is Map)
         'bashApproval': toolMetadata['bashApproval'],
-    },
+    }),
   );
 }
 
@@ -367,8 +436,9 @@ ThreadRunProjectionAgent _buildAgent(
   String agentId,
   List<ConversationV2Tool> tools,
   List<ThreadRunProjectionTimelineItem> messages,
-  ConversationV2Agent? registered,
-) {
+  ConversationV2Agent? registered, {
+  ConversationV2ProjectionCache? cache,
+}) {
   final sorted = [...tools]
     ..sort((left, right) {
       final time = _compareRowTime(left.occurredAt, right.occurredAt);
@@ -412,7 +482,9 @@ ThreadRunProjectionAgent _buildAgent(
     endedAt: endedAt,
     durationMs: durationMs,
     timeline: ([
-      for (final tool in sorted) _toolTimelineItem(tool, agentId: agentId),
+      for (final tool in sorted)
+        cache?._tool(tool, agentId) ??
+            _toolTimelineItem(tool, agentId: agentId),
       ...messages,
     ]..sort(_compareTimelineItems)),
     delegationSummary: registered?.delegationSummary,

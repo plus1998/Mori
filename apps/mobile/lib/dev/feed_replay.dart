@@ -46,6 +46,7 @@ class MobileFeedReplay extends ChangeNotifier {
   }
 
   final ConversationV2Cache cache;
+  final _projectionCache = ConversationV2ProjectionCache();
   final String conversationId;
   final String storeEpoch;
   final String title;
@@ -190,6 +191,8 @@ class MobileFeedReplay extends ChangeNotifier {
   Future<void> _refresh() async {
     final snapshot = await cache.presentationSnapshot(conversationId);
     projection = buildConversationV2Projection(
+      cache: _projectionCache,
+      storeEpoch: storeEpoch,
       conversationId: conversationId,
       messages: snapshot.messages,
       runs: snapshot.runs,
