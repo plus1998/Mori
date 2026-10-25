@@ -4874,6 +4874,7 @@ function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.displayControlGet, () => displayControl.getState());
   registerDesktopCommand(IPC_CHANNELS.displayControlSet, (input: import("../shared/display-control").DisplayControlChange) => displayControl.set(input));
   registerDesktopCommand(IPC_CHANNELS.projectTodoList, () => projectTodoStore.list());
+  registerDesktopCommand(IPC_CHANNELS.projectTodoQuery, (input: Parameters<ProjectTodoStore["query"]>[0]) => projectTodoStore.query(input));
   registerDesktopCommand(IPC_CHANNELS.projectTodoGet, (id: string, includeImageData: boolean = true) => {
     if (typeof id !== "string") throw new Error("Invalid todo ID.");
     return projectTodoStore.get(id, includeImageData);

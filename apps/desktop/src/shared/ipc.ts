@@ -157,6 +157,7 @@ export const IPC_CHANNELS = {
   threadListMore: "thread:list-more",
   threadGet: "thread:get",
   projectTodoList: "project-todo:list",
+  projectTodoQuery: "project-todo:query",
   projectTodoGet: "project-todo:get",
   projectTodoImageRead: "project-todo:image-read",
   projectTodoChanged: "project-todo:changed",

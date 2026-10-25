@@ -220,3 +220,101 @@ test("mobile uploads resolve to durable todo bytes and keep optimistic conflict 
   await expect(resolveProjectTodoUploads(input, async () => ({ mediaType: image.mediaType, byteLength: TODO_MAX_IMAGE_BYTES + 1, dataBase64: image.data }))).rejects.toThrow("Invalid todo image");
   expect(store.get(updated.id).revision).toBe(updated.revision);
 });
+
+test("SQL pages separate incomplete/completed todos and keep a stable cursor through equal timestamps", () => {
+  const db = new DatabaseSync(":memory:");
+  const store = new ProjectTodoStore(db, (bytes) => `data:image/png;base64,${bytes.toString("base64")}`);
+  stores.push(store);
+  for (let i = 0; i < 73; i++) {
+    const completed = i % 4 === 0;
+    const { id } = store.save({
+      ...note,
+      text: `Task ${i}`,
+      completed,
+      status: completed ? "completed" : i % 3 === 0 ? "in_progress" : "pending",
+      images: [image],
+    });
+    db.prepare("UPDATE project_todos SET created_at=? WHERE id=?").run(
+      `2026-10-${String(25 - Math.floor(i / 10)).padStart(2, "0")}T00:00:00.000Z`,
+      id,
+    );
+  }
+  const deleted = store.save(note);
+  store.trash({ id: deleted.id, revision: deleted.revision, deleted: true });
+  const expected = store.list().filter((todo) => !todo.completed);
+  const first = store.query({ completed: false });
+  expect(first.items).toHaveLength(20);
+  expect(first.counts).toEqual({ pending: 54, completed: 19 });
+  expect(first.projectPaths).toEqual([note.projectPath]);
+  expect(first.items.some((todo) => todo.status === "in_progress")).toBe(true);
+  expect(first.items.every((todo) => !todo.completed && todo.images[0]?.data === undefined)).toBe(true);
+  // A new item ahead of the cursor and a removed prior item cannot shift later pages.
+  store.save(note);
+  const removed = first.items[0];
+  if (!removed) throw new Error("Missing first page");
+  store.trash({ ...removed, deleted: true });
+  const collected = [...first.items];
+  let cursor = first.nextCursor;
+  while (cursor) {
+    const page = store.query({ completed: false, cursor });
+    expect(page.items.length).toBeLessThanOrEqual(20);
+    collected.push(...page.items);
+    cursor = page.nextCursor;
+  }
+  expect(collected.map((todo) => todo.id)).toEqual(expected.map((todo) => todo.id));
+  const completed = store.query({ completed: true });
+  expect(completed.items).toHaveLength(19);
+  expect(completed.items.every((todo) => todo.status === "completed")).toBe(true);
+  expect(completed.nextCursor).toBeNull();
+});
+
+test("SQL substring search covers unloaded text, paths and matching project names with literal LIKE characters", () => {
+  const store = open();
+  for (let i = 0; i < 30; i++) store.save({ ...note, text: `Unrelated ${i}` });
+  const text = store.save({ ...note, text: "修复 API 的 100%_\\ 路径和 O'Reilly", images: [image] });
+  const named = store.save({
+    ...note,
+    projectPath: "/project/elsewhere",
+    text: "No keyword here",
+    completed: true,
+  });
+  for (const search of ["api", "修复", "100%_\\", "O'Reilly"]) {
+    const page = store.query({ completed: false, search });
+    expect(page.items.map((todo) => todo.id)).toEqual([text.id]);
+    expect(page.counts).toEqual({ pending: 1, completed: 0 });
+  }
+  expect(store.query({ completed: false, search: "%" }).items.map((todo) => todo.id)).toEqual([text.id]);
+  expect(store.query({ completed: false, search: "' OR 1=1 --" }).items).toEqual([]);
+  expect(store.query({ completed: true, search: "elsewhere" }).items.map((todo) => todo.id)).toEqual([
+    named.id,
+  ]);
+  expect(
+    store
+      .query({ completed: true, search: "Display name", matchingProjectPaths: [named.projectPath] })
+      .items.map((todo) => todo.id),
+  ).toEqual([named.id]);
+  expect(store.query({ completed: false, search: "API", projectPath: named.projectPath }).items).toEqual([]);
+  expect(store.query({ completed: false, projectPath: named.projectPath }).counts).toEqual({
+    pending: 0,
+    completed: 1,
+  });
+});
+
+test("todo query refuses unbounded pages and malformed remote filters", () => {
+  const store = open();
+  for (const input of [
+    null,
+    {},
+    { completed: "false" },
+    { completed: false, limit: 0 },
+    { completed: false, limit: 51 },
+    { completed: false, limit: 1.5 },
+    { completed: false, search: 1 },
+    { completed: false, projectPath: 1 },
+    { completed: false, matchingProjectPaths: "bad" },
+    { completed: false, matchingProjectPaths: [1] },
+    { completed: false, cursor: { createdAt: "2026", id: "" } },
+  ]) {
+    expect(() => store.query(input as never)).toThrow("Invalid todo query");
+  }
+});

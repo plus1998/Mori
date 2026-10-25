@@ -108,9 +108,22 @@ class DesktopRpc implements ReadAloudRemote {
     return outcome as String;
   }
 
-  Future<List<ProjectTodo>> listProjectTodos() async {
-    final result = await _client.invoke<List<dynamic>>(desktopDeviceId, 'project-todo:list', []);
-    return result.map((row) => ProjectTodo.fromJson(Map<String, dynamic>.from(row as Map))).toList();
+  Future<ProjectTodoPage> queryProjectTodos({
+    required ProjectTodosQuery query,
+    ProjectTodoCursor? cursor,
+    List<String> matchingProjectPaths = const [],
+  }) async {
+    final result = await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId, 'project-todo:query', [{
+        'completed': query.completed,
+        if (query.projectPath.isNotEmpty) 'projectPath': query.projectPath,
+        if (query.search.isNotEmpty) 'search': query.search,
+        if (matchingProjectPaths.isNotEmpty) 'matchingProjectPaths': matchingProjectPaths,
+        if (cursor != null) 'cursor': cursor.toJson(),
+        'limit': todoPageSize,
+      }],
+    );
+    return ProjectTodoPage.fromJson(result);
   }
 
   Future<ProjectTodo> getProjectTodo(String id) async {

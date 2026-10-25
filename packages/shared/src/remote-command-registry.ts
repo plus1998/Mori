@@ -28,6 +28,7 @@ const APPROVAL_DECIDE = ["rpc:invoke", "approval:decide"] as const;
 
 export const REMOTE_COMMAND_DEFINITIONS = [
   command("project-todo:list", "List project todos", "read", RPC_INVOKE, []),
+  command("project-todo:query", "Page and search project todos", "read", RPC_INVOKE, [objectArg(["completed"])]),
   command("project-todo:get", "Get project todo", "read", RPC_INVOKE, [stringArg(), { kind: "boolean", optional: true }]),
   command("project-todo:image-read", "Read project todo image chunk", "read", RPC_INVOKE, [
     objectArg(["id", "revision", "imageId", "offset"]),

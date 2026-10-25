@@ -2,14 +2,16 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import {
+  PROJECT_TODO_STATUSES,
   type ProjectTodo,
   type ProjectTodoCompose,
   type ProjectTodoImage,
+  type ProjectTodoPage,
+  type ProjectTodoQuery,
   type ProjectTodoSave,
-  type ProjectTodoTrash,
   type ProjectTodoStatus,
   type ProjectTodoStatusUpdate,
-  PROJECT_TODO_STATUSES,
+  type ProjectTodoTrash,
   TODO_MAX_IMAGE_BYTES,
   TODO_MAX_IMAGES,
 } from "../shared/project-todos";
@@ -61,6 +63,12 @@ export class ProjectTodoStore {
         throw error;
       }
     }
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS project_todos_active_page
+        ON project_todos(completed, created_at DESC, id) WHERE deleted_at IS NULL;
+      CREATE INDEX IF NOT EXISTS project_todos_project_page
+        ON project_todos(project_path, completed, created_at DESC, id) WHERE deleted_at IS NULL;
+    `);
     db.prepare("DELETE FROM project_todos WHERE deleted_at < ?").run(
       new Date(Date.now() - 30 * 86400_000).toISOString(),
     );
@@ -70,6 +78,81 @@ export class ProjectTodoStore {
       .prepare("SELECT * FROM project_todos WHERE deleted_at IS NULL ORDER BY created_at DESC, id")
       .all() as Row[];
     return rows.map((row) => this.record(row, false));
+  }
+  query(input: ProjectTodoQuery): ProjectTodoPage {
+    const limit = input?.limit ?? 20;
+    if (
+      !input ||
+      typeof input.completed !== "boolean" ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 50 ||
+      (input.projectPath !== undefined && typeof input.projectPath !== "string") ||
+      (input.search !== undefined && (typeof input.search !== "string" || input.search.length > 1000)) ||
+      (input.matchingProjectPaths !== undefined &&
+        (!Array.isArray(input.matchingProjectPaths) ||
+          input.matchingProjectPaths.length > 1000 ||
+          input.matchingProjectPaths.some((p) => typeof p !== "string"))) ||
+      (input.cursor !== undefined &&
+        (!input.cursor ||
+          typeof input.cursor.createdAt !== "string" ||
+          !input.cursor.createdAt ||
+          input.cursor.createdAt.length > 100 ||
+          typeof input.cursor.id !== "string" ||
+          !input.cursor.id ||
+          input.cursor.id.length > 200))
+    ) {
+      throw new Error("Invalid todo query.");
+    }
+    const where = ["deleted_at IS NULL"];
+    const params: Array<string | number> = [];
+    if (input.projectPath) {
+      where.push("project_path = ?");
+      params.push(input.projectPath);
+    }
+    const search = input.search?.trim();
+    if (search) {
+      // Treat LIKE metacharacters as literal search text, and bind every value.
+      const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
+      const paths = [...new Set(input.matchingProjectPaths ?? [])];
+      where.push(
+        `(text LIKE ? ESCAPE '\\' OR project_path LIKE ? ESCAPE '\\'${
+          paths.length ? ` OR project_path IN (${paths.map(() => "?").join(",")})` : ""
+        })`,
+      );
+      params.push(pattern, pattern, ...paths);
+    }
+    const counts = { pending: 0, completed: 0 };
+    const grouped = this.db
+      .prepare(`SELECT completed, COUNT(*) AS count FROM project_todos
+      WHERE ${where.join(" AND ")} GROUP BY completed`)
+      .all(...params) as { completed: number; count: number }[];
+    for (const row of grouped) counts[row.completed ? "completed" : "pending"] = row.count;
+    where.push("completed = ?");
+    params.push(Number(input.completed));
+    if (input.cursor) {
+      where.push("(created_at < ? OR (created_at = ? AND id > ?))");
+      params.push(input.cursor.createdAt, input.cursor.createdAt, input.cursor.id);
+    }
+    const rows = this.db
+      .prepare(`SELECT * FROM project_todos WHERE ${where.join(" AND ")}
+      ORDER BY created_at DESC, id LIMIT ?`)
+      .all(...params, limit + 1) as Row[];
+    const visible = rows.slice(0, limit);
+    const last = visible.at(-1);
+    return {
+      items: visible.map((row) => this.record(row, false)),
+      nextCursor: rows.length > limit && last ? { createdAt: last.created_at, id: last.id } : null,
+      counts,
+      // Include orphaned project paths in the picker without loading their todos/images.
+      projectPaths: (
+        this.db
+          .prepare(
+            "SELECT DISTINCT project_path FROM project_todos WHERE deleted_at IS NULL ORDER BY project_path",
+          )
+          .all() as { project_path: string }[]
+      ).map((row) => row.project_path),
+    };
   }
   get(id: string, includeImageData = true): ProjectTodo {
     const row = this.db.prepare("SELECT * FROM project_todos WHERE id=? AND deleted_at IS NULL").get(id) as

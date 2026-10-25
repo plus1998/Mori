@@ -25,6 +25,26 @@ export interface ProjectTodo {
   /** Last successful transfer into a conversation composer. */
   composedAt?: string;
 }
+export interface ProjectTodoCursor {
+  createdAt: string;
+  id: string;
+}
+export interface ProjectTodoQuery {
+  /** false includes both pending and in_progress. */
+  completed: boolean;
+  projectPath?: string;
+  search?: string;
+  /** Project names are held by the client; matching paths join the SQL search. */
+  matchingProjectPaths?: string[];
+  cursor?: ProjectTodoCursor;
+  limit?: number;
+}
+export interface ProjectTodoPage {
+  items: ProjectTodo[];
+  nextCursor: ProjectTodoCursor | null;
+  counts: { pending: number; completed: number };
+  projectPaths: string[];
+}
 export interface ProjectTodoSave {
   id?: string;
   revision?: number;
