@@ -139,10 +139,16 @@ export class SchedulingStore {
     const id = `occ_${hash(`manual:${definition.id}:${requestId}`)}`;
     const existing = this.db.prepare("SELECT data FROM schedule_occurrences WHERE id=?").get(id) as JsonRow | undefined;
     if (existing) return JSON.parse(existing.data);
-    if (this.occurrences(["pending", "dispatching", "running", "waiting_user"]).some(item => item.scheduleId === definition.id)) throw new Error("该项目已有等待或正在执行的运行。");
+    const active = this.occurrences(["pending", "dispatching", "running", "waiting_user"])
+      .filter(item => item.scheduleId === definition.id);
+    if (active.some(item => item.status !== "pending" || definition.kind !== "session_message")) throw new Error("该项目已有等待或正在执行的运行。");
     const now = new Date(nowMs).toISOString();
     const occurrence: ScheduleOccurrence = { id, scheduleId: definition.id, scheduledAt: now, definition, status: "pending", createdAt: now, updatedAt: now };
     this.transaction(() => {
+      // A due message may already be waiting for its conversation. The manual
+      // send replaces that unclaimed delivery, with a fresh lateness window.
+      // Keep the manual request ID as its durable receipt so retries deduplicate.
+      if (definition.kind === "session_message") this.cancelPending(definition.id, now);
       this.saveOccurrence(occurrence);
       // Sending a one-shot message now consumes its planned date instead of sending twice.
       if (definition.kind === "session_message" && definition.trigger.type === "at") this.save({ ...definition, nextRunAt: null, updatedAt: now });

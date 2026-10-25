@@ -221,6 +221,67 @@ test("sending a one-shot message now consumes its future date; recurring message
   assert.equal(f.store.get(recurring.id)?.nextRunAt, new Date(baseTime + 120_000).toISOString());
 });
 
+test("sending an overdue waiting message now replaces its pending delivery and sends only once", async t => {
+  const f = await fixture(t);
+  const message = f.service.create({ kind: "session_message", requestId: "waiting-send-now", name: "Continue", threadId: "source", prompt: "Continue", trigger: { type: "at", at: new Date(baseTime + 60_000).toISOString() }, maxLatenessSeconds: 10 });
+  f.setBusy(true); f.setNow(baseTime + 60_000); await f.service.tick();
+  const pending = f.store.occurrences(["pending"])[0]!;
+  // An explicit send starts a fresh waiting window, even if the old tick has expired.
+  f.setNow(baseTime + 75_000);
+  const manual = f.service.runNow(message.id, "send-waiting");
+  assert.equal(f.store.occurrences().find(item => item.id === pending.id)?.status, "cancelled");
+  assert.equal(f.store.occurrences(["pending"]).length, 1);
+  assert.equal(manual.scheduledAt, new Date(baseTime + 75_000).toISOString());
+  assert.equal(f.service.runNow(message.id, "send-waiting").id, manual.id);
+  assert.equal(f.dispatched.length, 0, "manual sending must still respect a busy conversation");
+  const reopened = new SchedulingStore(f.dbPath);
+  assert.equal(reopened.runNow(message, "send-waiting", baseTime + 75_000).id, manual.id);
+  reopened.close();
+  f.setBusy(false); await f.service.tick();
+  assert.equal(f.dispatched.length, 1);
+  assert.equal(f.dispatched[0]?.id, manual.id);
+  assert.equal(f.store.get(message.id), undefined);
+  f.states.set(manual.id, { status: "completed" });
+  f.setNow(baseTime + 120_000); await f.service.tick();
+  assert.equal(f.dispatched.length, 1);
+});
+
+test("sending a waiting recurring message now preserves its next planned date", async t => {
+  const f = await fixture(t);
+  const message = f.service.create({ kind: "session_message", requestId: "recurring-send-now", name: "Continue", threadId: "source", prompt: "Continue", trigger: { type: "interval", anchorAt: new Date(baseTime + 60_000).toISOString(), everySeconds: 60 } });
+  f.setBusy(true); f.setNow(baseTime + 60_000); await f.service.tick();
+  const nextRunAt = f.store.get(message.id)!.nextRunAt;
+  const manual = f.service.runNow(message.id, "send-recurring");
+  assert.equal(f.store.occurrences(["pending"]).length, 1);
+  assert.equal(f.store.get(message.id)?.nextRunAt, nextRunAt);
+  f.setBusy(false); await f.service.tick();
+  assert.equal(f.dispatched.length, 1);
+  f.states.set(manual.id, { status: "completed" });
+  f.setNow(Date.parse(nextRunAt!)); await f.service.tick();
+  assert.equal(f.dispatched.length, 2);
+});
+
+test("send now never replaces a started message, including when another tick is pending", async t => {
+  const f = await fixture(t);
+  const message = f.service.create({ kind: "session_message", requestId: "started-send-now", name: "Continue", threadId: "source", prompt: "Continue", trigger: { type: "interval", anchorAt: new Date(baseTime + 60_000).toISOString(), everySeconds: 60 } });
+  f.setBusy(true); f.setNow(baseTime + 60_000); await f.service.tick();
+  const pending = f.store.occurrences(["pending"])[0]!;
+  for (const status of ["dispatching", "running", "waiting_user"] as const) {
+    f.store.saveOccurrence({ ...pending, id: "started-message", status });
+    assert.throws(() => f.service.runNow(message.id, `blocked-${status}`), /已有/);
+    assert.equal(f.store.occurrences(["pending"]).length, 1);
+    assert.equal(f.store.occurrences().length, 2);
+  }
+});
+
+test("run now retains the pending-run guard for independent tasks", async t => {
+  const f = await fixture(t);
+  const definition = f.service.create(task("waiting-task"));
+  f.setBusy(true); f.setNow(baseTime + 60_000); await f.service.tick();
+  assert.throws(() => f.service.runNow(definition.id, "do-not-replace-task"), /已有/);
+  assert.equal(f.store.occurrences(["pending"]).length, 1);
+});
+
 test("failed message hand-off remains visible with an explicit error", async t => {
   const f = await fixture(t, { dispatch: async () => { throw new Error("Queue unavailable"); }, inspect: () => ({ status: "failed" }) });
   const message = f.service.create({ kind: "session_message", requestId: "not-sent", name: "Check", threadId: "source", prompt: "Check build", trigger: { type: "at", at: new Date(baseTime + 60_000).toISOString() } });
