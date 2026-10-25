@@ -1651,6 +1651,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activityNoneSelected => '（未选择）';
 
   @override
+  String get activityContinue => '继续';
+
+  @override
   String get activityThinking => '正在思考';
 
   @override

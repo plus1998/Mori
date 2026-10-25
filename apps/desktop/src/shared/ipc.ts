@@ -221,6 +221,8 @@ export const IPC_CHANNELS = {
   worktreeGetStatus: "worktree:get-status",
   terminalList: "terminal:list",
   terminalSpawn: "terminal:spawn",
+  projectTerminalSettingsGet: "project-terminal-settings:get",
+  projectTerminalSettingsSave: "project-terminal-settings:save",
   terminalInput: "terminal:input",
   terminalResize: "terminal:resize",
   terminalKill: "terminal:kill",
@@ -1481,6 +1483,7 @@ export type {
 } from "./agent-orchestration";
 export type { ProjectMcpSettingsSnapshot } from "./composer-mcp";
 export type { ProjectSkillsSettingsSnapshot } from "./composer-skills-settings";
+export type { ProjectTerminalSettingsSnapshot } from "./project-terminal-settings";
 export type { ProjectIntegrationsSettingsSnapshot } from "./integrations";
 export type { ProjectOrchestrationSettingsSnapshot } from "./project-orchestration-settings";
 export type { ProviderTokenCountMode, UpstreamApiCompat };

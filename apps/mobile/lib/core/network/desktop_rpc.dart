@@ -1423,6 +1423,8 @@ class DesktopRpc implements ReadAloudRemote {
     required int expectedHistoryRevision,
     String? activityLineId,
     bool hasImages = false,
+    bool continueInterrupted = false,
+    String? sourceAttemptId,
     ThreadRuntimeConfigInput? runtimeConfig,
   }) async {
     final result = await _client.invoke<dynamic>(
@@ -1437,6 +1439,8 @@ class DesktopRpc implements ReadAloudRemote {
           'expectedHistoryRevision': expectedHistoryRevision,
           'activityLineId': ?activityLineId,
           'hasImages': hasImages,
+          if (continueInterrupted) 'continueInterrupted': true,
+          'sourceAttemptId': ?sourceAttemptId,
           if (runtimeConfig != null) 'runtimeConfig': runtimeConfig.toJson(),
         },
       ],

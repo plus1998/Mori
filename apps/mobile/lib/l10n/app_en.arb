@@ -580,6 +580,7 @@
   "activityMessageCopied": "Message copied",
   "activityClarificationAnswer": "Question responses",
   "activityNoneSelected": "(Not selected)",
+  "activityContinue": "Continue",
   "activityThinking": "Thinking",
   "activityDeepThinkingDone": "Thought",
   "activityRunFailed": "Run failed{suffix}",

@@ -1746,6 +1746,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get activityNoneSelected => '(Not selected)';
 
   @override
+  String get activityContinue => 'Continue';
+
+  @override
   String get activityThinking => 'Thinking';
 
   @override

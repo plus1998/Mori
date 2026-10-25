@@ -571,6 +571,38 @@ void main() {
     expect(thread.id, 'thr_1');
   });
 
+  test(
+    'continues an interrupted Codex run with the empty-input contract',
+    () async {
+      final client = _RecordingEcoCenterClient();
+      final rpc = DesktopRpc(client, 'desktop_1');
+      await rpc.retryThreadFromMessage(
+        principalId: 'user_1',
+        clientCommandId: 'codex_continue_1',
+        threadId: 'thr_1',
+        activityLineId: 'activity_1',
+        prompt: '',
+        continueInterrupted: true,
+        sourceAttemptId: 'interrupted-run',
+        expectedHistoryRevision: 7,
+      );
+      expect(client.channel, 'thread:retry-from-message');
+      expect(client.args, [
+        {
+          'principalId': 'user_1',
+          'clientCommandId': 'codex_continue_1',
+          'threadId': 'thr_1',
+          'activityLineId': 'activity_1',
+          'prompt': '',
+          'hasImages': false,
+          'continueInterrupted': true,
+          'sourceAttemptId': 'interrupted-run',
+          'expectedHistoryRevision': 7,
+        },
+      ]);
+    },
+  );
+
   test('reads an approved plan through desktop RPC', () async {
     final client = _RecordingEcoCenterClient();
     final rpc = DesktopRpc(client, 'desktop_1');

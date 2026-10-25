@@ -532,6 +532,7 @@
   "activityMessageCopied": "已复制",
   "activityClarificationAnswer": "询问回答",
   "activityNoneSelected": "（未选择）",
+  "activityContinue": "继续",
   "activityThinking": "正在思考",
   "activityDeepThinkingDone": "已思考",
   "activityRunFailed": "运行失败{suffix}",

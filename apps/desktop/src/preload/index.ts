@@ -176,6 +176,7 @@ import {
   type ProjectMcpSettingsSnapshot,
   type ProjectOrchestrationSettingsSnapshot,
   type ProjectSkillsSettingsSnapshot,
+  type ProjectTerminalSettingsSnapshot,
   type PromptImageAttachment,
   type PromptImageReadChunkResult,
   type PromptImageReleaseRequest,
@@ -545,6 +546,14 @@ const api = {
   },
   spawnTerminal(request: TerminalSpawnRequest): Promise<TerminalSpawnResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.terminalSpawn, request);
+  },
+  getProjectTerminalSettings(workspacePath: string): Promise<ProjectTerminalSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.projectTerminalSettingsGet, workspacePath);
+  },
+  saveProjectTerminalSettings(
+    snapshot: ProjectTerminalSettingsSnapshot,
+  ): Promise<ProjectTerminalSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.projectTerminalSettingsSave, snapshot);
   },
   writeTerminalInput(request: TerminalInputRequest): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.terminalInput, request);

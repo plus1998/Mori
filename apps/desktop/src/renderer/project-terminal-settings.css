@@ -1,0 +1,23 @@
+.project-terminal-settings-modal {
+  width: min(520px, calc(100vw - 40px));
+  padding: 0;
+}
+.project-terminal-settings-modal::backdrop {
+  background: rgba(0, 0, 0, 0.35);
+}
+.project-terminal-settings-modal form {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.project-terminal-settings-path {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.project-terminal-settings-modal textarea {
+  font-family: var(--font-mono, monospace);
+  resize: vertical;
+  min-height: 88px;
+}

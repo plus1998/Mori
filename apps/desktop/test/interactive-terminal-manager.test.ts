@@ -98,6 +98,35 @@ describe("InteractiveTerminalManager", () => {
     expect(existsSync(missingPath)).toBe(false);
   });
 
+  test("runs startup commands once in each new local shell and preserves the session", () => {
+    const manager = new InteractiveTerminalManager(() => undefined, { outputCoalesceMs: 0 });
+    const { sessionId } = manager.spawn(workspaceRoot, undefined, "nvm use 18\nexport APP_ENV=dev");
+    const shell = requireSpawned(0);
+    expect(shell.write.mock.calls).toEqual([["nvm use 18\rexport APP_ENV=dev\r"]]);
+    expect(manager.get(sessionId)?.kind).toBe("local");
+    manager.list(workspaceRoot);
+    manager.resize(sessionId, 100, 24);
+    expect(shell.write).toHaveBeenCalledTimes(1);
+    manager.write(sessionId, "node -v\r");
+    expect(shell.write).toHaveBeenLastCalledWith("node -v\r");
+    manager.spawn(workspaceRoot, undefined, "nvm use 18");
+    expect(requireSpawned(1).write).toHaveBeenCalledWith("nvm use 18\r");
+  });
+
+  test("empty startup commands and direct command/SSH sessions receive no injected input", () => {
+    const manager = new InteractiveTerminalManager(() => undefined, { outputCoalesceMs: 0 });
+    manager.spawn(workspaceRoot, undefined, " \n");
+    manager.spawnCommand(workspaceRoot, ["ssh", "example.com"], { kind: "ssh" });
+    manager.spawnCommand(workspaceRoot, ["npm", "run", "dev"]);
+    for (const shell of spawned) expect(shell.write).not.toHaveBeenCalled();
+  });
+
+  test("invalid startup commands fail before spawning a PTY", () => {
+    const manager = new InteractiveTerminalManager(() => undefined, { outputCoalesceMs: 0 });
+    expect(() => manager.spawn(workspaceRoot, undefined, "echo ok\u0000")).toThrow(/control characters/);
+    expect(spawned).toHaveLength(0);
+  });
+
   test("spawns a command directly so its exit completes the session", () => {
     const manager = new InteractiveTerminalManager((event) => {
       events.push(event as { type: string; sessionId: string });

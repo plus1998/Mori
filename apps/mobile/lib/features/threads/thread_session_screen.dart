@@ -43,6 +43,7 @@ import '../../core/sync/conversation_v2_session.dart';
 import 'conversation_v2_projection.dart';
 import 'image_display_provider.dart';
 import 'image_display_floating_gallery.dart';
+import 'interrupted_codex_continue.dart';
 import 'thread_menu_sheets.dart';
 import 'thread_session_layout.dart';
 import 'thread_providers.dart';
@@ -488,32 +489,28 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
               if (conversationV2.error != null)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Material(
-                    color: Theme.of(context).colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 12),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              localizedAppError(
-                                conversationV2.error!,
-                                context.l10n,
-                              ),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () => ref
-                                .read(
-                                  conversationV2SessionProvider(
-                                    widget.threadId,
-                                  ).notifier,
-                                )
-                                .refresh(),
-                            child: Text(context.l10n.commonRetry),
-                          ),
-                        ],
+                  child: Semantics(
+                    liveRegion: true,
+                    child: Container(
+                      key: const ValueKey('thread-sync-error-notice'),
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: ecoColors(context).bgElevated,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: ecoColors(context).borderSubtle,
+                        ),
+                      ),
+                      child: Text(
+                        localizedAppError(conversationV2.error!, context.l10n),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: ecoColors(context).textSecondary,
+                          height: 1.4,
+                        ),
                       ),
                     ),
                   ),
@@ -1865,6 +1862,13 @@ class _ActivityFeedView extends ConsumerWidget {
       threadPrompt: threadPrompt,
       isRunning: isRunning,
     );
+    final continueTarget = resolveInterruptedCodexContinueTarget(
+      coreKind: threadCoreKind,
+      threadStatus: threadStatus,
+      isRunning: isRunning,
+      projection: v2Projection,
+      entries: displayFeedEntries,
+    );
 
     if (displayFeedEntries.isEmpty) {
       final emptyStateText = conversationV2.error != null
@@ -1988,6 +1992,19 @@ class _ActivityFeedView extends ConsumerWidget {
                   .read(threadSessionProvider(threadId).notifier)
                   .acceptRewrittenThread(thread);
             },
+        resolveFailedRequestAction: threadCoreKind == 'codex'
+            ? (entry) => continueTarget?.failureId != entry.id
+                  ? null
+                  : ActivityFeedFailedRequestAction(
+                      label: context.l10n.activityContinue,
+                      run: () => _continueInterruptedCodexTurn(
+                        ref,
+                        threadId,
+                        conversationV2.historyRevision,
+                        continueTarget!,
+                      ),
+                    )
+            : null,
         onRetryFailedRequest:
             _mobileSupportsOneClickRequestRetry(
                   threadCoreKind,
@@ -2086,7 +2103,7 @@ bool _mobileSupportsOneClickRequestRetry(
   String? coreKind,
   List<ActivityFeedEntry> entries,
 ) {
-  if (coreKind == 'acp' || coreKind == 'codex') return true;
+  if (coreKind == 'acp') return true;
   if (coreKind != 'claude') return false;
   final userEntries = entries
       .where((entry) => entry.kind == ActivityFeedKind.user)
@@ -2098,6 +2115,44 @@ bool _mobileSupportsOneClickRequestRetry(
             target.activityLineId.trim().isNotEmpty &&
             target.userMessageId?.trim().isNotEmpty == true;
       });
+}
+
+Future<void> _continueInterruptedCodexTurn(
+  WidgetRef ref,
+  String threadId,
+  int expectedHistoryRevision,
+  InterruptedCodexContinueTarget target,
+) async {
+  final rpc = ref.read(desktopRpcProvider);
+  if (rpc == null) {
+    throw const AppErrorCodeException(
+      AppErrorCode.threadProjectionNoPcSelected,
+    );
+  }
+  final principalId = ref.read(credentialsProvider).valueOrNull?.userId?.trim();
+  if (principalId == null || principalId.isEmpty) {
+    throw StateError(
+      'A signed-in principal is required to continue a conversation.',
+    );
+  }
+  final user = target.user;
+  final thread = await rpc.retryThreadFromMessage(
+    principalId: principalId,
+    clientCommandId:
+        'codex_continue_${DateTime.now().toUtc().microsecondsSinceEpoch}_${conversationV2StableHash({'threadId': threadId, 'activityLineId': user.activityLineId, 'sourceAttemptId': target.sourceAttemptId, 'expectedHistoryRevision': expectedHistoryRevision})}',
+    threadId: threadId,
+    activityLineId: user.activityLineId,
+    // This identifies the recorded prompt. The continuation flag makes the
+    // desktop send empty Codex input and skip recording another user message.
+    prompt: user.text.trim(),
+    hasImages: user.attachments.isNotEmpty,
+    continueInterrupted: true,
+    sourceAttemptId: target.sourceAttemptId,
+    expectedHistoryRevision: expectedHistoryRevision,
+  );
+  await ref
+      .read(threadSessionProvider(threadId).notifier)
+      .acceptRetriedThread(thread);
 }
 
 ActivityFeedEntry? _latestRetryUserPrompt(

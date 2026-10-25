@@ -79,6 +79,19 @@ typedef ActivityFeedUserMessageRewriteHandler =
 typedef ActivityFeedFailedRequestRetryHandler =
     Future<void> Function(ActivityFeedEntry entry);
 
+typedef ActivityFeedFailedRequestActionResolver =
+    ActivityFeedFailedRequestAction? Function(ActivityFeedEntry entry);
+
+class ActivityFeedFailedRequestAction {
+  const ActivityFeedFailedRequestAction({
+    required this.label,
+    required this.run,
+  });
+
+  final String label;
+  final Future<void> Function() run;
+}
+
 /// One bounded page of tool detail rows.
 ///
 /// The page loader is deliberately separate from [ActivityFeedToolDetailLoader]
@@ -1289,6 +1302,7 @@ class ActivityFeedList extends StatefulWidget {
     this.onLoadUserMessageEdit,
     this.onRewriteUserMessage,
     this.onRetryFailedRequest,
+    this.resolveFailedRequestAction,
     this.hasEarlier = false,
     this.onLoadEarlier,
     this.onLoadEarlierError,
@@ -1316,6 +1330,7 @@ class ActivityFeedList extends StatefulWidget {
   final ActivityFeedUserMessageEditLoader? onLoadUserMessageEdit;
   final ActivityFeedUserMessageRewriteHandler? onRewriteUserMessage;
   final ActivityFeedFailedRequestRetryHandler? onRetryFailedRequest;
+  final ActivityFeedFailedRequestActionResolver? resolveFailedRequestAction;
   final bool hasEarlier;
   final ActivityFeedEarlierLoader? onLoadEarlier;
   final ActivityFeedLoadErrorCallback? onLoadEarlierError;
@@ -1529,6 +1544,8 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
                     onLoadUserMessageEdit: widget.onLoadUserMessageEdit,
                     onRewriteUserMessage: widget.onRewriteUserMessage,
                     onRetryFailedRequest: widget.onRetryFailedRequest,
+                    resolveFailedRequestAction:
+                        widget.resolveFailedRequestAction,
                     expandUserPrompts: widget.expandUserPrompts,
                     thinkingDefaultExpanded: widget.thinkingDefaultExpanded,
                     finalMetaEntryId: finalMetaId,
@@ -1682,6 +1699,7 @@ class _ActivityFeedEntryTile extends StatelessWidget {
     this.onLoadUserMessageEdit,
     this.onRewriteUserMessage,
     this.onRetryFailedRequest,
+    this.resolveFailedRequestAction,
     this.expandUserPrompts = false,
     this.thinkingDefaultExpanded = false,
     this.finalMetaEntryId,
@@ -1701,6 +1719,7 @@ class _ActivityFeedEntryTile extends StatelessWidget {
   final ActivityFeedUserMessageEditLoader? onLoadUserMessageEdit;
   final ActivityFeedUserMessageRewriteHandler? onRewriteUserMessage;
   final ActivityFeedFailedRequestRetryHandler? onRetryFailedRequest;
+  final ActivityFeedFailedRequestActionResolver? resolveFailedRequestAction;
   final bool expandUserPrompts;
   final bool thinkingDefaultExpanded;
   final String? finalMetaEntryId;
@@ -1728,6 +1747,7 @@ class _ActivityFeedEntryTile extends StatelessWidget {
           showMessageCopyAndTime: showMessageCopyAndTime,
           paceTargetEntryId: paceTargetEntryId,
           onRetryFailedRequest: onRetryFailedRequest,
+          resolveFailedRequestAction: resolveFailedRequestAction,
         );
       case ActivityFeedKind.user:
         return _UserPromptTile(
@@ -1820,11 +1840,20 @@ class _ActivityFeedEntryTile extends StatelessWidget {
               : null,
         );
       case ActivityFeedKind.error:
+        final action = !entry.canRetryRequest
+            ? null
+            : resolveFailedRequestAction != null
+            ? resolveFailedRequestAction!(entry)
+            : onRetryFailedRequest == null
+            ? null
+            : ActivityFeedFailedRequestAction(
+                label: context.l10n.commonRetry,
+                run: () => onRetryFailedRequest!(entry),
+              );
         return _ErrorTile(
           text: entry.text,
-          onRetry: !entry.canRetryRequest || onRetryFailedRequest == null
-              ? null
-              : () => onRetryFailedRequest!(entry),
+          onRetry: action?.run,
+          actionLabel: action?.label,
         );
     }
   }
@@ -1845,6 +1874,7 @@ class _TurnFeedTile extends StatefulWidget {
     this.showMessageCopyAndTime = true,
     this.paceTargetEntryId,
     this.onRetryFailedRequest,
+    this.resolveFailedRequestAction,
   });
 
   final ActivityFeedEntry entry;
@@ -1860,6 +1890,7 @@ class _TurnFeedTile extends StatefulWidget {
   final bool showMessageCopyAndTime;
   final String? paceTargetEntryId;
   final ActivityFeedFailedRequestRetryHandler? onRetryFailedRequest;
+  final ActivityFeedFailedRequestActionResolver? resolveFailedRequestAction;
 
   @override
   State<_TurnFeedTile> createState() => _TurnFeedTileState();
@@ -2039,6 +2070,8 @@ class _TurnFeedTileState extends State<_TurnFeedTile> {
                                   widget.thinkingDefaultExpanded,
                               paceTargetEntryId: widget.paceTargetEntryId,
                               onRetryFailedRequest: widget.onRetryFailedRequest,
+                              resolveFailedRequestAction:
+                                  widget.resolveFailedRequestAction,
                               showMessageCopyAndTime:
                                   widget.showMessageCopyAndTime,
                             ),
@@ -2090,6 +2123,7 @@ class _TurnFeedTileState extends State<_TurnFeedTile> {
                   thinkingDefaultExpanded: widget.thinkingDefaultExpanded,
                   paceTargetEntryId: widget.paceTargetEntryId,
                   onRetryFailedRequest: widget.onRetryFailedRequest,
+                  resolveFailedRequestAction: widget.resolveFailedRequestAction,
                   hideMessageActions: widget.showFinalMeta,
                   showMessageCopyAndTime: widget.showMessageCopyAndTime,
                 ),
@@ -5362,9 +5396,10 @@ class _SubagentTimelineRow extends StatelessWidget {
 }
 
 class _ErrorTile extends StatefulWidget {
-  const _ErrorTile({required this.text, this.onRetry});
+  const _ErrorTile({required this.text, this.onRetry, this.actionLabel});
 
   final String text;
+  final String? actionLabel;
   final Future<void> Function()? onRetry;
 
   @override
@@ -5435,7 +5470,7 @@ class _ErrorTileState extends State<_ErrorTile> {
                       dimension: 14,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Text(context.l10n.commonRetry),
+                  : Text(widget.actionLabel ?? context.l10n.commonRetry),
             ),
           ],
           if (_retryError != null)

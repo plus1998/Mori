@@ -3008,6 +3008,12 @@ abstract class AppLocalizations {
   /// **'(Not selected)'**
   String get activityNoneSelected;
 
+  /// No description provided for @activityContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get activityContinue;
+
   /// No description provided for @activityThinking.
   ///
   /// In en, this message translates to:

@@ -425,6 +425,7 @@ import {
 import { PackageScriptsDialog } from "./PackageScriptsDialog";
 import { PlanApprovalPanel } from "./PlanApprovalPanel";
 import { ProjectSidebarTree } from "./ProjectSidebarTree";
+import { ProjectTerminalSettingsDialog } from "./ProjectTerminalSettingsDialog";
 import { waitForOverlayDismiss } from "./package-script-ui";
 import {
   buildInitialProjectOrder,
@@ -2209,6 +2210,7 @@ function App() {
     defaultNotificationSettings(),
   );
   const [scriptsDialogOpen, setScriptsDialogOpen] = useState(false);
+  const [terminalSettingsProject, setTerminalSettingsProject] = useState<{ path: string; name: string }>();
   const [packageScriptArgsRevision, setPackageScriptArgsRevision] = useState(0);
   const [packageScripts, setPackageScripts] = useState<PackageScriptsListResult>();
   const [storedTerminalByProject] = useState<TerminalWorkspaceState>(() => readTerminalWorkspaceState());
@@ -12720,6 +12722,7 @@ function App() {
                 onRemoveProject={removeProject}
                 onRenameProject={setCustomProjectName}
                 onResetProjectName={(path) => setCustomProjectName(path, undefined)}
+                onOpenTerminalSettings={(path, name) => setTerminalSettingsProject({ path, name })}
                 customProjectNames={customProjectNames}
                 onPinThread={pinThread}
                 onUnpinThread={unpinThread}
@@ -13289,6 +13292,15 @@ function App() {
           ) : null}
         </div>
       </section>
+
+      {terminalSettingsProject ? (
+        <ProjectTerminalSettingsDialog
+          key={terminalSettingsProject.path}
+          workspacePath={terminalSettingsProject.path}
+          projectName={terminalSettingsProject.name}
+          onClose={() => setTerminalSettingsProject(undefined)}
+        />
+      ) : null}
 
       {scriptsDialogOpen && currentProjectPath ? (
         <PackageScriptsDialog

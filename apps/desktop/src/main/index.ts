@@ -901,6 +901,10 @@ import {
   createProjectSkillsSettingsStore,
   type ProjectSkillsSettingsStore,
 } from "./project-skills-settings-store";
+import {
+  createProjectTerminalSettingsStore,
+  type ProjectTerminalSettingsStore,
+} from "./project-terminal-settings-store";
 import { formatPromptCacheBreakLog, resolveClaudeMdDigest } from "./prompt-cache-fingerprint";
 import { createPromptCacheRunEventEmitter } from "./prompt-cache-run-events";
 import {
@@ -1639,6 +1643,7 @@ let projectMcpSettingsStore: ProjectMcpSettingsStore;
 let projectIntegrationsSettingsStore: ProjectIntegrationsSettingsStore;
 let projectOrchestrationSettingsStore: ProjectOrchestrationSettingsStore;
 let projectSkillsSettingsStore: ProjectSkillsSettingsStore;
+let projectTerminalSettingsStore: ProjectTerminalSettingsStore;
 let gitSettingsStore: GitSettingsStore;
 let personalizationSettingsStore: PersonalizationSettingsStore;
 let browserSettingsStore: BrowserSettingsStore;
@@ -2754,6 +2759,7 @@ app
     projectIntegrationsSettingsStore = await createProjectIntegrationsSettingsStore(dbPath);
     projectOrchestrationSettingsStore = await createProjectOrchestrationSettingsStore(dbPath);
     projectSkillsSettingsStore = await createProjectSkillsSettingsStore(dbPath);
+    projectTerminalSettingsStore = await createProjectTerminalSettingsStore(dbPath);
     gitSettingsStore = await createGitSettingsStore(dbPath);
     personalizationSettingsStore = await createPersonalizationSettingsStore(dbPath);
     browserSettingsStore = await createBrowserSettingsStore(dbPath);
@@ -3380,6 +3386,8 @@ app
       listGlobalMcpServers: resolveCodexGlobalMcpServers,
       threadMap: codexThreadMap,
       resolveRunAttemptId: (threadId) => agentLifecycle.currentRunAttemptId(threadId),
+      resolvePersistedRunAttemptId: (threadId, requestId) =>
+        conversationStore.conversationV2().resolveRuntimeRunAttemptId(threadId, requestId),
       appendConversationRuntimeEvent: (event) => {
         try {
           if (!conversationStore.getThread(event.threadId)) {
@@ -5653,7 +5661,29 @@ function registerIpcHandlers(): void {
       rows > 0
         ? { cols: Math.floor(cols), rows: Math.floor(rows) }
         : undefined;
-    return interactiveTerminalManager.spawn(workspacePath, size);
+    const { startupCommand } = projectTerminalSettingsStore.get(workspacePath);
+    return interactiveTerminalManager.spawn(workspacePath, size, startupCommand);
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.projectTerminalSettingsGet, async (payload: unknown) => {
+    if (typeof payload !== "string" || !payload.trim()) {
+      throw new Error("Invalid project terminal settings workspace path.");
+    }
+    return projectTerminalSettingsStore.get(payload);
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.projectTerminalSettingsSave, async (payload: unknown) => {
+    if (
+      !isRecord(payload) ||
+      typeof payload.workspacePath !== "string" ||
+      typeof payload.startupCommand !== "string"
+    ) {
+      throw new Error("Invalid project terminal settings.");
+    }
+    return projectTerminalSettingsStore.save({
+      workspacePath: payload.workspacePath,
+      startupCommand: payload.startupCommand,
+    });
   });
 
   registerDesktopCommand(IPC_CHANNELS.terminalInput, async (payload: unknown) => {

@@ -188,6 +188,8 @@ export interface CodexRuntimeRunDeps {
     | Promise<readonly CodexMcpServerForConfigSync[]>;
   threadMap: CodexThreadMap;
   resolveRunAttemptId?: (ecoThreadId: string) => string | undefined;
+  /** Durable turn ownership takes precedence over the currently active attempt. */
+  resolvePersistedRunAttemptId?: (ecoThreadId: string, requestId: string) => string | undefined;
   appendConversationRuntimeEvent: (event: ThreadRunEventInput) => void;
   /**
    * Emit feed projection. Pass `{ streaming: true }` for delta events so the
@@ -443,6 +445,7 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
         bindCodexThreadRunEventAttempt(
           projectionEvent,
           config.resolveRunAttemptId?.(projectionEvent.threadId),
+          config.resolvePersistedRunAttemptId,
         ),
       );
       // Pass the raw (un-normalized) event: projectionEvent renames
@@ -518,11 +521,22 @@ function emitCodexTurnTokenUsage(config: CodexRuntimeRunDeps, event: ThreadRunEv
 export function bindCodexThreadRunEventAttempt(
   event: ThreadRunEventInput,
   ecoRunAttemptId: string | undefined,
+  resolvePersistedRunAttemptId?: (ecoThreadId: string, requestId: string) => string | undefined,
 ): ThreadRunEventInput {
   const { runAttemptId: codexTurnAsAttemptId, ...eventWithoutAttempt } = event;
   const turnId =
     typeof event.metadata?.turnId === "string" ? event.metadata.turnId.trim() : codexTurnAsAttemptId?.trim();
-  const runAttemptId = ecoRunAttemptId?.trim();
+  const requestId = event.requestId?.trim() || turnId;
+  // Background commands can finish after the next Eco attempt has started. The
+  // turn's persisted correlation still owns that event; stamping the active run
+  // would move the same tool call across runs. Restrict the durable lookup to
+  // tool terminal events so streaming text/argument deltas do not scan history.
+  const isToolTerminal = event.eventType === "tool.completed" || event.eventType === "tool.failed";
+  const persistedRunAttemptId =
+    requestId && isToolTerminal
+      ? resolvePersistedRunAttemptId?.(event.threadId, requestId)?.trim()
+      : undefined;
+  const runAttemptId = persistedRunAttemptId || ecoRunAttemptId?.trim();
   return {
     ...eventWithoutAttempt,
     ...(runAttemptId && { runAttemptId }),

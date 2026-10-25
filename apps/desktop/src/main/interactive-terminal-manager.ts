@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import type { IPty } from "node-pty";
 import * as pty from "node-pty";
 import type { TerminalSessionKind, TerminalSessionView, TerminalStreamEvent } from "../shared/ipc";
+import { normalizeTerminalStartupCommand } from "../shared/project-terminal-settings";
 import {
   buildWindowsCommandLine,
   needsWindowsShellWrapper,
@@ -109,9 +110,25 @@ export class InteractiveTerminalManager {
         : DEFAULT_OUTPUT_COALESCE_MS;
   }
 
-  spawn(workspacePath: string, size?: { cols: number; rows: number }): { sessionId: string } {
+  spawn(
+    workspacePath: string,
+    size?: { cols: number; rows: number },
+    startupCommand = "",
+  ): { sessionId: string } {
+    const command = normalizeTerminalStartupCommand(startupCommand);
     const { executable, args } = resolveInteractiveShell();
-    return this.spawnProcess(workspacePath, executable, args, size);
+    const result = this.spawnProcess(workspacePath, executable, args, size);
+    if (command) {
+      // Queue input in the PTY: the login shell loads its rc files before reading
+      // these commands. Running in this shell preserves nvm/venv environment changes.
+      try {
+        this.write(result.sessionId, `${command.replace(/\n/g, "\r")}\r`);
+      } catch (error) {
+        this.kill(result.sessionId);
+        throw error;
+      }
+    }
+    return result;
   }
 
   spawnCommand(
