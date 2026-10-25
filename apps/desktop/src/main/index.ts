@@ -5,6 +5,7 @@ import { isCodexAuthThread } from "../shared/codex-auth-thread";
 import { createAccountUsagePricingLookup } from "./account-usage-pricing";
 import { ChatGptModelCatalogService, resolveChatGptModelCatalogCachePath } from "./chatgpt-model-catalog";
 import { ProjectTodoStore } from "./project-todo-store";
+import { ProjectTodoAgentService } from "./project-todo-agent-service";
 import { resolveProjectTodoUploads } from "./project-todo-uploads";
 import type { ProjectTodoCompose, ProjectTodoSave, ProjectTodoTrash } from "../shared/project-todos";
 import { TtsReadAloudService } from "./tts-read-aloud";
@@ -3767,6 +3768,15 @@ app
       getTarget: id => requireBrowserHost().getSelectionTarget(id),
     });
     composerReferenceService = new ComposerReferenceService({
+      todos: new ProjectTodoAgentService({
+        store: projectTodoStore,
+        workspacePath: threadId => {
+          const thread = conversationStore.getThread(threadId);
+          if (!thread) throw new Error("待办工具的会话不存在或已删除。");
+          return thread.workspacePath;
+        },
+        changed: () => desktopEventCenter.publish({ kind: "project-todo.changed", payload: {}, aggregateKey: "project-todos:global" }),
+      }),
       selections: browserSelectionService,
       listThreads: (query, limit) => conversationStore.searchThreadReferences(query, limit),
       getThread: (id) => conversationStore.getThread(id),

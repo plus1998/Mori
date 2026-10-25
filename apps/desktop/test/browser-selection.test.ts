@@ -133,6 +133,7 @@ test("Agent reads immutable selections only after explicit grants and refuses st
   const selection = (await env.service.capture("web1", "text"))!;
   const browserCalls: string[] = [];
   const service = new ComposerReferenceService({
+    todos: { references: () => [], resolveReference: () => { throw new Error("No test todos"); }, invoke: () => { throw new Error("No test todos"); }, disposeThread() {} },
     selections: env.service, listThreads: () => [], getThread: () => undefined, listSsh: () => [], listBrowsers: () => [],
     listCapabilities: async () => [], readHistory: () => ({ messages: [], hasMore: false, historyRevision: 0 }),
     readMessage: () => undefined, readTools: () => ({}),

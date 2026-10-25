@@ -13,6 +13,7 @@ import {
 import type { ThreadSummary } from "../shared/ipc";
 import type { SshBookmarkPublic } from "../shared/ssh-bookmarks";
 import type { BrowserSelectionService } from "./browser-selection-service";
+import type { ProjectTodoAgentService } from "./project-todo-agent-service";
 
 export interface ReferenceHistoryPage {
   messages: Array<{
@@ -30,6 +31,7 @@ export interface ReferenceHistoryPage {
   historyRevision: number;
 }
 export interface ComposerReferenceDeps {
+  todos: Pick<ProjectTodoAgentService, "references" | "resolveReference" | "invoke" | "disposeThread">;
   selections?: Pick<BrowserSelectionService, "read" | "validate" | "screenshot">;
   listThreads(
     query: string,
@@ -70,6 +72,7 @@ export class ComposerReferenceService {
       throw new Error("引用搜索 limit 必须在 1–50 之间。");
     const query = request.query.trim().toLocaleLowerCase();
     const groups: ComposerReference[][] = [];
+    if (!request.kind || request.kind === "todo") groups.push(this.deps.todos.references());
     if (!request.kind || request.kind === "ssh")
       groups.push(
         this.deps
@@ -113,7 +116,9 @@ export class ComposerReferenceService {
     const replaced = prompt.replace(COMPOSER_REFERENCE_PATTERN, (token, kind: string, encoded: string) => {
       const ref = parseComposerReference(kind, encoded);
       if (!ref) throw new Error("引用格式无效，请删除后重新选择。");
-      if (ref.kind === "ssh") {
+      if (ref.kind === "todo") {
+        details.push(this.deps.todos.resolveReference(threadId, ref.id));
+      } else if (ref.kind === "ssh") {
         const ssh = this.deps.listSsh().find((item) => item.id === ref.id);
         if (!ssh) throw new Error(`SSH 标签已删除：${ref.label}`);
         details.push({
@@ -198,6 +203,9 @@ export class ComposerReferenceService {
     const thread = this.deps.getThread(id);
     if (!thread) throw new Error(`会话不存在或已删除：${id}`);
     return thread;
+  }
+  todoTool(threadId: string, name: string, args: Record<string, unknown>) {
+    return this.deps.todos.invoke(threadId, name, args);
   }
   readConversation(args: Record<string, unknown>) {
     const thread = this.requireThread(args.conversationId);
@@ -290,6 +298,7 @@ export class ComposerReferenceService {
     );
   }
   disposeThread(id: string) {
+    this.deps.todos.disposeThread(id);
     this.browserGrants.delete(id);
     this.selectionGrants.delete(id);
   }

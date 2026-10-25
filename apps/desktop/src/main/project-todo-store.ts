@@ -7,6 +7,9 @@ import {
   type ProjectTodoImage,
   type ProjectTodoSave,
   type ProjectTodoTrash,
+  type ProjectTodoStatus,
+  type ProjectTodoStatusUpdate,
+  PROJECT_TODO_STATUSES,
   TODO_MAX_IMAGE_BYTES,
   TODO_MAX_IMAGES,
 } from "../shared/project-todos";
@@ -17,6 +20,7 @@ type Row = {
   project_path: string;
   text: string;
   completed: number;
+  status: ProjectTodoStatus;
   created_at: string;
   updated_at: string;
   composed_at: string | null;
@@ -34,7 +38,8 @@ export class ProjectTodoStore {
       CREATE TABLE IF NOT EXISTS project_todos (
         id TEXT PRIMARY KEY, revision INTEGER NOT NULL, project_path TEXT NOT NULL,
         text TEXT NOT NULL, completed INTEGER NOT NULL, created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL, deleted_at TEXT, composed_at TEXT
+        updated_at TEXT NOT NULL, deleted_at TEXT, composed_at TEXT,
+        status TEXT NOT NULL DEFAULT 'pending'
       );
       CREATE TABLE IF NOT EXISTS project_todo_images (
         todo_id TEXT NOT NULL REFERENCES project_todos(id) ON DELETE CASCADE,
@@ -44,6 +49,17 @@ export class ProjectTodoStore {
     const columns = db.prepare("PRAGMA table_info(project_todos)").all() as { name: string }[];
     if (!columns.some((column) => column.name === "composed_at")) {
       db.exec("ALTER TABLE project_todos ADD COLUMN composed_at TEXT");
+    }
+    if (!columns.some((column) => column.name === "status")) {
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        db.exec("ALTER TABLE project_todos ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'");
+        db.exec("UPDATE project_todos SET status='completed' WHERE completed=1");
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
     }
     db.prepare("DELETE FROM project_todos WHERE deleted_at < ?").run(
       new Date(Date.now() - 30 * 86400_000).toISOString(),
@@ -91,6 +107,7 @@ export class ProjectTodoStore {
       projectPath: row.project_path,
       text: row.text,
       completed: Boolean(row.completed),
+      status: row.status,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       ...(row.composed_at ? { composedAt: row.composed_at } : {}),
@@ -120,6 +137,13 @@ export class ProjectTodoStore {
     const existing = input.id ? this.get(id) : undefined;
     if (existing && existing.revision !== input.revision)
       throw new Error("Todo changed. Reopen it before saving.");
+    // Legacy clients and completion checkboxes only change the completed flag.
+    const toggledCompletion = existing && input.completed !== existing.completed &&
+      (input.status === undefined || input.status === existing.status);
+    const status = toggledCompletion ? (input.completed ? "completed" : "pending") :
+      input.status ?? (input.completed ? "completed" : existing?.status === "in_progress" ? "in_progress" : "pending");
+    if (!PROJECT_TODO_STATUSES.includes(status) || (status === "completed") !== input.completed)
+      throw new Error("Invalid todo status.");
     const ids = new Set<string>();
     const images = input.images.map((image) => {
       if (
@@ -157,8 +181,8 @@ export class ProjectTodoStore {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       this.db
-        .prepare(`INSERT INTO project_todos (id, revision, project_path, text, completed, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, project_path=excluded.project_path, text=excluded.text, completed=excluded.completed, updated_at=excluded.updated_at`)
+        .prepare(`INSERT INTO project_todos (id, revision, project_path, text, completed, created_at, updated_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, project_path=excluded.project_path, text=excluded.text, completed=excluded.completed, updated_at=excluded.updated_at, status=excluded.status`)
         .run(
           id,
           (existing?.revision ?? 0) + 1,
@@ -167,6 +191,7 @@ export class ProjectTodoStore {
           Number(input.completed),
           existing?.createdAt ?? now,
           now,
+          status,
         );
       this.db.prepare("DELETE FROM project_todo_images WHERE todo_id=?").run(id);
       const insert = this.db.prepare("INSERT INTO project_todo_images VALUES (?, ?, ?, ?, ?, ?)");
@@ -180,6 +205,15 @@ export class ProjectTodoStore {
       throw error;
     }
     return this.record(this.db.prepare("SELECT * FROM project_todos WHERE id=?").get(id) as Row, false);
+  }
+  updateStatus(input: ProjectTodoStatusUpdate): ProjectTodo {
+    if (!input || typeof input.id !== "string" || !input.id || !Number.isSafeInteger(input.revision) ||
+      !PROJECT_TODO_STATUSES.includes(input.status)) throw new Error("Invalid todo status update.");
+    const result = this.db.prepare(
+      "UPDATE project_todos SET status=?, completed=?, revision=revision+1, updated_at=? WHERE id=? AND revision=? AND deleted_at IS NULL",
+    ).run(input.status, Number(input.status === "completed"), new Date().toISOString(), input.id, input.revision);
+    if (!result.changes) throw new Error("Todo changed or no longer exists. Read it again before updating.");
+    return this.get(input.id, false);
   }
   markComposed(input: ProjectTodoCompose): ProjectTodo {
     if (!input || typeof input.id !== "string" || !input.id || !Number.isInteger(input.revision)) {

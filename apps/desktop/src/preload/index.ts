@@ -1559,7 +1559,7 @@ const api = {
     ipcRenderer.on(IPC_CHANNELS.projectTodoChanged, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.projectTodoChanged, listener);
   },
-  getProjectTodo(id: string): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoGet, id); },
+  getProjectTodo(id: string, includeImageData = true): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoGet, id, includeImageData); },
   saveProjectTodo(input: ProjectTodoSave): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoSave, input); },
   markProjectTodoComposed(input: ProjectTodoCompose): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoCompose, input); },
   trashProjectTodo(input: ProjectTodoTrash): Promise<number> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoTrash, input); },

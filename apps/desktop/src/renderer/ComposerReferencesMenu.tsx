@@ -94,7 +94,7 @@ export function ComposerReferencesMenu({
                   <span className="composer-reference-label">{item.label}</span>
                   {item.detail ? (
                     <span className="composer-reference-detail" title={item.detail}>
-                      {item.kind === "conversation"
+                      {item.kind === "conversation" || item.kind === "todo"
                         ? item.detail.split(/[\\/]/).filter(Boolean).at(-1)
                         : item.detail}
                     </span>

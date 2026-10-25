@@ -5,6 +5,7 @@ import {
   parseMentionQuery,
 } from "../src/shared/composer-references";
 import { parsePromptSegments } from "../src/renderer/composer-skills";
+import { appendProjectTodoReference, projectTodoReference } from "../src/shared/project-todos";
 
 const reference = {
   kind: "web" as const,
@@ -34,4 +35,18 @@ test("mention queries filter by category without triggering on SSH endpoints or 
 });
 test("malformed reference encodings are not upgraded into chips", () => {
   expect(composerReferences("@ssh{%broken} @web{%7B%7D}")).toEqual([]);
+});
+
+test("todo references retain identity, preserve drafts, and round-trip as atomic chips", () => {
+  const todo = { id: "todo-1", text: "修复 @ 标签\n完整待办内容", projectPath: "/project/a" };
+  const prompt = appendProjectTodoReference("保留原草稿", todo);
+  const reference = projectTodoReference(todo);
+  expect(prompt.startsWith("保留原草稿\n")).toBe(true);
+  expect(composerReferences(prompt)).toEqual([reference]);
+  expect(parsePromptSegments(prompt).find(segment => segment.type === "reference")).toEqual({ type: "reference", reference });
+  expect(appendProjectTodoReference(prompt, todo)).toBe(prompt);
+  expect(composerReferences(appendProjectTodoReference(prompt, { ...todo, id: "todo-2" }))).toHaveLength(2);
+  const query = "处理 @待办:修复";
+  expect(parseMentionQuery(query, query.length)).toEqual({ start: 3, kind: "todo", query: "修复" });
+  expect(parseMentionQuery("@todo", 5)).toEqual({ start: 0, kind: "todo", query: "" });
 });

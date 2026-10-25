@@ -1,4 +1,4 @@
-import type { ProjectTodo } from "../shared/project-todos";
+import { appendProjectTodoReference, type ProjectTodo } from "../shared/project-todos";
 import type { TodoEditorDraft } from "./ProjectTodoPanel";
 import { ReadAloudControls, ReadAloudThreadContext } from "./ReadAloud";
 import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
@@ -11038,8 +11038,8 @@ function App() {
       registerImportedProject(todo.projectPath);
     }
     const contextKey = composerContextKeyFromParts(threadId, todo.projectPath)!;
-    // Flush the target draft before replacing it. Preserve its text and original
-    // images as a separate to-do, so one-click composing never destroys work.
+    // Persist the target draft before appending an atomic reference; retain its
+    // existing text and images in the same composer.
     if (composerDraftSaveTimerRef.current?.key === contextKey) {
       window.clearTimeout(composerDraftSaveTimerRef.current.timer);
       composerDraftSaveTimerRef.current = undefined;
@@ -11049,32 +11049,14 @@ function App() {
       : composerDraftsByKeyRef.current[contextKey];
     if (memory) await api.saveComposerDraft({ contextKey, prompt: memory.prompt, attachments: toPromptImageAttachments(memory.attachments) });
     const previous = await api.getComposerDraft(contextKey);
-    let preserved = false;
-    if (previous && (previous.prompt.trim() || previous.attachments?.length)) {
-      const images = await hydrateComposerImageAttachments(fromPromptImageAttachments(previous.attachments ?? []), contextKey, request => api.readPromptImageChunk(request));
-      try {
-        const matchesTodo = previous.prompt === todo.text && images.length === todo.images.length &&
-          images.every((image, index) => image.mediaType === todo.images[index]?.mediaType && image.data === todo.images[index]?.data);
-        if (!matchesTodo) {
-          const { createTodoImage } = await import("./project-todo-images");
-          await api.saveProjectTodo({ projectPath: todo.projectPath, text: previous.prompt, completed: false,
-            images: await Promise.all(images.map(image => {
-              if (!image.data) throw new Error(t("todos.draftSaveFailed"));
-              return createTodoImage(image.id, image.mediaType, image.data);
-            })),
-          });
-          preserved = true;
-        }
-      } finally { revokeComposerAttachmentPreviews(images); }
-    }
-    const attachments = todo.images.map(image => {
-      if (!image.data) throw new Error(t("todos.imageInvalid"));
-      return { mediaType: image.mediaType, data: image.data };
-    });
-    await api.saveComposerDraft({ contextKey, prompt: todo.text, attachments });
+    const nextPrompt = appendProjectTodoReference(previous?.prompt ?? "", todo);
+    const attachments = previous?.attachments ?? [];
+    const nextAttachments = await hydrateComposerImageAttachments(
+      fromPromptImageAttachments(attachments), contextKey, request => api.readPromptImageChunk(request),
+    );
+    await api.saveComposerDraft({ contextKey, prompt: nextPrompt, attachments });
     await api.markProjectTodoComposed({ id: todo.id, revision: todo.revision });
-    const nextAttachments = fromPromptImageAttachments(attachments);
-    composerDraftsByKeyRef.current[contextKey] = { prompt: todo.text, attachments: nextAttachments };
+    composerDraftsByKeyRef.current[contextKey] = { prompt: nextPrompt, attachments: nextAttachments };
     ++composerDraftLoadRequestRef.current;
     const sameContext = composerContextKeyRef.current === contextKey;
     if (targetThread) {
@@ -11085,17 +11067,15 @@ function App() {
     }
     if (sameContext) {
       revokeComposerAttachmentPreviews(composerAttachmentsRef.current);
-      composerPromptRef.current = todo.text;
-      setPrompt(todo.text);
+      composerPromptRef.current = nextPrompt;
+      setPrompt(nextPrompt);
       setComposerAttachments(nextAttachments);
       setComposerImageNotice(undefined);
     }
     projectTodoComposerFocusRef.current = true;
     setProjectTodosOpen(false);
     if (!targetThread) requestSidebarReveal("project", todo.projectPath);
-    showAppMessageSuccessRef.current(t(targetThread
-      ? preserved ? "todos.existingDraftPreserved" : "todos.composedExisting"
-      : preserved ? "todos.draftPreserved" : "todos.composed"));
+    showAppMessageSuccessRef.current(t(targetThread ? "todos.composedExisting" : "todos.composed"));
   }
 
   function startNewChatWithPlan(plan: ThreadPendingPlan) {

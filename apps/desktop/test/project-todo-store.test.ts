@@ -48,6 +48,7 @@ test("project notes and original images survive reopening; list only returns thu
     completed: true,
   });
   expect(completed.completed).toBe(true);
+  expect(completed.status).toBe("completed");
   expect(reopened.get(saved.id).images[0]?.data).toBe(image.data);
   expect(reopened.get(saved.id).projectPath).toBe("/project/a");
 });
@@ -98,12 +99,42 @@ test("existing databases gain handoff metadata without marking old notes or losi
   )`);
   legacy.prepare("INSERT INTO project_todos VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     .run("legacy", 1, note.projectPath, note.text, 0, "2026-01-01", "2026-01-01", null);
+  legacy.prepare("INSERT INTO project_todos VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .run("done", 1, note.projectPath, "Already done", 1, "2026-01-01", "2026-01-01", null);
   legacy.close();
   const store = open(filename);
   const old = store.get("legacy");
   expect(old.text).toBe(note.text);
+  expect(old.status).toBe("pending");
+  expect(store.get("done").status).toBe("completed");
   expect(old.composedAt).toBeUndefined();
   expect(store.markComposed(old).composedAt).toBeDefined();
+});
+
+test("in-progress status survives old-client edits, completion toggles, and database reopening", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "eco-todo-status-"));
+  directories.push(directory);
+  const filename = path.join(directory, "notes.sqlite");
+  const store = open(filename);
+  const created = store.save({ ...note, images: [image] });
+  const started = store.updateStatus({ id: created.id, revision: created.revision, status: "in_progress" });
+  const marked = store.markComposed(started);
+  // The mobile client sends only completed, so an ordinary edit retains progress.
+  const { status: _status, ...legacy } = started;
+  const edited = store.save({ ...legacy, text: "User edit" });
+  expect(edited.status).toBe("in_progress");
+  expect(edited.composedAt).toBe(marked.composedAt);
+  expect(store.get(edited.id).images[0]?.data).toBe(image.data);
+  expect(() => store.updateStatus({ id: started.id, revision: started.revision, status: "completed" })).toThrow("changed");
+  expect(() => store.save({ ...edited, status: "bogus" as never })).toThrow("status");
+  const completed = store.save({ ...edited, completed: true });
+  expect(completed.status).toBe("completed");
+  const reopened = store.save({ ...completed, completed: false });
+  expect(reopened.status).toBe("pending");
+  store.updateStatus({ id: reopened.id, revision: reopened.revision, status: "in_progress" });
+  store.close();
+  stores.splice(stores.indexOf(store), 1);
+  expect(open(filename).get(created.id).status).toBe("in_progress");
 });
 
 test("stale edits and deletes cannot overwrite newer changes; deletion can be undone", () => {

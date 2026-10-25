@@ -23,6 +23,7 @@ import type { ThreadSummary } from "../shared/ipc";
 import {
   type ProjectTodo,
   type ProjectTodoImage,
+  type ProjectTodoStatus,
   TODO_MAX_IMAGE_BYTES,
   TODO_MAX_IMAGES,
 } from "../shared/project-todos";
@@ -44,6 +45,7 @@ export interface TodoEditorDraft {
   text: string;
   images: ProjectTodoImage[];
   completed: boolean;
+  status?: ProjectTodoStatus;
 }
 function todoApi() {
   const api = window.eco;
@@ -306,6 +308,7 @@ export function ProjectTodoPanel(props: Props) {
           ) : (
             <span className="todo-image-label">{t("todos.imageTodo")}</span>
           )}
+          {item.status === "in_progress" ? <span className="todo-progress-badge">{t("todos.inProgress")}</span> : null}
           {item.composedAt ? (
             <span className="todo-composed-badge" title={t("todos.composedAt", {
               time: new Date(item.composedAt).toLocaleString(i18n.language),
@@ -384,7 +387,7 @@ export function ProjectTodoPanel(props: Props) {
             className="todo-send"
             disabled={!!busy}
             onClick={() =>
-              void action(item.id, async () => props.onCompose(await todoApi().getProjectTodo(item.id)))
+              void action(item.id, async () => props.onCompose(await todoApi().getProjectTodo(item.id, false)))
             }
             aria-label={t("todos.compose")}
             title={t("todos.compose")}
@@ -774,7 +777,7 @@ export function ProjectTodoPanel(props: Props) {
                 {targetThreads.map((thread) => (
                   <button type="button" key={thread.id} disabled={!!busy}
                     onClick={() => void action(thread.id, async () =>
-                      props.onCompose(await todoApi().getProjectTodo(composeTarget.id), thread.id))}>
+                      props.onCompose(await todoApi().getProjectTodo(composeTarget.id, false), thread.id))}>
                     {busy === thread.id ? <LoaderCircle size={16} className="spinning" /> : <MessageSquarePlus size={16} />}
                     <span>{thread.title || thread.prompt}</span>
                   </button>
