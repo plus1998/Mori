@@ -592,6 +592,7 @@ export function SubagentTaskDrawer({
   plan,
   activeTab,
   openTabIds,
+  onReorderTabs,
   threadStatus,
   agentDisplayNames,
   agentThemes,
@@ -652,6 +653,7 @@ export function SubagentTaskDrawer({
   plan?: ThreadPendingPlan;
   activeTab: TaskPanelActiveTab;
   openTabIds: readonly TaskPanelActiveTab[];
+  onReorderTabs?: (source: string, target: string, position: "before" | "after") => void;
   threadStatus?: ThreadStatus;
   agentDisplayNames?: RuntimeAgentDisplayNames;
   agentThemes?: RuntimeAgentThemes;
@@ -804,7 +806,7 @@ export function SubagentTaskDrawer({
       aria-label={fullscreen ? t("app.taskPanelFullscreen") : t("app.taskPanel")}
     >
       <header className="subagent-task-panel-topbar">
-        <TaskPanelTabOrder openTabIds={openTabIds} label={t("task.tabs")}>
+        <TaskPanelTabOrder openTabIds={openTabIds} label={t("task.tabs")} onReorder={onReorderTabs}>
           {newTabIds.map((tabId) => (
             <span
               key={tabId}

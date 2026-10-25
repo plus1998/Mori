@@ -2,6 +2,18 @@ export function addOpenTaskPanelTab<T extends string>(tabs: T[], tabId: T): T[] 
   return tabs.includes(tabId) ? tabs : [...tabs, tabId];
 }
 
+export function moveOpenTaskPanelTab<T extends string>(
+  tabs: T[],
+  source: T,
+  target: T,
+  position: "before" | "after",
+): T[] {
+  if (source === target || !tabs.includes(source) || !tabs.includes(target)) return tabs;
+  const next = tabs.filter((id) => id !== source);
+  next.splice(next.indexOf(target) + Number(position === "after"), 0, source);
+  return next.every((id, index) => id === tabs[index]) ? tabs : next;
+}
+
 export function replaceOpenTaskPanelTab<T extends string>(tabs: T[], sourceTabId: T, tabId: T): T[] {
   if (tabs.includes(tabId)) {
     return tabs.filter((openTabId) => openTabId !== sourceTabId || openTabId === tabId);

@@ -850,6 +850,10 @@ export class BrowserHost {
       this.emit();
     });
     wc.on("destroyed", () => {
+      this.pendingGuestByWebContentsId.delete(wc.id);
+      // Intentional close unregisters the tab before destroying the guest. Do not
+      // advertise it again or queue a replacement guest from this late callback.
+      if (scope.browsers.get(browser.id) !== browser) return;
       if (browser.webContents?.id === wc.id) {
         try {
           const current = wc.getURL();
@@ -864,7 +868,6 @@ export class BrowserHost {
         browser.registeredGuestWebContentsId = undefined;
         this.notePendingGuestAttach(browser.id);
       }
-      this.pendingGuestByWebContentsId.delete(wc.id);
       this.emit();
     });
   }
@@ -1019,7 +1022,9 @@ export class BrowserHost {
       scope.focusedBrowserId = next.done ? undefined : next.value;
     }
     if (this.revealBrowserId === browserId) {
-      this.revealBrowserId = scope.focusedBrowserId;
+      // Closing is not an activation request. The renderer selects the neighbor
+      // in the user's tab order, which can differ from main's creation order.
+      this.revealBrowserId = undefined;
     }
     this.emit();
     if (scope.browsers.size === 0) {
@@ -1031,6 +1036,12 @@ export class BrowserHost {
   }
 
   private destroyBrowser(scope: ThreadBrowserScope, browser: SessionBrowser): void {
+    // wc.close() can synchronously emit destroyed/loading events. Remove the tab
+    // first so every cleanup broadcast already describes the closed state.
+    scope.browsers.delete(browser.id);
+    if (this.activateBrowserId === browser.id) {
+      this.activateBrowserId = undefined;
+    }
     for (const controller of this.downloadAccessControllers.get(browser.id) ?? []) controller.abort(new Error("Browser tab was closed."));
     this.downloadAccessControllers.delete(browser.id);
     void this.downloads.removeBrowser(browser.id).catch(error => console.error("[browser] Download cleanup failed", error));
@@ -1072,10 +1083,6 @@ export class BrowserHost {
     browser.pendingUrl = undefined;
     browser.detachedUrl = undefined;
     this.pendingGuestByBrowserId.delete(browser.id);
-    scope.browsers.delete(browser.id);
-    if (this.activateBrowserId === browser.id) {
-      this.activateBrowserId = undefined;
-    }
   }
 
   setVisible(visible: boolean, browserId?: string): BrowserViewState {

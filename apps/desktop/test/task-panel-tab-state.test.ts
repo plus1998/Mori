@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   addOpenTaskPanelTab,
+  moveOpenTaskPanelTab,
   removeOpenTaskPanelTab,
   replaceOpenTaskPanelTab,
   resolveTaskPanelReopenTab,
@@ -13,6 +14,34 @@ import {
 } from "../src/renderer/task-panel-tabs";
 
 describe("task panel tab state", () => {
+  test("moves browser tabs in both directions without losing tools or changing tab identity", () => {
+    const tabs = ["browser:a", TASK_PANEL_FILES_TAB_ID, "browser:b", "new-tab:1"];
+    const moved = moveOpenTaskPanelTab(tabs, "browser:a", "browser:b", "after");
+    expect(moved).toEqual([TASK_PANEL_FILES_TAB_ID, "browser:b", "browser:a", "new-tab:1"]);
+    expect(moveOpenTaskPanelTab(moved, "new-tab:1", TASK_PANEL_FILES_TAB_ID, "before")).toEqual([
+      "new-tab:1",
+      TASK_PANEL_FILES_TAB_ID,
+      "browser:b",
+      "browser:a",
+    ]);
+    expect(tabs).toEqual(["browser:a", TASK_PANEL_FILES_TAB_ID, "browser:b", "new-tab:1"]);
+    // Opening a page replaces its start tab at the position chosen by the user.
+    expect(replaceOpenTaskPanelTab(moved, "new-tab:1", "browser:c")).toEqual([
+      TASK_PANEL_FILES_TAB_ID,
+      "browser:b",
+      "browser:a",
+      "browser:c",
+    ]);
+  });
+
+  test("a closed source/target or an unchanged drop leaves the current order intact", () => {
+    const tabs = ["browser:a", "browser:b"];
+    expect(moveOpenTaskPanelTab(tabs, "closed", "browser:b", "before")).toBe(tabs);
+    expect(moveOpenTaskPanelTab(tabs, "browser:a", "closed", "after")).toBe(tabs);
+    expect(moveOpenTaskPanelTab(tabs, "browser:a", "browser:a", "after")).toBe(tabs);
+    expect(moveOpenTaskPanelTab(tabs, "browser:a", "browser:b", "before")).toBe(tabs);
+  });
+
   test("keeps an opened tab without duplicating it", () => {
     expect(addOpenTaskPanelTab(["files", "review"], "files")).toEqual(["files", "review"]);
     expect(addOpenTaskPanelTab(["files"], "review")).toEqual(["files", "review"]);

@@ -466,6 +466,7 @@ import {
 } from "./task-panel-session-ui-state";
 import {
   addOpenTaskPanelTab,
+  moveOpenTaskPanelTab,
   removeOpenTaskPanelTab,
   replaceOpenTaskPanelTab,
   resolveTaskPanelReopenTab,
@@ -11611,6 +11612,9 @@ function App() {
             {...(taskPanelPlan && { plan: taskPanelPlan })}
             activeTab={taskPanelActiveTab}
             openTabIds={openTaskPanelTabIds}
+            onReorderTabs={(source, target, position) =>
+              setOpenTaskPanelTabIds((current) => moveOpenTaskPanelTab(current, source, target, position))
+            }
             {...(runProjection && { projection: runProjection })}
             {...(activeThread && { threadStatus: activeThread.status })}
             agentDisplayNames={activeRuntimeAgentDisplayNames}

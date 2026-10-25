@@ -1,0 +1,46 @@
+.subagent-task-panel-tabs [data-task-panel-tab-id^="browser:"] .subagent-task-panel-tab,
+.subagent-task-panel-tabs [data-task-panel-tab-id^="new-tab:"] .subagent-task-panel-tab {
+  touch-action: pan-y;
+  user-select: none;
+}
+
+.subagent-task-panel-tab-shell.is-tab-dragging {
+  z-index: 2;
+  pointer-events: none;
+  will-change: transform;
+  border-radius: 8px;
+  background: var(--terminal-bg);
+  box-shadow: 0 1px 6px #0003;
+}
+
+.subagent-task-panel-tab-shell.is-tab-drop-before::before,
+.subagent-task-panel-tab-shell.is-tab-drop-after::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.subagent-task-panel-tab-shell.is-tab-drop-before::before {
+  left: 0;
+}
+.subagent-task-panel-tab-shell.is-tab-drop-after::before {
+  right: 0;
+}
+
+body.is-dragging-browser-tab {
+  cursor: grabbing;
+  user-select: none;
+}
+
+/* Keep Electron guests from taking the pointer while a tab is being moved. */
+body.is-dragging-browser-tab::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 92;
+  cursor: grabbing;
+}
