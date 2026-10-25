@@ -11,6 +11,10 @@ import {
 } from "../shared/browser";
 import { CLARIFICATION_CUSTOM_OPTION_LABEL } from "../shared/clarification";
 import {
+  commandMatchesAnyRememberedBashPrefix,
+  deriveBashApprovalRememberPrefix,
+} from "../shared/bash-approval-ui";
+import {
   type ComputerUseActionApprovalMode,
   isEcoComputerUseRuntimeServerName,
   requiresComputerUseActionApproval,
@@ -195,6 +199,8 @@ export interface CodexApprovalBridgeDeps {
   emitThreadLive: (event: ThreadLiveEvent) => void;
   updateThreadStatus: (ecoThreadId: string, patch: { status: string; message: string }) => void;
   getApprovalMode?: (ecoThreadId: string) => "always" | "auto" | "allow_all";
+  getBashRememberPrefixes?: (ecoThreadId: string) => readonly string[];
+  rememberBashPrefix?: (ecoThreadId: string, prefix: string) => void;
   /** Exact registered server owned by this thread; a matching prefix is not sufficient. */
   getMcpHubServerName?: (ecoThreadId: string) => string | undefined;
   /**
@@ -366,6 +372,16 @@ async function handleCommandExecutionRequestApproval(
     return { decision: "accept" };
   }
 
+  // An explicit user approval takes precedence over a later model review, just
+  // as it does for the other runtimes. Network gates are separate permissions.
+  const canRememberCommand = !isNetwork && Boolean(readString(params, "command"));
+  if (
+    canRememberCommand &&
+    commandMatchesAnyRememberedBashPrefix(command, deps.getBashRememberPrefixes?.(ecoThreadId) ?? [])
+  ) {
+    return { decision: "accept" };
+  }
+
   const automatic = await reviewCodexApprovalIfEnabled(deps, ecoThreadId, approvalRequest, {
     toolName: "Bash",
     toolInput: params,
@@ -380,6 +396,15 @@ async function handleCommandExecutionRequestApproval(
 
   emitBashApprovalRequested(deps, approvalRequest, command);
   const resolution = await registerPendingBashApproval(ecoThreadId, approvalRequest);
+  if (resolution.decision === "approved_remember_prefix") {
+    if (!canRememberCommand || !deps.rememberBashPrefix) {
+      throw new Error("This Codex request does not support remembering a command prefix.");
+    }
+    deps.rememberBashPrefix(ecoThreadId, deriveBashApprovalRememberPrefix(command));
+    // Keep this an individual native grant. Eco owns the remembered prefix;
+    // acceptForSession would grant broader access than the selected command.
+    return { decision: "accept" };
+  }
   await injectCodexApprovalFeedback(deps, {
     ecoThreadId,
     codexThreadId,

@@ -3586,6 +3586,8 @@ app
       getMcpHubServerName: (threadId) => mcpHubGateway.getThreadCodexServerName(threadId),
       getMcpToolApprovalTarget: (server, tool) => mcpStore.getToolApprovalTarget(server, tool),
       isMcpToolApproved: (target) => mcpStore.isToolApproved(target),
+      getBashRememberPrefixes: (threadId) => activeRunRuntimeState.bashRememberPrefixes(threadId),
+      rememberBashPrefix: (threadId, prefix) => activeRunRuntimeState.rememberBashPrefix(threadId, prefix),
       getApprovalMode: (threadId) => {
         const thread = conversationStore.getThread(threadId);
         return thread

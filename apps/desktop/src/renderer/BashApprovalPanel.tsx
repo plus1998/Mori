@@ -67,7 +67,8 @@ export function BashApprovalPanel({
         ...(request.suppressAlwaysAllowRule !== undefined && {
           suppressAlwaysAllowRule: request.suppressAlwaysAllowRule,
         }),
-        includeRememberPrefix: !request.filesystemTool && request.kind !== "image_generation",
+        includeRememberPrefix:
+          !request.filesystemTool && (request.kind === undefined || request.kind === "command"),
         includeRememberMcpTool: Boolean(request.mcpToolApproval),
       }).map((choice) => ({ choice })),
     [request.filesystemTool, request.kind, request.suppressAlwaysAllowRule, request.mcpToolApproval],
