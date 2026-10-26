@@ -1973,6 +1973,8 @@ export interface ThreadUpdateRuntimeConfigRequest {
   clientCommandId: string;
   threadId: string;
   runtimeConfig: ThreadRuntimeConfigInput;
+  /** Explicit user action to adopt the current global orchestration resources. */
+  refreshOrchestrationSnapshot?: boolean;
   expectedHistoryRevision: number;
 }
 

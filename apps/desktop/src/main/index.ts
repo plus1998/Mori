@@ -346,13 +346,11 @@ import {
   isTerminalSpawnRequest,
   isThreadRuntimeConfig,
   type ListUpstreamModelsRequest,
-  lockThreadRuntimeConfigSnapshotOnContinue,
   MAX_CLIPBOARD_IMAGE_BASE64_CHARS,
   type MainAgentConfigResource,
   type MainAgentPromptResource,
   type McpServerConfigInput,
   type ModelSettingsSnapshot,
-  materializeThreadOrchestrationSnapshot,
   normalizeThreadRuntimeConfig,
   type OrchestrationSelection,
   type PlanApprovalRequest,
@@ -372,7 +370,6 @@ import {
   runtimeRoleRoutesFromOrchestrationSnapshot,
   SUBAGENT_ROLES,
   type SubagentOrchestrationResource,
-  shouldRematerializeThreadRuntimeConfigOnContinue,
   type TerminalListRequest,
   type TestProviderConnectionRequest,
   type TestRoleRoutesRequest,
@@ -424,6 +421,7 @@ import {
   type WorktreeStatusResult,
   withAgentSessionMode,
 } from "../shared/ipc";
+import { resolveThreadRuntimeConfigUpdate } from "../shared/thread-runtime-config";
 import {
   type AppLocale,
   type AppLocalePreference,
@@ -4404,20 +4402,7 @@ function materializeThreadRuntimeConfig(
   settings: ModelSettingsSnapshot,
   config: ThreadRuntimeConfig,
 ): ThreadRuntimeConfig {
-  const normalized = normalizeThreadRuntimeConfig(config);
-  if (!hasCompleteOrchestrationSelection(normalized.orchestrationSelection)) {
-    throw new Error("无法物化线程运行时配置：编排组合不完整。");
-  }
-  try {
-    const materialized = materializeThreadOrchestrationSnapshot(settings, normalized.orchestrationSelection);
-    return normalizeThreadRuntimeConfig({
-      ...normalized,
-      ...materialized,
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`无法物化线程运行时配置：${detail}`);
-  }
+  return resolveThreadRuntimeConfigUpdate(settings, undefined, config);
 }
 
 function resolveContinueThreadRuntimeConfig(
@@ -4425,10 +4410,7 @@ function resolveContinueThreadRuntimeConfig(
   existing: ThreadRuntimeConfig | undefined,
   incoming: ThreadRuntimeConfig,
 ): ThreadRuntimeConfig {
-  if (!shouldRematerializeThreadRuntimeConfigOnContinue(existing, incoming)) {
-    return lockThreadRuntimeConfigSnapshotOnContinue(existing!, incoming);
-  }
-  return materializeThreadRuntimeConfig(settings, incoming);
+  return resolveThreadRuntimeConfigUpdate(settings, existing, incoming);
 }
 
 function roleRoutesForThreadConfig(
@@ -6811,7 +6793,10 @@ function registerIpcHandlers(): void {
         clientCommandId: request.clientCommandId,
         conversationId: request.threadId,
         expectedHistoryRevision: request.expectedHistoryRevision,
-        request: { runtimeConfig: request.runtimeConfig },
+        request: {
+          runtimeConfig: request.runtimeConfig,
+          ...(request.refreshOrchestrationSnapshot ? { refreshOrchestrationSnapshot: true } : {}),
+        },
       },
       {
         v2: conversationStore.conversationV2(),
@@ -6827,6 +6812,9 @@ function registerIpcHandlers(): void {
           const settings = getModelSettingsSnapshot();
           let runtimeConfig = incoming;
           if (thread.status === "running" || thread.status === "queued") {
+            if (request.refreshOrchestrationSnapshot) {
+              throw new Error("请等待当前运行结束后再修改配置。");
+            }
             const busy = resolveBusyThreadRuntimeConfigUpdate({
               existing,
               incoming,
@@ -6838,6 +6826,7 @@ function registerIpcHandlers(): void {
           } else if (thread.coreKind === "acp") {
             runtimeConfig = normalizeThreadRuntimeConfig(incoming);
           } else if (
+            !request.refreshOrchestrationSnapshot &&
             existing &&
             isBusyMutableOnlyRuntimeConfigUpdate(existing, incoming) &&
             existing.resolvedOrchestrationSnapshot
@@ -6846,7 +6835,9 @@ function registerIpcHandlers(): void {
             // role selections): keep the locked session snapshot, patch those fields.
             runtimeConfig = applyBusyMutableRuntimeConfigFields(existing, incoming);
           } else {
-            runtimeConfig = materializeThreadRuntimeConfig(settings, incoming);
+            runtimeConfig = resolveThreadRuntimeConfigUpdate(settings, existing, incoming, {
+              refreshSnapshot: request.refreshOrchestrationSnapshot === true,
+            });
           }
           if (thread.coreKind === "codex") {
             await assertCodexSkillsConfigReloadAllowed(
@@ -14571,11 +14562,15 @@ function parseThreadUpdateRuntimeConfigRequest(payload: unknown): ThreadUpdateRu
   if (!isRecord(payload)) {
     throw new Error("Invalid runtime config payload.");
   }
+  if (payload.refreshOrchestrationSnapshot !== undefined && typeof payload.refreshOrchestrationSnapshot !== "boolean") {
+    throw new Error("Invalid orchestration snapshot refresh intent.");
+  }
   return {
     principalId: readRequiredString(payload.principalId, "Principal id is required."),
     clientCommandId: readRequiredString(payload.clientCommandId, "Client command id is required."),
     threadId: readRequiredString(payload.threadId, "Thread id is required."),
     runtimeConfig: parseThreadRuntimeConfigInput(payload.runtimeConfig),
+    ...(payload.refreshOrchestrationSnapshot === true ? { refreshOrchestrationSnapshot: true } : {}),
     expectedHistoryRevision: readExpectedHistoryRevision(payload.expectedHistoryRevision),
   };
 }

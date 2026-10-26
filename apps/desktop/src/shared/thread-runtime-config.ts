@@ -410,6 +410,48 @@ export function lockThreadRuntimeConfigSnapshotOnContinue(
   );
 }
 
+/** Shared by configuration saves and continuation: global defaults seed new
+ * sessions, while an existing session changes models only through its own
+ * explicit model override or a different main-agent configuration selection.
+ */
+export function resolveThreadRuntimeConfigUpdate(
+  settings: ModelSettingsSnapshot,
+  existing: ThreadRuntimeConfig | undefined,
+  incoming: ThreadRuntimeConfig,
+  options: { refreshSnapshot?: boolean } = {},
+): ThreadRuntimeConfig {
+  const normalized = normalizeThreadRuntimeConfig(incoming);
+  if (
+    !options.refreshSnapshot &&
+    existing &&
+    !shouldRematerializeThreadRuntimeConfigOnContinue(existing, normalized)
+  ) {
+    return lockThreadRuntimeConfigSnapshotOnContinue(existing, normalized);
+  }
+  if (!hasCompleteOrchestrationSelection(normalized.orchestrationSelection)) {
+    throw new Error("无法物化线程运行时配置：编排组合不完整。");
+  }
+  try {
+    const materialized = materializeThreadOrchestrationSnapshot(settings, normalized.orchestrationSelection);
+    const previous = existing?.resolvedOrchestrationSnapshot;
+    if (
+      previous &&
+      !options.refreshSnapshot &&
+      existing?.orchestrationSelection?.mainAgentConfigId ===
+        normalized.orchestrationSelection.mainAgentConfigId
+    ) {
+      // Selecting a prompt or subagent roster must not also import a newly
+      // remembered global model from the unchanged main-agent template.
+      materialized.resolvedOrchestrationSnapshot.mainAgent.modelRef = structuredClone(
+        previous.mainAgent.modelRef,
+      );
+    }
+    return normalizeThreadRuntimeConfig({ ...normalized, ...materialized });
+  } catch (error) {
+    throw new Error(`无法物化线程运行时配置：${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 export function normalizeThreadRuntimeConfig(config: ThreadRuntimeConfig): ThreadRuntimeConfig {
   const bashReviewMode = normalizeBashReviewMode(config.bashReviewMode);
   const rawMcpServersEnabled = normalizeMcpServersEnabled(config.mcpServersEnabled);

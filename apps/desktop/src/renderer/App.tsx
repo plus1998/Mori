@@ -8,6 +8,7 @@ import { composerReferenceToken } from "../shared/composer-references";
 import { browserSelectionReference, type BrowserSelection } from "../shared/browser-selection";
 import { BrowserSelectionPreview } from "./BrowserSelectionPreview";
 import { FollowUpPromptPreview } from "./FollowUpPromptPreview";
+import { ComposerPromptCacheBaseline } from "./composer-prompt-cache-baseline";
 import { startTaskPanelResizeSession } from "./task-panel-resize-session";
 import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "./browser-selection-events";
 import { OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID } from "../shared/agent-orchestration";
@@ -5528,8 +5529,9 @@ function App() {
   const autoCompactSuspended = isThreadAutoCompactSuspended(runProjection);
   const promptCacheInvalidated =
     promptCacheTipPreferences.enabled && isThreadPromptCacheInvalidated(runProjection);
-  const promptCacheBaselineByThreadRef = useRef<Record<string, ThreadRuntimeConfig>>({});
+  const promptCacheBaselineByThreadRef = useRef(new ComposerPromptCacheBaseline());
   const [promptCacheBaselineVersion, setPromptCacheBaselineVersion] = useState(0);
+  const latestPromptCacheAttemptId = runProjection?.attempts.at(-1)?.attemptId;
 
   useEffect(() => {
     const threadId = activeThread?.id;
@@ -5537,19 +5539,18 @@ function App() {
     if (!threadId || !runtimeConfig || !runProjection?.timeline.length) {
       return;
     }
-    if (promptCacheBaselineByThreadRef.current[threadId]) {
+    if (!promptCacheBaselineByThreadRef.current.observe(threadId, runtimeConfig, latestPromptCacheAttemptId)) {
       return;
     }
-    promptCacheBaselineByThreadRef.current[threadId] = runtimeConfig;
     setPromptCacheBaselineVersion((current) => current + 1);
-  }, [activeThread?.id, activeThread?.runtimeConfig, runProjection?.timeline.length]);
+  }, [activeThread?.id, activeThread?.runtimeConfig, latestPromptCacheAttemptId, runProjection?.timeline.length]);
 
   const composerPromptCacheDrift = useMemo(() => {
     const threadId = activeThread?.id;
     if (!threadId || !composerRuntimeConfig || !runProjection?.timeline.length) {
       return null;
     }
-    const baseline = promptCacheBaselineByThreadRef.current[threadId];
+    const baseline = promptCacheBaselineByThreadRef.current.get(threadId);
     if (!baseline) {
       return null;
     }
@@ -6938,7 +6939,7 @@ function App() {
         return;
       }
       setError(undefined);
-      await persistComposerRuntimeConfig(next);
+      await persistComposerRuntimeConfig(next, { refreshOrchestrationSnapshot: true });
     } catch (caught) {
       setError(errorMessage(caught));
     }
@@ -8616,12 +8617,6 @@ function App() {
           [activeThread.id]: mergeThreadFollowUps(current[activeThread.id] ?? [], result.followUps),
         }));
         requestActivityFeedForceScroll();
-        // 用户已发送消息，接受当前的 prompt cache 配置漂移
-        const acceptedRuntimeConfig = effectiveComposerRuntimeConfig ?? composerRuntimeConfig;
-        if (acceptedRuntimeConfig) {
-          promptCacheBaselineByThreadRef.current[activeThread.id] = acceptedRuntimeConfig;
-          setPromptCacheBaselineVersion((v) => v + 1);
-        }
         revokeComposerAttachmentPreviews(restoreAttachments);
       } catch (caught) {
         setPrompt(restorePrompt);
@@ -8681,9 +8676,6 @@ function App() {
           });
         }
         requestActivityFeedForceScroll();
-        // 用户已发送消息，接受当前的 prompt cache 配置漂移
-        promptCacheBaselineByThreadRef.current[activeThread.id] = runtimeConfigForSend;
-        setPromptCacheBaselineVersion((v) => v + 1);
       } else {
         const result = await window.eco.startThread({
           workspacePath: currentProjectPath,
@@ -8702,10 +8694,6 @@ function App() {
         if (result.thread.status === "blocked") {
           setError(result.thread.message?.trim() || t("app.configureOrchestration"));
         }
-        // 用户已发送消息，接受当前的 prompt cache 配置漂移
-        promptCacheBaselineByThreadRef.current[result.thread.id] =
-          result.thread.runtimeConfig ?? runtimeConfigForSend;
-        setPromptCacheBaselineVersion((v) => v + 1);
         requestActivityFeedForceScroll();
       }
       revokeComposerAttachmentPreviews(restoreAttachments);
@@ -9765,7 +9753,7 @@ function App() {
 
   async function persistComposerRuntimeConfig(
     next: ThreadRuntimeConfig,
-    options?: { persistWhileRunning?: boolean },
+    options?: { persistWhileRunning?: boolean; refreshOrchestrationSnapshot?: boolean },
   ): Promise<boolean> {
     if (!activeThread) {
       setComposerRuntimeConfig(next);
@@ -9786,6 +9774,7 @@ function App() {
       const result = await window.eco.updateThreadRuntimeConfig(
         await buildV2CommandEnvelope(activeThread.id, "runtime-config", {
           runtimeConfig: next,
+          ...(options?.refreshOrchestrationSnapshot ? { refreshOrchestrationSnapshot: true } : {}),
         }),
       );
       setThreads((current) =>
