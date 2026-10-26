@@ -1,3 +1,4 @@
+import type { AccountUsageHistory, AccountUsageQuery, UsageOverview, UsageOverviewQuery } from "../shared/account-usage";
 import type { GenerationToolRequest } from "../shared/generation-tools";
 import type { ImageGenerationToolInput } from "../shared/image-generation";
 import type { TtsToolInput } from "../shared/tts";
@@ -622,6 +623,12 @@ const api = {
     updatedAt: number;
   }>> {
     return ipcRenderer.invoke(IPC_CHANNELS.chatGptSubscriptionAccountsList);
+  },
+  accountUsageHistory(query: AccountUsageQuery): Promise<AccountUsageHistory> {
+    return ipcRenderer.invoke(IPC_CHANNELS.accountUsageHistory, query);
+  },
+  usageOverview(query: UsageOverviewQuery): Promise<UsageOverview> {
+    return ipcRenderer.invoke(IPC_CHANNELS.usageOverview, query);
   },
   chatGptSubscriptionAccountCreate(displayName?: string, proxyUrl?: string): Promise<unknown> {
     return ipcRenderer.invoke(IPC_CHANNELS.chatGptSubscriptionAccountCreate, { displayName, proxyUrl });

@@ -18,6 +18,7 @@ import {
   credentialResolutionErrorResponse,
   reportRouteCredentialResult,
   resolveRouteCredential,
+  withCredentialUsageAccount,
 } from "../route-credentials.js";
 import type { GatewayLogFn } from "../server.js";
 import type {
@@ -74,6 +75,7 @@ export async function handlePostChatCompletions(
   if (imageRejection) return imageRejection;
   try {
     route = await resolveRouteCredential(route, config, request);
+    onUsage = withCredentialUsageAccount(route, onUsage);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return credentialResolutionErrorResponse(error);

@@ -1,4 +1,5 @@
 import type { CodexModelCatalogSnapshot } from "../shared/models";
+import { AccountUsageHistoryButton } from "./components/AccountUsageHistoryDialog";
 import { AccountModelCatalogSection } from "./components/AccountModelCatalogSection";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -334,6 +335,7 @@ export function ChatGPTSubscriptionAccountsPanel({
                 <span className={`chatgpt-status-badge is-${tone}`}><i />{statusLabel(account, t)}</span>
                 <div className="chatgpt-account-actions">
                   {account.hasCredentials && account.status !== "reauthorization_required" ? <button type="button" className="chatgpt-action-secondary" disabled={busy} onClick={() => { setTestResult(undefined); setTestDialog(account);  }}>{t("settings.chatgptAccounts.testConnection")}</button> : <button type="button" className="chatgpt-action-primary" disabled={busy} onClick={() => void login(account.accountId)}><KeyRound size={14} />{account.hasCredentials ? t("settings.chatgptAccounts.reauthorize") : t("settings.chatgptAccounts.startAuthorization")}</button>}
+                  <AccountUsageHistoryButton kind="chatgpt_oauth" accountId={account.accountId} name={account.displayName} />
                   <button type="button" className="mcp-icon-button" aria-label={t("settings.openaiAccounts.moreActionsAria", { name: account.displayName })} aria-haspopup="menu" aria-expanded={menu?.account.accountId === account.accountId} disabled={busy} onClick={(event) => {
                     if (menu?.account.accountId === account.accountId) { setMenu(undefined); return; }
                     menuTriggerRef.current = event.currentTarget;

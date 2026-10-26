@@ -144,6 +144,11 @@ export interface GatewayCodexTurnMetadata {
 }
 
 export interface GatewayUsageEvent {
+  /** Local credential selected for this physical request, captured before sending. */
+  accountId?: string;
+  /** Non-secret provider identity captured before the upstream request. */
+  providerName?: string;
+  providerAuthMethod?: GatewayProvider["authMethod"];
   source: "responses" | "messages" | "chat_completions";
   sourceEventId: string;
   providerId: string;

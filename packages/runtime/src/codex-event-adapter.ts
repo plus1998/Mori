@@ -25,7 +25,7 @@ import {
 } from "./codex-context-snapshot.js";
 import type { CodexSpawnPayload, CodexSpawnPayloadMatchInput } from "./codex-spawn-role-queue.js";
 import type { CodexThreadAttribution } from "./codex-thread-attribution.js";
-import type { CodexTurnRouteRecord, CodexTurnRouteRegistry } from "./codex-turn-route-registry.js";
+import type { CodexTurnRouteRecord, CodexTurnRouteRegistry, CodexTurnTokenUsageSnapshot } from "./codex-turn-route-registry.js";
 import { resolveEcoMcpHubSearchCall, resolveEcoMcpHubToolCall } from "./eco-mcp-hub-tool.js";
 import { resolveEcoImageViewToolCall } from "./eco-image-view-tool.js";
 import { readMcpToolOutputText } from "./mcp-tool-output-text.js";
@@ -183,6 +183,10 @@ export interface CodexEventAdapterOptions {
   resolveOrchestrationRoleIds?: () => readonly string[] | undefined;
   /** Called when `turn/started` is observed (main or child). */
   onTurnStarted?: (input: { codexThreadId: string; turnId: string }) => void;
+  /** Raw, validated usage for account history, including native child turns and compaction. */
+  onAccountTokenUsage?: (input: { codexThreadId: string; turnId: string; usage: CodexTurnTokenUsageSnapshot }) => void;
+  onTurnFinished?: (input: { codexThreadId: string; turnId: string }) => void;
+  onThreadRouteCleanup?: (codexThreadId: string) => void;
   /** Called when `thread/tokenUsage/updated` yields context occupancy (§4.4). */
   onTokenUsageUpdated?: (resolution: CodexContextSnapshotResolution) => void;
   /** Called with the authoritative main-thread task snapshot from `turn/plan/updated`. */
@@ -446,6 +450,7 @@ function handleTurnCompleted(ctx: AdapterContext, params: Record<string, unknown
   // Consume before emitting/callbacks so every terminal status and thrown callback
   // clears the route exactly once.
   const turnRoute = ctx.turnRouteRegistry?.consume(codexThreadId, turnId);
+  ctx.onTurnFinished?.({codexThreadId,turnId});
   const appServerTokenUsage = turnRoute?.appServerTokenUsage;
   const turnApiError = readCodexTurnApiError(params);
   const errorMessage = turnApiError?.message;
@@ -655,6 +660,7 @@ function handleTokenUsageUpdated(ctx: AdapterContext, params: Record<string, unk
   let turnRoute: CodexTurnRouteRecord | undefined;
   const parsedTokenUsage = parseCodexThreadTokenUsage(params.tokenUsage);
   if (codexThreadId && turnId) {
+    if (parsedTokenUsage) ctx.onAccountTokenUsage?.({codexThreadId,turnId,usage:parsedTokenUsage});
     turnRoute = parsedTokenUsage
       ? ctx.turnRouteRegistry?.observeTokenUsage(codexThreadId, turnId, parsedTokenUsage)
       : ctx.turnRouteRegistry?.peek(codexThreadId, turnId);
@@ -676,6 +682,7 @@ function handleThreadRouteCleanup(ctx: AdapterContext, params: Record<string, un
   const codexThreadId = readCodexThreadId(params);
   if (codexThreadId) {
     ctx.turnRouteRegistry?.clearThread(codexThreadId);
+    ctx.onThreadRouteCleanup?.(codexThreadId);
   }
 }
 

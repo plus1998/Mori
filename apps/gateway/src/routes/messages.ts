@@ -49,6 +49,7 @@ import {
 import {
   credentialResolutionErrorResponse,
   resolveRouteCredential,
+  withCredentialUsageAccount,
 } from "../route-credentials.js";
 import type { GatewayLogFn } from "../server.js";
 import {
@@ -163,6 +164,7 @@ export async function handlePostMessages(
   if (imageRejection) return imageRejection;
   try {
     route = await resolveRouteCredential(route, config, request);
+    onUsage = withCredentialUsageAccount(route, onUsage);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return credentialResolutionErrorResponse(error);

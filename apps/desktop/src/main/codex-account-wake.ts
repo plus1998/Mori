@@ -1,6 +1,9 @@
 import { startCodexThreadSerially } from "@eco/runtime/codex-app-server-driver";
 import type { CodexQuotaClient } from "./codex-account-quota";
 import { latestLunaModelId } from "../shared/codex-wake-model";
+import { parseCodexThreadTokenUsage } from "@eco/runtime";
+import { CodexAccountUsageTracker } from "./codex-account-usage-tracker";
+import type { AccountUsageRecord } from "./account-usage-store";
 
 interface WakeTurn {
   id: string;
@@ -14,6 +17,7 @@ export async function wakeCodexAccount(
   client: CodexQuotaClient,
   selectedModelId: string | null = null,
   timeoutMs = 90_000,
+  accounting?: { accountId: string; onUsage: (record: AccountUsageRecord, aggregate: boolean) => void },
 ): Promise<string> {
   if (!client.addNotificationHandler) throw new Error("Codex 客户端不支持接收唤醒回复。");
   let model = selectedModelId?.trim();
@@ -55,8 +59,19 @@ export async function wakeCodexAccount(
   const messages = new Map<string, string>();
   let completed = false;
   let turnId: string | undefined;
+  const usageTracker = new CodexAccountUsageTracker();
   const unsubscribe = client.addNotificationHandler((method, params) => {
     if (!isRecord(params) || params.threadId !== threadId) return;
+    if (accounting && method === "turn/started" && isRecord(params.turn) && typeof params.turn.id === "string") {
+      usageTracker.start(threadId, params.turn.id, { accountId: accounting.accountId, modelId: model });
+    }
+    if (accounting && method === "thread/tokenUsage/updated" && typeof params.turnId === "string") {
+      const usage = parseCodexThreadTokenUsage(params.tokenUsage);
+      if (usage) {
+        const observed = usageTracker.observe(threadId, params.turnId, usage, Date.now());
+        if (observed) accounting.onUsage(observed.record, observed.aggregate);
+      }
+    }
     if (method === "item/completed" && isRecord(params.item)) {
       const item = params.item;
       if (item.type === "agentMessage" && typeof item.id === "string" && typeof item.text === "string") {
@@ -98,6 +113,7 @@ export async function wakeCodexAccount(
   } finally {
     clearTimeout(timer);
     unsubscribe();
+    usageTracker.clearThread(threadId);
     if (!completed && turnId) {
       await client
         .request("turn/interrupt", { threadId, turnId }, { timeoutMs: 5_000 })

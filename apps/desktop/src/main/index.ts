@@ -1,3 +1,4 @@
+import { recordProviderUsage } from "./provider-usage-recorder";
 import { resolveGenerationToolContext } from "./generation-tool-context";
 import type { ImageGenerationToolInput } from "../shared/image-generation";
 import type { TtsToolInput } from "../shared/tts";
@@ -260,6 +261,10 @@ import {
   isEcoHtmlHostToolName,
 } from "../shared/html-host-tool";
 import { expectedIpcErrorKey, translateCatalog } from "../shared/i18n-catalogs";
+import type { AccountUsageQuery } from "../shared/account-usage";
+import { AccountUsageStore, type AccountUsageRecord } from "./account-usage-store";
+import { CodexAccountUsageTracker } from "./codex-account-usage-tracker";
+import { estimateCostFromTokens } from "@eco/runtime";
 import {
   buildImageDisplayPromptAppend,
   ECO_IMAGE_DISPLAY_MCP_SERVER,
@@ -585,6 +590,7 @@ import {
   type RuntimeRoute,
   resolveRatesForRoute,
   resolveRuntimeRoutesFromSettings,
+  resolveUsageRoute,
 } from "./billing-resolver";
 import {
   type BillingRuntimeEnvironment,
@@ -1837,6 +1843,8 @@ const codexGatewayUsagePending = new CodexGatewayUsagePendingBuffer({
 });
 let agentLifecycle: AgentLifecycleService;
 let openaiAccountService: OpenAIAccountService | undefined;
+let accountUsageStore: AccountUsageStore;
+const codexAccountUsageTracker = new CodexAccountUsageTracker();
 let openaiAccountAssistant: OpenAIAccountAssistant | undefined;
 let usageLedgerCoordinator: UsageLedgerCoordinator;
 let subagentMetricsRegistry: SubagentMetricsRegistry;
@@ -2635,6 +2643,8 @@ app
     );
     const dbPath = path.join(app.getPath("userData"), "eco-coding.sqlite");
     const todoSqlite = await import("node:sqlite");
+    accountUsageStore = new AccountUsageStore(new todoSqlite.DatabaseSync(dbPath));
+    app.once("will-quit", () => accountUsageStore.close());
     projectTodoStore = new ProjectTodoStore(new todoSqlite.DatabaseSync(dbPath), bytes => {
       const image = nativeImage.createFromBuffer(bytes);
       if (image.isEmpty()) return "";
@@ -3123,6 +3133,24 @@ app
       },
       getGlobalMaxOutputTokens: () => workflowSettingsStore.get().maxOutputLimitTokens,
       onUsage: async (event) => {
+        // Record physical account usage even if conversation attribution has already closed.
+        // Credential ownership is stamped by the gateway before the upstream request.
+        if (event.accountId) {
+          recordAccountUsage({
+            ...event.usage,
+            kind: "chatgpt_oauth",
+            accountId: event.accountId,
+            eventId: event.sourceEventId,
+            modelId: event.upstreamModelId,
+            observedAt: Date.parse(event.observedAt),
+          });
+        } else {
+          try {
+            recordGatewayProviderUsage(event);
+          } catch (error) {
+            reportAccountUsageRecordingFailure({ kind: "custom_provider", accountId: event.providerId }, error);
+          }
+        }
         const dispatch = classifyGatewayUsageEvent(event);
         if (dispatch.kind === "claude_messages") {
           // Synchronously reserve settle before any await so proxy.close() cannot race past billing.
@@ -3482,6 +3510,32 @@ app
       scheduleThreadRunProjectionUpdated,
       onCodexThreadMapped: flushPendingCodexGatewayUsage,
       onCodexThreadAttributionRecorded: flushPendingCodexGatewayUsage,
+      accountUsageObserver: {
+        onTurnStarted: ({ codexThreadId, turnId }) => {
+          const accountId = openaiAccountService?.getUsageAccountId();
+          if (!accountId) return;
+          try {
+            const attribution = resolveCodexThreadAttribution(codexThreadMap, codexThreadId);
+            if (!attribution || !conversationStore.getThread(attribution.ecoThreadId)) return;
+            const role = normalizeTelemetryBillingRole(attribution.billingRole);
+            const route = resolveRoleRoutesForThread(attribution.ecoThreadId).find(
+              candidate => normalizeTelemetryBillingRole(candidate.role) === role && candidate.providerId === "openai",
+            );
+            if (!route || providerStore.listProvidersWithSecrets().some(
+              provider => provider.id === "openai" && provider.hasApiKey,
+            )) return;
+            codexAccountUsageTracker.start(codexThreadId, turnId, { accountId, modelId: route.modelId });
+          } catch (error) {
+            reportAccountUsageRecordingFailure({ kind: "chatgpt_login", accountId }, error);
+          }
+        },
+        onAccountTokenUsage: ({ codexThreadId, turnId, usage }) => {
+          const observed = codexAccountUsageTracker.observe(codexThreadId, turnId, usage, Date.now());
+          if (observed) recordAccountUsage(observed.record, observed.aggregate);
+        },
+        onTurnFinished: ({ codexThreadId, turnId }) => codexAccountUsageTracker.finish(codexThreadId, turnId),
+        onThreadRouteCleanup: codexThreadId => codexAccountUsageTracker.clearThread(codexThreadId),
+      },
       onCodexTurnTokenUsage: ({ threadId, codexThreadId, turnId, appServerTokenUsage }) => {
         void handleCodexAppServerTurnUsage({ threadId, codexThreadId, turnId, appServerTokenUsage }).catch(
           (error) => {
@@ -4055,6 +4109,7 @@ async function getChatGptSubscriptionService(): Promise<ChatGptSubscriptionServi
         codec,
         createChatGptSubscriptionFetch(() => resolveOutboundProxyUrl(proxyBridgeSettingsStore.get())),
         createChatGptSubscriptionFetchForProxy,
+        recordAccountUsage,
       );
       await service.initialize();
       chatgptSubscriptionService = service;
@@ -7138,6 +7193,9 @@ function registerIpcHandlers(): void {
     return service.listAccounts();
   });
 
+  registerDesktopCommand(IPC_CHANNELS.accountUsageHistory, (query: AccountUsageQuery) => accountUsageStore.history(query));
+  registerDesktopCommand(IPC_CHANNELS.usageOverview, (query: import("../shared/account-usage").UsageOverviewQuery) => accountUsageStore.overview(query));
+
   registerDesktopCommand(
     IPC_CHANNELS.chatGptSubscriptionAccountCreate,
     async (payload: { displayName?: string; proxyUrl?: string }) => {
@@ -7525,7 +7583,7 @@ function registerIpcHandlers(): void {
           for (const window of BrowserWindow.getAllWindows()) {
             if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.openAIAccountsChanged, state);
           }
-        }, ensureCodexControlPlaneClient, resolveSystemProxyUrl);
+        }, ensureCodexControlPlaneClient, resolveSystemProxyUrl,recordAccountUsage);
         await service.initialize();
         openaiAccountService = service;
         for (const thread of conversationStore.listThreads()) {
@@ -18054,6 +18112,105 @@ async function emitProxyUsage(
   } catch (error) {
     process.stderr.write(`[eco] proxy usage billing failed: ${errorMessage(error)}\n`);
     return null;
+  }
+}
+
+function recordAccountUsage(record: AccountUsageRecord, aggregate = false): void {
+  try {
+    if (!accountUsageStore.append(record)) return;
+  } catch (error) {
+    // Account history must not stop the request's existing conversation billing.
+    // Persist and expose the gap instead of silently presenting incomplete totals.
+    reportAccountUsageRecordingFailure(record, error);
+    return;
+  }
+  // Persist tokens synchronously before catalog/network work. A failed price lookup
+  // stays explicitly unpriced instead of losing tokens or reporting a free request.
+  const usage: ParsedUsage = { ...record, modelId: record.modelId };
+  void Promise.resolve().then(async () => {
+    const catalog = record.kind === "chatgpt_login" ? getCodexModelCatalogService() : getChatGptModelCatalogService();
+    const rates = await catalog.resolveApiRates(record.modelId, usage, aggregate);
+    if (rates) accountUsageStore.setEstimatedCost(record, estimateCostFromTokens(usage, rates));
+  }).catch(error => {
+    process.stderr.write(`[account-usage] price unresolved kind=${record.kind} model=${record.modelId}: ${errorMessage(error)}\n`);
+  });
+}
+
+/** Gateway owns physical Codex/Claude/Pi requests; runtime summaries must not be recorded again. */
+function recordGatewayProviderUsage(event: import("@eco/gateway").GatewayUsageEvent): void {
+  const provider = providerStore.getProviderWithSecret(event.providerId);
+  // A missing credential stamp on a subscription route cannot become custom-provider usage.
+  if (event.providerAuthMethod === "chatgpt_subscription") {
+    process.stderr.write(`[usage] OAuth usage missing account ownership: ${event.sourceEventId}\n`);
+    return;
+  }
+  const candidate = providerStore
+    .listCandidateModels(event.providerId)
+    .find((model) => model.modelId === event.upstreamModelId);
+  let pricingRoute: Parameters<UsageBillingPricingLookup>[0] | undefined = provider
+    ? {
+        provider,
+        modelId: event.upstreamModelId,
+        ...(candidate?.modelsDevMapping && { modelsDevMapping: candidate.modelsDevMapping }),
+        ...(candidate?.manualSpec && { manualSpec: candidate.manualSpec }),
+      }
+    : undefined;
+  const attribution = event.codexTurnMetadata
+    ? resolveCodexThreadAttribution(codexThreadMap, event.codexTurnMetadata.threadId)
+    : undefined;
+  const threadId = event.threadId ?? attribution?.ecoThreadId;
+  if (threadId && conversationStore.getThread(threadId)) {
+    try {
+      const routes = resolveRuntimeRoutesForThread(threadId).filter(
+        (route) => route.provider.id === event.providerId,
+      );
+      const route = resolveUsageRoute(attribution?.billingRole ?? "main", event.requestedModel, routes);
+      if (route?.modelId === event.upstreamModelId) {
+        const manualSpec = mergeRouteManualSpec(candidate?.manualSpec, route.manualSpec);
+        const modelsDevMapping = route.modelsDevMapping ?? candidate?.modelsDevMapping;
+        pricingRoute = {
+          provider: route.provider,
+          modelId: event.upstreamModelId,
+          ...(modelsDevMapping && { modelsDevMapping }),
+          ...(manualSpec && { manualSpec }),
+        };
+      }
+    } catch (error) {
+      // Retain tokens, but do not invent prices when the exact route cannot be read.
+      pricingRoute = undefined;
+      process.stderr.write(`[usage] provider pricing route unresolved: ${errorMessage(error)}\n`);
+    }
+  }
+  void recordProviderUsage(
+    {
+      store: accountUsageStore,
+      lookupPricing: lookupUsageBillingPricing,
+      recordingFailed: reportAccountUsageRecordingFailure,
+      pricingFailed: (record, error) =>
+        process.stderr.write(
+          `[usage] price unresolved provider=${record.accountId} model=${record.modelId}: ${errorMessage(error)}\n`,
+        ),
+    },
+    {
+      ...event.usage,
+      kind: "custom_provider",
+      accountId: event.providerId,
+      providerName: event.providerName ?? event.providerId,
+      eventId: event.sourceEventId,
+      modelId: event.upstreamModelId,
+      observedAt: Date.parse(event.observedAt),
+    },
+    pricingRoute,
+  );
+}
+
+function reportAccountUsageRecordingFailure(identity: Pick<AccountUsageRecord, "kind" | "accountId">, error: unknown): void {
+  const message = errorMessage(error);
+  process.stderr.write(`[account-usage] recording failed: ${message}\n`);
+  try {
+    accountUsageStore.recordFailure(identity, message);
+  } catch (diagnosticError) {
+    process.stderr.write(`[account-usage] recording failure could not be saved: ${errorMessage(diagnosticError)}\n`);
   }
 }
 

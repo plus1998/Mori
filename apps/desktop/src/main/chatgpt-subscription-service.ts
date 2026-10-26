@@ -6,10 +6,12 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import {
   IncrementalSseParser,
   parseResponsesSseFrame,
+  normalizeResponsesUsage,
   type GatewayCredentialResult,
   type GatewayProvider,
   type GatewayUpstreamErrorInfo,
 } from "@eco/gateway";
+import type { AccountUsageRecord } from "./account-usage-store";
 
 const AUTHORIZATION_ENDPOINT = "https://auth.openai.com/api/accounts/authorize";
 const TOKEN_ENDPOINT = "https://auth.openai.com/api/accounts/oauth/token";
@@ -265,6 +267,7 @@ export class ChatGptSubscriptionService {
     private readonly codec: SecretCodec,
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly explicitProxyFetchFactory?: (proxyUrl: string) => typeof fetch,
+    private readonly onUsage?: (record: AccountUsageRecord) => void,
   ) {}
 
   async initialize(): Promise<void> {
@@ -569,6 +572,21 @@ export class ChatGptSubscriptionService {
             const eventResponse = isRecord(event.response) ? event.response : undefined;
             responseId = readOptionalString(eventResponse ?? {}, "id") ?? responseId;
             const type = readOptionalString(event, "type");
+            if (
+              eventResponse?.usage && this.onUsage &&
+              (type === "response.completed" || type === "response.failed" || type === "response.incomplete")
+            ) {
+              const usageModel = readOptionalString(eventResponse, "model") ?? model;
+              const usage = normalizeResponsesUsage(eventResponse.usage as never, usageModel);
+              if (usage) {
+                this.onUsage({
+                  ...usage, kind: "chatgpt_oauth", accountId, modelId: usageModel,
+                  eventId: `oauth-test:${responseId ?? logicalRequestId}`, observedAt: Date.now(),
+                });
+              } else {
+                process.stderr.write("[account-usage] OAuth account test returned invalid usage; tokens not recorded.\n");
+              }
+            }
             if (type === "response.completed") {
               if (!responseId) {
                 failure = {

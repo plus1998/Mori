@@ -39,6 +39,7 @@ import type {
   OpenAIAccountSyncStatus,
 } from "../../shared/openai-account";
 import { type AppLocale, formatAppDateTime } from "../../shared/locale";
+import { AccountUsageHistoryButton } from "./AccountUsageHistoryDialog";
 import { AccountModelCatalogSection } from "./AccountModelCatalogSection";
 import { CodexExternalLoginDialog } from "./CodexExternalLoginDialog";
 import type { CodexModelCatalogSnapshot } from "../../shared/models";
@@ -1163,6 +1164,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                         {loggingInId === account.id ? t("settings.openaiAccounts.loggingIn") : t("settings.openaiAccounts.login")}
                       </button>
                     ) : null}
+                    <AccountUsageHistoryButton kind="chatgpt_login" accountId={account.id} name={account.name} />
                     <button
                       type="button"
                       className="mcp-icon-button"

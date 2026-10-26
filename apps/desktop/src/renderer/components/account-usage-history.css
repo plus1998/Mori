@@ -1,0 +1,179 @@
+.account-usage-dialog {
+  width: min(860px, calc(100vw - 40px));
+  max-height: calc(100dvh - 64px);
+  padding: 0;
+  color: var(--text-primary);
+  background: var(--bg-main);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  box-shadow: 0 24px 80px #0005;
+}
+.account-usage-dialog::backdrop {
+  background: #0006;
+}
+.account-usage-shell {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 66px);
+}
+.account-usage-shell > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.account-usage-shell h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+.account-usage-shell header p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.account-usage-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.account-usage-totals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.account-usage-totals span {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.account-usage-totals strong {
+  font-size: 25px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.account-usage-hint,
+.account-usage-body footer {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.account-usage-warning {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+.account-usage-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 20px 0 12px;
+}
+.account-usage-toolbar .account-usage-periods {
+  display: flex;
+  margin: 0;
+  border: 0;
+  min-width: 0;
+  padding: 3px;
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  gap: 3px;
+}
+.account-usage-toolbar .account-usage-periods button {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 5px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.account-usage-toolbar .account-usage-periods button[aria-pressed="true"] {
+  background: var(--bg-main);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px #0002;
+}
+.account-usage-table-wrap {
+  overflow-x: auto;
+}
+.account-usage-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.account-usage-table-wrap th {
+  text-align: left;
+  color: var(--text-secondary);
+  font-weight: 500;
+  padding: 10px 0;
+}
+.account-usage-table-wrap td {
+  padding: 13px 0;
+  border-top: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+.account-usage-table-wrap :is(td, th):not(:first-child) {
+  text-align: right;
+  padding-left: 14px;
+  white-space: nowrap;
+}
+.account-usage-table-wrap summary {
+  cursor: pointer;
+  line-height: 1.6;
+}
+.account-usage-table-wrap dl {
+  margin: 12px 0 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.account-usage-table-wrap dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 3px 0;
+}
+.account-usage-table-wrap dd {
+  margin: 0;
+}
+.account-usage-empty {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 28px 0;
+  font-size: 13px;
+}
+.account-usage-more {
+  display: block;
+  margin: 16px auto;
+  padding: 7px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+.account-usage-body footer {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+.account-usage-body footer p {
+  margin: 4px 0;
+}
+@media (max-width: 560px) {
+  .account-usage-body {
+    padding: 16px;
+  }
+  .account-usage-totals strong {
+    font-size: 20px;
+  }
+  .account-usage-toolbar .account-usage-periods button {
+    padding: 6px 10px;
+  }
+}

@@ -224,6 +224,8 @@ export interface CodexRuntimeRunDeps {
   /** Runs only after the root Eco -> Codex thread mapping has been persisted successfully. */
   onCodexThreadMapped?: (codexThreadId: string) => void;
   onCodexContextUpdated?: (resolution: CodexContextSnapshotResolution) => void;
+  accountUsageObserver?: Pick<ConstructorParameters<typeof CodexEventAdapter>[0],
+    "onTurnStarted" | "onAccountTokenUsage" | "onTurnFinished" | "onThreadRouteCleanup">;
   /**
    * Codex app-server per-turn token usage (terminal `turn/completed`). Used as
    * the billing source for direct (non-gateway) routes such as built-in OpenAI.
@@ -415,6 +417,7 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
     return resolveAttribution(codexThreadId)?.ecoThreadId ?? codexThreadId;
   };
   eventAdapter = new CodexEventAdapter({
+    ...config.accountUsageObserver,
     resolveEcoThreadId,
     turnRouteRegistry,
     recordThreadRunEvent: (event) => {

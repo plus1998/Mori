@@ -1,0 +1,56 @@
+export const usageOverviewTranslations = {
+  "zh-CN": {
+    "usageOverview.title": "用量",
+    "usageOverview.description": "查看 Eco 内的会话模型用量与费用估算。",
+    "usageOverview.provider": "供应商",
+    "usageOverview.model": "模型",
+    "usageOverview.allProviders": "全部供应商",
+    "usageOverview.allModels": "全部模型",
+    "usageOverview.all": "全部时间",
+    "usageOverview.cost": "费用估算 · USD",
+    "usageOverview.tokens": "Token 总量",
+    "usageOverview.records": "用量记录",
+    "usageOverview.breakdown": "供应商与模型明细",
+    "usageOverview.providerModel": "供应商 / 模型",
+    "usageOverview.cache": "缓存读 / 写",
+    "usageOverview.previous": "上一周期",
+    "usageOverview.next": "下一周期",
+    "usageOverview.current": "当前周期",
+    "usageOverview.empty": "所选范围内还没有用量记录。",
+    "usageOverview.hint":
+      "按记录时的模型价格与倍率估算，未定价记录不计入金额；并非供应商账单或订阅实际扣费。",
+    "usageOverview.fiveHourHint":
+      "汇总页的 5 小时窗口从开始记录时连续划分，不代表账号额度刷新时间；各账号独立周期可在服务商中查看。",
+    "usageOverview.since":
+      "自 {{time}} 起记录 · {{zone}}。包含网关请求、Pi 和 ChatGPT Login 的可获取用量，不含此前历史、其他客户端或绘画及语音工具。",
+    "usageOverview.failures": "有 {{count}} 次用量记录失败，统计可能不完整。",
+    "usageOverview.noApi": "请重启 Eco 以加载用量接口。",
+  },
+  "en-US": {
+    "usageOverview.title": "Usage",
+    "usageOverview.description": "Conversation model usage and estimated costs in Eco.",
+    "usageOverview.provider": "Provider",
+    "usageOverview.model": "Model",
+    "usageOverview.allProviders": "All providers",
+    "usageOverview.allModels": "All models",
+    "usageOverview.all": "All time",
+    "usageOverview.cost": "Estimated cost · USD",
+    "usageOverview.tokens": "Total tokens",
+    "usageOverview.records": "Usage records",
+    "usageOverview.breakdown": "Usage by provider and model",
+    "usageOverview.providerModel": "Provider / Model",
+    "usageOverview.cache": "Cache read / write",
+    "usageOverview.previous": "Previous period",
+    "usageOverview.next": "Next period",
+    "usageOverview.current": "Current period",
+    "usageOverview.empty": "No usage recorded for this selection.",
+    "usageOverview.hint":
+      "Estimated using model prices and multipliers at recording time. Unpriced records are excluded from costs. This is not a provider invoice or subscription charge.",
+    "usageOverview.fiveHourHint":
+      "Overview windows run every five hours from the start of tracking, independently of quota resets. Individual account cycles are available under Providers.",
+    "usageOverview.since":
+      "Recorded since {{time}} · {{zone}}. Includes available gateway, Pi and ChatGPT Login usage; excludes earlier history, other clients, drawing and speech tools.",
+    "usageOverview.failures": "{{count}} usage recording failures. Statistics may be incomplete.",
+    "usageOverview.noApi": "Restart Eco to load the usage API.",
+  },
+} as const;

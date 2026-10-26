@@ -28,7 +28,7 @@ import {
   reportLogicalUpstreamFailure,
   tryEmitLogicalCompleted,
 } from "../request-lifecycle.js";
-import { credentialResolutionErrorResponse, resolveRouteCredential } from "../route-credentials.js";
+import { credentialResolutionErrorResponse, resolveRouteCredential, withCredentialUsageAccount } from "../route-credentials.js";
 import type { GatewayLogFn } from "../server.js";
 import {
   codexToolArgumentFailureCircuitBreaker,
@@ -130,6 +130,7 @@ export async function handlePostResponses(
   route = enrichResolvedRouteWithCodexTurnIdentity(route, codexTurnMetadata);
   try {
     route = await resolveRouteCredential(route, config, request);
+    onUsage = withCredentialUsageAccount(route, onUsage);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     onLog(`credential resolution failed provider=${route.provider.id}: ${message}`);
@@ -322,6 +323,7 @@ export async function handlePostResponsesCompact(
   route = enrichResolvedRouteWithCodexTurnIdentity(route, codexTurnMetadata);
   try {
     route = await resolveRouteCredential(route, config, request);
+    onUsage = withCredentialUsageAccount(route, onUsage);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return credentialResolutionErrorResponse(error);

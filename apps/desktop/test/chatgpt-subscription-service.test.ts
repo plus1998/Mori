@@ -157,11 +157,12 @@ describe("ChatGptSubscriptionService", () => {
   test("sends the official OAuth smoke-test message upstream", async () => {
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-chatgpt-"));
     let requestBody: Record<string, unknown> | undefined;
+    const recorded:unknown[] = [];
     const service = new ChatGptSubscriptionService(dataDir, codec, async (input, init) => {
       if (String(input).endsWith("/responses")) {
         requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
         return new Response(
-          'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_test","status":"completed"}}\n\n',
+          'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_test","usage":{"input_tokens":999,"output_tokens":0,"total_tokens":999}}}\n\nevent: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_test","status":"completed","usage":{"input_tokens":10,"output_tokens":3,"total_tokens":13,"input_tokens_details":{"cached_tokens":4}}}}\n\n',
           { status: 200 },
         );
       }
@@ -171,7 +172,7 @@ describe("ChatGptSubscriptionService", () => {
         expires_in: 3600,
         scope: "openid offline_access resource.invoke chatgpt.tokens.use.direct",
       });
-    });
+    },undefined,record => {recorded.push(record);});
     await service.initialize();
     const created = await service.createAccount("测试账号");
     const state = service as unknown as { state: { accounts: Array<Record<string, unknown>> } };
@@ -189,6 +190,8 @@ describe("ChatGptSubscriptionService", () => {
     expect(requestBody?.stream).toBe(true);
     expect(requestBody?.store).toBe(false);
     expect(requestBody?.input).toEqual([{ role: "user", content: "hi" }]);
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({kind:"chatgpt_oauth",accountId:created.accountId,modelId:"gpt-5-mini",inputTokens:6,cacheReadTokens:4,outputTokens:3});
   });
 
   test("fetches the official model catalog with the selected OAuth account", async () => {

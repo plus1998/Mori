@@ -5,6 +5,7 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { SocksClient } from "socks";
+import type { AccountUsageRecord } from "./account-usage-store";
 import type {
   OpenAIAccount as OpenAIAccountShared,
   OpenAIAccountCreateInput,
@@ -237,6 +238,7 @@ export class OpenAIAccountService {
     private readonly onAccountsChanged?: (state: { syncStatus: OpenAIAccountSyncStatus }) => void,
     private readonly getActiveQuotaClient?: () => Promise<CodexQuotaClient>,
     private readonly resolveSystemProxy?: SystemProxyResolver,
+    private readonly onUsage?: (record:AccountUsageRecord,aggregate:boolean) => void,
   ) {
     this.accountsDir = path.join(userDataDir, "codex-accounts");
     this.mainCodexDir = path.join(userDataDir, "codex");
@@ -283,6 +285,12 @@ export class OpenAIAccountService {
       this.store = undefined;
       throw error;
     }
+  }
+
+  /** Synchronous snapshot for request-time usage attribution. */
+  getUsageAccountId(): string | undefined {
+    const id = this.store?.getActiveAccountId();
+    return id && this.store?.get(id)?.authJson ? id : undefined;
   }
 
   /** Called by the main-process task lifecycle; queued/idle/UI state is not usage. */
@@ -1095,7 +1103,8 @@ export class OpenAIAccountService {
         await this.trackQuotaQuery(accountId, () => this.queryQuotaUnlocked(accountId, async (client, refreshToken, expectedAccountId) => {
           // Verify this account and renew expired credentials before spending any quota.
           await readCodexAccountQuota(client, refreshToken, expectedAccountId);
-          reply = await wakeCodexAccount(client, modelId);
+          reply = await wakeCodexAccount(client, modelId,90_000,
+            this.onUsage ? {accountId,onUsage:this.onUsage} : undefined);
         }));
       } catch (error) {
         if (reply === undefined) throw error;

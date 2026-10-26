@@ -95,6 +95,8 @@ export const IPC_CHANNELS = {
   modelProviderListModels: "model-provider:list-models",
   modelProviderTest: "model-provider:test",
   chatGptSubscriptionAccountsList: "chatgpt-subscription:accounts-list",
+  accountUsageHistory: "account-usage:history",
+  usageOverview: "usage:overview",
   chatGptSubscriptionAccountCreate: "chatgpt-subscription:account-create",
   chatGptSubscriptionAccountDelete: "chatgpt-subscription:account-delete",
   chatGptSubscriptionAccountLogin: "chatgpt-subscription:account-login",

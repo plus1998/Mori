@@ -410,6 +410,7 @@ import {
   LazyProjectTodoPanel,
   LazySkillsSettingsPanel,
   LazyStorageSettingsPanel,
+  LazyUsageSettingsPanel,
   LazySubagentTaskDrawer,
   LazyTerminalPanel,
   LazyTtsSettingsPanel,
@@ -696,6 +697,7 @@ type SettingsSectionId =
   | "tts"
   | "integratedWebSearch"
   | "providers"
+  | "usage"
   | "proxy"
   | "mcp"
   | "centerServer"
@@ -1472,6 +1474,7 @@ function App() {
         label: t("settings.group.models"),
         sections: [
           { id: "providers", label: t("settings.providers"), icon: Settings2 },
+          { id: "usage", label: t("usageOverview.title"), icon: Gauge, keywords: ["usage", "tokens", "cost", "用量", "费用", "统计"] },
           {
             id: "orchestrationComponents",
             label: t("settings.orchestrationComponents"),
@@ -13583,6 +13586,7 @@ function App() {
                 )}
 
                 {settingsSection === "storage" && <LazyStorageSettingsPanel />}
+                {settingsSection === "usage" && <LazyUsageSettingsPanel />}
 
                 {settingsSection === "browser" && (
                   <LazyBrowserSettingsPanel settings={browserSettings} onSave={saveBrowserSettingsSnapshot} />
