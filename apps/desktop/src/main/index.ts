@@ -185,6 +185,7 @@ import {
   type AcceptedConversationMessageSchedule,
   buildAcceptedConversationMessageSchedule,
   parseConversationV2Request,
+  parseConversationV2SendMessageRequest,
   readOptionalConversationV2String,
   readOptionalInteger,
   readPositiveInteger,
@@ -6692,16 +6693,9 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.conversationSendMessage, async (payload: unknown) => {
-    const request = parseConversationV2Request(payload, [
-      "principalId",
-      "conversationId",
-      "clientCommandId",
-      "text",
-    ]);
+    const request = parseConversationV2SendMessageRequest(payload);
     requireConversationV2Thread(request.conversationId);
-    const attachments = parsePromptImageAttachments(request.attachments);
-    const turnId = readOptionalConversationV2String(request.turnId, "turnId");
-    const messageId = readOptionalConversationV2String(request.messageId, "messageId");
+    const { attachments, turnId, messageId } = request;
     const accepted = conversationStore.conversationV2().sendMessage({
       principalId: request.principalId,
       conversationId: request.conversationId,

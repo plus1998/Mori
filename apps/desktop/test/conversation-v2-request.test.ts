@@ -3,11 +3,72 @@ import { CONVERSATION_V2_ERROR } from "@eco/shared";
 import {
   buildAcceptedConversationMessageSchedule,
   parseConversationV2Request,
+  parseConversationV2SendMessageRequest,
   readOptionalConversationV2String,
   requiredConversationV2Integer,
 } from "../src/main/conversation-v2-request";
 
 describe("conversation V2 request validation", () => {
+  const sendIdentity = { principalId: " user ", conversationId: " thread ", clientCommandId: " command " };
+
+  test.each([
+    { mediaType: "image/png", data: " YWJj " },
+    { mediaType: "image/jpeg", path: " /tmp/image.jpg " },
+    { mediaType: "image/webp", contentRef: `sha256:${"a".repeat(64)}`, byteLength: 12 },
+  ])("accepts an image-only send with a valid image source: %j", (attachment) => {
+    const request = parseConversationV2SendMessageRequest({
+      ...sendIdentity,
+      text: "",
+      attachments: [attachment],
+    });
+    expect(request).toMatchObject({
+      principalId: "user",
+      conversationId: "thread",
+      clientCommandId: "command",
+      text: "",
+    });
+    expect(request.attachments).toHaveLength(1);
+    expect(request.attachments[0]?.mediaType).toBe(attachment.mediaType);
+  });
+
+  test("accepts whitespace text with an image without inventing replacement text", () => {
+    const request = parseConversationV2SendMessageRequest({
+      ...sendIdentity,
+      text: " \n ",
+      attachments: [{ mediaType: "image/png", data: " YWJj " }],
+    });
+    expect(request.text).toBe("");
+    expect(request.attachments).toEqual([{ mediaType: "image/png", data: "YWJj" }]);
+  });
+
+  test("keeps text-only and mixed sends working", () => {
+    expect(parseConversationV2SendMessageRequest({ ...sendIdentity, text: " hello " })).toMatchObject({
+      text: "hello",
+      attachments: [],
+    });
+    expect(
+      parseConversationV2SendMessageRequest({
+        ...sendIdentity,
+        text: " inspect ",
+        attachments: [{ mediaType: "image/png", data: "YWJj" }],
+      }),
+    ).toMatchObject({ text: "inspect", attachments: [{ mediaType: "image/png", data: "YWJj" }] });
+  });
+
+  test.each([
+    { text: "" },
+    { text: " \n ", attachments: [] },
+    { text: 12, attachments: [{ mediaType: "image/png", data: "YWJj" }] },
+    { attachments: [{ mediaType: "image/png", data: "YWJj" }] },
+    { text: "", attachments: {} },
+    { text: "", attachments: [{ mediaType: "image/png", path: "" }] },
+    { text: "with malformed attachment", attachments: [{ mediaType: "application/pdf", data: "YWJj" }] },
+  ])("rejects empty or malformed message content: %j", (content) => {
+    expect(() => parseConversationV2SendMessageRequest({ ...sendIdentity, ...content })).toThrow(
+      expect.objectContaining({ code: CONVERSATION_V2_ERROR.invalidParams }),
+    );
+  });
+
   test("preserves numeric sync cursors while normalizing string fields", () => {
     const request = parseConversationV2Request(
       {
