@@ -38146,6 +38146,91 @@ body,
   }
 }
 
+/* Keep both action ends fixed; the model takes the remaining toolbar space. */
+.codex-composer .composer-footer-config-row {
+  flex: 0 0 auto;
+}
+
+.codex-composer .composer-footer-actions .composer-hover-tooltip-wrap:has(> .composer-model-selector) {
+  flex: 0 1 auto;
+  min-width: 28px;
+}
+
+@container composer-toolbar (max-width: 640px) {
+  .codex-composer .composer-footer-config-row,
+  .codex-composer.is-compact .composer-footer-config-row {
+    flex: 0 0 auto;
+  }
+
+  .codex-composer .composer-footer-spacer {
+    flex: 0 0 0;
+  }
+
+  .codex-composer .composer-footer-actions {
+    flex: 1 1 0;
+  }
+
+  .codex-composer .composer-model-selector {
+    flex: 1 1 0;
+    width: 100%;
+    min-width: 28px;
+    max-width: none;
+  }
+
+  .codex-composer .composer-footer-actions .composer-hover-tooltip-wrap:has(> .composer-model-selector) {
+    flex: 1 1 0;
+    min-width: 28px;
+  }
+
+  .codex-composer .composer-model-trigger,
+  .codex-composer.is-compact .composer-model-trigger {
+    max-width: 100%;
+  }
+
+  .codex-composer .composer-model-label {
+    flex: 1 1 auto;
+  }
+}
+
+@container composer-toolbar (max-width: 420px) {
+  .codex-composer .composer-usage-pills {
+    gap: 2px;
+  }
+
+  .codex-composer .composer-usage-pills .composer-hover-tooltip-wrap:has(.thread-info-float-pill-cost) {
+    display: none;
+  }
+
+  .codex-composer .composer-usage-pills .thread-info-float-reopen {
+    padding-inline: 4px;
+  }
+}
+
+@container composer-toolbar (max-width: 320px) {
+  .codex-composer .composer-primary .composer-footer,
+  .codex-composer .composer-footer-actions {
+    gap: 2px;
+  }
+
+  .codex-composer .composer-model-label-effort {
+    display: none;
+  }
+
+  .codex-composer .composer-usage-pills .thread-info-float-reopen {
+    padding-inline: 1px;
+  }
+}
+
+@container composer-toolbar (max-width: 300px) {
+  .codex-composer .composer-usage-pills .composer-hover-tooltip-wrap:has(.composer-usage-pill-ring-only) {
+    display: none;
+  }
+
+  .codex-composer .codex-quota-mini[data-level="error"] .codex-quota-mini-bars {
+    display: none;
+  }
+}
+
 /* —�?Built-in browser (right task panel pane) —�?*/
 .browser-task-workspace {
   display: flex;

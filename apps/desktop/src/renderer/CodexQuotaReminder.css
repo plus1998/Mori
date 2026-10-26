@@ -66,6 +66,13 @@
   text-align: right;
 }
 
+/* Match the composer's compact toolbar, including when side panels squeeze it. */
+@container composer-toolbar (max-width: 640px) {
+  .codex-quota-mini:not([data-level="error"]) .codex-quota-mini-value {
+    display: none;
+  }
+}
+
 .codex-quota-mini[data-level="normal"],
 .codex-quota-mini-track[data-level="normal"],
 .codex-quota-reminder-window[data-level="normal"] .codex-quota-reminder-track {

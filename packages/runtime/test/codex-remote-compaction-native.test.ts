@@ -88,7 +88,7 @@ test.skipIf(process.env.ECO_CODEX_NATIVE_SMOKE !== "1")(
         env: { ...process.env, CODEX_HOME: config.codexHomeDir, RUST_LOG: "error" },
         stdio: ["pipe", "pipe", "pipe"],
       });
-    let child = spawnProcess();
+    const child = spawnProcess();
     let stderr = "";
     const notifications: Array<{ method: string; params: Record<string, unknown> }> = [];
     const createClient = () => {
@@ -105,7 +105,7 @@ test.skipIf(process.env.ECO_CODEX_NATIVE_SMOKE !== "1")(
         },
       });
     };
-    let client = createClient();
+    const client = createClient();
     const stopProcess = async () => {
       client.close();
       const exited = once(child, "exit");
@@ -284,23 +284,13 @@ test.skipIf(process.env.ECO_CODEX_NATIVE_SMOKE !== "1")(
         }
         expect(child.pid).toBe(originalPid);
       }
-      await expect(
-        resumeCodexThread(client, {
-          threadId: remoteThread,
-          modelProvider: "eco_vendor",
-          config: localConfig,
-        }),
-      ).rejects.toThrow("new thread");
-      await stopProcess();
-      child = spawnProcess();
-      client = createClient();
-      await client.initialize();
       const resumed = await resumeCodexThread(client, {
         threadId: remoteThread,
         modelProvider: "eco_vendor",
         config: localConfig,
       });
       expect(resumed.thread.id).toBe(remoteThread);
+      expect(child.pid).toBe(originalPid);
       before = requests.length;
       await complete("thread/compact/start", { threadId: remoteThread });
       expect(requests.length).toBeGreaterThan(before);

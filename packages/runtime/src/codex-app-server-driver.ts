@@ -375,6 +375,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
           ? { configAlreadyApplied: true }
           : {}),
         ...(this.onResumeDiagnostic ? { onDiagnostic: this.onResumeDiagnostic } : {}),
+        signal: input.signal,
       });
       codexThreadId = resumed.thread.id.trim() || codexThreadId;
       needsContextRecovery = codexThreadNeedsContextRecovery(resumed.thread);

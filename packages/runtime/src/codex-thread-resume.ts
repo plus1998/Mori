@@ -1,6 +1,8 @@
+import { setTimeout as delay } from "node:timers/promises";
 import type { CodexAppServerClient } from "./codex-app-server-client.js";
 import {
   fingerprintCodexThreadConfig,
+  forgetAppliedCodexThreadConfig,
   getAppliedCodexThreadConfigFingerprint,
 } from "./codex-thread-config-fingerprint.js";
 
@@ -20,6 +22,9 @@ export interface CodexThreadResumeInput {
   configAlreadyApplied?: boolean;
   /** Emits sanitized config/status evidence without changing resume behavior. */
   onDiagnostic?: (diagnostic: CodexResumeDiagnostic) => void;
+  signal?: AbortSignal;
+  /** Bound the per-thread unload; never restart the shared app-server. */
+  configReloadTimeoutMs?: number;
 }
 
 export interface CodexThreadResumeParams {
@@ -32,6 +37,8 @@ export interface CodexThreadResumeParams {
 }
 
 export interface CodexThreadResumeResult {
+  model?: string;
+  modelProvider?: string;
   thread: {
     id: string;
     status?: CodexThreadStatusPayload;
@@ -50,6 +57,7 @@ export interface CodexThreadReadResult {
   thread: {
     id: string;
     status?: CodexThreadStatusPayload;
+    modelProvider?: string;
   };
 }
 
@@ -65,6 +73,7 @@ export type CodexThreadStatusKind = "notLoaded" | "idle" | "systemError" | "acti
 export interface CodexThreadStatusSnapshot {
   kind: CodexThreadStatusKind;
   payload: unknown;
+  modelProvider?: string;
 }
 
 export interface CodexResumeDiagnostic {
@@ -76,7 +85,13 @@ export interface CodexResumeDiagnostic {
   configAlreadyApplied: boolean;
   status?: CodexThreadStatusKind;
   activeFlags?: string[];
-  decision: "read_failed" | "omit_known_config" | "resume_cold_with_config" | "reject_loaded_config";
+  decision:
+    | "read_failed"
+    | "omit_known_config"
+    | "resume_cold_with_config"
+    | "reload_loaded_config"
+    | "reject_loaded_config"
+    | "reload_failed";
   error?: string;
 }
 
@@ -131,11 +146,13 @@ export async function resumeCodexThread(
   input: CodexThreadResumeInput,
 ): Promise<CodexThreadResumeResult> {
   const params = buildCodexThreadResumeParams(input);
+  input.signal?.throwIfAborted();
+  let reloaded = false;
   if (params.config) {
     const clientIdentity = readClientDiagnosticIdentity(client);
     const nextConfigFingerprint = fingerprintCodexThreadConfig(params.config);
     const previousConfigFingerprint = getAppliedCodexThreadConfigFingerprint(client, params.threadId);
-    const configAlreadyApplied =
+    const hasConfigProof =
       input.configAlreadyApplied === true && previousConfigFingerprint === nextConfigFingerprint;
     let snapshot: CodexThreadStatusSnapshot;
     try {
@@ -146,13 +163,17 @@ export async function resumeCodexThread(
         ...clientIdentity,
         ...(previousConfigFingerprint ? { previousConfigFingerprint } : {}),
         nextConfigFingerprint,
-        configAlreadyApplied,
+        configAlreadyApplied: hasConfigProof,
         decision: "read_failed",
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
     }
     const activeFlags = readActiveFlags(snapshot.payload);
+    // turn/start can change the model, but cannot switch the loaded provider.
+    const providerChanged =
+      params.modelProvider !== undefined && params.modelProvider !== snapshot.modelProvider;
+    const configAlreadyApplied = hasConfigProof && !providerChanged;
     // A failed turn is terminal. Its loaded thread can reuse the exact config already owned by this client.
     const canReuseLoadedConfig = snapshot.kind === "idle" || snapshot.kind === "systemError";
     if (canReuseLoadedConfig && configAlreadyApplied) {
@@ -168,7 +189,13 @@ export async function resumeCodexThread(
       });
       delete params.config;
     } else {
-      const decision = snapshot.kind === "notLoaded" ? "resume_cold_with_config" : "reject_loaded_config";
+      const canUnload = snapshot.kind === "idle" || snapshot.kind === "systemError";
+      const decision =
+        snapshot.kind === "notLoaded"
+          ? "resume_cold_with_config"
+          : canUnload
+            ? "reload_loaded_config"
+            : "reject_loaded_config";
       emitResumeDiagnostic(input.onDiagnostic, {
         threadId: params.threadId,
         ...clientIdentity,
@@ -179,11 +206,43 @@ export async function resumeCodexThread(
         ...(activeFlags ? { activeFlags } : {}),
         decision,
       });
-      requireColdCodexThreadForConfigReload(params.threadId, snapshot.kind);
+      if (canUnload) {
+        try {
+          await unloadCodexThreadForConfigReload(client, params.threadId, snapshot.kind, input);
+          reloaded = true;
+        } catch (error) {
+          emitResumeDiagnostic(input.onDiagnostic, {
+            threadId: params.threadId,
+            ...clientIdentity,
+            ...(previousConfigFingerprint ? { previousConfigFingerprint } : {}),
+            nextConfigFingerprint,
+            configAlreadyApplied,
+            status: snapshot.kind,
+            decision: "reload_failed",
+            error: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
+      } else {
+        requireColdCodexThreadForConfigReload(params.threadId, snapshot.kind);
+      }
     }
   }
   try {
-    return await client.request<CodexThreadResumeResult>(CODEX_RESUME_METHOD, params);
+    input.signal?.throwIfAborted();
+    if (params.config) forgetAppliedCodexThreadConfig(client, params.threadId);
+    const result = await client.request<CodexThreadResumeResult>(CODEX_RESUME_METHOD, params);
+    if (
+      reloaded &&
+      (result.thread.id !== params.threadId ||
+        (params.modelProvider !== undefined && result.modelProvider !== params.modelProvider) ||
+        (params.model !== undefined && result.model !== params.model))
+    ) {
+      throw new CodexResumeNotAvailable("Codex 恢复结果与所选会话或模型配置不一致，已停止继续执行。", {
+        nextAction: "请重试以重新加载所选配置；原会话历史保持不变。",
+      });
+    }
+    return result;
   } catch (error) {
     throw mapCodexResumeFailure(params.threadId, error);
   }
@@ -213,16 +272,78 @@ export function mapCodexResumeFailure(threadId: string, error: unknown): Error {
 }
 
 /**
- * Codex (verified through 0.150.1) can return success after an idle unsubscribe even when its
- * internal shutdown timed out and resume overrides were ignored. Only the
- * protocol-visible `notLoaded` state proves a cold config reload.
+ * Unsubscribe only this terminal thread, then verify notLoaded. An unsubscribe
+ * acknowledgement alone is not proof: Codex can report success after shutdown
+ * times out, leaving the old configuration loaded.
  */
 export async function prepareLoadedCodexThreadForConfigReload(
   client: Pick<CodexAppServerClient, "request">,
   threadId: string,
+  options: { signal?: AbortSignal; configReloadTimeoutMs?: number } = {},
 ): Promise<"notLoaded"> {
   const status = await readCodexThreadStatus(client, threadId);
-  return requireColdCodexThreadForConfigReload(threadId, status);
+  return unloadCodexThreadForConfigReload(client, threadId, status, options);
+}
+
+async function unloadCodexThreadForConfigReload(
+  client: Pick<CodexAppServerClient, "request">,
+  threadId: string,
+  status: CodexThreadStatusKind,
+  options: { signal?: AbortSignal; configReloadTimeoutMs?: number },
+): Promise<"notLoaded"> {
+  if (status === "notLoaded") return status;
+  if (status !== "idle" && status !== "systemError") {
+    return requireColdCodexThreadForConfigReload(threadId, status);
+  }
+  const timeoutMs = options.configReloadTimeoutMs ?? 15_000;
+  const deadline = Date.now() + timeoutMs;
+  try {
+    options.signal?.throwIfAborted();
+    // A timed-out unsubscribe may still unload the thread. Retire its old proof
+    // before the RPC so a later retry cannot reuse it after a partial reload.
+    forgetAppliedCodexThreadConfig(client, threadId);
+    const result = await client.request<{ status: string }>(
+      "thread/unsubscribe",
+      { threadId },
+      { timeoutMs },
+    );
+    if (
+      result.status !== "unsubscribed" &&
+      result.status !== "notLoaded" &&
+      result.status !== "notSubscribed"
+    ) {
+      throw new Error(`thread/unsubscribe returned ${result.status}`);
+    }
+    do {
+      options.signal?.throwIfAborted();
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const read = await client.request<CodexThreadReadResult>(
+        CODEX_THREAD_READ_METHOD,
+        {
+          threadId,
+          includeTurns: false,
+        },
+        { timeoutMs: remaining },
+      );
+      const current = parseCodexThreadStatus(read.thread?.status);
+      if (current === "notLoaded") return current;
+      if (current !== "idle" && current !== "systemError") {
+        throw new Error(`thread became ${current} while unloading`);
+      }
+      await delay(Math.min(50, Math.max(0, deadline - Date.now())), undefined, { signal: options.signal });
+    } while (Date.now() < deadline);
+    throw new Error(`thread did not become notLoaded within ${timeoutMs}ms`);
+  } catch (error) {
+    options.signal?.throwIfAborted();
+    throw new CodexResumeNotAvailable(
+      `无法卸载 Codex 会话以切换模型：${error instanceof Error ? error.message : String(error)}`,
+      {
+        nextAction: "请等待当前会话释放后重试；尚未使用新配置继续执行。",
+        cause: error,
+      },
+    );
+  }
 }
 
 function requireColdCodexThreadForConfigReload(threadId: string, status: CodexThreadStatusKind): "notLoaded" {
@@ -263,6 +384,7 @@ export async function readCodexThreadStatusSnapshot(
   return {
     kind: parseCodexThreadStatus(payload),
     payload,
+    ...(result.thread?.modelProvider ? { modelProvider: result.thread.modelProvider } : {}),
   };
 }
 

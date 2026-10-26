@@ -68,6 +68,7 @@ realAppServerTest(
       path.join(codexHome, "config.toml"),
       [
         'model_provider = "stub"',
+        "thread_unload_delay_secs = 0",
         "",
         "[model_providers.stub]",
         'name = "Local integration stub"',
@@ -164,15 +165,6 @@ realAppServerTest(
       expect(forkResume.reasoningEffort).toBe("low");
       expect(forkResume.cwd).toBe(fs.realpathSync(workspace));
 
-      await expect(
-        resumeCodexThread(client, {
-          threadId: started.thread.id,
-          config: {
-            model: resumedModel,
-          },
-        }),
-      ).rejects.toThrow(/cannot prove resume config reload/);
-
       const resumed = await client.request<ThreadConfigResponse>("thread/resume", {
         threadId: started.thread.id,
         config: {
@@ -183,6 +175,15 @@ realAppServerTest(
       expect(resumed.thread.status?.type).toBe("idle");
       // GAP: loaded+idle may still silently ignore resume config model changes on some Codex builds.
       expect(resumed.model).toBe(initialModel);
+      const reloaded = await resumeCodexThread(client, {
+        threadId: started.thread.id,
+        model: resumedModel,
+        modelProvider: "stub",
+        config: { model: resumedModel },
+      });
+      expect(reloaded.thread.id).toBe(started.thread.id);
+      expect(reloaded.model).toBe(resumedModel);
+      expect(reloaded.modelProvider).toBe("stub");
 
       client.close();
       await stopChild(child);
@@ -273,6 +274,178 @@ realAppServerTest(
       stubServer.stop(true);
       fs.rmSync(codexHome, { recursive: true, force: true });
       fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  },
+  30_000,
+);
+
+realAppServerTest(
+  "a failed thread switches provider without losing history or stopping another active thread",
+  async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "eco-codex-provider-switch-"));
+    const home = path.join(root, "codex");
+    fs.mkdirSync(home);
+    let failOld = true;
+    let releaseOther!: () => void;
+    const otherReleased = new Promise<void>((resolve) => {
+      releaseOther = resolve;
+    });
+    let observedOther!: () => void;
+    const otherObserved = new Promise<void>((resolve) => {
+      observedOther = resolve;
+    });
+    const requests: Array<{ path: string; model: string; body: string }> = [];
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        const body = await request.text();
+        const model = (JSON.parse(body) as { model: string }).model;
+        const pathname = new URL(request.url).pathname;
+        requests.push({ path: pathname, model, body });
+        if (body.includes("hold-other-turn")) {
+          observedOther();
+          await otherReleased;
+        } else if (pathname === "/old/v1/responses" && failOld) {
+          return Response.json(
+            { error: { type: "usage_limit_reached", message: "Offline quota exhausted" } },
+            { status: 429 },
+          );
+        }
+        return new Response(buildCompletedResponseStream(model), {
+          headers: { "content-type": "text/event-stream" },
+        });
+      },
+    });
+    fs.writeFileSync(
+      path.join(home, "config.toml"),
+      [
+        'model_provider = "old"',
+        "thread_unload_delay_secs = 0",
+        ...["old", "next"].flatMap((provider) => [
+          `[model_providers.${provider}]`,
+          `name = "Offline ${provider}"`,
+          `base_url = "http://127.0.0.1:${server.port}/${provider}/v1"`,
+          'env_key = "ECO_SWITCH_TEST_KEY"',
+          'wire_api = "responses"',
+          "request_max_retries = 0",
+          "stream_max_retries = 0",
+        ]),
+      ].join("\n"),
+    );
+    const child = spawn(
+      process.env.CODEX_EXECUTABLE?.trim() ||
+        path.resolve(import.meta.dir, "../../../apps/desktop/node_modules/.bin/codex"),
+      ["app-server", "--stdio"],
+      {
+        env: { ...process.env, CODEX_HOME: home, ECO_SWITCH_TEST_KEY: "offline-dummy" },
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    const client = CodexAppServerClient.attachToProcess(child, { timeoutMs: 10_000 });
+    try {
+      await client.initialize();
+      const oldConfig = { mcp_servers: {}, web_search: "disabled", features: { view_image: true } };
+      const target = await client.request<ThreadConfigResponse>("thread/start", {
+        cwd: root,
+        model: "old-model",
+        modelProvider: "old",
+        config: oldConfig,
+      });
+      const threadId = target.thread.id;
+      recordAppliedCodexThreadConfig(client, threadId, oldConfig);
+      const failed = waitForTurnCompleted(client, threadId);
+      await client.request("turn/start", {
+        threadId,
+        input: [{ type: "text", text: "keep-history-before-quota" }],
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "readOnly" },
+      });
+      expect((await failed).turn.status).toBe("failed");
+      await waitForThreadStatus(client, threadId, "systemError");
+      failOld = false;
+
+      const other = await client.request<ThreadConfigResponse>("thread/start", {
+        cwd: root,
+        model: "old-model",
+        modelProvider: "old",
+      });
+      const otherCompleted = waitForTurnCompleted(client, other.thread.id);
+      await client.request("turn/start", {
+        threadId: other.thread.id,
+        input: [{ type: "text", text: "hold-other-turn" }],
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "readOnly" },
+      });
+      await otherObserved;
+      await waitForThreadStatus(client, other.thread.id, "active");
+      // Same static config still requires unloading when the provider changes.
+      const switched = await resumeCodexThread(client, {
+        threadId,
+        model: "next-model",
+        modelProvider: "next",
+        config: oldConfig,
+        configAlreadyApplied: true,
+        signal: AbortSignal.timeout(5_000),
+      });
+      expect(switched.thread.id).toBe(threadId);
+      expect(switched.model).toBe("next-model");
+      expect(switched.modelProvider).toBe("next");
+      await waitForThreadStatus(client, other.thread.id, "active");
+      const completed = waitForTurnCompleted(client, threadId);
+      await client.request("turn/start", {
+        threadId,
+        input: [{ type: "text", text: "continue-after-switch" }],
+        model: "next-model",
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "readOnly" },
+      });
+      expect((await completed).turn.status).toBe("completed");
+      await waitForThreadStatus(client, threadId, "idle");
+      const continued = requests.filter((entry) => entry.body.includes("continue-after-switch"));
+      expect(continued).toHaveLength(1);
+      expect(continued[0]).toMatchObject({ path: "/next/v1/responses", model: "next-model" });
+      expect(continued[0]?.body).toContain("keep-history-before-quota");
+      // Change static capabilities again while idle, retaining the same native thread.
+      const changed = await resumeCodexThread(client, {
+        threadId,
+        model: "next-model",
+        modelProvider: "next",
+        config: { ...oldConfig, features: { view_image: false } },
+        signal: AbortSignal.timeout(5_000),
+      });
+      expect(changed.thread.id).toBe(threadId);
+      await waitForThreadStatus(client, other.thread.id, "active");
+      const capabilitiesTurn = waitForTurnCompleted(client, threadId);
+      await client.request("turn/start", {
+        threadId,
+        input: [{ type: "text", text: "continue-after-capability-change" }],
+        model: "next-model",
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "readOnly" },
+      });
+      expect((await capabilitiesTurn).turn.status).toBe("completed");
+      const capabilitiesRequest = requests.find((entry) =>
+        entry.body.includes("continue-after-capability-change"),
+      );
+      if (!capabilitiesRequest) throw new Error("Missing request after capability reload");
+      expect(capabilitiesRequest?.path).toBe("/next/v1/responses");
+      const tools = (JSON.parse(capabilitiesRequest.body) as { tools: Array<{ name?: string }> }).tools;
+      expect(tools.some((tool) => tool.name === "view_image")).toBe(false);
+      releaseOther();
+      expect((await otherCompleted).turn.status).toBe("completed");
+    } catch (error) {
+      throw new Error(`${String(error)}\nCodex stderr:\n${stderr.slice(-4000)}`);
+    } finally {
+      releaseOther();
+      client.close();
+      await stopChild(child);
+      server.stop(true);
+      fs.rmSync(root, { recursive: true, force: true });
     }
   },
   30_000,

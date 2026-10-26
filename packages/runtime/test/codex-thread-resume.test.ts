@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { CodexAppServerClient } from "../src/codex-app-server-client";
-import { recordAppliedCodexThreadConfig } from "../src/codex-thread-config-fingerprint";
+import {
+  getAppliedCodexThreadConfigFingerprint,
+  recordAppliedCodexThreadConfig,
+} from "../src/codex-thread-config-fingerprint";
 import type { CodexResumeDiagnostic } from "../src/codex-thread-resume";
 import {
   buildCodexSubagentFollowupPrompt,
@@ -94,36 +97,62 @@ test("resumeCodexThread applies config only when thread/read proves notLoaded", 
   ]);
 });
 
-test("resumeCodexThread refuses configured idle resume because config reload is not provable", async () => {
-  const stdin = new PassThrough();
-  const stdout = new PassThrough();
-  const client = new CodexAppServerClient(stdin, stdout);
-
-  const diagnostics: CodexResumeDiagnostic[] = [];
-  const resume = resumeCodexThread(client, {
-    threadId: "codex-thread-idle",
-    config: { mcp_servers: {} },
-    onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+for (const status of ["idle", "systemError"] as const) {
+  test(`resumeCodexThread unloads a ${status} thread before applying changed config`, async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    let reads = 0;
+    const diagnostics: CodexResumeDiagnostic[] = [];
+    const client = {
+      async request<T>(method: string, params: unknown): Promise<T> {
+        calls.push({ method, params });
+        if (method === "thread/read")
+          return {
+            thread: {
+              id: "existing",
+              status: { type: reads++ === 0 ? status : "notLoaded" },
+              modelProvider: "openai",
+            },
+          } as T;
+        if (method === "thread/unsubscribe") return { status: "unsubscribed" } as T;
+        return {
+          thread: { id: "existing", status: { type: "idle" } },
+          model: "new-model",
+          modelProvider: "eco_vendor",
+        } as T;
+      },
+    };
+    const original = { mcp_servers: {}, features: { view_image: true } };
+    recordAppliedCodexThreadConfig(client, "existing", original);
+    const changed = { mcp_servers: {}, features: { view_image: false } };
+    await expect(
+      resumeCodexThread(client, {
+        threadId: "existing",
+        model: "new-model",
+        modelProvider: "eco_vendor",
+        config: changed,
+        configAlreadyApplied: true,
+        onDiagnostic: (item) => diagnostics.push(item),
+      }),
+    ).resolves.toMatchObject({ thread: { id: "existing" }, modelProvider: "eco_vendor" });
+    expect(calls.map((call) => call.method)).toEqual([
+      "thread/read",
+      "thread/unsubscribe",
+      "thread/read",
+      "thread/resume",
+    ]);
+    expect(calls.at(-1)?.params).toEqual({
+      threadId: "existing",
+      model: "new-model",
+      modelProvider: "eco_vendor",
+      config: changed,
+    });
+    expect(diagnostics[0]).toMatchObject({
+      status,
+      configAlreadyApplied: false,
+      decision: "reload_loaded_config",
+    });
   });
-  await Bun.sleep(0);
-  writeResponse(stdout, {
-    id: 1,
-    result: { thread: { id: "codex-thread-idle", status: { type: "idle" } } },
-  });
-
-  await expect(resume).rejects.toThrow(/new thread/);
-  expect(drainPassThroughText(stdin)).not.toContain(CODEX_RESUME_METHOD);
-  expect(diagnostics).toHaveLength(1);
-  expect(diagnostics[0]).toMatchObject({
-    threadId: "codex-thread-idle",
-    clientInstanceId: client.diagnosticInstanceId,
-    clientGeneration: 0,
-    configAlreadyApplied: false,
-    status: "idle",
-    decision: "reject_loaded_config",
-  });
-  expect(diagnostics[0]?.nextConfigFingerprint).toMatch(/^[a-f0-9]{64}$/);
-});
+}
 
 test("resumeCodexThread reuses a known config when the loaded thread is systemError", async () => {
   const stdin = new PassThrough();
@@ -229,31 +258,140 @@ test("transferAppliedCodexThreadConfig lets forked idle threads omit known confi
   });
 });
 
-test("resumeCodexThread rejects a claimed config proof when its fingerprint was not recorded", async () => {
-  const stdin = new PassThrough();
-  const stdout = new PassThrough();
-  const client = new CodexAppServerClient(stdin, stdout);
-
-  const diagnostics: CodexResumeDiagnostic[] = [];
-  const resume = resumeCodexThread(client, {
-    threadId: "codex-thread-unproved",
+test("resumeCodexThread reloads when claimed config proof was not recorded", async () => {
+  let reads = 0;
+  const calls: string[] = [];
+  const client = {
+    async request<T>(method: string): Promise<T> {
+      calls.push(method);
+      if (method === "thread/read")
+        return {
+          thread: { id: "existing", status: { type: reads++ === 0 ? "systemError" : "notLoaded" } },
+        } as T;
+      if (method === "thread/unsubscribe") return { status: "unsubscribed" } as T;
+      return { thread: { id: "existing" } } as T;
+    },
+  };
+  await resumeCodexThread(client, {
+    threadId: "existing",
     config: { mcp_servers: {} },
     configAlreadyApplied: true,
-    onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
   });
-  await Bun.sleep(0);
-  writeResponse(stdout, {
-    id: 1,
-    result: { thread: { id: "codex-thread-unproved", status: { type: "systemError" } } },
-  });
+  expect(calls).toEqual(["thread/read", "thread/unsubscribe", "thread/read", "thread/resume"]);
+});
 
-  await expect(resume).rejects.toThrow(/new thread/);
-  expect(drainPassThroughText(stdin)).not.toContain(CODEX_RESUME_METHOD);
-  expect(diagnostics[0]).toMatchObject({
-    status: "systemError",
-    configAlreadyApplied: false,
-    decision: "reject_loaded_config",
+test("a provider switch reloads even when the static config fingerprint is unchanged", async () => {
+  let reads = 0;
+  const calls: string[] = [];
+  const config = { mcp_servers: {} };
+  const client = {
+    async request<T>(method: string): Promise<T> {
+      calls.push(method);
+      if (method === "thread/read")
+        return {
+          thread: {
+            id: "existing",
+            modelProvider: "openai",
+            status: { type: reads++ === 0 ? "systemError" : "notLoaded" },
+          },
+        } as T;
+      if (method === "thread/unsubscribe") return { status: "unsubscribed" } as T;
+      return { thread: { id: "existing" }, modelProvider: "eco_vendor", model: "new-model" } as T;
+    },
+  };
+  recordAppliedCodexThreadConfig(client, "existing", config);
+  await resumeCodexThread(client, {
+    threadId: "existing",
+    modelProvider: "eco_vendor",
+    model: "new-model",
+    config,
+    configAlreadyApplied: true,
   });
+  expect(calls).toEqual(["thread/read", "thread/unsubscribe", "thread/read", "thread/resume"]);
+});
+
+for (const failure of [
+  "timeout",
+  "rpc",
+  "active",
+  "unknown",
+  "bad_ack",
+  "wrong_model",
+  "wrong_provider",
+  "wrong_thread",
+  "abort",
+] as const) {
+  test(`config reload stops before continuing when unload/resume fails: ${failure}`, async () => {
+    let reads = 0;
+    let resumes = 0;
+    const controller = new AbortController();
+    const diagnostics: CodexResumeDiagnostic[] = [];
+    const client = {
+      async request<T>(method: string): Promise<T> {
+        if (method === "thread/read") {
+          const type =
+            reads++ === 0
+              ? "systemError"
+              : failure === "timeout"
+                ? "idle"
+                : failure === "active"
+                  ? "active"
+                  : failure === "unknown"
+                    ? "unknown"
+                    : "notLoaded";
+          return { thread: { id: "existing", status: { type } } } as T;
+        }
+        if (method === "thread/unsubscribe") {
+          if (failure === "rpc") throw new Error("shutdown rejected");
+          if (failure === "abort") controller.abort(new Error("user stopped"));
+          return { status: failure === "bad_ack" ? "unexpected" : "notLoaded" } as T;
+        }
+        resumes += 1;
+        return {
+          thread: { id: failure === "wrong_thread" ? "different" : "existing" },
+          model: failure === "wrong_model" ? "old" : "new",
+          modelProvider: failure === "wrong_provider" ? "openai" : "eco_vendor",
+        } as T;
+      },
+    };
+    recordAppliedCodexThreadConfig(client, "existing", { mcp_servers: {} });
+    await expect(
+      resumeCodexThread(client, {
+        threadId: "existing",
+        model: "new",
+        modelProvider: "eco_vendor",
+        config: { mcp_servers: { browser: { enabled: true } } },
+        configReloadTimeoutMs: 5,
+        signal: controller.signal,
+        onDiagnostic: (item) => diagnostics.push(item),
+      }),
+    ).rejects.toThrow();
+    expect(resumes).toBe(failure.startsWith("wrong_") ? 1 : 0);
+    expect(getAppliedCodexThreadConfigFingerprint(client, "existing")).toBeUndefined();
+    if (!failure.startsWith("wrong_")) expect(diagnostics.at(-1)?.decision).toBe("reload_failed");
+  });
+}
+
+test("same-provider same-config retries keep their thread loaded", async () => {
+  const calls: string[] = [];
+  const config = { mcp_servers: {} };
+  const client = {
+    async request<T>(method: string): Promise<T> {
+      calls.push(method);
+      return {
+        thread: { id: "existing", status: { type: "systemError" }, modelProvider: "openai" },
+        modelProvider: "openai",
+      } as T;
+    },
+  };
+  recordAppliedCodexThreadConfig(client, "existing", config);
+  await resumeCodexThread(client, {
+    threadId: "existing",
+    config,
+    modelProvider: "openai",
+    configAlreadyApplied: true,
+  });
+  expect(calls).toEqual(["thread/read", "thread/resume"]);
 });
 
 test("resumeCodexThread refuses configured resume while the loaded thread is active", async () => {
