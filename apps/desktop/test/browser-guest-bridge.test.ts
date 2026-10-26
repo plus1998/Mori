@@ -42,6 +42,10 @@ const browserStateStoreSource = readFileSync(
   "utf8",
 );
 const appSource = readFileSync(fileURLToPath(new URL("../src/renderer/App.tsx", import.meta.url)), "utf8");
+const taskPanelResizeSource = readFileSync(
+  fileURLToPath(new URL("../src/renderer/task-panel-resize-session.ts", import.meta.url)),
+  "utf8",
+);
 const lazyAppPanelsSource = readFileSync(
   fileURLToPath(new URL("../src/renderer/lazy-app-panels.tsx", import.meta.url)),
   "utf8",
@@ -154,7 +158,8 @@ test("task panel resize blocks browser webview pointer capture", () => {
   expect(stylesSource).toContain("body.is-resizing-task-panel .browser-panel-webview");
   expect(stylesSource).toMatch(/body\.is-resizing-task-panel::before[\s\S]*?z-index:\s*92/);
   expect(appSource).toContain("handleTaskPanelResizePointerDown");
-  expect(appSource).toContain("setPointerCapture");
+  expect(appSource).toContain("startTaskPanelResizeSession");
+  expect(taskPanelResizeSource).toContain("setPointerCapture");
 });
 
 test("browser webview pool attaches when host slot registers after ensure", () => {

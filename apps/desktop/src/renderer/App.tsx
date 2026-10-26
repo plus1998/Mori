@@ -8,6 +8,7 @@ import { composerReferenceToken } from "../shared/composer-references";
 import { browserSelectionReference, type BrowserSelection } from "../shared/browser-selection";
 import { BrowserSelectionPreview } from "./BrowserSelectionPreview";
 import { FollowUpPromptPreview } from "./FollowUpPromptPreview";
+import { startTaskPanelResizeSession } from "./task-panel-resize-session";
 import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "./browser-selection-events";
 import { OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID } from "../shared/agent-orchestration";
 import { CodexQuotaReminder } from "./CodexQuotaReminder";
@@ -2292,7 +2293,7 @@ function App() {
   const [activityMessageNavSpaceVisible, setActivityMessageNavSpaceVisible] = useState(false);
   const prefersReducedMotion = useReducedMotion();
   const taskPanelAnimationControls = useAnimationControls();
-  const taskPanelResizeRef = useRef<{ startX: number; startWidth: number } | undefined>(undefined);
+  const taskPanelResizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const mainPaneRef = useRef<HTMLDivElement>(null);
   const pendingTaskPanelTabCloseRef = useRef<TaskPanelActiveTab | undefined>(undefined);
   const taskPanelCloseRequestRef = useRef(0);
@@ -6840,43 +6841,30 @@ function App() {
 
   const handleTaskPanelResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
-      if (!taskDrawerOpen || event.button !== 0) {
+      if (!taskDrawerOpen || taskPanelFullscreen || event.button !== 0) {
         return;
       }
       event.preventDefault();
-      taskPanelResizeRef.current = {
-        startX: event.clientX,
-        startWidth: taskPanelWidth,
-      };
-      document.body.classList.add("is-resizing-task-panel");
-      event.currentTarget.setPointerCapture(event.pointerId);
+      taskPanelResizeCleanupRef.current?.();
+      const startX = event.clientX;
+      const startWidth = taskPanelWidth;
+      taskPanelResizeCleanupRef.current = startTaskPanelResizeSession({
+        handle: event.currentTarget,
+        pointerId: event.pointerId,
+        onMove: (clientX) => {
+          setTaskPanelWidth(
+            clampTaskPanelWidth(startWidth + (startX - clientX), mainPaneRef.current?.clientWidth),
+          );
+        },
+      });
     },
-    [taskDrawerOpen, taskPanelWidth],
+    [taskDrawerOpen, taskPanelFullscreen, taskPanelWidth],
   );
 
-  const handleTaskPanelResizePointerMove = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    const session = taskPanelResizeRef.current;
-    if (!session) {
-      return;
-    }
-    setTaskPanelWidth(
-      clampTaskPanelWidth(
-        session.startWidth + (session.startX - event.clientX),
-        mainPaneRef.current?.clientWidth,
-      ),
-    );
-  }, []);
-
-  const handleTaskPanelResizePointerEnd = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    if (!taskPanelResizeRef.current) {
-      return;
-    }
-    taskPanelResizeRef.current = undefined;
-    document.body.classList.remove("is-resizing-task-panel");
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
+  useEffect(() => () => {
+    taskPanelResizeCleanupRef.current?.();
+    taskPanelResizeCleanupRef.current = undefined;
+  }, [browserScopeId, currentProjectPath, taskDrawerOpen, taskPanelFullscreen]);
 
   const handleTaskPanelResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
     const step = event.shiftKey ? 48 : 24;
@@ -11636,9 +11624,6 @@ function App() {
           tabIndex={0}
           title={t("app.dragResize")}
           onPointerDown={handleTaskPanelResizePointerDown}
-          onPointerMove={handleTaskPanelResizePointerMove}
-          onPointerUp={handleTaskPanelResizePointerEnd}
-          onPointerCancel={handleTaskPanelResizePointerEnd}
           onKeyDown={handleTaskPanelResizeKeyDown}
         />
         <SuspensePanel>
