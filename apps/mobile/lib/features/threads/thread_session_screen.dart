@@ -19,6 +19,7 @@ import '../../core/providers/app_providers.dart';
 import '../../core/providers/thinking_display_provider.dart';
 import '../../core/storage/composer_model_preferences.dart';
 import '../../core/widgets/activity_feed_auto_read_listener.dart';
+import '../../core/widgets/composer_prompt_editing_controller.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/utils/conversation_v2_hash.dart';
@@ -69,7 +70,7 @@ class ThreadSessionScreen extends ConsumerStatefulWidget {
 
 class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     with WidgetsBindingObserver {
-  final _promptController = TextEditingController();
+  final _promptController = ComposerPromptEditingController();
   final _scrollController = ScrollController();
   late final ActivityFeedScrollCoordinator _scrollCoordinator =
       ActivityFeedScrollCoordinator(_scrollController);
@@ -1187,7 +1188,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
   }
 
   Future<void> _startNewThread() async {
-    final prompt = _promptController.text.trim();
+    final prompt = _promptController.prompt.trim();
     if (prompt.isEmpty && _attachments.isEmpty) return;
     if (_starting) return;
 
@@ -1577,7 +1578,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     ThreadRuntimeConfigInput runtimeConfig, {
     FollowUpDeliveryMode? deliveryMode,
   }) async {
-    final prompt = _promptController.text.trim();
+    final prompt = _promptController.prompt.trim();
     if (prompt.isEmpty && _attachments.isEmpty) return;
     if (_sendBusy || _followUpBusy) return;
     final rpc = ref.read(desktopRpcProvider);

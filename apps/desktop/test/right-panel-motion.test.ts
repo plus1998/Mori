@@ -36,7 +36,12 @@ test("task panel marks browser panel closed on dismiss for soft-reveal state", (
     /void window\.eco\?\.browserSetVisible\?\.\(\{\s*visible:\s*false\s*\}\);\s*\/\/[\s\S]*?setTaskPanelExiting\(true\)/,
   );
   expect(appSource).toContain("surfaceActive={taskPanelOpen && !taskPanelExiting}");
-  expect(drawerSource).toContain("active={isActive && surfaceActive}");
+  expect(drawerSource).toContain("surfaceActive={surfaceActive}");
+  const workspaceSource = readFileSync(
+    fileURLToPath(new URL("../src/renderer/BrowserTaskWorkspace.tsx", import.meta.url)), "utf8",
+  );
+  expect(workspaceSource).toContain("active={focused && surfaceActive}");
+  expect(workspaceSource).toContain("visible={visible && surfaceActive}");
 });
 
 test("right panel motion stays on transform and opacity instead of animating grid layout", () => {

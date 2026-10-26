@@ -38147,10 +38147,93 @@ body,
 }
 
 /* —�?Built-in browser (right task panel pane) —�?*/
+.browser-task-workspace {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.browser-task-workspace[hidden] {
+  display: none;
+}
+
+.browser-task-workspace.is-split {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.browser-split-page-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-sidebar);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.is-focused > .browser-split-page-picker {
+  color: var(--accent);
+}
+
+.browser-split-page-picker select {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-overflow: ellipsis;
+}
+
+.browser-split-divider {
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+  background: var(--terminal-bg);
+}
+
+.browser-split-divider::after {
+  content: "";
+  position: absolute;
+  inset: 0 3px;
+  background: var(--border-sidebar);
+}
+
+.browser-split-divider:hover::after,
+.browser-split-divider:focus-visible::after,
+body.is-resizing-browser-split .browser-split-divider::after {
+  inset-inline: 2px;
+  background: var(--accent);
+}
+
+body.is-resizing-browser-split {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* Keep a captured divider drag above Electron guests, even on fast pointer moves. */
+body.is-resizing-browser-split::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 92;
+  cursor: col-resize;
+}
+
 .subagent-task-panel-tab-pane--browser {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
   height: 100%;
   padding: 0;
 }
@@ -38160,6 +38243,7 @@ body,
 }
 
 .browser-panel {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -38228,6 +38312,24 @@ body,
   min-width: 0;
   display: flex;
   align-items: center;
+}
+
+@container (max-width: 520px) {
+  .browser-panel-chrome {
+    flex-wrap: wrap;
+    gap: 3px;
+    padding: 6px;
+  }
+
+  .browser-panel-address-form {
+    order: -1;
+    flex-basis: 100%;
+  }
+
+  .browser-panel-icon-btn {
+    width: 24px;
+    height: 26px;
+  }
 }
 
 .browser-panel-address-icon {

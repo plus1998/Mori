@@ -15,6 +15,7 @@ import {
   Terminal,
   MousePointer2,
   TextSelect,
+  Columns2,
 } from "lucide-react";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -33,9 +34,14 @@ const ICON_SIZE = 15;
 export interface BrowserPanelProps {
   /** True when this browser task-panel tab is the active pane. */
   active: boolean;
+  /** A split's secondary pane stays visible without taking the focused browser. */
+  visible?: boolean;
   /** Eco browser instance id for this task tab. */
   browserId: string;
   onOpenTool: (browserId: string, tool: TaskPanelHomeTool) => void;
+  onToggleSplit?: () => void;
+  split?: boolean;
+  splitBusy?: boolean;
 }
 
 /**
@@ -43,7 +49,7 @@ export interface BrowserPanelProps {
  * {@link browserWebviewPool} in {@link BrowserWebviewLayer}; this panel only
  * publishes viewport bounds via {@link BrowserWebviewViewportMarker}.
  */
-export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProps) {
+export function BrowserPanel({ active, visible = active, browserId, onOpenTool, onToggleSplit, split, splitBusy }: BrowserPanelProps) {
   const { t } = useTranslation();
   const toolHomeTitleId = `browser-tool-home-title-${browserId}`;
   const [state, setState] = useState<BrowserViewState | undefined>();
@@ -63,6 +69,7 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
   const [addressMenuOpen, setAddressMenuOpen] = useState(false);
   /** Main drops a closed browser from its guest list — never focus a page that is gone. */
   const liveBrowserIds = useBrowserInstanceIds();
+  const browserLive = liveBrowserIds.includes(browserId);
 
   const instance = state?.instances.find((item) => item.id === browserId);
   const downloads = instance?.downloads;
@@ -83,24 +90,21 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
   }, [browserId]);
 
   useEffect(() => {
-    if (!active || !liveBrowserIds.includes(browserId)) {
+    if (!active || !browserLive) {
       return;
     }
     void window.eco?.browserFocus?.({ browserId, reveal: true });
     void window.eco?.browserSetVisible?.({ visible: true, browserId }).then((next) => {
       if (next) {
         setState(next);
-        const url = next.instances.find((i) => i.id === browserId)?.url;
-        if (url === undefined) return;
-        setAddress(url === "about:blank" ? "" : url);
       }
     });
-  }, [active, browserId, liveBrowserIds]);
+  }, [active, browserId, browserLive]);
 
   useEffect(() => {
     const unsubscribe = window.eco?.onBrowserStateChanged?.((next) => {
       setState(next);
-      if (!active) {
+      if (!visible) {
         return;
       }
       if (!addressMenuOpen && document.activeElement?.id !== addressInputId) {
@@ -110,7 +114,7 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
       }
     });
     return () => unsubscribe?.();
-  }, [active, addressInputId, addressMenuOpen, browserId]);
+  }, [visible, addressInputId, addressMenuOpen, browserId]);
 
   async function submitAddress(event: FormEvent) {
     event.preventDefault();
@@ -258,6 +262,14 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
         >
           <ExternalLink size={ICON_SIZE} />
         </button>
+        {onToggleSplit ? (
+          <button type="button" className={`browser-panel-icon-btn${split ? " is-active" : ""}`}
+            title={t(split ? "browser.split.exit" : "browser.split.start")}
+            aria-label={t(split ? "browser.split.exit" : "browser.split.start")}
+            aria-pressed={Boolean(split)} disabled={splitBusy} onClick={onToggleSplit}>
+            <Columns2 size={ICON_SIZE} />
+          </button>
+        ) : null}
       </div>
       {externalOpenError?.browserId === browserId && externalOpenError.url === displayUrl ? (
         <div className="browser-viewport-error" role="alert">
@@ -308,7 +320,7 @@ export function BrowserPanel({ active, browserId, onOpenTool }: BrowserPanelProp
             </button>
           </section>
         ) : null}
-        <BrowserWebviewViewportMarker browserId={browserId} active={active} />
+        <BrowserWebviewViewportMarker browserId={browserId} active={visible} />
       </div>
     </div>
   );

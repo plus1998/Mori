@@ -1055,7 +1055,7 @@
   "todosMore": "To-do actions",
   "todosCompose": "Bring into conversation",
   "todosNewConversation": "New conversation",
-  "todosComposeHint": "Fills the composer for you to review and send. Your to-do stays here.",
+  "todosComposeHint": "Adds an @todo reference for you to review and send. The Agent reads the latest to-do after sending.",
   "todosSearchThreads": "Search conversations in this project",
   "todosLoadFailed": "Unable to load to-dos",
   "todosConflict": "This to-do changed on another device. Keep your text, close the editor and reopen it before saving.",

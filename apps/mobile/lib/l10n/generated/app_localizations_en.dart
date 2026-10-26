@@ -3229,7 +3229,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get todosComposeHint =>
-      'Fills the composer for you to review and send. Your to-do stays here.';
+      'Adds an @todo reference for you to review and send. The Agent reads the latest to-do after sending.';
 
   @override
   String get todosSearchThreads => 'Search conversations in this project';

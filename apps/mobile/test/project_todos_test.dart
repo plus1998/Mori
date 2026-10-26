@@ -11,6 +11,8 @@ import 'package:eco_mobile/core/providers/app_providers.dart';
 import 'package:eco_mobile/core/providers/desktop_bind_ready.dart';
 import 'package:eco_mobile/core/storage/credential_store.dart';
 import 'package:eco_mobile/core/theme/eco_theme.dart';
+import 'package:eco_mobile/core/utils/composer_references.dart';
+import 'package:eco_mobile/core/widgets/composer_prompt_editing_controller.dart';
 import 'package:eco_mobile/features/projects/project_providers.dart';
 import 'package:eco_mobile/features/threads/thread_providers.dart';
 import 'package:eco_mobile/features/todos/project_todos_screen.dart';
@@ -712,7 +714,7 @@ void main() {
     expect(client.calls.any((c) => c.channel == 'project-todo:save'), isFalse);
   });
   testWidgets(
-    'bringing a todo into a new conversation preserves text and original image without sending',
+    'bringing a todo references its identity without copying content or downloading images',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(390, 844);
@@ -728,6 +730,8 @@ void main() {
         },
       ];
       ThreadSessionRouteExtra? draft;
+      ComposerPromptEditingController? composer;
+      addTearDown(() => composer?.dispose());
       final router = GoRouter(
         initialLocation: '/todos',
         routes: [
@@ -739,7 +743,8 @@ void main() {
             path: '/threads/:id',
             builder: (_, state) {
               draft = state.extra as ThreadSessionRouteExtra;
-              return const Scaffold(body: Text('Composer ready'));
+              composer = ComposerPromptEditingController(text: draft!.prompt!);
+              return Scaffold(body: TextField(controller: composer));
             },
           ),
         ],
@@ -754,9 +759,19 @@ void main() {
       expect(find.textContaining('review and send'), findsOneWidget);
       await tester.tap(find.text('New conversation'));
       await tester.pumpAndSettle();
-      expect(find.text('Composer ready'), findsOneWidget);
-      expect(draft?.prompt, 'Fix mobile layout');
-      expect(base64Decode(draft!.attachments.single.data), client.imageBytes);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(composer!.text, '@Fix mobile layout ');
+      expect(composer!.prompt, draft!.prompt);
+      final reference = parseComposerPrompt(draft!.prompt!).first;
+      expect(reference.kind, 'todo');
+      expect(reference.id, '1');
+      expect(reference.label, 'Fix mobile layout');
+      expect(reference.detail, '/a');
+      expect(draft!.attachments, isEmpty);
+      expect(
+        client.calls.any((c) => c.channel == 'project-todo:image-read'),
+        isFalse,
+      );
       expect(client.items.length, 3);
       expect(client.deleted, isEmpty);
       expect(

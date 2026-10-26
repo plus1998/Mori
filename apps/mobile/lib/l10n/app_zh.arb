@@ -1010,7 +1010,7 @@
   "todosMore": "待办操作",
   "todosCompose": "带入会话",
   "todosNewConversation": "新建会话",
-  "todosComposeHint": "只填入输入框，由你确认发送。待办会保留。",
+  "todosComposeHint": "以 @待办 引用带入输入框，确认发送后，Agent 会读取最新待办。",
   "todosSearchThreads": "搜索此项目的会话",
   "todosLoadFailed": "无法加载待办",
   "todosConflict": "这条待办已在另一端修改。请保留当前内容，关闭编辑后重新打开再保存。",

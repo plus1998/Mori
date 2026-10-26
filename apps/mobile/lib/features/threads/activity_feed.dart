@@ -17,6 +17,7 @@ import '../../core/models/thread_models.dart';
 import '../../core/models/thread_runtime_config.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/utils/activity_display.dart';
+import '../../core/utils/composer_references.dart';
 import '../../core/utils/feed_action_kind.dart';
 import '../../core/utils/file_change.dart';
 import '../../core/utils/feed_text.dart';
@@ -30,6 +31,8 @@ import '../../core/utils/tool_writing_indicator.dart';
 import '../../core/utils/thread_status.dart';
 import '../../core/widgets/activity_feed_block.dart';
 import '../../core/widgets/activity_feed_speak_button.dart';
+import '../../core/widgets/composer_reference_text.dart';
+import '../../core/widgets/composer_prompt_editing_controller.dart';
 import '../../core/widgets/eco_markdown.dart';
 import '../../core/widgets/streaming_eco_markdown.dart';
 import '../../core/widgets/eco_surface_card.dart';
@@ -2325,7 +2328,8 @@ class _UserPromptTileState extends State<_UserPromptTile> {
   static const _maxEditImages = 5;
 
   late var _expanded = widget.initiallyExpanded;
-  final _editController = TextEditingController();
+  late var _promptSegments = parseComposerPrompt(widget.text);
+  final _editController = ComposerPromptEditingController();
   final _picker = ImagePicker();
   var _editing = false;
   var _editLoading = false;
@@ -2350,6 +2354,9 @@ class _UserPromptTileState extends State<_UserPromptTile> {
   @override
   void didUpdateWidget(covariant _UserPromptTile oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) {
+      _promptSegments = parseComposerPrompt(widget.text);
+    }
     if (oldWidget.text != widget.text ||
         oldWidget.initiallyExpanded != widget.initiallyExpanded ||
         oldWidget.historyRevision != widget.historyRevision ||
@@ -2471,7 +2478,7 @@ class _UserPromptTileState extends State<_UserPromptTile> {
     if (target == null || rewrite == null || _editLoading || _editSaving) {
       return;
     }
-    final prompt = _editController.text.trim();
+    final prompt = _editController.prompt.trim();
     if (prompt.isEmpty && _editAttachments.isEmpty) {
       _showEditToast(_emptyEditMessageText(context));
       return;
@@ -2713,13 +2720,27 @@ class _UserPromptTileState extends State<_UserPromptTile> {
             0.0,
             maxBubbleWidth - horizontalPadding,
           );
-          final canExpand = _textExceedsLineLimit(
-            text: widget.text,
-            style: textStyle,
-            maxWidth: bodyMaxWidth,
-            maxLines: _collapsedMaxLines,
-            textDirection: Directionality.of(context),
-          );
+          final referenceLayout = _promptSegments.any((s) => s.isReference)
+              ? ComposerReferenceTextLayout(
+                  context: context,
+                  segments: _promptSegments,
+                  style: textStyle,
+                  // Container padding is already excluded by LayoutBuilder.
+                  maxWidth: constraints.maxWidth,
+                )
+              : null;
+          final canExpand =
+              referenceLayout?.exceedsLineLimit(
+                maxWidth: constraints.maxWidth,
+                maxLines: _collapsedMaxLines,
+              ) ??
+              _textExceedsLineLimit(
+                text: widget.text,
+                style: textStyle,
+                maxWidth: bodyMaxWidth,
+                maxLines: _collapsedMaxLines,
+                textDirection: Directionality.of(context),
+              );
           final showCollapsed = canExpand && !_expanded;
           final galleryWidth = (widget.attachments.length * 108.0).clamp(
             0.0,
@@ -2772,14 +2793,19 @@ class _UserPromptTileState extends State<_UserPromptTile> {
                               stops: [0, 0.45, 1],
                             ).createShader(bounds);
                           },
-                          child: Text(
-                            widget.text,
-                            maxLines: _collapsedMaxLines,
-                            overflow: TextOverflow.clip,
-                            style: textStyle,
-                          ),
+                          child:
+                              referenceLayout?.build(
+                                maxLines: _collapsedMaxLines,
+                              ) ??
+                              Text(
+                                widget.text,
+                                maxLines: _collapsedMaxLines,
+                                overflow: TextOverflow.clip,
+                                style: textStyle,
+                              ),
                         )
-                      : Text(widget.text, style: textStyle),
+                      : referenceLayout?.build() ??
+                            Text(widget.text, style: textStyle),
                 ),
                 if (canExpand)
                   Align(

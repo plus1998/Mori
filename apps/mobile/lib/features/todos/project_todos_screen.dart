@@ -9,6 +9,7 @@ import '../../core/locale/app_localizations_ext.dart';
 import '../../core/models/project_todo_models.dart';
 import '../../core/models/thread_models.dart';
 import '../../core/theme/eco_theme.dart';
+import '../../core/utils/project_todo_references.dart';
 import '../../core/widgets/adaptive_nav_bar.dart';
 import '../../core/widgets/app_error_state.dart';
 import '../../core/widgets/eco_modal_sheet.dart';
@@ -225,19 +226,12 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
     if (latest.projectPath != todo.projectPath) {
       throw StateError('Todo changed. Reopen it before saving.');
     }
-    final attachments = <PromptImageAttachment>[];
-    for (final image in latest.images) {
-      attachments.add(
-        image.toAttachment(await rpc.downloadProjectTodoImage(latest, image)),
-      );
-    }
     await openProjectPath(ref, latest.projectPath);
     if (!mounted) return;
     context.push(
       '/threads/$target',
       extra: ThreadSessionRouteExtra(
-        prompt: latest.text,
-        attachments: attachments,
+        prompt: appendProjectTodoReference('', latest),
       ),
     );
   });

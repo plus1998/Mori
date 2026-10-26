@@ -5669,7 +5669,7 @@ abstract class AppLocalizations {
   /// No description provided for @todosComposeHint.
   ///
   /// In en, this message translates to:
-  /// **'Fills the composer for you to review and send. Your to-do stays here.'**
+  /// **'Adds an @todo reference for you to review and send. The Agent reads the latest to-do after sending.'**
   String get todosComposeHint;
 
   /// No description provided for @todosSearchThreads.

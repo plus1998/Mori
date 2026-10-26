@@ -22,6 +22,7 @@ import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/utils/speech_text.dart';
 import '../../core/widgets/image_memory_lightbox.dart';
+import '../../core/widgets/composer_prompt_editing_controller.dart';
 import 'composer_controls.dart';
 import 'composer_plus_menu.dart';
 import 'composer_toolbar_icon.dart';
@@ -242,7 +243,7 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
 
   Future<void> _handleSchedule() async {
     if (!_canSchedule) return;
-    final draft = widget.controller.text;
+    final draft = composerWirePrompt(widget.controller);
     final images = List<PromptImageAttachment>.of(widget.attachments);
     final isNew = widget.threadId.isEmpty;
     final threadId = isNew ? 'thr_${const Uuid().v4()}' : widget.threadId;
@@ -277,7 +278,7 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
 
   void _clearScheduledDraft(String draft, List<PromptImageAttachment> images) {
     if (!mounted ||
-        widget.controller.text != draft ||
+        composerWirePrompt(widget.controller) != draft ||
         !listEquals(widget.attachments, images)) {
       return;
     }

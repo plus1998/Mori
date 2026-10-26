@@ -46,7 +46,8 @@ import type {
 import type { SshBookmarkView } from "../shared/ssh-bookmarks";
 import { ProjectionSubagentDetailFeed } from "./ActivityLogView";
 import { resolveSubagentRunDisplayTitle } from "./activity-log";
-import { BrowserPanel } from "./BrowserPanel";
+import { BrowserTaskWorkspace } from "./BrowserTaskWorkspace";
+import type { BrowserSplitLayout } from "./browser-split-layout";
 import { TaskPanelTabOrder } from "./TaskPanelTabOrder";
 import { TaskPanelNewTab } from "./TaskPanelNewTab";
 import { useBrowserTaskInstances } from "./browser-state-store";
@@ -619,6 +620,10 @@ export function SubagentTaskDrawer({
   onSelectFileViewer,
   onSelectBrowser,
   browserInstances,
+  browserSplit,
+  browserSplitBusy,
+  onChangeBrowserSplit,
+  onToggleBrowserSplit,
   onViewedFileChange,
   generationToolsActive = true,
   onOpenGenerationSettings,
@@ -681,6 +686,10 @@ export function SubagentTaskDrawer({
   onSelectFileViewer: () => void;
   onSelectBrowser: (browserId?: string) => void;
   browserInstances?: readonly TaskPanelBrowserInstance[];
+  browserSplit?: BrowserSplitLayout | undefined;
+  browserSplitBusy?: boolean;
+  onChangeBrowserSplit: (split: BrowserSplitLayout | undefined) => void;
+  onToggleBrowserSplit: (browserId: string) => void;
   onViewedFileChange: (target: WorkspaceFileReference & { requestId: number }) => void;
   generationToolsActive?: boolean;
   onOpenGenerationSettings: (kind: "image" | "speech") => void;
@@ -1323,29 +1332,10 @@ export function SubagentTaskDrawer({
             />
           </div>
         ) : null}
-        {browserTabs.map((instance) => {
-          const tabId = browserTaskTabId(instance.id);
-          const isActive = activeTab === tabId;
-          return (
-            <div
-              key={tabId}
-              id={`subagent-task-tab-browser-${instance.id}`}
-              className={[
-                "subagent-task-panel-tab-pane",
-                "subagent-task-panel-tab-pane--browser",
-                isActive ? "is-active" : "is-inactive",
-              ].join(" ")}
-              role="tabpanel"
-              hidden={!isActive}
-            >
-              <BrowserPanel
-                active={isActive && surfaceActive}
-                browserId={instance.id}
-                onOpenTool={(browserId, tool) => onOpenHomeTool(browserTaskTabId(browserId), tool)}
-              />
-            </div>
-          );
-        })}
+        <BrowserTaskWorkspace instances={browserTabs} activeBrowserId={activeBrowserId}
+          surfaceActive={surfaceActive} split={browserSplit} splitBusy={browserSplitBusy}
+          onChangeSplit={onChangeBrowserSplit} onToggleSplit={onToggleBrowserSplit}
+          onSelectBrowser={onSelectBrowser} onOpenTool={onOpenHomeTool} />
         {planSelected && plan ? (
           <div id="subagent-task-tab-plan" className="subagent-task-panel-tab-pane" role="tabpanel">
             <PlanDetailPanel plan={plan} />

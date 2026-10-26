@@ -3054,7 +3054,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get todosNewConversation => '新建会话';
 
   @override
-  String get todosComposeHint => '只填入输入框，由你确认发送。待办会保留。';
+  String get todosComposeHint => '以 @待办 引用带入输入框，确认发送后，Agent 会读取最新待办。';
 
   @override
   String get todosSearchThreads => '搜索此项目的会话';

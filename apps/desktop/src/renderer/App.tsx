@@ -458,6 +458,7 @@ import type { TerminalSessionPresentation } from "./TerminalPanel";
 import { ThreadIdleCacheWarning } from "./ThreadIdleCacheWarning";
 import { OpenTtsArtifactContext, TtsArtifactsContext } from "./TtsArtifactPlayer";
 import { loadTaskPanelReviewDiff } from "./task-panel-review-loader";
+import { normalizeBrowserSplitLayout, type BrowserSplitLayout } from "./browser-split-layout";
 import {
   captureTaskPanelSessionUiState,
   emptyTaskPanelSessionUiState,
@@ -2273,6 +2274,9 @@ function App() {
   const [selectedSubagentAgentId, setSelectedSubagentAgentId] = useState<string>();
   const [taskPanelActiveTab, setTaskPanelActiveTab] = useState<TaskPanelActiveTab>(TASK_PANEL_HOME_TAB_ID);
   const [openTaskPanelTabIds, setOpenTaskPanelTabIds] = useState<TaskPanelActiveTab[]>([]);
+  const [browserSplit, setBrowserSplit] = useState<BrowserSplitLayout>();
+  const [browserSplitBusy, setBrowserSplitBusy] = useState(false);
+  const browserSplitRequestRef = useRef(0);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [taskPanelLayoutPresent, setTaskPanelLayoutPresent] = useState(false);
   const [taskPanelExiting, setTaskPanelExiting] = useState(false);
@@ -2329,6 +2333,7 @@ function App() {
     activeTab: taskPanelActiveTab,
     openTabIds: openTaskPanelTabIds,
     fullscreen: taskPanelFullscreen,
+    ...(browserSplit ? { browserSplit } : {}),
     ...(selectedSubagentAgentId ? { selectedSubagentAgentId } : {}),
     ...(fileTarget ? { fileTarget } : {}),
   });
@@ -6034,6 +6039,9 @@ function App() {
 
     setTaskPanelActiveTab(restored.activeTab);
     setOpenTaskPanelTabIds(restored.openTabIds);
+    setBrowserSplit(restored.browserSplit);
+    browserSplitRequestRef.current += 1;
+    setBrowserSplitBusy(false);
     setSelectedSubagentAgentId(restored.selectedSubagentAgentId);
     setTaskPanelFullscreen(restored.open && restored.fullscreen);
 
@@ -6444,6 +6452,11 @@ function App() {
     toggleWorkspacePanelForCurrentProject();
   }, [toggleWorkspacePanelForCurrentProject]);
 
+  useEffect(() => {
+    if (!browserScopeReady) return;
+    setBrowserSplit(current => normalizeBrowserSplitLayout(current, openTaskPanelTabIds));
+  }, [browserScopeReady, openTaskPanelTabIds]);
+
   const toggleFileTreeForCurrentProject = useCallback(() => {
     if (!currentProjectPath) {
       return;
@@ -6471,6 +6484,46 @@ function App() {
     setSelectedSubagentAgentId(undefined);
     void window.eco?.browserFocus?.({ browserId, reveal: true });
   }, []);
+
+  const toggleBrowserSplit = useCallback(async (browserId: string) => {
+    if (browserSplit?.browserIds.includes(browserId)) {
+      setBrowserSplit(undefined);
+      return;
+    }
+    const eco = window.eco;
+    const state = browserStateStore.getState();
+    const scopeId = browserScopeIdRef.current;
+    if (!eco || !currentProjectPath || state?.uiScopeId !== scopeId || browserSplitBusy) return;
+    if (!state.instances.some(instance => instance.id === browserId)) return;
+    const otherId = openTaskPanelTabIds.map(id => parseBrowserTaskTabId(id)).find(id =>
+      id && id !== browserId && state.instances.some(instance => instance.id === id));
+    if (otherId) {
+      setBrowserSplit({ browserIds: [browserId, otherId], ratio: 0.5 });
+      return;
+    }
+    const request = ++browserSplitRequestRef.current;
+    setBrowserSplitBusy(true);
+    try {
+      const next = await eco.browserOpen({
+        newBrowser: true, reveal: false,
+        ...(activeThread?.id ? { threadId: activeThread.id } : { workspacePath: currentProjectPath }),
+      });
+      if (request !== browserSplitRequestRef.current || scopeId !== browserScopeIdRef.current || next.uiScopeId !== scopeId) return;
+      const newId = next.focusedBrowserId;
+      if (!newId || newId === browserId) throw new Error(t("browser.split.createFailed"));
+      // Closing the source while its new guest is being created must not revive it.
+      const latest = browserStateStore.getState();
+      if (!latest?.instances.some(instance => instance.id === browserId)) return;
+      setOpenTaskPanelTabIds(current => addOpenTaskPanelTab(current, browserTaskTabId(newId)));
+      setBrowserSplit({ browserIds: [browserId, newId], ratio: 0.5 });
+      // Keep the side from which the user entered split mode focused.
+      if (taskPanelActiveTabRef.current === browserTaskTabId(browserId)) selectBrowserTaskTab(browserId);
+    } catch (error) {
+      showAppMessageError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (request === browserSplitRequestRef.current) setBrowserSplitBusy(false);
+    }
+  }, [activeThread?.id, browserSplit, browserSplitBusy, currentProjectPath, openTaskPanelTabIds, selectBrowserTaskTab, showAppMessageError, t]);
 
   const openBrowserTaskPanel = useCallback(
     (options?: string | { browserId?: string; url?: string; webChatSiteId?: string }) => {
@@ -6757,6 +6810,10 @@ function App() {
         return;
       }
       const browserId = parseBrowserTaskTabId(String(tabId));
+      const splitPartner = browserId && browserSplit?.browserIds.includes(browserId)
+        ? browserSplit.browserIds.find(id => id !== browserId)
+        : undefined;
+      if (splitPartner) setBrowserSplit(undefined);
       if (browserId) {
         // Tab × closes the page for real (Agent target goes away with that WebContents).
         void window.eco?.browserCloseInstance?.({ browserId });
@@ -6768,14 +6825,14 @@ function App() {
       }
       setOpenTaskPanelTabIds(result.tabs);
       if (taskPanelActiveTab === tabId) {
-        const fallback = result.fallback;
+        const fallback = splitPartner ? browserTaskTabId(splitPartner) : result.fallback;
         setTaskPanelActiveTab(fallback ?? TASK_PANEL_HOME_TAB_ID);
         setSelectedSubagentAgentId(
           fallback && activeSubagentCards.some((card) => card.key === fallback) ? fallback : undefined,
         );
       }
     },
-    [activeSubagentCards, dismissTaskPanel, openTaskPanelTabIds, taskPanelActiveTab],
+    [activeSubagentCards, browserSplit, dismissTaskPanel, openTaskPanelTabIds, taskPanelActiveTab],
   );
 
   const handleTaskPanelResizePointerDown = useCallback(
@@ -11586,6 +11643,10 @@ function App() {
           <TtsArtifactsContext value={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}>
           <LazySubagentTaskDrawer
             browserInstances={browserTaskInstances}
+            browserSplit={browserSplit}
+            browserSplitBusy={browserSplitBusy}
+            onChangeBrowserSplit={setBrowserSplit}
+            onToggleBrowserSplit={browserId => void toggleBrowserSplit(browserId)}
             open={taskPanelLayoutOpen}
             surfaceActive={taskPanelOpen && !taskPanelExiting}
             fullscreen={taskPanelFullscreenOpen}
