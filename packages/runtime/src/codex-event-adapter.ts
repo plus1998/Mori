@@ -185,6 +185,8 @@ export interface CodexEventAdapterOptions {
   onTurnStarted?: (input: { codexThreadId: string; turnId: string }) => void;
   /** Raw, validated usage for account history, including native child turns and compaction. */
   onAccountTokenUsage?: (input: { codexThreadId: string; turnId: string; usage: CodexTurnTokenUsageSnapshot }) => void;
+  /** Registered turn usage; the host decides which routes can bill directly. */
+  onTurnTokenUsageUpdated?: (route: CodexTurnRouteRecord) => void;
   onTurnFinished?: (input: { codexThreadId: string; turnId: string }) => void;
   onThreadRouteCleanup?: (codexThreadId: string) => void;
   /** Called when `thread/tokenUsage/updated` yields context occupancy (§4.4). */
@@ -517,6 +519,10 @@ function handleTurnCompleted(ctx: AdapterContext, params: Record<string, unknown
       ...(turnRoute?.appServerTokenUsageRequests
         ? { appServerTokenUsageRequests: turnRoute.appServerTokenUsageRequests }
         : {}),
+      ...(turnRoute?.appServerTokenUsageSnapshot
+        ? { appServerTokenUsageSnapshot: turnRoute.appServerTokenUsageSnapshot }
+        : {}),
+      ...(turnRoute ? { usageModelId: turnRoute.upstreamModelId, usageProviderId: turnRoute.providerId } : {}),
       ...(errorMessage ? { errorMessage } : {}),
     },
   });
@@ -664,6 +670,7 @@ function handleTokenUsageUpdated(ctx: AdapterContext, params: Record<string, unk
     turnRoute = parsedTokenUsage
       ? ctx.turnRouteRegistry?.observeTokenUsage(codexThreadId, turnId, parsedTokenUsage)
       : ctx.turnRouteRegistry?.peek(codexThreadId, turnId);
+    if (parsedTokenUsage && turnRoute?.appServerTokenUsage) ctx.onTurnTokenUsageUpdated?.(turnRoute);
   }
   if (!ctx.onTokenUsageUpdated) {
     return;

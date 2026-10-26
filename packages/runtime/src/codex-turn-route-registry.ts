@@ -28,6 +28,8 @@ export interface CodexTurnRouteRecord extends CodexTurnRouteIdentity {
   appServerTokenUsage?: CodexTurnTokenUsageBreakdown;
   /** Individual requests, present only when every observed delta matches `last`. */
   appServerTokenUsageRequests?: CodexTurnTokenUsageBreakdown[];
+  /** Native cumulative checkpoint belonging to the last observed contribution. */
+  appServerTokenUsageSnapshot?: CodexTurnTokenUsageSnapshot;
 }
 
 export interface CodexTurnRoutePendingOwner {
@@ -143,6 +145,7 @@ export class CodexTurnRouteRegistry {
     if (record) {
       const contribution = resolveUsageContribution(record.lastObservedThreadTotal, total, last);
       if (contribution) {
+        record.appServerTokenUsageSnapshot = { last: cloneBreakdown(last), total: cloneBreakdown(total) };
         record.appServerTokenUsage = record.appServerTokenUsage
           ? addBreakdowns(record.appServerTokenUsage, contribution)
           : cloneBreakdown(contribution);
@@ -397,6 +400,12 @@ function snapshot(record: MutableTurnRecord): CodexTurnRouteRecord {
     }),
     ...(record.appServerTokenUsageRequests && {
       appServerTokenUsageRequests: record.appServerTokenUsageRequests.map(cloneBreakdown),
+    }),
+    ...(record.appServerTokenUsageSnapshot && {
+      appServerTokenUsageSnapshot: {
+        last: cloneBreakdown(record.appServerTokenUsageSnapshot.last),
+        total: cloneBreakdown(record.appServerTokenUsageSnapshot.total),
+      },
     }),
   };
 }

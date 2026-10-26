@@ -72,7 +72,6 @@ import {
   type CodexAsyncQuestionsInput,
   type CodexGatewayCatalogRoute,
   type CodexMcpServerForConfigSync,
-  type CodexTurnTokenUsageBreakdown,
   codexToolDisplayName,
   composeCanUseToolHandlers,
   createAskUserQuestionHandler,
@@ -642,10 +641,8 @@ import {
   prepareAsyncClarificationReply,
   releasePendingClarification,
 } from "./codex-async-question-bridge";
-import {
-  buildCodexAppServerBillingRequests,
-  normalizeCodexAppServerUsage,
-} from "./codex-app-server-usage-billing";
+import { normalizeCodexAppServerUsage } from "./codex-app-server-usage-billing";
+import { CodexLiveUsageBilling, type CodexLiveUsageInput } from "./codex-live-usage-billing";
 import { isCodexAuthCompletionPageText } from "./codex-browser-login";
 import {
   CodexGatewayUsageDeduplicator,
@@ -1845,6 +1842,7 @@ let agentLifecycle: AgentLifecycleService;
 let openaiAccountService: OpenAIAccountService | undefined;
 let accountUsageStore: AccountUsageStore;
 const codexAccountUsageTracker = new CodexAccountUsageTracker();
+const codexLiveUsageBilling = new CodexLiveUsageBilling();
 let openaiAccountAssistant: OpenAIAccountAssistant | undefined;
 let usageLedgerCoordinator: UsageLedgerCoordinator;
 let subagentMetricsRegistry: SubagentMetricsRegistry;
@@ -3536,11 +3534,11 @@ app
         onTurnFinished: ({ codexThreadId, turnId }) => codexAccountUsageTracker.finish(codexThreadId, turnId),
         onThreadRouteCleanup: codexThreadId => codexAccountUsageTracker.clearThread(codexThreadId),
       },
-      onCodexTurnTokenUsage: ({ threadId, codexThreadId, turnId, appServerTokenUsage }) => {
-        void handleCodexAppServerTurnUsage({ threadId, codexThreadId, turnId, appServerTokenUsage }).catch(
+      onCodexTurnTokenUsage: (input) => {
+        void handleCodexAppServerTurnUsage(input).catch(
           (error) => {
             process.stderr.write(
-              `[eco-codex] app-server turn usage billing failed thread=${threadId}: ${errorMessage(error)}\n`,
+              `[eco-codex] app-server usage billing failed thread=${input.threadId}: ${errorMessage(error)}\n`,
             );
           },
         );
@@ -17915,21 +17913,21 @@ function flushPendingCodexGatewayUsage(codexThreadId: string): void {
 }
 
 /**
- * Bill Codex turns from app-server token usage for direct (non-gateway) routes.
+ * Bill live Codex usage for direct (non-gateway) routes.
  *
- * eco-gateway only sees traffic that goes through it. Built-in OpenAI (auth.json)
- * and other direct routes bypass the gateway, so the app-server's per-turn
- * `appServerTokenUsage` is the only ledger source for those turns. Gateway-routed
- * turns keep billing from gateway usage events — the provider gate below keeps
- * the two sources mutually exclusive.
+ * Built-in OpenAI (auth.json) bypasses eco-gateway, so native usage checkpoints
+ * are its ledger source. Gateway routes keep using gateway usage events; the
+ * provider gate below keeps the two sources mutually exclusive.
  */
-async function handleCodexAppServerTurnUsage(input: {
-  threadId: string;
-  codexThreadId: string;
-  turnId: string;
-  appServerTokenUsage: CodexTurnTokenUsageBreakdown;
-  appServerTokenUsageRequests?: CodexTurnTokenUsageBreakdown[];
-}): Promise<void> {
+async function handleCodexAppServerTurnUsage(
+  input: CodexLiveUsageInput & {
+    threadId: string;
+    modelId?: string;
+    providerId?: string;
+    runAttemptId?: string;
+  },
+): Promise<void> {
+  if (input.providerId && input.providerId !== "openai") return;
   const { threadId, codexThreadId, turnId, appServerTokenUsage } = input;
   const attribution = resolveCodexThreadAttribution(codexThreadMap, codexThreadId);
   if (!attribution || attribution.ecoThreadId !== threadId) {
@@ -17958,9 +17956,10 @@ async function handleCodexAppServerTurnUsage(input: {
   if (storedOpenAi?.hasApiKey) {
     return;
   }
+  const modelId = input.modelId ?? roleRoute.modelId;
   const usage: ParsedUsage = {
     ...normalizeCodexAppServerUsage(appServerTokenUsage),
-    modelId: roleRoute.modelId,
+    modelId,
   };
   if (
     usage.inputTokens === 0 &&
@@ -17971,7 +17970,7 @@ async function handleCodexAppServerTurnUsage(input: {
     return;
   }
   const requestKey = `codex-turn-usage:${codexThreadId}:${turnId}`;
-  const runAttemptId = agentLifecycle.currentRunAttemptId(threadId);
+  const runAttemptId = input.runAttemptId ?? agentLifecycle.currentRunAttemptId(threadId);
   const plannerAgentId = attribution.isSubagentThread
     ? undefined
     : agentLifecycle.usagePlannerAgentId(threadId);
@@ -17980,38 +17979,30 @@ async function handleCodexAppServerTurnUsage(input: {
     role: billingRole,
     usage,
     requestKey,
-    modelId: roleRoute.modelId,
+    modelId,
     ...(attribution.agentId ? { agentId: attribution.agentId } : {}),
   });
-  const requests = buildCodexAppServerBillingRequests({
-    usage: appServerTokenUsage,
-    ...(input.appServerTokenUsageRequests && { requests: input.appServerTokenUsageRequests }),
-    requestKey,
-  });
-  const billingTask = (async () => {
-    for (const request of requests) {
-      await processUsageBilling({
+  const billingTask = codexLiveUsageBilling.enqueue(input, {
+    listEvents: () => conversationStore.listUsageLedgerEvents(threadId),
+    bill: (request) => processUsageBilling(
+      {
         threadId,
         role: billingRole,
         source: "codex",
-        usage: { ...request.usage, modelId: roleRoute.modelId },
-        modelId: roleRoute.modelId,
+        usage: { ...request.usage, modelId },
+        modelId,
         providerId: "openai",
         requestKey: request.requestKey,
         codexUsageIsAggregate: request.codexUsageIsAggregate,
-        // The context meter is fed directly by thread/tokenUsage/updated.
+        // Keep occupancy on its existing independent native update path.
         updateContext: false,
         ...(runAttemptId ? { runAttemptId } : {}),
         ...(plannerAgentId ? { plannerAgentId } : {}),
         ...(attribution.agentId ? { agentId: attribution.agentId } : {}),
-      });
-    }
-  })().then(
-    () => undefined,
-    (error) => {
-      throw error;
-    },
-  );
+      },
+      request.metadata,
+    ),
+  });
   usageLedgerCoordinator.trackUsageUpdate(threadId, billingTask);
   await billingTask;
   logEcoDiag("codex.app_server_turn_usage", {
@@ -18019,7 +18010,7 @@ async function handleCodexAppServerTurnUsage(input: {
     codexThreadId,
     turnId,
     role: billingRole,
-    modelId: roleRoute.modelId,
+    modelId,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
     cacheReadTokens: usage.cacheReadTokens,
@@ -18273,6 +18264,7 @@ function emitUsageUpdatedFromBillingEffects(event: UsageBillingUpdatedEvent): vo
 
 async function processUsageBilling(
   input: SingleUsageBillingRequest,
+  ledgerMetadata?: Record<string, unknown>,
 ): Promise<UpstreamProxyCallBilling | null> {
   const billingRuntime = await resolveBillingRuntimeContext(billingRuntimeEnvironment, input.threadId);
   const accountPlanner = resolveRoleRoutesForThread(input.threadId).find(
@@ -18291,6 +18283,10 @@ async function processUsageBilling(
     return null;
   }
 
+  if (ledgerMetadata) {
+    const event = resolved.effectsInput.artifacts.ledgerEvent;
+    event.metadata = { ...event.metadata, ...ledgerMetadata };
+  }
   await applySingleUsageBillingEffects(usageBillingEffectsServices(), resolved.effectsInput);
   maybeEmitPromptCacheHitDrop(input);
   return resolved.requestBillingLog;

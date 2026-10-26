@@ -31,6 +31,7 @@ import {
   type CodexToolPolicy,
   CodexTurnRouteRegistry,
   type CodexTurnTokenUsageBreakdown,
+  type CodexTurnTokenUsageSnapshot,
   type CodexWebSearchMode,
   clearCodexSpawnPayloadQueueSync,
   collectCodexGatewayCatalogRoutes,
@@ -227,8 +228,8 @@ export interface CodexRuntimeRunDeps {
   accountUsageObserver?: Pick<ConstructorParameters<typeof CodexEventAdapter>[0],
     "onTurnStarted" | "onAccountTokenUsage" | "onTurnFinished" | "onThreadRouteCleanup">;
   /**
-   * Codex app-server per-turn token usage (terminal `turn/completed`). Used as
-   * the billing source for direct (non-gateway) routes such as built-in OpenAI.
+   * Cumulative turn usage on each native usage notification and again at terminal
+   * completion. The host persists checkpoints and bills only unseen deltas.
    */
   onCodexTurnTokenUsage?: (input: {
     threadId: string;
@@ -236,6 +237,10 @@ export interface CodexRuntimeRunDeps {
     turnId: string;
     appServerTokenUsage: CodexTurnTokenUsageBreakdown;
     appServerTokenUsageRequests?: CodexTurnTokenUsageBreakdown[];
+    appServerTokenUsageSnapshot?: CodexTurnTokenUsageSnapshot;
+    modelId?: string;
+    providerId?: string;
+    runAttemptId?: string;
   }) => void;
   onCodexTurnPlanUpdated?: NonNullable<
     ConstructorParameters<typeof CodexEventAdapter>[0]["onTurnPlanUpdated"]
@@ -420,6 +425,27 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
     ...config.accountUsageObserver,
     resolveEcoThreadId,
     turnRouteRegistry,
+    onTurnTokenUsageUpdated: (route) => {
+      if (!route.appServerTokenUsage) return;
+      const threadId = resolveEcoThreadId(route.codexThreadId);
+      const runAttemptId =
+        config.resolvePersistedRunAttemptId?.(threadId, route.turnId) ?? config.resolveRunAttemptId?.(threadId);
+      config.onCodexTurnTokenUsage?.({
+        threadId,
+        codexThreadId: route.codexThreadId,
+        turnId: route.turnId,
+        modelId: route.upstreamModelId,
+        providerId: route.providerId,
+        ...(runAttemptId ? { runAttemptId } : {}),
+        appServerTokenUsage: route.appServerTokenUsage,
+        ...(route.appServerTokenUsageRequests && {
+          appServerTokenUsageRequests: route.appServerTokenUsageRequests,
+        }),
+        ...(route.appServerTokenUsageSnapshot && {
+          appServerTokenUsageSnapshot: route.appServerTokenUsageSnapshot,
+        }),
+      });
+    },
     recordThreadRunEvent: (event) => {
       const projectionEvent = normalizeCodexThreadRunEventForProjection(event as ThreadRunEventInput);
       const itemId =
@@ -485,9 +511,8 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
 }
 
 /**
- * Surface Codex app-server per-turn token usage on terminal turn events so the
- * host can bill direct (non-gateway) routes. Gateway-routed turns are billed from
- * gateway usage events instead; the host must gate on the route provider.
+ * Re-deliver the last checkpoint at completion to retry any failed live write.
+ * The same persisted identity prevents completion from charging the turn twice.
  */
 function emitCodexTurnTokenUsage(config: CodexRuntimeRunDeps, event: ThreadRunEventInput): void {
   if (
@@ -507,11 +532,21 @@ function emitCodexTurnTokenUsage(config: CodexRuntimeRunDeps, event: ThreadRunEv
   if (!codexThreadId || !turnId) {
     return;
   }
+  const runAttemptId =
+    config.resolvePersistedRunAttemptId?.(event.threadId, turnId) ?? config.resolveRunAttemptId?.(event.threadId);
   config.onCodexTurnTokenUsage?.({
     threadId: event.threadId,
     codexThreadId,
     turnId,
     appServerTokenUsage: appServerTokenUsage as CodexTurnTokenUsageBreakdown,
+    ...(typeof event.metadata?.usageModelId === "string" ? { modelId: event.metadata.usageModelId } : {}),
+    ...(runAttemptId ? { runAttemptId } : {}),
+    ...(typeof event.metadata?.usageProviderId === "string"
+      ? { providerId: event.metadata.usageProviderId }
+      : {}),
+    ...(event.metadata?.appServerTokenUsageSnapshot
+      ? { appServerTokenUsageSnapshot: event.metadata.appServerTokenUsageSnapshot as CodexTurnTokenUsageSnapshot }
+      : {}),
     ...(Array.isArray(event.metadata?.appServerTokenUsageRequests)
       ? {
           appServerTokenUsageRequests: event.metadata
