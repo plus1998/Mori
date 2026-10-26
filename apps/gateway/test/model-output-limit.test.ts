@@ -511,6 +511,9 @@ for (const [kind, field] of [
         const error = (await response.json()).error;
         expect(error.code).toBe("context_length_exceeded");
         expect(error.message).toContain(`reserve=${reserve}`);
+        expect(error.origin).toBe("eco.context_budget");
+        expect(response.headers.get("x-eco-error-origin")).toBe("eco.context_budget");
+        expect(logs.some(message => message.startsWith("local context budget rejected "))).toBe(true);
         expect(sent).toHaveLength(0);
       } else {
         expect(response.status).toBe(200);

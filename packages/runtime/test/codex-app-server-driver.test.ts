@@ -16,6 +16,73 @@ import { readRpcMessages } from "./codex-mock-transport";
 
 const ECO_DEVELOPER_INSTRUCTIONS = "You coordinate Eco orchestration.";
 
+test("a failed native recovery never submits the pending business input", async () => {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const client = new CodexAppServerClient(stdin, stdout);
+  const methods: string[] = [];
+  const registry = new CodexTurnRouteRegistry();
+  stdin.on("data", (chunk) => {
+    for (const line of String(chunk).trim().split("\n")) {
+      const message = JSON.parse(line);
+      if (!message.id) continue;
+      methods.push(message.method);
+      if (message.method === "initialize") writeResponse(stdout, { id: message.id, result: {} });
+      else if (message.method === "thread/resume")
+        writeResponse(stdout, {
+          id: message.id,
+          result: {
+            thread: {
+              id: "native",
+              turns: [{ status: "failed", error: { codexErrorInfo: "contextWindowExceeded" } }],
+            },
+          },
+        });
+      else if (message.method === "thread/compact/start") {
+        writeResponse(stdout, { id: message.id, result: {} });
+        writeResponse(stdout, {
+          method: "turn/started",
+          params: { threadId: "native", turn: { id: "compact", status: "inProgress" } },
+        });
+        writeResponse(stdout, {
+          method: "turn/completed",
+          params: {
+            threadId: "native",
+            turn: { id: "compact", status: "failed", error: { message: "Summary provider rejected" } },
+          },
+        });
+      }
+    }
+  });
+  await client.initialize();
+  const driver = new CodexAppServerDriver({
+    client,
+    existingCodexThreadId: "native",
+    turnRouteRegistry: registry,
+  });
+  try {
+    await expect(
+      (async () => {
+        for await (const _event of driver.run({
+          threadId: "eco",
+          prompt: "Pending business input",
+          workspacePath: "/repo",
+          worktreePath: "/repo",
+          routes: [plannerRoute()],
+          signal: new AbortController().signal,
+        })) {
+          /* Drain until recovery fails. */
+        }
+      })(),
+    ).rejects.toThrow("原生上下文压缩失败，未提交新输入：Summary provider rejected");
+    expect(methods).toEqual(["initialize", "thread/resume", "thread/compact/start"]);
+    expect(registry.size).toBe(0);
+  } finally {
+    driver.dispose();
+    client.close();
+  }
+});
+
 function writeResponse(stdout: PassThrough, message: unknown): void {
   stdout.write(`${JSON.stringify(message)}\n`);
 }
@@ -1337,14 +1404,17 @@ test("CodexAppServerDriver resumes existing map and starts an empty-input contin
   await handshake;
 
   const runPromise = (async () => {
-    for await (const _event of driver.runContinuation({
-      threadId: "thr_eco_resume",
-      prompt: "",
-      workspacePath: "/repo",
-      worktreePath: "/repo",
-      routes: [plannerRoute()],
-      signal: controller.signal,
-    }, "execution")) {
+    for await (const _event of driver.runContinuation(
+      {
+        threadId: "thr_eco_resume",
+        prompt: "",
+        workspacePath: "/repo",
+        worktreePath: "/repo",
+        routes: [plannerRoute()],
+        signal: controller.signal,
+      },
+      "execution",
+    )) {
       // drain
     }
   })();

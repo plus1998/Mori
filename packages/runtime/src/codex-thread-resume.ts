@@ -37,6 +37,7 @@ export interface CodexThreadResumeResult {
     status?: CodexThreadStatusPayload;
     parentThreadId?: string | null;
     agentRole?: string | null;
+    turns?: unknown[];
   };
 }
 

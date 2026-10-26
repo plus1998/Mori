@@ -245,11 +245,22 @@ export async function handlePostResponses(
     upstreamResponse.headers.get("x-eco-upstream-error-code") === "context_length_exceeded"
   ) {
     const message = extractUpstreamErrorMessage(await upstreamResponse.text());
+    const origin = upstreamResponse.headers.get("x-eco-error-origin") ?? "upstream";
     const headers = new Headers(upstreamResponse.headers);
     headers.set("content-type", "text/event-stream");
     headers.set("cache-control", "no-cache");
     headers.delete("content-length");
     onLog(`responses context overflow delivered as response.failed provider=${route.provider.id}`);
+    onLog(
+      `context overflow ${JSON.stringify({
+        origin,
+        providerId: route.provider.id,
+        model: route.upstreamModelId,
+        threadId: route.threadId,
+        logicalRequestId: route.logicalRequestId,
+        message,
+      })}`,
+    );
     return new Response(responsesFailedSse(message, "context_length_exceeded"), {
       status: 200,
       headers,

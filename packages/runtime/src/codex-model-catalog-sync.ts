@@ -3,7 +3,11 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { buildCodexGatewayModelAlias, type CodexGatewayApiCompat } from "../../shared/src";
+import {
+  buildCodexGatewayModelAlias,
+  type CodexGatewayApiCompat,
+  gatewayAutoCompactTokenLimit,
+} from "../../shared/src";
 import { resolveCodexHomeDir } from "./codex-config-sync.js";
 import { assertCodexGatedModelApiCompat, isCodexGatedOptionalModelId } from "./codex-gated-models.js";
 import { DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT, resolveEffectiveContextLimit } from "./models-dev-limits.js";
@@ -139,6 +143,7 @@ export interface CodexBundledModelEntry {
   context_window?: number;
   max_context_window?: number;
   effective_context_window_percent?: number;
+  auto_compact_token_limit?: number;
   input_modalities?: string[];
   supports_parallel_tool_calls?: boolean;
   supports_reasoning_summaries?: boolean;
@@ -427,12 +432,19 @@ export function buildEcoCodexModelCatalogDocument(
             },
           }
         : route;
-    models.push(
-      applyGlobalCatalogContextWindowLimit(
-        buildAliasCatalogEntry(alias, effectiveRoute, template, known),
-        globalContextWindowLimit,
-      ),
+    const entry = applyGlobalCatalogContextWindowLimit(
+      buildAliasCatalogEntry(alias, effectiveRoute, template, known),
+      globalContextWindowLimit,
     );
+    if (route.providerId !== "openai") {
+      const window = entry.context_window;
+      if (window === undefined) throw new Error(`Missing Gateway model context window: ${alias}`);
+      const truncation = entry.truncation_policy as { mode?: string; limit?: number } | undefined;
+      const toolOutputTokens =
+        truncation?.mode === "tokens" && typeof truncation.limit === "number" ? truncation.limit : 10_000;
+      entry.auto_compact_token_limit = gatewayAutoCompactTokenLimit(window, toolOutputTokens);
+    }
+    models.push(entry);
   }
 
   return { models };

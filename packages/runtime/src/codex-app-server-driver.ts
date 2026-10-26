@@ -11,6 +11,10 @@ import {
   CODEX_BUILT_IN_OPENAI_PROVIDER_ID,
 } from "./codex-config-sync.js";
 import {
+  codexThreadNeedsContextRecovery,
+  compactCodexThreadForRetry,
+} from "./codex-context-overflow-recovery.js";
+import {
   buildPlanHandoff,
   buildPlanHandoffContinuePlan,
   planHandoffToTurnOptions,
@@ -148,10 +152,7 @@ export interface CodexDriverTurnOverrides {
 // requests. Serialize only creation per client; turns on distinct threads stay parallel.
 const threadStartTailByClient = new WeakMap<object, Promise<void>>();
 
-export async function startCodexThreadSerially<T>(
-  client: object,
-  start: () => Promise<T>,
-): Promise<T> {
+export async function startCodexThreadSerially<T>(client: object, start: () => Promise<T>): Promise<T> {
   const previous = threadStartTailByClient.get(client) ?? Promise.resolve();
   let releaseCurrent!: () => void;
   const current = new Promise<void>((resolve) => {
@@ -340,7 +341,9 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
     const modelProvider = isBuiltInOpenAi
       ? CODEX_BUILT_IN_OPENAI_PROVIDER_ID
       : buildCodexModelProviderSlug(ecoProviderId);
-    const codexGatewayModel = isBuiltInOpenAi ? turnModel : buildCodexGatewayModelAlias(ecoProviderId, turnModel, route.apiCompat);
+    const codexGatewayModel = isBuiltInOpenAi
+      ? turnModel
+      : buildCodexGatewayModelAlias(ecoProviderId, turnModel, route.apiCompat);
     const cwd = input.worktreePath || input.workspacePath;
     const turnOptions = overrides.turnOptions ?? this.materializeTurnOptions(this.sessionMode);
     const prompt = overrides.prompt?.trim() || input.prompt;
@@ -357,6 +360,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
       : overrides.existingCodexThreadId?.trim() || this.existingCodexThreadId?.trim();
 
     const turnStartTimeoutMs = resolveCodexTurnStartTimeoutMs();
+    let needsContextRecovery = false;
 
     if (codexThreadId) {
       // Existing map → thread/resume (never silently thread/start a new thread).
@@ -373,6 +377,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
         ...(this.onResumeDiagnostic ? { onDiagnostic: this.onResumeDiagnostic } : {}),
       });
       codexThreadId = resumed.thread.id.trim() || codexThreadId;
+      needsContextRecovery = codexThreadNeedsContextRecovery(resumed.thread);
       if (this.threadConfig) {
         recordAppliedCodexThreadConfig(this.client, codexThreadId, this.threadConfig);
       }
@@ -421,16 +426,37 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
       throw input.signal.reason ?? new Error("aborted");
     }
 
-    // Codex calls eco-gateway at model_providers.<slug>.base_url with this model id.
-    process.stderr.write(
-      `[eco-codex] turn/start thread=${codexThreadId} modelProvider=${modelProvider} model=${codexGatewayModel} upstreamModel=${turnModel} effort=${effort ?? "default"} cwd=${cwd}\n`,
-    );
     const routeIdentity = {
       aliasModelId: codexGatewayModel,
       providerId: ecoProviderId,
       upstreamModelId: turnModel,
       ...(route.apiCompat && { apiCompat: route.apiCompat }),
     };
+    if (needsContextRecovery) {
+      process.stderr.write(
+        `[eco-codex] context recovery thread=${codexThreadId} method=thread/compact/start\n`,
+      );
+      yield createAgentEvent({
+        id: `${input.threadId}:codex-context-recovery`,
+        threadId: input.threadId,
+        agentId: "system",
+        role: "main",
+        type: "message.delta",
+        payload: { text: "上次请求因上下文超限失败，正在调用 Codex 原生压缩，完成后继续。\n" },
+      });
+      await compactCodexThreadForRetry(this.client, {
+        threadId: codexThreadId,
+        signal: input.signal,
+        route: routeIdentity,
+        ...(this.turnRouteRegistry ? { registry: this.turnRouteRegistry } : {}),
+        timeoutMs: turnStartTimeoutMs,
+      });
+      input.signal.throwIfAborted();
+    }
+    // Codex calls eco-gateway at model_providers.<slug>.base_url with this model id.
+    process.stderr.write(
+      `[eco-codex] turn/start thread=${codexThreadId} modelProvider=${modelProvider} model=${codexGatewayModel} upstreamModel=${turnModel} effort=${effort ?? "default"} cwd=${cwd}\n`,
+    );
     const pendingRouteOwner = this.turnRouteRegistry?.registerPending(codexThreadId, routeIdentity);
     if (pendingRouteOwner) {
       this.pendingRouteOwners.set(codexThreadId, pendingRouteOwner);

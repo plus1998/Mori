@@ -95,10 +95,13 @@ export function formatUpstreamHttpError(input: {
   upstreamUrl: string;
   status: number;
   bodyText: string;
+  errorOrigin?: string;
 }): string {
   const detail = extractUpstreamErrorMessage(input.bodyText);
   return [
-    `Upstream provider ${input.route.provider.id}`,
+    input.errorOrigin === "eco.context_budget"
+      ? `Eco context budget · provider=${input.route.provider.id}`
+      : `Upstream provider ${input.route.provider.id}`,
     `model=${input.route.upstreamModelId}`,
     `url=${input.upstreamUrl}`,
     `status=${input.status}`,
@@ -111,16 +114,20 @@ export function upstreamErrorResponse(input: {
   upstreamUrl: string;
   status: number;
   bodyText: string;
+  errorOrigin?: string;
 }): Response {
   const message = formatUpstreamHttpError(input);
   const errorInfo = extractUpstreamErrorInfo(input.bodyText);
   const errorCode = errorInfo?.code;
   const headers = new Headers({ "content-type": "application/json" });
   if (errorCode) headers.set("x-eco-upstream-error-code", errorCode);
+  const origin = input.errorOrigin === "eco.context_budget" ? "eco.context_budget" : "upstream";
+  headers.set("x-eco-error-origin", origin);
   return Response.json(
     {
       error: {
         message,
+        origin,
         type: errorInfo?.type ?? "upstream_error",
         ...(errorCode ? { code: errorCode } : {}),
         ...(errorInfo?.param ? { param: errorInfo.param } : {}),

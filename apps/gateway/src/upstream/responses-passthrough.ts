@@ -318,6 +318,7 @@ export async function forwardResponsesPassthrough(
       upstreamUrl,
       status: upstreamResponse.status,
       bodyText: text,
+      errorOrigin: upstreamResponse.headers.get("x-eco-error-origin") ?? "upstream",
     });
   }
 

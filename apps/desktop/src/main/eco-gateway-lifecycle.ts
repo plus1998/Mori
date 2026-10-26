@@ -19,6 +19,7 @@ import {
 import type { UpstreamApiCompat } from "../shared/api-compat";
 import type { UpstreamAgentCore } from "../shared/ipc";
 import { normalizeProviderTokenCountMode, type ProviderTokenCountMode } from "../shared/provider-token-count";
+import { appendUpstreamLogLine } from "./upstream-log";
 import {
   type BridgeRouteResolution,
   type EcoSdkBridgeOptions,
@@ -190,6 +191,9 @@ export class EcoGatewayLifecycle {
     const credentialReporter = this.options.getGatewayCredentialReporter?.();
 
     const log = (message: string) => {
+      if (message.startsWith("context overflow ") || message.startsWith("local context budget rejected ")) {
+        appendUpstreamLogLine(`[eco-gateway] ${message}\n`);
+      }
       this.options.onStderr?.(`[eco-gateway] ${message}\n`);
     };
     const bridgeLog = (message: string) => {

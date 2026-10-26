@@ -1,3 +1,4 @@
+import { contextInputReserve } from "@eco/shared";
 import { coalesceResponsesCompactionInput } from "./compaction-input.js";
 import type { GatewayLogFn } from "./server.js";
 import type { GatewayConfig, ResolvedProviderRoute } from "./types.js";
@@ -78,18 +79,23 @@ export function withDynamicOutputBudget(
       }
       // Character estimates can undercount substantially; reserve headroom based on
       // the counter's actual precision rather than treating it as an exact tokenizer.
-      const reserve = count.precision === "heuristic" ? Math.max(8_192, Math.ceil(window / 10)) : 1_024;
+      const reserve = contextInputReserve(window, count.precision);
       const remaining = window - count.tokens - reserve;
       if (remaining < 1) {
+        onLog(
+          `local context budget rejected provider=${route.provider.id} model=${route.upstreamModelId} window=${window} input=${count.tokens} precision=${count.precision} reserve=${reserve}`,
+        );
         return Response.json(
           {
             error: {
               message: `Context window exhausted: window=${window}, input=${count.tokens}, reserve=${reserve}. Compact the input before retrying.`,
               type: "invalid_request_error",
               code: "context_length_exceeded",
+              origin: "eco.context_budget",
+              context_budget: { window, input: count.tokens, reserve, precision: count.precision },
             },
           },
-          { status: 400 },
+          { status: 400, headers: { "x-eco-error-origin": "eco.context_budget" } },
         );
       }
       const limit = Math.min(
@@ -112,15 +118,19 @@ export function withDynamicOutputBudget(
         applyOutputLimit(body, "max_tokens", limit, false);
       const thinking = body.thinking as Record<string, unknown> | undefined;
       if (field === "max_tokens" && thinking?.type === "enabled" && Number(thinking.budget_tokens) < 1_024) {
+        onLog(
+          `local context budget rejected provider=${route.provider.id} model=${route.upstreamModelId} remaining=${remaining} reason=minimum_thinking_budget`,
+        );
         return Response.json(
           {
             error: {
               message: `Remaining output=${body[field]} cannot accommodate the minimum thinking budget of 1024 tokens. Compact the input before retrying.`,
               type: "invalid_request_error",
               code: "context_length_exceeded",
+              origin: "eco.context_budget",
             },
           },
-          { status: 400 },
+          { status: 400, headers: { "x-eco-error-origin": "eco.context_budget" } },
         );
       }
       onLog(

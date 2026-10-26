@@ -4,6 +4,7 @@ export { isMainAgentId, isMainAgentRole, normalizeAgentRole } from "./agent-role
 export * from "./claude-subagent-compaction";
 
 export * from "./codex-gateway-model-alias";
+export * from "./context-budget";
 export type {
   ConversationAgent,
   ConversationBootstrap,
