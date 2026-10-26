@@ -11,6 +11,8 @@ import { buildAcpThreadRuntimeConfig } from "../src/shared/thread-runtime-config
 import { canDispatchScheduledMessageStatus } from "../src/main/scheduling-dispatch-policy";
 import type { ThreadStatus } from "../src/shared/ipc";
 import { SystemSleepBlocker } from "../src/main/system-sleep-blocker";
+import { approveScheduledPlan, assertScheduledPlanCurrent, inspectScheduledPlanCommand } from "../src/main/scheduled-plan-execution";
+import { inspectScheduledRun } from "../src/main/scheduling-inspection";
 
 const baseTime = Date.parse("2026-10-08T00:00:00Z");
 const profile: ScheduleExecutionProfile = { coreKind: "acp", runtimeConfig: buildAcpThreadRuntimeConfig({ cursorModelId: "cheap-model" }) };
@@ -54,6 +56,65 @@ async function sleepFixture(t: test.TestContext, overrides: Partial<SchedulingDe
     setRunningWork: (value: boolean) => { runningWork = value; f.deps.onChanged(); },
   };
 }
+
+test("scheduled plans persist approval, dispatch once through native approval and consume the one-shot", async t => {
+  const current = { thread: { status: "awaiting_plan" as const }, pendingPlan: { plan: "Implement the stored plan" }, historyRevision: 9 };
+  const receipts = new Map<string, { status: "completed" }>();
+  const requests: unknown[] = [];
+  const f = await fixture(t, {
+    assertPlanApproval: (_thread, approval, plan) => assertScheduledPlanCurrent(approval, plan, current),
+    dispatch: occurrence => approveScheduledPlan(occurrence, current, async request => {
+      requests.push(request);
+      receipts.set(occurrence.id, { status: "completed" });
+    }),
+    inspect: occurrence => inspectScheduledPlanCommand(receipts.get(occurrence.id)),
+  });
+  const input: ScheduleCreateInput = {
+    kind: "session_message", requestId: "plan", threadId: "source", name: "Execute plan",
+    prompt: current.pendingPlan.plan, planApproval: { expectedHistoryRevision: 9 },
+    trigger: { type: "at", at: new Date(baseTime + 60_000).toISOString() },
+  };
+  const saved = f.service.create(input);
+  assert.equal(f.service.create(input).id, saved.id);
+  const reopened = new SchedulingStore(f.dbPath);
+  assert.deepEqual(reopened.get(saved.id)?.planApproval, { expectedHistoryRevision: 9 });
+  reopened.close();
+  f.setNow(baseTime + 60_000);
+  await f.service.tick();
+  const occurrence = f.store.occurrences()[0]!;
+  assert.deepEqual(requests, [{ principalId: "eco-scheduler", clientCommandId: `scheduled_plan_${occurrence.id}`, threadId: "source", expectedHistoryRevision: 9 }]);
+  assert.equal(f.store.get(saved.id), undefined);
+  await f.service.tick();
+  assert.equal(f.store.occurrences()[0]?.status, "completed");
+  assert.equal(requests.length, 1);
+});
+
+test("scheduled plans reject stale state, repeated execution, image payloads and Agent approval", async t => {
+  let current = { thread: { status: "awaiting_plan" as const }, pendingPlan: { plan: "Plan A" }, historyRevision: 9 };
+  let approved = 0;
+  const f = await fixture(t, {
+    assertPlanApproval: (_thread, approval, plan) => assertScheduledPlanCurrent(approval, plan, current),
+    dispatch: occurrence => approveScheduledPlan(occurrence, current, async () => { approved++; }),
+    inspect: () => inspectScheduledPlanCommand(undefined),
+  });
+  const input = { kind: "session_message" as const, requestId: "guard-plan", name: "Execute", threadId: "source", prompt: "Plan A", planApproval: { expectedHistoryRevision: 9 }, trigger: { type: "at" as const, at: new Date(baseTime + 60_000).toISOString() } };
+  assert.throws(() => f.service.create({ ...input, planApproval: { expectedHistoryRevision: 8 } }), /变更/);
+  assert.throws(() => f.service.create(input, { source: "agent", threadId: "source" }), /仅支持用户/);
+  assert.throws(() => f.service.create({ ...input, attachments: [{ mediaType: "image/png", contentRef: `sha256:${"a".repeat(64)}`, byteLength: 1 }] }), /参数无效/);
+  assert.throws(() => f.service.create({ ...input, trigger: { type: "interval", everySeconds: 60, anchorAt: input.trigger.at } }), /一次性/);
+  const saved = f.service.create(input);
+  assert.throws(() => f.service.create({ ...input, planApproval: { expectedHistoryRevision: 10 } }), /请求标识/);
+  assert.throws(() => f.service.update({ id: saved.id, expectedRevision: 1, prompt: "Plan B" }), /不能修改/);
+  assert.throws(() => f.service.update({ id: saved.id, expectedRevision: 1, trigger: { type: "interval", everySeconds: 60, anchorAt: input.trigger.at } }), /重复执行/);
+  const updated = f.service.update({ id: saved.id, expectedRevision: 1, name: "Updated", trigger: { type: "at", at: new Date(baseTime + 120_000).toISOString() } });
+  assert.equal(updated.planApproval?.expectedHistoryRevision, 9);
+  current = { ...current, pendingPlan: { plan: "Plan B" }, historyRevision: 10 };
+  f.setNow(baseTime + 120_000);
+  await f.service.tick();
+  assert.equal(approved, 0);
+  assert.equal(f.store.occurrences()[0]?.status, "failed");
+  assert.match(f.store.occurrences()[0]?.error ?? "", /变更/);
+});
 
 test("future schedules block sleep immediately, including after restart; pause and delete release", async t => {
   const f = await sleepFixture(t);
@@ -408,6 +469,81 @@ test("approval pauses recurrence, preserves waiting run, and tracks user complet
   await f.service.tick();
   assert.equal(f.store.occurrences()[0]?.status, "completed");
   assert.equal(f.store.occurrences()[0]?.error, undefined);
+});
+
+test("a blocked recurring task fails visibly and runs again at the next scheduled time", async t => {
+  const f = await fixture(t);
+  const definition = f.service.create({ ...task("recurring-failure"), trigger: { type: "interval", everySeconds: 60, anchorAt: new Date(baseTime + 60_000).toISOString() } });
+  f.setNow(baseTime + 60_000); await f.service.tick();
+  const run = f.dispatched[0]!;
+  f.deps.inspect = occurrence => occurrence.id === run.id ? inspectScheduledRun({
+    kind: "scheduled_task", thread: { status: "blocked", message: "Claude Code process exited with code 1" },
+    followUp: undefined, hasAcceptedMessage: false, hasActiveRun: false, isDraining: false, hasPendingUserAction: false,
+  }) : { status: "completed" };
+  await f.service.tick();
+  assert.equal(f.store.occurrences()[0]?.status, "failed");
+  assert.equal(f.store.get(definition.id)?.enabled, true);
+  assert.match(f.store.get(definition.id)?.error ?? "", /exited with code 1/);
+  await f.service.tick();
+  assert.equal(f.dispatched.length, 1);
+  f.setNow(baseTime + 120_000); await f.service.tick();
+  assert.equal(f.dispatched.length, 2);
+  await f.service.tick();
+  assert.equal(f.store.get(definition.id)?.error, undefined);
+});
+
+test("manual execution reconciles a stale waiting failure before checking for overlapping runs", async t => {
+  const f = await fixture(t);
+  const definition = f.service.create(task("stale-waiting-failure"));
+  f.setNow(baseTime + 60_000); await f.service.tick();
+  const run = f.dispatched[0]!;
+  f.store.saveOccurrence({ ...f.store.occurrences()[0]!, status: "waiting_user", error: "Old failure" });
+  f.states.set(run.id, { status: "failed", error: "Process exited" });
+  const manual = f.service.runNow(definition.id, "retry-failed-run");
+  await f.service.tick();
+  assert.equal(f.store.occurrences().find(item => item.id === run.id)?.status, "failed");
+  assert.notEqual(manual.id, run.id);
+  assert.equal(f.dispatched.length, 2);
+});
+
+test("restart releases old waiting failures without re-enabling a user-paused recurring task", async t => {
+  const f = await fixture(t);
+  const definition = f.service.create({ ...task("restart-failure"), trigger: { type: "interval", everySeconds: 60, anchorAt: new Date(baseTime + 60_000).toISOString() } });
+  f.setNow(baseTime + 60_000); await f.service.tick();
+  const run = f.dispatched[0]!;
+  f.store.saveOccurrence({ ...f.store.occurrences()[0]!, status: "waiting_user" });
+  f.service.update({ id: definition.id, expectedRevision: 1, enabled: false });
+  f.states.set(run.id, { status: "failed", error: "Process exited" });
+  f.service.start();
+  assert.equal(f.store.occurrences()[0]?.status, "failed");
+  assert.equal(f.store.get(definition.id)?.enabled, false);
+  const resumed = f.service.update({ id: definition.id, expectedRevision: 2, enabled: true });
+  f.setNow(Date.parse(resumed.nextRunAt!)); await f.service.tick();
+  assert.equal(f.dispatched.length, 2);
+});
+
+test("manual execution still rejects a genuinely active independent task", async t => {
+  const f = await fixture(t);
+  const definition = f.service.create(task("active-task"));
+  f.setNow(baseTime + 60_000); await f.service.tick();
+  assert.throws(() => f.service.runNow(definition.id, "overlap"), /已有/);
+  assert.equal(f.dispatched.length, 1);
+  assert.equal(f.store.occurrences().length, 1);
+});
+
+test("a recurring task with invalid saved configuration still pauses before dispatch", async t => {
+  let unavailable = false;
+  const f = await fixture(t, {
+    validateProfile: () => { if (unavailable) throw new Error("Saved model unavailable"); },
+    inspect: () => ({ status: "failed" }),
+  });
+  const definition = f.service.create({ ...task("recurring-config-failure"), trigger: { type: "interval", everySeconds: 60, anchorAt: new Date(baseTime + 60_000).toISOString() } });
+  unavailable = true; f.setNow(baseTime + 60_000); await f.service.tick();
+  assert.equal(f.dispatched.length, 0);
+  assert.equal(f.store.get(definition.id)?.enabled, false);
+  assert.equal(f.store.occurrences()[0]?.status, "failed");
+  f.setNow(baseTime + 120_000); await f.service.tick();
+  assert.equal(f.store.occurrences().length, 1);
 });
 
 test("missing model explicitly fails and pauses; never substitutes a default", async t => {

@@ -131,6 +131,7 @@ import { type PromptImagePreview, readPromptImagePreviews } from "../shared/prom
 import { attachOutputTokensToRequestSpans } from "../shared/request-span-usage";
 import { isAgentDisplayRole, normalizeAgentDisplayRole } from "../shared/subagent-roles";
 import { resolveSubagentActivityTitle } from "../shared/subagent-task-name";
+import { isThreadFailureNoticeType } from "../shared/thread-failure-message";
 import { supportsHistoryRewrite } from "../shared/thread-request-retry";
 import {
   isContextCompactionEventType,
@@ -719,27 +720,33 @@ function conversationV2MessageToTimelineItem(
   // is what carries the failure text and the retry affordance — so the row keeps the event
   // type the reader and the retry logic look for instead of being flattened into a message.
   const isNotice = message.channel === "system" && !isThinking;
+  const threadFailureType =
+    isNotice && isThreadFailureNoticeType(message.providerRole) ? message.providerRole : undefined;
   const isDiagnostic = message.role === "system" && message.channel === "commentary";
   return {
     id: `conversation-v2:${message.messageId}`,
     sequence: message.createdSeq,
-    eventType: isNotice
-      ? "api.error"
-      : isDiagnostic
-        ? "diagnostic"
-        : isThinking
-          ? message.status === "streaming"
-            ? "thinking.delta"
-            : "thinking.final"
-          : message.status === "streaming"
-            ? "message.delta"
-            : "message.final",
+    eventType: threadFailureType
+      ? "thread.status"
+      : isNotice
+        ? "api.error"
+        : isDiagnostic
+          ? "diagnostic"
+          : isThinking
+            ? message.status === "streaming"
+              ? "thinking.delta"
+              : "thinking.final"
+            : message.status === "streaming"
+              ? "message.delta"
+              : "message.final",
     scope: "main",
     // The Feed asks the row's role who wrote it (`role === "main"` marks a turn's
     // final output) and normalizing it to the channel role left V2 unable to answer.
     // The provider's own label is carried on the row; the channel role is the fallback
     // for rows written before it was recorded.
-    role: normalizeAgentRole(message.providerRole?.trim() || (isThinking ? "thinking" : message.role)),
+    role: threadFailureType
+      ? "system"
+      : normalizeAgentRole(message.providerRole?.trim() || (isThinking ? "thinking" : message.role)),
     ...(agentId ? { agentId } : {}),
     ...(message.runId ? { runAttemptId: message.runId } : {}),
     streamKey: message.messageId,
@@ -757,6 +764,12 @@ function conversationV2MessageToTimelineItem(
       conversationV2Channel: message.channel,
       conversationV2Status: message.status,
       ...(message.origin ? { messageOrigin: message.origin } : {}),
+      ...(threadFailureType
+        ? {
+            liveType: threadFailureType,
+            ...(threadFailureType === "thread.blocked" ? { activityOrigin: "eco.thread_blocked" } : {}),
+          }
+        : {}),
       ...(isNotice && message.providerRole === CONVERSATION_RUNTIME_EVENT_FAILURE_ROLE
         ? {
             activityOrigin: CONVERSATION_RUNTIME_EVENT_FAILURE_ORIGIN,

@@ -10,7 +10,7 @@ test("a claimed message stays in flight during async Core startup, then reports 
   const receipt = {
     kind: "session_message" as const, thread: { status: "idle" as const, message: "" },
     followUp: { status: "delivered" as const }, hasAcceptedMessage: true, hasActiveRun: false,
-    isDraining: scheduler.isDraining("thread"),
+    isDraining: scheduler.isDraining("thread"), hasPendingUserAction: false,
   };
   expect(inspectScheduledRun(receipt).status).toBe("running");
   release(); await draining;
@@ -21,9 +21,23 @@ test("a claimed message stays in flight during async Core startup, then reports 
 });
 
 test("paused or missing message receipts require explicit attention; tasks retain their run lifecycle", () => {
-  const input = { kind: "session_message" as const, thread: { status: "idle" as const, message: "", followUpQueuePaused: true }, followUp: { status: "queued" as const }, hasAcceptedMessage: true, hasActiveRun: false, isDraining: false };
+  const input = { kind: "session_message" as const, thread: { status: "idle" as const, message: "", followUpQueuePaused: true }, followUp: { status: "queued" as const }, hasAcceptedMessage: true, hasActiveRun: false, isDraining: false, hasPendingUserAction: false };
   expect(inspectScheduledRun(input).status).toBe("waiting_user");
   expect(inspectScheduledRun({ ...input, followUp: undefined }).status).toBe("unknown");
   expect(inspectScheduledRun({ ...input, followUp: undefined, hasAcceptedMessage: false }).status).toBe("failed");
   expect(inspectScheduledRun({ ...input, kind: "scheduled_task", thread: { status: "completed", message: "" }, followUp: undefined }).status).toBe("completed");
+});
+
+test("a blocked process failure releases the task slot, while actual user gates keep it waiting", () => {
+  const input = {
+    kind: "scheduled_task" as const,
+    thread: { status: "blocked" as const, message: "Claude Code process exited with code 1", followUpQueuePaused: true },
+    followUp: undefined, hasAcceptedMessage: false, hasActiveRun: false,
+    isDraining: false, hasPendingUserAction: false,
+  };
+  expect(inspectScheduledRun(input)).toEqual({ status: "failed", error: input.thread.message });
+  expect(inspectScheduledRun({ ...input, kind: "session_message", followUp: { status: "applied" } }).status).toBe("failed");
+  expect(inspectScheduledRun({ ...input, hasPendingUserAction: true }).status).toBe("waiting_user");
+  expect(inspectScheduledRun({ ...input, hasActiveRun: true }).status).toBe("running");
+  expect(inspectScheduledRun({ ...input, thread: { status: "awaiting_plan", message: "" } }).status).toBe("waiting_user");
 });

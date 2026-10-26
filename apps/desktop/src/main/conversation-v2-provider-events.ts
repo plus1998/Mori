@@ -5,6 +5,8 @@ import {
   stableHash,
 } from "@eco/shared";
 import { SUBAGENT_ROLES } from "../shared/ipc";
+import { isRedundantApiFailureBlockedMessage } from "../shared/thread-activity-origin";
+import { isThreadFailureNoticeType } from "../shared/thread-failure-message";
 import type { ThreadRunEvent, ThreadRunEventInput } from "../shared/thread-run-events";
 import { isContextCompactionEventType, parseThreadRunCodemodeMetadata } from "../shared/thread-run-events";
 import {
@@ -197,20 +199,22 @@ export function appendProviderEventToConversationV2(
   // it" — so the row keeps its own position in the log and its own identity.
   if (
     event.eventType === "api.error" ||
+    isThreadFailureNotice(event) ||
     (event.eventType === "diagnostic" && isSdkNoticeLiveType(liveType))
   ) {
     // A notice without text says nothing; the legacy projection renders a failure row for it
     // from the request phase, not from this event.
     if (event.message.trim()) {
-      const noticeRole = legacyProviderRole(event);
+      const threadFailure = isThreadFailureNotice(event);
+      const noticeRole = threadFailure ? liveType : legacyProviderRole(event);
       emit(
         "message.created",
         "notice",
         {
           role: "system",
-          // The renderer reserves the system channel for connection failures.
+          // The renderer reserves the system channel for actionable failures.
           // Protocol/billing notices use system-role commentary instead.
-          channel: event.eventType === "api.error" ? "system" : "commentary",
+          channel: event.eventType === "api.error" || threadFailure ? "system" : "commentary",
           body: event.message,
           status: "final",
           ...(noticeRole ? { providerRole: noticeRole } : {}),
@@ -795,6 +799,7 @@ export function conversationV2MessageIdForLegacyEvent(event: ThreadRunEventInput
 
 /** Identity of a provider envelope's normalized body, including user prompts and notices. */
 export function conversationV2ProviderMessageId(event: ThreadRunEventInput): string | undefined {
+  if (isThreadFailureNotice(event) && event.message.trim()) return legacyNoticeMessageId(event);
   if (event.eventType === "api.error" && event.message.trim()) return legacyNoticeMessageId(event);
   if (
     event.eventType === "diagnostic" &&
@@ -810,6 +815,15 @@ export function conversationV2ProviderMessageId(event: ThreadRunEventInput): str
   // a receipt must not claim an identity that has no durable message effect.
   if (!event.message.trim()) return undefined;
   return conversationV2MessageIdForLegacyEvent(event);
+}
+
+function isThreadFailureNotice(event: ThreadRunEventInput): boolean {
+  const liveType = event.metadata?.liveType;
+  return (
+    event.eventType === "thread.status" &&
+    isThreadFailureNoticeType(liveType) &&
+    !(liveType === "thread.blocked" && isRedundantApiFailureBlockedMessage(event.message))
+  );
 }
 
 export function withLegacyConversationV2MessageIdentity<T extends ThreadRunEventInput>(event: T): T {

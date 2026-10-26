@@ -19,6 +19,11 @@ export interface ScheduledMessageNewThread {
   executionProfile: ScheduleExecutionProfile;
 }
 
+/** User approval of this exact pending plan at its current conversation revision. */
+export interface ScheduledPlanApproval {
+  expectedHistoryRevision: number;
+}
+
 export type ScheduleCreateInput = {
   /** Stable key: retries of the same creation return the same definition. */
   requestId: string;
@@ -26,7 +31,7 @@ export type ScheduleCreateInput = {
   trigger: ScheduleTrigger;
   maxLatenessSeconds?: number;
 } & (
-  | { kind: "session_message"; threadId: string; prompt: string; attachments?: PromptImageAttachment[]; newThread?: ScheduledMessageNewThread }
+  | { kind: "session_message"; threadId: string; prompt: string; attachments?: PromptImageAttachment[]; newThread?: ScheduledMessageNewThread; planApproval?: ScheduledPlanApproval }
   | { kind: "scheduled_task"; workspacePath: string; prompt: string; executionProfile: ScheduleExecutionProfile }
 );
 
@@ -44,6 +49,7 @@ export interface ScheduleDefinition {
   threadId?: string;
   workspacePath?: string;
   executionProfile?: ScheduleExecutionProfile;
+  planApproval?: ScheduledPlanApproval;
   revision: number;
   nextRunAt: string | null;
   createdAt: string;

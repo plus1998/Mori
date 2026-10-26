@@ -68,6 +68,7 @@ import { buildForkHistoryEvents, type ConversationForkHistory } from "./conversa
 import type { NativeConversationFork } from "./conversation-native-fork";
 import { conversationV2AgentEvent } from "./conversation-v2-agent-events";
 import { migrateCodexCompactionDetails } from "./conversation-v2-compaction-migration";
+import { migrateThreadFailureNotices } from "./conversation-v2-failure-notice-migration";
 import {
   appendLegacyThreadRunEventToConversationV2,
   conversationV2MessageIdForLegacyEvent,
@@ -1526,6 +1527,7 @@ export class ConversationStore {
       }
     }
     migrateCodexCompactionDetails(this.db, this.v2);
+    migrateThreadFailureNotices(this.db, this.v2);
   }
 
   /**

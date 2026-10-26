@@ -52,6 +52,7 @@ import { SchedulingMcpGateway } from "./scheduling-mcp-gateway";
 import { freezeSchedulingProfile } from "./scheduling-profile";
 import { verifySchedulingAttachments } from "./scheduling-attachments";
 import { enqueueScheduledMessage } from "./scheduling-message-dispatch";
+import { approveScheduledPlan, assertScheduledPlanCurrent, inspectScheduledPlanCommand, scheduledPlanCommandId } from "./scheduled-plan-execution";
 import { saveNewScheduledMessageThread } from "./scheduling-new-thread";
 import { SchedulingService } from "./scheduling-service";
 import { canDispatchScheduledMessageStatus } from "./scheduling-dispatch-policy";
@@ -4870,6 +4871,501 @@ function showDesktopNotification(content: { title: string; body: string }, threa
   desktopNotificationRetainer.show(notification);
 }
 
+async function approveThreadPlan(payload: unknown) {
+  const request = parseThreadApprovePlanPayload(payload);
+  const { threadId } = request;
+  requireConversationV2Thread(threadId);
+  return executePlanResolutionCommand(
+    {
+      principalId: request.principalId,
+      clientCommandId: request.clientCommandId,
+      conversationId: threadId,
+      resolution: "approve",
+      expectedHistoryRevision: request.expectedHistoryRevision,
+      request: {
+        ...(request.runtimeConfig ? { runtimeConfig: request.runtimeConfig } : {}),
+        ...(request.executionTarget ? { executionTarget: request.executionTarget } : {}),
+      },
+    },
+    {
+      v2: conversationStore.conversationV2(),
+      errorMessage,
+      freezeContext: () => buildPlanResolutionFrozenContext(threadId),
+      execute: async (frozenContext, checkpoint) => {
+        assertPlanResolutionContextCurrent(threadId, frozenContext);
+        const approvalThread = conversationStore.getThread(threadId);
+        if (!approvalThread) {
+          throw new Error("Thread was not found.");
+        }
+
+        // "指定子代理执行已批准计划": the renderer only sends the choice; the host re-reads
+        // the thread, pending plan, and locked orchestration snapshot to validate it.
+        const approvalSnapshot = (() => {
+          const config = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
+          return config
+            ? resolveThreadOrchestrationSnapshot(getModelSettingsSnapshot(), config)
+            : undefined;
+        })();
+        const delegationAgents = listPlanDelegationAgents(approvalSnapshot);
+        let forcedTarget: Extract<PlanExecutionTarget, { kind: "subagent" }> | undefined;
+        if (request.executionTarget && request.executionTarget.kind === "subagent") {
+          const validation = validatePlanExecutionTarget({
+            target: request.executionTarget,
+            coreKind: approvalThread.coreKind,
+            agents: delegationAgents,
+          });
+          if (!validation.ok) {
+            throw new Error(validation.reason);
+          }
+          forcedTarget = validation.target as Extract<PlanExecutionTarget, { kind: "subagent" }>;
+        }
+        const forcedContract = forcedTarget
+          ? buildForcedPlanDelegationContract({
+              agentKey:
+                approvalThread.coreKind === "claude"
+                  ? sdkAgentKeyForOrchestrationAgent(forcedTarget.agentKey)
+                  : approvalThread.coreKind === "codex"
+                    ? sanitizeCodexRoleId(forcedTarget.agentKey)
+                    : forcedTarget.agentKey,
+            })
+          : undefined;
+
+        if (approvalThread.coreKind === "codex") {
+          requireThreadCore(approvalThread, "codex", "approve a Codex plan");
+          if (getPendingPlanApprovalForThread(threadId)) {
+            throw new Error("Codex plan approval cannot use the Claude approval bridge.");
+          }
+          const pendingPlan = conversationStore.getPendingPlan(threadId);
+          if (!pendingPlan) {
+            throw new Error("找不到待批准的计划。");
+          }
+          if (approvalThread.status !== "awaiting_plan") {
+            throw new Error("This thread is not waiting for plan approval.");
+          }
+          if (!pendingPlan.plan.trim()) {
+            throw new Error("计划内容不能为空。");
+          }
+          const currentConfig = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
+          if (!currentConfig) {
+            throw new Error("Thread runtime configuration is missing.");
+          }
+          const runtimeConfig = withAgentSessionMode(
+            request.runtimeConfig ? parseThreadRuntimeConfigInput(request.runtimeConfig) : currentConfig,
+            "agent",
+          );
+          const snapshot = await persistApprovedPlanForThread(threadId, pendingPlan);
+          checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
+          conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, runtimeConfig, request, {
+            coreKind: "codex",
+            sessionMode: "agent",
+          });
+          commitThreadPlanApprovalToAgentMode(threadId, "codex_plan_approved");
+          const forcedAttempt = forcedTarget
+            ? armForcedPlanDelegation({
+                threadId,
+                coreKind: "codex",
+                target: forcedTarget,
+                plan: pendingPlan.plan,
+              })
+            : undefined;
+          let result: ThreadContinueResult;
+          let dispatchWait: Promise<void> | undefined;
+          try {
+            const runtimeDispatch = prepareConversationCommandDispatch({
+              v2: conversationStore.conversationV2(),
+              job: {
+                principalId: request.principalId,
+                conversationId: threadId,
+                clientCommandId: request.clientCommandId,
+              },
+              coreKind: "codex",
+              actionKind: "plan_approval",
+              phase: "execution",
+              checkpointScope: "plan",
+            });
+            dispatchWait = waitForConversationCommandDispatch({
+              v2: conversationStore.conversationV2(),
+              conversationId: threadId,
+              prepared: runtimeDispatch,
+            });
+            result = await startCodexThreadContinuation({
+              threadId,
+              prompt: forcedContract ?? "Implement the plan.",
+              runtimeConfigInput: runtimeConfig,
+              preparedRuntimeDispatch: runtimeDispatch,
+            });
+            await dispatchWait;
+          } catch (error) {
+            void dispatchWait?.catch(() => {});
+            if (forcedAttempt) {
+              settleForcedPlanDelegation(threadId, {
+                ok: false,
+                reason: errorMessage(error),
+              });
+            }
+            throw error;
+          }
+          if (!forcedAttempt) {
+            conversationStore.clearPendingPlanForCommand(threadId, request);
+            emitThreadEvent(threadId, "thread.plan_cleared", "计划已进入执行阶段。", "system");
+          }
+          return { thread: result.thread };
+        }
+        if (approvalThread.coreKind === "pi") {
+          requireThreadCore(approvalThread, "pi", "approve a PI plan");
+          const pendingPlan = conversationStore.getPendingPlan(threadId);
+          if (!pendingPlan) {
+            throw new Error("找不到待批准的计划。");
+          }
+          if (approvalThread.status !== "awaiting_plan") {
+            throw new Error("This thread is not waiting for plan approval.");
+          }
+          if (!pendingPlan.plan.trim()) {
+            throw new Error("计划内容不能为空。");
+          }
+          const currentConfig = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
+          if (!currentConfig) {
+            throw new Error("Thread runtime configuration is missing.");
+          }
+          const runtimeConfig = withAgentSessionMode(
+            request.runtimeConfig ? parseThreadRuntimeConfigInput(request.runtimeConfig) : currentConfig,
+            "agent",
+          );
+          const snapshot = await persistApprovedPlanForThread(threadId, pendingPlan);
+          checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
+          conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, runtimeConfig, request, {
+            coreKind: "pi",
+            sessionMode: "agent",
+          });
+          commitThreadPlanApprovalToAgentMode(threadId, "pi_plan_approved");
+          // Cancel any leftover Claude-style bridge if present; PI Plan is Codex-style async.
+          cancelPlanApprovalsForThreadKeepPending(threadId, "pi plan approved asynchronously");
+          const forcedAttempt = forcedTarget
+            ? armForcedPlanDelegation({
+                threadId,
+                coreKind: "pi",
+                target: forcedTarget,
+                plan: pendingPlan.plan,
+              })
+            : undefined;
+          let result: ThreadContinueResult;
+          let dispatchWait: Promise<void> | undefined;
+          try {
+            const runtimeDispatch = prepareConversationCommandDispatch({
+              v2: conversationStore.conversationV2(),
+              job: {
+                principalId: request.principalId,
+                conversationId: threadId,
+                clientCommandId: request.clientCommandId,
+              },
+              coreKind: "pi",
+              actionKind: "plan_approval",
+              phase: "execution",
+              checkpointScope: "plan",
+            });
+            dispatchWait = waitForConversationCommandDispatch({
+              v2: conversationStore.conversationV2(),
+              conversationId: threadId,
+              prepared: runtimeDispatch,
+            });
+            result = await startPiThreadContinuation({
+              threadId,
+              prompt:
+                forcedContract ??
+                "The user approved the plan. Implement it now with full Agent tools. Follow the approved plan.",
+              runtimeConfigInput: runtimeConfig,
+              skipRecordUserPrompt: true,
+              preparedRuntimeDispatch: runtimeDispatch,
+            });
+            await dispatchWait;
+          } catch (error) {
+            void dispatchWait?.catch(() => {});
+            if (forcedAttempt) {
+              settleForcedPlanDelegation(threadId, {
+                ok: false,
+                reason: errorMessage(error),
+              });
+            }
+            throw error;
+          }
+          if (!forcedAttempt) {
+            conversationStore.clearPendingPlanForCommand(threadId, request);
+            emitThreadEvent(threadId, "thread.plan_cleared", "计划已进入执行阶段。", "system");
+          }
+          return { thread: result.thread };
+        }
+
+        const pendingBridge = getPendingPlanApprovalForThread(threadId);
+        const approveRoute = resolveThreadApprovePlanRoute(
+          definedProps({
+            coreKind: approvalThread.coreKind,
+            hasPendingBridge: Boolean(pendingBridge),
+          }),
+        );
+        const pendingRuntimeConfig = request.runtimeConfig
+          ? parseThreadRuntimeConfigInput(request.runtimeConfig)
+          : undefined;
+        if (pendingRuntimeConfig) {
+          roleRoutesForThreadConfig(getModelSettingsSnapshot(), pendingRuntimeConfig);
+        }
+
+        if (approveRoute.kind === "bridge") {
+          if (!pendingBridge) {
+            throw new Error("No pending plan approval is active for this thread.");
+          }
+          const bridgeBaseRuntimeConfig =
+            pendingRuntimeConfig ?? ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
+          if (!bridgeBaseRuntimeConfig) {
+            throw new Error("Thread runtime configuration is missing.");
+          }
+          const pendingPlan = conversationStore.getPendingPlan(threadId);
+          const planFilePath = pendingBridge.planFilePath ?? pendingPlan?.planFilePath;
+          const snapshot = await persistApprovedPlanForThread(threadId, {
+            workspacePath: pendingPlan?.workspacePath ?? approvalThread.workspacePath,
+            userPrompt: pendingPlan?.userPrompt ?? pendingBridge.userPrompt,
+            analysis: pendingPlan?.analysis ?? pendingBridge.analysis,
+            plan: pendingPlan?.plan ?? pendingBridge.plan,
+            ...(planFilePath ? { planFilePath } : {}),
+          });
+          checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
+          const bridgeRuntimeConfig = withAgentSessionMode(bridgeBaseRuntimeConfig, "agent");
+          conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, bridgeRuntimeConfig, request, {
+            coreKind: approvalThread.coreKind ?? "claude",
+            sessionMode: "agent",
+          });
+          commitThreadPlanApprovalToAgentMode(threadId, "bridge_plan_approved");
+          const approvedThread = conversationStore.getThread(threadId);
+          if (
+            !approvedThread ||
+            resolveSessionMode(ensureThreadRuntimeConfig(approvedThread).runtimeConfig) !== "agent"
+          ) {
+            throw new Error("Plan approval could not switch the thread to Agent mode.");
+          }
+          const bridgePlanText = pendingPlan?.plan ?? pendingBridge.plan;
+          const forcedAttempt = forcedTarget
+            ? armForcedPlanDelegation({
+                threadId,
+                coreKind: approvalThread.coreKind ?? "claude",
+                target: forcedTarget,
+                plan: bridgePlanText,
+              })
+            : undefined;
+          if (
+            !bindPendingPlanApprovalCommand(pendingBridge.toolUseId, {
+              principalId: request.principalId,
+              clientCommandId: request.clientCommandId,
+            })
+          ) {
+            if (forcedAttempt) {
+              releaseForcedPlanDelegation(threadId);
+            }
+            throw new Error("No pending plan approval is active for this thread.");
+          }
+          if (!resolvePendingPlanApproval(pendingBridge.toolUseId, "approved")) {
+            clearPlanApprovalCommandBinding(pendingBridge.toolUseId);
+            if (forcedAttempt) {
+              releaseForcedPlanDelegation(threadId);
+            }
+            throw new Error("No pending plan approval is active for this thread.");
+          }
+          checkpoint("plan.bridge_resolved", { toolUseId: pendingBridge.toolUseId, decision: "approved" });
+          try {
+            await waitForPlanApprovalContinuation(pendingBridge.toolUseId);
+          } catch (error) {
+            rejectPlanApprovalContinuation(
+              pendingBridge.toolUseId,
+              error instanceof Error ? error : new Error(errorMessage(error)),
+            );
+            throw error;
+          } finally {
+            clearPlanApprovalCommandBinding(pendingBridge.toolUseId);
+          }
+          if (!forcedAttempt) {
+            conversationStore.clearPendingPlanForCommand(threadId, request);
+            emitThreadEvent(threadId, "thread.plan_cleared", "计划已批准，当前会话开始执行。", "system");
+          }
+          updateThread(threadId, {
+            status: "running",
+            message: "",
+          });
+          return {
+            thread: ensureThreadRuntimeConfig(conversationStore.getThread(threadId) ?? approvedThread),
+          };
+        }
+
+        if (approveRoute.kind === "acp_continuation") {
+          if (approvalThread.coreKind !== "acp") {
+            throw new Error(
+              `CORE_ROUTE_MISMATCH: Thread ${approvalThread.id} belongs to ${approvalThread.coreKind ?? "unknown"}, not acp; cannot approve an ACP plan.`,
+            );
+          }
+          const pendingPlan = conversationStore.getPendingPlan(threadId);
+          if (!pendingPlan) {
+            throw new Error(
+              "ACP plan approval has no live cursor/create_plan bridge and no stored pending plan.",
+            );
+          }
+          if (approvalThread.status !== "awaiting_plan") {
+            throw new Error("This thread is not waiting for plan approval.");
+          }
+          if (!pendingPlan.plan.trim()) {
+            throw new Error("计划内容不能为空。");
+          }
+          const currentConfig = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
+          if (!currentConfig) {
+            throw new Error("Thread runtime configuration is missing.");
+          }
+          const runtimeConfig = withAgentSessionMode(pendingRuntimeConfig ?? currentConfig, "agent");
+          const snapshot = await persistApprovedPlanForThread(threadId, pendingPlan);
+          checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
+          conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, runtimeConfig, request, {
+            coreKind: "acp",
+            sessionMode: "agent",
+          });
+          commitThreadPlanApprovalToAgentMode(threadId, "acp_plan_approved");
+          // Disconnect fallback only: live create_plan bridge is preferred (Cursor blocking contract).
+          cancelPlanApprovalsForThreadKeepPending(threadId, "acp plan approved via disconnect fallback");
+          const runtimeDispatch = prepareConversationCommandDispatch({
+            v2: conversationStore.conversationV2(),
+            job: {
+              principalId: request.principalId,
+              conversationId: threadId,
+              clientCommandId: request.clientCommandId,
+            },
+            coreKind: "acp",
+            actionKind: "plan_approval",
+            phase: "execution",
+            checkpointScope: "plan",
+          });
+          const dispatched = waitForConversationCommandDispatch({
+            v2: conversationStore.conversationV2(),
+            conversationId: threadId,
+            prepared: runtimeDispatch,
+          });
+          let result: ThreadContinueResult;
+          try {
+            result = await startAcpThreadContinuation({
+              threadId,
+              prompt:
+                "The user approved the plan. Implement it now with full Agent tools. Follow the approved plan.",
+              runtimeConfigInput: runtimeConfig,
+              skipRecordUserPrompt: true,
+              preparedRuntimeDispatch: runtimeDispatch,
+            });
+            await dispatched;
+          } catch (error) {
+            void dispatched.catch(() => {});
+            throw error;
+          }
+          conversationStore.clearPendingPlanForCommand(threadId, request);
+          emitThreadEvent(threadId, "thread.plan_cleared", "计划已进入执行阶段。", "system");
+          return { thread: result.thread };
+        }
+
+        requireThreadCore(approvalThread, "claude", "approve a Claude plan");
+
+        const approval = resolveThreadPlanApprovalRuntime(threadId, {
+          getThread: (id) => conversationStore.getThread(id),
+          hasActiveRun: (id) => activeRunRuntimeState.hasRun(id),
+          getPendingPlan: (id) => conversationStore.getPendingPlan(id),
+          resolveRoleRoutes: (id) =>
+            pendingRuntimeConfig
+              ? roleRoutesForThreadConfig(getModelSettingsSnapshot(), pendingRuntimeConfig)
+              : resolveRoleRoutesForThread(id),
+          resolveRuntimeConfig: (routes) => resolveRuntimeConfigForThreadId(threadId, routes),
+        });
+
+        const currentConfig = ensureThreadRuntimeConfig(
+          conversationStore.getThread(threadId) ?? approval.thread,
+        ).runtimeConfig;
+        if (!currentConfig) {
+          throw new Error("Thread runtime configuration is missing.");
+        }
+        const agentRuntimeConfig = withAgentSessionMode(pendingRuntimeConfig ?? currentConfig, "agent");
+        const snapshot = await persistApprovedPlanForThread(threadId, approval.pendingPlan);
+        checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
+        conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, agentRuntimeConfig, request, {
+          coreKind: "claude",
+          sessionMode: "agent",
+        });
+        commitThreadPlanApprovalToAgentMode(threadId, "claude_plan_approved");
+
+        const pendingBeforeExecution = conversationStore.getPendingPlan(threadId);
+        const forcedAttempt = forcedTarget
+          ? armForcedPlanDelegation({
+              threadId,
+              coreKind: "claude",
+              target: forcedTarget,
+              plan: pendingBeforeExecution?.plan ?? approval.pendingPlan.plan,
+            })
+          : undefined;
+
+        updateThread(threadId, {
+          status: "running",
+          message: "",
+        });
+        const runtimeDispatch = prepareConversationCommandDispatch({
+          v2: conversationStore.conversationV2(),
+          job: {
+            principalId: request.principalId,
+            conversationId: threadId,
+            clientCommandId: request.clientCommandId,
+          },
+          coreKind: "claude",
+          actionKind: "plan_approval",
+          phase: "execution",
+          checkpointScope: "plan",
+        });
+        const dispatched = waitForConversationCommandDispatch({
+          v2: conversationStore.conversationV2(),
+          conversationId: threadId,
+          prepared: runtimeDispatch,
+        });
+        const runtime = runCodingThreadExecution(threadId, approval.runtimeConfig, {
+          routesOverride: approval.roleRoutes,
+          ...(forcedAttempt && forcedContract ? { followUp: forcedContract } : {}),
+          runtimeDispatch,
+          ...(!forcedAttempt
+            ? {
+                planCommand: {
+                  principalId: request.principalId,
+                  clientCommandId: request.clientCommandId,
+                },
+              }
+            : {}),
+        });
+        observeConversationCommandRuntime({
+          runtime,
+          v2: conversationStore.conversationV2(),
+          conversationId: threadId,
+          prepared: runtimeDispatch,
+          notStartedReason: "Claude plan execution ended before creating its first run attempt.",
+          onRejected: (error) => {
+            if (forcedAttempt) {
+              settleForcedPlanDelegation(threadId, {
+                ok: false,
+                reason: errorMessage(error),
+              });
+            }
+            process.stderr.write(
+              `[eco] Claude plan execution failed before dispatch (${threadId}): ${errorMessage(error)}\n`,
+            );
+          },
+          onObserverError: (error) => {
+            process.stderr.write(
+              `[eco] failed to settle Claude plan dispatch (${threadId}): ${errorMessage(error)}\n`,
+            );
+          },
+        });
+        await dispatched;
+        return {
+          thread: ensureThreadRuntimeConfig(conversationStore.getThread(threadId) ?? approval.thread),
+        };
+      },
+    },
+  );
+}
+
 function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.displayControlGet, () => displayControl.getState());
   registerDesktopCommand(IPC_CHANNELS.displayControlSet, (input: import("../shared/display-control").DisplayControlChange) => displayControl.set(input));
@@ -9453,500 +9949,7 @@ function registerIpcHandlers(): void {
     return buildThreadApprovedPlanView(threadId.trim());
   });
 
-  registerDesktopCommand(IPC_CHANNELS.threadApprovePlan, async (payload: unknown) => {
-    const request = parseThreadApprovePlanPayload(payload);
-    const { threadId } = request;
-    requireConversationV2Thread(threadId);
-    return executePlanResolutionCommand(
-      {
-        principalId: request.principalId,
-        clientCommandId: request.clientCommandId,
-        conversationId: threadId,
-        resolution: "approve",
-        expectedHistoryRevision: request.expectedHistoryRevision,
-        request: {
-          ...(request.runtimeConfig ? { runtimeConfig: request.runtimeConfig } : {}),
-          ...(request.executionTarget ? { executionTarget: request.executionTarget } : {}),
-        },
-      },
-      {
-        v2: conversationStore.conversationV2(),
-        errorMessage,
-        freezeContext: () => buildPlanResolutionFrozenContext(threadId),
-        execute: async (frozenContext, checkpoint) => {
-          assertPlanResolutionContextCurrent(threadId, frozenContext);
-          const approvalThread = conversationStore.getThread(threadId);
-          if (!approvalThread) {
-            throw new Error("Thread was not found.");
-          }
-
-          // "指定子代理执行已批准计划": the renderer only sends the choice; the host re-reads
-          // the thread, pending plan, and locked orchestration snapshot to validate it.
-          const approvalSnapshot = (() => {
-            const config = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
-            return config
-              ? resolveThreadOrchestrationSnapshot(getModelSettingsSnapshot(), config)
-              : undefined;
-          })();
-          const delegationAgents = listPlanDelegationAgents(approvalSnapshot);
-          let forcedTarget: Extract<PlanExecutionTarget, { kind: "subagent" }> | undefined;
-          if (request.executionTarget && request.executionTarget.kind === "subagent") {
-            const validation = validatePlanExecutionTarget({
-              target: request.executionTarget,
-              coreKind: approvalThread.coreKind,
-              agents: delegationAgents,
-            });
-            if (!validation.ok) {
-              throw new Error(validation.reason);
-            }
-            forcedTarget = validation.target as Extract<PlanExecutionTarget, { kind: "subagent" }>;
-          }
-          const forcedContract = forcedTarget
-            ? buildForcedPlanDelegationContract({
-                agentKey:
-                  approvalThread.coreKind === "claude"
-                    ? sdkAgentKeyForOrchestrationAgent(forcedTarget.agentKey)
-                    : approvalThread.coreKind === "codex"
-                      ? sanitizeCodexRoleId(forcedTarget.agentKey)
-                      : forcedTarget.agentKey,
-              })
-            : undefined;
-
-          if (approvalThread.coreKind === "codex") {
-            requireThreadCore(approvalThread, "codex", "approve a Codex plan");
-            if (getPendingPlanApprovalForThread(threadId)) {
-              throw new Error("Codex plan approval cannot use the Claude approval bridge.");
-            }
-            const pendingPlan = conversationStore.getPendingPlan(threadId);
-            if (!pendingPlan) {
-              throw new Error("找不到待批准的计划。");
-            }
-            if (approvalThread.status !== "awaiting_plan") {
-              throw new Error("This thread is not waiting for plan approval.");
-            }
-            if (!pendingPlan.plan.trim()) {
-              throw new Error("计划内容不能为空。");
-            }
-            const currentConfig = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
-            if (!currentConfig) {
-              throw new Error("Thread runtime configuration is missing.");
-            }
-            const runtimeConfig = withAgentSessionMode(
-              request.runtimeConfig ? parseThreadRuntimeConfigInput(request.runtimeConfig) : currentConfig,
-              "agent",
-            );
-            const snapshot = await persistApprovedPlanForThread(threadId, pendingPlan);
-            checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
-            conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, runtimeConfig, request, {
-              coreKind: "codex",
-              sessionMode: "agent",
-            });
-            commitThreadPlanApprovalToAgentMode(threadId, "codex_plan_approved");
-            const forcedAttempt = forcedTarget
-              ? armForcedPlanDelegation({
-                  threadId,
-                  coreKind: "codex",
-                  target: forcedTarget,
-                  plan: pendingPlan.plan,
-                })
-              : undefined;
-            let result: ThreadContinueResult;
-            let dispatchWait: Promise<void> | undefined;
-            try {
-              const runtimeDispatch = prepareConversationCommandDispatch({
-                v2: conversationStore.conversationV2(),
-                job: {
-                  principalId: request.principalId,
-                  conversationId: threadId,
-                  clientCommandId: request.clientCommandId,
-                },
-                coreKind: "codex",
-                actionKind: "plan_approval",
-                phase: "execution",
-                checkpointScope: "plan",
-              });
-              dispatchWait = waitForConversationCommandDispatch({
-                v2: conversationStore.conversationV2(),
-                conversationId: threadId,
-                prepared: runtimeDispatch,
-              });
-              result = await startCodexThreadContinuation({
-                threadId,
-                prompt: forcedContract ?? "Implement the plan.",
-                runtimeConfigInput: runtimeConfig,
-                preparedRuntimeDispatch: runtimeDispatch,
-              });
-              await dispatchWait;
-            } catch (error) {
-              void dispatchWait?.catch(() => {});
-              if (forcedAttempt) {
-                settleForcedPlanDelegation(threadId, {
-                  ok: false,
-                  reason: errorMessage(error),
-                });
-              }
-              throw error;
-            }
-            if (!forcedAttempt) {
-              conversationStore.clearPendingPlanForCommand(threadId, request);
-              emitThreadEvent(threadId, "thread.plan_cleared", "计划已进入执行阶段。", "system");
-            }
-            return { thread: result.thread };
-          }
-          if (approvalThread.coreKind === "pi") {
-            requireThreadCore(approvalThread, "pi", "approve a PI plan");
-            const pendingPlan = conversationStore.getPendingPlan(threadId);
-            if (!pendingPlan) {
-              throw new Error("找不到待批准的计划。");
-            }
-            if (approvalThread.status !== "awaiting_plan") {
-              throw new Error("This thread is not waiting for plan approval.");
-            }
-            if (!pendingPlan.plan.trim()) {
-              throw new Error("计划内容不能为空。");
-            }
-            const currentConfig = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
-            if (!currentConfig) {
-              throw new Error("Thread runtime configuration is missing.");
-            }
-            const runtimeConfig = withAgentSessionMode(
-              request.runtimeConfig ? parseThreadRuntimeConfigInput(request.runtimeConfig) : currentConfig,
-              "agent",
-            );
-            const snapshot = await persistApprovedPlanForThread(threadId, pendingPlan);
-            checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
-            conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, runtimeConfig, request, {
-              coreKind: "pi",
-              sessionMode: "agent",
-            });
-            commitThreadPlanApprovalToAgentMode(threadId, "pi_plan_approved");
-            // Cancel any leftover Claude-style bridge if present; PI Plan is Codex-style async.
-            cancelPlanApprovalsForThreadKeepPending(threadId, "pi plan approved asynchronously");
-            const forcedAttempt = forcedTarget
-              ? armForcedPlanDelegation({
-                  threadId,
-                  coreKind: "pi",
-                  target: forcedTarget,
-                  plan: pendingPlan.plan,
-                })
-              : undefined;
-            let result: ThreadContinueResult;
-            let dispatchWait: Promise<void> | undefined;
-            try {
-              const runtimeDispatch = prepareConversationCommandDispatch({
-                v2: conversationStore.conversationV2(),
-                job: {
-                  principalId: request.principalId,
-                  conversationId: threadId,
-                  clientCommandId: request.clientCommandId,
-                },
-                coreKind: "pi",
-                actionKind: "plan_approval",
-                phase: "execution",
-                checkpointScope: "plan",
-              });
-              dispatchWait = waitForConversationCommandDispatch({
-                v2: conversationStore.conversationV2(),
-                conversationId: threadId,
-                prepared: runtimeDispatch,
-              });
-              result = await startPiThreadContinuation({
-                threadId,
-                prompt:
-                  forcedContract ??
-                  "The user approved the plan. Implement it now with full Agent tools. Follow the approved plan.",
-                runtimeConfigInput: runtimeConfig,
-                skipRecordUserPrompt: true,
-                preparedRuntimeDispatch: runtimeDispatch,
-              });
-              await dispatchWait;
-            } catch (error) {
-              void dispatchWait?.catch(() => {});
-              if (forcedAttempt) {
-                settleForcedPlanDelegation(threadId, {
-                  ok: false,
-                  reason: errorMessage(error),
-                });
-              }
-              throw error;
-            }
-            if (!forcedAttempt) {
-              conversationStore.clearPendingPlanForCommand(threadId, request);
-              emitThreadEvent(threadId, "thread.plan_cleared", "计划已进入执行阶段。", "system");
-            }
-            return { thread: result.thread };
-          }
-
-          const pendingBridge = getPendingPlanApprovalForThread(threadId);
-          const approveRoute = resolveThreadApprovePlanRoute(
-            definedProps({
-              coreKind: approvalThread.coreKind,
-              hasPendingBridge: Boolean(pendingBridge),
-            }),
-          );
-          const pendingRuntimeConfig = request.runtimeConfig
-            ? parseThreadRuntimeConfigInput(request.runtimeConfig)
-            : undefined;
-          if (pendingRuntimeConfig) {
-            roleRoutesForThreadConfig(getModelSettingsSnapshot(), pendingRuntimeConfig);
-          }
-
-          if (approveRoute.kind === "bridge") {
-            if (!pendingBridge) {
-              throw new Error("No pending plan approval is active for this thread.");
-            }
-            const bridgeBaseRuntimeConfig =
-              pendingRuntimeConfig ?? ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
-            if (!bridgeBaseRuntimeConfig) {
-              throw new Error("Thread runtime configuration is missing.");
-            }
-            const pendingPlan = conversationStore.getPendingPlan(threadId);
-            const planFilePath = pendingBridge.planFilePath ?? pendingPlan?.planFilePath;
-            const snapshot = await persistApprovedPlanForThread(threadId, {
-              workspacePath: pendingPlan?.workspacePath ?? approvalThread.workspacePath,
-              userPrompt: pendingPlan?.userPrompt ?? pendingBridge.userPrompt,
-              analysis: pendingPlan?.analysis ?? pendingBridge.analysis,
-              plan: pendingPlan?.plan ?? pendingBridge.plan,
-              ...(planFilePath ? { planFilePath } : {}),
-            });
-            checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
-            const bridgeRuntimeConfig = withAgentSessionMode(bridgeBaseRuntimeConfig, "agent");
-            conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, bridgeRuntimeConfig, request, {
-              coreKind: approvalThread.coreKind ?? "claude",
-              sessionMode: "agent",
-            });
-            commitThreadPlanApprovalToAgentMode(threadId, "bridge_plan_approved");
-            const approvedThread = conversationStore.getThread(threadId);
-            if (
-              !approvedThread ||
-              resolveSessionMode(ensureThreadRuntimeConfig(approvedThread).runtimeConfig) !== "agent"
-            ) {
-              throw new Error("Plan approval could not switch the thread to Agent mode.");
-            }
-            const bridgePlanText = pendingPlan?.plan ?? pendingBridge.plan;
-            const forcedAttempt = forcedTarget
-              ? armForcedPlanDelegation({
-                  threadId,
-                  coreKind: approvalThread.coreKind ?? "claude",
-                  target: forcedTarget,
-                  plan: bridgePlanText,
-                })
-              : undefined;
-            if (
-              !bindPendingPlanApprovalCommand(pendingBridge.toolUseId, {
-                principalId: request.principalId,
-                clientCommandId: request.clientCommandId,
-              })
-            ) {
-              if (forcedAttempt) {
-                releaseForcedPlanDelegation(threadId);
-              }
-              throw new Error("No pending plan approval is active for this thread.");
-            }
-            if (!resolvePendingPlanApproval(pendingBridge.toolUseId, "approved")) {
-              clearPlanApprovalCommandBinding(pendingBridge.toolUseId);
-              if (forcedAttempt) {
-                releaseForcedPlanDelegation(threadId);
-              }
-              throw new Error("No pending plan approval is active for this thread.");
-            }
-            checkpoint("plan.bridge_resolved", { toolUseId: pendingBridge.toolUseId, decision: "approved" });
-            try {
-              await waitForPlanApprovalContinuation(pendingBridge.toolUseId);
-            } catch (error) {
-              rejectPlanApprovalContinuation(
-                pendingBridge.toolUseId,
-                error instanceof Error ? error : new Error(errorMessage(error)),
-              );
-              throw error;
-            } finally {
-              clearPlanApprovalCommandBinding(pendingBridge.toolUseId);
-            }
-            if (!forcedAttempt) {
-              conversationStore.clearPendingPlanForCommand(threadId, request);
-              emitThreadEvent(threadId, "thread.plan_cleared", "计划已批准，当前会话开始执行。", "system");
-            }
-            updateThread(threadId, {
-              status: "running",
-              message: "",
-            });
-            return {
-              thread: ensureThreadRuntimeConfig(conversationStore.getThread(threadId) ?? approvedThread),
-            };
-          }
-
-          if (approveRoute.kind === "acp_continuation") {
-            if (approvalThread.coreKind !== "acp") {
-              throw new Error(
-                `CORE_ROUTE_MISMATCH: Thread ${approvalThread.id} belongs to ${approvalThread.coreKind ?? "unknown"}, not acp; cannot approve an ACP plan.`,
-              );
-            }
-            const pendingPlan = conversationStore.getPendingPlan(threadId);
-            if (!pendingPlan) {
-              throw new Error(
-                "ACP plan approval has no live cursor/create_plan bridge and no stored pending plan.",
-              );
-            }
-            if (approvalThread.status !== "awaiting_plan") {
-              throw new Error("This thread is not waiting for plan approval.");
-            }
-            if (!pendingPlan.plan.trim()) {
-              throw new Error("计划内容不能为空。");
-            }
-            const currentConfig = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
-            if (!currentConfig) {
-              throw new Error("Thread runtime configuration is missing.");
-            }
-            const runtimeConfig = withAgentSessionMode(pendingRuntimeConfig ?? currentConfig, "agent");
-            const snapshot = await persistApprovedPlanForThread(threadId, pendingPlan);
-            checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
-            conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, runtimeConfig, request, {
-              coreKind: "acp",
-              sessionMode: "agent",
-            });
-            commitThreadPlanApprovalToAgentMode(threadId, "acp_plan_approved");
-            // Disconnect fallback only: live create_plan bridge is preferred (Cursor blocking contract).
-            cancelPlanApprovalsForThreadKeepPending(threadId, "acp plan approved via disconnect fallback");
-            const runtimeDispatch = prepareConversationCommandDispatch({
-              v2: conversationStore.conversationV2(),
-              job: {
-                principalId: request.principalId,
-                conversationId: threadId,
-                clientCommandId: request.clientCommandId,
-              },
-              coreKind: "acp",
-              actionKind: "plan_approval",
-              phase: "execution",
-              checkpointScope: "plan",
-            });
-            const dispatched = waitForConversationCommandDispatch({
-              v2: conversationStore.conversationV2(),
-              conversationId: threadId,
-              prepared: runtimeDispatch,
-            });
-            let result: ThreadContinueResult;
-            try {
-              result = await startAcpThreadContinuation({
-                threadId,
-                prompt:
-                  "The user approved the plan. Implement it now with full Agent tools. Follow the approved plan.",
-                runtimeConfigInput: runtimeConfig,
-                skipRecordUserPrompt: true,
-                preparedRuntimeDispatch: runtimeDispatch,
-              });
-              await dispatched;
-            } catch (error) {
-              void dispatched.catch(() => {});
-              throw error;
-            }
-            conversationStore.clearPendingPlanForCommand(threadId, request);
-            emitThreadEvent(threadId, "thread.plan_cleared", "计划已进入执行阶段。", "system");
-            return { thread: result.thread };
-          }
-
-          requireThreadCore(approvalThread, "claude", "approve a Claude plan");
-
-          const approval = resolveThreadPlanApprovalRuntime(threadId, {
-            getThread: (id) => conversationStore.getThread(id),
-            hasActiveRun: (id) => activeRunRuntimeState.hasRun(id),
-            getPendingPlan: (id) => conversationStore.getPendingPlan(id),
-            resolveRoleRoutes: (id) =>
-              pendingRuntimeConfig
-                ? roleRoutesForThreadConfig(getModelSettingsSnapshot(), pendingRuntimeConfig)
-                : resolveRoleRoutesForThread(id),
-            resolveRuntimeConfig: (routes) => resolveRuntimeConfigForThreadId(threadId, routes),
-          });
-
-          const currentConfig = ensureThreadRuntimeConfig(
-            conversationStore.getThread(threadId) ?? approval.thread,
-          ).runtimeConfig;
-          if (!currentConfig) {
-            throw new Error("Thread runtime configuration is missing.");
-          }
-          const agentRuntimeConfig = withAgentSessionMode(pendingRuntimeConfig ?? currentConfig, "agent");
-          const snapshot = await persistApprovedPlanForThread(threadId, approval.pendingPlan);
-          checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
-          conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, agentRuntimeConfig, request, {
-            coreKind: "claude",
-            sessionMode: "agent",
-          });
-          commitThreadPlanApprovalToAgentMode(threadId, "claude_plan_approved");
-
-          const pendingBeforeExecution = conversationStore.getPendingPlan(threadId);
-          const forcedAttempt = forcedTarget
-            ? armForcedPlanDelegation({
-                threadId,
-                coreKind: "claude",
-                target: forcedTarget,
-                plan: pendingBeforeExecution?.plan ?? approval.pendingPlan.plan,
-              })
-            : undefined;
-
-          updateThread(threadId, {
-            status: "running",
-            message: "",
-          });
-          const runtimeDispatch = prepareConversationCommandDispatch({
-            v2: conversationStore.conversationV2(),
-            job: {
-              principalId: request.principalId,
-              conversationId: threadId,
-              clientCommandId: request.clientCommandId,
-            },
-            coreKind: "claude",
-            actionKind: "plan_approval",
-            phase: "execution",
-            checkpointScope: "plan",
-          });
-          const dispatched = waitForConversationCommandDispatch({
-            v2: conversationStore.conversationV2(),
-            conversationId: threadId,
-            prepared: runtimeDispatch,
-          });
-          const runtime = runCodingThreadExecution(threadId, approval.runtimeConfig, {
-            routesOverride: approval.roleRoutes,
-            ...(forcedAttempt && forcedContract ? { followUp: forcedContract } : {}),
-            runtimeDispatch,
-            ...(!forcedAttempt
-              ? {
-                  planCommand: {
-                    principalId: request.principalId,
-                    clientCommandId: request.clientCommandId,
-                  },
-                }
-              : {}),
-          });
-          observeConversationCommandRuntime({
-            runtime,
-            v2: conversationStore.conversationV2(),
-            conversationId: threadId,
-            prepared: runtimeDispatch,
-            notStartedReason: "Claude plan execution ended before creating its first run attempt.",
-            onRejected: (error) => {
-              if (forcedAttempt) {
-                settleForcedPlanDelegation(threadId, {
-                  ok: false,
-                  reason: errorMessage(error),
-                });
-              }
-              process.stderr.write(
-                `[eco] Claude plan execution failed before dispatch (${threadId}): ${errorMessage(error)}\n`,
-              );
-            },
-            onObserverError: (error) => {
-              process.stderr.write(
-                `[eco] failed to settle Claude plan dispatch (${threadId}): ${errorMessage(error)}\n`,
-              );
-            },
-          });
-          await dispatched;
-          return {
-            thread: ensureThreadRuntimeConfig(conversationStore.getThread(threadId) ?? approval.thread),
-          };
-        },
-      },
-    );
-  });
+  registerDesktopCommand(IPC_CHANNELS.threadApprovePlan, approveThreadPlan);
 
   registerDesktopCommand(IPC_CHANNELS.threadDismissPlan, async (payload: unknown) => {
     const request = parseThreadDismissPlanPayload(payload);
@@ -13832,6 +13835,11 @@ function inspectScheduledOccurrence(occurrence: ScheduleOccurrence): {
   status: import("../shared/scheduling").ScheduleOccurrenceStatus;
   error?: string;
 } {
+  if (occurrence.definition.planApproval && occurrence.definition.threadId) {
+    return inspectScheduledPlanCommand(conversationStore.conversationV2().getCommandJob(
+      "eco-scheduler", occurrence.definition.threadId, scheduledPlanCommandId(occurrence.id),
+    ));
+  }
   const thread = occurrence.threadId ? conversationStore.getThread(occurrence.threadId) : undefined;
   const followUp =
     thread && occurrence.definition.kind === "session_message"
@@ -13856,6 +13864,12 @@ function inspectScheduledOccurrence(occurrence: ScheduleOccurrence): {
     ),
     hasActiveRun: Boolean(thread && activeRunRuntimeState.hasRun(thread.id)),
     isDraining: Boolean(thread && threadFollowUpDrainScheduler.isDraining(thread.id)),
+    hasPendingUserAction: Boolean(thread && (
+      getPendingPlanApprovalForThread(thread.id) ||
+      getPendingBashApprovalForThread(thread.id) ||
+      hasPendingBlockingClarificationForThread(thread.id) ||
+      conversationStore.getPendingPlan(thread.id)
+    )),
   });
 }
 
@@ -13878,6 +13892,11 @@ function createSchedulingService(dbPath: string): SchedulingService {
     assertThread: (threadId) => {
       if (!conversationStore.getThread(threadId)) throw new Error("目标会话不存在。");
     },
+    assertPlanApproval: (threadId, approval, plan) => assertScheduledPlanCurrent(approval, plan, {
+      thread: conversationStore.getThread(threadId),
+      pendingPlan: conversationStore.getPendingPlan(threadId),
+      historyRevision: conversationStore.conversationV2().head(threadId).historyRevision,
+    }),
     createThreadWithSchedule: (definition, creationKey, input) => {
       const thread = saveNewScheduledMessageThread(definition, creationKey, input, conversationStore, schedulingService.store);
       emitThreadEvent(thread.id, "thread.created", "");
@@ -13898,6 +13917,17 @@ function createSchedulingService(dbPath: string): SchedulingService {
       }
       const thread = conversationStore.getThread(occurrence.definition.threadId!);
       if (!thread) return true; // Dispatch reports a durable explicit error.
+      if (occurrence.definition.planApproval) {
+        const pending = conversationStore.getPendingPlan(thread.id);
+        // Stale approvals must fail visibly rather than remain queued behind another plan/run.
+        if (thread.status !== "awaiting_plan" || !pending ||
+          pending.plan.trim() !== occurrence.definition.prompt.trim() ||
+          conversationStore.conversationV2().head(thread.id).historyRevision !== occurrence.definition.planApproval.expectedHistoryRevision) return true;
+        return !contextMonitor.isCompactInFlight(thread.id) &&
+          (!activeRunRuntimeState.hasRun(thread.id) || Boolean(getPendingPlanApprovalForThread(thread.id))) &&
+          !thread.followUpQueuePaused && !getPendingBashApprovalForThread(thread.id) &&
+          !hasPendingBlockingClarificationForThread(thread.id) && !editingThreadFollowUpByThread.has(thread.id);
+      }
       return (
         !activeRunRuntimeState.hasRun(thread.id) &&
         !contextMonitor.isCompactInFlight(thread.id) &&
@@ -13930,6 +13960,13 @@ function createSchedulingService(dbPath: string): SchedulingService {
         return { threadId: result.thread.id };
       }
       const threadId = definition.threadId!;
+      if (definition.planApproval) {
+        return approveScheduledPlan(occurrence, {
+          thread: conversationStore.getThread(threadId),
+          pendingPlan: conversationStore.getPendingPlan(threadId),
+          historyRevision: conversationStore.conversationV2().head(threadId).historyRevision,
+        }, approveThreadPlan);
+      }
       const followUp = await enqueueScheduledMessage(occurrence, conversationStore, promptImageFileStore);
       emitThreadFollowUpEvent(followUp, "thread.follow_up.queued", formatFollowUpQueuedMessage(followUp));
       void drainQueuedThreadFollowUpsAfterRun(threadId);

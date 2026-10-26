@@ -8,6 +8,7 @@ export function inspectScheduledRun(input: {
   hasAcceptedMessage: boolean;
   hasActiveRun: boolean;
   isDraining: boolean;
+  hasPendingUserAction: boolean;
 }): { status: ScheduleOccurrenceStatus; error?: string } {
   const { thread, followUp } = input;
   if (!thread) return { status: "failed", error: "目标会话不存在或尚未创建。" };
@@ -26,7 +27,9 @@ export function inspectScheduledRun(input: {
   }
   if (thread.status === "running" || thread.status === "queued" || input.hasActiveRun) return { status: "running" };
   if (thread.status === "completed") return { status: "completed" };
-  if (thread.status === "failed") return { status: "failed", error: thread.message || "执行失败。" };
-  if (thread.status === "blocked" || thread.status === "awaiting_plan") return { status: "waiting_user", error: thread.message || "会话需要用户处理，请打开关联会话。" };
+  if (thread.status === "awaiting_plan" || input.hasPendingUserAction) return { status: "waiting_user", error: thread.message || "会话需要用户处理，请打开关联会话。" };
+  // Runtime errors also use `blocked`. Only a real approval/question/plan keeps
+  // the occurrence open; an ended process must release its scheduling slot.
+  if (thread.status === "failed" || thread.status === "blocked") return { status: "failed", error: thread.message || "执行失败。" };
   return { status: "unknown", error: "运行未完成或被中断，请检查关联会话。" };
 }

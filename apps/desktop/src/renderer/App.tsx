@@ -212,7 +212,7 @@ import {
   resolvePromptCacheOrchestrationLabel,
 } from "../shared/prompt-cache-config";
 import { resolveDraftCoreKindWhenAcpHidden } from "../shared/resolve-draft-core-kind-when-acp-hidden";
-import type { ScheduleDefinition, ScheduledMessageNewThread } from "../shared/scheduling";
+import type { ScheduleDefinition, ScheduledMessageNewThread, ScheduledPlanApproval } from "../shared/scheduling";
 import {
   dedupeSkillsByName,
   isSkillAvailableForCore,
@@ -1263,6 +1263,8 @@ function App() {
     threadId: string;
     definition?: ScheduleDefinition;
     newThread?: ScheduledMessageNewThread;
+    planApproval?: ScheduledPlanApproval;
+    planPrompt?: string;
     draft?: { contextKey: string; prompt: string; attachments: ComposerImageAttachment[] };
   }>();
   const [scheduledMessagesReveal, setScheduledMessagesReveal] = useState<{
@@ -12176,6 +12178,13 @@ function App() {
                 onApprove={() => void approvePendingPlan()}
                 onStartNewSession={() => startNewChatWithPlan(pendingPlan)}
                 onReviewCode={() => void reviewPendingPlanCode()}
+                onScheduleExecution={() => {
+                  setScheduledMessageEditor({
+                    threadId: pendingPlan.threadId,
+                    planPrompt: pendingPlan.plan,
+                    planApproval: { expectedHistoryRevision: displayProjection?.historyRevision ?? 0 },
+                  });
+                }}
                 onApproveWithSubagent={(agentKey, additionalMessage) =>
                   void approvePendingPlanWithSubagent(agentKey, additionalMessage)
                 }
@@ -13350,12 +13359,13 @@ function App() {
               key={scheduledMessageEditor.definition?.id ?? scheduledMessageEditor.threadId}
               threadId={scheduledMessageEditor.threadId}
               newThread={scheduledMessageEditor.newThread}
+              planApproval={scheduledMessageEditor.planApproval}
               usesChatGptLogin={scheduledMessageUsesCodexAccount}
-              initialPrompt={scheduledMessageEditor.draft?.prompt}
+              initialPrompt={scheduledMessageEditor.planPrompt ?? scheduledMessageEditor.draft?.prompt}
               initialAttachments={scheduledMessageEditor.draft?.attachments}
               imageContextKey={scheduledMessageEditor.draft?.contextKey}
               definition={scheduledMessageEditor.definition}
-              anchorRef={scheduledMessageEditorOnComposer ? composerAnchorRef : undefined}
+              anchorRef={scheduledMessageEditorOnComposer && !scheduledMessageEditor.planApproval && !scheduledMessageEditor.definition?.planApproval ? composerAnchorRef : undefined}
               triggerRef={composerPlusButtonRef}
               onBack={() => { setScheduledMessageEditor(undefined); setComposerPlusMenuOpen(true); }}
               occurrences={scheduling.snapshot.occurrences}

@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Clock3,
   Copy,
   FileSearch,
   Loader2,
@@ -34,6 +35,7 @@ interface PlanApprovalPanelProps {
   onStartNewSession?: (() => void) | undefined;
   /** Confirms the plan was implemented and asks the current agent to review the code. */
   onReviewCode?: (() => void) | undefined;
+  onScheduleExecution?: (() => void) | undefined;
   delegationAgents?: readonly PlanDelegationAgentOption[] | undefined;
   additionalMessage?: string | undefined;
   onAdditionalMessageChange?: ((value: string) => void) | undefined;
@@ -50,6 +52,7 @@ export function PlanApprovalPanel({
   onApproveWithSubagent,
   onStartNewSession,
   onReviewCode,
+  onScheduleExecution,
   delegationAgents,
   additionalMessage,
   onAdditionalMessageChange,
@@ -72,7 +75,7 @@ export function PlanApprovalPanel({
   const agents = delegationAgents ?? [];
   const executableAgents = agents.filter((agent) => agent.canExecutePlan);
   const canDelegate = executableAgents.length > 0 && Boolean(onApproveWithSubagent);
-  const canOpenExecuteMenu = canDelegate || Boolean(onStartNewSession) || Boolean(onReviewCode);
+  const canOpenExecuteMenu = canDelegate || Boolean(onStartNewSession) || Boolean(onReviewCode) || Boolean(onScheduleExecution);
   const executeMenuDisabled = Boolean(busy) || !planTrimmed;
 
   useEffect(() => {
@@ -340,6 +343,22 @@ export function PlanApprovalPanel({
                       <UsersRound size={16} aria-hidden />
                       <span>{t("approval.plan.delegateTitle")}</span>
                       <ChevronRight size={15} aria-hidden />
+                    </button>
+                  ) : null}
+                  {onScheduleExecution ? (
+                    <button
+                      ref={!onStartNewSession && !onReviewCode && !canDelegate ? firstOptionRef : undefined}
+                      type="button"
+                      className="plan-approval-menu-option"
+                      onClick={() => {
+                        if (executeMenuDisabled) return;
+                        closeExecuteMenu();
+                        onScheduleExecution();
+                      }}
+                      disabled={executeMenuDisabled}
+                    >
+                      <Clock3 size={16} aria-hidden />
+                      <span>{t("approval.plan.scheduleExecution")}</span>
                     </button>
                   ) : null}
                 </div>
