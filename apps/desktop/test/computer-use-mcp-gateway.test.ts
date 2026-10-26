@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import fs from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   assessLinuxComputerUseSession,
@@ -83,10 +85,14 @@ test("probeOpenComputerUsePermissionStatus uses doctor notes on Windows", async 
 });
 
 test("resolveInjection uses shared HTTP MCP (no per-session Electron stdio)", async () => {
-  const gateway = new ComputerUseMcpGateway(() => ({
-    agentIntegrationEnabled: true,
-    actionApprovalMode: "always_allow",
-  }));
+  const directory = await mkdtemp(path.join(tmpdir(), "eco-computer-use-"));
+  const gateway = new ComputerUseMcpGateway(
+    () => ({
+      agentIntegrationEnabled: true,
+      actionApprovalMode: "always_allow",
+    }),
+    directory,
+  );
 
   try {
     const first = await gateway.resolveInjection({
@@ -125,5 +131,6 @@ test("resolveInjection uses shared HTTP MCP (no per-session Electron stdio)", as
     expect(response.ok).toBe(true);
   } finally {
     await gateway.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });

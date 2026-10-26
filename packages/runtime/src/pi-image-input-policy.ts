@@ -12,7 +12,7 @@ export function assertPiImageInputAllowed(model: ImageInputModel | undefined, co
   }
 }
 
-/** Guard the native reader and all image-producing tools, including nested MCP calls. */
+/** Guard native image reads; Computer Use returns screenshot paths at its shared gateway. */
 export function createEcoPiImageInputExtensionFactory(
   readTool: ReturnType<typeof createReadToolDefinition>,
 ): ExtensionFactory {
@@ -33,15 +33,6 @@ export function createEcoPiImageInputExtensionFactory(
         assertPiImageInputAllowed(ctx.model, result.content);
         return result;
       },
-    });
-    pi.on("tool_result", (event, ctx) => {
-      if (ctx.model && !ctx.model.input.includes("image") && containsImageInput(event.content)) {
-        return {
-          content: [{ type: "text", text: PI_IMAGE_INPUT_DISABLED }],
-          isError: true,
-        };
-      }
-      return undefined;
     });
   };
 }

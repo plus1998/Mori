@@ -126,19 +126,14 @@ class _ProjectionFeedSlot {
     required this.entry,
     required this.at,
     required this.sequence,
-    required this.sortLane,
     required this.sortKey,
   });
 
   final ActivityFeedEntry entry;
   final String at;
   final int sequence;
-  final int sortLane;
   final String sortKey;
 }
-
-const _feedSortLaneNormal = 0;
-const _feedSortLaneStreamMessage = 1;
 
 class _ProjectionSubagentCard {
   const _ProjectionSubagentCard({
@@ -369,7 +364,8 @@ _UserPromptBoundary? _lastUserBoundaryForEntry(
   final entryAt = entry.at ?? '';
   for (final boundary in boundaries) {
     if (useObservedAt) {
-      if (boundary.at.compareTo(entryAt) < 0) {
+      final time = boundary.at.compareTo(entryAt);
+      if (time < 0 || (time == 0 && boundary.sequence < entry.sequence)) {
         found = boundary;
         continue;
       }
@@ -526,7 +522,6 @@ List<ActivityFeedEntry> buildProjectionActivityFeed({
         ),
         at: '1970-01-01T00:00:00.000Z',
         sequence: 0,
-        sortLane: _feedSortLaneNormal,
         sortKey: 'user:prompt',
       ),
     );
@@ -558,7 +553,6 @@ List<ActivityFeedEntry> buildProjectionActivityFeed({
         ),
         at: item.at,
         sequence: item.sequence,
-        sortLane: _feedSortLaneNormal,
         sortKey: 'user:${item.id}',
       ),
     );
@@ -648,7 +642,6 @@ List<ActivityFeedEntry> buildProjectionActivityFeed({
         entry: entry,
         at: sortAnchor.at,
         sequence: sortAnchor.sequence,
-        sortLane: _resolveFeedEntrySortLane(item, requestSpansById),
         sortKey: entry.id,
       ),
     );
@@ -695,15 +688,12 @@ List<ActivityFeedEntry> buildProjectionActivityFeed({
         ),
         at: agent.startedAt,
         sequence: card.displayTimeline.firstOrNull?.sequence ?? 0,
-        sortLane: _feedSortLaneNormal,
         sortKey: 'agent-card:${agent.agentId}',
       ),
     );
   }
 
   slots.sort((left, right) {
-    final laneDelta = left.sortLane.compareTo(right.sortLane);
-    if (laneDelta != 0) return laneDelta;
     final atDelta = left.at.compareTo(right.at);
     if (atDelta != 0) return atDelta;
     final sequenceDelta = left.sequence.compareTo(right.sequence);
@@ -744,20 +734,6 @@ Map<String, ({String at, int sequence})> _buildToolLifecycleSortAnchors(
     if (anchor != null) return anchor;
   }
   return (at: item.at, sequence: item.sequence);
-}
-
-int _resolveFeedEntrySortLane(
-  ThreadRunProjectionTimelineItem item,
-  Map<String, ThreadRunProjectionRequestSpan> requestSpansById,
-) {
-  if (item.eventType == 'message.delta') {
-    final requestId = item.requestId?.trim();
-    final span = requestId == null ? null : requestSpansById[requestId];
-    if (span == null || _isProjectionRequestActive(span)) {
-      return _feedSortLaneStreamMessage;
-    }
-  }
-  return _feedSortLaneNormal;
 }
 
 ActivityFeedEntry? _buildProjectionFeedEntry(

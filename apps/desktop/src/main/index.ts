@@ -2773,7 +2773,10 @@ app
     personalizationSettingsStore = await createPersonalizationSettingsStore(dbPath);
     browserSettingsStore = await createBrowserSettingsStore(dbPath);
     computerUseSettingsStore = await createComputerUseSettingsStore(dbPath);
-    computerUseGateway = new ComputerUseMcpGateway(() => computerUseSettingsStore.get());
+    computerUseGateway = new ComputerUseMcpGateway(
+      () => computerUseSettingsStore.get(),
+      path.join(app.getPath("userData"), "computer-use-screenshots"),
+    );
     webChatListStore = await createWebChatListStore(dbPath);
     app.on("web-contents-created", (_event, contents) => {
       contents.on("login", (event, _details, authInfo, callback) => {

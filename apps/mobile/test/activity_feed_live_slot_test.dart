@@ -31,18 +31,21 @@ ThreadRunProjectionRequestSpan _span({
 ThreadRunProjectionTimelineItem _tool({
   bool running = false,
   String runAttemptId = 'run',
+  int sequence = 1,
+  String toolName = 'Write',
+  String? id,
 }) => ThreadRunProjectionTimelineItem(
-  id: '$runAttemptId-tool',
-  sequence: 1,
+  id: id ?? '$runAttemptId-tool',
+  sequence: sequence,
   eventType: running ? 'tool.started' : 'tool.completed',
   scope: 'main',
   role: 'tool',
-  text: 'Tool: Write',
+  text: 'Tool: $toolName',
   at: _start,
   runAttemptId: runAttemptId,
   metadata: {
     'tool': {
-      'name': 'Write',
+      'name': toolName,
       'detail': 'src/app.ts',
       'status': running ? 'started' : 'completed',
     },
@@ -86,6 +89,52 @@ List<ActivityFeedEntry> _rows(List<ActivityFeedEntry> feed) => [
 ];
 
 void main() {
+  for (final writing in [false, true]) {
+    test('live status belongs to the running attempt after a stale stream', () {
+      final feed = _feed(
+        spans: [_span(writing: writing, thinking: !writing)],
+        earlierAttempts: const [
+          ThreadRunProjectionAttempt(
+            attemptId: 'old-run',
+            phase: 'main',
+            retryIndex: 0,
+            status: 'completed',
+            startedAt: '2026-10-20T00:00:00.000Z',
+            endedAt: '2026-10-20T00:10:45.000Z',
+          ),
+        ],
+        timeline: [
+          const ThreadRunProjectionTimelineItem(
+            id: 'stale-stream',
+            sequence: 1,
+            eventType: 'message.delta',
+            scope: 'main',
+            text: '历史回复',
+            at: '2026-10-20T00:00:01.000Z',
+            runAttemptId: 'old-run',
+          ),
+          const ThreadRunProjectionTimelineItem(
+            id: 'user',
+            sequence: 2,
+            eventType: 'message.final',
+            scope: 'main',
+            role: 'user',
+            text: '继续',
+            at: '2026-10-20T23:59:59.000Z',
+            metadata: {'liveType': 'message.user'},
+          ),
+          _tool(sequence: 3),
+        ],
+      );
+      final userIndex = feed.indexWhere((row) => row.id == 'user');
+      final afterUser = feed.skip(userIndex + 1).toList();
+      expect(afterUser, hasLength(1));
+      expect(afterUser.single.runAttemptId, 'run');
+      expect(afterUser.single.processEntries.last.id, 'active-tail');
+      expect(afterUser.single.processEntries.last.runAttemptId, 'run');
+    });
+  }
+
   testWidgets('quiet running feed shows activity without moving its content', (
     tester,
   ) async {
@@ -289,7 +338,152 @@ void main() {
     expect(span.pendingThinkingMessageId, 'native-thinking');
   });
 
-  test('writing and native thinking preserve the completed tool history', () {
+  for (final grouped in [false, true]) {
+    test('seven completed commands yield one live slot (turns: $grouped)', () {
+      final tools = [
+        for (var i = 1; i <= 7; i++)
+          _tool(sequence: i, toolName: 'Bash', id: 'command-$i'),
+      ];
+      for (final writing in [false, true]) {
+        final rows = _rows(
+          _feed(
+            spans: [_span(thinking: !writing, writing: writing)],
+            timeline: tools,
+            grouped: grouped,
+          ),
+        );
+        expect(rows, hasLength(1));
+        expect(
+          rows.single.kind,
+          writing ? ActivityFeedKind.toolWriting : ActivityFeedKind.thinking,
+        );
+        expect(rows.single.actionChildren, hasLength(7));
+        expect(
+          rows.single.actionChildren.every((child) => child.toolName == 'Bash'),
+          isTrue,
+        );
+        final completed = _rows(
+          _feed(timeline: tools, grouped: grouped, live: false),
+        );
+        expect(completed.single.kind, ActivityFeedKind.actionGroup);
+        expect(completed.single.text, '已运行 7 条命令');
+        expect(
+          completed.single.actionChildren.map((e) => e.id),
+          rows.single.actionChildren.map((e) => e.id),
+        );
+      }
+    });
+  }
+
+  test(
+    'a cross-attempt aggregate keeps old tools out of the current status',
+    () {
+      final rows = _rows(
+        _feed(
+          spans: [_span(thinking: true)],
+          earlierAttempts: const [
+            ThreadRunProjectionAttempt(
+              attemptId: 'old-run',
+              phase: 'main',
+              retryIndex: 0,
+              status: 'completed',
+              startedAt: '2026-10-20T00:00:00.000Z',
+              endedAt: _start,
+            ),
+          ],
+          timeline: [
+            _tool(runAttemptId: 'old-run', running: true),
+            _tool(sequence: 2),
+          ],
+          grouped: false,
+        ),
+      );
+      expect(rows.map((e) => e.kind), [
+        ActivityFeedKind.actionGroup,
+        ActivityFeedKind.thinking,
+      ]);
+      expect(rows.first.runAttemptId, 'old-run');
+      expect(rows.first.actionChildren.single.runAttemptId, 'old-run');
+      expect(rows.last.runAttemptId, 'run');
+      expect(rows.last.actionChildren.single.runAttemptId, 'run');
+    },
+  );
+
+  test('prose keeps previous commands in history above the live slot', () {
+    final rows = _rows(
+      _feed(
+        spans: [_span(thinking: true)],
+        timeline: [
+          _tool(),
+          const ThreadRunProjectionTimelineItem(
+            id: 'prose',
+            sequence: 2,
+            eventType: 'message.final',
+            scope: 'main',
+            text: '接着检查',
+            at: _next,
+            runAttemptId: 'run',
+          ),
+        ],
+      ),
+    );
+    expect(rows.map((e) => e.kind), [
+      ActivityFeedKind.actionGroup,
+      ActivityFeedKind.assistant,
+      ActivityFeedKind.thinking,
+    ]);
+    expect(rows.last.actionChildren, isEmpty);
+  });
+
+  for (final grouped in [false, true]) {
+    testWidgets(
+      'one bottom thinking header expands all seven commands (turns: $grouped)',
+      (tester) async {
+        final scroll = ScrollController();
+        addTearDown(scroll.dispose);
+        final rows = _feed(
+          grouped: grouped,
+          spans: [_span(thinking: true)],
+          timeline: [
+            for (var i = 1; i <= 7; i++)
+              _tool(sequence: i, toolName: 'Bash', id: 'command-$i'),
+          ],
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: const Locale('zh'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: ActivityFeedList(
+                entries: rows,
+                scrollController: scroll,
+                shrinkWrap: true,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(find.text('已运行 7 条命令'), findsNothing);
+        expect(find.text('正在思考'), findsOneWidget);
+        for (final child in _rows(rows).single.actionChildren) {
+          expect(find.byKey(ValueKey(child.id)), findsNothing);
+        }
+        await tester.tap(
+          find.byKey(const ValueKey('activity-live-tool-history')),
+        );
+        await tester.pump();
+        for (final child in _rows(rows).single.actionChildren) {
+          expect(find.byKey(ValueKey(child.id)), findsOneWidget);
+        }
+        expect(find.text('正在思考'), findsOneWidget);
+        expect(find.text('已运行 7 条命令'), findsNothing);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  test('writing and native thinking replace the trailing tool header', () {
     final states = [
       _feed(timeline: [_tool(running: true)]),
       _feed(),
@@ -302,8 +496,8 @@ void main() {
       [
         [ActivityFeedKind.actionGroup],
         [ActivityFeedKind.actionGroup],
-        [ActivityFeedKind.actionGroup, ActivityFeedKind.toolWriting],
-        [ActivityFeedKind.actionGroup, ActivityFeedKind.thinking],
+        [ActivityFeedKind.toolWriting],
+        [ActivityFeedKind.thinking],
         [ActivityFeedKind.actionGroup],
       ],
     );
@@ -315,7 +509,9 @@ void main() {
         isRunning: true,
       );
       expect(_rows(display), hasLength(_rows(feed).length));
-      expect(_rows(display).first.kind, ActivityFeedKind.actionGroup);
+      final row = _rows(display).single;
+      expect(row.actionChildren, hasLength(1));
+      expect(row.actionChildren.single.toolName, 'Write');
       expect(display.any((entry) => entry.id == 'pending-agent'), isFalse);
     }
     expect(_rows(states[2]).last.text, '正在写入 src/main.ts');
@@ -437,10 +633,8 @@ void main() {
         ],
       ),
     );
-    expect(rows.map((entry) => entry.kind), [
-      ActivityFeedKind.actionGroup,
-      ActivityFeedKind.toolWriting,
-    ]);
+    expect(rows.single.kind, ActivityFeedKind.toolWriting);
+    expect(rows.single.actionChildren, hasLength(1));
   });
 
   test('thinking body replaces its pending fact before extras catch up', () {

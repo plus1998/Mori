@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   for (final mode in ThinkingDisplayMode.values) {
     test(
-      'six commands and new thinking survive old running tools in ${mode.name}',
+      'six commands share the live slot despite old running tools in ${mode.name}',
       () {
         final tools = [
           for (var i = 1; i <= 6; i++) _row('command-$i', i, tool: true),
@@ -125,21 +125,28 @@ void main() {
         }
         expect(states[3].last.kind, ActivityFeedKind.toolWriting);
         for (var i = 0; i < states.length; i++) {
+          final replaced =
+              i == 0 || i == 3 || ((i == 1 || i == 2) && mode.usesEphemeralTip);
           final groups = states[i].where(
             (e) => e.kind == ActivityFeedKind.actionGroup,
           );
-          expect(groups, hasLength(1), reason: 'transition $i');
-          expect(groups.single.id, before.single.id, reason: 'transition $i');
+          expect(groups, hasLength(replaced ? 0 : 1), reason: 'transition $i');
+          final owner = replaced ? states[i].last : groups.single;
+          if (replaced) {
+            expect(
+              states[i],
+              hasLength(1),
+              reason: 'transition $i shares one row',
+            );
+          } else {
+            expect(owner.id, before.single.id, reason: 'transition $i');
+          }
           expect(
-            groups.single.actionChildren.map((e) => e.id),
+            owner.actionChildren.map((e) => e.id),
             before.single.actionChildren.map((e) => e.id),
             reason: 'transition $i',
           );
-          expect(
-            groups.single.actionChildren,
-            hasLength(6),
-            reason: 'transition $i',
-          );
+          expect(owner.actionChildren, hasLength(6), reason: 'transition $i');
         }
       },
     );
@@ -198,7 +205,7 @@ void main() {
   }
 
   test(
-    'a tool group stays below progress while a temporary summary changes',
+    'a temporary summary replaces only the trailing group until prose arrives',
     () {
       final prefix = [
         _row('intro', 1, text: 'I will inspect the page.'),
@@ -233,12 +240,14 @@ void main() {
           ).single.processEntries;
 
       final before = process(prefix);
-      expect(before.map((entry) => entry.sequence), [1, 2, 3, 4, 5]);
-      expect(before[3].kind, ActivityFeedKind.actionGroup);
+      final originalGroup = process(prefix.take(4).toList()).last;
+      expect(before.map((entry) => entry.sequence), [1, 2, 3, 5]);
+      expect(before[1].kind, ActivityFeedKind.actionGroup);
       expect(before.last.kind, ActivityFeedKind.reasoningStage);
+      expect(before.last.actionChildren.single.sequence, 4);
 
-      // Later speech clears only the temporary summary. The existing tool group
-      // keeps its identity and its position below the progress paragraph.
+      // Later speech clears the temporary status and restores the same tool
+      // group below the progress paragraph, with its complete details.
       for (final streaming in [true, false]) {
         final after = process([
           ...prefix,
@@ -248,11 +257,12 @@ void main() {
           },
         ]);
         expect(
-          after.take(4).map((entry) => entry.id),
-          before.take(4).map((entry) => entry.id),
+          after.take(3).map((entry) => entry.id),
+          before.take(3).map((entry) => entry.id),
         );
         expect(after.map((entry) => entry.sequence), [1, 2, 3, 4, 6]);
         expect(after[3].kind, ActivityFeedKind.actionGroup);
+        expect(after[3].id, originalGroup.id);
         expect(after[3].actionChildren.single.sequence, 4);
         expect(after.last.streaming, streaming);
       }

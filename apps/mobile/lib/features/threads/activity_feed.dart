@@ -275,6 +275,8 @@ class ActivityFeedEntry {
   /// phase, for instance), so the call's own outcome is kept as the event type — the same fact
   /// the desktop reads off the item it renders.
   final String? toolEventType;
+
+  /// Tool details for an aggregate or the live status replacing its header.
   final List<ActivityFeedEntry> actionChildren;
   final List<PromptImageAttachment> attachments;
   final String? runAttemptId;
@@ -299,64 +301,25 @@ class ActivityFeedEntry {
   /// Runtime event recording notices are not failed model requests.
   final bool canRetryRequest;
 
-  ActivityFeedEntry withSequence(int sequence) {
-    if (this.sequence == sequence) return this;
-    return ActivityFeedEntry(
-      id: id,
-      kind: kind,
-      text: text,
-      actionIcon: actionIcon,
-      toolName: toolName,
-      readTargetPath: readTargetPath,
-      readTargetLineRange: readTargetLineRange,
-      subagentRole: subagentRole,
-      detail: detail,
-      streaming: streaming,
-      usageBadge: usageBadge,
-      lifecycle: lifecycle,
-      missionPrompt: missionPrompt,
-      taskName: taskName,
-      agentId: agentId,
-      running: running,
-      continuation: continuation,
-      turnStatus: turnStatus,
-      durationMs: durationMs,
-      statusText: statusText,
-      timeline: timeline,
-      bashRun: bashRun,
-      fileChange: fileChange,
-      webSearch: webSearch,
-      imageView: imageView,
-      mcpDiscovery: mcpDiscovery,
-      toolUseId: toolUseId,
-      role: role,
-      toolEventType: toolEventType,
-      reconnecting: reconnecting,
-      actionChildren: actionChildren,
-      attachments: attachments,
-      runAttemptId: runAttemptId,
-      requestId: requestId,
-      at: at,
-      startedAt: startedAt,
-      endedAt: endedAt,
-      processEntries: processEntries,
-      finalOutput: finalOutput,
-      rewindTarget: rewindTarget,
-      activityLineId: activityLineId,
-      historyRevision: historyRevision,
-      conversationV2Detail: conversationV2Detail,
-      sequence: sequence,
-      canRetryRequest: canRetryRequest,
-    );
-  }
+  ActivityFeedEntry withSequence(int sequence) =>
+      this.sequence == sequence ? this : copyWith(sequence: sequence);
 
   ActivityFeedEntry withIdAtSequence({
     required String id,
     String? at,
     required int sequence,
+  }) => copyWith(id: id, at: at, sequence: sequence);
+
+  /// Retains all source fields when changing a display key or carrying the
+  /// replaced tool row's children inside the current live status.
+  ActivityFeedEntry copyWith({
+    String? id,
+    String? at,
+    int? sequence,
+    List<ActivityFeedEntry>? actionChildren,
   }) {
     return ActivityFeedEntry(
-      id: id,
+      id: id ?? this.id,
       kind: kind,
       text: text,
       actionIcon: actionIcon,
@@ -386,7 +349,7 @@ class ActivityFeedEntry {
       role: role,
       toolEventType: toolEventType,
       reconnecting: reconnecting,
-      actionChildren: actionChildren,
+      actionChildren: actionChildren ?? this.actionChildren,
       attachments: attachments,
       runAttemptId: runAttemptId,
       requestId: requestId,
@@ -399,7 +362,7 @@ class ActivityFeedEntry {
       activityLineId: activityLineId,
       historyRevision: historyRevision,
       conversationV2Detail: conversationV2Detail,
-      sequence: sequence,
+      sequence: sequence ?? this.sequence,
       canRetryRequest: canRetryRequest,
     );
   }
@@ -478,8 +441,8 @@ List<ActivityFeedEntry> buildActivityFeed({
       : liveEntries;
 }
 
-/// Thinking, summary and writing share one temporary status row. Completed
-/// tools are durable history and stay visible while the next request starts.
+/// Thinking, summary, writing and the trailing tool aggregate share one row.
+/// A newer status replaces that aggregate; its tool details remain expandable.
 /// A running tool or compaction already describes current work and suppresses
 /// the extra status row. Resolve before turn grouping to keep it in the turn.
 List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
@@ -559,7 +522,17 @@ List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
     return content;
   }
 
-  final owner = content.lastOrNull;
+  // Display order is not run ownership: an unfinished historical stream can
+  // sort behind current content. Borrowing its run ID creates a second,
+  // completed turn after the user's prompt and puts live thinking inside it.
+  ThreadRunProjectionAttempt? activeAttempt;
+  for (final attempt in projection.attempts) {
+    if (attempt.isRunning &&
+        (activeAttempt == null ||
+            attempt.startedAt.compareTo(activeAttempt.startedAt) > 0)) {
+      activeAttempt = attempt;
+    }
+  }
   final ActivityFeedEntry? status;
   if (writingSpan != null) {
     status = ActivityFeedEntry(
@@ -568,7 +541,7 @@ List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
       text: toolWritingLabel(writingSpan.writingTool!, l10n),
       streaming: true,
       requestId: writingSpan.requestId,
-      runAttemptId: owner?.runAttemptId,
+      runAttemptId: activeAttempt?.attemptId,
       at: writingSpan.writingTool!.since,
     );
   } else if (pendingThinking != null) {
@@ -578,13 +551,38 @@ List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
       text: '',
       streaming: true,
       requestId: pendingThinking.requestId,
-      runAttemptId: owner?.runAttemptId,
+      runAttemptId: activeAttempt?.attemptId,
       at: pendingThinking.pendingThinkingSince,
     );
   } else {
     status = summary ?? waiting;
   }
   if (status == null) return content;
+  final tail = content.lastOrNull;
+  if (tail != null &&
+      (tail.kind == ActivityFeedKind.actionGroup ||
+          tail.kind == ActivityFeedKind.action) &&
+      status.runAttemptId != null) {
+    final actions = tail.kind == ActivityFeedKind.actionGroup
+        ? tail.actionChildren
+        : [tail];
+    var boundary = actions.length;
+    while (boundary > 0 &&
+        actions[boundary - 1].runAttemptId == status.runAttemptId) {
+      boundary--;
+    }
+    if (boundary < actions.length) {
+      // Replace only this attempt's trailing aggregate. A group can span runs:
+      // keep its older prefix with its own owner instead of moving it into the
+      // current turn. Source tools remain intact and return when the tip ends.
+      return [
+        ...content.take(content.length - 1),
+        if (boundary > 0)
+          _buildActionGroupEntry(actions.take(boundary).toList(), l10n),
+        status.copyWith(actionChildren: actions.skip(boundary).toList()),
+      ];
+    }
+  }
   return [...content, status];
 }
 
@@ -1782,6 +1780,16 @@ class _ActivityFeedEntryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (entry.actionChildren.isNotEmpty &&
+        (entry.kind == ActivityFeedKind.toolWriting ||
+            entry.kind == ActivityFeedKind.reasoningStage ||
+            _isEmptyLiveThinkingStatus(entry))) {
+      return _ActionGroupTile(
+        entry: entry,
+        loadToolDetail: loadToolDetail,
+        loadToolDetailPage: loadToolDetailPage,
+      );
+    }
     switch (entry.kind) {
       case ActivityFeedKind.turn:
         return _TurnFeedTile(
@@ -3514,19 +3522,47 @@ class _ActionGroupTileState extends State<_ActionGroupTile> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _ActionSummaryLine(
-            label: widget.entry.text,
-            icon: EcoIcons.activityAction(
-              widget.entry.actionIcon ?? ActivityActionIcon.file,
+          if (widget.entry.kind != ActivityFeedKind.actionGroup)
+            Semantics(
+              button: true,
+              expanded: _expanded,
+              child: InkWell(
+                key: const ValueKey('activity-live-tool-history'),
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _WaitingThinkingLine(
+                        label: widget.entry.text,
+                        writing:
+                            widget.entry.kind == ActivityFeedKind.toolWriting,
+                      ),
+                    ),
+                    Icon(
+                      _expanded
+                          ? Icons.expand_less
+                          : Icons.chevron_right_rounded,
+                      size: 16,
+                      color: ecoColors(context).textMuted,
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            _ActionSummaryLine(
+              label: widget.entry.text,
+              icon: EcoIcons.activityAction(
+                widget.entry.actionIcon ?? ActivityActionIcon.file,
+              ),
+              // Aggregated group titles never show the failure dot; failed Bash
+              // children keep their own subtle indicator on the row/detail title.
+              lifecycle: widget.entry.lifecycle == ToolActionLifecycle.failed
+                  ? ToolActionLifecycle.completed
+                  : widget.entry.lifecycle,
+              expanded: _expanded,
+              onTap: () => setState(() => _expanded = !_expanded),
             ),
-            // Aggregated group titles never show the failure dot; failed Bash
-            // children keep their own subtle indicator on the row/detail title.
-            lifecycle: widget.entry.lifecycle == ToolActionLifecycle.failed
-                ? ToolActionLifecycle.completed
-                : widget.entry.lifecycle,
-            expanded: _expanded,
-            onTap: () => setState(() => _expanded = !_expanded),
-          ),
           if (_expanded)
             Padding(
               padding: const EdgeInsets.only(left: 12, top: 8),

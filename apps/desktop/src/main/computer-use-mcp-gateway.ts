@@ -25,6 +25,7 @@ import {
   type OpenComputerUseResolveResult,
 } from "./open-computer-use-resolve";
 import { SharedMcpStdioUpstream } from "./shared-mcp-stdio-upstream";
+import { saveComputerUseScreenshots } from "./computer-use-screenshots";
 
 const require = createRequire(import.meta.url);
 const CONTROL_SECRET_HEADER = "X-Eco-Computer-Use-Control-Secret";
@@ -538,12 +539,18 @@ function resolveStdioScriptPath(): string {
 export class ComputerUseMcpGateway {
   private readonly controlSecret = createBrowserMcpControlSecret();
   private readonly auth = new BrowserMcpAuthRegistry();
-  private readonly upstream = new SharedMcpStdioUpstream();
   private controlServer: http.Server | undefined;
   private controlPort: number | undefined;
   private disposed = false;
 
-  constructor(private readonly getSettings: ComputerUseSettingsGetter) {}
+  constructor(
+    private readonly getSettings: ComputerUseSettingsGetter,
+    private readonly screenshotDirectory: string,
+    private readonly upstream: Pick<
+      SharedMcpStdioUpstream,
+      "pid" | "ensure" | "listTools" | "callTool" | "close"
+    > = new SharedMcpStdioUpstream(),
+  ) {}
 
   /** Test/diag: packaging script still ships for offline debugging. */
   static packagingStdioScriptPath(): string {
@@ -775,9 +782,11 @@ export class ComputerUseMcpGateway {
           callTool: async ({ name, arguments: args, signal }) => {
             await this.ensureUpstream();
             const result = await this.upstream.callTool(name, args, signal);
-            return result && typeof result === "object"
-              ? (result as Record<string, unknown>)
-              : { content: [{ type: "text", text: String(result ?? "") }] };
+            const toolResult =
+              result && typeof result === "object"
+                ? (result as Record<string, unknown>)
+                : { content: [{ type: "text", text: String(result ?? "") }] };
+            return saveComputerUseScreenshots(toolResult, this.screenshotDirectory);
           },
         },
         {

@@ -163,6 +163,7 @@ export function buildEcoComputerUsePromptAppend(): string {
     buildEcoMcpHubToolUsage({ server: ECO_COMPUTER_USE_MCP_SERVER }),
     "Desktop state is shared across conversations; actions affect the same OS UI. Action approvals follow the current Eco settings.",
     "Act on current accessibility state; refresh it after navigation or failed actions. Prefer element indices, using coordinates only when no accessibility element matches.",
+    "Screenshots are always returned as local file paths, never inline images. To analyze a screenshot, call eco_image_view:view_image with its path and a specific prompt.",
   ].join("\n");
 }
 
