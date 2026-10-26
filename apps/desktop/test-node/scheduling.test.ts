@@ -8,7 +8,7 @@ import { SchedulingService, type SchedulingDeps } from "../src/main/scheduling-s
 import { SchedulingMcpGateway } from "../src/main/scheduling-mcp-gateway";
 import type { ScheduleCreateInput, ScheduleExecutionProfile, ScheduleOccurrence } from "../src/shared/scheduling";
 import { buildAcpThreadRuntimeConfig } from "../src/shared/thread-runtime-config";
-import { canDispatchScheduledMessageStatus } from "../src/main/scheduling-dispatch-policy";
+import { canDispatchScheduledMessage, canDispatchScheduledMessageStatus } from "../src/main/scheduling-dispatch-policy";
 import type { ThreadStatus } from "../src/shared/ipc";
 import { SystemSleepBlocker } from "../src/main/system-sleep-blocker";
 import { approveScheduledPlan, assertScheduledPlanCurrent, inspectScheduledPlanCommand } from "../src/main/scheduled-plan-execution";
@@ -598,7 +598,10 @@ test("due messages wait for active work, then dispatch once after a failed run",
   let paused = false;
   let approval = false;
   const f = await fixture(t, {
-    canDispatch: () => canDispatchScheduledMessageStatus(status) && !active && !paused && !approval,
+    canDispatch: () => canDispatchScheduledMessage({
+      thread: { status, followUpQueuePaused: paused }, hasActiveRun: active,
+      hasPendingUserAction: approval, isCompacting: false, hasEditingFollowUp: false,
+    }),
   });
   f.service.create({ kind: "session_message", requestId: "after-failure", name: "reminder",
     prompt: "Continue after the previous run ends", threadId: "source",

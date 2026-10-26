@@ -52,11 +52,11 @@ import { inspectScheduledRun } from "./scheduling-inspection";
 import { SchedulingMcpGateway } from "./scheduling-mcp-gateway";
 import { freezeSchedulingProfile } from "./scheduling-profile";
 import { verifySchedulingAttachments } from "./scheduling-attachments";
-import { enqueueScheduledMessage } from "./scheduling-message-dispatch";
+import { enqueueScheduledMessage, isScheduledMessageFollowUp } from "./scheduling-message-dispatch";
 import { approveScheduledPlan, assertScheduledPlanCurrent, inspectScheduledPlanCommand, scheduledPlanCommandId } from "./scheduled-plan-execution";
 import { saveNewScheduledMessageThread } from "./scheduling-new-thread";
 import { SchedulingService } from "./scheduling-service";
-import { canDispatchScheduledMessageStatus } from "./scheduling-dispatch-policy";
+import { canDispatchScheduledMessage } from "./scheduling-dispatch-policy";
 import { SchedulingStore } from "./scheduling-store";
 import { TtsMcpGateway } from "./tts-mcp-gateway";
 import { createTtsStore, type TtsStore } from "./tts-store";
@@ -10371,18 +10371,20 @@ function registerRemainingDesktopCommands(): void {
           if (!thread) {
             throw new Error("Thread was not found.");
           }
-          const hasPreparingAsyncAnswer = conversationStore
+          const hasPreparingIndependentMessage = conversationStore
             .listThreadFollowUps(request.threadId, { statuses: ["delivered"] })
-            .some(isAsyncClarificationAnswerFollowUp);
+            .some(
+              (row) => isAsyncClarificationAnswerFollowUp(row) || isScheduledMessageFollowUp(row, conversationStore),
+            );
           if (
             request.paused &&
             threadFollowUpDrainScheduler.isDraining(request.threadId) &&
-            !hasPreparingAsyncAnswer
+            !hasPreparingIndependentMessage
           ) {
             threadRunPreparations.cancel(request.threadId);
           }
-          // Pause only holds ordinary rows. Also retry after cancelled preparation so
-          // an independent question answer does not wait for a later Resume click.
+          // Pause only holds ordinary rows. Retry cancelled preparation without
+          // cancelling an independent answer or scheduled delivery already preparing.
           void drainQueuedThreadFollowUpsAfterRun(request.threadId);
           return {
             paused: Boolean(thread.followUpQueuePaused),
@@ -11042,6 +11044,8 @@ async function drainPreparedNextQueuedThreadFollowUp(
       forceEscalatedDrain,
       ...(excludeFollowUpId ? { excludeFollowUpId } : {}),
       isAsyncClarificationAnswer: isAsyncClarificationAnswerFollowUp,
+      hasFollowUpQueuePaused: Boolean(thread?.followUpQueuePaused),
+      isScheduledMessage: (row) => isScheduledMessageFollowUp(row, conversationStore),
     });
     // Escalated interrupt may force one drain while the queue remains user-paused.
     if (
@@ -11050,9 +11054,11 @@ async function drainPreparedNextQueuedThreadFollowUp(
         // Non-blocking questions must not stall the queue: the run finished, and the user
         // may answer the question much later (or never).
         hasPendingClarification: hasPendingBlockingClarificationForThread(threadId),
+        hasPendingBashApproval: Boolean(getPendingBashApprovalForThread(threadId)),
         hasEditingFollowUp: editingThreadFollowUpByThread.has(threadId),
         hasFollowUpQueuePaused: Boolean(thread?.followUpQueuePaused) && !forceEscalatedDrain,
         isAsyncClarificationAnswer: target.isAsyncClarificationAnswer,
+        ...(target.isScheduledMessage ? { isScheduledMessage: true } : {}),
         ...(thread?.status && { threadStatus: thread.status }),
         hasStoredPendingPlan: Boolean(conversationStore.getPendingPlan(threadId)),
       })
@@ -11113,7 +11119,9 @@ async function drainPreparedNextQueuedThreadFollowUp(
       ...(v2AcceptedMessageIds.length > 0 ? { v2AcceptedMessageIds } : {}),
       requireResumeForInterrupted:
         forceEscalatedDrain || thread.status === "failed" || thread.status === "blocked",
-      ...(forceEscalatedDrain || claimed.some(isAsyncClarificationAnswerFollowUp)
+      ...(forceEscalatedDrain || claimed.some(
+        (row) => isAsyncClarificationAnswerFollowUp(row) || isScheduledMessageFollowUp(row, conversationStore),
+      )
         ? { allowWhileQueuePaused: true }
         : {}),
       ...(skipRecordUserPrompt ? { skipRecordUserPrompt: true } : {}),
@@ -13903,7 +13911,7 @@ function inspectScheduledOccurrence(occurrence: ScheduleOccurrence): {
           )
       : undefined;
   // Queue itself owns idempotent delivery and recovery. Scheduling must never re-enqueue.
-  if (thread && followUp?.status === "queued" && !thread.followUpQueuePaused)
+  if (thread && followUp?.status === "queued")
     void drainQueuedThreadFollowUpsAfterRun(thread.id);
   return inspectScheduledRun({
     kind: occurrence.definition.kind,
@@ -13977,20 +13985,21 @@ function createSchedulingService(dbPath: string): SchedulingService {
           conversationStore.conversationV2().head(thread.id).historyRevision !== occurrence.definition.planApproval.expectedHistoryRevision) return true;
         return !contextMonitor.isCompactInFlight(thread.id) &&
           (!activeRunRuntimeState.hasRun(thread.id) || Boolean(getPendingPlanApprovalForThread(thread.id))) &&
-          !thread.followUpQueuePaused && !getPendingBashApprovalForThread(thread.id) &&
+          !getPendingBashApprovalForThread(thread.id) &&
           !hasPendingBlockingClarificationForThread(thread.id) && !editingThreadFollowUpByThread.has(thread.id);
       }
-      return (
-        !activeRunRuntimeState.hasRun(thread.id) &&
-        !contextMonitor.isCompactInFlight(thread.id) &&
-        canDispatchScheduledMessageStatus(thread.status) &&
-        !thread.followUpQueuePaused &&
-        !getPendingPlanApprovalForThread(thread.id) &&
-        !getPendingBashApprovalForThread(thread.id) &&
-        !hasPendingBlockingClarificationForThread(thread.id) &&
-        !conversationStore.getPendingPlan(thread.id) &&
-        !editingThreadFollowUpByThread.has(thread.id)
-      );
+      return canDispatchScheduledMessage({
+        thread,
+        hasActiveRun: activeRunRuntimeState.hasRun(thread.id),
+        isCompacting: contextMonitor.isCompactInFlight(thread.id),
+        hasPendingUserAction: Boolean(
+          getPendingPlanApprovalForThread(thread.id) ||
+          getPendingBashApprovalForThread(thread.id) ||
+          hasPendingBlockingClarificationForThread(thread.id) ||
+          conversationStore.getPendingPlan(thread.id),
+        ),
+        hasEditingFollowUp: editingThreadFollowUpByThread.has(thread.id),
+      });
     },
     dispatch: async (occurrence) => {
       const definition = occurrence.definition;
@@ -14167,7 +14176,7 @@ interface StartThreadContinuationInput {
   /** V2 accepted these user messages before the legacy runtime was scheduled. */
   v2AcceptedMessageIds?: readonly string[];
   /**
-   * Explicit question answer or "handle now": start this one row while the ordinary
+   * Explicit question answer, scheduled message or "handle now": start this one row while the ordinary
    * queue remains paused.
    */
   allowWhileQueuePaused?: boolean;
@@ -14205,7 +14214,7 @@ async function startPreparedThreadContinuation(
   }
   // Pause means new prompts join the queue; do not start a run ahead of it.
   // Rewind is allowed (explicit edit of history) and still must not drain while paused.
-  // Explicit question answers and "handle now" send their own row while the rest
+  // Explicit answers, scheduled messages and "handle now" send their own row while the rest
   // of the queue stays paused.
   if (thread.followUpQueuePaused && !input.rewindTarget && !input.allowWhileQueuePaused) {
     throw new Error("Follow-up queue is paused; enqueue the message or resume the queue before continuing.");
