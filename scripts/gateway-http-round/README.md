@@ -1,6 +1,6 @@
 # Gateway HTTP round replay
 
-Higher-bar golden tests for **Eco Gateway** HTTP faces.
+Higher-bar golden tests for **Mori Gateway** HTTP faces.
 
 ## Protocol profiles
 
@@ -13,7 +13,7 @@ Higher-bar golden tests for **Eco Gateway** HTTP faces.
 
 ## Coverage matrix (client-round)
 
-Each cell runs the **full conversation-round scenario** (skills, file write/read, MCP `smoke_ping`, subagent, marker) through **Eco Bridge → embedded Gateway**, recording every upstream HTTP exchange.
+Each cell runs the **full conversation-round scenario** (skills, file write/read, MCP `smoke_ping`, subagent, marker) through **Mori Bridge → embedded Gateway**, recording every upstream HTTP exchange.
 
 Explicit **3×3** matrix (`RECORDING_CELL_SPECS`):
 

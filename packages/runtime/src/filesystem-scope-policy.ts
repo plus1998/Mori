@@ -129,7 +129,7 @@ export function isSystemTemporaryPolicyPath(candidatePath: string): boolean {
 }
 
 export function filesystemReadScopeAskReason(toolName: string, filePath: string, scopeRoot: string): string {
-  return `Filesystem read path "${filePath}" is outside Eco workspace "${scopeRoot}". Approve to allow this ${toolName} call.`;
+  return `Filesystem read path "${filePath}" is outside Mori workspace "${scopeRoot}". Approve to allow this ${toolName} call.`;
 }
 
 function normalizePolicyPath(value: string): string {

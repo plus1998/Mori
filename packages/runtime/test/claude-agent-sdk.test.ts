@@ -1465,7 +1465,7 @@ test("createToolPermissionDeniedEvent formats audit-friendly tool failures", () 
       permissionDecision: "deny",
       toolName: "Bash",
       toolUseId: "tool_denied",
-      reason: "Bash is disabled for this Eco agent.",
+      reason: "Bash is disabled for this Mori agent.",
       actor: "eco_researcher",
       sessionId: "session_1",
       agentId: "agent_researcher",
@@ -1483,12 +1483,12 @@ test("createToolPermissionDeniedEvent formats audit-friendly tool failures", () 
       type: "tool_permission_denied",
       tool_name: "Bash",
       tool_use_id: "tool_denied",
-      message: "Bash is disabled for this Eco agent.",
+      message: "Bash is disabled for this Mori agent.",
       actor: "eco_researcher",
     },
   });
   expect(formatAgentEventLine(event)).toBe(
-    "Permission denied for Bash: Bash is disabled for this Eco agent.",
+    "Permission denied for Bash: Bash is disabled for this Mori agent.",
   );
   expect(inferActivityRole(event)).toBe("tool");
 });

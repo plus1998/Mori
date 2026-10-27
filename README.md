@@ -146,14 +146,14 @@ Mori 把“模型聚合”和“任务分工”连接起来：主代理可以使
 
 它不替用户规定“永远用哪个模型”或“必须开多少个代理”。它提供的是一层可组合的调度与观测能力：同一任务可以选择单代理或并行子代理。
 
-缓存异常只能说明请求前缀或上游缓存行为发生变化，不能单凭一次告警判断具体服务商存在问题。Eco 提供证据，判断权留给用户。
+缓存异常只能说明请求前缀或上游缓存行为发生变化，不能单凭一次告警判断具体服务商存在问题。Mori 提供证据，判断权留给用户。
 
 ## 文档
 
 - [使用指南](docs/USER_GUIDE.md)：安装、模型配置、Agent Team、MCP、Skills、移动端与常见问题
 - [技术文档](docs/TECHNICAL.md)：架构、运行时、协议网关、上下文、计费、存储和发布机制
 - [Supabase 部署（Cloud）](docs/supabase-deploy.md)：云项目初次部署与增量更新
-- [Supabase 自托管](docs/supabase-self-host.md)：Docker 自建栈 + Eco schema/函数（人与 Agent 可执行）
+- [Supabase 自托管](docs/supabase-self-host.md)：Docker 自建栈 + Mori schema/函数（人与 Agent 可执行）
 - [火山引擎 Supabase（实验性）](docs/supabase-volcengine.md)：Workspace + CLI 手工部署
 
 ## 仓库结构

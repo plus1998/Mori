@@ -319,7 +319,7 @@ test("supabase center client createPairing builds connect QR without pairing-cre
   const pairing = await client.createPairing();
   expect(pairing.code).toBe("");
   expect(pairing.bootstrapToken).toBe("");
-  expect(pairing.qrPayload).toContain("eco://center?");
+  expect(pairing.qrPayload).toContain("mori://center?");
   expect(pairing.qrPayload).toContain("supabase=");
   expect(pairing.qrPayload).toContain("anon=");
   expect(pairing.qrPayload).not.toContain("code=");

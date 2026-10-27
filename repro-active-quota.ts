@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { OpenAIAccountService } from "./apps/desktop/src/main/openai-account-service";
 import { CodexAppServerClient } from "@eco/runtime/codex-app-server-client";
 
-const exe = "/Applications/Eco Coding.app/Contents/Resources/app.asar.unpacked/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex";
+const exe = "/Applications/Mori.app/Contents/Resources/app.asar.unpacked/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex";
 const auth = await fs.readFile("/tmp/acct_auth.json", "utf8");
 const userData = await fs.mkdtemp(path.join(os.tmpdir(), "eco-active-quota-"));
 
@@ -22,7 +22,7 @@ const service = new OpenAIAccountService(
     const child = spawn(exe, ["app-server", "--stdio"], { env, stdio: ["pipe", "pipe", "pipe"] });
     child.stderr.resume();
     const client = CodexAppServerClient.attachToProcess(child, { timeoutMs: 30_000 });
-    await client.initialize({ clientInfo: { name: "eco_coding", title: "Eco Coding", version: "0.1.0" } });
+    await client.initialize({ clientInfo: { name: "eco_coding", title: "Mori", version: "0.1.0" } });
     return client;
   },
 );

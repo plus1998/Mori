@@ -1,4 +1,4 @@
-# Eco Coding 技术文档
+# Mori 技术文档
 
 **简体中文** · [English](TECHNICAL.en.md) · [返回 README](../README.md) · [使用指南](USER_GUIDE.md)
 
@@ -62,9 +62,9 @@ Preload 使用 Electron context bridge 暴露受控 API，保持 Renderer 与 No
 
 产品运行时通过 `ThreadRuntimeCoordinator` 分发 `claude`、`codex`、`pi` 三种 Harness（`CoreKind`）。每个会话持久化自己的 `coreKind`，因此同一个项目可以同时存在不同 Harness 的会话。
 
-**PI（v1）边界：** 进程内 `@earendil-works/pi-coding-agent` **1.0.3** SDK + Eco Gateway 模型；经 Eco Agent 工具接入线程编排快照中的子代理（capability=`eco`）；工具审批 capability=`eco`（`tool_call` → `createThreadToolPermissionHandler`）；会话模式 Agent/Plan/Ask；计划审批 capability=`eco`（`finalize_plan` → `plan.ready` 落盘 pending plan，回合结束，用户异步批准后新开 Agent 执行；退出不清 pending plan）；Ask/Plan 为只读工具 + 只读 bash allowlist（非 OS sandbox；`read` 经 Eco 工作区范围策略，区内放行、区外询问；只读 bash 仍由模式层 allowlist 放行）；**未接入** PI 可选 Windows `powershell` 工具（社区定位为无 Git Bash 时的可选替代，Ask/Plan 尚无 PS 只读策略）；**未接入** `SessionManager.inMemory(entries)` 外存恢复（主/子会话继续磁盘 JSONL）；**未开启** `compat.supportsMidConvoEffort`（pi 文档要求忠实 Anthropic Messages + 确切 Claude 模型；Eco Bridge/Gateway 不满足）；`ui_prompt_*` / `session_compact_failed` 扩展事件未单独桥接（审批走 Eco 工具权限；compaction 失败已由会话流 `compaction_end` 映射）。无 Eco compact/rewind handoff（compact 由 PI native `compaction.enabled` 负责，不装 pi-smart-compact；0.84.4+ 大工具结果会在同 turn 内先 compact 再请求）。Skills 与 MCP 由 Eco 按会话注入（`skills: "eco"` / `mcp: "eco"`）：Skills 发现 `.agents/skills` 与 `.pi/skills`（及 `~/.agents/skills` / `~/.pi/agent/skills`），经线程 `skillsEnabled` 过滤后传入 PI `ResourceLoader`（`includeDefaults: false`）。MCP 经**官方** `createMcpExtension` 注入，配置只来自内存快照，只含 Composer 选中项与内置集成（浏览器/图片），不读也不合并 ambient `.mcp.json` / `~/.pi`；`updateConfig` 直接报错而不是假装写回（Eco 没有可回写的文件）。服务器工具以官方命名 `mcp__<server>__<tool>` 暴露，Eco 只把 Hub 的 `mcp__eco_mcp__search_tools` / `mcp__eco_mcp__call_tool` 交给模型并把 exposure 设为 `direct`（官方默认 `codemode` 会把 Hub 藏进沙箱）；毫秒超时换算成官方秒；SSE 服务器继续留在 Eco MCP Hub。**Codemode** 由官方 `createCodemodeExtension({ mode: "on", models: false })` 注册，工具名 `codemode`，只在 Agent 模式的白名单里；沙箱只暴露该会话已允许的工具（去掉 `codemode` 自身，脚本内不能再进沙箱）。脚本里发起的嵌套调用会被 PI 标记 `parentToolCallId`（id 形如 `<父 id>/<n>`），事件桥把它保留为 `parent_tool_call_id`——**不是** `parent_tool_use_id`，后者在 Eco 全链路是子代理归属语义，嵌套调用带上它会被当成子代理行并掉出时间线。工具结果里的 `structuredContent` 一并透传。0.85.1 时期的 `mcp` / `mcpScript` 工具名只在回放解析路径保留，新回合不再产生。设置「全局规则」经 `appendSystemPrompt` 注入父会话（先于浏览器/图片集成提示）；仅在创建/重建会话时写入 ResourceLoader，热复用不因规则变更刷新；子代理使用模板 prompt，不含全局规则。子代理为独立 `AgentSession`（`pi-agent/<threadId>/subagents/<agentId>/`，空 history，禁止嵌套），模型走该 agent 的 Gateway alias，不回落主模型。每线程 Eco 拥有目录 `ecoDataDir/pi-agent/<threadId>/`（私有 Skills 挂载、`sessions/*.jsonl` 持久化会话、auth/models 缓存）；**不**使用 `~/.pi` 默认会话目录。进程内 registry 热路径复用同一 `AgentSession`；冷启动在 identity + MCP fingerprint 匹配时 `SessionManager.open` 续跑。MCP 集合或 cwd/provider/model/apiCompat/routes 变更会重建空会话并清理该线程旧 jsonl。路由 `thinkingEffort` 映射为 PI `thinkingLevel`（`off`/`low`/`medium`/`high`/`xhigh`/`max` 1:1；未设置或未知值 fail-close 为 `off`）；非 `off` 时 `model.reasoning=true` 且 identity fingerprint 带 `:te=`，否则 PI 不发送思考字段、fingerprint 与旧会话兼容。Eco 没有 PI 的 `minimal` 档，不会发出该值。删线程会整树删除 `pi-agent/<threadId>`；存储面板「全部 PI 会话」会删除对应 Eco 对话（侧边栏不可再打开）并清理 `pi-agent/`（进行中的 PI 对话会跳过）。改 Skills 后 idle 会话可在下次 run 热更新（`AgentSession.reload`）；运行中仍禁止改配置。这是**可见性隔离**，不是 OS 级文件系统隔离——PI 仍有 `read`/`bash`，共享 workspace 内的 skill 文件其他会话进程仍可能读到。工具 cwd 以会话 `ctx.cwd` 为准（PI 0.85.0+；多会话同进程不再误用创建时 cwd）。
+**PI（v1）边界：** 进程内 `@earendil-works/pi-coding-agent` **1.0.3** SDK + Mori Gateway 模型；经 Mori Agent 工具接入线程编排快照中的子代理（capability=`eco`）；工具审批 capability=`eco`（`tool_call` → `createThreadToolPermissionHandler`）；会话模式 Agent/Plan/Ask；计划审批 capability=`eco`（`finalize_plan` → `plan.ready` 落盘 pending plan，回合结束，用户异步批准后新开 Agent 执行；退出不清 pending plan）；Ask/Plan 为只读工具 + 只读 bash allowlist（非 OS sandbox；`read` 经 Mori 工作区范围策略，区内放行、区外询问；只读 bash 仍由模式层 allowlist 放行）；**未接入** PI 可选 Windows `powershell` 工具（社区定位为无 Git Bash 时的可选替代，Ask/Plan 尚无 PS 只读策略）；**未接入** `SessionManager.inMemory(entries)` 外存恢复（主/子会话继续磁盘 JSONL）；**未开启** `compat.supportsMidConvoEffort`（pi 文档要求忠实 Anthropic Messages + 确切 Claude 模型；Mori Bridge/Gateway 不满足）；`ui_prompt_*` / `session_compact_failed` 扩展事件未单独桥接（审批走 Mori 工具权限；compaction 失败已由会话流 `compaction_end` 映射）。无 Mori compact/rewind handoff（compact 由 PI native `compaction.enabled` 负责，不装 pi-smart-compact；0.84.4+ 大工具结果会在同 turn 内先 compact 再请求）。Skills 与 MCP 由 Mori 按会话注入（`skills: "eco"` / `mcp: "eco"`）：Skills 发现 `.agents/skills` 与 `.pi/skills`（及 `~/.agents/skills` / `~/.pi/agent/skills`），经线程 `skillsEnabled` 过滤后传入 PI `ResourceLoader`（`includeDefaults: false`）。MCP 经**官方** `createMcpExtension` 注入，配置只来自内存快照，只含 Composer 选中项与内置集成（浏览器/图片），不读也不合并 ambient `.mcp.json` / `~/.pi`；`updateConfig` 直接报错而不是假装写回（Mori 没有可回写的文件）。服务器工具以官方命名 `mcp__<server>__<tool>` 暴露，Mori 只把 Hub 的 `mcp__eco_mcp__search_tools` / `mcp__eco_mcp__call_tool` 交给模型并把 exposure 设为 `direct`（官方默认 `codemode` 会把 Hub 藏进沙箱）；毫秒超时换算成官方秒；SSE 服务器继续留在 Mori MCP Hub。**Codemode** 由官方 `createCodemodeExtension({ mode: "on", models: false })` 注册，工具名 `codemode`，只在 Agent 模式的白名单里；沙箱只暴露该会话已允许的工具（去掉 `codemode` 自身，脚本内不能再进沙箱）。脚本里发起的嵌套调用会被 PI 标记 `parentToolCallId`（id 形如 `<父 id>/<n>`），事件桥把它保留为 `parent_tool_call_id`——**不是** `parent_tool_use_id`，后者在 Mori 全链路是子代理归属语义，嵌套调用带上它会被当成子代理行并掉出时间线。工具结果里的 `structuredContent` 一并透传。0.85.1 时期的 `mcp` / `mcpScript` 工具名只在回放解析路径保留，新回合不再产生。设置「全局规则」经 `appendSystemPrompt` 注入父会话（先于浏览器/图片集成提示）；仅在创建/重建会话时写入 ResourceLoader，热复用不因规则变更刷新；子代理使用模板 prompt，不含全局规则。子代理为独立 `AgentSession`（`pi-agent/<threadId>/subagents/<agentId>/`，空 history，禁止嵌套），模型走该 agent 的 Gateway alias，不回落主模型。每线程 Mori 拥有目录 `ecoDataDir/pi-agent/<threadId>/`（私有 Skills 挂载、`sessions/*.jsonl` 持久化会话、auth/models 缓存）；**不**使用 `~/.pi` 默认会话目录。进程内 registry 热路径复用同一 `AgentSession`；冷启动在 identity + MCP fingerprint 匹配时 `SessionManager.open` 续跑。MCP 集合或 cwd/provider/model/apiCompat/routes 变更会重建空会话并清理该线程旧 jsonl。路由 `thinkingEffort` 映射为 PI `thinkingLevel`（`off`/`low`/`medium`/`high`/`xhigh`/`max` 1:1；未设置或未知值 fail-close 为 `off`）；非 `off` 时 `model.reasoning=true` 且 identity fingerprint 带 `:te=`，否则 PI 不发送思考字段、fingerprint 与旧会话兼容。Mori 没有 PI 的 `minimal` 档，不会发出该值。删线程会整树删除 `pi-agent/<threadId>`；存储面板「全部 PI 会话」会删除对应 Mori 对话（侧边栏不可再打开）并清理 `pi-agent/`（进行中的 PI 对话会跳过）。改 Skills 后 idle 会话可在下次 run 热更新（`AgentSession.reload`）；运行中仍禁止改配置。这是**可见性隔离**，不是 OS 级文件系统隔离——PI 仍有 `read`/`bash`，共享 workspace 内的 skill 文件其他会话进程仍可能读到。工具 cwd 以会话 `ctx.cwd` 为准（PI 0.85.0+；多会话同进程不再误用创建时 cwd）。
 
-**PI 运行中跟进（steer）：** PI 线程在 run 运行中提交的后续消息经 `AgentSession.steer()` 注入当前回合（消息在下一个模型调用前投递，不新开一轮）；只有进程内父会话正在 streaming 时接受，会话空闲或 run 恰好在投递前结束时 `createPiMidTurnHandle` 会回收悬挂队列项并 `fail-close`，Eco 保留排队行、由 run 结束后的 drain 作为新一轮发送。子代理会话不参与线程级 steer。
+**PI 运行中跟进（steer）：** PI 线程在 run 运行中提交的后续消息经 `AgentSession.steer()` 注入当前回合（消息在下一个模型调用前投递，不新开一轮）；只有进程内父会话正在 streaming 时接受，会话空闲或 run 恰好在投递前结束时 `createPiMidTurnHandle` 会回收悬挂队列项并 `fail-close`，Mori 保留排队行、由 run 结束后的 drain 作为新一轮发送。子代理会话不参与线程级 steer。
 
 Harness 适配层统一描述以下能力：
 
@@ -74,7 +74,7 @@ Harness 适配层统一描述以下能力：
 - 工具与计划审批
 - MCP、Skills 和子代理
 
-实现会优先保留 Harness 原生行为；某项能力由 Eco 补齐或暂不支持时，通过 capability descriptor 显式表达，不静默伪装为原生能力。
+实现会优先保留 Harness 原生行为；某项能力由 Mori 补齐或暂不支持时，通过 capability descriptor 显式表达，不静默伪装为原生能力。
 
 ## 4. 多代理编排
 
@@ -138,9 +138,9 @@ Harness 适配层统一描述以下能力：
 
 个人 Skills 不会整棵目录无条件注入；只有显式选择且满足 Harness 约束的 Skills 会进入会话。MCP 在全局设置中登记，在 Composer 或 Agent 模板中按会话启用，并可以配置工具 allowlist。
 
-对 Codex 而言，MCP 的传输描述（`url` / `http_headers` 或 `command` / `env`）同样属于线程配置，经 `thread/start` / `thread/resume` 的 `config` 下发，`CODEX_HOME/config.toml` 不保留 `[mcp_servers.*]`。因此共享 app-server 不会因为新线程启用 MCP 而整体重启或等待所有线程空闲，多个线程可以并行加载；每个线程只持有自己的 Eco MCP Hub 描述与 bearer token，可见工具再由 Hub 按会话过滤。已经加载的线程无法热改线程配置，描述变化（例如开关创意绘画/语音生成改变 tool timeout）需要等所有回合空闲后重启 app-server 才会生效。
+对 Codex 而言，MCP 的传输描述（`url` / `http_headers` 或 `command` / `env`）同样属于线程配置，经 `thread/start` / `thread/resume` 的 `config` 下发，`CODEX_HOME/config.toml` 不保留 `[mcp_servers.*]`。因此共享 app-server 不会因为新线程启用 MCP 而整体重启或等待所有线程空闲，多个线程可以并行加载；每个线程只持有自己的 Mori MCP Hub 描述与 bearer token，可见工具再由 Hub 按会话过滤。已经加载的线程无法热改线程配置，描述变化（例如开关创意绘画/语音生成改变 tool timeout）需要等所有回合空闲后重启 app-server 才会生效。
 
-“隔离”表示 Eco 控制的会话配置与注入边界，不代表第三方 MCP 进程自身具备操作系统级沙箱。第三方工具仍应按其实际权限审查。对 PI 而言，Skills 注入同样是可见性边界：共享 workspace 内的 skill 文件仍可能被 `read`/`bash` 读到。
+“隔离”表示 Mori 控制的会话配置与注入边界，不代表第三方 MCP 进程自身具备操作系统级沙箱。第三方工具仍应按其实际权限审查。对 PI 而言，Skills 注入同样是可见性边界：共享 workspace 内的 skill 文件仍可能被 `read`/`bash` 读到。
 
 ## 7. 上下文管理
 
@@ -156,22 +156,22 @@ Harness 适配层统一描述以下能力：
 
 ### 7.2 语义压缩（各 Harness 自管）
 
-Eco **不再做语义 compact**。各 Harness 用自己的 local 自动压缩；Eco 只投影占用与 compact 事件，并屏蔽上游云端 compact 接口（自定义模型不支持）。
+Mori **不再做语义 compact**。各 Harness 用自己的 local 自动压缩；Mori 只投影占用与 compact 事件，并屏蔽上游云端 compact 接口（自定义模型不支持）。
 
-| Harness | 自动压缩 | Eco 做什么 |
+| Harness | 自动压缩 | Mori 做什么 |
 |---|---|---|
 | Claude | Agent SDK `autoCompactEnabled` + `autoCompactWindow=min(模型, 全局)`：进程内摘要 + `compact_boundary`，同一 session | 打开开关并写入有效窗口；1M 别名 `[1m]` 也按有效窗口；剥 `compact_20260112`；Bridge 不转发 `/v1/responses/compact` |
 | Codex | app-server 内部 local compact（自定义 provider 名，不打 remote `/responses/compact`） | catalog `context_window` 已 min 全局；投影 `contextCompaction`；Gateway 把摘要请求转到第三方模型 |
 | PI | SDK native `compaction.enabled`，触发为 `contextTokens > contextWindow - reserveTokens` | `Model.contextWindow = min(模型, 全局)`；不装 `pi-smart-compact` |
 
-手动压缩入口已移除。占用条只展示 Harness 上报的 occupied/limit，Eco 不再用 85% 阈值去调度压缩。
+手动压缩入口已移除。占用条只展示 Harness 上报的 occupied/limit，Mori 不再用 85% 阈值去调度压缩。
 
 ### 7.3 上游 compact 屏蔽
 
 - **Anthropic 云端 compact**：请求发出前剥掉 `context_management` 里的 `compact_20260112` / `compaction`。
-- **Responses remote compact**：Eco Bridge 拦截 `POST /v1/responses/compact`，返回非致命假成功，不转发 Gateway/上游。Codex 默认走 local compact，不依赖该接口。
+- **Responses remote compact**：Mori Bridge 拦截 `POST /v1/responses/compact`，返回非致命假成功，不转发 Gateway/上游。Codex 默认走 local compact，不依赖该接口。
 
-**Tool 入史剪枝**（§7.1）与语义 compact 分离，仍然由 Eco TruncationPolicy / PostToolUse 处理。
+**Tool 入史剪枝**（§7.1）与语义 compact 分离，仍然由 Mori TruncationPolicy / PostToolUse 处理。
 
 Claude Agent SDK 接线约定（streaming 单消息 prompt、Query teardown、`streamInput` 预留）见 [claude-core-baseline.md](./claude-core-baseline.md)。
 
@@ -179,7 +179,7 @@ Claude Agent SDK 接线约定（streaming 单消息 prompt、Query teardown、`s
 
 ### 计费数据
 
-Ledger 记录模型、Provider、Agent、输入/输出 Token、cache read、cache write、报告费用和 Eco 按价格表计算的费用。价格可以来自模型元数据或手动配置。
+Ledger 记录模型、Provider、Agent、输入/输出 Token、cache read、cache write、报告费用和 Mori 按价格表计算的费用。价格可以来自模型元数据或手动配置。
 
 “未编排估算”使用主模型价格估算相关工作量，用于观察模型分工的可能影响，不是账单，也不是质量等价证明。
 
@@ -203,7 +203,7 @@ Ledger 记录模型、Provider、Agent、输入/输出 Token、cache read、cach
 
 ## 10. Supabase Center 与 Mobile
 
-用户自建 Supabase 项目（见 [supabase-deploy.md](supabase-deploy.md) 云托管、[supabase-self-host.md](supabase-self-host.md) Docker 自托管）。Postgres 存用户资料、设备、绑定、配对与审计元数据；Auth 管账号；Realtime 做 Presence 与 `eco:bind:*` RPC 中继；敏感登记走 Edge Functions。开源 Eco **不提供**官方托管节点。
+用户自建 Supabase 项目（见 [supabase-deploy.md](supabase-deploy.md) 云托管、[supabase-self-host.md](supabase-self-host.md) Docker 自托管）。Postgres 存用户资料、设备、绑定、配对与审计元数据；Auth 管账号；Realtime 做 Presence 与 `eco:bind:*` RPC 中继；敏感登记走 Edge Functions。开源 Mori **不提供**官方托管节点。
 
 ```mermaid
 sequenceDiagram

@@ -60,7 +60,7 @@ export async function listCursorAgentModels(
       if (error.code === "ENOENT") {
         reject(
           new Error(
-            `Cursor Agent CLI 未找到（尝试启动: "${executable}"）。请确认已安装 Cursor Agent CLI（https://cursor.com/cli），或在 Eco 设置中配置 Cursor Agent 可执行文件路径 / CURSOR_AGENT_EXECUTABLE 环境变量。`,
+            `Cursor Agent CLI 未找到（尝试启动: "${executable}"）。请确认已安装 Cursor Agent CLI（https://cursor.com/cli），或在 Mori 设置中配置 Cursor Agent 可执行文件路径 / CURSOR_AGENT_EXECUTABLE 环境变量。`,
           ),
         );
       } else {

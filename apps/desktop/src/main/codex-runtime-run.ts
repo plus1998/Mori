@@ -348,7 +348,7 @@ let accountRestartRevision = 0;
 export function bindPreparedCodexRuntimeToThread(ecoThreadId: string, prepared: PreparedCodexRuntime): void {
   const threadId = ecoThreadId.trim();
   if (!threadId) {
-    throw new Error("Eco thread id is required when binding prepared Codex runtime config.");
+    throw new Error("Mori thread id is required when binding prepared Codex runtime config.");
   }
   preparedRuntimeByThread.set(threadId, prepared);
 }
@@ -628,17 +628,17 @@ export async function resumeCodexThreadForEcoThread(input: {
   const runtimeDeps = requireDeps();
   const ecoThreadId = input.ecoThreadId.trim();
   if (!ecoThreadId) {
-    throw new CodexResumeNotAvailable("Codex resume is not available because the Eco thread id is missing.", {
-      nextAction: "Retry resume from a Codex-backed thread that has a persisted Eco thread id.",
+    throw new CodexResumeNotAvailable("Codex resume is not available because the Mori thread id is missing.", {
+      nextAction: "Retry resume from a Codex-backed thread that has a persisted Mori thread id.",
     });
   }
   const codexThreadId = runtimeDeps.threadMap.getCodexThreadId(ecoThreadId);
   if (!codexThreadId) {
     throw new CodexResumeNotAvailable(
-      "Codex resume is not available because this Eco thread has no Codex thread mapping.",
+      "Codex resume is not available because this Mori thread has no Codex thread mapping.",
       {
         nextAction:
-          "Run this thread through the Codex app-server once so Eco can persist its Codex thread id, then retry resume.",
+          "Run this thread through the Codex app-server once so Mori can persist its Codex thread id, then retry resume.",
       },
     );
   }
@@ -658,7 +658,7 @@ export async function resumeCodexThreadForEcoThread(input: {
       "Codex resume cannot reapply this thread's runtime policy because no prepared config is bound.",
       {
         nextAction:
-          "Prepare the Eco thread with its current orchestration and MCP selection, then retry resume.",
+          "Prepare the Mori thread with its current orchestration and MCP selection, then retry resume.",
       },
     );
   }
@@ -706,7 +706,7 @@ export async function resumeCodexSubagentThread(input: {
       `Codex subagent resume cannot reapply the MCP policy for role '${roleId || "unknown"}'.`,
       {
         nextAction:
-          "Prepare the parent Eco thread with the same orchestration before resuming this subagent.",
+          "Prepare the parent Mori thread with the same orchestration before resuming this subagent.",
       },
     );
   }
@@ -796,8 +796,8 @@ export async function forkCodexThreadForEcoThread(input: {
   const ecoThreadId = input.ecoThreadId.trim();
   const targetItemId = input.targetItemId.trim();
   if (!ecoThreadId) {
-    throw new CodexForkNotAvailable("Codex fork is not available because the Eco thread id is missing.", {
-      nextAction: "Retry rewind from a Codex-backed thread that has a persisted Eco thread id.",
+    throw new CodexForkNotAvailable("Codex fork is not available because the Mori thread id is missing.", {
+      nextAction: "Retry rewind from a Codex-backed thread that has a persisted Mori thread id.",
     });
   }
   if (!targetItemId) {
@@ -811,10 +811,10 @@ export async function forkCodexThreadForEcoThread(input: {
   const codexThreadId = runtimeDeps.threadMap.getCodexThreadId(ecoThreadId);
   if (!codexThreadId) {
     throw new CodexForkNotAvailable(
-      "Codex fork is not available because this Eco thread has no Codex thread mapping.",
+      "Codex fork is not available because this Mori thread has no Codex thread mapping.",
       {
         nextAction:
-          "Run this thread through the Codex app-server once so Eco can persist its Codex thread id, then retry rewind.",
+          "Run this thread through the Codex app-server once so Mori can persist its Codex thread id, then retry rewind.",
       },
     );
   }
@@ -2270,7 +2270,7 @@ export function createCodexSubagentResumeDriver(input: {
       `Codex subagent resume cannot reapply the MCP policy for role '${roleId || "unknown"}'.`,
       {
         nextAction:
-          "Prepare the parent Eco thread with the same orchestration before resuming this subagent.",
+          "Prepare the parent Mori thread with the same orchestration before resuming this subagent.",
       },
     );
   }

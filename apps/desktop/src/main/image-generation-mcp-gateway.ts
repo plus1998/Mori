@@ -183,7 +183,7 @@ export class ImageGenerationMcpGateway {
         {
           serverName: ECO_IMAGE_GENERATION_MCP_SERVER,
           instructions:
-            "Eco Creative Drawing. Create or edit images into the conversation work directory; every call requires user approval.",
+            "Mori Creative Drawing. Create or edit images into the conversation work directory; every call requires user approval.",
           listTools: async () => ({ tools: [imageGenerationToolDefinition()] }),
           callTool: async ({ name, arguments: args, authToken, signal }) =>
             this.executeToolCall(name, args, authToken, signal),
@@ -364,7 +364,7 @@ function imageGenerationToolDefinition(): McpToolDefinition {
   return {
     name: ECO_IMAGE_GENERATION_TOOL,
     description:
-      "Create or edit images with Eco's active Creative Drawing provider and save them into the current conversation work directory. Pass input_images for image-to-image edits when the active profile supports it. Every call requires user approval.",
+      "Create or edit images with Mori's active Creative Drawing provider and save them into the current conversation work directory. Pass input_images for image-to-image edits when the active profile supports it. Every call requires user approval.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

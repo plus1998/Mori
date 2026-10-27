@@ -191,7 +191,7 @@ export class TtsMcpGateway {
         {
           serverName: ECO_TTS_MCP_SERVER,
           instructions:
-            "Eco Speech Generation. Create playable voice artifacts in the conversation work directory.",
+            "Mori Speech Generation. Create playable voice artifacts in the conversation work directory.",
           listTools: async () => ({ tools: [ttsToolDefinition()] }),
           callTool: async ({ name, arguments: args, authToken, signal }) =>
             this.executeToolCall(name, args, authToken, signal),
@@ -361,7 +361,7 @@ function ttsToolDefinition(): McpToolDefinition {
   return {
     name: ECO_TTS_TOOL,
     description:
-      "Create a speech audio artifact from a verbatim transcript. Choose voice and style (emotion, tone, pitch, pace and accent) to suit the task. Eco saves the file and displays it in Feed and cards.",
+      "Create a speech audio artifact from a verbatim transcript. Choose voice and style (emotion, tone, pitch, pace and accent) to suit the task. Mori saves the file and displays it in Feed and cards.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

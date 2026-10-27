@@ -1615,7 +1615,7 @@ export const i18nCatalogs = {
       "settings.center.connectionFailed": "连接失败。",
       "settings.center.ecoConnect.title": "导入 Supabase 配置",
       "settings.center.ecoConnect.description":
-        "检测到链接 eco://connect 携带的 Supabase 项目（{{url}}），是否使用它进行互联？",
+        "检测到 Mori 互联链接携带的 Supabase 项目（{{url}}），是否使用它进行互联？",
       "settings.center.ecoConnect.confirm": "使用该项目",
       "settings.center.ecoConnect.success": "Supabase 配置导入成功。",
       "settings.center.ecoConnect.sameSuccess": "该 Supabase 项目已关联，无需重复配置。",
@@ -5071,7 +5071,7 @@ export const i18nCatalogs = {
       "settings.center.connectionFailed": "Connection failed.",
       "settings.center.ecoConnect.title": "Import Supabase configuration",
       "settings.center.ecoConnect.description":
-        "The eco://connect link points to a Supabase project ({{url}}). Use it to connect?",
+        "The Mori connection link points to a Supabase project ({{url}}). Use it to connect?",
       "settings.center.ecoConnect.confirm": "Use this project",
       "settings.center.ecoConnect.success": "Supabase configuration imported.",
       "settings.center.ecoConnect.sameSuccess": "This Supabase project is already connected.",

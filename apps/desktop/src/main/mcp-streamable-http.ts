@@ -585,7 +585,7 @@ export async function probeCodexStyleHttpMcpHandshake(input: {
     return { toolCount: listBody.result.tools.length };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Eco HTTP MCP \`${input.name}\` Codex 握手探测失败（${input.url}）：${detail}`);
+    throw new Error(`Mori HTTP MCP \`${input.name}\` Codex 握手探测失败（${input.url}）：${detail}`);
   } finally {
     clearTimeout(timer);
   }

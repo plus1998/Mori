@@ -54,7 +54,7 @@ test("CodexAppServerClient completes initialize → initialized handshake", asyn
     params: {
       clientInfo: {
         name: "eco_coding",
-        title: "Eco Coding",
+        title: "Mori",
         version: "0.0.1",
       },
       capabilities: {
@@ -225,7 +225,7 @@ test("CodexAppServerClient fails closed when no server-request handler exists", 
       id: 41,
       error: {
         code: CODEX_JSON_RPC_METHOD_NOT_FOUND,
-        message: "Eco does not implement Codex app-server request method future/request.",
+        message: "Mori does not implement Codex app-server request method future/request.",
       },
     },
   ]);
@@ -242,7 +242,7 @@ test("CodexAppServerClient treats an undefined handler result as unimplemented",
       id: 42,
       error: {
         code: CODEX_JSON_RPC_METHOD_NOT_FOUND,
-        message: "Eco does not implement Codex app-server request method future/request.",
+        message: "Mori does not implement Codex app-server request method future/request.",
       },
     },
   ]);

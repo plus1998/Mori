@@ -106,7 +106,7 @@ try {
   const init = await client.initialize({
     clientInfo: {
       name: "eco_codex_child_tools_probe",
-      title: "Eco Codex Child Tools Probe",
+      title: "Mori Codex Child Tools Probe",
       version: "1.0.0",
     },
     capabilities: { experimentalApi: true },

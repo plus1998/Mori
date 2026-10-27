@@ -1,11 +1,14 @@
 import { expect, test } from "bun:test";
 import {
   buildCenterServerWebSocketUrl,
+  buildCenterQrPayload,
+  buildPairingQrPayload,
   buildEcoAuthEmailConfirmRedirect,
   CENTER_SERVER_INCOMPLETE_CONFIG_MESSAGE,
   CENTER_SERVER_REAUTH_MESSAGE,
   classifyCenterServerAuthError,
   isCenterServerAuthCredentialError,
+  isAppDeepLink,
   normalizeCenterServerHttpUrl,
   parseEcoConnectDeepLink,
   recoveryForSessionRefreshFailure,
@@ -76,22 +79,51 @@ test("recoveryForSessionRefreshFailure keeps session on transient failures", () 
   expect(recoveryForSessionRefreshFailure("Refresh token is invalid or expired.")).toBe("relogin");
 });
 
-test("parseEcoConnectDeepLink parses eco://connect with url + token", () => {
+test.each(["mori", "eco"])("parseEcoConnectDeepLink parses %s://connect with url + token", (scheme) => {
   const parsed = parseEcoConnectDeepLink(
-    "eco://connect?url=https://abc.supabase.co&token=your.anon.key",
+    `${scheme}://connect?url=https://abc.supabase.co&token=your.anon.key`,
   );
   expect(parsed).toEqual({ supabaseUrl: "https://abc.supabase.co", anonKey: "your.anon.key" });
 });
 
-test("parseEcoConnectDeepLink accepts supabase/anon aliases and normalizes URLs", () => {
-  const parsed = parseEcoConnectDeepLink("eco://connect?supabase=https://abc.supabase.co/&anon=key123");
+test.each(["mori", "eco"])("parseEcoConnectDeepLink accepts %s aliases and normalizes URLs", (scheme) => {
+  const parsed = parseEcoConnectDeepLink(`${scheme}://connect?supabase=https://abc.supabase.co/&anon=key123`);
   expect(parsed).toEqual({ supabaseUrl: "https://abc.supabase.co", anonKey: "key123" });
 });
 
-test("parseEcoConnectDeepLink rejects non-eco schemes and other hosts", () => {
+test("parseEcoConnectDeepLink rejects unsupported schemes and other hosts", () => {
   expect(parseEcoConnectDeepLink("https://connect?url=x&token=y")).toBeUndefined();
+  expect(parseEcoConnectDeepLink("mori-evil://connect?url=x&token=y")).toBeUndefined();
+  expect(parseEcoConnectDeepLink("mori://center?supabase=x&anon=y")).toBeUndefined();
   expect(parseEcoConnectDeepLink("eco://center?supabase=x&anon=y")).toBeUndefined();
   expect(parseEcoConnectDeepLink("garbage")).toBeUndefined();
+});
+
+test.each(["mori", "eco"])("isAppDeepLink routes %s links at startup and while running", (scheme) => {
+  expect(isAppDeepLink(`${scheme}://connect?url=https://abc.supabase.co&token=key`)).toBe(true);
+  expect(isAppDeepLink(`${scheme}://center?supabase=https://abc.supabase.co&anon=key`)).toBe(true);
+});
+
+test("isAppDeepLink rejects missing hosts, malformed URLs and unrelated schemes", () => {
+  for (const url of ["mori://", "mori:connect", "mori://[", "https://connect", "mori-evil://connect", "--flag"]) {
+    expect(isAppDeepLink(url)).toBe(false);
+  }
+});
+
+test("new connect and pairing QR codes use mori with encoded connection details", () => {
+  const connection = { supabaseUrl: "https://abc.supabase.co/", anonKey: "key+with/symbols=" };
+  const center = new URL(buildCenterQrPayload(connection));
+  expect(center.protocol).toBe("mori:");
+  expect(center.hostname).toBe("center");
+  expect(center.searchParams.get("supabase")).toBe("https://abc.supabase.co");
+  expect(center.searchParams.get("anon")).toBe(connection.anonKey);
+  expect(center.searchParams.has("token")).toBe(false);
+
+  const pairing = new URL(buildPairingQrPayload({ ...connection, code: "ABCD1234", bootstrapToken: "a+b/c=" }));
+  expect(pairing.protocol).toBe("mori:");
+  expect(pairing.hostname).toBe("pair");
+  expect(pairing.searchParams.get("code")).toBe("ABCD1234");
+  expect(pairing.searchParams.get("token")).toBe("a+b/c=");
 });
 
 test("parseEcoConnectDeepLink keeps empty fields for missing/invalid params", () => {

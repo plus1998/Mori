@@ -27,7 +27,7 @@ test("macOS app menu uses the supplied display name for native role labels", () 
 
 test("builds File and View commands and dispatches their typed command ids", () => {
   const commands: AppMenuCommand[] = [];
-  const template = buildApplicationMenuTemplate("Eco Coding", "darwin", (command) => {
+  const template = buildApplicationMenuTemplate("Mori", "darwin", (command) => {
     commands.push(command);
   });
   const fileMenu = submenuFor(template, "File");
@@ -64,8 +64,8 @@ test("builds File and View commands and dispatches their typed command ids", () 
 });
 
 test("preserves native application, edit, view, and window roles", () => {
-  const template = buildApplicationMenuTemplate("Eco Coding", "darwin", () => {});
-  const appMenu = submenuFor(template, "Eco Coding");
+  const template = buildApplicationMenuTemplate("Mori", "darwin", () => {});
+  const appMenu = submenuFor(template, "Mori");
   const editMenu = submenuFor(template, "Edit");
   const viewMenu = submenuFor(template, "View");
   const windowMenu = submenuFor(template, "Window");
@@ -82,7 +82,7 @@ test("preserves native application, edit, view, and window roles", () => {
   expect(viewMenu.some((item) => item.role === "toggleDevTools")).toBe(true);
   expect(windowMenu.some((item) => item.role === "minimize")).toBe(true);
 
-  const linuxTemplate = buildApplicationMenuTemplate("Eco Coding", "linux", () => {});
+  const linuxTemplate = buildApplicationMenuTemplate("Mori", "linux", () => {});
   expect(linuxTemplate[0]?.label).toBe("File");
   expect(submenuFor(linuxTemplate, "File").some((item) => item.role === "quit")).toBe(true);
 });

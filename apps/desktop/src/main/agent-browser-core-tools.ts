@@ -110,7 +110,7 @@ const TOOL_DEFINITIONS: Record<
     } }),
   },
   agent_browser_tools_profiles: {
-    description: "List Eco built-in browser tool profiles / skills.",
+    description: "List Mori built-in browser tool profiles / skills.",
     inputSchema: emptyObjectSchema,
   },
   agent_browser_open: {
@@ -360,7 +360,7 @@ const TOOL_DEFINITIONS: Record<
     }),
   },
   agent_browser_tab_list: {
-    description: "List tabs in this Eco browser session.",
+    description: "List tabs in this Mori browser session.",
     inputSchema: emptyObjectSchema,
   },
   agent_browser_tab_switch: {
@@ -393,7 +393,7 @@ const TOOL_DEFINITIONS: Record<
     }),
   },
   agent_browser_close: {
-    description: "Close the Eco built-in browser session for this thread.",
+    description: "Close the Mori built-in browser session for this thread.",
     inputSchema: emptyObjectSchema,
   },
 };

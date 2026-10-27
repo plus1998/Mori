@@ -37,7 +37,7 @@ async function resolveCdpUrl() {
       // next
     }
   }
-  throw new Error("No Eco dev CDP on 9333/9334/9335/9344");
+  throw new Error("No Mori dev CDP on 9333/9334/9335/9344");
 }
 
 function buildSourcePng(filePath) {
@@ -288,7 +288,7 @@ const browser = await chromium.connectOverCDP(cdpUrl);
 const page =
   browser.contexts()[0]?.pages().find((p) => p.url().includes("127.0.0.1:5173")) ??
   browser.contexts()[0]?.pages()[0];
-if (!page) throw new Error("No Eco renderer page on CDP");
+if (!page) throw new Error("No Mori renderer page on CDP");
 
 await page.waitForFunction(() => typeof window.eco !== "undefined", undefined, { timeout: 30_000 });
 

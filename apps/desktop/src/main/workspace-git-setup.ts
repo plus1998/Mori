@@ -24,9 +24,9 @@ export const DEFAULT_ECO_GITIGNORE_LINES = [
 const INITIAL_COMMIT_MESSAGE = "initial commit";
 const FALLBACK_COMMIT_IDENTITY_ARGS = [
   "-c",
-  "user.name=Eco Coding",
+  "user.name=Mori",
   "-c",
-  "user.email=eco-coding@localhost",
+  "user.email=mori@localhost",
 ] as const;
 
 export async function ensureEcoGitignore(workspacePath: string): Promise<boolean> {

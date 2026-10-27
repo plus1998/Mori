@@ -1,7 +1,7 @@
 import type { GatewayAgentCore } from "../types.js";
 
 /** Matches desktop `DEFAULT_UPSTREAM_USER_AGENT` when no client UA / override is set. */
-export const DEFAULT_UPSTREAM_USER_AGENT = "Eco-Coding/0.0.0";
+export const DEFAULT_UPSTREAM_USER_AGENT = "Mori/0.0.0";
 
 /**
  * Harness that issued the request, stamped by the desktop bridge

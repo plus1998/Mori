@@ -115,7 +115,7 @@ export async function captureGuestScreenshot(
   }
   if (typeof webContents.getType === "function" && webContents.getType() !== "webview") {
     throw new Error(
-      `Refusing screenshot on non-guest webContents (type=${webContents.getType()}); Eco main window must not handle browser automation`,
+      `Refusing screenshot on non-guest webContents (type=${webContents.getType()}); Mori main window must not handle browser automation`,
     );
   }
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });

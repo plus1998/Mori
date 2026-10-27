@@ -69,7 +69,7 @@ const browser = await chromium.connectOverCDP(cdpUrl);
 try {
   const context = browser.contexts()[0];
   const page = context?.pages().find((p) => p.url().includes("5173")) ?? context?.pages()[0];
-  if (!page) throw new Error("No Eco page from CDP");
+  if (!page) throw new Error("No Mori page from CDP");
   step("cdp page", true, page.url());
 
   await page.waitForFunction(() => typeof window.eco?.startThread === "function", undefined, {
@@ -142,7 +142,7 @@ try {
   if (!prep.workspacePath) throw new Error("No workspace path");
 
   const prompt = [
-    `Eco vision sensor smoke. Marker=${MARKER}.`,
+    `Mori vision sensor smoke. Marker=${MARKER}.`,
     "帮我改这个界面布局，给出具体修改建议和下一步。",
     "（测视觉传感器：你应只依据图片理解报告工作；不要臆造看不见的内容。）",
   ].join("\n");

@@ -270,7 +270,7 @@ export class AcpClient {
     }
     if (!this.fsHandler) {
       throw Object.assign(
-        new Error("Eco ACP host has no fs handler; install fs handler to allow agent file reads"),
+        new Error("Mori ACP host has no fs handler; install fs handler to allow agent file reads"),
         { code: -32000 },
       );
     }
@@ -291,7 +291,7 @@ export class AcpClient {
     }
     if (!this.fsHandler) {
       throw Object.assign(
-        new Error("Eco ACP host has no fs handler; install fs handler to allow agent file writes"),
+        new Error("Mori ACP host has no fs handler; install fs handler to allow agent file writes"),
         { code: -32000 },
       );
     }
@@ -314,7 +314,7 @@ export class AcpClient {
       const rejected = resolveAcpPermissionReject(params);
       if (rejected) return rejected;
       throw new Error(
-        "ACP session/request_permission missing toolCallId/options; Eco cannot take over approval",
+        "ACP session/request_permission missing toolCallId/options; Mori cannot take over approval",
       );
     }
     return this.onRequestPermission(parsed);
@@ -328,7 +328,7 @@ export class AcpClient {
     if (!this.onCreatePlan) {
       return {
         outcome: "rejected",
-        reason: "Eco ACP host has no create_plan handler (plan approval not wired)",
+        reason: "Mori ACP host has no create_plan handler (plan approval not wired)",
       };
     }
     return this.onCreatePlan(request);
@@ -340,7 +340,7 @@ export class AcpClient {
       return { outcome: "skipped", reason: "ACP cursor/ask_question missing toolCallId" };
     }
     if (!this.onAskQuestion) {
-      return { outcome: "skipped", reason: "Eco ACP host has no ask_question handler" };
+      return { outcome: "skipped", reason: "Mori ACP host has no ask_question handler" };
     }
     return this.onAskQuestion(request);
   }
@@ -381,7 +381,7 @@ export class AcpClient {
     if (!this.onGenerateImage) {
       return {
         outcome: "rejected",
-        reason: "Eco ACP host has no generate_image handler",
+        reason: "Mori ACP host has no generate_image handler",
       };
     }
     return this.onGenerateImage(request);

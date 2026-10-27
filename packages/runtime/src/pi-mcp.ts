@@ -72,7 +72,7 @@ export function toPiMcpServerConfig(entry: unknown): PiMcpServerMapResult {
     if (transport === "sse" || record.httpTransport === "sse") {
       return {
         ok: false,
-        error: "SSE transport is not supported by the PI MCP extension; keep this server in the Eco MCP Hub",
+        error: "SSE transport is not supported by the PI MCP extension; keep this server in the Mori MCP Hub",
       };
     }
     const headers = stringRecord(record.headers);

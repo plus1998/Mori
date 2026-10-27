@@ -1,13 +1,13 @@
 ---
 name: eco-release
 description: >-
-  Eco 桌面端发版流程：总结上次发布后的更新，归并功能说明，同步桌面版本和
+  Mori 桌面端发版流程：总结上次发布后的更新，归并功能说明，同步桌面版本和
   bun.lock，本地测试打包，推送 beta tag 并验证四平台 Release 与更新源，
   将 beta 合并到 main，最后切回 beta。用户要求发 beta、打包发版、整理
   release 更新说明或执行发布后的分支合并时使用。
 ---
 
-# Eco 桌面端发布
+# Mori 桌面端发布
 
 使用中文回答、编写更新说明和提交信息。用户已要求发布时，完成其授权范围内的
 测试、提交、推送和发布，不额外要求重复确认。仅要求总结更新时只做读取与总结。
@@ -56,7 +56,7 @@ git diff --stat <上次发布tag>..beta
 
 在 `apps/desktop/package.json` 更新版本，在 `CHANGELOG.md` 顶部加入精确对应的
 `## vX.Y.Z-beta.N` 小节，正文按 `### 新功能`、`### 优化`、`### 修复` 整理。
-重大使用限制写在对应功能条目中，例如定时调度依赖本地 Eco 运行。
+重大使用限制写在对应功能条目中，例如定时调度依赖本地 Mori 运行。
 
 **改完版本后、提交前必须执行：**
 
@@ -114,9 +114,9 @@ ELECTRON_RUN_AS_NODE=1 bun run --cwd apps/desktop smoke:packaged-pi
 确认安装包、更新 metadata、blockmap 与版本正确。macOS 检查 DMG/ZIP 完整性和 app 签名：
 
 ```sh
-hdiutil verify "apps/desktop/release/Eco-Coding-$RELEASE_VERSION-mac-arm64.dmg"
-unzip -tq "apps/desktop/release/Eco-Coding-$RELEASE_VERSION-mac-arm64.zip"
-codesign --verify --deep --strict 'apps/desktop/release/mac-arm64/Eco Coding.app'
+hdiutil verify "apps/desktop/release/Mori-$RELEASE_VERSION-mac-arm64.dmg"
+unzip -tq "apps/desktop/release/Mori-$RELEASE_VERSION-mac-arm64.zip"
+codesign --verify --deep --strict 'apps/desktop/release/mac-arm64/Mori.app'
 ```
 
 必要时用独立临时 `--user-data-dir` 启动打包后的应用，检查主窗口和关键入口，验证包内
@@ -131,7 +131,7 @@ dev UI 检查使用 [eco-dev-cdp](../eco-dev-cdp/SKILL.md)；打包版不套用 
 
 ```sh
 git commit -m "chore(release): 发布 $RELEASE_VERSION 并同步更新说明"
-git tag -a "$RELEASE_TAG" -m "发布 Eco Coding $RELEASE_VERSION"
+git tag -a "$RELEASE_TAG" -m "发布 Mori $RELEASE_VERSION"
 git push --atomic origin beta "$RELEASE_TAG"
 ```
 

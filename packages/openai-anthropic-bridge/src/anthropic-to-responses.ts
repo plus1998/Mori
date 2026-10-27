@@ -178,11 +178,11 @@ export function normalizeExitPlanModeToolParameters(schema: unknown): unknown {
         description:
           typeof properties.plan.description === "string"
             ? properties.plan.description
-            : "Complete Markdown plan to submit for Eco approval.",
+            : "Complete Markdown plan to submit for Mori approval.",
       }
     : {
         type: "string",
-        description: "Complete Markdown plan to submit for Eco approval.",
+        description: "Complete Markdown plan to submit for Mori approval.",
       };
   properties.planContent = isJsonRecord(properties.planContent)
     ? {
@@ -217,7 +217,7 @@ function augmentToolDescription(name: string, description: string | undefined): 
   if (name !== "ExitPlanMode") {
     return description;
   }
-  const requirement = "Eco requirement: include the complete Markdown plan in the `plan` tool input field.";
+  const requirement = "Mori requirement: include the complete Markdown plan in the `plan` tool input field.";
   return description?.trim() ? `${description.trim()}\n\n${requirement}` : requirement;
 }
 

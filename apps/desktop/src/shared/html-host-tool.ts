@@ -10,7 +10,7 @@ export {
 
 export function buildHtmlHostPromptAppend(): string {
   return [
-    "Built-in HTML page hosting (Eco Artifacts): publish or update shareable, self-contained HTML pages for progress reports and statistics.",
+    "Built-in HTML page hosting (Mori Artifacts): publish or update shareable, self-contained HTML pages for progress reports and statistics.",
     buildEcoMcpHubToolUsage({ server: ECO_HTML_HOST_MCP_SERVER }),
   ].join("\n");
 }

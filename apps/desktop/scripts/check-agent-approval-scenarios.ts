@@ -251,7 +251,7 @@ try {
       request: "检查前端代码，阅读适用的 React 性能技能指导。",
       tool: "Read",
       input: { file_path: path.join(os.homedir(), ".agents/skills/vercel-react-best-practices/SKILL.md") },
-      reason: "Filesystem read path is outside Eco workspace; review actual action.",
+      reason: "Filesystem read path is outside Mori workspace; review actual action.",
       expected: "allow",
     },
     {

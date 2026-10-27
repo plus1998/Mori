@@ -3,7 +3,7 @@
  */
 export function buildScenarioPrompt(marker) {
   return [
-    `You are running an Eco conversation-round scenario smoke. Marker=${marker}.`,
+    `You are running an Mori conversation-round scenario smoke. Marker=${marker}.`,
     "Complete EVERY step below in order. Be concise.",
     "",
     "1) SKILL: Load/use the skill named smoke-skill (or read its SKILL.md). Include the exact tokens SMOKE_SKILL_OK and the marker in a short reply line.",

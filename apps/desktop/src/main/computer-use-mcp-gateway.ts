@@ -176,7 +176,7 @@ export function assessLinuxComputerUseSession(
       ok: false,
       missing: ["desktopSession"],
       reason:
-        "未检测到 Linux 图形桌面会话（缺少 DISPLAY/WAYLAND_DISPLAY 与 XDG_RUNTIME_DIR）。请在已登录桌面中运行 Eco，并确保 AT-SPI2 可用；不支持无桌面的服务会话。",
+        "未检测到 Linux 图形桌面会话（缺少 DISPLAY/WAYLAND_DISPLAY 与 XDG_RUNTIME_DIR）。请在已登录桌面中运行 Mori，并确保 AT-SPI2 可用；不支持无桌面的服务会话。",
     };
   }
   return {
@@ -766,7 +766,7 @@ export class ComputerUseMcpGateway {
         res,
         {
           serverName: ECO_COMPUTER_USE_MCP_SERVER,
-          instructions: "Eco computer use (shared open-computer-use upstream).",
+          instructions: "Mori computer use (shared open-computer-use upstream).",
           listTools: async ({ signal }) => {
             await this.ensureUpstream();
             const listed = await this.upstream.listTools(signal);

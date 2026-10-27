@@ -409,7 +409,7 @@ export async function startAcpThreadRunWithDriver(
       // Happy path keeps the RPC parked inside driver.run until the user decides.
       deps.releasePlanBridgeKeepPending(
         input.thread.id,
-        "acp disconnect fallback: plan awaits Eco approval via continuation",
+        "acp disconnect fallback: plan awaits Mori approval via continuation",
       );
     }
     if (decision.kind === "unstarted") {
@@ -449,7 +449,7 @@ export async function startAcpThreadRunWithDriver(
     if (hasPendingPlan) {
       deps.releasePlanBridgeKeepPending(
         input.thread.id,
-        "acp disconnect fallback: run threw while plan awaits Eco approval",
+        "acp disconnect fallback: run threw while plan awaits Mori approval",
       );
       await deps.applyRunDecision({
         threadId: input.thread.id,

@@ -73,13 +73,13 @@ export const contextReferenceTools = [
   ),
   tool(
     "read_conversation",
-    "Read a local Eco conversation across projects by conversationId. Returns bounded user/assistant text, role, messageId, runId, status, timestamps, truncation flags, and an older-page cursor. Excludes thinking, system prompts, runtime configuration and inline attachments. Long text can be continued with read_conversation_message. includeTools adds bounded tool summaries.",
+    "Read a local Mori conversation across projects by conversationId. Returns bounded user/assistant text, role, messageId, runId, status, timestamps, truncation flags, and an older-page cursor. Excludes thinking, system prompts, runtime configuration and inline attachments. Long text can be continued with read_conversation_message. includeTools adds bounded tool summaries.",
     { conversationId: string, beforeCursor: string, limit, includeTools: { type: "boolean" } },
     ["conversationId"],
   ),
   tool(
     "read_conversation_message",
-    "Read the next text chunk of one user/assistant message from an Eco conversation. Use messageId from read_conversation, with offset / nextOffset to continue a truncated message.",
+    "Read the next text chunk of one user/assistant message from an Mori conversation. Use messageId from read_conversation, with offset / nextOffset to continue a truncated message.",
     {
       conversationId: string,
       messageId: string,

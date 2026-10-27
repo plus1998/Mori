@@ -263,7 +263,7 @@ export function formatUpstreamProxyCallLog(summary: UpstreamProxyCallLog): strin
 
   if (summary.billing) {
     const billingParts = [
-      `Eco ${formatCostUsd(summary.billing.ecoCostUsd)}`,
+      `Mori ${formatCostUsd(summary.billing.ecoCostUsd)}`,
       `规划等价 ${formatCostUsd(summary.billing.plannerTokenCostUsd)}`,
     ];
     if (summary.billing.savedUsd > 0) {

@@ -49,7 +49,7 @@ lines.on("line", (line) => {
             protocolVersion: params?.protocolVersion || "2024-11-05",
             capabilities: { tools: {} },
             serverInfo: { name: "eco_image_view", version: "1.0.0" },
-            instructions: "Eco local image viewing. Pass an absolute path; returns a structured text report.",
+            instructions: "Mori local image viewing. Pass an absolute path; returns a structured text report.",
           },
         });
       } else if (method === "ping") {

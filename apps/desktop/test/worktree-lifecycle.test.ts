@@ -66,6 +66,17 @@ describe("approved plan snapshot", () => {
     expect(parseApprovedPlanDocument(doc)?.plan).toBe(plan);
   });
 
+  test("restores user-edited plans saved by Eco releases", () => {
+    const doc = [
+      "# Eco approved plan", "", "## User request", "fix export", "",
+      "## Planning analysis", "missing handler", "", "## Approved plan", "1. add route", "",
+      "_User edited this plan in Eco before approval._",
+    ].join("\n");
+    expect(parseApprovedPlanDocument(doc)).toEqual({
+      userPrompt: "fix export", analysis: "missing handler", plan: "1. add route", planUserEdited: true,
+    });
+  });
+
   test("atomically writes a deterministic artifact and detects later content drift", async () => {
     const workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "eco-plan-artifact-"));
     const artifact = await writeApprovedPlanSnapshot(workspacePath, "thread/unsafe", {

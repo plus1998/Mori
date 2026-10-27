@@ -133,14 +133,14 @@ Mori connects model aggregation with task delegation. A lead agent can use a hig
 
 It does not prescribe one permanent model or a fixed number of agents. It provides a composable dispatch and observability layer: the same task can use one agent or parallel subagents.
 
-A cache anomaly shows that the request prefix or upstream cache behavior changed. A single alert cannot establish a provider's intent or fault; Eco exposes the evidence and leaves the conclusion to the user.
+A cache anomaly shows that the request prefix or upstream cache behavior changed. A single alert cannot establish a provider's intent or fault; Mori exposes the evidence and leaves the conclusion to the user.
 
 ## Documentation
 
 - [User Guide](docs/USER_GUIDE.en.md): installation, providers, Agent Teams, MCP, Skills, mobile, and troubleshooting
 - [Technical Documentation](docs/TECHNICAL.en.md): architecture, runtimes, gateway, context, billing, storage, and releases
 - [Supabase deploy (Cloud)](docs/supabase-deploy.md): first-time and incremental cloud deploy
-- [Supabase self-host](docs/supabase-self-host.md): Docker self-host + Eco schema/functions (human and agent runnable)
+- [Supabase self-host](docs/supabase-self-host.md): Docker self-host + Mori schema/functions (human and agent runnable)
 - [Volcengine Supabase (experimental)](docs/supabase-volcengine.md): manual Workspace and CLI deploy
 
 ## Repository layout

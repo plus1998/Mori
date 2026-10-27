@@ -104,7 +104,7 @@ export const demoThreads: ThreadSummary[] = [
     id: DEMO_THREAD_ID,
     title: "Supabase Center 配对 UI",
     prompt:
-      "为 Eco Coding 的 Supabase Center 补全设备配对 UI，并加上基础测试。主代理用 Sol 规划，Explore/Coder/Tester 用 Luna max。",
+      "为 Mori 的 Supabase Center 补全设备配对 UI，并加上基础测试。主代理用 Sol 规划，Explore/Coder/Tester 用 Luna max。",
     workspacePath: DEMO_WORKSPACE_PATH,
     status: "completed",
     createdAt: NOW,
@@ -521,7 +521,7 @@ export const demoCenterServerSettings: CenterServerSettingsSnapshot = {
     supabaseUrl: "",
     serverUrl: "",
     hasAnonKey: false,
-    deviceName: "Eco Demo Desktop",
+    deviceName: "Mori Demo Desktop",
     hasDeviceSecret: false,
     hasRefreshToken: false,
     hasVaultKey: false,

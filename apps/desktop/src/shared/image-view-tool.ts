@@ -10,8 +10,8 @@ export {
 
 export function buildImageViewPromptAppend(): string {
   return [
-    "Built-in image viewing (Eco): analyze images, read screenshots and inspect visual results with a vision model; returns a text answer to your question.",
+    "Built-in image viewing (Mori): analyze images, read screenshots and inspect visual results with a vision model; returns a text answer to your question.",
     buildEcoMcpHubToolUsage({ server: ECO_IMAGE_VIEW_MCP_SERVER }),
-    "On Codex, use this Eco tool for image inspection with custom providers; the native view_image tool remains available with the built-in OpenAI account.",
+    "On Codex, use this Mori tool for image inspection with custom providers; the native view_image tool remains available with the built-in OpenAI account.",
   ].join("\n");
 }

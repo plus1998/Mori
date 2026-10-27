@@ -68,7 +68,7 @@ async function getPage(): Promise<{ page: Page; disconnect: () => Promise<void> 
     }
   }
   await browser.close();
-  throw new Error("No Eco dev renderer with window.eco found on CDP. Start bun run dev first.");
+  throw new Error("No Mori dev renderer with window.eco found on CDP. Start bun run dev first.");
 }
 function getFrame(page: Page): Frame {
   const frames = page
@@ -97,7 +97,7 @@ async function ready(frame: Frame): Promise<void> {
 
 async function main() {
   if (values.help || !command) {
-    console.log(`Eco Feed offline replay (run from apps/desktop)
+    console.log(`Mori Feed offline replay (run from apps/desktop)
   bun run feed:replay export --thread thr_ID [--db /path/to/eco-coding.sqlite] [--out fixture.json]
   bun run feed:replay open --thread thr_ID [--seq 0] [--cdp http://127.0.0.1:9333]
   bun run feed:replay play [--to SEQ] [--speed 1] [--max-gap 1000] [--settle 350]
@@ -146,7 +146,7 @@ Rewind with open --seq. Take cdp:snap before each UI action. Unsupported native 
         return token;
       }, frameId);
       if (token) removeStagedReplayFixture(token);
-      console.log("Replay removed; the native Eco page is restored.");
+      console.log("Replay removed; the native Mori page is restored.");
       return;
     }
     if (command === "open") {
@@ -169,7 +169,7 @@ Rewind with open --seq. Take cdp:snap before each UI action. Unsupported native 
           frame.id = id;
           frame.setAttribute("data-eco-replay-token", token);
           frame.src = url;
-          frame.title = "Eco Feed 离线回放";
+          frame.title = "Mori Feed 离线回放";
           frame.style.cssText =
             "position:fixed;inset:0;width:100%;height:100%;z-index:100000;border:0;background:#212121";
           document.body.append(frame);

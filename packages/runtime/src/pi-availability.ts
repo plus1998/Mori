@@ -48,7 +48,7 @@ export async function probePiCoreAvailability(): Promise<PiCoreAvailability> {
         available: false,
         reason:
           `PI coding-agent ${version ?? "(unknown version)"} is missing ${missing.join(", ")}. ` +
-          `Eco requires the official MCP and codemode extensions from PI ${PI_MINIMUM_VERSION}.`,
+          `Mori requires the official MCP and codemode extensions from PI ${PI_MINIMUM_VERSION}.`,
       };
       return cached;
     }

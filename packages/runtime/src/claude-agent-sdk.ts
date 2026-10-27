@@ -195,7 +195,7 @@ export function isClaudeStreamInputDeliveryUnknown(error: unknown): boolean {
 export function normalizeClaudeSdkUserMessageUuid(value: string): string {
   const uuid = value.startsWith("tfu_") ? value.slice(4) : value;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid)) {
-    throw new Error("Claude SDK user messages require a valid UUID; Eco follow-up ids must contain one.");
+    throw new Error("Claude SDK user messages require a valid UUID; Mori follow-up ids must contain one.");
   }
   return uuid;
 }
@@ -2156,7 +2156,7 @@ export function buildSdkProcessEnv(options: BuildSdkProcessEnvOptions): Record<s
     }
   }
   env.ANTHROPIC_BASE_URL = options.baseUrl.replace(/\/+$/, "");
-  env.CLAUDE_AGENT_SDK_CLIENT_APP = "eco-coding";
+  env.CLAUDE_AGENT_SDK_CLIENT_APP = "mori";
   // Request-scoped classification lets Bridge distinguish native compaction from turns.
   env.CLAUDE_CODE_GATEWAY_HINT_HEADERS = "1";
   if (options.contextWindow !== undefined) {
@@ -4025,7 +4025,7 @@ export function createCanUseTool(
       if (!config.awaitPlanApproval) {
         return {
           behavior: "deny",
-          message: "ExitPlanMode requires Eco plan approval before execution.",
+          message: "ExitPlanMode requires Mori plan approval before execution.",
           interrupt: true,
         };
       }
@@ -4059,7 +4059,7 @@ export function createCanUseTool(
         message:
           planModeToolPolicy === "forbidden"
             ? "Plan Mode tools are unavailable in Agent and Ask sessions."
-            : "Eco Plan approval is handled by Plan Mode hooks and the Eco approval UI; generic tool auto-approval must not approve this tool.",
+            : "Mori Plan approval is handled by Plan Mode hooks and the Mori approval UI; generic tool auto-approval must not approve this tool.",
         interrupt: true,
       };
     }
@@ -4075,7 +4075,7 @@ export function createCanUseTool(
       return {
         behavior: "deny",
         message:
-          "Tool permission request was aborted before Eco could decide (control channel closed or interrupt) — not a user denial.",
+          "Tool permission request was aborted before Mori could decide (control channel closed or interrupt) — not a user denial.",
       };
     }
 

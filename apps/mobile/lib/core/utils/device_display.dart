@@ -83,10 +83,17 @@ String? formatDeviceDetail(PublicDevice? device, {String? omitLabel}) {
 
 bool _isGenericDeviceName(String name, {required String kind}) {
   final normalized = name.trim().toLowerCase();
+  if (normalized == 'mori') return true;
   if (kind == 'mobile') {
-    return normalized == 'eco mobile' || normalized == 'ecomobile';
+    return normalized == 'mori mobile' ||
+        normalized == 'morimobile' ||
+        normalized == 'eco mobile' ||
+        normalized == 'ecomobile';
   }
-  return normalized == 'eco desktop' || normalized == 'ecodesktop';
+  return normalized == 'mori desktop' ||
+      normalized == 'moridesktop' ||
+      normalized == 'eco desktop' ||
+      normalized == 'ecodesktop';
 }
 
 String shortenDeviceId(String deviceId) {

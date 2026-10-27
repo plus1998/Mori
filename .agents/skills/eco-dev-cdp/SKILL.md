@@ -1,14 +1,14 @@
 ---
 name: eco-dev-cdp
 description: >-
-  Test or drive Eco desktop UI in dev: run `cd apps/desktop && bun run cdp:attach`
+  Test or drive Mori desktop UI in dev: run `cd apps/desktop && bun run cdp:attach`
   then `bun run cdp:snap` (playwright-cli on CDP port 9333). Use when user asks
   to smoke-test, click, or verify the running dev app — must use Shell, not code-only.
 ---
 
-# Eco Dev UI（playwright-cli）
+# Mori Dev UI（playwright-cli）
 
-用户要**测 / 点 / 看** dev 里的 Eco 界面时：**必须用 Shell 连 CDP 操作**，不要只读代码或说「理论上可以」。
+用户要**测 / 点 / 看** dev 里的 Mori 界面时：**必须用 Shell 连 CDP 操作**，不要只读代码或说「理论上可以」。
 
 前提：`bun run dev` 已在跑（CDP 默认 **9333**）。
 
@@ -33,7 +33,7 @@ bun run cdp:shot -- --filename .smoke-artifacts/step.png
 
 ## 说明（尽量短）
 
-- 走 **Eco 主窗口 CDP 9333**，不是内置浏览器 MCP（`eco_agent_browser` 是另一回事）
+- 走 **Mori 主窗口 CDP 9333**，不是内置浏览器 MCP（`eco_agent_browser` 是另一回事）
 - 底层是本地 `@playwright/test` 的 `playwright cli`（同 e2e）
 - 关 CDP：`ECO_DEV_CDP=0`；改端口：`ECO_DEV_CDP_PORT`
 
@@ -47,7 +47,7 @@ bun run cdp:shot -- --filename .smoke-artifacts/step.png
 
 完成验证后必须运行 `bun run playwright-cli -- detach`，保留 dev App 运行。`playwright-cli` 连接期间会拦截文件选择事件，用户点击「图片」时不会弹出原生文件选择框；不要把这个现象误判为 Composer 点击失效，也不要遗留连接干扰用户操作。
 
-## 查 Eco 会话里 agent 做了什么
+## 查 Mori 会话里 agent 做了什么
 
 用户要重放某条会话检查 Feed、停止/处理中状态、滚动或发送渲染卡顿时，使用项目内的 [eco-feed-replay](../eco-feed-replay/SKILL.md)。它只读导出 V2 事件并在真实 dev App 中隔离回放，不重新请求模型或执行原会话工具。
 

@@ -50,7 +50,7 @@ export function createPiIntegratedWebSearchExtensionFactory(
     pi.registerTool({
       name: PI_WEB_SEARCH_TOOL_NAME,
       label: "Web Search",
-      description: `Search the web via Eco Integrated search (${providerLabel}). Use when you need up-to-date information from the public web.`,
+      description: `Search the web via Mori Integrated search (${providerLabel}). Use when you need up-to-date information from the public web.`,
       parameters,
       executionMode: "sequential",
       execute: async (_toolCallId, rawParams, signal) => {

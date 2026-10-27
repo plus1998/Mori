@@ -10,7 +10,7 @@ interface DemoShellProps {
 export function DemoShell({
   children,
   activeThreadTitle = "Supabase Center 配对 UI",
-  projectName = "eco-coding-demo",
+  projectName = "mori-demo",
 }: DemoShellProps) {
   return (
     <main className="shell readme-demo-root">

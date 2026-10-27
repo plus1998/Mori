@@ -159,9 +159,9 @@ export function requiresComputerUseActionApproval(toolName: string): boolean {
  */
 export function buildEcoComputerUsePromptAppend(): string {
   return [
-    "Built-in Computer Use (Eco): inspect and operate local applications and desktop interfaces through accessibility APIs.",
+    "Built-in Computer Use (Mori): inspect and operate local applications and desktop interfaces through accessibility APIs.",
     buildEcoMcpHubToolUsage({ server: ECO_COMPUTER_USE_MCP_SERVER }),
-    "Desktop state is shared across conversations; actions affect the same OS UI. Action approvals follow the current Eco settings.",
+    "Desktop state is shared across conversations; actions affect the same OS UI. Action approvals follow the current Mori settings.",
     "Act on current accessibility state; refresh it after navigation or failed actions. Prefer element indices, using coordinates only when no accessibility element matches.",
     "Screenshots are always returned as local file paths, never inline images. To analyze a screenshot, call eco_image_view:view_image with its path and a specific prompt.",
   ].join("\n");

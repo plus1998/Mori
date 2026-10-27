@@ -433,7 +433,7 @@ export function requireCodexSubagentThreadId(
       "Codex subagent resume is not available because this agent has no Codex thread attribution mapping.",
       {
         nextAction:
-          "Spawn the subagent once so Eco can persist codex_thread_attribution, then retry resume against the same agent id.",
+          "Spawn the subagent once so Mori can persist codex_thread_attribution, then retry resume against the same agent id.",
       },
     );
   }

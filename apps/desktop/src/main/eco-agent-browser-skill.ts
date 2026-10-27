@@ -72,7 +72,7 @@ export async function ensureClaudeUserEcoAgentBrowserSkill(
     await fsPromises.copyFile(sourceSkill, targetSkill);
     await fsPromises.writeFile(
       path.join(targetDir, MANAGED_MARKER),
-      "eco-coding managed skill — do not edit; toggled with Browser Agent integration\n",
+      "Mori managed skill — do not edit; toggled with Browser Agent integration\n",
       "utf8",
     );
     return { ok: true, skillFilePath: targetSkill };
@@ -100,7 +100,7 @@ export function buildEcoAgentBrowserSkillInfo(skillFilePath: string): SkillInfo 
   return {
     name: ECO_AGENT_BROWSER_SKILL_NAME,
     description:
-      "Eco built-in browser via agent-browser MCP; snapshot-and-ref workflow for the in-app browser.",
+      "Mori built-in browser via agent-browser MCP; snapshot-and-ref workflow for the in-app browser.",
     source: "user",
     directory,
     skillFilePath,
@@ -116,7 +116,7 @@ export function buildEcoAgentBrowserCodexSkillInfo(skillFilePath: string): Skill
   return {
     name: ECO_AGENT_BROWSER_SKILL_NAME,
     description:
-      "Eco built-in browser via agent-browser MCP; snapshot-and-ref workflow for the in-app browser.",
+      "Mori built-in browser via agent-browser MCP; snapshot-and-ref workflow for the in-app browser.",
     source: "user",
     directory,
     skillFilePath,

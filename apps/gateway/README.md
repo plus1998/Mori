@@ -1,6 +1,6 @@
 # eco-gateway
 
-Eco 自建协议转换网关。对外仅暴露 **OpenAI Responses** 兼容面；对内按 Provider `upstreamKind` 路由到真实上游。
+Mori 自建协议转换网关。对外仅暴露 **OpenAI Responses** 兼容面；对内按 Provider `upstreamKind` 路由到真实上游。
 
 **运行时**：Node `http`（**不是** Bun.serve）。Desktop / 打包后的 Electron **在 main 进程内嵌**启动（`apps/desktop/src/main/eco-gateway-lifecycle.ts` → `startEcoGateway()`），发布物不依赖用户机器上的 `bun`。
 

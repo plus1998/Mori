@@ -50,7 +50,7 @@ lines.on("line", (line) => {
             capabilities: { tools: {} },
             serverInfo: { name: "eco_image_generation", version: "1.0.0" },
             instructions:
-              "Eco image generation. Every call requires user approval and returns saved file paths.",
+              "Mori image generation. Every call requires user approval and returns saved file paths.",
           },
         });
       } else if (method === "ping") {

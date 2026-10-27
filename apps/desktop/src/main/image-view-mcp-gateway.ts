@@ -157,7 +157,7 @@ export class ImageViewMcpGateway {
         {
           serverName: ECO_IMAGE_VIEW_MCP_SERVER,
           instructions:
-            "Eco local image viewing. Pass an absolute path or durable ref plus a caller-chosen prompt. The tool returns the vision model's text response.",
+            "Mori local image viewing. Pass an absolute path or durable ref plus a caller-chosen prompt. The tool returns the vision model's text response.",
           listTools: async () => ({ tools: [imageViewToolDefinition()] }),
           callTool: async ({ name, arguments: args, authToken, signal }) =>
             this.executeToolCall(name, args, authToken, signal),
@@ -281,7 +281,7 @@ function imageViewToolDefinition(): McpToolDefinition {
   return {
     name: ECO_IMAGE_VIEW_TOOL,
     description:
-      "Inspect an image with Eco's vision model using a caller-provided prompt. Provide either an absolute local path or a durable ref. The returned text is passed through without a prescribed response format. Keep image bytes out of the main prompt.",
+      "Inspect an image with Mori's vision model using a caller-provided prompt. Provide either an absolute local path or a durable ref. The returned text is passed through without a prescribed response format. Keep image bytes out of the main prompt.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

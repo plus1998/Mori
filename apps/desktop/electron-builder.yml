@@ -2,11 +2,11 @@ appId: com.eco.coding
 productName: Mori
 copyright: Copyright © Mori
 
-# Register the eco:// URL scheme so clicking eco://connect?... hands the link
-# to this app (see main-process open-url / second-instance handling).
+# Register mori:// and retain eco:// so links from older releases still open
+# this app (see main-process open-url / second-instance handling).
 protocols:
   - name: Mori
-    schemes: [eco]
+    schemes: [mori, eco]
 
 directories:
   output: release
@@ -93,6 +93,7 @@ mac:
     CFBundleURLTypes:
       - CFBundleURLName: Mori
         CFBundleURLSchemes:
+          - mori
           - eco
   target:
     - target: dmg

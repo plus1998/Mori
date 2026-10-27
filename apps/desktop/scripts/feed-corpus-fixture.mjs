@@ -187,7 +187,7 @@ function rows(table, where, ...args) {
 }
 
 const corpus = {
-  generatedFrom: "local Eco dev database (thread rows, structure only)",
+  generatedFrom: "local Mori dev database (thread rows, structure only)",
   generatedBy: "apps/desktop/scripts/feed-corpus-fixture.mjs",
   anonymized: true,
   conversations: [],

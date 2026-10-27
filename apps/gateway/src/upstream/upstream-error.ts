@@ -100,7 +100,7 @@ export function formatUpstreamHttpError(input: {
   const detail = extractUpstreamErrorMessage(input.bodyText);
   return [
     input.errorOrigin === "eco.context_budget"
-      ? `Eco context budget · provider=${input.route.provider.id}`
+      ? `Mori context budget · provider=${input.route.provider.id}`
       : `Upstream provider ${input.route.provider.id}`,
     `model=${input.route.upstreamModelId}`,
     `url=${input.upstreamUrl}`,

@@ -23,7 +23,7 @@ Deno.serve((req) => {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Eco — 邮箱已确认</title>
+  <title>Mori — 邮箱已确认</title>
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -49,9 +49,9 @@ Deno.serve((req) => {
 <body>
   <main>
     <h1 class="ok">邮箱已确认</h1>
-    <p>你的 Eco 账号邮箱已验证成功。</p>
-    <p>请返回 <strong>Eco Desktop</strong>，用同一邮箱和密码点击「登录并绑定」。</p>
-    <p lang="en">Email confirmed. Return to Eco Desktop and sign in.</p>
+    <p>你的 Mori 账号邮箱已验证成功。</p>
+    <p>请返回 <strong>Mori Desktop</strong>，用同一邮箱和密码点击「登录并绑定」。</p>
+    <p lang="en">Email confirmed. Return to Mori Desktop and sign in.</p>
   </main>
 </body>
 </html>`;

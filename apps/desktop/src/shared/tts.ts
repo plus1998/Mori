@@ -175,12 +175,12 @@ export function buildTtsPromptAppend(input: {
   model: string;
 }): string {
   return [
-    "Built-in Speech Generation (Eco): use create_speech to create playable voice artifacts when speech is requested or useful to the task.",
+    "Built-in Speech Generation (Mori): use create_speech to create playable voice artifacts when speech is requested or useful to the task.",
     buildEcoMcpHubToolUsage({ server: ECO_TTS_MCP_SERVER }),
     `Active profile: ${input.profileName}; protocol=${input.provider}; model=${input.model}.`,
     "Choose the voice and style yourself to suit the content and user intent. style controls emotion, tone, pitch, pace, accent and delivery. text is the verbatim transcript: never put delivery instructions into text. Inline vocal events such as <laugh>, <sigh>, <short pause> are supported by Gemini 3.8.",
     "Gemini voices include Kore (firm), Puck (upbeat), Aoede (breezy), Charon (informative), Fenrir (excitable), Leda (youthful), Orus (firm), Zephyr (bright). Other providers require their own voice IDs.",
     "Doubao (Volcengine) voice IDs come from its voice library: zh_female_vv_uranus_bigtts (Vivi 2.0), zh_female_xiaohe_uranus_bigtts, zh_male_m191_uranus_bigtts, zh_female_qingxinnvsheng_uranus_bigtts, en_male_tim_uranus_bigtts, en_female_dacey_uranus_bigtts. For Doubao TTS 2.0 the style text is sent as a natural-language voice instruction, so phrase it as a request such as “请用温柔、略慢的语气朗读”。",
-    "Eco saves the audio and displays a player in Feed and artifact cards. Report provider errors accurately; do not silently change provider or model.",
+    "Mori saves the audio and displays a player in Feed and artifact cards. Report provider errors accurately; do not silently change provider or model.",
   ].join("\n");
 }

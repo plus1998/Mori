@@ -49,7 +49,7 @@ lines.on("line", (line) => {
             protocolVersion: params?.protocolVersion || "2024-11-05",
             capabilities: { tools: {} },
             serverInfo: { name: "eco_web_search", version: "1.0.0" },
-            instructions: "Eco Integrated Web Search. Pass a query string to search the public web.",
+            instructions: "Mori Integrated Web Search. Pass a query string to search the public web.",
           },
         });
       } else if (method === "ping") {

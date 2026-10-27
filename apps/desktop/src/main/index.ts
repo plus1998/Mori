@@ -1,4 +1,5 @@
 import { recordProviderUsage } from "./provider-usage-recorder";
+import { APP_LINK_SCHEMES, isAppDeepLink } from "../shared/center-server";
 import { resolveGenerationToolContext } from "./generation-tool-context";
 import type { ImageGenerationToolInput } from "../shared/image-generation";
 import type { TtsToolInput } from "../shared/tts";
@@ -1206,7 +1207,7 @@ if (!e2eMode && !hasSingleInstanceLock) {
 let desktopInitializationComplete = false;
 
 /**
- * Pending deep link (eco://...) delivered while the renderer is not ready yet.
+ * Pending deep link (mori://... or legacy eco://...) delivered before the renderer is ready.
  * Sent to the renderer once it reports ready.
  */
 let pendingEcoDeepLink: string | undefined;
@@ -1430,16 +1431,16 @@ function presentPrimaryWindow(): void {
 }
 
 app.on("second-instance", (_event, argv) => {
-  const ecoUrl = argv.find((arg) => arg.startsWith("eco://"));
+  const ecoUrl = argv.find(isAppDeepLink);
   presentPrimaryWindow();
   if (ecoUrl) {
     deliverEcoDeepLink(ecoUrl);
   }
 });
 
-// Delivered by the OS when the registered eco:// scheme is opened.
+// Delivered by the OS when mori:// or the legacy eco:// scheme is opened.
 app.on("open-url", (_event, url) => {
-  if (!url.startsWith("eco://")) {
+  if (!isAppDeepLink(url)) {
     return;
   }
   presentPrimaryWindow();
@@ -2596,11 +2597,13 @@ app
     windowStateStore.load();
     startupWindow = await createMainWindow({ startupSplash: true });
     logStartupStage("startup-window.ready");
-    // Let the OS hand eco://... deep links to this app.
+    // Register new mori:// links and retain legacy eco:// links.
     // Packaged only: in dev the scheme would register against the bare electron.exe,
     // which treats the URL as an app path and fails to launch.
     if (app.isPackaged) {
-      app.setAsDefaultProtocolClient("eco");
+      for (const scheme of APP_LINK_SCHEMES) {
+        app.setAsDefaultProtocolClient(scheme);
+      }
     }
     if (appIcon && process.platform === "darwin") {
       app.dock?.setIcon(appIcon);
@@ -3580,7 +3583,7 @@ app
       onCodexTurnPlanUpdated: ({ ecoThreadId, plan }) => {
         if (!conversationStore.getThread(ecoThreadId)) {
           process.stderr.write(
-            `[eco-codex] turn/plan/updated references unknown Eco thread ${ecoThreadId}\n`,
+            `[eco-codex] turn/plan/updated references unknown Mori thread ${ecoThreadId}\n`,
           );
           return;
         }
@@ -3599,7 +3602,7 @@ app
         const worktreePath = resolveThreadWorktreePath(ecoThreadId);
         const runtime = resolveRuntimeConfigForThreadId(ecoThreadId);
         if (!thread) {
-          markThreadInterrupted(ecoThreadId, "Codex Plan completed for an unknown Eco thread.");
+          markThreadInterrupted(ecoThreadId, "Codex Plan completed for an unknown Mori thread.");
           return;
         }
         if (!worktreePath) {
@@ -3899,7 +3902,7 @@ app
     // On Windows/Linux a deep link that cold-started the app arrives via argv
     // (the "open-url" event only fires for an already-running instance). Seed
     // the pending link so it is flushed to the renderer once it is ready.
-    const argvDeepLink = process.argv.find((arg) => arg.startsWith("eco://"));
+    const argvDeepLink = process.argv.find(isAppDeepLink);
     if (argvDeepLink && !pendingEcoDeepLink) {
       pendingEcoDeepLink = argvDeepLink;
     }
@@ -14893,16 +14896,16 @@ async function tryDeliverFollowUpViaMidTurn(
         thread.id,
         claimed.id,
         isCodex
-          ? "Codex accepted turn/steer, but Eco could not commit the applied state."
+          ? "Codex accepted turn/steer, but Mori could not commit the applied state."
           : isPi
-            ? "PI accepted steer, but Eco could not commit the applied state."
-            : "Claude accepted streamInput, but Eco could not commit the applied state.",
+            ? "PI accepted steer, but Mori could not commit the applied state."
+            : "Claude accepted streamInput, but Mori could not commit the applied state.",
       ) ?? claimed;
     if (followUp.conversationMessageId) {
       failAcceptedV2Messages(
         thread.id,
         [followUp.conversationMessageId],
-        `${midTurnLabel} accepted the prompt, but Eco could not commit the applied state.`,
+        `${midTurnLabel} accepted the prompt, but Mori could not commit the applied state.`,
       );
     }
     logEcoDiag(
@@ -15013,7 +15016,7 @@ function reconcileInterruptedStreamingPushFollowUps(
       logEcoDiag("follow_up.cancelled_unmapped", {
         threadId: shortThreadId(threadId),
         uuid,
-        reason: "interrupt cancelled uuid is not a known Eco streaming_push follow-up id",
+        reason: "interrupt cancelled uuid is not a known Mori streaming_push follow-up id",
       });
       continue;
     }
@@ -15042,14 +15045,14 @@ function reconcileInterruptedStreamingPushFollowUps(
       logEcoDiag("follow_up.delivery_unknown", {
         threadId: shortThreadId(threadId),
         uuid,
-        reason: "interrupt still_queued uuid is not a known Eco streaming_push follow-up id",
+        reason: "interrupt still_queued uuid is not a known Mori streaming_push follow-up id",
       });
       continue;
     }
     const failed = conversationStore.markThreadFollowUpDeliveryUnknown(
       threadId,
       uuid,
-      "Message survived interrupt, but the Query closed before Eco could prove final delivery.",
+      "Message survived interrupt, but the Query closed before Mori could prove final delivery.",
     );
     if (failed) {
       emitThreadEvent(
@@ -19012,7 +19015,7 @@ async function buildSdkSessionOptions(
       ? [
           {
             name: ECO_AGENT_BROWSER_SKILL_NAME,
-            description: "Eco built-in browser skill",
+            description: "Mori built-in browser skill",
             source: "user" as const,
             directory: path.dirname(ecoBrowserSkillFilePath),
             skillFilePath: ecoBrowserSkillFilePath,
@@ -20499,7 +20502,7 @@ function createThreadHookContext(threadId: string): EcoHookContext {
       const worktreePath = worktreePlan?.worktreePath ?? thread.workspacePath;
       const roleRoutes = resolveRoleRoutesForThread(threadId);
       const analysis = [
-        "Plan submitted for Eco approval.",
+        "Plan submitted for Mori approval.",
         request.planFilePath ? `Plan file: ${request.planFilePath}` : "",
       ]
         .filter(Boolean)
@@ -20736,7 +20739,7 @@ function createWebSearchToolPermissionHandler(
     if (!thread) {
       return {
         behavior: "deny",
-        message: "Thread was not found; Eco could not request web search approval.",
+        message: "Thread was not found; Mori could not request web search approval.",
         interrupt: true,
       };
     }
@@ -20744,7 +20747,7 @@ function createWebSearchToolPermissionHandler(
     if (!approvalAgentId) {
       return {
         behavior: "deny",
-        message: "Eco could not attribute this web search approval to an agent instance.",
+        message: "Mori could not attribute this web search approval to an agent instance.",
         interrupt: false,
       };
     }
@@ -20814,7 +20817,7 @@ function createImageGenerationToolPermissionHandler(
     if (!thread) {
       return {
         behavior: "deny",
-        message: "Thread was not found; Eco could not request image approval.",
+        message: "Thread was not found; Mori could not request image approval.",
         interrupt: true,
       };
     }
@@ -20822,7 +20825,7 @@ function createImageGenerationToolPermissionHandler(
     if (!approvalAgentId) {
       return {
         behavior: "deny",
-        message: "Eco could not attribute this image approval to an agent instance.",
+        message: "Mori could not attribute this image approval to an agent instance.",
         interrupt: false,
       };
     }
@@ -20900,7 +20903,7 @@ function createComputerUseToolPermissionHandler(
     if (!thread) {
       return {
         behavior: "deny",
-        message: "Thread was not found; Eco could not request Computer Use approval.",
+        message: "Thread was not found; Mori could not request Computer Use approval.",
         interrupt: true,
       };
     }
@@ -20908,7 +20911,7 @@ function createComputerUseToolPermissionHandler(
     if (!approvalAgentId) {
       return {
         behavior: "deny",
-        message: "Eco could not attribute this Computer Use approval to an agent instance.",
+        message: "Mori could not attribute this Computer Use approval to an agent instance.",
         interrupt: false,
       };
     }
@@ -20985,7 +20988,7 @@ function createBrowserOpenToolPermissionHandler(
     if (!thread) {
       return {
         behavior: "deny",
-        message: "Thread was not found; Eco could not request browser open approval.",
+        message: "Thread was not found; Mori could not request browser open approval.",
         interrupt: true,
       };
     }
@@ -20993,7 +20996,7 @@ function createBrowserOpenToolPermissionHandler(
     if (!approvalAgentId) {
       return {
         behavior: "deny",
-        message: "Eco could not attribute this browser open approval to an agent instance.",
+        message: "Mori could not attribute this browser open approval to an agent instance.",
         interrupt: false,
       };
     }
@@ -21096,7 +21099,7 @@ async function requestSdkHintApproval(
   const thread = conversationStore.getThread(threadId);
   const agentId = resolveThreadBashApprovalAgentId(threadId, request);
   if (!thread || !agentId)
-    return { behavior: "deny", message: "Eco could not attribute the SDK permission request." };
+    return { behavior: "deny", message: "Mori could not attribute the SDK permission request." };
   let approval: BashApprovalRequest = {
     threadId,
     toolUseId: request.toolUseId,
@@ -21177,7 +21180,7 @@ function createThreadBashAndFilesystemToolPermissionHandler(
       if (!thread) {
         return {
           behavior: "deny",
-          message: "Thread was not found; Eco could not request filesystem approval.",
+          message: "Thread was not found; Mori could not request filesystem approval.",
           interrupt: true,
         };
       }
@@ -21211,7 +21214,7 @@ function createThreadBashAndFilesystemToolPermissionHandler(
       if (!approvalAgentId) {
         return {
           behavior: "deny",
-          message: "Eco could not attribute this filesystem approval to an agent instance.",
+          message: "Mori could not attribute this filesystem approval to an agent instance.",
           interrupt: false,
         };
       }
@@ -21306,7 +21309,7 @@ function createThreadBashAndFilesystemToolPermissionHandler(
     if (!command) {
       return {
         behavior: "deny",
-        message: "Bash command is missing; Eco could not present it for approval.",
+        message: "Bash command is missing; Mori could not present it for approval.",
         interrupt: false,
       };
     }
@@ -21315,7 +21318,7 @@ function createThreadBashAndFilesystemToolPermissionHandler(
     if (!thread) {
       return {
         behavior: "deny",
-        message: "Thread was not found; Eco could not request Bash approval.",
+        message: "Thread was not found; Mori could not request Bash approval.",
         interrupt: true,
       };
     }
@@ -21342,7 +21345,7 @@ function createThreadBashAndFilesystemToolPermissionHandler(
       if (!approvalAgentId) {
         return {
           behavior: "deny",
-          message: "Eco could not attribute this Bash denial to an agent instance.",
+          message: "Mori could not attribute this Bash denial to an agent instance.",
           interrupt: false,
         };
       }
@@ -21399,7 +21402,7 @@ function createThreadBashAndFilesystemToolPermissionHandler(
     if (!approvalAgentId) {
       return {
         behavior: "deny",
-        message: "Eco could not attribute this Bash approval to an agent instance.",
+        message: "Mori could not attribute this Bash approval to an agent instance.",
         interrupt: false,
       };
     }

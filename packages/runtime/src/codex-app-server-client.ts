@@ -178,7 +178,7 @@ export class CodexAppServerClient {
     params: CodexAppServerInitializeParams = {
       clientInfo: {
         name: "eco_coding",
-        title: "Eco Coding",
+        title: "Mori",
         version: "0.0.1",
       },
       capabilities: {
@@ -362,7 +362,7 @@ export class CodexAppServerClient {
 function serverRequestMethodNotFound(method: string): CodexAppServerRequestError {
   return new CodexAppServerRequestError(
     CODEX_JSON_RPC_METHOD_NOT_FOUND,
-    `Eco does not implement Codex app-server request method ${method}.`,
+    `Mori does not implement Codex app-server request method ${method}.`,
   );
 }
 

@@ -222,7 +222,7 @@ async function writeConfig(home: string, api: ModelApi, hub: RunningHub, token: 
     'model_provider = "eco_probe"',
     "",
     "[model_providers.eco_probe]",
-    'name = "Eco local deterministic Responses provider"',
+    'name = "Mori local deterministic Responses provider"',
     `base_url = "${api.url}"`,
     'wire_api = "responses"',
     'request_max_retries = 0',

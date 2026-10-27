@@ -1,16 +1,16 @@
 ---
 name: eco-supabase
 description: >-
-  Deploy and update the Eco Supabase Center (schema + Edge Functions) on a
+  Deploy and update the Mori Supabase Center (schema + Edge Functions) on a
   user-owned Supabase Cloud project or a self-hosted Docker stack. Use when the
   user asks to set up Supabase, self-host, first deploy, incremental migrate,
   db push, deploy functions, link project-ref, or apply eco migrations to
   volumes/functions. Prefer this over the removed Bun apps/server.
 ---
 
-# Eco Supabase 部署（Agent）
+# Mori Supabase 部署（Agent）
 
-Eco **无官方节点**。客户端只要 **Project URL + anon key**（禁止 `service_role`）。
+Mori **无官方节点**。客户端只要 **Project URL + anon key**（禁止 `service_role`）。
 
 | 场景 | 权威文档 | 主命令 |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ bun run supabase:deploy -- --platform cloud --project-ref <PROJECT_REF>
 # 或交互：bun run supabase:deploy
 ```
 
-5. 把 URL + anon 交给用户填 Eco；**不要**给 service_role。
+5. 把 URL + anon 交给用户填 Mori；**不要**给 service_role。
 6. 可选 curl `device-register` 冒烟（见 supabase-deploy.md）。
 
 ## Cloud：增量
@@ -78,9 +78,9 @@ bun run supabase:deploy -- --platform cloud
 严格按 [docs/supabase-self-host.md](../../../docs/supabase-self-host.md) §A / §D：
 
 1. 确认服务器满足 4C/8G 建议；已装 Docker + Git。  
-2. 无栈则协助官方 `setup.sh` 或 Manual install → **先** `sh utils/generate-keys.sh --update-env` → 无 SMTP 时设 `ENABLE_EMAIL_AUTOCONFIRM=true` → `sh run.sh start` / 或 Eco 最小栈 `docker compose up -d db auth rest realtime api-gw functions`。  
+2. 无栈则协助官方 `setup.sh` 或 Manual install → **先** `sh utils/generate-keys.sh --update-env` → 无 SMTP 时设 `ENABLE_EMAIL_AUTOCONFIRM=true` → `sh run.sh start` / 或 Mori 最小栈 `docker compose up -d db auth rest realtime api-gw functions`。
 3. 记下 **API URL** 与 **anon**（Windows：`COMPOSE_FILE` 用 `;`；apply **不依赖**主机 `sh`）。  
-4. 在 eco-coding 根目录：
+4. 在 Mori 根目录：
 
 ```bash
 bun run supabase:deploy -- --platform self-host --compose-dir <SUPABASE_PROJECT_DIR>
@@ -93,7 +93,7 @@ bun run supabase:deploy -- --platform self-host --compose-dir <SUPABASE_PROJECT_
 ## 自托管：增量
 
 ```bash
-git pull   # eco-coding
+git pull   # Mori
 bun run supabase:deploy -- --platform self-host --compose-dir <SUPABASE_PROJECT_DIR>
 ```
 

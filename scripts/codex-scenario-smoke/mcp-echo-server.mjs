@@ -20,7 +20,7 @@ const LOG_PATH = process.env.ECO_SMOKE_MCP_LOG?.trim() || "";
 const TOOLS = [
   {
     name: "smoke_ping",
-    description: "Return a fixed smoke ping payload for Eco Codex scenario tests.",
+    description: "Return a fixed smoke ping payload for Mori Codex scenario tests.",
     inputSchema: {
       type: "object",
       properties: {
@@ -31,7 +31,7 @@ const TOOLS = [
   },
   {
     name: "smoke_echo",
-    description: "Echo the provided text back for Eco Codex scenario tests.",
+    description: "Echo the provided text back for Mori Codex scenario tests.",
     inputSchema: {
       type: "object",
       properties: {

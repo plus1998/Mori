@@ -14,7 +14,7 @@ export function setupScenarioWorkspace(input) {
   fs.mkdirSync(workspace, { recursive: true });
   fs.writeFileSync(
     path.join(workspace, "README.md"),
-    `# Eco Conversation Round Workspace\nmarker=${marker}\n`,
+    `# Mori Conversation Round Workspace\nmarker=${marker}\n`,
   );
 
   const sourceSkill = path.join(assetsRoot, "smoke-skill");

@@ -204,7 +204,7 @@ export function createEcoSdkBridgeHandler(
     const path = url.pathname.replace(/\/+$/, "") || "/";
 
     if (request.method === "POST" && (path === "/v1/responses/compact" || path === "/responses/compact")) {
-      onLog("POST compact intercepted (Eco Bridge owns compaction; Eco compact runs out-of-band)");
+      onLog("POST compact intercepted (Mori Bridge owns compaction; Mori compact runs out-of-band)");
       if (options.handleCompact) {
         return options.handleCompact(request);
       }

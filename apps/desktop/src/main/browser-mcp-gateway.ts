@@ -136,7 +136,7 @@ export class BrowserMcpGateway {
       return claimed;
     }
     throw new Error(
-      "Browser MCP 无法绑定会话：缺少有效 Authorization，且没有匹配的 tool.started claim。并发会话需要 Eco 看到 tool.started 或使用带 token 的连接。",
+      "Browser MCP 无法绑定会话：缺少有效 Authorization，且没有匹配的 tool.started claim。并发会话需要 Mori 看到 tool.started 或使用带 token 的连接。",
     );
   }
 
@@ -223,7 +223,7 @@ export class BrowserMcpGateway {
         res,
         {
           serverName: ECO_AGENT_BROWSER_MCP_SERVER,
-          instructions: "Eco built-in browser. Tools apply only to the authenticated conversation thread.",
+          instructions: "Mori built-in browser. Tools apply only to the authenticated conversation thread.",
           listTools: async () => ({ tools: agentBrowserCoreToolsCatalog() }),
           callTool: async ({ name, arguments: args, authToken, signal }) =>
             this.executeToolCall(name, args, authToken, signal),

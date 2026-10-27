@@ -347,7 +347,7 @@ export function formatBridgePortInUseError(port: number, occupant: string, healt
   }
   if (healthyBridge) {
     parts.push(
-      `A process on :${port} already answers /health — likely a previous Eco Desktop, smoke test, or standalone gateway. Quit that app or: lsof -nP -iTCP:${port} -sTCP:LISTEN`,
+      `A process on :${port} already answers /health — likely a previous Mori Desktop, smoke test, or standalone gateway. Quit that app or: lsof -nP -iTCP:${port} -sTCP:LISTEN`,
     );
   } else if (occupant) {
     parts.push(`Inspect with: lsof -nP -iTCP:${port} -sTCP:LISTEN`);
@@ -453,7 +453,7 @@ export function buildGatewayProvidersFromEcoProviders(
   const globalMaxOutputTokens = options?.globalMaxOutputTokens ?? DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS;
   const enabled = providers.filter((provider) => provider.enabled);
   if (enabled.length === 0) {
-    throw new Error("No enabled Eco providers to sync into eco-gateway.");
+    throw new Error("No enabled Mori providers to sync into eco-gateway.");
   }
 
   const incompleteProviderIds: string[] = [];

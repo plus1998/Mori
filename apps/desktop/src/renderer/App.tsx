@@ -1630,8 +1630,8 @@ function App() {
     });
   }, []);
 
-  // Import a Supabase project from an eco://connect deep link
-  // (eco://connect?url=...&token=...). Opens the connection panel where a
+  // Import a Supabase project from an mori://connect deep link
+  // (mori://connect?url=...&token=...). Opens the connection panel where a
   // confirmation dialog is shown.
   useEffect(() => {
     if (!window.eco?.onEcoDeepLinkOpen) {

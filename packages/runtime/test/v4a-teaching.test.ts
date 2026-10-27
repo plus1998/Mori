@@ -20,7 +20,7 @@ describe("v4a-teaching", () => {
 
   test("buildV4aTeachingPrompt includes proactive grammar rules", () => {
     const prompt = buildV4aTeachingPrompt();
-    expect(prompt).toContain("Eco V4A teaching");
+    expect(prompt).toContain("Mori V4A teaching");
     expect(prompt).toContain("*** Begin Patch");
     expect(prompt).toContain(V4A_TEACHING_FOOTER);
   });

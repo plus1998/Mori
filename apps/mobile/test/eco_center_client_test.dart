@@ -5,18 +5,23 @@ import 'package:eco_mobile/core/storage/credential_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('repeated initialize does not rebroadcast unchanged connection state', () async {
-    final client = EcoCenterClient(store: _MemoryCredentialStore());
-    final states = <EcoConnectionState>[];
-    final subscription = client.connectionStatus.listen((s) => states.add(s.state));
-    await client.initialize();
-    await client.initialize();
-    await client.initialize();
-    await Future<void>.delayed(Duration.zero);
-    expect(states, [EcoConnectionState.disconnected]);
-    await subscription.cancel();
-    await client.dispose();
-  });
+  test(
+    'repeated initialize does not rebroadcast unchanged connection state',
+    () async {
+      final client = EcoCenterClient(store: _MemoryCredentialStore());
+      final states = <EcoConnectionState>[];
+      final subscription = client.connectionStatus.listen(
+        (s) => states.add(s.state),
+      );
+      await client.initialize();
+      await client.initialize();
+      await client.initialize();
+      await Future<void>.delayed(Duration.zero);
+      expect(states, [EcoConnectionState.disconnected]);
+      await subscription.cancel();
+      await client.dispose();
+    },
+  );
 
   test('Realtime reconnect backs off and caps repeated failures', () {
     expect(
@@ -185,6 +190,43 @@ void main() {
   });
 
   group('parsePairingQrPayload', () {
+    for (final scheme in ['mori', 'eco']) {
+      test('parses $scheme connection and pairing links', () {
+        final connection = parsePairingQrPayload(
+          '$scheme://center?supabase=https%3A%2F%2Fabc.supabase.co&anon=key%2B%2F%3D',
+        );
+        expect(connection.supabaseUrl, 'https://abc.supabase.co');
+        expect(connection.anonKey, 'key+/=');
+        expect(connection.code, '');
+        expect(connection.canConfigureServer, isTrue);
+        final pairing = parsePairingQrPayload(
+          '$scheme://pair?supabase=https%3A%2F%2Fabc.supabase.co&anon=key&code=abcd1234&token=boot',
+        );
+        expect(pairing.code, 'ABCD1234');
+        expect(pairing.bootstrapToken, 'boot');
+        expect(pairing.canQuickJoin, isTrue);
+        expect(
+          parsePairingCodeFromQr('$scheme://pair?code=abcd1234'),
+          'ABCD1234',
+        );
+      });
+    }
+
+    test('rejects unknown schemes and lookalike hosts', () {
+      for (final link in [
+        'https://center?supabase=https://abc.supabase.co&anon=key',
+        'mori-evil://center?supabase=https://abc.supabase.co&anon=key',
+        'mori://center-evil?supabase=https://abc.supabase.co&anon=key',
+        'eco://pair-evil?code=abcd1234',
+        'mori://[',
+      ]) {
+        expect(
+          () => parsePairingQrPayload(link),
+          throwsA(isA<EcoCenterException>()),
+        );
+      }
+    });
+
     test('parses legacy quick-join uri', () {
       final payload = parsePairingQrPayload(
         'eco://pair?server=http%3A%2F%2F192.168.1.2%3A3128&code=abcd1234&token=secret-token',

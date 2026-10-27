@@ -260,9 +260,9 @@ function ecoChromeCss(): string {
 }
 
 function ecoBrandMarkup(): string {
-  return `<div class="eco-brand" aria-label="Eco Coding">
+  return `<div class="eco-brand" aria-label="Mori">
       <img class="eco-brand__logo" src="${ECO_MARK_DATA_URI}" width="22" height="22" alt="" />
-      <span class="eco-brand__name">Eco Coding</span>
+      <span class="eco-brand__name">Mori</span>
     </div>`;
 }
 
@@ -291,7 +291,7 @@ export function buildOuterFrameHtml(input: {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${title} — Eco Coding</title>
+  <title>${title} — Mori</title>
   <style>
 ${ecoChromeCss()}
   </style>
@@ -353,7 +353,7 @@ ${ecoChromeCss()}
 
 /** Shared Eco-branded status / error page for view Edge Function. */
 export function buildStatusPageHtml(input: { title?: string; zh: string; en: string }): string {
-  const pageTitle = escapeHtml(input.title?.trim() || "Eco Coding");
+  const pageTitle = escapeHtml(input.title?.trim() || "Mori");
   const zh = escapeHtml(input.zh);
   const en = escapeHtml(input.en);
   return `<!DOCTYPE html>

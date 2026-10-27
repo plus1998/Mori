@@ -274,7 +274,7 @@ export async function handleCodexServerRequest(
     default:
       throw new CodexAppServerRequestError(
         CODEX_JSON_RPC_METHOD_NOT_FOUND,
-        `Eco does not implement Codex app-server request method ${method}.`,
+        `Mori does not implement Codex app-server request method ${method}.`,
       );
   }
 }
@@ -873,7 +873,7 @@ async function handleMcpServerElicitationRequest(
     emitMcpElicitationDeclined(
       deps,
       ecoThreadId,
-      `已拒绝 ${serverName} 的 URL 交互请求：Eco 尚未实现可验证的外部 URL 完成回调。`,
+      `已拒绝 ${serverName} 的 URL 交互请求：Mori 尚未实现可验证的外部 URL 完成回调。`,
     );
     return { action: "decline" };
   }
@@ -1033,7 +1033,7 @@ function handlePlanItemCompleted(deps: CodexApprovalBridgeDeps, params: Record<s
   const worktreePath = deps.getWorktreePath(ecoThreadId) ?? thread.workspacePath;
   const planFilePath = readString(item, "planFilePath") ?? readString(item, "path");
   const analysis = [
-    "Codex plan mode produced this plan for Eco approval.",
+    "Codex plan mode produced this plan for Mori approval.",
     planFilePath ? `Plan file: ${planFilePath}` : "",
   ]
     .filter(Boolean)
@@ -1297,7 +1297,7 @@ function validateToolRequestUserInputQuestions(value: unknown): Record<string, u
     if (question.isSecret === true) {
       throw invalidServerRequestParams(
         CODEX_TOOL_REQUEST_USER_INPUT,
-        `questions[${index}] requests secret input, which Eco cannot present without exposing it.`,
+        `questions[${index}] requests secret input, which Mori cannot present without exposing it.`,
       );
     }
     // `options` is nullable in 0.160.1 (`Array<ToolRequestUserInputOption> | null`) and

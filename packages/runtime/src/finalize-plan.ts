@@ -42,7 +42,7 @@ export async function createFinalizePlanMcpServer(
 
   const finalizePlanTool = tool(
     FINALIZE_PLAN_MCP_TOOL_NAME,
-    "Submit the final implementation plan for Eco approval.",
+    "Submit the final implementation plan for Mori approval.",
     {
       analysis: z.string().describe("Final analysis summary for this plan."),
       plan: z.string().describe("Decision-complete implementation plan."),

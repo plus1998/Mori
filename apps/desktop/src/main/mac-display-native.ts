@@ -22,7 +22,7 @@ export function createMacActivityAssertion(): { refresh(): void; release(): void
   const declare = io.func("int IOPMAssertionDeclareUserActivity(void *, uint32_t, _Inout_ uint32_t *)");
   const create = io.func("int IOPMAssertionCreateWithName(void *, uint32_t, void *, _Out_ uint32_t *)");
   const release = io.func("int IOPMAssertionRelease(uint32_t)");
-  const name = string(null, "Eco desktop automation", 0x08000100);
+  const name = string(null, "Mori desktop automation", 0x08000100);
   const type = string(null, "PreventUserIdleDisplaySleep", 0x08000100);
   const displayId = [0];
   const activityId = [0];
@@ -34,7 +34,7 @@ export function createMacActivityAssertion(): { refresh(): void; release(): void
   }
   return {
     refresh() {
-      const label = string(null, "Eco desktop automation", 0x08000100);
+      const label = string(null, "Mori desktop automation", 0x08000100);
       try {
         check(declare(label, 0, activityId), "IOPMAssertionDeclareUserActivity");
         check(updateActivity(1), "UpdateSystemActivity");

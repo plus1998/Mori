@@ -76,7 +76,7 @@ rl.on("line", (line) => {
             protocolVersion: msg.params?.protocolVersion || "2024-11-05",
             capabilities: { tools: {} },
             serverInfo: { name: "eco_agent_browser", version: "1.0.0" },
-            instructions: "Eco built-in browser. Tools apply only to the authenticated conversation thread.",
+            instructions: "Mori built-in browser. Tools apply only to the authenticated conversation thread.",
           },
         });
         return;

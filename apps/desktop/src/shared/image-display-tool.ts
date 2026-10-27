@@ -10,7 +10,7 @@ export {
 
 export function buildImageDisplayPromptAppend(): string {
   return [
-    "Built-in image display (Eco): present images, screenshots and visual results to the user in workspace cards and the task sidebar. Image analysis is provided by Eco image viewing.",
+    "Built-in image display (Mori): present images, screenshots and visual results to the user in workspace cards and the task sidebar. Image analysis is provided by Mori image viewing.",
     buildEcoMcpHubToolUsage({ server: ECO_IMAGE_DISPLAY_MCP_SERVER }),
   ].join("\n");
 }

@@ -139,7 +139,7 @@ try {
   const init = await client.initialize({
     clientInfo: {
       name: "eco_codex_scenario_smoke",
-      title: "Eco Codex Scenario Smoke",
+      title: "Mori Codex Scenario Smoke",
       version: "1.0.0",
     },
     capabilities: { experimentalApi: true },
@@ -158,7 +158,7 @@ try {
       max_threads: 8,
       max_depth: 1,
       smoke_worker: {
-        description: "Short-lived worker for Eco scenario smoke. Reply with the given marker only.",
+        description: "Short-lived worker for Mori scenario smoke. Reply with the given marker only.",
         config_file: agentRolePath,
       },
     },
@@ -337,7 +337,7 @@ function resolveCodexExecutable() {
 function setupWorkspace() {
   fs.writeFileSync(
     path.join(workspace, "README.md"),
-    `# Eco Codex Scenario Smoke Workspace\nmarker=${marker}\n`,
+    `# Mori Codex Scenario Smoke Workspace\nmarker=${marker}\n`,
   );
 
   const skillDir = path.join(codexHome, "skills", "smoke-skill");
@@ -346,7 +346,7 @@ function setupWorkspace() {
     path.join(skillDir, "SKILL.md"),
     `---
 name: smoke-skill
-description: Eco Codex scenario smoke skill. When asked about SMOKE_SKILL, reply with SMOKE_SKILL_OK and the marker.
+description: Mori Codex scenario smoke skill. When asked about SMOKE_SKILL, reply with SMOKE_SKILL_OK and the marker.
 ---
 # Smoke Skill
 
@@ -366,7 +366,7 @@ function writeAgentRole() {
   const rolePath = path.join(agentsDir, "smoke_worker.toml");
   const toml = [
     'name = "smoke_worker"',
-    'description = "Short worker for Eco scenario smoke. Do one tiny task and reply with the provided marker."',
+    'description = "Short worker for Mori scenario smoke. Do one tiny task and reply with the provided marker."',
     `developer_instructions = ${JSON.stringify(
       "You are smoke_worker. Do not call tools unless required. Reply with exactly the marker string the parent asked for.",
     )}`,

@@ -38,7 +38,7 @@ export function assertBrowserGuestWebContents(
   const type = webContents.getType();
   if (type !== "webview") {
     throw new Error(
-      `Refusing CDP on non-guest webContents (type=${type}); Eco main window must not handle browser automation`,
+      `Refusing CDP on non-guest webContents (type=${type}); Mori main window must not handle browser automation`,
     );
   }
 }
@@ -130,7 +130,7 @@ function assertTargetAllowed(options: MultiBrowserCdpProxyOptions, target: Brows
   assertBrowserGuestWebContents(target.webContents);
   if (options.isForbiddenWebContents?.(target.webContents)) {
     throw new Error(
-      `Refusing CDP on forbidden webContents (id=${target.webContents.id}); Eco main window must not handle browser automation`,
+      `Refusing CDP on forbidden webContents (id=${target.webContents.id}); Mori main window must not handle browser automation`,
     );
   }
 }
@@ -238,7 +238,7 @@ function pageTargetInfo(target: BrowserCdpTarget): Record<string, unknown> {
   return {
     targetId: target.id,
     type: "page",
-    title: alive ? wc.getTitle() || "Eco Browser" : "Eco Browser",
+    title: alive ? wc.getTitle() || "Mori Browser" : "Mori Browser",
     url: alive ? wc.getURL() || "about:blank" : "about:blank",
     attached: true,
     canAccessOpener: false,
@@ -478,9 +478,9 @@ async function handleHttp(
 
   if (url.pathname === "/json/version" || url.pathname === "/json/version/") {
     writeJson(res, 200, {
-      Browser: "Eco-Browser/1.0",
+      Browser: "Mori-Browser/1.0",
       "Protocol-Version": "1.3",
-      "User-Agent": "Eco Coding Built-in Browser",
+      "User-Agent": "Mori Built-in Browser",
       "V8-Version": process.versions.v8,
       "WebKit-Version": process.versions.chrome,
       webSocketDebuggerUrl: wsUrl,
@@ -1060,9 +1060,9 @@ async function tryHandleTargetDomain(
       handled: true,
       result: {
         protocolVersion: "1.3",
-        product: "Eco-Browser/1.0",
+        product: "Mori-Browser/1.0",
         revision: process.versions.electron ?? "",
-        userAgent: "Eco Coding Built-in Browser",
+        userAgent: "Mori Built-in Browser",
         jsVersion: process.versions.v8 ?? "",
       },
     };

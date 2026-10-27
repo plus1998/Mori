@@ -1,14 +1,14 @@
 ---
 name: eco-feed-replay
 description: >-
-  在 Eco dev 中离线重放指定 thr_ 会话的原始 Conversation V2 事件，检查 Feed
+  在 Mori dev 中离线重放指定 thr_ 会话的原始 Conversation V2 事件，检查 Feed
   状态、处理中/停止提示、工具写入残留、虚拟列表、滚动跳动及发送渲染卡顿。
   只读导出 SQLite，通过 Shell/CDP 驱动真实 App；不重新调用模型或执行原会话工具。
 ---
 
-# Eco Feed 离线对话重放
+# Mori Feed 离线对话重放
 
-用于用户要求重放、回看或 debug 某条 Eco 对话的渲染问题。若用户要验证真实 SDK、模型或网络请求，走 [eco-dev-cdp](../eco-dev-cdp/SKILL.md)，本 Skill 的回放不能证明这些链路正常。
+用于用户要求重放、回看或 debug 某条 Mori 对话的渲染问题。若用户要验证真实 SDK、模型或网络请求，走 [eco-dev-cdp](../eco-dev-cdp/SKILL.md)，本 Skill 的回放不能证明这些链路正常。
 
 执行脚本位于 `apps/desktop/scripts/feed-replay/`，统一入口是 `apps/desktop/scripts/feed-replay.ts`。以下命令从仓库根目录进入 `apps/desktop` 后运行。
 
@@ -17,7 +17,7 @@ description: >-
 1. 以只读方式打开现有 SQLite，在一个一致的读事务中导出 `conversation_events_v2` 和 `conversation_sync_effects_v2`。
 2. 校验从 1 开始的连续序号、store epoch、effect hash；缺少 V2 数据、effect 或历史前缀时明确失败，不回退到 V1。
 3. 从 provider source 事实调用当前生产 `buildThreadRunProjectionRequestSpans`，重建请求跨度及 tool-writing 状态。格式 v2 只保存变化的跨度及移除 ID，播放器按序重建；仍显式支持旧格式 v1 的完整快照。
-4. 在 Eco 主窗口挂载隔离 iframe，导入真实 `src/renderer/App.tsx`。生产 reducer、Feed、虚拟列表、Markdown 和滚动协调继续工作。
+4. 在 Mori 主窗口挂载隔离 iframe，导入真实 `src/renderer/App.tsx`。生产 reducer、Feed、虚拟列表、Markdown 和滚动协调继续工作。
 5. iframe 的 `window.eco` 使用本地 V2 适配器。发送只消费下一条录制用户消息及录制运行开始；停止只消费当前运行的录制取消。模型调用、工具执行、原对话写入和未实现的原生 API 被阻止。
 6. localStorage / sessionStorage 和草稿隔离在内存中；不会写回用户真实 UI 偏好。配置和工作区等明确列出的元信息只读 API 仍使用当前 dev 环境，并在 trace 中标记为 `environment-read`。
 
@@ -122,7 +122,7 @@ async page => {
 
 `window.__ECO_FEED_REPLAY__` 提供 `status()`、`play(options)`、`pause()`、`trace()`、`clear()`、`measureNextSend()` 和 `sendMeasurement()`。性能时间用 `performance.now()`。历史时间在事件间按真实时钟推进，暂停只停止事件投递，避免冻结 `Date.now()` 后让自动滚动期限永不结束。
 
-macOS 后台窗口可能暂停 rAF；CLI 已开启 CDP focus emulation 并 bringToFront。键盘验证要确认 keydown 的真实目标和 `document.hasFocus()`，不能以合成事件代替真实按键验收。Playwright CLI 默认有时选到 DevTools tab，先查看 snapshot 并选 Eco tab；CLI 本身会按 URL 和 `window.eco` 选择主窗口。
+macOS 后台窗口可能暂停 rAF；CLI 已开启 CDP focus emulation 并 bringToFront。键盘验证要确认 keydown 的真实目标和 `document.hasFocus()`，不能以合成事件代替真实按键验收。Playwright CLI 默认有时选到 DevTools tab，先查看 snapshot 并选 Mori tab；CLI 本身会按 URL 和 `window.eco` 选择主窗口。
 
 修改代码后如遇 HMR 残留或 createRoot 警告，保存 trace，重新加载 dev 页面并重新 `open`，不要把热更新残留当作录制问题。主进程投影修改需要重启 dev；重新 export 才会使用修复后的请求跨度。
 

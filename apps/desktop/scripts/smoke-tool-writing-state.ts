@@ -189,7 +189,7 @@ for (const { event } of raw) {
   }
 }
 
-console.log("\n--- Eco pipeline activities ---");
+console.log("\n--- Mori pipeline activities ---");
 for (const entry of observed) {
   console.log(`  ${String(entry.at).padStart(6)}ms  ${entry.liveType}`);
 }
@@ -262,7 +262,7 @@ check(
   { lastTextAt, toolBlockOpenAt },
 );
 check(
-  "Eco emitted the writing activity, and no more than the write and its target",
+  "Mori emitted the writing activity, and no more than the write and its target",
   writingEvents.length >= 1 && writingEvents.length <= 2,
   { activities: observed.map((entry) => entry.liveType) },
 );

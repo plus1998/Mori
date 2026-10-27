@@ -1,6 +1,6 @@
-# Eco：自托管 Supabase 部署指南
+# Mori：自托管 Supabase 部署指南
 
-面向 **人和 Agent**。开源 Eco **不提供官方节点**；本文件说明如何在自己的机器/VPS 上用官方 Docker 栈跑 Supabase，再装上本仓库的 Eco Center（migration + Edge Functions）。
+面向 **人和 Agent**。开源 Mori **不提供官方节点**；本文件说明如何在自己的机器/VPS 上用官方 Docker 栈跑 Supabase，再装上本仓库的 Mori Center（migration + Edge Functions）。
 
 Cloud 托管请看 [supabase-deploy.md](supabase-deploy.md)。  
 Agent Skill：[`.agents/skills/eco-supabase/SKILL.md`](../.agents/skills/eco-supabase/SKILL.md)。
@@ -16,7 +16,7 @@ Agent Skill：[`.agents/skills/eco-supabase/SKILL.md`](../.agents/skills/eco-sup
 | **Project URL** | API 网关根地址，默认 `http://<host>:8000`（生产务必 HTTPS 反代） |
 | **anon key** | 自托管 `.env` / `sh run.sh secrets` 中的 anon（或新版 publishable）密钥 |
 
-**禁止**把 `service_role` / secret key 填进 Eco Desktop 或 Mobile。
+**禁止**把 `service_role` / secret key 填进 Mori Desktop 或 Mobile。
 
 ---
 
@@ -28,9 +28,9 @@ Agent Skill：[`.agents/skills/eco-supabase/SKILL.md`](../.agents/skills/eco-sup
 | CPU | 2 核 | **4 核+** |
 | 磁盘 | 40 GB SSD | 80 GB+ |
 
-需要 **Realtime + Edge Functions**（Eco 遥控依赖二者），不要为了省内存删掉这两个服务。
+需要 **Realtime + Edge Functions**（Mori 遥控依赖二者），不要为了省内存删掉这两个服务。
 
-Eco **账密/设备中心不需要** Storage / imgproxy。HTML Artifacts 托管走 Edge Functions（Postgres 存正文），也不依赖 Storage。若机器内存紧（例如 Windows Docker 上限约 8G），可只起最小栈：
+Mori **账密/设备中心不需要** Storage / imgproxy。HTML Artifacts 托管走 Edge Functions（Postgres 存正文），也不依赖 Storage。若机器内存紧（例如 Windows Docker 上限约 8G），可只起最小栈：
 
 ```bash
 docker compose up -d db auth rest realtime api-gw functions
@@ -73,7 +73,7 @@ cd ~/supabase-project
 docker compose pull
 # 全套：
 sh run.sh start    # 或 docker compose up -d --wait
-# 或 Eco 最小栈（无 Studio/Storage）：
+# 或 Mori 最小栈（无 Studio/Storage）：
 docker compose up -d db auth rest realtime api-gw functions
 ```
 
@@ -83,20 +83,20 @@ docker compose up -d db auth rest realtime api-gw functions
 docker compose ps   # db/auth/rest/realtime/api-gw/functions 应为 healthy（或 running）
 ```
 
-Studio（若已启动）：浏览器打开 `http://<host>:8000`（网关默认 8000），用 Dashboard 用户名密码登录。无 Studio 时用 curl / Eco 客户端验证即可。
+Studio（若已启动）：浏览器打开 `http://<host>:8000`（网关默认 8000），用 Dashboard 用户名密码登录。无 Studio 时用 curl / Mori 客户端验证即可。
 
-### A2. 打开 Eco 需要的 Auth / Realtime
+### A2. 打开 Mori 需要的 Auth / Realtime
 
 在 Studio（或直接改 `.env` / GoTrue）中确认：
 
-1. **允许 Email 注册/登录**（Eco 开放 signUp 设计）。  
+1. **允许 Email 注册/登录**（Mori 开放 signUp 设计）。
 2. **无 SMTP 的本机/内网**：`.env` 设 `ENABLE_EMAIL_AUTOCONFIRM=true` 并 recreate `auth`，否则 signup 会因发信失败返回 500（查找 `supabase-mail` 失败）。  
-3. **Realtime 不要对匿名全开放**；Eco migration 会为私有 topic 配 RLS。若有 “Allow public access” 类开关，保持关闭。  
+3. **Realtime 不要对匿名全开放**；Mori migration 会为私有 topic 配 RLS。若有 “Allow public access” 类开关，保持关闭。
 4. `SITE_URL` / 重定向 URL 指向你的公网 HTTPS 地址（若走域名）。
 
-### A3. 装上 Eco schema + Edge Functions
+### A3. 装上 Mori schema + Edge Functions
 
-在 **eco-coding 仓库根目录**（本机可 SSH 到服务器，或在服务器上 clone 本仓库）：
+在 **Mori 仓库根目录**（本机可 SSH 到服务器，或在服务器上 clone 本仓库）：
 
 ```bash
 # <COMPOSE_DIR> = 上一步的 supabase-project 绝对路径
@@ -125,7 +125,7 @@ bun run supabase:deploy -- --platform self-host --database-url "postgres://..." 
 
 函数仍须拷进该实例的 `volumes/functions`（需要 `--compose-dir`）。
 
-### A4. 填入 Eco 客户端
+### A4. 填入 Mori 客户端
 
 1. URL：`https://your.domain`（或临时 `http://IP:8000`）  
 2. anon：来自 `sh run.sh secrets`  
@@ -148,12 +148,12 @@ curl -sS -X POST "$SUPABASE_URL/functions/v1/device-register" \
 
 ## B. 增量更新
 
-### B1. 只更新 Eco（migration / 函数）
+### B1. 只更新 Mori（migration / 函数）
 
 仓库有新 SQL 或改了 `supabase/functions` 时，在已部署机器上：
 
 ```bash
-cd /path/to/eco-coding
+cd /path/to/Mori
 git pull
 bun run supabase:deploy -- --platform self-host --compose-dir <COMPOSE_DIR>
 ```
@@ -185,7 +185,7 @@ sh run.sh recreate       # 或官方文档推荐的 recreate 范围
 bun run supabase:deploy -- --platform self-host --compose-dir <COMPOSE_DIR>
 ```
 
-确认 Eco migration 与函数仍在；若官方覆盖了 `volumes/functions`，必须以 Eco 仓库重新 sync。
+确认 Mori migration 与函数仍在；若官方覆盖了 `volumes/functions`，必须以 Mori 仓库重新 sync。
 
 ---
 
@@ -205,7 +205,7 @@ bun run supabase:deploy -- --platform self-host --compose-dir <COMPOSE_DIR>
 1. 确认服务器满足 4C/8G 建议；已装 Docker + Git。  
 2. 若无栈：指导运行 `setup.sh` 或 Manual install → `sh run.sh start` → `sh run.sh secrets`。  
 3. 向用户确认 **API URL** 与 **anon**（可帮读 secrets，但 **不要**把 service_role 写进客户端配置文件）。  
-4. 在 eco-coding 根目录执行：  
+4. 在 Mori 根目录执行：
    `bun run supabase:deploy -- --platform self-host --compose-dir <COMPOSE_DIR>`  
    （Windows 不需要 `sh`；脚本用 `docker compose restart functions`。若存在 `docker-compose.eco.yml` 会自动带上。）  
 5. 提醒：Email 注册开；无 SMTP 则 `ENABLE_EMAIL_AUTOCONFIRM=true`；Realtime 公网放开要关。  

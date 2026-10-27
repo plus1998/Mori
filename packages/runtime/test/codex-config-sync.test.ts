@@ -61,7 +61,7 @@ test("buildCodexConfigToml maps enabled providers to eco_* model_providers", () 
   expect(toml).toContain('model_provider = "eco_anthropic-main"');
   expect(toml).toContain('model_reasoning_summary = "detailed"');
   expect(toml).toContain("[model_providers.eco_anthropic-main]");
-  expect(toml).toContain('name = "Eco Gateway (eco_anthropic-main)"');
+  expect(toml).toContain('name = "Mori Gateway (eco_anthropic-main)"');
   expect(toml).toContain('base_url = "http://127.0.0.1:18765/v1"');
   expect(toml).toContain('wire_api = "responses"');
   expect(toml).toContain("stream_idle_timeout_ms = 900000");
@@ -178,11 +178,11 @@ test("global provider config leaves remote compaction disabled for per-model thr
     model_providers: Record<string, { name: string; capabilities: Record<string, unknown> }>;
   };
   expect(parsed.model_providers.eco_native).toMatchObject({
-    name: "Eco Gateway (eco_native)",
+    name: "Mori Gateway (eco_native)",
     capabilities: { remote_compaction: "unsupported" },
   });
   expect(parsed.model_providers["eco_display-openai"]).toMatchObject({
-    name: "Eco Gateway (eco_display-openai)",
+    name: "Mori Gateway (eco_display-openai)",
     capabilities: { remote_compaction: "unsupported" },
   });
   expect(toml).not.toContain("external_web_access");
@@ -494,7 +494,7 @@ test("syncCodexConfigFromEcoProviders includes provider id custom as eco_custom"
   const written = await fs.readFile(result.configPath, "utf8");
   expect(written).toContain('model_provider = "eco_custom"');
   expect(written).toContain("[model_providers.eco_custom]");
-  expect(written).toContain('name = "Eco Gateway (eco_custom)"');
+  expect(written).toContain('name = "Mori Gateway (eco_custom)"');
 });
 
 test("buildCodexConfigToml writes absolute model_catalog_json and rejects relative paths", () => {

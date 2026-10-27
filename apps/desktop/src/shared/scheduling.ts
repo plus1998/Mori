@@ -98,8 +98,8 @@ export function isExpiredOneShotSchedule(definition: ScheduleDefinition, now = D
 
 export const SCHEDULING_MCP_SERVER = "eco_scheduling";
 export const SCHEDULING_PROMPT = [
-  "Built-in scheduling (Eco): continue this conversation after a delay, or run independent scheduled tasks in new conversations; inspect, update and cancel schedules.",
+  "Built-in scheduling (Mori): continue this conversation after a delay, or run independent scheduled tasks in new conversations; inspect, update and cancel schedules.",
   buildEcoMcpHubToolUsage({ server: SCHEDULING_MCP_SERVER }),
   "Choose a conversation wakeup to continue current work. Independent task prompts must include all required context because each occurrence starts a new conversation.",
-  "Execution requires Eco running on an awake local computer; a conversation wakeup does not wake a sleeping computer.",
+  "Execution requires Mori running on an awake local computer; a conversation wakeup does not wake a sleeping computer.",
 ].join("\n");

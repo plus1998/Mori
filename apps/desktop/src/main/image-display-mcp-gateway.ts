@@ -151,7 +151,7 @@ export class ImageDisplayMcpGateway {
         {
           serverName: ECO_IMAGE_DISPLAY_MCP_SERVER,
           instructions:
-            "Eco image display for the user. Stores images as feed artifacts; returns artifactId text.",
+            "Mori image display for the user. Stores images as feed artifacts; returns artifactId text.",
           listTools: async () => ({ tools: [imageDisplayToolDefinition()] }),
           callTool: async ({ name, arguments: args, authToken, signal }) =>
             this.executeToolCall(name, args, authToken, signal),
@@ -260,7 +260,7 @@ function imageDisplayToolDefinition(): McpToolDefinition {
   return {
     name: ECO_IMAGE_DISPLAY_TOOL,
     description:
-      "Display an image to the user. On success returns { status: \"ok\" }. Eco places it in the workspace cards / task panel — tell the user to open it there. Do not embed Markdown image links or paste base64 into replies.",
+      "Display an image to the user. On success returns { status: \"ok\" }. Mori places it in the workspace cards / task panel — tell the user to open it there. Do not embed Markdown image links or paste base64 into replies.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

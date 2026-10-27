@@ -154,7 +154,7 @@ export class HtmlHostMcpGateway {
         {
           serverName: ECO_HTML_HOST_MCP_SERVER,
           instructions:
-            "Eco HTML hosting for progress/report pages. Publish single-file HTML; Eco wraps chrome and returns a publicUrl.",
+            "Mori HTML hosting for progress/report pages. Publish single-file HTML; Mori wraps chrome and returns a publicUrl.",
           listTools: async () => ({ tools: [htmlHostToolDefinition()] }),
           callTool: async ({ name, arguments: args, authToken }) =>
             this.executeToolCall(name, args, authToken),
@@ -290,16 +290,16 @@ function htmlHostToolDefinition(): McpToolDefinition {
   return {
     name: ECO_HTML_HOST_TOOL,
     description:
-      "Publish a self-contained HTML page (progress / report / stats) to Eco Supabase hosting. Pass pageId to update an existing page without resetting its expiry. Returns { status, pageId, publicUrl, expiresAt, canExtend }; use the returned URL and expiry. Users can open or copy the link from the Feed card. Eco wraps content in chrome — do not draw the outer frame.",
+      "Publish a self-contained HTML page (progress / report / stats) to Mori Supabase hosting. Pass pageId to update an existing page without resetting its expiry. Returns { status, pageId, publicUrl, expiresAt, canExtend }; use the returned URL and expiry. Users can open or copy the link from the Feed card. Mori wraps content in chrome — do not draw the outer frame.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
       required: ["title", "html"],
       properties: {
-        title: { type: "string", description: "Short page title shown in Eco chrome and Feed." },
+        title: { type: "string", description: "Short page title shown in Mori chrome and Feed." },
         html: {
           type: "string",
-          description: "Single-file HTML with inline CSS/JS. Eco embeds it; do not include Eco chrome.",
+          description: "Single-file HTML with inline CSS/JS. Mori embeds it; do not include Mori chrome.",
         },
         pageId: {
           type: "string",

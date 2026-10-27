@@ -67,7 +67,7 @@ export function readImageViewResponse(value: unknown): string {
 }
 
 /** Private image sensor: describe only; never advise or address the end user. */
-const VISION_SYSTEM_PROMPT = `You are Eco's private image-interpretation sensor for the main agent.
+const VISION_SYSTEM_PROMPT = `You are Mori's private image-interpretation sensor for the main agent.
 Your context is fully isolated. You have no tools and no channel to the end user.
 Describe only what is visible in the provided image(s). Use the observation focus solely to decide what to look for and what details matter.
 Do not suggest fixes, next steps, code, designs, or opinions.

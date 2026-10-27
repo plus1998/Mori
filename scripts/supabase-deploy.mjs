@@ -32,7 +32,7 @@ const PLATFORM_ALIASES = {
 };
 
 function usage() {
-  return `Deploy Eco Center.
+  return `Deploy Mori Center.
 
 Interactive:
   bun run supabase:deploy
@@ -148,7 +148,7 @@ function deployViaScript(relPath, rest) {
 
 function printClientReminder(platform) {
   console.log("\nDone.");
-  console.log("Fill Eco Desktop / Mobile with Project URL + anon key only (never service_role).");
+  console.log("Fill Mori Desktop / Mobile with Project URL + anon key only (never service_role).");
   if (platform === "cloud") console.log("Docs: docs/supabase-deploy.md");
   if (platform === "self-host") console.log("Docs: docs/supabase-self-host.md");
 }
@@ -209,7 +209,7 @@ function printChecklist(title, items) {
 async function runWizard() {
   const rl = createRl();
   try {
-    console.log("\nEco Supabase 部署向导");
+    console.log("\nMori Supabase 部署向导");
     console.log("客户端最终只填 Project URL + anon；不要把 service_role 填进 App。");
 
     const platform = await askChoice(rl, "你的 Supabase 跑在哪里？", [
@@ -248,7 +248,7 @@ async function wizardCloud(rl, intent, scopeArgs) {
     "已在 https://supabase.com/dashboard 创建项目",
     "本机已执行：npx supabase login（或 supabase login）",
     "Authentication → Email 已开启；Realtime 关闭 Allow public access",
-    "已保存 Project URL + anon（给 Eco 用，不要保存 service_role 到 App）",
+    "已保存 Project URL + anon（给 Mori 用，不要保存 service_role 到 App）",
     "文档：docs/supabase-deploy.md",
   ]);
   await askYesNo(rl, "以上都准备好了吗？", true);
@@ -358,7 +358,7 @@ async function main() {
     rest = planned.args;
   }
 
-  console.log(`\nEco Supabase deploy platform: ${platform}`);
+  console.log(`\nMori Supabase deploy platform: ${platform}`);
 
   if (platform === "cloud") {
     deployCloud(rest);

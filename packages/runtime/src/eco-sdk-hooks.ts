@@ -526,7 +526,7 @@ export async function awaitExitPlanModeUserDecision(
   if (!resolved.plan.trim()) {
     return {
       behavior: "deny",
-      message: "ExitPlanMode requires plan content before Eco can present it for approval.",
+      message: "ExitPlanMode requires plan content before Mori can present it for approval.",
       interrupt: true,
       updatedInput: toolInput,
     };
@@ -547,7 +547,7 @@ export async function awaitExitPlanModeUserDecision(
   }
   return {
     behavior: "deny",
-    message: "User declined the plan in Eco.",
+    message: "User declined the plan in Mori.",
     interrupt: false,
     updatedInput: toolInput,
   };
@@ -658,7 +658,7 @@ export function createExitPlanModePreToolHook(
           hookEventName: "PreToolUse",
           permissionDecision: "defer",
           permissionDecisionReason:
-            "Eco captured the plan for user approval. Planning session ends; execution starts after Eco approval.",
+            "Mori captured the plan for user approval. Planning session ends; execution starts after Mori approval.",
         },
       };
     }
@@ -710,8 +710,8 @@ export function createExitPlanModePermissionRequestHook(
         decision: {
           behavior: "deny",
           message: captured
-            ? "Plan captured for Eco approval. Implementation starts only after you approve in Eco."
-            : "ExitPlanMode requires plan content before Eco can present it for approval.",
+            ? "Plan captured for Mori approval. Implementation starts only after you approve in Mori."
+            : "ExitPlanMode requires plan content before Mori can present it for approval.",
           interrupt: true,
         },
       },
@@ -753,7 +753,7 @@ export function createPlanModeBoundaryPreToolHook(
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
           permissionDecision: "allow",
-          permissionDecisionReason: "Completing the exact ExitPlanMode call already approved in Eco.",
+          permissionDecisionReason: "Completing the exact ExitPlanMode call already approved in Mori.",
           updatedInput: mergeExitPlanModeInjectedFields(toolInput, preInput),
         },
       };
@@ -766,7 +766,7 @@ export function createPlanModeBoundaryPreToolHook(
         permissionDecisionReason:
           policy === "forbidden"
             ? "Plan Mode tools are unavailable in Agent and Ask sessions."
-            : "This Plan Mode tool call is not the ExitPlanMode call previously approved in Eco.",
+            : "This Plan Mode tool call is not the ExitPlanMode call previously approved in Mori.",
       },
     };
   };
@@ -856,7 +856,7 @@ export function createWorkflowDenyPreToolHook(): HookCallback {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
-        permissionDecisionReason: "SDK Dynamic Workflows are disabled in Eco.",
+        permissionDecisionReason: "SDK Dynamic Workflows are disabled in Mori.",
       },
     };
   };
@@ -1111,7 +1111,7 @@ export function createDisabledSubagentPreToolHook(
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
-        permissionDecisionReason: `Subagent "${deniedLabel}" is disabled in Eco settings.`,
+        permissionDecisionReason: `Subagent "${deniedLabel}" is disabled in Mori settings.`,
       },
     };
   };
@@ -1199,7 +1199,7 @@ export function createToolPermissionPreToolHook(
       return recordToolPermissionDecision(
         preInput,
         actor,
-        denyTool(preInput.tool_name, `No Eco tool policy is registered for agent ${actor}.`),
+        denyTool(preInput.tool_name, `No Mori tool policy is registered for agent ${actor}.`),
         options,
       );
     }
@@ -1396,7 +1396,7 @@ function askTool(toolName: string, reason: string): HookJSONOutput {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "ask",
-      permissionDecisionReason: reason || `Tool "${toolName}" requires approval by Eco policy.`,
+      permissionDecisionReason: reason || `Tool "${toolName}" requires approval by Mori policy.`,
     },
   };
 }
@@ -1415,7 +1415,7 @@ function recordToolPermissionDecision(
     permissionDecision: "deny",
     toolName: input.tool_name,
     toolUseId: input.tool_use_id,
-    reason: hookOutput.permissionDecisionReason || `Tool "${input.tool_name}" is denied by Eco policy.`,
+    reason: hookOutput.permissionDecisionReason || `Tool "${input.tool_name}" is denied by Mori policy.`,
     actor,
     ...(typeof input.session_id === "string" && { sessionId: input.session_id }),
     ...(typeof input.agent_id === "string" && { agentId: input.agent_id }),
@@ -1430,7 +1430,7 @@ function denyTool(toolName: string, reason: string): HookJSONOutput {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
-      permissionDecisionReason: reason || `Tool "${toolName}" is denied by Eco policy.`,
+      permissionDecisionReason: reason || `Tool "${toolName}" is denied by Mori policy.`,
     },
   };
 }

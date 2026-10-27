@@ -508,7 +508,7 @@ export function buildAliasCatalogEntry(
   entry.description =
     typeof entry.description === "string" && entry.description.trim()
       ? entry.description
-      : `Eco gateway route alias for ${route.providerId}/${route.modelId}.`;
+      : `Mori gateway route alias for ${route.providerId}/${route.modelId}.`;
   entry.visibility = "list";
   entry.supported_in_api = true;
   // The freeform template is currently GPT-5.6 Sol (v2). Do not let unknown
@@ -617,7 +617,7 @@ export async function syncEcoCodexModelCatalog(
 ): Promise<SyncEcoCodexModelCatalogResult> {
   const codexExecutable = input.codexExecutable.trim();
   if (!codexExecutable) {
-    throw new Error("Codex executable is required to sync the Eco model catalog.");
+    throw new Error("Codex executable is required to sync the Mori model catalog.");
   }
 
   const nativeModels = await loadBundledCodexModelCatalog(codexExecutable, {

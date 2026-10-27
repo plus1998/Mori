@@ -603,7 +603,7 @@ export class AcpAgentDriver {
         if (!turn) {
           return {
             outcome: "rejected" as const,
-            reason: "Eco ACP host has no active turn for create_plan",
+            reason: "Mori ACP host has no active turn for create_plan",
           };
         }
         turn.enqueue([
@@ -627,7 +627,7 @@ export class AcpAgentDriver {
         if (!turn.input.onCreatePlan) {
           return {
             outcome: "rejected" as const,
-            reason: "Eco ACP host has no create_plan handler (plan approval not wired)",
+            reason: "Mori ACP host has no create_plan handler (plan approval not wired)",
           };
         }
         const outcome = await turn.input.onCreatePlan(request);
@@ -657,7 +657,7 @@ export class AcpAgentDriver {
       onAskQuestion: async (request) => {
         const turn = connectionHolder.current?.turn;
         if (!turn?.input.onAskQuestion) {
-          return { outcome: "skipped" as const, reason: "Eco ACP host has no ask_question handler" };
+          return { outcome: "skipped" as const, reason: "Mori ACP host has no ask_question handler" };
         }
         return turn.input.onAskQuestion(request);
       },
@@ -720,7 +720,7 @@ export class AcpAgentDriver {
         }
         return {
           outcome: "rejected" as const,
-          reason: "Eco ACP host has no generate_image handler",
+          reason: "Mori ACP host has no generate_image handler",
         };
       },
     });

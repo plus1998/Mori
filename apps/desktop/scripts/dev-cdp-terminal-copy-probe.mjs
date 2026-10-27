@@ -27,7 +27,7 @@ try {
   const context = browser.contexts()[0];
   const page = context.pages().find((p) => p.url().includes("5173")) ?? context.pages()[0];
   if (!page) {
-    throw new Error("No Eco renderer page on CDP");
+    throw new Error("No Mori renderer page on CDP");
   }
 
   const canvas = page.locator(".ghostty-terminal-mount canvas").first();

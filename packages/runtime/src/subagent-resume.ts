@@ -134,7 +134,7 @@ export function formatResumableSubagentsAppend(
   const lines = entries.map((entry) => `- ${entry.role}: ${entry.agentId}`);
   return [
     "",
-    "Resumable subagents in this thread (Eco will auto-Resume when you call the same eco_* Agent key again):",
+    "Resumable subagents in this thread (Mori will auto-Resume when you call the same eco_* Agent key again):",
     ...lines,
     "To force a fresh subagent, include words like fresh/restart/从头开始 in the Agent prompt.",
   ].join("\n");
