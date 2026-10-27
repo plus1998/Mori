@@ -4,6 +4,7 @@ import type { BrowserViewState } from "../shared/browser";
 import {
   BROWSER_VIEWPORT_DISPLAY_SCALES,
   BROWSER_VIEWPORT_PICKER_PRESETS,
+  BROWSER_VIEWPORT_PRESETS,
   type BrowserViewport,
   type BrowserViewportInput,
   fitBrowserViewport,
@@ -61,8 +62,10 @@ export function BrowserViewportControls({
   const displayScale = useSyncExternalStore(subscribe, getDisplayScale, getDisplayScale);
   const size = viewport ?? (rect ? responsiveBrowserViewport(rect) : undefined);
   const fitScale = rect && size ? fitBrowserViewport(rect, size).scale : 1;
-  const selectedDevice = BROWSER_VIEWPORT_PICKER_PRESETS.find((device) => device.preset === viewport?.preset);
-  const selectedPreset = selectedDevice?.preset ?? "auto";
+  const selectedDevice = BROWSER_VIEWPORT_PRESETS.find((device) => device.preset === viewport?.preset);
+  const selectedPreset = viewport?.preset ?? "auto";
+  const selectedLabel =
+    selectedDevice?.name ?? t(viewport ? "browser.viewportCustom" : "browser.viewportAuto");
 
   useEffect(() => {
     setBrowserWebviewDeviceMode(browserId, true);
@@ -89,7 +92,7 @@ export function BrowserViewportControls({
           {t("browser.viewportDevice")}
         </label>
         <span className="browser-viewport-picker">
-          <span aria-hidden="true">{selectedDevice?.name ?? t("browser.viewportAuto")}</span>
+          <span aria-hidden="true">{selectedLabel}</span>
           <select
             id={`${id}-preset`}
             value={selectedPreset}
@@ -98,6 +101,9 @@ export function BrowserViewportControls({
             }}
           >
             <option value="auto">{t("browser.viewportAuto")}</option>
+            {viewport && !BROWSER_VIEWPORT_PICKER_PRESETS.some((device) => device.preset === viewport.preset) ? (
+              <option value={viewport.preset}>{selectedLabel}</option>
+            ) : null}
             {(["mobile", "foldable", "tablet", "display"] as const).map((group) => (
               <optgroup key={group} label={t(`browser.viewportGroup.${group}`)}>
                 {BROWSER_VIEWPORT_PICKER_PRESETS.filter((device) => device.group === group).map((device) => (

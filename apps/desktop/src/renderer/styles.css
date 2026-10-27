@@ -13226,7 +13226,7 @@ button.default-agent-option:focus-visible {
   --run-log-user-prompt-fg: #f5f5f5;
   --run-log-user-prompt-muted: #a3a3a3;
   width: fit-content;
-  max-width: 85%;
+  max-width: min(480px, 75%);
   min-width: 0;
 }
 

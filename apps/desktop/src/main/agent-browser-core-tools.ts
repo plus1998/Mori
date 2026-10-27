@@ -6,7 +6,7 @@
  * empty `properties: {}` caused Claude to omit `url` for agent_browser_open.
  */
 
-import { BROWSER_VIEWPORT_PRESETS } from "../shared/browser-viewport";
+import { BROWSER_AGENT_DEFAULT_VIEWPORT, BROWSER_VIEWPORT_PRESETS } from "../shared/browser-viewport";
 
 export const AGENT_BROWSER_CORE_TOOL_NAMES = [
   "agent_browser_tools_profiles",
@@ -59,6 +59,23 @@ const refOrSelector: JsonSchema = {
   description: "Element ref from snapshot (e.g. e12) or CSS selector.",
 };
 
+const openingViewportProperties: Record<string, JsonSchema> = {
+  width: {
+    type: "integer",
+    minimum: 100,
+    maximum: 4096,
+    description: "Viewport width in CSS pixels; supply height too.",
+  },
+  height: {
+    type: "integer",
+    minimum: 100,
+    maximum: 4096,
+    description: "Viewport height in CSS pixels; supply width too.",
+  },
+};
+
+const openingViewportDescription = `New Agent pages default to a fixed ${BROWSER_AGENT_DEFAULT_VIEWPORT.width}×${BROWSER_AGENT_DEFAULT_VIEWPORT.height} CSS viewport. Optional width and height set an explicit size; existing tabs retain their viewport unless supplied. The sidebar scales the preview without resizing the page.`;
+
 function objectSchema(input: {
   properties: Record<string, JsonSchema>;
   required?: string[];
@@ -98,10 +115,11 @@ const TOOL_DEFINITIONS: Record<
   },
   agent_browser_open: {
     description:
-      "Navigate the UI-focused tab to a URL (creates the first tab when none exist). Requires url.",
+      `Navigate the UI-focused tab to a URL (creates the first tab when none exist). Requires url. ${openingViewportDescription}`,
     inputSchema: objectSchema({
       required: ["url"],
       properties: {
+        ...openingViewportProperties,
         url: {
           type: "string",
           minLength: 1,
@@ -333,9 +351,10 @@ const TOOL_DEFINITIONS: Record<
     inputSchema: emptyObjectSchema,
   },
   agent_browser_tab_new: {
-    description: "Open a background tab (does not steal UI focus). Optional url.",
+    description: `Open a background tab (does not steal UI focus). Optional url. ${openingViewportDescription}`,
     inputSchema: objectSchema({
       properties: {
+        ...openingViewportProperties,
         url: { type: "string", description: "Optional URL for the new tab." },
       },
     }),

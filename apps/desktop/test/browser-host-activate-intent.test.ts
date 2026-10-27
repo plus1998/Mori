@@ -1,4 +1,5 @@
 import { expect, mock, test } from "bun:test";
+import { BROWSER_AGENT_DEFAULT_VIEWPORT } from "../src/shared/browser-viewport";
 
 // BrowserHost imports electron main-process modules at module load time —
 // stub them before the dynamic import so the test runs under bun.
@@ -105,6 +106,7 @@ test("global resource list includes other conversations and closes pages without
 
 function createViewportGuest(id: number) {
   const commands: Array<{ method: string; params?: Record<string, unknown> }> = [];
+  let windowOpenHandler: ((details: { url: string }) => unknown) | undefined;
   return {
     id,
     commands,
@@ -113,9 +115,13 @@ function createViewportGuest(id: number) {
     getURL: () => "about:blank",
     getTitle: () => "",
     isLoading: () => false,
-    setWindowOpenHandler: () => {},
+    setWindowOpenHandler: (handler: (details: { url: string }) => unknown) => {
+      windowOpenHandler = handler;
+    },
+    openWindow: (url: string) => windowOpenHandler?.({ url }),
     on: () => {},
     close: () => {},
+    loadURL: async (_url: string) => {},
     debugger: {
       isAttached: () => true,
       sendCommand: async (method: string, params?: Record<string, unknown>) => {
@@ -125,6 +131,135 @@ function createViewportGuest(id: number) {
     executeJavaScript: async () => ({ width: 390, height: 844, deviceScaleFactor: 3 }),
   };
 }
+
+test("Agent pages keep a fixed viewport through reveal, hide, navigation and guest recreation", async () => {
+  const host = createTestHost();
+  try {
+    const opened = await host.openSharedSession({ threadId: "t1", source: "agent", revealUi: false });
+    const page = opened.allInstances[0]!;
+    expect(page.viewport).toEqual(BROWSER_AGENT_DEFAULT_VIEWPORT);
+    const guest = createViewportGuest(310);
+    host.registerGuestWebContents(page.id, guest as never);
+    await host.ensureScopeGuestsReady("t1");
+    expect(
+      guest.commands.find((call) => call.method === "Emulation.setDeviceMetricsOverride")?.params,
+    ).toMatchObject({ width: 1366, height: 768 });
+    const commandCount = guest.commands.length;
+    host.setUiScope("t1");
+    host.focusBrowser(page.id);
+    host.setVisible(true, page.id);
+    host.setVisible(false, page.id);
+    await host.openSharedSession({
+      threadId: "t1",
+      source: "agent",
+      url: "https://fixture.test",
+      revealUi: false,
+    });
+    expect(guest.commands).toHaveLength(commandCount);
+    expect(host.getState().allInstances[0]?.viewport).toEqual(BROWSER_AGENT_DEFAULT_VIEWPORT);
+    const replacement = createViewportGuest(311);
+    host.registerGuestWebContents(page.id, replacement as never);
+    await host.ensureScopeGuestsReady("t1");
+    expect(
+      replacement.commands.find((call) => call.method === "Emulation.setDeviceMetricsOverride")?.params,
+    ).toMatchObject({ width: 1366, height: 768 });
+  } finally {
+    host.dispose();
+  }
+});
+
+test("Agent open stabilizes an unconfigured human tab, honors explicit sizes and retains manual auto mode", async () => {
+  const host = createTestHost();
+  try {
+    const opened = await host.openSharedSession({ threadId: "t1", revealUi: false });
+    const page = opened.allInstances[0]!;
+    expect(page.viewport).toBeUndefined();
+    const guest = createViewportGuest(312);
+    host.registerGuestWebContents(page.id, guest as never);
+    await host.invokeNativeAgentBrowserTool("t1", "agent_browser_open", { url: "https://fixture.test" });
+    expect(host.getState().allInstances[0]?.viewport).toEqual(BROWSER_AGENT_DEFAULT_VIEWPORT);
+    await host.invokeNativeAgentBrowserTool("t1", "agent_browser_open", {
+      url: "https://fixture.test",
+      width: 1280,
+      height: 800,
+    });
+    expect(host.getState().allInstances[0]?.viewport).toMatchObject({ width: 1280, height: 800 });
+    await host.invokeNativeAgentBrowserTool("t1", "agent_browser_open", { url: "https://fixture.test/next" });
+    expect(host.getState().allInstances[0]?.viewport).toMatchObject({ width: 1280, height: 800 });
+    await host.setViewport(page.id, { preset: "auto" });
+    const commandCount = guest.commands.length;
+    await host.invokeNativeAgentBrowserTool("t1", "agent_browser_open", { url: "https://fixture.test/auto" });
+    expect(host.getState().allInstances[0]?.viewport).toBeUndefined();
+    expect(guest.commands).toHaveLength(commandCount);
+
+    await host.invokeNativeAgentBrowserTool("t1", "agent_browser_tab_new", { width: 1440, height: 900 });
+    expect(host.getState().allInstances.find((instance) => instance.id !== page.id)?.viewport).toMatchObject({
+      width: 1440,
+      height: 900,
+    });
+    const count = host.getState().allGuestInstances.length;
+    await expect(
+      host.invokeNativeAgentBrowserTool("t1", "agent_browser_tab_new", { width: 1000 }),
+    ).rejects.toThrow(/together/);
+    expect(host.getState().allGuestInstances).toHaveLength(count);
+    guest.openWindow("https://fixture.test/popup");
+    expect(
+      host.getState().allInstances.find((instance) => instance.url.endsWith("/popup"))?.viewport,
+    ).toBeUndefined();
+  } finally {
+    host.dispose();
+  }
+});
+
+test("popups inherit a fixed parent viewport even when the Agent reused a human-created tab", async () => {
+  const host = createTestHost();
+  try {
+    const opened = await host.openSharedSession({ threadId: "t1", revealUi: false });
+    const page = opened.allInstances[0]!;
+    const guest = createViewportGuest(314);
+    host.registerGuestWebContents(page.id, guest as never);
+    await host.invokeNativeAgentBrowserTool("t1", "agent_browser_open", {
+      url: "https://fixture.test",
+      width: 1280,
+      height: 800,
+    });
+    guest.openWindow("https://fixture.test/popup");
+    expect(
+      host.getState().allInstances.find((instance) => instance.url.endsWith("/popup"))?.viewport,
+    ).toMatchObject({ width: 1280, height: 800 });
+  } finally {
+    host.dispose();
+  }
+});
+
+test("Agent tools wait for initial viewport application and report application failures", async () => {
+  const host = createTestHost();
+  try {
+    const opened = await host.openSharedSession({ threadId: "t1", source: "agent", revealUi: false });
+    const page = opened.allInstances[0]!;
+    const guest = createViewportGuest(313);
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    guest.debugger.sendCommand = async () => {
+      await blocked;
+      throw new Error("Metrics blocked");
+    };
+    host.registerGuestWebContents(page.id, guest as never);
+    let settled = false;
+    const ready = host.ensureScopeGuestsReady("t1").finally(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release();
+    await expect(ready).rejects.toThrow("Metrics blocked");
+    expect(host.getState().allInstances[0]?.viewportError).toBe("Metrics blocked");
+  } finally {
+    host.dispose();
+  }
+});
 
 test("Agent can discover named devices without creating a page or CDP session", async () => {
   const host = createTestHost();

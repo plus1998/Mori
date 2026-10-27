@@ -48,6 +48,12 @@ Eco retains normal browser downloads in a private temporary directory for each t
 
 ## Responsive device testing
 
+Agent-created pages default to a fixed **1366 × 768 CSS pixel** desktop viewport.
+`agent_browser_open` and `agent_browser_tab_new` accept optional `width` and `height`
+(supply both). Reopening an existing tab preserves its viewport unless dimensions are supplied.
+Opening, closing or resizing the sidebar only scales the preview; it does not resize the page.
+Users can explicitly change device/size or choose Responsive mode to follow the panel.
+
 Call `agent_browser_list_devices` to discover named device presets (stable IDs, names, dimensions and DPR),
 including iPhone SE/16/16 Pro Max, Pixel, Galaxy, iPad, Surface and Nest Hub Max.
 Foldable entries use cover-screen dimensions; hinge and folding posture are not emulated.
