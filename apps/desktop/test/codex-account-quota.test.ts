@@ -395,8 +395,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   const req = JSON.parse(line);
   if (req.method === 'initialize') send(req.id, {});
   else if (req.method === 'account/read') {
-    if (!req.params.refreshToken) process.exit(12);
-    fs.writeFileSync(path.join(process.env.CODEX_HOME, 'auth.json'), ${JSON.stringify(freshAuth)});
+    if (req.params.refreshToken) fs.writeFileSync(path.join(process.env.CODEX_HOME, 'auth.json'), ${JSON.stringify(freshAuth)});
     send(req.id, ${JSON.stringify(accountResponse)});
   } else if (req.method === 'account/rateLimits/read') send(req.id, ${JSON.stringify(rateLimits)});
 });

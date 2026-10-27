@@ -1,3 +1,4 @@
+import { canUseOpenAIAccountCredentials } from "../../shared/openai-account";
 import { useCodexQuotaResetRefresh } from "../useCodexQuotaResetRefresh";
 import { QuotaRefreshedAt } from "../QuotaRefreshedAt";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -617,7 +618,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     if (!eco || accounts.length === 0 || quotaLoading || quotaLoadingId !== null) return;
     setQuotaLoading(true);
     try {
-      await Promise.all(accounts.filter((account) => account.authState !== "missing").map((account) => refreshAccountQuota(account.id)));
+      await Promise.all(accounts.filter((account) => canUseOpenAIAccountCredentials(account)).map((account) => refreshAccountQuota(account.id)));
       await refresh();
     } finally {
       setQuotaLoading(false);
@@ -651,7 +652,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   const filteredAccounts = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return orderedAccounts.filter((a) => (!query || a.name.toLowerCase().includes(query) || a.email?.toLowerCase().includes(query))
-      && (statusFilter === "all" || (statusFilter === "ready" ? a.isLoggedIn : !a.isLoggedIn)));
+      && (statusFilter === "all" || (statusFilter === "ready" ? canUseOpenAIAccountCredentials(a) : !canUseOpenAIAccountCredentials(a))));
   }, [orderedAccounts, searchQuery, statusFilter]);
 
   useCodexQuotaResetRefresh(filteredAccounts, eco, refresh, onError);
@@ -868,7 +869,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     }
   }, [eco, refresh]);
 
-  const loggedInCount = accounts.filter((account) => account.isLoggedIn).length;
+  const loggedInCount = accounts.filter((account) => canUseOpenAIAccountCredentials(account)).length;
   const defaultWakeModel = latestLunaModelId(wakeModels.map((model) => model.modelId));
   const wakeAccount = accounts.find((account) => account.id === wakeDialogAccountId);
   const currentWakeStatus = wakeDialogAccountId ? wakeStatus[wakeDialogAccountId] : undefined;
@@ -951,7 +952,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             type="button"
             className="chatgpt-inline-link"
             onClick={() => void refreshQuotas()}
-            disabled={quotaLoading || quotaLoadingId !== null || !accounts.some((account) => account.authState !== "missing")}
+            disabled={quotaLoading || quotaLoadingId !== null || !accounts.some((account) => canUseOpenAIAccountCredentials(account))}
           >
             <RefreshCw
               size={13}
@@ -1050,23 +1051,27 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                 ? pendingAccountId === null
                   ? t("settings.openaiAccounts.pendingDeactivateBadge")
                   : t("settings.openaiAccounts.waitingSwitchBadge")
-              : !account.isLoggedIn
+              : account.authState === "refreshing"
+                ? t("settings.openaiAccounts.refreshingCredentials")
+              : account.authState === "refreshable"
+                ? t("settings.openaiAccounts.refreshableCredentials")
+              : !canUseOpenAIAccountCredentials(account)
               ? account.authState === "expired"
                 ? t("settings.openaiAccounts.expired")
                 : t("settings.openaiAccounts.needsLogin")
               : isActive
                 ? t("settings.openaiAccounts.inUse")
                 : t("settings.openaiAccounts.loggedIn");
-            const statusTone = isPending
+            const statusTone = isPending || account.authState === "refreshable" || account.authState === "refreshing"
               ? "warning"
-              : !account.isLoggedIn
+              : !canUseOpenAIAccountCredentials(account)
               ? "danger"
               : isActive
                 ? "ready"
                 : "muted";
             const email = account.email || accountQuota?.email;
-            const isQuotaLoading = (quotaLoading && account.authState !== "missing") || quotaLoadingId === account.id;
-            const showTextQuota = Boolean(accountQuota || account.isLoggedIn || isQuotaLoading || quotaErrors[account.id]);
+            const isQuotaLoading = (quotaLoading && canUseOpenAIAccountCredentials(account)) || quotaLoadingId === account.id;
+            const showTextQuota = Boolean(accountQuota || canUseOpenAIAccountCredentials(account) || isQuotaLoading || quotaErrors[account.id]);
             const showImageQuota = Boolean(account.imageGenerationEnabled || account.imageQuota);
             return (
               <article
@@ -1104,7 +1109,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                     </div>
                     <span title={email}>
                       {email ||
-                        (account.isLoggedIn
+                        (canUseOpenAIAccountCredentials(account)
                           ? t("settings.openaiAccounts.oauthLoggedIn")
                           : t("settings.openaiAccounts.notLoggedIn"))}
                     </span>
@@ -1142,7 +1147,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                     >
                       <GripVertical size={15} />
                     </button>
-                    {!isActive && account.isLoggedIn ? (
+                    {!isActive && canUseOpenAIAccountCredentials(account) ? (
                       <button
                         type="button"
                         className="codex-action-primary"
@@ -1153,7 +1158,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                         {t("settings.openaiAccounts.setAsCurrent")}
                       </button>
                     ) : null}
-                    {!account.isLoggedIn ? (
+                    {!canUseOpenAIAccountCredentials(account) ? (
                       <button
                         type="button"
                         className="codex-action-primary"
@@ -1206,7 +1211,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                 </div>
                 {showTextQuota || showImageQuota ? (
                   <div className={`codex-account-quotas ${showTextQuota && showImageQuota ? "has-image-quota" : ""}`}>
-                    {showTextQuota ? <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={account.isLoggedIn} loading={isQuotaLoading} error={account.quotaRefresh?.error ?? quotaErrors[account.id]?.message} showRefreshedAt={true} /> : null}
+                    {showTextQuota ? <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={canUseOpenAIAccountCredentials(account)} loading={isQuotaLoading} error={account.quotaRefresh?.error ?? quotaErrors[account.id]?.message} showRefreshedAt={true} /> : null}
                     {showImageQuota ? <OpenAIAccountImageQuotaSummary account={account} loading={imageOperation?.accountId === account.id && imageOperation.kind === "quota"} showRefreshedAt={false} /> : null}
                   </div>
                 ) : null}
@@ -1278,7 +1283,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                           disabled={busy || loggingInId !== null}
                         >
                           <LogIn size={14} />
-                          {account.isLoggedIn
+                          {canUseOpenAIAccountCredentials(account)
                             ? t("settings.openaiAccounts.relogin")
                             : t("settings.openaiAccounts.login")}
                         </button>
@@ -1321,7 +1326,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                             }
                           }}
                           disabled={
-                            account.authState === "missing" || quotaLoading || quotaLoadingId !== null
+                            !canUseOpenAIAccountCredentials(account) || quotaLoading || quotaLoadingId !== null
                           }
                         >
                           <RefreshCw size={14} />
@@ -1331,7 +1336,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                           type="button"
                           role="menuitem"
                           className="account-action-item"
-                          disabled={busy || account.authState === "missing" || isPending || loggingInId !== null}
+                          disabled={busy || !canUseOpenAIAccountCredentials(account) || isPending || loggingInId !== null}
                           title={t("settings.openaiAccounts.wakeHint")}
                           onClick={() => {
                             setMenuOpenId(null);
@@ -1350,7 +1355,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                           type="button"
                           role="menuitem"
                           className="account-action-item"
-                          disabled={busy || !account.isLoggedIn || imageOperation !== null}
+                          disabled={busy || !canUseOpenAIAccountCredentials(account) || imageOperation !== null}
                           onClick={() => {
                             setMenuOpenId(null);
                             void handleImageQuotaRefresh(account.id);
@@ -1371,7 +1376,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                           />
                           {t("settings.openaiAccounts.useForImageGeneration")}
                         </label>
-                        {!isActive && account.isLoggedIn ? (
+                        {!isActive && canUseOpenAIAccountCredentials(account) ? (
                           <button
                             type="button"
                             role="menuitem"
@@ -1492,7 +1497,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             <button
               type="button"
               className="plan-button primary"
-              disabled={busy || !wakeModelReady || wakeModelSaving || !wakeAccount || wakeAccount.authState === "missing" || currentWakeStatus?.phase === "done"}
+              disabled={busy || !wakeModelReady || wakeModelSaving || !wakeAccount || !canUseOpenAIAccountCredentials(wakeAccount) || currentWakeStatus?.phase === "done"}
               onClick={() => void handleWake(wakeDialogAccountId)}
             >
               {currentWakeStatus?.phase === "waking" ? <Loader2 size={14} className="mcp-spin" /> : <Zap size={14} />}

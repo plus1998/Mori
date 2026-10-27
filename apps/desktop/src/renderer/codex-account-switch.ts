@@ -1,7 +1,8 @@
+import { canUseOpenAIAccountCredentials } from "../shared/openai-account";
 import type { OpenAIAccount } from "../shared/openai-account";
 
 export function hasAvailableCodexQuota(account: OpenAIAccount): boolean {
-  if (!account.isLoggedIn || account.authState !== "configured" || !account.quota) return false;
+  if (!canUseOpenAIAccountCredentials(account) || !account.quota) return false;
   const { rateLimit } = account.quota;
   const windows = [rateLimit.primaryWindow, rateLimit.secondaryWindow].filter((window) => window !== null);
   return (
@@ -27,7 +28,7 @@ export async function loadCodexSwitchAccounts(eco: AccountSwitchBridge, refreshQ
   const [accounts, active] = await Promise.all([eco.openAIAccountsList(), eco.openAIAccountsGetActive()]);
   const candidates = accounts.filter(
     (account) =>
-      account.id !== active.activeAccountId && account.isLoggedIn && account.authState === "configured",
+      account.id !== active.activeAccountId && canUseOpenAIAccountCredentials(account),
   );
   if (!refreshQuota) return { accounts: candidates, failedCount: 0 };
   const results = await Promise.allSettled(

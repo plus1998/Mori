@@ -72,6 +72,26 @@ export interface OpenAIAccountImageQuota {
   error?: string;
 }
 
+export type OpenAIAccountAuthState =
+  | "missing"
+  | "configured"
+  | "expired"
+  | "refreshable"
+  | "refreshing"
+  | "reauthorization_required";
+
+/** Local eligibility to attempt use; refreshable credentials are not yet verified. */
+export function canUseOpenAIAccountCredentials(account: {
+  isLoggedIn: boolean;
+  authState?: OpenAIAccountAuthState;
+}): boolean {
+  return (
+    account.authState === "refreshable" ||
+    account.authState === "refreshing" ||
+    (account.isLoggedIn && (account.authState === undefined || account.authState === "configured"))
+  );
+}
+
 export interface OpenAIAccount {
   imageGenerationEnabled?: boolean;
   imageQuota?: OpenAIAccountImageQuota;
@@ -82,7 +102,7 @@ export interface OpenAIAccount {
   proxyUrl?: string;
   /** Whether this account has usable, non-expired Codex credentials. */
   isLoggedIn: boolean;
-  authState: "missing" | "configured" | "expired";
+  authState: OpenAIAccountAuthState;
   lastLogin?: string;
   createdAt: string;
   /** The list API exposes profile presence, not the profile secrets themselves. */

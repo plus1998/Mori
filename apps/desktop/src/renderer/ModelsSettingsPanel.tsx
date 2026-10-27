@@ -276,7 +276,7 @@ export function ModelsSettingsPanel({
   >();
   const [providerForm, setProviderForm] = useState<ProviderConfigInput>(() => providerToForm());
   const [providerSearchQuery, setProviderSearchQuery] = useState("");
-  const [oauthLoginStatus, setOauthLoginStatus] = useState<{ isLoggedIn: boolean; message: string }>({
+  const [oauthLoginStatus, setOauthLoginStatus] = useState<{ isLoggedIn: boolean; message: string; authState?: import("../shared/openai-account").OpenAIAccountAuthState }>({
     isLoggedIn: false,
     message: "",
   });
@@ -1356,7 +1356,7 @@ function ProviderEditorModal({
   onDelete: () => void;
   onRefreshModels: () => void;
   onTestCandidate: (modelId: string) => void;
-  oauthLoginStatus: { isLoggedIn: boolean; message: string };
+  oauthLoginStatus: { isLoggedIn: boolean; message: string; authState?: import("../shared/openai-account").OpenAIAccountAuthState };
   oauthLoggingIn: boolean;
 }) {
   const { t } = useTranslation();

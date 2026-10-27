@@ -337,6 +337,15 @@ export class OpenAIAccountStore {
     this.setSetting("wake_model_id", modelId?.trim() ?? "");
   }
 
+  getRejectedCredentialFingerprint(accountId: string): string | undefined {
+    return this.setting(`auth_rejected:${accountId}`);
+  }
+
+  rejectCredentials(accountId: string, fingerprint: string): void {
+    if (!this.get(accountId)) throw new Error(`OpenAI account not found: ${accountId}`);
+    this.setSetting(`auth_rejected:${accountId}`, fingerprint);
+  }
+
   getPendingTransition(): PendingAccountTransition | undefined {
     const target = this.setting(PENDING_KEY);
     if (target === undefined) return undefined;
@@ -746,6 +755,9 @@ export class OpenAIAccountStore {
 
   saveAuthJson(accountId: string, authJson: string): void {
     this.transaction(() => {
+      if (this.get(accountId)?.authJson !== authJson) {
+        this.db.prepare("DELETE FROM openai_account_settings WHERE key = ?").run(`auth_rejected:${accountId}`);
+      }
       const result = this.db.prepare("UPDATE openai_accounts SET auth_json = ?, updated_at = ? WHERE id = ?").run(
         authJson,
         nowIso(),
@@ -759,6 +771,7 @@ export class OpenAIAccountStore {
     this.transaction(() => {
       this.clearSyncConflict(accountId);
       this.db.prepare("DELETE FROM openai_accounts WHERE id = ?").run(accountId);
+      this.db.prepare("DELETE FROM openai_account_settings WHERE key = ?").run(`auth_rejected:${accountId}`);
     });
   }
 

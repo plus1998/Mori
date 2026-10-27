@@ -168,6 +168,8 @@ export interface EcoProviderForCodexCatalog extends EcoProviderForCodexConfig {
 
 export interface CodexRuntimeRunDeps {
   ecoDataDir: string;
+  /** Refresh managed ChatGPT credentials before a native OpenAI turn. */
+  ensureAccountReady?: () => Promise<void>;
   listProviders: () => readonly EcoProviderForCodexCatalog[];
   getGlobalContextWindowLimit?: () => number;
   listAccountModels?: () => Promise<readonly CodexAccountModelContext[]>;
@@ -2012,6 +2014,10 @@ export async function runThreadRequestWithRuntimeProxy(
       // The driver passes thread overrides to thread/start and thread/resume.
       // Do not restart the shared app-server or block unrelated active threads.
       bindPreparedCodexRuntimeToThread(input.threadId, prepared);
+      if (requiredProviderIds.includes("openai") ||
+        Object.values(prepared.roleThreadConfigs).some((config) => config.model_provider === "openai")) {
+        await requireDeps().ensureAccountReady?.();
+      }
       await input.onPrepared?.(prepared);
     } catch (error) {
       return {

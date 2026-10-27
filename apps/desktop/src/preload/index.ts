@@ -659,7 +659,7 @@ const api = {
     ipcRenderer.on("chatgpt-subscription:login-result", listener);
     return () => ipcRenderer.off("chatgpt-subscription:login-result", listener);
   },
-  codexOAuthGetStatus(): Promise<{ isLoggedIn: boolean; message: string }> {
+  codexOAuthGetStatus(): Promise<{ isLoggedIn: boolean; message: string; authState?: import("../shared/openai-account").OpenAIAccountAuthState }> {
     return ipcRenderer.invoke(IPC_CHANNELS.codexOAuthGetStatus);
   },
   codexOAuthStartLogin(upstreamProxyUrl?: string): Promise<{ success: boolean; message: string }> {
@@ -768,6 +768,7 @@ const api = {
   openAIAccountsGetActive(): Promise<{
     activeAccountId: string | null;
     isLoggedIn: boolean;
+    authState?: import("../shared/openai-account").OpenAIAccountAuthState;
     message: string;
     pendingAccountId?: string | null;
     syncStatus: OpenAIAccountSyncStatus;

@@ -110,6 +110,18 @@ export async function queryIsolatedCodexAccountQuota(input: {
   expectedAccountId: string;
   beforeRead?: ((client: CodexQuotaClient, refreshToken: boolean, expectedAccountId: string) => Promise<void>) | undefined;
 }): Promise<OpenAIAccountQuota> {
+  return withIsolatedCodexAccountClient(input, async (client) => {
+    await input.beforeRead?.(client, input.refreshToken, input.expectedAccountId);
+    return readCodexAccountQuota(client, input.beforeRead ? false : input.refreshToken, input.expectedAccountId);
+  });
+}
+
+/** Token refresh and quota reads share isolation and cleanup, without requiring a model turn. */
+export async function withIsolatedCodexAccountClient<T>(input: {
+  executable: string;
+  codexHomeDir: string;
+  proxy: CodexProxyEnvironment;
+}, operation: (client: CodexQuotaClient) => Promise<T>): Promise<T> {
   const env = buildCodexAppServerEnv(process.env, input.codexHomeDir, input.proxy);
   // These would override the account's file-backed login in the child process.
   delete env.OPENAI_API_KEY;
@@ -129,10 +141,9 @@ export async function queryIsolatedCodexAccountQuota(input: {
   try {
     await client.initialize({
       clientInfo: { name: "eco_coding", title: "Eco Coding", version: "0.1.0" },
-      ...(input.beforeRead ? { capabilities: { experimentalApi: true } } : {}),
+      capabilities: { experimentalApi: true },
     });
-    await input.beforeRead?.(client, input.refreshToken, input.expectedAccountId);
-    return await readCodexAccountQuota(client, input.beforeRead ? false : input.refreshToken, input.expectedAccountId);
+    return await operation(client);
   } catch (error) {
     throw spawnError ?? error;
   } finally {

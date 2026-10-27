@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { OpenAIAccount } from "../shared/openai-account";
+import { canUseOpenAIAccountCredentials, type OpenAIAccount } from "../shared/openai-account";
 import { CODEX_QUOTA_REFRESH_MS, nextCodexQuotaResetCheckAt } from "../shared/codex-quota-refresh";
 
 /** Visible account lists only watch known reset times; ordinary UI loads stay cache-only. */
@@ -19,7 +19,7 @@ export function useCodexQuotaResetRefresh(
       if (disposed || document.hidden) return;
       const due = accounts.flatMap((account) => {
         const at =
-          account.isLoggedIn && account.quota
+          canUseOpenAIAccountCredentials(account) && account.quota
             ? nextCodexQuotaResetCheckAt(account.quota, account.quotaRefresh)
             : undefined;
         return at === undefined

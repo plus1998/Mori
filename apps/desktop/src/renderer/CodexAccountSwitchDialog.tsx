@@ -1,3 +1,4 @@
+import { canUseOpenAIAccountCredentials } from "../shared/openai-account";
 import { QuotaRefreshedAt } from "./QuotaRefreshedAt";
 import { hasUnrefreshedCodexQuotaReset } from "../shared/codex-quota-refresh";
 import { ArrowRight, CircleAlert, LoaderCircle, RefreshCw, Search, UserRound, X } from "lucide-react";
@@ -250,14 +251,12 @@ export function CodexAccountSwitchDialog({ onClose }: { onClose: () => void }) {
     try {
       if (!window.eco) throw new Error("Desktop bridge is unavailable.");
       // Recheck the selected account before committing the switch.
-      const [list, quota] = await Promise.all([
-        window.eco.openAIAccountsList(),
-        window.eco.openAIAccountsQueryQuota(accountId, "switch"),
-      ]);
+      const quota = await window.eco.openAIAccountsQueryQuota(accountId, "switch");
+      const list = await window.eco.openAIAccountsList();
       const account = list.find((candidate) => candidate.id === accountId);
       setAccounts((previous) => previous.flatMap((candidate) => {
         if (candidate.id !== accountId) return [candidate];
-        return account?.isLoggedIn && account.authState === "configured" ? [{ ...account, quota }] : [];
+        return account && canUseOpenAIAccountCredentials(account) ? [{ ...account, quota }] : [];
       }));
       if (!account || !hasAvailableCodexQuota({ ...account, quota })) {
         throw new Error(t("codexSwitch.unavailable"));

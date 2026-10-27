@@ -3293,6 +3293,10 @@ app
     });
     configureCodexRuntimeRun({
       ecoDataDir: app.getPath("userData"),
+      ensureAccountReady: async () => {
+        if (!openaiAccountService) throw new Error("ChatGPT Login 账号服务尚未初始化，请稍后重试。");
+        await openaiAccountService.ensureActiveCredentials();
+      },
       getGlobalUserRules: () => personalizationSettingsStore.get().globalRules,
       getGlobalContextWindowLimit: () => workflowSettingsStore.get().contextWindowLimitTokens,
       listAccountModels: () => getCodexModelCatalogService().listRuntimeModels(),
@@ -7839,6 +7843,7 @@ function registerIpcHandlers(): void {
     async (payload: { accountId: string | null }) => {
       const svc = await getOpenAIAccountService();
       const prevPendingAccountId = svc.getPendingAccountId();
+      if (payload.accountId) await svc.ensureAccountCredentials(payload.accountId);
       await svc.setActiveAccount(payload.accountId);
       const pending = svc.getPendingAccountId() !== undefined;
       if (pending || prevPendingAccountId !== undefined) scheduleOpenAIAccountTransition(svc);
@@ -7913,6 +7918,7 @@ function registerIpcHandlers(): void {
     {
       listAccounts: async () => (await getOpenAIAccountService()).listAccounts(),
       getAccountDetails: async (id) => (await getOpenAIAccountService()).getAccountDetails(id),
+      ensureAccountCredentials: async (id) => (await getOpenAIAccountService()).ensureAccountCredentials(id),
       saveImageQuota: async (id, authJson, quota) =>
         (await getOpenAIAccountService()).saveImageQuota(id, authJson, quota),
     },

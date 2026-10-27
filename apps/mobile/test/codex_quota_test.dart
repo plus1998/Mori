@@ -27,6 +27,42 @@ void main() {
   }
 
   test(
+    'renewable credentials retain quota eligibility without claiming a fresh token',
+    () {
+      for (final authState in [
+        'refreshable',
+        'refreshing',
+        'reauthorization_required',
+        'expired',
+      ]) {
+        final account = CodexAccount.fromJson({
+          'id': 'renewable',
+          'name': 'Renewable',
+          'isLoggedIn': false,
+          'authState': authState,
+          'quota': _quotaJson(),
+        });
+        final active = CodexActiveAccount.fromJson({
+          'activeAccountId': 'renewable',
+          'isLoggedIn': false,
+          'authState': authState,
+          'syncStatus': {'state': 'ok'},
+        });
+        final eligible =
+            authState == 'refreshable' || authState == 'refreshing';
+        expect(account.isLoggedIn, isFalse);
+        expect(account.available, eligible);
+        expect(active.canUseCredentials, eligible);
+        final snapshot = CodexQuotaSnapshot(
+          active: active,
+          accounts: [account],
+        );
+        expect(snapshot.account, eligible ? account : isNull);
+      }
+    },
+  );
+
+  test(
     'Codex RPC keeps identity, pending state and reset key on the wire',
     () async {
       final client = _WireClient();

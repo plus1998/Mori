@@ -417,3 +417,17 @@ test("billing card shows every quota window even when no quota is low", () => {
     expect(html).toContain(text);
   expect(html).not.toContain('aria-label="关闭"');
 });
+
+test("refreshable active credentials keep the cached quota card visible without a network request", async () => {
+  const updates: (CodexQuotaReminderSnapshot | undefined)[] = [];
+  const monitor = new CodexQuotaMonitor({
+    ...bridge(),
+    openAIAccountsGetActive: async () => ({ ...active(), isLoggedIn: false, authState: "refreshable" }),
+    openAIAccountsList: async () => [{ ...account, quota, isLoggedIn: false, authState: "refreshable" }],
+    openAIAccountsQueryQuota: async () => { throw new Error("cache reads must not refresh credentials"); },
+  }, { enabled: () => true, onChange: (value) => updates.push(value), onError: (error) => { throw new Error(error); } });
+  try {
+    await monitor.refresh();
+    expect(updates.at(-1)?.quota).toEqual(quota);
+  } finally { monitor.dispose(); }
+});
