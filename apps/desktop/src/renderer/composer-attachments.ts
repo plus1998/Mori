@@ -189,7 +189,7 @@ function isPromptImageContentRef(value: string): boolean {
   return PROMPT_IMAGE_CONTENT_REF_PATTERN.test(value.trim());
 }
 
-async function readPromptImageData(input: {
+export async function readPromptImageData(input: {
   contextKey: string;
   contentRef: string;
   mediaType: PromptImageAttachment["mediaType"];

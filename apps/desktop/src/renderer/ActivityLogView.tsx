@@ -200,6 +200,7 @@ import {
 import { i18n } from "./i18n";
 import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 import { ImageLightbox } from "./image-lightbox";
+import { PromptImageContext, PromptImageLightbox } from "./prompt-image-lightbox";
 import { createImageObjectUrlFromBase64, revokeImageObjectUrl } from "./image-object-url";
 import { imageViewAnalysisPanel } from "./image-view-analysis-panel";
 import { releaseMermaidModule } from "./prosemirror/mermaid-block";
@@ -2457,65 +2458,67 @@ function ConversationV2ProjectionActivityLogViewImpl({
   };
 
   return (
-    <RequestSpansContext.Provider value={projection.requestSpans}>
-      <ActivityFeedLayoutContext.Provider value={onPlannerLayoutChange}>
-        <div
-          ref={runLogRef}
-          className={["run-log", feedVirtualized ? "run-log--virtualized" : ""].filter(Boolean).join(" ")}
-          onContextMenu={handleFeedContextMenu}
-        >
-          <div ref={feedHeaderRef} className="run-log-virtual-header">
-            {showThreadPrompt && thread?.prompt
-              ? wrapRunLogFeedEntry(
-                  <UserPromptBlock
-                    text={thread.prompt}
-                    anchorId={`thread:${thread.id}`}
-                    {...(thread.createdAt ? { createdAt: thread.createdAt } : {})}
-                    {...(showMessageActions && onRestorePrompt && { onRestorePrompt })}
-                    {...(showMessageActions && onLoadUserMessageEdit && { onLoadUserMessageEdit })}
-                    {...(showMessageActions && onRewriteUserMessage && { onRewriteUserMessage })}
-                    {...(showMessageActions && onForkMessage && { onForkMessage })}
-                    {...(forkDisabledReason && { forkDisabledReason })}
-                    allowUserMessageRewrite={allowUserMessageRewrite}
-                    historyRevision={projection.historyRevision ?? 0}
-                  />,
-                )
-              : null}
+    <PromptImageContext.Provider value={`thread:${projection.thread.threadId}`}>
+      <RequestSpansContext.Provider value={projection.requestSpans}>
+        <ActivityFeedLayoutContext.Provider value={onPlannerLayoutChange}>
+          <div
+            ref={runLogRef}
+            className={["run-log", feedVirtualized ? "run-log--virtualized" : ""].filter(Boolean).join(" ")}
+            onContextMenu={handleFeedContextMenu}
+          >
+            <div ref={feedHeaderRef} className="run-log-virtual-header">
+              {showThreadPrompt && thread?.prompt
+                ? wrapRunLogFeedEntry(
+                    <UserPromptBlock
+                      text={thread.prompt}
+                      anchorId={`thread:${thread.id}`}
+                      {...(thread.createdAt ? { createdAt: thread.createdAt } : {})}
+                      {...(showMessageActions && onRestorePrompt && { onRestorePrompt })}
+                      {...(showMessageActions && onLoadUserMessageEdit && { onLoadUserMessageEdit })}
+                      {...(showMessageActions && onRewriteUserMessage && { onRewriteUserMessage })}
+                      {...(showMessageActions && onForkMessage && { onForkMessage })}
+                      {...(forkDisabledReason && { forkDisabledReason })}
+                      allowUserMessageRewrite={allowUserMessageRewrite}
+                      historyRevision={projection.historyRevision ?? 0}
+                    />,
+                  )
+                : null}
+            </div>
+            {feedVirtualized ? (
+              <>
+                <FeedVirtualUserMessageSentinels
+                  anchors={userMessageAnchors}
+                  mountedSectionIndexes={mountedSectionIndexes}
+                  resolveSectionTopPx={resolveSectionTopPx}
+                />
+                <FeedVirtualSectionWindow
+                  sections={renderedFeedSections}
+                  totalSize={totalSize}
+                  scrollMargin={scrollMargin}
+                  paddingStart={feedPaddingStart}
+                  paddingEnd={feedPaddingEnd}
+                  virtualItems={virtualItems}
+                  measureElement={measureElement}
+                  renderSection={renderFeedSection}
+                />
+              </>
+            ) : (
+              renderedFeedSections.map((section, index) => (
+                <div key={section.key} className="run-log-virtual-row" data-index={index}>
+                  {renderFeedSection(index)}
+                </div>
+              ))
+            )}
           </div>
-          {feedVirtualized ? (
-            <>
-              <FeedVirtualUserMessageSentinels
-                anchors={userMessageAnchors}
-                mountedSectionIndexes={mountedSectionIndexes}
-                resolveSectionTopPx={resolveSectionTopPx}
-              />
-              <FeedVirtualSectionWindow
-                sections={renderedFeedSections}
-                totalSize={totalSize}
-                scrollMargin={scrollMargin}
-                paddingStart={feedPaddingStart}
-                paddingEnd={feedPaddingEnd}
-                virtualItems={virtualItems}
-                measureElement={measureElement}
-                renderSection={renderFeedSection}
-              />
-            </>
-          ) : (
-            renderedFeedSections.map((section, index) => (
-              <div key={section.key} className="run-log-virtual-row" data-index={index}>
-                {renderFeedSection(index)}
-              </div>
-            ))
-          )}
-        </div>
-        {feedTextContextMenu ? (
-          <FeedTextContextMenu
-            anchor={feedTextContextMenu}
-            onClose={closeFeedTextContextMenu}
-          />
-        ) : null}
-      </ActivityFeedLayoutContext.Provider>
-    </RequestSpansContext.Provider>
+          {feedTextContextMenu ? (
+            <FeedTextContextMenu
+              anchor={feedTextContextMenu}
+              onClose={closeFeedTextContextMenu}
+            />
+          ) : null}
+        </ActivityFeedLayoutContext.Provider>
+      </RequestSpansContext.Provider>
+    </PromptImageContext.Provider>
   );
 }
 
@@ -6345,7 +6348,7 @@ function UserPromptBlock({
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | undefined>();
   const [lightboxImage, setLightboxImage] = useState<{
-    src: string;
+    image: PromptImagePreview;
     alt: string;
     label: string;
   } | null>(null);
@@ -6619,7 +6622,7 @@ function UserPromptBlock({
                     <button
                       type="button"
                       className="run-log-user-prompt-edit-attachment-preview"
-                      onClick={() => setLightboxImage({ src, alt, label: openLabel })}
+                      onClick={() => setLightboxImage({ image, alt, label: openLabel })}
                       aria-label={openLabel}
                       disabled={editLoading || editSaving}
                     >
@@ -6722,7 +6725,7 @@ function UserPromptBlock({
                       className="run-log-user-prompt-image"
                       onClick={() =>
                         setLightboxImage({
-                          src,
+                          image,
                           alt,
                           label: i18n.t("activity.userImageOpen", {
                             count: index + 1,
@@ -6794,11 +6797,10 @@ function UserPromptBlock({
       />
 
       {lightboxImage ? (
-        <ImageLightbox
-          src={lightboxImage.src}
+        <PromptImageLightbox
+          image={lightboxImage.image}
           alt={lightboxImage.alt}
-          title={lightboxImage.alt}
-          dialogLabel={lightboxImage.label}
+          label={lightboxImage.label}
           onClose={closeLightbox}
         />
       ) : null}
