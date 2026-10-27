@@ -1,7 +1,7 @@
 export const usageOverviewTranslations = {
   "zh-CN": {
     "usageOverview.title": "用量",
-    "usageOverview.description": "查看 Eco 内的会话模型用量与费用估算。",
+    "usageOverview.description": "查看 Mori 内的会话模型用量与费用估算。",
     "usageOverview.provider": "供应商",
     "usageOverview.model": "模型",
     "usageOverview.allProviders": "全部供应商",
@@ -24,11 +24,11 @@ export const usageOverviewTranslations = {
     "usageOverview.since":
       "自 {{time}} 起记录 · {{zone}}。包含网关请求、Pi 和 ChatGPT Login 的可获取用量，不含此前历史、其他客户端或绘画及语音工具。",
     "usageOverview.failures": "有 {{count}} 次用量记录失败，统计可能不完整。",
-    "usageOverview.noApi": "请重启 Eco 以加载用量接口。",
+    "usageOverview.noApi": "请重启 Mori 以加载用量接口。",
   },
   "en-US": {
     "usageOverview.title": "Usage",
-    "usageOverview.description": "Conversation model usage and estimated costs in Eco.",
+    "usageOverview.description": "Conversation model usage and estimated costs in Mori.",
     "usageOverview.provider": "Provider",
     "usageOverview.model": "Model",
     "usageOverview.allProviders": "All providers",
@@ -51,6 +51,6 @@ export const usageOverviewTranslations = {
     "usageOverview.since":
       "Recorded since {{time}} · {{zone}}. Includes available gateway, Pi and ChatGPT Login usage; excludes earlier history, other clients, drawing and speech tools.",
     "usageOverview.failures": "{{count}} usage recording failures. Statistics may be incomplete.",
-    "usageOverview.noApi": "Restart Eco to load the usage API.",
+    "usageOverview.noApi": "Restart Mori to load the usage API.",
   },
 } as const;

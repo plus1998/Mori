@@ -19,7 +19,7 @@ export const accountUsageTranslations = {
     "accountUsage.costHint": "按记录时的模型 API 价格估算，并非订阅实际扣费；不含订阅费和税费。",
     "accountUsage.cycleHint": "5 小时从本账号首次记录起连续划分，独立记账，不代表官方额度刷新窗口。",
     "accountUsage.calendarHint": "按 {{zone}} 的自然日、周一至周日、自然月汇总；仅列出有用量的周期。",
-    "accountUsage.since": "Eco 自 {{time}} 起记录可获取的用量，不补推此前历史，也不包含其他客户端的使用。",
+    "accountUsage.since": "Mori 自 {{time}} 起记录可获取的用量，不补推此前历史，也不包含其他客户端的使用。",
     "accountUsage.empty": "此账号还没有用量记录。",
     "accountUsage.unpriced": "{{count}} 条记录缺少模型价格，费用仅包含已定价部分。",
     "accountUsage.recordingFailure": "有 {{count}} 次用量记录失败，统计可能不完整。最近错误：{{error}}",
@@ -30,7 +30,7 @@ export const accountUsageTranslations = {
     "accountUsage.more": "加载更早记录",
     "accountUsage.close": "关闭历史用量",
     "accountUsage.retry": "重试",
-    "accountUsage.noApi": "请重启 Eco 以加载账号历史用量接口。",
+    "accountUsage.noApi": "请重启 Mori 以加载账号历史用量接口。",
   },
   "en-US": {
     "accountUsage.title": "Usage history",
@@ -56,7 +56,7 @@ export const accountUsageTranslations = {
     "accountUsage.calendarHint":
       "Calendar days, Monday–Sunday weeks and calendar months in {{zone}}. Only periods with usage appear.",
     "accountUsage.since":
-      "Eco records available usage since {{time}}. Earlier history and usage in other clients are not included.",
+      "Mori records available usage since {{time}}. Earlier history and usage in other clients are not included.",
     "accountUsage.empty": "No usage recorded for this account yet.",
     "accountUsage.unpriced": "Records without a model price: {{count}}. Costs include only priced records.",
     "accountUsage.recordingFailure":
@@ -68,6 +68,6 @@ export const accountUsageTranslations = {
     "accountUsage.more": "Load earlier records",
     "accountUsage.close": "Close usage history",
     "accountUsage.retry": "Retry",
-    "accountUsage.noApi": "Restart Eco to load the account usage history API.",
+    "accountUsage.noApi": "Restart Mori to load the account usage history API.",
   },
 } as const;

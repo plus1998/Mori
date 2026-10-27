@@ -1534,7 +1534,7 @@ function ServerEditor({
             type="text"
             value={form.deviceName ?? ""}
             disabled={busy}
-            placeholder="Eco Desktop"
+            placeholder="Mori Desktop"
             onChange={(event) => setForm((current) => ({ ...current, deviceName: event.target.value }))}
           />
         </label>

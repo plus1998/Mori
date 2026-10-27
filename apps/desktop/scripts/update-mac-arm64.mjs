@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const desktopRoot = path.resolve(path.dirname(scriptPath), "..");
-const APP_NAME = "Eco Coding.app";
+const APP_NAME = "Mori.app";
+const LEGACY_APP_NAME = "Eco Coding.app";
 const APP_ID = "com.eco.coding";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -50,11 +51,7 @@ export function installedAppPids(psOutput, appPath) {
 }
 
 /** Only detach when quitting the installed app would also terminate this caller. */
-export function isRunningInsideInstalledApp({
-  ppid = process.ppid,
-  target = path.join("/Applications", APP_NAME),
-  run = runCommand,
-} = {}) {
+export function isRunningInsideInstalledApp({ ppid = process.ppid, target, run = runCommand } = {}) {
   const output = run("/bin/ps", ["-axo", "pid=,ppid=,comm="], { capture: true });
   const processes = new Map();
   for (const line of output.split("\n")) {
@@ -62,11 +59,14 @@ export function isRunningInsideInstalledApp({
     if (match) processes.set(Number(match[1]), { ppid: Number(match[2]), executable: match[3] });
   }
   const visited = new Set();
+  const targets = target
+    ? [target]
+    : [path.join("/Applications", APP_NAME), path.join("/Applications", LEGACY_APP_NAME)];
   while (ppid > 1 && !visited.has(ppid)) {
     visited.add(ppid);
     const entry = processes.get(ppid);
     if (!entry) throw new Error(`无法检测启动来源：父进程 PID ${ppid} 不在进程列表中。`);
-    if (entry.executable.startsWith(`${target}/Contents/`)) return true;
+    if (targets.some((appPath) => entry.executable.startsWith(`${appPath}/Contents/`))) return true;
     ppid = entry.ppid;
   }
   if (ppid > 1) throw new Error("无法检测启动来源：父进程链存在循环。");
@@ -87,7 +87,7 @@ export async function quitInstalledApp({
     installedAppProcesses(run("/bin/ps", ["-axo", "pid=,stat=,comm="], { capture: true }), target);
   const describe = (processes) =>
     processes.map(({ pid, executable }) => `PID ${pid}: ${executable}`).join("\n");
-  const mainExecutable = path.join(target, "Contents", "MacOS", "Eco Coding");
+  const mainExecutable = path.join(target, "Contents", "MacOS", path.basename(target, ".app"));
   const hasMain = (processes) => processes.some(({ executable }) => executable === mainExecutable);
   const waitUntil = async (done, timeoutMs) => {
     const deadline = now() + timeoutMs;
@@ -108,7 +108,7 @@ export async function quitInstalledApp({
     remaining = await waitUntil((processes) => !hasMain(processes), quitTimeoutMs);
     if (hasMain(remaining)) {
       throw new Error(
-        `生产版 Eco 主进程未在 ${quitTimeoutMs / 1000} 秒内退出，已停止更新：\n${describe(remaining)}`,
+        `生产版 Mori 主进程未在 ${quitTimeoutMs / 1000} 秒内退出，已停止更新：\n${describe(remaining)}`,
       );
     }
   }
@@ -131,7 +131,7 @@ export async function quitInstalledApp({
     remaining = await waitUntil((processes) => processes.length === 0, cleanupTimeoutMs);
   }
   if (remaining.length > 0) {
-    throw new Error(`生产版 Eco 仍有进程未退出，已停止更新：\n${describe(remaining)}`);
+    throw new Error(`生产版 Mori 仍有进程未退出，已停止更新：\n${describe(remaining)}`);
   }
 }
 
@@ -152,10 +152,11 @@ export async function updateMacArm64({
   fs.accessSync(applicationsDir, fs.constants.W_OK);
   const source = path.join(root, "release", "mac-arm64", APP_NAME);
   const target = path.join(applicationsDir, APP_NAME);
+  const legacyTarget = path.join(applicationsDir, LEGACY_APP_NAME);
 
   console.log("[1/4] 打包 macOS ARM64 应用……");
   run("bun", ["run", "pack:mac-arm64", "--dir"], { cwd: root });
-  if (!fs.statSync(path.join(source, "Contents", "MacOS", "Eco Coding")).isFile()) {
+  if (!fs.statSync(path.join(source, "Contents", "MacOS", "Mori")).isFile()) {
     throw new Error(`打包产物缺少应用可执行文件：${source}`);
   }
   const bundleId = run(
@@ -165,24 +166,37 @@ export async function updateMacArm64({
   ).trim();
   if (bundleId !== APP_ID) throw new Error(`打包产物 bundle ID 不匹配：${bundleId}`);
 
-  console.log("[2/4] 退出 /Applications 中的生产版 Eco（不影响 dev 版）……");
-  await quitInstalledApp({ target, run, delay, now, quitTimeoutMs, cleanupTimeoutMs, signalProcess });
+  console.log("[2/4] 退出 /Applications 中的生产版 Mori / Eco Coding（不影响 dev 版）……");
+  for (const installedTarget of [target, legacyTarget]) {
+    await quitInstalledApp({
+      target: installedTarget,
+      run,
+      delay,
+      now,
+      quitTimeoutMs,
+      cleanupTimeoutMs,
+      signalProcess,
+    });
+  }
 
-  console.log("[3/4] 替换 /Applications/Eco Coding.app……");
+  console.log("[3/4] 安装 /Applications/Mori.app……");
   // Keep the old bundle until the complete new bundle is ready on the same volume.
   const stagingDir = fs.mkdtempSync(path.join(applicationsDir, ".eco-local-update-"));
   const staged = path.join(stagingDir, APP_NAME);
   const backup = path.join(stagingDir, "previous.app");
+  const legacyBackup = path.join(stagingDir, "previous-eco.app");
   try {
     run("/usr/bin/ditto", [source, staged]);
-    if (fs.existsSync(target)) fs.renameSync(target, backup);
     try {
+      if (fs.existsSync(target)) fs.renameSync(target, backup);
+      if (fs.existsSync(legacyTarget)) fs.renameSync(legacyTarget, legacyBackup);
       fs.renameSync(staged, target);
     } catch (error) {
       if (fs.existsSync(backup)) fs.renameSync(backup, target);
+      if (fs.existsSync(legacyBackup)) fs.renameSync(legacyBackup, legacyTarget);
       throw error;
     }
-    console.log("[4/4] 打开新安装的 Eco……");
+    console.log("[4/4] 打开新安装的 Mori……");
     run("/usr/bin/open", ["-a", target]);
     fs.rmSync(stagingDir, { recursive: true });
   } catch (error) {
@@ -237,7 +251,7 @@ export async function main({
     return;
   }
   const { pid, logPath } = await detach();
-  console.log(`本地更新任务已启动（PID ${pid}），打包成功后将退出并重新打开生产版 Eco。`);
+  console.log(`本地更新任务已启动（PID ${pid}），打包成功后将退出并重新打开生产版 Mori。`);
   console.log(`查看进度及最终结果：tail -f ${JSON.stringify(logPath)}`);
 }
 

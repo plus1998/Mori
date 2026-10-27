@@ -393,7 +393,7 @@ export class ChatGptSubscriptionService {
     const server = createServer((request, response) => {
       void this.handleCallback(request.url, account.accountId, response).catch((error) => {
         response.statusCode = 500;
-        response.end("ChatGPT 登录失败，请返回 Eco Coding 重试。");
+        response.end("ChatGPT 登录失败，请返回 Mori 重试。");
         this.rejectPending(account.accountId, error);
       });
     });
@@ -422,7 +422,7 @@ export class ChatGptSubscriptionService {
       code_challenge: codeChallenge,
     });
     if (clientId === "dynamic_agent_client") {
-      params.set("agent_name_hint", "Eco Coding");
+      params.set("agent_name_hint", "Mori");
     } else if (options.includeAccountHints !== false && account.idToken) {
       params.set("id_token_hint", account.idToken);
       if (account.email) params.set("login_hint", account.email);
@@ -1037,7 +1037,7 @@ export class ChatGptSubscriptionService {
     await this.persist();
     response.statusCode = 200;
     response.setHeader("content-type", "text/html; charset=utf-8");
-    response.end("<h1>Eco Coding 登录成功</h1><p>可以关闭此窗口并返回 Eco Coding。</p>");
+    response.end("<h1>Mori 登录成功</h1><p>可以关闭此窗口并返回 Mori。</p>");
     this.resolvePending(accountId, this.toView(account));
   }
 

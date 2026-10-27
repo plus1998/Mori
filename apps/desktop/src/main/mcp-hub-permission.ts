@@ -22,7 +22,7 @@ export function createMcpHubNestedToolPermissionHandler(
     if (separator <= 0 || !toolId.slice(separator + 1).trim()) {
       return {
         behavior: "deny",
-        message: "Eco MCP Hub call_tool 缺少有效的已搜索工具 ID。",
+        message: "Mori MCP Hub call_tool 缺少有效的已搜索工具 ID。",
         interrupt: false,
       };
     }

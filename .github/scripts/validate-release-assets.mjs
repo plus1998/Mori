@@ -8,7 +8,7 @@ const directory = path.resolve(args.directory);
 const feedDirectory = path.resolve(args.feedDirectory);
 const version = args.version;
 const channel = args.channel;
-const repository = args.repository || process.env.GITHUB_REPOSITORY || "plus1998/eco-coding";
+const repository = args.repository || process.env.GITHUB_REPOSITORY || "plus1998/Mori";
 const names = new Set(await readdir(directory));
 const feedNames = new Set(await readdir(feedDirectory));
 const macChannelFile = channel === "beta" ? "beta-mac.yml" : "latest-mac.yml";
@@ -22,15 +22,15 @@ if (channel !== "beta" && channel !== "latest") {
 }
 
 const required = [
-  `Eco-Coding-${version}-mac-arm64.dmg`,
-  `Eco-Coding-${version}-mac-arm64.zip`,
-  `Eco-Coding-${version}-mac-arm64.zip.blockmap`,
-  `Eco-Coding-${version}-mac-x64.dmg`,
-  `Eco-Coding-${version}-mac-x64.zip`,
-  `Eco-Coding-${version}-mac-x64.zip.blockmap`,
-  `Eco-Coding-${version}-win-x64.exe`,
-  `Eco-Coding-${version}-win-x64.exe.blockmap`,
-  `Eco-Coding-${version}-linux-x64.AppImage`,
+  `Mori-${version}-mac-arm64.dmg`,
+  `Mori-${version}-mac-arm64.zip`,
+  `Mori-${version}-mac-arm64.zip.blockmap`,
+  `Mori-${version}-mac-x64.dmg`,
+  `Mori-${version}-mac-x64.zip`,
+  `Mori-${version}-mac-x64.zip.blockmap`,
+  `Mori-${version}-win-x64.exe`,
+  `Mori-${version}-win-x64.exe.blockmap`,
+  `Mori-${version}-linux-x64.AppImage`,
   macChannelFile,
   winChannelFile,
   linuxChannelFile,

@@ -588,7 +588,7 @@ test("remote deployment lease rejects a competing client before migration writes
   const service = cloud.service();
   await service.authorize(token);
   const result = await service.deploy(ref);
-  expect(result.job?.error).toContain("另一个 Eco 客户端");
+  expect(result.job?.error).toContain("另一个 Mori 客户端");
   expect(cloud.writes).toEqual([]);
   expect(cloud.lease).toBe("another-client");
 });

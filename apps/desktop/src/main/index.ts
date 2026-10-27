@@ -193,7 +193,7 @@ import {
   requiredConversationV2String,
 } from "./conversation-v2-request";
 import { getClaudeVersion, getCodexVersion, getCursorVersion } from "./core-version";
-import { configureDesktopDevIdentity } from "./desktop-app-identity";
+import { applyDesktopDisplayName, configureDesktopIdentity } from "./desktop-app-identity";
 import { ensureDesktopPath } from "./fix-desktop-path";
 import { ImageViewReadError, readImageViewFile } from "./image-view-reader";
 import { buildApplicationMenuTemplate } from "./native-menu";
@@ -1194,7 +1194,7 @@ const desktopUpdateService = new DesktopUpdateService({
   getOutboundProxyUrl: () => resolveOutboundProxyUrl(proxyBridgeSettingsStore.get()),
 });
 
-configureDesktopDevIdentity();
+configureDesktopIdentity();
 
 // The shared SQLite store and fixed-port gateway require a single main-process writer.
 const e2eMode = process.env.ECO_E2E === "1";
@@ -1237,7 +1237,7 @@ function createOAuthAuthWindow(parent?: BrowserWindow, partition = "oauth-auth-s
   return new BrowserWindow({
     width: 900,
     height: 700,
-    title: "Eco Coding · ChatGPT 授权",
+    title: "Mori · ChatGPT 授权",
     ...(appIcon ? { icon: appIcon } : {}),
     ...(parent ? { parent } : {}),
     modal: Boolean(parent) && !isMac,
@@ -2135,7 +2135,7 @@ function createStartupWindowUrl(): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Eco Coding</title>
+    <title>Mori</title>
     <style>
       html, body {
         width: 100%;
@@ -2425,7 +2425,7 @@ async function createMainWindow(
             autoHideMenuBar: true,
           }),
     ...(appIcon ? { icon: appIcon } : {}),
-    ...(isStartupSplash ? { title: "Eco Coding" } : {}),
+    ...(isStartupSplash ? { title: "Mori" } : {}),
     webPreferences: {
       ...(!isStartupSplash ? { preload: path.join(__dirname, "../preload/index.cjs") } : {}),
       contextIsolation: true,
@@ -2570,6 +2570,7 @@ function isExternalHttpUrl(url: string): boolean {
 app
   .whenReady()
   .then(async () => {
+    applyDesktopDisplayName();
     const startupStartedAt = Date.now();
     let startupWindow: BrowserWindow | undefined;
     const logStartupStage = (stage: string): void => {
@@ -3938,7 +3939,7 @@ app
     });
     try {
       dialog.showErrorBox(
-        "Eco Coding 启动失败",
+        "Mori 启动失败",
         `${startupError.message}\n\n详细日志：${getUpstreamLogFilePath()}`,
       );
     } finally {

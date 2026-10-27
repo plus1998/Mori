@@ -88,7 +88,7 @@ test("ACP follow-up IPC errors localize without raw Chinese in en-US", () => {
 
 test("ACP vision and auxiliary model IPC errors localize without raw Chinese in en-US", () => {
   const messages = [
-    "未配置视觉模型。ACP 会话没有 Eco 主模型可回退，请在 Composer 运行配置中选择视觉模型。",
+    "未配置视觉模型。ACP 会话没有 Mori 主模型可回退，请在 Composer 运行配置中选择视觉模型。",
     "未配置辅助模型。请在 Composer 的运行配置中选择辅助模型。",
   ];
   for (const message of messages) {

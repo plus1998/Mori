@@ -11,6 +11,20 @@ function submenuFor(template: MenuItemConstructorOptions[], label: string): Menu
   return submenu;
 }
 
+test("macOS app menu uses the supplied display name for native role labels", () => {
+  for (const displayName of ["Mori", "Mori Dev"]) {
+    const template = buildApplicationMenuTemplate(displayName, "darwin", () => {});
+    const appMenu = submenuFor(template, displayName);
+    for (const [role, verb] of [
+      ["about", "About"],
+      ["hide", "Hide"],
+      ["quit", "Quit"],
+    ]) {
+      expect(appMenu.find((item) => item.role === role)?.label).toBe(`${verb} ${displayName}`);
+    }
+  }
+});
+
 test("builds File and View commands and dispatches their typed command ids", () => {
   const commands: AppMenuCommand[] = [];
   const template = buildApplicationMenuTemplate("Eco Coding", "darwin", (command) => {

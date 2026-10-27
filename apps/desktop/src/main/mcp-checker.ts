@@ -166,7 +166,7 @@ async function initializeMcpClient(client: McpClientLike): Promise<InitializeSum
     protocolVersion: MCP_PROTOCOL_VERSION,
     capabilities: {},
     clientInfo: {
-      name: "Eco Coding",
+      name: "Mori",
       version: "0.0.1",
     },
   });
@@ -342,7 +342,7 @@ class StdioMcpClient implements McpClientLike {
       id: request.id,
       error: {
         code: -32601,
-        message: `Eco MCP 检测未实现客户端方法 ${request.method}。`,
+        message: `Mori MCP 检测未实现客户端方法 ${request.method}。`,
       },
     });
   }

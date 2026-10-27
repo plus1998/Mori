@@ -729,7 +729,7 @@ const emptyCenterServerSettings: CenterServerSettingsSnapshot = {
     supabaseUrl: "",
     serverUrl: "",
     hasAnonKey: false,
-    deviceName: "Eco Desktop",
+    deviceName: "Mori Desktop",
     hasDeviceSecret: false,
     hasRefreshToken: false,
     hasVaultKey: false,
@@ -10439,7 +10439,7 @@ function App() {
 
   async function checkMcpServer(input: McpServerConfigInput): Promise<McpServerCheckResult> {
     if (!window.eco) {
-      throw new Error("Eco desktop API is not available.");
+      throw new Error("Mori desktop API is not available.");
     }
     return window.eco.checkMcpServer(input);
   }

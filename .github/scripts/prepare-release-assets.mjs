@@ -32,15 +32,15 @@ const updateMetadataNames = new Set([
   "latest-linux.yml",
 ]);
 const artifactNames = new Set([
-  `Eco-Coding-${version}-mac-arm64.dmg`,
-  `Eco-Coding-${version}-mac-arm64.zip`,
-  `Eco-Coding-${version}-mac-arm64.zip.blockmap`,
-  `Eco-Coding-${version}-mac-x64.dmg`,
-  `Eco-Coding-${version}-mac-x64.zip`,
-  `Eco-Coding-${version}-mac-x64.zip.blockmap`,
-  `Eco-Coding-${version}-win-x64.exe`,
-  `Eco-Coding-${version}-win-x64.exe.blockmap`,
-  `Eco-Coding-${version}-linux-x64.AppImage`,
+  `Mori-${version}-mac-arm64.dmg`,
+  `Mori-${version}-mac-arm64.zip`,
+  `Mori-${version}-mac-arm64.zip.blockmap`,
+  `Mori-${version}-mac-x64.dmg`,
+  `Mori-${version}-mac-x64.zip`,
+  `Mori-${version}-mac-x64.zip.blockmap`,
+  `Mori-${version}-win-x64.exe`,
+  `Mori-${version}-win-x64.exe.blockmap`,
+  `Mori-${version}-linux-x64.AppImage`,
 ]);
 
 if (channel !== "beta" && channel !== "latest") {

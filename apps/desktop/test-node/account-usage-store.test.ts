@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,7 +8,30 @@ import { DatabaseSync } from "node:sqlite";
 import { type TestContext, test } from "node:test";
 import { type AccountUsageRecord, AccountUsageStore } from "../src/main/account-usage-store";
 
-process.env.TZ = "America/New_York";
+// Node runs this suite in its own process. Bun's parallel runner shares process
+// state, and its SQLite localtime does not follow a runtime TZ change. Start the
+// timezone cases with TZ already set so SQLite and JavaScript use the same zone.
+if (!process.versions.bun) process.env.TZ = "America/New_York";
+function timezoneTest(name: string, run: (t: TestContext) => void) {
+  test(
+    name,
+    process.versions.bun && process.env.ECO_ACCOUNT_USAGE_TZ_CHILD !== "1"
+      ? () => {
+          const result = spawnSync(
+            process.execPath,
+            ["test", fileURLToPath(import.meta.url), "--test-name-pattern", name],
+            {
+              env: { ...process.env, TZ: "America/New_York", ECO_ACCOUNT_USAGE_TZ_CHILD: "1" },
+              encoding: "utf8",
+              timeout: 30_000,
+            },
+          );
+          assert.ifError(result.error);
+          assert.equal(result.status, 0, result.stdout + result.stderr);
+        }
+      : run,
+  );
+}
 const base: AccountUsageRecord = {
   kind: "chatgpt_login",
   accountId: "a",
@@ -65,7 +90,7 @@ test("overview filters physical usage by provider, model and time without duplic
   assert.throws(() => store.overview({ period: "all", providerKey: " " }));
 });
 
-test("overview uses half-open five-hour windows and local DST calendar boundaries", (t) => {
+timezoneTest("overview uses half-open five-hour windows and local DST calendar boundaries", (t) => {
   const anchor = Date.parse("2026-03-08T00:00:00-05:00");
   const store = new AccountUsageStore(new DatabaseSync(":memory:"), anchor);
   t.after(() => store.close());
@@ -154,7 +179,7 @@ test("five-hour boundaries are exclusive and independently anchored per account"
   );
 });
 
-test("calendar groups use local midnight, Monday weeks and month/year boundaries", (t) => {
+timezoneTest("calendar groups use local midnight, Monday weeks and month/year boundaries", (t) => {
   const store = fixture(t);
   for (const [i, date] of [
     "2026-01-04T23:59:59-05:00",
@@ -184,7 +209,7 @@ test("calendar groups use local midnight, Monday weeks and month/year boundaries
   );
 });
 
-test("day and week ends respect daylight saving time", (t) => {
+timezoneTest("day and week ends respect daylight saving time", (t) => {
   const store = fixture(t);
   store.append({ ...base, observedAt: Date.parse("2026-03-08T12:00:00-04:00") });
   const day = store.history({ kind: base.kind, accountId: "a", period: "day" }).buckets[0]!;

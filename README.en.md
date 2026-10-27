@@ -1,12 +1,12 @@
 <div align="center">
-  <img src="apps/desktop/public/splash-icon.png" width="112" alt="Eco Coding Logo" />
-  <h1>Eco Coding</h1>
-  <p>Eco Coding is an open-source desktop AI coding workspace built on leading Agent Harnesses<br/>Designed to orchestrate different models at lower cost and provide a more open, flexible development experience.</p>
+  <img src="apps/desktop/public/splash-icon.png" width="112" alt="Mori Logo" />
+  <h1>Mori</h1>
+  <p>Mori is an open-source desktop AI coding workspace built on leading Agent Harnesses<br/>Designed to orchestrate different models at lower cost and provide a more open, flexible development experience.</p>
   <p>
     <a href="README.md">简体中文</a> · <strong>English</strong>
   </p>
   <p>
-    <a href="https://github.com/plus1998/eco-coding/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/plus1998/eco-coding?include_prereleases&style=flat-square" /></a>
+    <a href="https://github.com/plus1998/Mori/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/plus1998/Mori?include_prereleases&style=flat-square" /></a>
     <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-16a34a?style=flat-square" /></a>
     <img alt="Platforms" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-2563eb?style=flat-square" />
     <img alt="Status" src="https://img.shields.io/badge/status-beta-f59e0b?style=flat-square" />
@@ -17,17 +17,17 @@
 
 A multi-agent coding workspace for Codex, Claude Code, and PI—with model routing, subagent orchestration, cost observability, and cross-device sync.
 
-![Eco Coding dark workspace with the project sidebar, task conversation, and Agent workspace](docs/assets/eco-product-overview-dark.jpg)
+![Mori dark workspace with the project sidebar, task conversation, and Agent workspace](docs/assets/eco-product-overview-dark.jpg)
 
 <p align="center"><sub>Each session independently configures subagents, integrations, Skills, and MCP.</sub></p>
 
-![Eco Coding mobile: session list and remote Agent chat](docs/assets/eco-mobile-demo.png)
+![Mori mobile: session list and remote Agent chat](docs/assets/eco-mobile-demo.png)
 
 <p align="center"><sub>Browse Sessions on your phone, follow tasks, and keep talking with the Agent while away from the desk.</sub></p>
 
-## Why Eco Coding
+## Why Mori
 
-If you already use Codex or Claude Code, Eco Coding puts them in one workspace and adds what most official clients leave out:
+If you already use Codex or Claude Code, Mori puts them in one workspace and adds what most official clients leave out:
 
 - **Mix models** — Combine GPT, Claude, DeepSeek, Kimi, and more across Responses / Messages / Chat Completions
 - **Split work, cut cost** — Lead agent plans and accepts; subagents search, code, and test in parallel on cheaper models
@@ -41,13 +41,13 @@ Prefer a single model? That works too—multi-agent is optional.
 
 ## Quick start
 
-**[Download the desktop app →](https://github.com/plus1998/eco-coding/releases)** (macOS / Windows / Linux)
+**[Download the desktop app →](https://github.com/plus1998/Mori/releases)** (macOS / Windows / Linux)
 
 Run from source (Bun `1.4.0`+ and Node.js `22.14.0`+ recommended):
 
 ```bash
-git clone https://github.com/plus1998/eco-coding.git
-cd eco-coding
+git clone https://github.com/plus1998/Mori.git
+cd Mori
 bun install
 bun run dev
 ```
@@ -88,7 +88,7 @@ After the first launch, add API credentials under Settings → Model Providers, 
 
 Bind lead and subagents independently to providers, models, protocols, MCP, and Skills; built-in Explore / Architect / Coder / Reviewer / Tester templates.
 
-![Eco Coding dark Agent Team configuration with Explore, Coder, and Tester on MyCodex Luna](docs/assets/eco-agent-team-dark.jpg)
+![Mori dark Agent Team configuration with Explore, Coder, and Tester on MyCodex Luna](docs/assets/eco-agent-team-dark.jpg)
 
 <p align="center"><sub>Lead and subagents can bind different providers, models, protocols, and tool policies.</sub></p>
 
@@ -96,7 +96,7 @@ Bind lead and subagents independently to providers, models, protocols, MCP, and 
 
 Track cost and cache by session, agent, and model; compare orchestrated vs unorchestrated estimates.
 
-![Eco Coding dark billing and prompt-cache panel](docs/assets/eco-cost-cache-dark.jpg)
+![Mori dark billing and prompt-cache panel](docs/assets/eco-cost-cache-dark.jpg)
 
 <p align="center"><sub>Track cost and cache hit rate by session, agent, and model; compare orchestrated vs unorchestrated estimates.</sub></p>
 
@@ -104,15 +104,15 @@ Track cost and cache by session, agent, and model; compare orchestrated vs unorc
 
 Subagents and multi-agent setups address the division of complex work. A single high-capability model can complete complex tasks alone, but leaving it to search, implement, test, and review for long stretches makes context noisy and bills every step at the highest unit price. The lead agent can stay user-facing: understand goals, dispatch work, and own acceptance; concrete work goes to faster, cheaper, or locally running models. Subagents matter because they get independent task contexts, parallelize independent work, and let models of different cost and capability do what they fit.
 
-This is Eco Coding's core idea. Almost every major model lab is shipping large and small models in the same family—exactly this trend. DeepSeek Flash's speed and ultra-low price, OpenCode 2's rewrite philosophy, and the recent ~80% cut in GPT Luna pricing all feel like part of the same wave. The idea took shape a few months ago; watching the field move step by step in this direction made it urgent to ship and open-source Eco Coding early.
+This is Mori's core idea. Almost every major model lab is shipping large and small models in the same family—exactly this trend. DeepSeek Flash's speed and ultra-low price, OpenCode 2's rewrite philosophy, and the recent ~80% cut in GPT Luna pricing all feel like part of the same wave. The idea took shape a few months ago; watching the field move step by step in this direction made it urgent to ship and open-source Mori early.
 
-![Eco Coding dark orchestration diagram: lead planner with parallel Explore, Coder, and Tester workers](docs/assets/eco-orchestration-future-dark.jpg)
+![Mori dark orchestration diagram: lead planner with parallel Explore, Coder, and Tester workers](docs/assets/eco-orchestration-future-dark.jpg)
 
 <p align="center"><sub>Lead plans and accepts; workers run in parallel with isolated context and tiered pricing.</sub></p>
 
 ### A reusable setup
 
-In Eco Coding, `gpt-5.6-sol` can serve as the lead agent or planner: it understands the request, breaks down the work, decides whether to delegate, and owns acceptance. Assign `gpt-5.6-luna` with `max` reasoning effort to execution roles such as Explore, Coder, and Tester. This is a working style validated in real use. On long tasks, actual cost can drop by about 60%–80%.
+In Mori, `gpt-5.6-sol` can serve as the lead agent or planner: it understands the request, breaks down the work, decides whether to delegate, and owns acceptance. Assign `gpt-5.6-luna` with `max` reasoning effort to execution roles such as Explore, Coder, and Tester. This is a working style validated in real use. On long tasks, actual cost can drop by about 60%–80%.
 
 With custom prompts:
 
@@ -127,9 +127,9 @@ With custom prompts:
 | `gpt-5.6-sol` vs `gpt-5.6-luna` | `$5.00` vs `$0.20` | Sol is about `25x` | `$30.00` vs `$1.20` | Sol is about `25x` |
 | `Claude Opus 4.8` vs `DeepSeek V4 Flash` | `$5.00` vs `$0.14` | Claude is about `35.7x` | `$25.00` vs `$0.28` | Claude is about `89.3x` |
 
-### What Eco Coding does
+### What Mori does
 
-Eco Coding connects model aggregation with task delegation. A lead agent can use a high-capability model to maintain intent and acceptance criteria, while roles such as Explore, Coder, and Tester switch to cheaper, lower-latency, or local models; different roles may also come from different providers. Eco Coding centralizes routing, protocols, reasoning effort, context isolation, tool policies, MCP, Skills, cost, and cache observability so users can see why each model was used, what it cost, and whether the orchestration is worth repeating.
+Mori connects model aggregation with task delegation. A lead agent can use a high-capability model to maintain intent and acceptance criteria, while roles such as Explore, Coder, and Tester switch to cheaper, lower-latency, or local models; different roles may also come from different providers. Mori centralizes routing, protocols, reasoning effort, context isolation, tool policies, MCP, Skills, cost, and cache observability so users can see why each model was used, what it cost, and whether the orchestration is worth repeating.
 
 It does not prescribe one permanent model or a fixed number of agents. It provides a composable dispatch and observability layer: the same task can use one agent or parallel subagents.
 
@@ -161,7 +161,7 @@ packages/
 
 ## Project status
 
-Eco Coding is evolving quickly. Beta releases are intended for evaluation, feedback, and development.
+Mori is evolving quickly. Beta releases are intended for evaluation, feedback, and development.
 
 Current priorities:
 
@@ -172,4 +172,4 @@ Current priorities:
 
 ## License
 
-Eco Coding is open source under the [MIT License](LICENSE). The project name, logo, and official distribution channels are not automatically licensed as trademarks by the MIT software license.
+Mori is open source under the [MIT License](LICENSE). The project name, logo, and official distribution channels are not automatically licensed as trademarks by the MIT software license.

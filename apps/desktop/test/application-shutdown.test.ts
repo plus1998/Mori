@@ -124,7 +124,7 @@ test("buildQuitConfirmationDialogOptions includes running counts", () => {
     compactingThreadIds: ["thr_2"],
   });
 
-  expect(options.title).toBe("退出 Eco？");
+  expect(options.title).toBe("退出 Mori？");
   expect(options.detail).toContain("1 个对话任务正在运行");
   expect(options.detail).toContain("1 个后台终端任务正在运行");
   expect(options.detail).toContain("1 个对话正在压缩上下文");

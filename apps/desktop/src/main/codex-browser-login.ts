@@ -122,7 +122,7 @@ export async function startCodexBrowserLogin(input: {
     if (!authenticating) settle({ success: false, message: `登录进程提前退出（${signal ?? code}）` });
   });
   try {
-    await client.initialize({ clientInfo: { name: "eco_coding", title: "Eco Coding", version: "0.1.0" } });
+    await client.initialize({ clientInfo: { name: "eco_coding", title: "Mori", version: "0.1.0" } });
     const response = await client.request<{ type: string; loginId: string; authUrl: string }>(
       "account/login/start", { type: "chatgpt" },
       { onResult: (response) => { loginId = response.loginId; } },

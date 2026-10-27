@@ -131,7 +131,7 @@ const storedEngine =
   typeof localStorage === "undefined" ? null : localStorage.getItem("eco.readAloud.engine");
 export const readAloud = new ReadAloudController(
   () => {
-    if (!window.eco?.startReadAloud) throw new Error("当前桌面版本不支持正文朗读，请升级 Eco。");
+    if (!window.eco?.startReadAloud) throw new Error("当前桌面版本不支持正文朗读，请升级 Mori。");
     return window.eco;
   },
   new DesktopReadAloudPlayer(),

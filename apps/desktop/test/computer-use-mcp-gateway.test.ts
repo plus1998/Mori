@@ -39,8 +39,8 @@ test("buildOpenComputerUseDoctorOpenArgs uses path form not -a", () => {
   expect(args).not.toContain("-a");
 });
 
-test("resolveEcoScreenRecordingAppLabel packaged stays Eco Coding", () => {
-  expect(resolveEcoScreenRecordingAppLabel(true)).toBe("Eco Coding");
+test("resolveEcoScreenRecordingAppLabel packaged uses Mori", () => {
+  expect(resolveEcoScreenRecordingAppLabel(true)).toBe("Mori");
 });
 
 test("describeMacOsComputerUsePermissionGap uses provided screen host label", () => {

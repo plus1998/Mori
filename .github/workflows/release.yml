@@ -208,7 +208,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.validate.outputs.tag }}
-          name: Eco Coding ${{ needs.validate.outputs.tag }}
+          name: Mori ${{ needs.validate.outputs.tag }}
           prerelease: ${{ needs.validate.outputs.channel == 'beta' }}
           make_latest: ${{ needs.validate.outputs.channel == 'latest' }}
           body_path: release-notes.md

@@ -4,7 +4,7 @@
  *
  * Live process-tree detection lives in main (`computer-use-screen-host-native.ts`).
  */
-export const PACKAGED_SCREEN_RECORDING_APP_LABEL = "Eco Coding";
+export const PACKAGED_SCREEN_RECORDING_APP_LABEL = "Mori";
 
 /** Process / app names that are runners, not the TCC host the user must toggle. */
 const SKIP_APP_NAMES = new Set(
@@ -160,7 +160,7 @@ export function readProcessAncestorCommands(
 
 /**
  * Resolve from already-known inputs (no process inspection).
- * Packaged → Eco Coding. Dev → caller-supplied ancestors / TERM_PROGRAM.
+ * Packaged → Mori. Dev → caller-supplied ancestors / TERM_PROGRAM.
  */
 export function resolveScreenRecordingAppLabel(input?: {
   packaged?: boolean;

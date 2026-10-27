@@ -1,4 +1,4 @@
-const DEFAULT_GITHUB_REPOSITORY = "plus1998/eco-coding";
+const DEFAULT_GITHUB_REPOSITORY = "plus1998/Mori";
 const GITHUB_REPOSITORY_PATTERN = /^([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]+)$/;
 
 /** Long-lived GitHub Release tag that only hosts mutable channel yml pointers. */

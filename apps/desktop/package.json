@@ -1,8 +1,8 @@
 {
   "name": "@eco/desktop",
-  "version": "0.2.0-beta.6",
-  "description": "Eco Coding desktop app",
-  "author": "Eco Coding",
+  "version": "0.2.0-beta.7",
+  "description": "Mori desktop app",
+  "author": "Mori",
   "type": "module",
   "private": true,
   "main": "dist/main/index.js",

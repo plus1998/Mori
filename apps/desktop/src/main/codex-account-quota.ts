@@ -140,7 +140,7 @@ export async function withIsolatedCodexAccountClient<T>(input: {
   });
   try {
     await client.initialize({
-      clientInfo: { name: "eco_coding", title: "Eco Coding", version: "0.1.0" },
+      clientInfo: { name: "eco_coding", title: "Mori", version: "0.1.0" },
       capabilities: { experimentalApi: true },
     });
     return await operation(client);

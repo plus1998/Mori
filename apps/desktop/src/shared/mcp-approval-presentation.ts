@@ -18,7 +18,7 @@ export function presentMcpApproval<
   const prefix = `mcp__${server}__`;
   const leaf = fullTool.startsWith(prefix) ? fullTool.slice(prefix.length) : fullTool;
   const hub = /^eco_mcp(?:_[a-z0-9_-]+)?$/i.test(server);
-  const displayServer = hub ? "Eco MCP Hub" : server;
+  const displayServer = hub ? "Mori MCP Hub" : server;
   const displayTool =
     hub && leaf === "search_tools" ? "查找 MCP 工具" : hub && leaf === "call_tool" ? "执行 MCP 工具" : leaf;
   const argumentsText = request.description?.match(/with arguments\s+([\s\S]+?)\s*\?\s*$/i)?.[1];

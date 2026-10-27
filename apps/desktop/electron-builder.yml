@@ -1,11 +1,11 @@
 appId: com.eco.coding
-productName: Eco Coding
-copyright: Copyright © Eco Coding
+productName: Mori
+copyright: Copyright © Mori
 
 # Register the eco:// URL scheme so clicking eco://connect?... hands the link
 # to this app (see main-process open-url / second-instance handling).
 protocols:
-  - name: Eco Coding
+  - name: Mori
     schemes: [eco]
 
 directories:
@@ -77,7 +77,7 @@ afterPack: scripts/after-pack.mjs
 # pack-release.mjs always passes --publish never and overrides publish.url.
 publish:
   provider: generic
-  url: https://github.com/plus1998/eco-coding/releases/download/desktop-update-feed
+  url: https://github.com/plus1998/Mori/releases/download/desktop-update-feed
   channel: latest
 
 detectUpdateChannel: false
@@ -89,9 +89,9 @@ mac:
   identity: null
   category: public.app-category.developer-tools
   extendInfo:
-    NSMicrophoneUsageDescription: Eco Coding needs microphone access for voice transcription.
+    NSMicrophoneUsageDescription: Mori needs microphone access for voice transcription.
     CFBundleURLTypes:
-      - CFBundleURLName: Eco Coding
+      - CFBundleURLName: Mori
         CFBundleURLSchemes:
           - eco
   target:
@@ -103,12 +103,12 @@ mac:
       arch:
         - x64
         - arm64
-  artifactName: Eco-Coding-${version}-mac-${arch}.${ext}
+  artifactName: Mori-${version}-mac-${arch}.${ext}
 
 win:
   icon: packaging/icon.ico
   signAndEditExecutable: false
-  artifactName: Eco-Coding-${version}-win-x64.${ext}
+  artifactName: Mori-${version}-win-x64.${ext}
   signtoolOptions:
     sign: scripts/win-sign.mjs
   verifyUpdateCodeSignature: false
@@ -119,14 +119,14 @@ win:
 
 linux:
   executableName: eco-coding
-  synopsis: Eco Coding
-  description: Eco Coding desktop app
+  synopsis: Mori
+  description: Mori desktop app
   target:
     - target: AppImage
       arch:
         - x64
   category: Development
-  artifactName: Eco-Coding-${version}-linux-x64.${ext}
+  artifactName: Mori-${version}-linux-x64.${ext}
 
 nsis:
   oneClick: false

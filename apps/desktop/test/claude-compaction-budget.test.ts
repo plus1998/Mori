@@ -65,7 +65,11 @@ async function fixture(kind: GatewayProvider["upstreamKind"] = "responses") {
       port: 0,
       providers: [provider],
       resolveModelLimits: resolveGatewayBindingModelLimits,
-      countInputTokens: async () => ({ tokens, precision: "heuristic", source: "test:controlled" }),
+      countInputTokens: async () => ({
+        tokens,
+        precision: "provider_exact",
+        source: "test:controlled-server",
+      }),
     },
     {
       embedded: true,
@@ -162,7 +166,7 @@ for (const kind of ["responses", "openai-chat", "anthropic-messages"] as const) 
       await ordinarySummary.text();
       expect(f.sent).toHaveLength(1);
 
-      f.setTokens(950_000);
+      f.setTokens(CAPACITY - 1_024);
       const overflow = await f.request("Summarize history.", "compaction");
       expect(overflow.status).toBe(400);
       expect(await overflow.text()).toContain(`window=${CAPACITY}`);
