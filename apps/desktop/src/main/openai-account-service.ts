@@ -1099,17 +1099,26 @@ export class OpenAIAccountService {
     const modelId = this.getWakeModel();
     const work = this.authSyncQueue.then(async () => {
       let reply: string | undefined;
+      let wakeFailure: { error: unknown } | undefined;
       try {
         await this.trackQuotaQuery(accountId, () => this.queryQuotaUnlocked(accountId, async (client, refreshToken, expectedAccountId) => {
           // Verify this account and renew expired credentials before spending any quota.
           await readCodexAccountQuota(client, refreshToken, expectedAccountId);
-          reply = await wakeCodexAccount(client, modelId,90_000,
-            this.onUsage ? {accountId,onUsage:this.onUsage} : undefined);
+          try {
+            reply = await wakeCodexAccount(client, modelId,90_000,
+              this.onUsage ? {accountId,onUsage:this.onUsage} : undefined);
+          } catch (error) {
+            // Finish the independent quota read, then report the model failure
+            // outside trackQuotaQuery so it cannot poison quota errors/backoff.
+            wakeFailure = { error };
+          }
         }));
       } catch (error) {
+        if (wakeFailure) throw wakeFailure.error;
         if (reply === undefined) throw error;
         return { reply, quotaError: error instanceof Error ? error.message : String(error) };
       }
+      if (wakeFailure) throw wakeFailure.error;
       if (reply === undefined) throw new Error("Codex 唤醒未收到回复。");
       return { reply };
     });

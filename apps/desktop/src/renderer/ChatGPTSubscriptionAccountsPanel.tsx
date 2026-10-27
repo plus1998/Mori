@@ -63,6 +63,7 @@ export function ChatGPTSubscriptionAccountsPanel({
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
+  const [accountsError, setAccountsError] = useState<string>();
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -78,30 +79,36 @@ export function ChatGPTSubscriptionAccountsPanel({
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLFormElement>(null);
   const handledInitialAccountIdRef = useRef<string | undefined>(undefined);
+  const catalogVersionRef = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!window.eco?.chatGptSubscriptionAccountsList) return;
     try {
       const next = (await window.eco.chatGptSubscriptionAccountsList()) as Account[];
       setAccounts(next);
+      setAccountsError(undefined);
       return next;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      setAccountsError(error instanceof Error ? error.message : String(error));
     }
   }, []);
 
   const applyCatalogSnapshot = useCallback((snapshot: CodexModelCatalogSnapshot) => {
+    catalogVersionRef.current += 1;
     const next = snapshot.models.map((model) => ({ id: model.modelId, displayName: model.displayName }));
     setModels(next);
+    setModelsError(snapshot.status.lastError);
     setSelectedModel((current) => next.some((model) => model.id === current) ? current : next[0]?.id ?? "");
   }, []);
 
   const loadModels = useCallback(async () => {
     if (!window.eco?.getChatGptModelCatalog) return;
+    const version = catalogVersionRef.current;
     try {
-      applyCatalogSnapshot(await window.eco.getChatGptModelCatalog());
+      const snapshot = await window.eco.getChatGptModelCatalog();
+      if (version === catalogVersionRef.current) applyCatalogSnapshot(snapshot);
     } catch (error) {
-      setModelsError(error instanceof Error ? error.message : String(error));
+      if (version === catalogVersionRef.current) setModelsError(error instanceof Error ? error.message : String(error));
     }
   }, [applyCatalogSnapshot]);
 
@@ -254,12 +261,14 @@ export function ChatGPTSubscriptionAccountsPanel({
   }
 
   async function testAccount(account: Account) {
-    setBusy(true); setTestResult(undefined);
+    setBusy(true); setMessage(undefined); setTestResult(undefined);
     try {
       const result = await window.eco?.chatGptSubscriptionAccountTest(account.accountId, selectedModel);
       if (!result) throw new Error(t("settings.chatgptAccounts.testServiceUnavailable"));
       setTestResult(result);
-      await refresh();
+      const next = await refresh();
+      const updated = next?.find((candidate) => candidate.accountId === account.accountId);
+      if (updated) setTestDialog(updated);
     } catch (error) { setTestResult({ success: false, message: error instanceof Error ? error.message : String(error) }); }
     finally { setBusy(false); }
   }
@@ -316,6 +325,7 @@ export function ChatGPTSubscriptionAccountsPanel({
       </div>
 
       {message ? <p className="chatgpt-notice" role="status">{message}</p> : null}
+      {accountsError ? <p className="chatgpt-notice is-error" role="alert">{accountsError}</p> : null}
       {modelsError ? <p className="chatgpt-notice is-error" role="alert">{t("settings.chatgptAccounts.modelsSyncFailed", { message: modelsError })}</p> : null}
       {accounts.length === 0 ? (
         <div className="chatgpt-empty-state">
@@ -373,7 +383,7 @@ export function ChatGPTSubscriptionAccountsPanel({
             <div className="settings-modal-body openai-account-modal-body">
               <p className="chatgpt-test-description">{t("settings.chatgptAccounts.testDescription", { name: testDialog.displayName })}</p>
               <div className="chatgpt-test-model-section">
-                <label className="mcp-field"><span className="mcp-field-label">{t("settings.chatgptAccounts.testModel")}</span><select className="mcp-field-input" value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)} disabled={busy || modelsLoading || !models.length} autoFocus><option value="">{modelsLoading ? t("settings.chatgptAccounts.fetchingModels") : t("settings.chatgptAccounts.chooseModel")}</option>{models.map((model) => <option key={model.id} value={model.id}>{model.displayName || model.id}</option>)}</select></label>
+                <label className="mcp-field"><span className="mcp-field-label">{t("settings.chatgptAccounts.testModel")}</span><select className="mcp-field-input" value={selectedModel} onChange={(event) => { setSelectedModel(event.target.value); setTestResult(undefined); }} disabled={busy || modelsLoading || !models.length} autoFocus><option value="">{modelsLoading ? t("settings.chatgptAccounts.fetchingModels") : t("settings.chatgptAccounts.chooseModel")}</option>{models.map((model) => <option key={model.id} value={model.id}>{model.displayName || model.id}</option>)}</select></label>
                 <button type="button" className="chatgpt-inline-link chatgpt-test-refresh-link" disabled={busy || modelsLoading} onClick={() => void refreshModels(testDialog.accountId)}><RefreshCw size={13} />{t("settings.chatgptAccounts.refetchModels")}</button>
               </div>
               {modelsError ? <p className="chatgpt-notice is-error" role="alert">{modelsError}</p> : null}

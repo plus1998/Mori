@@ -539,6 +539,7 @@ export function ModelsSettingsPanel({
       }
       const cacheKey = target.id ?? "__draft__";
       const signature = modelsRequestSignature(target);
+      dismissAppMessage();
       setLoadingProviderId(cacheKey);
 
       try {
@@ -578,7 +579,7 @@ export function ModelsSettingsPanel({
         setLoadingProviderId(null);
       }
     },
-    [showAppMessageError, t],
+    [dismissAppMessage, showAppMessageError, t],
   );
 
   useEffect(() => {
@@ -802,6 +803,7 @@ export function ModelsSettingsPanel({
     const feedbackKey = modelId?.trim()
       ? `${target.id ?? "__draft__"}::${testModel}`
       : (target.id ?? "__draft__");
+    dismissAppMessage();
     setTestingProviderKey(feedbackKey);
 
     const startedAt = performance.now();
