@@ -36,7 +36,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get readAloudConfigHint => '音色、风格和服务商请在电脑的语音合成设置中修改。';
 
   @override
-  String get appTitle => 'Eco';
+  String get appTitle => 'Mori';
 
   @override
   String get navSessions => '对话';
@@ -2065,7 +2065,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get billingEco => '经济编程';
 
   @override
-  String get billingEcoSubtitle => 'Eco 编排后的实际费用';
+  String get billingEcoSubtitle => 'Mori 编排后的实际费用';
 
   @override
   String get billingSavings => '节省';
@@ -2510,7 +2510,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get mcpApprovalRememberTool => '允许此工具，下次不再询问（此电脑所有对话） ';
 
   @override
-  String get bashApprovalDenyAdjust => '否，请告知 Eco 如何调整';
+  String get bashApprovalDenyAdjust => '否，请告知 Mori 如何调整';
 
   @override
   String projectMoreThreads(Object count) {
@@ -2814,7 +2814,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get schedulingEmpty => '暂无定时安排';
 
   @override
-  String get schedulingHint => '由已连接的电脑执行，Eco 需保持运行且电脑处于唤醒状态。';
+  String get schedulingHint => '由已连接的电脑执行，Mori 需保持运行且电脑处于唤醒状态。';
 
   @override
   String get schedulingTaskHint => '每次在新对话运行，请填写完整背景和预期结果。';
@@ -3069,7 +3069,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get todosMissing => '这条待办或图片已被删除，请刷新列表。';
 
   @override
-  String get todosUpgrade => '当前电脑版本不支持远程待办，请升级电脑端 Eco。';
+  String get todosUpgrade => '当前电脑版本不支持远程待办，请升级电脑端 Mori。';
 
   @override
   String get todosDiscardTitle => '放弃本次编辑？';

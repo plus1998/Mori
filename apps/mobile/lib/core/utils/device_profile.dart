@@ -62,7 +62,7 @@ class DeviceProfile {
     }
 
     return DeviceProfile(
-      displayName: 'Eco Mobile',
+      displayName: 'Mori',
       model: Platform.operatingSystem,
       platform: Platform.operatingSystemVersion,
       ipAddress: ipAddress,

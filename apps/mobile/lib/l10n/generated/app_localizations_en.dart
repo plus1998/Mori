@@ -38,7 +38,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Edit the voice, style and provider in Speech Generation settings on your computer.';
 
   @override
-  String get appTitle => 'Eco';
+  String get appTitle => 'Mori';
 
   @override
   String get navSessions => 'Sessions';
@@ -2165,10 +2165,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get billingMainModelEstimate => 'Estimated at main model rates';
 
   @override
-  String get billingEco => 'Eco coding';
+  String get billingEco => 'Mori coding';
 
   @override
-  String get billingEcoSubtitle => 'Actual cost after Eco orchestration';
+  String get billingEcoSubtitle => 'Actual cost after Mori orchestration';
 
   @override
   String get billingSavings => 'Savings';
@@ -2646,7 +2646,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Allow this tool without asking again (all conversations on this computer) ';
 
   @override
-  String get bashApprovalDenyAdjust => 'No, tell Eco how to adjust';
+  String get bashApprovalDenyAdjust => 'No, tell Mori how to adjust';
 
   @override
   String projectMoreThreads(Object count) {
@@ -2976,7 +2976,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get schedulingHint =>
-      'Runs on the connected computer. Keep Eco running and the computer awake.';
+      'Runs on the connected computer. Keep Mori running and the computer awake.';
 
   @override
   String get schedulingTaskHint =>
@@ -3247,7 +3247,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get todosUpgrade =>
-      'Update Eco on the connected computer to use remote to-dos.';
+      'Update Mori on the connected computer to use remote to-dos.';
 
   @override
   String get todosDiscardTitle => 'Discard changes?';

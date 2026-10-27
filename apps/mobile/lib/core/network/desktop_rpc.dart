@@ -228,7 +228,7 @@ class DesktopRpc implements ReadAloudRemote {
             r'Unknown (?:desktop command )?channel|not remote-enabled|not registered',
             caseSensitive: false,
           ).hasMatch(error.message)) {
-        throw const ReadAloudException('已连接的电脑版本不支持正文朗读，请升级 Eco。');
+        throw const ReadAloudException('已连接的电脑版本不支持正文朗读，请升级 Mori。');
       }
       if (error.code == EcoRpcConstants.targetOffline ||
           error.kind == EcoCenterErrorKind.websocketDisconnected) {

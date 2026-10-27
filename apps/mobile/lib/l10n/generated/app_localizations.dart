@@ -155,7 +155,7 @@ abstract class AppLocalizations {
   /// No description provided for @appTitle.
   ///
   /// In en, this message translates to:
-  /// **'Eco'**
+  /// **'Mori'**
   String get appTitle;
 
   /// No description provided for @navSessions.
@@ -3779,13 +3779,13 @@ abstract class AppLocalizations {
   /// No description provided for @billingEco.
   ///
   /// In en, this message translates to:
-  /// **'Eco coding'**
+  /// **'Mori coding'**
   String get billingEco;
 
   /// No description provided for @billingEcoSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Actual cost after Eco orchestration'**
+  /// **'Actual cost after Mori orchestration'**
   String get billingEcoSubtitle;
 
   /// No description provided for @billingSavings.
@@ -4607,7 +4607,7 @@ abstract class AppLocalizations {
   /// No description provided for @bashApprovalDenyAdjust.
   ///
   /// In en, this message translates to:
-  /// **'No, tell Eco how to adjust'**
+  /// **'No, tell Mori how to adjust'**
   String get bashApprovalDenyAdjust;
 
   /// No description provided for @projectMoreThreads.
@@ -5189,7 +5189,7 @@ abstract class AppLocalizations {
   /// No description provided for @schedulingHint.
   ///
   /// In en, this message translates to:
-  /// **'Runs on the connected computer. Keep Eco running and the computer awake.'**
+  /// **'Runs on the connected computer. Keep Mori running and the computer awake.'**
   String get schedulingHint;
 
   /// No description provided for @schedulingTaskHint.
@@ -5699,7 +5699,7 @@ abstract class AppLocalizations {
   /// No description provided for @todosUpgrade.
   ///
   /// In en, this message translates to:
-  /// **'Update Eco on the connected computer to use remote to-dos.'**
+  /// **'Update Mori on the connected computer to use remote to-dos.'**
   String get todosUpgrade;
 
   /// No description provided for @todosDiscardTitle.

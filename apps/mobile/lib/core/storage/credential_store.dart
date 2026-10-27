@@ -187,7 +187,7 @@ class CredentialStore {
     return AppCredentials(
       supabaseUrl: supabaseUrl,
       anonKey: await _secure.read(key: _anonKeyKey),
-      deviceName: prefs.getString(_deviceNameKey) ?? 'Eco Mobile',
+      deviceName: prefs.getString(_deviceNameKey) ?? 'Mori',
       selectedDesktopId: prefs.getString(_selectedDesktopIdKey),
       userId: prefs.getString(_userIdKey),
       userEmail: prefs.getString(_userEmailKey),

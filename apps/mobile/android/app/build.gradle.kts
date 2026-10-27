@@ -31,12 +31,12 @@ android {
         create("prod") {
             dimension = "environment"
             applicationId = "com.eco.eco_mobile"
-            resValue("string", "app_name", "Eco Mobile")
+            resValue("string", "app_name", "Mori")
         }
         create("dev") {
             dimension = "environment"
             applicationId = "com.eco.eco_mobile.dev"
-            resValue("string", "app_name", "Eco Mobile Dev")
+            resValue("string", "app_name", "Mori Dev")
         }
     }
 
