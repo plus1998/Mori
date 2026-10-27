@@ -1687,7 +1687,7 @@ function ProviderEditorModal({
                       <span className="mcp-field-label">{t("settings.models.provider.tokenCountMode")}</span>
                       <select
                         className="mcp-field-input"
-                        value={form.tokenCountMode ?? "local_heuristic"}
+                        value={form.tokenCountMode ?? "provider_native"}
                         disabled={busy}
                         onChange={(event) =>
                           setForm((current) => ({
@@ -1698,8 +1698,8 @@ function ProviderEditorModal({
                           }))
                         }
                       >
-                        <option value="local_heuristic">
-                          {t("settings.models.provider.localHeuristic")}
+                        <option value="provider_native">
+                          {t("settings.models.provider.nativeCount")}
                         </option>
                         <option value="anthropic_messages">
                           {t("settings.models.provider.anthropicCount")}
@@ -1847,7 +1847,7 @@ function providerToForm(provider?: ProviderConfigView): ProviderConfigInput {
     requestPath: provider?.requestPath ?? "",
     version: provider?.version ?? "v1",
     apiCompat: provider?.apiCompat ?? "anthropic",
-    tokenCountMode: provider?.tokenCountMode ?? "local_heuristic",
+    tokenCountMode: provider?.tokenCountMode ?? "provider_native",
     apiKey: "",
     ...(provider?.authMethod ? { authMethod: provider.authMethod } : {}),
     ...(provider?.credentialPoolId ? { credentialPoolId: provider.credentialPoolId } : {}),

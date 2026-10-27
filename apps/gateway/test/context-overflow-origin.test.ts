@@ -22,8 +22,8 @@ for (const local of [true, false]) {
           },
         ],
         countInputTokens: async () => ({
-          tokens: local ? 236_459 : 1_000,
-          precision: "heuristic",
+          tokens: local ? 261_120 : 1_000,
+          precision: "provider_exact",
           source: "test:controlled",
         }),
       },
@@ -58,7 +58,7 @@ for (const local of [true, false]) {
     expect(text).toContain("response.failed");
     expect(text).toContain(
       local
-        ? "Context window exhausted: window=262144, input=236459, reserve=26215"
+        ? "Context window exhausted: window=262144, input=261120, reserve=1024"
         : "UPSTREAM_CONTEXT_MARKER",
     );
     const diagnostic = logs.find((message) => message.startsWith("context overflow "));

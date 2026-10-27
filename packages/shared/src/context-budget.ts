@@ -16,7 +16,8 @@ export function gatewayAutoCompactTokenLimit(window: number, toolOutputTokens = 
     throw new Error("Invalid tool output token allowance.");
   }
   const estimatorAllowance = Math.max(4_096, Math.ceil(window / 20));
-  const limit = window - contextInputReserve(window, "heuristic") - estimatorAllowance - toolOutputTokens;
+  const limit =
+    window - contextInputReserve(window, "provider_exact") - estimatorAllowance - toolOutputTokens;
   if (limit < 1) throw new Error("Model context window cannot accommodate the Gateway compaction budget.");
   return limit;
 }

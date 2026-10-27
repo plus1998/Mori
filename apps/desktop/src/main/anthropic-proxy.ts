@@ -698,6 +698,7 @@ async function prepareAgainstBinding(
         : await countProviderInputTokens({
             mode: normalizeProviderTokenCountMode(route.provider.tokenCountMode),
             provider: route.provider,
+            apiCompat: resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
             modelId: route.modelId,
             anthropicBody: body,
           });

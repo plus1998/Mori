@@ -77,8 +77,9 @@ export function withDynamicOutputBudget(
       if (!Number.isSafeInteger(count.tokens) || count.tokens < 0) {
         throw new Error("Dynamic max output requires a valid current input token count.");
       }
-      // Character estimates can undercount substantially; reserve headroom based on
-      // the counter's actual precision rather than treating it as an exact tokenizer.
+      if (count.precision !== "provider_exact" && count.precision !== "tokenizer_exact") {
+        throw new Error("动态输出必须使用上游接口的精确 token 计数，不支持本地估算。");
+      }
       const reserve = contextInputReserve(window, count.precision);
       const remaining = window - count.tokens - reserve;
       if (remaining < 1) {

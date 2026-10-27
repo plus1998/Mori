@@ -172,5 +172,5 @@ test("gateway calculates each model output from its resolved window", () => {
     large: 262_144,
     limited: 200_000,
   });
-  expect(result.providers[0]?.tokenCountMode).toBe("local_heuristic");
+  expect(result.providers[0]?.tokenCountMode).toBe("provider_native");
 });

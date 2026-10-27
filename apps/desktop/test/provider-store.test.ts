@@ -276,6 +276,43 @@ test.skipIf(!sqliteAvailable)("provider token count mode is persisted explicitly
   ).toThrow("无效的 Provider token 计数模式");
 });
 
+test.skipIf(!sqliteAvailable)("legacy local counting is read as native server counting", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-native-count-migration-"));
+  const filename = path.join(dir, "eco.sqlite");
+  const store = await createProviderStore(filename);
+  const provider = store.saveProvider({
+    name: "P",
+    baseUrl: "https://example.test",
+    apiKey: "test",
+    defaultModel: "m",
+    enabled: true,
+  });
+  expect(provider.tokenCountMode).toBe("provider_native");
+  const db = new DatabaseSync(filename);
+  try {
+    db.prepare("UPDATE provider_configs SET token_count_mode = 'local_heuristic' WHERE id = ?").run(
+      provider.id,
+    );
+    expect(store.getProviderWithSecret(provider.id)?.tokenCountMode).toBe("provider_native");
+    expect(
+      store.saveProvider({
+        id: provider.id,
+        name: "P",
+        baseUrl: "https://example.test",
+        defaultModel: "m",
+        enabled: true,
+      }).tokenCountMode,
+    ).toBe("provider_native");
+    expect(
+      db.prepare("SELECT token_count_mode FROM provider_configs WHERE id = ?").get(provider.id),
+    ).toMatchObject({ token_count_mode: "provider_native" });
+  } finally {
+    db.close();
+    await removeTempDirectory(dir);
+  }
+});
+
 test.skipIf(!sqliteAvailable)("candidate model manual pricing preserves zero values", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-candidate-zero-"));
   const store = await createProviderStore(path.join(dir, "eco-coding.sqlite"));

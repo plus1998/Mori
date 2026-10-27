@@ -12,7 +12,6 @@ import {
 } from "@eco/openai-anthropic-bridge";
 import type { UpstreamApiCompat } from "../shared/api-compat";
 import { normalizeProviderTokenCountMode, type ProviderTokenCountMode } from "../shared/provider-token-count";
-import { estimateAnthropicRequestTokens, estimateTextTokens } from "../shared/token-estimate";
 import { stripSemanticCompactionDirectives } from "./bridge-upstream";
 import { ensureGlobalEcoGateway, handleGlobalEcoGatewayRequest } from "./eco-gateway-lifecycle";
 import {
@@ -28,24 +27,7 @@ const DEFAULT_TOKEN_COUNT_TIMEOUT_MS = 30_000;
 /** Dispatch-time counting uses the actual native body, never a lossy protocol round trip. */
 export const countGatewayInputTokens: NonNullable<GatewayConfig["countInputTokens"]> = async (input) => {
   const { route, body } = input;
-  const mode = normalizeProviderTokenCountMode(route.provider.tokenCountMode);
-  if (mode === "local_heuristic") {
-    if (body.previous_response_id || body.conversation) {
-      throw new Error("本地估算无法读取服务端会话历史；动态输出需要 openai_responses 输入计数模式。");
-    }
-    const fields =
-      route.upstreamKind === "anthropic-messages"
-        ? ["system", "messages", "tools", "tool_choice", "thinking", "output_config", "cache_control"]
-        : route.upstreamKind === "openai-chat"
-          ? ["messages", "tools", "tool_choice", "functions", "function_call", "response_format"]
-          : ["input", "instructions", "tools", "tool_choice", "text", "reasoning", "personality"];
-    const countable = pickFields(body, fields);
-    return {
-      tokens: estimateTextTokens(JSON.stringify(countable)),
-      precision: "heuristic",
-      source: "eco:local_heuristic",
-    };
-  }
+  const mode = resolveNativeTokenCountMode(route.provider.tokenCountMode, route.upstreamKind);
 
   const transport = {
     provider: route.provider,
@@ -155,6 +137,19 @@ export const countGatewayInputTokens: NonNullable<GatewayConfig["countInputToken
   };
 };
 
+/** Select by the actual wire protocol, never by model name or a converted approximation. */
+function resolveNativeTokenCountMode(value: unknown, protocol: string): ProviderTokenCountMode {
+  const mode = normalizeProviderTokenCountMode(value);
+  if (mode !== "provider_native") return mode;
+  if (protocol === "anthropic-messages" || protocol === "anthropic") return "anthropic_messages";
+  if (protocol === "responses" || protocol === "gateway-delegated" || protocol === "openai_responses") {
+    return "openai_responses";
+  }
+  throw new Error(
+    "当前上游协议没有统一的输入 token 计数接口。Chat Completions 动态输出需要配置可用的服务端 tokenizer，或使用支持原生计数的 Responses / Messages 上游；不会使用本地估算。",
+  );
+}
+
 function pickFields(body: Record<string, unknown>, fields: readonly string[]): Record<string, unknown> {
   return Object.fromEntries(fields.filter((key) => body[key] !== undefined).map((key) => [key, body[key]]));
 }
@@ -170,6 +165,8 @@ export interface ProviderTokenCountResult {
 export interface CountProviderInputTokensRequest {
   mode: ProviderTokenCountMode;
   provider: ProviderConfigSecret;
+  /** Route override, when it differs from the provider's default wire protocol. */
+  apiCompat?: UpstreamApiCompat;
   modelId: string;
   anthropicBody: Record<string, unknown>;
   fetcher?: typeof fetch;
@@ -186,16 +183,9 @@ export interface CountProviderInputTokensRequest {
 export async function countProviderInputTokens(
   input: CountProviderInputTokensRequest,
 ): Promise<ProviderTokenCountResult> {
-  if (input.mode === "local_heuristic") {
-    return {
-      tokens: estimateAnthropicRequestTokens(input.anthropicBody),
-      precision: "heuristic",
-      source: "eco:local_heuristic",
-    };
-  }
-
+  const mode = resolveNativeTokenCountMode(input.mode, input.apiCompat ?? input.provider.apiCompat);
   const request = normalizeAnthropicCountRequest(input.anthropicBody, input.modelId);
-  switch (input.mode) {
+  switch (mode) {
     case "anthropic_messages":
       return countViaEcoBridgeAnthropic(input, request);
     case "openai_responses":

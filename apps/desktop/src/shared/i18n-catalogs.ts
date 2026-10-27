@@ -484,7 +484,7 @@ export const i18nCatalogs = {
       "settings.maxOutput.dynamic": "动态计算",
       "settings.maxOutput.fixed": "固定上限",
       "settings.maxOutput.dynamicSubtitle":
-        "根据每次请求的输入长度自动留出输出空间，不超过模型自身的输出上限。",
+        "每次生成前通过上游接口精确计数，按剩余上下文分配输出；接口不可用时明确报错。",
       "settings.maxOutput.subtitle": "所有请求的输出一律不超过该值，也不超过模型自身的输出上限。",
       "settings.maxOutput.tokens": "{{tokens}} tokens",
       "settings.agentLibrary": "Agent 库",
@@ -1280,10 +1280,11 @@ export const i18nCatalogs = {
       "settings.models.provider.openAiPathHint": "OpenAI 兼容模式的路径前缀，如 /zen",
       "settings.models.provider.anthropicPathHint": "Anthropic Messages 路径前缀，留空表示根路径",
       "settings.models.provider.tokenCountMode": "Token 计数方式",
-      "settings.models.provider.localHeuristic": "本地启发式（兼容所有平台）",
+      "settings.models.provider.nativeCount": "上游原生计数（按请求协议）",
       "settings.models.provider.anthropicCount":
         "Anthropic-style /v1/messages/count_tokens（含新版 llama.cpp）",
-      "settings.models.provider.tokenCountHint": "按上游真实能力选择，不会自动猜测",
+      "settings.models.provider.tokenCountHint":
+        "Responses 使用 input_tokens，Messages 使用 count_tokens；计数失败会报错，不使用本地估算。",
       "settings.models.provider.createKey": "注册 / 创建 Key",
       "settings.models.provider.authMethod": "认证方式",
       "settings.models.provider.apiKey": "API Key",
@@ -3886,7 +3887,7 @@ export const i18nCatalogs = {
       "settings.maxOutput.dynamic": "Dynamic",
       "settings.maxOutput.fixed": "Fixed limit",
       "settings.maxOutput.dynamicSubtitle":
-        "Output space follows each request's input length and never exceeds the model's own limit.",
+        "Counts input tokens through the upstream API before each generation and budgets the remaining context; unavailable counters report an error.",
       "settings.maxOutput.subtitle":
         "No request outputs more than this value, and never more than the model's own limit.",
       "settings.maxOutput.tokens": "{{tokens}} tokens",
@@ -4719,11 +4720,11 @@ export const i18nCatalogs = {
       "settings.models.provider.anthropicPathHint":
         "Anthropic Messages path prefix; leave blank for the root path",
       "settings.models.provider.tokenCountMode": "Token counting mode",
-      "settings.models.provider.localHeuristic": "Local heuristic (compatible with all platforms)",
+      "settings.models.provider.nativeCount": "Upstream native counting (by request protocol)",
       "settings.models.provider.anthropicCount":
         "Anthropic-style /v1/messages/count_tokens (including recent llama.cpp)",
       "settings.models.provider.tokenCountHint":
-        "Must match the upstream's real capability; never auto-guessed",
+        "Responses uses input_tokens; Messages uses count_tokens. Counting failures are reported without local estimates.",
       "settings.models.provider.createKey": "Register / create Key",
       "settings.models.provider.authMethod": "Auth method",
       "settings.models.provider.apiKey": "API Key",

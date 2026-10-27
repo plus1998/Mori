@@ -28,24 +28,26 @@ const anthropicBody = {
   messages: [{ role: "user", content: "Hello" }],
 };
 
-test("local_heuristic reports heuristic precision without network access", async () => {
-  let fetched = false;
-  const result = await countProviderInputTokens({
-    mode: "local_heuristic",
-    provider: provider(),
-    modelId: "model-1",
-    anthropicBody,
-    fetcher: async () => {
-      fetched = true;
-      throw new Error("must not fetch");
-    },
+for (const mode of ["provider_native", "local_heuristic"] as const) {
+  test(`${mode} preflight uses the Responses server counter, including legacy settings`, async () => {
+    let calls = 0;
+    const result = await countProviderInputTokens({
+      mode,
+      provider: provider({ apiCompat: "openai_responses" }),
+      modelId: "model-1",
+      anthropicBody,
+      fetcher: async (url, init) => {
+        calls++;
+        expect(String(url)).toBe("https://gateway.test/v1/responses/input_tokens");
+        expect(JSON.parse(String(init?.body)).input).toBeArray();
+        return Response.json({ input_tokens: 184_998 });
+      },
+    });
+    expect(result.tokens).toBe(184_998);
+    expect(result.precision).toBe("provider_exact");
+    expect(calls).toBe(1);
   });
-
-  expect(result.tokens).toBeGreaterThan(0);
-  expect(result.precision).toBe("heuristic");
-  expect(result.source).toBe("eco:local_heuristic");
-  expect(fetched).toBe(false);
-});
+}
 
 test("anthropic_messages counts via Eco Bridge → Gateway → provider", async () => {
   const { configureEcoGatewayLifecycle, resetGlobalEcoGatewayForTests } = await import(
@@ -388,38 +390,108 @@ for (const [kind, mode, endpoint] of [
   });
 }
 
-test("dispatch local heuristic counts full input fields and rejects unseen server history", async () => {
-  const provider: GatewayProvider = {
+for (const mode of [undefined, "provider_native", "local_heuristic"] as const) {
+  for (const kind of ["responses", "anthropic-messages", "gateway-delegated"] as const) {
+    test(`dispatch ${kind}/${mode} requests native tokens with tools and new tool results`, async () => {
+      const provider: GatewayProvider = {
+        id: "p",
+        name: "P",
+        baseUrl: "https://count.test",
+        apiKey: "test",
+        upstreamKind: kind,
+        upstreamModelId: "m",
+        models: ["m"],
+        ...(mode !== undefined && { tokenCountMode: mode }),
+      };
+      const bodies: Record<string, unknown>[] = [];
+      const input = {
+        route: { provider, upstreamKind: kind, upstreamModelId: "m", requestedModel: "alias" },
+        headers: new Headers({ "content-type": "application/json" }),
+        fetcher: async (url: RequestInfo | URL, init?: RequestInit) => {
+          expect(String(url)).toBe(
+            kind === "anthropic-messages"
+              ? "https://count.test/v1/messages/count_tokens"
+              : "https://count.test/v1/responses/input_tokens",
+          );
+          bodies.push(JSON.parse(String(init?.body)));
+          return Response.json({ input_tokens: bodies.length === 1 ? 184_998 : 195_000 });
+        },
+      };
+      const first =
+        kind === "anthropic-messages"
+          ? {
+              model: "m",
+              system: "system",
+              messages: [{ role: "user", content: "hi" }],
+              tools: [{ name: "f", input_schema: { type: "object" } }],
+            }
+          : {
+              model: "m",
+              instructions: "system",
+              input: [{ role: "user", content: "hi" }],
+              tools: [{ type: "function", name: "f", parameters: { type: "object" } }],
+              previous_response_id: "previous",
+            };
+      expect((await countGatewayInputTokens({ ...input, body: first })).tokens).toBe(184_998);
+      const next =
+        kind === "anthropic-messages"
+          ? {
+              ...first,
+              messages: [
+                {
+                  role: "user",
+                  content: [{ type: "tool_result", tool_use_id: "call", content: "new tool result" }],
+                },
+              ],
+            }
+          : {
+              ...first,
+              input: [{ type: "function_call_output", call_id: "call", output: "new tool result" }],
+            };
+      const count = await countGatewayInputTokens({ ...input, body: next });
+      expect(count.tokens).toBe(195_000);
+      expect(count.precision).toBe("provider_exact");
+      expect(bodies).toEqual([first, next]);
+    });
+  }
+}
+
+test("Chat Completions without an explicit server tokenizer rejects before any request", async () => {
+  const p = provider({ apiCompat: "openai_chat_completions" });
+  const gatewayProvider: GatewayProvider = {
     id: "p",
     name: "P",
-    baseUrl: "https://count.test",
+    baseUrl: p.baseUrl,
     apiKey: "test",
-    upstreamKind: "responses",
+    upstreamKind: "openai-chat",
     upstreamModelId: "m",
     models: ["m"],
-    tokenCountMode: "local_heuristic",
   };
-  const input = {
-    route: { provider, upstreamKind: "responses" as const, upstreamModelId: "m", requestedModel: "m" },
-    headers: new Headers(),
-    fetcher: async () => {
-      throw new Error("must not fetch");
-    },
+  const fetcher = async () => {
+    throw new Error("must not fetch or generate");
   };
-  const short = await countGatewayInputTokens({ ...input, body: { input: "hi" } });
-  const full = await countGatewayInputTokens({
-    ...input,
-    body: {
-      input: [{ type: "function_call_output", call_id: "call", output: "x".repeat(1_000) }],
-      instructions: "s".repeat(1_000),
-      tools: [{ type: "function", name: "f", parameters: { description: "t".repeat(1_000) } }],
-    },
-  });
-  expect(full.tokens).toBeGreaterThan(short.tokens + 700);
-  expect(full.precision).toBe("heuristic");
   await expect(
-    countGatewayInputTokens({ ...input, body: { input: "hi", previous_response_id: "old" } }),
-  ).rejects.toThrow("服务端会话历史");
+    countGatewayInputTokens({
+      route: {
+        provider: gatewayProvider,
+        upstreamKind: "openai-chat",
+        upstreamModelId: "m",
+        requestedModel: "m",
+      },
+      body: { model: "m", messages: [] },
+      headers: new Headers(),
+      fetcher,
+    }),
+  ).rejects.toThrow("Chat Completions 动态输出需要配置可用的服务端 tokenizer");
+  await expect(
+    countProviderInputTokens({
+      mode: "provider_native",
+      provider: p,
+      modelId: "m",
+      anthropicBody,
+      fetcher,
+    }),
+  ).rejects.toThrow("不会使用本地估算");
 });
 
 test("dispatch exact counter errors and protocol mismatches never fall back", async () => {

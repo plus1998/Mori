@@ -35,7 +35,12 @@ export interface GatewayProvider {
   modelContextTokens?: Record<string, number>;
   /** Explicit provider/model vision settings, enforced before upstream requests. */
   modelSupportsImageInput?: Record<string, boolean>;
-  tokenCountMode?: "local_heuristic" | "anthropic_messages" | "openai_responses" | "llama_tokenize";
+  tokenCountMode?:
+    | "provider_native"
+    | "local_heuristic"
+    | "anthropic_messages"
+    | "openai_responses"
+    | "llama_tokenize";
 }
 
 export interface ResolvedProviderRoute {

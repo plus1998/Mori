@@ -183,6 +183,47 @@ test("dynamic budget recounts growing inputs, including final converted tools", 
   expect(counted.every((body) => body.system === "System instructions")).toBe(true);
 });
 
+test("dynamic refuses heuristic counters even when they claim sufficient or exhausted space", async () => {
+  const provider: GatewayProvider = {
+    id: "d",
+    name: "D",
+    upstreamKind: "responses",
+    baseUrl: "https://example.test",
+    apiKey: "test",
+    upstreamModelId: "m",
+    models: ["m"],
+    modelContextTokens: { m: 262_144 },
+  };
+  let generations = 0;
+  for (const tokens of [100, 243_181]) {
+    const fetcher = withDynamicOutputBudget(
+      async () => {
+        generations++;
+        return Response.json({});
+      },
+      { provider, upstreamKind: "responses", upstreamModelId: "m", requestedModel: "m" },
+      {
+        host: "127.0.0.1",
+        port: 0,
+        providers: [provider],
+        countInputTokens: async () => ({ tokens, precision: "heuristic", source: "legacy-estimate" }),
+      },
+      new AbortController().signal,
+      () => {},
+    );
+    const response = await fetcher("https://example.test/v1/responses", {
+      method: "POST",
+      body: JSON.stringify({ model: "m", input: "hi" }),
+    });
+    expect(response.status).toBe(400);
+    const { error } = await response.json();
+    expect(error.code).toBe("dynamic_output_budget_error");
+    expect(error.message).toContain("不支持本地估算");
+    expect(error.code).not.toBe("context_length_exceeded");
+  }
+  expect(generations).toBe(0);
+});
+
 test("dynamic rejects exhausted windows and counter failures without sending generation", async () => {
   const provider: GatewayProvider = {
     id: "d",
@@ -459,13 +500,9 @@ for (const [kind, field] of [
   });
 
   for (const [scenario, window, tokens, precision, output, reserve] of [
-    ["production context underestimate", 1_000_000, 742_940, "heuristic", 157_060, 100_000],
-    ["minimum heuristic reserve", 32_768, 10_000, "heuristic", 14_576, 8_192],
-    ["rounded heuristic reserve", 100_001, 1_000, "heuristic", 89_000, 10_001],
     ["provider exact reserve", 32_768, 10_000, "provider_exact", 21_744, 1_024],
     ["tokenizer exact reserve", 32_768, 10_000, "tokenizer_exact", 21_744, 1_024],
-    ["exhausted heuristic reserve", 1_000_000, 900_000, "heuristic", 0, 100_000],
-    ["exhausted minimum reserve", 32_768, 24_576, "heuristic", 0, 8_192],
+    ["exhausted exact reserve", 32_768, 31_744, "provider_exact", 0, 1_024],
   ] as const) {
     test(`dynamic ${kind}/${field} handles ${scenario}`, async () => {
       const provider: GatewayProvider = {
@@ -513,7 +550,7 @@ for (const [kind, field] of [
         expect(error.message).toContain(`reserve=${reserve}`);
         expect(error.origin).toBe("eco.context_budget");
         expect(response.headers.get("x-eco-error-origin")).toBe("eco.context_budget");
-        expect(logs.some(message => message.startsWith("local context budget rejected "))).toBe(true);
+        expect(logs.some((message) => message.startsWith("local context budget rejected "))).toBe(true);
         expect(sent).toHaveLength(0);
       } else {
         expect(response.status).toBe(200);
