@@ -15,6 +15,20 @@ test("pathToName returns the last path segment", () => {
   expect(pathToName("/")).toBe("/");
 });
 
+test("Windows directory names support backslashes, UNC paths and trailing separators", () => {
+  for (const path of [
+    "C:\\Users\\plus\\project",
+    "C:\\Users\\plus\\project\\",
+    "C:/Users/plus\\project/",
+    "\\\\server\\share\\project\\",
+  ]) {
+    expect(pathToName(path)).toBe("project");
+    expect(resolveProjectName(path, undefined, undefined)).toEqual({ name: "project", custom: false });
+  }
+  expect(pathToName("D:\\工作区\\中文项目\\")).toBe("中文项目");
+  expect(pathToName("C:\\")).toBe("C:");
+});
+
 test("resolveProjectName prefers the user custom name", () => {
   const resolved = resolveProjectName("/Users/plus/project", "我的项目", undefined);
   expect(resolved).toEqual({ name: "我的项目", custom: true });
@@ -64,6 +78,16 @@ test("isCustomProjectName distinguishes renames from plain basenames", () => {
   expect(isCustomProjectName("我的项目", "/Users/plus/eco-coding")).toBe(true);
   expect(isCustomProjectName(undefined, "/Users/plus/eco-coding")).toBe(false);
   expect(isCustomProjectName("  ", "/Users/plus/eco-coding")).toBe(false);
+});
+
+test("legacy Windows generated names are not treated as user renames", () => {
+  const path = "C:\\Users\\plus\\project\\";
+  expect(isCustomProjectName(path, path)).toBe(false);
+  expect(isCustomProjectName("project", path)).toBe(false);
+  expect(isCustomProjectName("我的项目", path)).toBe(true);
+  expect(isCustomProjectName("plus\\project", "C:/Users/plus\\project")).toBe(false);
+  // Explicit names from the rename map still take precedence, even if path-like.
+  expect(resolveProjectName(path, path, undefined)).toEqual({ name: path, custom: true });
 });
 
 test("normalizeProjectPath still normalizes backslashes and trailing slashes", () => {

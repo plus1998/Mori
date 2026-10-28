@@ -13,6 +13,7 @@ import 'package:eco_mobile/core/storage/credential_store.dart';
 import 'package:eco_mobile/core/theme/eco_theme.dart';
 import 'package:eco_mobile/core/utils/composer_references.dart';
 import 'package:eco_mobile/core/widgets/composer_prompt_editing_controller.dart';
+import 'package:eco_mobile/core/widgets/adaptive_nav_bar.dart';
 import 'package:eco_mobile/features/projects/project_providers.dart';
 import 'package:eco_mobile/features/threads/thread_providers.dart';
 import 'package:eco_mobile/features/todos/project_todos_screen.dart';
@@ -609,6 +610,75 @@ void main() {
       2,
     );
   });
+
+  testWidgets(
+    'delete undo clears after five seconds without covering shell controls',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final client = TodoClient();
+      var navTaps = 0;
+      await tester.pumpWidget(
+        app(
+          client,
+          home: Scaffold(
+            body: Stack(
+              children: [
+                const ProjectTodosScreen(),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Builder(
+                    builder: (context) => SizedBox(
+                      height: adaptiveNavBarTotalHeight(context),
+                      child: TextButton(
+                        key: const Key('shell-nav'),
+                        onPressed: () => navTaps++,
+                        child: const Text('Bottom navigation'),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('To-do actions').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(client.deleted, contains('1'));
+      final surface = find
+          .descendant(
+            of: find.byType(SnackBar),
+            matching: find.byType(Material),
+          )
+          .first;
+      final snackRect = tester.getRect(surface);
+      expect(
+        snackRect.bottom,
+        lessThan(tester.getTopLeft(find.byKey(const Key('shell-nav'))).dy),
+      );
+      expect(
+        snackRect.overlaps(tester.getRect(find.byType(FloatingActionButton))),
+        isFalse,
+      );
+      await tester.tap(find.byKey(const Key('shell-nav')));
+      await tester.pump();
+      expect(navTaps, 1);
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.text('Undo'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(find.text('Undo'), findsNothing);
+      expect(client.deleted, contains('1'));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   testWidgets(
     'search, completed section, toggle and delete undo use shared revisions',

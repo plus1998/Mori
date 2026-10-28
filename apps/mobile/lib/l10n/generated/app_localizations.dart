@@ -3002,6 +3002,18 @@ abstract class AppLocalizations {
   /// **'Question responses'**
   String get activityClarificationAnswer;
 
+  /// No description provided for @activityApprovalRejected.
+  ///
+  /// In en, this message translates to:
+  /// **'{tool} approval rejected'**
+  String activityApprovalRejected(String tool);
+
+  /// No description provided for @activityApprovalFeedback.
+  ///
+  /// In en, this message translates to:
+  /// **'Your feedback'**
+  String get activityApprovalFeedback;
+
   /// No description provided for @activityNoneSelected.
   ///
   /// In en, this message translates to:

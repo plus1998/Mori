@@ -3587,13 +3587,14 @@ function App() {
       if (homeProjectPath && isHomeProjectPath(project.path, homeProjectPath)) {
         continue;
       }
-      // Prefer the user's custom name; a stored name that differs from the path
-      // basename is a custom name persisted from an older version.
+      // Explicit renames win. Retain older stored renames, but regenerate names
+      // produced by the old slash-only basename logic on Windows.
       merged.set(normalizeProjectPath(project.path), {
         ...project,
         name: resolveProjectName(
           project.path,
-          customProjectNames[project.path] ?? project.name,
+          customProjectNames[project.path] ??
+            (isCustomProjectName(project.name, project.path) ? project.name : undefined),
           homeProjectPath,
         ).name,
       });

@@ -1648,6 +1648,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activityClarificationAnswer => '询问回答';
 
   @override
+  String activityApprovalRejected(String tool) {
+    return '已拒绝 $tool 审批';
+  }
+
+  @override
+  String get activityApprovalFeedback => '你的反馈';
+
+  @override
   String get activityNoneSelected => '（未选择）';
 
   @override

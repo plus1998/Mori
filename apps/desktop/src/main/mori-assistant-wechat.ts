@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { MoriAssistantSnapshot } from "../shared/mori-assistant";
+import { MoriWechatTyping } from "./mori-assistant-wechat-typing";
 
 const BASE = "https://ilinkai.weixin.qq.com";
 function pause(ms: number, signal: AbortSignal): Promise<void> {
@@ -55,9 +56,10 @@ export function validateWechatBaseUrl(raw: string): string {
 
 export function parseWechatJson(raw: string): Record<string, unknown> {
   // Message IDs are opaque integers and can exceed Number.MAX_SAFE_INTEGER.
-  const value = JSON.parse(raw.replace(/("(?:message_id|msg_id|svr_id)"\s*:\s*)(\d{16,})(?=\s*[,}])/g, '$1"$2"'));
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("微信返回了无效的响应。");
+  const value = JSON.parse(
+    raw.replace(/("(?:message_id|msg_id|svr_id)"\s*:\s*)(\d{16,})(?=\s*[,}])/g, '$1"$2"'),
+  );
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("微信返回了无效的响应。");
   return value;
 }
 
@@ -71,6 +73,9 @@ export class MoriAssistantWechat {
   private generation = 0;
   private drainWork: Promise<void> | undefined;
   private binding: AbortController | undefined;
+  private typing: MoriWechatTyping | undefined;
+  private waitingForInput = false;
+  private feedbackError: string | undefined;
   status: MoriAssistantSnapshot["wechat"] = { status: "disconnected" };
   constructor(
     private readonly file: string,
@@ -115,7 +120,9 @@ export class MoriAssistantWechat {
   }
 
   private update(status: MoriAssistantSnapshot["wechat"]): void {
-    this.status = status;
+    this.status = { ...status };
+    delete this.status.feedbackError;
+    if (this.feedbackError) this.status.feedbackError = this.feedbackError;
     this.deps.changed();
   }
 
@@ -125,18 +132,20 @@ export class MoriAssistantWechat {
     signal?: AbortSignal,
     login = false,
     loginBase = BASE,
+    timeoutMs = 45_000,
+    connection: Pick<WechatState, "token" | "baseUrl"> = this.state,
   ): Promise<Record<string, unknown>> {
     const uint = randomBytes(4).readUInt32BE(0).toString();
-    const response = await fetch(`${login ? loginBase : (this.state.baseUrl ?? BASE)}${endpoint}`, {
+    const response = await fetch(`${login ? loginBase : (connection.baseUrl ?? BASE)}${endpoint}`, {
       method: body === undefined ? "GET" : "POST",
-      signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(45_000)]),
+      signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(timeoutMs)]),
       headers: {
         "Content-Type": "application/json",
         AuthorizationType: "ilink_bot_token",
         "X-WECHAT-UIN": Buffer.from(uint).toString("base64"),
         "iLink-App-Id": "bot",
         "iLink-App-ClientVersion": String(0x00020408),
-        ...(!login && this.state.token ? { Authorization: `Bearer ${this.state.token}` } : {}),
+        ...(!login && connection.token ? { Authorization: `Bearer ${connection.token}` } : {}),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
@@ -192,6 +201,8 @@ export class MoriAssistantWechat {
           throw new Error("扫码成功但微信登录凭据不完整。");
         this.controller?.abort();
         await this.loop;
+        await this.stopTyping();
+        this.feedbackError = undefined;
         this.generation += 1;
         this.state = {
           token: result.bot_token,
@@ -227,10 +238,22 @@ export class MoriAssistantWechat {
     this.enabled = enabled;
     if (enabled && this.state.token) this.start();
     else if (!enabled) {
+      await this.stopTyping();
       this.controller?.abort();
       await this.loop;
       this.update({ status: "disconnected" });
     }
+  }
+
+  setWaitingForInput(waiting: boolean): void {
+    this.waitingForInput = waiting;
+    this.typing?.setWaiting(waiting);
+  }
+
+  private async stopTyping(): Promise<void> {
+    const typing = this.typing;
+    this.typing = undefined;
+    await typing?.stop();
   }
 
   private start(): void {
@@ -336,11 +359,31 @@ export class MoriAssistantWechat {
         if (message.status !== "queued" || !this.enabled) continue;
         message.status = "running";
         await this.save();
+        if (generation !== this.generation) return;
+        const connection = this.state;
+        const typing =
+          this.enabled && message.text !== "[此消息没有可处理的文字]"
+            ? new MoriWechatTyping({
+                userId: message.userId,
+                contextToken: message.contextToken,
+                request: (endpoint, body, signal, timeoutMs) =>
+                  this.api(endpoint, body, signal, false, BASE, timeoutMs, connection),
+                report: (error) => {
+                  if (generation !== this.generation) return;
+                  this.feedbackError = error;
+                  this.update(this.status);
+                },
+              })
+            : undefined;
+        this.typing = typing;
+        typing?.setWaiting(this.waitingForInput);
+        let cleanup: Promise<void> | undefined;
         try {
           const reply =
             message.text === "[此消息没有可处理的文字]"
               ? "第一版支持文字和微信已转写的语音，请发送文字说明任务。"
               : await this.deps.receive(message.text, message.id);
+          cleanup = typing?.stop();
           if (generation !== this.generation) return;
           if (!reply.trim()) throw new Error("助手没有生成可发送的文字回复，请在桌面端检查任务状态。");
           this.state.outbox.push({
@@ -351,6 +394,7 @@ export class MoriAssistantWechat {
           });
           message.status = "done";
         } catch (error) {
+          cleanup = typing?.stop();
           if (generation !== this.generation) return;
           message.status = "failed";
           message.error = error instanceof Error ? error.message : String(error);
@@ -360,9 +404,17 @@ export class MoriAssistantWechat {
             contextToken: message.contextToken,
             text: `Mori 处理未完成：${message.error}`,
           });
+        } finally {
+          // Stop renewal immediately, but never hold the reply behind presence cleanup.
+          cleanup ??= typing?.stop();
+          void cleanup?.then(() => {
+            if (this.typing === typing) this.typing = undefined;
+          });
         }
         await this.save();
         await this.flushOutbox();
+        // A previous cancel must not clear the next message's typing state.
+        await cleanup;
       }
     } catch (error) {
       this.update({ status: "error", error: error instanceof Error ? error.message : String(error) });
@@ -409,6 +461,8 @@ export class MoriAssistantWechat {
     this.generation += 1;
     await this.setEnabled(false);
     this.state = { cursor: "", inbox: [], outbox: [] };
+    this.feedbackError = undefined;
+    this.update({ status: "disconnected" });
     await this.save();
   }
 

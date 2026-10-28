@@ -8,7 +8,7 @@ export function normalizeProjectPath(projectPath: string): string {
 
 /** Derive the default project name from the last path segment. */
 export function pathToName(projectPath: string): string {
-  const segments = projectPath.split("/").filter(Boolean);
+  const segments = projectPath.split(/[\\/]/).filter(Boolean);
   return segments[segments.length - 1] ?? projectPath;
 }
 
@@ -41,7 +41,10 @@ export function resolveProjectName(
 
 export function isCustomProjectName(name: string | undefined, path: string): boolean {
   const trimmed = name?.trim();
-  return Boolean(trimmed) && trimmed !== pathToName(path);
+  // Older versions persisted the slash-only basename, which could be an entire
+  // Windows path. Do not mistake that generated name for a user rename.
+  const legacyName = path.split("/").filter(Boolean).at(-1) ?? path;
+  return Boolean(trimmed) && trimmed !== pathToName(path) && trimmed !== legacyName;
 }
 
 export function buildHomeProjectPath(homedir: string): string {

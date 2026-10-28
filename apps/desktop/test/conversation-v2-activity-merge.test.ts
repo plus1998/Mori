@@ -227,6 +227,27 @@ test("renders the follow-up after its accepted message is finalized", () => {
   expect(merged.timeline.map((item) => item.text)).toEqual(["same prompt"]);
 });
 
+test("native history and V2 approval feedback render a card while retaining the model envelope", () => {
+  const wireText = [
+    "The user rejected the preceding Bash approval.",
+    "User feedback: 你要查什么给我语句查\n保留 <原文> & 换行",
+    "Do not retry the rejected request unless the user explicitly asks for it again.",
+  ].join("\n");
+  const state = v2State([{ ...message("approval-feedback", 1), body: wireText }]);
+  const native = projection([{ ...legacyUserItem("sdk:approval-feedback", 1), text: wireText }]);
+  for (const element of [
+    createElement(ActivityLogView, { conversationV2: state }),
+    createElement(ConversationV2ProjectionActivityLogView, { projection: native }),
+  ]) {
+    const html = renderToStaticMarkup(element);
+    expect(html).toContain("approval-feedback-card");
+    expect(html).toContain("你要查什么给我语句查\n保留 &lt;原文&gt; &amp; 换行");
+    expect(html).not.toContain("The user rejected");
+    expect(html).not.toContain("Do not retry");
+  }
+  expect(state.messages.get("approval-feedback")?.body).toBe(wireText);
+});
+
 test("native history and V2 async answer messages render answer cards without showing the wire envelope", () => {
   const wireText = buildCodexAsyncQuestionReplyText([
     { questionItemId: "q1", question: "处理方式？", answer: "保留记录\n保留 <原始内容> & 换行" },

@@ -2,6 +2,7 @@ import { Check, ChevronDown, Folder, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { pathToName } from "../shared/home-project";
 
 export interface SchedulingProjectOption { path: string; name: string }
 
@@ -24,8 +25,7 @@ export function filterSchedulingProjects(projects: readonly SchedulingProjectOpt
 export function projectDisplayName(projects: readonly SchedulingProjectOption[], path: string): string {
   const match = projects.find((project) => project.path === path);
   if (match) return match.name;
-  const segments = path.split("/").filter(Boolean);
-  return segments[segments.length - 1] ?? path;
+  return pathToName(path);
 }
 
 /** Project chooser for a scheduled task: search the known projects, or type any directory. */

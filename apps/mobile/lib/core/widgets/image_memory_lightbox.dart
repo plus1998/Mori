@@ -10,12 +10,15 @@ import '../theme/eco_theme.dart';
 ///
 /// Uses Flutter [Dialog.fullscreen], [PageView], and [InteractiveViewer]
 /// (same stack as the image-display gallery lightbox).
+/// When [loadImage] is supplied, it loads each page on demand and replaces the
+/// corresponding entry in [images]; failures show a retry action.
 Future<void> showImageMemoryLightbox(
   BuildContext context, {
   required List<Uint8List> images,
   int initialIndex = 0,
   String? title,
   List<String?>? titles,
+  Future<Uint8List> Function(int index)? loadImage,
 }) async {
   if (images.isEmpty) return;
   final start = initialIndex.clamp(0, images.length - 1);
@@ -32,6 +35,7 @@ Future<void> showImageMemoryLightbox(
           initialIndex: start,
           title: title,
           titles: titles,
+          loadImage: loadImage,
         ),
       );
     },
@@ -43,11 +47,7 @@ Future<void> showImageMemoryLightboxSingle(
   required Uint8List bytes,
   String? title,
 }) {
-  return showImageMemoryLightbox(
-    context,
-    images: [bytes],
-    title: title,
-  );
+  return showImageMemoryLightbox(context, images: [bytes], title: title);
 }
 
 class _ImageMemoryLightboxBody extends StatefulWidget {
@@ -56,12 +56,14 @@ class _ImageMemoryLightboxBody extends StatefulWidget {
     required this.initialIndex,
     this.title,
     this.titles,
+    this.loadImage,
   });
 
   final List<Uint8List> images;
   final int initialIndex;
   final String? title;
   final List<String?>? titles;
+  final Future<Uint8List> Function(int index)? loadImage;
 
   @override
   State<_ImageMemoryLightboxBody> createState() =>
@@ -71,6 +73,7 @@ class _ImageMemoryLightboxBody extends StatefulWidget {
 class _ImageMemoryLightboxBodyState extends State<_ImageMemoryLightboxBody> {
   late final PageController _pageController;
   late int _index;
+  final _loads = <int, Future<Uint8List>>{};
 
   @override
   void initState() {
@@ -113,26 +116,44 @@ class _ImageMemoryLightboxBodyState extends State<_ImageMemoryLightboxBody> {
             itemCount: widget.images.length,
             onPageChanged: (value) => setState(() => _index = value),
             itemBuilder: (context, index) {
-              return InteractiveViewer(
-                minScale: 0.5,
-                maxScale: 6,
-                boundaryMargin: const EdgeInsets.all(48),
-                child: Center(
-                  child: ColoredBox(
-                    color: eco.cardSurface,
-                    child: Image.memory(
-                      widget.images[index],
-                      fit: BoxFit.contain,
-                      filterQuality: FilterQuality.high,
-                      gaplessPlayback: true,
-                      errorBuilder: (_, _, _) => Icon(
-                        Icons.broken_image_outlined,
-                        size: 48,
-                        color: eco.textMuted,
-                      ),
-                    ),
-                  ),
+              if (widget.loadImage == null) {
+                return _buildImage(widget.images[index]);
+              }
+              return FutureBuilder<Uint8List>(
+                future: _loads.putIfAbsent(
+                  index,
+                  () => Future.sync(() => widget.loadImage!(index)),
                 ),
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(context.l10n.activityImageViewErrorReadFailed),
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: () => setState(() {
+                              _loads.remove(index);
+                            }),
+                            icon: const Icon(Icons.refresh),
+                            label: Text(context.l10n.commonRetry),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  final bytes = snapshot.data;
+                  if (bytes == null) {
+                    return Center(
+                      child: Semantics(
+                        label: context.l10n.activityImageViewLoading,
+                        child: const CircularProgressIndicator(),
+                      ),
+                    );
+                  }
+                  return _buildImage(bytes);
+                },
               );
             },
           ),
@@ -159,6 +180,31 @@ class _ImageMemoryLightboxBodyState extends State<_ImageMemoryLightboxBody> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildImage(Uint8List bytes) {
+    final eco = ecoColors(context);
+    return InteractiveViewer(
+      minScale: 0.5,
+      maxScale: 6,
+      boundaryMargin: const EdgeInsets.all(48),
+      child: Center(
+        child: ColoredBox(
+          color: eco.cardSurface,
+          child: Image.memory(
+            bytes,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => Icon(
+              Icons.broken_image_outlined,
+              size: 48,
+              color: eco.textMuted,
+            ),
+          ),
+        ),
       ),
     );
   }

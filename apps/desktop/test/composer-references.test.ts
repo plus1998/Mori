@@ -33,6 +33,25 @@ test("mention queries filter by category without triggering on SSH endpoints or 
   expect(parseMentionQuery("me@example.com", 14)).toBeNull();
   expect(parseMentionQuery(composerReferenceToken(reference), 500)).toBeNull();
 });
+
+test("mentions work directly after Chinese text and punctuation, including in the middle of a draft", () => {
+  for (const prefix of ["帮我看看", "处理：", "参考【", "请用/", "看看\n", "请看 "]) {
+    const draft = `${prefix}@网页:订单，然后继续检查`;
+    const cursor = draft.indexOf("，然后");
+    expect(parseMentionQuery(draft, cursor)).toEqual({ start: prefix.length, query: "订单", kind: "web" });
+    expect(parseMentionQuery(`${prefix}@`, prefix.length + 1)).toEqual({ start: prefix.length, query: "" });
+  }
+  const token = composerReferenceToken(reference);
+  expect(parseMentionQuery(`${token}@待办:修复`, token.length + 6)).toEqual({
+    start: token.length, query: "修复", kind: "todo",
+  });
+});
+
+test("inline mention boundaries still exclude email and SSH usernames", () => {
+  for (const text of ["请联系me@example.com", "first.last+tag@example.com", "ssh-name@host", "root@10.0.0.1"]) {
+    expect(parseMentionQuery(text, text.length)).toBeNull();
+  }
+});
 test("malformed reference encodings are not upgraded into chips", () => {
   expect(composerReferences("@ssh{%broken} @web{%7B%7D}")).toEqual([]);
 });

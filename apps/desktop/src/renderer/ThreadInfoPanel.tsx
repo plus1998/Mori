@@ -13,6 +13,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { pathToName } from "../shared/home-project";
 import type {
   CoderTodoItem,
   GitSettingsSnapshot,
@@ -824,7 +825,7 @@ export function ThreadInfoPanel({
   const { t } = useTranslation();
   const projectLabel =
     workspaceLabel?.trim() ||
-    workspacePath?.split("/").filter(Boolean).pop() ||
+    (workspacePath && pathToName(workspacePath)) ||
     workspace?.name ||
     t("billing.noProject");
   const billing = usageSummary?.billing;

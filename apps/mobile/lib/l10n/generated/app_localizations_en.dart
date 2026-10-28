@@ -1743,6 +1743,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get activityClarificationAnswer => 'Question responses';
 
   @override
+  String activityApprovalRejected(String tool) {
+    return '$tool approval rejected';
+  }
+
+  @override
+  String get activityApprovalFeedback => 'Your feedback';
+
+  @override
   String get activityNoneSelected => '(Not selected)';
 
   @override

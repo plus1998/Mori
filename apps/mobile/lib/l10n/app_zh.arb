@@ -531,6 +531,8 @@
   "ttsUnavailable": "当前设备不支持语音合成",
   "activityMessageCopied": "已复制",
   "activityClarificationAnswer": "询问回答",
+  "activityApprovalRejected": "已拒绝 {tool} 审批",
+  "activityApprovalFeedback": "你的反馈",
   "activityNoneSelected": "（未选择）",
   "activityContinue": "继续",
   "activityThinking": "正在思考",

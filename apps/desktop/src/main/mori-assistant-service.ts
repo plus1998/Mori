@@ -151,6 +151,10 @@ export class MoriAssistantService {
   onWechatReply?: (text: string, messageId: string | undefined, notificationId: string) => Promise<void>;
   canNotifyWechat?: () => boolean;
 
+  get isWaitingForInput(): boolean {
+    return Boolean(this.pendingInput);
+  }
+
   constructor(private readonly deps: MoriAssistantDeps) {
     this.store = new MoriAssistantStore(path.join(deps.dataDir, "mori-assistant.json"));
     this.workspacePath = path.join(deps.dataDir, "mori-assistant", "workspace");

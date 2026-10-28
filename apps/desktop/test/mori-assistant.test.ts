@@ -699,12 +699,14 @@ test("computer approval from WeChat includes the action and records the explicit
   try {
     const waiting = service.send("computer-click", "wechat", "wechat-computer");
     const approval = await waitForApproval(service);
+    expect(service.isWaitingForInput).toBe(true);
     expect(replies).toHaveLength(1);
     expect(replies[0]).toContain(approval.title);
     expect(replies[0]).toContain('"index": 1');
     expect(replies[0]).toContain("请回复「允许」或「拒绝」");
     expect(computerCalls).toEqual([]);
     await service.respond(approval.id, "允许", "wechat");
+    expect(service.isWaitingForInput).toBe(false);
     await waiting;
     expect(computerCalls).toEqual(["click"]);
     const snapshot = await service.snapshot();

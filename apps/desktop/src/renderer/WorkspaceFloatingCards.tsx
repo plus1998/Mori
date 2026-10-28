@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { pathToName } from "../shared/home-project";
 import { countEnabledMcpServers } from "../shared/composer-mcp";
 import type { SkillsEnabledSettings } from "../shared/composer-skills-settings";
 import type {
@@ -844,7 +845,7 @@ export function WorkspaceFloatingCards({
   const resolvedBrowserInstances = browserInstances.length > 0 ? browserInstances : storedBrowserInstances;
   const projectLabel =
     workspaceLabel?.trim() ||
-    workspacePath?.split("/").filter(Boolean).pop() ||
+    (workspacePath && pathToName(workspacePath)) ||
     workspace?.name ||
     t("workspaceCards.noProject");
   const showProgress = hasProgressInfo(todos);

@@ -579,6 +579,13 @@
   "ttsUnavailable": "Text-to-speech is unavailable on this device",
   "activityMessageCopied": "Message copied",
   "activityClarificationAnswer": "Question responses",
+  "activityApprovalRejected": "{tool} approval rejected",
+  "@activityApprovalRejected": {
+    "placeholders": {
+      "tool": { "type": "String" }
+    }
+  },
+  "activityApprovalFeedback": "Your feedback",
   "activityNoneSelected": "(Not selected)",
   "activityContinue": "Continue",
   "activityThinking": "Thinking",

@@ -64,7 +64,9 @@ export function parseMentionQuery(
   cursor: number,
 ): { start: number; query: string; kind?: ComposerReferenceKind } | null {
   const before = text.slice(0, Math.max(0, Math.min(cursor, text.length)));
-  const match = /(?:^|[\s（(，,。])@([^@\s{}]*)$/.exec(before);
+  // Chinese prose and punctuation need no space before @. Keep ASCII
+  // email/SSH usernames attached to their @ out of the mention picker.
+  const match = /(?:^|[^a-z0-9_.%+@-])@([^@\s{}]*)$/i.exec(before);
   if (!match) return null;
   const raw = match[1]!;
   const category =

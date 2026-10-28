@@ -17,6 +17,7 @@ import '../../core/models/thread_models.dart';
 import '../../core/models/thread_runtime_config.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/utils/activity_display.dart';
+import '../../core/utils/approval_feedback.dart';
 import '../../core/utils/composer_references.dart';
 import '../../core/utils/feed_action_kind.dart';
 import '../../core/utils/file_change.dart';
@@ -37,6 +38,7 @@ import '../../core/widgets/eco_markdown.dart';
 import '../../core/widgets/streaming_eco_markdown.dart';
 import '../../core/widgets/eco_surface_card.dart';
 import '../../core/widgets/image_memory_lightbox.dart';
+import '../../core/widgets/prompt_image_lightbox.dart';
 import '../../core/widgets/paced_stream_text.dart';
 import '../../core/widgets/run_activity_indicator.dart';
 import '../../core/widgets/shimmer_text.dart';
@@ -1301,6 +1303,7 @@ class ActivityFeedList extends StatefulWidget {
     this.loadToolDetailPage,
     this.loadTurnDetail,
     this.loadImageView,
+    this.loadPromptImage,
     this.onOpenImageDisplayArtifact,
     this.onLoadUserMessageEdit,
     this.onRewriteUserMessage,
@@ -1329,6 +1332,7 @@ class ActivityFeedList extends StatefulWidget {
   final ActivityFeedToolDetailPageLoader? loadToolDetailPage;
   final ActivityFeedTurnDetailLoader? loadTurnDetail;
   final ActivityFeedImageViewLoader? loadImageView;
+  final PromptImageOriginalLoader? loadPromptImage;
   final ValueChanged<String>? onOpenImageDisplayArtifact;
   final ActivityFeedUserMessageEditLoader? onLoadUserMessageEdit;
   final ActivityFeedUserMessageRewriteHandler? onRewriteUserMessage;
@@ -1586,20 +1590,23 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
                   );
                   return KeyedSubtree(
                     key: ValueKey(entry.id),
-                    child: row.finalOutput
-                        ? Padding(
-                            padding: const EdgeInsets.only(top: 9),
-                            child: Semantics(
-                              label: context.l10n.activityFinalOutput,
+                    child: PromptImageReadScope(
+                      loadOriginal: widget.loadPromptImage,
+                      child: row.finalOutput
+                          ? Padding(
+                              padding: const EdgeInsets.only(top: 9),
+                              child: Semantics(
+                                label: context.l10n.activityFinalOutput,
+                                child: tile,
+                              ),
+                            )
+                          : processStartIds.contains(entry.id)
+                          ? Padding(
+                              padding: const EdgeInsets.only(top: 7),
                               child: tile,
-                            ),
-                          )
-                        : processStartIds.contains(entry.id)
-                        ? Padding(
-                            padding: const EdgeInsets.only(top: 7),
-                            child: tile,
-                          )
-                        : tile,
+                            )
+                          : tile,
+                    ),
                   );
                 },
               ),
@@ -2336,7 +2343,9 @@ class _UserPromptTileState extends State<_UserPromptTile> {
   static const _maxEditImages = 5;
 
   late var _expanded = widget.initiallyExpanded;
-  late var _promptSegments = parseComposerPrompt(widget.text);
+  late var _approvalFeedback = parseApprovalFeedback(widget.text);
+  String get _displayText => _approvalFeedback?.feedback ?? widget.text;
+  late var _promptSegments = parseComposerPrompt(_displayText);
   final _editController = ComposerPromptEditingController();
   final _picker = ImagePicker();
   var _editing = false;
@@ -2363,7 +2372,8 @@ class _UserPromptTileState extends State<_UserPromptTile> {
   void didUpdateWidget(covariant _UserPromptTile oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.text != widget.text) {
-      _promptSegments = parseComposerPrompt(widget.text);
+      _approvalFeedback = parseApprovalFeedback(widget.text);
+      _promptSegments = parseComposerPrompt(_displayText);
     }
     if (oldWidget.text != widget.text ||
         oldWidget.initiallyExpanded != widget.initiallyExpanded ||
@@ -2547,35 +2557,19 @@ class _UserPromptTileState extends State<_UserPromptTile> {
   }
 
   Future<void> _openAttachmentLightbox(int index) async {
-    final images = <Uint8List>[];
-    final indexes = <int>[];
-    for (var i = 0; i < widget.attachments.length; i++) {
-      try {
-        images.add(base64Decode(widget.attachments[i].data));
-        indexes.add(i);
-      } on FormatException {
-        // Skip undecodable thumbnails.
-      }
-    }
-    if (images.isEmpty || !mounted) return;
-    final start = indexes.indexOf(index).clamp(0, images.length - 1);
-    await showImageMemoryLightbox(context, images: images, initialIndex: start);
+    await showPromptImageLightbox(
+      context,
+      attachments: widget.attachments,
+      initialIndex: index,
+    );
   }
 
   Future<void> _openEditAttachmentLightbox(int index) async {
-    final images = <Uint8List>[];
-    final indexes = <int>[];
-    for (var i = 0; i < _editAttachments.length; i++) {
-      try {
-        images.add(base64Decode(_editAttachments[i].data));
-        indexes.add(i);
-      } on FormatException {
-        // Skip undecodable thumbnails.
-      }
-    }
-    if (images.isEmpty || !mounted) return;
-    final start = indexes.indexOf(index).clamp(0, images.length - 1);
-    await showImageMemoryLightbox(context, images: images, initialIndex: start);
+    await showPromptImageLightbox(
+      context,
+      attachments: _editAttachments,
+      initialIndex: index,
+    );
   }
 
   Widget _buildEditBubble(BuildContext context, double maxBubbleWidth) {
@@ -2743,7 +2737,7 @@ class _UserPromptTileState extends State<_UserPromptTile> {
                 maxLines: _collapsedMaxLines,
               ) ??
               _textExceedsLineLimit(
-                text: widget.text,
+                text: _displayText,
                 style: textStyle,
                 maxWidth: bodyMaxWidth,
                 maxLines: _collapsedMaxLines,
@@ -2760,6 +2754,37 @@ class _UserPromptTileState extends State<_UserPromptTile> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (_approvalFeedback case final feedback?) ...[
+                  Row(
+                    children: [
+                      Icon(Icons.gpp_bad_outlined, size: 16, color: eco.danger),
+                      const SizedBox(width: 7),
+                      Flexible(
+                        child: Text(
+                          context.l10n.activityApprovalRejected(
+                            feedback.toolLabel,
+                          ),
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(
+                                color: eco.textPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Divider(height: 1, color: eco.borderSubtle),
+                  ),
+                  Text(
+                    context.l10n.activityApprovalFeedback,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelSmall?.copyWith(color: eco.textMuted),
+                  ),
+                  const SizedBox(height: 4),
+                ],
                 if (widget.attachments.isNotEmpty) ...[
                   SizedBox(
                     width: galleryWidth,
@@ -2806,14 +2831,14 @@ class _UserPromptTileState extends State<_UserPromptTile> {
                                 maxLines: _collapsedMaxLines,
                               ) ??
                               Text(
-                                widget.text,
+                                _displayText,
                                 maxLines: _collapsedMaxLines,
                                 overflow: TextOverflow.clip,
                                 style: textStyle,
                               ),
                         )
                       : referenceLayout?.build() ??
-                            Text(widget.text, style: textStyle),
+                            Text(_displayText, style: textStyle),
                 ),
                 if (canExpand)
                   Align(
@@ -2845,7 +2870,7 @@ class _UserPromptTileState extends State<_UserPromptTile> {
   }
 
   Future<void> _copyMessage() async {
-    final text = widget.text.trim();
+    final text = _displayText.trim();
     if (text.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: text));
     if (mounted) _showEditToast(context.l10n.activityMessageCopied);
@@ -5397,19 +5422,11 @@ class _SubagentImageStrip extends StatelessWidget {
   final List<PromptImageAttachment> attachments;
 
   Future<void> _open(BuildContext context, int index) async {
-    final images = <Uint8List>[];
-    final indexes = <int>[];
-    for (var i = 0; i < attachments.length; i++) {
-      try {
-        images.add(base64Decode(attachments[i].data));
-        indexes.add(i);
-      } on FormatException {
-        // Skip undecodable thumbnails.
-      }
-    }
-    if (images.isEmpty) return;
-    final start = indexes.indexOf(index).clamp(0, images.length - 1);
-    await showImageMemoryLightbox(context, images: images, initialIndex: start);
+    await showPromptImageLightbox(
+      context,
+      attachments: attachments,
+      initialIndex: index,
+    );
   }
 
   @override

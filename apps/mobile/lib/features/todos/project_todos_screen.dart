@@ -163,6 +163,17 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
     messenger.showSnackBar(
       SnackBar(
         content: Text(context.l10n.todosDeleted),
+        duration: const Duration(seconds: 5),
+        persist: false,
+        behavior: SnackBarBehavior.floating,
+        // The shell paints its tab bar over the nested Scaffold, so the root
+        // messenger cannot account for either it or this screen's add button.
+        margin: EdgeInsets.fromLTRB(
+          16,
+          0,
+          16,
+          adaptiveNavOverlayInset(context) + 16 + 56 + 12,
+        ),
         action: SnackBarAction(
           label: context.l10n.todosUndo,
           onPressed: () {

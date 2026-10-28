@@ -1,4 +1,6 @@
 import { shortcutMatches } from "./keyboard-shortcuts";
+import { parseApprovalFeedback } from "../shared/approval-feedback";
+import { ApprovalFeedbackCard } from "./ApprovalFeedbackCard";
 import {
   clarificationHistoryRows,
   readClarificationHistoryContent,
@@ -6334,7 +6336,8 @@ function UserPromptBlock({
   allowUserMessageRewrite?: boolean;
 }) {
   const asyncQuestionReplies = useMemo(() => parseCodexAsyncQuestionReplyText(text), [text]);
-  const copyText = asyncQuestionReplies ? formatCodexAsyncQuestionReplySummary(asyncQuestionReplies) : text;
+  const approvalFeedback = useMemo(() => parseApprovalFeedback(text), [text]);
+  const copyText = approvalFeedback?.feedback ?? (asyncQuestionReplies ? formatCodexAsyncQuestionReplySummary(asyncQuestionReplies) : text);
   const bodyRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const editRequestRef = useRef(0);
@@ -6748,7 +6751,9 @@ function UserPromptBlock({
                 ref={bodyRef}
                 className={["run-log-user-prompt-body", expanded ? "expanded" : "collapsed"].join(" ")}
               >
-                {asyncQuestionReplies ? (
+                {approvalFeedback ? (
+                  <ApprovalFeedbackCard feedback={approvalFeedback} />
+                ) : asyncQuestionReplies ? (
                   <ClarificationAnswersCard rows={asyncQuestionReplies} variant="user" />
                 ) : (
                   <UserPromptBodyContent text={text} />

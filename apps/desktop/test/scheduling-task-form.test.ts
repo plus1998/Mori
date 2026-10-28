@@ -42,4 +42,6 @@ test("project search matches names before paths and keeps the caller order", () 
 test("a task directory outside the project list still shows a readable name", () => {
   expect(projectDisplayName(projects, "/work/notes")).toBe("notes");
   expect(projectDisplayName(projects, "/srv/backups")).toBe("backups");
+  expect(projectDisplayName(projects, "D:\\work\\backups\\")).toBe("backups");
+  expect(projectDisplayName([{ path: "D:\\work\\notes", name: "我的笔记" }], "D:\\work\\notes")).toBe("我的笔记");
 });

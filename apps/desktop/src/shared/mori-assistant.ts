@@ -78,7 +78,12 @@ export interface MoriAssistantSnapshot {
   projects: string[];
   tasks: ThreadSummary[];
   computerUse: MoriComputerUseStatus;
-  wechat: { status: "disconnected" | "waiting" | "connected" | "error"; qrContent?: string; error?: string };
+  wechat: {
+    status: "disconnected" | "waiting" | "connected" | "error";
+    qrContent?: string;
+    error?: string;
+    feedbackError?: string;
+  };
 }
 
 export const MORI_ASSISTANT_CHANNELS = {

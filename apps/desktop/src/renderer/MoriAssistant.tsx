@@ -515,6 +515,14 @@ export function MoriAssistantSettingsPanel({
                 {snapshot.wechat.error}
               </p>
             ) : null}
+            {snapshot.wechat.feedbackError ? (
+              <p role="status" className="mori-muted">
+                {snapshot.wechat.feedbackError}
+              </p>
+            ) : null}
+            <p className="mori-muted">
+              处理较久时显示微信原生“正在输入”；等待你回答时暂停，不额外发送处理中消息。
+            </p>
             <p className="mori-muted">支持文字和已转写的语音；图片、文件、视频及扫码验证码暂不支持。</p>
           </section>
         ) : null}
@@ -1351,7 +1359,9 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
   }, [mode]);
   useEffect(() => {
     if (mode !== "notice") return;
-    const refresh = () => { void desktopApi().moriAssistantNotice().then(setNotice); };
+    const refresh = () => {
+      void desktopApi().moriAssistantNotice().then(setNotice);
+    };
     refresh();
     return desktopApi().onMoriAssistantChanged(refresh);
   }, [mode]);

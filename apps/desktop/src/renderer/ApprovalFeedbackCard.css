@@ -1,0 +1,33 @@
+.approval-feedback-card {
+  min-width: 0;
+  white-space: normal;
+}
+
+.approval-feedback-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--run-log-user-prompt-fg) 12%, transparent);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.approval-feedback-header svg {
+  flex: 0 0 auto;
+  color: var(--danger);
+}
+
+.approval-feedback-label {
+  margin-top: 10px;
+  color: var(--run-log-user-prompt-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.approval-feedback-body {
+  margin-top: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

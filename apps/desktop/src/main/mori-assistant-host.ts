@@ -29,6 +29,7 @@ export class MoriAssistantHost {
     this.pets = new MoriPets(deps.dataDir);
     const changed = () => {
       if (this.closed) return;
+      this.wechat.setWaitingForInput(this.service.isWaitingForInput);
       this.service.wechatStatus = this.wechat.status;
       for (const window of BrowserWindow.getAllWindows())
         if (!window.isDestroyed()) window.webContents.send(C.changed);
@@ -72,8 +73,10 @@ export class MoriAssistantHost {
       reportError: deps.reportError,
     });
     this.service.canNotifyWechat = () => this.wechat.canNotify;
-    this.service.onWechatReply = (text, messageId, id) =>
-      this.wechat.enqueueNotification(text, messageId, id);
+    this.service.onWechatReply = (text, messageId, id) => {
+      this.wechat.setWaitingForInput(this.service.isWaitingForInput);
+      return this.wechat.enqueueNotification(text, messageId, id);
+    };
     const initialThreads = deps.conversations.listThreads();
     const previousStatuses = new Map(initialThreads.map((thread) => [thread.id, thread.status]));
     const runningThreads = new Set(

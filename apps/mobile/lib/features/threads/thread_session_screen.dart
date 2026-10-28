@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -29,10 +30,12 @@ import '../../core/utils/thread_follow_up_ui.dart';
 import '../../core/utils/thread_status.dart';
 import '../../core/platform/session_wake_lock.dart';
 import '../../core/widgets/eco_modal_sheet.dart';
+import '../../core/widgets/prompt_image_lightbox.dart';
 import '../approvals/approval_sheets.dart';
 import '../approvals/bash_approval_panel.dart';
 import '../approvals/plan_approval_panel.dart';
 import '../composer/composer_dock_shell.dart';
+import '../composer/composer_stack_card.dart';
 import '../composer/follow_up_queue_bar.dart';
 import '../composer/session_composer.dart';
 import '../composer/workspace_changes_pill.dart';
@@ -466,7 +469,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
             children: [
               if (failed)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: composerStackOuterPadding,
                   child: Semantics(
                     liveRegion: true,
                     child: Material(
@@ -504,7 +507,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                 ),
               if (conversationV2.error != null)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: composerStackOuterPadding,
                   child: Semantics(
                     liveRegion: true,
                     child: Container(
@@ -1959,6 +1962,8 @@ class _ActivityFeedView extends ConsumerWidget {
         loadTurnDetail: (entry) =>
             _loadConversationV2TurnDetail(ref, threadId, entry),
         loadImageView: (entry) => _loadImageViewForEntry(ref, entry),
+        loadPromptImage: (attachment) =>
+            _loadPromptImageForThread(ref, threadId, attachment),
         onOpenImageDisplayArtifact: onOpenImageDisplayArtifact,
         onLoadUserMessageEdit: (activityLineId) async {
           final rpc = ref.read(desktopRpcProvider);
@@ -2227,6 +2232,8 @@ Future<void> _openConversationV2AgentDetail(
       runId: runId,
       title: entry.taskName ?? entry.subagentRole ?? agentId,
       future: future,
+      loadPromptImage: (attachment) =>
+          _loadPromptImageForThread(ref, threadId, attachment),
     ),
   );
 }
@@ -2253,6 +2260,7 @@ class _ConversationV2AgentDetailSheet extends StatefulWidget {
     required this.runId,
     required this.title,
     required this.future,
+    required this.loadPromptImage,
   });
 
   final String threadId;
@@ -2260,6 +2268,7 @@ class _ConversationV2AgentDetailSheet extends StatefulWidget {
   final String runId;
   final String title;
   final Future<ConversationV2DetailPage> future;
+  final PromptImageOriginalLoader loadPromptImage;
 
   @override
   State<_ConversationV2AgentDetailSheet> createState() =>
@@ -2345,6 +2354,7 @@ class _ConversationV2AgentDetailSheetState
                         }
                         return ActivityFeedList(
                           entries: entries,
+                          loadPromptImage: widget.loadPromptImage,
                           scrollController: _scrollController,
                           scrollCoordinator: _scrollCoordinator,
                           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -2362,6 +2372,24 @@ class _ConversationV2AgentDetailSheetState
       ),
     );
   }
+}
+
+Future<Uint8List> _loadPromptImageForThread(
+  WidgetRef ref,
+  String threadId,
+  PromptImageAttachment attachment,
+) async {
+  final rpc = ref.read(desktopRpcProvider);
+  if (rpc == null) {
+    throw const ImageViewReadException(
+      ImageViewReadFailureCode.bridgeUnavailable,
+    );
+  }
+  return rpc.downloadPromptImage(
+    contextKey: composerDraftContextKey(threadId: threadId),
+    contentRef: attachment.contentRef!,
+    mediaType: attachment.mediaType,
+  );
 }
 
 Future<ImageViewReadData> _loadImageViewForEntry(
