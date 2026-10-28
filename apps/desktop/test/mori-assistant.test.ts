@@ -8,7 +8,7 @@ import { MoriAssistantService } from "../src/main/mori-assistant-service";
 import { MoriAssistantStore, parseAssistantSettings } from "../src/main/mori-assistant-store";
 import { parseWechatJson, validateWechatBaseUrl } from "../src/main/mori-assistant-wechat";
 import type { OpenAIAccountService } from "../src/main/openai-account-service";
-import { DEFAULT_MORI_ASSISTANT_SETTINGS } from "../src/shared/mori-assistant";
+import { DEFAULT_MORI_ASSISTANT_SETTINGS, moriPetSize } from "../src/shared/mori-assistant";
 import { removeTempDirectory } from "./helpers/temp-directory";
 
 const roots: string[] = [];
@@ -33,6 +33,22 @@ test("assistant settings require an account, reject malformed values and exclude
   });
   expect(settings.accountIds).toEqual(["a"]);
   expect(settings).not.toHaveProperty("token");
+});
+
+test("pet sizes migrate with a default and remain separate per selected pet", () => {
+  const { petSizes: _omitted, ...oldSettings } = DEFAULT_MORI_ASSISTANT_SETTINGS;
+  const migrated = parseAssistantSettings(oldSettings);
+  expect(moriPetSize(migrated)).toBe(64);
+  const settings = parseAssistantSettings({
+    ...migrated,
+    petSizes: { "builtin:mori": 96, "codex:doro": 144 },
+  });
+  expect(moriPetSize(settings)).toBe(96);
+  expect(moriPetSize({ ...settings, petKey: "codex:doro" })).toBe(144);
+  expect(moriPetSize({ ...settings, petKey: "mori:new" })).toBe(64);
+  expect(() => parseAssistantSettings({ ...migrated, petSizes: { "builtin:mori": 500 } })).toThrow(
+    "宠物大小",
+  );
 });
 
 test("assistant state survives concurrent atomic writes and malformed files remain explicit errors", async () => {

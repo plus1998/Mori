@@ -8844,7 +8844,6 @@ button.sidebar-settings-meta {
   padding: 0;
   display: flex;
   flex-direction: column;
-  overflow: visible;
   gap: 0;
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
@@ -11848,15 +11847,15 @@ button.integrated-web-search-clear-key:disabled {
   cursor: not-allowed;
 }
 
-.settings-icon-button .spinning,
-.activity-icon-button .spinning,
-.chat-item-loading .spinning,
-.run-log-reconnect-icon.spinning,
-.thread-info-workspace-git .spinning,
-.send-button .spinning,
-.workspace-diff-tree__refresh .spinning,
-.workspace-file-browser__refresh .spinning {
+/*
+ * Base spinner utility. `.spinning` must animate on its own — scoping it to a list of
+ * containers silently froze every icon rendered outside that list (e.g. the Mori
+ * assistant dialog, which has no `.send-button`/`.settings-icon-button` ancestor).
+ * Container-scoped rules below only adjust the duration or opt out of motion.
+ */
+.spinning {
   animation: eco-spin 0.8s linear infinite;
+  transform-origin: center;
 }
 
 .chat-item-loading .spinning {
@@ -32365,10 +32364,6 @@ html:not([data-platform="darwin"])
   cursor: not-allowed;
 }
 
-.git-commit-popover-message-generate .spinning {
-  animation: eco-spin 0.8s linear infinite;
-}
-
 .git-commit-popover-message::placeholder {
   color: var(--popover-muted);
 }
@@ -33006,10 +33001,6 @@ html:not([data-platform="darwin"])
   cursor: not-allowed;
 }
 
-.package-scripts-icon-btn .spinning {
-  animation: eco-spin 0.8s linear infinite;
-}
-
 .package-scripts-toolbar {
   display: flex;
   flex-direction: column;
@@ -33275,11 +33266,6 @@ html:not([data-platform="darwin"])
 .package-scripts-run-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
-}
-
-.package-scripts-action-btn .spinning,
-.package-scripts-run-btn .spinning {
-  animation: eco-spin 0.8s linear infinite;
 }
 
 .package-scripts-override-grid {

@@ -1,14 +1,16 @@
 import path from "node:path";
-import { BrowserWindow, ipcMain, type NativeImage } from "electron";
+import { BrowserWindow, dialog, ipcMain, type NativeImage } from "electron";
 import { MORI_ASSISTANT_CHANNELS as C } from "../shared/mori-assistant";
 import { type MoriAssistantDeps, MoriAssistantService } from "./mori-assistant-service";
 import { MoriAssistantWechat } from "./mori-assistant-wechat";
 import { MoriAssistantWindows } from "./mori-assistant-windows";
+import { MoriPets } from "./mori-pets";
 
 export class MoriAssistantHost {
   readonly service: MoriAssistantService;
   readonly windows: MoriAssistantWindows;
   readonly wechat: MoriAssistantWechat;
+  readonly pets: MoriPets;
   private unsubscribe: (() => void) | undefined;
   private readonly handlers: string[] = [];
   private ready: Promise<void> | undefined;
@@ -24,6 +26,7 @@ export class MoriAssistantHost {
       reportError(error: unknown): void;
     },
   ) {
+    this.pets = new MoriPets(deps.dataDir);
     const changed = () => {
       if (this.closed) return;
       this.service.wechatStatus = this.wechat.status;
@@ -71,14 +74,31 @@ export class MoriAssistantHost {
     this.service.canNotifyWechat = () => this.wechat.canNotify;
     this.service.onWechatReply = (text, messageId, id) =>
       this.wechat.enqueueNotification(text, messageId, id);
+    const initialThreads = deps.conversations.listThreads();
+    const previousStatuses = new Map(initialThreads.map((thread) => [thread.id, thread.status]));
     const runningThreads = new Set(
-      deps.conversations.listThreads().filter((thread) => thread.status === "running").map((thread) => thread.id),
+      initialThreads.filter((thread) => thread.status === "running").map((thread) => thread.id),
+    );
+    const pendingThreads = new Set(
+      initialThreads
+        .filter((thread) => thread.status === "awaiting_plan" || deps.hasPendingTaskInput?.(thread.id))
+        .map((thread) => thread.id),
     );
     this.unsubscribe = deps.subscribeTasks((id) => {
       const wasRunning = runningThreads.size > 0;
-      if (deps.conversations.getThread(id)?.status === "running") runningThreads.add(id);
+      const wasPending = pendingThreads.size > 0;
+      const status = deps.conversations.getThread(id)?.status;
+      const previousStatus = previousStatuses.get(id);
+      if (status) previousStatuses.set(id, status);
+      else previousStatuses.delete(id);
+      if (previousStatus && previousStatus !== status && (status === "completed" || status === "failed"))
+        this.windows.showPetReaction(status === "completed" ? "completion" : "failed");
+      if (status === "running") runningThreads.add(id);
       else runningThreads.delete(id);
-      if (wasRunning !== (runningThreads.size > 0)) this.service.capabilitiesChanged();
+      if (status === "awaiting_plan" || deps.hasPendingTaskInput?.(id)) pendingThreads.add(id);
+      else pendingThreads.delete(id);
+      if (wasRunning !== runningThreads.size > 0 || wasPending !== pendingThreads.size > 0)
+        this.service.capabilitiesChanged();
       void this.service.taskChanged(id).catch(deps.reportError);
     });
     const handle = <Args extends unknown[]>(channel: string, callback: (...args: Args) => unknown) => {
@@ -125,6 +145,16 @@ export class MoriAssistantHost {
     handle(C.noticeOpen, async () => {
       const notice = this.windows.takeNotice();
       if (notice) await deps.openThread(notice.threadId);
+    });
+    handle(C.petList, () => this.pets.list());
+    handle(C.petAsset, (key: string) => this.pets.asset(key));
+    handle(C.petImport, async () => {
+      const result = await dialog.showOpenDialog({
+        title: "选择 Codex Pets 宠物文件夹",
+        properties: ["openDirectory"],
+      });
+      if (result.canceled || !result.filePaths[0]) return undefined;
+      return this.pets.import(result.filePaths[0]);
     });
   }
 

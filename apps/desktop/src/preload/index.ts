@@ -337,6 +337,19 @@ const api = {
   moriAssistantMoveBall(x: number, y: number): Promise<void> { return ipcRenderer.invoke(MORI.ballMove, { x, y }); },
   moriAssistantNotice(): Promise<{ title: string; body: string; threadId: string } | undefined> { return ipcRenderer.invoke(MORI.noticeGet); },
   moriAssistantOpenNotice(): Promise<void> { return ipcRenderer.invoke(MORI.noticeOpen); },
+  moriPetsList(): Promise<import("../shared/mori-pet").MoriPetList> { return ipcRenderer.invoke(MORI.petList); },
+  moriPetsImport(): Promise<import("../shared/mori-pet").MoriPetInfo | undefined> { return ipcRenderer.invoke(MORI.petImport); },
+  moriPetAsset(key: string): Promise<import("../shared/mori-pet").MoriPetAsset> { return ipcRenderer.invoke(MORI.petAsset, key); },
+  onMoriPetLook(callback: (direction: number | null) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, direction: number | null) => callback(direction);
+    ipcRenderer.on(MORI.petLook, listener);
+    return () => ipcRenderer.off(MORI.petLook, listener);
+  },
+  onMoriPetReaction(callback: (kind: "completion" | "failed" | "approval" | "question") => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, kind: "completion" | "failed" | "approval" | "question") => callback(kind);
+    ipcRenderer.on(MORI.petReaction, listener);
+    return () => ipcRenderer.off(MORI.petReaction, listener);
+  },
   onMoriAssistantChanged(callback: () => void): () => void {
     const listener = () => callback();
     ipcRenderer.on(MORI.changed, listener);

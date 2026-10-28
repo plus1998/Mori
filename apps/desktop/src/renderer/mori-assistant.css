@@ -240,6 +240,11 @@ html[data-platform="darwin"] .shell-sidebar-hidden .mori-main-view {
 }
 .mori-message.is-user {
   width: fit-content;
+  /* Keep short replies ("好", "OK") from collapsing into slivers, but never demand more
+     room than the feed has: the 100% clamp wins on narrow panels, and max-width still
+     caps long messages. Paired with the responsive assertions in
+     mori-message-bubble.test.ts. */
+  min-width: min(180px, 100%);
   max-width: 85%;
   box-sizing: border-box;
   background: var(--mori-soft);
@@ -295,9 +300,9 @@ html[data-platform="darwin"] .shell-sidebar-hidden .mori-main-view {
 }
 .mori-composer {
   margin: 0 auto 20px;
-  padding: 11px 14px 9px;
+  padding: 12px 14px 10px;
   border: 1px solid var(--mori-border);
-  border-radius: 17px;
+  border-radius: 18px;
   width: calc(100% - 48px);
   max-width: 720px;
   background: var(--bg-main);
@@ -308,17 +313,23 @@ html[data-platform="darwin"] .shell-sidebar-hidden .mori-main-view {
 .mori-composer:focus-within {
   border-color: #7b948377;
 }
+/* Roomier input surface that grows with the draft, like the main Composer. The
+   min/max heights are mirrored by MORI_COMPOSER_MIN_HEIGHT/MAX_HEIGHT in
+   MoriAssistant.tsx; the textarea never collapses below ~2.5 lines. */
 .mori-composer textarea {
+  display: block;
   border: 0;
   outline: none;
   background: transparent;
   resize: none;
   width: 100%;
   box-sizing: border-box;
-  line-height: 1.65;
-  padding: 13px 2px 8px;
-  min-height: 60px;
-  max-height: 160px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.6;
+  padding: 10px 2px 8px;
+  min-height: 76px;
+  max-height: 200px;
   overflow-y: auto;
 }
 .mori-composer textarea:focus-visible {
@@ -991,8 +1002,9 @@ html[data-mori-surface="ball"],
 html[data-mori-surface="ball"] body,
 html[data-mori-surface="ball"] #root {
   background: transparent;
-  width: 64px;
-  height: 64px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   overflow: hidden;
 }
 html[data-mori-surface="notice"],
@@ -1027,8 +1039,8 @@ html[data-mori-surface="notice"] #root {
 .mori-ball {
   margin: 0;
   padding: 4px;
-  width: 64px;
-  height: 64px;
+  width: 100%;
+  height: 100%;
   border-radius: 22px;
   background: transparent;
   color: #f5f8f4;
@@ -1042,6 +1054,76 @@ html[data-mori-surface="notice"] #root {
 }
 .mori-ball > .mori-icon {
   filter: drop-shadow(0 2px 3px #0003);
+}
+.mori-pet-sprite {
+  display: block;
+  flex: none;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+.mori-ball > .mori-pet-sprite {
+  filter: drop-shadow(0 2px 3px #0003);
+}
+.mori-pet-settings {
+  display: grid;
+  gap: 9px;
+  padding: 12px 0;
+}
+.mori-pet-settings select {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 9px;
+  color: var(--text-primary);
+  background: var(--bg-main);
+  border: 1px solid var(--mori-border);
+  border-radius: 8px;
+}
+.mori-pet-actions {
+  display: flex;
+  gap: 8px;
+}
+.mori-pet-size {
+  display: grid;
+  gap: 6px;
+}
+.mori-pet-size > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.mori-pet-size strong {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.mori-pet-size input {
+  width: 100%;
+  accent-color: #799985;
+}
+.mori-pet-size small {
+  color: var(--text-muted);
+}
+.mori-pet-actions button {
+  padding: 6px 10px;
+  border: 1px solid var(--mori-border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.mori-pet-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px;
+  border: 1px solid var(--mori-border);
+  border-radius: 12px;
+}
+.mori-pet-preview > div {
+  flex: 1;
+  min-width: 0;
+}
+.mori-pet-preview label {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
 }
 .mori-ball:active {
   cursor: grabbing;

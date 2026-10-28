@@ -12,6 +12,8 @@ export interface MoriAssistantSettings {
   accountIds: string[];
   autoSwitchAccounts: boolean;
   floatingEnabled: boolean;
+  petKey: string;
+  petSizes: Record<string, number>;
   backgroundEnabled: boolean;
   shortcut: string;
   wechatEnabled: boolean;
@@ -66,6 +68,7 @@ export interface MoriAssistantSnapshot {
   sourceByMessage: MoriAssistantState["sourceByMessage"];
   status: "idle" | "running" | "waiting" | "error";
   hasRunningTasks: boolean;
+  hasPendingTasks: boolean;
   accountId?: string;
   error?: string;
   activity?: string;
@@ -98,6 +101,11 @@ export const MORI_ASSISTANT_CHANNELS = {
   ballMove: "mori-assistant:ball-move",
   noticeGet: "mori-assistant:notice-get",
   noticeOpen: "mori-assistant:notice-open",
+  petList: "mori-assistant:pet-list",
+  petImport: "mori-assistant:pet-import",
+  petAsset: "mori-assistant:pet-asset",
+  petLook: "mori-assistant:pet-look",
+  petReaction: "mori-assistant:pet-reaction",
 } as const;
 
 export const DEFAULT_MORI_ASSISTANT_SETTINGS: MoriAssistantSettings = {
@@ -109,7 +117,17 @@ export const DEFAULT_MORI_ASSISTANT_SETTINGS: MoriAssistantSettings = {
   accountIds: [],
   autoSwitchAccounts: false,
   floatingEnabled: false,
+  petKey: "",
+  petSizes: {},
   backgroundEnabled: false,
   shortcut: "CommandOrControl+Shift+M",
   wechatEnabled: false,
 };
+
+export const MORI_PET_SIZE_MIN = 48;
+export const MORI_PET_SIZE_MAX = 192;
+export const MORI_PET_SIZE_DEFAULT = 64;
+
+export function moriPetSize(settings: Pick<MoriAssistantSettings, "petKey" | "petSizes">): number {
+  return settings.petSizes[settings.petKey || "builtin:mori"] ?? MORI_PET_SIZE_DEFAULT;
+}

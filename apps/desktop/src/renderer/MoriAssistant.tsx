@@ -1,4 +1,3 @@
-import { shortcutMatches, useKeyboardShortcuts } from "./keyboard-shortcuts";
 import type { ConversationMessage } from "@eco/shared";
 import {
   ArrowDown,
@@ -25,16 +24,33 @@ import {
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import type { MoriAssistantSettings, MoriAssistantSnapshot } from "../shared/mori-assistant";
+import {
+  type MoriAssistantSettings,
+  type MoriAssistantSnapshot,
+  moriPetSize,
+} from "../shared/mori-assistant";
+import type { MoriPetAnimation, MoriPetAsset } from "../shared/mori-pet";
+import { shortcutMatches, useKeyboardShortcuts } from "./keyboard-shortcuts";
 import { LazyOpenAIAccountsPanel } from "./lazy-app-panels";
 import { MarkdownContent } from "./MarkdownContent";
-import { MoriIcon, type MoriIconMood } from "./MoriIcon";
+import { MoriIcon } from "./MoriIcon";
+import { MoriPetSettings } from "./MoriPetSettings";
+import { MoriPetSprite } from "./MoriPetSprite";
+import { DEFAULT_MORI_PET } from "./mori-default-pet";
 import "./mori-assistant.css";
 
 function desktopApi() {
   if (!window.eco) throw new Error("桌面连接尚未就绪，请重新打开 Mori。");
   return window.eco;
 }
+
+/**
+ * Composer sizing. The textarea never drops below two and a half lines and grows with the
+ * draft up to the same ceiling as the main Composer (`.mori-composer textarea` in
+ * mori-assistant.css mirrors both values).
+ */
+const MORI_COMPOSER_MIN_HEIGHT = 76;
+const MORI_COMPOSER_MAX_HEIGHT = 200;
 
 function useAssistant() {
   const [snapshot, setSnapshot] = useState<MoriAssistantSnapshot>();
@@ -390,6 +406,14 @@ export function MoriAssistantSettingsPanel({
                 onChange={(event) => patch("floatingEnabled", event.target.checked)}
               />
             </label>
+            <MoriPetSettings
+              value={settings.petKey}
+              onChange={(value) => patch("petKey", value)}
+              size={moriPetSize(settings)}
+              onSizeChange={(size) =>
+                patch("petSizes", { ...settings.petSizes, [settings.petKey || "builtin:mori"]: size })
+              }
+            />
             <label className="mori-toggle">
               <span>
                 <strong>关闭窗口后继续运行</strong>
@@ -607,6 +631,16 @@ export function MoriAssistantPanel({
   const previousSession = useRef<string | undefined>(undefined);
   const latestMessageBody = snapshot?.messages.at(-1)?.body;
   const pendingInput = snapshot?.pendingInput;
+  const fitComposer = useCallback(() => {
+    const field = editor.current;
+    if (!field) return;
+    // `height: auto` first so the field can shrink back when the draft gets shorter.
+    field.style.height = "auto";
+    field.style.height = `${Math.min(
+      Math.max(field.scrollHeight, MORI_COMPOSER_MIN_HEIGHT),
+      MORI_COMPOSER_MAX_HEIGHT,
+    )}px`;
+  }, []);
   useEffect(() => {
     if (remoteDraft !== undefined && !editorFocused.current && !draftDirty.current) {
       setDraft(remoteDraft);
@@ -629,11 +663,18 @@ export function MoriAssistantPanel({
   useEffect(() => {
     if (latestMessageBody !== undefined && followEnd.current) end.current?.scrollIntoView({ block: "end" });
   }, [latestMessageBody]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the draft's content is what the textarea's height must follow, even though the effect only reads scrollHeight.
   useEffect(() => {
-    if (settingsOpen || !editor.current) return;
-    editor.current.style.height = draft ? "auto" : "54px";
-    editor.current.style.height = `${Math.min(editor.current.scrollHeight, 160)}px`;
-  }, [draft, settingsOpen]);
+    if (settingsOpen) return;
+    fitComposer();
+  }, [draft, settingsOpen, fitComposer]);
+  useEffect(() => {
+    if (settingsOpen) return;
+    // Re-measure on resize: line wrapping changes how many rows the draft needs.
+    const fit = () => fitComposer();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [settingsOpen, fitComposer]);
   useEffect(() => {
     if (!historyOpen) return;
     const dismiss = (event: PointerEvent) => {
@@ -1208,7 +1249,7 @@ export function MoriAssistantPanel({
                     event.preventDefault();
                     const field = event.currentTarget;
                     const start = field.selectionStart;
-                    const next = draft.slice(0, start) + "\n" + draft.slice(field.selectionEnd);
+                    const next = `${draft.slice(0, start)}\n${draft.slice(field.selectionEnd)}`;
                     changeDraft(next);
                     requestAnimationFrame(() => field.setSelectionRange(start + 1, start + 1));
                     return;
@@ -1275,9 +1316,11 @@ export function MoriAssistantPanel({
                   {sending ? <LoaderCircle size={16} className="spinning" /> : <ArrowUp size={17} />}
                 </button>
               </div>
-              <div className="mori-composer-hint" role="status">
-                {busy ? "新消息会排队发送 · 停止将取消排队消息" : "Enter 发送 · Shift + Enter 换行"}
-              </div>
+              {busy ? (
+                <div className="mori-composer-hint" role="status">
+                  新消息会排队发送 · 停止将取消排队消息
+                </div>
+              ) : null}
             </footer>
           )}
         </>
@@ -1289,6 +1332,14 @@ export function MoriAssistantPanel({
 export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notice" }) {
   const { snapshot, error } = useAssistant();
   const [notice, setNotice] = useState<{ title: string; body: string; threadId: string }>();
+  const [pet, setPet] = useState<MoriPetAsset | undefined>(DEFAULT_MORI_PET);
+  const [petError, setPetError] = useState("");
+  const [direction, setDirection] = useState<number | null>(null);
+  const [dragAnimation, setDragAnimation] = useState<MoriPetAnimation>();
+  const [reaction, setReaction] = useState<MoriPetAnimation>();
+  const [greeting, setGreeting] = useState(false);
+  const reactionTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  const greetingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const drag = useRef<{ x: number; y: number; moved: boolean } | undefined>(undefined);
   useEffect(() => {
     document.documentElement.dataset.moriSurface = mode;
@@ -1302,22 +1353,95 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
     refresh();
     return desktopApi().onMoriAssistantChanged(refresh);
   }, [mode]);
+  useEffect(() => {
+    if (mode !== "ball") return;
+    const offLook = desktopApi().onMoriPetLook(setDirection);
+    const offReaction = desktopApi().onMoriPetReaction((kind) => {
+      for (const timer of reactionTimers.current) clearTimeout(timer);
+      reactionTimers.current = [];
+      if (kind === "completion") {
+        setReaction("jumping");
+        reactionTimers.current.push(setTimeout(() => setReaction("review"), 1100));
+        reactionTimers.current.push(setTimeout(() => setReaction(undefined), 5000));
+      } else if (kind === "failed") {
+        setReaction("failed");
+        reactionTimers.current.push(setTimeout(() => setReaction(undefined), 4000));
+      } else {
+        setReaction("waiting");
+        reactionTimers.current.push(setTimeout(() => setReaction(undefined), 12000));
+      }
+    });
+    return () => {
+      offLook();
+      offReaction();
+      for (const timer of reactionTimers.current) clearTimeout(timer);
+      reactionTimers.current = [];
+      if (greetingTimer.current) clearTimeout(greetingTimer.current);
+    };
+  }, [mode]);
+  useEffect(() => {
+    if (mode !== "ball") return;
+    let active = true;
+    const key = snapshot?.settings.petKey;
+    setPet(key ? undefined : DEFAULT_MORI_PET);
+    setPetError("");
+    if (key)
+      void desktopApi()
+        .moriPetAsset(key)
+        .then((asset) => {
+          if (active) setPet(asset);
+        })
+        .catch((error) => {
+          if (active) setPetError(error instanceof Error ? error.message : String(error));
+        });
+    return () => {
+      active = false;
+    };
+  }, [mode, snapshot?.settings.petKey]);
   if (mode === "panel") return <MoriAssistantPanel floating />;
-  if (mode === "notice") return notice ? (
-    <button className="mori-notice" type="button" onClick={() => void desktopApi().moriAssistantOpenNotice()}>
-      <span className="mori-notice-label">Mori · 有新动态</span>
-      <strong>{notice.title}</strong>
-      <span className="mori-notice-body">{notice.body}</span>
-    </button>
-  ) : null;
-  const status = snapshot?.status === "idle" && snapshot.hasRunningTasks ? "running" : snapshot?.status ?? "idle";
-  const mood: MoriIconMood = status === "running" ? "thinking" : status;
+  if (mode === "notice")
+    return notice ? (
+      <button
+        className="mori-notice"
+        type="button"
+        onClick={() => void desktopApi().moriAssistantOpenNotice()}
+      >
+        <span className="mori-notice-label">Mori · 有新动态</span>
+        <strong>{notice.title}</strong>
+        <span className="mori-notice-body">{notice.body}</span>
+      </button>
+    ) : null;
+  const status =
+    snapshot?.status === "error"
+      ? "error"
+      : snapshot?.status === "waiting" || snapshot?.hasPendingTasks
+        ? "waiting"
+        : snapshot?.status === "running" || snapshot?.hasRunningTasks
+          ? "running"
+          : "idle";
+  const animation: MoriPetAnimation =
+    dragAnimation ??
+    (greeting ? "waving" : undefined) ??
+    reaction ??
+    (status === "running"
+      ? "running"
+      : status === "waiting"
+        ? "waiting"
+        : status === "error" || petError
+          ? "failed"
+          : "idle");
   return (
     <button
       type="button"
       className={`mori-ball is-${status}`}
-      title={error || snapshot?.error || "与 Mori 对话"}
-      aria-label="打开 Mori 助手"
+      title={petError || error || snapshot?.error || "与 Mori 对话"}
+      aria-label={petError ? `宠物加载失败：${petError}` : "打开 Mori 助手"}
+      onPointerEnter={(event) => {
+        if (event.pointerType !== "mouse" || drag.current) return;
+        if (greetingTimer.current) clearTimeout(greetingTimer.current);
+        setGreeting(true);
+        greetingTimer.current = setTimeout(() => setGreeting(false), 700);
+      }}
       onPointerDown={(event) => {
         event.currentTarget.setPointerCapture(event.pointerId);
         drag.current = { x: event.screenX, y: event.screenY, moved: false };
@@ -1330,19 +1454,35 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
           drag.current.moved = true;
           drag.current.x = event.screenX;
           drag.current.y = event.screenY;
+          if (dx !== 0) setDragAnimation(dx > 0 ? "running-right" : "running-left");
           void desktopApi().moriAssistantMoveBall(dx, dy);
         }
       }}
       onPointerUp={() => {
-        if (drag.current && !drag.current.moved) void desktopApi().moriAssistantFloating(true);
+        if (drag.current && !drag.current.moved) {
+          void desktopApi().moriAssistantFloating(true);
+        }
         drag.current = undefined;
+        setDragAnimation(undefined);
+      }}
+      onPointerCancel={() => {
+        drag.current = undefined;
+        setDragAnimation(undefined);
       }}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") void desktopApi().moriAssistantFloating(true);
       }}
     >
-      <MoriIcon size={56} animated mood={mood} />
-      {status === "waiting" || status === "error" ? <i /> : null}
+      {pet ? (
+        <MoriPetSprite
+          pet={pet}
+          animation={animation}
+          direction={direction}
+          size={(snapshot ? moriPetSize(snapshot.settings) : 64) * 0.875}
+          onError={setPetError}
+        />
+      ) : null}
+      {status === "waiting" || status === "error" || petError ? <i /> : null}
     </button>
   );
 }

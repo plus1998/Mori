@@ -114,6 +114,7 @@ export interface MoriAssistantDeps {
   openThread(id: string): Promise<void>;
   changed(): void;
   settingsChanged(settings: MoriAssistantSettings): Promise<void>;
+  hasPendingTaskInput?(threadId: string): boolean;
 }
 
 export class MoriAssistantService {
@@ -211,6 +212,7 @@ export class MoriAssistantService {
       messages.splice(0, messages.length, ...byId.values());
     }
     const accounts = await (await this.deps.accounts()).listAccounts();
+    const threads = this.deps.conversations.listThreads();
     return {
       settings: { ...state.settings },
       sessions: [...state.sessions],
@@ -221,7 +223,10 @@ export class MoriAssistantService {
       ...(page?.nextCursor ? { messageCursor: page.nextCursor } : {}),
       sourceByMessage: state.sourceByMessage,
       status: this.status,
-      hasRunningTasks: this.deps.conversations.listThreads().some((thread) => thread.status === "running"),
+      hasRunningTasks: threads.some((thread) => thread.status === "running"),
+      hasPendingTasks: threads.some(
+        (thread) => thread.status === "awaiting_plan" || Boolean(this.deps.hasPendingTaskInput?.(thread.id)),
+      ),
       ...(this.runtimeAccount ? { accountId: this.runtimeAccount } : {}),
       ...(this.error ? { error: this.error } : {}),
       ...(this.activity ? { activity: this.activity } : {}),

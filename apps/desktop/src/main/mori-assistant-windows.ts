@@ -1,7 +1,12 @@
 import { app, BrowserWindow, globalShortcut, Menu, type NativeImage, screen, Tray } from "electron";
-import type { MoriAssistantSettings } from "../shared/mori-assistant";
+import {
+  MORI_ASSISTANT_CHANNELS,
+  MORI_PET_SIZE_MIN,
+  type MoriAssistantSettings,
+  moriPetSize,
+} from "../shared/mori-assistant";
+import { moriPetLookDirection, resizeMoriPetBounds } from "../shared/mori-pet";
 import type { MoriAssistantStore } from "./mori-assistant-store";
-import { MORI_ASSISTANT_CHANNELS } from "../shared/mori-assistant";
 
 type MoriNotice = { title: string; body: string; threadId: string };
 
@@ -22,6 +27,7 @@ export class MoriAssistantWindows {
   private shortcut: string | undefined;
   private shortcutSuspended = false;
   private moveTimer: ReturnType<typeof setTimeout> | undefined;
+  private lookTimer: ReturnType<typeof setInterval> | undefined;
   constructor(
     private readonly options: {
       preload: string;
@@ -51,10 +57,12 @@ export class MoriAssistantWindows {
     if (this.shortcut && this.shortcut !== shortcut)
       globalShortcut.unregister(this.shortcut);
     this.shortcut = shortcut || undefined;
-    if (settings.enabled && settings.floatingEnabled) await this.showBall();
+    if (settings.enabled && settings.floatingEnabled) await this.showBall(moriPetSize(settings));
     else {
       this.ball?.destroy();
       this.ball = undefined;
+      if (this.lookTimer) clearInterval(this.lookTimer);
+      this.lookTimer = undefined;
       this.clearNotices();
     }
     if (settings.enabled && settings.backgroundEnabled && !this.tray) {
@@ -92,18 +100,18 @@ export class MoriAssistantWindows {
     }
   }
 
-  private async create(mode: "ball" | "panel" | "notice"): Promise<BrowserWindow> {
+  private async create(mode: "ball" | "panel" | "notice", ballSize = 64): Promise<BrowserWindow> {
     const window = new BrowserWindow({
-      width: mode === "ball" ? 64 : mode === "notice" ? 280 : 430,
-      height: mode === "ball" ? 64 : mode === "notice" ? 96 : 640,
+      width: mode === "ball" ? ballSize : mode === "notice" ? 280 : 430,
+      height: mode === "ball" ? ballSize : mode === "notice" ? 96 : 640,
       frame: false,
       transparent: mode !== "panel",
       hasShadow: mode === "panel",
       alwaysOnTop: true,
       skipTaskbar: true,
       resizable: mode === "panel",
-      minWidth: mode === "ball" ? 64 : mode === "notice" ? 280 : 360,
-      minHeight: mode === "ball" ? 64 : mode === "notice" ? 96 : 420,
+      minWidth: mode === "ball" ? MORI_PET_SIZE_MIN : mode === "notice" ? 280 : 360,
+      minHeight: mode === "ball" ? MORI_PET_SIZE_MIN : mode === "notice" ? 96 : 420,
       show: false,
       title: "Mori 助手",
       ...(this.options.icon ? { icon: this.options.icon } : {}),
@@ -112,6 +120,7 @@ export class MoriAssistantWindows {
         contextIsolation: true,
         sandbox: true,
         nodeIntegration: false,
+        backgroundThrottling: mode !== "ball",
       },
     });
     assistantWindows.add(window);
@@ -132,26 +141,37 @@ export class MoriAssistantWindows {
   }
 
   private creation: Promise<void> | undefined;
-  async showBall(): Promise<void> {
-    if (this.creation) return this.creation;
+  async showBall(size: number): Promise<void> {
+    if (this.creation) {
+      await this.creation;
+      this.resizeBall(size);
+      return;
+    }
     if (this.ball && !this.ball.isDestroyed()) {
+      this.resizeBall(size);
       this.ball.showInactive();
       return;
     }
     this.creation = (async () => {
-      const ball = await this.create("ball");
+      const ball = await this.create("ball", size);
       this.ball = ball;
       const work = screen.getPrimaryDisplay().workArea;
       const saved = this.options.store.state.ballPosition;
       const display = saved ? screen.getDisplayNearestPoint(saved).workArea : work;
       ball.setPosition(
         Math.round(
-          Math.min(Math.max(saved?.x ?? work.x + work.width - 90, display.x), display.x + display.width - 64),
+          Math.max(
+            display.x,
+            Math.min(
+              Math.max(saved?.x ?? work.x + work.width - size - 26, display.x),
+              display.x + display.width - size,
+            ),
+          ),
         ),
         Math.round(
           Math.min(
-            Math.max(saved?.y ?? work.y + work.height - 110, display.y),
-            display.y + display.height - 64,
+            Math.max(saved?.y ?? work.y + work.height - size - 46, display.y),
+            Math.max(display.y, display.y + display.height - size),
           ),
         ),
       );
@@ -166,12 +186,47 @@ export class MoriAssistantWindows {
         }, 200);
       });
       ball.showInactive();
+      let lastDirection: number | null | undefined;
+      this.lookTimer = setInterval(() => {
+        if (ball.isDestroyed()) {
+          if (this.lookTimer) clearInterval(this.lookTimer);
+          this.lookTimer = undefined;
+          return;
+        }
+        if (!ball.isVisible()) return;
+        const bounds = ball.getBounds();
+        const cursor = screen.getCursorScreenPoint();
+        const dx = cursor.x - (bounds.x + bounds.width / 2);
+        const dy = cursor.y - (bounds.y + bounds.height / 2);
+        const distance = Math.hypot(dx, dy);
+        const direction =
+          distance > bounds.width / 2 + 2 && distance < Math.max(320, bounds.width * 2.5)
+            ? moriPetLookDirection(dx, dy)
+            : null;
+        if (direction === lastDirection) return;
+        lastDirection = direction;
+        ball.webContents.send(MORI_ASSISTANT_CHANNELS.petLook, direction);
+      }, 120);
     })();
     try {
       await this.creation;
     } finally {
       this.creation = undefined;
     }
+  }
+
+  private resizeBall(size: number): void {
+    if (!this.ball || this.ball.isDestroyed()) return;
+    const current = this.ball.getBounds();
+    if (current.width === size && current.height === size) return;
+    const area = screen.getDisplayNearestPoint({
+      x: Math.round(current.x + current.width / 2),
+      y: Math.round(current.y + current.height / 2),
+    }).workArea;
+    const bounds = resizeMoriPetBounds(current, size, area);
+    this.ball.setBounds(bounds);
+    this.options.store.state.ballPosition = { x: bounds.x, y: bounds.y };
+    this.positionNotice();
   }
 
   private panelCreation: Promise<BrowserWindow> | undefined;
@@ -192,7 +247,13 @@ export class MoriAssistantWindows {
     const bounds = this.panel.getBounds();
     const width = Math.min(bounds.width, area.width);
     const height = Math.min(bounds.height, area.height);
-    const x = Math.max(area.x, Math.min(anchor.x - width + 64, area.x + area.width - width));
+    const x = Math.max(
+      area.x,
+      Math.min(
+        anchor.x - width + (this.ball && !this.ball.isDestroyed() ? anchor.width : 64),
+        area.x + area.width - width,
+      ),
+    );
     const y = Math.max(area.y, Math.min(anchor.y - height - 12, area.y + area.height - height));
     this.panel.setBounds({ x, y, width, height });
     this.panel.show();
@@ -205,8 +266,13 @@ export class MoriAssistantWindows {
   get currentNotice(): MoriNotice | undefined {
     return this.notice;
   }
-  showNotice(notice: MoriNotice): void {
+  showPetReaction(kind: "completion" | "failed" | "approval" | "question"): void {
+    if (this.ball && !this.ball.isDestroyed())
+      this.ball.webContents.send(MORI_ASSISTANT_CHANNELS.petReaction, kind);
+  }
+  showNotice(notice: MoriNotice, kind: "completion" | "approval" | "question"): void {
     if (!this.ball || this.ball.isDestroyed()) return;
+    if (kind !== "completion") this.showPetReaction(kind);
     this.noticeQueue.push(notice);
     void this.showNextNotice().catch(this.options.reportError);
   }
@@ -283,6 +349,7 @@ export class MoriAssistantWindows {
   close(): void {
     if (this.shortcut) globalShortcut.unregister(this.shortcut);
     if (this.moveTimer) clearTimeout(this.moveTimer);
+    if (this.lookTimer) clearInterval(this.lookTimer);
     this.tray?.destroy();
     this.panel?.destroy();
     this.ball?.destroy();

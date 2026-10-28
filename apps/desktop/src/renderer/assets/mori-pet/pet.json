@@ -1,0 +1,7 @@
+{
+  "id": "mori-pet",
+  "displayName": "默认 Mori",
+  "description": "Mori 默认形象",
+  "spriteVersionNumber": 2,
+  "spritesheetPath": "spritesheet.png"
+}

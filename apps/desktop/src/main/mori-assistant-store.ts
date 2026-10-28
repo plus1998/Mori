@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   DEFAULT_MORI_ASSISTANT_SETTINGS,
+  MORI_PET_SIZE_MAX,
+  MORI_PET_SIZE_MIN,
   type MoriAssistantSettings,
   type MoriAssistantState,
 } from "../shared/mori-assistant";
@@ -21,12 +23,25 @@ export function parseAssistantSettings(value: unknown): MoriAssistantSettings {
   ] as const) {
     if (typeof result[key] !== "boolean") throw new Error(`助手配置 ${key} 必须为布尔值。`);
   }
-  for (const key of ["name", "instructions", "model", "shortcut"] as const) {
+  for (const key of ["name", "instructions", "model", "shortcut", "petKey"] as const) {
     if (typeof result[key] !== "string") throw new Error(`助手配置 ${key} 必须为文本。`);
     result[key] = result[key].trim();
   }
   if (!result.name || result.name.length > 60) throw new Error("助手名称需要 1–60 个字符。");
   if (!result.model || result.model.length > 160) throw new Error("请选择助手模型。");
+  if (result.petKey && !/^(codex|codex-home|mori):[^/\\]+$/.test(result.petKey))
+    throw new Error("宠物标识无效。");
+  if (!result.petSizes || typeof result.petSizes !== "object" || Array.isArray(result.petSizes))
+    throw new Error("宠物大小设置无效。");
+  for (const [key, size] of Object.entries(result.petSizes)) {
+    if (
+      (key !== "builtin:mori" && !/^(codex|codex-home|mori):[^/\\]+$/.test(key)) ||
+      !Number.isInteger(size) ||
+      size < MORI_PET_SIZE_MIN ||
+      size > MORI_PET_SIZE_MAX
+    )
+      throw new Error("宠物大小设置无效。");
+  }
   if (result.instructions.length > 20_000) throw new Error("助手指令不能超过 20000 个字符。");
   if (!["low", "medium", "high"].includes(result.reasoningEffort)) throw new Error("助手思考强度无效。");
   if (

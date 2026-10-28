@@ -4979,8 +4979,12 @@ function evaluateDesktopNotificationDelivery(
   );
 }
 
-function showDesktopNotification(content: { title: string; body: string }, threadId: string): void {
-  moriAssistantHost?.windows.showNotice({ ...content, threadId });
+function showDesktopNotification(
+  content: { title: string; body: string },
+  threadId: string,
+  kind: "completion" | "approval" | "question",
+): void {
+  moriAssistantHost?.windows.showNotice({ ...content, threadId }, kind);
   const notification = new Notification({
     title: content.title,
     body: content.body,
@@ -5827,7 +5831,7 @@ function registerIpcHandlers(): void {
     if (!deliveryGate.ok) {
       return { shown: false, reason: deliveryGate.reason } as const;
     }
-    showDesktopNotification(content, thread.id);
+    showDesktopNotification(content, thread.id, "completion");
     return { shown: true } as const;
   });
 
@@ -5866,7 +5870,7 @@ function registerIpcHandlers(): void {
       } as const;
     }
 
-    showDesktopNotification(content, thread.id);
+    showDesktopNotification(content, thread.id, "approval");
     return { shown: true } as const;
   });
 
@@ -5901,7 +5905,7 @@ function registerIpcHandlers(): void {
       } as const;
     }
 
-    showDesktopNotification(content, thread.id);
+    showDesktopNotification(content, thread.id, "question");
     return { shown: true } as const;
   });
 
@@ -7812,6 +7816,12 @@ function registerIpcHandlers(): void {
       return result;
     },
     openThread: openThreadFromDesktopNotification,
+    hasPendingTaskInput: (threadId) =>
+      Boolean(
+        getPendingBashApprovalForThread(threadId) ||
+          getPendingPlanApprovalForThread(threadId) ||
+          getPendingClarificationForThread(threadId),
+      ),
     showMain: async () => {
       const window = getMainWindow() ?? await createMainWindow();
       presentDesktopWindow(window);
