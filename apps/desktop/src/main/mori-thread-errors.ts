@@ -2,20 +2,32 @@ import type { ThreadSummary } from "../shared/ipc";
 import type { ConversationV2Store } from "./conversation-v2-store";
 
 const REDACTED = "[REDACTED]";
+// biome-ignore lint/suspicious/noControlCharactersInRegex: Strip ANSI escapes before matching sensitive field names.
+const TERMINAL_ESCAPE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
 
 /** Only error text crosses this boundary; never export provider envelopes, inputs or credentials. */
 export function redactThreadError(value: string): { message: string; truncated: boolean } {
   const redacted = value
+    .replace(TERMINAL_ESCAPE, "")
     .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-]*PRIVATE KEY-----|$)/g, REDACTED)
-    .replace(/\b(?:https?|wss?|socks5h?):\/\/[^\s<>"'`]+/gi, "[URL_REDACTED]")
+    .replace(/\b(?:https?|wss?|socks5h?|file):\/\/[^\s<>"'`]+/gi, "[URL_REDACTED]")
     .replace(/\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, REDACTED)
-    .replace(/(["']?(?:authorization|proxy-authorization|cookie|set-cookie|x-[\w-]*(?:key|secret|token)|mcp-session-id)["']?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\n,;}]+)/gi, `$1${REDACTED}`)
-    .replace(/(["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|password|passwd|secret|token|session[_-]?id|client[_-]?secret)["']?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s,;}]+)/gi, `$1${REDACTED}`)
+    .replace(
+      /(["']?(?:cookie|set-cookie)["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\n]+)/gi,
+      `$1${REDACTED}`,
+    )
+    .replace(
+      /(["']?(?:authorization|proxy-authorization|x-[\w-]*(?:key|secret|token)|mcp-session-id)["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\n,;}]+)/gi,
+      `$1${REDACTED}`,
+    )
+    .replace(
+      /(["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|password|passwd|secret|token|session[_-]?id|client[_-]?secret)["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}]+)/gi,
+      `$1${REDACTED}`,
+    )
     .replace(/\b(?:sk-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/g, REDACTED)
-    .replace(/(?:\/(?:Users|home|tmp|private|var|etc)\/|[A-Za-z]:\\)[^\s"'<>]+/g, "[PATH_REDACTED]")
+    .replace(/(^|[\s("'=])(?:\/[\w.~-][^\s"'<>]*|[A-Za-z]:[\\/][^\s"'<>]+)/gm, "$1[PATH_REDACTED]")
     // Stack frames and escape sequences add no diagnostic facts and can carry local paths.
     .replace(/^\s*at\s+.*$/gm, "")
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     .trim();
   return { message: redacted.slice(0, 2000), truncated: redacted.length > 2000 };
 }
@@ -24,10 +36,21 @@ export function threadErrorDetail(text: string, source: "summary" | "notice" | "
   // Classify the sanitized text so credentials, URL paths and stack frames cannot influence the diagnosis.
   const safe = redactThreadError(text);
   const message = safe.message;
-  const category = /(?:mcp[\s_-]*session|session[ _-]*id.*(?:invalid|missing|expired|not found)|(?:invalid|missing|expired).*mcp.*session)/i.test(message)
+  const mcpSessionFailure = message
+    .split("\n")
+    .some(
+      (line) =>
+        /mcp[\s_-]*session/i.test(line) &&
+        /missing|invalid|expired|not found|terminated|过期|无效|缺失|不存在/i.test(line),
+    );
+  const category = mcpSessionFailure
     ? "mcp_session"
-    : /(?:fetch failed|econnrefused|econnreset|etimedout|socket hang up|连接.*(?:模型|上游)|(?:模型|上游).*连接)/i.test(message)
-      ? source === "tool" ? "tool_connection" : "model_connection"
+    : /(?:fetch failed|econnrefused|econnreset|etimedout|socket hang up|【连接失败】|连接.*(?:模型|上游)|(?:模型|上游).*连接)/i.test(
+          message,
+        )
+      ? source === "tool"
+        ? "tool_connection"
+        : "model_connection"
       : /(?:\b(?:401|403)\b|unauthorized|authentication|API Key.*(?:无效|错误)|鉴权|认证失败)/i.test(message)
         ? "authentication"
         : /(?:\b429\b|rate.?limit|quota|限流|配额)/i.test(message)
@@ -35,8 +58,12 @@ export function threadErrorDetail(text: string, source: "summary" | "notice" | "
           : /(?:配置|未启用|未开启|not configured|configuration)/i.test(message)
             ? "configuration"
             : "unknown";
-  const status = message.match(/(?:HTTP(?:\/\d(?:\.\d)?)?\s*|status(?:\s+code)?["']?\s*[:=]?\s*)([45]\d{2})\b/i)?.[1];
-  const code = message.match(/\b(ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|CERT_HAS_EXPIRED)\b/i)?.[1];
+  const status = message.match(
+    /(?:HTTP(?:\/\d(?:\.\d)?)?\s*|status(?:\s+code)?["']?\s*[:=]?\s*)([45]\d{2})\b/i,
+  )?.[1];
+  const code = message.match(
+    /\b(ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|CERT_HAS_EXPIRED)\b/i,
+  )?.[1];
   return {
     category,
     ...safe,
@@ -47,7 +74,9 @@ export function threadErrorDetail(text: string, source: "summary" | "notice" | "
 
 export function currentThreadError(thread: Pick<ThreadSummary, "status" | "message">) {
   return thread.status === "failed" || thread.status === "blocked"
-    ? thread.message.trim() ? threadErrorDetail(thread.message, "summary") : null
+    ? thread.message.trim()
+      ? threadErrorDetail(thread.message, "summary")
+      : null
     : null;
 }
 
@@ -55,18 +84,36 @@ export function currentThreadError(thread: Pick<ThreadSummary, "status" | "messa
 function toolErrorText(raw: string | null): string | undefined {
   if (!raw) return undefined;
   let value: unknown;
-  try { value = JSON.parse(raw); } catch { return undefined; }
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
   const extract = (item: unknown, depth = 0): string | undefined => {
-    if (depth > 3) return undefined;
-    if (typeof item === "string") return item;
+    if (depth > 6) return undefined;
+    if (typeof item === "string") {
+      // MCP text blocks sometimes contain a JSON error envelope. Apply the same field allowlist.
+      try {
+        const parsed: unknown = JSON.parse(item);
+        if (parsed && typeof parsed === "object") return extract(parsed, depth + 1);
+      } catch {
+        /* Plain error text. */
+      }
+      return item;
+    }
     if (!item || typeof item !== "object" || Array.isArray(item)) return undefined;
     const record = item as Record<string, unknown>;
-    if (typeof record.message === "string") return record.message;
-    if (typeof record.text === "string") return record.text;
+    if (typeof record.message === "string") return extract(record.message, depth + 1);
+    if (typeof record.text === "string") return extract(record.text, depth + 1);
     if (record.error !== undefined) return extract(record.error, depth + 1);
-    if (Array.isArray(record.content)) return record.content
-      .filter((part) => part?.type === "text" && typeof part.text === "string")
-      .map((part) => part.text).join("\n") || undefined;
+    if (Array.isArray(record.content))
+      return (
+        record.content
+          .filter((part) => part?.type === "text" && typeof part.text === "string")
+          .map((part) => extract(part.text, depth + 1))
+          .filter(Boolean)
+          .join("\n") || undefined
+      );
     return undefined;
   };
   return extract(value);
@@ -79,7 +126,8 @@ export function readThreadErrors(thread: ThreadSummary, store: ConversationV2Sto
     threadId: thread.id,
     status: thread.status,
     currentError: currentThreadError(thread),
-    currentErrorMissing: (thread.status === "failed" || thread.status === "blocked") && !thread.message.trim(),
+    currentErrorMissing:
+      (thread.status === "failed" || thread.status === "blocked") && !thread.message.trim(),
     historyRevision: facts.historyRevision,
     readSeq: facts.readSeq,
     latestRun: facts.latestRun,

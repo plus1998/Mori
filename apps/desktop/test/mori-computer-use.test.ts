@@ -112,7 +112,7 @@ test("Mori task gateway rejects a session it no longer knows with 404 so Codex r
 
     // Codex keeps the session ID from initialize. After the 30 minute idle TTL
     // the gateway forgets it, and the thread must not be stranded: 404 is the
-    // only status both Codex (rmcp) and the MCP SDK retry from.
+    // session-expiry signal used by Codex's pinned rmcp client for recovery.
     const stale = await call(1, {});
     expect(stale.status).toBe(404);
     expect(stale.body).toEqual({ error: "MCP session not found" });

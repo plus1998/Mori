@@ -394,8 +394,8 @@ test("unknown session id answers 404 so the client re-initializes (local control
   expect(init.headers.get("mcp-session-id")).toBeTruthy();
 
   // The client still holds a session ID the server no longer knows — e.g.
-  // evicted by the idle TTL while the assistant thread sat idle. Codex/rmcp
-  // and the MCP SDK only retry with a fresh initialize handshake on HTTP 404,
+  // evicted by the idle TTL while the assistant thread sat idle. Codex's pinned
+  // rmcp client retries with a fresh initialize handshake on HTTP 404,
   // so a 400 here strands the thread forever.
   const staleSession = "stale-session-from-before-ttl";
   const stale = await fetch(url, {
@@ -441,6 +441,62 @@ test("unknown session id answers 404 so the client re-initializes (local control
   const body = (await retried.json()) as { result: { content: Array<{ text: string }> } };
   expect(body.result.content[0]?.text).toBe("mori_list_todos");
   expect(calls).toBe(1);
+});
+
+test("idle TTL expires an initialized session; auth scope and invalid control secrets never dispatch tools", async () => {
+  let calls = 0;
+  const { port, secret } = await listenTestServer({
+    serverName: "mori_tasks_ttl",
+    listTools: async () => ({ tools: [] }),
+    callTool: async () => {
+      calls++;
+      return { content: [] };
+    },
+  });
+  const url = `http://127.0.0.1:${port}/mcp`;
+  const headers = {
+    "content-type": "application/json",
+    "x-eco-test-control-secret": secret,
+    authorization: "Bearer owner",
+  };
+  const initialized = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "ttl-test", version: "1" },
+      },
+    }),
+  });
+  const session = initialized.headers.get("mcp-session-id");
+  expect(session).toBeTruthy();
+  const request = (overrides: Record<string, string> = {}) =>
+    fetch(url, {
+      method: "POST",
+      headers: { ...headers, "mcp-session-id": session!, ...overrides },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "ping" } }),
+    });
+  expect((await request({ authorization: "Bearer other" })).status).toBe(404);
+  expect((await request({ "x-eco-test-control-secret": "wrong-secret" })).status).toBe(401);
+  expect(calls).toBe(0);
+  expect((await request()).status).toBe(200);
+  expect(calls).toBe(1);
+  const realNow = Date.now;
+  const future = realNow() + 31 * 60 * 1000;
+  try {
+    Date.now = () => future;
+    const expired = await request();
+    expect(expired.status).toBe(404);
+    expect(await expired.json()).toEqual({ error: "MCP session not found" });
+    expect(calls).toBe(1);
+  } finally {
+    Date.now = realNow;
+  }
 });
 
 test("unknown session id answers 404 for bearer-authenticated clients too", async () => {

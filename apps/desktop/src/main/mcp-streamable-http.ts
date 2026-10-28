@@ -368,7 +368,7 @@ export async function handleMcpStreamableHttpRequest(
             // the idle TTL evicted it, a gateway restarted, or the session
             // belongs to another auth scope. Streamable HTTP requires 404 for
             // an unrecognized session, and that status is what makes clients
-            // recover: Codex (rmcp) and the MCP SDK both transparently
+            // recover: Codex's pinned rmcp client transparently
             // re-initialize and re-send the request only on 404. Answering
             // 400 here left long-lived assistant threads permanently unable
             // to call MCP tools after 30 idle minutes, because the client

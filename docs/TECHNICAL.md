@@ -142,7 +142,12 @@ Harness 适配层统一描述以下能力：
 
 “隔离”表示 Mori 控制的会话配置与注入边界，不代表第三方 MCP 进程自身具备操作系统级沙箱。第三方工具仍应按其实际权限审查。对 PI 而言，Skills 注入同样是可见性边界：共享 workspace 内的 skill 文件仍可能被 `read`/`bash` 读到。
 
-Mori 内置的 HTTP MCP 网关（浏览器、图片、语音、待办与电脑操作等）由主进程按运行实例启动，用一次性控制密钥鉴权，内核进程（Codex/Claude）不会为它们附带 bearer token。网关只在主进程内存里保存 MCP 会话，30 分钟空闲后淘汰；助手线程可以存活数小时，客户端会继续拿着旧 `Mcp-Session-Id` 发请求。按 Streamable HTTP 规范，服务端不认识的会话必须回 404（只有完全缺失会话时才回 400）：Codex（rmcp）与 MCP SDK 仅对 404 做透明 re-initialize 并重发请求。早期这里统一回 400，导致空闲 30 分钟后的助手线程再也无法调用 `mori_tasks` / `mori_computer` 工具，只能重建运行实例恢复；现在会话失效由客户端自动重建，不依赖进程存活时长。
+Mori 内置的 HTTP MCP 网关（浏览器、图片、语音、待办与电脑操作等）由主进程按运行实例启动，用一次性控制密钥鉴权，内核进程（Codex/Claude）不会为它们附带 bearer token。网关只在主进程内存里保存 MCP 会话，30 分钟空闲后淘汰；助手线程可以存活数小时，客户端会继续拿着旧 `Mcp-Session-Id` 发请求。按 Streamable HTTP 规范，服务端不认识的会话必须回 404（缺失会话、且没有 bearer 的请求仍回 400）。早期这里统一回 400，导致空闲 30 分钟后的助手线程无法调用 `mori_tasks` / `mori_computer`。Codex 0.163.0 固定的 rmcp revision `4048ac40` 默认启用 `reinit_on_expired_session`，将 404 作为重新初始化并重发一次的信号；服务端测试覆盖真实 TTL 淘汰、404 后手动重新初始化与重发，不等同于实际 Codex 进程自动恢复的端到端测试。不要推广为所有 SDK 都能自动恢复：仓库 TypeScript MCP SDK 1.29.0 没有该逻辑，社区 [typescript-sdk#1708](https://github.com/modelcontextprotocol/typescript-sdk/issues/1708) 记录了同类缺口。
+
+
+Mori 助手查询工作会话错误：主进程 `markThreadInterrupted` / `updateThread` 将面向用户的原因保存到 `threads.message`；`thread.api_error`、`thread.blocked`、`thread.execution_failed` 经 live persister / V2 provider adapter 保存为 `conversation_messages_v2` 的 system 通知，工具失败保存在 `conversation_tool_calls_v2`。`conversation_runs_v2` 的状态本身不包含原因。原 `mori_list_threads` 忽略摘要 message，`mori_read_thread` 的 transcript SQL 仅选 user/assistant 的 answer/commentary，因此即使 UI 有错误通知，助手仍可能只读到用户消息。
+
+`mori_list_threads` 现在返回 `currentError` / `currentErrorMissing`；`mori_read_thread` 保持消息分页并附带 `diagnostics`；独立 `mori_read_thread_errors({threadId})` 可只取错误，经 `mori_tasks` MCP 在旧助手原生会话恢复时刷新工具目录。诊断读取当前摘要与最新 10 条 system 失败通知/失败工具，附带来源、runId、最近 run 状态与读取序号，明确历史错误不等于当前失败。无当前原因时返回 `currentErrorMissing=true`，不能从历史记录猜测当前根因；分类不明确返回 `category=unknown` 并保留脱敏文本。沿用助手的工作会话访问范围，拒绝所有助手自身会话、不存在的 ID、额外参数与已取消调用；SQL 绑定 conversationId，并跳过已删除通知。只选错误文本及工具输出的 message/error/text/content 文本字段，不导出工具输入或任意输出字段；脱敏凭据、cookie、session header、URL、本地路径、密钥及栈，每条文本最多 2000 字符，源读取最多 16000 字符，截断或无可公开文本均显式标记。接口不会恢复写入前已被格式化/截断或未保存的原始错误，也不开放原始日志。回归覆盖成功/运行中/失败/阻塞、模型与 MCP 分类、跨会话隔离、脱敏、数量上限、删除通知及投影重建。
 
 ## 7. 上下文管理
 

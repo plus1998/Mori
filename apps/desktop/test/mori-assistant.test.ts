@@ -255,6 +255,97 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   };
 }
 
+test("assistant thread tools expose saved errors even with only a user transcript", async () => {
+  const { service, db, conversations } = await fixture();
+  try {
+    conversations.saveThread({
+      id: "blocked-work",
+      title: "blocked",
+      prompt: "work",
+      workspacePath: "/test/project",
+      coreKind: "codex",
+      status: "blocked",
+      message: "fetch failed ECONNREFUSED https://user:PRIVATE_PASSWORD@private.example/v1",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    const v2 = conversations.conversationV2();
+    v2.appendRuntime({
+      conversationId: "blocked-work",
+      eventId: "user-only",
+      messageId: "user-only",
+      turnId: "turn",
+      type: "message.created",
+      occurredAt: new Date().toISOString(),
+      payload: { role: "user", body: "work", status: "final" },
+    });
+    const call = (name: string, args: Record<string, unknown> = {}) =>
+      service["callTool"](name, args, randomUUID(), new AbortController().signal);
+    const listed = (await call("mori_list_threads")) as Array<{
+      id: string;
+      currentError: { category: string; message: string };
+    }>;
+    expect(listed.find((thread) => thread.id === "blocked-work")?.currentError.category).toBe(
+      "model_connection",
+    );
+    const read = (await call("mori_read_thread", { threadId: "blocked-work" })) as {
+      messages: Array<{ role: string }>;
+      diagnostics: { currentError: { category: string } };
+    };
+    expect(read.messages.map((message) => message.role)).toEqual(["user"]);
+    expect(read.diagnostics.currentError.category).toBe("model_connection");
+    expect(await call("mori_read_thread_errors", { threadId: "blocked-work" })).toEqual(read.diagnostics);
+    expect(JSON.stringify([listed, read])).not.toMatch(/PRIVATE_PASSWORD|private\.example/);
+    conversations.updateThread("blocked-work", { status: "completed", message: "" });
+    expect(await call("mori_read_thread_errors", { threadId: "blocked-work" })).toMatchObject({
+      status: "completed",
+      currentError: null,
+      currentErrorMissing: false,
+    });
+    conversations.updateThread("blocked-work", { status: "failed", message: "" });
+    expect(await call("mori_read_thread_errors", { threadId: "blocked-work" })).toMatchObject({
+      status: "failed",
+      currentError: null,
+      currentErrorMissing: true,
+    });
+  } finally {
+    await service.close();
+    db.close();
+  }
+});
+
+test("assistant error queries reject self, missing threads, extra parameters and cancelled calls", async () => {
+  const { service, db } = await fixture();
+  try {
+    await service.send("prepare", "desktop", "diagnostic-boundary");
+    const assistantId = (await service.snapshot()).currentThreadId;
+    expect(assistantId).toBeTruthy();
+    await service.newSession();
+    await service.send("prepare another session", "desktop", "diagnostic-boundary-another");
+    const currentAssistantId = (await service.snapshot()).currentThreadId;
+    for (const name of ["mori_read_thread", "mori_read_thread_errors"]) {
+      const call = (args: Record<string, unknown>, signal = new AbortController().signal) =>
+        service["callTool"](name, args, randomUUID(), signal);
+      await expect(call({ threadId: assistantId })).rejects.toThrow("工作会话不存在");
+      await expect(call({ threadId: currentAssistantId })).rejects.toThrow("工作会话不存在");
+      await expect(call({ threadId: "missing" })).rejects.toThrow("工作会话不存在");
+      await expect(call({ threadId: "missing", includeSecrets: true })).rejects.toThrow("不允许");
+      await expect(call({ threadId: "missing" }, AbortSignal.abort())).rejects.toThrow();
+    }
+    const listed = (await service["callTool"](
+      "mori_list_threads",
+      {},
+      randomUUID(),
+      new AbortController().signal,
+    )) as Array<{ id: string }>;
+    expect(listed.some((thread) => thread.id === assistantId)).toBe(false);
+    expect(listed.some((thread) => thread.id === currentAssistantId)).toBe(false);
+  } finally {
+    await service.close();
+    db.close();
+  }
+});
+
 test("floating busy state follows running conversations and clears after completion", async () => {
   const { service, db, conversations } = await fixture();
   try {
@@ -285,6 +376,52 @@ async function assistantTool(
   expect(tools[0]?.name).toBe(name);
   return tools[0]!;
 }
+
+test("resumed assistant reads error details through MCP and enforces the work-thread boundary", async () => {
+  const f = await fixture();
+  try {
+    f.conversations.saveThread({
+      id: "blocked-work",
+      title: "blocked",
+      prompt: "work",
+      workspacePath: "/test/project",
+      coreKind: "codex",
+      status: "blocked",
+      message: "【连接失败】HTTP 503：上游模型连接中断",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await f.service.send("prepare", "desktop", "error-resume-prepare");
+    const assistantId = f.service.store.state.currentThreadId!;
+    const nativeId = f.conversations.getThreadCoreSession(assistantId)?.externalSessionId;
+    await f.service.saveSettings({ ...f.service.settings, name: "Mori error probe" });
+    const result = await assistantTool(f, "mori_read_thread_errors", { threadId: "blocked-work" });
+    expect(result.status).toBe("completed");
+    expect(result.output).toMatchObject({
+      threadId: "blocked-work",
+      status: "blocked",
+      currentError: { category: "model_connection", httpStatus: 503 },
+    });
+    expect(f.conversations.getThreadCoreSession(assistantId)?.externalSessionId).toBe(nativeId);
+    expect((await assistantTool(f, "mori_read_thread_errors", { threadId: assistantId })).status).toBe(
+      "failed",
+    );
+    expect((await assistantTool(f, "mori_read_thread_errors", { threadId: "missing" })).status).toBe(
+      "failed",
+    );
+    const probes = (await fs.readFile(path.join(f.root, "runtime-workspaces.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(probes.at(-1)).toMatchObject({
+      method: "thread/resume",
+      taskTools: expect.arrayContaining(["mori_read_thread_errors"]),
+    });
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
 
 test("stopping Mori during a todo read prevents the following write or task dispatch", async () => {
   const db = new DatabaseSync(":memory:");
