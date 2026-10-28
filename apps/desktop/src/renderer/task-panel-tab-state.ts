@@ -46,3 +46,34 @@ export function removeOpenTaskPanelTab<T extends string>(
   const fallback = next[Math.max(0, removedIndex - 1)];
   return fallback ? { tabs: next, fallback } : { tabs: next };
 }
+
+export type TaskPanelTabCloseAction = "others" | "right" | "all";
+
+/** Use the current visual order, including tabs moved by dragging. */
+export function taskPanelTabsToClose<T extends string>(
+  tabs: readonly T[],
+  target: T,
+  action: TaskPanelTabCloseAction,
+): T[] {
+  const index = tabs.indexOf(target);
+  if (index < 0) return [];
+  if (action === "all") return [...tabs];
+  return action === "others" ? tabs.filter((id) => id !== target) : tabs.slice(index + 1);
+}
+
+export function removeOpenTaskPanelTabs<T extends string>(
+  tabs: readonly T[],
+  closing: readonly T[],
+  active: T,
+): { tabs: T[]; fallback?: T } {
+  const removed = new Set(closing);
+  const next = tabs.filter((id) => !removed.has(id));
+  // Preserve selection, otherwise prefer the nearest surviving tab on the left.
+  const fallback = next.includes(active)
+    ? active
+    : (tabs
+        .slice(0, tabs.indexOf(active))
+        .reverse()
+        .find((id) => !removed.has(id)) ?? next[0]);
+  return fallback ? { tabs: next, fallback } : { tabs: next };
+}

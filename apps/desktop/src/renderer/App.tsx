@@ -478,6 +478,7 @@ import {
   addOpenTaskPanelTab,
   moveOpenTaskPanelTab,
   removeOpenTaskPanelTab,
+  removeOpenTaskPanelTabs,
   replaceOpenTaskPanelTab,
   resolveTaskPanelReopenTab,
 } from "./task-panel-tab-state";
@@ -2323,7 +2324,7 @@ function App() {
   const taskPanelAnimationControls = useAnimationControls();
   const taskPanelResizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const mainPaneRef = useRef<HTMLDivElement>(null);
-  const pendingTaskPanelTabCloseRef = useRef<TaskPanelActiveTab | undefined>(undefined);
+  const pendingTaskPanelTabsCloseRef = useRef<readonly TaskPanelActiveTab[] | undefined>(undefined);
   const taskPanelCloseRequestRef = useRef(0);
   const taskPanelClosingRef = useRef(false);
   const taskDrawerOpenRef = useRef(false);
@@ -6056,14 +6057,20 @@ function App() {
     }
 
     if (prevThreadId) {
-      taskPanelUiByThreadRef.current[prevThreadId] = liveTaskPanelUiRef.current;
+      const closing = pendingTaskPanelTabsCloseRef.current ?? [];
+      const saved = liveTaskPanelUiRef.current;
+      taskPanelUiByThreadRef.current[prevThreadId] = {
+        ...saved,
+        openTabIds: saved.openTabIds.filter((id) => !closing.includes(id)),
+        activeTab: closing.includes(saved.activeTab) ? TASK_PANEL_HOME_TAB_ID : saved.activeTab,
+      };
     }
 
     taskPanelAnimationControls.stop();
     taskPanelCloseRequestRef.current += 1;
     taskPanelClosingRef.current = false;
     setTaskPanelExiting(false);
-    pendingTaskPanelTabCloseRef.current = undefined;
+    pendingTaskPanelTabsCloseRef.current = undefined;
 
     let restored: TaskPanelSessionUiState;
     if (
@@ -6138,7 +6145,14 @@ function App() {
     taskPanelClosingRef.current = false;
     // Cancel parallel exit reflow immediately so the panel returns to grid flow.
     setTaskPanelExiting(false);
-    pendingTaskPanelTabCloseRef.current = undefined;
+    const closingTabs = pendingTaskPanelTabsCloseRef.current;
+    if (closingTabs) {
+      setOpenTaskPanelTabIds((current) => current.filter((id) => !closingTabs.includes(id)));
+      setTaskPanelActiveTab((current) =>
+        closingTabs.includes(current) ? TASK_PANEL_HOME_TAB_ID : current,
+      );
+    }
+    pendingTaskPanelTabsCloseRef.current = undefined;
     taskPanelAnimationControls.stop();
     if (!taskPanelLayoutPresent) {
       taskPanelAnimationControls.set(
@@ -6195,8 +6209,8 @@ function App() {
         }
         taskPanelClosingRef.current = false;
         setTaskPanelExiting(false);
-        const pendingTabId = pendingTaskPanelTabCloseRef.current;
-        pendingTaskPanelTabCloseRef.current = undefined;
+        const pendingTabIds = pendingTaskPanelTabsCloseRef.current;
+        pendingTaskPanelTabsCloseRef.current = undefined;
         const availableWidth = mainPaneRef.current?.getBoundingClientRect().width;
         const nextLayoutMode = availableWidth
           ? resolveActivityWorkspaceLayoutMode(availableWidth, activityWorkspaceLayoutMode)
@@ -6208,9 +6222,11 @@ function App() {
         setTaskPanelFullscreen(false);
         // Idempotent: covers any late reveal race during the exit spring.
         void window.eco?.browserSetVisible?.({ visible: false });
-        if (pendingTabId) {
-          setOpenTaskPanelTabIds((current) => removeOpenTaskPanelTab(current, pendingTabId).tabs);
-          setTaskPanelActiveTab((current) => (current === pendingTabId ? TASK_PANEL_HOME_TAB_ID : current));
+        if (pendingTabIds) {
+          setOpenTaskPanelTabIds((current) => current.filter((id) => !pendingTabIds.includes(id)));
+          setTaskPanelActiveTab((current) =>
+            pendingTabIds.includes(current) ? TASK_PANEL_HOME_TAB_ID : current,
+          );
           setSelectedSubagentAgentId(undefined);
         }
         if (nextLayoutMode) {
@@ -6661,6 +6677,8 @@ function App() {
     }
     if (taskDrawerOpen) {
       if (taskPanelClosingRef.current) {
+        // Reversing a close-all animation must start fresh, not revive closing tabs.
+        if (pendingTaskPanelTabsCloseRef.current?.length) openBrowserTaskPanel();
         revealTaskPanel();
       } else {
         dismissTaskPanel();
@@ -6875,28 +6893,31 @@ function App() {
     [activeThread?.id, htmlHostArtifactsByThread],
   );
 
-  const closeTaskPanelTab = useCallback(
-    (tabId: TaskPanelActiveTab) => {
-      const result = removeOpenTaskPanelTab(openTaskPanelTabIds, tabId);
-      if (!openTaskPanelTabIds.includes(tabId)) {
-        return;
-      }
-      const browserId = parseBrowserTaskTabId(String(tabId));
-      const splitPartner = browserId && browserSplit?.browserIds.includes(browserId)
-        ? browserSplit.browserIds.find(id => id !== browserId)
+  const closeTaskPanelTabs = useCallback(
+    (tabIds: readonly TaskPanelActiveTab[]) => {
+      const closing = openTaskPanelTabIds.filter((id) => tabIds.includes(id));
+      if (!closing.length) return;
+      const result = removeOpenTaskPanelTabs(openTaskPanelTabIds, closing, taskPanelActiveTab);
+      const closingBrowserIds = closing.flatMap((id) => {
+        const browserId = parseBrowserTaskTabId(id);
+        return browserId ? [browserId] : [];
+      });
+      const splitAffected = browserSplit?.browserIds.some((id) => closingBrowserIds.includes(id));
+      const splitPartner = splitAffected
+        ? browserSplit?.browserIds.find((id) => !closingBrowserIds.includes(id))
         : undefined;
-      if (splitPartner) setBrowserSplit(undefined);
-      if (browserId) {
-        // Tab × closes the page for real (Agent target goes away with that WebContents).
+      if (splitAffected) setBrowserSplit(undefined);
+      for (const browserId of closingBrowserIds) {
+        // Match tab ×: closing a browser tab destroys its page and Agent target.
         void window.eco?.browserCloseInstance?.({ browserId });
       }
       if (result.tabs.length === 0) {
-        pendingTaskPanelTabCloseRef.current = tabId;
+        pendingTaskPanelTabsCloseRef.current = closing;
         dismissTaskPanel();
         return;
       }
       setOpenTaskPanelTabIds(result.tabs);
-      if (taskPanelActiveTab === tabId) {
+      if (closing.includes(taskPanelActiveTab)) {
         const fallback = splitPartner ? browserTaskTabId(splitPartner) : result.fallback;
         setTaskPanelActiveTab(fallback ?? TASK_PANEL_HOME_TAB_ID);
         setSelectedSubagentAgentId(
@@ -6905,6 +6926,11 @@ function App() {
       }
     },
     [activeSubagentCards, browserSplit, dismissTaskPanel, openTaskPanelTabIds, taskPanelActiveTab],
+  );
+
+  const closeTaskPanelTab = useCallback(
+    (tabId: TaskPanelActiveTab) => closeTaskPanelTabs([tabId]),
+    [closeTaskPanelTabs],
   );
 
   const handleTaskPanelResizePointerDown = useCallback(
@@ -11723,6 +11749,7 @@ function App() {
               setSelectedSubagentAgentId(undefined);
             }}
             onCloseTab={closeTaskPanelTab}
+            onCloseTabs={closeTaskPanelTabs}
             onSelectBackgroundTasks={() => {
               setOpenTaskPanelTabIds((current) =>
                 addOpenTaskPanelTab(current, TASK_PANEL_BACKGROUND_TERMINAL_TAB_ID),

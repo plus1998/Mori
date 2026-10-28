@@ -611,6 +611,7 @@ export function SubagentTaskDrawer({
   onSelectAgent,
   onSelectPlan,
   onCloseTab,
+  onCloseTabs,
   onSelectBackgroundTasks,
   onSelectReview,
   workspacePath,
@@ -677,6 +678,7 @@ export function SubagentTaskDrawer({
   onSelectAgent: (agentId: string) => void;
   onSelectPlan: () => void;
   onCloseTab: (tabId: TaskPanelActiveTab) => void;
+  onCloseTabs: (tabIds: readonly TaskPanelActiveTab[]) => void;
   onSelectBackgroundTasks: () => void;
   onSelectReview: () => void;
   workspacePath: string;
@@ -815,7 +817,12 @@ export function SubagentTaskDrawer({
       aria-label={fullscreen ? t("app.taskPanelFullscreen") : t("app.taskPanel")}
     >
       <header className="subagent-task-panel-topbar">
-        <TaskPanelTabOrder openTabIds={openTabIds} label={t("task.tabs")} onReorder={onReorderTabs}>
+        <TaskPanelTabOrder
+          openTabIds={openTabIds}
+          label={t("task.tabs")}
+          onReorder={onReorderTabs}
+          onCloseTabs={onCloseTabs}
+        >
           {newTabIds.map((tabId) => (
             <span
               key={tabId}

@@ -3,8 +3,10 @@ import {
   addOpenTaskPanelTab,
   moveOpenTaskPanelTab,
   removeOpenTaskPanelTab,
+  removeOpenTaskPanelTabs,
   replaceOpenTaskPanelTab,
   resolveTaskPanelReopenTab,
+  taskPanelTabsToClose,
 } from "../src/renderer/task-panel-tab-state";
 import {
   TASK_PANEL_FILES_TAB_ID,
@@ -111,5 +113,57 @@ describe("task panel tab state", () => {
 
   test("reopening an empty panel has no tab to restore", () => {
     expect(resolveTaskPanelReopenTab([], TASK_PANEL_HOME_TAB_ID)).toBeUndefined();
+  });
+});
+
+describe("task panel batch close", () => {
+  test("targets the right-clicked tab and uses the order after dragging", () => {
+    const tabs = moveOpenTaskPanelTab(
+      ["browser:a", "files", "browser:b", "review"],
+      "browser:a",
+      "browser:b",
+      "after",
+    );
+    expect(taskPanelTabsToClose(tabs, "browser:b", "right")).toEqual(["browser:a", "review"]);
+    expect(taskPanelTabsToClose(tabs, "browser:b", "others")).toEqual(["files", "browser:a", "review"]);
+    expect(taskPanelTabsToClose(tabs, "browser:b", "all")).toEqual(tabs);
+    expect(tabs).toEqual(["files", "browser:b", "browser:a", "review"]);
+  });
+
+  test("disables empty actions and ignores a target that has already closed", () => {
+    expect(taskPanelTabsToClose(["files"], "files", "others")).toEqual([]);
+    expect(taskPanelTabsToClose(["files", "review"], "review", "right")).toEqual([]);
+    for (const action of ["all", "others", "right"] as const) {
+      expect(taskPanelTabsToClose(["files", "review"], "gone", action)).toEqual([]);
+    }
+  });
+
+  test("preserves the active tab when a different tab is right-clicked", () => {
+    expect(removeOpenTaskPanelTabs(["files", "review", "browser:a"], ["browser:a"], "files")).toEqual({
+      tabs: ["files", "review"],
+      fallback: "files",
+    });
+  });
+
+  test("chooses a surviving neighbor atomically when several tabs close", () => {
+    const tabs = ["files", "review", "browser:a", "browser:b"];
+    expect(removeOpenTaskPanelTabs(tabs, ["review", "browser:a"], "browser:a")).toEqual({
+      tabs: ["files", "browser:b"],
+      fallback: "files",
+    });
+    expect(removeOpenTaskPanelTabs(tabs, ["files", "review", "browser:a"], "files")).toEqual({
+      tabs: ["browser:b"],
+      fallback: "browser:b",
+    });
+    expect(removeOpenTaskPanelTabs(tabs, ["files", "review", "browser:a"], "review")).toEqual({
+      tabs: ["browser:b"],
+      fallback: "browser:b",
+    });
+  });
+
+  test("all tabs close together without a stale fallback, including duplicate close requests", () => {
+    expect(
+      removeOpenTaskPanelTabs(["files", "review"], ["files", "review", "files", "gone"], "review"),
+    ).toEqual({ tabs: [] });
   });
 });

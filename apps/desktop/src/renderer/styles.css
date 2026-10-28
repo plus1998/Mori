@@ -3417,7 +3417,8 @@ button.sidebar-settings-meta {
 .terminal-context-menu,
 .image-context-menu,
 .composer-context-menu,
-.feed-text-context-menu {
+.feed-text-context-menu,
+.task-panel-tab-context-menu {
   display: flex;
   flex-direction: column;
   padding: 4px;
@@ -3433,7 +3434,8 @@ button.sidebar-settings-meta {
 .terminal-context-menu-item,
 .image-context-menu-item,
 .composer-context-menu-item,
-.feed-text-context-menu-item {
+.feed-text-context-menu-item,
+.task-panel-tab-context-menu-item {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -3463,7 +3465,9 @@ button.sidebar-settings-meta {
 .composer-context-menu-item:hover:not(:disabled),
 .composer-context-menu-item:focus-visible:not(:disabled),
 .feed-text-context-menu-item:hover:not(:disabled),
-.feed-text-context-menu-item:focus-visible:not(:disabled) {
+.feed-text-context-menu-item:focus-visible:not(:disabled),
+.task-panel-tab-context-menu-item:hover:not(:disabled),
+.task-panel-tab-context-menu-item:focus-visible:not(:disabled) {
   background: var(--nav-hover);
   color: var(--text-heading);
 }
@@ -3471,14 +3475,16 @@ button.sidebar-settings-meta {
 .terminal-context-menu-item:focus-visible,
 .image-context-menu-item:focus-visible,
 .composer-context-menu-item:focus-visible,
-.feed-text-context-menu-item:focus-visible {
+.feed-text-context-menu-item:focus-visible,
+.task-panel-tab-context-menu-item:focus-visible {
   outline: none;
 }
 
 .terminal-context-menu-item:disabled,
 .image-context-menu-item:disabled,
 .composer-context-menu-item:disabled,
-.feed-text-context-menu-item:disabled {
+.feed-text-context-menu-item:disabled,
+.task-panel-tab-context-menu-item:disabled {
   color: var(--text-tertiary);
   cursor: default;
 }
