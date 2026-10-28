@@ -495,7 +495,6 @@ import {
   buildThreadFollowUpDrainPrompt,
   canEscalatedFollowUpProgressNow,
   collectThreadFollowUpAttachments,
-  isFollowUpMidTurnResultDelivered,
   selectThreadFollowUpDrainTarget,
   shouldAutoPauseFollowUpQueue,
   shouldBlockThreadFollowUpDrain,
@@ -1010,6 +1009,7 @@ import {
   shouldKeepThreadCancelling,
 } from "./thread-cancelling-state";
 import { requireThreadCore } from "./thread-core-routing";
+import { deliverThreadFollowUpGuide } from "./thread-follow-up-guide";
 import { ThreadFollowUpDrainScheduler } from "./thread-follow-up-drain-scheduler";
 import { ThreadFollowUpQueueControl } from "./thread-follow-up-queue-control";
 import {
@@ -1828,6 +1828,8 @@ function runThreadRequestWithLiveRequestLifecycle(
 const conversationRecoveryGate = new ConversationRecoveryGate();
 const pendingCancelDisposition = new Map<string, WorktreeCancelDisposition>();
 const pendingEscalatedFollowUpDrain = new Set<string>();
+// Explicit Guide authorization survives a missing ingress, and is revoked by Stop.
+const pendingMidTurnFollowUpGuides = new Map<string, string>();
 const threadFollowUpDrainScheduler = new ThreadFollowUpDrainScheduler();
 const threadFollowUpQueueControl = new ThreadFollowUpQueueControl();
 const threadRunPreparations = new ThreadRunPreparationRegistry();
@@ -10380,9 +10382,9 @@ function enqueueThreadFollowUpCommand(
           request.followUpDeliveryMode ?? workflowSettingsStore.get().followUpDeliveryMode ?? "steer";
         const metadata = resolveThreadFollowUpEnqueueMetadata(thread.id);
         const queuePaused = Boolean(thread.followUpQueuePaused);
-        // ACP has no mid-turn: steer means interrupt + resume. Escalated priority always interrupts.
+        // ACP has no mid-turn: steer means interrupt + resume. Other cores inject or wait.
         // Ordinary messages wait for Resume; submitted question answers use their own delivery lane.
-        const preferInterrupt =
+        const preferEscalate =
           !queuePaused &&
           (request.priority === "escalated" ||
             (coreUsesInterruptForSteer(thread.coreKind) && deliveryMode === "steer"));
@@ -10391,12 +10393,13 @@ function enqueueThreadFollowUpCommand(
           prompt: request.prompt,
           ...(persistedAttachments?.length ? { attachments: persistedAttachments } : {}),
           conversationMessageId: acceptedMessage.messageId,
-          ...(preferInterrupt
+          ...(preferEscalate
             ? { priority: "escalated" }
             : request.priority
               ? { priority: request.priority }
               : {}),
-          deliveryMode: preferInterrupt ? "interrupt_resume" : "queued",
+          deliveryMode:
+            preferEscalate && coreUsesInterruptForSteer(thread.coreKind) ? "interrupt_resume" : "queued",
           ...metadata,
         });
 
@@ -10408,39 +10411,8 @@ function enqueueThreadFollowUpCommand(
           );
         }
 
-        if (preferInterrupt) {
-          const midTurnResult = await tryDeliverFollowUpViaMidTurn(thread, followUp);
-          if (isFollowUpMidTurnResultDelivered(midTurnResult)) {
-            return buildThreadFollowUpMutationResult(midTurnResult);
-          }
-          // Mid-turn was skipped (blocking approval, editing row, or a port that is not
-          // accepting) and the row is still `queued`: "handle now" must fall through to the
-          // interrupt instead of reporting a silent no-op. A starting run keeps the
-          // request armed until startActiveRun registers its controller.
-          const progressThread = conversationStore.getThread(thread.id);
-          if (!progressThread) throw new Error("Thread was not found.");
-          if (
-            !canEscalatedFollowUpProgressNow({
-              hasActiveRun: activeRunRuntimeState.hasRun(thread.id),
-              status: progressThread.status,
-            })
-          ) {
-            pendingEscalatedFollowUpDrain.add(thread.id);
-            const settled =
-              midTurnResult ?? conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp;
-            if (settled.status === "queued") {
-              emitThreadFollowUpEvent(
-                settled,
-                "thread.follow_up.queued",
-                formatFollowUpQueuedMessage(settled),
-              );
-            }
-            return buildThreadFollowUpMutationResult(settled);
-          }
-          const current = await requestEscalatedFollowUpInterrupt(
-            thread,
-            midTurnResult ?? conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp,
-          );
+        if (preferEscalate) {
+          const current = await deliverEscalatedThreadFollowUp(thread, followUp);
           if (current.status === "queued") {
             emitThreadFollowUpEvent(current, "thread.follow_up.queued", formatFollowUpQueuedMessage(current));
           }
@@ -10498,7 +10470,7 @@ function registerRemainingDesktopCommands(): void {
                 prompt: request.prompt ?? "",
                 ...(request.attachments?.length ? { attachments: request.attachments } : {}),
                 priority: "escalated",
-                deliveryMode: "interrupt_resume",
+                deliveryMode: coreUsesInterruptForSteer(thread.coreKind) ? "interrupt_resume" : "queued",
                 ...resolveThreadFollowUpEnqueueMetadata(thread.id),
               });
           if (!base) {
@@ -10518,31 +10490,7 @@ function registerRemainingDesktopCommands(): void {
             reason: "follow-up-superseded",
           });
 
-          const midTurnResult = await tryDeliverFollowUpViaMidTurn(thread, followUp);
-          if (isFollowUpMidTurnResultDelivered(midTurnResult)) {
-            return buildThreadFollowUpMutationResult(midTurnResult);
-          }
-          // A skipped mid-turn inject leaves the row `queued`; Guide must not be swallowed
-          // by a paused queue (or a non-accepting port) — fall through to interrupt, which
-          // arms one forced drain past the pause. When nothing can move (e.g. the run is
-          // still starting up), keep the request armed until its controller is ready.
-          const progressThread = conversationStore.getThread(thread.id);
-          if (!progressThread) throw new Error("Thread was not found.");
-          if (
-            !canEscalatedFollowUpProgressNow({
-              hasActiveRun: activeRunRuntimeState.hasRun(thread.id),
-              status: progressThread.status,
-            })
-          ) {
-            pendingEscalatedFollowUpDrain.add(thread.id);
-            return buildThreadFollowUpMutationResult(
-              midTurnResult ?? conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp,
-            );
-          }
-          const current = await requestEscalatedFollowUpInterrupt(
-            thread,
-            midTurnResult ?? conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp,
-          );
+          const current = await deliverEscalatedThreadFollowUp(thread, followUp);
           return buildThreadFollowUpMutationResult(current);
         },
       },
@@ -10614,7 +10562,8 @@ function registerRemainingDesktopCommands(): void {
           const hasPreparingIndependentMessage = conversationStore
             .listThreadFollowUps(request.threadId, { statuses: ["delivered"] })
             .some(
-              (row) => isAsyncClarificationAnswerFollowUp(row) || isScheduledMessageFollowUp(row, conversationStore),
+              (row) => pendingMidTurnFollowUpGuides.get(request.threadId) === row.id ||
+                isAsyncClarificationAnswerFollowUp(row) || isScheduledMessageFollowUp(row, conversationStore),
             );
           if (
             request.paused &&
@@ -10764,6 +10713,7 @@ function registerRemainingDesktopCommands(): void {
         schedulingService.pauseAutomaticMessages(threadId);
         // Explicit Stop revokes an earlier Guide; cleanup must pause queued rows.
         pendingEscalatedFollowUpDrain.delete(threadId);
+        pendingMidTurnFollowUpGuides.delete(threadId);
         threadFollowUpQueueControl.stopped(threadId);
         threadRunPreparations.cancel(threadId);
         autoPauseFollowUpQueueWhenQueuedRemain(threadId);
@@ -11205,6 +11155,46 @@ async function finalizeMainThreadRunCleanup(input: FinalizeThreadRunCleanupInput
   }
 }
 
+async function deliverEscalatedThreadFollowUp(
+  thread: ThreadSummary,
+  followUp: ThreadPendingFollowUp,
+): Promise<ThreadPendingFollowUp> {
+  if (coreSupportsMidTurnFollowUp(thread.coreKind)) {
+    pendingMidTurnFollowUpGuides.set(thread.id, followUp.id);
+  }
+  const current = await deliverThreadFollowUpGuide(thread.coreKind, followUp, {
+    push: () => tryDeliverFollowUpViaMidTurn(thread, followUp),
+    current: () => conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp,
+    wait: () => {
+      if (!activeRunRuntimeState.hasRun(thread.id)) retryGuidedThreadFollowUp(thread.id);
+    },
+    interrupt: async () => {
+      const progressThread = conversationStore.getThread(thread.id);
+      if (!progressThread) throw new Error("Thread was not found.");
+      if (!canEscalatedFollowUpProgressNow({
+        hasActiveRun: activeRunRuntimeState.hasRun(thread.id),
+        status: progressThread.status,
+      })) {
+        pendingEscalatedFollowUpDrain.add(thread.id);
+        return conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp;
+      }
+      return requestEscalatedFollowUpInterrupt(progressThread, followUp);
+    },
+  });
+  if (current.status !== "queued" && pendingMidTurnFollowUpGuides.get(thread.id) === followUp.id) {
+    pendingMidTurnFollowUpGuides.delete(thread.id);
+  }
+  return current;
+}
+
+/** Readiness and edit-release events retry the selected row without aborting its run. */
+function retryGuidedThreadFollowUp(threadId: string): void {
+  if (!pendingMidTurnFollowUpGuides.has(threadId)) return;
+  void drainQueuedThreadFollowUpsAfterRun(threadId).catch((error) => {
+    process.stderr.write(`[eco] guided follow-up delivery failed (${threadId}): ${errorMessage(error)}\n`);
+  });
+}
+
 async function requestEscalatedFollowUpInterrupt(
   snapshot: ThreadSummary,
   followUp: ThreadPendingFollowUp,
@@ -11256,7 +11246,25 @@ async function requestEscalatedFollowUpInterrupt(
 }
 
 async function drainQueuedThreadFollowUpsAfterRun(threadId: string): Promise<void> {
-  await threadFollowUpDrainScheduler.drain(threadId, () => drainNextQueuedThreadFollowUp(threadId));
+  await threadFollowUpDrainScheduler.drain(threadId, async () => {
+    const guideId = pendingMidTurnFollowUpGuides.get(threadId);
+    if (guideId) {
+      const guide = conversationStore.getThreadFollowUp(threadId, guideId);
+      if (guide?.status === "delivered") return; // The irreversible push is still in flight.
+      if (!guide || guide.status !== "queued") pendingMidTurnFollowUpGuides.delete(threadId);
+      else if (activeRunRuntimeState.hasRun(threadId)) {
+        const thread = conversationStore.getThread(threadId);
+        if (thread) {
+          const pushed = await tryDeliverFollowUpViaMidTurn(thread, guide);
+          if (pushed && pushed.status !== "queued" && pendingMidTurnFollowUpGuides.get(threadId) === guideId) {
+            pendingMidTurnFollowUpGuides.delete(threadId);
+          }
+        }
+        return;
+      }
+    }
+    await drainNextQueuedThreadFollowUp(threadId);
+  });
 }
 
 async function drainNextQueuedThreadFollowUp(threadId: string): Promise<void> {
@@ -11279,15 +11287,18 @@ async function drainPreparedNextQueuedThreadFollowUp(
     const thread = conversationStore.getThread(threadId);
     const forceEscalatedDrain = pendingEscalatedFollowUpDrain.delete(threadId);
     const excludeFollowUpId = editingFollowUpClaimExclusion(threadId);
-    const target = selectThreadFollowUpDrainTarget({
-      followUps: conversationStore.listThreadFollowUps(threadId, { statuses: ["queued"] }),
-      forceEscalatedDrain,
-      ...(excludeFollowUpId ? { excludeFollowUpId } : {}),
-      isAsyncClarificationAnswer: isAsyncClarificationAnswerFollowUp,
-      hasFollowUpQueuePaused: Boolean(thread?.followUpQueuePaused),
-      isScheduledMessage: (row) => isScheduledMessageFollowUp(row, conversationStore),
-    });
-    // Escalated interrupt may force one drain while the queue remains user-paused.
+    const guidedFollowUpId = pendingMidTurnFollowUpGuides.get(threadId);
+    const target = guidedFollowUpId
+      ? { followUpId: guidedFollowUpId, isAsyncClarificationAnswer: false }
+      : selectThreadFollowUpDrainTarget({
+          followUps: conversationStore.listThreadFollowUps(threadId, { statuses: ["queued"] }),
+          forceEscalatedDrain,
+          ...(excludeFollowUpId ? { excludeFollowUpId } : {}),
+          isAsyncClarificationAnswer: isAsyncClarificationAnswerFollowUp,
+          hasFollowUpQueuePaused: Boolean(thread?.followUpQueuePaused),
+          isScheduledMessage: (row) => isScheduledMessageFollowUp(row, conversationStore),
+        });
+    // An explicit Guide owns one delivery while the other queued rows remain paused.
     if (
       shouldBlockThreadFollowUpDrain({
         hasPendingBridgeApproval: Boolean(getPendingPlanApprovalForThread(threadId)),
@@ -11296,7 +11307,7 @@ async function drainPreparedNextQueuedThreadFollowUp(
         hasPendingClarification: hasPendingBlockingClarificationForThread(threadId),
         hasPendingBashApproval: Boolean(getPendingBashApprovalForThread(threadId)),
         hasEditingFollowUp: editingThreadFollowUpByThread.has(threadId),
-        hasFollowUpQueuePaused: Boolean(thread?.followUpQueuePaused) && !forceEscalatedDrain,
+        hasFollowUpQueuePaused: Boolean(thread?.followUpQueuePaused) && !forceEscalatedDrain && !guidedFollowUpId,
         isAsyncClarificationAnswer: target.isAsyncClarificationAnswer,
         ...(target.isScheduledMessage ? { isScheduledMessage: true } : {}),
         ...(thread?.status && { threadStatus: thread.status }),
@@ -11325,9 +11336,9 @@ async function drainPreparedNextQueuedThreadFollowUp(
       ...(target.followUpId ? { followUpId: target.followUpId } : {}),
       ...(excludeFollowUpId ? { excludeFollowUpId } : {}),
     });
-    return { claimed, forceEscalatedDrain };
+    return { claimed, forceEscalatedDrain, guidedFollowUpId };
   });
-  const { claimed, forceEscalatedDrain } = drainClaim;
+  const { claimed, forceEscalatedDrain, guidedFollowUpId } = drainClaim;
   if (claimed.length === 0) {
     return;
   }
@@ -11359,13 +11370,16 @@ async function drainPreparedNextQueuedThreadFollowUp(
       ...(v2AcceptedMessageIds.length > 0 ? { v2AcceptedMessageIds } : {}),
       requireResumeForInterrupted:
         forceEscalatedDrain || thread.status === "failed" || thread.status === "blocked",
-      ...(forceEscalatedDrain || claimed.some(
+      ...(forceEscalatedDrain || guidedFollowUpId || claimed.some(
         (row) => isAsyncClarificationAnswerFollowUp(row) || isScheduledMessageFollowUp(row, conversationStore),
       )
         ? { allowWhileQueuePaused: true }
         : {}),
       ...(skipRecordUserPrompt ? { skipRecordUserPrompt: true } : {}),
     });
+    if (pendingMidTurnFollowUpGuides.get(threadId) === guidedFollowUpId) {
+      pendingMidTurnFollowUpGuides.delete(threadId);
+    }
     for (const followUp of claimed) {
       const applied =
         conversationStore.updateThreadFollowUpStatus(threadId, followUp.id, {
@@ -12810,6 +12824,7 @@ async function startCodexThreadRun(
                   codexThreadId,
                   turnId,
                 });
+                retryGuidedThreadFollowUp(ecoThreadId);
               },
               onTurnClosing: async ({ ecoThreadId }) => {
                 await codexMidTurnPorts.closeIngress(ecoThreadId);
@@ -14966,7 +14981,7 @@ function isAsyncClarificationAnswerFollowUp(followUp: ThreadPendingFollowUp): bo
  * Mid-turn delivery for Claude (streamInput), Codex (turn/steer) and PI (AgentSession.steer).
  * Pure-text only; attachments / blocked approvals / no accepting port stay queued.
  * Returns a handled row (applied, failed, or concurrently finalized); undefined
- * only when the row is safely queued for the existing drain/interrupt path.
+ * only when the row is safely queued for a later delivery opportunity.
  *
  * The queue row remains the only visible representation until the provider
  * confirms the push. The user bubble is written after that confirmation so a
@@ -15008,7 +15023,8 @@ async function tryDeliverFollowUpViaMidTurn(
         // An async question must not block mid-turn delivery of an unrelated follow-up.
         hasPendingClarification: hasPendingBlockingClarificationForThread(thread.id),
         hasEditingFollowUp: editingThreadFollowUpByThread.has(thread.id),
-        hasFollowUpQueuePaused: Boolean(currentThread.followUpQueuePaused),
+        hasFollowUpQueuePaused: Boolean(currentThread.followUpQueuePaused) &&
+          pendingMidTurnFollowUpGuides.get(thread.id) !== currentFollowUp.id,
         isAsyncClarificationAnswer: isAsyncClarificationAnswerFollowUp(currentFollowUp),
         threadStatus: currentThread.status,
         hasStoredPendingPlan: Boolean(conversationStore.getPendingPlan(thread.id)),
@@ -15034,7 +15050,10 @@ async function tryDeliverFollowUpViaMidTurn(
     }
 
     const excludeFollowUpId = editingFollowUpClaimExclusion(thread.id);
+    const explicitlyGuided = pendingMidTurnFollowUpGuides.get(thread.id) === currentFollowUp.id;
     runtimePrompt = await composerReferenceService.resolvePrompt(thread.id, currentFollowUp.prompt.trim());
+    // Stop or a newer Guide can revoke this selection while references are resolving.
+    if (explicitlyGuided && pendingMidTurnFollowUpGuides.get(thread.id) !== currentFollowUp.id) return undefined;
     return conversationStore.claimThreadFollowUpStreamingPush(thread.id, followUp.id, {
       ...(excludeFollowUpId ? { excludeFollowUpId } : {}),
     });
@@ -16786,6 +16805,7 @@ function createSdkDriver(
     queryLifecycle: {
       onOpen: (handle) => {
         claudeMidTurnPorts.open(threadId, handle);
+        retryGuidedThreadFollowUp(threadId);
       },
       onClosing: async () => {
         await claudeMidTurnPorts.closeIngress(threadId);
@@ -16978,6 +16998,7 @@ function clearThreadRuntimeMemory(threadId: string): void {
   threadFollowUpQueueControl.clear(threadId);
   editingThreadFollowUpByThread.delete(threadId);
   pendingEscalatedFollowUpDrain.delete(threadId);
+  pendingMidTurnFollowUpGuides.delete(threadId);
   activeRunBillingState.clearRun(threadId);
   threadUsageAccumulator.clear(threadId);
   contextScheduler.clearThread(threadId);
@@ -18027,6 +18048,7 @@ function maybeHandleAcpNestedSubagentLifecycle(threadId: string, event: AgentEve
 /** SDK drives narrative, tool, todo, and billing activity. */
 function emitSdkStreamActivity(threadId: string, event: AgentEventLike): void {
   sdkStreamActivityIngestion.ingest(threadId, event);
+  if (event.type === "agent.started" && event.role === "main") retryGuidedThreadFollowUp(threadId);
 }
 
 function noteUsageBillingObservation(threadId: string, observation: UsageBillingObservation): void {

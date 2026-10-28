@@ -48,6 +48,7 @@ import {
   attachPeerGatewayTimingToLedgerEventViews,
   attachSpanTimingToLedgerEventViews,
 } from "../shared/ledger-event-timing";
+import { coreUsesInterruptForSteer } from "../shared/thread-follow-up-core";
 import { readPromptImagePreviews } from "../shared/prompt-image-metadata";
 import {
   mergeThreadRunImageViewMetadata,
@@ -3928,11 +3929,14 @@ export class ConversationStore {
         .prepare(
           `UPDATE ${this.pendingFollowupsTable()}
            SET priority = 'escalated',
-               delivery_mode = 'interrupt_resume',
+               delivery_mode = ?,
                updated_at = ?
            WHERE thread_id = ? AND id = ?`,
         )
-        .run(now, threadId, followUpId);
+        .run(
+          coreUsesInterruptForSteer(this.getThread(threadId)?.coreKind) ? "interrupt_resume" : "queued",
+          now, threadId, followUpId,
+        );
       this.db.exec("COMMIT");
     } catch (error) {
       rollbackConversationTransaction(this.db);
@@ -4026,10 +4030,7 @@ export class ConversationStore {
       .prepare(
         `UPDATE ${this.pendingFollowupsTable()}
          SET status = 'queued',
-             delivery_mode = CASE
-               WHEN priority = 'escalated' THEN 'interrupt_resume'
-               ELSE 'queued'
-             END,
+             delivery_mode = ?,
              error = ?,
              delivered_at = NULL,
              applied_at = NULL,
@@ -4039,7 +4040,11 @@ export class ConversationStore {
            AND delivery_mode = 'streaming_push'
            AND status IN ('delivered', 'applied')`,
       )
-      .run(input?.error ?? null, now, threadId, followUpId);
+      .run(
+        existing.priority === "escalated" && coreUsesInterruptForSteer(this.getThread(threadId)?.coreKind)
+          ? "interrupt_resume" : "queued",
+        input?.error ?? null, now, threadId, followUpId,
+      );
     if (result.changes === 0) {
       return undefined;
     }

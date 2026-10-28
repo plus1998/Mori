@@ -6,7 +6,7 @@ export function coreSupportsMidTurnFollowUp(
   return coreKind === "claude" || coreKind === "codex" || coreKind === "pi";
 }
 
-/** Interrupt current turn then send follow-up (ACP has no mid-turn inject of its own). */
+/** Guide via native mid-turn input, or ACP cancel/resume when no such ingress exists. */
 export function coreSupportsFollowUpEscalate(coreKind: string | undefined): boolean {
   return coreSupportsMidTurnFollowUp(coreKind) || coreKind === "acp";
 }
