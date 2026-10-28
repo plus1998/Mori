@@ -79,6 +79,80 @@ test("screenshot analysis is bound to the observing Mori thread and preserves th
   );
 });
 
+test("Mori task gateway rejects a session it no longer knows with 404 so Codex re-initializes", async () => {
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const gateway = new MoriAssistantToolGateway(
+    [{ name: "mori_list_todos", description: "查询待办", inputSchema: { type: "object" } }],
+    async (name, args) => {
+      calls.push({ name, args });
+      return { items: [], projectPath: args.projectPath ?? null };
+    },
+    "mori_tasks",
+  );
+  const config = await gateway.start();
+  try {
+    const headers: Record<string, string> = {
+      ...(config.http_headers as Record<string, string>),
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+    };
+    const call = (id: number, args: Record<string, unknown>) =>
+      fetch(String(config.url), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name: "mori_list_todos", arguments: args },
+        }),
+      }).then(async (response) => ({ status: response.status, body: await response.json() }));
+
+    headers["Mcp-Session-Id"] = "stale-session-evicted-by-idle-ttl";
+
+    // Codex keeps the session ID from initialize. After the 30 minute idle TTL
+    // the gateway forgets it, and the thread must not be stranded: 404 is the
+    // only status both Codex (rmcp) and the MCP SDK retry from.
+    const stale = await call(1, {});
+    expect(stale.status).toBe(404);
+    expect(stale.body).toEqual({ error: "MCP session not found" });
+    expect(calls).toEqual([]);
+
+    const initialized = await fetch(String(config.url), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 0,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "codex-probe", version: "1" },
+        },
+      }),
+    });
+    expect(initialized.status).toBe(200);
+    const session = initialized.headers.get("mcp-session-id");
+    expect(session).toBeTruthy();
+    headers["Mcp-Session-Id"] = session as string;
+
+    const all = await call(2, {});
+    expect(all.status).toBe(200);
+    expect(all.body).toMatchObject({
+      result: { content: [{ text: JSON.stringify({ items: [], projectPath: null }) }] },
+    });
+    const filtered = await call(3, { projectPath: "/test/project" });
+    expect(filtered.status).toBe(200);
+    expect(filtered.body).toMatchObject({
+      result: { content: [{ text: JSON.stringify({ items: [], projectPath: "/test/project" }) }] },
+    });
+    expect(calls.map((entry) => entry.args)).toEqual([{}, { projectPath: "/test/project" }]);
+  } finally {
+    await gateway.close();
+  }
+});
+
 test.each([
   "mori_computer",
   "mori_tasks",

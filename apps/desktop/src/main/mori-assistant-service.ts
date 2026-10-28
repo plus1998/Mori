@@ -14,6 +14,7 @@ import { type AssistantTool, MoriAssistantRuntime } from "./mori-assistant-runti
 import { MoriAssistantStore, parseAssistantSettings } from "./mori-assistant-store";
 import { MORI_TODO_TOOLS, MoriAssistantTodos } from "./mori-assistant-todos";
 import { isMoriComputerAction, type MoriComputerUseAccess } from "./mori-computer-use";
+import { currentThreadError, readThreadErrors } from "./mori-thread-errors";
 import type { OpenAIAccountService } from "./openai-account-service";
 
 const COMPUTER_ACTION_LABELS: Record<string, string> = {
@@ -58,11 +59,17 @@ export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
   ),
   tool("mori_list_projects", "列出可用于工作任务的已知项目，不包含 Mori 助手自身的独立工作区。", {}),
   tool("mori_list_models", "读取 Mori 的模型和 Agent 预设配置。创建工作会话前按需读取。", {}),
-  tool("mori_list_threads", "列出最近工作会话，包含状态。", {}),
+  tool("mori_list_threads", "列出最近工作会话，包含状态与脱敏的当前失败原因；详细错误使用 mori_read_thread_errors。", {}),
   tool(
     "mori_read_thread",
-    "读取指定工作会话最近消息。通过 beforeCursor 继续读取旧消息；不会把全部历史装入上下文。",
+    "读取指定工作会话最近消息与脱敏错误详情（diagnostics）。通过 beforeCursor 继续读取旧消息；错误独立于消息分页，历史工具失败不代表当前会话失败。",
     { threadId: text, beforeCursor: { type: "string" } },
+    ["threadId"],
+  ),
+  tool(
+    "mori_read_thread_errors",
+    "查询工作会话当前阻塞/失败原因与近期系统、工具错误（脱敏、有数量上限）。区分模型连接和 MCP session 错误；category=unknown 或 currentErrorMissing 时不得猜测。不会读取原始日志、凭据或工具输入。",
+    { threadId: text },
     ["threadId"],
   ),
   tool(
@@ -806,11 +813,19 @@ export class MoriAssistantService {
           workspacePath: item.workspacePath,
           status: item.status,
           coreKind: item.coreKind,
+          currentError: currentThreadError(item),
+          currentErrorMissing: (item.status === "failed" || item.status === "blocked") && !item.message.trim(),
         }));
-    if (name === "mori_read_thread")
-      return this.deps.conversations
-        .conversationV2()
-        .transcriptPage(thread().id, str("beforeCursor") || undefined, 20);
+    if (name === "mori_read_thread" || name === "mori_read_thread_errors") {
+      const target = thread();
+      const store = this.deps.conversations.conversationV2();
+      const diagnostics = readThreadErrors(target, store);
+      if (name === "mori_read_thread_errors") return diagnostics;
+      return {
+        ...store.transcriptPage(target.id, str("beforeCursor") || undefined, 20),
+        diagnostics,
+      };
+    }
     if (name === "mori_open_thread") {
       await this.deps.openThread(thread().id);
       return { opened: true };

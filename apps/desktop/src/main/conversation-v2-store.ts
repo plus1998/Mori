@@ -2760,6 +2760,36 @@ export class ConversationV2Store {
     });
   }
 
+  /** Internal, bounded failure facts. Callers must authorize the conversation and redact text before export. */
+  failureDetails(conversationId: string) {
+    return this.readTransaction(() => {
+      const stream = this.requireExistingStream(conversationId);
+      const rows = this.db.prepare(`
+        SELECT message_id AS id, 'notice' AS source, run_id, occurred_at, created_seq AS seq,
+          NULL AS tool_name, substr(body, 1, 16000) AS text, length(body) > 16000 AS truncated
+        FROM conversation_messages_v2
+        WHERE conversation_id = ? AND is_deleted = 0 AND role = 'system' AND channel = 'system'
+        UNION ALL
+        SELECT tool_call_id AS id, 'tool' AS source, run_id, occurred_at, version_seq AS seq,
+          name AS tool_name, substr(output_json, 1, 16000) AS text, length(output_json) > 16000 AS truncated
+        FROM conversation_tool_calls_v2
+        WHERE conversation_id = ? AND status = 'failed'
+        ORDER BY seq DESC, id DESC LIMIT 11
+      `).all(conversationId, conversationId) as Array<{
+        id: string; source: "notice" | "tool"; run_id: string | null; occurred_at: string | null;
+        seq: number; tool_name: string | null; text: string | null; truncated: number;
+      }>;
+      const latestRun = this.listRuns(conversationId, 1)[0];
+      return {
+        historyRevision: stream.history_revision,
+        readSeq: stream.last_seq,
+        latestRun: latestRun ? { runId: latestRun.runId, status: latestRun.status } : null,
+        errors: rows.slice(0, 10),
+        hasMore: rows.length > 10,
+      };
+    });
+  }
+
   /**
    * Bounded agent-facing transcript, independent of tool/attachment payload size.
    * Every older row remains reachable by cursor; long bodies have a separate chunk reader.
