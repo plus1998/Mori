@@ -6615,6 +6615,20 @@ button.sidebar-settings-meta {
   background: transparent;
 }
 
+.workspace-image-artifact-thumbnail {
+  width: 28px;
+  height: 28px;
+  opacity: 1;
+}
+
+.workspace-image-artifact-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
 .workspace-resource-row-title {
   flex: 1 1 auto;
   min-width: 0;

@@ -67,6 +67,7 @@ import { TtsMcpGateway } from "./tts-mcp-gateway";
 import { createTtsStore, type TtsStore } from "./tts-store";
 import { WebChatProxyController } from "./web-chat-proxy";
 import { isDevFeedReplayFrameUrl } from "../shared/dev-feed-replay";
+import { createImageDisplayThumbnail } from "./image-display-thumbnail";
 
 const execFileAsync = promisify(execFile);
 
@@ -9122,6 +9123,13 @@ function registerIpcHandlers(): void {
     const offset = typeof payload.offset === "number" ? payload.offset : undefined;
     const length = typeof payload.length === "number" ? payload.length : undefined;
     try {
+      if (payload.thumbnail === true) {
+        const file = await imageDisplayStore.readArtifactThumbnail(
+          payload.artifactId,
+          createImageDisplayThumbnail,
+        );
+        return { ok: true as const, ...file };
+      }
       const file = await imageDisplayStore.readArtifactFile(payload.artifactId.trim(), {
         ...(offset !== undefined ? { offset } : {}),
         ...(length !== undefined ? { length } : {}),
@@ -9136,9 +9144,12 @@ function registerIpcHandlers(): void {
               ? ("too_large" as const)
               : error.code === "invalid_artifact"
                 ? ("invalid_artifact" as const)
-                : ("read_failed" as const);
+                : error.code === "unsupported_type"
+                  ? ("unsupported_type" as const)
+                  : ("read_failed" as const);
         return { ok: false as const, code };
       }
+      if (payload.thumbnail === true) return { ok: false as const, code: "read_failed" as const };
       throw error;
     }
   });

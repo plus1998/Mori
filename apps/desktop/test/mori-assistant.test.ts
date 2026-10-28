@@ -119,8 +119,9 @@ const callMcp=async(server,name,args)=>{
  complete();
 };
 const complete=()=>{
- send({method:'item/agentMessage/delta',params:{threadId:thread,itemId:'answer-'+epoch+'-'+thread+'-'+turn,delta:'收到：'+text}});
- send({method:'item/completed',params:{threadId:thread,item:{id:'answer-'+epoch+'-'+thread+'-'+turn,type:'agentMessage',text:'收到：'+text}}});
+ const answer=text.startsWith('工作会话 ')?'任务已完成，已修复 loading 图标旋转。':'收到：'+text;
+ send({method:'item/agentMessage/delta',params:{threadId:thread,itemId:'answer-'+epoch+'-'+thread+'-'+turn,delta:answer}});
+ send({method:'item/completed',params:{threadId:thread,item:{id:'answer-'+epoch+'-'+thread+'-'+turn,type:'agentMessage',text:answer}}});
  send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'completed'}}});
 };
 readline.createInterface({input:process.stdin}).on('line',line=>{
@@ -141,6 +142,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
  }
  if(m.method==='turn/start'){
   turn++;text=m.params.input[0].text;
+  require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-inputs.jsonl"))},JSON.stringify({text})+'\\n');
   result={turn:{id:'turn-'+turn}};
   send({id:m.id,result});
   if(text.startsWith('computer-')){
@@ -587,6 +589,131 @@ test("desktop and WeChat share one durable V2 conversation; redelivery does not 
   } finally {
     await service.close();
     db.close();
+  }
+});
+
+test("task completion keeps internal instructions in model context and shows only the result", async () => {
+  const f = await fixture();
+  try {
+    await f.service.send(
+      `mcp-tool:${JSON.stringify({ name: "mori_start_task", args: { projectPath: "/test/project", prompt: "修复 loading" } })}`,
+      "wechat",
+      "start-task-from-wechat",
+    );
+    const taskId = f.service.store.state.taskIds[0];
+    if (!taskId) throw new Error("Missing work task");
+    const v2 = f.conversations.conversationV2();
+    v2.appendRuntime({
+      conversationId: taskId,
+      eventId: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      type: "message.created",
+      messageId: "task-result",
+      payload: { role: "assistant", channel: "answer", status: "final", body: "旋转问题已修复，检查通过。" },
+    });
+    f.conversations.updateThread(taskId, { status: "completed", message: "" });
+    // A task may finish after the user has opened a new, empty assistant session.
+    await f.service.newSession();
+    const notifications: Array<{ text: string; messageId: string | undefined; id: string }> = [];
+    f.service.onWechatReply = async (text, messageId, id) => {
+      notifications.push({ text, messageId, id });
+    };
+    await f.service.taskChanged(taskId);
+    const snapshot = await f.service.snapshot();
+    const commandId = `task-complete-${taskId}-${f.conversations.getThread(taskId)?.updatedAt}`;
+    const triggerId = `mori-user-${commandId}`;
+    const threadId = snapshot.currentThreadId;
+    if (!threadId) throw new Error("Missing assistant conversation");
+    expect(snapshot.messages.map((message) => [message.role, message.body])).toEqual([
+      ["assistant", "任务已完成，已修复 loading 图标旋转。"],
+    ]);
+    expect(snapshot.sessions[0]?.title).toBe("任务结果");
+    expect(snapshot.sourceByMessage[triggerId]).toBe("task");
+    const internalPrompt = v2.getMessage(threadId, triggerId)?.body;
+    expect(internalPrompt).toContain("请向用户简要说明结果，不要再次执行任务");
+    expect(internalPrompt).toContain("旋转问题已修复，检查通过。");
+    const inputs = (await fs.readFile(path.join(f.root, "runtime-inputs.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { text: string });
+    expect(inputs.at(-1)?.text).toBe(internalPrompt);
+    expect(notifications).toEqual([
+      { text: "任务已完成，已修复 loading 图标旋转。", messageId: "start-task-from-wechat", id: commandId },
+    ]);
+    const head = v2.head(threadId).lastSeq;
+    await f.service.taskChanged(taskId);
+    expect(v2.head(threadId).lastSeq).toBe(head);
+    expect(notifications).toHaveLength(1);
+    // Returning to durable history must not bring the hidden user bubble back.
+    await f.service.newSession();
+    await f.service.store.load();
+    await f.service.selectSession(threadId);
+    expect((await f.service.snapshot()).messages.map((message) => message.body)).toEqual(
+      snapshot.messages.map((message) => message.body),
+    );
+    expect(v2.validateIntegrity(threadId).headSeq).toBe(head);
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
+
+test("existing task prompts stay hidden across history pages without hiding user quotes or answers", async () => {
+  const f = await fixture();
+  try {
+    const quote = "请解释这段指令：请向用户简要说明结果，不要再次执行任务";
+    await f.service.send(quote, "desktop", "quoted-instruction");
+    const threadId = f.service.store.state.currentThreadId;
+    if (!threadId) throw new Error("Missing assistant conversation");
+    const v2 = f.conversations.conversationV2();
+    // Seed durable history in the exact format written by versions before this fix.
+    for (let i = 0; i < 125; i++) {
+      const messageId = `mori-user-legacy-task-${i}`;
+      v2.sendMessage({
+        principalId: "mori-assistant",
+        conversationId: threadId,
+        clientCommandId: `legacy-task-${i}`,
+        messageId,
+        text: `内部任务指令 ${i}：原始 JSON`,
+      });
+      f.service.store.state.sourceByMessage[messageId] = "task";
+    }
+    v2.appendRuntime({
+      conversationId: threadId,
+      eventId: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      type: "message.created",
+      messageId: "mori-question-answer-legacy",
+      payload: { role: "user", channel: "answer", status: "final", body: "允许" },
+    });
+    f.service.store.state.sourceByMessage["mori-question-answer-legacy"] = "wechat";
+    await f.service.store.save();
+    await f.service.newSession();
+    await f.service.store.load();
+    await f.service.selectSession(threadId);
+    const visible: string[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    let emptyPages = 0;
+    do {
+      const snapshot = await f.service.snapshot(cursor);
+      visible.unshift(...snapshot.messages.map((message) => message.body));
+      if (!snapshot.messages.length) emptyPages++;
+      expect(snapshot.hasMoreMessages).toBe(Boolean(snapshot.messageCursor));
+      expect(snapshot.messages.some((message) => message.body.startsWith("内部任务指令"))).toBe(false);
+      expect(snapshot.messageCursor).not.toBe(cursor);
+      cursor = snapshot.messageCursor;
+      pages++;
+      expect(pages).toBeLessThan(10);
+    } while (cursor);
+    expect(pages).toBeGreaterThan(1);
+    expect(emptyPages).toBeGreaterThan(0);
+    expect(visible).toEqual([quote, `收到：${quote}`, "允许"]);
+    expect(v2.getMessage(threadId, "mori-user-legacy-task-0")?.body).toContain("原始 JSON");
+    v2.validateIntegrity(threadId);
+  } finally {
+    await f.service.close();
+    f.db.close();
   }
 });
 

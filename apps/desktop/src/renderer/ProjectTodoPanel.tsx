@@ -12,6 +12,7 @@ import {
   LoaderCircle,
   MessageSquarePlus,
   Pencil,
+  Pin,
   Plus,
   Search,
   Send,
@@ -781,7 +782,13 @@ export function ProjectTodoPanel(props: Props) {
                     onClick={() => void action(thread.id, async () =>
                       props.onCompose(await todoApi().getProjectTodo(composeTarget.id, false), thread.id))}>
                     {busy === thread.id ? <LoaderCircle size={16} className="spinning" /> : <MessageSquarePlus size={16} />}
-                    <span>{thread.title || thread.prompt}</span>
+                    <span className="todo-thread-title">{thread.title || thread.prompt}</span>
+                    {props.pinnedThreadIds.has(thread.id) && (
+                      <span className="todo-thread-pinned">
+                        <Pin size={12} aria-hidden="true" />
+                        {t("projectTree.pinned")}
+                      </span>
+                    )}
                   </button>
                 ))}
                 {!targetThreads.length && <p className="todo-thread-empty">

@@ -229,7 +229,12 @@ export class MoriAssistantService {
       sessions: [...state.sessions],
       ...(id ? { currentThreadId: id } : {}),
       draft: state.draft,
-      messages,
+      // Task wakeups carry model instructions and raw transcripts, not user input.
+      // Keep them in V2/native context, but exclude them from every UI history page.
+      // Cursors still refer to the unfiltered page so older messages stay reachable.
+      messages: messages.filter(
+        (message) => message.role !== "user" || state.sourceByMessage[message.messageId] !== "task",
+      ),
       hasMoreMessages: Boolean(page?.nextCursor),
       ...(page?.nextCursor ? { messageCursor: page.nextCursor } : {}),
       sourceByMessage: state.sourceByMessage,
@@ -380,10 +385,11 @@ export class MoriAssistantService {
     let threadId = this.store.state.currentThreadId;
     if (!threadId) {
       const now = new Date().toISOString();
+      const title = source === "task" ? "任务结果" : prompt.slice(0, 48);
       threadId = `thr_${randomUUID()}`;
       this.deps.conversations.saveThread({
         id: threadId,
-        title: prompt.slice(0, 48),
+        title,
         prompt,
         workspacePath: this.workspacePath,
         status: "idle",
@@ -393,7 +399,7 @@ export class MoriAssistantService {
         coreKind: "codex",
         coreLockedAt: now,
       });
-      this.store.state.sessions.unshift({ threadId, title: prompt.slice(0, 48), createdAt: now });
+      this.store.state.sessions.unshift({ threadId, title, createdAt: now });
       this.store.state.currentThreadId = threadId;
     }
     const v2 = this.deps.conversations.conversationV2();

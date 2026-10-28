@@ -4,6 +4,7 @@ import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import type {
   ImageDisplayArtifact,
+  ImageDisplayArtifactReadResult,
   ImageDisplaySourceKind,
   ImageDisplayToolInput,
 } from "../shared/image-display";
@@ -52,6 +53,7 @@ export async function createImageDisplayStore(
 export class ImageDisplayStore {
   /** Avoid re-reading the same artifact file on every chunked RPC. */
   private readonly fileCache = new Map<string, Buffer>();
+  private readonly thumbnailCache = new Map<string, Promise<ImageDisplayArtifactReadResult>>();
 
   constructor(
     private readonly db: DatabaseSyncType,
@@ -219,8 +221,47 @@ export class ImageDisplayStore {
     };
   }
 
+  readArtifactThumbnail(
+    artifactId: string,
+    createThumbnail: (bytes: Buffer) => { data: Buffer; width: number; height: number },
+  ): Promise<ImageDisplayArtifactReadResult> {
+    const id = artifactId.trim();
+    const cached = this.thumbnailCache.get(id);
+    if (cached) return cached;
+    const preview = (async () => {
+      const artifact = this.getArtifact(id);
+      const stat = await fs.stat(artifact.filePath);
+      if (stat.size > IMAGE_VIEW_MAX_BYTES)
+        throw new ImageDisplayError("too_large", "图片超过 20 MB，无法生成缩略图。");
+      // Cache only the small preview, not every original shown in the history list.
+      const bytes = this.fileCache.get(id) ?? (await fs.readFile(artifact.filePath));
+      if (bytes.length > IMAGE_VIEW_MAX_BYTES)
+        throw new ImageDisplayError("too_large", "图片超过 20 MB，无法生成缩略图。");
+      const thumbnail = createThumbnail(bytes);
+      return {
+        dataBase64: thumbnail.data.toString("base64"),
+        mimeType: "image/png",
+        path: artifact.filePath,
+        fileName: path.basename(artifact.filePath),
+        bytes: thumbnail.data.length,
+        width: thumbnail.width,
+        height: thumbnail.height,
+      };
+    })();
+    this.thumbnailCache.set(id, preview);
+    if (this.thumbnailCache.size > 64) {
+      const oldest = this.thumbnailCache.keys().next().value;
+      if (oldest) this.thumbnailCache.delete(oldest);
+    }
+    void preview.catch(() => {
+      if (this.thumbnailCache.get(id) === preview) this.thumbnailCache.delete(id);
+    });
+    return preview;
+  }
+
   close(): void {
     this.fileCache.clear();
+    this.thumbnailCache.clear();
     this.db.close();
   }
 }

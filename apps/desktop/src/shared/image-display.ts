@@ -36,6 +36,8 @@ export interface ImageDisplayArtifact {
 
 export interface ImageDisplayArtifactReadRequest {
   artifactId: string;
+  /** Bounded PNG preview for history-list icons; the original remains unchanged. */
+  thumbnail?: boolean;
 }
 
 export interface ImageDisplayArtifactReadResult {

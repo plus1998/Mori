@@ -110,7 +110,9 @@
 .todo-thread-list button { display:flex; align-items:center; gap:10px; width:100%; padding:12px 10px; border-radius:8px; text-align:left; background:transparent; }
 .todo-thread-list button:hover:not(:disabled) { background:var(--nav-hover); }
 .todo-thread-list button svg { flex-shrink:0; color:var(--accent-text); }
-.todo-thread-list button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.todo-thread-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.todo-thread-pinned { display:inline-flex; align-items:center; flex-shrink:0; gap:4px; color:var(--text-muted); font-size:11px; white-space:nowrap; }
+.todo-thread-list button .todo-thread-pinned svg { color:inherit; }
 .todo-thread-empty { padding:24px 8px; text-align:center; color:var(--text-muted); font-size:12px; }
 .todo-thread-hint { flex-shrink:0; margin:14px 0 0; color:var(--text-muted); font-size:11px; line-height:1.7; }
 .todo-thread-picker .todo-error { margin:12px 0 0; padding:0; }

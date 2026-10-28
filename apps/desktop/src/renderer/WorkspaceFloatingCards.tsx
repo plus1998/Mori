@@ -76,6 +76,7 @@ import { persistCardExpanded, readCardExpanded } from "./workspace-floating-card
 import { resolveWorkspacePlanTitle } from "./workspace-plan-title";
 import type { ScheduleDefinition, ScheduleOccurrence } from "../shared/scheduling";
 import { ScheduledMessagesCardBody } from "./ScheduledMessagesCardBody";
+import { ImageDisplayArtifactIcon } from "./ImageDisplayArtifactIcon";
 
 export interface ThreadUsageSummary {
   billing?: ThreadBillingSnapshot;
@@ -700,9 +701,7 @@ function ImageDisplayWorkspaceCardBody({
             disabled={!onOpenImageDisplayArtifact}
             title={title}
           >
-            <span className="workspace-resource-row-icon" aria-hidden>
-              <ImageIcon size={16} strokeWidth={1.75} />
-            </span>
+            <ImageDisplayArtifactIcon artifact={artifact} />
             <span className="workspace-resource-row-title">{title}</span>
             <span className="workspace-resource-row-meta">{meta}</span>
           </button>
