@@ -14,6 +14,21 @@
 .mori-icon-eyes {
   transform-origin: 24px 27px;
 }
+.mori-icon-busy {
+  opacity: 0;
+  transform-origin: 37px 36px;
+  pointer-events: none;
+}
+.mori-icon.is-thinking .mori-icon-busy {
+  opacity: 1;
+}
+.mori-icon.is-animated.is-thinking .mori-icon-busy {
+  animation: mori-icon-busy 14s ease-in-out infinite;
+}
+@keyframes mori-icon-busy {
+  0%, 12%, 72%, 100% { opacity: 0; transform: translateY(2px) scale(.8); }
+  20%, 58% { opacity: 1; transform: translateY(0) scale(1); }
+}
 .mori-icon.is-animated .mori-icon-eyes {
   animation: mori-icon-blink 7.4s ease-in-out infinite;
 }
@@ -70,6 +85,7 @@
 @media (prefers-reduced-motion: reduce) {
   .mori-icon.is-animated .mori-icon-eyes,
   .mori-icon.is-animated.is-thinking .mori-icon-head,
+  .mori-icon.is-animated.is-thinking .mori-icon-busy,
   .mori-icon.is-animated.is-waiting .mori-icon-head {
     animation: none;
   }

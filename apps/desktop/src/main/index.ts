@@ -4980,6 +4980,7 @@ function evaluateDesktopNotificationDelivery(
 }
 
 function showDesktopNotification(content: { title: string; body: string }, threadId: string): void {
+  moriAssistantHost?.windows.showNotice({ ...content, threadId });
   const notification = new Notification({
     title: content.title,
     body: content.body,

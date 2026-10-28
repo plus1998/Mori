@@ -14514,6 +14514,6 @@ installVitePreloadRecovery();
 document.documentElement.lang = i18n.resolvedLanguage ?? "zh-CN";
 createRoot(document.getElementById("root") as HTMLElement).render(
   <I18nextProvider i18n={i18n}>
-    {new URLSearchParams(window.location.search).get("mori") === "ball" ? <MoriAssistantSurface mode="ball" /> : new URLSearchParams(window.location.search).get("mori") === "panel" ? <MoriAssistantSurface mode="panel" /> : <App />}
+    {new URLSearchParams(window.location.search).get("mori") === "ball" ? <MoriAssistantSurface mode="ball" /> : new URLSearchParams(window.location.search).get("mori") === "notice" ? <MoriAssistantSurface mode="notice" /> : new URLSearchParams(window.location.search).get("mori") === "panel" ? <MoriAssistantSurface mode="panel" /> : <App />}
   </I18nextProvider>,
 );

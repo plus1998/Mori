@@ -995,6 +995,35 @@ html[data-mori-surface="ball"] #root {
   height: 64px;
   overflow: hidden;
 }
+html[data-mori-surface="notice"],
+html[data-mori-surface="notice"] body,
+html[data-mori-surface="notice"] #root {
+  width: 280px;
+  height: 96px;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+.mori-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  width: 264px;
+  height: 80px;
+  margin: 8px;
+  padding: 10px 13px;
+  overflow: hidden;
+  border-radius: 15px;
+  background: #faf7ee;
+  color: #344b3d;
+  box-shadow: 0 3px 9px #243d3026;
+  cursor: pointer;
+}
+.mori-notice:focus-visible { outline: 2px solid #527b65; outline-offset: -2px; }
+.mori-notice-label { font-size: 10px; font-weight: 600; color: #718d79; }
+.mori-notice strong { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mori-notice-body { font-size: 11px; color: #647569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mori-ball {
   margin: 0;
   padding: 4px;

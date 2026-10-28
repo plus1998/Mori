@@ -1,6 +1,9 @@
 import { app, BrowserWindow, globalShortcut, Menu, type NativeImage, screen, Tray } from "electron";
 import type { MoriAssistantSettings } from "../shared/mori-assistant";
 import type { MoriAssistantStore } from "./mori-assistant-store";
+import { MORI_ASSISTANT_CHANNELS } from "../shared/mori-assistant";
+
+type MoriNotice = { title: string; body: string; threadId: string };
 
 const assistantWindows = new WeakSet<BrowserWindow>();
 export function isMoriAssistantWindow(window: BrowserWindow): boolean {
@@ -10,6 +13,11 @@ export function isMoriAssistantWindow(window: BrowserWindow): boolean {
 export class MoriAssistantWindows {
   private ball: BrowserWindow | undefined;
   private panel: BrowserWindow | undefined;
+  private noticeWindow: BrowserWindow | undefined;
+  private noticeQueue: MoriNotice[] = [];
+  private notice: MoriNotice | undefined;
+  private noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  private noticeCreation: Promise<void> | undefined;
   private tray: Tray | undefined;
   private shortcut: string | undefined;
   private shortcutSuspended = false;
@@ -47,6 +55,7 @@ export class MoriAssistantWindows {
     else {
       this.ball?.destroy();
       this.ball = undefined;
+      this.clearNotices();
     }
     if (settings.enabled && settings.backgroundEnabled && !this.tray) {
       if (!this.options.icon) throw new Error("应用图标不可用，暂时无法启用后台运行。");
@@ -83,18 +92,18 @@ export class MoriAssistantWindows {
     }
   }
 
-  private async create(mode: "ball" | "panel"): Promise<BrowserWindow> {
+  private async create(mode: "ball" | "panel" | "notice"): Promise<BrowserWindow> {
     const window = new BrowserWindow({
-      width: mode === "ball" ? 64 : 430,
-      height: mode === "ball" ? 64 : 640,
+      width: mode === "ball" ? 64 : mode === "notice" ? 280 : 430,
+      height: mode === "ball" ? 64 : mode === "notice" ? 96 : 640,
       frame: false,
-      transparent: mode === "ball",
-      hasShadow: mode !== "ball",
+      transparent: mode !== "panel",
+      hasShadow: mode === "panel",
       alwaysOnTop: true,
       skipTaskbar: true,
       resizable: mode === "panel",
-      minWidth: mode === "ball" ? 64 : 360,
-      minHeight: mode === "ball" ? 64 : 420,
+      minWidth: mode === "ball" ? 64 : mode === "notice" ? 280 : 360,
+      minHeight: mode === "ball" ? 64 : mode === "notice" ? 96 : 420,
       show: false,
       title: "Mori 助手",
       ...(this.options.icon ? { icon: this.options.icon } : {}),
@@ -147,6 +156,7 @@ export class MoriAssistantWindows {
         ),
       );
       ball.on("moved", () => {
+        this.positionNotice();
         if (this.moveTimer) clearTimeout(this.moveTimer);
         this.moveTimer = setTimeout(() => {
           if (ball.isDestroyed()) return;
@@ -192,6 +202,70 @@ export class MoriAssistantWindows {
   hidePanel(): void {
     this.panel?.hide();
   }
+  get currentNotice(): MoriNotice | undefined {
+    return this.notice;
+  }
+  showNotice(notice: MoriNotice): void {
+    if (!this.ball || this.ball.isDestroyed()) return;
+    this.noticeQueue.push(notice);
+    void this.showNextNotice().catch(this.options.reportError);
+  }
+  private async showNextNotice(): Promise<void> {
+    if (this.notice || this.noticeCreation || !this.noticeQueue.length || !this.ball || this.ball.isDestroyed()) return;
+    this.notice = this.noticeQueue.shift();
+    this.noticeCreation = (async () => {
+      if (!this.noticeWindow || this.noticeWindow.isDestroyed())
+        this.noticeWindow = await this.create("notice");
+      if (!this.notice || !this.ball || this.ball.isDestroyed()) {
+        this.noticeWindow.destroy();
+        this.noticeWindow = undefined;
+        return;
+      }
+      this.positionNotice();
+      this.noticeWindow.webContents.send(MORI_ASSISTANT_CHANNELS.changed);
+      this.noticeWindow.showInactive();
+      this.noticeTimer = setTimeout(() => { this.takeNotice(); }, 12000);
+    })();
+    try {
+      await this.noticeCreation;
+    } catch (error) {
+      this.notice = undefined;
+      this.noticeWindow?.hide();
+      throw error;
+    } finally {
+      this.noticeCreation = undefined;
+      if (!this.notice && this.noticeQueue.length) void this.showNextNotice().catch(this.options.reportError);
+    }
+  }
+  takeNotice(): MoriNotice | undefined {
+    const notice = this.notice;
+    this.notice = undefined;
+    if (this.noticeTimer) clearTimeout(this.noticeTimer);
+    this.noticeTimer = undefined;
+    this.noticeWindow?.hide();
+    void this.showNextNotice().catch(this.options.reportError);
+    return notice;
+  }
+  private positionNotice(): void {
+    if (!this.ball || this.ball.isDestroyed() || !this.noticeWindow || this.noticeWindow.isDestroyed()) return;
+    const ball = this.ball.getBounds();
+    const area = screen.getDisplayNearestPoint({ x: ball.x, y: ball.y }).workArea;
+    const width = 280;
+    const height = 96;
+    const x = ball.x - width - 4 >= area.x ? ball.x - width - 4 : ball.x + ball.width + 4;
+    this.noticeWindow.setPosition(
+      Math.round(Math.max(area.x, Math.min(x, area.x + area.width - width))),
+      Math.round(Math.max(area.y, Math.min(ball.y + (ball.height - height) / 2, area.y + area.height - height))),
+    );
+  }
+  private clearNotices(): void {
+    if (this.noticeTimer) clearTimeout(this.noticeTimer);
+    this.noticeTimer = undefined;
+    this.notice = undefined;
+    this.noticeQueue = [];
+    this.noticeWindow?.destroy();
+    this.noticeWindow = undefined;
+  }
   moveBall(dx: number, dy: number): void {
     if (
       !Number.isFinite(dx) ||
@@ -212,5 +286,6 @@ export class MoriAssistantWindows {
     this.tray?.destroy();
     this.panel?.destroy();
     this.ball?.destroy();
+    this.clearNotices();
   }
 }

@@ -1286,8 +1286,9 @@ export function MoriAssistantPanel({
   );
 }
 
-export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" }) {
+export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notice" }) {
   const { snapshot, error } = useAssistant();
+  const [notice, setNotice] = useState<{ title: string; body: string; threadId: string }>();
   const drag = useRef<{ x: number; y: number; moved: boolean } | undefined>(undefined);
   useEffect(() => {
     document.documentElement.dataset.moriSurface = mode;
@@ -1295,8 +1296,21 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" }) {
       delete document.documentElement.dataset.moriSurface;
     };
   }, [mode]);
+  useEffect(() => {
+    if (mode !== "notice") return;
+    const refresh = () => { void desktopApi().moriAssistantNotice().then(setNotice); };
+    refresh();
+    return desktopApi().onMoriAssistantChanged(refresh);
+  }, [mode]);
   if (mode === "panel") return <MoriAssistantPanel floating />;
-  const status = snapshot?.status ?? "idle";
+  if (mode === "notice") return notice ? (
+    <button className="mori-notice" type="button" onClick={() => void desktopApi().moriAssistantOpenNotice()}>
+      <span className="mori-notice-label">Mori · 有新动态</span>
+      <strong>{notice.title}</strong>
+      <span className="mori-notice-body">{notice.body}</span>
+    </button>
+  ) : null;
+  const status = snapshot?.status === "idle" && snapshot.hasRunningTasks ? "running" : snapshot?.status ?? "idle";
   const mood: MoriIconMood = status === "running" ? "thinking" : status;
   return (
     <button

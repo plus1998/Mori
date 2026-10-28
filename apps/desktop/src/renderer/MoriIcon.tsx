@@ -58,6 +58,11 @@ export function MoriIcon({
           />
         </g>
       </g>
+      <g className="mori-icon-busy">
+        <rect x="30.5" y="31.5" width="12" height="10" rx="2.2" fill="#F5F1D9" stroke="#527B65" strokeWidth="1" />
+        <path d="M33 34.5h7M33 37h5" stroke="#89A98D" strokeWidth="1" strokeLinecap="round" />
+        <path d="M37.5 29.5l3-3 1.6 1.6-3 3-1.9.3z" fill="#D9AE6B" stroke="#527B65" strokeWidth=".65" strokeLinejoin="round" />
+      </g>
     </svg>
   );
 }

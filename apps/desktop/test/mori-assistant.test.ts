@@ -192,6 +192,23 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   };
 }
 
+test("floating busy state follows running conversations and clears after completion", async () => {
+  const { service, db, conversations } = await fixture();
+  try {
+    await service.send("prepare", "desktop", "busy-state");
+    const id = (await service.snapshot()).currentThreadId;
+    if (!id) throw new Error("Missing conversation");
+    expect((await service.snapshot()).hasRunningTasks).toBe(false);
+    conversations.updateThread(id, { status: "running", message: "" });
+    expect((await service.snapshot()).hasRunningTasks).toBe(true);
+    conversations.updateThread(id, { status: "completed", message: "" });
+    expect((await service.snapshot()).hasRunningTasks).toBe(false);
+  } finally {
+    await service.close();
+    db.close();
+  }
+});
+
 test("assistant process and conversations stay in the managed workspace when the task project changes", async () => {
   const { service, db, conversations, root, setCurrentProject } = await fixture();
   try {

@@ -335,6 +335,8 @@ const api = {
   moriAssistantBindWechat(): Promise<void> { return ipcRenderer.invoke(MORI.wechatBind); },
   moriAssistantDisconnectWechat(): Promise<void> { return ipcRenderer.invoke(MORI.wechatDisconnect); },
   moriAssistantMoveBall(x: number, y: number): Promise<void> { return ipcRenderer.invoke(MORI.ballMove, { x, y }); },
+  moriAssistantNotice(): Promise<{ title: string; body: string; threadId: string } | undefined> { return ipcRenderer.invoke(MORI.noticeGet); },
+  moriAssistantOpenNotice(): Promise<void> { return ipcRenderer.invoke(MORI.noticeOpen); },
   onMoriAssistantChanged(callback: () => void): () => void {
     const listener = () => callback();
     ipcRenderer.on(MORI.changed, listener);

@@ -65,6 +65,7 @@ export interface MoriAssistantSnapshot {
   messageCursor?: string;
   sourceByMessage: MoriAssistantState["sourceByMessage"];
   status: "idle" | "running" | "waiting" | "error";
+  hasRunningTasks: boolean;
   accountId?: string;
   error?: string;
   activity?: string;
@@ -95,6 +96,8 @@ export const MORI_ASSISTANT_CHANNELS = {
   wechatBind: "mori-assistant:wechat-bind",
   wechatDisconnect: "mori-assistant:wechat-disconnect",
   ballMove: "mori-assistant:ball-move",
+  noticeGet: "mori-assistant:notice-get",
+  noticeOpen: "mori-assistant:notice-open",
 } as const;
 
 export const DEFAULT_MORI_ASSISTANT_SETTINGS: MoriAssistantSettings = {

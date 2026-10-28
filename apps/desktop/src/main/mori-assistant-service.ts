@@ -221,6 +221,7 @@ export class MoriAssistantService {
       ...(page?.nextCursor ? { messageCursor: page.nextCursor } : {}),
       sourceByMessage: state.sourceByMessage,
       status: this.status,
+      hasRunningTasks: this.deps.conversations.listThreads().some((thread) => thread.status === "running"),
       ...(this.runtimeAccount ? { accountId: this.runtimeAccount } : {}),
       ...(this.error ? { error: this.error } : {}),
       ...(this.activity ? { activity: this.activity } : {}),

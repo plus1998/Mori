@@ -71,7 +71,14 @@ export class MoriAssistantHost {
     this.service.canNotifyWechat = () => this.wechat.canNotify;
     this.service.onWechatReply = (text, messageId, id) =>
       this.wechat.enqueueNotification(text, messageId, id);
+    const runningThreads = new Set(
+      deps.conversations.listThreads().filter((thread) => thread.status === "running").map((thread) => thread.id),
+    );
     this.unsubscribe = deps.subscribeTasks((id) => {
+      const wasRunning = runningThreads.size > 0;
+      if (deps.conversations.getThread(id)?.status === "running") runningThreads.add(id);
+      else runningThreads.delete(id);
+      if (wasRunning !== (runningThreads.size > 0)) this.service.capabilitiesChanged();
       void this.service.taskChanged(id).catch(deps.reportError);
     });
     const handle = <Args extends unknown[]>(channel: string, callback: (...args: Args) => unknown) => {
@@ -114,6 +121,11 @@ export class MoriAssistantHost {
     handle(C.wechatBind, () => this.wechat.bind());
     handle(C.wechatDisconnect, () => this.wechat.disconnect());
     handle(C.ballMove, (delta: { x: number; y: number }) => this.windows.moveBall(delta.x, delta.y));
+    handle(C.noticeGet, () => this.windows.currentNotice);
+    handle(C.noticeOpen, async () => {
+      const notice = this.windows.takeNotice();
+      if (notice) await deps.openThread(notice.threadId);
+    });
   }
 
   initialize(): Promise<void> {
