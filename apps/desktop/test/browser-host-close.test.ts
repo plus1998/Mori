@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import type { BrowserViewState } from "../src/shared/browser";
 
 mock.module("electron", () => ({
-  session: { fromPartition: () => ({ setPermissionRequestHandler() {}, on() {}, off() {} }) },
+  session: { fromPartition: () => ({ setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, on() {}, off() {} }) },
   shell: { openExternal: async () => {} },
   webContents: { fromId: () => undefined },
 }));

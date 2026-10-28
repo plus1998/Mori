@@ -718,8 +718,11 @@ export class BrowserHost {
       return;
     }
     const guestSession = session.fromPartition(partition);
-    guestSession.setPermissionRequestHandler((_wc, _permission, callback) => {
-      callback(false);
+    // Website copy buttons use the async Clipboard API, including rich text/images.
+    // Handle both Chromium permission paths; clipboard reads remain denied.
+    guestSession.setPermissionCheckHandler((_wc, permission) => permission === "clipboard-sanitized-write");
+    guestSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(permission === "clipboard-sanitized-write");
     });
     const download = (event: Electron.Event, item: DownloadItem, source: WebContents) => {
       if (!source) return;

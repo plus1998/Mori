@@ -4,7 +4,7 @@ import { BROWSER_AGENT_DEFAULT_VIEWPORT } from "../src/shared/browser-viewport";
 // BrowserHost imports electron main-process modules at module load time —
 // stub them before the dynamic import so the test runs under bun.
 mock.module("electron", () => ({
-  session: { fromPartition: () => ({ setPermissionRequestHandler: () => {}, on: () => {}, off: () => {} }) },
+  session: { fromPartition: () => ({ setPermissionRequestHandler: () => {}, setPermissionCheckHandler: () => {}, on: () => {}, off: () => {} }) },
   shell: { openExternal: async () => true },
   webContents: { fromId: () => undefined },
   BrowserWindow: class {},
