@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { MoriAssistantSnapshot } from "../shared/mori-assistant";
-import { MoriWechatTyping } from "./mori-assistant-wechat-typing";
+import { MoriWechatTyping, type WechatTypingDiagnostic } from "./mori-assistant-wechat-typing";
 
 const BASE = "https://ilinkai.weixin.qq.com";
 function pause(ms: number, signal: AbortSignal): Promise<void> {
@@ -83,6 +83,7 @@ export class MoriAssistantWechat {
       changed(): void;
       receive(text: string, id: string): Promise<string>;
       respondIfPending?(text: string): Promise<boolean>;
+      typingDiagnostic?: WechatTypingDiagnostic;
     },
   ) {}
 
@@ -201,7 +202,7 @@ export class MoriAssistantWechat {
           throw new Error("扫码成功但微信登录凭据不完整。");
         this.controller?.abort();
         await this.loop;
-        await this.stopTyping();
+        await this.stopTyping("rebind");
         this.feedbackError = undefined;
         this.generation += 1;
         this.state = {
@@ -235,10 +236,12 @@ export class MoriAssistantWechat {
   }
 
   async setEnabled(enabled: boolean): Promise<void> {
+    if (this.enabled !== enabled)
+      this.deps.typingDiagnostic?.("enabled", { enabled, hasToken: Boolean(this.state.token) });
     this.enabled = enabled;
     if (enabled && this.state.token) this.start();
     else if (!enabled) {
-      await this.stopTyping();
+      await this.stopTyping("disabled");
       this.controller?.abort();
       await this.loop;
       this.update({ status: "disconnected" });
@@ -250,10 +253,10 @@ export class MoriAssistantWechat {
     this.typing?.setWaiting(waiting);
   }
 
-  private async stopTyping(): Promise<void> {
+  private async stopTyping(reason: string): Promise<void> {
     const typing = this.typing;
     this.typing = undefined;
-    await typing?.stop();
+    await typing?.stop(reason);
   }
 
   private start(): void {
@@ -361,11 +364,20 @@ export class MoriAssistantWechat {
         await this.save();
         if (generation !== this.generation) return;
         const connection = this.state;
+        const traceId = randomUUID();
+        const diagnostic: WechatTypingDiagnostic = (event, fields) =>
+          this.deps.typingDiagnostic?.(event, { ...fields, traceId });
+        diagnostic("processing", {
+          waitingForInput: this.waitingForInput,
+          enabled: this.enabled,
+          supported: message.text !== "[此消息没有可处理的文字]",
+        });
         const typing =
           this.enabled && message.text !== "[此消息没有可处理的文字]"
             ? new MoriWechatTyping({
                 userId: message.userId,
                 contextToken: message.contextToken,
+                diagnostic,
                 request: (endpoint, body, signal, timeoutMs) =>
                   this.api(endpoint, body, signal, false, BASE, timeoutMs, connection),
                 report: (error) => {
@@ -383,7 +395,7 @@ export class MoriAssistantWechat {
             message.text === "[此消息没有可处理的文字]"
               ? "第一版支持文字和微信已转写的语音，请发送文字说明任务。"
               : await this.deps.receive(message.text, message.id);
-          cleanup = typing?.stop();
+          cleanup = typing?.stop("reply-ready");
           if (generation !== this.generation) return;
           if (!reply.trim()) throw new Error("助手没有生成可发送的文字回复，请在桌面端检查任务状态。");
           this.state.outbox.push({
@@ -394,7 +406,7 @@ export class MoriAssistantWechat {
           });
           message.status = "done";
         } catch (error) {
-          cleanup = typing?.stop();
+          cleanup = typing?.stop("processing-failed");
           if (generation !== this.generation) return;
           message.status = "failed";
           message.error = error instanceof Error ? error.message : String(error);

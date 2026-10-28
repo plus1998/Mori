@@ -5,6 +5,7 @@ import { type MoriAssistantDeps, MoriAssistantService } from "./mori-assistant-s
 import { MoriAssistantWechat } from "./mori-assistant-wechat";
 import { MoriAssistantWindows } from "./mori-assistant-windows";
 import { MoriPets } from "./mori-pets";
+import { appendUpstreamLogLine } from "./upstream-log";
 
 export class MoriAssistantHost {
   readonly service: MoriAssistantService;
@@ -44,6 +45,11 @@ export class MoriAssistantHost {
     });
     this.wechat = new MoriAssistantWechat(path.join(deps.dataDir, "mori-wechat.json"), {
       changed,
+      // Always retain presence diagnostics in packaged builds, without payloads or credentials.
+      typingDiagnostic: (event, fields) =>
+        appendUpstreamLogLine(
+          `[mori-wechat-typing] ${JSON.stringify({ time: new Date().toISOString(), pid: process.pid, event, ...fields })}\n`,
+        ),
       receive: async (text, id) => {
         const before = await this.service.snapshot();
         if (before.pendingInput) {

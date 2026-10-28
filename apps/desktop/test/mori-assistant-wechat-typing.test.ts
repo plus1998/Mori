@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { MoriWechatTyping } from "../src/main/mori-assistant-wechat-typing";
+import { MoriWechatTyping, wechatTypingFailure } from "../src/main/mori-assistant-wechat-typing";
 
 const sessions: MoriWechatTyping[] = [];
 afterEach(async () => {
@@ -18,6 +18,7 @@ type Request = ConstructorParameters<typeof MoriWechatTyping>[0]["request"];
 function fixture(request?: Request, options: ConstructorParameters<typeof MoriWechatTyping>[1] = {}) {
   const calls: Array<{ endpoint: string; body: Record<string, unknown>; timeoutMs: number }> = [];
   const reports: Array<string | undefined> = [];
+  const diagnostics: Array<{ event: string; fields: Record<string, string | number | boolean | null> }> = [];
   const session = new MoriWechatTyping(
     {
       userId: "user",
@@ -27,13 +28,14 @@ function fixture(request?: Request, options: ConstructorParameters<typeof MoriWe
         return request ? request(endpoint, body, signal, timeoutMs) : { typing_ticket: "ticket" };
       },
       report: (message) => reports.push(message),
+      diagnostic: (event, fields) => diagnostics.push({ event, fields }),
     },
     { delayMs: 5, intervalMs: 15, maxDurationMs: 1000, requestTimeoutMs: 20, ...options },
   );
   sessions.push(session);
   const statuses = () =>
     calls.filter((call) => call.endpoint.endsWith("/sendtyping")).map((call) => call.body.status);
-  return { session, calls, reports, statuses };
+  return { session, calls, reports, statuses, diagnostics };
 }
 
 test("快速完成不请求输入状态，也不产生聊天消息", async () => {
@@ -188,4 +190,40 @@ test("启动请求超时后停止续期并用独立的有效信号取消", async
   await until(() => reports.some(Boolean));
   await session.stop();
   expect(statuses()).toEqual([1, 2]);
+});
+
+test("输入状态诊断区分获取凭据、启动与取消，只保留结构化结果", async () => {
+  const { session, statuses, diagnostics } = fixture();
+  await until(() => statuses().includes(1));
+  await session.stop("reply-ready");
+  expect(diagnostics.filter((entry) => entry.event === "request").map((entry) => entry.fields.stage)).toEqual(
+    ["getconfig", "start-or-renew", "cancel"],
+  );
+  expect(diagnostics.find((entry) => entry.event === "stopped")?.fields.reason).toBe("reply-ready");
+  const serialized = JSON.stringify(diagnostics);
+  expect(serialized).not.toContain('"ticket"');
+  expect(serialized).not.toContain("context");
+  expect(serialized).not.toContain("user");
+  expect(diagnostics.find((entry) => entry.fields.stage === "getconfig")?.fields.hasTicket).toBe(true);
+});
+
+test.each([
+  [new DOMException("secret", "TimeoutError"), "timeout"],
+  [new Error("微信请求失败（HTTP 503）。 secret"), "HTTP 503"],
+  [new Error("微信返回错误 -4：secret-ticket secret-context"), "微信错误 -4"],
+  [new Error("No typing ticket"), "missing-ticket"],
+  [new Error("secret-ticket secret-context"), "network-or-invalid-response"],
+])("状态失败记录可诊断的错误类别或代码并剔除上游原文", (error, expected) => {
+  expect(wechatTypingFailure(error)).toBe(expected);
+});
+
+test("获取凭据失败向桌面报告阶段与错误码，不吞掉故障原因", async () => {
+  const { session, reports, diagnostics } = fixture(async () => {
+    throw new Error("微信返回错误 -4：secret-ticket secret-context");
+  });
+  await until(() => reports.some(Boolean));
+  await session.stop();
+  expect(reports.at(-1)).toContain("获取输入凭据失败（微信错误 -4）");
+  expect(diagnostics.find((entry) => entry.event === "request")?.fields.reason).toBe("微信错误 -4");
+  expect(JSON.stringify({ reports, diagnostics })).not.toContain("secret");
 });

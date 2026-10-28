@@ -116,6 +116,7 @@ async function typingFixture(
     JSON.stringify({ token: "token", userId: "user", cursor: "", inbox: [], outbox: [] }),
   );
   const calls: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
+  const diagnostics: Array<{ event: string; fields: Record<string, string | number | boolean | null> }> = [];
   const inbound = {
     message_id: "42",
     from_user_id: "user",
@@ -141,21 +142,25 @@ async function typingFixture(
     if (endpoint.endsWith("/sendtyping") || endpoint.endsWith("/sendmessage")) return Response.json({});
     throw new Error(`Unexpected endpoint ${endpoint}`);
   }) as typeof fetch;
-  const wechat = new MoriAssistantWechat(file, { changed() {}, receive });
+  const wechat = new MoriAssistantWechat(file, {
+    changed() {},
+    receive,
+    typingDiagnostic: (event, fields) => diagnostics.push({ event, fields }),
+  });
   await wechat.load();
   await wechat.setEnabled(true);
   const statuses = () =>
     calls.filter((call) => call.endpoint.endsWith("/sendtyping")).map((call) => call.body.status);
   const replies = () =>
     calls.filter((call) => call.endpoint.endsWith("/sendmessage")).map((call) => call.body.msg);
-  return { wechat, file, calls, statuses, replies };
+  return { wechat, file, calls, statuses, replies, diagnostics };
 }
 
 test("慢回复使用原生状态；重复收件只处理一次，清理请求挂起也不阻塞正式答复", async () => {
   const reply = Promise.withResolvers<string>();
   const cancel = Promise.withResolvers<Response>();
   let received = 0;
-  const { wechat, file, statuses, replies } = await typingFixture(
+  const { wechat, file, statuses, replies, diagnostics } = await typingFixture(
     async () => {
       received++;
       return reply.promise;
@@ -189,6 +194,16 @@ test("慢回复使用原生状态；重复收件只处理一次，清理请求�
   expect(state.inbox[0].status).toBe("done");
   expect(state.outbox).toEqual([]);
   expect(JSON.stringify(state)).not.toContain("typing_ticket");
+  const turn = diagnostics.filter((entry) => entry.fields.traceId);
+  expect(new Set(turn.map((entry) => entry.fields.traceId)).size).toBe(1);
+  expect(turn.find((entry) => entry.event === "processing")?.fields.waitingForInput).toBe(false);
+  expect(turn.find((entry) => entry.event === "stopped")?.fields.reason).toBe("reply-ready");
+  expect(turn.filter((entry) => entry.event === "request").map((entry) => entry.fields.stage)).toEqual([
+    "getconfig",
+    "start-or-renew",
+    "cancel",
+  ]);
+  expect(JSON.stringify(turn)).not.toContain('"context"');
 });
 
 test("处理失败取消原生状态，仅发送现有失败答复", async () => {

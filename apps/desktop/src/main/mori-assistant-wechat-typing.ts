@@ -8,6 +8,24 @@ interface TypingOptions {
   requestTimeoutMs: number;
 }
 
+export type WechatTypingDiagnostic = (
+  event: string,
+  fields: Record<string, string | number | boolean | null>,
+) => void;
+
+// Only allow structured codes into diagnostics. Upstream error text can contain credentials.
+export function wechatTypingFailure(error: unknown): string {
+  if (!(error instanceof Error)) return "unknown";
+  if (error.name === "TimeoutError") return "timeout";
+  if (error.name === "AbortError") return "aborted";
+  const http = error.message.match(/^微信请求失败（HTTP (\d+)）/);
+  if (http) return `HTTP ${http[1]}`;
+  const api = error.message.match(/^微信返回错误 (-?\d+)：/);
+  if (api) return `微信错误 ${api[1]}`;
+  if (error.message === "No typing ticket") return "missing-ticket";
+  return "network-or-invalid-response";
+}
+
 const DEFAULTS: TypingOptions = {
   delayMs: 1000,
   intervalMs: 5000,
@@ -47,13 +65,18 @@ export class MoriWechatTyping {
         timeoutMs: number,
       ): Promise<Record<string, unknown>>;
       report(message: string | undefined): void;
+      diagnostic?: WechatTypingDiagnostic;
     },
     options: Partial<TypingOptions> = {},
   ) {
     this.options = { ...DEFAULTS, ...options };
+    deps.diagnostic?.("created", {
+      delayMs: this.options.delayMs,
+      maxDurationMs: this.options.maxDurationMs,
+    });
     this.deadline = setTimeout(() => {
       deps.report("本轮微信输入状态已达到 10 分钟上限并停止；任务仍可继续，请在桌面查看进度。");
-      void this.stop();
+      void this.stop("timeout");
     }, this.options.maxDurationMs);
     this.resume();
   }
@@ -61,6 +84,7 @@ export class MoriWechatTyping {
   setWaiting(waiting: boolean): void {
     if (this.closed || this.waiting === waiting) return;
     this.waiting = waiting;
+    this.deps.diagnostic?.(waiting ? "paused" : "resumed", {});
     this.phase?.abort();
     if (!waiting) this.resume();
   }
@@ -77,12 +101,41 @@ export class MoriWechatTyping {
     body: unknown,
     signal: AbortSignal,
   ): Promise<Record<string, unknown>> {
-    return this.deps.request(endpoint, body, signal, this.options.requestTimeoutMs);
+    const started = Date.now();
+    const stage = endpoint.endsWith("/getconfig")
+      ? "getconfig"
+      : (body as { status: number }).status === 1
+        ? "start-or-renew"
+        : "cancel";
+    try {
+      const result = await this.deps.request(endpoint, body, signal, this.options.requestTimeoutMs);
+      this.deps.diagnostic?.("request", {
+        stage,
+        result: "accepted",
+        elapsedMs: Date.now() - started,
+        ret: typeof result.ret === "number" ? result.ret : null,
+        errcode: typeof result.errcode === "number" ? result.errcode : null,
+        ...(stage === "getconfig"
+          ? { hasTicket: typeof result.typing_ticket === "string" && Boolean(result.typing_ticket.trim()) }
+          : {}),
+      });
+      return result;
+    } catch (error) {
+      this.deps.diagnostic?.("request", {
+        stage,
+        result: "failed",
+        elapsedMs: Date.now() - started,
+        reason: wechatTypingFailure(error),
+        aborted: signal.aborted,
+      });
+      throw error;
+    }
   }
 
   private async run(signal: AbortSignal): Promise<void> {
     let ticket: string | undefined;
     let attempted = false;
+    let stage = "获取输入凭据";
     try {
       await pause(this.options.delayMs, signal);
       if (signal.aborted) return;
@@ -99,19 +152,23 @@ export class MoriWechatTyping {
       if (typeof config.typing_ticket !== "string" || !config.typing_ticket.trim())
         throw new Error("No typing ticket");
       ticket = config.typing_ticket;
+      stage = "启动或续期";
       while (!signal.aborted) {
         // A timed out/aborted start may have reached WeChat: always cancel it.
         attempted = true;
+        const started = Date.now();
         await this.request("/ilink/bot/sendtyping", this.body(ticket, 1), signal);
         if (signal.aborted) return;
         this.deps.report(undefined);
-        await pause(this.options.intervalMs, signal);
+        await pause(Math.max(0, this.options.intervalMs - (Date.now() - started)), signal);
       }
-    } catch {
+    } catch (error) {
       if (!signal.aborted) {
         this.closed = true;
         clearTimeout(this.deadline);
-        this.deps.report("微信原生输入状态暂不可用；本轮已停止续期，文字回复不受影响。");
+        this.deps.report(
+          `微信原生输入状态${stage}失败（${wechatTypingFailure(error)}）；本轮已停止续期，文字回复不受影响。`,
+        );
       }
     } finally {
       if (ticket && attempted) {
@@ -141,7 +198,8 @@ export class MoriWechatTyping {
     };
   }
 
-  stop(): Promise<void> {
+  stop(reason = "completed"): Promise<void> {
+    if (!this.closed) this.deps.diagnostic?.("stopped", { reason });
     this.closed = true;
     clearTimeout(this.deadline);
     this.phase?.abort();
