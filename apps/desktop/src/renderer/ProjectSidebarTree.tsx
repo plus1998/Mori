@@ -114,6 +114,11 @@ export function ProjectSidebarTree({
   const renameInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
   const treeRef = useRef<HTMLDivElement>(null);
+  const revealThreadVisible =
+    revealTarget?.kind === "thread" &&
+    projectTree.some(
+      (item) => !item.collapsed && item.visibleThreads.some((thread) => thread.id === revealTarget.id),
+    );
 
   useEffect(() => {
     if (renamingPath) {
@@ -140,7 +145,7 @@ export function ProjectSidebarTree({
   }
 
   useLayoutEffect(() => {
-    if (!revealTarget) {
+    if (!revealTarget || (revealTarget.kind === "thread" && !revealThreadVisible)) {
       return;
     }
     const attribute = revealTarget.kind === "thread" ? "data-thread-id" : "data-project-path";
@@ -156,7 +161,7 @@ export function ProjectSidebarTree({
     void target.offsetWidth;
     target.classList.add("sidebar-reveal-highlight");
     return () => target.classList.remove("sidebar-reveal-highlight");
-  }, [revealTarget]);
+  }, [revealTarget, revealThreadVisible]);
 
   useEffect(() => {
     if (!openMenuPath) {

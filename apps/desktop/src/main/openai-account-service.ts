@@ -1192,9 +1192,13 @@ export class OpenAIAccountService {
       this.quotaRefreshPolicy.succeed(accountId, credentials());
       return result;
     } catch (error) {
-      this.quotaRefreshPolicy.fail(accountId, credentials(), error);
+      const message = error instanceof Error ? error.message : String(error);
+      const displayedError = /\b401\b/u.test(message)
+        ? new Error(`登录令牌已过期，请重新登录该账号。（${message}）`, { cause: error })
+        : error;
+      this.quotaRefreshPolicy.fail(accountId, credentials(), error, displayedError instanceof Error ? displayedError.message : undefined);
       this.recordCredentialFailure(accountId, before.authJson, error);
-      throw error;
+      throw displayedError;
     } finally {
       this.onAccountsChanged?.({ syncStatus: this.syncStatus });
     }

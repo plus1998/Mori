@@ -3199,7 +3199,7 @@ export const i18nCatalogs = {
       "projectTree.pinNamed": "置顶 {{name}}",
       "projectTree.deleteThread": "删除对话",
       "projectTree.deleteThreadNamed": "删除对话 {{name}}",
-      "projectTree.showMore": "展开显示",
+      "projectTree.showMore": "展开更多",
       "projectTree.noThreads": "暂无对话",
       "projectTree.list": "项目列表",
       "projectTree.dropFolder": "将文件夹拖到此处打开项目",

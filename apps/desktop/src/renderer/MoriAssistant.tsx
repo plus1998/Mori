@@ -1222,10 +1222,12 @@ export function MoriAssistantPanel({
           {snapshot && !snapshot.settings.enabled ? (
             <div className="mori-disabled-footer">
               <span>配置账号和模型，开始与 Mori 对话</span>
-              <button type="button" className="mori-primary" onClick={openSettings}>
-                配置助手
-                <ChevronRight size={14} />
-              </button>
+              {messages.length ? (
+                <button type="button" className="mori-primary" onClick={openSettings}>
+                  配置助手
+                  <ChevronRight size={14} />
+                </button>
+              ) : null}
             </div>
           ) : (
             <footer className="mori-composer">

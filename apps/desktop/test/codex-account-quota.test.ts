@@ -127,6 +127,28 @@ function auth(exp: number, refresh: string, stamp: string): string {
 const expiredAuth = auth(1, "old-refresh", "2026-01-01T00:00:00Z");
 const freshAuth = auth(2_000_000_000, "new-refresh", "2026-10-22T00:00:00Z");
 
+test("a final quota 401 reports an expired token while preserving the original error and retry", async () => {
+  const root = await serviceRoot();
+  let fail = true;
+  const client = quotaClient((method) => {
+    if (method === "account/read") return accountResponse;
+    if (fail) throw new Error("401 Unauthorized");
+    return rateLimits;
+  });
+  const service = new OpenAIAccountService(root, "unused", undefined, async () => client);
+  await service.initialize();
+  cleanups.push(() => service.dispose());
+  const account = await service.createAccount("Quota");
+  await service.setAuthJson(account.id, freshAuth);
+  await service.setActiveAccount(account.id);
+  await service.applyPendingTransition();
+  await expect(service.queryQuota(account.id)).rejects.toThrow("登录令牌已过期，请重新登录该账号。（401 Unauthorized）");
+  expect((await service.listAccounts())[0]?.quotaRefresh?.error).toContain("登录令牌已过期");
+  fail = false;
+  expect((await service.queryQuota(account.id)).planType).toBe("plus");
+  expect((await service.listAccounts())[0]?.quotaRefresh?.error).toBeUndefined();
+});
+
 test("wake deduplicates hi, keeps the selected account and reports a post-reply quota failure separately", async () => {
   const root = await serviceRoot();
   let notify: ((method: string, params: unknown) => void) | undefined;

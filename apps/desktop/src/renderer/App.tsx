@@ -654,7 +654,7 @@ const customProjectNamesStorageKey = "eco.sidebar.custom-project-names";
 const customProjectSearchTermsStorageKey = "eco.sidebar.custom-project-search-terms";
 const compactSidebarMediaQuery = MAIN_SHELL_MEDIA_QUERIES.sidebarOverlay;
 const taskPanelNarrowMediaQuery = MAIN_SHELL_MEDIA_QUERIES.taskOverlay;
-const sidebarThreadsCollapsed = 5;
+const sidebarThreadsPageSize = 10;
 
 interface RecentProject {
   path: string;
@@ -1590,7 +1590,9 @@ function App() {
   const [projectWorkspace, setProjectWorkspace] = useState<WorkspaceInfo>();
   const [selectedProjectPath, setSelectedProjectPath] = useState<string>();
   const [collapsedProjectPaths, setCollapsedProjectPaths] = useState<Set<string>>(() => new Set());
-  const [expandedProjectThreadPaths, setExpandedProjectThreadPaths] = useState<Set<string>>(() => new Set());
+  const [projectThreadVisibleCounts, setProjectThreadVisibleCounts] = useState<Map<string, number>>(
+    () => new Map(),
+  );
   const [hiddenProjectPaths, setHiddenProjectPaths] = useState<Set<string>>(() => new Set());
   const [pinnedProjectPaths, setPinnedProjectPaths] = useState<Set<string>>(() => new Set());
   const [pinnedThreadIds, setPinnedThreadIds] = useState<Set<string>>(() => new Set());
@@ -2592,14 +2594,6 @@ function App() {
         const next = new Set(current);
         next.delete(thread.workspacePath);
         window.localStorage.setItem(collapsedProjectsStorageKey, JSON.stringify([...next]));
-        return next;
-      });
-      setExpandedProjectThreadPaths((current) => {
-        if (current.has(thread.workspacePath)) {
-          return current;
-        }
-        const next = new Set(current);
-        next.add(thread.workspacePath);
         return next;
       });
       setSidebarRevealTarget((current) => ({
@@ -3708,12 +3702,34 @@ function App() {
     return grouped;
   }, [pinnedThreadIds, threads]);
 
+  // Keep opened search/notification results visible, expanding only through their page.
+  useEffect(() => {
+    if (!selectedThreadId) {
+      return;
+    }
+    for (const [projectPath, projectThreads] of threadsByProject) {
+      const threadIndex = projectThreads.findIndex((thread) => thread.id === selectedThreadId);
+      if (threadIndex < 0) {
+        continue;
+      }
+      const requiredCount =
+        (Math.floor(threadIndex / sidebarThreadsPageSize) + 1) * sidebarThreadsPageSize;
+      setProjectThreadVisibleCounts((current) => {
+        if ((current.get(projectPath) ?? sidebarThreadsPageSize) >= requiredCount) {
+          return current;
+        }
+        return new Map(current).set(projectPath, requiredCount);
+      });
+      break;
+    }
+  }, [selectedThreadId, threadsByProject]);
+
   const projectTree = useMemo(
     () =>
       projects.map((project) => {
         const projectThreads = threadsByProject.get(normalizeProjectPath(project.path)) ?? [];
-        const threadsExpanded = expandedProjectThreadPaths.has(project.path);
-        const visibleCount = threadsExpanded ? projectThreads.length : sidebarThreadsCollapsed;
+        const visibleCount =
+          projectThreadVisibleCounts.get(normalizeProjectPath(project.path)) ?? sidebarThreadsPageSize;
         return {
           project: {
             ...project,
@@ -3723,12 +3739,12 @@ function App() {
           projectThreads,
           collapsed: collapsedProjectPaths.has(project.path),
           visibleThreads: projectThreads.slice(0, visibleCount),
-          hasMore: !threadsExpanded && projectThreads.length > visibleCount,
+          hasMore: projectThreads.length > visibleCount,
         };
       }),
     [
       collapsedProjectPaths,
-      expandedProjectThreadPaths,
+      projectThreadVisibleCounts,
       homeProjectPath,
       pinnedProjectPaths,
       projects,
@@ -10873,12 +10889,13 @@ function App() {
       window.localStorage.setItem(collapsedProjectsStorageKey, JSON.stringify([...next]));
       return next;
     });
-    setExpandedProjectThreadPaths((current) => {
-      if (!current.has(projectPath)) {
+    setProjectThreadVisibleCounts((current) => {
+      const projectPathKey = normalizeProjectPath(projectPath);
+      if (!current.has(projectPathKey)) {
         return current;
       }
-      const next = new Set(current);
-      next.delete(projectPath);
+      const next = new Map(current);
+      next.delete(projectPathKey);
       return next;
     });
     setSelectedProjectPath((current) => (current === projectPath ? undefined : current));
@@ -10966,11 +10983,6 @@ function App() {
       window.localStorage.setItem(collapsedProjectsStorageKey, JSON.stringify([...next]));
       return next;
     });
-    const projectThreads = threadsByProject.get(thread.workspacePath) ?? [];
-    const threadIndex = projectThreads.findIndex((item) => item.id === thread.id);
-    if (threadIndex >= sidebarThreadsCollapsed) {
-      expandProjectThreads(thread.workspacePath);
-    }
   }
 
   function selectSearchThread(thread: ThreadSummary) {
@@ -11061,13 +11073,10 @@ function App() {
   }
 
   function expandProjectThreads(projectPath: string) {
-    setExpandedProjectThreadPaths((current) => {
-      if (current.has(projectPath)) {
-        return current;
-      }
-      const next = new Set(current);
-      next.add(projectPath);
-      return next;
+    setProjectThreadVisibleCounts((current) => {
+      const projectPathKey = normalizeProjectPath(projectPath);
+      const visibleCount = current.get(projectPathKey) ?? sidebarThreadsPageSize;
+      return new Map(current).set(projectPathKey, visibleCount + sidebarThreadsPageSize);
     });
   }
 
