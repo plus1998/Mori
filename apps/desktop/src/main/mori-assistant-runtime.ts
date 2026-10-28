@@ -7,7 +7,12 @@ import type { AccountUsageRecord } from "./account-usage-store";
 import { CodexAccountUsageTracker } from "./codex-account-usage-tracker";
 import { resolveCodexProxyUrl, type SystemProxyResolver } from "./codex-proxy";
 import { buildCodexAppServerEnv } from "./codex-runtime-lifecycle";
-import { MORI_COMPUTER_MCP_SERVER, MoriComputerToolGateway } from "./mori-computer-tool-gateway";
+import { MORI_TODO_TOOLS } from "./mori-assistant-todos";
+import {
+  MORI_COMPUTER_MCP_SERVER,
+  MORI_TASK_MCP_SERVER,
+  MoriAssistantToolGateway,
+} from "./mori-assistant-tool-gateway";
 import { type OpenAIAccountService, startSocksToHttpBridge } from "./openai-account-service";
 
 export interface AssistantTool {
@@ -35,10 +40,19 @@ export interface AssistantRuntimeDeps {
   onUsage?(record: AccountUsageRecord, aggregate: boolean): void;
 }
 
+function isTaskTool(tool: AssistantTool): boolean {
+  return (
+    MORI_TODO_TOOLS.some((todoTool) => todoTool.name === tool.name) ||
+    ["mori_start_task", "mori_send_to_task"].includes(tool.name)
+  );
+}
+
 export class MoriAssistantRuntime {
   private child: ChildProcessWithoutNullStreams | undefined;
-  private computerGateway: MoriComputerToolGateway | undefined;
+  private computerGateway: MoriAssistantToolGateway | undefined;
   private computerConfig: Record<string, unknown> | undefined;
+  private taskGateway: MoriAssistantToolGateway | undefined;
+  private taskConfig: Record<string, unknown> | undefined;
   private client: CodexAppServerClient | undefined;
   private bridge: { close(): void } | undefined;
   private accessToken: string | undefined;
@@ -69,8 +83,13 @@ export class MoriAssistantRuntime {
   private async startOnce(): Promise<void> {
     const { deps } = this;
     const computerTools = deps.tools.filter((tool) => tool.name.startsWith("mori_computer_"));
+    const taskTools = deps.tools.filter(isTaskTool);
+    if (taskTools.length) {
+      this.taskGateway = new MoriAssistantToolGateway(taskTools, deps.callTool, MORI_TASK_MCP_SERVER);
+      this.taskConfig = await this.taskGateway.start();
+    }
     if (computerTools.length) {
-      this.computerGateway = new MoriComputerToolGateway(computerTools, deps.callTool);
+      this.computerGateway = new MoriAssistantToolGateway(computerTools, deps.callTool);
       this.computerConfig = await this.computerGateway.start();
     }
     await fs.mkdir(deps.home, { recursive: true });
@@ -142,12 +161,17 @@ export class MoriAssistantRuntime {
         if (method === "mcpServer/elicitation/request") {
           const p = params as { threadId?: string; serverName?: string; mode?: string; message?: string };
           const match = p.message?.match(/run tool\s+["']([^"']+)["']/i);
-          // This endpoint only forwards to the host's own gated Computer Use tools.
+          // Only the host's explicitly exposed, validated tools can use these endpoints.
+          const tools =
+            p.serverName === MORI_COMPUTER_MCP_SERVER
+              ? computerTools
+              : p.serverName === MORI_TASK_MCP_SERVER
+                ? taskTools
+                : [];
           if (
             p.threadId === this.threadId &&
-            p.serverName === MORI_COMPUTER_MCP_SERVER &&
             p.mode === "form" &&
-            computerTools.some((tool) => tool.name === match?.[1]?.replace(/^mcp__mori_computer__/, ""))
+            tools.some((tool) => tool.name === match?.[1]?.replace(/^mcp__mori_(computer|tasks)__/, ""))
           )
             return { action: "accept", content: {}, _meta: null };
           return { action: "decline", content: null, _meta: null };
@@ -197,14 +221,17 @@ export class MoriAssistantRuntime {
       cwd: this.deps.cwd,
       approvalPolicy: "untrusted",
       sandbox: "read-only",
-      baseInstructions: `你是 ${settings.name}，Mori 桌面助手。通过 mori_ 开头的工具管理桌面端项目、会话和任务。可以通过 mori_computer MCP 工具直接读取和操作用户的本机应用。\n${settings.instructions}\n不要直接运行 shell、读取系统文件或操作代码；需要具体工作时创建工作会话。只在工具成功后确认完成。没有配置长期记忆，不得声称记住了跨会话信息。`,
+      baseInstructions: `你是 ${settings.name}，Mori 桌面助手。通过 mori_ 开头的工具管理桌面端项目、待办、会话和任务。可以通过 mori_computer MCP 工具直接读取和操作用户的本机应用。\n${settings.instructions}\n不要直接运行 shell、读取系统文件或操作代码；需要具体工作时创建工作会话。只在工具成功后确认完成。没有配置长期记忆，不得声称记住了跨会话信息。`,
       developerInstructions:
-        "优先保持对话简洁。创建任务后返回任务信息，用户可以继续对话；按需查询任务状态。动态桌面状态通过工具读取。你始终在应用管理的独立工作区运行，不随用户打开的项目切换。工作任务在各自项目中执行，不得使用你的独立工作区。涉及项目但项目不明确时，先询问。电脑操作先调用 mori_computer_tools 获取真实工具参数，再用 mori_computer_call。应用状态要及时刷新，优先使用辅助功能元素索引。截图返回本地路径，需要时调用 mori_computer_view 传入 path 和具体问题，复用现有看图能力；不要自行读取截图文件或把图片编码塞进上下文。电脑操作审批交由主进程处理，不得绕过。不要自行批准工作会话的权限请求。",
+        "优先保持对话简洁。创建任务后返回任务信息，用户可以继续对话；按需查询任务状态。待办管理与派发统一使用 mori_tasks MCP 中提供的工具。通过 mori_list_todos / mori_read_todo / mori_create_todo / mori_update_todo / mori_delete_todo 增删改查，与 Agent 内部执行计划不同。修改、删除先读取最新 revision，版本冲突时重新读取，不得覆盖用户修改。用户要求把待办作为任务创建 Agent 时，调用 mori_start_task 并提供 todoId；要求交给已有 Agent 时，调用 mori_send_to_task 并提供 threadId 和 todoId。保留原待办引用，不要把文字预览当作全部任务或遗漏图片。待办所属项目已经明确，不必重复询问。发送或排队成功只表示 Agent 已接收，不得据此将待办标为完成。动态桌面状态通过工具读取。你始终在应用管理的独立工作区运行，不随用户打开的项目切换。工作任务在各自项目中执行，不得使用你的独立工作区。涉及项目但项目不明确时，先询问。电脑操作先调用 mori_computer_tools 获取真实工具参数，再用 mori_computer_call。应用状态要及时刷新，优先使用辅助功能元素索引。截图返回本地路径，需要时调用 mori_computer_view 传入 path 和具体问题，复用现有看图能力；不要自行读取截图文件或把图片编码塞进上下文。电脑操作审批交由主进程处理，不得绕过。不要自行批准工作会话的权限请求。",
       config: {
         web_search: "disabled",
         "features.shell_tool": false,
         "features.multi_agent": false,
-        ...(this.computerConfig ? { mcp_servers: { [MORI_COMPUTER_MCP_SERVER]: this.computerConfig } } : {}),
+        mcp_servers: {
+          ...(this.computerConfig ? { [MORI_COMPUTER_MCP_SERVER]: this.computerConfig } : {}),
+          ...(this.taskConfig ? { [MORI_TASK_MCP_SERVER]: this.taskConfig } : {}),
+        },
       },
     };
     const response = existing
@@ -215,7 +242,9 @@ export class MoriAssistantRuntime {
         })
       : await this.requireClient().request<{ thread: { id: string } }>("thread/start", {
           ...params,
-          dynamicTools: this.deps.tools.filter((tool) => !tool.name.startsWith("mori_computer_")),
+          dynamicTools: this.deps.tools.filter(
+            (tool) => !tool.name.startsWith("mori_computer_") && !isTaskTool(tool),
+          ),
         });
     if (!response.thread.id) throw new Error("Codex 未返回助手会话 ID。");
     this.threadId = response.thread.id;
@@ -349,5 +378,8 @@ export class MoriAssistantRuntime {
     await this.computerGateway?.close();
     this.computerGateway = undefined;
     this.computerConfig = undefined;
+    await this.taskGateway?.close();
+    this.taskGateway = undefined;
+    this.taskConfig = undefined;
   }
 }

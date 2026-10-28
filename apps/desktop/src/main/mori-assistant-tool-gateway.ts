@@ -6,10 +6,11 @@ import { handleMcpStreamableHttpRequest } from "./mcp-streamable-http";
 import type { AssistantTool } from "./mori-assistant-runtime";
 
 export const MORI_COMPUTER_MCP_SERVER = "mori_computer";
-const SECRET_HEADER = "x-mori-computer-secret";
+export const MORI_TASK_MCP_SERVER = "mori_tasks";
+const SECRET_HEADER = "x-mori-tool-secret";
 
 /** Runtime-local capability endpoint. Existing native threads gain these tools on resume. */
-export class MoriComputerToolGateway {
+export class MoriAssistantToolGateway {
   private readonly secret = randomBytes(24).toString("base64url");
   private server: http.Server | undefined;
   constructor(
@@ -20,21 +21,22 @@ export class MoriComputerToolGateway {
       id: string,
       signal: AbortSignal,
     ) => Promise<unknown>,
+    private readonly serverName: string = MORI_COMPUTER_MCP_SERVER,
   ) {}
   async start(): Promise<Record<string, unknown>> {
-    if (this.server) throw new Error("Mori 电脑操作入口已经启动。");
+    if (this.server) throw new Error("Mori 工具入口已经启动。");
     const server = http.createServer((req, res) => {
       void handleMcpStreamableHttpRequest(
         req,
         res,
         {
-          serverName: MORI_COMPUTER_MCP_SERVER,
+          serverName: this.serverName,
           listTools: async () => ({ tools: this.tools.map((tool) => ({ ...tool })) }),
           callTool: async ({ name, arguments: args, signal }) => {
             signal.throwIfAborted();
-            if (!this.tools.some((tool) => tool.name === name)) throw new Error("未知的 Mori 电脑操作入口。");
+            if (!this.tools.some((tool) => tool.name === name)) throw new Error("未知的 Mori 工具入口。");
             try {
-              const result = await this.call(name, args, `mori-computer-${randomUUID()}`, signal);
+              const result = await this.call(name, args, `${this.serverName}-${randomUUID()}`, signal);
               return { content: [{ type: "text", text: JSON.stringify(result) }] };
             } catch (error) {
               return {
@@ -54,7 +56,7 @@ export class MoriComputerToolGateway {
     });
     return {
       ...buildCodexMcpServerOverride({
-        name: MORI_COMPUTER_MCP_SERVER,
+        name: this.serverName,
         transport: "http",
         url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`,
         httpHeaders: { [SECRET_HEADER]: this.secret },

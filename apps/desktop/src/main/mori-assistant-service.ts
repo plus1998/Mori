@@ -12,6 +12,7 @@ import type { SystemProxyResolver } from "./codex-proxy";
 import type { ConversationStore } from "./conversation-store";
 import { type AssistantTool, MoriAssistantRuntime } from "./mori-assistant-runtime";
 import { MoriAssistantStore, parseAssistantSettings } from "./mori-assistant-store";
+import { MORI_TODO_TOOLS, MoriAssistantTodos } from "./mori-assistant-todos";
 import { isMoriComputerAction, type MoriComputerUseAccess } from "./mori-computer-use";
 import type { OpenAIAccountService } from "./openai-account-service";
 
@@ -37,6 +38,7 @@ const tool = (
   inputSchema: { type: "object", properties, required, additionalProperties: false },
 });
 export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
+  ...MORI_TODO_TOOLS,
   tool(
     "mori_computer_tools",
     "查看电脑操作是否可用并读取真实工具名称和参数定义。操作前先读取；全局设置关闭或缺少权限时明确报错。",
@@ -65,8 +67,9 @@ export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
   ),
   tool(
     "mori_start_task",
-    "在指定项目新建工作会话并开始任务，立即返回 threadId；执行在后台继续。项目必须明确。仅用户要求微信通知时设置 notifyWechat。",
+    "新建 Agent 工作会话并立即开始任务，返回 threadId，后台继续执行。普通任务必须提供 projectPath 和 prompt；执行待办时提供 todoId，使用原待办所属项目及完整引用，prompt 可补充要求，不能另选项目。仅用户要求微信通知时设置 notifyWechat。",
     {
+      todoId: text,
       projectPath: text,
       prompt: text,
       coreKind: { type: "string", enum: ["claude", "codex", "pi", "acp"] },
@@ -75,12 +78,14 @@ export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
       mainAgentConfigId: { type: "string" },
       notifyWechat: { type: "boolean" },
     },
-    ["projectPath", "prompt"],
+    [],
   ),
-  tool("mori_send_to_task", "向工作会话发送后续消息；运行中按现有会话机制排队。", { threadId: text, text }, [
-    "threadId",
-    "text",
-  ]),
+  tool(
+    "mori_send_to_task",
+    "向现有 Agent 工作会话发送消息或待办；运行中按现有机制排队。text 和 todoId 至少提供一项；待办必须与目标会话属于同一项目，发送原待办引用以便 Agent 读取图片和回写状态。发送成功只表示已接收，不表示待办已完成。",
+    { threadId: text, text, todoId: text },
+    ["threadId"],
+  ),
   tool("mori_cancel_task", "停止用户指定的工作会话。不会删除历史。", { threadId: text }, ["threadId"]),
   tool(
     "mori_update_thread_model",
@@ -141,6 +146,7 @@ export class MoriAssistantService {
   private activeSource: "desktop" | "wechat" | "task" = "desktop";
   private activeCommand = "";
   private readonly notifiedTasks = new Map<string, string>();
+  private readonly todos: MoriAssistantTodos;
   wechatStatus: MoriAssistantSnapshot["wechat"] = { status: "disconnected" };
   onWechatReply?: (text: string, messageId: string | undefined, notificationId: string) => Promise<void>;
   canNotifyWechat?: () => boolean;
@@ -148,6 +154,7 @@ export class MoriAssistantService {
   constructor(private readonly deps: MoriAssistantDeps) {
     this.store = new MoriAssistantStore(path.join(deps.dataDir, "mori-assistant.json"));
     this.workspacePath = path.join(deps.dataDir, "mori-assistant", "workspace");
+    this.todos = new MoriAssistantTodos(deps.invoke, (value) => this.taskProjectPath(value));
   }
 
   async initialize(): Promise<void> {
@@ -670,6 +677,15 @@ export class MoriAssistantService {
     this.emit();
   }
 
+  private taskProjectPath(value: string): string {
+    if (!path.isAbsolute(value)) throw new Error("项目必须提供明确的绝对路径。");
+    const projectPath = path.resolve(value);
+    const assistantPath = path.dirname(this.workspacePath);
+    if (projectPath === assistantPath || projectPath.startsWith(`${assistantPath}${path.sep}`))
+      throw new Error("Mori 的独立工作区不能用作任务项目，请选择具体的工作项目。");
+    return projectPath;
+  }
+
   private async callTool(
     name: string,
     args: Record<string, unknown>,
@@ -680,7 +696,17 @@ export class MoriAssistantService {
     const definition = MORI_ASSISTANT_TOOLS.find((item) => item.name === name);
     if (!definition) throw new Error("未知的 Mori 桌面工具。");
     const schema = definition.inputSchema as {
-      properties: Record<string, { type?: string; enum?: string[] }>;
+      properties: Record<
+        string,
+        {
+          type?: string;
+          enum?: readonly string[];
+          minimum?: number;
+          maximum?: number;
+          minLength?: number;
+          maxLength?: number;
+        }
+      >;
       required: string[];
     };
     for (const key of Object.keys(args))
@@ -688,11 +714,26 @@ export class MoriAssistantService {
     for (const [key, value] of Object.entries(args)) {
       const field = schema.properties[key];
       if (!field) throw new Error(`工具参数 ${key} 不允许。`);
-      if (typeof value !== field.type || (field.enum && !field.enum.includes(String(value))))
+      const validType =
+        field.type === "integer"
+          ? Number.isSafeInteger(value)
+          : field.type === "object"
+            ? value !== null && typeof value === "object" && !Array.isArray(value)
+            : typeof value === field.type;
+      if (
+        !validType ||
+        (field.enum && !field.enum.includes(String(value))) ||
+        (typeof value === "number" &&
+          (!Number.isFinite(value) ||
+            (field.minimum !== undefined && value < field.minimum) ||
+            (field.maximum !== undefined && value > field.maximum))) ||
+        (typeof value === "string" &&
+          ((field.minLength !== undefined && value.trim().length < field.minLength) ||
+            (field.maxLength !== undefined && value.length > field.maxLength)))
+      )
         throw new Error(`工具参数 ${key} 的值无效。`);
     }
-    for (const key of schema.required)
-      if (typeof args[key] !== "string" || !String(args[key]).trim()) throw new Error(`缺少参数 ${key}。`);
+    for (const key of schema.required) if (args[key] === undefined) throw new Error(`缺少参数 ${key}。`);
     const str = (key: string) => (typeof args[key] === "string" ? String(args[key]).trim() : "");
     const thread = () => {
       const result = this.deps.conversations.getThread(str("threadId"));
@@ -706,6 +747,7 @@ export class MoriAssistantService {
       threadId: id,
       expectedHistoryRevision: this.deps.conversations.conversationV2().head(id).historyRevision,
     });
+    if (MORI_TODO_TOOLS.some((tool) => tool.name === name)) return this.todos.call(name, args, signal);
     if (name === "mori_computer_tools")
       return { ...this.deps.computerUse.status(), ...(await this.deps.computerUse.listTools(signal)) };
     if (name === "mori_computer_view")
@@ -765,9 +807,12 @@ export class MoriAssistantService {
     }
     if (name === "mori_open_project") return this.deps.invoke("workspace:open-path", [str("projectPath")]);
     if (name === "mori_start_task") {
-      const projectPath = path.resolve(str("projectPath"));
-      if (projectPath === this.workspacePath || projectPath.startsWith(`${this.workspacePath}${path.sep}`))
-        throw new Error("Mori 的独立工作区不能用作任务项目，请选择具体的工作项目。");
+      const todo = str("todoId") ? await this.todos.task(str("todoId"), str("prompt"), signal) : undefined;
+      if (!todo && (!str("projectPath") || !str("prompt")))
+        throw new Error("普通任务必须提供 projectPath 和 prompt；执行待办请提供 todoId。");
+      if (todo && str("projectPath") && this.taskProjectPath(str("projectPath")) !== todo.projectPath)
+        throw new Error("待办任务必须在原待办所属项目执行。");
+      const projectPath = todo?.projectPath ?? this.taskProjectPath(str("projectPath"));
       if (args.notifyWechat === true && !this.canNotifyWechat?.())
         throw new Error("请先连接微信，并从微信向 Mori 发一条消息后再设置微信通知。");
       const config = this.deps.defaultRuntimeConfig();
@@ -785,8 +830,8 @@ export class MoriAssistantService {
       }
       const result = (await this.deps.invoke("thread:start", [
         {
-          workspacePath: str("projectPath"),
-          prompt: str("prompt"),
+          workspacePath: projectPath,
+          prompt: todo?.prompt ?? str("prompt"),
           coreKind: str("coreKind") || "codex",
           runtimeConfig: config,
         },
@@ -800,16 +845,25 @@ export class MoriAssistantService {
           : { channel: args.notifyWechat === true ? "wechat" : "desktop" };
       await this.store.save();
       this.emit();
-      return { threadId: result.thread.id, title: result.thread.title, status: result.thread.status };
+      return {
+        threadId: result.thread.id,
+        title: result.thread.title,
+        status: result.thread.status,
+        ...(todo ? { todoId: todo.todoId } : {}),
+      };
     }
     if (name === "mori_send_to_task") {
       const target = thread();
+      const todo = str("todoId") ? await this.todos.task(str("todoId"), str("text"), signal) : undefined;
+      if (!todo && !str("text")) throw new Error("请提供 text 或 todoId。");
+      if (todo && this.taskProjectPath(target.workspacePath) !== todo.projectPath)
+        throw new Error("待办与目标 Agent 会话不属于同一项目，请选择原项目中的会话。");
       return this.deps.invoke("conversation:send-message", [
         {
           principalId: "mori-assistant",
           clientCommandId: `mori-tool-${callId}`,
           conversationId: target.id,
-          text: str("text"),
+          text: todo?.prompt ?? str("text"),
         },
       ]);
     }

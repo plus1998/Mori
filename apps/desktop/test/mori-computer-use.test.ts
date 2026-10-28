@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { MoriComputerToolGateway } from "../src/main/mori-computer-tool-gateway";
+import { MoriAssistantToolGateway } from "../src/main/mori-assistant-tool-gateway";
 import { MoriComputerUse } from "../src/main/mori-computer-use";
 
 function fixture() {
@@ -79,14 +79,19 @@ test("screenshot analysis is bound to the observing Mori thread and preserves th
   );
 });
 
-test("the runtime computer MCP endpoint is authenticated and propagates tool failures", async () => {
+test.each([
+  "mori_computer",
+  "mori_tasks",
+])("runtime %s MCP authenticates calls and propagates failures", async (serverName) => {
   const calls: string[] = [];
-  const gateway = new MoriComputerToolGateway(
-    [{ name: "mori_computer_tools", description: "test", inputSchema: { type: "object" } }],
+  const toolName = serverName === "mori_computer" ? "mori_computer_tools" : "mori_create_todo";
+  const gateway = new MoriAssistantToolGateway(
+    [{ name: toolName, description: "test", inputSchema: { type: "object" } }],
     async (name) => {
       calls.push(name);
       throw new Error("desktop not ready");
     },
+    serverName,
   );
   const config = await gateway.start();
   try {
@@ -94,7 +99,7 @@ test("the runtime computer MCP endpoint is authenticated and propagates tool fai
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
-      params: { name: "mori_computer_tools", arguments: {} },
+      params: { name: toolName, arguments: {} },
     };
     const response = await fetch(String(config.url), {
       method: "POST",
@@ -134,7 +139,7 @@ test("the runtime computer MCP endpoint is authenticated and propagates tool fai
     };
     expect(body.result.isError).toBe(true);
     expect(body.result.content[0]?.text).toBe("desktop not ready");
-    expect(calls).toEqual(["mori_computer_tools"]);
+    expect(calls).toEqual([toolName]);
   } finally {
     await gateway.close();
   }
