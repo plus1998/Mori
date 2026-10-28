@@ -5,6 +5,7 @@ export * from "./claude-subagent-compaction";
 
 export * from "./codex-gateway-model-alias";
 export * from "./context-budget";
+export * from "./input-token-count-error";
 export type {
   ConversationAgent,
   ConversationBootstrap,

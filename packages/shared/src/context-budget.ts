@@ -1,5 +1,8 @@
 export type InputTokenCountPrecision = "heuristic" | "provider_exact" | "tokenizer_exact";
 
+/** Fixed output ceiling when the upstream cannot count the final input. */
+export const DYNAMIC_OUTPUT_FALLBACK_TOKENS = 32_768;
+
 /** Final-wire counting and native preflight must agree on the space reserved by Gateway. */
 export function contextInputReserve(window: number, precision: InputTokenCountPrecision): number {
   if (!Number.isSafeInteger(window) || window < 2) throw new Error("Invalid model context window.");

@@ -10,6 +10,7 @@ import {
   responsesInputTokensToAnthropicCount,
   responsesToChatCompletionsRequest,
 } from "@eco/openai-anthropic-bridge";
+import { InputTokenCountUnsupportedError } from "@eco/shared";
 import type { UpstreamApiCompat } from "../shared/api-compat";
 import { normalizeProviderTokenCountMode, type ProviderTokenCountMode } from "../shared/provider-token-count";
 import { stripSemanticCompactionDirectives } from "./bridge-upstream";
@@ -37,7 +38,7 @@ export const countGatewayInputTokens: NonNullable<GatewayConfig["countInputToken
   };
   if (mode === "anthropic_messages") {
     if (route.upstreamKind !== "anthropic-messages") {
-      throw new Error(
+      throw new InputTokenCountUnsupportedError(
         "anthropic_messages 精确计数需要 Messages 上游；不能用协议转换后的计数冒充原生请求输入。",
       );
     }
@@ -65,7 +66,7 @@ export const countGatewayInputTokens: NonNullable<GatewayConfig["countInputToken
   }
   if (mode === "openai_responses") {
     if (route.upstreamKind !== "responses" && route.upstreamKind !== "gateway-delegated") {
-      throw new Error(
+      throw new InputTokenCountUnsupportedError(
         "openai_responses 精确计数需要 Responses 上游；不能用协议转换后的计数冒充原生请求输入。",
       );
     }
@@ -83,14 +84,14 @@ export const countGatewayInputTokens: NonNullable<GatewayConfig["countInputToken
     };
   }
   if (route.upstreamKind !== "openai-chat") {
-    throw new Error("llama_tokenize 动态输出计数需要原生 Chat Completions 上游。");
+    throw new InputTokenCountUnsupportedError("llama_tokenize 动态输出计数需要原生 Chat Completions 上游。");
   }
   if (
     (Array.isArray(body.tools) && body.tools.length > 0) ||
     (Array.isArray(body.functions) && body.functions.length > 0) ||
     body.response_format
   ) {
-    throw new Error(
+    throw new InputTokenCountUnsupportedError(
       "llama_tokenize 无法精确计入 tools/functions/response_format；请配置支持这些输入的服务端计数接口。",
     );
   }
@@ -107,7 +108,9 @@ export const countGatewayInputTokens: NonNullable<GatewayConfig["countInputToken
       );
     })
   ) {
-    throw new Error("llama_tokenize 无法通过文本模板精确计入图片、音频或文件输入。");
+    throw new InputTokenCountUnsupportedError(
+      "llama_tokenize 无法通过文本模板精确计入图片、音频或文件输入。",
+    );
   }
   const url = buildUpstreamUrl(route.provider, "openai-chat").replace(
     /\/(?:v[^/]+\/)?chat\/completions$/,
@@ -145,7 +148,7 @@ function resolveNativeTokenCountMode(value: unknown, protocol: string): Provider
   if (protocol === "responses" || protocol === "gateway-delegated" || protocol === "openai_responses") {
     return "openai_responses";
   }
-  throw new Error(
+  throw new InputTokenCountUnsupportedError(
     "当前上游协议没有统一的输入 token 计数接口。Chat Completions 动态输出需要配置可用的服务端 tokenizer，或使用支持原生计数的 Responses / Messages 上游；不会使用本地估算。",
   );
 }
@@ -282,7 +285,7 @@ async function countViaLlamaTokenizer(
   const responsesBody = anthropicToResponses(request);
   const chatBody = responsesToChatCompletionsRequest(responsesBody) as unknown as Record<string, unknown>;
   if (Array.isArray(chatBody.tools) && chatBody.tools.length > 0) {
-    throw new Error(
+    throw new InputTokenCountUnsupportedError(
       "llama_tokenize 无法从 /apply-template 文档化接口精确计入 tools；请改用 llama.cpp 的 anthropic_messages 或 openai_responses 计数模式。",
     );
   }
@@ -383,9 +386,9 @@ async function postJsonForTokenCount(
     });
     const text = await response.text();
     if (!response.ok) {
-      throw new Error(
-        `token count 上游请求失败：HTTP ${response.status}${text.trim() ? `；${text.trim()}` : ""}`,
-      );
+      const message = `token count 上游请求失败：HTTP ${response.status}${text.trim() ? `；${text.trim()}` : ""}`;
+      if ([404, 405, 501].includes(response.status)) throw new InputTokenCountUnsupportedError(message);
+      throw new Error(message);
     }
     if (!text.trim()) {
       throw new Error("token count 上游返回空响应。");
