@@ -63,7 +63,7 @@ export interface ImageGenerationSettingsSaveInput {
 
 export interface ImageGenerationToolInput {
   prompt: string;
-  /** Absolute or workspace-relative paths to reference images for image-to-image. */
+  /** Local absolute paths or paths relative to the workspace for image-to-image. */
   input_images?: string[];
   size?: string;
   aspect_ratio?: string;
@@ -164,8 +164,8 @@ export function buildImageGenerationPromptAppend(input: {
       : "OpenAI-style providers accept size, quality, and count=1..4; aspect_ratio is unsupported.";
   const imageToImage = input.supportsImageToImage
     ? input.provider === "gemini"
-      ? "Image-to-image is enabled: pass input_images (1..3 absolute or workspace-relative PNG/JPEG/WebP paths) with the edit prompt."
-      : "Image-to-image is enabled: pass input_images (1..16 absolute or workspace-relative PNG/JPEG/WebP paths) with the edit prompt."
+      ? "Image-to-image is enabled: pass input_images (1..3 local absolute or workspace-relative PNG/JPEG/WebP paths, including outside the workspace) with the edit prompt."
+      : "Image-to-image is enabled: pass input_images (1..16 local absolute or workspace-relative PNG/JPEG/WebP paths, including outside the workspace) with the edit prompt."
     : "Image-to-image is disabled on this profile; do not pass input_images.";
   return [
     "Built-in Creative Drawing (Mori): generate illustrations and visual assets; edit reference images when the active profile supports image-to-image. Use this integration for image generation and editing.",

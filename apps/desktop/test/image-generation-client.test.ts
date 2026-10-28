@@ -241,23 +241,28 @@ test("input_images are rejected when the profile disables image-to-image", () =>
   }
 });
 
-test("reference images outside the workspace are rejected", async () => {
+test("reference images accept external absolute, relative and symlink paths", async () => {
   const root = await generationRoot();
   const outside = await generationRoot();
-  await fs.writeFile(path.join(outside, "leak.png"), pngBytes);
-  globalThis.fetch = (async () => new Response("should not call", { status: 500 })) as typeof fetch;
-  try {
+  const reference = path.join(outside, "reference.png");
+  const link = path.join(root, "reference-link.png");
+  await fs.writeFile(reference, pngBytes);
+  await fs.symlink(reference, link);
+  for (const referencePath of [reference, path.relative(root, reference), link]) {
+    let received = false;
     await generateImagesToWorkspace({
-      config: config("openai"),
-      toolInput: { prompt: "x", input_images: [path.join(outside, "leak.png")] },
+      config: config("codex"),
+      toolInput: { prompt: "x", input_images: [referencePath] },
       generationRoot: root,
-      threadDirectory: "thread-escape",
+      threadDirectory: "thread-edit",
       workspacePath: root,
+      generateCodex: async (_input, images) => {
+        expect(images[0]?.bytes).toEqual(pngBytes);
+        received = true;
+        return [{ bytes: pngBytes, mimeType: "image/png" }];
+      },
     });
-    throw new Error("expected path escape failure");
-  } catch (error) {
-    expect(error).toBeInstanceOf(ImageGenerationError);
-    expect((error as ImageGenerationError).code).toBe("invalid_input_path");
+    expect(received).toBe(true);
   }
 });
 

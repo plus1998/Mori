@@ -1447,7 +1447,7 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
       type="button"
       className={`mori-ball is-${status}`}
       title={petError || error || snapshot?.error || "与 Mori 对话"}
-      aria-label={petError ? `宠物加载失败：${petError}` : "打开 Mori 助手"}
+      aria-label={petError ? `宠物加载失败：${petError}` : "打开或收起 Mori 助手"}
       onPointerEnter={(event) => {
         if (event.pointerType !== "mouse" || drag.current) return;
         if (greetingTimer.current) clearTimeout(greetingTimer.current);
@@ -1472,7 +1472,7 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
       }}
       onPointerUp={() => {
         if (drag.current && !drag.current.moved) {
-          void desktopApi().moriAssistantFloating(true);
+          void desktopApi().moriAssistantToggleFloating();
         }
         drag.current = undefined;
         setDragAnimation(undefined);
@@ -1482,7 +1482,10 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
         setDragAnimation(undefined);
       }}
       onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") void desktopApi().moriAssistantFloating(true);
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          void desktopApi().moriAssistantToggleFloating();
+        }
       }}
     >
       {pet ? (

@@ -330,6 +330,7 @@ const api = {
   moriAssistantSelectSession(id: string): Promise<void> { return ipcRenderer.invoke(MORI.selectSession, id); },
   moriAssistantRespond(id: string, answer: string): Promise<void> { return ipcRenderer.invoke(MORI.respond, { id, answer }); },
   moriAssistantFloating(visible: boolean): Promise<void> { return ipcRenderer.invoke(MORI.floating, visible); },
+  moriAssistantToggleFloating(): Promise<void> { return ipcRenderer.invoke(MORI.toggleFloating); },
   moriAssistantShowMain(): Promise<void> { return ipcRenderer.invoke(MORI.show); },
   moriAssistantOpenTask(id: string): Promise<void> { return ipcRenderer.invoke(MORI.openTask, id); },
   moriAssistantBindWechat(): Promise<void> { return ipcRenderer.invoke(MORI.wechatBind); },

@@ -375,7 +375,7 @@ function imageGenerationToolDefinition(): McpToolDefinition {
           type: "array",
           items: { type: "string", minLength: 1 },
           description:
-            "Optional absolute or workspace-relative PNG/JPEG/WebP paths for image-to-image edits (OpenAI up to 16, Gemini up to 3).",
+            "Optional local absolute or workspace-relative PNG/JPEG/WebP paths for image-to-image edits, including outside the workspace (OpenAI up to 16, Gemini up to 3).",
         },
         size: { type: "string", description: "OpenAI: auto or WIDTHxHEIGHT; Gemini: 1K, 2K, or 4K." },
         aspect_ratio: { type: "string", description: "Gemini only, for example 1:1 or 16:9." },

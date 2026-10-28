@@ -139,6 +139,7 @@ export class MoriAssistantHost {
       this.service.respond(request.id, request.answer),
     );
     handle(C.floating, (visible: boolean) => (visible ? this.windows.showPanel() : this.windows.hidePanel()));
+    handle(C.toggleFloating, () => this.windows.togglePanel());
     handle(C.show, async () => {
       this.windows.hidePanel();
       await deps.showMain();

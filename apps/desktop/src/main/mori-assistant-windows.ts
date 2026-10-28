@@ -263,6 +263,14 @@ export class MoriAssistantWindows {
   hidePanel(): void {
     this.panel?.hide();
   }
+  async togglePanel(): Promise<void> {
+    if (this.panelCreation) await this.panelCreation;
+    if (this.panel && !this.panel.isDestroyed() && this.panel.isVisible()) {
+      this.hidePanel();
+    } else {
+      await this.showPanel();
+    }
+  }
   get currentNotice(): MoriNotice | undefined {
     return this.notice;
   }

@@ -96,6 +96,7 @@ export const MORI_ASSISTANT_CHANNELS = {
   selectSession: "mori-assistant:select-session",
   respond: "mori-assistant:respond",
   floating: "mori-assistant:floating",
+  toggleFloating: "mori-assistant:toggle-floating",
   show: "mori-assistant:show",
   openTask: "mori-assistant:open-task",
   changed: "mori-assistant:changed",
