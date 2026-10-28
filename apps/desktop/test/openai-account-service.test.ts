@@ -231,6 +231,47 @@ function authJson(input: { refreshToken: string; lastRefresh: string; accountId?
   );
 }
 
+test("external runtimes share one refreshed credential and persist the complete rotated auth in SQLite", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mori-external-auth-"));
+  tempDirs.push(root);
+  const executable = path.join(root, "fake-credential-owner");
+  const counter = path.join(root, "refresh-count");
+  await fs.writeFile(executable, `#!/usr/bin/env node
+const fs=require('node:fs');const path=require('node:path');const readline=require('node:readline');
+readline.createInterface({input:process.stdin}).on('line',line=>{
+ const msg=JSON.parse(line);if(msg.method==='initialized')return;
+ if(msg.method==='account/read'&&msg.params.refreshToken){
+  const file=path.join(process.env.CODEX_HOME,'auth.json');
+  const auth=JSON.parse(fs.readFileSync(file,'utf8'));
+  auth.tokens.access_token='at-rotated';auth.tokens.refresh_token='rt-rotated';auth.last_refresh='2026-10-27T10:00:00Z';
+  fs.writeFileSync(file,JSON.stringify(auth));fs.appendFileSync(${JSON.stringify(counter)},'refresh\\n');
+ }
+ process.stdout.write(JSON.stringify({id:msg.id,result:msg.method==='account/read'?{account:{type:'chatgpt'}}:{}})+'\\n');
+});`, { mode: 0o755 });
+  const service = new OpenAIAccountService(root, executable);
+  await service.initialize();
+  try {
+    const account = await service.createAccount({ name: "Shared", proxyMode: "direct" });
+    await service.setAuthJson(account.id, authJson({ refreshToken: "original", lastRefresh: STALE_STAMP }));
+    await service.setActiveAccount(account.id);
+    await service.applyPendingTransition();
+    const first = await service.getExternalChatGptTokens(account.id);
+    expect(first).toEqual({ accessToken: "at-original", chatgptAccountId: "acct-shared" });
+    const [assistant, task] = await Promise.all([
+      service.getExternalChatGptTokens(account.id, first.accessToken),
+      service.getExternalChatGptTokens(account.id, first.accessToken),
+    ]);
+    expect(assistant).toEqual(task);
+    expect(task.accessToken).toBe("at-rotated");
+    expect(task).not.toHaveProperty("refreshToken");
+    expect((await fs.readFile(counter, "utf8")).trim().split("\n")).toHaveLength(1);
+    const saved = JSON.parse((await service.getAuthJsonContent(account.id))!);
+    expect(saved.tokens.refresh_token).toBe("rt-rotated");
+    expect(JSON.parse(await fs.readFile(path.join(root, "codex", "auth.json"), "utf8")).tokens.refresh_token).toBe("rt-rotated");
+    expect((await service.listAccounts())[0]?.id).toBe(account.id);
+  } finally { await service.dispose(); }
+});
+
 /** 预置一份「上次运行留下的漂移」盘面，再让服务启动时自己收敛。 */
 async function seedDriftedState(
   root: string,

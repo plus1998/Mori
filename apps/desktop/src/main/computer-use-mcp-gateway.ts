@@ -17,7 +17,11 @@ import {
 import type { McpSdkConfig } from "../shared/mcp";
 import { BrowserMcpAuthRegistry, createBrowserMcpControlSecret } from "./browser-mcp-auth";
 import { buildEcoHttpCodexServer, buildEcoHttpInjection } from "./mcp-http-descriptor";
-import { handleMcpStreamableHttpRequest } from "./mcp-streamable-http";
+import {
+  handleMcpStreamableHttpRequest,
+  type McpToolDefinition,
+  type McpToolCallResult,
+} from "./mcp-streamable-http";
 import { detectScreenRecordingAppLabel } from "./computer-use-screen-host-native";
 import { openComputerUseAppBundleFromBinary } from "./open-computer-use-install";
 import {
@@ -742,6 +746,51 @@ export class ComputerUseMcpGateway {
       mcpServers: { ...base.mcpServers, [ECO_COMPUTER_USE_MCP_SERVER]: injection.sdkEntry },
       allowedTools: [...new Set(allowedTools)],
     };
+  }
+
+  /** Trusted in-process callers still obey the global integration switch. */
+  async listTools(signal?: AbortSignal): Promise<{ tools: McpToolDefinition[] }> {
+    this.requireEnabled();
+    signal?.throwIfAborted();
+    await this.ensureUpstream();
+    this.requireEnabled();
+    signal?.throwIfAborted();
+    const result = await this.upstream.listTools(signal);
+    return {
+      tools: result.tools.filter(
+        (tool): tool is McpToolDefinition =>
+          Boolean(tool) &&
+          typeof tool === "object" &&
+          typeof (tool as { name?: unknown }).name === "string" &&
+          (ECO_COMPUTER_USE_TOOLS as readonly string[]).includes((tool as { name: string }).name),
+      ),
+    };
+  }
+
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<McpToolCallResult> {
+    this.requireEnabled();
+    if (!(ECO_COMPUTER_USE_TOOLS as readonly string[]).includes(name))
+      throw new Error(`未知电脑操作工具：${name}`);
+    signal?.throwIfAborted();
+    await this.ensureUpstream();
+    this.requireEnabled();
+    signal?.throwIfAborted();
+    const result = await this.upstream.callTool(name, args, signal);
+    const toolResult =
+      result && typeof result === "object"
+        ? (result as McpToolCallResult)
+        : { content: [{ type: "text", text: String(result ?? "") }] };
+    return saveComputerUseScreenshots(toolResult, this.screenshotDirectory);
+  }
+
+  private requireEnabled(): void {
+    if (!this.getSettings().agentIntegrationEnabled)
+      throw new Error("请先在设置 → 电脑操作中开启电脑操作能力。");
+    if (this.disposed) throw new Error("电脑操作服务已关闭。");
   }
 
   private async ensureUpstream(): Promise<void> {

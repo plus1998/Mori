@@ -28,6 +28,17 @@ export interface CodexRuntimeLifecycleOptions {
 
 let nextDiagnosticGeneration = 1;
 
+export interface CodexExternalAuth {
+  accountId: string;
+  accessToken: string;
+  chatgptAccountId: string;
+  chatgptPlanType?: string;
+}
+let externalAuthProvider: ((accountId?: string, previousAccessToken?: string) => Promise<CodexExternalAuth | undefined>) | undefined;
+export function setCodexExternalAuthProvider(provider: typeof externalAuthProvider): void {
+  externalAuthProvider = provider;
+}
+
 // Module-level configuration shared by the global and temporary runtimes.
 let accountProxyConfigGetter:
   | (() => OpenAIAccountProxyConfig | Promise<OpenAIAccountProxyConfig>)
@@ -180,7 +191,14 @@ export class CodexRuntimeLifecycle {
     }
 
     const env = buildCodexAppServerEnv(process.env, codexHomeDir, proxyEnvironment);
-    const child = spawn(executable, ["app-server", "--stdio"], {
+    // Managed refresh tokens stay in the main-process credential broker. This also
+    // prevents inherited environment credentials from changing the selected login.
+    if (externalAuthProvider) {
+      delete env.CODEX_ACCESS_TOKEN;
+      delete env.OPENAI_API_KEY;
+      delete env.CODEX_API_KEY;
+    }
+    const child = spawn(executable, ["app-server", "--stdio", ...(externalAuthProvider ? ["-c", 'cli_auth_credentials_store="ephemeral"'] : [])], {
       env,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -190,8 +208,22 @@ export class CodexRuntimeLifecycle {
       this.options.onStderr?.(chunk);
     });
 
+    let boundAuth: CodexExternalAuth | undefined;
+    const authProvider = externalAuthProvider;
     const clientOptions = {
       ...this.options.clientOptions,
+      ...(authProvider ? { onServerRequest: async (method: string, params: unknown) => {
+        if (method === "account/chatgptAuthTokens/refresh") {
+          if (!boundAuth) throw new Error("运行实例没有绑定 ChatGPT 账号。");
+          const previous = params as { previousAccountId?: string };
+          if (previous.previousAccountId && previous.previousAccountId !== boundAuth.chatgptAccountId) throw new Error("刷新请求的账号身份不匹配。");
+          const refreshed = await authProvider(boundAuth.accountId, boundAuth.accessToken);
+          if (!refreshed || refreshed.accountId !== boundAuth.accountId) throw new Error("运行实例的账号已失效。");
+          boundAuth = refreshed;
+          return { accessToken: refreshed.accessToken, chatgptAccountId: refreshed.chatgptAccountId, ...(refreshed.chatgptPlanType ? { chatgptPlanType: refreshed.chatgptPlanType } : {}) };
+        }
+        return this.options.clientOptions?.onServerRequest?.(method, params);
+      } } : {}),
       diagnosticGeneration: nextDiagnosticGeneration++,
       ...(this.options.onNotification ? { onNotification: this.options.onNotification } : {}),
     };
@@ -212,6 +244,14 @@ export class CodexRuntimeLifecycle {
     this.client = client;
     try {
       await Promise.race([client.initialize(), spawnFailure]);
+      if (authProvider) {
+        boundAuth = await authProvider();
+        if (boundAuth) await client.request("account/login/start", {
+          type: "chatgptAuthTokens", accessToken: boundAuth.accessToken,
+          chatgptAccountId: boundAuth.chatgptAccountId,
+          ...(boundAuth.chatgptPlanType ? { chatgptPlanType: boundAuth.chatgptPlanType } : {}),
+        });
+      }
       if (generation !== this.generation) {
         throw new Error("Codex app-server start was cancelled during initialization.");
       }

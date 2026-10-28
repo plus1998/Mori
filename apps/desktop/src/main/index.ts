@@ -1,3 +1,4 @@
+import { MoriComputerUse } from "./mori-computer-use";
 import { recordProviderUsage } from "./provider-usage-recorder";
 import { APP_LINK_SCHEMES, isAppDeepLink } from "../shared/center-server";
 import { resolveGenerationToolContext } from "./generation-tool-context";
@@ -648,6 +649,10 @@ import {
   resolveCodexGatewayUsageBilling,
 } from "./codex-gateway-usage-billing";
 import { CodexGatewayUsagePendingBuffer } from "./codex-gateway-usage-pending";
+import { MoriAssistantHost } from "./mori-assistant-host";
+import { isMoriAssistantWindow } from "./mori-assistant-windows";
+import { MORI_ASSISTANT_CHANNELS } from "../shared/mori-assistant";
+import { buildThreadRuntimeConfigFromDefaults } from "../shared/thread-runtime-config";
 import { connectCodexImageAccount, disposeCodexImageConnections } from "./codex-image-electron-transport";
 import { CodexImageService } from "./codex-image-service";
 import { consumeCodexQuotaReset } from "./codex-quota-reset";
@@ -661,6 +666,7 @@ import {
   getCodexRuntimeClients,
   parseElectronProxyResolution,
   setCodexAccountProxyConfigGetter,
+  setCodexExternalAuthProvider,
   setCodexSystemProxyResolver,
   stopGlobalCodexRuntimeLifecycle,
 } from "./codex-runtime-lifecycle";
@@ -1213,6 +1219,7 @@ let desktopInitializationComplete = false;
 let pendingEcoDeepLink: string | undefined;
 // True once the renderer reports ready (it then subscribes to deep-link events).
 let desktopRendererReady = false;
+let moriAssistantHost: MoriAssistantHost | undefined;
 const startupSplashWindows = new WeakSet<BrowserWindow>();
 let resolveInitialDesktopRendererReady: (() => void) | undefined;
 const initialDesktopRendererReady = new Promise<void>((resolve) => {
@@ -1221,7 +1228,7 @@ const initialDesktopRendererReady = new Promise<void>((resolve) => {
 
 function getMainWindow(): BrowserWindow | undefined {
   return BrowserWindow.getAllWindows().find(
-    (window) => !window.isDestroyed() && !startupSplashWindows.has(window),
+    (window) => !window.isDestroyed() && !startupSplashWindows.has(window) && !isMoriAssistantWindow(window),
   );
 }
 
@@ -2533,7 +2540,7 @@ async function loadMainWindow(window: BrowserWindow): Promise<BrowserWindow> {
   if (browserHost) {
     installBrowserGuestBridge(window, browserHost);
   }
-  attachMainWindowQuitGuard(window);
+  attachMainWindowQuitGuard(window, () => moriAssistantHost?.keepsBackground === true);
   return window;
 }
 
@@ -3299,7 +3306,9 @@ app
       ecoDataDir: app.getPath("userData"),
       ensureAccountReady: async () => {
         if (!openaiAccountService) throw new Error("ChatGPT Login 账号服务尚未初始化，请稍后重试。");
-        await openaiAccountService.ensureActiveCredentials();
+        const accountId = await openaiAccountService.getActiveAccountId();
+        if (!accountId) throw new Error("未选择 ChatGPT Login 账号。");
+        await openaiAccountService.getExternalChatGptTokens(accountId);
       },
       getGlobalUserRules: () => personalizationSettingsStore.get().globalRules,
       getGlobalContextWindowLimit: () => workflowSettingsStore.get().contextWindowLimitTokens,
@@ -3961,10 +3970,14 @@ installApplicationShutdownHook(
   (applicationShutdownDeps = {
     locale: currentAppLocale,
     listThreads: () => conversationStore.listThreads(),
-    hasActiveRun: (threadId) => activeRunRuntimeState.hasRun(threadId),
+    hasActiveRun: (threadId) => activeRunRuntimeState.hasRun(threadId) || Boolean(moriAssistantHost?.service.isRunning && moriAssistantHost.service.store.state.currentThreadId === threadId),
     isCompactInFlight: (threadId) => contextMonitor?.isCompactInFlight(threadId) ?? false,
     countRunningBackgroundTasks: () => backgroundTerminalTaskRegistry.countRunning(),
     cancelThreadRuntime: async (coreKind, threadId) => {
+      if (moriAssistantHost?.service.store.state.sessions.some(session => session.threadId === threadId)) {
+        await moriAssistantHost.service.cancel();
+        return;
+      }
       await threadRuntimeCoordinator.cancel(coreKind, threadId);
     },
     abortActiveRun: (threadId, reason) => activeRunRuntimeState.abortRun(threadId, reason),
@@ -4031,6 +4044,8 @@ installApplicationShutdownHook(
       await stopGlobalCodexRuntimeLifecycle();
     },
     closeOpenAIAccountService: async () => {
+      await moriAssistantHost?.close();
+      moriAssistantHost = undefined;
       openaiAccountAssistant?.dispose();
       openaiAccountAssistant = undefined;
       await openaiAccountService?.dispose();
@@ -6284,14 +6299,15 @@ function registerIpcHandlers(): void {
     async (request: ComposerReferenceSearchRequest) => composerReferenceService.search(request),
   );
   registerDesktopCommand(IPC_CHANNELS.threadList, async () =>
-    attachThreadListCancelling(conversationStore.listThreads()),
+    attachThreadListCancelling(conversationStore.listThreads().filter(thread => path.resolve(thread.workspacePath) !== path.join(app.getPath("userData"), "mori-assistant", "workspace"))),
   );
 
   registerDesktopCommand(IPC_CHANNELS.threadListInitial, async () => {
     const result = conversationStore.listInitialThreads(REMOTE_THREAD_LIST_INITIAL_LIMIT_PER_WORKSPACE);
     return {
       ...result,
-      threads: attachThreadListCancelling(result.threads),
+      threads: attachThreadListCancelling(result.threads.filter(thread => path.resolve(thread.workspacePath) !== path.join(app.getPath("userData"), "mori-assistant", "workspace"))),
+      pages: Object.fromEntries(Object.entries(result.pages).filter(([workspace]) => path.resolve(workspace) !== path.join(app.getPath("userData"), "mori-assistant", "workspace"))),
     };
   });
 
@@ -6300,6 +6316,7 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid thread list page request.");
     }
     const cursor = payload.cursor;
+    if (path.resolve(payload.workspacePath) === path.join(app.getPath("userData"), "mori-assistant", "workspace")) throw new Error("请从 Mori 助手入口查看助手对话。");
     if (
       typeof cursor.updatedAt !== "string" ||
       typeof cursor.createdAt !== "string" ||
@@ -7583,7 +7600,7 @@ function registerIpcHandlers(): void {
           for (const window of BrowserWindow.getAllWindows()) {
             if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.openAIAccountsChanged, state);
           }
-        }, ensureCodexControlPlaneClient, resolveSystemProxyUrl,recordAccountUsage);
+        }, undefined, resolveSystemProxyUrl,recordAccountUsage);
         await service.initialize();
         openaiAccountService = service;
         for (const thread of conversationStore.listThreads()) {
@@ -7596,6 +7613,54 @@ function registerIpcHandlers(): void {
     }
     return openaiAccountServicePromise;
   };
+
+  setCodexExternalAuthProvider(async (accountId, previousAccessToken) => {
+    const service = await getOpenAIAccountService();
+    const selectedId = accountId ?? await service.getActiveAccountId();
+    if (!selectedId) return undefined;
+    return { accountId: selectedId, ...await service.getExternalChatGptTokens(selectedId, previousAccessToken) };
+  });
+
+  moriAssistantHost = new MoriAssistantHost({
+    dataDir: app.getPath("userData"), conversations: conversationStore,
+    accounts: getOpenAIAccountService, executable: resolveCodexExecutable, onUsage: recordAccountUsage,
+    resolveSystemProxy: resolveSystemProxyResolution,
+    preload: path.join(__dirname, "../preload/index.cjs"), renderer: path.join(__dirname, "../renderer/index.html"),
+    ...(appIcon ? { icon: appIcon } : {}),
+    currentProject: () => currentWorkspace?.path,
+    computerUse: new MoriComputerUse({ gateway: computerUseGateway, settings: () => computerUseSettingsStore.get(), imageView: imageViewGateway }),
+    defaultRuntimeConfig: () => buildThreadRuntimeConfigFromDefaults({ settings: getModelSettingsSnapshot(), workflowDefaults: workflowSettingsStore.get(), mcpServers: mcpStore.listServers() }),
+    modelSettings: () => {
+      const settings = getModelSettingsSnapshot();
+      return {
+        providers: settings.providers.map(provider => ({ id: provider.id, name: provider.name, defaultModel: provider.defaultModel, enabled: provider.enabled })),
+        mainAgentConfigs: settings.mainAgentConfigs.map(config => ({ id: config.id, name: config.name })),
+        routeProfiles: settings.routeProfiles,
+      };
+    },
+    invoke: async (channel, args) => {
+      const response = await desktopEventCenter.handleJsonRpcMessage({ jsonrpc: "2.0", id: randomUUID(), method: "eco.invoke", params: { channel, args } });
+      if (!response) throw new Error("桌面命令没有返回结果。");
+      if ("error" in response) throw new Error(response.error.message);
+      const result = (response.result as { result: unknown }).result;
+      if (channel === "workspace:open-path") {
+        const window = getMainWindow() ?? await createMainWindow();
+        presentDesktopWindow(window);
+        window.webContents.send(MORI_ASSISTANT_CHANNELS.projectOpenRequested, (result as WorkspaceInfo).path);
+      }
+      return result;
+    },
+    openThread: openThreadFromDesktopNotification,
+    showMain: async () => {
+      const window = getMainWindow() ?? await createMainWindow();
+      presentDesktopWindow(window);
+      if (window.webContents.isLoading()) await new Promise<void>(resolve => window.webContents.once("did-finish-load", resolve));
+      window.webContents.send(MORI_ASSISTANT_CHANNELS.openRequested);
+    },
+    subscribeTasks: callback => desktopEventCenter.subscribe({ publish: envelope => { if (envelope.threadId) callback(envelope.threadId); } }),
+    reportError: error => logEcoDiag("mori-assistant.error", { error: errorMessage(error) }),
+  });
+  void moriAssistantHost.initialize().catch(error => logEcoDiag("mori-assistant.initialize.failed", { error: errorMessage(error) }));
 
   openaiAccountAssistant = new OpenAIAccountAssistant({
     getDetails: async (accountId) => (await getOpenAIAccountService()).getAccountDetails(accountId),
@@ -9017,9 +9082,11 @@ function registerIpcHandlers(): void {
         throw new Error(`无法启用电脑操控 Agent 能力：${feature.reason ?? "未知原因"}`);
       }
       const saved = computerUseSettingsStore.save(next);
+      moriAssistantHost?.service.capabilitiesChanged();
       return saved;
     }
     const saved = computerUseSettingsStore.save(next);
+    moriAssistantHost?.service.capabilitiesChanged();
     return saved;
   });
 

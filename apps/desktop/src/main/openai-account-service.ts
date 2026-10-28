@@ -43,7 +43,9 @@ export type { OpenAIAccount, OpenAIAccountQuota } from "../shared/openai-account
  * OpenAI Account Management Service
  *
  * Stores account data and raw auth.json content in eco-coding.sqlite. The
- * running CODEX_HOME/auth.json is the only runtime credential file.
+ * Main-process managed credential operations own refresh tokens. Conversation
+ * runtimes receive external access tokens; CODEX_HOME/auth.json remains a
+ * compatibility mirror reconciled with SQLite, not an independent writer.
  *
  * Directory structure:
  *   <userData>/eco-coding.sqlite
@@ -299,12 +301,12 @@ export class OpenAIAccountService {
   }
 
   /** Called by the main-process task lifecycle; queued/idle/UI state is not usage. */
-  setQuotaUsage(taskId: string, running: boolean): void {
+  setQuotaUsage(taskId: string, running: boolean, accountId?: string): void {
     if (!this.store || this.disposing) return;
     const previous = this.quotaUsage.get(taskId);
     if (running) {
       if (previous) return;
-      const activeId = this.store.getActiveAccountId();
+      const activeId = accountId ?? this.store.getActiveAccountId();
       if (!activeId || !this.store.get(activeId)?.authJson) return;
       this.quotaUsage.set(taskId, activeId);
       this.refreshUsageQuota(activeId);
@@ -316,7 +318,7 @@ export class OpenAIAccountService {
       }
     } else if (previous) {
       this.quotaUsage.delete(taskId);
-      this.refreshUsageQuota(previous);
+      this.refreshUsageQuota(previous, true);
       if (this.quotaUsage.size === 0 && this.quotaPoll) {
         clearInterval(this.quotaPoll);
         this.quotaPoll = undefined;
@@ -324,9 +326,9 @@ export class OpenAIAccountService {
     }
   }
 
-  private refreshUsageQuota(accountId: string): void {
+  private refreshUsageQuota(accountId: string, finalUsage = false): void {
     // Do not start isolated processes for accounts no longer in use.
-    if (!this.store || this.store.getActiveAccountId() !== accountId) return;
+    if (!this.store || (!finalUsage && this.store.getActiveAccountId() !== accountId && ![...this.quotaUsage.values()].includes(accountId))) return;
     const account = this.store.get(accountId);
     if (!account?.authJson) return;
     try {
@@ -719,6 +721,51 @@ export class OpenAIAccountService {
     if (await this.getActiveAccountId() !== id || this.getPendingAccountId() !== undefined) {
       throw new Error("当前账号已变更或正在切换，请重试。");
     }
+  }
+
+  /** External runtimes never receive refresh tokens or write their own auth.json. */
+  async getExternalChatGptTokens(accountId: string, previousAccessToken?: string): Promise<{
+    accessToken: string;
+    chatgptAccountId: string;
+    chatgptPlanType?: string;
+  }> {
+    const work = this.authSyncQueue.then(async () => {
+      if (this.getStore().getActiveAccountId() === accountId) await this.reconcileMainAuth();
+      let account = await this.requireAccount(accountId);
+      const read = (raw: string | null) => {
+        if (!raw) throw new Error("账号没有登录凭据。");
+        const auth = JSON.parse(raw);
+        const tokens = auth.tokens ?? auth;
+        if (typeof tokens.access_token !== "string" || !tokens.access_token) throw new Error("账号缺少 access token。");
+        const identity = readAuthAccountId(raw);
+        if (!identity) throw new Error("账号凭据缺少 ChatGPT 账号身份。");
+        return { accessToken: tokens.access_token as string, chatgptAccountId: identity };
+      };
+      let tokens = read(account.authJson);
+      // A second waiter reuses a refresh already completed by the first. The existing
+      // credential operation is the sole refresh-token owner for this account.
+      if (previousAccessToken && tokens.accessToken === previousAccessToken) {
+        const original = account.authJson!;
+        try {
+          await this.withAccountClient(accountId, client => client.request("account/read", { refreshToken: true }, { timeoutMs: 30_000 }));
+        } catch (error) {
+          this.recordCredentialFailure(accountId, original, error);
+          this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+          throw error;
+        }
+        account = await this.requireAccount(accountId);
+        tokens = read(account.authJson);
+        if (tokens.accessToken === previousAccessToken) throw new Error("Codex 尚未回写新的访问令牌，请重新登录或重试。");
+      }
+      return { ...tokens, ...(account.quota?.planType ? { chatgptPlanType: account.quota.planType } : {}) };
+    });
+    this.authSyncQueue = work.then(() => undefined, () => undefined);
+    return work;
+  }
+
+  async getAccountProxyConfig(accountId: string): Promise<OpenAIAccountProxyConfig> {
+    const account = await this.requireAccount(accountId);
+    return { mode: account.proxyMode, ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}) };
   }
 
   private async ensureAccountCredentialsUnlocked(accountId: string): Promise<void> {
@@ -1241,8 +1288,7 @@ export class OpenAIAccountService {
     if (!chatgptAccountId) throw new Error("账号凭据缺少 ChatGPT 账号身份，请重新登录。");
     const refreshToken = ["expired", "refreshable"].includes(this.readAuthState(account.authJson));
     let result: T;
-    if (active) {
-      if (!this.getActiveQuotaClient) throw new Error("当前账号的 Codex 客户端不可用。");
+    if (active && this.getActiveQuotaClient) {
       try {
         const client = await this.getActiveQuotaClient();
         result = await operation(client, refreshToken, chatgptAccountId);
@@ -1280,6 +1326,7 @@ export class OpenAIAccountService {
               if (readAuthAccountId(updatedAuth) !== chatgptAccountId) throw new Error("刷新后的账号身份不匹配");
               if (this.getStore().get(accountId)?.authJson !== account.authJson) throw new Error("查询期间账号凭据已变更");
               this.getStore().saveAuthJson(accountId, updatedAuth);
+              if (active) await this.reconcileMainAuth();
               this.onAccountsChanged?.({ syncStatus: this.syncStatus });
             } catch (error) {
               preserveCredentials = true;

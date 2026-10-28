@@ -1,3 +1,5 @@
+import { MoriIcon } from "./MoriIcon";
+import { MoriAssistantPanel, MoriAssistantSettingsPanel, MoriAssistantSurface } from "./MoriAssistant";
 import { appendProjectTodoReference, type ProjectTodo } from "../shared/project-todos";
 import type { TodoEditorDraft } from "./ProjectTodoPanel";
 import { ReadAloudControls, ReadAloudThreadContext } from "./ReadAloud";
@@ -689,6 +691,7 @@ function readStoredProjectSearchTerms(): ProjectSearchTermIndex {
 }
 
 type SettingsSectionId =
+  | "moriAssistant"
   | "preferences"
   | "general"
   | "personalization"
@@ -1252,6 +1255,21 @@ function ActivityUserMessageNavigator({
 }
 
 function App() {
+  const [moriOpen, setMoriOpen] = useState(false);
+  const moriOpenRef = useRef(false);
+  useLayoutEffect(() => { moriOpenRef.current = moriOpen; }, [moriOpen]);
+  const moriProjectOpenRef = useRef<(projectPath: string) => void>(() => {});
+  moriProjectOpenRef.current = projectPath => {
+    setMoriOpen(false);
+    setSettingsOpen(false);
+    void handleOpenProjectFromDrop(projectPath);
+  };
+  useEffect(() => {
+    const offOpen = window.eco?.onMoriAssistantOpenRequested?.(() => { setMoriOpen(true); setSettingsOpen(false); });
+    const offTask = window.eco?.onThreadOpenRequested?.(() => setMoriOpen(false));
+    const offProject = window.eco?.onMoriAssistantProjectOpenRequested?.(path => moriProjectOpenRef.current(path));
+    return () => { offOpen?.(); offTask?.(); offProject?.(); };
+  }, []);
   const { t } = useTranslation();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [codexAccountSwitchOpen, setCodexAccountSwitchOpen] = useState(false);
@@ -1385,6 +1403,7 @@ function App() {
       {
         label: t("settings.group.general"),
         sections: [
+          { id: "moriAssistant", label: "Mori", icon: MessageCirclePlus, keywords: ["微信", "悬浮球", "助手"] },
           {
             id: "preferences",
             label: t("settings.preferences"),
@@ -2411,7 +2430,7 @@ function App() {
   useEffect(
     () =>
       subscribeToWindowFocus((focused) => {
-        if (!focused) {
+        if (!focused || moriOpenRef.current) {
           return;
         }
         const activeThreadId = selectedThreadIdRef.current;
@@ -2430,6 +2449,19 @@ function App() {
       }),
     [],
   );
+
+  useEffect(() => {
+    if (moriOpen || !document.hasFocus()) return;
+    const id = selectedThreadIdRef.current;
+    if (!id) return;
+    setUnreadThreadIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      window.localStorage.setItem(unreadThreadsStorageKey, JSON.stringify([...next]));
+      return next;
+    });
+  }, [moriOpen]);
 
   useEffect(() => {
     if (!window.eco) {
@@ -2616,7 +2648,7 @@ function App() {
           eco.showThreadClarificationNotification({
             threadId,
             toolUseId,
-            threadSelected: selectedThreadIdRef.current === threadId,
+            threadSelected: !moriOpenRef.current && selectedThreadIdRef.current === threadId,
           }),
           "clarification",
         );
@@ -2865,7 +2897,7 @@ function App() {
       } else if (event.type === "thread.completed") {
         clearPendingPlanForThread(event.threadId);
         const activelyViewed = isThreadActivelyViewed(
-          selectedThreadIdRef.current,
+          moriOpenRef.current ? undefined : selectedThreadIdRef.current,
           event.threadId,
           document.hasFocus(),
         );
@@ -2884,7 +2916,7 @@ function App() {
         reportDesktopNotification(
           window.eco!.showThreadCompletionNotification({
             threadId: event.threadId,
-            threadSelected: selectedThreadIdRef.current === event.threadId,
+            threadSelected: !moriOpenRef.current && selectedThreadIdRef.current === event.threadId,
           }),
           "task completion",
         );
@@ -2943,7 +2975,7 @@ function App() {
           window.eco!.showThreadApprovalNotification({
             threadId: event.threadId,
             kind: approvalNotificationKind,
-            threadSelected: selectedThreadIdRef.current === event.threadId,
+            threadSelected: !moriOpenRef.current && selectedThreadIdRef.current === event.threadId,
           }),
           `${approvalNotificationKind} approval`,
         );
@@ -4219,6 +4251,7 @@ function App() {
         return;
       }
       event.preventDefault();
+      setMoriOpen(false);
       toggleTerminalForCurrentProject();
     };
     window.addEventListener("keydown", onKeyDown);
@@ -6689,18 +6722,23 @@ function App() {
         setSidebarOpen((current) => !current);
         return;
       case "toggle-bottom-panel":
+        setMoriOpen(false);
         toggleTerminalForCurrentProject();
         return;
       case "toggle-work-panel":
+        setMoriOpen(false);
         toggleWorkPanelForCurrentProject();
         return;
       case "toggle-review-panel":
+        setMoriOpen(false);
         toggleTaskPanelForCurrentProject();
         return;
       case "toggle-file-tree":
+        setMoriOpen(false);
         toggleFileTreeForCurrentProject();
         return;
       case "toggle-browser":
+        setMoriOpen(false);
         toggleBrowserForCurrentProject();
         return;
       default: {
@@ -10663,6 +10701,7 @@ function App() {
   }
 
   function activateWorkspace(nextWorkspace: WorkspaceInfo) {
+    setMoriOpen(false);
     setWorkspace(nextWorkspace);
     setSelectedProjectPath(nextWorkspace.path);
     registerImportedProject(nextWorkspace.path);
@@ -10856,6 +10895,7 @@ function App() {
   }
 
   function switchProject(nextPath: string) {
+    setMoriOpen(false);
     const leavingThread = Boolean(selectedThreadIdRef.current);
     const sameProject = nextPath === currentProjectPath || nextPath === selectedProjectPath;
     setSelectedProjectPath(nextPath);
@@ -10891,6 +10931,7 @@ function App() {
   }
 
   function selectThread(thread: ThreadSummary) {
+    setMoriOpen(false);
     setUnreadThreadIds((current) => {
       if (!current.has(thread.id)) {
         return current;
@@ -11032,6 +11073,7 @@ function App() {
   }
 
   function startNewChat() {
+    setMoriOpen(false);
     const leavingThread = Boolean(selectedThreadIdRef.current);
     const editingThreadId = editingFollowUpThreadIdRef.current;
     setComposerRoutePopoverOpen(false);
@@ -12698,6 +12740,10 @@ function App() {
           {/* "新对话" and "打开项目" read as one list; the list itself scrolls so the
               open-project row travels with the projects instead of staying pinned. */}
           <div className="sidebar-nav-list">
+            <button type="button" className={moriOpen ? "sidebar-action active" : "sidebar-action"} aria-label="Mori" aria-current={moriOpen ? "page" : undefined} onClick={() => setMoriOpen(true)}>
+              <MoriIcon size={20} />
+              Mori
+            </button>
             <button type="button" className="sidebar-action" onClick={startNewChat}>
               <MessageCirclePlus size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
               {t("nav.newThread")}
@@ -12736,8 +12782,8 @@ function App() {
               </button>
               <ProjectSidebarTree
                 projectTree={projectTree}
-                currentProjectPath={currentProjectPath}
-                activeThreadId={selectedThreadId}
+                currentProjectPath={moriOpen ? undefined : currentProjectPath}
+                activeThreadId={moriOpen ? undefined : selectedThreadId}
                 revealTarget={sidebarRevealTarget}
                 unreadThreadIds={unreadThreadIds}
                 pinnedThreadIds={pinnedThreadIds}
@@ -12837,6 +12883,9 @@ function App() {
       />
 
       <section
+        hidden={moriOpen}
+        inert={moriOpen ? true : undefined}
+        aria-hidden={moriOpen ? true : undefined}
         className={[
           "codex-main",
           showLanding ? "codex-main-landing" : "",
@@ -13324,6 +13373,12 @@ function App() {
         </div>
       </section>
 
+      {moriOpen ? (
+        <section className="codex-main mori-main-view" aria-label="Mori" inert={settingsOpen ? true : undefined} aria-hidden={settingsOpen ? true : undefined}>
+          <MoriAssistantPanel onClose={() => setMoriOpen(false)} onSettings={() => { setSettingsSection("moriAssistant"); setSettingsOpen(true); }} />
+        </section>
+      ) : null}
+
       {terminalSettingsProject ? (
         <ProjectTerminalSettingsDialog
           key={terminalSettingsProject.path}
@@ -13503,7 +13558,7 @@ function App() {
                           }
                           onClick={() => setSettingsSection(section.id)}
                         >
-                          <Icon size={16} />
+                            {section.id === "moriAssistant" ? <MoriIcon size={18} /> : <Icon size={16} />}
                           {section.label}
                         </button>
                       );
@@ -13516,6 +13571,7 @@ function App() {
           <div className="settings-main">
             <div className={settingsSection === "mcp" ? "settings-content is-wide" : "settings-content"}>
               <SuspensePanel>
+                {settingsSection === "moriAssistant" && <MoriAssistantSettingsPanel onDone={() => { setSettingsOpen(false); setMoriOpen(true); }} onOpenComputerUse={() => setSettingsSection("computerUse")} />}
                 {settingsSection === "preferences" && (
                   <LazyNotificationPreferencesPanel
                     settings={notificationSettings}
@@ -13879,6 +13935,7 @@ function App() {
           </div>
         </div>
       )}
+
     </main>
   );
   return <><AppRenderContent render={renderAppLayout} /><BrowserSelectionPreview /></>;
@@ -14434,6 +14491,6 @@ installVitePreloadRecovery();
 document.documentElement.lang = i18n.resolvedLanguage ?? "zh-CN";
 createRoot(document.getElementById("root") as HTMLElement).render(
   <I18nextProvider i18n={i18n}>
-    <App />
+    {new URLSearchParams(window.location.search).get("mori") === "ball" ? <MoriAssistantSurface mode="ball" /> : new URLSearchParams(window.location.search).get("mori") === "panel" ? <MoriAssistantSurface mode="panel" /> : <App />}
   </I18nextProvider>,
 );

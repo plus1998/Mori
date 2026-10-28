@@ -86,7 +86,7 @@ async function requestApplicationQuit(
  * Intercept the main window close button before the window is destroyed so the
  * confirmation dialog still has a visible parent.
  */
-export function attachMainWindowQuitGuard(window: BrowserWindow): void {
+export function attachMainWindowQuitGuard(window: BrowserWindow, keepInBackground?: () => boolean): void {
   const deps = shutdownDeps;
   if (!deps) {
     throw new Error("Application shutdown hook is not installed.");
@@ -94,6 +94,11 @@ export function attachMainWindowQuitGuard(window: BrowserWindow): void {
 
   window.on("close", (event) => {
     if (applicationQuitting) {
+      return;
+    }
+    if (keepInBackground?.()) {
+      event.preventDefault();
+      window.hide();
       return;
     }
     event.preventDefault();

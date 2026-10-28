@@ -1,4 +1,6 @@
 import type { AccountUsageHistory, AccountUsageQuery, UsageOverview, UsageOverviewQuery } from "../shared/account-usage";
+import { MORI_ASSISTANT_CHANNELS as MORI } from "../shared/mori-assistant";
+import type { MoriAssistantSettings, MoriAssistantSnapshot } from "../shared/mori-assistant";
 import type { GenerationToolRequest } from "../shared/generation-tools";
 import type { ImageGenerationToolInput } from "../shared/image-generation";
 import type { TtsToolInput } from "../shared/tts";
@@ -310,6 +312,35 @@ function resolvePreloadScreenRecordingAppLabel(): string {
 }
 
 const api = {
+  moriAssistantSnapshot(cursor?: string): Promise<MoriAssistantSnapshot> { return ipcRenderer.invoke(MORI.snapshot, cursor); },
+  moriAssistantSaveSettings(settings: MoriAssistantSettings): Promise<MoriAssistantSnapshot> { return ipcRenderer.invoke(MORI.saveSettings, settings); },
+  moriAssistantSend(text: string, commandId: string): Promise<{ accepted: true }> { return ipcRenderer.invoke(MORI.send, { text, commandId }); },
+  moriAssistantCancel(): Promise<void> { return ipcRenderer.invoke(MORI.cancel); },
+  moriAssistantSetDraft(text: string): Promise<void> { return ipcRenderer.invoke(MORI.draft, text); },
+  moriAssistantNewSession(): Promise<void> { return ipcRenderer.invoke(MORI.newSession); },
+  moriAssistantSelectSession(id: string): Promise<void> { return ipcRenderer.invoke(MORI.selectSession, id); },
+  moriAssistantRespond(id: string, answer: string): Promise<void> { return ipcRenderer.invoke(MORI.respond, { id, answer }); },
+  moriAssistantFloating(visible: boolean): Promise<void> { return ipcRenderer.invoke(MORI.floating, visible); },
+  moriAssistantShowMain(): Promise<void> { return ipcRenderer.invoke(MORI.show); },
+  moriAssistantOpenTask(id: string): Promise<void> { return ipcRenderer.invoke(MORI.openTask, id); },
+  moriAssistantBindWechat(): Promise<void> { return ipcRenderer.invoke(MORI.wechatBind); },
+  moriAssistantDisconnectWechat(): Promise<void> { return ipcRenderer.invoke(MORI.wechatDisconnect); },
+  moriAssistantMoveBall(x: number, y: number): Promise<void> { return ipcRenderer.invoke(MORI.ballMove, { x, y }); },
+  onMoriAssistantChanged(callback: () => void): () => void {
+    const listener = () => callback();
+    ipcRenderer.on(MORI.changed, listener);
+    return () => ipcRenderer.off(MORI.changed, listener);
+  },
+  onMoriAssistantProjectOpenRequested(callback: (projectPath: string) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => { if (typeof value === "string") callback(value); };
+    ipcRenderer.on(MORI.projectOpenRequested, listener);
+    return () => ipcRenderer.off(MORI.projectOpenRequested, listener);
+  },
+  onMoriAssistantOpenRequested(callback: () => void): () => void {
+    const listener = () => callback();
+    ipcRenderer.on(MORI.openRequested, listener);
+    return () => ipcRenderer.off(MORI.openRequested, listener);
+  },
   platform: process.platform,
   getDisplayControlState(): Promise<import("../shared/display-control").DisplayControlState> {
     return ipcRenderer.invoke(IPC_CHANNELS.displayControlGet);
