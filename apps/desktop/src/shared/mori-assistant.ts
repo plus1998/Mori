@@ -7,6 +7,8 @@ export interface MoriAssistantSettings {
   enabled: boolean;
   name: string;
   instructions: string;
+  modelSource: "chatgpt" | "custom";
+  providerId: string;
   model: string;
   reasoningEffort: "low" | "medium" | "high";
   accountIds: string[];
@@ -74,6 +76,7 @@ export interface MoriAssistantSnapshot {
   activity?: string;
   pendingInput?: MoriAssistantPendingInput;
   accounts: OpenAIAccount[];
+  customProviders: MoriAssistantCustomProvider[];
   models: Array<{ id: string; label: string }>;
   projects: string[];
   tasks: ThreadSummary[];
@@ -84,6 +87,13 @@ export interface MoriAssistantSnapshot {
     error?: string;
     feedbackError?: string;
   };
+}
+
+/** Public model choices only; credentials remain in ProviderStore / Gateway. */
+export interface MoriAssistantCustomProvider {
+  id: string;
+  name: string;
+  models: Array<{ id: string; label: string }>;
 }
 
 export const MORI_ASSISTANT_CHANNELS = {
@@ -118,6 +128,8 @@ export const DEFAULT_MORI_ASSISTANT_SETTINGS: MoriAssistantSettings = {
   enabled: false,
   name: "Mori",
   instructions: "使用中文，简洁清楚地回答。需要操作桌面端时使用提供的工具；只有工具执行成功后才能确认完成。",
+  modelSource: "chatgpt",
+  providerId: "",
   model: "gpt-6-luna",
   reasoningEffort: "high",
   accountIds: [],

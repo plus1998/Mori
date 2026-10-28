@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { buildCodexGatewayModelAlias, buildCodexModelProviderSlug } from "@eco/runtime/codex-config-sync";
 import { defaultSubagentAvailability } from "@eco/runtime/subagent-availability";
 import { ConversationStore } from "../src/main/conversation-store";
 import { MoriAssistantService } from "../src/main/mori-assistant-service";
@@ -40,6 +41,17 @@ test("assistant settings require an account, reject malformed values and exclude
   });
   expect(settings.accountIds).toEqual(["a"]);
   expect(settings).not.toHaveProperty("token");
+});
+
+test("custom assistant settings do not require ChatGPT; old settings keep their login source", () => {
+  const { modelSource: _source, providerId: _provider, ...legacy } = DEFAULT_MORI_ASSISTANT_SETTINGS;
+  expect(parseAssistantSettings(legacy).modelSource).toBe("chatgpt");
+  expect(
+    parseAssistantSettings({ ...legacy, enabled: true, modelSource: "custom", providerId: "custom" })
+      .accountIds,
+  ).toEqual([]);
+  expect(() => parseAssistantSettings({ ...legacy, enabled: true, modelSource: "custom" })).toThrow("服务商");
+  expect(() => parseAssistantSettings({ ...legacy, modelSource: "other" })).toThrow("来源");
 });
 
 test("pet sizes migrate with a default and remain separate per selected pet", () => {
@@ -98,7 +110,7 @@ test("WeChat keeps opaque message IDs lossless and rejects untrusted credential 
   expect(() => validateWechatBaseUrl("https://a@ilinkai.weixin.qq.com")).toThrow("不受信任");
 });
 
-async function fixture() {
+async function fixture(options: { custom?: boolean } = {}) {
   const root = await fs.realpath(await temp());
   const executable = path.join(root, "fake-codex");
   await fs.writeFile(
@@ -128,6 +140,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
  const m=JSON.parse(line);
  if(!m.method){complete();return;}
  if(m.method==='initialized')return;
+ require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-requests.jsonl"))},JSON.stringify({method:m.method,model:m.params?.model,modelProvider:m.params?.modelProvider,home:process.env.CODEX_HOME})+'\\n');
  let result={};
  if(m.method==='account/login/start'){
   if(m.params.type!=='chatgptAuthTokens'||JSON.stringify(m.params).includes('refresh_token')){send({id:m.id,error:{code:-1,message:'full credentials leaked'}});return;}
@@ -137,7 +150,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   if(m.method==='thread/resume')thread=m.params.threadId;
   computer=m.params.config?.mcp_servers?.mori_computer;
   tasks=m.params.config?.mcp_servers?.mori_tasks;
-  require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-workspaces.jsonl"))},JSON.stringify({cwd:process.cwd(),threadCwd:m.params.cwd,method:m.method,taskTools:tasks?.enabled_tools})+'\\n');
+  require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-workspaces.jsonl"))},JSON.stringify({cwd:process.cwd(),threadCwd:m.params.cwd,method:m.method,taskTools:tasks?.enabled_tools,model:m.params.model,modelProvider:m.params.modelProvider})+'\\n');
   result={thread:{id:thread}};
  }
  if(m.method==='turn/start'){
@@ -156,6 +169,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   }
   else if(text==='tool')send({id:'tool-request',method:'item/tool/call',params:{threadId:thread,callId:'call-'+turn,tool:'mori_list_projects',arguments:{}}});
   else if(text==='private-task')send({id:'tool-request',method:'item/tool/call',params:{threadId:thread,callId:'call-'+turn,tool:'mori_start_task',arguments:{projectPath:process.cwd(),prompt:'must not start'}}});
+  else if(text==='quota-failure')send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:'usage_limit_reached'}}}});
   else if(text!=='wait')setTimeout(complete,5);
   return;
  }
@@ -169,17 +183,29 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   conversations.initialize();
   const todos = new ProjectTodoStore(db, (bytes) => `data:image/png;base64,${bytes.toString("base64")}`);
   const commands: Array<{ channel: string; args: unknown[] }> = [];
+  const accountCalls: string[] = [];
   const accounts = {
-    listAccounts: async () => [
-      { id: "a", name: "Test", authState: "configured", isLoggedIn: true, proxyMode: "direct" },
-    ],
-    setQuotaUsage: () => {},
-    getAccountProxyConfig: async () => ({ mode: "direct" }),
-    getExternalChatGptTokens: async () => ({ accessToken: "access-only", chatgptAccountId: "chatgpt-a" }),
+    listAccounts: async () =>
+      options.custom
+        ? []
+        : [{ id: "a", name: "Test", authState: "configured", isLoggedIn: true, proxyMode: "direct" }],
+    setQuotaUsage: () => {
+      accountCalls.push("quota");
+    },
+    getAccountProxyConfig: async () => {
+      accountCalls.push("proxy");
+      return { mode: "direct" };
+    },
+    getExternalChatGptTokens: async () => {
+      accountCalls.push("tokens");
+      return { accessToken: "access-only", chatgptAccountId: "chatgpt-a" };
+    },
   } as unknown as OpenAIAccountService;
   let currentProject = "/test/project";
   let computerMode: "always_ask" | "always_allow" = "always_ask";
   const computerCalls: string[] = [];
+  let providerEnabled = true;
+  const preparedProviders: string[] = [];
   const service = new MoriAssistantService({
     dataDir: root,
     conversations,
@@ -220,6 +246,18 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       bashReviewMode: "auto",
     }),
     modelSettings: () => ({}),
+    customProviders: () =>
+      providerEnabled
+        ? [{ id: "custom", name: "Custom", models: [{ id: "custom-model", label: "Custom Model" }] }]
+        : [],
+    prepareCustomProvider: async (providerId) => {
+      preparedProviders.push(providerId);
+      return {
+        providerId,
+        apiCompat: "openai_chat_completions",
+        gatewayBaseUrl: "http://127.0.0.1:18765/v1",
+      };
+    },
     currentProject: () => currentProject,
     computerUse: {
       status: () => ({ enabled: true, available: true, actionApprovalMode: computerMode }),
@@ -237,7 +275,13 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     settingsChanged: async () => {},
   });
   await service.initialize();
-  await service.saveSettings({ ...DEFAULT_MORI_ASSISTANT_SETTINGS, enabled: true, accountIds: ["a"] });
+  await service.saveSettings({
+    ...DEFAULT_MORI_ASSISTANT_SETTINGS,
+    enabled: true,
+    ...(options.custom
+      ? { modelSource: "custom", providerId: "custom", model: "custom-model" }
+      : { accountIds: ["a"] }),
+  });
   return {
     service,
     db,
@@ -246,6 +290,11 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     commands,
     root,
     computerCalls,
+    accountCalls,
+    preparedProviders,
+    setProviderEnabled: (enabled: boolean) => {
+      providerEnabled = enabled;
+    },
     setComputerMode: (mode: "always_ask" | "always_allow") => {
       computerMode = mode;
     },
@@ -254,6 +303,123 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     },
   };
 }
+
+test("custom assistant runs tools and WeChat without ChatGPT credentials or catalog checks", async () => {
+  const f = await fixture({ custom: true });
+  try {
+    await f.service.send("tool", "wechat", "custom-tool");
+    let snapshot = await f.service.snapshot();
+    const threadId = snapshot.currentThreadId;
+    if (!threadId) throw new Error("Missing custom assistant conversation");
+    expect(snapshot.accounts).toEqual([]);
+    expect(snapshot.accountId).toBeUndefined();
+    expect(snapshot.models).toEqual([{ id: "custom-model", label: "Custom Model" }]);
+    expect(snapshot.messages.at(-1)?.body).toBe("收到：tool");
+    expect(f.conversations.conversationV2().findTool(threadId, "call-1")?.status).toBe("completed");
+    const nativeId = f.conversations.getThreadCoreSession(threadId)?.externalSessionId;
+    if (!nativeId) throw new Error("Missing custom assistant native session");
+    // A free-form upstream id must not be rejected by Codex's official model catalog.
+    await f.service.saveSettings({ ...f.service.settings, model: "another-custom-model" });
+    await f.service.send("hello", "desktop", "custom-resume");
+    snapshot = await f.service.snapshot();
+    expect(snapshot.currentThreadId).toBe(threadId);
+    expect(f.conversations.getThreadCoreSession(threadId)?.externalSessionId).toBe(nativeId);
+    const requests = (await fs.readFile(path.join(f.root, "runtime-requests.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(
+      requests.some((request) => request.method === "model/list" || request.method === "account/login/start"),
+    ).toBe(false);
+    const modelRequests = requests.filter((request) =>
+      ["thread/start", "thread/resume", "turn/start"].includes(request.method),
+    );
+    expect(modelRequests.map((request) => request.model)).toEqual(
+      ["custom-model", "custom-model", "another-custom-model", "another-custom-model"].map((model) =>
+        buildCodexGatewayModelAlias("custom", model, "openai_chat_completions"),
+      ),
+    );
+    for (const request of modelRequests) {
+      expect(request.home).toBe(path.join(f.root, "mori-assistant", "codex"));
+      if (request.method !== "turn/start")
+        expect(request.modelProvider).toBe(buildCodexModelProviderSlug("custom"));
+    }
+    expect(f.preparedProviders).toEqual(["custom", "custom"]);
+    expect(f.accountCalls).toEqual([]);
+    const config = await fs.readFile(path.join(f.root, "mori-assistant", "codex", "config.toml"), "utf8");
+    expect(config).toContain("[model_providers.eco_custom]");
+    expect(config).toContain('base_url = "http://127.0.0.1:18765/v1"');
+    expect(config).not.toContain("access-only");
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
+
+test("switching between custom models and ChatGPT resumes the isolated assistant session", async () => {
+  const f = await fixture();
+  try {
+    await f.service.send("chatgpt", "desktop", "source-chatgpt");
+    const threadId = f.service.store.state.currentThreadId;
+    if (!threadId) throw new Error("Missing assistant conversation");
+    const nativeId = f.conversations.getThreadCoreSession(threadId)?.externalSessionId;
+    if (!nativeId) throw new Error("Missing assistant native session");
+    await f.service.saveSettings({
+      ...f.service.settings,
+      modelSource: "custom",
+      providerId: "custom",
+      model: "custom-model",
+      autoSwitchAccounts: true,
+    });
+    expect((await f.service.snapshot()).accountId).toBeUndefined();
+    f.accountCalls.length = 0;
+    await f.service.send("custom", "desktop", "source-custom");
+    expect(f.accountCalls).toEqual([]);
+    await f.service.saveSettings({ ...f.service.settings, modelSource: "chatgpt", model: "gpt-6-luna" });
+    await f.service.send("chatgpt again", "desktop", "source-back");
+    expect((await f.service.snapshot()).accountId).toBe("a");
+    expect(f.conversations.getThreadCoreSession(threadId)?.externalSessionId).toBe(nativeId);
+    expect((await f.service.snapshot()).messages).toHaveLength(6);
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
+
+test("a disabled custom provider fails explicitly without falling back, and the assistant can be disabled", async () => {
+  const f = await fixture({ custom: true });
+  try {
+    await f.service.send("first", "desktop", "custom-first");
+    f.setProviderEnabled(false);
+    await expect(f.service.send("do not fall back", "desktop", "custom-disabled")).rejects.toThrow(
+      "服务商已删除、禁用",
+    );
+    expect(f.preparedProviders).toEqual(["custom"]);
+    expect(f.accountCalls).toEqual([]);
+    await expect(f.service.saveSettings({ ...f.service.settings })).rejects.toThrow("服务商已删除、禁用");
+    await f.service.saveSettings({ ...f.service.settings, enabled: false });
+    expect(f.service.settings.enabled).toBe(false);
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
+
+test("custom provider quota errors never rotate retained ChatGPT account selections", async () => {
+  const f = await fixture({ custom: true });
+  try {
+    await f.service.saveSettings({ ...f.service.settings, accountIds: ["a", "b"], autoSwitchAccounts: true });
+    await expect(f.service.send("quota-failure", "desktop", "custom-quota")).rejects.toThrow(
+      "usage_limit_reached",
+    );
+    expect(f.preparedProviders).toEqual(["custom"]);
+    expect(f.accountCalls).toEqual([]);
+    expect((await f.service.snapshot()).error).toBe("usage_limit_reached");
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
 
 test("assistant thread tools expose saved errors even with only a user transcript", async () => {
   const { service, db, conversations } = await fixture();

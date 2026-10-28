@@ -786,6 +786,7 @@ import { logEcoDiag, logEcoDiagThrottled, shortAgentId, shortThreadId } from "./
 import {
   configureEcoGatewayLifecycle,
   ensureGlobalEcoGateway,
+  getGlobalEcoBridgeBaseUrl,
   stopGlobalEcoGateway,
 } from "./eco-gateway-lifecycle";
 import { hasStructuredThreadEventExtras, resolveEmitThreadEventMessage } from "./emit-thread-event-message";
@@ -7805,6 +7806,28 @@ function registerIpcHandlers(): void {
         mainAgentConfigs: settings.mainAgentConfigs.map(config => ({ id: config.id, name: config.name })),
         routeProfiles: settings.routeProfiles,
       };
+    },
+    customProviders: () => providerStore.listProviders()
+      .filter(provider => provider.enabled && provider.apiCompat !== "system_one" && provider.id !== "openai")
+      .map(provider => {
+        const candidates = providerStore.listCandidateModels(provider.id);
+        const modelIds = [...new Set([
+          provider.defaultModel,
+          ...candidates.map(model => model.modelId),
+          ...providerStore.listRouteProfiles().flatMap(profile => profile.routes
+            .filter(route => route.providerId === provider.id).map(route => route.modelId)),
+        ])].filter(Boolean);
+        return {
+          id: provider.id, name: provider.name,
+          models: modelIds.map(id => ({ id, label: candidates.find(model => model.modelId === id)?.displayName || id })),
+        };
+      }),
+    prepareCustomProvider: async providerId => {
+      const provider = providerStore.listProviders().find(provider => provider.id === providerId);
+      if (!provider?.enabled || provider.apiCompat === "system_one" || providerId === "openai")
+        throw new Error("选择的自定义模型服务商已删除、禁用或不支持对话，请重新选择。");
+      await ensureGlobalEcoGateway({ requiredProviderIds: [providerId] });
+      return { providerId, apiCompat: provider.apiCompat, gatewayBaseUrl: `${getGlobalEcoBridgeBaseUrl()}/v1` };
     },
     invoke: async (channel, args) => {
       const response = await desktopEventCenter.handleJsonRpcMessage({ jsonrpc: "2.0", id: randomUUID(), method: "eco.invoke", params: { channel, args } });

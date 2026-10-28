@@ -23,12 +23,16 @@ export function parseAssistantSettings(value: unknown): MoriAssistantSettings {
   ] as const) {
     if (typeof result[key] !== "boolean") throw new Error(`助手配置 ${key} 必须为布尔值。`);
   }
-  for (const key of ["name", "instructions", "model", "shortcut", "petKey"] as const) {
+  for (const key of ["name", "instructions", "model", "providerId", "shortcut", "petKey"] as const) {
     if (typeof result[key] !== "string") throw new Error(`助手配置 ${key} 必须为文本。`);
     result[key] = result[key].trim();
   }
   if (!result.name || result.name.length > 60) throw new Error("助手名称需要 1–60 个字符。");
   if (!result.model || result.model.length > 160) throw new Error("请选择助手模型。");
+  if (result.modelSource !== "chatgpt" && result.modelSource !== "custom")
+    throw new Error("助手模型来源无效。");
+  if (result.enabled && result.modelSource === "custom" && !result.providerId)
+    throw new Error("启用助手前请选择自定义模型服务商。");
   if (result.petKey && !/^(codex|codex-home|mori):[^/\\]+$/.test(result.petKey))
     throw new Error("宠物标识无效。");
   if (!result.petSizes || typeof result.petSizes !== "object" || Array.isArray(result.petSizes))
@@ -50,7 +54,8 @@ export function parseAssistantSettings(value: unknown): MoriAssistantSettings {
   )
     throw new Error("助手账号列表无效。");
   result.accountIds = [...new Set(result.accountIds)];
-  if (result.enabled && !result.accountIds.length) throw new Error("启用助手前请选择 ChatGPT 账号。");
+  if (result.enabled && result.modelSource === "chatgpt" && !result.accountIds.length)
+    throw new Error("启用助手前请选择 ChatGPT 账号。");
   // Return only known fields. Secrets and runtime state never enter exported settings.
   return Object.fromEntries(
     Object.keys(defaults).map((key) => [key, result[key as keyof MoriAssistantSettings]]),

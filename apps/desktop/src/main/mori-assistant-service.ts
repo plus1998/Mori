@@ -10,7 +10,12 @@ import type {
 import type { AccountUsageRecord } from "./account-usage-store";
 import type { SystemProxyResolver } from "./codex-proxy";
 import type { ConversationStore } from "./conversation-store";
-import { type AssistantTool, MoriAssistantRuntime } from "./mori-assistant-runtime";
+import {
+  type AssistantCustomProviderRoute,
+  type AssistantRuntimeDeps,
+  type AssistantTool,
+  MoriAssistantRuntime,
+} from "./mori-assistant-runtime";
 import { MoriAssistantStore, parseAssistantSettings } from "./mori-assistant-store";
 import { MORI_TODO_TOOLS, MoriAssistantTodos } from "./mori-assistant-todos";
 import { isMoriComputerAction, type MoriComputerUseAccess } from "./mori-computer-use";
@@ -59,7 +64,11 @@ export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
   ),
   tool("mori_list_projects", "列出可用于工作任务的已知项目，不包含 Mori 助手自身的独立工作区。", {}),
   tool("mori_list_models", "读取 Mori 的模型和 Agent 预设配置。创建工作会话前按需读取。", {}),
-  tool("mori_list_threads", "列出最近工作会话，包含状态与脱敏的当前失败原因；详细错误使用 mori_read_thread_errors。", {}),
+  tool(
+    "mori_list_threads",
+    "列出最近工作会话，包含状态与脱敏的当前失败原因；详细错误使用 mori_read_thread_errors。",
+    {},
+  ),
   tool(
     "mori_read_thread",
     "读取指定工作会话最近消息与脱敏错误详情（diagnostics）。通过 beforeCursor 继续读取旧消息；错误独立于消息分页，历史工具失败不代表当前会话失败。",
@@ -107,6 +116,8 @@ export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
     name: text,
     instructions: { type: "string" },
     model: text,
+    modelSource: { type: "string", enum: ["chatgpt", "custom"] },
+    providerId: { type: "string" },
     reasoningEffort: { type: "string", enum: ["low", "medium", "high"] },
   }),
 ];
@@ -120,6 +131,8 @@ export interface MoriAssistantDeps {
   invoke(channel: string, args: unknown[]): Promise<unknown>;
   defaultRuntimeConfig(): ThreadRuntimeConfig;
   modelSettings(): unknown;
+  customProviders(): MoriAssistantSnapshot["customProviders"];
+  prepareCustomProvider(providerId: string): Promise<AssistantCustomProviderRoute>;
   onUsage?(record: AccountUsageRecord, aggregate: boolean): void;
   currentProject(): string | undefined;
   computerUse: MoriComputerUseAccess;
@@ -230,6 +243,7 @@ export class MoriAssistantService {
       messages.splice(0, messages.length, ...byId.values());
     }
     const accounts = await (await this.deps.accounts()).listAccounts();
+    const customProviders = this.deps.customProviders();
     const threads = this.deps.conversations.listThreads();
     return {
       settings: { ...state.settings },
@@ -255,7 +269,11 @@ export class MoriAssistantService {
       ...(this.activity ? { activity: this.activity } : {}),
       ...(this.pendingInput ? { pendingInput: this.pendingInput } : {}),
       accounts,
-      models: this.models,
+      customProviders,
+      models:
+        state.settings.modelSource === "custom"
+          ? (customProviders.find((provider) => provider.id === state.settings.providerId)?.models ?? [])
+          : this.models,
       projects: this.projects(),
       tasks: state.taskIds
         .map((id) => this.deps.conversations.getThread(id))
@@ -284,9 +302,12 @@ export class MoriAssistantService {
     const settings = parseAssistantSettings(value);
     if (this.isRunning && JSON.stringify(settings) !== JSON.stringify(this.settings))
       throw new Error("请等待助手回复结束后修改配置。");
-    const accounts = await (await this.deps.accounts()).listAccounts();
-    if (settings.accountIds.some((id) => !accounts.some((account) => account.id === id)))
-      throw new Error("选择的 ChatGPT 账号已不存在。");
+    this.validateCustomProvider(settings);
+    if (settings.modelSource === "chatgpt") {
+      const accounts = await (await this.deps.accounts()).listAccounts();
+      if (settings.accountIds.some((id) => !accounts.some((account) => account.id === id)))
+        throw new Error("选择的 ChatGPT 账号已不存在。");
+    }
     const previous = this.store.state.settings;
     try {
       await this.deps.settingsChanged(settings); // Reject unavailable shortcuts before persisting.
@@ -460,21 +481,22 @@ export class MoriAssistantService {
           if (this.stopped || this.closed) throw new Error("助手请求已停止。");
           this.activity = "正在回复";
           this.emit();
-          const accounts = await this.deps.accounts();
-          accounts.setQuotaUsage(threadId, true, this.runtimeAccount);
+          const accounts = this.runtimeAccount ? await this.deps.accounts() : undefined;
+          accounts?.setQuotaUsage(threadId, true, this.runtimeAccount);
           try {
             const runtime = this.runtime;
             if (!runtime) throw new Error("助手运行实例已断开。");
             await runtime.send(prompt, this.settings);
             if (this.stopped || this.closed) throw new Error("助手已停止。");
           } finally {
-            accounts.setQuotaUsage(threadId, false);
+            accounts?.setQuotaUsage(threadId, false);
           }
           break;
         } catch (error) {
           // Rotate only an explicitly classified quota failure before any output/tool.
           const detail = error instanceof Error ? error.message : String(error);
           if (
+            this.settings.modelSource !== "chatgpt" ||
             !this.settings.autoSwitchAccounts ||
             !/usage_limit_reached|usage limit|quota.*exhaust|exceeded.*quota|额度.*耗尽/i.test(detail) ||
             this.liveMessages.size ||
@@ -573,12 +595,15 @@ export class MoriAssistantService {
   }
 
   private async ensureRuntime(threadId: string, excluded: Set<string>): Promise<void> {
-    const accounts = await this.deps.accounts();
-    const available = await accounts.listAccounts();
-    const accountId =
-      this.runtimeAccount &&
-      !excluded.has(this.runtimeAccount) &&
-      this.settings.accountIds.includes(this.runtimeAccount)
+    this.validateCustomProvider(this.settings);
+    const custom = this.settings.modelSource === "custom";
+    const accounts = custom ? undefined : await this.deps.accounts();
+    const available = accounts ? await accounts.listAccounts() : [];
+    const accountId = custom
+      ? undefined
+      : this.runtimeAccount &&
+          !excluded.has(this.runtimeAccount) &&
+          this.settings.accountIds.includes(this.runtimeAccount)
         ? this.runtimeAccount
         : this.settings.accountIds.find(
             (id) =>
@@ -587,11 +612,21 @@ export class MoriAssistantService {
                 (a) => a.id === id && a.authState !== "missing" && a.authState !== "reauthorization_required",
               ),
           );
-    if (!accountId) throw new Error("助手没有可用的 ChatGPT 账号，请在设置中选择已登录的账号。");
+    let connection: AssistantRuntimeDeps["connection"];
+    if (custom) {
+      connection = { type: "custom", ...(await this.deps.prepareCustomProvider(this.settings.providerId)) };
+    } else {
+      if (!accountId || !accounts)
+        throw new Error("助手没有可用的 ChatGPT 账号，请在设置中选择已登录的账号。");
+      connection = { type: "chatgpt", accountId, accounts };
+    }
     const configuration = JSON.stringify([
       this.settings.name,
       this.settings.instructions,
       this.settings.model,
+      this.settings.modelSource,
+      this.settings.providerId,
+      custom ? connection : undefined,
     ]);
     if (
       this.runtime &&
@@ -607,8 +642,7 @@ export class MoriAssistantService {
       executable,
       home: path.join(this.deps.dataDir, "mori-assistant", "codex"),
       cwd: this.workspacePath,
-      accountId,
-      accounts,
+      connection,
       resolveSystemProxy: this.deps.resolveSystemProxy,
       tools: MORI_ASSISTANT_TOOLS,
       callTool: (name, args, callId, signal) => this.executeTool(name, args, callId, signal),
@@ -632,18 +666,31 @@ export class MoriAssistantService {
         externalSessionId: nativeId,
         cwd: this.workspacePath,
       });
-      this.models = await runtime.listModels();
-      if (!this.models.some((model) => model.id === this.settings.model))
-        throw new Error(`当前账号不可使用模型 ${this.settings.model}，请修改助手模型。`);
+      if (!custom) {
+        this.models = await runtime.listModels();
+        if (!this.models.some((model) => model.id === this.settings.model))
+          throw new Error(`当前账号不可使用模型 ${this.settings.model}，请修改助手模型。`);
+      }
     } catch (error) {
       await this.releaseRuntime();
       throw error;
     }
   }
 
+  private validateCustomProvider(settings: MoriAssistantSettings): void {
+    if (
+      settings.enabled &&
+      settings.modelSource === "custom" &&
+      settings.providerId &&
+      !this.deps.customProviders().some((provider) => provider.id === settings.providerId)
+    )
+      throw new Error("选择的自定义模型服务商已删除、禁用或不支持对话，请重新选择。");
+  }
+
   private async releaseRuntime(): Promise<void> {
     const runtime = this.runtime;
     this.runtime = undefined;
+    this.runtimeAccount = undefined;
     this.runtimeThread = undefined;
     await runtime?.close();
   }
@@ -814,7 +861,8 @@ export class MoriAssistantService {
           status: item.status,
           coreKind: item.coreKind,
           currentError: currentThreadError(item),
-          currentErrorMissing: (item.status === "failed" || item.status === "blocked") && !item.message.trim(),
+          currentErrorMissing:
+            (item.status === "failed" || item.status === "blocked") && !item.message.trim(),
         }));
     if (name === "mori_read_thread" || name === "mori_read_thread_errors") {
       const target = thread();
@@ -909,6 +957,7 @@ export class MoriAssistantService {
     if (name === "mori_update_settings") {
       // A model change takes effect on the next turn; never close this running tool call.
       const settings = parseAssistantSettings({ ...this.settings, ...args });
+      this.validateCustomProvider(settings);
       this.store.state.settings = settings;
       await this.store.save();
       this.emit();

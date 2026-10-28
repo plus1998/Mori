@@ -2,6 +2,12 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import { parseCodexThreadTokenUsage } from "@eco/runtime";
 import { CodexAppServerClient } from "@eco/runtime/codex-app-server-client";
+import {
+  buildCodexGatewayModelAlias,
+  buildCodexGatewayProviderTomlLines,
+  buildCodexModelProviderSlug,
+} from "@eco/runtime/codex-config-sync";
+import type { ChatApiCompat } from "../shared/api-compat";
 import type { MoriAssistantSettings } from "../shared/mori-assistant";
 import type { AccountUsageRecord } from "./account-usage-store";
 import { CodexAccountUsageTracker } from "./codex-account-usage-tracker";
@@ -25,8 +31,9 @@ export interface AssistantRuntimeDeps {
   executable: string;
   home: string;
   cwd: string;
-  accountId: string;
-  accounts: OpenAIAccountService;
+  connection:
+    | { type: "chatgpt"; accountId: string; accounts: OpenAIAccountService }
+    | ({ type: "custom" } & AssistantCustomProviderRoute);
   resolveSystemProxy: SystemProxyResolver;
   tools: AssistantTool[];
   callTool(
@@ -38,6 +45,12 @@ export interface AssistantRuntimeDeps {
   onText(itemId: string, text: string, final: boolean): void;
   onActivity(text: string): void;
   onUsage?(record: AccountUsageRecord, aggregate: boolean): void;
+}
+
+export interface AssistantCustomProviderRoute {
+  providerId: string;
+  apiCompat: ChatApiCompat;
+  gatewayBaseUrl: string;
 }
 
 function isTaskTool(tool: AssistantTool): boolean {
@@ -82,6 +95,7 @@ export class MoriAssistantRuntime {
 
   private async startOnce(): Promise<void> {
     const { deps } = this;
+    const connection = deps.connection;
     const computerTools = deps.tools.filter((tool) => tool.name.startsWith("mori_computer_"));
     const taskTools = deps.tools.filter(isTaskTool);
     if (taskTools.length) {
@@ -97,11 +111,29 @@ export class MoriAssistantRuntime {
     // An isolated home has no user/project coding settings, skills or refresh token.
     await fs.writeFile(
       `${deps.home}/config.toml`,
-      'cli_auth_credentials_store = "ephemeral"\nweb_search = "disabled"\n[features]\nshell_tool = false\n',
+      [
+        'cli_auth_credentials_store = "ephemeral"',
+        'web_search = "disabled"',
+        "[features]",
+        "shell_tool = false",
+        "multi_agent = false",
+        ...(connection.type === "custom"
+          ? buildCodexGatewayProviderTomlLines(connection.providerId, {
+              gatewayBaseUrl: connection.gatewayBaseUrl,
+            })
+          : []),
+        "",
+      ].join("\n"),
       { mode: 0o600 },
     );
-    const proxyConfig = await deps.accounts.getAccountProxyConfig(deps.accountId);
-    let proxy = await resolveCodexProxyUrl(proxyConfig, deps.resolveSystemProxy);
+    // Custom requests go to the local Gateway; it owns upstream proxy/auth handling.
+    let proxy =
+      connection.type === "chatgpt"
+        ? await resolveCodexProxyUrl(
+            await connection.accounts.getAccountProxyConfig(connection.accountId),
+            deps.resolveSystemProxy,
+          )
+        : undefined;
     if (proxy && new URL(proxy).protocol.startsWith("socks")) {
       const bridge = await startSocksToHttpBridge(proxy);
       this.bridge = bridge;
@@ -131,8 +163,12 @@ export class MoriAssistantRuntime {
       onNotification: (method, params) => this.notify(method, params),
       onServerRequest: async (method, params) => {
         if (method === "account/chatgptAuthTokens/refresh") {
+          if (connection.type !== "chatgpt") throw new Error("自定义模型不使用 ChatGPT 登录。");
           const p = params as { previousAccountId?: string };
-          const tokens = await deps.accounts.getExternalChatGptTokens(deps.accountId, this.accessToken);
+          const tokens = await connection.accounts.getExternalChatGptTokens(
+            connection.accountId,
+            this.accessToken,
+          );
           if (p.previousAccountId && p.previousAccountId !== tokens.chatgptAccountId)
             throw new Error("刷新请求的账号身份不匹配。");
           this.accessToken = tokens.accessToken;
@@ -184,9 +220,11 @@ export class MoriAssistantRuntime {
     this.client = client;
     try {
       await client.initialize();
-      const tokens = await deps.accounts.getExternalChatGptTokens(deps.accountId);
-      this.accessToken = tokens.accessToken;
-      await client.request("account/login/start", { type: "chatgptAuthTokens", ...tokens });
+      if (connection.type === "chatgpt") {
+        const tokens = await connection.accounts.getExternalChatGptTokens(connection.accountId);
+        this.accessToken = tokens.accessToken;
+        await client.request("account/login/start", { type: "chatgptAuthTokens", ...tokens });
+      }
     } catch (error) {
       await this.close();
       throw error;
@@ -216,8 +254,11 @@ export class MoriAssistantRuntime {
   async openThread(settings: MoriAssistantSettings, existing?: string): Promise<string> {
     await this.start();
     const params = {
-      model: settings.model,
-      modelProvider: "openai",
+      model: this.requestModel(settings.model),
+      modelProvider:
+        this.deps.connection.type === "custom"
+          ? buildCodexModelProviderSlug(this.deps.connection.providerId)
+          : "openai",
       cwd: this.deps.cwd,
       approvalPolicy: "untrusted",
       sandbox: "read-only",
@@ -273,7 +314,7 @@ export class MoriAssistantRuntime {
         "turn/start",
         {
           threadId: this.threadId,
-          model: settings.model,
+          model: this.requestModel(settings.model),
           effort: settings.reasoningEffort,
           input: [{ type: "text", text }],
         },
@@ -301,6 +342,13 @@ export class MoriAssistantRuntime {
     }
   }
 
+  private requestModel(model: string): string {
+    const connection = this.deps.connection;
+    return connection.type === "custom"
+      ? buildCodexGatewayModelAlias(connection.providerId, model, connection.apiCompat)
+      : model;
+  }
+
   private handleNotification(method: string, value: unknown): void {
     const p = value as {
       threadId?: string;
@@ -325,7 +373,11 @@ export class MoriAssistantRuntime {
       this.deps.onActivity(p.item.tool ?? "正在处理");
     if (method === "turn/started" && p.turn) {
       this.turnId = p.turn.id;
-      this.usage.start(p.threadId, p.turn.id, { accountId: this.deps.accountId, modelId: this.model });
+      if (this.deps.connection.type === "chatgpt")
+        this.usage.start(p.threadId, p.turn.id, {
+          accountId: this.deps.connection.accountId,
+          modelId: this.model,
+        });
     }
     if (method === "thread/tokenUsage/updated" && p.turnId) {
       const usage = parseCodexThreadTokenUsage(p.tokenUsage);

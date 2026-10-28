@@ -25,6 +25,7 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
+  DEFAULT_MORI_ASSISTANT_SETTINGS,
   type MoriAssistantSettings,
   type MoriAssistantSnapshot,
   moriPetSize,
@@ -171,8 +172,16 @@ export function MoriAssistantSettingsPanel({
       </section>
     );
   if (!settings || !snapshot) return <p role="status">{error || "正在读取助手设置…"}</p>;
-  const missingAccount = settings.enabled && !settings.accountIds.length;
-  const invalid = missingAccount || !settings.model.trim() || !settings.name.trim();
+  const custom = settings.modelSource === "custom";
+  const selectedProvider = snapshot.customProviders.find((provider) => provider.id === settings.providerId);
+  const missingAccount = settings.enabled && !custom && !settings.accountIds.length;
+  const missingProvider = custom && !selectedProvider;
+  const invalid =
+    missingAccount ||
+    (settings.enabled && missingProvider) ||
+    !settings.model.trim() ||
+    !settings.name.trim();
+  const modelChoices = custom ? (selectedProvider?.models ?? []) : snapshot.models;
   const locked = busy || running;
   const tabs = [
     { id: "conversation", label: "对话", icon: Sparkles },
@@ -196,7 +205,7 @@ export function MoriAssistantSettingsPanel({
       <label className="mori-toggle mori-enable">
         <span>
           <strong>启用助手</strong>
-          <small>选择账号和模型，保存后即可开始对话。</small>
+          <small>选择模型来源，保存后即可开始对话。</small>
         </span>
         <input
           type="checkbox"
@@ -231,69 +240,149 @@ export function MoriAssistantSettingsPanel({
           <>
             <section className="mori-settings-section">
               <div className="mori-section-heading">
-                <h3>使用哪个账号</h3>
-                <small>可与工作会话共用</small>
+                <h3>模型来源</h3>
               </div>
-              {snapshot.accounts.length === 0 ? (
-                <div className="mori-account-empty">
-                  <p>还没有 ChatGPT 账号，先登录一个账号即可继续。</p>
-                  <button type="button" onClick={manageAccounts}>
-                    添加 ChatGPT 账号
-                    <ChevronRight size={14} />
-                  </button>
-                </div>
-              ) : (
-                <div className="mori-account-list">
-                  {snapshot.accounts.map((account) => {
-                    const index = settings.accountIds.indexOf(account.id);
-                    const quota = account.quota?.rateLimit.primaryWindow;
-                    return (
-                      <label key={account.id} className={`mori-account ${index >= 0 ? "is-selected" : ""}`}>
-                        <input
-                          type="checkbox"
-                          checked={index >= 0}
-                          onChange={(event) =>
-                            patch(
-                              "accountIds",
-                              event.target.checked
-                                ? [...settings.accountIds, account.id]
-                                : settings.accountIds.filter((id) => id !== account.id),
-                            )
+              <label>
+                使用方式
+                <select
+                  aria-label="助手模型来源"
+                  value={settings.modelSource}
+                  onChange={(event) => {
+                    const source = event.target.value as MoriAssistantSettings["modelSource"];
+                    const provider = selectedProvider ?? snapshot.customProviders[0];
+                    setSettings((current) =>
+                      current
+                        ? {
+                            ...current,
+                            modelSource: source,
+                            providerId: provider?.id ?? "",
+                            model:
+                              source === "custom"
+                                ? (provider?.models[0]?.id ?? "")
+                                : DEFAULT_MORI_ASSISTANT_SETTINGS.model,
                           }
-                        />
-                        <span>
-                          <strong>{account.name}</strong>
-                          <small>{account.email ?? (account.isLoggedIn ? "已登录" : "需要登录")}</small>
-                        </span>
-                        <span className="mori-account-meta">
-                          {quota
-                            ? `已用 ${Math.round(quota.usedPercent)}%`
-                            : account.isLoggedIn
-                              ? "已登录"
-                              : "需要登录"}
-                          {index >= 0 ? <small>{index === 0 ? "首选账号" : `备用 ${index}`}</small> : null}
-                        </span>
-                      </label>
+                        : current,
                     );
-                  })}
-                </div>
-              )}
-              {missingAccount ? <p className="mori-field-error">选择至少一个账号后保存。</p> : null}
-              {snapshot.accounts.length > 0 ? (
-                <button type="button" className="mori-text-button" onClick={manageAccounts}>
-                  管理账号
-                  <ExternalLink size={12} />
-                </button>
-              ) : null}
-              <label className="mori-check">
-                <input
-                  type="checkbox"
-                  checked={settings.autoSwitchAccounts}
-                  onChange={(event) => patch("autoSwitchAccounts", event.target.checked)}
-                />
-                额度耗尽时，按勾选顺序切换账号
+                    setSaved(false);
+                    setError("");
+                  }}
+                >
+                  <option value="chatgpt">ChatGPT 账号</option>
+                  <option value="custom">自定义模型</option>
+                </select>
               </label>
+              {custom ? (
+                <>
+                  <label>
+                    服务商
+                    <select
+                      aria-label="助手模型服务商"
+                      value={settings.providerId}
+                      aria-invalid={missingProvider}
+                      onChange={(event) => {
+                        const provider = snapshot.customProviders.find(
+                          (provider) => provider.id === event.target.value,
+                        );
+                        setSettings((current) =>
+                          current
+                            ? {
+                                ...current,
+                                providerId: event.target.value,
+                                model: provider?.models[0]?.id ?? "",
+                              }
+                            : current,
+                        );
+                        setSaved(false);
+                        setError("");
+                      }}
+                    >
+                      <option value="">请选择服务商</option>
+                      {settings.providerId && !selectedProvider ? (
+                        <option value={settings.providerId}>当前服务商不可用</option>
+                      ) : null}
+                      {snapshot.customProviders.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="mori-muted">使用“设置 → 服务商”中已启用的服务商和模型。</p>
+                  {missingProvider ? (
+                    <p className="mori-field-error">
+                      请先在“设置 → 服务商”中配置并启用服务商，再在这里选择。
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
             </section>
+            {!custom ? (
+              <section className="mori-settings-section">
+                <div className="mori-section-heading">
+                  <h3>使用哪个账号</h3>
+                  <small>可与工作会话共用</small>
+                </div>
+                {snapshot.accounts.length === 0 ? (
+                  <div className="mori-account-empty">
+                    <p>还没有 ChatGPT 账号，先登录一个账号即可继续。</p>
+                    <button type="button" onClick={manageAccounts}>
+                      添加 ChatGPT 账号
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mori-account-list">
+                    {snapshot.accounts.map((account) => {
+                      const index = settings.accountIds.indexOf(account.id);
+                      const quota = account.quota?.rateLimit.primaryWindow;
+                      return (
+                        <label key={account.id} className={`mori-account ${index >= 0 ? "is-selected" : ""}`}>
+                          <input
+                            type="checkbox"
+                            checked={index >= 0}
+                            onChange={(event) =>
+                              patch(
+                                "accountIds",
+                                event.target.checked
+                                  ? [...settings.accountIds, account.id]
+                                  : settings.accountIds.filter((id) => id !== account.id),
+                              )
+                            }
+                          />
+                          <span>
+                            <strong>{account.name}</strong>
+                            <small>{account.email ?? (account.isLoggedIn ? "已登录" : "需要登录")}</small>
+                          </span>
+                          <span className="mori-account-meta">
+                            {quota
+                              ? `已用 ${Math.round(quota.usedPercent)}%`
+                              : account.isLoggedIn
+                                ? "已登录"
+                                : "需要登录"}
+                            {index >= 0 ? <small>{index === 0 ? "首选账号" : `备用 ${index}`}</small> : null}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                {missingAccount ? <p className="mori-field-error">选择至少一个账号后保存。</p> : null}
+                {snapshot.accounts.length > 0 ? (
+                  <button type="button" className="mori-text-button" onClick={manageAccounts}>
+                    管理账号
+                    <ExternalLink size={12} />
+                  </button>
+                ) : null}
+                <label className="mori-check">
+                  <input
+                    type="checkbox"
+                    checked={settings.autoSwitchAccounts}
+                    onChange={(event) => patch("autoSwitchAccounts", event.target.checked)}
+                  />
+                  额度耗尽时，按勾选顺序切换账号
+                </label>
+              </section>
+            ) : null}
             <section className="mori-settings-section">
               <div className="mori-section-heading">
                 <h3>对话偏好</h3>
@@ -308,13 +397,16 @@ export function MoriAssistantSettingsPanel({
                     onChange={(event) => patch("model", event.target.value)}
                   />
                   <datalist id="mori-models">
-                    {[
-                      ...new Set(["gpt-6-luna", "gpt-6.1-terra", ...snapshot.models.map((item) => item.id)]),
-                    ].map((id) => (
-                      <option key={id} value={id} />
+                    {modelChoices.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
                     ))}
+                    {!custom && !modelChoices.length ? (
+                      <option value={DEFAULT_MORI_ASSISTANT_SETTINGS.model} />
+                    ) : null}
                   </datalist>
-                  <small>可选择或填写账号支持的模型</small>
+                  <small>{custom ? "可选择或填写服务商支持的模型 ID" : "可选择或填写账号支持的模型"}</small>
                 </label>
                 <label>
                   思考强度
@@ -1282,8 +1374,9 @@ export function MoriAssistantPanel({
                     {[
                       ...new Set([
                         snapshot?.settings.model ?? "",
-                        "gpt-6-luna",
-                        "gpt-6.1-terra",
+                        ...(snapshot?.settings.modelSource === "custom"
+                          ? []
+                          : ["gpt-6-luna", "gpt-6.1-terra"]),
                         ...(snapshot?.models.map((item) => item.id) ?? []),
                       ]),
                     ]
