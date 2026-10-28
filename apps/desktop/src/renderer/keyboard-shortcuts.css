@@ -1,0 +1,273 @@
+.keyboard-settings {
+  margin-top: 0;
+}
+.keyboard-settings-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.keyboard-settings-heading h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+.keyboard-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--surface-hover, rgba(128, 128, 128, 0.08));
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.keyboard-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
+  border-radius: 22px;
+  padding: 0 14px;
+  height: 42px;
+  color: var(--text-tertiary);
+}
+.keyboard-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.keyboard-search:focus-within {
+  border-color: var(--text-secondary);
+}
+.keyboard-settings-note {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 14px 0 24px;
+}
+.keyboard-list {
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.18));
+  border-radius: 16px;
+  padding: 4px 20px;
+}
+.keyboard-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(160px, 1fr) 24px;
+  align-items: center;
+  gap: 16px;
+  padding: 19px 0;
+  border-bottom: 1px solid var(--border-color, rgba(128, 128, 128, 0.12));
+}
+.keyboard-row:last-child {
+  border-bottom: 0;
+}
+.keyboard-row-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.keyboard-row-copy strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 550;
+}
+.keyboard-row-copy strong span {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.keyboard-row-copy small {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.keyboard-row-bindings {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.keyboard-binding {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 27px;
+}
+.keyboard-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  color: var(--text-tertiary);
+  text-align: left;
+}
+.keyboard-edit kbd {
+  border-radius: 8px;
+  padding: 4px 9px;
+  background: var(--surface-hover, rgba(128, 128, 128, 0.09));
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.keyboard-edit:hover kbd {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+.keyboard-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--text-tertiary);
+}
+.keyboard-icon:hover {
+  background: var(--surface-hover, rgba(128, 128, 128, 0.09));
+  color: var(--text-primary);
+}
+.keyboard-icon:disabled {
+  opacity: 0.2;
+  cursor: default;
+}
+.keyboard-add {
+  opacity: 0;
+}
+.keyboard-row:hover .keyboard-add,
+.keyboard-row:focus-within .keyboard-add {
+  opacity: 1;
+}
+.keyboard-empty {
+  padding: 40px 12px;
+  text-align: center;
+  color: var(--text-tertiary);
+}
+.keyboard-error {
+  color: var(--error-color, #c94d4d);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.keyboard-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 16000;
+  background: rgba(0, 0, 0, 0.24);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  -webkit-app-region: no-drag;
+}
+.keyboard-modal {
+  position: relative;
+  width: 400px;
+  max-width: 100%;
+  padding: 28px;
+  border-radius: 18px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
+  background: var(--bg-primary, var(--surface, #fff));
+  color: var(--text-primary);
+  box-shadow: 0 20px 90px rgba(0, 0, 0, 0.18);
+  outline: none;
+}
+.keyboard-modal-close {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+}
+.keyboard-modal-symbol {
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.keyboard-modal h3 {
+  font-size: 17px;
+  margin: 8px 0 10px;
+}
+.keyboard-modal p {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.keyboard-recording {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 84px;
+  margin: 20px 0;
+  border-radius: 12px;
+  border: 1px dashed var(--border-color, rgba(128, 128, 128, 0.3));
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+.keyboard-recording.is-ready {
+  border-color: var(--text-secondary);
+}
+.keyboard-recording kbd {
+  font-family: inherit;
+  font-size: 26px;
+  color: var(--text-primary);
+  letter-spacing: 2px;
+}
+.keyboard-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+.keyboard-modal-actions button {
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
+  border-radius: 8px;
+  padding: 8px 13px;
+  font-size: 12px;
+}
+.keyboard-modal-actions .keyboard-primary {
+  background: var(--text-primary);
+  color: var(--bg-primary, #fff);
+  border-color: transparent;
+}
+.keyboard-settings button:focus-visible,
+.keyboard-modal button:focus-visible {
+  outline: 2px solid var(--text-secondary);
+  outline-offset: 3px;
+}
+.sidebar-shortcut-hint {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: 10px;
+  opacity: 0.65;
+}
+@media (max-width: 780px) {
+  .keyboard-row {
+    grid-template-columns: minmax(0, 1fr) minmax(100px, auto) 20px;
+    gap: 9px;
+  }
+  .keyboard-list {
+    padding: 0 13px;
+  }
+  .keyboard-reset {
+    font-size: 11px;
+    padding: 8px;
+  }
+  .keyboard-add {
+    opacity: 0.6;
+  }
+}
+
+.keyboard-modal-dismiss { position: absolute; inset: 0; width: 100%; height: 100%; background: transparent; border: 0; cursor: default; }

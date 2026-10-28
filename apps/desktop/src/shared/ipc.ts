@@ -35,6 +35,10 @@ export const IPC_CHANNELS = {
   schedulingPreview: "scheduling:preview",
   schedulingChanged: "scheduling:changed",
   appMenuCommand: "app:menu-command",
+  keyboardShortcutsRecording: "keyboard-shortcuts:recording",
+  keyboardShortcutsGet: "keyboard-shortcuts:get",
+  keyboardShortcutsSave: "keyboard-shortcuts:save",
+  keyboardShortcutsChanged: "keyboard-shortcuts:changed",
   appRendererReady: "app:renderer-ready",
   displayControlGet: "display-control:get",
   displayControlSet: "display-control:set",
@@ -417,16 +421,12 @@ export const IPC_CHANNELS = {
   appEcoDeepLinkOpen: "app:eco-deep-link-open",
 } as const;
 
-export type AppMenuCommand =
-  | "new-chat"
-  | "open-folder"
-  | "check-for-updates"
-  | "toggle-sidebar"
-  | "toggle-bottom-panel"
-  | "toggle-work-panel"
-  | "toggle-review-panel"
-  | "toggle-file-tree"
-  | "toggle-browser";
+export const APP_MENU_COMMANDS = [
+  "open-mori", "open-scheduling", "open-todos", "open-search", "open-settings",
+  "new-chat", "open-folder", "check-for-updates", "toggle-sidebar", "toggle-bottom-panel",
+  "toggle-work-panel", "toggle-review-panel", "toggle-file-tree", "toggle-browser",
+] as const;
+export type AppMenuCommand = (typeof APP_MENU_COMMANDS)[number];
 
 export type {
   CenterServerAccountAuthResult,

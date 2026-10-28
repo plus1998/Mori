@@ -1,3 +1,4 @@
+import { shortcutMatches } from "./keyboard-shortcuts";
 import {
   clarificationHistoryRows,
   readClarificationHistoryContent,
@@ -6515,7 +6516,7 @@ function UserPromptBlock({
         }
         return;
       }
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      if (shortcutMatches(event, "message-save")) {
         event.preventDefault();
         void submitEdit();
       }

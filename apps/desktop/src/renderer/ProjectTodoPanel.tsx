@@ -1,3 +1,5 @@
+import { formatAccelerator } from "../shared/keyboard-shortcuts";
+import { shortcutMatches, useKeyboardShortcuts } from "./keyboard-shortcuts";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Check,
@@ -64,6 +66,7 @@ interface Props {
   onCompose(todo: ProjectTodo, threadId?: string): Promise<void>;
 }
 export function ProjectTodoPanel(props: Props) {
+  const { bindings: keyboardBindings } = useKeyboardShortcuts();
   const { t, i18n } = useTranslation();
   const reducedMotion = useReducedMotion();
   const [items, setItems] = useState<ProjectTodo[]>([]);
@@ -583,8 +586,7 @@ export function ProjectTodoPanel(props: Props) {
                 onPaste={paste}
                 onKeyDown={(event) => {
                   if (
-                    event.key === "Enter" &&
-                    (event.metaKey || event.ctrlKey) &&
+                    shortcutMatches(event, "todo-save") &&
                     !event.nativeEvent.isComposing
                   ) {
                     event.preventDefault();
@@ -657,7 +659,7 @@ export function ProjectTodoPanel(props: Props) {
                     event.target.value = "";
                   }}
                 />
-                <span className="todo-key-hint">{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} ↵</span>
+                <span className="todo-key-hint">{(keyboardBindings["todo-save"] ?? []).map(key => formatAccelerator(key, window.eco?.platform ?? "darwin")).join(" / ")}</span>
                 <button type="button" className="todo-add" disabled={!canSave || !!busy} onClick={save}>
                   {busy === "save" || busy === "images" ? (
                     <LoaderCircle size={14} className="spinning" />

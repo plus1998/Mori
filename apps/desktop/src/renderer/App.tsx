@@ -1,3 +1,5 @@
+import { formatAccelerator } from "../shared/keyboard-shortcuts";
+import { useKeyboardShortcuts, shortcutMatches } from "./keyboard-shortcuts";
 import { MoriIcon } from "./MoriIcon";
 import { MoriAssistantPanel, MoriAssistantSettingsPanel, MoriAssistantSurface } from "./MoriAssistant";
 import { appendProjectTodoReference, type ProjectTodo } from "../shared/project-todos";
@@ -45,6 +47,7 @@ import {
   Globe2,
   GripVertical,
   HardDrive,
+  Keyboard,
   KeyRound,
   LoaderCircle,
   type LucideIcon,
@@ -399,6 +402,7 @@ import {
   LazyContextWindowSettingsPanel,
   LazyDefaultAgentSettingsPanel,
   LazyGeneralSettingsPanel,
+  LazyKeyboardShortcutsSettings,
   LazyGitSettingsPanel,
   LazyImageGalleryFloat,
   LazyImageGenerationSettingsPanel,
@@ -694,6 +698,7 @@ type SettingsSectionId =
   | "moriAssistant"
   | "preferences"
   | "general"
+  | "keyboardShortcuts"
   | "personalization"
   | "storage"
   | "browser"
@@ -1440,6 +1445,7 @@ function App() {
               "计费",
             ],
           },
+          { id: "keyboardShortcuts", label: "键盘快捷键", icon: Keyboard, keywords: ["快捷键", "键盘", "keyboard", "shortcuts", "hotkeys"] },
           {
             id: "general",
             label: t("settings.general"),
@@ -4239,24 +4245,6 @@ function App() {
     storedTerminalByProject,
     terminalLifecycleEpoch,
   ]);
-  useEffect(() => {
-    if (!currentProjectPath) {
-      return undefined;
-    }
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "`" && event.key !== "~") {
-        return;
-      }
-      if (!event.ctrlKey && !event.metaKey) {
-        return;
-      }
-      event.preventDefault();
-      setMoriOpen(false);
-      toggleTerminalForCurrentProject();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [currentProjectPath, toggleTerminalForCurrentProject]);
   const activeComposerRewindTarget =
     activeThread && composerRewindTarget?.threadId === activeThread.id ? composerRewindTarget : undefined;
   useEffect(() => {
@@ -6707,8 +6695,32 @@ function App() {
     openBrowserTaskPanel();
   }, [currentProjectPath, dismissTaskPanel, openBrowserTaskPanel, taskDrawerOpen, taskPanelActiveTab]);
 
+  function openProjectTodos() {
+    if (!projectTodoDraftRef.current.id && !projectTodoDraftRef.current.text && !projectTodoDraftRef.current.images.length)
+      projectTodoDraftRef.current = { ...projectTodoDraftRef.current, projectPath: currentProjectPath ?? projects[0]?.path ?? "" };
+    setProjectTodosOpen(true);
+  }
+
   menuCommandHandlerRef.current = (command) => {
     switch (command) {
+      case "open-mori":
+        setSettingsOpen(false);
+        setMoriOpen(true);
+        return;
+      case "open-scheduling":
+        setSettingsOpen(false);
+        setSchedulingOpen(true);
+        return;
+      case "open-todos":
+        setSettingsOpen(false);
+        openProjectTodos();
+        return;
+      case "open-search":
+        setSidebarSearchOpen(true);
+        return;
+      case "open-settings":
+        openSettings();
+        return;
       case "new-chat":
         startNewChat();
         return;
@@ -11381,12 +11393,15 @@ function App() {
       }
     }
 
-    if (event.key !== "Enter") {
+    if (event.nativeEvent.isComposing) return;
+    if (shortcutMatches(event, "composer-newline")) {
+      event.preventDefault();
+      insertComposerNewline();
       return;
     }
     // Follow-up mode: ⌘↩ does the opposite of the default delivery (queue ↔ steer).
     // ACP has no mid-turn steer; ⌘↩ queues the same as Enter.
-    if (composerFollowUpMode && event.metaKey && !event.shiftKey && !event.altKey) {
+    if (composerFollowUpMode && shortcutMatches(event, "composer-opposite")) {
       event.preventDefault();
       if (!canSend) {
         return;
@@ -11400,13 +11415,7 @@ function App() {
       void sendComposerMessage(undefined, { followUpDeliveryMode: opposite });
       return;
     }
-    if (event.shiftKey || event.metaKey || event.altKey) {
-      if (event.metaKey || event.altKey) {
-        event.preventDefault();
-        insertComposerNewline();
-      }
-      return;
-    }
+    if (!shortcutMatches(event, "composer-send")) return;
     event.preventDefault();
     if (canSend) void sendComposerMessage();
   }
@@ -12620,6 +12629,8 @@ function App() {
     </div>
   );
 
+  const { bindings: keyboardBindings } = useKeyboardShortcuts();
+
   const isMacWindowChrome = window.eco?.platform === "darwin";
 
   // Electron: sibling `no-drag` cannot punch another element's drag region.
@@ -12737,8 +12748,7 @@ function App() {
               }
             }}
           />
-          {/* "新对话" and "打开项目" read as one list; the list itself scrolls so the
-              open-project row travels with the projects instead of staying pinned. */}
+          {/* Only Mori and New Chat stay fixed; utility entries scroll with the projects. */}
           <div className="sidebar-nav-list">
             <button type="button" className={moriOpen ? "sidebar-action active" : "sidebar-action"} aria-label="Mori" aria-current={moriOpen ? "page" : undefined} onClick={() => setMoriOpen(true)}>
               <MoriIcon size={20} />
@@ -12748,18 +12758,17 @@ function App() {
               <MessageCirclePlus size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
               {t("nav.newThread")}
             </button>
-            <button type="button" className="sidebar-action muted" onClick={() => setSchedulingOpen(true)}>
-              <Clock3 size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
-              {t("scheduling.title")}
-            </button>
-            <button type="button" className="sidebar-action muted" onClick={() => {
-              if (!projectTodoDraftRef.current.id && !projectTodoDraftRef.current.text && !projectTodoDraftRef.current.images.length) projectTodoDraftRef.current = { ...projectTodoDraftRef.current, projectPath: currentProjectPath ?? projects[0]?.path ?? "" };
-              setProjectTodosOpen(true);
-            }}>
-              <ClipboardList size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
-              {t("todos.title")}
-            </button>
             <div className="sidebar-section sidebar-section-grow">
+              <button type="button" className="sidebar-action muted" onClick={() => setSchedulingOpen(true)}>
+                <Clock3 size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
+                {t("scheduling.title")}
+                <kbd className="sidebar-shortcut-hint">{keyboardBindings["open-scheduling"]?.[0] && formatAccelerator(keyboardBindings["open-scheduling"][0], window.eco?.platform ?? "darwin")}</kbd>
+              </button>
+              <button type="button" className="sidebar-action muted" onClick={openProjectTodos}>
+                <ClipboardList size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
+                {t("todos.title")}
+                <kbd className="sidebar-shortcut-hint">{keyboardBindings["open-todos"]?.[0] && formatAccelerator(keyboardBindings["open-todos"][0], window.eco?.platform ?? "darwin")}</kbd>
+              </button>
               <button
                 type="button"
                 className="sidebar-action muted"
@@ -13596,6 +13605,8 @@ function App() {
                     }}
                   />
                 )}
+
+                {settingsSection === "keyboardShortcuts" && <LazyKeyboardShortcutsSettings />}
 
                 {settingsSection === "general" && (
                   <LazyGeneralSettingsPanel

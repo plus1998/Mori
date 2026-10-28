@@ -128,6 +128,11 @@ export class DisplayControl {
     return this.getState();
   }
 
+  toggle(control: DisplayControlChange["control"]): DisplayControlState {
+    const state = this.getState();
+    return this.set({ control, enabled: !state[control] });
+  }
+
   private startDimming(): void {
     this.restoreBrightness();
     if (this.dimmedDisplays.size) throw new Error("Reconnect displays to finish restoring brightness first.");

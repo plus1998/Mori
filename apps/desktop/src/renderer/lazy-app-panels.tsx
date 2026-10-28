@@ -120,3 +120,5 @@ export function SuspensePanel({ children }: { children: ReactNode }): ReactNode 
 }
 
 export const LazyTtsSettingsPanel = lazy(() => import("./TtsSettingsPanel").then(m => ({ default: m.TtsSettingsPanel })));
+
+export const LazyKeyboardShortcutsSettings = lazy(() => import("./KeyboardShortcutsSettings").then(m => ({ default: m.KeyboardShortcutsSettings })));

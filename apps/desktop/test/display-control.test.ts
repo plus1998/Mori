@@ -115,6 +115,23 @@ function enabled(controller: DisplayControl, value = true) {
 }
 
 describe("display controls", () => {
+  test("shortcut toggles use the existing lock and brightness recovery paths", () => {
+    const display = monitor(1);
+    const f = fixture({}, [display]);
+    try {
+      expect(f.controller.toggle("preventAutoLock").preventAutoLock).toBe(true);
+      expect(f.controller.toggle("preventAutoLock").preventAutoLock).toBe(false);
+      expect(f.controller.toggle("dimmed").dimmed).toBe(true);
+      expect(displayLevelsAreMinimum(display.levels)).toBe(true);
+      expect(f.registered()).toBe(1);
+      expect(f.controller.toggle("dimmed").dimmed).toBe(false);
+      expect(display.levels).toEqual({ method: "backlight", value: 0.7 });
+      expect(f.unregistered()).toBe(1);
+    } finally {
+      f.controller.dispose();
+    }
+  });
+
   test("independent controls release assertions and restore all display profiles on quit", () => {
     const internal = monitor(1),
       external = monitor(2, "software"),

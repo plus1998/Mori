@@ -1,3 +1,4 @@
+import type { KeyboardShortcutsSnapshot, ShortcutBindings } from "../shared/keyboard-shortcuts";
 import type { AccountUsageHistory, AccountUsageQuery, UsageOverview, UsageOverviewQuery } from "../shared/account-usage";
 import { MORI_ASSISTANT_CHANNELS as MORI } from "../shared/mori-assistant";
 import type { MoriAssistantSettings, MoriAssistantSnapshot } from "../shared/mori-assistant";
@@ -312,6 +313,14 @@ function resolvePreloadScreenRecordingAppLabel(): string {
 }
 
 const api = {
+  setKeyboardShortcutRecording(active: boolean): Promise<void> { return ipcRenderer.invoke(IPC_CHANNELS.keyboardShortcutsRecording, active); },
+  getKeyboardShortcuts(): Promise<KeyboardShortcutsSnapshot> { return ipcRenderer.invoke(IPC_CHANNELS.keyboardShortcutsGet); },
+  saveKeyboardShortcuts(bindings: ShortcutBindings): Promise<KeyboardShortcutsSnapshot> { return ipcRenderer.invoke(IPC_CHANNELS.keyboardShortcutsSave, bindings); },
+  onKeyboardShortcutsChanged(callback: (snapshot: KeyboardShortcutsSnapshot) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, snapshot: KeyboardShortcutsSnapshot) => callback(snapshot);
+    ipcRenderer.on(IPC_CHANNELS.keyboardShortcutsChanged, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.keyboardShortcutsChanged, listener);
+  },
   moriAssistantSnapshot(cursor?: string): Promise<MoriAssistantSnapshot> { return ipcRenderer.invoke(MORI.snapshot, cursor); },
   moriAssistantSaveSettings(settings: MoriAssistantSettings): Promise<MoriAssistantSnapshot> { return ipcRenderer.invoke(MORI.saveSettings, settings); },
   moriAssistantSend(text: string, commandId: string): Promise<{ accepted: true }> { return ipcRenderer.invoke(MORI.send, { text, commandId }); },

@@ -12,6 +12,7 @@ export class MoriAssistantWindows {
   private panel: BrowserWindow | undefined;
   private tray: Tray | undefined;
   private shortcut: string | undefined;
+  private shortcutSuspended = false;
   private moveTimer: ReturnType<typeof setTimeout> | undefined;
   constructor(
     private readonly options: {
@@ -24,18 +25,24 @@ export class MoriAssistantWindows {
     },
   ) {}
 
+  async setShortcutSuspended(suspended: boolean, settings: MoriAssistantSettings): Promise<void> {
+    this.shortcutSuspended = suspended;
+    await this.apply(settings);
+  }
+
   async apply(settings: MoriAssistantSettings): Promise<void> {
-    if (settings.enabled && settings.shortcut !== this.shortcut && settings.shortcut) {
+    const shortcut = !this.shortcutSuspended && settings.enabled ? settings.shortcut : "";
+    if (shortcut && shortcut !== this.shortcut) {
       if (
-        !globalShortcut.register(settings.shortcut, () => {
+        !globalShortcut.register(shortcut, () => {
           void this.showPanel().catch(this.options.reportError);
         })
       )
         throw new Error("助手快捷键不可用或已被占用，请更换快捷键。");
     }
-    if (this.shortcut && (!settings.enabled || this.shortcut !== settings.shortcut))
+    if (this.shortcut && this.shortcut !== shortcut)
       globalShortcut.unregister(this.shortcut);
-    this.shortcut = settings.enabled ? settings.shortcut : undefined;
+    this.shortcut = shortcut || undefined;
     if (settings.enabled && settings.floatingEnabled) await this.showBall();
     else {
       this.ball?.destroy();

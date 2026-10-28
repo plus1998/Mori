@@ -1,3 +1,4 @@
+import { shortcutMatches, useKeyboardShortcuts } from "./keyboard-shortcuts";
 import type { ConversationMessage } from "@eco/shared";
 import {
   ArrowDown,
@@ -86,6 +87,7 @@ export function MoriAssistantSettingsPanel({
   onDone?: () => void;
   onOpenComputerUse?: () => void;
 }) {
+  useKeyboardShortcuts();
   const { snapshot, error, setError, refresh } = useAssistant();
   const [settings, setSettings] = useState<MoriAssistantSettings>();
   const [tab, setTab] = useState<"conversation" | "desktop" | "wechat">("conversation");
@@ -401,15 +403,7 @@ export function MoriAssistantSettingsPanel({
                 onChange={(event) => patch("backgroundEnabled", event.target.checked)}
               />
             </label>
-            <label>
-              呼出快捷键
-              <input
-                value={settings.shortcut}
-                placeholder="CommandOrControl+Shift+M"
-                onChange={(event) => patch("shortcut", event.target.value)}
-              />
-              <small>例如 CommandOrControl+Shift+M；留空关闭快捷键。</small>
-            </label>
+            <p className="mori-settings-hint">呼出快捷键可在「设置 → 键盘快捷键」中修改。</p>
           </section>
         ) : null}
         {tab === "wechat" ? (
@@ -578,6 +572,7 @@ export function MoriAssistantPanel({
   onClose?: () => void;
   onSettings?: () => void;
 }) {
+  useKeyboardShortcuts();
   const { snapshot, error, setError, refresh } = useAssistant();
   const [draft, setDraft] = useState("");
   const [answer, setAnswer] = useState("");
@@ -1208,7 +1203,17 @@ export function MoriAssistantPanel({
                   editorFocused.current = false;
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  if (event.nativeEvent.isComposing) return;
+                  if (shortcutMatches(event, "composer-newline")) {
+                    event.preventDefault();
+                    const field = event.currentTarget;
+                    const start = field.selectionStart;
+                    const next = draft.slice(0, start) + "\n" + draft.slice(field.selectionEnd);
+                    changeDraft(next);
+                    requestAnimationFrame(() => field.setSelectionRange(start + 1, start + 1));
+                    return;
+                  }
+                  if (shortcutMatches(event, "composer-send")) {
                     event.preventDefault();
                     void send();
                   }

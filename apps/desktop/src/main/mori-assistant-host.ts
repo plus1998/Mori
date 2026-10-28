@@ -15,6 +15,7 @@ export class MoriAssistantHost {
   private closed = false;
   constructor(
     deps: Omit<MoriAssistantDeps, "changed" | "settingsChanged"> & {
+      moriShortcut(): string;
       preload: string;
       renderer: string;
       icon?: NativeImage;
@@ -33,7 +34,7 @@ export class MoriAssistantHost {
       ...deps,
       changed,
       settingsChanged: async (settings) => {
-        await this.windows.apply(settings);
+        await this.windows.apply({ ...settings, shortcut: deps.moriShortcut() });
         await this.wechat.setEnabled(settings.enabled && settings.wechatEnabled);
       },
     });

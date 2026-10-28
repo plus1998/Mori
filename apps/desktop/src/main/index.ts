@@ -1,3 +1,6 @@
+import { APP_MENU_COMMANDS } from "../shared/ipc";
+import { KeyboardShortcutsStore } from "./keyboard-shortcuts-store";
+import { matchesShortcut, validateShortcutBindings, type ShortcutBindings } from "../shared/keyboard-shortcuts";
 import { MoriComputerUse } from "./mori-computer-use";
 import { recordProviderUsage } from "./provider-usage-recorder";
 import { APP_LINK_SCHEMES, isAppDeepLink } from "../shared/center-server";
@@ -199,11 +202,11 @@ import { applyDesktopDisplayName, configureDesktopIdentity } from "./desktop-app
 import { ensureDesktopPath } from "./fix-desktop-path";
 import { ImageViewReadError, readImageViewFile } from "./image-view-reader";
 import { buildApplicationMenuTemplate } from "./native-menu";
+import { isReloadShortcutInput } from "./packaged-window-shortcuts";
 import {
   readElectronResourcesPath,
   resolvePackagedClaudeExecutableCandidate,
 } from "./packaged-runtime-executables";
-import { isReloadShortcutInput } from "./packaged-window-shortcuts";
 import { assertSdkSessionRetainedOnRunFailure } from "./sdk-session-run-failure";
 import { isAllowedSessionPermission, isLocalRendererUrl } from "./session-permissions";
 import { evaluateThreadToolConfirmation } from "./thread-bash-permission";
@@ -994,7 +997,7 @@ import { createDesktopSettingsSyncHooks } from "./supabase-settings-sync-hooks";
 import { SystemSleepBlocker } from "./system-sleep-blocker";
 import { DisplayControl } from "./display-control";
 import { createMacActivityAssertion, createMacBrightnessApi } from "./mac-display-native";
-import { DISPLAY_RESTORE_ACCELERATOR } from "../shared/display-control";
+
 import { normalizeTelemetryBillingRole } from "./telemetry-billing-role";
 import { resolveThreadApprovePlanRoute } from "./thread-approve-plan-route";
 import { ThreadCacheHitMonitor } from "./thread-cache-hit-monitor";
@@ -1497,18 +1500,46 @@ let backgroundTerminalTaskRegistry: BackgroundTerminalTaskRegistry;
 let codexBackgroundTerminalService: CodexBackgroundTerminalService | undefined;
 const claudeBackgroundTaskRegistry = new ClaudeBackgroundTaskRegistry();
 const systemSleepBlocker = new SystemSleepBlocker(powerSaveBlocker);
+let keyboardShortcutsStore: KeyboardShortcutsStore;
+let shortcutRecordingWindow: BrowserWindow | undefined;
+let currentShortcutBindings: ShortcutBindings | undefined;
+let registeredDisplayRestoreShortcut: string | undefined;
+function applyApplicationShortcuts(bindings: ShortcutBindings): void {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate(
+      buildApplicationMenuTemplate(
+        app.name,
+        process.platform,
+        (command) => {
+          const window = getMainWindow();
+          if (window && !window.isDestroyed())
+            sendToLiveRenderer(window, IPC_CHANNELS.appMenuCommand, command);
+        },
+        bindings,
+      ),
+    ),
+  );
+  currentShortcutBindings = bindings;
+}
+
 const displayControl: DisplayControl = new DisplayControl(
   process.platform,
   createMacActivityAssertion,
   () => createMacBrightnessApi((id) => screen.getAllDisplays().find((display) => display.id === id)?.label),
   {
     register: () => {
-      if (!globalShortcut.register(DISPLAY_RESTORE_ACCELERATOR, () => {
+      const accelerator = keyboardShortcutsStore.get()["restore-display"]?.[0];
+      if (!accelerator) throw new Error("请先在设置 → 键盘快捷键中设置恢复屏幕亮度的快捷键。");
+      if (!globalShortcut.register(accelerator, () => {
         try { displayControl.set({ control: "dimmed", enabled: false }); }
         catch (error) { process.stderr.write(`[eco] display restoration failed: ${String(error)}\n`); }
-      })) throw new Error("Screen recovery shortcut is unavailable (Command+Shift+L).");
+      })) throw new Error("恢复屏幕亮度的快捷键已被占用，请在键盘快捷键设置中更换。");
+      registeredDisplayRestoreShortcut = accelerator;
     },
-    unregister: () => globalShortcut.unregister(DISPLAY_RESTORE_ACCELERATOR),
+    unregister: () => {
+      if (registeredDisplayRestoreShortcut) globalShortcut.unregister(registeredDisplayRestoreShortcut);
+      registeredDisplayRestoreShortcut = undefined;
+    },
   },
 );
 let applicationShutdownDeps: ApplicationShutdownDeps | undefined;
@@ -2486,13 +2517,50 @@ async function createMainWindow(
     trackWindowState(window);
   }
 
-  if (app.isPackaged) {
-    window.webContents.on("before-input-event", (event, input) => {
-      if (isReloadShortcutInput(input)) {
-        event.preventDefault();
+
+  window.webContents.on("before-input-event", (event, input) => {
+    if (app.isPackaged && isReloadShortcutInput(input)) {
+      event.preventDefault();
+      return;
+    }
+    if (
+      input.type !== "keyDown" ||
+      input.isAutoRepeat ||
+      shortcutRecordingWindow === window ||
+      !currentShortcutBindings
+    )
+      return;
+    if (!input.meta && !input.control && !input.alt && !/^F\d+$/.test(input.key)) return;
+    const key = {
+      key: input.key,
+      code: input.code,
+      metaKey: input.meta,
+      ctrlKey: input.control,
+      altKey: input.alt,
+      shiftKey: input.shift,
+      isComposing: input.isComposing,
+    };
+    const displayShortcut = ([
+      ["toggle-prevent-auto-lock", "preventAutoLock"],
+      ["toggle-display-dimming", "dimmed"],
+    ] as const).find(([id]) => matchesShortcut(key, id, currentShortcutBindings!, process.platform));
+    if (displayShortcut) {
+      event.preventDefault();
+      try {
+        displayControl.toggle(displayShortcut[1]);
+      } catch (error) {
+        dialog.showErrorBox("屏幕控制失败", errorMessage(error));
       }
-    });
-  }
+      return;
+    }
+    const command = APP_MENU_COMMANDS.find((id) =>
+      matchesShortcut(key, id, currentShortcutBindings!, process.platform),
+    );
+    if (!command) return;
+    // Dispatch keyboard commands once before native menu accelerators; both use the same bindings.
+    event.preventDefault();
+    sendToLiveRenderer(window, IPC_CHANNELS.appMenuCommand, command);
+  });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isExternalHttpUrl(url)) {
@@ -2615,15 +2683,9 @@ app
     if (appIcon && process.platform === "darwin") {
       app.dock?.setIcon(appIcon);
     }
-    Menu.setApplicationMenu(
-      Menu.buildFromTemplate(
-        buildApplicationMenuTemplate(app.name, process.platform, (command, browserWindow) => {
-          if (browserWindow instanceof BrowserWindow) {
-            browserWindow.webContents.send(IPC_CHANNELS.appMenuCommand, command);
-          }
-        }),
-      ),
-    );
+    keyboardShortcutsStore = new KeyboardShortcutsStore(path.join(app.getPath("userData"), "keyboard-shortcuts.json"), process.platform);
+    keyboardShortcutsStore.load();
+    applyApplicationShortcuts(keyboardShortcutsStore.get());
     const isLocalRendererWebContents = (webContents: Electron.WebContents | null): boolean => {
       if (!webContents) {
         return false;
@@ -5589,6 +5651,103 @@ function registerIpcHandlers(): void {
     event.returnValue = detectScreenRecordingAppLabel(app.isPackaged);
   });
 
+  let shortcutRecordingCleanup: (() => void) | undefined;
+  const endShortcutRecording = async () => {
+    const owner = shortcutRecordingWindow;
+    shortcutRecordingWindow = undefined;
+    shortcutRecordingCleanup?.();
+    shortcutRecordingCleanup = undefined;
+    if (owner && !owner.webContents.isDestroyed()) owner.webContents.setIgnoreMenuShortcuts(false);
+    if (moriAssistantHost)
+      await moriAssistantHost.windows.setShortcutSuspended(false, {
+        ...moriAssistantHost.service.settings,
+        shortcut: keyboardShortcutsStore.get()["mori-floating"]?.[0] ?? "",
+      });
+  };
+  ipcMain.handle(IPC_CHANNELS.keyboardShortcutsRecording, async (event, active: unknown) => {
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    if (!owner || owner !== getMainWindow() || typeof active !== "boolean")
+      throw new Error("快捷键录制窗口无效。");
+    if (!active) {
+      if (shortcutRecordingWindow === owner) await endShortcutRecording();
+      return;
+    }
+    if (registeredDisplayRestoreShortcut) throw new Error("请先恢复屏幕亮度，再录制快捷键。");
+    if (shortcutRecordingWindow && shortcutRecordingWindow !== owner)
+      throw new Error("另一窗口正在录制快捷键。");
+    shortcutRecordingWindow = owner;
+    owner.webContents.setIgnoreMenuShortcuts(true);
+    const finish = () => {
+      if (shortcutRecordingWindow === owner)
+        void endShortcutRecording().catch((error) =>
+          logEcoDiag("keyboard-shortcuts.restore.failed", { error: errorMessage(error) }),
+        );
+    };
+    shortcutRecordingCleanup?.();
+    owner.once("blur", finish);
+    owner.once("closed", finish);
+    shortcutRecordingCleanup = () => {
+      owner.removeListener("blur", finish);
+      owner.removeListener("closed", finish);
+    };
+    try {
+      if (moriAssistantHost)
+        await moriAssistantHost.windows.setShortcutSuspended(true, moriAssistantHost.service.settings);
+    } catch (error) {
+      await endShortcutRecording();
+      throw error;
+    }
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.keyboardShortcutsGet, async () => ({
+    bindings: keyboardShortcutsStore.get(),
+  }));
+  let shortcutSettingsWrite: Promise<unknown> = Promise.resolve();
+  registerDesktopCommand(IPC_CHANNELS.keyboardShortcutsSave, (value: unknown) => {
+    const operation = shortcutSettingsWrite.then(async () => {
+      const next = validateShortcutBindings(value, process.platform);
+      const previous = keyboardShortcutsStore.get();
+      if (
+        registeredDisplayRestoreShortcut &&
+        JSON.stringify(next["restore-display"]) !== JSON.stringify(previous["restore-display"])
+      )
+        throw new Error("请先恢复屏幕亮度，再修改恢复屏幕的快捷键。");
+      const moriKey = next["mori-floating"]?.[0];
+      if (
+        shortcutRecordingWindow &&
+        moriAssistantHost?.service.settings.enabled &&
+        moriKey &&
+        JSON.stringify(next["mori-floating"]) !== JSON.stringify(previous["mori-floating"])
+      ) {
+        if (!globalShortcut.register(moriKey, () => {}))
+          throw new Error("Mori 呼出快捷键已被系统或其他应用占用，请更换组合键。");
+        globalShortcut.unregister(moriKey);
+      }
+      const applyMori = async (bindings: ShortcutBindings) => {
+        if (moriAssistantHost)
+          await moriAssistantHost.windows.apply({
+            ...moriAssistantHost.service.settings,
+            shortcut: bindings["mori-floating"]?.[0] ?? "",
+          });
+      };
+      try {
+        await applyMori(next);
+        applyApplicationShortcuts(next);
+        keyboardShortcutsStore.save(next);
+      } catch (error) {
+        await applyMori(previous);
+        applyApplicationShortcuts(previous);
+        throw error;
+      }
+      const snapshot = { bindings: keyboardShortcutsStore.get() };
+      for (const window of BrowserWindow.getAllWindows())
+        sendToLiveRenderer(window, IPC_CHANNELS.keyboardShortcutsChanged, snapshot);
+      return snapshot;
+    });
+    shortcutSettingsWrite = operation.catch(() => {});
+    return operation;
+  });
+
   registerDesktopCommand(IPC_CHANNELS.appSetThemeSource, async (payload: unknown) => {
     const themeSource = normalizeAppThemeSource(payload);
     nativeTheme.themeSource = themeSource;
@@ -7622,6 +7781,7 @@ function registerIpcHandlers(): void {
   });
 
   moriAssistantHost = new MoriAssistantHost({
+    moriShortcut: () => keyboardShortcutsStore.get()["mori-floating"]?.[0] ?? "",
     dataDir: app.getPath("userData"), conversations: conversationStore,
     accounts: getOpenAIAccountService, executable: resolveCodexExecutable, onUsage: recordAccountUsage,
     resolveSystemProxy: resolveSystemProxyResolution,
