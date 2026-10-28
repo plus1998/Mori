@@ -1445,7 +1445,6 @@ function App() {
               "计费",
             ],
           },
-          { id: "keyboardShortcuts", label: "键盘快捷键", icon: Keyboard, keywords: ["快捷键", "键盘", "keyboard", "shortcuts", "hotkeys"] },
           {
             id: "general",
             label: t("settings.general"),
@@ -1495,6 +1494,7 @@ function App() {
               "请求头",
             ],
           },
+          { id: "keyboardShortcuts", label: "键盘快捷键", icon: Keyboard, keywords: ["快捷键", "键盘", "keyboard", "shortcuts", "hotkeys"] },
         ],
       },
       {
@@ -12682,6 +12682,15 @@ function App() {
     </div>
   );
 
+  const renderSidebarShortcut = (id: string) => {
+    const key = keyboardBindings[id]?.[0];
+    return key ? (
+      <kbd className="sidebar-shortcut-hint" aria-hidden="true">
+        {formatAccelerator(key, window.eco?.platform ?? "darwin")}
+      </kbd>
+    ) : null;
+  };
+
   const renderAppLayout = () => (
     <main className={shellClassName}>
       {renderWindowSidebarToolbar()}
@@ -12753,21 +12762,23 @@ function App() {
             <button type="button" className={moriOpen ? "sidebar-action active" : "sidebar-action"} aria-label="Mori" aria-current={moriOpen ? "page" : undefined} onClick={() => setMoriOpen(true)}>
               <MoriIcon size={20} />
               Mori
+              {renderSidebarShortcut("open-mori")}
             </button>
             <button type="button" className="sidebar-action" onClick={startNewChat}>
               <MessageCirclePlus size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
               {t("nav.newThread")}
+              {renderSidebarShortcut("new-chat")}
             </button>
             <div className="sidebar-section sidebar-section-grow">
               <button type="button" className="sidebar-action muted" onClick={() => setSchedulingOpen(true)}>
                 <Clock3 size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
                 {t("scheduling.title")}
-                <kbd className="sidebar-shortcut-hint">{keyboardBindings["open-scheduling"]?.[0] && formatAccelerator(keyboardBindings["open-scheduling"][0], window.eco?.platform ?? "darwin")}</kbd>
+                {renderSidebarShortcut("open-scheduling")}
               </button>
               <button type="button" className="sidebar-action muted" onClick={openProjectTodos}>
                 <ClipboardList size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
                 {t("todos.title")}
-                <kbd className="sidebar-shortcut-hint">{keyboardBindings["open-todos"]?.[0] && formatAccelerator(keyboardBindings["open-todos"][0], window.eco?.platform ?? "darwin")}</kbd>
+                {renderSidebarShortcut("open-todos")}
               </button>
               <button
                 type="button"
@@ -12788,6 +12799,7 @@ function App() {
                   <FolderOpen size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
                 )}
                 {isOpening ? t("nav.opening") : t("nav.openProject")}
+                {renderSidebarShortcut("open-folder")}
               </button>
               <ProjectSidebarTree
                 projectTree={projectTree}

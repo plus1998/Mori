@@ -89,6 +89,7 @@ export class MoriAssistantWindows {
       height: mode === "ball" ? 64 : 640,
       frame: false,
       transparent: mode === "ball",
+      hasShadow: mode !== "ball",
       alwaysOnTop: true,
       skipTaskbar: true,
       resizable: mode === "panel",

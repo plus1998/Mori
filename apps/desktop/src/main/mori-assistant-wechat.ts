@@ -55,7 +55,10 @@ export function validateWechatBaseUrl(raw: string): string {
 
 export function parseWechatJson(raw: string): Record<string, unknown> {
   // Message IDs are opaque integers and can exceed Number.MAX_SAFE_INTEGER.
-  return JSON.parse(raw.replace(/("(?:message_id|msg_id|svr_id)"\s*:\s*)(\d{16,})(?=\s*[,}])/g, '$1"$2"'));
+  const value = JSON.parse(raw.replace(/("(?:message_id|msg_id|svr_id)"\s*:\s*)(\d{16,})(?=\s*[,}])/g, '$1"$2"'));
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("微信返回了无效的响应。");
+  return value;
 }
 
 export class MoriAssistantWechat {
@@ -140,11 +143,16 @@ export class MoriAssistantWechat {
     if (!response.ok) throw new Error(`微信请求失败（HTTP ${response.status}）。`);
     const value = parseWechatJson(await response.text());
     if (
+      (value.ret !== undefined && typeof value.ret !== "number") ||
+      (value.errcode !== undefined && typeof value.errcode !== "number")
+    )
+      throw new Error("微信返回了无效的状态码。");
+    if (
       (typeof value.ret === "number" && value.ret !== 0) ||
       (typeof value.errcode === "number" && value.errcode !== 0)
     )
       throw new Error(
-        `微信返回错误 ${value.ret ?? value.errcode}：${typeof value.errmsg === "string" ? value.errmsg : "请求未成功"}`,
+        `微信返回错误 ${value.ret || value.errcode}：${typeof value.errmsg === "string" ? value.errmsg : "请求未成功"}`,
       );
     return value;
   }
@@ -249,7 +257,13 @@ export class MoriAssistantWechat {
           },
           controller.signal,
         );
-        if (data.ret !== 0) throw new Error("微信未确认消息拉取成功。");
+        // iLink may omit the zero-valued ret field, including on successful polls.
+        if (
+          (data.msgs !== undefined && !Array.isArray(data.msgs)) ||
+          (data.get_updates_buf !== undefined && typeof data.get_updates_buf !== "string") ||
+          (data.ret === undefined && !Array.isArray(data.msgs) && typeof data.get_updates_buf !== "string")
+        )
+          throw new Error("微信返回了无效的消息拉取结果。");
         const msgs = Array.isArray(data.msgs) ? data.msgs : [];
         for (const raw of msgs) {
           const msg = raw as {
@@ -365,7 +379,7 @@ export class MoriAssistantWechat {
       while (this.state.outbox.length && this.enabled && this.state.token) {
         const message = this.state.outbox[0];
         if (!message) break;
-        const result = await this.api("/ilink/bot/sendmessage", {
+        await this.api("/ilink/bot/sendmessage", {
           msg: {
             from_user_id: "",
             to_user_id: message.userId,
@@ -377,7 +391,6 @@ export class MoriAssistantWechat {
           },
           base_info: { channel_version: "2.4.8", bot_agent: "Mori/1" },
         });
-        if (result.ret !== 0) throw new Error("微信没有确认结果发送成功，消息已保留。");
         this.state.outbox.shift();
         await this.save();
       }

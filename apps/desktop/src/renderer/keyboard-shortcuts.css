@@ -246,13 +246,6 @@
   outline: 2px solid var(--text-secondary);
   outline-offset: 3px;
 }
-.sidebar-shortcut-hint {
-  margin-left: auto;
-  color: var(--text-tertiary);
-  font: inherit;
-  font-size: 10px;
-  opacity: 0.65;
-}
 @media (max-width: 780px) {
   .keyboard-row {
     grid-template-columns: minmax(0, 1fr) minmax(100px, auto) 20px;

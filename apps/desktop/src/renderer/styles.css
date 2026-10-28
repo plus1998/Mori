@@ -817,6 +817,14 @@ html:not([data-platform="darwin"]) .codex-sidebar-chrome-drag {
   text-align: left;
 }
 
+.sidebar-shortcut-hint {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: 10px;
+  opacity: 0.65;
+}
+
 /* "新对话" and "打开项目" read as one list; the gap stays tight like the
    project rows below instead of inheriting the sidebar body gap. */
 .sidebar-nav-list {
