@@ -158,13 +158,6 @@ export function handleCodexAsyncQuestions(input: CodexAsyncQuestionsInput): void
     (answers) => {
       if (dismissedToolUseIds.delete(input.itemId)) {
         refsByToolUseId.delete(input.itemId);
-        bridge.emitEvent(
-          input.ecoThreadId,
-          "clarification.dismissed",
-          "问题已忽略，Codex 不会收到回答。",
-          "system",
-          { tool: buildClarificationToolMetadata(input.itemId, "completed") },
-        );
         return;
       }
       bridge.emitEvent(
