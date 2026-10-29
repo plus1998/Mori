@@ -144,6 +144,8 @@ Harness 适配层统一描述以下能力：
 
 Mori 内置的 HTTP MCP 网关（浏览器、图片、语音、待办与电脑操作等）由主进程按运行实例启动，用一次性控制密钥鉴权，内核进程（Codex/Claude）不会为它们附带 bearer token。网关只在主进程内存里保存 MCP 会话，30 分钟空闲后淘汰；助手线程可以存活数小时，客户端会继续拿着旧 `Mcp-Session-Id` 发请求。按 Streamable HTTP 规范，服务端不认识的会话必须回 404（缺失会话、且没有 bearer 的请求仍回 400）。早期这里统一回 400，导致空闲 30 分钟后的助手线程无法调用 `mori_tasks` / `mori_computer`。Codex 0.163.0 固定的 rmcp revision `4048ac40` 默认启用 `reinit_on_expired_session`，将 404 作为重新初始化并重发一次的信号；服务端测试覆盖真实 TTL 淘汰、404 后手动重新初始化与重发，不等同于实际 Codex 进程自动恢复的端到端测试。不要推广为所有 SDK 都能自动恢复：仓库 TypeScript MCP SDK 1.29.0 没有该逻辑，社区 [typescript-sdk#1708](https://github.com/modelcontextprotocol/typescript-sdk/issues/1708) 记录了同类缺口。
 
+经过 MCP Hub 的调用还有一跳 `Core → Hub → 内置网关/外部 HTTP MCP`。Hub 的 `HttpMcpHubServer` 对已建立会话的 transport 404 显式重建 Client/Transport、重新初始化并重试一次，覆盖工具发现和工具执行；网络断开、超时、401/500、JSON-RPC 或工具业务错误不触发重放。并发请求共享新连接，旧连接的迟到 404 不会清掉新连接；等待者可单独取消，旧连接上的在途工具完成后才释放连接。撤销线程或更改配置会关闭旧 adapter，禁止恢复旧凭据。`mcp-hub-session-recovery.test.ts` 使用真实 SDK 与本地双跳 HTTP 验证 TTL 淘汰、并发、取消、凭据隔离及重试上限，不重新调用真实会话的模型或工具。
+
 
 Mori 助手查询工作会话错误：主进程 `markThreadInterrupted` / `updateThread` 将面向用户的原因保存到 `threads.message`；`thread.api_error`、`thread.blocked`、`thread.execution_failed` 经 live persister / V2 provider adapter 保存为 `conversation_messages_v2` 的 system 通知，工具失败保存在 `conversation_tool_calls_v2`。`conversation_runs_v2` 的状态本身不包含原因。原 `mori_list_threads` 忽略摘要 message，`mori_read_thread` 的 transcript SQL 仅选 user/assistant 的 answer/commentary，因此即使 UI 有错误通知，助手仍可能只读到用户消息。
 
