@@ -19,6 +19,8 @@ import {
 import { MoriAssistantStore, parseAssistantSettings } from "./mori-assistant-store";
 import { MORI_TODO_TOOLS, MoriAssistantTodos } from "./mori-assistant-todos";
 import { MORI_MODEL_TOOLS, isMoriModelTool, modelManagementToolInput, modelManagementToolName } from "./mori-assistant-models";
+import { MORI_SCHEDULING_TOOLS, isMoriSchedulingTool, MoriAssistantScheduling } from "./mori-assistant-scheduling";
+import type { ScheduleExecutionProfile } from "../shared/scheduling";
 import { isMoriComputerAction, type MoriComputerUseAccess } from "./mori-computer-use";
 import { currentThreadError, readThreadErrors } from "./mori-thread-errors";
 import type { OpenAIAccountService } from "./openai-account-service";
@@ -47,6 +49,7 @@ const tool = (
 export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
   ...MORI_TODO_TOOLS,
   ...MORI_MODEL_TOOLS,
+  ...MORI_SCHEDULING_TOOLS,
   tool(
     "mori_computer_tools",
     "查看电脑操作是否可用并读取真实工具名称和参数定义。操作前先读取；全局设置关闭或缺少权限时明确报错。",
@@ -134,6 +137,7 @@ export interface MoriAssistantDeps {
   defaultRuntimeConfig(): ThreadRuntimeConfig;
   modelSettings(): unknown;
   manageModels(name: string, args: Record<string, unknown>): Promise<unknown>;
+  defaultScheduleProfile(): ScheduleExecutionProfile;
   customProviders(): MoriAssistantSnapshot["customProviders"];
   prepareCustomProvider(providerId: string): Promise<AssistantCustomProviderRoute>;
   onUsage?(record: AccountUsageRecord, aggregate: boolean): void;
@@ -170,6 +174,7 @@ export class MoriAssistantService {
   private activeCommand = "";
   private readonly notifiedTasks = new Map<string, string>();
   private readonly todos: MoriAssistantTodos;
+  private readonly scheduling: MoriAssistantScheduling;
   wechatStatus: MoriAssistantSnapshot["wechat"] = { status: "disconnected" };
   onWechatReply?: (text: string, messageId: string | undefined, notificationId: string) => Promise<void>;
   canNotifyWechat?: () => boolean;
@@ -182,6 +187,12 @@ export class MoriAssistantService {
     this.store = new MoriAssistantStore(path.join(deps.dataDir, "mori-assistant.json"));
     this.workspacePath = path.join(deps.dataDir, "mori-assistant", "workspace");
     this.todos = new MoriAssistantTodos(deps.invoke, (value) => this.taskProjectPath(value));
+    this.scheduling = new MoriAssistantScheduling({
+      invoke: deps.invoke,
+      defaultProfile: deps.defaultScheduleProfile,
+      projectPath: value => this.taskProjectPath(value),
+      workThread: id => this.store.state.sessions.some(session => session.threadId === id) ? undefined : deps.conversations.getThread(id),
+    });
   }
 
   async initialize(): Promise<void> {
@@ -762,6 +773,7 @@ export class MoriAssistantService {
     signal.throwIfAborted();
     const definition = MORI_ASSISTANT_TOOLS.find((item) => item.name === name);
     if (!definition) throw new Error("未知的 Mori 桌面工具。");
+    if (isMoriSchedulingTool(name)) return this.scheduling.call(name, args, signal);
     if (isMoriModelTool(name)) {
       // The shared management service validates the complete schema, including arrays and nullable overrides.
       const result = await this.deps.manageModels(modelManagementToolName(name), args);

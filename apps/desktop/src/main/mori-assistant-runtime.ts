@@ -15,10 +15,12 @@ import { resolveCodexProxyUrl, type SystemProxyResolver } from "./codex-proxy";
 import { buildCodexAppServerEnv } from "./codex-runtime-lifecycle";
 import { MORI_TODO_TOOLS } from "./mori-assistant-todos";
 import { isMoriModelTool, MORI_MODEL_MANAGEMENT_INSTRUCTIONS } from "./mori-assistant-models";
+import { isMoriSchedulingTool, MORI_SCHEDULING_INSTRUCTIONS } from "./mori-assistant-scheduling";
 import {
   MORI_COMPUTER_MCP_SERVER,
   MORI_TASK_MCP_SERVER,
   MORI_MODEL_MCP_SERVER,
+  MORI_SCHEDULING_MCP_SERVER,
   MoriAssistantToolGateway,
 } from "./mori-assistant-tool-gateway";
 import { type OpenAIAccountService, startSocksToHttpBridge } from "./openai-account-service";
@@ -70,6 +72,8 @@ export class MoriAssistantRuntime {
   private taskConfig: Record<string, unknown> | undefined;
   private modelGateway: MoriAssistantToolGateway | undefined;
   private modelConfig: Record<string, unknown> | undefined;
+  private schedulingGateway: MoriAssistantToolGateway | undefined;
+  private schedulingConfig: Record<string, unknown> | undefined;
   private client: CodexAppServerClient | undefined;
   private bridge: { close(): void } | undefined;
   private accessToken: string | undefined;
@@ -103,6 +107,11 @@ export class MoriAssistantRuntime {
     const computerTools = deps.tools.filter((tool) => tool.name.startsWith("mori_computer_"));
     const taskTools = deps.tools.filter(isTaskTool);
     const modelTools = deps.tools.filter(tool => isMoriModelTool(tool.name));
+    const schedulingTools = deps.tools.filter(tool => isMoriSchedulingTool(tool.name));
+    if (schedulingTools.length) {
+      this.schedulingGateway = new MoriAssistantToolGateway(schedulingTools, deps.callTool, MORI_SCHEDULING_MCP_SERVER);
+      this.schedulingConfig = await this.schedulingGateway.start();
+    }
     if (modelTools.length) {
       this.modelGateway = new MoriAssistantToolGateway(modelTools, deps.callTool, MORI_MODEL_MCP_SERVER);
       this.modelConfig = await this.modelGateway.start();
@@ -214,11 +223,13 @@ export class MoriAssistantRuntime {
                 ? taskTools
                 : p.serverName === MORI_MODEL_MCP_SERVER
                   ? modelTools
-                  : [];
+                  : p.serverName === MORI_SCHEDULING_MCP_SERVER
+                    ? schedulingTools
+                    : [];
           if (
             p.threadId === this.threadId &&
             p.mode === "form" &&
-            tools.some((tool) => tool.name === match?.[1]?.replace(/^mcp__mori_(computer|tasks|models)__/, ""))
+            tools.some((tool) => tool.name === match?.[1]?.replace(/^mcp__mori_(computer|tasks|models|scheduling)__/, ""))
           )
             return { action: "accept", content: {}, _meta: null };
           return { action: "decline", content: null, _meta: null };
@@ -273,9 +284,9 @@ export class MoriAssistantRuntime {
       cwd: this.deps.cwd,
       approvalPolicy: "untrusted",
       sandbox: "read-only",
-      baseInstructions: `你是 ${settings.name}，Mori 桌面助手。通过 mori_ 开头的工具管理桌面端项目、待办、会话、任务、供应商和模型。可以通过 mori_computer MCP 工具直接读取和操作用户的本机应用。\n${settings.instructions}\n不要直接运行 shell、读取系统文件或操作代码；需要具体工作时创建工作会话。只在工具成功后确认完成。没有配置长期记忆，不得声称记住了跨会话信息。`,
+      baseInstructions: `你是 ${settings.name}，Mori 桌面助手。通过 mori_ 开头的工具管理桌面端项目、待办、会话、任务、供应商、模型和定时任务。可以通过 mori_computer MCP 工具直接读取和操作用户的本机应用。\n${settings.instructions}\n不要直接运行 shell、读取系统文件或操作代码；需要具体工作时创建工作会话。只在工具成功后确认完成。没有配置长期记忆，不得声称记住了跨会话信息。`,
       developerInstructions:
-        MORI_MODEL_MANAGEMENT_INSTRUCTIONS + "\n" +
+        MORI_MODEL_MANAGEMENT_INSTRUCTIONS + "\n" + MORI_SCHEDULING_INSTRUCTIONS + "\n" +
         "优先保持对话简洁。创建任务后返回任务信息，用户可以继续对话；按需查询任务状态。工作会话 blocked/failed 或需要解释错误时，读取 mori_read_thread 的 diagnostics 或调用 mori_tasks MCP 中的 mori_read_thread_errors；区分当前错误和历史工具失败，只依据保存的错误说明原因，currentErrorMissing 时明确当前原因未保存；category=unknown 时只转述已保存的错误，不要推测模型或 MCP 故障。待办管理与派发统一使用 mori_tasks MCP 中提供的工具。通过 mori_list_todos / mori_read_todo / mori_create_todo / mori_update_todo / mori_delete_todo 增删改查，与 Agent 内部执行计划不同。修改、删除先读取最新 revision，版本冲突时重新读取，不得覆盖用户修改。用户要求把待办作为任务创建 Agent 时，调用 mori_start_task 并提供 todoId；要求交给已有 Agent 时，调用 mori_send_to_task 并提供 threadId 和 todoId。保留原待办引用，不要把文字预览当作全部任务或遗漏图片。待办所属项目已经明确，不必重复询问。发送或排队成功只表示 Agent 已接收，不得据此将待办标为完成。动态桌面状态通过工具读取。你始终在应用管理的独立工作区运行，不随用户打开的项目切换。工作任务在各自项目中执行，不得使用你的独立工作区。涉及项目但项目不明确时，先询问。电脑操作先调用 mori_computer_tools 获取真实工具参数，再用 mori_computer_call。应用状态要及时刷新，优先使用辅助功能元素索引。截图返回本地路径，需要时调用 mori_computer_view 传入 path 和具体问题，复用现有看图能力；不要自行读取截图文件或把图片编码塞进上下文。电脑操作审批交由主进程处理，不得绕过。不要自行批准工作会话的权限请求。",
       config: {
         web_search: "disabled",
@@ -285,6 +296,7 @@ export class MoriAssistantRuntime {
           ...(this.computerConfig ? { [MORI_COMPUTER_MCP_SERVER]: this.computerConfig } : {}),
           ...(this.taskConfig ? { [MORI_TASK_MCP_SERVER]: this.taskConfig } : {}),
           ...(this.modelConfig ? { [MORI_MODEL_MCP_SERVER]: this.modelConfig } : {}),
+          ...(this.schedulingConfig ? { [MORI_SCHEDULING_MCP_SERVER]: this.schedulingConfig } : {}),
         },
       },
     };
@@ -297,7 +309,7 @@ export class MoriAssistantRuntime {
       : await this.requireClient().request<{ thread: { id: string } }>("thread/start", {
           ...params,
           dynamicTools: this.deps.tools.filter(
-            (tool) => !tool.name.startsWith("mori_computer_") && !isTaskTool(tool) && !isMoriModelTool(tool.name),
+            (tool) => !tool.name.startsWith("mori_computer_") && !isTaskTool(tool) && !isMoriModelTool(tool.name) && !isMoriSchedulingTool(tool.name),
           ),
         });
     if (!response.thread.id) throw new Error("Codex 未返回助手会话 ID。");
@@ -449,5 +461,8 @@ export class MoriAssistantRuntime {
     await this.modelGateway?.close();
     this.modelGateway = undefined;
     this.modelConfig = undefined;
+    await this.schedulingGateway?.close();
+    this.schedulingGateway = undefined;
+    this.schedulingConfig = undefined;
   }
 }

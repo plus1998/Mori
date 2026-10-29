@@ -57,6 +57,20 @@ async function sleepFixture(t: test.TestContext, overrides: Partial<SchedulingDe
   };
 }
 
+test("schedule deletion checks the revision inside the service and keeps legacy deletion compatible", async t => {
+  const f = await fixture(t);
+  const created = f.service.create(task("revision-delete"));
+  const updated = f.service.update({ id: created.id, expectedRevision: 1, prompt: "Latest edit" });
+  assert.throws(() => f.service.remove(created.id, { source: "user" }, 1), /修改/);
+  assert.throws(() => f.service.remove(created.id, { source: "user" }, Number.NaN), /修改/);
+  assert.equal(f.store.get(created.id)?.prompt, updated.prompt);
+  f.service.remove(created.id, { source: "user" }, updated.revision);
+  assert.equal(f.store.get(created.id), undefined);
+  const legacy = f.service.create(task("legacy-delete"));
+  f.service.remove(legacy.id);
+  assert.equal(f.store.get(legacy.id), undefined);
+});
+
 test("scheduled plans persist approval, dispatch once through native approval and consume the one-shot", async t => {
   const current = { thread: { status: "awaiting_plan" as const }, pendingPlan: { plan: "Implement the stored plan" }, historyRevision: 9 };
   const receipts = new Map<string, { status: "completed" }>();

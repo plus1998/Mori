@@ -5755,7 +5755,9 @@ function registerIpcHandlers(): void {
       ...(input.attachments !== undefined ? { attachments: await verifySchedulingAttachments(input.attachments, ref => promptImageFileStore.readContentRefAttachment(ref)) } : {}),
     }),
   );
-  registerDesktopCommand(IPC_CHANNELS.schedulingDelete, (id: string) => schedulingService.remove(id));
+  registerDesktopCommand(IPC_CHANNELS.schedulingDelete, (id: string, expectedRevision?: number) =>
+    schedulingService.remove(id, { source: "user" }, expectedRevision),
+  );
   registerDesktopCommand(IPC_CHANNELS.schedulingRunNow, (input: { id: string; requestId: string }) =>
     schedulingService.runNow(input.id, input.requestId),
   );
@@ -7910,6 +7912,10 @@ function registerIpcHandlers(): void {
     computerUse: new MoriComputerUse({ gateway: computerUseGateway, settings: () => computerUseSettingsStore.get(), imageView: imageViewGateway }),
     defaultRuntimeConfig: () => buildThreadRuntimeConfigFromDefaults({ settings: getModelSettingsSnapshot(), workflowDefaults: { ...workflowSettingsStore.get(), sessionMode: "agent" }, mcpServers: mcpStore.listServers() }),
     manageModels: (name, args) => modelManagementService.invoke(name, args),
+    defaultScheduleProfile: () => ({
+      coreKind: workflowSettingsStore.get().defaultCoreKind ?? "claude",
+      runtimeConfig: buildThreadRuntimeConfigFromDefaults({ settings: getModelSettingsSnapshot(), workflowDefaults: { ...workflowSettingsStore.get(), sessionMode: "agent" }, mcpServers: mcpStore.listServers() }),
+    }),
     modelSettings: () => {
       const settings = getModelSettingsSnapshot();
       return {

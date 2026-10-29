@@ -156,9 +156,10 @@ test("Mori task gateway rejects a session it no longer knows with 404 so Codex r
 test.each([
   "mori_computer",
   "mori_tasks",
+  "mori_scheduling",
 ])("runtime %s MCP authenticates calls and propagates failures", async (serverName) => {
   const calls: string[] = [];
-  const toolName = serverName === "mori_computer" ? "mori_computer_tools" : "mori_create_todo";
+  const toolName = serverName === "mori_computer" ? "mori_computer_tools" : serverName === "mori_scheduling" ? "mori_list_schedules" : "mori_create_todo";
   const gateway = new MoriAssistantToolGateway(
     [{ name: toolName, description: "test", inputSchema: { type: "object" } }],
     async (name) => {

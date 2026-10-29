@@ -11,6 +11,10 @@ import { ProviderStore } from "../src/main/provider-store";
 import { ModelManagementService } from "../src/main/model-management-service";
 import { MoriAssistantService } from "../src/main/mori-assistant-service";
 import { MoriAssistantStore, parseAssistantSettings } from "../src/main/mori-assistant-store";
+import { SchedulingService } from "../src/main/scheduling-service";
+import { SchedulingStore } from "../src/main/scheduling-store";
+import { previewSchedule } from "../src/main/schedule-time";
+import { MORI_SCHEDULING_TOOLS, MoriAssistantScheduling } from "../src/main/mori-assistant-scheduling";
 import { MoriAssistantTodos } from "../src/main/mori-assistant-todos";
 import { parseWechatJson, validateWechatBaseUrl } from "../src/main/mori-assistant-wechat";
 import type { OpenAIAccountService } from "../src/main/openai-account-service";
@@ -22,7 +26,9 @@ import { DEFAULT_MORI_ASSISTANT_SETTINGS, moriPetSize } from "../src/shared/mori
 import { removeTempDirectory } from "./helpers/temp-directory";
 
 const roots: string[] = [];
+const scheduleStores: SchedulingStore[] = [];
 afterEach(async () => {
+  for (const store of scheduleStores.splice(0)) store.close();
   await Promise.all(roots.splice(0).map(removeTempDirectory));
 });
 async function temp() {
@@ -121,7 +127,7 @@ async function fixture(options: { custom?: boolean } = {}) {
 const readline=require('node:readline');
 const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');
 const epoch=require('node:crypto').randomUUID();
-let thread='native-assistant-'+epoch, turn=0, text='', computer, tasks, models;
+let thread='native-assistant-'+epoch, turn=0, text='', computer, tasks, models, scheduling;
 const callMcp=async(server,name,args)=>{
  const headers={...server.http_headers,'Content-Type':'application/json','Accept':'application/json, text/event-stream'};
  const init=await fetch(server.url,{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',id:'init',method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'test',version:'1'}}})});
@@ -130,6 +136,7 @@ const callMcp=async(server,name,args)=>{
  const response=await fetch(server.url,{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',id:'call',method:'tools/call',params:{name,arguments:args}})});
  if(!response.ok)throw new Error('MCP HTTP '+response.status);
  const result=await response.json();if(result.error)throw new Error(result.error.message);
+ require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-tool-results.jsonl"))},JSON.stringify({name,result:result.result})+'\\n');
  complete();
 };
 const complete=()=>{
@@ -153,7 +160,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   computer=m.params.config?.mcp_servers?.mori_computer;
   tasks=m.params.config?.mcp_servers?.mori_tasks;
   models=m.params.config?.mcp_servers?.mori_models;
-  require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-workspaces.jsonl"))},JSON.stringify({cwd:process.cwd(),threadCwd:m.params.cwd,method:m.method,taskTools:tasks?.enabled_tools,modelTools:models?.enabled_tools,model:m.params.model,modelProvider:m.params.modelProvider})+'\\n');
+  scheduling=m.params.config?.mcp_servers?.mori_scheduling;
+  require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-workspaces.jsonl"))},JSON.stringify({cwd:process.cwd(),threadCwd:m.params.cwd,method:m.method,taskTools:tasks?.enabled_tools,modelTools:models?.enabled_tools,schedulingTools:scheduling?.enabled_tools,model:m.params.model,modelProvider:m.params.modelProvider})+'\\n');
   result={thread:{id:thread}};
  }
  if(m.method==='turn/start'){
@@ -168,7 +176,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   }
   else if(text.startsWith('mcp-tool:')){
    const request=JSON.parse(text.slice('mcp-tool:'.length));
-   callMcp(request.name.startsWith('mori_models_')?models:tasks,request.name,request.args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
+   callMcp(scheduling?.enabled_tools.includes(request.name)?scheduling:request.name.startsWith('mori_models_')?models:tasks,request.name,request.args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
   }
   else if(text==='tool')send({id:'tool-request',method:'item/tool/call',params:{threadId:thread,callId:'call-'+turn,tool:'mori_list_projects',arguments:{}}});
   else if(text==='private-task')send({id:'tool-request',method:'item/tool/call',params:{threadId:thread,callId:'call-'+turn,tool:'mori_start_task',arguments:{projectPath:process.cwd(),prompt:'must not start'}}});
@@ -203,6 +211,21 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     deleteCatalogModel: async () => { throw new Error("No account catalog in fixture"); },
     refreshCatalog: async () => { throw new Error("No account catalog in fixture"); },
   });
+  const schedulingStore = new SchedulingStore(":memory:");
+  scheduleStores.push(schedulingStore);
+  const scheduleProfile = () => ({
+    coreKind: "pi" as const,
+    runtimeConfig: { subagentEnabled: defaultSubagentAvailability(), sessionMode: "agent" as const, bashReviewMode: "auto" as const },
+  });
+  const scheduling = new SchedulingService(schedulingStore, {
+    inheritProfile: () => { throw new Error("Unexpected agent inheritance"); },
+    validateProfile: profile => { if (!profile?.runtimeConfig) throw new Error("Missing profile"); },
+    assertThread: id => { if (!conversations.getThread(id)) throw new Error("Missing thread"); },
+    canDispatch: () => false,
+    dispatch: async () => { throw new Error("No dispatch in fixture"); },
+    inspect: () => ({ status: "running" }),
+    onChanged: () => {}, onError: error => { throw error; },
+  });
   const commands: Array<{ channel: string; args: unknown[] }> = [];
   const accountCalls: string[] = [];
   const accounts = {
@@ -235,6 +258,11 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     resolveSystemProxy: async () => "DIRECT",
     invoke: async (channel, args) => {
       commands.push({ channel, args });
+      if (channel === IPC_CHANNELS.schedulingList) return schedulingStore.snapshot();
+      if (channel === IPC_CHANNELS.schedulingCreate) return scheduling.create(args[0] as Parameters<typeof scheduling.create>[0]);
+      if (channel === IPC_CHANNELS.schedulingUpdate) return scheduling.update(args[0] as Parameters<typeof scheduling.update>[0]);
+      if (channel === IPC_CHANNELS.schedulingDelete) return scheduling.remove(String(args[0]), { source: "user" }, args[1] as number | undefined);
+      if (channel === IPC_CHANNELS.schedulingPreview) return previewSchedule(args[0] as Parameters<typeof previewSchedule>[0]);
       if (channel === IPC_CHANNELS.projectTodoQuery)
         return todos.query(args[0] as Parameters<typeof todos.query>[0]);
       if (channel === IPC_CHANNELS.projectTodoGet) return todos.get(String(args[0]), args[1] as boolean);
@@ -266,6 +294,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       sessionMode: "agent",
       bashReviewMode: "auto",
     }),
+    defaultScheduleProfile: scheduleProfile,
     modelSettings: () => ({}),
     manageModels: (name, args) => modelManagement.invoke(name, args),
     customProviders: () =>
@@ -309,6 +338,9 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     db,
     conversations,
     todos,
+    scheduling,
+    schedulingStore,
+    scheduleProfile,
     providers,
     commands,
     root,
@@ -595,6 +627,349 @@ async function assistantTool(
   expect(tools[0]?.name).toBe(name);
   return tools[0]!;
 }
+
+test("resumed Mori manages global schedules through MCP with revision checks and durable idempotency", async () => {
+  const f = await fixture();
+  try {
+    const trigger = { type: "cron" as const, expression: "0 9 * * 1-5", timezone: "Asia/Shanghai" };
+    const external = f.scheduling.create({
+      kind: "scheduled_task",
+      requestId: "settings-created",
+      name: "设置页的任务",
+      prompt: "检查项目并总结",
+      workspacePath: "/test/project",
+      executionProfile: f.scheduleProfile(),
+      trigger,
+    });
+    await f.service.send("prepare schedule session", "desktop", "schedule-prepare");
+    const native = f.conversations.getThreadCoreSession(f.service.store.state.currentThreadId!)!;
+    await f.service.saveSettings({ ...f.service.settings, name: "Mori 定时管理" });
+    const listed = await assistantTool(f, "mori_list_schedules", { projectPath: "/test/project" });
+    expect(listed).toMatchObject({
+      status: "completed",
+      output: { total: 1, items: [{ id: external.id, revision: 1 }] },
+    });
+    const probes = (await fs.readFile(path.join(f.root, "runtime-workspaces.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(probes.at(-1)).toMatchObject({
+      method: "thread/resume",
+      schedulingTools: MORI_SCHEDULING_TOOLS.map((tool) => tool.name),
+    });
+    expect(
+      f.conversations.getThreadCoreSession(f.service.store.state.currentThreadId!)?.externalSessionId,
+    ).toBe(native.externalSessionId);
+
+    expect((await assistantTool(f, "mori_preview_schedule", { trigger })).output).toMatchObject({
+      nextRuns: expect.any(Array),
+    });
+    const createArgs = {
+      requestId: "daily-review",
+      name: "每日审查",
+      prompt: "检查 /test/project 的最新改动，输出摘要。",
+      projectPath: "/test/project",
+      trigger,
+    };
+    const created = await assistantTool(f, "mori_create_schedule", createArgs);
+    expect(created).toMatchObject({
+      status: "completed",
+      output: { scheduled: true, schedule: { kind: "scheduled_task", coreKind: "pi" } },
+    });
+    const createdId = (created.output as { schedule: { id: string } }).schedule.id;
+    expect((await assistantTool(f, "mori_create_schedule", createArgs)).output).toMatchObject({
+      schedule: { id: createdId },
+    });
+    expect(f.schedulingStore.list()).toHaveLength(2);
+    expect(
+      (await assistantTool(f, "mori_create_schedule", { ...createArgs, prompt: "different" })).status,
+    ).toBe("failed");
+    const read = await assistantTool(f, "mori_read_schedule", { id: ` ${createdId} ` });
+    expect(read.output).toMatchObject({ schedule: { revision: 1, executionProfile: { coreKind: "pi" } } });
+    const toolResponses = (await fs.readFile(path.join(f.root, "runtime-tool-results.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const readResponse = toolResponses.findLast((response) => response.name === "mori_read_schedule");
+    expect(JSON.parse(readResponse.result.content[0].text)).toMatchObject({
+      schedule: { executionProfile: f.scheduleProfile() },
+    });
+    expect((read.output as { schedule: object }).schedule).not.toHaveProperty("creationSignature");
+
+    expect(
+      (
+        await assistantTool(f, "mori_update_schedule", {
+          id: external.id,
+          expectedRevision: 1,
+          name: "暂停检查",
+          enabled: false,
+        })
+      ).status,
+    ).toBe("completed");
+    expect(f.schedulingStore.get(external.id)).toMatchObject({
+      revision: 2,
+      enabled: false,
+      prompt: external.prompt,
+      trigger,
+      executionProfile: external.executionProfile,
+    });
+    expect(
+      (
+        await assistantTool(f, "mori_update_schedule", {
+          id: external.id,
+          expectedRevision: 1,
+          prompt: "stale",
+        })
+      ).status,
+    ).toBe("failed");
+    expect(
+      (await assistantTool(f, "mori_delete_schedule", { id: external.id, expectedRevision: 1 })).status,
+    ).toBe("failed");
+    expect(f.schedulingStore.get(external.id)?.revision).toBe(2);
+    expect(
+      (
+        await assistantTool(f, "mori_update_schedule", {
+          id: external.id,
+          expectedRevision: 2,
+          enabled: true,
+        })
+      ).status,
+    ).toBe("completed");
+    expect(
+      (await assistantTool(f, "mori_delete_schedule", { id: external.id, expectedRevision: 3 })).output,
+    ).toMatchObject({ deleted: true, runningOccurrencesContinue: true });
+    expect(f.schedulingStore.get(external.id)).toBeUndefined();
+    expect(f.commands.some((command) => command.channel === IPC_CHANNELS.threadStart)).toBe(false);
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
+
+test("Mori schedule creation requires explicit work context and validates nested fields before mutations", async () => {
+  const f = await fixture();
+  try {
+    const sourceProfile = {
+      ...f.scheduleProfile(),
+      coreKind: "codex" as const,
+      runtimeConfig: {
+        ...f.scheduleProfile().runtimeConfig,
+        orchestrationSelection: {
+          mainAgentConfigId: "old",
+          mainPrompt: { mode: "builtin" as const },
+          subagents: { mode: "none" as const },
+        },
+        mainAgentModelOverride: { providerId: "custom", modelId: "old-model" },
+      },
+    };
+    const now = new Date().toISOString();
+    f.conversations.saveThread({
+      id: "source-work",
+      title: "已有工作",
+      prompt: "work",
+      workspacePath: "/source/project",
+      ...sourceProfile,
+      status: "completed",
+      message: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const args = {
+      requestId: "source",
+      name: "跟进工作",
+      prompt: "查看运行结果并总结",
+      trigger: { type: "at", at: "2099-01-01T01:00:00+08:00" },
+    };
+    const inherited = await assistantTool(f, "mori_create_schedule", {
+      ...args,
+      sourceThreadId: "source-work",
+    });
+    const inheritedId = (inherited.output as { schedule: { id: string } }).schedule.id;
+    expect(f.schedulingStore.get(inheritedId)).toMatchObject({
+      workspacePath: "/source/project",
+      executionProfile: sourceProfile,
+    });
+    expect(
+      (
+        await assistantTool(f, "mori_update_schedule", {
+          id: inheritedId,
+          expectedRevision: 1,
+          coreKind: "pi",
+          providerId: "custom",
+          modelId: "selected",
+        })
+      ).status,
+    ).toBe("completed");
+    expect(f.schedulingStore.get(inheritedId)?.executionProfile).toMatchObject({
+      coreKind: "pi",
+      runtimeConfig: { mainAgentModelOverride: { providerId: "custom", modelId: "selected" } },
+    });
+    const message = await assistantTool(f, "mori_create_schedule", {
+      ...args,
+      requestId: "message",
+      kind: "session_message",
+      threadId: "source-work",
+    });
+    expect(message).toMatchObject({
+      status: "completed",
+      output: { schedule: { kind: "session_message", threadId: "source-work" } },
+    });
+    const messageId = (message.output as { schedule: { id: string } }).schedule.id;
+    for (const invalid of [
+      { ...args },
+      { ...args, projectPath: f.service.workspacePath },
+      { ...args, projectPath: "relative/project" },
+      { ...args, sourceThreadId: "unknown-thread" },
+      { ...args, projectPath: "/test/project", providerId: "custom" },
+      { ...args, projectPath: "/test/project", trigger: { type: "at", at: "2099-01-01T09:00:00" } },
+      {
+        ...args,
+        projectPath: "/test/project",
+        trigger: { type: "cron", expression: "0 9 * * *", timezone: "Invalid/Timezone" },
+      },
+      {
+        ...args,
+        projectPath: "/test/project",
+        trigger: { type: "interval", everySeconds: 30, anchorAt: args.trigger.at },
+      },
+      { ...args, projectPath: "/test/project", hidden: "unknown" },
+      { ...args, kind: "session_message", threadId: f.service.store.state.currentThreadId },
+      { ...args, kind: "session_message", threadId: "source-work", projectPath: "/test/project" },
+    ])
+      expect((await assistantTool(f, "mori_create_schedule", invalid)).status).toBe("failed");
+    expect(
+      (
+        await assistantTool(f, "mori_update_schedule", {
+          id: messageId,
+          expectedRevision: 1,
+          projectPath: "/elsewhere",
+        })
+      ).status,
+    ).toBe("failed");
+    expect(
+      (await assistantTool(f, "mori_update_schedule", { id: inheritedId, expectedRevision: 2 })).status,
+    ).toBe("failed");
+    expect(
+      (await assistantTool(f, "mori_delete_schedule", { id: inheritedId, expectedRevision: "2" })).status,
+    ).toBe("failed");
+    expect(f.schedulingStore.list()).toHaveLength(2);
+    expect(f.schedulingStore.get(inheritedId)?.revision).toBe(2);
+    expect(
+      (
+        await assistantTool(f, "mori_update_schedule", {
+          id: inheritedId,
+          expectedRevision: 2,
+          mainAgentConfigId: "new-agent",
+        })
+      ).status,
+    ).toBe("completed");
+    expect(
+      f.schedulingStore.get(inheritedId)?.executionProfile?.runtimeConfig.orchestrationSelection
+        ?.mainAgentConfigId,
+    ).toBe("new-agent");
+    expect(
+      f.schedulingStore.get(inheritedId)?.executionProfile?.runtimeConfig.mainAgentModelOverride,
+    ).toBeUndefined();
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
+
+test("Mori schedule reads page Unicode and preserve image metadata; cancellation and delete races cannot write", async () => {
+  const f = await fixture();
+  try {
+    const created = f.scheduling.create({
+      kind: "scheduled_task",
+      requestId: "pages",
+      name: "分页任务",
+      prompt: "😀甲乙丙丁",
+      workspacePath: "/test/project",
+      executionProfile: f.scheduleProfile(),
+      trigger: { type: "at", at: "2099-01-01T00:00:00Z" },
+    });
+    const controller = new AbortController();
+    let mode = "normal";
+    const management = new MoriAssistantScheduling({
+      defaultProfile: f.scheduleProfile,
+      projectPath: (value) => value,
+      workThread: (id) => f.conversations.getThread(id),
+      invoke: async (channel, args) => {
+        if (channel === IPC_CHANNELS.schedulingList) {
+          const snapshot = f.schedulingStore.snapshot();
+          if (mode === "abort") controller.abort(new Error("用户停止"));
+          if (mode === "race") f.scheduling.update({ id: created.id, expectedRevision: 1, name: "并发编辑" });
+          return snapshot;
+        }
+        if (channel === IPC_CHANNELS.schedulingDelete)
+          return f.scheduling.remove(String(args[0]), { source: "user" }, args[1] as number);
+        throw new Error(`Unexpected mutation: ${channel}`);
+      },
+    });
+    const signal = new AbortController().signal;
+    expect(
+      await management.call("mori_read_schedule", { id: created.id, offset: 0, limit: 2 }, signal),
+    ).toMatchObject({ schedule: { prompt: "😀甲", totalCharacters: 5, nextOffset: 2 } });
+    expect(
+      await management.call(
+        "mori_list_schedules",
+        { enabled: true, kind: "scheduled_task", search: "分页", limit: 1 },
+        signal,
+      ),
+    ).toMatchObject({ total: 1, items: [{ id: created.id }], nextOffset: null });
+    expect(await management.call("mori_list_schedules", { offset: 1 }, signal)).toMatchObject({
+      total: 1,
+      items: [],
+      nextOffset: null,
+    });
+    const now = new Date().toISOString();
+    f.conversations.saveThread({
+      id: "image-work",
+      title: "图片工作",
+      prompt: "work",
+      workspacePath: "/test/project",
+      ...f.scheduleProfile(),
+      status: "completed",
+      message: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const withImage = f.scheduling.create({
+      kind: "session_message",
+      requestId: "image",
+      name: "图片消息",
+      prompt: "查看图片",
+      threadId: "image-work",
+      trigger: created.trigger,
+      attachments: [{ mediaType: "image/png", contentRef: `sha256:${"a".repeat(64)}`, byteLength: 100 }],
+    });
+    const imageRead = await management.call("mori_read_schedule", { id: withImage.id }, signal);
+    expect(imageRead).toMatchObject({
+      schedule: { attachments: [{ mediaType: "image/png", byteLength: 100 }] },
+    });
+    expect(JSON.stringify(imageRead)).not.toContain("sha256:");
+    expect(
+      await management.call("mori_list_schedules", { projectPath: "/test/project", limit: 1 }, signal),
+    ).toMatchObject({ total: 2, nextOffset: 1 });
+    mode = "race";
+    await expect(
+      management.call("mori_delete_schedule", { id: created.id, expectedRevision: 1 }, signal),
+    ).rejects.toThrow("修改");
+    expect(f.schedulingStore.get(created.id)).toMatchObject({ name: "并发编辑", revision: 2 });
+    mode = "abort";
+    await expect(
+      management.call(
+        "mori_update_schedule",
+        { id: created.id, expectedRevision: 2, enabled: false },
+        controller.signal,
+      ),
+    ).rejects.toThrow("用户停止");
+    expect(f.schedulingStore.get(created.id)).toMatchObject({ revision: 2, enabled: true });
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
 
 test("resumed assistant reads error details through MCP and enforces the work-thread boundary", async () => {
   const f = await fixture();

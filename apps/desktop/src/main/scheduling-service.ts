@@ -168,8 +168,10 @@ export class SchedulingService {
     return updated;
   }
 
-  remove(id: string, actor: SchedulingActor = { source: "user" }): void {
-    this.owned(id, actor);
+  remove(id: string, actor: SchedulingActor = { source: "user" }, expectedRevision?: number): void {
+    const current = this.owned(id, actor);
+    if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || current.revision !== expectedRevision))
+      throw new Error("配置已被修改，请刷新后重试。");
     this.store.remove(id, new Date(this.clock()).toISOString());
     this.deps.onChanged();
   }

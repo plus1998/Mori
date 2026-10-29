@@ -46,7 +46,7 @@ export const REMOTE_COMMAND_DEFINITIONS = [
   command("scheduling:update", "Update schedule", "write_safe", RPC_INVOKE, [
     objectArg(["id", "expectedRevision"]),
   ]),
-  command("scheduling:delete", "Delete schedule", "write_safe", RPC_INVOKE, [stringArg()]),
+  command("scheduling:delete", "Delete schedule", "write_safe", RPC_INVOKE, [stringArg(), { kind: "number", optional: true }]),
   command("scheduling:run-now", "Run schedule now", "execute", RPC_INVOKE, [
     objectArg(["id", "requestId"]),
   ]),

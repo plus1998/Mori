@@ -8,6 +8,7 @@ import type { AssistantTool } from "./mori-assistant-runtime";
 export const MORI_COMPUTER_MCP_SERVER = "mori_computer";
 export const MORI_TASK_MCP_SERVER = "mori_tasks";
 export const MORI_MODEL_MCP_SERVER = "mori_models";
+export const MORI_SCHEDULING_MCP_SERVER = "mori_scheduling";
 const SECRET_HEADER = "x-mori-tool-secret";
 
 /** Runtime-local capability endpoint. Existing native threads gain these tools on resume. */
