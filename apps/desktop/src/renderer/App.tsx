@@ -368,13 +368,13 @@ import {
   type ThreadRunProjectionMainFeedEntry,
 } from "./conversation-v2-projection-view";
 import { isConversationV2InteractionEffect } from "./conversation-v2-render-priority";
+import { loadConversationV2ProjectionUpdate } from "./conversation-v2-projection-update";
 import {
   applyConversationV2Effects,
   type ConversationV2RendererState,
   catchUpConversationV2RendererState,
   conversationV2ToolRunIdsForHydration,
   installConversationV2Bootstrap,
-  installConversationV2ProjectionExtras,
   mergeConversationV2OlderPage,
   mergeConversationV2ToolPage,
 } from "./conversation-v2-renderer-state";
@@ -2049,22 +2049,17 @@ function App() {
       }
       conversationV2ProjectionExtrasNextAllowedRef.current.set(threadId, now + 1000);
       conversationV2ProjectionExtrasInFlightRef.current.add(threadId);
-      void api
-        .conversationV2Projection(threadId)
-        .then((extras) => {
+      void loadConversationV2ProjectionUpdate(current, api, () => conversationV2ByThreadRef.current[threadId])
+        .then((next) => {
           const latest = conversationV2ByThreadRef.current[threadId];
           if (!latest || latest.storeEpoch !== current.storeEpoch) {
             return;
           }
-          const next = installConversationV2ProjectionExtras(latest, extras);
+          // Tool/message rows and the status replacing the old tail commit
+          // together; publishing newer extras over an older live batch leaves
+          // a blank frame between argument completion and the tool row.
           startTransition(() => {
-            setConversationV2ByThread((states) => {
-              const state = states[threadId];
-              if (!state || state.storeEpoch !== next.storeEpoch || state.appliedSeq !== next.appliedSeq) {
-                return state && state.appliedSeq > next.appliedSeq ? states : { ...states, [threadId]: next };
-              }
-              return { ...states, [threadId]: next };
-            });
+            if (mergeConversationV2LoadedState(threadId, next)) queueConversationV2Recovery(threadId);
           });
         })
         .catch((error: unknown) => {
@@ -2077,7 +2072,7 @@ function App() {
           }
         });
     },
-    [],
+    [mergeConversationV2LoadedState, queueConversationV2Recovery],
   );
   const recentlyViewedThreadIdsRef = useRef<string[]>([]);
   const projectionEvictTimersRef = useRef(new Map<string, number>());
@@ -14053,8 +14048,7 @@ async function loadConversationV2RendererState(
     capabilities.maxBytes,
     syncThrough,
   );
-  const projectionExtras = await api.conversationV2Projection(conversationId);
-  return installConversationV2ProjectionExtras(state, projectionExtras);
+  return loadConversationV2ProjectionUpdate(state, api);
 }
 
 function conversationV2TodosToCoderTodos(state: ConversationV2RendererState): CoderTodoItem[] {

@@ -1560,13 +1560,17 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
     dragAnimation ??
     (greeting ? "waving" : undefined) ??
     reaction ??
-    (status === "running"
-      ? "running"
-      : status === "waiting"
-        ? "waiting"
-        : status === "error" || petError
-          ? "failed"
-          : "idle");
+    // A persistent task state must not suppress attention to the nearby pointer.
+    // Direct interactions and reactions above still finish before looking around.
+    (pet?.version === 2 && direction != null && status !== "error" && !petError
+      ? "idle"
+      : status === "running"
+        ? "running"
+        : status === "waiting"
+          ? "waiting"
+          : status === "error" || petError
+            ? "failed"
+            : "idle");
   const indicator =
     petError || status === "error" ? "error" : status === "waiting" ? "waiting" : undefined;
   const statusLabel =

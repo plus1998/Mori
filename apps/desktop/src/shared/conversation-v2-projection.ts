@@ -111,6 +111,8 @@ export interface ToolWritingActivity {
 export interface ThreadRunProjectionWritingTool extends ToolWritingActivity {
   /** observedAt of the `tool.writing` fact — lets the UI show the wait as bounded. */
   since: string;
+  /** Arguments have finished; the matching tool has not started yet. */
+  phase?: "dispatching";
 }
 
 export interface ThreadRunProjectionRequestSpan {
@@ -130,7 +132,7 @@ export interface ThreadRunProjectionRequestSpan {
    */
   providerRequestId?: string;
   /**
-   * Tool call the model is still writing arguments for on this request. Set from a
+   * Tool call being prepared or dispatched on this request. Set from a
    * `tool.writing` fact and cleared the moment the real tool row starts, so the Feed
    * can name the wait instead of reading an unmoving timeline as "stalled".
    */

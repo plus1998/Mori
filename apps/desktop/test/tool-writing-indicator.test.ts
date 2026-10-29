@@ -39,6 +39,15 @@ test("resolveToolWritingIndicator carries what the fact knows about the call", (
   });
 });
 
+test("dispatching is preserved and no longer claims arguments are being written", () => {
+  const indicator = resolveToolWritingIndicator([span({
+    requestId: "dispatching",
+    writingTool: { name: "Write", kind: "file", target: "src/app.ts", since: "2026-01-01T00:00:03.000Z", phase: "dispatching" },
+  })]);
+  expect(indicator?.phase).toBe("dispatching");
+  expect(resolveToolWritingLabel(indicator!)).toEqual({ key: "activity.writingTool", params: { tool: "Write" } });
+});
+
 test("resolveToolWritingIndicator keeps a write on a span the narrative already closed", () => {
   // The text block finalizes before the tool call it precedes, so the span is `completed`
   // while the call is still being written. That is the normal case, not a stale one.

@@ -236,10 +236,14 @@ export class MoriAssistantWindows {
         const dx = cursor.x - (bounds.x + bounds.width / 2);
         const dy = cursor.y - (bounds.y + bounds.height / 2);
         const distance = Math.hypot(dx, dy);
+        // Keep looking through transparent padding up to actual body contact.
+        // The renderer gives the pixel-accurate greeting priority over gaze.
         const direction =
-          distance > bounds.width / 2 + 2 && distance < Math.max(320, bounds.width * 2.5)
-            ? moriPetLookDirection(dx, dy)
-            : null;
+          distance >= Math.max(320, bounds.width * 2.5)
+            ? null
+            : distance === 0
+              ? (lastDirection ?? 0)
+              : moriPetLookDirection(dx, dy);
         if (direction === lastDirection) return;
         lastDirection = direction;
         ball.webContents.send(MORI_ASSISTANT_CHANNELS.petLook, direction);

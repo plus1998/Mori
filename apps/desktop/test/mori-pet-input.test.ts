@@ -1,12 +1,14 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import { MORI_ASSISTANT_CHANNELS } from "../src/shared/mori-assistant";
 
 let cursor = { x: 0, y: 0 };
 class PetWindow extends EventEmitter {
+  messages: Array<{ channel: string; value: unknown }> = [];
   webContents = Object.assign(new EventEmitter(), {
     id: 42,
     setWindowOpenHandler() {},
-    send() {},
+    send: (channel: string, value: unknown) => this.messages.push({ channel, value }),
   });
   bounds = { x: 0, y: 0, width: 64, height: 64 };
   ignored: boolean[] = [];
@@ -103,4 +105,29 @@ test("resizing maps screen DIP coordinates back into the mask, and reload clears
   ball.webContents.emit("did-start-loading");
   expect(ball.ignored.at(-1)).toBe(true);
   expect(() => windows.setPetHitMap({ width: 64, height: 64, alpha: new Uint8Array(1) })).toThrow("无效");
+});
+
+test("gaze continues through transparent padding and into the body without an idle gap at any pet size", async () => {
+  const { windows, ball } = await setup();
+  for (const size of [64, 128, 192]) {
+    await windows.showBall(size);
+    const center = { x: ball.bounds.x + size / 2, y: ball.bounds.y + size / 2 };
+    const alpha = new Uint8Array(size * size);
+    alpha[(size / 2) * size + size / 2] = 255;
+    windows.setPetHitMap({ width: size, height: size, alpha });
+    ball.messages.length = 0;
+    // Approach from outside, cross the old circular cutoff, then touch the body.
+    for (const dx of [-size, -size / 2, -size / 4, -1, 0]) {
+      cursor = { x: center.x + dx, y: center.y };
+      await Bun.sleep(140);
+      const direction = ball.messages.filter((m) => m.channel === MORI_ASSISTANT_CHANNELS.petLook).at(-1);
+      expect(direction?.value).toBe(12);
+      expect(ball.ignored.at(-1)).toBe(dx !== 0);
+    }
+    cursor = { x: center.x - 600, y: center.y };
+    await Bun.sleep(140);
+    expect(
+      ball.messages.filter((m) => m.channel === MORI_ASSISTANT_CHANNELS.petLook).at(-1)?.value,
+    ).toBeNull();
+  }
 });

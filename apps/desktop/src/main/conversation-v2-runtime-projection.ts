@@ -683,6 +683,13 @@ function applyToolWritingState(
       if (callId && writingCallId && callId !== writingCallId) continue;
     }
     if (event.observedAt < attached.writingTool.since) continue;
+    if (event.eventType === "tool.writing.completed") {
+      // Argument completion precedes actual dispatch (including MCP routing).
+      // Keep this explicit phase until the matching tool starts or the request
+      // terminates; otherwise the Feed loses its row during that handoff.
+      attached.writingTool = { ...attached.writingTool, phase: "dispatching" };
+      continue;
+    }
     delete attached.writingTool;
     attachedByOwner.delete(target.ownerAgentId);
     callIdsByOwner.delete(target.ownerAgentId);

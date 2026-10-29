@@ -1,6 +1,6 @@
 import type {
   ThreadRunProjectionRequestSpan,
-  ToolWritingActivity,
+  ThreadRunProjectionWritingTool,
 } from "../shared/conversation-v2-projection";
 
 /**
@@ -11,7 +11,7 @@ import type {
  * call and the Composer guessed from a still timeline. The stream states it plainly, so
  * this is read straight off the request span instead of being inferred.
  */
-export interface ToolWritingIndicator extends ToolWritingActivity {
+export interface ToolWritingIndicator extends ThreadRunProjectionWritingTool {
   requestId: string;
   /** observedAt of the `tool.writing` fact, so callers can show how long the wait is. */
   since: string;
@@ -25,7 +25,7 @@ export interface ToolWritingIndicator extends ToolWritingActivity {
  * as soon as the narrative stream finalizes, and that happens before the tool call the model
  * wrote next — the text block closes, then the call is written. The projection deletes the
  * field on every path that really ends the wait (the tool row landing, or the agent/thread
- * going terminal), so anything still carrying it is genuinely mid-write.
+ * going terminal). Argument completion advances to dispatching without removing the row.
  *
  * A fact that says nothing about the call — no tool, no kind — is not worth a label; the
  * producers only omit the tool name for provider-side items (a web search), and even those
@@ -51,6 +51,7 @@ export function resolveToolWritingIndicator(
         ...(writing.name && { name: writing.name }),
         ...(writing.kind && { kind: writing.kind }),
         ...(writing.target && { target: writing.target }),
+        ...(writing.phase && { phase: writing.phase }),
       };
     }
   }
@@ -73,6 +74,12 @@ const MAX_LABEL_TARGET_LENGTH = 64;
  */
 export function resolveToolWritingLabel(indicator: ToolWritingIndicator): ToolWritingLabel {
   const target = indicator.target ? truncateTarget(indicator.target) : undefined;
+  if (indicator.phase === "dispatching") {
+    const tool = indicator.name ?? target;
+    return tool
+      ? { key: "activity.writingTool", params: { tool } }
+      : { key: "activity.writingUnknown", params: {} };
+  }
   const kind = indicator.kind ?? "tool";
   if (kind === "file") {
     return target
