@@ -37,6 +37,15 @@ export function canEscalateThreadFollowUp(input: {
   return input.priority !== "escalated" || input.queuePaused;
 }
 
+/** A Guide receipt can return before a live ingress accepts the selected row. */
+export function isThreadFollowUpGuidancePending(
+  followUp: ThreadPendingFollowUp,
+  input: { queuePaused: boolean; threadActive: boolean },
+): boolean {
+  return followUp.priority === "escalated" && followUp.status === "queued" &&
+    (!input.queuePaused || input.threadActive);
+}
+
 export function sortThreadFollowUps(followUps: readonly ThreadPendingFollowUp[]): ThreadPendingFollowUp[] {
   return [...followUps].sort(compareThreadFollowUps);
 }

@@ -30,7 +30,12 @@ import {
   type MoriAssistantSnapshot,
   moriPetSize,
 } from "../shared/mori-assistant";
-import type { MoriPetAnimation, MoriPetAsset } from "../shared/mori-pet";
+import {
+  type MoriPetAnimation,
+  type MoriPetAsset,
+  type MoriPetHitMap,
+  moriPetHitTest,
+} from "../shared/mori-pet";
 import { shortcutMatches, useKeyboardShortcuts } from "./keyboard-shortcuts";
 import { LazyOpenAIAccountsPanel } from "./lazy-app-panels";
 import { MarkdownContent } from "./MarkdownContent";
@@ -1444,6 +1449,27 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
   const reactionTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const greetingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const drag = useRef<{ x: number; y: number; moved: boolean } | undefined>(undefined);
+  const inputHitMap = useRef<MoriPetHitMap | undefined>(undefined);
+  const bodyHitMap = useRef<MoriPetHitMap | undefined>(undefined);
+  const pointerInBody = useRef(false);
+  const pointerPosition = useRef<{ x: number; y: number } | undefined>(undefined);
+  const updateHitMap = useCallback((map: MoriPetHitMap, bodyMap?: MoriPetHitMap) => {
+    inputHitMap.current = map;
+    bodyHitMap.current = bodyMap;
+    void desktopApi().moriAssistantPetHitMap(map).catch((error) => setPetError(String(error)));
+  }, []);
+  useEffect(() => {
+    if (mode !== "ball") return;
+    const size = snapshot ? moriPetSize(snapshot.settings) : 64;
+    if (pet && !petError) return;
+    const alpha = new Uint8Array(size * size);
+    if (petError) {
+      for (let y = 0; y < size; y++)
+        for (let x = 0; x < size; x++)
+          if (Math.hypot(x + 0.5 - size / 2, y + 0.5 - size / 2) <= 12) alpha[y * size + x] = 255;
+    }
+    updateHitMap({ width: size, height: size, alpha });
+  }, [mode, pet, petError, snapshot?.settings.petKey, snapshot?.settings.petSizes, updateHitMap]);
   useEffect(() => {
     document.documentElement.dataset.moriSurface = mode;
     return () => {
@@ -1488,6 +1514,12 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
     if (mode !== "ball") return;
     let active = true;
     const key = snapshot?.settings.petKey;
+    inputHitMap.current = bodyHitMap.current = undefined;
+    pointerInBody.current = false;
+    pointerPosition.current = undefined;
+    if (greetingTimer.current) clearTimeout(greetingTimer.current);
+    greetingTimer.current = undefined;
+    setGreeting(false);
     setPet(key ? undefined : DEFAULT_MORI_PET);
     setPetError("");
     if (key)
@@ -1535,24 +1567,74 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
         : status === "error" || petError
           ? "failed"
           : "idle");
+  const indicator =
+    petError || status === "error" ? "error" : status === "waiting" ? "waiting" : undefined;
+  const statusLabel =
+    indicator === "error"
+      ? "Mori 遇到错误，点击查看"
+      : indicator === "waiting"
+        ? "Mori 有待处理事项，点击查看"
+        : "与 Mori 对话";
+  const pointerHits = (
+    event: { clientX: number; clientY: number; currentTarget: HTMLButtonElement },
+    map: MoriPetHitMap | undefined,
+  ) => {
+    if (!map) return false;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return moriPetHitTest(
+      map,
+      ((event.clientX - bounds.left) * map.width) / bounds.width,
+      ((event.clientY - bounds.top) * map.height) / bounds.height,
+    );
+  };
+  const greetOnBodyEntry = (
+    event: {
+      pointerType: string;
+      clientX: number;
+      clientY: number;
+      screenX: number;
+      screenY: number;
+      currentTarget: HTMLButtonElement;
+    },
+  ) => {
+    if (event.pointerType !== "mouse" || drag.current) return;
+    const previous = pointerPosition.current;
+    pointerPosition.current = { x: event.screenX, y: event.screenY };
+    if (previous?.x === event.screenX && previous.y === event.screenY) return;
+    const inside = pointerHits(event, bodyHitMap.current);
+    const entered = inside && !pointerInBody.current;
+    pointerInBody.current = inside;
+    // Native input toggles and animation frames can generate boundary events.
+    // A greeting starts only on a body hit and cannot restart its own timer.
+    if (!entered || greetingTimer.current) return;
+    setGreeting(true);
+    greetingTimer.current = setTimeout(() => {
+      greetingTimer.current = undefined;
+      setGreeting(false);
+    }, 700);
+  };
   return (
     <button
       type="button"
       className={`mori-ball is-${status}`}
-      title={petError || error || snapshot?.error || "与 Mori 对话"}
-      aria-label={petError ? `宠物加载失败：${petError}` : "打开或收起 Mori 助手"}
-      onPointerEnter={(event) => {
-        if (event.pointerType !== "mouse" || drag.current) return;
-        if (greetingTimer.current) clearTimeout(greetingTimer.current);
-        setGreeting(true);
-        greetingTimer.current = setTimeout(() => setGreeting(false), 700);
+      title={petError || error || snapshot?.error || statusLabel}
+      aria-label={petError ? `宠物加载失败：${petError}` : `${statusLabel}，打开或收起助手`}
+      onPointerEnter={greetOnBodyEntry}
+      onPointerLeave={(event) => {
+        pointerInBody.current = false;
+        pointerPosition.current = { x: event.screenX, y: event.screenY };
       }}
       onPointerDown={(event) => {
+        if (event.button !== 0 || !pointerHits(event, inputHitMap.current)) return;
         event.currentTarget.setPointerCapture(event.pointerId);
+        void desktopApi().moriAssistantPetDragging(true).catch((error) => setPetError(String(error)));
         drag.current = { x: event.screenX, y: event.screenY, moved: false };
       }}
       onPointerMove={(event) => {
-        if (!drag.current) return;
+        if (!drag.current) {
+          greetOnBodyEntry(event);
+          return;
+        }
         const dx = event.screenX - drag.current.x;
         const dy = event.screenY - drag.current.y;
         if (Math.abs(dx) + Math.abs(dy) > 3) {
@@ -1569,10 +1651,17 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
         }
         drag.current = undefined;
         setDragAnimation(undefined);
+        void desktopApi().moriAssistantPetDragging(false).catch((error) => setPetError(String(error)));
       }}
       onPointerCancel={() => {
         drag.current = undefined;
         setDragAnimation(undefined);
+        void desktopApi().moriAssistantPetDragging(false).catch((error) => setPetError(String(error)));
+      }}
+      onLostPointerCapture={() => {
+        drag.current = undefined;
+        setDragAnimation(undefined);
+        void desktopApi().moriAssistantPetDragging(false).catch((error) => setPetError(String(error)));
       }}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -1581,16 +1670,20 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
         }
       }}
     >
-      {pet ? (
+      {pet && !petError ? (
         <MoriPetSprite
           pet={pet}
           animation={animation}
           direction={direction}
-          size={(snapshot ? moriPetSize(snapshot.settings) : 64) * 0.875}
+          size={snapshot ? moriPetSize(snapshot.settings) : 64}
           onError={setPetError}
+          indicator={indicator}
+          onHitMap={updateHitMap}
         />
       ) : null}
-      {status === "waiting" || status === "error" || petError ? <i /> : null}
+      {petError ? (
+        <span className="mori-pet-load-error" aria-hidden="true">!</span>
+      ) : null}
     </button>
   );
 }

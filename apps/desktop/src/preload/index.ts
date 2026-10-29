@@ -336,6 +336,8 @@ const api = {
   moriAssistantBindWechat(): Promise<void> { return ipcRenderer.invoke(MORI.wechatBind); },
   moriAssistantDisconnectWechat(): Promise<void> { return ipcRenderer.invoke(MORI.wechatDisconnect); },
   moriAssistantMoveBall(x: number, y: number): Promise<void> { return ipcRenderer.invoke(MORI.ballMove, { x, y }); },
+  moriAssistantPetHitMap(map: import("../shared/mori-pet").MoriPetHitMap): Promise<void> { return ipcRenderer.invoke(MORI.petHitMap, map); },
+  moriAssistantPetDragging(active: boolean): Promise<void> { return ipcRenderer.invoke(MORI.petDragging, active); },
   moriAssistantNotice(): Promise<{ title: string; body: string; threadId: string } | undefined> { return ipcRenderer.invoke(MORI.noticeGet); },
   moriAssistantOpenNotice(): Promise<void> { return ipcRenderer.invoke(MORI.noticeOpen); },
   moriPetsList(): Promise<import("../shared/mori-pet").MoriPetList> { return ipcRenderer.invoke(MORI.petList); },

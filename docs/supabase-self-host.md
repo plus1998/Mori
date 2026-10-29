@@ -3,7 +3,7 @@
 面向 **人和 Agent**。开源 Mori **不提供官方节点**；本文件说明如何在自己的机器/VPS 上用官方 Docker 栈跑 Supabase，再装上本仓库的 Mori Center（migration + Edge Functions）。
 
 Cloud 托管请看 [supabase-deploy.md](supabase-deploy.md)。  
-Agent Skill：[`.agents/skills/eco-supabase/SKILL.md`](../.agents/skills/eco-supabase/SKILL.md)。
+Agent Skill：[`.agents/skills/mori-supabase/SKILL.md`](../.agents/skills/mori-supabase/SKILL.md)。
 
 官方栈文档（上游）：[Self-Hosting with Docker](https://supabase.com/docs/guides/self-hosting/docker)。
 

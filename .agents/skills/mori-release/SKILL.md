@@ -1,5 +1,5 @@
 ---
-name: eco-release
+name: mori-release
 description: >-
   Mori 桌面端发版流程：总结上次发布后的更新，归并功能说明，同步桌面版本和
   bun.lock，本地测试打包，推送 beta tag 并验证四平台 Release 与更新源，
@@ -68,7 +68,7 @@ git diff --check
 
 确认 `bun.lock` 中 `apps/desktop.version` 与桌面 package 一致，不手改锁文件代替安装。
 根 package 和各内部包版本不随桌面发版统一递增。Supabase 后端独立版本走
-[eco-supabase](../eco-supabase/SKILL.md)。
+[mori-supabase](../mori-supabase/SKILL.md)。
 
 以下变量应替换为本次实际版本和由 remote 确认的仓库名；不要直接复用历史版本：
 
@@ -121,7 +121,7 @@ codesign --verify --deep --strict 'apps/desktop/release/mac-arm64/Mori.app'
 
 必要时用独立临时 `--user-data-dir` 启动打包后的应用，检查主窗口和关键入口，验证包内
 原生终端与运行时；结束后关闭自己启动的测试进程。不得用日常数据目录代替隔离验证。
-dev UI 检查使用 [eco-dev-cdp](../eco-dev-cdp/SKILL.md)；打包版不套用 dev 数据目录规则。
+dev UI 检查使用 [mori-dev-cdp](../mori-dev-cdp/SKILL.md)；打包版不套用 dev 数据目录规则。
 本机平台通过不代表其他平台通过，四平台正式产物由 Release CI 验证。
 
 ## 4. 提交、推送并等待实际发布

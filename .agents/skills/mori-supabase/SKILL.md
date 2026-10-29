@@ -1,5 +1,5 @@
 ---
-name: eco-supabase
+name: mori-supabase
 description: >-
   Deploy and update the Mori Supabase Center (schema + Edge Functions) on a
   user-owned Supabase Cloud project or a self-hosted Docker stack. Use when the

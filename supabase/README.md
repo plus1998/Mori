@@ -5,7 +5,7 @@ account-scoped settings sync (password-wrapped vault), and HTML Artifacts hostin
 
 - **Deploy Cloud:** [docs/supabase-deploy.md](../docs/supabase-deploy.md)
 - **Self-host Docker:** [docs/supabase-self-host.md](../docs/supabase-self-host.md)
-- **Agent skill:** [.agents/skills/eco-supabase/SKILL.md](../.agents/skills/eco-supabase/SKILL.md)
+- **Agent skill:** [.agents/skills/mori-supabase/SKILL.md](../.agents/skills/mori-supabase/SKILL.md)
 - **Design:** [docs/superpowers/specs/2026-08-20-supabase-center-design.md](../docs/superpowers/specs/2026-08-20-supabase-center-design.md)
 
 ## Client setup

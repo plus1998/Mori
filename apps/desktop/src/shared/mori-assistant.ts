@@ -122,6 +122,8 @@ export const MORI_ASSISTANT_CHANNELS = {
   petAsset: "mori-assistant:pet-asset",
   petLook: "mori-assistant:pet-look",
   petReaction: "mori-assistant:pet-reaction",
+  petHitMap: "mori-assistant:pet-hit-map",
+  petDragging: "mori-assistant:pet-dragging",
 } as const;
 
 export const DEFAULT_MORI_ASSISTANT_SETTINGS: MoriAssistantSettings = {

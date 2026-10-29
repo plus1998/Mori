@@ -131,7 +131,7 @@ export function MoriPetSettings({
           value={size}
           onChange={(event) => onSizeChange(Number(event.target.value))}
         />
-        <small>每个宠物单独保存，拖动预览后点击保存设置。</small>
+        <small>自动裁去透明留白。每个宠物的大小单独保存，拖动预览后点击保存设置。</small>
       </label>
       {error ? (
         <p className="mori-error" role="alert">
@@ -149,7 +149,7 @@ export function MoriPetSettings({
             pet={pet}
             animation={animation}
             direction={direction}
-            size={size * 0.875}
+            size={size}
             onError={setError}
           />
           <div>

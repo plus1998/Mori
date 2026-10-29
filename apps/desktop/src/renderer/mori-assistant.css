@@ -1038,7 +1038,7 @@ html[data-mori-surface="notice"] #root {
 .mori-notice-body { font-size: 11px; color: #647569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mori-ball {
   margin: 0;
-  padding: 4px;
+  padding: 0;
   width: 100%;
   height: 100%;
   border-radius: 22px;
@@ -1057,9 +1057,15 @@ html[data-mori-surface="notice"] #root {
 }
 .mori-pet-sprite {
   display: block;
+  position: relative;
   flex: none;
   background-repeat: no-repeat;
   pointer-events: none;
+}
+.mori-pet-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 .mori-ball > .mori-pet-sprite {
   filter: drop-shadow(0 2px 3px #0003);
@@ -1132,18 +1138,40 @@ html[data-mori-surface="notice"] #root {
   outline: 2px solid #9abda6;
   outline-offset: 2px;
 }
-.mori-ball i {
+.mori-pet-indicator {
   position: absolute;
-  right: 8px;
-  top: 10px;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #e6b568;
-  border: 2px solid #527b65;
+  transform: translate(-50%, -50%);
+  overflow: visible;
+  fill: none;
+  stroke: #8c622e;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
-.mori-ball.is-error i {
-  background: #e27f70;
+.mori-pet-indicator-shell {
+  fill: #fff8e9;
+  stroke: #b79a70;
+  stroke-width: 1.2;
+}
+.mori-pet-indicator.is-error {
+  stroke: #af514b;
+}
+.mori-pet-indicator.is-error .mori-pet-indicator-shell {
+  fill: #fff0ed;
+  stroke: #cc928b;
+}
+.mori-pet-load-error {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #cc928b;
+  border-radius: 50%;
+  background: #fff0ed;
+  color: #af514b;
+  font: 600 16px/1 system-ui;
 }
 .mori-panel.is-floating .mori-panel-header {
   padding: 10px 13px;

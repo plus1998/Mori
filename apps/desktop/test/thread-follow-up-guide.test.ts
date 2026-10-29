@@ -1,5 +1,7 @@
 import { expect, mock, test } from "bun:test";
-import { deliverThreadFollowUpGuide } from "../src/main/thread-follow-up-guide";
+import { deliverThreadFollowUpGuide, resolveThreadFollowUpMidTurnPrompt } from "../src/main/thread-follow-up-guide";
+import { buildPromptWithImageReferences } from "../src/shared/prompt-image-reference";
+import { CodexMidTurnPortRegistry } from "../src/main/codex-mid-turn-port";
 import type { ThreadPendingFollowUp } from "../src/shared/ipc";
 
 const queued: ThreadPendingFollowUp = {
@@ -7,6 +9,47 @@ const queued: ThreadPendingFollowUp = {
   status: "queued", deliveryMode: "queued", createdAt: "2026-10-28T00:00:00Z",
   updatedAt: "2026-10-28T00:00:00Z",
 };
+
+for (const prompt of ["请核对这张图", ""]) {
+  test(`image guidance reaches the live Codex ingress with its image reference (${prompt || "image only"})`, async () => {
+    const followUp = {
+      ...queued,
+      prompt,
+      attachments: [{ mediaType: "image/png" as const, contentRef: "sha256:guide-image", data: "private-image-bytes" }],
+    };
+    const registry = new CodexMidTurnPortRegistry();
+    const requests: unknown[] = [];
+    registry.open(followUp.threadId, {
+      codexThreadId: "codex-thread", turnId: "live-turn",
+      client: { async request(_method, params) { requests.push(params); return { turnId: "live-turn" }; } },
+    });
+    const result = await deliverThreadFollowUpGuide("codex", followUp, {
+      push: async () => {
+        const text = await resolveThreadFollowUpMidTurnPrompt(followUp, async (input) => buildPromptWithImageReferences(input));
+        expect(text).toContain('ref="sha256:guide-image"');
+        expect(text).not.toContain("private-image-bytes");
+        const pushed = await registry.tryPushUserText(followUp.threadId, text!, { clientUserMessageId: followUp.id });
+        expect(pushed.ok).toBe(true);
+        return { ...followUp, status: "applied", deliveryMode: "streaming_push" };
+      },
+      current: () => followUp,
+      wait: () => { throw new Error("image guidance must reach the live port"); },
+      interrupt: async () => { throw new Error("guidance must not interrupt"); },
+    });
+    expect(result.status).toBe("applied");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ expectedTurnId: "live-turn", clientUserMessageId: followUp.id });
+  });
+}
+
+test("empty guidance is skipped, and an unresolved image-only prompt fails explicitly", async () => {
+  const resolve = mock(async () => "");
+  expect(await resolveThreadFollowUpMidTurnPrompt({ ...queued, prompt: " " }, resolve)).toBeUndefined();
+  expect(resolve).not.toHaveBeenCalled();
+  await expect(resolveThreadFollowUpMidTurnPrompt({
+    ...queued, prompt: "", attachments: [{ mediaType: "image/png", data: "bytes-without-reference" }],
+  }, async (input) => buildPromptWithImageReferences(input))).rejects.toThrow("没有可发送的文字或图片引用");
+});
 
 for (const core of ["claude", "codex", "pi"]) {
   for (const skipped of [undefined, queued]) {

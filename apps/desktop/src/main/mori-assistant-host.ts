@@ -1,6 +1,7 @@
 import path from "node:path";
 import { BrowserWindow, dialog, ipcMain, type NativeImage } from "electron";
 import { MORI_ASSISTANT_CHANNELS as C } from "../shared/mori-assistant";
+import type { MoriPetHitMap } from "../shared/mori-pet";
 import { type MoriAssistantDeps, MoriAssistantService } from "./mori-assistant-service";
 import { MoriAssistantWechat } from "./mori-assistant-wechat";
 import { MoriAssistantWindows } from "./mori-assistant-windows";
@@ -151,6 +152,16 @@ export class MoriAssistantHost {
     handle(C.wechatBind, () => this.wechat.bind());
     handle(C.wechatDisconnect, () => this.wechat.disconnect());
     handle(C.ballMove, (delta: { x: number; y: number }) => this.windows.moveBall(delta.x, delta.y));
+    const handlePet = <T>(channel: string, callback: (value: T) => void) => {
+      ipcMain.handle(channel, async (event, value: T) => {
+        await this.ready;
+        if (!this.windows.isPetSender(event.sender.id)) throw new Error("仅宠物窗口可以更新点击范围。");
+        callback(value);
+      });
+      this.handlers.push(channel);
+    };
+    handlePet(C.petHitMap, (map: MoriPetHitMap) => this.windows.setPetHitMap(map));
+    handlePet(C.petDragging, (active: boolean) => this.windows.setPetDragging(active));
     handle(C.noticeGet, () => this.windows.currentNotice);
     handle(C.noticeOpen, async () => {
       const notice = this.windows.takeNotice();

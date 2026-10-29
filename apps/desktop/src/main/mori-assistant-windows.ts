@@ -1,11 +1,17 @@
 import { app, BrowserWindow, globalShortcut, Menu, type NativeImage, screen, Tray } from "electron";
 import {
   MORI_ASSISTANT_CHANNELS,
+  MORI_PET_SIZE_MAX,
   MORI_PET_SIZE_MIN,
   type MoriAssistantSettings,
   moriPetSize,
 } from "../shared/mori-assistant";
-import { moriPetLookDirection, resizeMoriPetBounds } from "../shared/mori-pet";
+import {
+  type MoriPetHitMap,
+  moriPetHitTest,
+  moriPetLookDirection,
+  resizeMoriPetBounds,
+} from "../shared/mori-pet";
 import type { MoriAssistantStore } from "./mori-assistant-store";
 
 type MoriNotice = { title: string; body: string; threadId: string };
@@ -28,6 +34,10 @@ export class MoriAssistantWindows {
   private shortcutSuspended = false;
   private moveTimer: ReturnType<typeof setTimeout> | undefined;
   private lookTimer: ReturnType<typeof setInterval> | undefined;
+  private hitTimer: ReturnType<typeof setInterval> | undefined;
+  private petHitMap: MoriPetHitMap | undefined;
+  private petDragging = false;
+  private petIgnoresMouse = false;
   constructor(
     private readonly options: {
       preload: string;
@@ -54,8 +64,7 @@ export class MoriAssistantWindows {
       )
         throw new Error("助手快捷键不可用或已被占用，请更换快捷键。");
     }
-    if (this.shortcut && this.shortcut !== shortcut)
-      globalShortcut.unregister(this.shortcut);
+    if (this.shortcut && this.shortcut !== shortcut) globalShortcut.unregister(this.shortcut);
     this.shortcut = shortcut || undefined;
     if (settings.enabled && settings.floatingEnabled) await this.showBall(moriPetSize(settings));
     else {
@@ -63,6 +72,10 @@ export class MoriAssistantWindows {
       this.ball = undefined;
       if (this.lookTimer) clearInterval(this.lookTimer);
       this.lookTimer = undefined;
+      if (this.hitTimer) clearInterval(this.hitTimer);
+      this.hitTimer = undefined;
+      this.petHitMap = undefined;
+      this.petDragging = false;
       this.clearNotices();
     }
     if (settings.enabled && settings.backgroundEnabled && !this.tray) {
@@ -124,6 +137,30 @@ export class MoriAssistantWindows {
       },
     });
     assistantWindows.add(window);
+    if (mode === "ball") {
+      this.ball = window;
+      this.petHitMap = undefined;
+      this.petDragging = false;
+      this.petIgnoresMouse = false;
+      const resetInput = () => {
+        this.petHitMap = undefined;
+        this.petDragging = false;
+        this.updatePetInput();
+      };
+      window.webContents.on("did-start-loading", resetInput);
+      window.webContents.on("render-process-gone", resetInput);
+      window.on("closed", () => {
+        if (this.ball !== window) return;
+        if (this.hitTimer) clearInterval(this.hitTimer);
+        if (this.lookTimer) clearInterval(this.lookTimer);
+        this.hitTimer = this.lookTimer = undefined;
+        this.ball = undefined;
+        this.petHitMap = undefined;
+        this.petDragging = false;
+      });
+      this.updatePetInput();
+      this.hitTimer = setInterval(() => this.updatePetInput(), 16);
+    }
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     window.webContents.on("will-navigate", (event) => event.preventDefault());
     window.on("close", (event) => {
@@ -215,6 +252,51 @@ export class MoriAssistantWindows {
     }
   }
 
+  isPetSender(webContentsId: number): boolean {
+    return !!this.ball && !this.ball.isDestroyed() && this.ball.webContents.id === webContentsId;
+  }
+
+  setPetHitMap(map: MoriPetHitMap): void {
+    if (
+      !map ||
+      !Number.isInteger(map.width) ||
+      !Number.isInteger(map.height) ||
+      map.width < 1 ||
+      map.height < 1 ||
+      map.width > MORI_PET_SIZE_MAX ||
+      map.height > MORI_PET_SIZE_MAX ||
+      !(map.alpha instanceof Uint8Array) ||
+      map.alpha.length !== map.width * map.height
+    )
+      throw new Error("宠物点击范围无效。");
+    this.petHitMap = map;
+    this.updatePetInput();
+  }
+
+  setPetDragging(active: boolean): void {
+    if (typeof active !== "boolean") throw new Error("宠物拖动状态无效。");
+    this.petDragging = active;
+    this.updatePetInput();
+  }
+
+  private updatePetInput(): void {
+    if (!this.ball || this.ball.isDestroyed()) return;
+    const bounds = this.ball.getBounds();
+    const cursor = screen.getCursorScreenPoint();
+    const hit =
+      this.petDragging ||
+      (this.petHitMap &&
+        moriPetHitTest(
+          this.petHitMap,
+          ((cursor.x - bounds.x) * this.petHitMap.width) / bounds.width,
+          ((cursor.y - bounds.y) * this.petHitMap.height) / bounds.height,
+        ));
+    const ignore = !hit;
+    if (ignore === this.petIgnoresMouse) return;
+    this.petIgnoresMouse = ignore;
+    this.ball.setIgnoreMouseEvents(ignore);
+  }
+
   private resizeBall(size: number): void {
     if (!this.ball || this.ball.isDestroyed()) return;
     const current = this.ball.getBounds();
@@ -225,6 +307,7 @@ export class MoriAssistantWindows {
     }).workArea;
     const bounds = resizeMoriPetBounds(current, size, area);
     this.ball.setBounds(bounds);
+    this.updatePetInput();
     this.options.store.state.ballPosition = { x: bounds.x, y: bounds.y };
     this.positionNotice();
   }
@@ -285,7 +368,14 @@ export class MoriAssistantWindows {
     void this.showNextNotice().catch(this.options.reportError);
   }
   private async showNextNotice(): Promise<void> {
-    if (this.notice || this.noticeCreation || !this.noticeQueue.length || !this.ball || this.ball.isDestroyed()) return;
+    if (
+      this.notice ||
+      this.noticeCreation ||
+      !this.noticeQueue.length ||
+      !this.ball ||
+      this.ball.isDestroyed()
+    )
+      return;
     this.notice = this.noticeQueue.shift();
     this.noticeCreation = (async () => {
       if (!this.noticeWindow || this.noticeWindow.isDestroyed())
@@ -298,7 +388,9 @@ export class MoriAssistantWindows {
       this.positionNotice();
       this.noticeWindow.webContents.send(MORI_ASSISTANT_CHANNELS.changed);
       this.noticeWindow.showInactive();
-      this.noticeTimer = setTimeout(() => { this.takeNotice(); }, 12000);
+      this.noticeTimer = setTimeout(() => {
+        this.takeNotice();
+      }, 12000);
     })();
     try {
       await this.noticeCreation;
@@ -321,7 +413,8 @@ export class MoriAssistantWindows {
     return notice;
   }
   private positionNotice(): void {
-    if (!this.ball || this.ball.isDestroyed() || !this.noticeWindow || this.noticeWindow.isDestroyed()) return;
+    if (!this.ball || this.ball.isDestroyed() || !this.noticeWindow || this.noticeWindow.isDestroyed())
+      return;
     const ball = this.ball.getBounds();
     const area = screen.getDisplayNearestPoint({ x: ball.x, y: ball.y }).workArea;
     const width = 280;
@@ -329,7 +422,9 @@ export class MoriAssistantWindows {
     const x = ball.x - width - 4 >= area.x ? ball.x - width - 4 : ball.x + ball.width + 4;
     this.noticeWindow.setPosition(
       Math.round(Math.max(area.x, Math.min(x, area.x + area.width - width))),
-      Math.round(Math.max(area.y, Math.min(ball.y + (ball.height - height) / 2, area.y + area.height - height))),
+      Math.round(
+        Math.max(area.y, Math.min(ball.y + (ball.height - height) / 2, area.y + area.height - height)),
+      ),
     );
   }
   private clearNotices(): void {
@@ -358,6 +453,7 @@ export class MoriAssistantWindows {
     if (this.shortcut) globalShortcut.unregister(this.shortcut);
     if (this.moveTimer) clearTimeout(this.moveTimer);
     if (this.lookTimer) clearInterval(this.lookTimer);
+    if (this.hitTimer) clearInterval(this.hitTimer);
     this.tray?.destroy();
     this.panel?.destroy();
     this.ball?.destroy();

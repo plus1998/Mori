@@ -29,6 +29,49 @@ export interface MoriPetAsset extends MoriPetInfo {
   image: string;
 }
 
+export interface MoriPetHitMap {
+  width: number;
+  height: number;
+  alpha: Uint8Array;
+}
+
+export function moriPetHitTest(map: MoriPetHitMap, x: number, y: number): boolean {
+  if (x < 0 || y < 0 || x >= map.width || y >= map.height) return false;
+  return (map.alpha[Math.floor(y) * map.width + Math.floor(x)] ?? 0) >= 16;
+}
+
+/** One crop for all used action/gaze frames preserves scale and motion between frames. */
+export function moriPetVisibleBounds(pixels: Uint8ClampedArray, width: number, version: 1 | 2) {
+  let left = MORI_PET_CELL_WIDTH;
+  let top = MORI_PET_CELL_HEIGHT;
+  let right = -1;
+  let bottom = -1;
+  const counts: number[] = Object.values(MORI_PET_ANIMATIONS).map((a) => a.durations.length);
+  if (version === 2) counts.push(8, 8);
+  for (const [row, count] of counts.entries()) {
+    for (let column = 0; column < count; column++) {
+      for (let y = 0; y < MORI_PET_CELL_HEIGHT; y++) {
+        for (let x = 0; x < MORI_PET_CELL_WIDTH; x++) {
+          const alpha =
+            pixels[((row * MORI_PET_CELL_HEIGHT + y) * width + column * MORI_PET_CELL_WIDTH + x) * 4 + 3];
+          if ((alpha ?? 0) < 16) continue;
+          left = Math.min(left, x);
+          top = Math.min(top, y);
+          right = Math.max(right, x);
+          bottom = Math.max(bottom, y);
+        }
+      }
+    }
+  }
+  if (right < left || bottom < top) return;
+  // Preserve antialiased edges just outside the visible alpha threshold.
+  left = Math.max(0, left - 1);
+  top = Math.max(0, top - 1);
+  right = Math.min(MORI_PET_CELL_WIDTH - 1, right + 1);
+  bottom = Math.min(MORI_PET_CELL_HEIGHT - 1, bottom + 1);
+  return { x: left, y: top, width: right - left + 1, height: bottom - top + 1 };
+}
+
 export function resizeMoriPetBounds(
   bounds: { x: number; y: number; width: number; height: number },
   size: number,
@@ -52,6 +95,36 @@ export function moriPetFrameDuration(petKey: string, animation: MoriPetAnimation
 /** v2 cells run clockwise, with zero pointing up in screen coordinates. */
 export function moriPetLookDirection(dx: number, dy: number): number {
   return ((Math.round((Math.atan2(dx, -dy) * 180) / Math.PI / 22.5) % 16) + 16) % 16;
+}
+
+/** Anchor a status bubble beside the head in the first idle frame, ignoring faint shadows.
+ * Keep this anchor stable across animation frames so the bubble does not jitter.
+ */
+export function moriPetIndicatorAnchor(
+  pixels: Uint8ClampedArray,
+  width: number,
+): { x: number; y: number } | undefined {
+  let top = MORI_PET_CELL_HEIGHT;
+  let bottom = -1;
+  for (let y = 0; y < MORI_PET_CELL_HEIGHT; y++) {
+    for (let x = 0; x < MORI_PET_CELL_WIDTH; x++) {
+      if ((pixels[(y * width + x) * 4 + 3] ?? 0) < 32) continue;
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y);
+    }
+  }
+  if (bottom < top) return;
+  const headBottom = top + Math.max(1, Math.ceil((bottom - top + 1) * 0.4));
+  let right = 0;
+  for (let y = top; y < headBottom; y++) {
+    for (let x = 0; x < MORI_PET_CELL_WIDTH; x++) {
+      if ((pixels[(y * width + x) * 4 + 3] ?? 0) >= 32) right = Math.max(right, x);
+    }
+  }
+  return {
+    x: (right + 1) / MORI_PET_CELL_WIDTH,
+    y: (top + (bottom - top) * 0.1) / MORI_PET_CELL_HEIGHT,
+  };
 }
 
 /** Detect missing atlas frames instead of silently showing a blank pet. */

@@ -1,5 +1,5 @@
 ---
-name: eco-dev-cdp
+name: mori-dev-cdp
 description: >-
   Test or drive Mori desktop UI in dev: run `cd apps/desktop && bun run cdp:attach`
   then `bun run cdp:snap` (playwright-cli on CDP port 9333). Use when user asks
@@ -49,7 +49,7 @@ bun run cdp:shot -- --filename .smoke-artifacts/step.png
 
 ## 查 Mori 会话里 agent 做了什么
 
-用户要重放某条会话检查 Feed、停止/处理中状态、滚动或发送渲染卡顿时，使用项目内的 [eco-feed-replay](../eco-feed-replay/SKILL.md)。它只读导出 V2 事件并在真实 dev App 中隔离回放，不重新请求模型或执行原会话工具。
+用户要重放某条会话检查 Feed、停止/处理中状态、滚动或发送渲染卡顿时，使用项目内的 [mori-feed-replay](../mori-feed-replay/SKILL.md)。它只读导出 V2 事件并在真实 dev App 中隔离回放，不重新请求模型或执行原会话工具。
 
 Thread 记录在本地 SQLite（非 Cursor transcript）：
 

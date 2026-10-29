@@ -8,7 +8,10 @@ import {
   MORI_PET_ANIMATIONS,
   missingMoriPetFrame,
   moriPetFrameDuration,
+  moriPetHitTest,
+  moriPetIndicatorAnchor,
   moriPetLookDirection,
+  moriPetVisibleBounds,
   resizeMoriPetBounds,
 } from "../src/shared/mori-pet";
 import { removeTempDirectory } from "./helpers/temp-directory";
@@ -166,4 +169,52 @@ test("reports the first missing action or v2 gaze frame", () => {
   }
   expect(missingMoriPetFrame(pixels, width, 1)).toBeUndefined();
   expect(missingMoriPetFrame(pixels, width, 2)).toContain("视线方向");
+});
+
+test("status bubbles follow the idle head rather than transparent padding, shadows or arms", () => {
+  const width = 1536;
+  const pixels = new Uint8ClampedArray(width * 208 * 4);
+  expect(moriPetIndicatorAnchor(pixels, width)).toBeUndefined();
+  for (let y = 40; y <= 180; y++) {
+    for (let x = 50; x <= 110; x++) pixels[(y * width + x) * 4 + 3] = 255;
+  }
+  pixels[(150 * width + 170) * 4 + 3] = 255; // An outstretched arm below the head.
+  pixels[(4 * width + 190) * 4 + 3] = 20; // Faint shadow outside the silhouette.
+  pixels[(2 * width + 220) * 4 + 3] = 255; // The next atlas cell must not affect the anchor.
+  expect(moriPetIndicatorAnchor(pixels, width)).toEqual({ x: 111 / 192, y: 54 / 208 });
+});
+
+test("visible bounds include all used action and gaze frames without unused cells or faint shadows", () => {
+  const width = 1536;
+  const pixels = new Uint8ClampedArray(width * 2288 * 4);
+  expect(moriPetVisibleBounds(pixels, width, 2)).toBeUndefined();
+  const point = (row: number, col: number, x: number, y: number, alpha = 255) => {
+    pixels[((row * 208 + y) * width + col * 192 + x) * 4 + 3] = alpha;
+  };
+  point(0, 0, 70, 60);
+  point(0, 5, 120, 175);
+  point(4, 4, 60, 30); // Jumping must not be clipped or change the scale.
+  point(0, 7, 0, 0); // Unused idle cell.
+  point(0, 0, 10, 10, 8); // Faint shadow.
+  expect(moriPetVisibleBounds(pixels, width, 1)).toEqual({ x: 59, y: 29, width: 63, height: 148 });
+  point(10, 7, 140, 190);
+  expect(moriPetVisibleBounds(pixels, width, 2)).toEqual({ x: 59, y: 29, width: 83, height: 163 });
+});
+
+test("pixel hit testing passes through transparent corners and internal holes", () => {
+  const map = { width: 5, height: 5, alpha: new Uint8Array(25) };
+  for (let i = 0; i < 5; i++) {
+    map.alpha[2 * 5 + i] = 255;
+    map.alpha[i * 5 + 2] = 255;
+  }
+  map.alpha[12] = 0;
+  expect(moriPetHitTest(map, 2.9, 1.2)).toBe(true);
+  expect(moriPetHitTest(map, 0, 0)).toBe(false);
+  expect(moriPetHitTest(map, 2, 2)).toBe(false);
+  expect(moriPetHitTest(map, -0.1, 2)).toBe(false);
+  expect(moriPetHitTest(map, 5, 2)).toBe(false);
+  map.alpha[12] = 15;
+  expect(moriPetHitTest(map, 2, 2)).toBe(false);
+  map.alpha[12] = 16;
+  expect(moriPetHitTest(map, 2, 2)).toBe(true);
 });

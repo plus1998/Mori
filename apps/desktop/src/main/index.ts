@@ -1015,7 +1015,7 @@ import {
   shouldKeepThreadCancelling,
 } from "./thread-cancelling-state";
 import { requireThreadCore } from "./thread-core-routing";
-import { deliverThreadFollowUpGuide } from "./thread-follow-up-guide";
+import { deliverThreadFollowUpGuide, resolveThreadFollowUpMidTurnPrompt } from "./thread-follow-up-guide";
 import { ThreadFollowUpDrainScheduler } from "./thread-follow-up-drain-scheduler";
 import { ThreadFollowUpQueueControl } from "./thread-follow-up-queue-control";
 import {
@@ -15084,7 +15084,7 @@ function isAsyncClarificationAnswerFollowUp(followUp: ThreadPendingFollowUp): bo
 
 /**
  * Mid-turn delivery for Claude (streamInput), Codex (turn/steer) and PI (AgentSession.steer).
- * Pure-text only; attachments / blocked approvals / no accepting port stay queued.
+ * Uses the same image references as a normal send. Blocked approvals / no accepting port stay queued.
  * Returns a handled row (applied, failed, or concurrently finalized); undefined
  * only when the row is safely queued for a later delivery opportunity.
  *
@@ -15099,13 +15099,6 @@ async function tryDeliverFollowUpViaMidTurn(
   if (!coreSupportsMidTurnFollowUp(thread.coreKind)) {
     return undefined;
   }
-  if ((followUp.attachments?.length ?? 0) > 0) {
-    return undefined;
-  }
-  const prompt = followUp.prompt.trim();
-  if (!prompt) {
-    return undefined;
-  }
   const isCodex = thread.coreKind === "codex";
   const isPi = thread.coreKind === "pi";
   const midTurnLabel = isCodex ? "Codex turn/steer" : isPi ? "PI steer" : "Claude streamInput";
@@ -15114,12 +15107,7 @@ async function tryDeliverFollowUpViaMidTurn(
     const currentThread = conversationStore.getThread(thread.id);
     if (!currentThread) throw new Error("Thread was not found.");
     const currentFollowUp = conversationStore.getThreadFollowUp(thread.id, followUp.id);
-    if (
-      !currentFollowUp ||
-      currentFollowUp.status !== "queued" ||
-      (currentFollowUp.attachments?.length ?? 0) > 0 ||
-      !currentFollowUp.prompt.trim()
-    ) {
+    if (!currentFollowUp || currentFollowUp.status !== "queued") {
       return undefined;
     }
     if (
@@ -15156,7 +15144,9 @@ async function tryDeliverFollowUpViaMidTurn(
 
     const excludeFollowUpId = editingFollowUpClaimExclusion(thread.id);
     const explicitlyGuided = pendingMidTurnFollowUpGuides.get(thread.id) === currentFollowUp.id;
-    runtimePrompt = await composerReferenceService.resolvePrompt(thread.id, currentFollowUp.prompt.trim());
+    const resolved = await resolveThreadFollowUpMidTurnPrompt(currentFollowUp, resolvePromptImagesForMainContext);
+    if (resolved === undefined) return undefined;
+    runtimePrompt = resolved;
     // Stop or a newer Guide can revoke this selection while references are resolving.
     if (explicitlyGuided && pendingMidTurnFollowUpGuides.get(thread.id) !== currentFollowUp.id) return undefined;
     return conversationStore.claimThreadFollowUpStreamingPush(thread.id, followUp.id, {

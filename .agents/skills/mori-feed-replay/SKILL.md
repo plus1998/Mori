@@ -1,5 +1,5 @@
 ---
-name: eco-feed-replay
+name: mori-feed-replay
 description: >-
   在 Mori dev 中离线重放指定 thr_ 会话的原始 Conversation V2 事件，检查 Feed
   状态、处理中/停止提示、工具写入残留、虚拟列表、滚动跳动及发送渲染卡顿。
@@ -8,7 +8,7 @@ description: >-
 
 # Mori Feed 离线对话重放
 
-用于用户要求重放、回看或 debug 某条 Mori 对话的渲染问题。若用户要验证真实 SDK、模型或网络请求，走 [eco-dev-cdp](../eco-dev-cdp/SKILL.md)，本 Skill 的回放不能证明这些链路正常。
+用于用户要求重放、回看或 debug 某条 Mori 对话的渲染问题。若用户要验证真实 SDK、模型或网络请求，走 [mori-dev-cdp](../mori-dev-cdp/SKILL.md)，本 Skill 的回放不能证明这些链路正常。
 
 执行脚本位于 `apps/desktop/scripts/feed-replay/`，统一入口是 `apps/desktop/scripts/feed-replay.ts`。以下命令从仓库根目录进入 `apps/desktop` 后运行。
 
@@ -37,7 +37,7 @@ description: >-
 
 ## 打开与播放
 
-先确认 dev 正在运行；没有运行时执行 `bun run dev`。再按 [eco-dev-cdp](../eco-dev-cdp/SKILL.md) 用 Shell 连接：
+先确认 dev 正在运行；没有运行时执行 `bun run dev`。再按 [mori-dev-cdp](../mori-dev-cdp/SKILL.md) 用 Shell 连接：
 
 ```bash
 cd apps/desktop
