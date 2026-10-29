@@ -115,6 +115,10 @@ cd apps/mobile
 flutter test
 ```
 
+移动端输入 `@` 或从「+ → 引用上下文」打开候选面板，支持 SSH 书签、桌面端已打开的网页、跨项目会话、当前启用的集成工具、待办、MCP 和子代理；横向分类筛选和纵向候选列表保持键盘与输入焦点，引用使用与桌面端一致的对象 ID。搜索错误可重试，已插入的引用会过滤。桌面端需要包含 `composer-references:search` 的远程命令注册。
+
+引用原生冒烟：`flutter test integration_test/composer_references_test.dart --flavor dev -d SIMULATOR_ID`，验证「+」入口、原生键盘下的位置、分类点选、连续引用和深浅主题；可用 `--dart-define=ECO_COMPOSER_SCREENSHOTS=/tmp/mori-mobile-references` 保存截图。测试使用本地引用元数据，不连接账号或调用模型，不能证明真实 RPC 网络送达。
+
 Composer 原生菜单冒烟：`flutter test integration_test/composer_plus_menu_test.dart --flavor dev -d SIMULATOR_ID`，验证深浅主题、模型菜单去重、配置返回、模式开关和原生键盘下的定位。使用生产 Composer 与本地回调，不连接账号或调用模型；可用 `--dart-define=ECO_COMPOSER_SCREENSHOTS=/tmp/eco-mobile-composer-native` 保存截图。
 
 ## 移动端离线 Feed Replay（iOS 模拟器）

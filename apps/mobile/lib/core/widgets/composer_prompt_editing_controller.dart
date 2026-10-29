@@ -90,6 +90,82 @@ class ComposerPromptEditingController extends TextEditingController {
     return out.toString();
   }
 
+  ComposerMentionQuery? get mentionQuery {
+    final caret = selection;
+    if (!caret.isValid ||
+        !caret.isCollapsed ||
+        (value.isComposingRangeValid && !value.composing.isCollapsed)) {
+      return null;
+    }
+    final query = parseComposerMentionQuery(text, caret.extentOffset);
+    if (query == null ||
+        _references.any(
+          (range) =>
+              query.start < range.end && caret.extentOffset > range.start,
+        )) {
+      return null;
+    }
+    return query;
+  }
+
+  void startMention() {
+    var caret = selection.isValid
+        ? selection
+        : TextSelection.collapsed(offset: text.length);
+    if (caret.isCollapsed) {
+      for (final range in _references) {
+        if (caret.start > range.start && caret.start < range.end) {
+          caret = TextSelection.collapsed(offset: range.end);
+          break;
+        }
+      }
+    }
+    final prefix =
+        caret.start > 0 && !RegExp(r'\s').hasMatch(text[caret.start - 1])
+        ? ' '
+        : '';
+    final replacement = '$prefix@';
+    selection = caret;
+    value = TextEditingValue(
+      text: text.replaceRange(caret.start, caret.end, replacement),
+      selection: TextSelection.collapsed(
+        offset: caret.start + replacement.length,
+      ),
+    );
+  }
+
+  /// Use a fresh editing value so native undo snapshots retain both old and
+  /// new identities; copyWith on a snapshot deliberately preserves its ranges.
+  void insertReference(String token, ComposerMentionQuery query) {
+    if (mentionQuery != query) return;
+    final replacement = _decode('$token ');
+    if (replacement.references.length != 1) {
+      throw ArgumentError.value(
+        token,
+        'token',
+        'Expected one durable reference',
+      );
+    }
+    final end = selection.extentOffset;
+    final updated = text.replaceRange(query.start, end, replacement.text);
+    final delta = replacement.text.length - (end - query.start);
+    _references = [
+      for (final range in _references)
+        if (range.end <= query.start) range,
+      for (final range in replacement.references) range.shift(query.start),
+      for (final range in _references)
+        if (range.start >= end) range.shift(delta),
+    ];
+    _commitValue(
+      TextEditingValue(
+        text: updated,
+        selection: TextSelection.collapsed(
+          offset: query.start + replacement.text.length,
+        ),
+      ),
+    );
+  }
+
   /// Programmatic drafts/restores use the wire format; the getter is visible text.
   @override
   set text(String newText) {

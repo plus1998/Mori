@@ -3191,4 +3191,37 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get codexQuotaBack => '返回额度';
+
+  @override
+  String get composerReferencesChoose => '引用上下文';
+
+  @override
+  String get composerReferencesAll => '全部';
+
+  @override
+  String get composerReferencesSsh => 'SSH 书签';
+
+  @override
+  String get composerReferencesWeb => '网页';
+
+  @override
+  String get composerReferencesConversation => '会话';
+
+  @override
+  String get composerReferencesLoading => '正在搜索…';
+
+  @override
+  String get composerReferencesEmpty => '没有匹配的引用，试试其他名称或分类';
+
+  @override
+  String get composerReferencesDisconnected => '请先连接桌面端，再选择引用';
+
+  @override
+  String get composerReferencesMore => '继续输入名称，缩小搜索范围';
+
+  @override
+  String get composerReferencesHint => 'SSH、网页、会话和工具';
+
+  @override
+  String get composerReferencesSpeech => '语音生成';
 }

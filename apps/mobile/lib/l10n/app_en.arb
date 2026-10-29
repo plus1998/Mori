@@ -1149,5 +1149,16 @@
         "type": "String"
       }
     }
-  }
+  },
+  "composerReferencesChoose": "Add context",
+  "composerReferencesAll": "All",
+  "composerReferencesSsh": "SSH bookmarks",
+  "composerReferencesWeb": "Pages",
+  "composerReferencesConversation": "Chats",
+  "composerReferencesLoading": "Searching…",
+  "composerReferencesEmpty": "No matches. Try another name or category.",
+  "composerReferencesDisconnected": "Connect to your desktop to choose references.",
+  "composerReferencesMore": "Keep typing to narrow the results.",
+  "composerReferencesHint": "SSH, pages, chats and tools",
+  "composerReferencesSpeech": "Speech generation"
 }

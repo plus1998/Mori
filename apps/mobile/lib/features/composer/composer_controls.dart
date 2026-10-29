@@ -1296,6 +1296,7 @@ class _ComposerRouteSheetState extends ConsumerState<ComposerRouteSheet> {
                                     context.l10n.composerImageGeneration,
                                   'computerUse' =>
                                     context.l10n.composerComputerUse,
+                                  'tts' => context.l10n.composerReferencesSpeech,
                                   _ => integration.id,
                                 };
                                 return EcoSheetSwitchTile(

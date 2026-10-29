@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:uuid/uuid.dart';
 
 import '../models/acp_models.dart';
+import '../models/composer_reference_models.dart';
 import '../models/codex_account_models.dart';
 import '../models/asr_models.dart';
 import '../models/tts_models.dart';
@@ -38,6 +39,18 @@ class PromptImageUploadResult {
 }
 
 class DesktopRpc implements ReadAloudRemote {
+  Future<ComposerReferenceSearchResult> searchComposerReferences({
+    required String query,
+    String? kind,
+    int limit = 12,
+  }) async => ComposerReferenceSearchResult.fromJson(
+    await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'composer-references:search',
+      [{'query': query, if (kind != null) 'kind': kind, 'limit': limit}],
+    ),
+  );
+
   Future<List<CodexAccount>> listCodexAccounts() async {
     final result = await _client.invoke<List<dynamic>>(
       desktopDeviceId,

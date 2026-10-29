@@ -1,5 +1,43 @@
 import 'dart:convert';
 
+typedef ComposerMentionQuery = ({int start, String query, String? kind});
+
+/// Keep category aliases and the email/SSH boundary in sync with desktop.
+ComposerMentionQuery? parseComposerMentionQuery(String text, int cursor) {
+  final before = text.substring(0, cursor.clamp(0, text.length));
+  final match = RegExp(
+    r'(?:^|[^a-z0-9_.%+@-])@([^@\s{}]*)$',
+    caseSensitive: false,
+  ).firstMatch(before);
+  if (match == null) return null;
+  final raw = match.group(1)!;
+  final category = RegExp(
+    r'^(SSH|待办|todo|网页|会话|集成|工具|子代理|MCP|web|conversation|chat|integration|subagent)[:：]?',
+    caseSensitive: false,
+  ).firstMatch(raw);
+  const categories = {
+    'ssh': 'ssh',
+    '待办': 'todo',
+    'todo': 'todo',
+    '网页': 'web',
+    'web': 'web',
+    '会话': 'conversation',
+    'conversation': 'conversation',
+    'chat': 'conversation',
+    '集成': 'integration',
+    '工具': 'integration',
+    'integration': 'integration',
+    '子代理': 'subagent',
+    'subagent': 'subagent',
+    'mcp': 'mcp',
+  };
+  return (
+    start: before.length - raw.length - 1,
+    query: category == null ? raw : raw.substring(category.end),
+    kind: categories[category?.group(1)?.toLowerCase()],
+  );
+}
+
 /// The durable reference format shared with desktop composer-references.ts.
 /// Parsing is presentation-only: callers keep the original prompt for sending,
 /// copying and editing, since labels do not identify the referenced object.

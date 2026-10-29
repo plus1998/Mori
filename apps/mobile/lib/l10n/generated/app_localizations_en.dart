@@ -3375,4 +3375,39 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get codexQuotaBack => 'Back to usage';
+
+  @override
+  String get composerReferencesChoose => 'Add context';
+
+  @override
+  String get composerReferencesAll => 'All';
+
+  @override
+  String get composerReferencesSsh => 'SSH bookmarks';
+
+  @override
+  String get composerReferencesWeb => 'Pages';
+
+  @override
+  String get composerReferencesConversation => 'Chats';
+
+  @override
+  String get composerReferencesLoading => 'Searching…';
+
+  @override
+  String get composerReferencesEmpty =>
+      'No matches. Try another name or category.';
+
+  @override
+  String get composerReferencesDisconnected =>
+      'Connect to your desktop to choose references.';
+
+  @override
+  String get composerReferencesMore => 'Keep typing to narrow the results.';
+
+  @override
+  String get composerReferencesHint => 'SSH, pages, chats and tools';
+
+  @override
+  String get composerReferencesSpeech => 'Speech generation';
 }

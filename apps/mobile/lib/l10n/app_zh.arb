@@ -1099,5 +1099,16 @@
         "type": "String"
       }
     }
-  }
+  },
+  "composerReferencesChoose": "引用上下文",
+  "composerReferencesAll": "全部",
+  "composerReferencesSsh": "SSH 书签",
+  "composerReferencesWeb": "网页",
+  "composerReferencesConversation": "会话",
+  "composerReferencesLoading": "正在搜索…",
+  "composerReferencesEmpty": "没有匹配的引用，试试其他名称或分类",
+  "composerReferencesDisconnected": "请先连接桌面端，再选择引用",
+  "composerReferencesMore": "继续输入名称，缩小搜索范围",
+  "composerReferencesHint": "SSH、网页、会话和工具",
+  "composerReferencesSpeech": "语音生成"
 }

@@ -1450,6 +1450,7 @@ void main() {
 
     await tester.tap(find.byIcon(EcoIcons.add));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Image'));
     await tester.tap(find.text('Image'));
     await tester.pumpAndSettle();
     expect(pickedImage, isTrue);

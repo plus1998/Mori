@@ -28,6 +28,7 @@ void main() {
         'browser': true,
         'imageGeneration': false,
         'computerUse': true,
+        'tts': true,
         'unknown': true,
       },
     });
@@ -36,6 +37,7 @@ void main() {
       'browser': true,
       'imageGeneration': false,
       'computerUse': true,
+      'tts': true,
     });
     expect(snapshot.toJson(), {
       'workspacePath': '/repo',
@@ -43,6 +45,7 @@ void main() {
         'browser': true,
         'imageGeneration': false,
         'computerUse': true,
+        'tts': true,
       },
     });
   });

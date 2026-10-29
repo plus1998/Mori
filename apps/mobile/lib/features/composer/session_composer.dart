@@ -24,6 +24,7 @@ import '../../core/utils/speech_text.dart';
 import '../../core/widgets/image_memory_lightbox.dart';
 import '../../core/widgets/composer_prompt_editing_controller.dart';
 import 'composer_controls.dart';
+import 'composer_reference_picker.dart';
 import 'composer_plus_menu.dart';
 import 'composer_toolbar_icon.dart';
 import 'ios_composer_send_button.dart';
@@ -207,6 +208,7 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
         coreKind: widget.coreKind,
         onCoreKindChanged: widget.onCoreKindChanged,
         canSchedule: _canSchedule,
+        canReference: widget.controller is ComposerPromptEditingController,
       ),
     );
     setState(() => _plusMenuRoute = route);
@@ -234,6 +236,12 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
         );
       case ComposerPlusMenuAction.image:
         widget.onPickImage();
+      case ComposerPlusMenuAction.reference:
+        final controller = widget.controller;
+        if (controller is ComposerPromptEditingController) {
+          controller.startMention();
+          _focusNode.requestFocus();
+        }
       case ComposerPlusMenuAction.schedule:
         await _handleSchedule();
       case null:
@@ -531,6 +539,16 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
                                 ),
                           ),
                         ),
+                      ),
+                    if (widget.controller is ComposerPromptEditingController)
+                      ComposerReferencePicker(
+                        controller:
+                            widget.controller
+                                as ComposerPromptEditingController,
+                        focusNode: _focusNode,
+                        runtimeConfig: widget.runtimeConfig,
+                        workspacePath: widget.workspacePath,
+                        coreKind: widget.coreKind,
                       ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8),

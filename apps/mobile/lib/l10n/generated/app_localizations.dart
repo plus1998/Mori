@@ -5911,6 +5911,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Back to usage'**
   String get codexQuotaBack;
+
+  /// No description provided for @composerReferencesChoose.
+  ///
+  /// In en, this message translates to:
+  /// **'Add context'**
+  String get composerReferencesChoose;
+
+  /// No description provided for @composerReferencesAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get composerReferencesAll;
+
+  /// No description provided for @composerReferencesSsh.
+  ///
+  /// In en, this message translates to:
+  /// **'SSH bookmarks'**
+  String get composerReferencesSsh;
+
+  /// No description provided for @composerReferencesWeb.
+  ///
+  /// In en, this message translates to:
+  /// **'Pages'**
+  String get composerReferencesWeb;
+
+  /// No description provided for @composerReferencesConversation.
+  ///
+  /// In en, this message translates to:
+  /// **'Chats'**
+  String get composerReferencesConversation;
+
+  /// No description provided for @composerReferencesLoading.
+  ///
+  /// In en, this message translates to:
+  /// **'Searching…'**
+  String get composerReferencesLoading;
+
+  /// No description provided for @composerReferencesEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No matches. Try another name or category.'**
+  String get composerReferencesEmpty;
+
+  /// No description provided for @composerReferencesDisconnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to your desktop to choose references.'**
+  String get composerReferencesDisconnected;
+
+  /// No description provided for @composerReferencesMore.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep typing to narrow the results.'**
+  String get composerReferencesMore;
+
+  /// No description provided for @composerReferencesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'SSH, pages, chats and tools'**
+  String get composerReferencesHint;
+
+  /// No description provided for @composerReferencesSpeech.
+  ///
+  /// In en, this message translates to:
+  /// **'Speech generation'**
+  String get composerReferencesSpeech;
 }
 
 class _AppLocalizationsDelegate

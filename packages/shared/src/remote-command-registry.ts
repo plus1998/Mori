@@ -27,6 +27,7 @@ const RPC_INVOKE = ["rpc:invoke"] as const;
 const APPROVAL_DECIDE = ["rpc:invoke", "approval:decide"] as const;
 
 export const REMOTE_COMMAND_DEFINITIONS = [
+  command("composer-references:search", "Search composer references", "read", RPC_INVOKE, [objectArg(["query"])]),
   command("project-todo:list", "List project todos", "read", RPC_INVOKE, []),
   command("project-todo:query", "Page and search project todos", "read", RPC_INVOKE, [objectArg(["completed"])]),
   command("project-todo:get", "Get project todo", "read", RPC_INVOKE, [stringArg(), { kind: "boolean", optional: true }]),
