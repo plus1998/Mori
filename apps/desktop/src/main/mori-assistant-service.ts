@@ -18,6 +18,7 @@ import {
 } from "./mori-assistant-runtime";
 import { MoriAssistantStore, parseAssistantSettings } from "./mori-assistant-store";
 import { MORI_TODO_TOOLS, MoriAssistantTodos } from "./mori-assistant-todos";
+import { MORI_MODEL_TOOLS, isMoriModelTool, modelManagementToolInput, modelManagementToolName } from "./mori-assistant-models";
 import { isMoriComputerAction, type MoriComputerUseAccess } from "./mori-computer-use";
 import { currentThreadError, readThreadErrors } from "./mori-thread-errors";
 import type { OpenAIAccountService } from "./openai-account-service";
@@ -45,6 +46,7 @@ const tool = (
 });
 export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
   ...MORI_TODO_TOOLS,
+  ...MORI_MODEL_TOOLS,
   tool(
     "mori_computer_tools",
     "查看电脑操作是否可用并读取真实工具名称和参数定义。操作前先读取；全局设置关闭或缺少权限时明确报错。",
@@ -131,6 +133,7 @@ export interface MoriAssistantDeps {
   invoke(channel: string, args: unknown[]): Promise<unknown>;
   defaultRuntimeConfig(): ThreadRuntimeConfig;
   modelSettings(): unknown;
+  manageModels(name: string, args: Record<string, unknown>): Promise<unknown>;
   customProviders(): MoriAssistantSnapshot["customProviders"];
   prepareCustomProvider(providerId: string): Promise<AssistantCustomProviderRoute>;
   onUsage?(record: AccountUsageRecord, aggregate: boolean): void;
@@ -759,6 +762,13 @@ export class MoriAssistantService {
     signal.throwIfAborted();
     const definition = MORI_ASSISTANT_TOOLS.find((item) => item.name === name);
     if (!definition) throw new Error("未知的 Mori 桌面工具。");
+    if (isMoriModelTool(name)) {
+      // The shared management service validates the complete schema, including arrays and nullable overrides.
+      const result = await this.deps.manageModels(modelManagementToolName(name), args);
+      if (result && typeof result === "object" && "ok" in result && result.ok === false)
+        throw new Error(JSON.stringify(result));
+      return result;
+    }
     const schema = definition.inputSchema as {
       properties: Record<
         string,
@@ -1035,7 +1045,7 @@ export class MoriAssistantService {
       });
     this.activity = name;
     this.emit();
-    append("tool.started", { input: args });
+    append("tool.started", { input: modelManagementToolInput(name, args) });
     try {
       const result = await this.callTool(name, args, callId, signal);
       if (result && typeof result === "object" && (result as { isError?: boolean }).isError)

@@ -7,6 +7,8 @@ import { DatabaseSync } from "node:sqlite";
 import { buildCodexGatewayModelAlias, buildCodexModelProviderSlug } from "@eco/runtime/codex-config-sync";
 import { defaultSubagentAvailability } from "@eco/runtime/subagent-availability";
 import { ConversationStore } from "../src/main/conversation-store";
+import { ProviderStore } from "../src/main/provider-store";
+import { ModelManagementService } from "../src/main/model-management-service";
 import { MoriAssistantService } from "../src/main/mori-assistant-service";
 import { MoriAssistantStore, parseAssistantSettings } from "../src/main/mori-assistant-store";
 import { MoriAssistantTodos } from "../src/main/mori-assistant-todos";
@@ -119,7 +121,7 @@ async function fixture(options: { custom?: boolean } = {}) {
 const readline=require('node:readline');
 const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');
 const epoch=require('node:crypto').randomUUID();
-let thread='native-assistant-'+epoch, turn=0, text='', computer, tasks;
+let thread='native-assistant-'+epoch, turn=0, text='', computer, tasks, models;
 const callMcp=async(server,name,args)=>{
  const headers={...server.http_headers,'Content-Type':'application/json','Accept':'application/json, text/event-stream'};
  const init=await fetch(server.url,{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',id:'init',method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'test',version:'1'}}})});
@@ -150,7 +152,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   if(m.method==='thread/resume')thread=m.params.threadId;
   computer=m.params.config?.mcp_servers?.mori_computer;
   tasks=m.params.config?.mcp_servers?.mori_tasks;
-  require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-workspaces.jsonl"))},JSON.stringify({cwd:process.cwd(),threadCwd:m.params.cwd,method:m.method,taskTools:tasks?.enabled_tools,model:m.params.model,modelProvider:m.params.modelProvider})+'\\n');
+  models=m.params.config?.mcp_servers?.mori_models;
+  require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-workspaces.jsonl"))},JSON.stringify({cwd:process.cwd(),threadCwd:m.params.cwd,method:m.method,taskTools:tasks?.enabled_tools,modelTools:models?.enabled_tools,model:m.params.model,modelProvider:m.params.modelProvider})+'\\n');
   result={thread:{id:thread}};
  }
  if(m.method==='turn/start'){
@@ -165,7 +168,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   }
   else if(text.startsWith('mcp-tool:')){
    const request=JSON.parse(text.slice('mcp-tool:'.length));
-   callMcp(tasks,request.name,request.args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
+   callMcp(request.name.startsWith('mori_models_')?models:tasks,request.name,request.args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
   }
   else if(text==='tool')send({id:'tool-request',method:'item/tool/call',params:{threadId:thread,callId:'call-'+turn,tool:'mori_list_projects',arguments:{}}});
   else if(text==='private-task')send({id:'tool-request',method:'item/tool/call',params:{threadId:thread,callId:'call-'+turn,tool:'mori_start_task',arguments:{projectPath:process.cwd(),prompt:'must not start'}}});
@@ -182,6 +185,24 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const conversations = new ConversationStore(db);
   conversations.initialize();
   const todos = new ProjectTodoStore(db, (bytes) => `data:image/png;base64,${bytes.toString("base64")}`);
+  const providers = new ProviderStore(db);
+  providers.initialize();
+  providers.saveProvider({ id: "custom", name: "Custom", baseUrl: "https://example.test", enabled: true, defaultModel: "", apiKey: "existing-model-key", apiCompat: "openai_chat_completions" });
+  const modelManagement = new ModelManagementService({
+    listProviders: () => providers.listProviders(), modelSource: () => "provider",
+    saveProvider: async input => providers.saveProvider(input),
+    deleteProvider: async id => { providers.deleteProvider(id); return { ok: true }; },
+    listModels: async id => providers.listCandidateModels(id),
+    listUpstreamModels: async () => ({ ok: false, error: "test upstream offline" }),
+    saveModel: async input => providers.saveCandidateModel(input),
+    deleteModel: async id => providers.deleteCandidateModel(id),
+    importModels: (id, ids) => providers.bulkImportCandidateModels(id, ids),
+    reorderModels: (id, ids) => providers.reorderCandidateModels(id, ids),
+    testProvider: async () => ({ ok: false, error: "test upstream offline" }),
+    saveCatalogModel: async () => { throw new Error("No account catalog in fixture"); },
+    deleteCatalogModel: async () => { throw new Error("No account catalog in fixture"); },
+    refreshCatalog: async () => { throw new Error("No account catalog in fixture"); },
+  });
   const commands: Array<{ channel: string; args: unknown[] }> = [];
   const accountCalls: string[] = [];
   const accounts = {
@@ -246,6 +267,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       bashReviewMode: "auto",
     }),
     modelSettings: () => ({}),
+    manageModels: (name, args) => modelManagement.invoke(name, args),
     customProviders: () =>
       providerEnabled
         ? [{ id: "custom", name: "Custom", models: [{ id: "custom-model", label: "Custom Model" }] }]
@@ -287,6 +309,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     db,
     conversations,
     todos,
+    providers,
     commands,
     root,
     computerCalls,
@@ -303,6 +326,36 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     },
   };
 }
+
+test("resumed Mori conversation manages providers and models via its own MCP endpoint without persisting keys", async () => {
+  const f = await fixture();
+  try {
+    await f.service.send("prepare existing Mori conversation", "desktop", "models-prepare");
+    await f.service.saveSettings({ ...f.service.settings, name: "Mori 模型管理" });
+    const invoke = async (name: string, args: Record<string, unknown>, id: string) => {
+      return assistantTool(f, `mori_models_${name}`, args, id);
+    };
+    const tool = await invoke("save_provider", { id: "custom", name: "Renamed", apiKey: "write-only-key" }, "models-save");
+    expect(f.providers.getProviderWithSecret("custom")).toMatchObject({ name: "Renamed", apiKey: "write-only-key", apiCompat: "openai_chat_completions", enabled: true });
+    expect(tool?.status).toBe("completed");
+    expect(tool?.input).toMatchObject({ apiKey: "[redacted]" });
+    expect(JSON.stringify(tool)).not.toContain("write-only-key");
+    await invoke("import_models", { providerId: "custom", modelIds: ["a", "b"] }, "models-import");
+    await invoke("save_model", { providerId: "custom", modelId: "a", manualSpec: { contextTokens: 32000, inputPerM: 0 } }, "models-spec");
+    expect(f.providers.listCandidateModels("custom")[0]?.manualSpec).toMatchObject({ contextTokens: 32000, inputPerM: 0 });
+    await invoke("reorder_models", { providerId: "custom", modelIds: ["b", "a"] }, "models-order");
+    expect(f.providers.listProviders()[0]?.defaultModel).toBe("b");
+    const failed = await invoke("test_provider", { providerId: "custom", modelId: "b" }, "models-test-failure");
+    expect(failed.status).toBe("failed");
+    expect(f.commands).toHaveLength(0);
+    const requests = (await fs.readFile(path.join(f.root, "runtime-workspaces.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+    expect(requests.at(-1)).toMatchObject({ method: "thread/resume" });
+    expect(requests.at(-1).modelTools).toContain("mori_models_save_provider");
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
 
 test("custom assistant runs tools and WeChat without ChatGPT credentials or catalog checks", async () => {
   const f = await fixture({ custom: true });

@@ -18,10 +18,10 @@ for (const platform of ["darwin", "win32", "linux"]) {
     expect(defaults["open-scheduling"]).toHaveLength(1);
     expect(defaults["open-todos"]).toHaveLength(1);
     expect(defaults["toggle-prevent-auto-lock"]).toEqual(
-      platform === "darwin" ? ["CommandOrControl+Shift+U"] : undefined,
+      platform !== "linux" ? ["CommandOrControl+Shift+U"] : undefined,
     );
     expect(defaults["toggle-display-dimming"]).toEqual(
-      platform === "darwin" ? ["CommandOrControl+Shift+D"] : undefined,
+      platform !== "linux" ? ["CommandOrControl+Shift+D"] : undefined,
     );
     const event = {
       key: "J",

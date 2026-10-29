@@ -49,6 +49,9 @@ import { ComposerReferenceService } from "./composer-reference-service";
 import { BrowserSelectionService } from "./browser-selection-service";
 import { authorizeBrowserDownloadAccess } from "./browser-download-approval";
 import { ContextReferenceMcpGateway } from "./context-reference-mcp-gateway";
+import { ModelManagementMcpGateway } from "./model-management-mcp-gateway";
+import { ModelManagementService } from "./model-management-service";
+import { MODEL_MANAGEMENT_MCP_SERVER, MODEL_MANAGEMENT_PROMPT } from "../shared/model-management";
 import { ConversationRecoveryGate } from "./conversation-recovery-gate";
 import { finalizeAcceptedConversationV2Messages } from "./conversation-v2-accepted-finalization";
 import { createMcpHubNestedToolPermissionHandler } from "./mcp-hub-permission";
@@ -998,6 +1001,7 @@ import { createDesktopSettingsSyncHooks } from "./supabase-settings-sync-hooks";
 import { SystemSleepBlocker } from "./system-sleep-blocker";
 import { DisplayControl } from "./display-control";
 import { createMacActivityAssertion, createMacBrightnessApi } from "./mac-display-native";
+import { createWindowsActivityAssertion, createWindowsBrightnessApi } from "./windows-display-native";
 
 import { normalizeTelemetryBillingRole } from "./telemetry-billing-role";
 import { resolveThreadApprovePlanRoute } from "./thread-approve-plan-route";
@@ -1526,15 +1530,17 @@ function applyApplicationShortcuts(bindings: ShortcutBindings): void {
 
 const displayControl: DisplayControl = new DisplayControl(
   process.platform,
-  createMacActivityAssertion,
-  () => createMacBrightnessApi((id) => screen.getAllDisplays().find((display) => display.id === id)?.label),
+  process.platform === "win32" ? createWindowsActivityAssertion : createMacActivityAssertion,
+  process.platform === "win32" ? createWindowsBrightnessApi :
+    () => createMacBrightnessApi((id) => screen.getAllDisplays().find((display) => display.id === id)?.label),
   {
     register: () => {
       const accelerator = keyboardShortcutsStore.get()["restore-display"]?.[0];
       if (!accelerator) throw new Error("请先在设置 → 键盘快捷键中设置恢复屏幕亮度的快捷键。");
       if (!globalShortcut.register(accelerator, () => {
-        try { displayControl.set({ control: "dimmed", enabled: false }); }
-        catch (error) { process.stderr.write(`[eco] display restoration failed: ${String(error)}\n`); }
+        void displayControl.set({ control: "dimmed", enabled: false }).catch((error) => {
+          process.stderr.write(`[eco] display restoration failed: ${String(error)}\n`);
+        });
       })) throw new Error("恢复屏幕亮度的快捷键已被占用，请在键盘快捷键设置中更换。");
       registeredDisplayRestoreShortcut = accelerator;
     },
@@ -1724,6 +1730,8 @@ let schedulingGateway: SchedulingMcpGateway;
 let composerReferenceService: ComposerReferenceService;
 let browserSelectionService: BrowserSelectionService;
 let contextReferenceGateway: ContextReferenceMcpGateway;
+let modelManagementGateway: ModelManagementMcpGateway;
+let modelManagementService: ModelManagementService;
 let integratedWebSearchGateway: IntegratedWebSearchMcpGateway;
 let promptImageFileStore: PromptImageFileStore;
 
@@ -2550,11 +2558,9 @@ async function createMainWindow(
     ] as const).find(([id]) => matchesShortcut(key, id, currentShortcutBindings!, process.platform));
     if (displayShortcut) {
       event.preventDefault();
-      try {
-        displayControl.toggle(displayShortcut[1]);
-      } catch (error) {
+      void displayControl.toggle(displayShortcut[1]).catch((error) => {
         dialog.showErrorBox("屏幕控制失败", errorMessage(error));
-      }
+      });
       return;
     }
     const command = APP_MENU_COMMANDS.find((id) =>
@@ -3930,6 +3936,44 @@ app
         requireBrowserHost().invokeReferencedBrowserTool(id, action, args, signal),
     });
     contextReferenceGateway = new ContextReferenceMcpGateway(composerReferenceService);
+    modelManagementService = new ModelManagementService({
+      listProviders: () => getModelSettingsSnapshot().providers,
+      modelSource: id => isBuiltInCodexCatalogProvider(id) ? "codex_catalog" : id === "eco-coding-chatgpt" ? "chatgpt_catalog" : "provider",
+      saveProvider: saveModelProvider,
+      deleteProvider: deleteModelProvider,
+      listModels: listManagedCandidateModels,
+      listUpstreamModels: providerId => listModelProviderUpstreamModels({ providerId, ...(isBuiltInCodexCatalogProvider(providerId) ? { authMethod: "auth_json" as const } : {}) }),
+      saveModel: saveManagedCandidateModel,
+      deleteModel: deleteManagedCandidateModel,
+      importModels: (providerId, modelIds) => {
+        const result = providerStore.bulkImportCandidateModels(providerId, modelIds);
+        emitSettingsUpdated();
+        return result;
+      },
+      reorderModels: (providerId, ids) => {
+        providerStore.reorderCandidateModels(providerId, ids);
+        emitSettingsUpdated();
+      },
+      testProvider: (providerId, modelId) => testModelProvider({ providerId, defaultModel: modelId, thinkingEffort: "off" }),
+      saveCatalogModel: async (source, input) => {
+        const catalog = source === "codex_catalog" ? getCodexModelCatalogService() : getChatGptModelCatalogService();
+        await catalog.addManualModel(input);
+        emitSettingsUpdated();
+      },
+      deleteCatalogModel: async (source, modelId) => {
+        const catalog = source === "codex_catalog" ? getCodexModelCatalogService() : getChatGptModelCatalogService();
+        const removed = await catalog.removeManualModel(modelId);
+        if (!removed) return false;
+        emitSettingsUpdated();
+        return true;
+      },
+      refreshCatalog: async source => {
+        const catalog = source === "codex_catalog" ? getCodexModelCatalogService() : getChatGptModelCatalogService();
+        await catalog.refresh();
+        emitSettingsUpdated();
+      },
+    });
+    modelManagementGateway = new ModelManagementMcpGateway(modelManagementService);
     registerIpcHandlers();
     schedulingService.start();
     if (centerServerClient.getSnapshot().settings.enabled) {
@@ -4097,6 +4141,7 @@ installApplicationShutdownHook(
       schedulingService?.stop();
       await schedulingGateway?.close();
       await contextReferenceGateway?.close();
+      await modelManagementGateway?.close();
       await htmlHostGateway?.close();
     },
     closeIntegratedWebSearchGateway: async () => {
@@ -4122,9 +4167,9 @@ installApplicationShutdownHook(
     disposeDesktopUpdateService: () => {
       desktopUpdateService.dispose();
     },
-    disposeSystemSleepBlocker: () => {
+    disposeSystemSleepBlocker: async () => {
       try {
-        displayControl.dispose();
+        await displayControl.dispose();
       } finally {
         systemSleepBlocker.dispose();
       }
@@ -5497,6 +5542,169 @@ async function approveThreadPlan(payload: unknown) {
       },
     },
   );
+}
+
+async function saveModelProvider(payload: ProviderConfigInput) {
+  const provider = providerStore.saveProvider(payload);
+  emitSettingsUpdated();
+  return provider;
+}
+
+async function deleteModelProvider(providerId: unknown) {
+  if (typeof providerId !== "string" || !providerId.trim()) {
+    throw new Error("Provider id is required.");
+  }
+  const trimmedProviderId = providerId.trim();
+  if (!providerStore.getProviderWithSecret(trimmedProviderId)) {
+    return {
+      ok: false as const,
+      reason: "not_found" as const,
+      references: [],
+    };
+  }
+  const references = collectProviderDeleteReferences(
+    trimmedProviderId,
+    getModelSettingsSnapshot(),
+    conversationStore.listThreads(),
+  );
+  const { blocking, cascadeMainAgentConfigs, cascadeSubagentOrchestrations } =
+    partitionProviderDeleteReferences(references);
+  if (blocking.length > 0) {
+    return {
+      ok: false as const,
+      reason: "in_use" as const,
+      references: blocking,
+    };
+  }
+
+  for (const reference of cascadeMainAgentConfigs) {
+    workflowSettingsStore.clearDefaultMainAgentConfigReference(reference.id);
+    projectOrchestrationSettingsStore.clearMainAgentConfigReference(reference.id);
+    agentOrchestrationStore.deleteMainAgentConfig(reference.id);
+  }
+  for (const reference of cascadeSubagentOrchestrations) {
+    workflowSettingsStore.clearDefaultSubagentOrchestrationReference(reference.id);
+    projectOrchestrationSettingsStore.clearSubagentOrchestrationReference(reference.id);
+    agentOrchestrationStore.deleteSubagentOrchestration(reference.id);
+  }
+
+  providerStore.deleteProvider(trimmedProviderId);
+  emitSettingsUpdated();
+  return { ok: true as const };
+}
+
+async function listModelProviderUpstreamModels(payload: ListUpstreamModelsRequest) {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, error: "Invalid models list request." } as const;
+  }
+  const requestedProvider = payload.providerId
+    ? providerStore.getProviderWithSecret(payload.providerId)
+    : undefined;
+  // Codex Auth (auth.json) has no upstream /v1/models endpoint: its list comes from
+  // the codex-rs models-manager catalog, refreshed from the Codex 账号 page.
+  if (
+    payload.authMethod === "auth_json" ||
+    (requestedProvider?.authMethod === "auth_json" && !requestedProvider.hasApiKey)
+  ) {
+    try {
+      const models = await getCodexModelCatalogService().listModels();
+      return {
+        ok: true,
+        models: models.map((model) => ({ id: model.modelId, displayName: model.displayName })),
+      } as const;
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        ...(requestedProvider?.id ? { providerId: requestedProvider.id } : {}),
+        ...(requestedProvider?.name ? { providerName: requestedProvider.name } : {}),
+      } as const;
+    }
+  }
+  if (requestedProvider?.authMethod === "chatgpt_subscription" || payload.authMethod === "chatgpt_subscription") {
+    try {
+      const models = await getChatGptModelCatalogService().listModels();
+      return { ok: true, models: models.map((model) => ({ id: model.modelId, displayName: model.displayName })) } as const;
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) } as const;
+    }
+  }
+  return listProviderUpstreamModels(
+    providerStore,
+    payload,
+    resolveUpstreamUserAgentOverride(proxyBridgeSettingsStore.get()),
+    proxyBridgeSettingsStore.get().upstreamProxyUrl,
+  );
+}
+
+async function testModelProvider(payload: TestProviderConnectionRequest) {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, error: "Invalid provider test request." } as const;
+  }
+  return testProviderConnection(
+    providerStore,
+    payload,
+    fetch,
+    resolveUpstreamUserAgentOverride(proxyBridgeSettingsStore.get()),
+    proxyBridgeSettingsStore.get().upstreamProxyUrl,
+  );
+}
+
+async function listManagedCandidateModels(providerId: unknown) {
+  if (typeof providerId !== "string" || !providerId.trim()) {
+    throw new Error("Provider id is required.");
+  }
+  const trimmedProviderId = providerId.trim();
+  // Built-in Codex Auth (auth.json): codex-rs catalog + manual adds. A user-created
+  // OpenAI provider that happens to reuse this id keeps its stored candidates.
+  if (isBuiltInCodexCatalogProvider(trimmedProviderId)) {
+    return codexCatalogCandidateViews(await getCodexModelCatalogService().listModels());
+  }
+  if (trimmedProviderId === "eco-coding-chatgpt") {
+    const timestamps = new Date().toISOString();
+    return (await getChatGptModelCatalogService().listModels()).map((model, index) => ({
+      modelId: model.modelId,
+      displayName: model.displayName,
+      createdAt: timestamps,
+      updatedAt: timestamps,
+      id: `cand-chatgpt-${model.modelId}`,
+      providerId: trimmedProviderId,
+      sortOrder: index,
+      ...(model.apiPricing ? {
+        resolvedInputPerM: model.apiPricing.shortContext.input,
+        resolvedOutputPerM: model.apiPricing.shortContext.output,
+        ...(model.apiPricing.shortContext.cacheRead !== undefined ? { resolvedCacheReadPerM: model.apiPricing.shortContext.cacheRead } : {}),
+      } : {}),
+    }));
+  }
+  const candidates = providerStore.listCandidateModels(trimmedProviderId);
+  const provider = providerStore.listProviders().find((p) => p.id === trimmedProviderId);
+  const baseUrl = provider?.baseUrl ?? "";
+  // models.dev enrichment is best-effort; never block listing/adding candidates.
+  try {
+    return await resolveCandidateModels(pricingCache, candidates, baseUrl);
+  } catch (error) {
+    process.stderr.write(`[eco] candidate-model:list pricing enrich failed: ${errorMessage(error)}\n`);
+    return candidates;
+  }
+}
+
+async function saveManagedCandidateModel(payload: unknown) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invalid candidate model input.");
+  }
+  const result = providerStore.saveCandidateModel(payload as CandidateModelInput);
+  emitSettingsUpdated();
+  return result;
+}
+
+async function deleteManagedCandidateModel(id: unknown) {
+  if (typeof id !== "string" || !id.trim()) {
+    throw new Error("Candidate model id is required.");
+  }
+  providerStore.deleteCandidateModel(id.trim());
+  emitSettingsUpdated();
+  return { ok: true as const };
 }
 
 function registerIpcHandlers(): void {
@@ -7245,111 +7453,13 @@ function registerIpcHandlers(): void {
     }),
   );
 
-  registerDesktopCommand(IPC_CHANNELS.modelProviderSave, async (payload: ProviderConfigInput) => {
-    const provider = providerStore.saveProvider(payload);
-    emitSettingsUpdated();
-    return provider;
-  });
+  registerDesktopCommand(IPC_CHANNELS.modelProviderSave, saveModelProvider);
 
-  registerDesktopCommand(IPC_CHANNELS.modelProviderDelete, async (providerId: unknown) => {
-    if (typeof providerId !== "string" || !providerId.trim()) {
-      throw new Error("Provider id is required.");
-    }
-    const trimmedProviderId = providerId.trim();
-    if (!providerStore.getProviderWithSecret(trimmedProviderId)) {
-      return {
-        ok: false as const,
-        reason: "not_found" as const,
-        references: [],
-      };
-    }
-    const references = collectProviderDeleteReferences(
-      trimmedProviderId,
-      getModelSettingsSnapshot(),
-      conversationStore.listThreads(),
-    );
-    const { blocking, cascadeMainAgentConfigs, cascadeSubagentOrchestrations } =
-      partitionProviderDeleteReferences(references);
-    if (blocking.length > 0) {
-      return {
-        ok: false as const,
-        reason: "in_use" as const,
-        references: blocking,
-      };
-    }
+  registerDesktopCommand(IPC_CHANNELS.modelProviderDelete, deleteModelProvider);
 
-    for (const reference of cascadeMainAgentConfigs) {
-      workflowSettingsStore.clearDefaultMainAgentConfigReference(reference.id);
-      projectOrchestrationSettingsStore.clearMainAgentConfigReference(reference.id);
-      agentOrchestrationStore.deleteMainAgentConfig(reference.id);
-    }
-    for (const reference of cascadeSubagentOrchestrations) {
-      workflowSettingsStore.clearDefaultSubagentOrchestrationReference(reference.id);
-      projectOrchestrationSettingsStore.clearSubagentOrchestrationReference(reference.id);
-      agentOrchestrationStore.deleteSubagentOrchestration(reference.id);
-    }
+  registerDesktopCommand(IPC_CHANNELS.modelProviderListModels, listModelProviderUpstreamModels);
 
-    providerStore.deleteProvider(trimmedProviderId);
-    emitSettingsUpdated();
-    return { ok: true as const };
-  });
-
-  registerDesktopCommand(IPC_CHANNELS.modelProviderListModels, async (payload: ListUpstreamModelsRequest) => {
-    if (!payload || typeof payload !== "object") {
-      return { ok: false, error: "Invalid models list request." } as const;
-    }
-    const requestedProvider = payload.providerId
-      ? providerStore.getProviderWithSecret(payload.providerId)
-      : undefined;
-    // Codex Auth (auth.json) has no upstream /v1/models endpoint: its list comes from
-    // the codex-rs models-manager catalog, refreshed from the Codex 账号 page.
-    if (
-      payload.authMethod === "auth_json" ||
-      (requestedProvider?.authMethod === "auth_json" && !requestedProvider.hasApiKey)
-    ) {
-      try {
-        const models = await getCodexModelCatalogService().listModels();
-        return {
-          ok: true,
-          models: models.map((model) => ({ id: model.modelId, displayName: model.displayName })),
-        } as const;
-      } catch (error) {
-        return {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-          ...(requestedProvider?.id ? { providerId: requestedProvider.id } : {}),
-          ...(requestedProvider?.name ? { providerName: requestedProvider.name } : {}),
-        } as const;
-      }
-    }
-    if (requestedProvider?.authMethod === "chatgpt_subscription" || payload.authMethod === "chatgpt_subscription") {
-      try {
-        const models = await getChatGptModelCatalogService().listModels();
-        return { ok: true, models: models.map((model) => ({ id: model.modelId, displayName: model.displayName })) } as const;
-      } catch (error) {
-        return { ok: false, error: error instanceof Error ? error.message : String(error) } as const;
-      }
-    }
-    return listProviderUpstreamModels(
-      providerStore,
-      payload,
-      resolveUpstreamUserAgentOverride(proxyBridgeSettingsStore.get()),
-      proxyBridgeSettingsStore.get().upstreamProxyUrl,
-    );
-  });
-
-  registerDesktopCommand(IPC_CHANNELS.modelProviderTest, async (payload: TestProviderConnectionRequest) => {
-    if (!payload || typeof payload !== "object") {
-      return { ok: false, error: "Invalid provider test request." } as const;
-    }
-    return testProviderConnection(
-      providerStore,
-      payload,
-      fetch,
-      resolveUpstreamUserAgentOverride(proxyBridgeSettingsStore.get()),
-      proxyBridgeSettingsStore.get().upstreamProxyUrl,
-    );
-  });
+  registerDesktopCommand(IPC_CHANNELS.modelProviderTest, testModelProvider);
 
   registerDesktopCommand(IPC_CHANNELS.chatGptModelCatalogGet, chatGptModelCatalogSnapshot);
   registerDesktopCommand(IPC_CHANNELS.chatGptModelCatalogRefresh, async (accountId?: string) => {
@@ -7799,6 +7909,7 @@ function registerIpcHandlers(): void {
     currentProject: () => currentWorkspace?.path,
     computerUse: new MoriComputerUse({ gateway: computerUseGateway, settings: () => computerUseSettingsStore.get(), imageView: imageViewGateway }),
     defaultRuntimeConfig: () => buildThreadRuntimeConfigFromDefaults({ settings: getModelSettingsSnapshot(), workflowDefaults: { ...workflowSettingsStore.get(), sessionMode: "agent" }, mcpServers: mcpStore.listServers() }),
+    manageModels: (name, args) => modelManagementService.invoke(name, args),
     modelSettings: () => {
       const settings = getModelSettingsSnapshot();
       return {
@@ -8284,62 +8395,11 @@ function registerIpcHandlers(): void {
 
   // ─── Candidate Models ─────────────────────────────────────────────────────────
 
-  registerDesktopCommand(IPC_CHANNELS.candidateModelList, async (providerId: unknown) => {
-    if (typeof providerId !== "string" || !providerId.trim()) {
-      throw new Error("Provider id is required.");
-    }
-    const trimmedProviderId = providerId.trim();
-    // Built-in Codex Auth (auth.json): codex-rs catalog + manual adds. A user-created
-    // OpenAI provider that happens to reuse this id keeps its stored candidates.
-    if (isBuiltInCodexCatalogProvider(trimmedProviderId)) {
-      return codexCatalogCandidateViews(await getCodexModelCatalogService().listModels());
-    }
-    if (trimmedProviderId === "eco-coding-chatgpt") {
-      const timestamps = new Date().toISOString();
-      return (await getChatGptModelCatalogService().listModels()).map((model, index) => ({
-        modelId: model.modelId,
-        displayName: model.displayName,
-        createdAt: timestamps,
-        updatedAt: timestamps,
-        id: `cand-chatgpt-${model.modelId}`,
-        providerId: trimmedProviderId,
-        sortOrder: index,
-        ...(model.apiPricing ? {
-          resolvedInputPerM: model.apiPricing.shortContext.input,
-          resolvedOutputPerM: model.apiPricing.shortContext.output,
-          ...(model.apiPricing.shortContext.cacheRead !== undefined ? { resolvedCacheReadPerM: model.apiPricing.shortContext.cacheRead } : {}),
-        } : {}),
-      }));
-    }
-    const candidates = providerStore.listCandidateModels(trimmedProviderId);
-    const provider = providerStore.listProviders().find((p) => p.id === trimmedProviderId);
-    const baseUrl = provider?.baseUrl ?? "";
-    // models.dev enrichment is best-effort; never block listing/adding candidates.
-    try {
-      return await resolveCandidateModels(pricingCache, candidates, baseUrl);
-    } catch (error) {
-      process.stderr.write(`[eco] candidate-model:list pricing enrich failed: ${errorMessage(error)}\n`);
-      return candidates;
-    }
-  });
+  registerDesktopCommand(IPC_CHANNELS.candidateModelList, listManagedCandidateModels);
 
-  registerDesktopCommand(IPC_CHANNELS.candidateModelSave, async (payload: unknown) => {
-    if (!payload || typeof payload !== "object") {
-      throw new Error("Invalid candidate model input.");
-    }
-    const result = providerStore.saveCandidateModel(payload as CandidateModelInput);
-    emitSettingsUpdated();
-    return result;
-  });
+  registerDesktopCommand(IPC_CHANNELS.candidateModelSave, saveManagedCandidateModel);
 
-  registerDesktopCommand(IPC_CHANNELS.candidateModelDelete, async (id: unknown) => {
-    if (typeof id !== "string" || !id.trim()) {
-      throw new Error("Candidate model id is required.");
-    }
-    providerStore.deleteCandidateModel(id.trim());
-    emitSettingsUpdated();
-    return { ok: true as const };
-  });
+  registerDesktopCommand(IPC_CHANNELS.candidateModelDelete, deleteManagedCandidateModel);
 
   registerDesktopCommand(
     IPC_CHANNELS.candidateModelReorder,
@@ -10744,6 +10804,7 @@ function registerRemainingDesktopCommands(): void {
       cancel: async ({ threadId, worktreeDisposition }) => {
         schedulingGateway.disposeThread(threadId);
         contextReferenceGateway.revokeThread(threadId);
+        modelManagementGateway.disposeThread(threadId);
         schedulingService.pauseAutomaticMessages(threadId);
         // Explicit Stop revokes an earlier Guide; cleanup must pause queued rows.
         pendingEscalatedFollowUpDrain.delete(threadId);
@@ -11951,7 +12012,7 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
       return toAcpMcpServers(prepared.mcpServers);
     },
     resolveAcpSystemPromptAppend: ({ threadId }) =>
-      appendBrowserPrompt(mcpHubGateway.getThreadPromptAppend(threadId), CONTEXT_REFERENCE_PROMPT),
+      appendBrowserPrompt(appendBrowserPrompt(mcpHubGateway.getThreadPromptAppend(threadId), CONTEXT_REFERENCE_PROMPT), MODEL_MANAGEMENT_PROMPT),
     resolvePromptImagesForMainContext,
     resolveAcpCreatePlanHandler: ({ threadId, workspacePath, userPrompt }) => {
       return async (request) => {
@@ -12640,6 +12701,7 @@ async function startCodexThreadRun(
             }
             append = appendBrowserPrompt(append, SCHEDULING_PROMPT);
             append = appendBrowserPrompt(append, CONTEXT_REFERENCE_PROMPT);
+            append = appendBrowserPrompt(append, MODEL_MANAGEMENT_PROMPT);
             append = appendBrowserPrompt(append, buildImageViewPromptAppend());
             append = appendBrowserPrompt(append, buildImageDisplayPromptAppend());
             if (centerServerClient.getHtmlHostingCapability().available) {
@@ -12755,6 +12817,7 @@ async function startCodexThreadRun(
               CONTEXT_MCP_SERVER,
               (await contextReferenceGateway.resolveInjection(input.thread.id)).sdkEntry,
             );
+            registerBuiltin(MODEL_MANAGEMENT_MCP_SERVER, (await modelManagementGateway.resolveInjection(input.thread.id)).sdkEntry);
             const imageViewInject = await imageViewGateway.resolveInjection(input.thread.id);
             registerBuiltin(ECO_IMAGE_VIEW_MCP_SERVER, imageViewInject.sdkEntry);
             const imageDisplayInject = await imageDisplayGateway.resolveInjection(input.thread.id);
@@ -13168,6 +13231,8 @@ async function resolvePiSessionResourcesForThread(
     await contextReferenceGateway.resolveInjection(threadId)
   ).sdkEntry;
   mcpSession.appendSystemPrompt.push(CONTEXT_REFERENCE_PROMPT);
+  mcpSession.mcpServers[MODEL_MANAGEMENT_MCP_SERVER] = (await modelManagementGateway.resolveInjection(threadId)).sdkEntry;
+  mcpSession.appendSystemPrompt.push(MODEL_MANAGEMENT_PROMPT);
   mcpSession.mcpServers[SCHEDULING_MCP_SERVER] = schedulingInject.sdkEntry;
   mcpSession.appendSystemPrompt.push(SCHEDULING_PROMPT);
   const globalMcpConfig = mcpStore.buildSdkConfig();
@@ -16735,6 +16800,7 @@ function buildDesktopSdkRunInput(
   }
   globalUserRules = appendBrowserPrompt(globalUserRules, SCHEDULING_PROMPT);
   globalUserRules = appendBrowserPrompt(globalUserRules, CONTEXT_REFERENCE_PROMPT);
+  globalUserRules = appendBrowserPrompt(globalUserRules, MODEL_MANAGEMENT_PROMPT);
   globalUserRules = appendBrowserPrompt(globalUserRules, buildImageViewPromptAppend());
   globalUserRules = appendBrowserPrompt(globalUserRules, buildImageDisplayPromptAppend());
   if (threadId) {
@@ -17008,6 +17074,7 @@ async function cleanupThreadExternalState(threadId: string): Promise<void> {
   htmlHostGateway.disposeThread(threadId);
   schedulingGateway.disposeThread(threadId);
   contextReferenceGateway.disposeThread(threadId);
+  modelManagementGateway.disposeThread(threadId);
   computerUseGateway.disposeThread(threadId);
   integratedWebSearchGateway.disposeThread(threadId);
   disposeAcpThread(threadId);
@@ -19256,6 +19323,9 @@ async function buildSdkSessionOptions(
   ).sdkEntry;
   withWebSearchMcp.mcpServers[CONTEXT_MCP_SERVER] = (
     await contextReferenceGateway.resolveInjection(threadId)
+  ).sdkEntry;
+  withWebSearchMcp.mcpServers[MODEL_MANAGEMENT_MCP_SERVER] = (
+    await modelManagementGateway.resolveInjection(threadId)
   ).sdkEntry;
   const hubBuiltinKeys = Object.keys(withWebSearchMcp.mcpServers).filter(
     (key) => key.startsWith("eco_") && key !== "eco_mcp",

@@ -14,7 +14,7 @@ export interface ShortcutDefinition {
   description: string;
   scope: ShortcutScope;
   defaults: string[];
-  macOnly?: boolean;
+  platforms?: readonly string[];
 }
 const shortcut = (
   id: string,
@@ -40,11 +40,11 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
   shortcut("check-for-updates", "检查更新", "检查 Mori 的新版本", "app"),
   {
     ...shortcut("toggle-prevent-auto-lock", "切换阻止自动锁屏", "开启或关闭阻止自动锁屏", "app", "CommandOrControl+Shift+U"),
-    macOnly: true,
+    platforms: ["darwin", "win32"],
   },
   {
     ...shortcut("toggle-display-dimming", "切换屏幕最低亮度", "调暗屏幕或恢复原来的亮度", "app", "CommandOrControl+Shift+D"),
-    macOnly: true,
+    platforms: ["darwin", "win32"],
   },
   shortcut(
     "mori-floating",
@@ -88,7 +88,7 @@ export interface KeyboardShortcutsSnapshot {
 }
 export function defaultShortcutBindings(platform: string): ShortcutBindings {
   return Object.fromEntries(
-    SHORTCUT_DEFINITIONS.filter((d) => !d.macOnly || platform === "darwin").map((d) => {
+    SHORTCUT_DEFINITIONS.filter((d) => !d.platforms || d.platforms.includes(platform)).map((d) => {
       let keys = d.defaults;
       if (platform === "darwin" && d.id === "toggle-bottom-panel") keys = [...keys, "Control+`"];
       return [d.id, [...keys]];

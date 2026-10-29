@@ -21,10 +21,10 @@ export function DisplayControlsSection() {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const mounted = useRef(false);
-  const isMac = window.eco?.platform === "darwin";
+  const supported = window.eco?.platform === "darwin" || window.eco?.platform === "win32";
 
   useEffect(() => {
-    if (!isMac) return;
+    if (!supported) return;
     mounted.current = true;
     let fetching = false;
     const refresh = async () => {
@@ -45,9 +45,9 @@ export function DisplayControlsSection() {
       mounted.current = false;
       window.clearInterval(timer);
     };
-  }, [isMac]);
+  }, [supported]);
 
-  if (!isMac) return null;
+  if (!supported) return null;
   const displays = state?.displays ?? [];
 
   const change = async (input: DisplayControlChange) => {

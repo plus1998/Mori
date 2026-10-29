@@ -26,7 +26,7 @@ export function KeyboardShortcutsSettings() {
   const returnFocus = useRef<HTMLElement | null>(null);
   const definitions = SHORTCUT_DEFINITIONS.filter(
     (d) =>
-      (!d.macOnly || platform === "darwin") &&
+      (!d.platforms || d.platforms.includes(platform)) &&
       `${d.label} ${d.description} ${(bindings[d.id] ?? []).map((k) => formatAccelerator(k, platform)).join(" ")}`
         .toLowerCase()
         .includes(query.toLowerCase()),
