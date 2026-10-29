@@ -29,7 +29,7 @@ export function buildComposerGlobalRuntimeConfig(input: {
   if (input.coreKind === "acp") {
     return buildAcpThreadRuntimeConfig({
       ...(workflowDefaults.acpCursorModelId ? { cursorModelId: workflowDefaults.acpCursorModelId } : {}),
-      sessionMode: workflowDefaults.sessionMode,
+      sessionMode: "agent",
       ...(workflowDefaults.defaultAuxiliaryModel
         ? { auxiliaryModel: workflowDefaults.defaultAuxiliaryModel }
         : {}),
@@ -52,7 +52,7 @@ export function buildComposerGlobalRuntimeConfig(input: {
   return {
     ...buildThreadRuntimeConfigFromDefaults({
       settings: input.settings,
-      workflowDefaults,
+      workflowDefaults: { ...workflowDefaults, sessionMode: "agent" },
       orchestrationSelection: selection,
       mcpServers: input.mcpServers,
     }),

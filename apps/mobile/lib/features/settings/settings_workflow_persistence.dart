@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/constants/session_mode.dart';
 import '../../core/locale/app_error_localizations.dart';
 import '../../core/locale/app_localizations_ext.dart';
 import '../../core/models/thread_models.dart';
@@ -10,7 +9,6 @@ import '../threads/thread_providers.dart';
 
 WorkflowSettingsSnapshot workflowSettingsWith({
   required WorkflowSettingsSnapshot? workflow,
-  SessionMode? sessionMode,
   String? defaultCoreKind,
   bool? showBilling,
   String? defaultBashReviewMode,
@@ -29,7 +27,7 @@ WorkflowSettingsSnapshot workflowSettingsWith({
   bool clearMcpServersEnabled = false,
 }) {
   return WorkflowSettingsSnapshot(
-    sessionMode: sessionMode ?? workflow?.sessionMode ?? 'agent',
+    sessionMode: workflow?.sessionMode ?? 'agent',
     defaultCoreKind: clearDefaultCoreKind
         ? null
         : (defaultCoreKind ?? workflow?.defaultCoreKind),
@@ -77,28 +75,6 @@ Future<void> saveSettingsShowBilling(
     final workflow = await ref.read(workflowSettingsProvider.future);
     await rpc.saveWorkflowSettings(
       workflowSettingsWith(workflow: workflow, showBilling: nextValue),
-    );
-    ref.invalidate(workflowSettingsProvider);
-  } catch (error) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(localizedAppError(error, context.l10n))),
-      );
-    }
-  }
-}
-
-Future<void> saveSettingsSessionMode(
-  WidgetRef ref, {
-  required BuildContext context,
-  required SessionMode nextMode,
-}) async {
-  final rpc = ref.read(desktopRpcProvider);
-  if (rpc == null) return;
-  try {
-    final workflow = await ref.read(workflowSettingsProvider.future);
-    await rpc.saveWorkflowSettings(
-      workflowSettingsWith(workflow: workflow, sessionMode: nextMode),
     );
     ref.invalidate(workflowSettingsProvider);
   } catch (error) {

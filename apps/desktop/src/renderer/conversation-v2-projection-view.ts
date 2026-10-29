@@ -3437,7 +3437,12 @@ export function projectionItemToDetailBlock(
     });
     const commandMessage = command ? i18n.t("projection.bashCommand", { command }) : undefined;
     const failureMessage = stripProjectionToolFailurePrefix(text, tool);
-    const error = recoveredResult ? "" : output || (text !== commandMessage ? failureMessage : "");
+    const missingImageViewError = metadataTool?.imageView && text.startsWith("Tool:");
+    const error = recoveredResult
+      ? ""
+      : output || (missingImageViewError
+        ? i18n.t("activity.imageView.missingError")
+        : text !== commandMessage ? failureMessage : "");
     const fileChange =
       resolveFileChangeCardDisplay(metadataTool?.fileChange) ??
       (metadataTool?.fileChange?.path

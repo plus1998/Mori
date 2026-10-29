@@ -74,7 +74,7 @@ test("builds ACP Composer config from global settings", () => {
 
   expect(config).toMatchObject({
     cursorModelId: "global-cursor-model",
-    sessionMode: "plan",
+    sessionMode: "agent",
     auxiliaryModel: {
       modelId: "auxiliary-global",
     },
@@ -91,6 +91,7 @@ test("builds Eco Composer config from the global default orchestration", () => {
     coreKind: "claude",
     settings: globalEcoSettings,
     workflowDefaults: workflowDefaults({
+      sessionMode: "plan",
       defaultOrchestrationSelection: globalEcoBundle.selection,
       defaultAuxiliaryModel: {
         providerId: "provider-1",
@@ -100,6 +101,7 @@ test("builds Eco Composer config from the global default orchestration", () => {
     mcpServers: [],
   });
 
+  expect(config?.sessionMode).toBe("agent");
   expect(config?.orchestrationSelection).toEqual(globalEcoBundle.selection);
   expect(config?.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId).toBe("main-global");
   expect(config?.auxiliaryModel?.modelId).toBe("auxiliary-global");

@@ -1557,8 +1557,13 @@ function emitMcpToolEvent(
   // The vision answer is the only place the caller's prompt is answered; without it the
   // Feed card can show the image but never what was asked or answered. Read it off the
   // completed item and let it ride the same output channel bash already uses.
+  const mcpError = isRecord(item.error) ? readString(item.error, "message") : readString(item, "error");
   const imageViewResult =
-    imageViewPath && eventType === "tool.completed" ? readMcpToolOutputText(item) : undefined;
+    eventType === "tool.failed"
+      ? mcpError ?? readMcpToolOutputText(item)
+      : imageViewPath && eventType === "tool.completed"
+        ? readMcpToolOutputText(item)
+        : undefined;
   const imageViewOutputPreview = imageViewResult ? createToolOutputPreview(imageViewResult) : undefined;
   const imageViewPrompt = imageViewPath ? imageViewCall?.prompt : undefined;
   if (imageViewPath) {

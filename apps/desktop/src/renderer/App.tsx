@@ -8,6 +8,7 @@ import { ReadAloudControls, ReadAloudThreadContext } from "./ReadAloud";
 import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
 import { ComposerReferencesMenu } from "./ComposerReferencesMenu";
 import { useComposerReferences } from "./use-composer-references";
+import { useRevealSelectedThread } from "./use-reveal-selected-thread";
 import { composerReferenceToken } from "../shared/composer-references";
 import { browserSelectionReference, type BrowserSelection } from "../shared/browser-selection";
 import { BrowserSelectionPreview } from "./BrowserSelectionPreview";
@@ -3704,27 +3705,13 @@ function App() {
     return grouped;
   }, [pinnedThreadIds, threads]);
 
-  // Keep opened search/notification results visible, expanding only through their page.
-  useEffect(() => {
-    if (!selectedThreadId) {
-      return;
-    }
-    for (const [projectPath, projectThreads] of threadsByProject) {
-      const threadIndex = projectThreads.findIndex((thread) => thread.id === selectedThreadId);
-      if (threadIndex < 0) {
-        continue;
-      }
-      const requiredCount =
-        (Math.floor(threadIndex / sidebarThreadsPageSize) + 1) * sidebarThreadsPageSize;
-      setProjectThreadVisibleCounts((current) => {
-        if ((current.get(projectPath) ?? sidebarThreadsPageSize) >= requiredCount) {
-          return current;
-        }
-        return new Map(current).set(projectPath, requiredCount);
-      });
-      break;
-    }
-  }, [selectedThreadId, threadsByProject]);
+  useRevealSelectedThread(
+    selectedThreadId,
+    threadsByProject,
+    projectThreadVisibleCounts,
+    setProjectThreadVisibleCounts,
+    sidebarThreadsPageSize,
+  );
 
   const projectTree = useMemo(
     () =>
@@ -5072,23 +5059,12 @@ function App() {
         if (!hasCompleteOrchestrationSelection(orchestrationSelection)) {
           return undefined;
         }
-        const workflowDefaults =
-          options?.planModeOverride === undefined
-            ? {
-                ...defaults,
-                ...(rememberedMcpServersEnabled ? { mcpServersEnabled: rememberedMcpServersEnabled } : {}),
-                ...(rememberedIntegrationsEnabled
-                  ? { integrationsEnabled: rememberedIntegrationsEnabled }
-                  : {}),
-              }
-            : {
-                ...defaults,
-                sessionMode: options.planModeOverride ? ("plan" as const) : ("agent" as const),
-                ...(rememberedMcpServersEnabled ? { mcpServersEnabled: rememberedMcpServersEnabled } : {}),
-                ...(rememberedIntegrationsEnabled
-                  ? { integrationsEnabled: rememberedIntegrationsEnabled }
-                  : {}),
-              };
+        const workflowDefaults = {
+          ...defaults,
+          sessionMode: options?.planModeOverride ? ("plan" as const) : ("agent" as const),
+          ...(rememberedMcpServersEnabled ? { mcpServersEnabled: rememberedMcpServersEnabled } : {}),
+          ...(rememberedIntegrationsEnabled ? { integrationsEnabled: rememberedIntegrationsEnabled } : {}),
+        };
         return buildThreadRuntimeConfigFromDefaults({
           settings,
           workflowDefaults,
@@ -5133,7 +5109,7 @@ function App() {
             : !keepDraftModel && (current?.cursorModelId ?? workflowSettings.acpCursorModelId)
               ? { cursorModelId: current?.cursorModelId ?? workflowSettings.acpCursorModelId }
               : {}),
-          sessionMode: current?.sessionMode ?? workflowSettings.sessionMode,
+          sessionMode: current?.sessionMode ?? "agent",
           bashReviewMode: current?.bashReviewMode ?? "always",
           ...(current?.subagentEnabled ? { subagentEnabled: current.subagentEnabled } : {}),
           ...((current?.auxiliaryModel ?? workflowSettings.defaultAuxiliaryModel)
@@ -5192,7 +5168,6 @@ function App() {
     settings.mainAgentPrompts,
     settings.subagentOrchestrations,
     workflowSettings.acpCursorModelId,
-    workflowSettings.sessionMode,
   ]);
 
   const selectedOrchestrationSnapshot = useMemo(
@@ -5273,7 +5248,7 @@ function App() {
       });
       return buildAcpThreadRuntimeConfig({
         ...(resolvedCursorModelId ? { cursorModelId: resolvedCursorModelId } : {}),
-        sessionMode: base?.sessionMode ?? workflowSettings.sessionMode,
+        sessionMode: base?.sessionMode ?? "agent",
         bashReviewMode:
           base?.bashReviewMode ?? normalizeBashReviewMode(workflowSettings.defaultBashReviewMode),
         ...(base?.subagentEnabled ? { subagentEnabled: base.subagentEnabled } : {}),
@@ -5312,7 +5287,7 @@ function App() {
         base ??
         buildThreadRuntimeConfigFromDefaults({
           settings,
-          workflowDefaults: workflowSettings,
+          workflowDefaults: { ...workflowSettings, sessionMode: "agent" },
           orchestrationSelection: selection,
           mcpServers: mcpSettings.servers,
         });
@@ -9911,7 +9886,7 @@ function App() {
     if (!hasCompleteOrchestrationSelection(nextSelection)) {
       const partialBase = composerRuntimeConfig ?? {
         subagentEnabled: defaultSubagentAvailability(),
-        sessionMode: workflowSettings.sessionMode ?? "agent",
+        sessionMode: "agent",
         bashReviewMode: normalizeBashReviewMode(workflowSettings.defaultBashReviewMode),
       };
       const { resolvedOrchestrationSnapshot: _removed, ...base } = partialBase;
@@ -9938,7 +9913,7 @@ function App() {
       composerRuntimeConfig ??
       buildThreadRuntimeConfigFromDefaults({
         settings,
-        workflowDefaults: workflowSettings,
+        workflowDefaults: { ...workflowSettings, sessionMode: "agent" },
         orchestrationSelection: nextSelection,
         mcpServers: mcpSettings.servers,
       });
@@ -9998,7 +9973,7 @@ function App() {
       composerRuntimeConfig ??
       (composerCoreKind === "acp"
         ? buildAcpThreadRuntimeConfig({
-            sessionMode: workflowSettings.sessionMode,
+            sessionMode: "agent",
             ...(workflowSettings.acpCursorModelId
               ? { cursorModelId: workflowSettings.acpCursorModelId }
               : {}),
@@ -10030,7 +10005,7 @@ function App() {
       composerRuntimeConfig ??
       (composerCoreKind === "acp"
         ? buildAcpThreadRuntimeConfig({
-            sessionMode: workflowSettings.sessionMode,
+            sessionMode: "agent",
             ...(workflowSettings.acpCursorModelId
               ? { cursorModelId: workflowSettings.acpCursorModelId }
               : {}),
@@ -10062,7 +10037,7 @@ function App() {
       composerRuntimeConfig ??
       (composerCoreKind === "acp"
         ? buildAcpThreadRuntimeConfig({
-            sessionMode: workflowSettings.sessionMode,
+            sessionMode: "agent",
             ...(workflowSettings.acpCursorModelId
               ? { cursorModelId: workflowSettings.acpCursorModelId }
               : {}),
@@ -10096,7 +10071,7 @@ function App() {
     const base =
       composerRuntimeConfig ??
       buildAcpThreadRuntimeConfig({
-        sessionMode: workflowSettings.sessionMode,
+        sessionMode: "agent",
         ...(workflowSettings.acpCursorModelId ? { cursorModelId: workflowSettings.acpCursorModelId } : {}),
         ...(workflowSettings.defaultAuxiliaryModel
           ? { auxiliaryModel: workflowSettings.defaultAuxiliaryModel }
@@ -10228,19 +10203,7 @@ function App() {
       return;
     }
     const next: ThreadRuntimeConfig = withSessionMode(composerRuntimeConfig, sessionMode);
-    if (!(await persistComposerRuntimeConfig(next))) return;
-    if (!window.eco?.saveWorkflowSettings) {
-      return;
-    }
-    try {
-      const saved = await window.eco.saveWorkflowSettings({
-        ...workflowSettings,
-        sessionMode: next.sessionMode,
-      });
-      setWorkflowSettings(saved);
-    } catch (caught) {
-      setError(errorMessage(caught));
-    }
+    await persistComposerRuntimeConfig(next);
   }
 
   async function toggleComposerBashReviewMode(bashReviewMode: ThreadRuntimeConfig["bashReviewMode"]) {

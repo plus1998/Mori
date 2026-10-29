@@ -919,7 +919,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
               )
             : ThreadRuntimeConfig(
                 subagentEnabled: defaultSubagentAvailability(),
-                sessionMode: workflow.valueOrNull?.sessionMode ?? 'agent',
+                sessionMode: 'agent',
                 bashReviewMode: normalizeBashReviewMode(
                   workflow.valueOrNull?.defaultBashReviewMode,
                 ),

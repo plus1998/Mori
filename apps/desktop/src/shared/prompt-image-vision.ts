@@ -58,10 +58,32 @@ export function readImageViewResponse(value: unknown): string {
       ),
     )
     .map((part) => part.text)
-    .filter((part) => part.length > 0)
+    .filter((part) => part.trim().length > 0)
     .join("\n\n");
   if (!text) {
-    throw new Error("The image_view model did not return text.");
+    const response = value as { stop_reason?: unknown; usage?: { output_tokens?: unknown } };
+    const stopReason = typeof response.stop_reason === "string" ? response.stop_reason : undefined;
+    const outputTokens =
+      typeof response.usage?.output_tokens === "number" ? response.usage.output_tokens : undefined;
+    const types = [
+      ...new Set(
+        content.map((part: unknown) =>
+          part && typeof part === "object" && "type" in part && typeof part.type === "string"
+            ? part.type
+            : "unknown",
+        ),
+      ),
+    ];
+    const details = [
+      stopReason ? `stop_reason=${stopReason}` : undefined,
+      outputTokens !== undefined ? `output_tokens=${outputTokens}` : undefined,
+      `content_types=${types.join(",") || "empty"}`,
+    ]
+      .filter(Boolean)
+      .join("; ");
+    const budgetHint =
+      stopReason === "max_tokens" ? " 输出预算已耗尽；请提高输出上限或降低模型的思考强度后重试。" : "";
+    throw new Error(`image_view 模型未返回可用正文（${details}）。${budgetHint}`);
   }
   return text;
 }
@@ -81,7 +103,8 @@ Respond in the primary language of the observation focus, using exactly this for
 Write "None" in the final section when there are no uncertainties.
 Keep the report concise and factual.`;
 
-const DEFAULT_OBSERVATION_FOCUS = "Describe these images. Report only visible facts useful to the main agent.";
+const DEFAULT_OBSERVATION_FOCUS =
+  "Describe these images. Report only visible facts useful to the main agent.";
 
 export function buildVisionAnalysisRequestBody(input: {
   model: string;

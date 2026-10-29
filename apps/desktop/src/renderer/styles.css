@@ -4339,6 +4339,12 @@ button.sidebar-settings-meta {
   -webkit-app-region: no-drag;
 }
 
+/* This region remains keyboard-scrollable; the browser's default focus ring
+   otherwise draws an amber frame around the entire conversation. */
+.activity-messages:focus-visible {
+  outline: none;
+}
+
 /* Detached reader (scrolled up to browse history): hand scroll anchoring back to the browser so
    content reflow above the viewport (thinking-block auto-collapse, lazy mounts, expanding
    blocks) can't lurch the reading position. The follow state keeps overflow-anchor: none so

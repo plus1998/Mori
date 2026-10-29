@@ -134,8 +134,8 @@ export function SchedulingPanel(props: Props) {
     if (base) { updateForm({ profile: { ...base, coreKind } }); return; }
     try {
       updateForm({ profile: { coreKind, runtimeConfig: coreKind === "acp"
-        ? buildAcpThreadRuntimeConfig({ sessionMode: props.workflow.sessionMode, ...(props.workflow.acpCursorModelId ? { cursorModelId: props.workflow.acpCursorModelId } : {}) })
-        : buildThreadRuntimeConfigFromDefaults({ settings: props.settings, workflowDefaults: props.workflow }) } });
+        ? buildAcpThreadRuntimeConfig({ sessionMode: "agent", ...(props.workflow.acpCursorModelId ? { cursorModelId: props.workflow.acpCursorModelId } : {}) })
+        : buildThreadRuntimeConfigFromDefaults({ settings: props.settings, workflowDefaults: { ...props.workflow, sessionMode: "agent" } }) } });
     } catch (caught) { setError(formatIpcInvokeError(caught, t("scheduling.configRequired"))); }
   };
   const setMainConfig = (id: string) => {
@@ -143,7 +143,7 @@ export function SchedulingPanel(props: Props) {
     try {
       const selection = form.profile?.runtimeConfig.orchestrationSelection ?? { mainAgentConfigId: id, mainPrompt: { mode: "builtin" as const }, subagents: { mode: "none" as const } };
       const nextSelection = { ...selection, mainAgentConfigId: id };
-      const base = form.profile?.runtimeConfig ?? buildThreadRuntimeConfigFromDefaults({ settings: props.settings, workflowDefaults: props.workflow, orchestrationSelection: nextSelection });
+      const base = form.profile?.runtimeConfig ?? buildThreadRuntimeConfigFromDefaults({ settings: props.settings, workflowDefaults: { ...props.workflow, sessionMode: "agent" }, orchestrationSelection: nextSelection });
       const { mainAgentModelOverride: _override, ...clean } = base;
       updateForm({ profile: { coreKind: form.profile?.coreKind ?? "claude", runtimeConfig: { ...clean, ...materializeThreadOrchestrationSnapshot(props.settings, nextSelection) } } });
     } catch (caught) { setError(formatIpcInvokeError(caught)); }

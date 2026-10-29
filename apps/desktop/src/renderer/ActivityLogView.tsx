@@ -3936,6 +3936,9 @@ function summarizeFailedTool(
     bashRun?: Extract<ActivityDetailBlock, { kind: "action" }>["bashRun"];
   },
 ): string {
+  if (resolveActionKind({ toolName: tool }).kind === "imageView") {
+    return i18n.t("activity.imageView.failed");
+  }
   const action: Extract<ActivityDetailBlock, { kind: "action" }> = {
     kind: "action",
     icon: iconForToolName(tool),
@@ -7127,8 +7130,10 @@ export function ImageViewBlock({
       console.warn("Failed to open the folder containing the image.", error);
     });
   }, [loadState]);
-  const statusLabel =
-    lifecycle === "running" ? i18n.t("activity.imageView.viewing") : i18n.t("activity.imageView.viewed");
+  const statusLabel = i18n.t(
+    lifecycle === "running" ? "activity.imageView.viewing"
+      : lifecycle === "failed" ? "activity.imageView.failed" : "activity.imageView.viewed",
+  );
   const previewAlt = i18n.t("activity.imageView.previewAlt", {
     name: fileName,
   });
@@ -7800,8 +7805,8 @@ function RunLogAction({
         {error && detailsExpanded ? (
           <div className="run-log-tool-result-panel">
             <div className="run-log-tool-result-header">
-              <Terminal size={14} aria-hidden />
-              <span>{i18n.t("activity.commandOutput")}</span>
+              <CircleAlert size={14} aria-hidden />
+              <span>{i18n.t("activity.errorDetails")}</span>
             </div>
             <pre className="run-log-tool-failed-error">{error}</pre>
           </div>

@@ -7798,7 +7798,7 @@ function registerIpcHandlers(): void {
     ...(appIcon ? { icon: appIcon } : {}),
     currentProject: () => currentWorkspace?.path,
     computerUse: new MoriComputerUse({ gateway: computerUseGateway, settings: () => computerUseSettingsStore.get(), imageView: imageViewGateway }),
-    defaultRuntimeConfig: () => buildThreadRuntimeConfigFromDefaults({ settings: getModelSettingsSnapshot(), workflowDefaults: workflowSettingsStore.get(), mcpServers: mcpStore.listServers() }),
+    defaultRuntimeConfig: () => buildThreadRuntimeConfigFromDefaults({ settings: getModelSettingsSnapshot(), workflowDefaults: { ...workflowSettingsStore.get(), sessionMode: "agent" }, mcpServers: mcpStore.listServers() }),
     modelSettings: () => {
       const settings = getModelSettingsSnapshot();
       return {

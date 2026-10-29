@@ -24,7 +24,6 @@ import 'features/home/setup_status.dart';
 import 'features/projects/project_providers.dart';
 import 'features/settings/settings_context_window_page.dart';
 import 'features/settings/settings_default_bash_review_page.dart';
-import 'features/settings/settings_default_mode_page.dart';
 import 'features/settings/settings_language_page.dart';
 import 'features/settings/settings_max_output_page.dart';
 import 'features/settings/settings_models_page.dart';
@@ -194,12 +193,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     parentNavigatorKey: _rootNavigatorKey,
                     builder: (context, state) =>
                         const SettingsThinkingContentPage(),
-                  ),
-                  GoRoute(
-                    path: 'default-mode',
-                    parentNavigatorKey: _rootNavigatorKey,
-                    builder: (context, state) =>
-                        const SettingsDefaultModePage(),
                   ),
                   GoRoute(
                     path: 'default-bash-review',
