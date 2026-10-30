@@ -1,7 +1,8 @@
-import { Activity, CornerDownRight, GripVertical, LoaderCircle, Pause, Play, Trash2 } from "lucide-react";
+import { Activity, CornerDownRight, GripVertical, ListTodo, LoaderCircle, MoreHorizontal, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ThreadPendingFollowUp } from "../shared/ipc";
+import { BrowserToolbarMenu } from "./BrowserToolbarMenu";
 import { FollowUpPromptPreview } from "./FollowUpPromptPreview";
 import { canEscalateThreadFollowUp, isThreadFollowUpGuidancePending } from "./thread-follow-up-ui";
 
@@ -13,6 +14,8 @@ export function FollowUpQueuePanel({
   pauseBusy,
   cancelBusyId,
   escalateBusyId,
+  moveToTodoBusyId,
+  onMoveToTodo,
   allowEscalate = true,
   onCancel,
   onEscalate,
@@ -27,6 +30,8 @@ export function FollowUpQueuePanel({
   pauseBusy: boolean;
   cancelBusyId: string | undefined;
   escalateBusyId: string | undefined;
+  moveToTodoBusyId: string | undefined;
+  onMoveToTodo: (followUp: ThreadPendingFollowUp) => void;
   allowEscalate?: boolean;
   onCancel: (followUp: ThreadPendingFollowUp) => void;
   onEscalate: (followUp: ThreadPendingFollowUp) => void;
@@ -86,7 +91,7 @@ export function FollowUpQueuePanel({
       <div className="follow-up-queue-rows">
         {followUps.map((followUp) => {
           const isEditing = editingFollowUpId === followUp.id;
-          const actionBusy = cancelBusyId === followUp.id || escalateBusyId === followUp.id || isEditing;
+          const actionBusy = cancelBusyId === followUp.id || escalateBusyId === followUp.id || moveToTodoBusyId === followUp.id || isEditing;
           const isEscalating = escalateBusyId === followUp.id ||
             isThreadFollowUpGuidancePending(followUp, { queuePaused, threadActive });
           // Paused queues also let an already-escalated row be clicked: it is stuck
@@ -192,16 +197,28 @@ export function FollowUpQueuePanel({
                         </span>
                       )
                     ) : null}
-                    <button
-                      type="button"
-                      className="follow-up-card-action"
-                      onClick={() => onCancel(followUp)}
-                      disabled={actionBusy}
-                      title={t("common.delete")}
-                      aria-label={t("thread.deleteFollowUpAria")}
-                    >
-                      {cancelBusyId === followUp.id ? <Activity size={12} /> : <Trash2 size={12} />}
-                    </button>
+                    <FollowUpActionsMenu
+                      busy={actionBusy}
+                      label={t("thread.followUpActions")}
+                      items={[
+                        {
+                          id: "edit", label: t("thread.editFollowUp"),
+                          icon: <Pencil size={14} />, onSelect: () => onEdit(followUp),
+                        },
+                        ...(canEscalate ? [{
+                          id: "guide", label: t("thread.guide"),
+                          icon: <CornerDownRight size={14} />, onSelect: () => onEscalate(followUp),
+                        }] : []),
+                        {
+                          id: "todo", label: t("thread.followUpToTodo"),
+                          icon: <ListTodo size={14} />, onSelect: () => onMoveToTodo(followUp),
+                        },
+                        {
+                          id: "delete", label: t("common.delete"),
+                          icon: <Trash2 size={14} />, onSelect: () => onCancel(followUp),
+                        },
+                      ]}
+                    />
                   </>
                 )}
               </div>
@@ -213,3 +230,39 @@ export function FollowUpQueuePanel({
   );
 }
 
+function FollowUpActionsMenu({
+  busy,
+  label,
+  items,
+}: {
+  busy: boolean;
+  label: string;
+  items: Parameters<typeof BrowserToolbarMenu>[0]["items"];
+}) {
+  const [trigger, setTrigger] = useState<HTMLButtonElement>();
+  return (
+    <>
+      <button
+        type="button"
+        className="follow-up-card-action"
+        disabled={busy}
+        title={label}
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={Boolean(trigger) && !busy}
+        onClick={(event) => setTrigger(trigger ? undefined : event.currentTarget)}
+      >
+        {busy ? <Activity size={12} aria-hidden /> : <MoreHorizontal size={14} aria-hidden />}
+      </button>
+      {trigger && !busy ? (
+        <BrowserToolbarMenu
+          trigger={trigger}
+          label={label}
+          items={items}
+          focusOnOpen
+          onClose={() => setTrigger(undefined)}
+        />
+      ) : null}
+    </>
+  );
+}

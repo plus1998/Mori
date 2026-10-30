@@ -162,6 +162,34 @@ for (const platform of ["darwin", "win32"] as const) {
   describe(`display controls on ${platform}`, () => {
     const fixture = (options: Parameters<typeof createFixture>[0] = {}, initial = [monitor(1)]) =>
       createFixture(options, initial, platform);
+    test("remote state reads detect restored brightness and allow immediate reactivation", async () => {
+      const display = monitor(1);
+      const f = fixture({}, [display]);
+      try {
+        await enabled(f.controller);
+        display.levels = { method: "backlight", value: 0.4 };
+        const state = await f.controller.getState();
+        expect(state.dimmed).toBe(false);
+        expect(state.displays[0]?.status).toBe("ready");
+        expect((await enabled(f.controller)).dimmed).toBe(true);
+        await enabled(f.controller, false);
+        expect(display.levels).toEqual({ method: "backlight", value: 0.4 });
+      } finally {
+        await f.controller.dispose();
+      }
+    });
+
+    test("state reports actual minimum brightness even when changed outside Mori", async () => {
+      const display = monitor(1, "backlight", 0);
+      const f = fixture({}, [display]);
+      try {
+        expect((await f.controller.getState()).dimmed).toBe(true);
+        display.levels = { method: "backlight", value: 0.2 };
+        expect((await f.controller.getState()).dimmed).toBe(false);
+      } finally {
+        await f.controller.dispose();
+      }
+    });
     test("shortcut toggles use the existing lock and brightness recovery paths", async () => {
       const display = monitor(1);
       const f = fixture({}, [display]);

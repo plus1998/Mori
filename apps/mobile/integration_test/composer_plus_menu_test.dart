@@ -30,6 +30,52 @@ void main() {
     ).writeAsBytes(await binding.takeScreenshot(name));
   }
 
+  testWidgets('native plus menu pulls down and preserves the keyboard draft', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const _ComposerApp(dark: true));
+    await tester.pumpAndSettle();
+    final input = find.byType(TextField).first;
+    await tester.tap(input);
+    await tester.pumpAndSettle();
+    await tester.enterText(input, '下滑收起后保留草稿');
+    await tester.pumpAndSettle();
+    final panel = find.byKey(const ValueKey('composer-plus-panel'));
+    final grabber = find.byKey(const ValueKey('composer-plus-grabber'));
+    for (final configPage in [false, true]) {
+      await tester.tap(find.byIcon(EcoIcons.add));
+      await tester.pumpAndSettle();
+      final media = MediaQuery.of(tester.element(panel));
+      expect(media.viewInsets.bottom, greaterThan(0));
+      expect(
+        tester.getBottomRight(panel).dy,
+        lessThan(media.size.height - media.viewInsets.bottom),
+      );
+      final originalTop = tester.getTopLeft(panel).dy;
+      final gesture = await tester.startGesture(tester.getCenter(grabber));
+      await gesture.moveBy(const Offset(0, 20));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 15));
+      await tester.pump();
+      expect(tester.getTopLeft(panel).dy, greaterThan(originalTop));
+      await tester.pump(const Duration(milliseconds: 300));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(tester.getTopLeft(panel).dy, closeTo(originalTop, .1));
+      if (configPage) {
+        await tester.ensureVisible(find.text('运行配置'));
+        await tester.tap(find.text('运行配置'));
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('返回菜单'), findsOneWidget);
+      }
+      await tester.fling(grabber, const Offset(0, 160), 1600);
+      await tester.pumpAndSettle();
+      expect(panel, findsNothing);
+      expect(find.text('下滑收起后保留草稿'), findsOneWidget);
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Harness changes from plus menu and stays out of model popup', (
     tester,
   ) async {

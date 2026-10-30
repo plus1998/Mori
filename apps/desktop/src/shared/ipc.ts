@@ -213,6 +213,7 @@ export const IPC_CHANNELS = {
   threadFollowUpReorder: "thread:follow-up-reorder",
   threadFollowUpList: "thread:follow-up-list",
   threadFollowUpCancel: "thread:follow-up-cancel",
+  threadFollowUpToTodo: "thread:follow-up-to-todo",
   threadGetPendingPlan: "thread:get-pending-plan",
   threadGetApprovedPlan: "thread:get-approved-plan",
   clarificationGetPending: "clarification:get-pending",
@@ -2144,6 +2145,11 @@ export interface ThreadFollowUpCancelRequest {
   threadId: string;
   followUpId: string;
   expectedHistoryRevision: number;
+}
+
+export type ThreadFollowUpToTodoRequest = ThreadFollowUpCancelRequest;
+export interface ThreadFollowUpToTodoResult extends ThreadFollowUpMutationResult {
+  todo: import("./project-todos").ProjectTodo;
 }
 
 export interface ThreadFollowUpEditingRequest {

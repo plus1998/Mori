@@ -35,6 +35,7 @@ export interface TtsMcpInjection {
 
 export interface TtsGatewayDeps {
   store: TtsStore;
+  fetchImpl?: typeof fetch;
   resolveWorkspacePath(threadId: string): string | undefined;
   resolveGenerationRoot(threadId: string): string | undefined;
   onArtifactChanged(artifact: TtsArtifact): void;
@@ -332,6 +333,7 @@ export class TtsMcpGateway {
     this.deps.onArtifactChanged(artifact);
     try {
       const audio = await generateSpeechToWorkspace({
+        ...(this.deps.fetchImpl ? { fetchImpl: this.deps.fetchImpl } : {}),
         config,
         toolInput: normalized,
         generationRoot,

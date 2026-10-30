@@ -26,3 +26,16 @@ test("todo RPCs require paired access and versioned mutations", () => {
   expect(validateRemoteCommandArgs("project-todo:save", [{ text: "incomplete" }]).ok).toBe(false);
   expect(getRemoteCommandDefinition("project-todo:save")?.risk).toBe("write_safe");
 });
+
+test("moving a queued message to todos requires the complete V2 mutation envelope", () => {
+  const channel = "thread:follow-up-to-todo";
+  expect(getRemoteCommandDefinition(channel)?.requiredCapabilities).toEqual(["rpc:invoke"]);
+  expect(getRemoteCommandDefinition(channel)?.risk).toBe("write_safe");
+  const request = { principalId: "user", clientCommandId: "move-1", threadId: "thread", followUpId: "queued", expectedHistoryRevision: 0 };
+  expect(validateRemoteCommandArgs(channel, [request]).ok).toBe(true);
+  for (const field of Object.keys(request)) {
+    const incomplete = { ...request };
+    delete incomplete[field as keyof typeof incomplete];
+    expect(validateRemoteCommandArgs(channel, [incomplete]).ok).toBe(false);
+  }
+});

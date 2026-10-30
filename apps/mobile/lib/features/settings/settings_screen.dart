@@ -133,6 +133,12 @@ class SettingsScreen extends ConsumerWidget {
                         signedIn: signedIn,
                       ),
                       EcoGroupedSection(
+                        child: SettingsDisclosureRow(
+                          title: l10n.desktopDisplayTitle,
+                          onTap: () => context.push('/settings/desktop-display'),
+                        ),
+                      ),
+                      EcoGroupedSection(
                         label: l10n.settingsAppearance,
                         topSpacing: 28,
                         child: Column(

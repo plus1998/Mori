@@ -11,6 +11,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+const _textQuestion =
+    '请先在桌面端终端运行 gh auth login --hostname github.com --web，完成后回复“已登录”。登录凭据请留在终端，不要发到聊天里；我会继续完成本地签名验证。';
+
 // Native UI harness: production dock/layout, local callbacks, no account or RPC.
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +24,11 @@ void main() {
       throw ArgumentError('Screenshots must stay in /tmp.');
     }
     await Directory(directory).create(recursive: true);
+    // Let the native compositor present Flutter's frame. The marker also lets
+    // a host-side simctl capture include the system keyboard (a separate window).
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    debugPrint('QUESTION_SCREENSHOT_READY $name');
+    await Future<void>.delayed(const Duration(seconds: 3));
     final bytes = await binding.takeScreenshot(name);
     await File('$directory/$name.png').writeAsBytes(bytes);
   }
@@ -34,7 +42,7 @@ void main() {
     final panel = find.byKey(const Key('clarification-dock-panel'));
     expect(
       tester.getSize(panel).height,
-      lessThanOrEqualTo(MediaQuery.sizeOf(tester.element(panel)).height * .58),
+      lessThanOrEqualTo(MediaQuery.sizeOf(tester.element(panel)).height * .72),
     );
     await screenshot('question-options');
     final option = find.text('选项 7');
@@ -42,13 +50,16 @@ void main() {
       option,
       160,
       scrollable: find.descendant(
-        of: find.byKey(const Key('clarification-options-scroll')),
+        of: find.byKey(const Key('clarification-content-scroll')),
         matching: find.byType(Scrollable),
       ),
     );
     await tester.tap(option);
     await tester.pumpAndSettle();
-    expect(find.text('请描述遇到的问题'), findsOneWidget);
+    expect(find.text(_textQuestion), findsOneWidget);
+    expect(find.text('其他（自行输入）'), findsNothing);
+    expect(MediaQuery.viewInsetsOf(tester.element(panel)).bottom, 0);
+    await screenshot('question-free-text');
     final input = find.byType(TextField);
     await tester.ensureVisible(input);
     await tester.tap(input);
@@ -134,7 +145,7 @@ class _QuestionAppState extends State<_QuestionApp> {
                             ],
                           ),
                           const ClarificationQuestion(
-                            question: '请描述遇到的问题',
+                            question: _textQuestion,
                             options: [],
                           ),
                         ],

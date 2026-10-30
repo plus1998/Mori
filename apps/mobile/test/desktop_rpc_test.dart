@@ -922,6 +922,7 @@ void main() {
         ),
         () => rpc.followUpEscalate(threadId: 'thr_1', followUpId: 'fup_1'),
         () => rpc.followUpCancel(threadId: 'thr_1', followUpId: 'fup_1'),
+        () => rpc.followUpToTodo(threadId: 'thr_1', followUpId: 'fup_1'),
         () async {
           await rpc.followUpSetQueuePaused(threadId: 'thr_1', paused: true);
         },
@@ -966,6 +967,25 @@ void main() {
           expect(request['followUpDeliveryMode'], mode.name);
         }
       }
+    },
+  );
+
+  test(
+    'followUpToTodo sends the V2 identity without copying prompt images over RPC',
+    () async {
+      final client = _RecordingEcoCenterClient();
+      final rpc = DesktopRpc(client, 'desktop_1');
+      await rpc.followUpToTodo(threadId: 'thr_1', followUpId: 'fup_1');
+      expect(client.channel, 'thread:follow-up-to-todo');
+      expect(client.args, [
+        {
+          'principalId': 'user_1',
+          'clientCommandId': startsWith('command_move-to-todo_'),
+          'threadId': 'thr_1',
+          'followUpId': 'fup_1',
+          'expectedHistoryRevision': 0,
+        },
+      ]);
     },
   );
 

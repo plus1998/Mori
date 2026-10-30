@@ -133,7 +133,14 @@ class ComposerPlusMenuRoute extends PopupRoute<ComposerPlusMenuAction> {
                             : const Offset(0, 0.025),
                         end: Offset.zero,
                       ).animate(curved),
-                      child: builder(context),
+                      child: Dismissible(
+                        key: const ValueKey('composer-plus-dismiss'),
+                        direction: DismissDirection.down,
+                        dismissThresholds: const {DismissDirection.down: 0.22},
+                        resizeDuration: null,
+                        onDismissed: (_) => close(),
+                        child: builder(context),
+                      ),
                     ),
                   ),
                 ),
@@ -227,6 +234,15 @@ class _ComposerPlusMenuPanelState extends ConsumerState<ComposerPlusMenuPanel> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    Semantics(
+                      label: l10n.commonClose,
+                      onDismiss: () => Navigator.pop(context),
+                      child: SizedBox(
+                        key: const ValueKey('composer-plus-grabber'),
+                        height: math.min(28, constraints.maxHeight),
+                        child: const EcoSheetGrabber(),
+                      ),
+                    ),
                     if (_showConfig && !scrollHeader) _header(context),
                     Flexible(
                       child: SingleChildScrollView(

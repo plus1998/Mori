@@ -11,10 +11,12 @@ import { isCodexAuthThread } from "../shared/codex-auth-thread";
 import { createAccountUsagePricingLookup } from "./account-usage-pricing";
 import { ChatGptModelCatalogService, resolveChatGptModelCatalogCachePath } from "./chatgpt-model-catalog";
 import { ProjectTodoStore } from "./project-todo-store";
+import { moveQueuedFollowUpToTodo } from "./thread-follow-up-todo";
 import { ProjectTodoAgentService } from "./project-todo-agent-service";
 import { resolveProjectTodoUploads } from "./project-todo-uploads";
 import type { ProjectTodoCompose, ProjectTodoSave, ProjectTodoTrash } from "../shared/project-todos";
 import { TtsReadAloudService } from "./tts-read-aloud";
+import { synthesizeSpeech } from "./tts-client";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -1639,6 +1641,13 @@ let agentOrchestrationStore: AgentOrchestrationStore;
 let mcpStore: McpStore;
 let mcpHubGateway: McpHubGateway;
 let conversationStore: ConversationStore;
+function createProjectTodoThumbnail(bytes: Buffer): string {
+  const image = nativeImage.createFromBuffer(bytes);
+  if (image.isEmpty()) return "";
+  const size = image.getSize();
+  return image.resize(size.width >= size.height ? { width: Math.min(240, size.width) } : { height: Math.min(180, size.height) }).toDataURL();
+}
+
 let projectTodoStore: ProjectTodoStore;
 let conversationForkCommands: ConversationForkCommands | undefined;
 
@@ -2728,12 +2737,7 @@ app
     const todoSqlite = await import("node:sqlite");
     accountUsageStore = new AccountUsageStore(new todoSqlite.DatabaseSync(dbPath));
     app.once("will-quit", () => accountUsageStore.close());
-    projectTodoStore = new ProjectTodoStore(new todoSqlite.DatabaseSync(dbPath), bytes => {
-      const image = nativeImage.createFromBuffer(bytes);
-      if (image.isEmpty()) return "";
-      const size = image.getSize();
-      return image.resize(size.width >= size.height ? { width: Math.min(240, size.width) } : { height: Math.min(180, size.height) }).toDataURL();
-    });
+    projectTodoStore = new ProjectTodoStore(new todoSqlite.DatabaseSync(dbPath), createProjectTodoThumbnail);
     app.once("will-quit", () => projectTodoStore.close());
     providerStore = await createProviderStore(dbPath);
     agentOrchestrationStore = await createAgentOrchestrationStore(dbPath);
@@ -2944,9 +2948,15 @@ app
       },
     });
     ttsStore = await createTtsStore(dbPath, imageSecretCodec);
-    ttsReadAloud = new TtsReadAloudService(ttsStore);
+    // Chromium follows OS proxy/PAC and certificate settings, as the desktop
+    // model catalog does. Node fetch bypasses those system settings.
+    const ttsFetch = net.fetch.bind(net) as typeof fetch;
+    ttsReadAloud = new TtsReadAloudService(ttsStore, (input) =>
+      synthesizeSpeech({ ...input, fetchImpl: ttsFetch }),
+    );
     ttsGateway = new TtsMcpGateway({
       store: ttsStore,
+      fetchImpl: ttsFetch,
       resolveWorkspacePath: (threadId) => conversationStore.getThread(threadId)?.workspacePath,
       resolveGenerationRoot: (threadId) =>
         activeRunRuntimeState.worktreePlan(threadId)?.worktreePath ??
@@ -10737,6 +10747,40 @@ function registerRemainingDesktopCommands(): void {
             thread,
           } satisfies ThreadFollowUpQueuePausedResult;
         },
+      },
+    );
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.threadFollowUpToTodo, async (payload: unknown) => {
+    const request = parseThreadFollowUpCancelRequest(payload);
+    return executeFollowUpMutationCommand(
+      {
+        principalId: request.principalId,
+        clientCommandId: request.clientCommandId,
+        conversationId: request.threadId,
+        expectedHistoryRevision: request.expectedHistoryRevision,
+        operation: "move-to-todo",
+        request: { followUpId: request.followUpId },
+      },
+      {
+        v2: conversationStore.conversationV2(),
+        errorMessage,
+        execute: () => withThreadFollowUpLock(request.threadId, async () => {
+          const { followUp, todo } = await moveQueuedFollowUpToTodo(request, {
+            conversations: conversationStore,
+            todos: projectTodoStore,
+            readAttachment: attachment => promptImageFileStore.readAttachmentData(attachment),
+            thumbnail: createProjectTodoThumbnail,
+          });
+          releaseFollowUpQueuePauseWhenEmpty(request.threadId);
+          if (editingThreadFollowUpByThread.get(request.threadId) === followUp.id) {
+            editingThreadFollowUpByThread.delete(request.threadId);
+            void drainQueuedThreadFollowUpsAfterRun(request.threadId);
+          }
+          emitThreadFollowUpEvent(followUp, "thread.follow_up.cancelled", "已迁到待办。");
+          desktopEventCenter.publish({ kind: "project-todo.changed", payload: {}, aggregateKey: "project-todos:global" });
+          return { ...buildThreadFollowUpMutationResult(followUp), todo };
+        }),
       },
     );
   });

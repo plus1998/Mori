@@ -2603,6 +2603,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get followUpGuide => 'Guide';
 
   @override
+  String get followUpToTodo => 'Move to todos';
+
+  @override
+  String get followUpMovedToTodo =>
+      'Moved to todos and removed from the send queue.';
+
+  @override
   String get followUpEdit => 'Edit';
 
   @override
@@ -3465,4 +3472,59 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get imageCopyUnavailable =>
       'Image copying is unavailable. Restart the app and try again.';
+
+  @override
+  String get desktopDisplayTitle => 'Desktop display and lock';
+
+  @override
+  String get desktopPreventAutoLock => 'Prevent automatic locking';
+
+  @override
+  String get desktopDimScreen => 'Set brightness to minimum';
+
+  @override
+  String get desktopAutoLockPrevented => 'Automatic locking is prevented';
+
+  @override
+  String get desktopAutoLockAllowed => 'Automatic locking is allowed';
+
+  @override
+  String get desktopScreenDimmed => 'Confirmed at minimum brightness';
+
+  @override
+  String get desktopScreenNotDimmed =>
+      'Currently above minimum; enable to dim again';
+
+  @override
+  String get desktopDisplayUnknown => 'Current state is unknown';
+
+  @override
+  String get desktopDisplayPatrol => 'Patrol';
+
+  @override
+  String get desktopDisplayPatrolHint =>
+      'Check the desktop every 5 seconds while this page is in the foreground';
+
+  @override
+  String get desktopDisplayHint =>
+      'Controls the connected desktop. Patrol updates actual state; enable minimum brightness again after another action restores it. Manual locking and lid closing still apply.';
+
+  @override
+  String desktopDisplayCheckedAt(String time) {
+    return 'Last checked: $time';
+  }
+
+  @override
+  String get desktopDisplayRestorePending =>
+      'Brightness restoration pending; reconnect displays and disable dimming to retry';
+
+  @override
+  String get desktopDisplayUnsupported => 'Brightness control is unsupported';
+
+  @override
+  String get desktopDisplayUpgrade =>
+      'This desktop version does not support display controls. Please update Mori.';
+
+  @override
+  String get approvalClarificationTitle => 'Answer a question';
 }

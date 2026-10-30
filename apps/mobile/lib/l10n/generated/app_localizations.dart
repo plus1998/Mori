@@ -4532,6 +4532,18 @@ abstract class AppLocalizations {
   /// **'Guide'**
   String get followUpGuide;
 
+  /// No description provided for @followUpToTodo.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to todos'**
+  String get followUpToTodo;
+
+  /// No description provided for @followUpMovedToTodo.
+  ///
+  /// In en, this message translates to:
+  /// **'Moved to todos and removed from the send queue.'**
+  String get followUpMovedToTodo;
+
   /// No description provided for @followUpEdit.
   ///
   /// In en, this message translates to:
@@ -6073,6 +6085,102 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Image copying is unavailable. Restart the app and try again.'**
   String get imageCopyUnavailable;
+
+  /// No description provided for @desktopDisplayTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop display and lock'**
+  String get desktopDisplayTitle;
+
+  /// No description provided for @desktopPreventAutoLock.
+  ///
+  /// In en, this message translates to:
+  /// **'Prevent automatic locking'**
+  String get desktopPreventAutoLock;
+
+  /// No description provided for @desktopDimScreen.
+  ///
+  /// In en, this message translates to:
+  /// **'Set brightness to minimum'**
+  String get desktopDimScreen;
+
+  /// No description provided for @desktopAutoLockPrevented.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic locking is prevented'**
+  String get desktopAutoLockPrevented;
+
+  /// No description provided for @desktopAutoLockAllowed.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic locking is allowed'**
+  String get desktopAutoLockAllowed;
+
+  /// No description provided for @desktopScreenDimmed.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed at minimum brightness'**
+  String get desktopScreenDimmed;
+
+  /// No description provided for @desktopScreenNotDimmed.
+  ///
+  /// In en, this message translates to:
+  /// **'Currently above minimum; enable to dim again'**
+  String get desktopScreenNotDimmed;
+
+  /// No description provided for @desktopDisplayUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Current state is unknown'**
+  String get desktopDisplayUnknown;
+
+  /// No description provided for @desktopDisplayPatrol.
+  ///
+  /// In en, this message translates to:
+  /// **'Patrol'**
+  String get desktopDisplayPatrol;
+
+  /// No description provided for @desktopDisplayPatrolHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Check the desktop every 5 seconds while this page is in the foreground'**
+  String get desktopDisplayPatrolHint;
+
+  /// No description provided for @desktopDisplayHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Controls the connected desktop. Patrol updates actual state; enable minimum brightness again after another action restores it. Manual locking and lid closing still apply.'**
+  String get desktopDisplayHint;
+
+  /// No description provided for @desktopDisplayCheckedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Last checked: {time}'**
+  String desktopDisplayCheckedAt(String time);
+
+  /// No description provided for @desktopDisplayRestorePending.
+  ///
+  /// In en, this message translates to:
+  /// **'Brightness restoration pending; reconnect displays and disable dimming to retry'**
+  String get desktopDisplayRestorePending;
+
+  /// No description provided for @desktopDisplayUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Brightness control is unsupported'**
+  String get desktopDisplayUnsupported;
+
+  /// No description provided for @desktopDisplayUpgrade.
+  ///
+  /// In en, this message translates to:
+  /// **'This desktop version does not support display controls. Please update Mori.'**
+  String get desktopDisplayUpgrade;
+
+  /// No description provided for @approvalClarificationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Answer a question'**
+  String get approvalClarificationTitle;
 }
 
 class _AppLocalizationsDelegate

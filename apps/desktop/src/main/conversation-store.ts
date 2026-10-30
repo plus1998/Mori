@@ -3796,7 +3796,11 @@ export class ConversationStore {
     return this.listThreadFollowUps(threadId, { statuses: ["queued"] });
   }
 
-  cancelThreadFollowUp(threadId: string, followUpId: string): ThreadPendingFollowUp | undefined {
+  cancelThreadFollowUp(
+    threadId: string,
+    followUpId: string,
+    onCancelInTransaction?: (db: DatabaseSyncType, followUp: ThreadPendingFollowUp) => void,
+  ): ThreadPendingFollowUp | undefined {
     const existing = this.getThreadFollowUp(threadId, followUpId);
     if (!existing || existing.status !== "queued") {
       return undefined;
@@ -3806,6 +3810,9 @@ export class ConversationStore {
       : undefined;
     if (existing.conversationMessageId && !message) {
       throw new Error("Queued follow-up has no accepted conversation message to cancel.");
+    }
+    if (onCancelInTransaction && message && (message.isDeleted || message.status !== "queued")) {
+      throw new Error("Follow-up message is no longer queued.");
     }
     if (message) this.v2.validateIntegrity(threadId);
     const results: ConversationAppendResult[] = [];
@@ -3825,6 +3832,9 @@ export class ConversationStore {
           }),
         );
       }
+      // A transfer writes its destination on this connection, so queue removal,
+      // the V2 tombstone and the saved destination either all commit or all roll back.
+      onCancelInTransaction?.(this.db, existing);
       const cancelled = this.updateThreadFollowUpStatus(threadId, followUpId, { status: "cancelled" });
       this.db.exec("COMMIT");
       this.v2.publishCommitted(results);

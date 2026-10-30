@@ -27,6 +27,8 @@ const RPC_INVOKE = ["rpc:invoke"] as const;
 const APPROVAL_DECIDE = ["rpc:invoke", "approval:decide"] as const;
 
 export const REMOTE_COMMAND_DEFINITIONS = [
+  command("display-control:get", "Read desktop display and lock state", "read", RPC_INVOKE, []),
+  command("display-control:set", "Change desktop display and lock controls", "write_safe", RPC_INVOKE, [objectArg(["control", "enabled"])]),
   command("composer-references:search", "Search composer references", "read", RPC_INVOKE, [objectArg(["query"])]),
   command("project-todo:list", "List project todos", "read", RPC_INVOKE, []),
   command("project-todo:query", "Page and search project todos", "read", RPC_INVOKE, [objectArg(["completed"])]),
@@ -158,6 +160,9 @@ export const REMOTE_COMMAND_DEFINITIONS = [
     objectArg(["principalId", "clientCommandId", "threadId", "prompt", "expectedHistoryRevision"]),
   ]),
   command("thread:follow-up-cancel", "Cancel follow-up", "write_safe", RPC_INVOKE, [
+    objectArg(["principalId", "clientCommandId", "threadId", "followUpId", "expectedHistoryRevision"]),
+  ]),
+  command("thread:follow-up-to-todo", "Move queued follow-up to project todos", "write_safe", RPC_INVOKE, [
     objectArg(["principalId", "clientCommandId", "threadId", "followUpId", "expectedHistoryRevision"]),
   ]),
   command("thread:follow-up-escalate", "Escalate follow-up", "execute", RPC_INVOKE, [

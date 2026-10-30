@@ -178,8 +178,8 @@ export class ProjectTodoStore {
     const chunk = bytes.subarray(input.offset, input.offset + 64 * 1024);
     return { data: chunk.toString("base64"), totalBytes: bytes.length, nextOffset: input.offset + chunk.length };
   }
-  private record(row: Row, full: boolean): ProjectTodo {
-    const images = this.db
+  private record(row: Row, full: boolean, db = this.db): ProjectTodo {
+    const images = db
       .prepare(
         `SELECT id, media_type, thumbnail${full ? ", data" : ""} FROM project_todo_images WHERE todo_id=? ORDER BY position`,
       )
@@ -203,6 +203,13 @@ export class ProjectTodoStore {
     };
   }
   save(input: ProjectTodoSave): ProjectTodo {
+    return this.write(input, this.db, false);
+  }
+  /** The caller owns the transaction and must use the same database file. */
+  saveInCurrentTransaction(input: ProjectTodoSave, db: DatabaseSync): ProjectTodo {
+    return this.write(input, db, true);
+  }
+  private write(input: ProjectTodoSave, db: DatabaseSync, inTransaction: boolean): ProjectTodo {
     if (
       !input ||
       typeof input.projectPath !== "string" ||
@@ -217,7 +224,9 @@ export class ProjectTodoStore {
     if (!input.text.trim() && !input.images.length) throw new Error("A todo needs text or an image.");
     const id = input.id ?? randomUUID();
     if (typeof id !== "string" || !id || id.length > 200) throw new Error("Invalid todo ID.");
-    const existing = input.id ? this.get(id) : undefined;
+    const existingRow = input.id ? db.prepare("SELECT * FROM project_todos WHERE id=? AND deleted_at IS NULL").get(id) as Row | undefined : undefined;
+    if (input.id && !existingRow) throw new Error("Todo no longer exists.");
+    const existing = existingRow ? this.record(existingRow, true, db) : undefined;
     if (existing && existing.revision !== input.revision)
       throw new Error("Todo changed. Reopen it before saving.");
     // Legacy clients and completion checkboxes only change the completed flag.
@@ -261,9 +270,9 @@ export class ProjectTodoStore {
       return { id: image.id, mediaType: image.mediaType, data: bytes.toString("base64"), thumbnail };
     });
     const now = new Date().toISOString();
-    this.db.exec("BEGIN IMMEDIATE");
+    if (!inTransaction) db.exec("BEGIN IMMEDIATE");
     try {
-      this.db
+      db
         .prepare(`INSERT INTO project_todos (id, revision, project_path, text, completed, created_at, updated_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, project_path=excluded.project_path, text=excluded.text, completed=excluded.completed, updated_at=excluded.updated_at, status=excluded.status`)
         .run(
@@ -276,18 +285,18 @@ export class ProjectTodoStore {
           now,
           status,
         );
-      this.db.prepare("DELETE FROM project_todo_images WHERE todo_id=?").run(id);
-      const insert = this.db.prepare("INSERT INTO project_todo_images VALUES (?, ?, ?, ?, ?, ?)");
+      db.prepare("DELETE FROM project_todo_images WHERE todo_id=?").run(id);
+      const insert = db.prepare("INSERT INTO project_todo_images VALUES (?, ?, ?, ?, ?, ?)");
       images.forEach((image, index) => {
         if (!image.data) throw new Error("Todo image data missing.");
         insert.run(id, image.id, index, image.mediaType, image.thumbnail, image.data);
       });
-      this.db.exec("COMMIT");
+      if (!inTransaction) db.exec("COMMIT");
     } catch (error) {
-      this.db.exec("ROLLBACK");
+      if (!inTransaction) db.exec("ROLLBACK");
       throw error;
     }
-    return this.record(this.db.prepare("SELECT * FROM project_todos WHERE id=?").get(id) as Row, false);
+    return this.record(db.prepare("SELECT * FROM project_todos WHERE id=?").get(id) as Row, false, db);
   }
   updateStatus(input: ProjectTodoStatusUpdate): ProjectTodo {
     if (!input || typeof input.id !== "string" || !input.id || !Number.isSafeInteger(input.revision) ||

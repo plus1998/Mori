@@ -864,6 +864,8 @@
   "composerContext": "Context",
   "followUpReorder": "Drag to reorder messages",
   "followUpGuide": "Guide",
+  "followUpToTodo": "Move to todos",
+  "followUpMovedToTodo": "Moved to todos and removed from the send queue.",
   "followUpEdit": "Edit",
   "followUpEditing": "Editing",
   "followUpQueuePaused": "Queue paused",
@@ -1176,5 +1178,28 @@
   "imageCopied": "Copied",
   "imageCopyFailed": "Could not copy this image. Try again.",
   "imageCopyUnsupported": "Copying this image format is not supported.",
-  "imageCopyUnavailable": "Image copying is unavailable. Restart the app and try again."
+  "imageCopyUnavailable": "Image copying is unavailable. Restart the app and try again.",
+  "desktopDisplayTitle": "Desktop display and lock",
+  "desktopPreventAutoLock": "Prevent automatic locking",
+  "desktopDimScreen": "Set brightness to minimum",
+  "desktopAutoLockPrevented": "Automatic locking is prevented",
+  "desktopAutoLockAllowed": "Automatic locking is allowed",
+  "desktopScreenDimmed": "Confirmed at minimum brightness",
+  "desktopScreenNotDimmed": "Currently above minimum; enable to dim again",
+  "desktopDisplayUnknown": "Current state is unknown",
+  "desktopDisplayPatrol": "Patrol",
+  "desktopDisplayPatrolHint": "Check the desktop every 5 seconds while this page is in the foreground",
+  "desktopDisplayHint": "Controls the connected desktop. Patrol updates actual state; enable minimum brightness again after another action restores it. Manual locking and lid closing still apply.",
+  "desktopDisplayCheckedAt": "Last checked: {time}",
+  "desktopDisplayRestorePending": "Brightness restoration pending; reconnect displays and disable dimming to retry",
+  "desktopDisplayUnsupported": "Brightness control is unsupported",
+  "desktopDisplayUpgrade": "This desktop version does not support display controls. Please update Mori.",
+  "@desktopDisplayCheckedAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "approvalClarificationTitle": "Answer a question"
 }

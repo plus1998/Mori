@@ -93,6 +93,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
   int _landingConfigEpoch = 0;
   String? _editingFollowUpId;
   String? _followUpCancelBusyId;
+  String? _followUpToTodoBusyId;
   String? _followUpEscalateBusyId;
   bool _followUpQueuePauseBusy = false;
   double _lastKeyboardInset = 0;
@@ -556,6 +557,8 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                   queuePaused: thread?.followUpQueuePaused ?? false,
                   pauseBusy: _followUpQueuePauseBusy,
                   cancelBusyId: _followUpCancelBusyId,
+                  moveToTodoBusyId: _followUpToTodoBusyId,
+                  onMoveToTodo: _moveFollowUpToTodo,
                   escalateBusyId: _followUpEscalateBusyId,
                   onEscalate: (followUp) => _escalateFollowUp(followUp),
                   onEdit: _startEditingFollowUp,
@@ -1472,6 +1475,33 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
       if (mounted) {
         setState(() => _followUpCancelBusyId = null);
       }
+    }
+  }
+
+  Future<void> _moveFollowUpToTodo(ThreadPendingFollowUp followUp) async {
+    final rpc = ref.read(desktopRpcProvider);
+    if (rpc == null || _followUpToTodoBusyId != null) return;
+    setState(() => _followUpToTodoBusyId = followUp.id);
+    try {
+      await rpc.followUpToTodo(
+        threadId: followUp.threadId,
+        followUpId: followUp.id,
+      );
+      if (_editingFollowUpId == followUp.id) await _cancelEditingFollowUp();
+      await _refreshFollowUps();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.followUpMovedToTodo)),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _followUpToTodoBusyId = null);
     }
   }
 

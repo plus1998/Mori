@@ -2,11 +2,27 @@ import { afterEach, expect, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { generateSpeechToWorkspace, normalizeTtsToolInput } from "../src/main/tts-client";
+import { generateSpeechToWorkspace, normalizeTtsToolInput, synthesizeSpeech } from "../src/main/tts-client";
 import type { TtsClientConfig } from "../src/main/tts-store";
 import { TtsError } from "../src/shared/tts";
 
 const cleanups: (() => Promise<unknown> | unknown)[] = [];
+test("speech generation uses the supplied desktop network stack and preserves transport error codes", async () => {
+  const input = await fixture(() => new Response("must use injected transport", { status: 500 }), "doubao");
+  const audio = Buffer.from([0xff, 0xfb, 0x90, 0x00, 0, 0, 0, 0]);
+  let called = false;
+  const fetchImpl = (async (_url, init) => {
+    called = true;
+    expect(init?.signal).toBeDefined();
+    return new Response(`data: ${JSON.stringify({ code: 0, data: audio.toString("base64") })}\n\ndata: {"code":20000000}\n\n`);
+  }) as typeof fetch;
+  const result = await generateSpeechToWorkspace({ ...input, fetchImpl });
+  expect(called).toBe(true);
+  expect(await fs.readFile(result[0]!.absolutePath)).toEqual(audio);
+  await expect(synthesizeSpeech({ ...input, fetchImpl: (async () => {
+    throw new TypeError("fetch failed", { cause: Object.assign(new Error("connect failed"), { code: "ECONNREFUSED" }) });
+  }) as typeof fetch })).rejects.toThrow("ECONNREFUSED");
+});
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });

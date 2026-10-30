@@ -1760,6 +1760,7 @@ function App() {
   const [followUpsByThread, setFollowUpsByThread] = useState<Record<string, ThreadPendingFollowUp[]>>({});
   const [followUpBusy, setFollowUpBusy] = useState(false);
   const [followUpCancelBusyId, setFollowUpCancelBusyId] = useState<string>();
+  const [followUpToTodoBusyId, setFollowUpToTodoBusyId] = useState<string>();
   const [followUpEscalateBusyId, setFollowUpEscalateBusyId] = useState<string>();
   const [followUpQueuePauseBusy, setFollowUpQueuePauseBusy] = useState(false);
   const followUpQueuePauseRevisionRef = useRef<Record<string, number>>({});
@@ -8850,6 +8851,30 @@ function App() {
     }
   }
 
+  async function moveQueuedFollowUpToTodo(followUp: ThreadPendingFollowUp) {
+    if (typeof window.eco?.moveThreadFollowUpToTodo !== "function") {
+      setError(t("app.preload.followUpToTodo"));
+      return;
+    }
+    setError(undefined);
+    setFollowUpToTodoBusyId(followUp.id);
+    try {
+      const result = await window.eco.moveThreadFollowUpToTodo(
+        await buildV2CommandEnvelope(followUp.threadId, "move-to-todo", { followUpId: followUp.id }),
+      );
+      setFollowUpsByThread(current => ({
+        ...current,
+        [followUp.threadId]: mergeThreadFollowUps(current[followUp.threadId] ?? [], result.followUps),
+      }));
+      if (editingFollowUpId === followUp.id) await cancelEditingFollowUp();
+      showAppMessageSuccessRef.current(t("thread.followUpMovedToTodo"));
+    } catch (caught) {
+      await refreshFollowUpsAfterMutationError(followUp.threadId, caught);
+    } finally {
+      setFollowUpToTodoBusyId(undefined);
+    }
+  }
+
   async function toggleFollowUpQueuePaused(paused: boolean) {
     if (!activeThread || typeof window.eco?.setThreadFollowUpQueuePaused !== "function") {
       setError(t("app.preload.followUpQueuePause"));
@@ -12237,6 +12262,8 @@ function App() {
                 threadActive={isLiveFollowUpThreadStatus(activeThread?.status) && !activeThread?.cancelling}
                 pauseBusy={followUpQueuePauseBusy}
                 cancelBusyId={followUpCancelBusyId}
+                moveToTodoBusyId={followUpToTodoBusyId}
+                onMoveToTodo={(followUp) => void moveQueuedFollowUpToTodo(followUp)}
                 escalateBusyId={followUpEscalateBusyId}
                 allowEscalate={activeThread ? coreSupportsFollowUpEscalate(activeThread.coreKind) : false}
                 onCancel={(followUp) => void cancelQueuedFollowUp(followUp)}

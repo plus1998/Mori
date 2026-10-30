@@ -4,6 +4,7 @@ import 'package:eco_mobile/features/composer/composer_dock_shell.dart';
 import 'package:eco_mobile/features/threads/thread_session_layout.dart';
 import 'package:eco_mobile/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -39,6 +40,9 @@ void main() {
     );
     await tester.pump();
     expect(tester.takeException(), isNull);
+    expect(find.text('Other (write an answer)'), findsNothing);
+    expect(tester.widget<TextField>(find.byType(TextField)).autofocus, isFalse);
+    expect(tester.testTextInput.isVisible, isFalse);
     await tester.enterText(find.byType(TextField), '  无法输入回答  ');
     await tester.pump();
     await tester.tap(find.text('Confirm'));
@@ -192,7 +196,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(
       tester.getSize(find.byKey(const Key('clarification-dock-panel'))).height,
-      lessThanOrEqualTo(600 * 0.58),
+      lessThanOrEqualTo(600 * 0.72),
     );
     await tester.tap(find.text('First option'));
     await tester.pump();
@@ -365,7 +369,7 @@ void main() {
     );
 
     final optionsHeight = tester
-        .getSize(find.byKey(const Key('clarification-options-scroll')))
+        .getSize(find.byKey(const Key('clarification-options-content')))
         .height;
     expect(optionsHeight, lessThan(80));
   });
@@ -403,11 +407,14 @@ void main() {
     expect(find.byType(BackdropFilter), findsOneWidget);
   });
 
-  testWidgets('clarification options scroll within the viewport cap', (
+  testWidgets('long options share the question scroll while submit stays fixed', (
     tester,
   ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       _LocalizedTestApp(
+        conversationDock: true,
         child: ClarificationDockPanel(
           request: ClarificationRequest(
             toolUseId: 'tool-long',
@@ -416,8 +423,12 @@ void main() {
               ClarificationQuestion(
                 question: 'Choose one',
                 options: [
-                  for (var index = 0; index < 12; index++)
-                    ClarificationQuestionOption(label: 'Option $index'),
+                  for (var i = 0; i < 12; i++)
+                    ClarificationQuestionOption(
+                      label: 'Option $i',
+                      description:
+                          'A complete description that should wrap naturally without truncating the information needed to choose this option.',
+                    ),
                 ],
               ),
             ],
@@ -428,15 +439,31 @@ void main() {
         ),
       ),
     );
-
-    final optionsHeight = tester
-        .getSize(find.byKey(const Key('clarification-options-scroll')))
-        .height;
-    final contentHeight = tester
-        .getSize(find.byKey(const Key('clarification-options-content')))
-        .height;
-    expect(optionsHeight, lessThanOrEqualTo(800 * 0.30));
-    expect(contentHeight, greaterThan(optionsHeight));
+    await tester.pump();
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
+    final footerBefore = tester.getRect(
+      find.widgetWithText(FilledButton, 'Submit'),
+    );
+    final scrollable = find.descendant(
+      of: find.byKey(const Key('clarification-content-scroll')),
+      matching: find.byType(Scrollable),
+    );
+    await tester.scrollUntilVisible(
+      find.text('Option 11'),
+      180,
+      scrollable: scrollable,
+    );
+    await tester.tap(find.text('Option 11'));
+    await tester.pump();
+    expect(
+      tester.getRect(find.widgetWithText(FilledButton, 'Submit')),
+      footerBefore,
+    );
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+      isNotNull,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('clarification dock caps its height on a narrow viewport', (
@@ -478,20 +505,90 @@ void main() {
 
     expect(
       tester.getSize(find.byKey(const Key('clarification-dock-panel'))).height,
-      lessThanOrEqualTo(640 * 0.58),
+      lessThanOrEqualTo(640 * 0.72),
     );
+  });
+
+  testWidgets('large text on a small phone wraps options without truncation', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 568));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const label =
+        'A long option title that needs more than two lines on a phone';
+    const description =
+        'Keep the complete explanation visible so the user can understand the choice before answering, even with larger text enabled.';
+    await tester.pumpWidget(
+      _LocalizedTestApp(
+        textScale: 1.5,
+        conversationDock: true,
+        child: ClarificationDockPanel(
+          request: const ClarificationRequest(
+            toolUseId: 'large-text',
+            threadId: 'thread-1',
+            questions: [
+              ClarificationQuestion(
+                question: 'Choose how to continue with this request',
+                allowCustom: false,
+                options: [
+                  ClarificationQuestionOption(
+                    label: label,
+                    description: description,
+                    recommended: true,
+                  ),
+                ],
+              ),
+            ],
+          ),
+          busy: false,
+          onSubmit: (_, {customInputIndices}) async {},
+          onDismiss: () async {},
+        ),
+      ),
+    );
+    for (final value in [label, description]) {
+      final paragraph = tester.renderObject<RenderParagraph>(find.text(value));
+      expect(paragraph.didExceedMaxLines, isFalse);
+      expect(tester.widget<Text>(find.text(value)).maxLines, isNull);
+    }
+    await tester.scrollUntilVisible(
+      find.text('Recommended'),
+      100,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('clarification-content-scroll')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.tap(find.text('Recommended'));
+    await tester.pump();
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+      isNotNull,
+    );
+    expect(tester.takeException(), isNull);
   });
 }
 
 class _LocalizedTestApp extends StatelessWidget {
-  const _LocalizedTestApp({required this.child, this.conversationDock = false});
+  const _LocalizedTestApp({
+    required this.child,
+    this.conversationDock = false,
+    this.textScale = 1,
+  });
 
   final Widget child;
   final bool conversationDock;
+  final double textScale;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      ),
       locale: const Locale('en'),
       localizationsDelegates: const [
         AppLocalizations.delegate,

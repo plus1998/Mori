@@ -234,6 +234,8 @@ import {
   type ThreadDeleteResult,
   type ThreadDismissPlanRequest,
   type ThreadFollowUpCancelRequest,
+  type ThreadFollowUpToTodoRequest,
+  type ThreadFollowUpToTodoResult,
   type ThreadFollowUpEditingRequest,
   type ThreadFollowUpEditingResult,
   type ThreadFollowUpEnqueueRequest,
@@ -1556,6 +1558,9 @@ const api = {
   },
   listThreadFollowUps(threadId: string): Promise<ThreadFollowUpListResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadFollowUpList, threadId);
+  },
+  moveThreadFollowUpToTodo(request: ThreadFollowUpToTodoRequest): Promise<ThreadFollowUpToTodoResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.threadFollowUpToTodo, request);
   },
   cancelThreadFollowUp(request: ThreadFollowUpCancelRequest): Promise<ThreadFollowUpMutationResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadFollowUpCancel, request);

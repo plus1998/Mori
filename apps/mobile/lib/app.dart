@@ -23,6 +23,7 @@ import 'features/home/home_screen.dart';
 import 'features/home/setup_status.dart';
 import 'features/projects/project_providers.dart';
 import 'features/settings/settings_context_window_page.dart';
+import 'features/settings/settings_desktop_display_page.dart';
 import 'features/settings/settings_default_bash_review_page.dart';
 import 'features/settings/settings_language_page.dart';
 import 'features/settings/settings_max_output_page.dart';
@@ -178,6 +179,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 builder: (context, state) => const SettingsScreen(),
                 routes: [
                   GoRoute(path: 'read-aloud', parentNavigatorKey: _rootNavigatorKey, builder: (context, state) => const SettingsReadAloudPage()),
+                  GoRoute(path: 'desktop-display', parentNavigatorKey: _rootNavigatorKey, builder: (context, state) => const SettingsDesktopDisplayPage()),
                   GoRoute(
                     path: 'theme',
                     parentNavigatorKey: _rootNavigatorKey,

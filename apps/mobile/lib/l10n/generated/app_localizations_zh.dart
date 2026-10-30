@@ -2470,6 +2470,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get followUpGuide => '引导';
 
   @override
+  String get followUpToTodo => '迁到待办';
+
+  @override
+  String get followUpMovedToTodo => '已迁到待办，并移出发送队列。';
+
+  @override
   String get followUpEdit => '修改';
 
   @override
@@ -3272,4 +3278,55 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get imageCopyUnavailable => '图片复制服务不可用，请重新启动应用后重试。';
+
+  @override
+  String get desktopDisplayTitle => '电脑屏幕与锁屏';
+
+  @override
+  String get desktopPreventAutoLock => '阻止自动锁屏';
+
+  @override
+  String get desktopDimScreen => '亮度调至最低';
+
+  @override
+  String get desktopAutoLockPrevented => '已阻止自动锁屏';
+
+  @override
+  String get desktopAutoLockAllowed => '未阻止自动锁屏';
+
+  @override
+  String get desktopScreenDimmed => '已确认处于最低亮度';
+
+  @override
+  String get desktopScreenNotDimmed => '当前未处于最低亮度，可重新开启';
+
+  @override
+  String get desktopDisplayUnknown => '当前状态未确认';
+
+  @override
+  String get desktopDisplayPatrol => '巡查';
+
+  @override
+  String get desktopDisplayPatrolHint => '此页在前台时，每 5 秒检查电脑状态';
+
+  @override
+  String get desktopDisplayHint =>
+      '控制当前连接的电脑。巡查只更新实际状态；亮度被其他操作恢复后，可重新开启最低亮度。手动锁屏和合盖仍然有效。';
+
+  @override
+  String desktopDisplayCheckedAt(String time) {
+    return '最近确认：$time';
+  }
+
+  @override
+  String get desktopDisplayRestorePending => '有屏幕等待恢复亮度，请连接屏幕后关闭最低亮度重试';
+
+  @override
+  String get desktopDisplayUnsupported => '不支持亮度控制';
+
+  @override
+  String get desktopDisplayUpgrade => '当前电脑版本不支持屏幕控制，请升级 Mori。';
+
+  @override
+  String get approvalClarificationTitle => '回答问题';
 }

@@ -82,7 +82,10 @@ class _ContextBillingTabsState extends State<_ContextBillingTabs> {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+    _page = widget.showCodexQuota
+        ? (widget.showContextUsage ? 1 : 0) + (widget.showBilling ? 1 : 0)
+        : 0;
+    _pageController = PageController(initialPage: _page);
   }
 
   @override

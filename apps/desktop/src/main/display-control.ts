@@ -62,7 +62,10 @@ export class DisplayControl {
   }
 
   getState(): Promise<DisplayControlState> {
-    return this.enqueue(() => this.readState());
+    return this.enqueue(async () => {
+      await this.refreshInternal();
+      return this.readState();
+    });
   }
 
   private async readState(): Promise<DisplayControlState> {
@@ -78,7 +81,8 @@ export class DisplayControl {
             displays.push({
               ...display,
               method: levels.method,
-              status: record ? (this.dimmingRequested ? "dimmed" : "restorePending") : "ready",
+              status: record && !this.dimmingRequested ? "restorePending"
+                : displayLevelsAreMinimum(levels) ? "dimmed" : "ready",
             });
           } catch (error) {
             displays.push({
@@ -95,7 +99,8 @@ export class DisplayControl {
     }
     return {
       preventAutoLock: !!this.activity,
-      dimmed: this.dimmingRequested,
+      dimmed: !brightnessError && displays.some((display) => display.status === "dimmed") &&
+        displays.every((display) => display.status === "dimmed" || display.status === "unsupported"),
       brightnessAvailable: displays.some((display) => display.method !== undefined),
       displays,
       pendingRestores: this.dimmingRequested ? 0 : this.dimmedDisplays.size,
@@ -119,6 +124,7 @@ export class DisplayControl {
       throw new Error("Invalid display control change.");
     }
     this.error = undefined;
+    await this.refreshInternal();
     try {
       if (input.control === "preventAutoLock") {
         if (input.enabled && !this.activity) {
