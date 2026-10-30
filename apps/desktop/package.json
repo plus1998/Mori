@@ -1,6 +1,6 @@
 {
   "name": "@eco/desktop",
-  "version": "0.2.0-beta.7",
+  "version": "0.3.0-beta.1",
   "description": "Mori desktop app",
   "author": "Mori",
   "type": "module",

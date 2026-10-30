@@ -458,54 +458,11 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
             .watch(threadImageDisplayArtifactsProvider(widget.threadId))
             .valueOrNull ??
         const [];
-    final failed =
-        !isRunning &&
-        (thread?.status == 'failed' || thread?.status == 'blocked');
-    final failureMessage = failed ? thread?.message.trim() : null;
-
     final floatingComposer =
-        hasFloatingComposerContent || conversationV2.error != null || failed
+        hasFloatingComposerContent || conversationV2.error != null
         ? Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (failed)
-                Padding(
-                  padding: composerStackOuterPadding,
-                  child: Semantics(
-                    liveRegion: true,
-                    child: Material(
-                      key: const ValueKey('thread-run-failure-notice'),
-                      color: Theme.of(context).colorScheme.errorContainer,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              context.l10n.threadRunFailed,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            if (failureMessage?.isNotEmpty == true) ...[
-                              const SizedBox(height: 4),
-                              ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  maxHeight:
-                                      MediaQuery.sizeOf(context).height * 0.2,
-                                ),
-                                child: SingleChildScrollView(
-                                  child: SelectableText(failureMessage!),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
               if (conversationV2.error != null)
                 Padding(
                   padding: composerStackOuterPadding,
