@@ -1525,9 +1525,10 @@ const api = {
   listSchedules(): Promise<SchedulingSnapshot> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingList); },
   createSchedule(input: ScheduleCreateInput): Promise<ScheduleDefinition> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingCreate, input); },
   updateSchedule(input: ScheduleUpdateInput): Promise<ScheduleDefinition> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingUpdate, input); },
-  deleteSchedule(id: string): Promise<void> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingDelete, id); },
+  deleteSchedule(id: string, expectedRevision?: number): Promise<void> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingDelete, id, expectedRevision); },
   runScheduleNow(input: { id: string; requestId: string }): Promise<ScheduleOccurrence> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingRunNow, input); },
   previewSchedule(trigger: ScheduleTrigger): Promise<string[]> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingPreview, trigger); },
+  retryScheduleNotification(occurrenceId: string): Promise<void> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingRetryNotification, occurrenceId); },
   onSchedulesChanged(callback: () => void): () => void {
     const listener = () => callback();
     ipcRenderer.on(IPC_CHANNELS.schedulingChanged, listener);

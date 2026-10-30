@@ -2,14 +2,15 @@ import { useTranslation } from "react-i18next";
 import { ScheduleDurationField } from "./ScheduleDurationField";
 import type { ScheduleTimingForm } from "./schedule-form";
 
-export function ScheduleTimingFields({ form, onChange }: {
+export function ScheduleTimingFields({ form, onChange, onceOnly = false }: {
   form: ScheduleTimingForm;
+  onceOnly?: boolean;
   onChange(update: Partial<ScheduleTimingForm>): void;
 }) {
   const { t } = useTranslation();
   return <>
     <label>{t("scheduling.trigger")}<select value={form.triggerType} onChange={event => onChange({ triggerType: event.target.value as ScheduleTimingForm["triggerType"] })}>
-      <option value="at">{t("scheduling.at")}</option><option value="interval">{t("scheduling.interval")}</option><option value="cron">Cron</option>
+      <option value="at">{t("scheduling.at")}</option>{!onceOnly && <><option value="interval">{t("scheduling.interval")}</option><option value="cron">Cron</option></>}
     </select></label>
     {form.triggerType === "cron" ? <div className="scheduling-fields">
       <label>{t("scheduling.cron")}<input required value={form.cron} onChange={event => onChange({ cron: event.target.value })}/></label>

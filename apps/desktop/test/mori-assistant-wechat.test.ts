@@ -295,3 +295,28 @@ test("重启不重放中断任务或其输入状态", async () => {
     await wechat.close();
   }
 });
+
+test("定时通知只在实际发送后确认，重复重试沿用已保存的送达回执", async () => {
+  let rejectNotification = true;
+  const f = await typingFixture(async () => "准备好了", (endpoint, body) => {
+    const msg = body.msg as { client_id?: string } | undefined;
+    if (endpoint.endsWith("/sendmessage") && msg?.client_id === "schedule-notification" && rejectNotification)
+      return Promise.resolve(Response.json({ ret: 1, errmsg: "test rejected" }));
+    return undefined;
+  });
+  try {
+    await until(() => f.replies().length === 1);
+    await expect(f.wechat.enqueueNotification("提醒内容", "42", "schedule-notification")).rejects.toThrow();
+    expect(f.wechat.hasSentNotification("schedule-notification")).toBe(false);
+    rejectNotification = false;
+    await f.wechat.enqueueNotification("提醒内容", "42", "schedule-notification");
+    expect(f.wechat.hasSentNotification("schedule-notification")).toBe(true);
+    const count = f.replies().length;
+    await f.wechat.enqueueNotification("提醒内容", "42", "schedule-notification");
+    expect(f.replies()).toHaveLength(count);
+    const restored = new MoriAssistantWechat(f.file, { changed() {}, receive: async () => "unused" });
+    await restored.load();
+    expect(restored.hasSentNotification("schedule-notification")).toBe(true);
+    await restored.close();
+  } finally { await f.wechat.close(); }
+});

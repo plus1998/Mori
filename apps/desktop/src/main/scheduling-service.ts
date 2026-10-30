@@ -7,12 +7,14 @@ import { stableHash } from "@eco/shared";
 import { normalizeScheduleTrigger, nextScheduleTime } from "./schedule-time";
 import { normalizeSchedulingAttachments } from "./scheduling-attachments";
 import { newScheduleId, SchedulingStore } from "./scheduling-store";
+import { moriScheduledActionSchema, moriScheduledNotificationSchema, type MoriScheduledAction, type MoriScheduledNotification } from "../shared/mori-scheduled-action";
 
 export interface SchedulingActor { source: "user" | "agent"; threadId?: string; wakeDelaySeconds?: number }
 export interface SchedulingDeps {
   inheritProfile(threadId: string): { workspacePath: string; executionProfile: ScheduleExecutionProfile };
   validateProfile(profile: ScheduleExecutionProfile): void;
   assertThread(threadId: string): void;
+  assertAssistantAction?(threadId: string, action: MoriScheduledAction, notification: MoriScheduledNotification): void;
   assertPlanApproval?(threadId: string, approval: ScheduledPlanApproval, plan: string): void;
   createThreadWithSchedule?(definition: ScheduleDefinition, creationKey: string, input: ScheduledMessageNewThread): void;
   canDispatch(occurrence: ScheduleOccurrence): boolean;
@@ -58,14 +60,24 @@ export class SchedulingService {
     )) throw new Error("定时执行计划参数无效，仅支持用户在原会话中批准计划。");
     if (newThread && actor.source !== "user") throw new Error("Agent 不能预建定时消息会话。");
     const requestedTrigger = normalizeScheduleTrigger(input.trigger);
+    const assistant = input.kind === "assistant_action" ? {
+      action: moriScheduledActionSchema.parse(input.action),
+      notification: moriScheduledNotificationSchema.parse(input.notification),
+    } : undefined;
+    if (assistant && (actor.source !== "user" || requestedTrigger.type !== "at"))
+      throw new Error("Mori 定时操作仅支持用户安排的一次性触发。");
+    const assistantDelay = input.kind === "assistant_action" ? input.delaySeconds : undefined;
+    if (assistantDelay !== undefined && (!Number.isSafeInteger(assistantDelay) || assistantDelay < 1 || assistantDelay > 31536000))
+      throw new Error("延时须为 1–31536000 秒。");
     if (planApproval && requestedTrigger.type !== "at") throw new Error("计划执行仅支持一次性定时。");
     const creationSignature = stableHash({ kind: input.kind, name, prompt, maxLatenessSeconds,
       ...(attachments.length ? { attachments } : {}),
       ...(newThread ? { newThread } : {}),
       ...(planApproval ? { planApproval } : {}),
-      trigger: actor.source === "agent" && input.kind === "session_message" && actor.wakeDelaySeconds !== undefined
+      ...(assistant ?? {}),
+      trigger: assistantDelay !== undefined ? { delaySeconds: assistantDelay } : actor.source === "agent" && input.kind === "session_message" && actor.wakeDelaySeconds !== undefined
         ? { delaySeconds: actor.wakeDelaySeconds } : requestedTrigger,
-      ...(input.kind === "session_message" ? { threadId: input.threadId } : actor.source === "user" ? { workspacePath: input.workspacePath, executionProfile: input.executionProfile } : {}),
+      ...(input.kind !== "scheduled_task" ? { threadId: input.threadId } : actor.source === "user" ? { workspacePath: input.workspacePath, executionProfile: input.executionProfile } : {}),
     });
     const existing = this.store.getByCreationKey(key);
     if (existing) {
@@ -80,11 +92,16 @@ export class SchedulingService {
     if (this.store.list().length >= 1000) throw new Error("定时项目数量已达到 1000 个，请先删除不需要的项目。");
     const now = new Date(nowMs).toISOString();
     if (actor.wakeDelaySeconds !== undefined && (!Number.isSafeInteger(actor.wakeDelaySeconds) || actor.wakeDelaySeconds < 60 || actor.wakeDelaySeconds > 86400 || actor.source !== "agent" || input.kind !== "session_message")) throw new Error("Agent 唤醒间隔须为 60–86400 秒。");
-    const trigger = actor.wakeDelaySeconds !== undefined ? { type: "at" as const, at: new Date(nowMs + actor.wakeDelaySeconds * 1000).toISOString() } : requestedTrigger;
+    const trigger = assistantDelay !== undefined ? { type: "at" as const, at: new Date(nowMs + assistantDelay * 1000).toISOString() } : actor.wakeDelaySeconds !== undefined ? { type: "at" as const, at: new Date(nowMs + actor.wakeDelaySeconds * 1000).toISOString() } : requestedTrigger;
     const nextRunAt = nextScheduleTime(trigger, nowMs);
     if (!nextRunAt) throw new Error("触发时间必须在未来。");
     let target: Pick<ScheduleDefinition, "threadId" | "workspacePath" | "executionProfile">;
-    if (input.kind === "session_message") {
+    if (input.kind === "assistant_action") {
+      requiredText(input.threadId, "Mori 会话", 200);
+      if (!this.deps.assertAssistantAction) throw new Error("当前服务不支持 Mori 定时操作。");
+      this.deps.assertAssistantAction(input.threadId, assistant!.action, assistant!.notification);
+      target = { threadId: input.threadId };
+    } else if (input.kind === "session_message") {
       requiredText(input.threadId, "目标会话", 200);
       if (newThread) {
         requiredText(newThread.workspacePath, "工作目录");
@@ -110,6 +127,7 @@ export class SchedulingService {
       id: newScheduleId(), kind: input.kind, name, prompt, trigger, enabled: true, maxLatenessSeconds, creationSignature,
       ...(attachments.length ? { attachments } : {}),
       ...(planApproval ? { planApproval: structuredClone(planApproval) } : {}),
+      ...(assistant ? structuredClone(assistant) : {}),
       source: actor.source, ...(actor.threadId ? { originThreadId: actor.threadId } : {}), ...structuredClone(target),
       revision: 1, nextRunAt, createdAt: now, updatedAt: now,
     };
@@ -135,10 +153,11 @@ export class SchedulingService {
     const current = this.owned(input.id, actor);
     if (current.revision !== input.expectedRevision) throw new Error("配置已被修改，请刷新后重试。");
     if (actor.source === "agent" && (current.kind !== "scheduled_task" || input.executionProfile || input.workspacePath)) throw new Error("Agent 只能修改独立任务的指令、名称和时间，运行配置由用户管理。");
-    if (current.kind === "session_message" && (input.executionProfile || input.workspacePath)) throw new Error("定时消息沿用目标会话配置，不能设置独立运行配置。");
+    if (current.kind !== "scheduled_task" && (input.executionProfile || input.workspacePath)) throw new Error("定时消息沿用目标会话配置，不能设置独立运行配置。");
     if (input.executionProfile) this.deps.validateProfile(input.executionProfile);
     if (input.enabled !== undefined && typeof input.enabled !== "boolean") throw new Error("enabled 必须为布尔值。");
     const trigger = input.trigger ? normalizeScheduleTrigger(input.trigger) : current.trigger;
+    if (current.kind === "assistant_action" && trigger.type !== "at") throw new Error("Mori 定时操作仅支持一次性触发。");
     if (current.planApproval && (trigger.type !== "at" ||
       (input.prompt !== undefined && input.prompt !== current.prompt) || input.attachments?.length)) {
       throw new Error("定时执行计划只能调整时间和名称，不能修改计划内容或重复执行。");
@@ -186,7 +205,7 @@ export class SchedulingService {
     this.deps.onChanged();
   }
   threadDeleted(threadId: string): void {
-    for (const definition of this.store.list()) if (definition.kind === "session_message" && definition.threadId === threadId) this.remove(definition.id);
+    for (const definition of this.store.list()) if (definition.kind !== "scheduled_task" && definition.threadId === threadId) this.remove(definition.id);
   }
   runNow(id: string, requestId: string): ScheduleOccurrence {
     const definition = this.owned(id, { source: "user" });
@@ -223,6 +242,7 @@ export class SchedulingService {
     if (this.ticking || this.stopped) return;
     this.ticking = true;
     try {
+      const dispatches: Promise<void>[] = [];
       let changed = this.store.collectDue(this.clock());
       changed = this.reconcileActiveRuns(["running", "waiting_user"]) || changed;
       for (const occurrence of this.store.occurrences(["pending"]).reverse()) {
@@ -230,8 +250,8 @@ export class SchedulingService {
         if (this.clock() - Date.parse(occurrence.scheduledAt) > occurrence.definition.maxLatenessSeconds * 1000) {
           this.settle(occurrence, "skipped", "等待执行时超过了补跑窗口。"); changed = true; continue;
         }
-        // One background occurrence at a time; ordinary interactive runs keep their own coordinator.
-        if (this.store.occurrences(["running", "dispatching"]).length > 0) continue;
+        // Mori has its own serial runtime. Reminders must never wait behind an Agent run.
+        if (occurrence.definition.kind !== "assistant_action" && this.store.occurrences(["running", "dispatching"]).some(item => item.definition.kind !== "assistant_action")) continue;
         if (this.store.occurrences(["waiting_user"]).some(item => item.scheduleId === occurrence.scheduleId)) continue;
         if (!this.deps.canDispatch(occurrence)) continue;
         const dispatching: ScheduleOccurrence = {
@@ -241,22 +261,31 @@ export class SchedulingService {
         this.store.saveOccurrence(dispatching);
         // Publish before awaiting dispatch: even a paused/manual one-shot must stay awake.
         this.deps.onChanged();
-        try {
-          if (dispatching.definition.executionProfile) this.deps.validateProfile(dispatching.definition.executionProfile);
-          const receipt = await this.deps.dispatch(dispatching);
-          this.store.saveOccurrence({ ...dispatching, ...receipt, status: "running", updatedAt: new Date(this.clock()).toISOString() });
-          this.consumeOneShotMessage(dispatching);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          // Host validation failure is known; a partially created thread/accepted message requires inspection.
-          const inspected = this.deps.inspect(dispatching);
-          this.settle(dispatching, inspected.status === "running" || inspected.status === "unknown" ? "unknown" : "failed", message);
-        }
+        dispatches.push(this.dispatchOccurrence(dispatching));
         changed = true;
       }
       if (changed) this.deps.onChanged();
+      // The persisted dispatch claim owns exclusion. A slow Agent startup must
+      // not hold the polling lock and delay a reminder arriving on the next tick.
+      this.ticking = false;
+      await Promise.all(dispatches);
     } catch (error) { this.deps.onError(error); }
     finally { this.ticking = false; }
+  }
+
+  private async dispatchOccurrence(dispatching: ScheduleOccurrence): Promise<void> {
+    try {
+      if (dispatching.definition.executionProfile) this.deps.validateProfile(dispatching.definition.executionProfile);
+      const receipt = await this.deps.dispatch(dispatching);
+      this.store.saveOccurrence({ ...(this.store.getOccurrence(dispatching.id) ?? dispatching), ...receipt,
+        status: "running", updatedAt: new Date(this.clock()).toISOString() });
+      this.consumeOneShotMessage(dispatching);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const inspected = this.deps.inspect(dispatching);
+      this.settle(dispatching, inspected.status === "running" || inspected.status === "unknown" ? "unknown" : "failed", message);
+    }
+    this.deps.onChanged();
   }
 
   private reconcileActiveRuns(statuses: ScheduleOccurrenceStatus[], scheduleId?: string): boolean {
@@ -275,7 +304,7 @@ export class SchedulingService {
   }
 
   private settle(occurrence: ScheduleOccurrence, status: ScheduleOccurrenceStatus, error?: string, pauseOnFailure = true): void {
-    const { error: _oldError, ...clean } = occurrence;
+    const { error: _oldError, ...clean } = this.store.getOccurrence(occurrence.id) ?? occurrence;
     this.store.saveOccurrence({ ...clean, status, ...(error ? { error } : {}), updatedAt: new Date(this.clock()).toISOString() });
     // Recover a successful queue hand-off after a crash before definition cleanup.
     if (status === "running" || status === "completed") this.consumeOneShotMessage(occurrence);
@@ -301,6 +330,12 @@ export class SchedulingService {
   }
 
   private consumeOneShotMessage(occurrence: ScheduleOccurrence): void {
+    if (occurrence.definition.kind === "assistant_action") {
+      const current = this.store.get(occurrence.scheduleId);
+      if (current?.trigger.type === "at" && occurrence.definition.trigger.type === "at" && !current.nextRunAt && current.trigger.at === occurrence.definition.trigger.at)
+        this.store.save({ ...current, enabled: false, updatedAt: new Date(this.clock()).toISOString() });
+      return;
+    }
     if (occurrence.definition.kind !== "session_message" || occurrence.definition.trigger.type !== "at") return;
     const current = this.store.get(occurrence.scheduleId);
     // A user may have scheduled another date while dispatch was in flight. Keep it.

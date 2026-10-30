@@ -10,6 +10,7 @@ import { ConversationStore } from "../src/main/conversation-store";
 import { ProviderStore } from "../src/main/provider-store";
 import { ModelManagementService } from "../src/main/model-management-service";
 import { MoriAssistantService } from "../src/main/mori-assistant-service";
+import { MoriScheduledActions } from "../src/main/mori-scheduled-actions";
 import { MoriAssistantStore, parseAssistantSettings } from "../src/main/mori-assistant-store";
 import { SchedulingService } from "../src/main/scheduling-service";
 import { SchedulingStore } from "../src/main/scheduling-store";
@@ -129,7 +130,7 @@ test("WeChat keeps opaque message IDs lossless and rejects untrusted credential 
   expect(() => validateWechatBaseUrl("https://a@ilinkai.weixin.qq.com")).toThrow("不受信任");
 });
 
-async function fixture(options: { custom?: boolean } = {}) {
+async function fixture(options: { custom?: boolean; realTaskMessages?: boolean } = {}) {
   const root = await fs.realpath(await temp());
   const executable = path.join(root, "fake-codex");
   await fs.writeFile(
@@ -189,6 +190,11 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
    const request=JSON.parse(text.slice('mcp-tool:'.length));
    callMcp(scheduling?.enabled_tools.includes(request.name)?scheduling:models?.enabled_tools.includes(request.name)?models:tasks,request.name,request.args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
   }
+  else if(text.includes('SCHEDULE_TOOL:')){
+   const request=JSON.parse(text.slice(text.indexOf('SCHEDULE_TOOL:')+'SCHEDULE_TOOL:'.length));
+   callMcp(computer?.enabled_tools.includes(request.name)?computer:tasks,request.name,request.args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
+  }
+  else if(text.endsWith('SCHEDULE_WAIT'))return;
   else if(text==='tool')send({id:'tool-request',method:'item/tool/call',params:{threadId:thread,callId:'call-'+turn,tool:'mori_list_projects',arguments:{}}});
   else if(text==='private-task')send({id:'tool-request',method:'item/tool/call',params:{threadId:thread,callId:'call-'+turn,tool:'mori_start_task',arguments:{projectPath:process.cwd(),prompt:'must not start'}}});
   else if(text==='quota-failure')send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:'usage_limit_reached'}}}});
@@ -232,9 +238,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     inheritProfile: () => { throw new Error("Unexpected agent inheritance"); },
     validateProfile: profile => { if (!profile?.runtimeConfig) throw new Error("Missing profile"); },
     assertThread: id => { if (!conversations.getThread(id)) throw new Error("Missing thread"); },
-    canDispatch: () => false,
-    dispatch: async () => { throw new Error("No dispatch in fixture"); },
-    inspect: () => ({ status: "running" }),
+    assertAssistantAction: (id, action, notification) => service.scheduledActions.assert(id, action, notification),
+    canDispatch: occurrence => occurrence.definition.kind === "assistant_action",
+    dispatch: occurrence => service.scheduledActions.dispatch(occurrence),
+    inspect: occurrence => occurrence.definition.kind === "assistant_action" ? service.scheduledActions.inspect(occurrence) : { status: "running" },
     onChanged: () => {}, onError: error => { throw error; },
   });
   const commands: Array<{ channel: string; args: unknown[] }> = [];
@@ -267,7 +274,14 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   let providerEnabled = true;
   const preparedProviders: string[] = [];
   const globalRefreshes: string[] = [];
+  const notifications: Array<{ threadId: string; channel: string; text: string; id: string }> = [];
+  let notificationError: string | undefined;
   const service = new MoriAssistantService({
+    schedules: schedulingStore,
+    notifyScheduled: async (threadId, notification, text, id) => {
+      if (notificationError) throw new Error(notificationError);
+      notifications.push({ threadId, channel: notification.channel, text, id });
+    },
     dataDir: root,
     conversations,
     accounts: async () => accounts,
@@ -281,6 +295,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       if (channel === IPC_CHANNELS.schedulingUpdate) return scheduling.update(args[0] as Parameters<typeof scheduling.update>[0]);
       if (channel === IPC_CHANNELS.schedulingDelete) return scheduling.remove(String(args[0]), { source: "user" }, args[1] as number | undefined);
       if (channel === IPC_CHANNELS.schedulingPreview) return previewSchedule(args[0] as Parameters<typeof previewSchedule>[0]);
+      if (channel === IPC_CHANNELS.schedulingRetryNotification) return service.scheduledActions.retryNotification(String(args[0]));
       if (channel === IPC_CHANNELS.projectTodoQuery)
         return todos.query(args[0] as Parameters<typeof todos.query>[0]);
       if (channel === IPC_CHANNELS.projectTodoGet) return todos.get(String(args[0]), args[1] as boolean);
@@ -304,7 +319,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
         conversations.saveThread(thread);
         return { thread };
       }
-      if (channel === "conversation:send-message") return { accepted: true };
+      if (channel === "conversation:send-message") {
+        if (options.realTaskMessages) return conversations.conversationV2().sendMessage(args[0] as Parameters<ReturnType<typeof conversations.conversationV2>["sendMessage"]>[0]);
+        return { accepted: true };
+      }
       throw new Error(`Unexpected command ${channel}`);
     },
     defaultRuntimeConfig: () => ({
@@ -367,6 +385,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     tokenAccountIds,
     globalRefreshes,
     preparedProviders,
+    notifications,
+    setNotificationError: (value: string | undefined) => { notificationError = value; },
     setProviderEnabled: (enabled: boolean) => {
       providerEnabled = enabled;
     },
@@ -1921,4 +1941,255 @@ test("computer approval from WeChat includes the action and records the explicit
     await service.close();
     db.close();
   }
+});
+
+async function waitScheduled(f: Awaited<ReturnType<typeof fixture>>, id: string, ready: (record: import("../src/shared/scheduling").ScheduleOccurrence) => boolean) {
+  for (let attempt = 0; attempt < 250; attempt++) {
+    await f.scheduling.tick();
+    const record = f.schedulingStore.getOccurrence(id);
+    if (record && ready(record)) return record;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  throw new Error(`Scheduled action did not settle: ${JSON.stringify(f.schedulingStore.getOccurrence(id))}`);
+}
+
+async function createMoriAction(f: Awaited<ReturnType<typeof fixture>>, action: import("../src/shared/mori-scheduled-action").MoriScheduledAction, prompt = "保存的用户要求") {
+  if (!f.service.store.state.currentThreadId) await f.service.send("prepare assistant", "desktop", randomUUID());
+  return f.scheduling.create({
+    kind: "assistant_action", requestId: randomUUID(), name: "Mori 定时测试", prompt,
+    threadId: f.service.store.state.currentThreadId!, action, notification: { channel: "desktop" },
+    trigger: { type: "at", at: new Date(Date.now() + 600_000).toISOString() }, maxLatenessSeconds: 3600,
+  });
+}
+
+test("Mori creates relative reminders through MCP with stable timing, bound sessions and explicit notification channels", async () => {
+  const f = await fixture();
+  try {
+    const args = { requestId: "reminder-1", name: "提醒开会", prompt: "去开会", action: { type: "reminder" }, delaySeconds: 600 };
+    const created = await assistantTool(f, "mori_create_assistant_schedule", args);
+    expect(created.status).toBe("completed");
+    const first = (created.output as { schedule: { id: string; trigger: { at: string }; threadId: string; notification: { channel: string } } }).schedule;
+    expect(first.threadId).toBe(f.service.store.state.currentThreadId!);
+    expect(first.notification.channel).toBe("desktop");
+    const repeated = await assistantTool(f, "mori_create_assistant_schedule", args);
+    expect((repeated.output as typeof created.output)).toEqual(created.output);
+    expect(f.schedulingStore.list()).toHaveLength(1);
+    expect((await assistantTool(f, "mori_create_assistant_schedule", { ...args, prompt: "不同要求" })).status).toBe("failed");
+    expect((await assistantTool(f, "mori_create_assistant_schedule", { ...args, requestId: "bad-target", action: { type: "check_task", taskThreadId: first.threadId } })).status).toBe("failed");
+    expect((await assistantTool(f, "mori_create_assistant_schedule", { ...args, requestId: "bad-time", at: "2099-01-01T00:00:00Z" })).status).toBe("failed");
+    expect((await assistantTool(f, "mori_create_assistant_schedule", { ...args, requestId: "no-wechat", channel: "wechat" })).status).toBe("failed");
+    await f.service.newSession();
+    await f.service.send("other assistant session", "desktop", randomUUID());
+    expect(f.service.store.state.currentThreadId).not.toBe(first.threadId);
+    expect(f.schedulingStore.get(first.id)?.threadId).toBe(first.threadId);
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("fixed reminders notify without calling a model or waiting for active Mori and Agent runs", async () => {
+  const f = await fixture();
+  try {
+    const schedule = await createMoriAction(f, { type: "reminder" }, "开会了");
+    const waiting = await f.service.enqueue("wait", "desktop", "busy-reminder");
+    void waiting.completion.catch(() => {});
+    const now = new Date().toISOString();
+    f.schedulingStore.saveOccurrence({ id: "other-agent", scheduleId: "other", scheduledAt: now, status: "running", definition: { ...schedule, kind: "scheduled_task" }, createdAt: now, updatedAt: now });
+    const occurrence = f.scheduling.runNow(schedule.id, "remind-now");
+    const record = await waitScheduled(f, occurrence.id, item => item.assistant?.notification?.status === "sent");
+    expect(record.assistant?.result).toContain("开会了");
+    expect(record.assistant?.result).toContain("原定时间");
+    expect(f.notifications).toHaveLength(1);
+    expect(f.service.isRunning).toBe(true);
+    expect(f.conversations.conversationV2().getRun(schedule.threadId!, `mori-run-scheduled-${occurrence.id}`)).toBeUndefined();
+    const snapshot = await f.service.snapshot();
+    expect(snapshot.messages.some(message => message.body.includes("开会了"))).toBe(true);
+    expect(f.schedulingStore.get(schedule.id)?.enabled).toBe(false);
+    await f.service.cancel();
+    await expect(waiting.completion).rejects.toThrow();
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("Mori scheduled model turns stay in their original session while the visible chat and draft change", async () => {
+  const f = await fixture();
+  try {
+    const schedule = await createMoriAction(f, { type: "execute" }, "请告诉我当前能管理哪些事项");
+    const original = schedule.threadId!;
+    await f.service.newSession();
+    await f.service.send("new visible session", "desktop", randomUUID());
+    const visible = f.service.store.state.currentThreadId;
+    await f.service.setDraft("保留我的草稿");
+    const occurrence = f.scheduling.runNow(schedule.id, "bound-turn");
+    await waitScheduled(f, occurrence.id, item => item.status === "completed" && item.assistant?.notification?.status === "sent");
+    expect(f.service.store.state.currentThreadId).toBe(visible);
+    expect(f.service.store.state.draft).toBe("保留我的草稿");
+    const v2 = f.conversations.conversationV2();
+    expect(v2.getRun(original, `mori-run-scheduled-${occurrence.id}`)?.status).toBe("completed");
+    expect(v2.getRun(visible!, `mori-run-scheduled-${occurrence.id}`)).toBeUndefined();
+    expect(f.notifications[0]?.threadId).toBe(original);
+    expect((await f.service.snapshot()).messages.every(message => message.conversationId === visible)).toBe(true);
+    await f.service.selectSession(original);
+    expect((await f.service.snapshot()).messages.some(message => message.body === schedule.prompt)).toBe(true);
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("scheduled task checks reject writes and restarting another Agent", async () => {
+  const f = await fixture();
+  try {
+    await f.service.send("prepare check", "desktop", randomUUID());
+    const thread = f.conversations.getThread(f.service.store.state.currentThreadId!)!;
+    f.conversations.saveThread({ ...thread, id: "check-agent", workspacePath: "/test/project", status: "running" });
+    const schedule = await createMoriAction(f, { type: "check_task", taskThreadId: "check-agent" }, `SCHEDULE_TOOL:${JSON.stringify({ name: "mori_start_task", args: { projectPath: "/test/project", prompt: "must not start" } })}`);
+    const occurrence = f.scheduling.runNow(schedule.id, "read-only-check");
+    await waitScheduled(f, occurrence.id, item => item.status === "completed" && item.assistant?.notification?.status === "sent");
+    const tools = f.conversations.conversationV2().toolsPage(schedule.threadId!, `mori-run-scheduled-${occurrence.id}`).tools;
+    expect(tools[0]?.status).toBe("failed");
+    expect(tools[0]?.output).toMatchObject({ error: expect.stringContaining("只允许读取指定任务") });
+    expect(f.commands.some(command => command.channel === IPC_CHANNELS.threadStart)).toBe(false);
+    expect(f.schedulingStore.list()).toHaveLength(1);
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("notification retry never repeats the model action and cancellation removes queued work", async () => {
+  const f = await fixture();
+  try {
+    const reminder = await createMoriAction(f, { type: "reminder" }, "只提醒一次");
+    f.setNotificationError("通知权限已关闭");
+    const occurrence = f.scheduling.runNow(reminder.id, "failed-notification");
+    const failed = await waitScheduled(f, occurrence.id, item => item.assistant?.notification?.status === "failed");
+    expect(failed.assistant?.phase).toBe("completed");
+    expect(failed.assistant?.notification?.error).toBe("通知权限已关闭");
+    f.setNotificationError(undefined);
+    await f.service.scheduledActions.retryNotification(occurrence.id);
+    expect(f.schedulingStore.getOccurrence(occurrence.id)?.assistant?.notification?.status).toBe("sent");
+    expect(f.notifications).toHaveLength(1);
+    await expect(f.service.scheduledActions.retryNotification(occurrence.id)).rejects.toThrow("只有失败");
+    const schedule = await createMoriAction(f, { type: "execute" }, "取消后不能做");
+    const busy = await f.service.enqueue("wait", "desktop", "busy-cancel-schedule");
+    void busy.completion.catch(() => {});
+    const queued = f.scheduling.runNow(schedule.id, "cancel-queued");
+    await waitScheduled(f, queued.id, item => item.assistant?.phase === "queued");
+    f.scheduling.remove(schedule.id, { source: "user" }, schedule.revision);
+    await f.service.cancel();
+    await expect(busy.completion).rejects.toThrow();
+    const cancelled = await waitScheduled(f, queued.id, item => item.status === "cancelled");
+    expect(cancelled.assistant?.phase).toBe("cancelled");
+    expect(f.conversations.conversationV2().getRun(schedule.threadId!, `mori-run-scheduled-${queued.id}`)).toBeUndefined();
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+function finishScheduledAgent(f: Awaited<ReturnType<typeof fixture>>, threadId: string, turnId: string) {
+  const v2 = f.conversations.conversationV2();
+  for (const type of ["run.started", "run.completed"] as const) v2.appendRuntime({
+    conversationId: threadId, eventId: `evt_${randomUUID()}`, occurredAt: new Date().toISOString(),
+    type, runId: `agent-run-${turnId}`, turnId, payload: { status: type === "run.started" ? "running" : "completed" },
+  });
+  f.conversations.updateThread(threadId, { status: "completed", message: "" });
+}
+
+test("delayed execution tracks a newly dispatched Agent until its original run actually completes", async () => {
+  const f = await fixture();
+  try {
+    const schedule = await createMoriAction(f, { type: "execute", projectPath: "/test/project" }, `SCHEDULE_TOOL:${JSON.stringify({ name: "mori_start_task", args: { projectPath: "/test/project", prompt: "真正的工作" } })}`);
+    const occurrence = f.scheduling.runNow(schedule.id, "start-agent");
+    const dispatched = await waitScheduled(f, occurrence.id, item => item.assistant?.phase === "completed" && !!item.assistant.agents?.length);
+    expect(dispatched.status).toBe("running");
+    expect(f.notifications).toHaveLength(0);
+    const agentId = dispatched.assistant!.agents![0]!.threadId;
+    const v2 = f.conversations.conversationV2();
+    const input = v2.sendMessage({ principalId: "test", clientCommandId: "initial-agent-turn", conversationId: agentId, text: "真正的工作" });
+    finishScheduledAgent(f, agentId, input.turnId);
+    const completed = await waitScheduled(f, occurrence.id, item => item.status === "completed" && item.assistant?.notification?.status === "sent");
+    expect(completed.assistant?.agentsCompleted).toBe(true);
+    expect(f.notifications[0]?.text).toContain("已完成");
+    expect(f.conversations.conversationV2().getFirstRun(agentId)?.runId).toBe(`agent-run-${input.turnId}`);
+    expect(f.commands.filter(item => item.channel === IPC_CHANNELS.threadStart)).toHaveLength(1);
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("delayed execution sent to an existing Agent waits for that accepted message instead of an older completed run", async () => {
+  const f = await fixture({ realTaskMessages: true });
+  try {
+    await f.service.send("prepare existing Agent", "desktop", randomUUID());
+    const thread = f.conversations.getThread(f.service.store.state.currentThreadId!)!;
+    f.conversations.saveThread({ ...thread, id: "existing-agent", workspacePath: "/test/project", status: "completed" });
+    const v2 = f.conversations.conversationV2();
+    const old = v2.sendMessage({ principalId: "test", clientCommandId: "old-turn", conversationId: "existing-agent", text: "旧任务" });
+    finishScheduledAgent(f, "existing-agent", old.turnId);
+    const schedule = await createMoriAction(f, { type: "execute", agentThreadId: "existing-agent" }, `SCHEDULE_TOOL:${JSON.stringify({ name: "mori_send_to_task", args: { threadId: "existing-agent", text: "新任务" } })}`);
+    const occurrence = f.scheduling.runNow(schedule.id, "send-agent");
+    const dispatched = await waitScheduled(f, occurrence.id, item => item.assistant?.phase === "completed" && !!item.assistant.agents?.length);
+    await f.scheduling.tick();
+    expect(f.schedulingStore.getOccurrence(occurrence.id)?.status).toBe("running");
+    expect(f.notifications).toHaveLength(0);
+    const message = v2.getMessage("existing-agent", dispatched.assistant!.agents![0]!.messageId!)!;
+    v2.appendRuntime({ conversationId: "existing-agent", eventId: `evt_${randomUUID()}`, type: "message.finalized", messageId: message.messageId, turnId: message.turnId, occurredAt: new Date().toISOString(), payload: { status: "final" } });
+    finishScheduledAgent(f, "existing-agent", message.turnId);
+    await waitScheduled(f, occurrence.id, item => item.status === "completed" && item.assistant?.notification?.status === "sent");
+    expect(v2.getRunForTurn("existing-agent", message.turnId)?.status).toBe("completed");
+    expect(f.notifications).toHaveLength(1);
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("restart recovery never replays a claimed Mori action or automatically resends an uncertain notification", async () => {
+  const f = await fixture();
+  try {
+    const schedule = await createMoriAction(f, { type: "execute" });
+    const now = new Date().toISOString();
+    const uncertain = { id: "interrupted-action", scheduleId: schedule.id, scheduledAt: now, status: "running" as const, definition: schedule, createdAt: now, updatedAt: now, assistant: { phase: "running" as const, actualAt: now } };
+    const completed = { ...uncertain, id: "interrupted-notification", status: "completed" as const, assistant: { phase: "completed" as const, actualAt: now, result: "已经做过了", notification: { status: "sending" as const, attemptedAt: now, stage: "result" as const } } };
+    f.schedulingStore.saveOccurrence(uncertain);
+    f.schedulingStore.saveOccurrence(completed);
+    const notices: string[] = [];
+    const recovery = new MoriScheduledActions({
+      store: f.schedulingStore, conversations: f.conversations,
+      session: id => f.conversations.getThread(id), enabled: () => true, waiting: () => undefined,
+      pendingTaskInput: () => false, canNotifyWechat: () => true, projectPath: value => value,
+      enqueue: async () => { throw new Error("MUST NOT REPLAY"); },
+      notice: async () => {}, notify: async (_thread, _target, _text, id) => { notices.push(id); }, changed: () => {},
+    });
+    recovery.recover();
+    await recovery.close();
+    expect(f.schedulingStore.getOccurrence(uncertain.id)?.assistant?.phase).toBe("unknown");
+    expect(f.schedulingStore.getOccurrence(completed.id)?.assistant?.notification?.status).toBe("unknown");
+    expect(notices).not.toContain("interrupted-notification:result");
+    expect(f.commands.some(item => item.channel === IPC_CHANNELS.threadStart)).toBe(false);
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("scheduled approval and its answer remain bound to the executing session after the user changes chats", async () => {
+  const f = await fixture();
+  try {
+    const schedule = await createMoriAction(f, { type: "execute" }, `SCHEDULE_TOOL:${JSON.stringify({ name: "mori_computer_call", args: { name: "click", arguments: { app: "test", index: 1 } } })}`);
+    const occurrence = f.scheduling.runNow(schedule.id, "scheduled-approval");
+    const input = await waitForApproval(f.service);
+    await waitScheduled(f, occurrence.id, item => item.status === "waiting_user" && item.assistant?.notification?.stage === "waiting_user");
+    await f.service.newSession();
+    expect(f.service.store.state.currentThreadId).toBeUndefined();
+    expect(f.computerCalls).toEqual([]);
+    await f.service.respond(input.id, "允许");
+    await waitScheduled(f, occurrence.id, item => item.status === "completed" && item.assistant?.notification?.stage === "result" && item.assistant.notification.status === "sent");
+    expect(f.computerCalls).toEqual(["click"]);
+    expect(f.conversations.conversationV2().getMessage(schedule.threadId!, `mori-question-answer-${input.id}`)?.body).toBe("允许");
+    expect(f.notifications.map(item => item.id)).toEqual([`${occurrence.id}:waiting_user`, `${occurrence.id}:result`]);
+    expect(f.service.store.state.currentThreadId).toBeUndefined();
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("restart safely restores a persisted scheduled message only when no model run ever started", async () => {
+  const f = await fixture();
+  try {
+    const schedule = await createMoriAction(f, { type: "execute" }, "恢复尚未开始的事情");
+    f.schedulingStore.save({ ...schedule, enabled: false, nextRunAt: null });
+    const now = new Date().toISOString(), id = "safe-queued-restore";
+    const v2 = f.conversations.conversationV2();
+    const accepted = v2.sendMessage({ principalId: "mori-assistant", clientCommandId: `scheduled-${id}`, conversationId: schedule.threadId!, messageId: `mori-user-scheduled-${id}`, turnId: `mori-run-scheduled-${id}`, text: schedule.prompt });
+    f.schedulingStore.saveOccurrence({ id, scheduleId: schedule.id, definition: schedule, threadId: schedule.threadId!, status: "running", scheduledAt: now, createdAt: now, updatedAt: now, assistant: { phase: "queued", actualAt: now } });
+    f.service.scheduledActions.recover();
+    expect(f.schedulingStore.getOccurrence(id)?.status).toBe("pending");
+    expect(f.schedulingStore.getOccurrence(id)?.assistant).toBeUndefined();
+    await waitScheduled(f, id, record => record.status === "completed" && record.assistant?.notification?.status === "sent");
+    expect(v2.getRun(schedule.threadId!, `mori-run-scheduled-${id}`)?.status).toBe("completed");
+    expect(v2.getMessage(schedule.threadId!, accepted.messageId)?.status).toBe("final");
+    expect(v2.listUserMessages(schedule.threadId!).filter(item => item.messageId === accepted.messageId)).toHaveLength(1);
+    expect(f.notifications).toHaveLength(1);
+  } finally { await f.service.close(); f.db.close(); }
 });

@@ -52,6 +52,7 @@ export const REMOTE_COMMAND_DEFINITIONS = [
     objectArg(["id", "requestId"]),
   ]),
   command("scheduling:preview", "Preview schedule", "read", RPC_INVOKE, [objectArg(["type"])]),
+  command("scheduling:retry-notification", "Retry a schedule notification without executing again", "write_safe", RPC_INVOKE, [stringArg()]),
   command("thread:list", "List threads", "read", RPC_INVOKE, []),
   command("thread:list-initial", "List initial threads", "read", RPC_INVOKE, []),
   command("thread:list-more", "List more threads", "read", RPC_INVOKE, [

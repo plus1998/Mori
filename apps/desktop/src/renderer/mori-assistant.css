@@ -1290,3 +1290,12 @@ html[data-mori-surface="notice"] #root {
   gap: 8px;
   justify-content: flex-end;
 }
+.mori-schedules { display: grid; gap: 8px; margin: 12px 0; }
+.mori-schedules h3 { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; }
+.mori-schedules article { display: grid; gap: 5px; padding: 12px; border: 1px solid var(--mori-border); border-radius: 12px; }
+.mori-schedules time, .mori-schedules small, .mori-schedules article > span { font-size: 12px; opacity: .75; }
+.mori-schedules p { margin: 0; font-size: 12px; }
+.mori-schedule-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.mori-schedules button { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.mori-schedules form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.mori-schedules label { display: grid; gap: 4px; font-size: 12px; }

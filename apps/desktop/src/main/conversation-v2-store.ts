@@ -4222,6 +4222,16 @@ export class ConversationV2Store {
     }
   }
 
+  getFirstRun(conversationId: string): ConversationRun | undefined {
+    const row = this.db.prepare("SELECT * FROM conversation_runs_v2 WHERE conversation_id=? ORDER BY started_at, run_id LIMIT 1").get(conversationId) as RunRow | undefined;
+    return row ? rowToRun(row) : undefined;
+  }
+
+  getRunForTurn(conversationId: string, turnId: string): ConversationRun | undefined {
+    const row = this.db.prepare("SELECT * FROM conversation_runs_v2 WHERE conversation_id=? AND turn_id=? ORDER BY version_seq DESC LIMIT 1").get(conversationId, turnId) as RunRow | undefined;
+    return row ? rowToRun(row) : undefined;
+  }
+
   getRun(conversationId: string, runId: string): ConversationRun | undefined {
     const id = this.requireExistingStream(conversationId).conversation_id;
     const row = this.db

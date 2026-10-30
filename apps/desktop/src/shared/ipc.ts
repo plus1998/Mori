@@ -33,6 +33,7 @@ export const IPC_CHANNELS = {
   schedulingDelete: "scheduling:delete",
   schedulingRunNow: "scheduling:run-now",
   schedulingPreview: "scheduling:preview",
+  schedulingRetryNotification: "scheduling:retry-notification",
   schedulingChanged: "scheduling:changed",
   appMenuCommand: "app:menu-command",
   keyboardShortcutsRecording: "keyboard-shortcuts:recording",

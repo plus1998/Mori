@@ -24,6 +24,9 @@ import type { ScheduleExecutionProfile } from "../shared/scheduling";
 import { isMoriComputerAction, type MoriComputerUseAccess } from "./mori-computer-use";
 import { currentThreadError, readThreadErrors } from "./mori-thread-errors";
 import type { OpenAIAccountService } from "./openai-account-service";
+import { MoriScheduledActions, type MoriScheduledContext } from "./mori-scheduled-actions";
+import type { SchedulingStore } from "./scheduling-store";
+import type { MoriScheduledNotification } from "../shared/mori-scheduled-action";
 
 const COMPUTER_ACTION_LABELS: Record<string, string> = {
   click: "点击界面",
@@ -130,6 +133,8 @@ export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
 ];
 
 export interface MoriAssistantDeps {
+  schedules: SchedulingStore;
+  notifyScheduled(threadId: string, notification: MoriScheduledNotification, text: string, id: string): Promise<void>;
   dataDir: string;
   conversations: ConversationStore;
   accounts(): Promise<OpenAIAccountService>;
@@ -153,6 +158,9 @@ export interface MoriAssistantDeps {
 }
 
 export class MoriAssistantService {
+  readonly scheduledActions: MoriScheduledActions;
+  private activeThreadId: string | undefined;
+  private activeSchedule: MoriScheduledContext | undefined;
   readonly store: MoriAssistantStore;
   readonly workspacePath: string;
   private runtime: MoriAssistantRuntime | undefined;
@@ -173,7 +181,7 @@ export class MoriAssistantService {
   private models: MoriAssistantSnapshot["models"] = [];
   private closed = false;
   private stopped = false;
-  private activeSource: "desktop" | "wechat" | "task" = "desktop";
+  private activeSource: "desktop" | "wechat" | "task" | "schedule" = "desktop";
   private activeCommand = "";
   private readonly notifiedTasks = new Map<string, string>();
   private readonly todos: MoriAssistantTodos;
@@ -190,11 +198,30 @@ export class MoriAssistantService {
     this.store = new MoriAssistantStore(path.join(deps.dataDir, "mori-assistant.json"));
     this.workspacePath = path.join(deps.dataDir, "mori-assistant", "workspace");
     this.todos = new MoriAssistantTodos(deps.invoke, (value) => this.taskProjectPath(value));
+    this.scheduledActions = new MoriScheduledActions({
+      store: deps.schedules, conversations: deps.conversations,
+      session: id => this.store.state.sessions.some(item => item.threadId === id) ? deps.conversations.getThread(id) : undefined,
+      enabled: () => this.settings.enabled && !this.closed && !this.stopped,
+      waiting: id => this.activeSchedule?.occurrence.id === id && this.pendingInput
+        ? `${this.pendingInput.title}\n${this.pendingInput.detail ?? ""}${this.pendingInput.kind === "approval" ? "\n请回复「允许」或「拒绝」。" : "\n请回复所需信息。"}` : undefined,
+      pendingTaskInput: id => deps.hasPendingTaskInput?.(id) === true,
+      enqueue: (prompt, context) => this.enqueue(prompt, "schedule", `scheduled-${context.occurrence.id}`, context.occurrence.definition.threadId, context),
+      notice: (threadId, id, text) => this.scheduledNotice(threadId, id, text),
+      notify: deps.notifyScheduled,
+      canNotifyWechat: () => this.canNotifyWechat?.() === true,
+      projectPath: value => this.taskProjectPath(value), changed: () => this.emit(),
+    });
     this.scheduling = new MoriAssistantScheduling({
       invoke: deps.invoke,
       defaultProfile: deps.defaultScheduleProfile,
       projectPath: value => this.taskProjectPath(value),
       workThread: id => this.store.state.sessions.some(session => session.threadId === id) ? undefined : deps.conversations.getThread(id),
+      assistantContext: () => {
+        if (!this.activeThreadId) throw new Error("没有正在执行的 Mori 会话。");
+        const notification = this.activeSchedule?.occurrence.definition.notification;
+        return { threadId: this.activeThreadId, channel: notification?.channel ?? (this.activeSource === "wechat" ? "wechat" : "desktop"),
+          ...(notification?.messageId ? { messageId: notification.messageId } : this.activeSource === "wechat" ? { messageId: this.activeCommand } : {}) };
+      },
     });
   }
 
@@ -212,6 +239,11 @@ export class MoriAssistantService {
     const sessionIds = new Set(this.store.state.sessions.map((session) => session.threadId));
     for (const message of this.deps.conversations.conversationV2().listQueuedUserMessages()) {
       if (!sessionIds.has(message.conversationId)) continue;
+      if (message.messageId.startsWith("mori-user-scheduled-")) {
+        const occurrenceId = message.messageId.slice("mori-user-scheduled-".length);
+        if (this.deps.schedules.getOccurrence(occurrenceId)?.assistant?.phase === "queued" &&
+          !this.deps.conversations.conversationV2().getRun(message.conversationId, `mori-run-scheduled-${occurrenceId}`)) continue;
+      }
       this.deps.conversations.conversationV2().appendRuntime({
         conversationId: message.conversationId,
         eventId: `evt_${randomUUID()}`,
@@ -225,6 +257,7 @@ export class MoriAssistantService {
       this.status = "error";
     }
     await this.deps.settingsChanged(this.store.state.settings);
+    this.scheduledActions.recover();
   }
 
   capabilitiesChanged(): void {
@@ -256,7 +289,7 @@ export class MoriAssistantService {
     const messages = page?.messages ?? [];
     if (!cursor) {
       const byId = new Map(messages.map((message) => [message.messageId, message]));
-      for (const [key, message] of this.liveMessages) byId.set(key, message);
+      for (const [key, message] of this.liveMessages) if (message.conversationId === id) byId.set(key, message);
       messages.splice(0, messages.length, ...byId.values());
     }
     const accountService = await this.deps.accounts();
@@ -264,7 +297,11 @@ export class MoriAssistantService {
     const globalAccountId = await accountService.getActiveAccountId();
     const customProviders = this.deps.customProviders();
     const threads = this.deps.conversations.listThreads();
+    const scheduled = id ? this.deps.schedules.assistantSnapshot(id) : { schedules: [], occurrences: [] };
     return {
+      ...(this.activeThreadId ? { activeThreadId: this.activeThreadId } : {}),
+      schedules: scheduled.schedules,
+      scheduledOccurrences: scheduled.occurrences,
       settings: { ...state.settings },
       sessions: [...state.sessions],
       ...(id ? { currentThreadId: id } : {}),
@@ -347,24 +384,22 @@ export class MoriAssistantService {
   }
 
   async newSession(): Promise<void> {
-    if (this.isRunning) throw new Error("请先停止当前助手回复。");
-    await this.releaseRuntime();
+    if (!this.isRunning) await this.releaseRuntime();
     delete this.store.state.currentThreadId;
     this.store.state.draft = "";
-    this.liveMessages.clear();
+    if (!this.isRunning) this.liveMessages.clear();
     await this.store.save();
     this.error = undefined;
-    this.status = "idle";
+    if (!this.isRunning) this.status = "idle";
     this.emit();
   }
 
   async selectSession(id: string): Promise<void> {
-    if (this.isRunning) throw new Error("请先停止当前助手回复。");
     if (!this.store.state.sessions.some((item) => item.threadId === id)) throw new Error("助手对话不存在。");
-    await this.releaseRuntime();
+    if (!this.isRunning) await this.releaseRuntime();
     this.store.state.currentThreadId = id;
-    this.liveMessages.clear();
-    this.status = "idle";
+    if (!this.isRunning) this.liveMessages.clear();
+    if (!this.isRunning) this.status = "idle";
     this.error = undefined;
     await this.store.save();
     this.emit();
@@ -372,9 +407,20 @@ export class MoriAssistantService {
 
   private prepareQueue: Promise<void> = Promise.resolve();
 
+  private async scheduledNotice(threadId: string, id: string, text: string): Promise<void> {
+    this.deps.conversations.conversationV2().appendRuntime({
+      conversationId: threadId, eventId: `evt_${id}`, sourceEventKey: `mori:notice:${id}`,
+      type: "message.created", messageId: id, occurredAt: new Date().toISOString(),
+      payload: { role: "assistant", body: text, status: "final", channel: "answer" },
+    });
+    this.store.state.sourceByMessage[id] = "schedule";
+    await this.store.save();
+    this.emit();
+  }
+
   async send(
     value: unknown,
-    source: "desktop" | "wechat" | "task" = "desktop",
+    source: "desktop" | "wechat" | "task" | "schedule" = "desktop",
     commandId: string = randomUUID(),
   ): Promise<void> {
     const accepted = await this.enqueue(value, source, commandId);
@@ -383,15 +429,17 @@ export class MoriAssistantService {
 
   async enqueue(
     value: unknown,
-    source: "desktop" | "wechat" | "task" = "desktop",
+    source: "desktop" | "wechat" | "task" | "schedule" = "desktop",
     commandId: string = randomUUID(),
+    targetThreadId?: string,
+    scheduled?: MoriScheduledContext,
   ): Promise<{ completion: Promise<void> }> {
     if (typeof value !== "string" || !value.trim() || value.length > 100_000)
       throw new Error("请输入 1–100000 个字符。");
     if (!this.settings.enabled) throw new Error("请先在助手设置中启用 Mori。");
     if (this.closed || this.stopped) throw new Error("助手服务已停止。");
     this.pendingSends += 1;
-    const prepare = this.prepareQueue.then(() => this.acceptMessage(value.trim(), source, commandId));
+    const prepare = this.prepareQueue.then(() => this.acceptMessage(scheduled?.occurrence.definition.prompt ?? value.trim(), source, commandId, targetThreadId));
     this.prepareQueue = prepare.then(
       () => {},
       () => {},
@@ -407,7 +455,7 @@ export class MoriAssistantService {
       this.pendingSends -= 1;
       return { completion: Promise.resolve() };
     }
-    const work = this.sendQueue.then(() => this.run(value.trim(), source, commandId, accepted.threadId));
+    const work = this.sendQueue.then(() => this.run(value.trim(), source, commandId, accepted.threadId, scheduled));
     const completion = work.finally(() => {
       this.pendingSends -= 1;
       this.emit();
@@ -422,10 +470,12 @@ export class MoriAssistantService {
 
   private async acceptMessage(
     prompt: string,
-    source: "desktop" | "wechat" | "task",
+    source: "desktop" | "wechat" | "task" | "schedule",
     commandId: string,
+    targetThreadId?: string,
   ): Promise<{ threadId: string; duplicate: boolean }> {
-    let threadId = this.store.state.currentThreadId;
+    if (targetThreadId && (!this.store.state.sessions.some(item => item.threadId === targetThreadId) || !this.deps.conversations.getThread(targetThreadId))) throw new Error("目标 Mori 会话不存在或已删除。");
+    let threadId = targetThreadId ?? this.store.state.currentThreadId;
     if (!threadId) {
       const now = new Date().toISOString();
       const title = source === "task" ? "任务结果" : prompt.slice(0, 48);
@@ -447,8 +497,12 @@ export class MoriAssistantService {
     }
     const v2 = this.deps.conversations.conversationV2();
     const messageId = `mori-user-${commandId}`;
-    if (v2.hasConversation(threadId) && v2.getMessage(threadId, messageId))
-      return { threadId, duplicate: true };
+    const existing = v2.hasConversation(threadId) ? v2.getMessage(threadId, messageId) : undefined;
+    if (existing) {
+      const restore = source === "schedule" && existing.status === "queued" && !v2.getRun(threadId, `mori-run-${commandId}`);
+      if (restore) { this.store.state.sourceByMessage[messageId] = "schedule"; await this.store.save(); }
+      return { threadId, duplicate: !restore };
+    }
     v2.sendMessage({
       principalId: "mori-assistant",
       conversationId: threadId,
@@ -458,7 +512,7 @@ export class MoriAssistantService {
       text: prompt,
     });
     this.store.state.sourceByMessage[messageId] = source;
-    this.store.state.draft = "";
+    if (source !== "schedule") this.store.state.draft = "";
     await this.store.save();
     this.emit();
     return { threadId, duplicate: false };
@@ -466,16 +520,21 @@ export class MoriAssistantService {
 
   private async run(
     prompt: string,
-    source: "desktop" | "wechat" | "task",
+    source: "desktop" | "wechat" | "task" | "schedule",
     commandId: string,
     threadId: string,
+    scheduled?: MoriScheduledContext,
   ): Promise<void> {
     const runId = `mori-run-${commandId}`;
     const userId = `mori-user-${commandId}`;
     if (this.closed || this.stopped) {
-      this.append("message.finalized", threadId, runId, { status: "cancelled" }, userId);
+      if (!(scheduled && this.closed && !this.stopped)) this.append("message.finalized", threadId, runId, { status: "cancelled" }, userId);
       throw new Error("助手请求已停止。");
     }
+    try { scheduled?.beforeRun(); }
+    catch (error) { this.append("message.finalized", threadId, runId, { status: "cancelled" }, userId); throw error; }
+    this.activeThreadId = threadId;
+    this.activeSchedule = scheduled;
     this.liveMessages.clear();
     this.activeSource = source;
     this.activeCommand = commandId;
@@ -503,6 +562,7 @@ export class MoriAssistantService {
       } finally {
         accounts?.setQuotaUsage(threadId, false);
       }
+      scheduled?.reply([...this.liveMessages.values()].filter(message => message.role === "assistant").map(message => message.body).join("\n\n"));
       this.append("run.completed", threadId, runId, { status: "completed" });
       this.deps.conversations.updateThread(threadId, { status: "completed", message: "" });
       this.status = "idle";
@@ -527,6 +587,8 @@ export class MoriAssistantService {
       this.runAbort?.abort(new Error("Mori 本轮对话已结束。"));
       this.runAbort = undefined;
       this.runId = undefined;
+      this.activeThreadId = undefined;
+      this.activeSchedule = undefined;
       this.activity = undefined;
       this.pendingInput = undefined;
       this.pendingAnswer = undefined;
@@ -554,7 +616,7 @@ export class MoriAssistantService {
   }
 
   private persistText(itemId: string, body: string, final: boolean): void {
-    const threadId = this.store.state.currentThreadId;
+    const threadId = this.activeThreadId;
     if (!threadId || !this.runId) return;
     const id = itemId.startsWith("mori-answer-") ? itemId : `mori-answer-${itemId}`;
     const existing = this.liveMessages.get(id);
@@ -680,6 +742,7 @@ export class MoriAssistantService {
 
   async cancel(): Promise<void> {
     this.stopped = true;
+    this.scheduledActions.cancelQueued();
     this.runAbort?.abort(new Error("用户停止了助手。"));
     this.pendingAnswer?.reject(new Error("用户停止了助手。"));
     const runtime = this.runtime;
@@ -706,7 +769,7 @@ export class MoriAssistantService {
     const pending = this.pendingAnswer;
     this.pendingAnswer = undefined;
     this.pendingInput = undefined;
-    const threadId = this.store.state.currentThreadId;
+    const threadId = this.activeThreadId;
     if (threadId && this.runId) {
       const messageId = `mori-question-answer-${id}`;
       this.append(
@@ -740,6 +803,17 @@ export class MoriAssistantService {
     signal: AbortSignal,
   ): Promise<unknown> {
     signal.throwIfAborted();
+    const action = this.activeSchedule?.occurrence.definition.action;
+    if (action?.type === "check_task") {
+      if (!["mori_read_thread", "mori_read_thread_errors"].includes(name) || args.threadId !== action.taskThreadId)
+        throw new Error("本次定时检查只允许读取指定任务，不能执行、重启或修改任务。");
+    }
+    if (action?.type === "execute" && action.agentThreadId) {
+      if (name === "mori_start_task" || (name === "mori_send_to_task" && args.threadId !== action.agentThreadId))
+        throw new Error("本次定时操作必须交给用户指定的 Agent。");
+    }
+    if (action?.type === "execute" && action.projectPath && name === "mori_start_task" && args.projectPath !== action.projectPath)
+      throw new Error("本次定时操作必须使用用户保存的项目。");
     const definition = MORI_ASSISTANT_TOOLS.find((item) => item.name === name);
     if (!definition) throw new Error("未知的 Mori 桌面工具。");
     if (name === MORI_ACCOUNT_LIST_TOOL || name === MORI_ACCOUNT_SWITCH_TOOL) {
@@ -827,7 +901,7 @@ export class MoriAssistantService {
       return { ...this.deps.computerUse.status(), ...(await this.deps.computerUse.listTools(signal)) };
     if (name === "mori_computer_view")
       return this.deps.computerUse.viewScreenshot(
-        this.store.state.currentThreadId ?? "",
+        this.activeThreadId ?? "",
         str("path"),
         str("prompt"),
         signal,
@@ -852,7 +926,7 @@ export class MoriAssistantService {
       }
       signal.throwIfAborted();
       return this.deps.computerUse.callTool(
-        this.store.state.currentThreadId ?? "",
+        this.activeThreadId ?? "",
         str("name"),
         input as Record<string, unknown>,
         signal,
@@ -928,6 +1002,7 @@ export class MoriAssistantService {
           ? { channel: "wechat", messageId: this.activeCommand }
           : { channel: args.notifyWechat === true ? "wechat" : "desktop" };
       await this.store.save();
+      this.activeSchedule?.agent(result.thread.id);
       this.emit();
       return {
         threadId: result.thread.id,
@@ -942,7 +1017,7 @@ export class MoriAssistantService {
       if (!todo && !str("text")) throw new Error("请提供 text 或 todoId。");
       if (todo && this.taskProjectPath(target.workspacePath) !== todo.projectPath)
         throw new Error("待办与目标 Agent 会话不属于同一项目，请选择原项目中的会话。");
-      return this.deps.invoke("conversation:send-message", [
+      const receipt = await this.deps.invoke("conversation:send-message", [
         {
           principalId: "mori-assistant",
           clientCommandId: `mori-tool-${callId}`,
@@ -950,6 +1025,15 @@ export class MoriAssistantService {
           text: todo?.prompt ?? str("text"),
         },
       ]);
+      if (this.activeSchedule) {
+        const messageId = (receipt as { messageId?: string }).messageId;
+        if (!messageId) {
+          this.activeSchedule.uncertain("Agent 未返回消息接收回执，不能确认定时任务是否送达；请检查任务，不要重复发送。");
+          throw new Error("Agent 未返回消息接收回执，不能确认定时任务是否送达。");
+        }
+        this.activeSchedule.agent(target.id, messageId);
+      }
+      return receipt;
     }
     if (name === "mori_cancel_task") return this.deps.invoke("thread:cancel", [envelope(thread().id)]);
     if (name === "mori_update_thread_model") {
@@ -1078,7 +1162,7 @@ export class MoriAssistantService {
     if (!runSignal) throw new Error("Mori 本轮对话已结束。");
     const signal = toolSignal ? AbortSignal.any([runSignal, toolSignal]) : runSignal;
     signal.throwIfAborted();
-    const conversationId = this.store.state.currentThreadId;
+    const conversationId = this.activeThreadId;
     const runId = this.runId;
     if (!conversationId || !runId || this.stopped || this.closed) throw new Error("助手运行已结束。");
     const v2 = this.deps.conversations.conversationV2();
@@ -1117,6 +1201,8 @@ export class MoriAssistantService {
   async taskChanged(id: string): Promise<void> {
     if (!this.store.state.taskIds.includes(id)) return;
     this.emit();
+    if (this.deps.schedules.occurrences(["dispatching", "running", "waiting_user"]).some(record =>
+      record.definition.kind === "assistant_action" && record.assistant?.agents?.some(agent => agent.threadId === id))) return;
     const thread = this.deps.conversations.getThread(id);
     if (!thread || !["completed", "failed", "awaiting_plan", "blocked"].includes(thread.status)) return;
     const key = `${thread.status}:${thread.updatedAt}`;
@@ -1167,6 +1253,7 @@ export class MoriAssistantService {
     await this.prepareQueue;
     await this.sendQueue;
     this.deps.computerUse.close();
+    await this.scheduledActions.close();
     await this.store.save();
   }
 }

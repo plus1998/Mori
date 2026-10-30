@@ -1271,7 +1271,7 @@ function App() {
     void handleOpenProjectFromDrop(projectPath);
   };
   useEffect(() => {
-    const offOpen = window.eco?.onMoriAssistantOpenRequested?.(() => { setMoriOpen(true); setSettingsOpen(false); });
+    const offOpen = window.eco?.onMoriAssistantOpenRequested?.(() => { setMoriOpen(true); setSettingsOpen(false); setSchedulingOpen(false); });
     const offTask = window.eco?.onThreadOpenRequested?.(() => setMoriOpen(false));
     const offProject = window.eco?.onMoriAssistantProjectOpenRequested?.(path => moriProjectOpenRef.current(path));
     return () => { offOpen?.(); offTask?.(); offProject?.(); };

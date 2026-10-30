@@ -31,6 +31,7 @@ export class MoriAssistantHost {
     this.pets = new MoriPets(deps.dataDir);
     const changed = () => {
       if (this.closed) return;
+      this.service?.scheduledActions.reconcileWechatNotifications(id => this.wechat.hasSentNotification(id));
       this.wechat.setWaitingForInput(this.service.isWaitingForInput);
       this.service.wechatStatus = this.wechat.status;
       for (const window of BrowserWindow.getAllWindows())

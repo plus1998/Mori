@@ -19,6 +19,7 @@ import { localizeMainAgentConfigName } from "./main-agent-config-display";
 import { scheduleCronLabel } from "./schedule-cron-label";
 import { localScheduleDate as localDate, scheduleCatchUpSeconds, scheduleIntervalDuration, scheduleIntervalLabel, scheduleTriggerFor as triggerFor, type ScheduleTimingForm } from "./schedule-form";
 import "./scheduling.css";
+import { moriScheduledActionLabel } from "../shared/mori-scheduled-action";
 
 interface Props {
   settings: ModelSettingsSnapshot;
@@ -42,6 +43,7 @@ type Form = ScheduleTimingForm & {
   workspacePath: string;
   profile?: ScheduleExecutionProfile;
   enabled: boolean;
+  assistant?: boolean;
 };
 const CORE_ORDER = ["claude", "codex", "pi", "acp"] as const;
 
@@ -97,6 +99,7 @@ export function SchedulingPanel(props: Props) {
     setError(""); setPreview([]);
     const trigger = definition.trigger;
     setForm({ id: definition.id, revision: definition.revision, requestId: crypto.randomUUID(),
+      assistant: definition.kind === "assistant_action",
       name: definition.name, prompt: definition.prompt, workspacePath: definition.workspacePath ?? "",
       ...(definition.executionProfile ? { profile: structuredClone(definition.executionProfile) } : {}), triggerType: trigger.type,
       at: localDate(trigger.type === "at" ? trigger.at : trigger.type === "interval" ? trigger.anchorAt : new Date(Date.now() + 3600_000).toISOString()),
@@ -116,6 +119,11 @@ export function SchedulingPanel(props: Props) {
     if (!form) return;
     void runAction(async () => {
       const trigger = triggerFor(form);
+      if (form.assistant) {
+        if (trigger.type !== "at") throw new Error("Mori 定时操作仅支持一次性触发。");
+        const saved = await api.updateSchedule({ id: form.id!, expectedRevision: form.revision!, enabled: form.enabled, name: form.name, prompt: form.prompt, trigger, maxLatenessSeconds: scheduleCatchUpSeconds(form) });
+        setSelectedId(saved.id); setForm(undefined); return;
+      }
       if (!form.workspacePath.trim()) throw new Error(t("scheduling.projectRequired"));
       const common = { name: form.name, prompt: form.prompt, trigger, maxLatenessSeconds: scheduleCatchUpSeconds(form) };
       let saved: ScheduleDefinition;
@@ -190,9 +198,9 @@ export function SchedulingPanel(props: Props) {
       ? { key: form.profile.runtimeConfig.cursorModelId, providerId: "", modelId: form.profile.runtimeConfig.cursorModelId }
       : undefined)
     : (mainModel?.modelId ? { providerId: mainModel.providerId ?? "", modelId: mainModel.modelId } : undefined);
-  const selected = snapshot.schedules.find(item => item.kind === "scheduled_task" && item.id === selectedId);
-  const items = snapshot.schedules.filter(item => item.kind === "scheduled_task");
-  const history = snapshot.occurrences.filter(item => item.definition.kind === "scheduled_task" && (!selectedId || item.scheduleId === selectedId)).slice(0, 30);
+  const selected = snapshot.schedules.find(item => item.kind !== "session_message" && item.id === selectedId);
+  const items = snapshot.schedules.filter(item => item.kind !== "session_message");
+  const history = snapshot.occurrences.filter(item => item.definition.kind !== "session_message" && (!selectedId || item.scheduleId === selectedId)).slice(0, 30);
   const labelInterval = (seconds: number) => { const interval = scheduleIntervalLabel(seconds); return t(interval.key, interval.options); };
   const labelTrigger = (trigger: ScheduleTrigger) => trigger.type === "at" ? formatTime(trigger.at)
     : trigger.type === "cron" ? scheduleCronLabel(trigger, i18n.language) : labelInterval(trigger.everySeconds);
@@ -212,19 +220,20 @@ export function SchedulingPanel(props: Props) {
       }}>
       <header className="scheduling-header"><h2 id="scheduling-title"><Clock3 size={18} aria-hidden />{t("scheduling.title")}</h2>
         <div className="scheduling-toolbar">
-          <button className="scheduling-icon" onClick={() => void refresh()} aria-label={t("common.refresh")} title={t("common.refresh")}><RefreshCw size={16} /></button>
-          <button className="scheduling-primary" onClick={create} disabled={busy}><Plus size={16} />{t("scheduling.create")}</button>
+          <button type="button" className="scheduling-icon" onClick={() => void refresh()} aria-label={t("common.refresh")} title={t("common.refresh")}><RefreshCw size={16} /></button>
+          <button type="button" className="scheduling-primary" onClick={create} disabled={busy}><Plus size={16} />{t("scheduling.create")}</button>
           <span className="scheduling-toolbar-divider" aria-hidden />
-          <button ref={initialFocus} className="scheduling-icon" onClick={props.onClose} aria-label={t("common.close")}><X size={18} /></button>
+          <button type="button" ref={initialFocus} className="scheduling-icon" onClick={props.onClose} aria-label={t("common.close")}><X size={18} /></button>
         </div>
       </header>
       {(error || loadError) && <div className="scheduling-error" role="alert">{error || loadError}</div>}
       <div className="scheduling-content">
         <aside className="scheduling-list" aria-label={t("scheduling.scheduled_task")}>
-          {loading ? <p>{t("common.loading")}</p> : items.length === 0 ? <p className="scheduling-empty">{t("scheduling.empty")}</p> : items.map(item => <button key={item.id} className={`scheduling-item ${selectedId === item.id ? "selected" : ""}`} onClick={() => { setSelectedId(item.id); setForm(undefined); setError(""); }}>
+          {loading ? <p>{t("common.loading")}</p> : items.length === 0 ? <p className="scheduling-empty">{t("scheduling.empty")}</p> : items.map(item => <button type="button" key={item.id} className={`scheduling-item ${selectedId === item.id ? "selected" : ""}`} onClick={() => { setSelectedId(item.id); setForm(undefined); setError(""); }}>
             <span className="scheduling-item-title">{item.name}<span className={`scheduling-badge ${item.error ? "error" : ""}`}>{t(item.error ? "scheduling.needsAttention" : item.enabled ? "scheduling.enabled" : "scheduling.paused")}</span></span>
             <span title={item.trigger.type === "cron" ? `${item.trigger.expression} · ${item.trigger.timezone}` : undefined}>{labelTrigger(item.trigger)}</span>
             {item.executionProfile && <span className="scheduling-item-meta"><img className="scheduling-core-icon" src={coreIconSrc(item.executionProfile.coreKind)} alt="" aria-hidden/>{labelModel(item.executionProfile)}</span>}
+            {item.action && <span className="scheduling-item-meta">Mori · {moriScheduledActionLabel(item.action)} · {item.notification?.channel === "wechat" ? "微信" : "桌面通知"}</span>}
           </button>)}
         </aside>
         <main className="scheduling-detail">
@@ -233,7 +242,7 @@ export function SchedulingPanel(props: Props) {
             {form.id && <label className="scheduling-enabled-field"><input type="checkbox" checked={form.enabled} onChange={event => updateForm({ enabled: event.target.checked })}/>{t("scheduling.enableSchedule")}</label>}
             <label>{t("scheduling.name")}<input autoFocus required maxLength={200} value={form.name} onChange={event => updateForm({ name: event.target.value })} /></label>
             <label>{t("scheduling.instructions")}<textarea required rows={5} value={form.prompt} onChange={event => updateForm({ prompt: event.target.value })} placeholder={t("scheduling.taskPlaceholder")} /></label>
-            <SchedulingProjectField label={t("scheduling.workspace")} projects={props.projects} value={form.workspacePath} onChange={workspacePath => updateForm({ workspacePath })}/>
+            {!form.assistant && <><SchedulingProjectField label={t("scheduling.workspace")} projects={props.projects} value={form.workspacePath} onChange={workspacePath => updateForm({ workspacePath })}/>
             <div className="scheduling-field">
               <span className="scheduling-field-label">{t("scheduling.agent")}</span>
               <div className="scheduling-core-options" role="group" aria-label={t("scheduling.agent")}>
@@ -261,8 +270,8 @@ export function SchedulingPanel(props: Props) {
                 </ComposerFieldSelect>
               </div>}
             </div>
-            {modelError && <p className="scheduling-error">{modelError}</p>}
-            <ScheduleTimingFields form={form} onChange={updateForm} />
+            {modelError && <p className="scheduling-error">{modelError}</p>}</>}
+            <ScheduleTimingFields form={form} onChange={updateForm} onceOnly={form.assistant === true} />
             <div className="scheduling-form-actions"><button type="button" disabled={busy} onClick={() => void runAction(async () => setPreview(await api.previewSchedule(triggerFor(form))))}>{t("scheduling.preview")}</button><button className="scheduling-primary" disabled={busy} type="submit">{t(busy ? "scheduling.saving" : "scheduling.save")}</button></div>
             {preview.length > 0 && <ul className="scheduling-preview">{preview.map(time => <li key={time}>{formatTime(time)}</li>)}</ul>}
           </form> : selected ? <>
@@ -274,16 +283,21 @@ export function SchedulingPanel(props: Props) {
             </div>
             {selected.error && <p className="scheduling-error" role="alert">{selected.error}</p>}
             <pre className="scheduling-prompt">{selected.prompt}</pre>
+            {selected.action && <p className="scheduling-hint">Mori · {moriScheduledActionLabel(selected.action)} · 通知发送到{selected.notification?.channel === "wechat" ? "微信" : "桌面"}，绑定原助手会话。</p>}
             <div className="scheduling-form-actions">
-              <button disabled={busy} onClick={() => edit(selected)}><Pencil size={15}/>{t("scheduling.edit")}</button>
-              <button disabled={busy} onClick={() => void runAction(() => api.updateSchedule({ id: selected.id, expectedRevision: selected.revision, enabled: !selected.enabled }))}>{selected.enabled ? <Pause size={15}/> : <Play size={15}/>} {t(selected.enabled ? "scheduling.pause" : "scheduling.resume")}</button>
-              <button disabled={busy} onClick={() => void runAction(() => api.runScheduleNow({ id: selected.id, requestId: crypto.randomUUID() }))}><Play size={15}/>{t("scheduling.runNow")}</button>
-              <button disabled={busy} className="scheduling-danger" onClick={() => void runAction(async () => { await api.deleteSchedule(selected.id); setSelectedId(undefined); })}><Trash2 size={15}/>{t("common.delete")}</button>
+              <button type="button" disabled={busy} onClick={() => edit(selected)}><Pencil size={15}/>{t("scheduling.edit")}</button>
+              <button type="button" disabled={busy} onClick={() => void runAction(() => api.updateSchedule({ id: selected.id, expectedRevision: selected.revision, enabled: !selected.enabled }))}>{selected.enabled ? <Pause size={15}/> : <Play size={15}/>} {t(selected.enabled ? "scheduling.pause" : "scheduling.resume")}</button>
+              <button type="button" disabled={busy} onClick={() => void runAction(() => api.runScheduleNow({ id: selected.id, requestId: crypto.randomUUID() }))}><Play size={15}/>{t("scheduling.runNow")}</button>
+              <button type="button" disabled={busy} className="scheduling-danger" onClick={() => void runAction(async () => { await api.deleteSchedule(selected.id); setSelectedId(undefined); })}><Trash2 size={15}/>{t("common.delete")}</button>
             </div>
           </> : <p className="scheduling-select-hint">{t("scheduling.selectHint")}</p>}
           {!form && <section className={`scheduling-history${selected ? "" : " scheduling-history-overview"}`}><h3>{t("scheduling.history")}</h3>{history.length === 0 ? <p className="scheduling-hint">{t("scheduling.noHistory")}</p> : history.map(item => <div className="scheduling-run" key={item.id}>
-            <div><strong>{selectedId ? formatTime(item.scheduledAt) : item.definition.name}</strong><span className={`scheduling-badge ${item.status === "failed" || item.status === "unknown" ? "error" : ""}`}>{t(`scheduling.status.${item.status}`)}</span><small>{!selectedId && formatTime(item.scheduledAt)}</small>{item.error && <p>{item.error}</p>}</div>
-            {item.threadId && <button className="scheduling-icon" aria-label={t("scheduling.openThread")} title={t("scheduling.openThread")} onClick={() => props.onOpenThread(item.threadId!)}><ExternalLink size={16}/></button>}
+            <div><strong>{selectedId ? formatTime(item.scheduledAt) : item.definition.name}</strong><span className={`scheduling-badge ${item.status === "failed" || item.status === "unknown" ? "error" : ""}`}>{t(`scheduling.status.${item.status}`)}</span><small>{!selectedId && formatTime(item.scheduledAt)}</small>{item.error && <p>{item.error}</p>}
+              {item.assistant && <small>实际开始：{formatTime(item.assistant.actualAt)} · 通知：{item.assistant.notification ? ({ sending: "正在发送", sent: "已发送", failed: "发送失败", unknown: "状态不确定" }[item.assistant.notification.status]) : "等待结果"}</small>}
+              {item.assistant?.notification?.error && <p>{item.assistant.notification.error}</p>}
+              {item.assistant?.notification && ["failed", "unknown"].includes(item.assistant.notification.status) && <button type="button" disabled={busy} onClick={() => void runAction(() => api.retryScheduleNotification(item.id))}>仅重试通知</button>}
+            </div>
+            {item.threadId && <button type="button" className="scheduling-icon" aria-label={t("scheduling.openThread")} title={t("scheduling.openThread")} onClick={() => item.definition.kind === "assistant_action" ? void runAction(() => api.moriAssistantOpenTask(item.threadId!)) : props.onOpenThread(item.threadId!)}><ExternalLink size={16}/></button>}
           </div>)}</section>}
         </main>
       </div>

@@ -2,6 +2,7 @@ import type { ConversationMessage } from "@eco/shared";
 import type { ComputerUseActionApprovalMode } from "./computer-use";
 import type { ThreadSummary } from "./ipc";
 import type { OpenAIAccount } from "./openai-account";
+import type { ScheduleDefinition, ScheduleOccurrence } from "./scheduling";
 
 export interface MoriAssistantSettings {
   enabled: boolean;
@@ -36,7 +37,7 @@ export interface MoriAssistantState {
   draft: string;
   taskIds: string[];
   taskOrigins?: Record<string, { channel: "desktop" | "wechat"; messageId?: string }>;
-  sourceByMessage: Record<string, "desktop" | "wechat" | "task">;
+  sourceByMessage: Record<string, "desktop" | "wechat" | "task" | "schedule">;
   ballPosition?: { x: number; y: number };
 }
 
@@ -61,6 +62,9 @@ export interface MoriComputerUseStatus {
 }
 
 export interface MoriAssistantSnapshot {
+  activeThreadId?: string;
+  schedules: ScheduleDefinition[];
+  scheduledOccurrences: ScheduleOccurrence[];
   globalAccountId?: string | null;
   settings: MoriAssistantSettings;
   sessions: MoriAssistantSession[];

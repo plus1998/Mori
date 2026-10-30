@@ -646,3 +646,33 @@ test("scheduled message terminal statuses exclude running, queued and plan appro
   for (const status of ["running", "queued", "awaiting_plan"] as const)
     assert.equal(canDispatchScheduledMessageStatus(status), false);
 });
+
+test("Mori reminder can dispatch on a later tick while an Agent startup is still awaiting its receipt", async t => {
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const deliveries: string[] = [];
+  const f = await fixture(t, {
+    assertAssistantAction: () => {},
+    dispatch: async occurrence => {
+      if (occurrence.definition.kind === "scheduled_task") await blocked;
+      deliveries.push(occurrence.definition.kind);
+      return { threadId: occurrence.threadId! };
+    },
+  });
+  f.service.create(task("slow-agent"));
+  f.setNow(baseTime + 60_000);
+  const firstTick = f.service.tick();
+  await Promise.resolve();
+  const reminder = f.service.create({
+    kind: "assistant_action", threadId: "mori", requestId: "fast-reminder", name: "提醒", prompt: "开会",
+    action: { type: "reminder" }, notification: { channel: "desktop" },
+    trigger: { type: "at", at: new Date(baseTime + 61_000).toISOString() },
+  });
+  f.setNow(baseTime + 61_000);
+  try {
+    await f.service.tick();
+    assert.deepEqual(deliveries, ["assistant_action"]);
+    assert.equal(f.store.occurrences().find(item => item.scheduleId === reminder.id)?.status, "running");
+  } finally { release(); await firstTick; }
+  assert.deepEqual(deliveries, ["assistant_action", "scheduled_task"]);
+});

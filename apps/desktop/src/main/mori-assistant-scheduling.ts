@@ -2,6 +2,7 @@ import { z } from "zod";
 import { IPC_CHANNELS, type ThreadSummary } from "../shared/ipc";
 import type { ScheduleDefinition, ScheduleExecutionProfile, SchedulingSnapshot } from "../shared/scheduling";
 import type { AssistantTool } from "./mori-assistant-runtime";
+import { moriScheduledActionSchema } from "../shared/mori-scheduled-action";
 
 const id = z.string().trim().min(1);
 const trigger = z.discriminatedUnion("type", [
@@ -22,7 +23,7 @@ const schemas = {
   mori_list_schedules: z.strictObject({
     projectPath: id.optional(),
     enabled: z.boolean().optional(),
-    kind: z.enum(["scheduled_task", "session_message"]).optional(),
+    kind: z.enum(["scheduled_task", "session_message", "assistant_action"]).optional(),
     search: z.string().max(1000).optional(),
     offset: z.number().int().nonnegative().optional(),
     limit: z.number().int().min(1).max(50).optional(),
@@ -54,10 +55,24 @@ const schemas = {
   }),
   mori_delete_schedule: z.strictObject({ id, expectedRevision: z.number().int().min(1) }),
   mori_preview_schedule: z.strictObject({ trigger }),
+  mori_retry_schedule_notification: z.strictObject({ occurrenceId: id }),
+  mori_create_assistant_schedule: z.strictObject({
+    requestId: id.max(140),
+    name: id.max(200),
+    prompt: id.max(100000),
+    action: moriScheduledActionSchema,
+    delaySeconds: z.number().int().min(1).max(31536000).optional(),
+    at: id.optional(),
+    channel: z.enum(["desktop", "wechat"]).optional(),
+    maxLatenessSeconds: z.number().int().min(0).max(86400).optional(),
+  }),
 };
 type SchedulingToolName = keyof typeof schemas;
 type ExecutionFields = z.infer<typeof schemas.mori_update_schedule>;
 const descriptions: Record<SchedulingToolName, string> = {
+  mori_retry_schedule_notification: "仅重发失败或状态不确定的定时操作通知，不重新执行任务。occurrenceId 从 mori_read_schedule 的近期执行记录读取。状态不确定时重发可能产生重复通知，应向用户说明。",
+  mori_create_assistant_schedule:
+    "按用户要求安排 Mori 自身的一次性提醒、检查任务或延时执行。多久后用 delaySeconds，指定时间用含时区的 at，两者必须选一个。action.type=reminder 直接提醒，不调用模型；check_task 必须给明确 taskThreadId，届时只读检查一次；execute 保存完整执行要求，可固定 projectPath 或 agentThreadId。自动绑定当前 Mori 会话，通知默认沿用请求渠道，可明确选 desktop/wechat。固定提醒默认允许迟到 5 分钟，其余默认 1 小时；应用退出或休眠不能保证准时。使用稳定 requestId 重试，只有成功返回才能说已安排。已有定时安排继续用 list/read/update/delete 管理。",
   mori_list_schedules:
     "查看全局定时任务和定时消息，包含设置页面或其他会话创建的项目。可按项目、启停状态、类型和名称/指令关键词筛选、分页。返回最新 revision、规则、下次运行时间和指令预览；完整配置与近期执行记录用 mori_read_schedule。",
   mori_read_schedule:
@@ -80,13 +95,14 @@ export function isMoriSchedulingTool(name: string): boolean {
   return MORI_SCHEDULING_TOOLS.some((tool) => tool.name === name);
 }
 export const MORI_SCHEDULING_INSTRUCTIONS =
-  "定时管理使用 mori_scheduling MCP 工具，可查看和管理全局定时任务及定时消息，不需要新建即时工作会话或操作设置页。仅按用户要求创建或变更。修改和删除前读取最新 revision，版本冲突时重新读取，不得覆盖用户修改。新建独立任务必须明确项目，不能使用 Mori 自身的独立工作区；可继承指定工作会话配置，否则使用桌面默认运行配置。定时消息仅发送到明确的工作会话，不向 Mori 助手自身发送。时间必须有明确时区，语义不清先询问；通过 preview 核对实际触发时间。独立任务每次运行是新会话，指令必须包含必要上下文。删除不会停止已经运行的会话。创建成功只表示已安排，不代表已执行或完成；失败须明确说明。运行需要 Mori 保持启动、电脑联网且唤醒，不会唤醒休眠的电脑。";
+  "定时管理使用 mori_scheduling MCP 工具。用户说多久后提醒、多久后看看某任务、多久后帮我做事时，用 mori_create_assistant_schedule 创建 Mori 定时操作，分别选择 reminder、check_task、execute；不要改成即时执行或独立 Agent 定时任务。检查必须绑定准确任务 ID，只检查一次；执行要求保存完整，明确项目或指定 Agent 时一并保存。通知默认沿用请求渠道。仅按用户要求创建或变更；修改和删除前读取最新 revision。普通 Agent 定时任务继续用 mori_create_schedule。创建成功只表示已安排；告知准确触发时间、通知渠道及应用运行且电脑唤醒的条件，不得承诺唤醒休眠电脑。";
 
 interface SchedulingAccess {
   invoke(channel: string, args: unknown[]): Promise<unknown>;
   defaultProfile(): ScheduleExecutionProfile;
   projectPath(value: string): string;
   workThread(id: string): ThreadSummary | undefined;
+  assistantContext?(): { threadId: string; channel: "desktop" | "wechat"; messageId?: string };
 }
 
 export class MoriAssistantScheduling {
@@ -94,6 +110,35 @@ export class MoriAssistantScheduling {
 
   async call(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
     signal.throwIfAborted();
+    if (name === "mori_retry_schedule_notification") {
+      const input = schemas.mori_retry_schedule_notification.parse(args);
+      await this.access.invoke(IPC_CHANNELS.schedulingRetryNotification, [input.occurrenceId]);
+      return { notificationRetried: true, executionRepeated: false };
+    }
+    if (name === "mori_create_assistant_schedule") {
+      const input = schemas.mori_create_assistant_schedule.parse(args);
+      if ((input.delaySeconds === undefined) === (input.at === undefined)) throw new Error("delaySeconds 和 at 必须且只能提供一个。");
+      const context = this.access.assistantContext?.();
+      if (!context) throw new Error("缺少当前 Mori 会话，无法安排提醒。");
+      if (input.action.type === "check_task") this.requireThread(input.action.taskThreadId);
+      if (input.action.type === "execute") {
+        if (input.action.projectPath) input.action.projectPath = this.access.projectPath(input.action.projectPath);
+        if (input.action.agentThreadId) {
+          const target = this.requireThread(input.action.agentThreadId);
+          if (input.action.projectPath && input.action.projectPath !== target.workspacePath) throw new Error("指定 Agent 与项目不一致。");
+        }
+      }
+      signal.throwIfAborted();
+      const schedule = await this.access.invoke(IPC_CHANNELS.schedulingCreate, [{
+        kind: "assistant_action", requestId: `mori-assistant:${context.threadId}:${input.requestId}`,
+        name: input.name, prompt: input.prompt, threadId: context.threadId, action: input.action,
+        notification: { channel: input.channel ?? context.channel, ...(context.messageId ? { messageId: context.messageId } : {}) },
+        trigger: { type: "at", at: input.at ?? new Date(Date.now() + input.delaySeconds! * 1000).toISOString() },
+        ...(input.delaySeconds !== undefined ? { delaySeconds: input.delaySeconds } : {}),
+        maxLatenessSeconds: input.maxLatenessSeconds ?? (input.action.type === "reminder" ? 300 : 3600),
+      }]) as ScheduleDefinition;
+      return { schedule: summary(schedule), scheduled: true, requiresRunningApp: true, wakesSleepingComputer: false };
+    }
     if (name === "mori_preview_schedule") {
       const input = schemas.mori_preview_schedule.parse(args);
       return { nextRuns: await this.access.invoke(IPC_CHANNELS.schedulingPreview, [input.trigger]) };
@@ -180,7 +225,9 @@ export class MoriAssistantScheduling {
         recentOccurrences: snapshot.occurrences
           .filter((item) => item.scheduleId === current.id)
           .slice(0, 10)
-          .map(({ definition: _definition, ...run }) => run),
+          .map(({ definition: _definition, ...run }) => ({ ...run,
+            ...(run.assistant ? { assistant: { ...run.assistant, result: run.assistant.result?.slice(0, 1000), resultTruncated: (run.assistant.result?.length ?? 0) > 1000 } } : {}),
+          })),
         occurrenceHistoryWindow: { globalLimit: 200, perScheduleLimit: 10 },
       };
     }
@@ -212,7 +259,7 @@ export class MoriAssistantScheduling {
       mainAgentConfigId,
       cursorModelId,
     ].some((value) => value !== undefined);
-    if (current.kind === "session_message" && hasExecutionFields(input))
+    if (current.kind !== "scheduled_task" && hasExecutionFields(input))
       throw new Error("定时消息不能修改项目或运行配置。");
     const source = sourceThreadId ? this.requireThread(sourceThreadId) : undefined;
     if (executionChanged && !source && !current.executionProfile)
@@ -306,6 +353,8 @@ function summary(item: ScheduleDefinition, promptLimit = 500) {
     source: item.source,
     coreKind: item.executionProfile?.coreKind,
     imageCount: item.attachments?.length ?? 0,
+    action: item.action,
+    notification: item.notification,
     error: item.error,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,

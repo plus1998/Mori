@@ -658,6 +658,7 @@ import { CodexGatewayUsagePendingBuffer } from "./codex-gateway-usage-pending";
 import { MoriAssistantHost } from "./mori-assistant-host";
 import { isMoriAssistantWindow } from "./mori-assistant-windows";
 import { MORI_ASSISTANT_CHANNELS } from "../shared/mori-assistant";
+import { MoriNotificationUncertainError } from "../shared/mori-scheduled-action";
 import { buildThreadRuntimeConfigFromDefaults } from "../shared/thread-runtime-config";
 import { connectCodexImageAccount, disposeCodexImageConnections } from "./codex-image-electron-transport";
 import { CodexImageService } from "./codex-image-service";
@@ -1229,6 +1230,7 @@ let pendingEcoDeepLink: string | undefined;
 // True once the renderer reports ready (it then subscribes to deep-link events).
 let desktopRendererReady = false;
 let moriAssistantHost: MoriAssistantHost | undefined;
+let moriAssistantReady = false;
 const startupSplashWindows = new WeakSet<BrowserWindow>();
 let resolveInitialDesktopRendererReady: (() => void) | undefined;
 const initialDesktopRendererReady = new Promise<void>((resolve) => {
@@ -4986,7 +4988,9 @@ function localizeExpectedIpcError(error: unknown): unknown {
 }
 
 async function openThreadFromDesktopNotification(threadId: string): Promise<void> {
-  pendingThreadOpenId = threadId;
+  const isMori = moriAssistantHost?.service.store.state.sessions.some(item => item.threadId === threadId);
+  pendingThreadOpenId = isMori ? undefined : threadId;
+  if (isMori) await moriAssistantHost!.service.selectSession(threadId);
   const splashWindow = getStartupSplashWindow();
   if (!desktopRendererReady && splashWindow) {
     presentDesktopWindow(splashWindow);
@@ -5012,7 +5016,24 @@ async function openThreadFromDesktopNotification(threadId: string): Promise<void
     ]);
   }
   // Prefer payload over consume so open still works if pending was already drained.
-  window.webContents.send(IPC_CHANNELS.appThreadOpenRequested, threadId);
+  window.webContents.send(isMori ? MORI_ASSISTANT_CHANNELS.openRequested : IPC_CHANNELS.appThreadOpenRequested, threadId);
+}
+
+async function notifyMoriSchedule(threadId: string, target: import("../shared/mori-scheduled-action").MoriScheduledNotification, text: string, id: string): Promise<void> {
+  if (target.channel === "wechat") {
+    if (!moriAssistantHost?.service.onWechatReply || !moriAssistantHost.service.canNotifyWechat?.()) throw new Error("微信通知不可用，请重新连接后重试通知。");
+    await moriAssistantHost.service.onWechatReply(text, target.messageId, id);
+    return;
+  }
+  if (!Notification.isSupported()) throw new Error("当前系统不支持桌面通知。");
+  const notification = new Notification({ title: "Mori 定时提醒", body: text, ...(appIcon ? { icon: appIcon } : {}) });
+  notification.on("click", () => { void openThreadFromDesktopNotification(threadId).catch(error => logEcoDiag("mori.schedule.open.failed", { error: errorMessage(error) })); });
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new MoriNotificationUncertainError("系统未确认桌面通知已展示，请检查通知权限；重发可能产生重复提醒。")), 8000);
+    notification.once("show", () => { clearTimeout(timer); resolve(); });
+    notification.once("failed", (_event, error) => { clearTimeout(timer); reject(new Error(`桌面通知失败：${error}`)); });
+    desktopNotificationRetainer.show(notification);
+  });
 }
 
 function evaluateDesktopNotificationDelivery(
@@ -5764,6 +5785,10 @@ function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.schedulingPreview, (trigger: ScheduleTrigger) =>
     previewSchedule(trigger),
   );
+  registerDesktopCommand(IPC_CHANNELS.schedulingRetryNotification, (id: string) => {
+    if (!moriAssistantReady || !moriAssistantHost) throw new Error("Mori 助手尚未就绪。");
+    return moriAssistantHost.service.scheduledActions.retryNotification(id);
+  });
   // Terminal paste reads through the main process: the renderer clipboard-read permission
   // stays denied, and Electron's clipboard is not gated on window focus.
   registerDesktopCommand(IPC_CHANNELS.clipboardReadText, async () => clipboard.readText());
@@ -7902,6 +7927,8 @@ function registerIpcHandlers(): void {
   });
 
   moriAssistantHost = new MoriAssistantHost({
+    schedules: schedulingService.store,
+    notifyScheduled: notifyMoriSchedule,
     moriShortcut: () => keyboardShortcutsStore.get()["mori-floating"]?.[0] ?? "",
     dataDir: app.getPath("userData"), conversations: conversationStore,
     accounts: getOpenAIAccountService, executable: resolveCodexExecutable, onUsage: recordAccountUsage,
@@ -7979,7 +8006,7 @@ function registerIpcHandlers(): void {
     subscribeTasks: callback => desktopEventCenter.subscribe({ publish: envelope => { if (envelope.threadId) callback(envelope.threadId); } }),
     reportError: error => logEcoDiag("mori-assistant.error", { error: errorMessage(error) }),
   });
-  void moriAssistantHost.initialize().catch(error => logEcoDiag("mori-assistant.initialize.failed", { error: errorMessage(error) }));
+  void moriAssistantHost.initialize().then(() => { moriAssistantReady = true; }, error => logEcoDiag("mori-assistant.initialize.failed", { error: errorMessage(error) }));
 
   openaiAccountAssistant = new OpenAIAccountAssistant({
     getDetails: async (accountId) => (await getOpenAIAccountService()).getAccountDetails(accountId),
@@ -14260,6 +14287,10 @@ function inspectScheduledOccurrence(occurrence: ScheduleOccurrence): {
   status: import("../shared/scheduling").ScheduleOccurrenceStatus;
   error?: string;
 } {
+  if (occurrence.definition.kind === "assistant_action") {
+    if (!moriAssistantReady) return { status: "running" };
+    return moriAssistantHost!.service.scheduledActions.inspect(occurrence);
+  }
   if (occurrence.definition.planApproval && occurrence.definition.threadId) {
     return inspectScheduledPlanCommand(conversationStore.conversationV2().getCommandJob(
       "eco-scheduler", occurrence.definition.threadId, scheduledPlanCommandId(occurrence.id),
@@ -14317,6 +14348,10 @@ function createSchedulingService(dbPath: string): SchedulingService {
     assertThread: (threadId) => {
       if (!conversationStore.getThread(threadId)) throw new Error("目标会话不存在。");
     },
+    assertAssistantAction: (id, action, notification) => {
+      if (!moriAssistantReady || !moriAssistantHost) throw new Error("Mori 助手尚未就绪。");
+      moriAssistantHost.service.scheduledActions.assert(id, action, notification);
+    },
     assertPlanApproval: (threadId, approval, plan) => assertScheduledPlanCurrent(approval, plan, {
       thread: conversationStore.getThread(threadId),
       pendingPlan: conversationStore.getPendingPlan(threadId),
@@ -14327,6 +14362,7 @@ function createSchedulingService(dbPath: string): SchedulingService {
       emitThreadEvent(thread.id, "thread.created", "");
     },
     canDispatch: (occurrence) => {
+      if (occurrence.definition.kind === "assistant_action") return moriAssistantReady;
       if (occurrence.definition.kind === "scheduled_task") {
         const workspacePath = occurrence.definition.workspacePath!;
         return !conversationStore
@@ -14368,6 +14404,10 @@ function createSchedulingService(dbPath: string): SchedulingService {
     },
     dispatch: async (occurrence) => {
       const definition = occurrence.definition;
+      if (definition.kind === "assistant_action") {
+        if (!moriAssistantReady || !moriAssistantHost) throw new Error("Mori 助手尚未就绪。");
+        return moriAssistantHost.service.scheduledActions.dispatch(occurrence);
+      }
       if (definition.kind === "scheduled_task") {
         const result = await startNewThread(
           {
@@ -14402,6 +14442,7 @@ function createSchedulingService(dbPath: string): SchedulingService {
     onChanged: () => {
       syncSystemSleepBlocker();
       desktopEventCenter.publish({ kind: "scheduling.changed", payload: {}, aggregateKey: "scheduling:global" });
+      moriAssistantHost?.service.capabilitiesChanged();
     },
     onError: (error) => logEcoDiag("scheduling.error", { error: errorMessage(error) }),
   });

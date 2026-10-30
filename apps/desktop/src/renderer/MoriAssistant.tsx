@@ -40,6 +40,7 @@ import { shortcutMatches, useKeyboardShortcuts } from "./keyboard-shortcuts";
 import { LazyOpenAIAccountsPanel } from "./lazy-app-panels";
 import { MarkdownContent } from "./MarkdownContent";
 import { MoriIcon } from "./MoriIcon";
+import { MoriScheduledCards } from "./MoriScheduledCards";
 import { MoriPetSettings } from "./MoriPetSettings";
 import { MoriPetSprite } from "./MoriPetSprite";
 import { DEFAULT_MORI_PET } from "./mori-default-pet";
@@ -981,7 +982,7 @@ export function MoriAssistantPanel({
           type="button"
           title="新建助手对话"
           aria-label="新建助手对话"
-          disabled={busy || sessionBusy}
+          disabled={sessionBusy}
           onClick={() => void switchSession()}
         >
           <Plus size={17} />
@@ -1052,7 +1053,7 @@ export function MoriAssistantPanel({
                   <button
                     type="button"
                     key={item.threadId}
-                    disabled={busy || sessionBusy}
+                    disabled={sessionBusy}
                     aria-current={item.threadId === snapshot.currentThreadId ? "true" : undefined}
                     className={item.threadId === snapshot.currentThreadId ? "is-selected" : ""}
                     onClick={() => void switchSession(item.threadId)}
@@ -1175,6 +1176,8 @@ export function MoriAssistantPanel({
                 {olderLoading ? "正在加载…" : "查看更早的消息"}
               </button>
             ) : null}
+            {snapshot && <MoriScheduledCards schedules={snapshot.schedules} occurrences={snapshot.scheduledOccurrences} onChanged={refresh} />}
+            {snapshot?.activeThreadId && snapshot.activeThreadId !== snapshot.currentThreadId && <p className="mori-activity">Mori 正在另一个助手会话中执行。<button type="button" onClick={() => void switchSession(snapshot.activeThreadId)}>打开执行会话</button></p>}
             {messages.map((message) => (
               <article className={`mori-message is-${message.role}`} key={message.messageId}>
                 <div className="mori-message-label">
@@ -1183,7 +1186,7 @@ export function MoriAssistantPanel({
                       ? "你 · 来自微信"
                       : snapshot?.sourceByMessage[message.messageId] === "task"
                         ? "任务更新"
-                        : "你"
+                        : snapshot?.sourceByMessage[message.messageId] === "schedule" ? "定时操作" : "你"
                     : (snapshot?.settings.name ?? "Mori")}
                   {message.status === "queued"
                     ? " · 排队中"

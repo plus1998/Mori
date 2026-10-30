@@ -71,6 +71,17 @@ export class SchedulingStore {
   snapshot(): SchedulingSnapshot {
     return { schedules: this.list(), occurrences: this.occurrences(undefined, 200) };
   }
+  assistantSnapshot(threadId: string): SchedulingSnapshot {
+    const schedules = this.list().filter(item => item.kind === "assistant_action" && item.threadId === threadId);
+    const occurrences = (this.db.prepare(`SELECT data FROM schedule_occurrences
+      WHERE json_extract(data, '$.definition.kind')='assistant_action' AND json_extract(data, '$.definition.threadId')=?
+      ORDER BY scheduled_at DESC LIMIT 200`).all(threadId) as JsonRow[]).map(row => JSON.parse(row.data) as ScheduleOccurrence);
+    return { schedules, occurrences: occurrences.map(item => {
+      if (!item.assistant) return item;
+      const { result: _result, ...receipt } = item.assistant;
+      return { ...item, assistant: receipt };
+    }) };
+  }
   occurrences(statuses?: ScheduleOccurrenceStatus[], limit?: number): ScheduleOccurrence[] {
     const where = statuses?.length ? `WHERE status IN (${statuses.map(() => "?").join(",")})` : "";
     return (this.db.prepare(`SELECT data FROM schedule_occurrences ${where} ORDER BY scheduled_at DESC ${limit ? "LIMIT ?" : ""}`)
@@ -82,6 +93,18 @@ export class SchedulingStore {
   saveOccurrence(occurrence: ScheduleOccurrence): void {
     this.db.prepare("INSERT INTO schedule_occurrences(id,schedule_id,status,scheduled_at,data) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,data=excluded.data")
       .run(occurrence.id, occurrence.scheduleId, occurrence.status, occurrence.scheduledAt, JSON.stringify(occurrence));
+  }
+  getOccurrence(id: string): ScheduleOccurrence | undefined {
+    const row = this.db.prepare("SELECT data FROM schedule_occurrences WHERE id=?").get(id) as JsonRow | undefined;
+    return row ? JSON.parse(row.data) : undefined;
+  }
+  assistantRecoveryOccurrences(): ScheduleOccurrence[] {
+    return (this.db.prepare(`SELECT data FROM schedule_occurrences
+      WHERE json_extract(data, '$.definition.kind')='assistant_action'
+      AND (status IN ('dispatching','running','waiting_user')
+        OR json_extract(data, '$.assistant.notification.status') IN ('sending','failed','unknown')
+        OR (json_extract(data, '$.assistant.phase') IS NOT NULL AND json_extract(data, '$.assistant.notification') IS NULL))`)
+      .all() as JsonRow[]).map(row => JSON.parse(row.data));
   }
   cancelPending(scheduleId: string, now: string): void {
     for (const occurrence of this.occurrences(["pending"])) {
@@ -141,17 +164,17 @@ export class SchedulingStore {
     if (existing) return JSON.parse(existing.data);
     const active = this.occurrences(["pending", "dispatching", "running", "waiting_user"])
       .filter(item => item.scheduleId === definition.id);
-    if (active.some(item => item.status !== "pending" || definition.kind !== "session_message")) throw new Error("该项目已有等待或正在执行的运行。");
+    if (active.some(item => item.status !== "pending" || definition.kind === "scheduled_task")) throw new Error("该项目已有等待或正在执行的运行。");
     const now = new Date(nowMs).toISOString();
     const occurrence: ScheduleOccurrence = { id, scheduleId: definition.id, scheduledAt: now, definition, status: "pending", createdAt: now, updatedAt: now };
     this.transaction(() => {
       // A due message may already be waiting for its conversation. The manual
       // send replaces that unclaimed delivery, with a fresh lateness window.
       // Keep the manual request ID as its durable receipt so retries deduplicate.
-      if (definition.kind === "session_message") this.cancelPending(definition.id, now);
+      if (definition.kind !== "scheduled_task") this.cancelPending(definition.id, now);
       this.saveOccurrence(occurrence);
       // Sending a one-shot message now consumes its planned date instead of sending twice.
-      if (definition.kind === "session_message" && definition.trigger.type === "at") this.save({ ...definition, nextRunAt: null, updatedAt: now });
+      if (definition.kind !== "scheduled_task" && definition.trigger.type === "at") this.save({ ...definition, nextRunAt: null, updatedAt: now });
     });
     return occurrence;
   }

@@ -2,6 +2,7 @@ import type { PromptImageAttachment } from "./ipc";
 import type { CoreKind } from "@eco/runtime";
 import type { ThreadRuntimeConfig } from "./thread-runtime-config";
 import { buildEcoMcpHubToolUsage } from "./mcp-hub-tool-usage";
+import type { MoriScheduledAction, MoriScheduledNotification, MoriScheduledReceipt } from "./mori-scheduled-action";
 
 export type ScheduleTrigger =
   | { type: "at"; at: string }
@@ -33,11 +34,12 @@ export type ScheduleCreateInput = {
 } & (
   | { kind: "session_message"; threadId: string; prompt: string; attachments?: PromptImageAttachment[]; newThread?: ScheduledMessageNewThread; planApproval?: ScheduledPlanApproval }
   | { kind: "scheduled_task"; workspacePath: string; prompt: string; executionProfile: ScheduleExecutionProfile }
+  | { kind: "assistant_action"; threadId: string; prompt: string; action: MoriScheduledAction; notification: MoriScheduledNotification; delaySeconds?: number }
 );
 
 export interface ScheduleDefinition {
   id: string;
-  kind: "session_message" | "scheduled_task";
+  kind: "session_message" | "scheduled_task" | "assistant_action";
   name: string;
   prompt: string;
   attachments?: PromptImageAttachment[];
@@ -50,6 +52,8 @@ export interface ScheduleDefinition {
   workspacePath?: string;
   executionProfile?: ScheduleExecutionProfile;
   planApproval?: ScheduledPlanApproval;
+  action?: MoriScheduledAction;
+  notification?: MoriScheduledNotification;
   revision: number;
   nextRunAt: string | null;
   createdAt: string;
@@ -81,6 +85,7 @@ export interface ScheduleOccurrence {
   definition: ScheduleDefinition;
   threadId?: string;
   followUpId?: string;
+  assistant?: MoriScheduledReceipt;
   error?: string;
   createdAt: string;
   updatedAt: string;

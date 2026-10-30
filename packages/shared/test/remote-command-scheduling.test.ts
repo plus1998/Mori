@@ -4,6 +4,7 @@ import { getRemoteCommandDefinition, validateRemoteCommandArgs } from "../src/re
 test("scheduling remote commands require the paired RPC capability and complete mutation identities", () => {
   for (const [channel, args, risk] of [
     ["scheduling:list", [], "read"],
+    ["scheduling:retry-notification", ["occurrence"], "write_safe"],
     ["scheduling:create", [{ requestId: "request", kind: "session_message", name: "hello", prompt: "hello", trigger: { type: "at", at: "2027-01-01T00:00:00Z" } }], "write_safe"],
     ["scheduling:update", [{ id: "schedule", expectedRevision: 2, enabled: false }], "write_safe"],
     ["scheduling:delete", ["schedule"], "write_safe"],

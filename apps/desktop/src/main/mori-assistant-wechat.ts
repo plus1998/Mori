@@ -33,6 +33,7 @@ interface WechatOutbox {
   error?: string;
 }
 interface WechatState {
+  sentNotificationIds?: string[];
   token?: string;
   baseUrl?: string;
   userId?: string;
@@ -92,6 +93,8 @@ export class MoriAssistantWechat {
       const state = JSON.parse(await fs.readFile(this.file, "utf8")) as WechatState;
       if (!Array.isArray(state.inbox) || !Array.isArray(state.outbox) || typeof state.cursor !== "string")
         throw new Error("微信连接状态文件无效，原文件已保留。");
+      if (state.sentNotificationIds !== undefined && (!Array.isArray(state.sentNotificationIds) || state.sentNotificationIds.some(id => typeof id !== "string")))
+        throw new Error("微信通知回执无效，原文件已保留。");
       if (state.baseUrl) validateWechatBaseUrl(state.baseUrl);
       this.state = state;
       for (const message of this.state.inbox)
@@ -436,7 +439,14 @@ export class MoriAssistantWechat {
   }
 
   private sending = false;
+  private flushWork: Promise<void> | undefined;
   private async flushOutbox(): Promise<void> {
+    if (this.flushWork) return this.flushWork;
+    const work = this.flushOutboxOnce();
+    this.flushWork = work;
+    try { await work; } finally { this.flushWork = undefined; }
+  }
+  private async flushOutboxOnce(): Promise<void> {
     if (this.sending) return;
     this.sending = true;
     try {
@@ -456,7 +466,9 @@ export class MoriAssistantWechat {
           base_info: { channel_version: "2.4.8", bot_agent: "Mori/1" },
         });
         this.state.outbox.shift();
+        this.state.sentNotificationIds = [...(this.state.sentNotificationIds ?? []), message.id].slice(-2000);
         await this.save();
+        this.deps.changed();
       }
     } catch (error) {
       this.update({
@@ -483,6 +495,7 @@ export class MoriAssistantWechat {
   }
 
   async enqueueNotification(text: string, messageId: string | undefined, id: string): Promise<void> {
+    if (this.hasSentNotification(id)) return;
     const original = messageId
       ? this.state.inbox.find((item) => item.id === messageId)
       : this.state.inbox.at(-1);
@@ -492,7 +505,11 @@ export class MoriAssistantWechat {
       this.state.outbox.push({ id, userId: original.userId, contextToken: latest.contextToken, text });
     await this.save();
     await this.flushOutbox();
+    if (this.state.outbox.some(item => item.id === id))
+      throw new Error(this.status.error ?? "微信通知已入队，尚未确认送达。");
   }
+
+  hasSentNotification(id: string): boolean { return this.state.sentNotificationIds?.includes(id) === true; }
 
   async close(): Promise<void> {
     this.binding?.abort();
