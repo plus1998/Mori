@@ -29,7 +29,7 @@ test("buildProxyUpstreamHeaders passthrough SDK user-agent on openai path", () =
   expect(headers["anthropic-version"]).toBeUndefined();
 });
 
-test("buildProxyUpstreamHeaders uses Eco user-agent when client has none and no override", () => {
+test("buildProxyUpstreamHeaders uses Mori user-agent when client has none and no override", () => {
   const headers = buildProxyUpstreamHeaders({
     clientHeaders: {},
     apiKey: "",
@@ -48,7 +48,7 @@ test("buildProxyUpstreamHeaders global override wins over SDK", () => {
   expect(headers["user-agent"]).toBe("custom-gateway/9");
 });
 
-test("buildProviderDirectUpstreamHeaders identifies as Eco by default and honors override", () => {
+test("buildProviderDirectUpstreamHeaders identifies as Mori by default and honors override", () => {
   expect(
     buildProviderDirectUpstreamHeaders({
       apiKey: "k",
@@ -64,7 +64,7 @@ test("buildProviderDirectUpstreamHeaders identifies as Eco by default and honors
   ).toBe("eco-test/1");
 });
 
-test("buildDefaultUpstreamUserAgent carries the Eco version and the OS", () => {
+test("buildDefaultUpstreamUserAgent carries the Mori version and the OS", () => {
   expect(
     buildDefaultUpstreamUserAgent({
       version: "1.4.2",
@@ -72,15 +72,15 @@ test("buildDefaultUpstreamUserAgent carries the Eco version and the OS", () => {
       release: "24.6.0",
       arch: "arm64",
     }),
-  ).toBe("Eco-Coding/1.4.2 (darwin 24.6.0; arm64)");
+  ).toBe("Mori/1.4.2 (darwin 24.6.0; arm64)");
   // Degenerate host info still produces a valid, non-empty UA.
   expect(buildDefaultUpstreamUserAgent({ version: " ", platform: "win32", release: "", arch: "" })).toBe(
-    "Eco-Coding/0.0.0 (win32)",
+    "Mori/0.0.0 (win32)",
   );
 });
 
 test("setDefaultUpstreamUserAgent replaces the bare fallback for host-owned requests", () => {
-  const versioned = "Eco-Coding/1.4.2 (darwin 24.6.0; arm64)";
+  const versioned = "Mori/1.4.2 (darwin 24.6.0; arm64)";
   expect(setDefaultUpstreamUserAgent(versioned)).toBeUndefined();
   try {
     expect(buildProviderDirectUpstreamHeaders({ apiKey: "k", apiCompat: "anthropic" })["user-agent"]).toBe(

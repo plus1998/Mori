@@ -17,6 +17,8 @@ import '../../core/models/thread_models.dart';
 import '../../core/models/thread_runtime_config.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/utils/activity_display.dart';
+import '../../core/utils/approval_feedback.dart';
+import '../../core/utils/composer_references.dart';
 import '../../core/utils/feed_action_kind.dart';
 import '../../core/utils/file_change.dart';
 import '../../core/utils/feed_text.dart';
@@ -30,10 +32,13 @@ import '../../core/utils/tool_writing_indicator.dart';
 import '../../core/utils/thread_status.dart';
 import '../../core/widgets/activity_feed_block.dart';
 import '../../core/widgets/activity_feed_speak_button.dart';
+import '../../core/widgets/composer_reference_text.dart';
+import '../../core/widgets/composer_prompt_editing_controller.dart';
 import '../../core/widgets/eco_markdown.dart';
 import '../../core/widgets/streaming_eco_markdown.dart';
 import '../../core/widgets/eco_surface_card.dart';
 import '../../core/widgets/image_memory_lightbox.dart';
+import '../../core/widgets/prompt_image_lightbox.dart';
 import '../../core/widgets/paced_stream_text.dart';
 import '../../core/widgets/run_activity_indicator.dart';
 import '../../core/widgets/shimmer_text.dart';
@@ -78,6 +83,19 @@ typedef ActivityFeedUserMessageRewriteHandler =
     });
 typedef ActivityFeedFailedRequestRetryHandler =
     Future<void> Function(ActivityFeedEntry entry);
+
+typedef ActivityFeedFailedRequestActionResolver =
+    ActivityFeedFailedRequestAction? Function(ActivityFeedEntry entry);
+
+class ActivityFeedFailedRequestAction {
+  const ActivityFeedFailedRequestAction({
+    required this.label,
+    required this.run,
+  });
+
+  final String label;
+  final Future<void> Function() run;
+}
 
 /// One bounded page of tool detail rows.
 ///
@@ -259,6 +277,8 @@ class ActivityFeedEntry {
   /// phase, for instance), so the call's own outcome is kept as the event type — the same fact
   /// the desktop reads off the item it renders.
   final String? toolEventType;
+
+  /// Tool details for an aggregate or the live status replacing its header.
   final List<ActivityFeedEntry> actionChildren;
   final List<PromptImageAttachment> attachments;
   final String? runAttemptId;
@@ -283,64 +303,25 @@ class ActivityFeedEntry {
   /// Runtime event recording notices are not failed model requests.
   final bool canRetryRequest;
 
-  ActivityFeedEntry withSequence(int sequence) {
-    if (this.sequence == sequence) return this;
-    return ActivityFeedEntry(
-      id: id,
-      kind: kind,
-      text: text,
-      actionIcon: actionIcon,
-      toolName: toolName,
-      readTargetPath: readTargetPath,
-      readTargetLineRange: readTargetLineRange,
-      subagentRole: subagentRole,
-      detail: detail,
-      streaming: streaming,
-      usageBadge: usageBadge,
-      lifecycle: lifecycle,
-      missionPrompt: missionPrompt,
-      taskName: taskName,
-      agentId: agentId,
-      running: running,
-      continuation: continuation,
-      turnStatus: turnStatus,
-      durationMs: durationMs,
-      statusText: statusText,
-      timeline: timeline,
-      bashRun: bashRun,
-      fileChange: fileChange,
-      webSearch: webSearch,
-      imageView: imageView,
-      mcpDiscovery: mcpDiscovery,
-      toolUseId: toolUseId,
-      role: role,
-      toolEventType: toolEventType,
-      reconnecting: reconnecting,
-      actionChildren: actionChildren,
-      attachments: attachments,
-      runAttemptId: runAttemptId,
-      requestId: requestId,
-      at: at,
-      startedAt: startedAt,
-      endedAt: endedAt,
-      processEntries: processEntries,
-      finalOutput: finalOutput,
-      rewindTarget: rewindTarget,
-      activityLineId: activityLineId,
-      historyRevision: historyRevision,
-      conversationV2Detail: conversationV2Detail,
-      sequence: sequence,
-      canRetryRequest: canRetryRequest,
-    );
-  }
+  ActivityFeedEntry withSequence(int sequence) =>
+      this.sequence == sequence ? this : copyWith(sequence: sequence);
 
   ActivityFeedEntry withIdAtSequence({
     required String id,
     String? at,
     required int sequence,
+  }) => copyWith(id: id, at: at, sequence: sequence);
+
+  /// Retains all source fields when changing a display key or carrying the
+  /// replaced tool row's children inside the current live status.
+  ActivityFeedEntry copyWith({
+    String? id,
+    String? at,
+    int? sequence,
+    List<ActivityFeedEntry>? actionChildren,
   }) {
     return ActivityFeedEntry(
-      id: id,
+      id: id ?? this.id,
       kind: kind,
       text: text,
       actionIcon: actionIcon,
@@ -370,7 +351,7 @@ class ActivityFeedEntry {
       role: role,
       toolEventType: toolEventType,
       reconnecting: reconnecting,
-      actionChildren: actionChildren,
+      actionChildren: actionChildren ?? this.actionChildren,
       attachments: attachments,
       runAttemptId: runAttemptId,
       requestId: requestId,
@@ -383,7 +364,7 @@ class ActivityFeedEntry {
       activityLineId: activityLineId,
       historyRevision: historyRevision,
       conversationV2Detail: conversationV2Detail,
-      sequence: sequence,
+      sequence: sequence ?? this.sequence,
       canRetryRequest: canRetryRequest,
     );
   }
@@ -429,6 +410,7 @@ List<ActivityFeedEntry> buildActivityFeed({
   bool groupActions = true,
   ThinkingDisplayMode thinkingDisplayMode = defaultThinkingDisplayMode,
   bool? conversationLive,
+  ProjectionActivityFeedCache? presentationCache,
 }) {
   if (!isProjectionFeedReady(runProjection)) {
     return const [];
@@ -442,16 +424,14 @@ List<ActivityFeedEntry> buildActivityFeed({
     l10n: strings,
     thinkingDisplayMode: thinkingDisplayMode,
     conversationLive: conversationLive,
+    cache: presentationCache,
   );
   final groupedActions = groupActions
       ? groupActivityFeedActionEntries(projected, l10n: strings)
       : projected;
   final groupedThinking = groupConsecutiveThinkingEntries(groupedActions);
-  final groupedEphemeralTail = replaceLatestToolWithReasoningStage(
-    groupedThinking,
-  );
   final liveEntries = resolveActivityFeedLiveSlot(
-    groupedEphemeralTail,
+    groupedThinking,
     projection: runProjection,
     isRunning:
         conversationLive ??
@@ -463,10 +443,10 @@ List<ActivityFeedEntry> buildActivityFeed({
       : liveEntries;
 }
 
-/// The main Feed has one live slot. Thinking, summary and writing replace each
-/// other; a genuinely running tool or compaction owns the row until it settles.
-/// Resolve before turn grouping so replacing a tool cannot leave a sibling
-/// waiting line outside the turn.
+/// Thinking, summary, writing and the trailing tool aggregate share one row.
+/// A newer status replaces that aggregate; its tool details remain expandable.
+/// A running tool or compaction already describes current work and suppresses
+/// the extra status row. Resolve before turn grouping to keep it in the turn.
 List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
   List<ActivityFeedEntry> entries, {
   required ThreadRunProjectionSnapshot projection,
@@ -531,17 +511,30 @@ List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
       content.add(entry);
     }
   }
-  if (content.any(_containsRunningTool) ||
-      content.any(_containsRunningContextCompaction)) {
+  final finishedAttemptIds = {
+    for (final attempt in projection.attempts)
+      if (!attempt.isRunning) attempt.attemptId,
+  };
+  // Background commands can outlive their attempt and retain a running tool
+  // lifecycle in history. They must not hide a later attempt's thinking row.
+  // Groups can span attempts, so inspect each child's owner independently.
+  if (content.any(
+    (entry) => _containsCurrentRunningWork(entry, finishedAttemptIds),
+  )) {
     return content;
   }
 
-  final owner = content.lastOrNull;
-  final replacesTool = owner != null && _isToolAggregateEntry(owner);
-  if (replacesTool && writingSpan == null && pendingThinking == null) {
-    return content;
+  // Display order is not run ownership: an unfinished historical stream can
+  // sort behind current content. Borrowing its run ID creates a second,
+  // completed turn after the user's prompt and puts live thinking inside it.
+  ThreadRunProjectionAttempt? activeAttempt;
+  for (final attempt in projection.attempts) {
+    if (attempt.isRunning &&
+        (activeAttempt == null ||
+            attempt.startedAt.compareTo(activeAttempt.startedAt) > 0)) {
+      activeAttempt = attempt;
+    }
   }
-
   final ActivityFeedEntry? status;
   if (writingSpan != null) {
     status = ActivityFeedEntry(
@@ -550,7 +543,7 @@ List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
       text: toolWritingLabel(writingSpan.writingTool!, l10n),
       streaming: true,
       requestId: writingSpan.requestId,
-      runAttemptId: owner?.runAttemptId,
+      runAttemptId: activeAttempt?.attemptId,
       at: writingSpan.writingTool!.since,
     );
   } else if (pendingThinking != null) {
@@ -560,24 +553,53 @@ List<ActivityFeedEntry> resolveActivityFeedLiveSlot(
       text: '',
       streaming: true,
       requestId: pendingThinking.requestId,
-      runAttemptId: owner?.runAttemptId,
+      runAttemptId: activeAttempt?.attemptId,
       at: pendingThinking.pendingThinkingSince,
     );
   } else {
     status = summary ?? waiting;
   }
   if (status == null) return content;
-  if (replacesTool) {
-    return [
-      ...content.take(content.length - 1),
-      status.withIdAtSequence(
-        id: owner.id,
-        at: owner.at,
-        sequence: owner.sequence,
-      ),
-    ];
+  final tail = content.lastOrNull;
+  if (tail != null &&
+      (tail.kind == ActivityFeedKind.actionGroup ||
+          tail.kind == ActivityFeedKind.action) &&
+      status.runAttemptId != null) {
+    final actions = tail.kind == ActivityFeedKind.actionGroup
+        ? tail.actionChildren
+        : [tail];
+    var boundary = actions.length;
+    while (boundary > 0 &&
+        actions[boundary - 1].runAttemptId == status.runAttemptId) {
+      boundary--;
+    }
+    if (boundary < actions.length) {
+      // Replace only this attempt's trailing aggregate. A group can span runs:
+      // keep its older prefix with its own owner instead of moving it into the
+      // current turn. Source tools remain intact and return when the tip ends.
+      return [
+        ...content.take(content.length - 1),
+        if (boundary > 0)
+          _buildActionGroupEntry(actions.take(boundary).toList(), l10n),
+        status.copyWith(actionChildren: actions.skip(boundary).toList()),
+      ];
+    }
   }
   return [...content, status];
+}
+
+bool _containsCurrentRunningWork(
+  ActivityFeedEntry entry,
+  Set<String> finishedAttemptIds,
+) {
+  if (entry.actionChildren.isNotEmpty) {
+    return entry.actionChildren.any(
+      (child) => _containsCurrentRunningWork(child, finishedAttemptIds),
+    );
+  }
+  if (finishedAttemptIds.contains(entry.runAttemptId)) return false;
+  return _containsRunningTool(entry) ||
+      _containsRunningContextCompaction(entry);
 }
 
 bool _isEmptyLiveThinkingStatus(ActivityFeedEntry entry) {
@@ -636,64 +658,6 @@ List<ActivityFeedEntry> resolveThreadSessionDisplayFeedEntries({
     ];
   }
   return const [];
-}
-
-/// Summary and the current tool aggregate share one temporary tail slot.
-List<ActivityFeedEntry> replaceLatestToolWithReasoningStage(
-  List<ActivityFeedEntry> entries,
-) {
-  var summaryIndex = -1;
-  var toolIndex = -1;
-  for (var index = entries.length - 1; index >= 0; index -= 1) {
-    final entry = entries[index];
-    if (summaryIndex < 0 && entry.kind == ActivityFeedKind.reasoningStage) {
-      summaryIndex = index;
-    }
-    if (summaryIndex >= 0 && _isToolAggregateEntry(entry)) {
-      if (!_hasReasoningSummaryBoundaryBetween(
-        entries,
-        entry,
-        entries[summaryIndex],
-      )) {
-        toolIndex = index;
-        break;
-      }
-    }
-  }
-  if (summaryIndex <= toolIndex || summaryIndex < 0 || toolIndex < 0) {
-    return entries;
-  }
-  final summary = entries[summaryIndex];
-  final tool = entries[toolIndex];
-  final replacement = summary.withIdAtSequence(
-    id: tool.id,
-    at: tool.at,
-    sequence: tool.sequence,
-  );
-  return [
-    ...entries.take(toolIndex),
-    replacement,
-    ...entries.skip(toolIndex + 1).take(summaryIndex - toolIndex - 1),
-    ...entries.skip(summaryIndex + 1),
-  ];
-}
-
-bool _isToolAggregateEntry(ActivityFeedEntry entry) {
-  return entry.kind == ActivityFeedKind.action ||
-      entry.kind == ActivityFeedKind.actionGroup;
-}
-
-bool _hasReasoningSummaryBoundaryBetween(
-  List<ActivityFeedEntry> entries,
-  ActivityFeedEntry tool,
-  ActivityFeedEntry summary,
-) {
-  return entries.any((entry) {
-    if (entry.kind != ActivityFeedKind.assistant || entry.text.trim().isEmpty) {
-      return false;
-    }
-    return entry.sequence > tool.sequence && entry.sequence < summary.sequence;
-  });
 }
 
 List<ActivityFeedEntry> groupActivityFeedActionEntries(
@@ -1339,10 +1303,12 @@ class ActivityFeedList extends StatefulWidget {
     this.loadToolDetailPage,
     this.loadTurnDetail,
     this.loadImageView,
+    this.loadPromptImage,
     this.onOpenImageDisplayArtifact,
     this.onLoadUserMessageEdit,
     this.onRewriteUserMessage,
     this.onRetryFailedRequest,
+    this.resolveFailedRequestAction,
     this.hasEarlier = false,
     this.onLoadEarlier,
     this.onLoadEarlierError,
@@ -1366,10 +1332,12 @@ class ActivityFeedList extends StatefulWidget {
   final ActivityFeedToolDetailPageLoader? loadToolDetailPage;
   final ActivityFeedTurnDetailLoader? loadTurnDetail;
   final ActivityFeedImageViewLoader? loadImageView;
+  final PromptImageOriginalLoader? loadPromptImage;
   final ValueChanged<String>? onOpenImageDisplayArtifact;
   final ActivityFeedUserMessageEditLoader? onLoadUserMessageEdit;
   final ActivityFeedUserMessageRewriteHandler? onRewriteUserMessage;
   final ActivityFeedFailedRequestRetryHandler? onRetryFailedRequest;
+  final ActivityFeedFailedRequestActionResolver? resolveFailedRequestAction;
   final bool hasEarlier;
   final ActivityFeedEarlierLoader? onLoadEarlier;
   final ActivityFeedLoadErrorCallback? onLoadEarlierError;
@@ -1513,7 +1481,34 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
 
   @override
   Widget build(BuildContext context) {
-    final displayEntries = widget.entries.reversed.toList(growable: false);
+    // A running turn can contain hundreds of process rows. Keeping those in
+    // the turn's Column defeats ListView's laziness and lays out all of them
+    // for every streamed update. Give each process row its own list slot.
+    final rows =
+        <({ActivityFeedEntry entry, bool turnHeader, bool finalOutput})>[
+          for (final entry in widget.entries)
+            if (entry.kind == ActivityFeedKind.turn && entry.running) ...[
+              (entry: entry, turnHeader: true, finalOutput: false),
+              for (final process in entry.processEntries)
+                (entry: process, turnHeader: false, finalOutput: false),
+              if (entry.finalOutput case final output?)
+                (entry: output, turnHeader: false, finalOutput: true),
+            ] else
+              (entry: entry, turnHeader: false, finalOutput: false),
+        ];
+    final displayRows = rows.reversed.toList(growable: false);
+    final rowIndices = {
+      for (var index = 0; index < displayRows.length; index++)
+        ValueKey(displayRows[index].entry.id): index,
+    };
+    final processStartIds = {
+      for (final entry in widget.entries)
+        if (entry.kind == ActivityFeedKind.turn &&
+            entry.running &&
+            !entry.continuation &&
+            entry.processEntries.isNotEmpty)
+          entry.processEntries.first.id,
+    };
     final finalMetaId = widget.showMessageCopyAndTime
         ? _resolveFinalTurnMetaId(widget.entries)
         : null;
@@ -1555,9 +1550,10 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
                       threadSessionFeedHorizontalPadding,
                       0,
                     ),
-                itemCount: displayEntries.length + (_loadingEarlier ? 1 : 0),
+                findChildIndexCallback: (key) => rowIndices[key],
+                itemCount: displayRows.length + (_loadingEarlier ? 1 : 0),
                 itemBuilder: (context, index) {
-                  if (index == displayEntries.length) {
+                  if (index == displayRows.length) {
                     return const SizedBox(
                       height: 44,
                       child: Center(
@@ -1568,10 +1564,11 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
                       ),
                     );
                   }
-                  final entry = displayEntries[index];
-                  return _ActivityFeedEntryTile(
-                    key: ValueKey(entry.id),
+                  final row = displayRows[index];
+                  final entry = row.entry;
+                  final tile = _ActivityFeedEntryTile(
                     entry: entry,
+                    virtualizeRunningTurn: row.turnHeader,
                     themeSource: widget.themeSource,
                     onOpenAgentDetail: widget.onOpenAgentDetail,
                     loadToolDetail: widget.loadToolDetail,
@@ -1583,11 +1580,33 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
                     onLoadUserMessageEdit: widget.onLoadUserMessageEdit,
                     onRewriteUserMessage: widget.onRewriteUserMessage,
                     onRetryFailedRequest: widget.onRetryFailedRequest,
+                    resolveFailedRequestAction:
+                        widget.resolveFailedRequestAction,
                     expandUserPrompts: widget.expandUserPrompts,
                     thinkingDefaultExpanded: widget.thinkingDefaultExpanded,
                     finalMetaEntryId: finalMetaId,
                     paceTargetEntryId: paceTargetId,
                     showMessageCopyAndTime: widget.showMessageCopyAndTime,
+                  );
+                  return KeyedSubtree(
+                    key: ValueKey(entry.id),
+                    child: PromptImageReadScope(
+                      loadOriginal: widget.loadPromptImage,
+                      child: row.finalOutput
+                          ? Padding(
+                              padding: const EdgeInsets.only(top: 9),
+                              child: Semantics(
+                                label: context.l10n.activityFinalOutput,
+                                child: tile,
+                              ),
+                            )
+                          : processStartIds.contains(entry.id)
+                          ? Padding(
+                              padding: const EdgeInsets.only(top: 7),
+                              child: tile,
+                            )
+                          : tile,
+                    ),
                   );
                 },
               ),
@@ -1736,12 +1755,14 @@ class _ActivityFeedEntryTile extends StatelessWidget {
     this.onLoadUserMessageEdit,
     this.onRewriteUserMessage,
     this.onRetryFailedRequest,
+    this.resolveFailedRequestAction,
     this.expandUserPrompts = false,
     this.thinkingDefaultExpanded = false,
     this.finalMetaEntryId,
     this.paceTargetEntryId,
     this.hideMessageActions = false,
     this.showMessageCopyAndTime = true,
+    this.virtualizeRunningTurn = false,
   });
 
   final ActivityFeedEntry entry;
@@ -1755,15 +1776,27 @@ class _ActivityFeedEntryTile extends StatelessWidget {
   final ActivityFeedUserMessageEditLoader? onLoadUserMessageEdit;
   final ActivityFeedUserMessageRewriteHandler? onRewriteUserMessage;
   final ActivityFeedFailedRequestRetryHandler? onRetryFailedRequest;
+  final ActivityFeedFailedRequestActionResolver? resolveFailedRequestAction;
   final bool expandUserPrompts;
   final bool thinkingDefaultExpanded;
   final String? finalMetaEntryId;
   final String? paceTargetEntryId;
   final bool hideMessageActions;
   final bool showMessageCopyAndTime;
+  final bool virtualizeRunningTurn;
 
   @override
   Widget build(BuildContext context) {
+    if (entry.actionChildren.isNotEmpty &&
+        (entry.kind == ActivityFeedKind.toolWriting ||
+            entry.kind == ActivityFeedKind.reasoningStage ||
+            _isEmptyLiveThinkingStatus(entry))) {
+      return _ActionGroupTile(
+        entry: entry,
+        loadToolDetail: loadToolDetail,
+        loadToolDetailPage: loadToolDetailPage,
+      );
+    }
     switch (entry.kind) {
       case ActivityFeedKind.turn:
         return _TurnFeedTile(
@@ -1782,6 +1815,8 @@ class _ActivityFeedEntryTile extends StatelessWidget {
           showMessageCopyAndTime: showMessageCopyAndTime,
           paceTargetEntryId: paceTargetEntryId,
           onRetryFailedRequest: onRetryFailedRequest,
+          resolveFailedRequestAction: resolveFailedRequestAction,
+          virtualizeRunningTurn: virtualizeRunningTurn,
         );
       case ActivityFeedKind.user:
         return _UserPromptTile(
@@ -1874,11 +1909,20 @@ class _ActivityFeedEntryTile extends StatelessWidget {
               : null,
         );
       case ActivityFeedKind.error:
+        final action = !entry.canRetryRequest
+            ? null
+            : resolveFailedRequestAction != null
+            ? resolveFailedRequestAction!(entry)
+            : onRetryFailedRequest == null
+            ? null
+            : ActivityFeedFailedRequestAction(
+                label: context.l10n.commonRetry,
+                run: () => onRetryFailedRequest!(entry),
+              );
         return _ErrorTile(
           text: entry.text,
-          onRetry: !entry.canRetryRequest || onRetryFailedRequest == null
-              ? null
-              : () => onRetryFailedRequest!(entry),
+          onRetry: action?.run,
+          actionLabel: action?.label,
         );
     }
   }
@@ -1899,6 +1943,8 @@ class _TurnFeedTile extends StatefulWidget {
     this.showMessageCopyAndTime = true,
     this.paceTargetEntryId,
     this.onRetryFailedRequest,
+    this.resolveFailedRequestAction,
+    this.virtualizeRunningTurn = false,
   });
 
   final ActivityFeedEntry entry;
@@ -1914,6 +1960,8 @@ class _TurnFeedTile extends StatefulWidget {
   final bool showMessageCopyAndTime;
   final String? paceTargetEntryId;
   final ActivityFeedFailedRequestRetryHandler? onRetryFailedRequest;
+  final ActivityFeedFailedRequestActionResolver? resolveFailedRequestAction;
+  final bool virtualizeRunningTurn;
 
   @override
   State<_TurnFeedTile> createState() => _TurnFeedTileState();
@@ -2067,41 +2115,45 @@ class _TurnFeedTileState extends State<_TurnFeedTile> {
                 ),
               ),
             ),
-          ClipRect(
-            child: AnimatedSize(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              alignment: Alignment.topCenter,
-              child: _expanded
-                  ? Padding(
-                      padding: EdgeInsets.only(top: showHeading ? 7 : 0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (final child in process)
-                            _ActivityFeedEntryTile(
-                              key: ValueKey(child.id),
-                              entry: child,
-                              themeSource: widget.themeSource,
-                              onOpenAgentDetail: widget.onOpenAgentDetail,
-                              loadToolDetail: widget.loadToolDetail,
-                              loadToolDetailPage: widget.loadToolDetailPage,
-                              loadImageView: widget.loadImageView,
-                              onOpenImageDisplayArtifact:
-                                  widget.onOpenImageDisplayArtifact,
-                              thinkingDefaultExpanded:
-                                  widget.thinkingDefaultExpanded,
-                              paceTargetEntryId: widget.paceTargetEntryId,
-                              onRetryFailedRequest: widget.onRetryFailedRequest,
-                              showMessageCopyAndTime:
-                                  widget.showMessageCopyAndTime,
-                            ),
-                        ],
-                      ),
-                    )
-                  : const SizedBox.shrink(),
+          if (!widget.virtualizeRunningTurn)
+            ClipRect(
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                alignment: Alignment.topCenter,
+                child: _expanded
+                    ? Padding(
+                        padding: EdgeInsets.only(top: showHeading ? 7 : 0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final child in process)
+                              _ActivityFeedEntryTile(
+                                key: ValueKey(child.id),
+                                entry: child,
+                                themeSource: widget.themeSource,
+                                onOpenAgentDetail: widget.onOpenAgentDetail,
+                                loadToolDetail: widget.loadToolDetail,
+                                loadToolDetailPage: widget.loadToolDetailPage,
+                                loadImageView: widget.loadImageView,
+                                onOpenImageDisplayArtifact:
+                                    widget.onOpenImageDisplayArtifact,
+                                thinkingDefaultExpanded:
+                                    widget.thinkingDefaultExpanded,
+                                paceTargetEntryId: widget.paceTargetEntryId,
+                                onRetryFailedRequest:
+                                    widget.onRetryFailedRequest,
+                                resolveFailedRequestAction:
+                                    widget.resolveFailedRequestAction,
+                                showMessageCopyAndTime:
+                                    widget.showMessageCopyAndTime,
+                              ),
+                          ],
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
             ),
-          ),
           if (_detailLoading)
             const Padding(
               padding: EdgeInsets.only(top: 6),
@@ -2128,7 +2180,8 @@ class _TurnFeedTileState extends State<_TurnFeedTile> {
                 ],
               ),
             ),
-          if (widget.entry.finalOutput != null) ...[
+          if (!widget.virtualizeRunningTurn &&
+              widget.entry.finalOutput != null) ...[
             Padding(
               padding: const EdgeInsets.only(top: 9),
               child: Semantics(
@@ -2144,6 +2197,7 @@ class _TurnFeedTileState extends State<_TurnFeedTile> {
                   thinkingDefaultExpanded: widget.thinkingDefaultExpanded,
                   paceTargetEntryId: widget.paceTargetEntryId,
                   onRetryFailedRequest: widget.onRetryFailedRequest,
+                  resolveFailedRequestAction: widget.resolveFailedRequestAction,
                   hideMessageActions: widget.showFinalMeta,
                   showMessageCopyAndTime: widget.showMessageCopyAndTime,
                 ),
@@ -2289,7 +2343,10 @@ class _UserPromptTileState extends State<_UserPromptTile> {
   static const _maxEditImages = 5;
 
   late var _expanded = widget.initiallyExpanded;
-  final _editController = TextEditingController();
+  late var _approvalFeedback = parseApprovalFeedback(widget.text);
+  String get _displayText => _approvalFeedback?.feedback ?? widget.text;
+  late var _promptSegments = parseComposerPrompt(_displayText);
+  final _editController = ComposerPromptEditingController();
   final _picker = ImagePicker();
   var _editing = false;
   var _editLoading = false;
@@ -2314,6 +2371,10 @@ class _UserPromptTileState extends State<_UserPromptTile> {
   @override
   void didUpdateWidget(covariant _UserPromptTile oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) {
+      _approvalFeedback = parseApprovalFeedback(widget.text);
+      _promptSegments = parseComposerPrompt(_displayText);
+    }
     if (oldWidget.text != widget.text ||
         oldWidget.initiallyExpanded != widget.initiallyExpanded ||
         oldWidget.historyRevision != widget.historyRevision ||
@@ -2435,7 +2496,7 @@ class _UserPromptTileState extends State<_UserPromptTile> {
     if (target == null || rewrite == null || _editLoading || _editSaving) {
       return;
     }
-    final prompt = _editController.text.trim();
+    final prompt = _editController.prompt.trim();
     if (prompt.isEmpty && _editAttachments.isEmpty) {
       _showEditToast(_emptyEditMessageText(context));
       return;
@@ -2496,35 +2557,19 @@ class _UserPromptTileState extends State<_UserPromptTile> {
   }
 
   Future<void> _openAttachmentLightbox(int index) async {
-    final images = <Uint8List>[];
-    final indexes = <int>[];
-    for (var i = 0; i < widget.attachments.length; i++) {
-      try {
-        images.add(base64Decode(widget.attachments[i].data));
-        indexes.add(i);
-      } on FormatException {
-        // Skip undecodable thumbnails.
-      }
-    }
-    if (images.isEmpty || !mounted) return;
-    final start = indexes.indexOf(index).clamp(0, images.length - 1);
-    await showImageMemoryLightbox(context, images: images, initialIndex: start);
+    await showPromptImageLightbox(
+      context,
+      attachments: widget.attachments,
+      initialIndex: index,
+    );
   }
 
   Future<void> _openEditAttachmentLightbox(int index) async {
-    final images = <Uint8List>[];
-    final indexes = <int>[];
-    for (var i = 0; i < _editAttachments.length; i++) {
-      try {
-        images.add(base64Decode(_editAttachments[i].data));
-        indexes.add(i);
-      } on FormatException {
-        // Skip undecodable thumbnails.
-      }
-    }
-    if (images.isEmpty || !mounted) return;
-    final start = indexes.indexOf(index).clamp(0, images.length - 1);
-    await showImageMemoryLightbox(context, images: images, initialIndex: start);
+    await showPromptImageLightbox(
+      context,
+      attachments: _editAttachments,
+      initialIndex: index,
+    );
   }
 
   Widget _buildEditBubble(BuildContext context, double maxBubbleWidth) {
@@ -2677,13 +2722,27 @@ class _UserPromptTileState extends State<_UserPromptTile> {
             0.0,
             maxBubbleWidth - horizontalPadding,
           );
-          final canExpand = _textExceedsLineLimit(
-            text: widget.text,
-            style: textStyle,
-            maxWidth: bodyMaxWidth,
-            maxLines: _collapsedMaxLines,
-            textDirection: Directionality.of(context),
-          );
+          final referenceLayout = _promptSegments.any((s) => s.isReference)
+              ? ComposerReferenceTextLayout(
+                  context: context,
+                  segments: _promptSegments,
+                  style: textStyle,
+                  // Container padding is already excluded by LayoutBuilder.
+                  maxWidth: constraints.maxWidth,
+                )
+              : null;
+          final canExpand =
+              referenceLayout?.exceedsLineLimit(
+                maxWidth: constraints.maxWidth,
+                maxLines: _collapsedMaxLines,
+              ) ??
+              _textExceedsLineLimit(
+                text: _displayText,
+                style: textStyle,
+                maxWidth: bodyMaxWidth,
+                maxLines: _collapsedMaxLines,
+                textDirection: Directionality.of(context),
+              );
           final showCollapsed = canExpand && !_expanded;
           final galleryWidth = (widget.attachments.length * 108.0).clamp(
             0.0,
@@ -2695,6 +2754,37 @@ class _UserPromptTileState extends State<_UserPromptTile> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (_approvalFeedback case final feedback?) ...[
+                  Row(
+                    children: [
+                      Icon(Icons.gpp_bad_outlined, size: 16, color: eco.danger),
+                      const SizedBox(width: 7),
+                      Flexible(
+                        child: Text(
+                          context.l10n.activityApprovalRejected(
+                            feedback.toolLabel,
+                          ),
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(
+                                color: eco.textPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Divider(height: 1, color: eco.borderSubtle),
+                  ),
+                  Text(
+                    context.l10n.activityApprovalFeedback,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelSmall?.copyWith(color: eco.textMuted),
+                  ),
+                  const SizedBox(height: 4),
+                ],
                 if (widget.attachments.isNotEmpty) ...[
                   SizedBox(
                     width: galleryWidth,
@@ -2736,14 +2826,19 @@ class _UserPromptTileState extends State<_UserPromptTile> {
                               stops: [0, 0.45, 1],
                             ).createShader(bounds);
                           },
-                          child: Text(
-                            widget.text,
-                            maxLines: _collapsedMaxLines,
-                            overflow: TextOverflow.clip,
-                            style: textStyle,
-                          ),
+                          child:
+                              referenceLayout?.build(
+                                maxLines: _collapsedMaxLines,
+                              ) ??
+                              Text(
+                                _displayText,
+                                maxLines: _collapsedMaxLines,
+                                overflow: TextOverflow.clip,
+                                style: textStyle,
+                              ),
                         )
-                      : Text(widget.text, style: textStyle),
+                      : referenceLayout?.build() ??
+                            Text(_displayText, style: textStyle),
                 ),
                 if (canExpand)
                   Align(
@@ -2775,7 +2870,7 @@ class _UserPromptTileState extends State<_UserPromptTile> {
   }
 
   Future<void> _copyMessage() async {
-    final text = widget.text.trim();
+    final text = _displayText.trim();
     if (text.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: text));
     if (mounted) _showEditToast(context.l10n.activityMessageCopied);
@@ -3452,19 +3547,47 @@ class _ActionGroupTileState extends State<_ActionGroupTile> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _ActionSummaryLine(
-            label: widget.entry.text,
-            icon: EcoIcons.activityAction(
-              widget.entry.actionIcon ?? ActivityActionIcon.file,
+          if (widget.entry.kind != ActivityFeedKind.actionGroup)
+            Semantics(
+              button: true,
+              expanded: _expanded,
+              child: InkWell(
+                key: const ValueKey('activity-live-tool-history'),
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _WaitingThinkingLine(
+                        label: widget.entry.text,
+                        writing:
+                            widget.entry.kind == ActivityFeedKind.toolWriting,
+                      ),
+                    ),
+                    Icon(
+                      _expanded
+                          ? Icons.expand_less
+                          : Icons.chevron_right_rounded,
+                      size: 16,
+                      color: ecoColors(context).textMuted,
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            _ActionSummaryLine(
+              label: widget.entry.text,
+              icon: EcoIcons.activityAction(
+                widget.entry.actionIcon ?? ActivityActionIcon.file,
+              ),
+              // Aggregated group titles never show the failure dot; failed Bash
+              // children keep their own subtle indicator on the row/detail title.
+              lifecycle: widget.entry.lifecycle == ToolActionLifecycle.failed
+                  ? ToolActionLifecycle.completed
+                  : widget.entry.lifecycle,
+              expanded: _expanded,
+              onTap: () => setState(() => _expanded = !_expanded),
             ),
-            // Aggregated group titles never show the failure dot; failed Bash
-            // children keep their own subtle indicator on the row/detail title.
-            lifecycle: widget.entry.lifecycle == ToolActionLifecycle.failed
-                ? ToolActionLifecycle.completed
-                : widget.entry.lifecycle,
-            expanded: _expanded,
-            onTap: () => setState(() => _expanded = !_expanded),
-          ),
           if (_expanded)
             Padding(
               padding: const EdgeInsets.only(left: 12, top: 8),
@@ -5299,19 +5422,11 @@ class _SubagentImageStrip extends StatelessWidget {
   final List<PromptImageAttachment> attachments;
 
   Future<void> _open(BuildContext context, int index) async {
-    final images = <Uint8List>[];
-    final indexes = <int>[];
-    for (var i = 0; i < attachments.length; i++) {
-      try {
-        images.add(base64Decode(attachments[i].data));
-        indexes.add(i);
-      } on FormatException {
-        // Skip undecodable thumbnails.
-      }
-    }
-    if (images.isEmpty) return;
-    final start = indexes.indexOf(index).clamp(0, images.length - 1);
-    await showImageMemoryLightbox(context, images: images, initialIndex: start);
+    await showPromptImageLightbox(
+      context,
+      attachments: attachments,
+      initialIndex: index,
+    );
   }
 
   @override
@@ -5416,9 +5531,10 @@ class _SubagentTimelineRow extends StatelessWidget {
 }
 
 class _ErrorTile extends StatefulWidget {
-  const _ErrorTile({required this.text, this.onRetry});
+  const _ErrorTile({required this.text, this.onRetry, this.actionLabel});
 
   final String text;
+  final String? actionLabel;
   final Future<void> Function()? onRetry;
 
   @override
@@ -5489,7 +5605,7 @@ class _ErrorTileState extends State<_ErrorTile> {
                       dimension: 14,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Text(context.l10n.commonRetry),
+                  : Text(widget.actionLabel ?? context.l10n.commonRetry),
             ),
           ],
           if (_retryError != null)

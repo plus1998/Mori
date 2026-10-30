@@ -23,8 +23,8 @@ import 'features/home/home_screen.dart';
 import 'features/home/setup_status.dart';
 import 'features/projects/project_providers.dart';
 import 'features/settings/settings_context_window_page.dart';
+import 'features/settings/settings_desktop_display_page.dart';
 import 'features/settings/settings_default_bash_review_page.dart';
-import 'features/settings/settings_default_mode_page.dart';
 import 'features/settings/settings_language_page.dart';
 import 'features/settings/settings_max_output_page.dart';
 import 'features/settings/settings_models_page.dart';
@@ -179,6 +179,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 builder: (context, state) => const SettingsScreen(),
                 routes: [
                   GoRoute(path: 'read-aloud', parentNavigatorKey: _rootNavigatorKey, builder: (context, state) => const SettingsReadAloudPage()),
+                  GoRoute(path: 'desktop-display', parentNavigatorKey: _rootNavigatorKey, builder: (context, state) => const SettingsDesktopDisplayPage()),
                   GoRoute(
                     path: 'theme',
                     parentNavigatorKey: _rootNavigatorKey,
@@ -194,12 +195,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     parentNavigatorKey: _rootNavigatorKey,
                     builder: (context, state) =>
                         const SettingsThinkingContentPage(),
-                  ),
-                  GoRoute(
-                    path: 'default-mode',
-                    parentNavigatorKey: _rootNavigatorKey,
-                    builder: (context, state) =>
-                        const SettingsDefaultModePage(),
                   ),
                   GoRoute(
                     path: 'default-bash-review',
@@ -510,25 +505,16 @@ class _ConnectionBannerOverlayState
     final l10n = context.l10n;
     final eco = ecoColors(context);
 
-    final ({Color bg, Color text, String message})? config = switch (status.state) {
+    final message = switch (status.state) {
       EcoConnectionState.connected => null,
       // First-time connect overlaps session/boot loading — stay quiet.
-      EcoConnectionState.connecting => _hadConnected
-          ? (
-              bg: eco.warnAccent.withValues(alpha: 0.9),
-              text: eco.bgMain,
-              message: l10n.connectionReconnectBanner,
-            )
-          : null,
-      EcoConnectionState.error => (
-          bg: eco.danger,
-          text: eco.onAccent,
-          message: l10n.connectionLostBanner,
-        ),
+      EcoConnectionState.connecting =>
+        _hadConnected ? l10n.connectionReconnectBanner : null,
+      EcoConnectionState.error => l10n.connectionLostBanner,
       EcoConnectionState.disconnected => null,
     };
 
-    if (config == null) return const SizedBox.shrink();
+    if (message == null) return const SizedBox.shrink();
 
     return Positioned(
       top: MediaQuery.of(context).padding.top + 8,
@@ -541,9 +527,9 @@ class _ConnectionBannerOverlayState
             constraints: const BoxConstraints(maxHeight: 36),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
-              color: config.bg,
+              color: eco.bgElevated,
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: config.text.withValues(alpha: 0.2)),
+              border: Border.all(color: eco.borderSubtle),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -554,15 +540,19 @@ class _ConnectionBannerOverlayState
                   child: status.state == EcoConnectionState.connecting
                       ? CircularProgressIndicator(
                           strokeWidth: 1.5,
-                          valueColor: AlwaysStoppedAnimation(config.text),
+                          valueColor: AlwaysStoppedAnimation(eco.textSecondary),
                         )
-                      : Icon(Icons.cloud_off, size: 14, color: config.text),
+                      : Icon(
+                          Icons.cloud_off,
+                          size: 14,
+                          color: eco.textSecondary,
+                        ),
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  config.message,
+                  message,
                   style: TextStyle(
-                    color: config.text,
+                    color: eco.textSecondary,
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                     decoration: TextDecoration.none,

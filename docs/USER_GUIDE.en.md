@@ -1,4 +1,4 @@
-# Eco Coding User Guide
+# Mori User Guide
 
 [简体中文](USER_GUIDE.md) · **English** · [README](../README.en.md) · [Technical Documentation](TECHNICAL.en.md)
 
@@ -6,18 +6,18 @@ This guide applies to the current Beta. UI labels may evolve, but the configurat
 
 ## 1. Install Desktop
 
-Download the matching artifact from [GitHub Releases](https://github.com/plus1998/eco-coding/releases):
+Download the matching artifact from [GitHub Releases](https://github.com/plus1998/Mori/releases):
 
 | Platform | File |
 | --- | --- |
-| macOS Apple Silicon | `Eco-Coding-*-mac-arm64.dmg` |
-| macOS Intel | `Eco-Coding-*-mac-x64.dmg` |
-| Windows 10/11 x64 | `Eco-Coding-*-win-x64.exe` |
-| Linux x64 | `Eco-Coding-*-linux-x64.AppImage` |
+| macOS 13+ Apple Silicon | `Mori-*-mac-arm64.dmg` |
+| macOS 13+ Intel | `Mori-*-mac-x64.dmg` |
+| Windows 10/11 x64 | `Mori-*-win-x64.exe` |
+| Linux x64 | `Mori-*-linux-x64.AppImage` |
 
 ### macOS Beta
 
-The current Beta is not signed or notarized. Move the app to Applications, Control-click it in Finder, choose Open, and confirm. Do not disable system security or run unknown `xattr` commands.
+The macOS Beta has no Apple-recognized Developer ID signing or notarization. New builds use a fixed self-signed identity, which does not imply Apple approval. Move the app to Applications, Control-click it in Finder, choose Open, and confirm. Do not disable system security or run unknown `xattr` commands. Moving from ad-hoc signing may require granting permissions again; permission retention across updates still needs verification.
 
 ### Windows
 
@@ -26,8 +26,8 @@ Run the NSIS installer and choose an install directory. If SmartScreen reports a
 ### Linux
 
 ```bash
-chmod +x Eco-Coding-*-linux-x64.AppImage
-./Eco-Coding-*-linux-x64.AppImage
+chmod +x Mori-*-linux-x64.AppImage
+./Mori-*-linux-x64.AppImage
 ```
 
 Some distributions require FUSE. See the [AppImage FUSE documentation](https://github.com/AppImage/AppImageKit/wiki/FUSE).
@@ -43,7 +43,7 @@ Recommended setup order:
 5. Select Codex or Claude Code as the default Harness for new sessions.
 6. Return to the project, create a session, and choose Agent, Plan, or Ask.
 
-API keys use system secure storage. If secure storage is unavailable, Eco reports the limitation instead of pretending the key was stored securely.
+API keys use system secure storage. If secure storage is unavailable, Mori reports the limitation instead of pretending the key was stored securely.
 
 ## 3. Configure providers
 
@@ -70,9 +70,9 @@ Run a connection test after saving. A successful test confirms the selected addr
 
 - **Codex** uses the OpenAI Codex runtime.
 - **Claude Code** uses the Claude Agent SDK / Claude Code runtime.
-- **PI** uses [earendil-works/pi](https://github.com/earendil-works/pi) (`@earendil-works/pi-coding-agent`). supports Agent / Plan / Ask with built-in read/write/edit/bash (Ask/Plan bash is limited to a read-only allowlist); Eco injects Skills and MCP per session (`.agents/skills` / `.pi/skills` plus thread-private `pi-agent/<threadId>/skills`; Composer-selected MCP / browser / image integrations injected per session through the official MCP extension (tools are named `mcp__<server>__<tool>`, e.g. the Hub's `mcp__eco_mcp__search_tools` / `mcp__eco_mcp__call_tool`), withheld during Ask/Plan planning; Settings → Personalization global rules append to the parent system prompt); session JSONL is stored under `userData/pi-agent/<threadId>/sessions/` (survives app restart; MCP server-set changes rebuild the in-process AgentSession but resume the same JSONL; model-route/thinking-effort changes start a fresh session). Lead and subagent thinking effort is passed to PI (`off` disables thinking; `low`–`max` map to PI thinkingLevel); Agent mode can delegate Eco subagents from the thread orchestration snapshot; tool approvals are Eco-bridged (BashApproval); Plan submits via `finalize_plan` → pending plan, async user approval, then a new Agent turn (quit keeps pending plans). **Mobile has not verified PI-thread tool/plan approvals.**
+- **PI** uses [earendil-works/pi](https://github.com/earendil-works/pi) (`@earendil-works/pi-coding-agent`). supports Agent / Plan / Ask with built-in read/write/edit/bash (Ask/Plan bash is limited to a read-only allowlist); Mori injects Skills and MCP per session (`.agents/skills` / `.pi/skills` plus thread-private `pi-agent/<threadId>/skills`; Composer-selected MCP / browser / image integrations injected per session through the official MCP extension (tools are named `mcp__<server>__<tool>`, e.g. the Hub's `mcp__eco_mcp__search_tools` / `mcp__eco_mcp__call_tool`), withheld during Ask/Plan planning; Settings → Personalization global rules append to the parent system prompt); session JSONL is stored under `userData/pi-agent/<threadId>/sessions/` (survives app restart; MCP server-set changes rebuild the in-process AgentSession but resume the same JSONL; model-route/thinking-effort changes start a fresh session). Lead and subagent thinking effort is passed to PI (`off` disables thinking; `low`–`max` map to PI thinkingLevel); Agent mode can delegate Mori subagents from the thread orchestration snapshot; tool approvals are Mori-bridged (BashApproval); Plan submits via `finalize_plan` → pending plan, async user approval, then a new Agent turn (quit keeps pending plans). **Mobile has not verified PI-thread tool/plan approvals.**
 
-Mid-turn steer: follow-ups sent while a PI session is running are injected into the current turn via `AgentSession.steer()` (delivered before the next model call). When the session is idle or the run ends right as delivery lands, the message stays queued and is sent as a fresh turn after the run — Eco never pretends it was injected.
+Mid-turn steer: follow-ups sent while a PI session is running are injected into the current turn via `AgentSession.steer()` (delivered before the next model call). When the session is idle or the run ends right as delivery lands, the message stays queued and is sent as a fresh turn after the run — Mori never pretends it was injected.
 
 Set a default for new sessions or choose per session. Switching Harness changes native tools, approvals, and resume semantics. Existing running sessions do not switch when the global default changes.
 
@@ -100,14 +100,14 @@ Add templates to the roster, then configure each role's provider, model, enabled
 | Reviewer | Conservative judgment and defect sensitivity |
 | Tester | Fast command execution and acceptance discipline |
 
-Model names are entirely user/provider configuration. Eco does not bundle or guarantee any specific commercial model.
+Model names are entirely user/provider configuration. Mori does not bundle or guarantee any specific commercial model.
 
 A practical starting point is a quality-first lead, low-latency Explore and Tester roles, and risk-adjusted Coder and Reviewer models. Tune from observed quality and usage rather than price alone.
 
 ## 6. Session modes and options
 
 - **Agent:** implementation and editing; may ask questions and delegate.
-- **Plan:** native planning followed by Eco plan approval and continuation.
+- **Plan:** native planning followed by Mori plan approval and continuation.
 - **Ask:** explicit read-only explanation and analysis.
 
 The Composer can select Harness, runtime configuration, lead and vision models, MCP servers, Skills, browser/image integrations, Bash Review, and planning behavior for the current session. These choices are stored with the session instead of being injected into every project.
@@ -122,7 +122,7 @@ Keep credentials in MCP environment or secure configuration, not public prompts.
 
 ### Skills
 
-Eco discovers project Skills from:
+Mori discovers project Skills from:
 
 ```text
 .claude/skills/<name>/SKILL.md
@@ -133,7 +133,7 @@ Eco discovers project Skills from:
 
 Compatible Skills can also be browsed and installed from the Skills UI. Project Skills belong to the current project; personal Skills require explicit selection. Harness-specific readiness and required links are shown in the UI.
 
-PI Harness also loads session-private skills from `pi-agent/<threadId>/skills` and user-level `~/.pi/agent/skills`. Session transcripts live under the same thread tree at `pi-agent/<threadId>/sessions/` and can be metered/cleared in Settings → Storage; **All PI sessions** deletes those Eco chats from the sidebar, not only the on-disk files. Session toggles control injection visibility only; skill files in a shared workspace may still be readable via `read`/`bash` — this is not OS-level isolation.
+PI Harness also loads session-private skills from `pi-agent/<threadId>/skills` and user-level `~/.pi/agent/skills`. Session transcripts live under the same thread tree at `pi-agent/<threadId>/sessions/` and can be metered/cleared in Settings → Storage; **All PI sessions** deletes those Mori chats from the sidebar, not only the on-disk files. Session toggles control injection visibility only; skill files in a shared workspace may still be readable via `read`/`bash` — this is not OS-level isolation.
 
 ## 8. Vision, image generation, and ASR
 
@@ -151,7 +151,7 @@ Token usage may still appear when pricing is missing, but cost will be incomplet
 
 ## 10. Supabase and Mobile
 
-Mobile is not publicly released yet. Interop requires a user-owned Supabase project (no official Eco node).
+Mobile is not publicly released yet. Interop requires a user-owned Supabase project (no official Mori node).
 
 ### Artifacts
 
@@ -171,7 +171,7 @@ bun run supabase:deploy -- --platform cloud --project-ref <your-project-ref>
 # or: bun run supabase:deploy   # interactive wizard
 ```
 
-Self-host summary: after the official Docker stack is up, from the eco-coding repo root:
+Self-host summary: after the official Docker stack is up, from the Mori repo root:
 
 ```bash
 bun run supabase:deploy -- --platform self-host --compose-dir <supabase-project-path>
@@ -202,8 +202,9 @@ Physical iOS development requires signing for `com.plus.ecoding.dev`.
 
 ## 11. Updates
 
-- Windows / Linux release metadata supports in-app check, download, and restart installation.
-- The current unsigned macOS Beta directs users to GitHub Releases for manual download.
+- macOS / Windows / Linux releases support in-app checks, downloads, and restart installation. Checks run about 10 seconds after startup, hourly afterward, and on resume with a 30-minute throttle.
+- Users confirm downloads after a new version is offered. A downloaded update installs on restart or normal exit.
+- Mac in-app updates start with the next fixed self-signed release. Older ad-hoc builds need one manual installation from GitHub Releases; subsequent releases reuse the same signing certificate.
 - Beta update policy does not silently downgrade to an older stable channel.
 
 Commit or back up important workspace changes before updating, and do not force-quit while an agent is running.
@@ -213,8 +214,8 @@ Commit or back up important workspace changes before updating, and do not force-
 Use the CI-tested Bun `1.4.0` and Node.js `22.14.0` when possible; Git is also required. Native `node-pty` builds require Xcode Command Line Tools on macOS; Visual Studio 2022 Build Tools with Desktop development with C++ and a Windows SDK on Windows; or Python 3 plus a C/C++ toolchain and Electron system libraries on Linux.
 
 ```bash
-git clone https://github.com/plus1998/eco-coding.git
-cd eco-coding
+git clone https://github.com/plus1998/Mori.git
+cd Mori
 bun install
 bun run dev
 ```
@@ -241,7 +242,7 @@ Protocol compatibility does not imply capability compatibility. Verify actual im
 
 ### Windows source install cannot find Visual Studio
 
-Install Visual Studio 2022 Build Tools with Desktop development with C++ and Windows SDK. Eco CI uses Node.js `22.14.0` and `@electron/rebuild` for `node-pty`.
+Install Visual Studio 2022 Build Tools with Desktop development with C++ and Windows SDK. Mori CI uses Node.js `22.14.0` and `@electron/rebuild` for `node-pty`.
 
 ### Linux AppImage does not launch
 
@@ -257,6 +258,6 @@ Confirm both devices use the same Supabase project, the binding is active, and R
 
 ## 14. Getting help
 
-An actionable Issue includes the Eco version, operating system, Harness, provider protocol, redacted model ID, reproduction steps, relevant errors, and whether a fresh session/minimal project reproduces the problem.
+An actionable Issue includes the Mori version, operating system, Harness, provider protocol, redacted model ID, reproduction steps, relevant errors, and whether a fresh session/minimal project reproduces the problem.
 
 Never submit API keys, access tokens, private source code, or a full database containing personal data.

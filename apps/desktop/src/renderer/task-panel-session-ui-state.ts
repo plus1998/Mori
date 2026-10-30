@@ -1,5 +1,6 @@
 import { TASK_PANEL_HOME_TAB_ID, type TaskPanelActiveTab } from "./SubagentTaskDrawer";
 import type { WorkspaceFileReference } from "./workspace-file-reference";
+import { normalizeBrowserSplitLayout, type BrowserSplitLayout } from "./browser-split-layout";
 
 export type TaskPanelSessionFileTarget = WorkspaceFileReference & {
   requestId?: number;
@@ -10,6 +11,7 @@ export type TaskPanelSessionUiState = {
   activeTab: TaskPanelActiveTab;
   openTabIds: TaskPanelActiveTab[];
   fullscreen: boolean;
+  browserSplit?: BrowserSplitLayout;
   selectedSubagentAgentId?: string;
   fileTarget?: TaskPanelSessionFileTarget;
 };
@@ -28,6 +30,7 @@ export type CaptureTaskPanelSessionUiStateInput = {
   activeTab: TaskPanelActiveTab;
   openTabIds: readonly TaskPanelActiveTab[];
   fullscreen: boolean;
+  browserSplit?: BrowserSplitLayout;
   selectedSubagentAgentId?: string;
   fileTarget?: TaskPanelSessionFileTarget;
 };
@@ -39,6 +42,7 @@ export function captureTaskPanelSessionUiState(
   const activeTab =
     typeof input.activeTab === "string" && input.activeTab.trim() ? input.activeTab : TASK_PANEL_HOME_TAB_ID;
   const fileTarget = normalizeFileTarget(input.fileTarget);
+  const browserSplit = normalizeBrowserSplitLayout(input.browserSplit, openTabIds);
   const selectedSubagentAgentId =
     typeof input.selectedSubagentAgentId === "string" && input.selectedSubagentAgentId.trim()
       ? input.selectedSubagentAgentId.trim()
@@ -49,6 +53,7 @@ export function captureTaskPanelSessionUiState(
     activeTab,
     openTabIds,
     fullscreen: input.open === true && input.fullscreen === true,
+    ...(browserSplit ? { browserSplit } : {}),
     ...(selectedSubagentAgentId ? { selectedSubagentAgentId } : {}),
     ...(fileTarget ? { fileTarget } : {}),
   };
@@ -67,6 +72,7 @@ export function normalizeTaskPanelSessionUiState(value: unknown): TaskPanelSessi
       ? record.activeTab.trim()
       : TASK_PANEL_HOME_TAB_ID;
   const fileTarget = normalizeFileTarget(record.fileTarget);
+  const browserSplit = normalizeBrowserSplitLayout(record.browserSplit, openTabIds);
   const selectedSubagentAgentId =
     typeof record.selectedSubagentAgentId === "string" && record.selectedSubagentAgentId.trim()
       ? record.selectedSubagentAgentId.trim()
@@ -81,6 +87,7 @@ export function normalizeTaskPanelSessionUiState(value: unknown): TaskPanelSessi
         : (openTabIds.at(-1) ?? TASK_PANEL_HOME_TAB_ID),
     openTabIds,
     fullscreen: open && record.fullscreen === true,
+    ...(browserSplit ? { browserSplit } : {}),
     ...(selectedSubagentAgentId ? { selectedSubagentAgentId } : {}),
     ...(fileTarget ? { fileTarget } : {}),
   };

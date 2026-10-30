@@ -1,5 +1,5 @@
 name: eco_mobile
-description: Eco Mobile remote client for Eco Desktop via user-owned Supabase Center.
+description: Mori mobile remote client for Mori Desktop via user-owned Supabase Center.
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -41,6 +41,7 @@ dependencies:
   just_audio: ^0.10.6
   path_provider: ^2.1.6
   audio_session: ^0.2.4
+  gal: ^2.3.3
 
 dev_dependencies:
   integration_test:

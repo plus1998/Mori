@@ -11,7 +11,7 @@ if (fixtureUrl.origin !== location.origin || !fixtureUrl.pathname.startsWith(DEV
   throw new Error("Replay fixtures must be local dev artifacts.");
 }
 if (window.parent === window || !window.parent.eco)
-  throw new Error("Open replay through the Eco dev CDP command.");
+  throw new Error("Open replay through the Mori dev CDP command.");
 const response = await fetch(fixtureUrl);
 if (!response.ok) throw new Error(`Could not load replay fixture: HTTP ${response.status}`);
 const rawFixture: unknown = await response.json();

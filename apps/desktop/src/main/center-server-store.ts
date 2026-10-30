@@ -58,7 +58,7 @@ export interface CenterServerStoreOptions {
   secretCodec?: CenterServerSecretCodec;
 }
 
-const DEFAULT_DEVICE_NAME = "Eco Desktop";
+const DEFAULT_DEVICE_NAME = "Mori Desktop";
 const SAFE_STORAGE_SECRET_PREFIX = "safe:v1:";
 
 export async function createCenterServerStore(

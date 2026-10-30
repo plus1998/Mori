@@ -107,7 +107,7 @@ export class AgentBrowserProcesses {
   private register(input: SessionInput): Session {
     const socketDir = input.env.AGENT_BROWSER_SOCKET_DIR;
     if (!socketDir || path.basename(socketDir) !== input.sessionKey) {
-      throw new Error("agent-browser 缺少 Eco 专属的会话进程目录。");
+      throw new Error("agent-browser 缺少 Mori 专属的会话进程目录。");
     }
     let session = this.sessions.get(socketDir);
     if (!session) {
@@ -150,7 +150,7 @@ export class AgentBrowserProcesses {
     signal?.throwIfAborted();
     const session = this.register(input);
     if (this.closingRoots.has(path.dirname(session.socketDir)))
-      throw new Error("Eco 正在退出，不能启动浏览器自动化进程。");
+      throw new Error("Mori 正在退出，不能启动浏览器自动化进程。");
     if (session.stopping) throw new Error("浏览器自动化进程正在停止，请稍后重试。");
     const clientBinary = canonical(input.binaryPath);
     if (clientBinary !== session.binaryPath) {

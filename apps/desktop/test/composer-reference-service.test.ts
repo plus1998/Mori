@@ -10,6 +10,7 @@ const threads = [
 ] as ThreadSummary[];
 function setup(overrides: Partial<ComposerReferenceDeps> = {}) {
   const deps: ComposerReferenceDeps = {
+    todos: { references: () => [], resolveReference: () => { throw new Error("No test todos"); }, invoke: () => { throw new Error("No test todos"); }, disposeThread() {} },
     listThreads: () => threads,
     getThread: (id) => threads.find((item) => item.id === id),
     listSsh: () => [

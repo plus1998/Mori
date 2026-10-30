@@ -1,3 +1,5 @@
+import { formatAccelerator } from "../shared/keyboard-shortcuts";
+import { useKeyboardShortcuts } from "./keyboard-shortcuts";
 import { LockKeyholeOpen, Monitor, SunDim } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,15 +12,19 @@ function desktopApi() {
 
 export function DisplayControlsSection() {
   const { t } = useTranslation();
+  const { bindings } = useKeyboardShortcuts();
+  const recovery = (bindings["restore-display"] ?? []).map(key => formatAccelerator(key, window.eco?.platform ?? "darwin")).join(" / ") || "未设置恢复快捷键";
+  const dimScreenHint = t("app.running.dimScreenHint").replace("⌘⇧L", recovery);
+  const softwareDimmingHint = t("app.running.softwareDimmingHint").replace("⌘⇧L", recovery);
   const [state, setState] = useState<DisplayControlState>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const mounted = useRef(false);
-  const isMac = window.eco?.platform === "darwin";
+  const supported = window.eco?.platform === "darwin" || window.eco?.platform === "win32";
 
   useEffect(() => {
-    if (!isMac) return;
+    if (!supported) return;
     mounted.current = true;
     let fetching = false;
     const refresh = async () => {
@@ -39,9 +45,9 @@ export function DisplayControlsSection() {
       mounted.current = false;
       window.clearInterval(timer);
     };
-  }, [isMac]);
+  }, [supported]);
 
-  if (!isMac) return null;
+  if (!supported) return null;
   const displays = state?.displays ?? [];
 
   const change = async (input: DisplayControlChange) => {
@@ -75,7 +81,7 @@ export function DisplayControlsSection() {
           onChange={(event) => void change({ control: "preventAutoLock", enabled: event.target.checked })}
         />
       </label>
-      <label className="running-display-control" title={t("app.running.dimScreenHint")}>
+      <label className="running-display-control" title={dimScreenHint}>
         <SunDim size={16} aria-hidden />
         <span>{t("app.running.dimScreen")}</span>
         <input
@@ -92,7 +98,7 @@ export function DisplayControlsSection() {
         <summary>{t("app.running.displayDetails")}</summary>
         <div className="running-display-monitors">
           <p className="running-display-monitor-hint">{t("app.running.preventAutoLockHint")}</p>
-          <p className="running-display-monitor-hint">{t("app.running.dimScreenHint")}</p>
+          <p className="running-display-monitor-hint">{dimScreenHint}</p>
           <p className="running-display-monitor-summary">
             {t("app.running.displayCount", { count: displays.length })}
           </p>
@@ -115,7 +121,7 @@ export function DisplayControlsSection() {
             ))}
           </ul>
           {displays.some((display) => display.method === "software") ? (
-            <p className="running-display-monitor-hint">{t("app.running.softwareDimmingHint")}</p>
+            <p className="running-display-monitor-hint">{softwareDimmingHint}</p>
           ) : null}
         </div>
       </details>

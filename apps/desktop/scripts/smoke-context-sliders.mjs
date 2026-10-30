@@ -8,13 +8,13 @@ const page = browser
   .contexts()[0]
   ?.pages()
   .find((candidate) => /^http:\/\/127\.0\.0\.1:\d+\//.test(candidate.url()));
-if (!page) throw new Error("No Eco renderer on CDP");
+if (!page) throw new Error("No Mori renderer on CDP");
 const results = [];
 try {
   assert.equal(
     await page.evaluate(() => document.hidden),
     false,
-    "Activate the Eco window before the drag test",
+    "Activate the Mori window before the drag test",
   );
   await page.evaluate(async () => {
     const { default: React } = await import("/node_modules/.vite/deps/react.js");

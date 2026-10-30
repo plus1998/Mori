@@ -389,9 +389,21 @@ export function buildCenterServerWebSocketUrl(serverUrl: string, accessToken: st
   return parsed.toString();
 }
 
+export const APP_LINK_SCHEMES = ["mori", "eco"] as const;
+
+/** New links use mori://; keep accepting eco:// links from older releases. */
+export function isAppDeepLink(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl.trim());
+    return Boolean(parsed.hostname) && APP_LINK_SCHEMES.some((scheme) => parsed.protocol === `${scheme}:`);
+  } catch {
+    return false;
+  }
+}
+
 /**
- * `eco://connect` deep link — import a Supabase project from the schema.
- * `eco://connect?url={baseUrl}&token={token}` where token is the anon key.
+ * `mori://connect` deep link — import a Supabase project from the schema.
+ * `mori://connect?url={baseUrl}&token={token}` where token is the anon key.
  * `supabase`/`anon` are accepted as aliases (used by the mobile connect QR).
  */
 export interface EcoConnectDeepLink {
@@ -404,11 +416,11 @@ export interface EcoConnectDeepLink {
 export function parseEcoConnectDeepLink(rawUrl: string): EcoConnectDeepLink | undefined {
   try {
     const parsed = new URL(rawUrl.trim());
-    if (parsed.protocol !== "eco:") {
+    if (!isAppDeepLink(rawUrl)) {
       return undefined;
     }
     const host = parsed.host || parsed.hostname;
-    // eco://connect?url=...&token=... — the project lives in the path host.
+    // mori://connect?url=...&token=... — the project lives in the path host.
     if (host !== "connect") {
       return undefined;
     }
@@ -430,7 +442,7 @@ export function parseEcoConnectDeepLink(rawUrl: string): EcoConnectDeepLink | un
 
 /**
  * Connect QR for Mobile — project URL + anon key only.
- * Scheme: `eco://center?supabase=...&anon=...`
+ * Scheme: `mori://center?supabase=...&anon=...`
  * Password login is still required on the phone; QR does not grant control.
  */
 export function buildCenterQrPayload(input: { supabaseUrl: string; anonKey: string }): string {
@@ -443,12 +455,12 @@ export function buildCenterQrPayload(input: { supabaseUrl: string; anonKey: stri
     supabase: normalizeSupabaseProjectUrl(supabaseUrl),
     anon: anonKey,
   });
-  return `eco://center?${params.toString()}`;
+  return `mori://center?${params.toString()}`;
 }
 
 /**
  * @deprecated Prefer buildCenterQrPayload. Legacy pairing QR with code+token.
- * Supabase-aware: `eco://pair?supabase=...&anon=...&code=...&token=...`
+ * Supabase-aware: `mori://pair?supabase=...&anon=...&code=...&token=...`
  */
 export function buildPairingQrPayload(input: {
   /** @deprecated Prefer supabaseUrl + anonKey for Supabase Center. */
@@ -474,7 +486,7 @@ export function buildPairingQrPayload(input: {
     }
     params.set("server", normalizeSupabaseProjectUrl(serverUrl));
   }
-  return `eco://pair?${params.toString()}`;
+  return `mori://pair?${params.toString()}`;
 }
 
 export function isLocalhostCenterServerUrl(serverUrl: string): boolean {

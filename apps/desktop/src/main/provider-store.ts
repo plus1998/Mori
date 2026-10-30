@@ -594,7 +594,7 @@ export class ProviderStore {
       return;
     }
     this.db.exec(
-      `ALTER TABLE provider_configs ADD COLUMN token_count_mode TEXT NOT NULL DEFAULT 'local_heuristic'`,
+      `ALTER TABLE provider_configs ADD COLUMN token_count_mode TEXT NOT NULL DEFAULT 'provider_native'`,
     );
   }
 

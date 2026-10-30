@@ -64,6 +64,7 @@ function harness(
   const selected: string[] = [];
   const bodies: Record<string, any>[] = [];
   const port: CodexImageAccountPort = {
+    ensureAccountCredentials: async () => {},
     listAccounts: async () =>
       items.map((item) => ({ ...item, isLoggedIn: true }) as unknown as OpenAIAccount),
     getAccountDetails: async (id) => items.find((item) => item.id === id)!,
@@ -230,4 +231,28 @@ test("a cancelled queued caller does not release another caller ahead of the run
   release();
   await Promise.all([first, third]);
   expect(h.selected).toEqual(["A", "B"]);
+});
+
+test("renewable image accounts stay available and refresh only before a real image request", async () => {
+  const fresh = account("renewable");
+  const oldClaims = Buffer.from(JSON.stringify({ exp: 1, "https://api.openai.com/auth": { chatgpt_plan_type: "plus" } })).toString("base64url");
+  let current = { ...fresh, authJson: JSON.stringify({ tokens: { access_token: `header.${oldClaims}.signature`, refresh_token: "refresh", account_id: fresh.id } }) };
+  let refreshes = 0;
+  let connections = 0;
+  const service = new CodexImageService({
+    listAccounts: async () => [{ ...fresh, isLoggedIn: false, authState: "refreshable" } as unknown as OpenAIAccount],
+    getAccountDetails: async () => current,
+    ensureAccountCredentials: async () => { refreshes++; current = fresh; },
+    saveImageQuota: () => {},
+  }, async (selected) => {
+    connections++;
+    expect(selected.authJson).toBe(fresh.authJson);
+    return { close() {}, fetch: async () => imageResponse() };
+  });
+  expect(await service.getAvailability()).toEqual({ available: true });
+  expect(refreshes).toBe(0);
+  expect(connections).toBe(0);
+  expect(await service.generate({ prompt: "one image" }, [])).toHaveLength(1);
+  expect(refreshes).toBe(1);
+  expect(connections).toBe(1);
 });

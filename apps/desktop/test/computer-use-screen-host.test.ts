@@ -57,7 +57,7 @@ test("resolveDevScreenRecordingHostLabel uses launcher not Electron", () => {
 });
 
 test("resolveScreenRecordingAppLabel packaged vs provided ancestors", () => {
-  expect(resolveScreenRecordingAppLabel({ packaged: true })).toBe("Eco Coding");
+  expect(resolveScreenRecordingAppLabel({ packaged: true })).toBe("Mori");
   expect(
     resolveScreenRecordingAppLabel({
       packaged: false,
@@ -67,8 +67,8 @@ test("resolveScreenRecordingAppLabel packaged vs provided ancestors", () => {
   ).toBe("Terminal");
 });
 
-test("detectScreenRecordingAppLabel packaged is Eco Coding", () => {
-  expect(detectScreenRecordingAppLabel(true)).toBe("Eco Coding");
+test("detectScreenRecordingAppLabel packaged is Mori", () => {
+  expect(detectScreenRecordingAppLabel(true)).toBe("Mori");
 });
 
 test("readProcessAncestorCommands walks injected process table", () => {

@@ -1,3 +1,4 @@
+import { shortcutMatches } from "./keyboard-shortcuts";
 import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { Check, Eye, Pencil, TriangleAlert } from "lucide-react";
@@ -35,7 +36,7 @@ const LazyCodeMirror = lazy(async () => {
   const [
     { default: CodeMirror },
     { languages },
-    { EditorView, highlightActiveLine, keymap },
+    { EditorView, highlightActiveLine },
     { HighlightStyle, LanguageDescription, syntaxHighlighting },
     { tags },
   ] = await Promise.all([
@@ -169,20 +170,14 @@ const LazyCodeMirror = lazy(async () => {
       useEffect(() => {
         if (editorRef.current) scrollToTarget(editorRef.current, targetLine);
       }, [content, path, scrollToTarget, targetColumn, targetLine]);
-      const saveKeymap = useMemo(
-        () =>
-          keymap.of([
-            {
-              key: "Mod-s",
-              run: () => {
-                onSaveRef.current?.();
-                return true;
-              },
-              preventDefault: true,
-            },
-          ]),
-        [],
-      );
+      const saveKeymap = useMemo(() => EditorView.domEventHandlers({
+        keydown: (event) => {
+          if (!shortcutMatches(event, "file-save")) return false;
+          event.preventDefault();
+          onSaveRef.current?.();
+          return true;
+        },
+      }), []);
       // useMemo：避免每次 render 新建 extensions 触发 reconfigure，冲掉刚挂上的 language support
       const editableExtensions = useMemo(
         () => [

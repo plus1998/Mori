@@ -30,7 +30,7 @@ export function assertCodexGatedModelApiCompat(input: {
   }
   if (input.apiCompat !== "openai_responses") {
     throw new Error(
-      `Model "${input.modelId}" is gated for Eco and requires apiCompat=openai_responses (Chat Completions tool loops are unsupported). Not setting it as a default model.`,
+      `Model "${input.modelId}" is gated for Mori and requires apiCompat=openai_responses (Chat Completions tool loops are unsupported). Not setting it as a default model.`,
     );
   }
 }

@@ -1,4 +1,4 @@
-# Eco Coding 使用指南
+# Mori 使用指南
 
 **简体中文** · [English](USER_GUIDE.en.md) · [返回 README](../README.md) · [技术文档](TECHNICAL.md)
 
@@ -6,24 +6,24 @@
 
 ## 1. 安装桌面端
 
-从 [GitHub Releases](https://github.com/plus1998/eco-coding/releases) 下载对应平台产物：
+从 [GitHub Releases](https://github.com/plus1998/Mori/releases) 下载对应平台产物：
 
 | 平台 | 文件 |
 | --- | --- |
-| macOS Apple Silicon | `Eco-Coding-*-mac-arm64.dmg` |
-| macOS Intel | `Eco-Coding-*-mac-x64.dmg` |
-| Windows 10/11 x64 | `Eco-Coding-*-win-x64.exe` |
-| Linux x64 | `Eco-Coding-*-linux-x64.AppImage` |
+| macOS 13+ Apple Silicon | `Mori-*-mac-arm64.dmg` |
+| macOS 13+ Intel | `Mori-*-mac-x64.dmg` |
+| Windows 10/11 x64 | `Mori-*-win-x64.exe` |
+| Linux x64 | `Mori-*-linux-x64.AppImage` |
 
 ### macOS Beta
 
-当前 Beta 未签名和公证。macOS 可能阻止首次打开：
+macOS Beta 尚无苹果认可的 Developer ID 签名和公证，可能阻止首次打开。新构建使用固定自签名证书；自签名用于稳定应用身份，不代表通过苹果验证。
 
-1. 将 Eco Coding 拖入“应用程序”。
+1. 将 Mori 拖入“应用程序”。
 2. 在 Finder 中按住 Control 点击应用，选择“打开”。
 3. 再次确认“打开”。
 
-不要关闭系统安全机制或执行来源不明的 `xattr` 命令。正式分发前项目会补充 Developer ID 签名和公证。
+不要关闭系统安全机制或执行来源不明的 `xattr` 命令。正式分发前项目会补充 Developer ID 签名和公证。从旧版临时签名切换到固定自签名时，可能需要重新授予系统权限；跨版本权限继承仍需验证。
 
 ### Windows
 
@@ -32,8 +32,8 @@
 ### Linux
 
 ```bash
-chmod +x Eco-Coding-*-linux-x64.AppImage
-./Eco-Coding-*-linux-x64.AppImage
+chmod +x Mori-*-linux-x64.AppImage
+./Mori-*-linux-x64.AppImage
 ```
 
 部分发行版需要安装 FUSE。若无法挂载，可参考 [AppImage FUSE 文档](https://github.com/AppImage/AppImageKit/wiki/FUSE)。
@@ -49,7 +49,7 @@ chmod +x Eco-Coding-*-linux-x64.AppImage
 5. 选择新会话默认使用 Codex、Claude Code 或 PI。
 6. 回到项目，新建会话并选择 Agent / Plan / Ask 模式。
 
-API Key 会通过系统安全存储保存。系统安全存储不可用时，Eco 会明确提示，而不会假装密钥已安全保存。
+API Key 会通过系统安全存储保存。系统安全存储不可用时，Mori 会明确提示，而不会假装密钥已安全保存。
 
 ## 3. 配置模型服务商
 
@@ -76,13 +76,23 @@ API Key 会通过系统安全存储保存。系统安全存储不可用时，Eco
 
 保存后选择一个候选模型执行“连通性测试”。测试通过只说明当前地址、协议、密钥和模型可以完成测试请求，不代表该模型支持所有工具、视觉或长上下文能力。
 
+也可以在 Mori 助手中直接管理，例如「列出所有供应商」「查看这个供应商的上游模型并导入我指定的模型」「把模型的输入价格改成每百万 token 0.5 美元」「测试这个模型的连接」。供应商与模型配置是全局设置，不需要新建工作会话。支持供应商增删改查、启停、连接测试，以及模型导入、能力与价格编辑、排序和删除；排序后的第一个候选模型成为供应商默认模型。未指定字段保持原值，API Key 不在工具结果中回显。
+
+Codex / ChatGPT 账号模型使用各自的模型目录，可刷新目录、手动添加或移除模型，不能通过这些工具修改或删除远程目录模型。账号登录、凭据和账号连接测试仍在账号设置中处理。删除 API 供应商会同时删除其候选模型及依赖的主代理配置、子代理编排；正在使用该供应商的会话会阻止删除。更新主进程后需重新构建并重启 Mori，已有助手对话恢复时会获得新工具。
+
+Mori 助手也支持管理全局定时任务和定时消息，包括设置页面和其他工作会话创建的项目。可以说「列出这个项目的定时任务」「查看这项任务的配置和最近执行记录」「每天北京时间 9 点检查这个项目的最新改动」「暂停/恢复这项任务」「修改执行时间」「删除这项任务」。列表支持按项目、类型、启停和关键词筛选；完整指令可分页读取，时间规则可先预览再保存。
+
+独立任务必须明确项目，每次触发会新建工作会话。可以指定已有工作会话以继承项目和运行配置，也可以使用桌面默认配置，或明确指定 Harness、主代理及模型；保存时固定运行配置。指令应包含每次执行所需的上下文。定时消息必须指定已有工作会话，沿用该会话配置，不能发送到 Mori 助手自身。支持含时区的一次性时间、至少 60 秒的固定间隔，以及带 IANA 时区的五字段 cron；时间或项目不明确时 Mori 会询问。
+
+修改和删除要求最新版本，发现并发编辑时需重新读取。未指定字段保留；已批准的定时计划仍遵守原有内容限制。删除会取消待派发的执行，已运行的会话继续，需要停止时单独停止会话。创建成功表示已安排，执行仍需要 Mori 保持启动、电脑联网且处于唤醒状态；定时消息不会唤醒休眠电脑。
+
 ## 4. 选择 Harness
 
-Eco Coding 支持三种 Harness：
+Mori 支持三种 Harness：
 
-- **Codex**：使用 OpenAI Codex runtime。账号登录模型优先使用原生 `web_search`，即使配置了 Eco 集成搜索也不会因此关闭原生搜索；编排中关闭网络搜索时仍不暴露搜索工具。第三方模型路由沿用集成搜索选择规则。
+- **Codex**：使用 OpenAI Codex runtime。账号登录模型优先使用原生 `web_search`，即使配置了 Mori 集成搜索也不会因此关闭原生搜索；编排中关闭网络搜索时仍不暴露搜索工具。第三方模型路由沿用集成搜索选择规则。
 - **Claude Code**：使用 Claude Agent SDK / Claude Code runtime。
-- **PI**：使用 [earendil-works/pi](https://github.com/earendil-works/pi) 的 coding-agent（`@earendil-works/pi-coding-agent`）。支持 Agent / Plan / Ask；内置 read/write/edit/bash（Ask/Plan 的 bash 仅只读 allowlist）；**Web Search**：默认走 Provider 原生搜索（[pi-web-search](https://github.com/ttttmr/pi-web-search) 注入 `web_search` 工具）；可在候选模型规格中关闭「Provider 原生 Web Search」，并在 **设置 → 网络搜索** 配置 **Integrated Web Search**（**Tavily**、**豆包搜索（Doubao）** 或 **Brave**）；该后端对 Claude / Codex / PI 共用；编排层 `network.webSearch === false` 时不暴露搜索工具；chat-completions 等不支持原生搜索的模型需关 native 并配 Integrated 搜索，否则工具会报错（Phase 1 不自动降级）；Eco 按会话注入 Skills 与 MCP（`.agents/skills` / `.pi/skills` + 线程私有 `pi-agent/<threadId>/skills`；Composer 选中的 MCP / 浏览器 / 图片集成经官方 MCP 扩展按会话注入（工具以 `mcp__<服务器>__<工具>` 命名，如 Hub 的 `mcp__eco_mcp__search_tools` / `mcp__eco_mcp__call_tool`），Ask/Plan 规划阶段不暴露 MCP；设置 → 个性化「全局规则」追加进父会话系统提示）；会话 JSONL 持久化在 `userData/pi-agent/<threadId>/sessions/`（跨重启可续跑；改 MCP 会重建进程内 AgentSession 但续跑同一份 JSONL；改模型路由/思考强度会新开会话）。主代理与子代理的「思考强度」会传给 PI（`off` 关闭思考；`low`–`max` 对应 PI thinkingLevel）；Agent 模式支持按会话编排快照委派子代理；工具审批由 Eco 桥接（同 Claude BashApproval）；Plan 经 `finalize_plan` 落盘后异步确认，批准后新开 Agent（退出保留待批准计划）。**Mobile 对 PI 线程工具/计划审批未验证**。
+- **PI**：使用 [earendil-works/pi](https://github.com/earendil-works/pi) 的 coding-agent（`@earendil-works/pi-coding-agent`）。支持 Agent / Plan / Ask；内置 read/write/edit/bash（Ask/Plan 的 bash 仅只读 allowlist）；**Web Search**：默认走 Provider 原生搜索（[pi-web-search](https://github.com/ttttmr/pi-web-search) 注入 `web_search` 工具）；可在候选模型规格中关闭「Provider 原生 Web Search」，并在 **设置 → 网络搜索** 配置 **Integrated Web Search**（**Tavily**、**豆包搜索（Doubao）** 或 **Brave**）；该后端对 Claude / Codex / PI 共用；编排层 `network.webSearch === false` 时不暴露搜索工具；chat-completions 等不支持原生搜索的模型需关 native 并配 Integrated 搜索，否则工具会报错（Phase 1 不自动降级）；Mori 按会话注入 Skills 与 MCP（`.agents/skills` / `.pi/skills` + 线程私有 `pi-agent/<threadId>/skills`；Composer 选中的 MCP / 浏览器 / 图片集成经官方 MCP 扩展按会话注入（工具以 `mcp__<服务器>__<工具>` 命名，如 Hub 的 `mcp__eco_mcp__search_tools` / `mcp__eco_mcp__call_tool`），Ask/Plan 规划阶段不暴露 MCP；设置 → 个性化「全局规则」追加进父会话系统提示）；会话 JSONL 持久化在 `userData/pi-agent/<threadId>/sessions/`（跨重启可续跑；改 MCP 会重建进程内 AgentSession 但续跑同一份 JSONL；改模型路由/思考强度会新开会话）。主代理与子代理的「思考强度」会传给 PI（`off` 关闭思考；`low`–`max` 对应 PI thinkingLevel）；Agent 模式支持按会话编排快照委派子代理；工具审批由 Mori 桥接（同 Claude BashApproval）；Plan 经 `finalize_plan` 落盘后异步确认，批准后新开 Agent（退出保留待批准计划）。**Mobile 对 PI 线程工具/计划审批未验证**。
 
 运行中跟进（steer）：PI 会话运行期间发送的后续消息会经 `AgentSession.steer()` 注入当前回合（在下一个模型调用前投递）；会话空闲或当前 run 刚好结束时保持排队，run 结束后作为新一轮发送，不会假装已注入。
 
@@ -121,7 +131,7 @@ Eco Coding 支持三种 Harness：
 | Reviewer | 判断严谨、对缺陷敏感 |
 | Tester | 快速、遵循命令和验收标准 |
 
-模型名称完全由用户和服务商配置。Eco 不内置或保证某个特定商业模型可用。
+模型名称完全由用户和服务商配置。Mori 不内置或保证某个特定商业模型可用。
 
 ### 成本策略
 
@@ -135,7 +145,7 @@ Eco Coding 支持三种 Harness：
 
 ### Plan
 
-用于先规划后执行。主代理提交计划后，Eco 展示计划审批；批准后在同一逻辑会话中继续执行。
+用于先规划后执行。主代理提交计划后，Mori 展示计划审批；批准后在同一逻辑会话中继续执行。
 
 ### Ask
 
@@ -167,7 +177,7 @@ API Key 应放在 MCP 环境变量或安全配置中，不要写进公开的 Age
 
 ### Skills
 
-Eco 扫描当前项目中的：
+Mori 扫描当前项目中的：
 
 ```text
 .claude/skills/<name>/SKILL.md
@@ -178,7 +188,7 @@ Eco 扫描当前项目中的：
 
 也可以从 Skills 界面浏览和安装兼容 Skill。项目 Skill 默认属于当前项目；个人 Skill 需要显式选择。不同 Harness 对目录和 Skill 能力的支持可能不同，界面会显示需要链接或不可用的状态。
 
-PI Harness 额外支持会话私有 Skills 目录（`pi-agent/<threadId>/skills`），以及用户级 `~/.pi/agent/skills`。会话 transcript 落在同线程的 `pi-agent/<threadId>/sessions/`，可在设置 → 存储中计量与清理；「全部 PI 会话」会删除对应 Eco 对话（侧边栏消失），不只清磁盘文件。会话开关控制的是注入可见性；共享工作区内的 skill 文件仍可能被带 `read`/`bash` 的会话读到，不是 OS 级隔离。
+PI Harness 额外支持会话私有 Skills 目录（`pi-agent/<threadId>/skills`），以及用户级 `~/.pi/agent/skills`。会话 transcript 落在同线程的 `pi-agent/<threadId>/sessions/`，可在设置 → 存储中计量与清理；「全部 PI 会话」会删除对应 Mori 对话（侧边栏消失），不只清磁盘文件。会话开关控制的是注入可见性；共享工作区内的 skill 文件仍可能被带 `read`/`bash` 的会话读到，不是 OS 级隔离。
 
 ## 8. 视觉、创意绘画与 ASR
 
@@ -235,7 +245,7 @@ bun run supabase:deploy -- --platform cloud --project-ref <你的-project-ref>
 # 或：bun run supabase:deploy   # 交互向导
 ```
 
-自托管摘要：官方 Docker 栈拉起后，在 eco-coding 根目录执行：
+自托管摘要：官方 Docker 栈拉起后，在 Mori 根目录执行：
 
 ```bash
 bun run supabase:deploy -- --platform self-host --compose-dir <supabase-project路径>
@@ -266,11 +276,12 @@ iOS 真机需要为 `com.plus.ecoding.dev` 配置开发签名。
 
 ## 11. 更新
 
-- Windows / Linux：正式 Release 元数据支持应用内检查、下载和重启安装。
-- macOS：当前未签名 Beta 禁用自动更新，应用会引导到 GitHub Release 手动下载。
+- macOS / Windows / Linux：Release 版本支持应用内检查、下载和重启安装。启动后约 10 秒检查一次，之后每小时检查；唤醒时也会检查，并有 30 分钟节流。
+- 发现新版后显示更新入口，由用户确认下载；下载完成可重启安装，也会在正常退出时安装。
+- macOS 从下一次固定自签名发布起开启应用内更新。旧 ad-hoc 版本需先从 GitHub Release 手动安装一次固定自签名版本，后续版本沿用同一证书更新。
 - Beta 不会自动降级到更旧的正式版渠道。
 
-更新前建议提交或备份重要工作区。Eco 的应用更新不会主动删除项目文件，但 Agent 正在执行时不应强制退出。
+更新前建议提交或备份重要工作区。Mori 的应用更新不会主动删除项目文件，但 Agent 正在执行时不应强制退出。
 
 ## 12. 从源码开发
 
@@ -287,8 +298,8 @@ iOS 真机需要为 `com.plus.ecoding.dev` 配置开发签名。
 - Linux：Python 3、C/C++ build toolchain 和 Electron 所需系统库
 
 ```bash
-git clone https://github.com/plus1998/eco-coding.git
-cd eco-coding
+git clone https://github.com/plus1998/Mori.git
+cd Mori
 bun install
 bun run dev
 ```
@@ -320,7 +331,7 @@ bun run pack
 
 ### Windows 从源码安装时报找不到 Visual Studio
 
-安装 Visual Studio 2022 Build Tools，并勾选 Desktop development with C++ 和 Windows SDK。Eco 的 CI 使用 Node.js `22.14.0` 与 `@electron/rebuild` 重编译 `node-pty`。
+安装 Visual Studio 2022 Build Tools，并勾选 Desktop development with C++ 和 Windows SDK。Mori 的 CI 使用 Node.js `22.14.0` 与 `@electron/rebuild` 重编译 `node-pty`。
 
 ### Linux AppImage 无法启动
 
@@ -338,7 +349,7 @@ bun run pack
 
 提交 Issue 时请提供：
 
-- Eco Coding 版本和操作系统
+- Mori 版本和操作系统
 - Harness、Provider 协议和 Model ID（删除 API Key）
 - 可复现步骤
 - 相关错误文本和日志片段

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -127,6 +127,28 @@ function auth(exp: number, refresh: string, stamp: string): string {
 const expiredAuth = auth(1, "old-refresh", "2026-01-01T00:00:00Z");
 const freshAuth = auth(2_000_000_000, "new-refresh", "2026-10-22T00:00:00Z");
 
+test("a final quota 401 reports an expired token while preserving the original error and retry", async () => {
+  const root = await serviceRoot();
+  let fail = true;
+  const client = quotaClient((method) => {
+    if (method === "account/read") return accountResponse;
+    if (fail) throw new Error("401 Unauthorized");
+    return rateLimits;
+  });
+  const service = new OpenAIAccountService(root, "unused", undefined, async () => client);
+  await service.initialize();
+  cleanups.push(() => service.dispose());
+  const account = await service.createAccount("Quota");
+  await service.setAuthJson(account.id, freshAuth);
+  await service.setActiveAccount(account.id);
+  await service.applyPendingTransition();
+  await expect(service.queryQuota(account.id)).rejects.toThrow("登录令牌已过期，请重新登录该账号。（401 Unauthorized）");
+  expect((await service.listAccounts())[0]?.quotaRefresh?.error).toContain("登录令牌已过期");
+  fail = false;
+  expect((await service.queryQuota(account.id)).planType).toBe("plus");
+  expect((await service.listAccounts())[0]?.quotaRefresh?.error).toBeUndefined();
+});
+
 test("wake deduplicates hi, keeps the selected account and reports a post-reply quota failure separately", async () => {
   const root = await serviceRoot();
   let notify: ((method: string, params: unknown) => void) | undefined;
@@ -164,6 +186,84 @@ test("wake deduplicates hi, keeps the selected account and reports a post-reply 
   expect(await first).toEqual({ reply: "hi!", quotaError: "quota offline after reply" });
   expect(turns).toBe(1);
   expect(await service.getActiveAccountId()).toBe(account.id);
+  expect((await service.listAccounts())[0]?.quotaRefresh?.error).toBe("quota offline after reply");
+});
+
+for (const modelFailure of ["turn/start", "turn/completed"] as const) {
+  for (const quotaFails of [false, true]) {
+    test(`${modelFailure} model failure stays separate from quota state (quota fails: ${quotaFails})`, async () => {
+      // Compare quota state at one instant: a fresh read may otherwise cross a
+      // second boundary and legitimately decrease resetAfterSeconds.
+      const now = Date.now();
+      const clock = spyOn(Date, "now").mockReturnValue(now);
+      cleanups.push(async () => { clock.mockRestore(); });
+      const root = await serviceRoot();
+      let notify: ((method: string, params: unknown) => void) | undefined;
+      let reads = 0;
+      const unsupported = new Error("model_not_found: selected model is not supported for this account");
+      const client = quotaClient((method) => {
+        if (method === "account/read") return accountResponse;
+        if (method === "account/rateLimits/read") {
+          if (++reads === 3 && quotaFails) throw new Error("quota endpoint offline");
+          return rateLimits;
+        }
+        if (method === "thread/start") return { thread: { id: "wake" } };
+        if (method === "turn/start") {
+          if (modelFailure === "turn/start") throw unsupported;
+          notify?.("turn/completed", {
+            threadId: "wake", turn: { id: "turn", status: "failed", error: { message: unsupported.message } },
+          });
+          return { turn: { id: "turn" } };
+        }
+        return {};
+      });
+      client.addNotificationHandler = (handler) => { notify = handler; return () => { notify = undefined; }; };
+      const service = new OpenAIAccountService(root, "unused", undefined, async () => client);
+      await service.initialize();
+      cleanups.push(() => service.dispose());
+      const account = await service.createAccount("Model test");
+      await service.setAuthJson(account.id, freshAuth);
+      await service.setActiveAccount(account.id);
+      await service.applyPendingTransition();
+      service.setWakeModel("unsupported-model");
+      const cached = await service.queryQuota(account.id);
+      await expect(service.wakeAccount(account.id)).rejects.toThrow(unsupported.message);
+      expect(reads).toBe(3); // original cache, preflight, independent post-test read
+      const updated = (await service.listAccounts()).find((entry) => entry.id === account.id);
+      expect(updated?.quota?.rateLimit).toEqual(cached.rateLimit);
+      expect(updated?.quotaRefresh?.error).toBe(quotaFails ? "quota endpoint offline" : undefined);
+      if (quotaFails) {
+        expect(updated?.quota).toEqual(cached);
+        expect(updated?.quotaRefresh?.retryAt).toBeGreaterThan(Date.now());
+      } else {
+        expect(updated?.quotaRefresh?.retryAt).toBeUndefined();
+        expect(updated?.quotaRefresh?.authRequired).toBeUndefined();
+        expect(updated?.quota?.fetchedAt).toBeGreaterThanOrEqual(cached.fetchedAt);
+      }
+      expect(service.getSyncStatus().state).toBe("ok");
+    });
+  }
+}
+
+test("quota preflight failure prevents model testing and remains a quota error", async () => {
+  const root = await serviceRoot();
+  const calls: string[] = [];
+  const client = quotaClient((method) => {
+    calls.push(method);
+    if (method === "account/read") return accountResponse;
+    if (method === "account/rateLimits/read") throw new Error("quota preflight offline");
+    return {};
+  });
+  const service = new OpenAIAccountService(root, "unused", undefined, async () => client);
+  await service.initialize();
+  cleanups.push(() => service.dispose());
+  const account = await service.createAccount("Quota failure");
+  await service.setAuthJson(account.id, freshAuth);
+  await service.setActiveAccount(account.id);
+  await service.applyPendingTransition();
+  await expect(service.wakeAccount(account.id)).rejects.toThrow("quota preflight offline");
+  expect(calls).not.toContain("turn/start");
+  expect((await service.listAccounts())[0]?.quotaRefresh?.error).toBe("quota preflight offline");
 });
 
 async function serviceRoot(): Promise<string> {
@@ -278,6 +378,10 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     send(req.id, {thread:{id:'wake'}});
   } else if (req.method === 'turn/start') {
     if (req.params.input[0].text !== 'hi') process.exit(21);
+    if (req.params.model === 'unsupported-model') {
+      process.stdout.write(JSON.stringify({id:req.id,error:{code:-32600,message:'model_not_found'}})+'\\n');
+      return;
+    }
     send(req.id, {turn:{id:'turn',status:'inProgress'}});
     notify('turn/completed', {threadId:'wake',turn:{id:'turn',status:'completed',items:[{type:'agentMessage',text:'Hello!'}]}});
   } else if (req.method === 'thread/unsubscribe') send(req.id, {});
@@ -298,6 +402,11 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   expect(await fs.readFile(path.join(root, "codex", "auth.json"), "utf8")).toBe(original);
   expect(await service.getAuthJsonContent(inactive.id)).toBe(freshAuth);
   expect((await service.listAccounts()).find((entry) => entry.id === inactive.id)?.quota?.rateLimit.primaryWindow?.usedPercent).toBe(25);
+  service.setWakeModel("unsupported-model");
+  await expect(service.wakeAccount(inactive.id)).rejects.toThrow("model_not_found");
+  expect((await service.listAccounts()).find((entry) => entry.id === inactive.id)?.quotaRefresh?.error).toBeUndefined();
+  expect(await service.getActiveAccountId()).toBe(active.id);
+  expect(await fs.readFile(path.join(root, "codex", "auth.json"), "utf8")).toBe(original);
   expect((await fs.readdir(path.join(root, "codex-accounts"))).some((name) => name.startsWith("quota-"))).toBe(false);
 });
 
@@ -313,8 +422,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   const req = JSON.parse(line);
   if (req.method === 'initialize') send(req.id, {});
   else if (req.method === 'account/read') {
-    if (!req.params.refreshToken) process.exit(12);
-    fs.writeFileSync(path.join(process.env.CODEX_HOME, 'auth.json'), ${JSON.stringify(freshAuth)});
+    if (req.params.refreshToken) fs.writeFileSync(path.join(process.env.CODEX_HOME, 'auth.json'), ${JSON.stringify(freshAuth)});
     send(req.id, ${JSON.stringify(accountResponse)});
   } else if (req.method === 'account/rateLimits/read') send(req.id, ${JSON.stringify(rateLimits)});
 });

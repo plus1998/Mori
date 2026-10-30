@@ -3,6 +3,7 @@ import {
   canEscalateThreadFollowUp,
   formatThreadFollowUpPreview,
   isLiveFollowUpThreadStatus,
+  isThreadFollowUpGuidancePending,
   mergeThreadFollowUp,
   mergeThreadFollowUps,
   queuedThreadFollowUps,
@@ -44,6 +45,18 @@ test("isLiveFollowUpThreadStatus only opens running and queued UI", () => {
   expect(isLiveFollowUpThreadStatus("queued")).toBe(true);
   expect(isLiveFollowUpThreadStatus("awaiting_plan")).toBe(false);
   expect(isLiveFollowUpThreadStatus("completed")).toBe(false);
+});
+
+test("guidance stays pending after its command receipt until delivery, cancellation or a paused stop", () => {
+  const row = followUp("guiding", { priority: "escalated" });
+  expect(isThreadFollowUpGuidancePending(row, { queuePaused: false, threadActive: true })).toBe(true);
+  expect(isThreadFollowUpGuidancePending(row, { queuePaused: true, threadActive: true })).toBe(true);
+  expect(isThreadFollowUpGuidancePending(row, { queuePaused: false, threadActive: false })).toBe(true);
+  expect(isThreadFollowUpGuidancePending(row, { queuePaused: true, threadActive: false })).toBe(false);
+  expect(isThreadFollowUpGuidancePending(followUp("ordinary"), { queuePaused: false, threadActive: true })).toBe(false);
+  for (const status of ["applied", "cancelled", "superseded", "failed"] as const) {
+    expect(isThreadFollowUpGuidancePending({ ...row, status }, { queuePaused: false, threadActive: true })).toBe(false);
+  }
 });
 
 test("shouldComposerUseFollowUpQueue while live, editing, or paused", () => {

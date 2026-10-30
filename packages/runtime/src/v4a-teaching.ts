@@ -17,7 +17,7 @@ export const V4A_TEACHING_FOOTER =
 /** Proactive V4A grammar teaching appended to Codex agent developer instructions. */
 export function buildV4aTeachingPrompt(): string {
   return [
-    "Eco V4A teaching: when editing files, use apply_patch with Codex V4A patch grammar only — not git unified diff.",
+    "Mori V4A teaching: when editing files, use apply_patch with Codex V4A patch grammar only — not git unified diff.",
     "Rules:",
     "- First line must be exactly `*** Begin Patch`; last line exactly `*** End Patch` (no extra `***`).",
     "- Use `*** Add File: path`, `*** Update File: path`, or `*** Delete File: path`.",
@@ -145,7 +145,7 @@ export function buildV4aTeachingAdditionalContext(
   const errorLine = summarizeError(output);
 
   const lines: string[] = [
-    "Eco V4A teaching: apply_patch failed. Use Codex V4A patch grammar (not git unified diff).",
+    "Mori V4A teaching: apply_patch failed. Use Codex V4A patch grammar (not git unified diff).",
     `Error: ${errorLine}`,
   ];
   if (preview) {

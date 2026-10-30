@@ -242,14 +242,14 @@ export class SupabaseCloudDeployment {
     const applied = new Set(history.map((entry) => entry.version));
     const coreVersion = bundle.migrations[0]!.version;
     if (probe.core !== applied.has(coreVersion)) {
-      throw new Error("线上 Eco 数据结构与迁移历史不一致，无法安全部署。请先修复迁移历史。");
+      throw new Error("线上 Mori 数据结构与迁移历史不一致，无法安全部署。请先修复迁移历史。");
     }
     const installed = bundle.migrations.filter((entry) => applied.has(entry.version));
     const pending = bundle.migrations.filter((entry) => !applied.has(entry.version));
     if (pending.some((entry) => installed.some((done) => done.version > entry.version))) {
-      throw new Error("线上 Eco 迁移历史存在缺口，无法安全更新。请先修复迁移历史。");
+      throw new Error("线上 Mori 迁移历史存在缺口，无法安全更新。请先修复迁移历史。");
     }
-    if (marker && !probe.core) throw new Error("线上部署记录存在，但 Eco 数据结构缺失。");
+    if (marker && !probe.core) throw new Error("线上部署记录存在，但 Mori 数据结构缺失。");
     if (marker) {
       if (!applied.has(marker.schema_version)) {
         throw new Error("线上部署记录的数据库版本不在迁移历史中，请先修复部署记录或迁移历史。");
@@ -367,14 +367,14 @@ export class SupabaseCloudDeployment {
       let report = await this.inspectRemote(projectRef, bundle);
       this.snapshot.report = report;
       if (report.action === "newer")
-        throw new Error("线上后端、数据库或接口版本较新，当前部署包不能覆盖。请升级 Eco 获取新部署包。");
+        throw new Error("线上后端、数据库或接口版本较新，当前部署包不能覆盖。请升级 Mori 获取新部署包。");
       if (report.action !== "current") {
         await this.acquireLease(projectRef, owner);
         leased = true;
         report = await this.inspectRemote(projectRef, bundle);
         this.snapshot.report = report;
         if (report.action === "newer")
-          throw new Error("线上后端、数据库或接口版本较新，当前部署包不能覆盖。请升级 Eco 获取新部署包。");
+          throw new Error("线上后端、数据库或接口版本较新，当前部署包不能覆盖。请升级 Mori 获取新部署包。");
         if (report.action !== "current") {
           const pending = bundle.migrations.filter((entry) =>
             report.pendingMigrations.includes(entry.version),
@@ -521,7 +521,7 @@ export class SupabaseCloudDeployment {
       .array(z.object({ owner: z.string() }))
       .length(1)
       .parse(result);
-    if (rows[0]!.owner !== owner) throw new Error("另一个 Eco 客户端正在部署此项目，请等待完成后重试。");
+    if (rows[0]!.owner !== owner) throw new Error("另一个 Mori 客户端正在部署此项目，请等待完成后重试。");
   }
 
   private async renewLease(ref: string, owner: string): Promise<void> {

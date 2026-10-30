@@ -457,7 +457,7 @@ test("delivery is skipped for toolUseIds that are not async questions", async ()
   expect(state.sent).toEqual([]);
 });
 
-test("answering closes the question; dismissing says so without claiming an answer", async () => {
+test("answering closes the question; dismissing silently clears it without sending an answer", async () => {
   const state = harness();
   handleCodexAsyncQuestions({ ...ASYNC_INPUT, itemId: "item-answered" });
   handleCodexAsyncQuestions({ ...ASYNC_INPUT, itemId: "item-dismissed" });
@@ -472,8 +472,11 @@ test("answering closes the question; dismissing says so without claiming an answ
   const dismissed = state.events.filter((event) => event.type === "clarification.dismissed");
   expect(answered).toHaveLength(1);
   expect(answered[0]?.message).toContain("要不要迁移？ → 要");
-  expect(dismissed).toHaveLength(1);
-  expect(dismissed[0]?.message).toContain("不会收到回答");
+  expect(dismissed).toHaveLength(0);
+  expect(state.events).toHaveLength(3); // Two requests and the actual answer only.
+  expect(state.pending.has("item-dismissed")).toBe(false);
+  expect(state.enqueued).toEqual([]);
+  expect(state.sent).toEqual([]);
   // A dismissed question cannot be answered later — its reply addressing is gone.
   expect(isTrackedCodexAsyncQuestion("item-dismissed")).toBe(false);
 });

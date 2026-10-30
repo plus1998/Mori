@@ -1,3 +1,9 @@
+import {
+  contextInputReserve,
+  DYNAMIC_OUTPUT_FALLBACK_TOKENS,
+  InputTokenCountUnsupportedError,
+  isInputTokenCountUnsupportedError,
+} from "@eco/shared";
 import { coalesceResponsesCompactionInput } from "./compaction-input.js";
 import type { GatewayLogFn } from "./server.js";
 import type { GatewayConfig, ResolvedProviderRoute } from "./types.js";
@@ -32,6 +38,23 @@ function applyOutputLimit(
   }
 }
 
+function applyRequestOutputLimit(body: Record<string, unknown>, route: ResolvedProviderRoute, limit: number) {
+  const field =
+    route.upstreamKind === "anthropic-messages"
+      ? "max_tokens"
+      : route.upstreamKind === "openai-chat"
+        ? body.max_completion_tokens !== undefined
+          ? "max_completion_tokens"
+          : "max_tokens"
+        : "max_output_tokens";
+  // Dynamic mode and its fixed replacement own the budget, including SDK defaults.
+  applyOutputLimit(body, field, limit, false);
+  if (field === "max_completion_tokens" && body.max_tokens !== undefined) {
+    applyOutputLimit(body, "max_tokens", limit, false);
+  }
+  return field;
+}
+
 /** Budget the actual upstream wire body, including rectified/retried requests. */
 export function withDynamicOutputBudget(
   fetcher: typeof fetch,
@@ -59,37 +82,61 @@ export function withDynamicOutputBudget(
           `Dynamic max output requires a resolved context window for ${route.upstreamModelId}.`,
         );
       }
-      if (!config.countInputTokens) throw new Error("Dynamic max output requires an input token counter.");
       if (typeof init?.body !== "string")
         throw new Error("Dynamic max output requires the final JSON request body.");
       const body = JSON.parse(init.body) as Record<string, unknown>;
       if (boundLimits?.compactionContextTokens !== undefined && route.upstreamKind === "responses") {
         coalesceResponsesCompactionInput(body);
       }
-      const count = await config.countInputTokens({
-        route,
-        body,
-        headers: new Headers(init.headers),
-        fetcher,
-        signal: init.signal ?? signal,
-      });
-      if (!Number.isSafeInteger(count.tokens) || count.tokens < 0) {
-        throw new Error("Dynamic max output requires a valid current input token count.");
+      let count: Awaited<ReturnType<NonNullable<GatewayConfig["countInputTokens"]>>>;
+      try {
+        if (!config.countInputTokens) {
+          throw new InputTokenCountUnsupportedError("Dynamic max output requires an input token counter.");
+        }
+        count = await config.countInputTokens({
+          route,
+          body,
+          headers: new Headers(init.headers),
+          fetcher,
+          signal: init.signal ?? signal,
+        });
+        if (!Number.isSafeInteger(count.tokens) || count.tokens < 0) {
+          throw new Error("Dynamic max output requires a valid current input token count.");
+        }
+        if (count.precision !== "provider_exact" && count.precision !== "tokenizer_exact") {
+          throw new InputTokenCountUnsupportedError("动态输出不支持本地估算，改用固定输出上限。");
+        }
+      } catch (error) {
+        if (!isInputTokenCountUnsupportedError(error)) throw error;
+        (init.signal ?? signal).throwIfAborted();
+        const limit = Math.min(
+          DYNAMIC_OUTPUT_FALLBACK_TOKENS,
+          route.provider.modelMaxOutputTokens?.[route.upstreamModelId] ?? DYNAMIC_OUTPUT_FALLBACK_TOKENS,
+          boundLimits?.maxOutputTokens ?? DYNAMIC_OUTPUT_FALLBACK_TOKENS,
+        );
+        const field = applyRequestOutputLimit(body, route, limit);
+        onLog(
+          `dynamic output unsupported provider=${route.provider.id} model=${route.upstreamModelId} fixed=${body[field]} reason=${error.message}`,
+        );
+        return fetcher(url, { ...init, body: JSON.stringify(body) });
       }
-      // Character estimates can undercount substantially; reserve headroom based on
-      // the counter's actual precision rather than treating it as an exact tokenizer.
-      const reserve = count.precision === "heuristic" ? Math.max(8_192, Math.ceil(window / 10)) : 1_024;
+      const reserve = contextInputReserve(window, count.precision);
       const remaining = window - count.tokens - reserve;
       if (remaining < 1) {
+        onLog(
+          `local context budget rejected provider=${route.provider.id} model=${route.upstreamModelId} window=${window} input=${count.tokens} precision=${count.precision} reserve=${reserve}`,
+        );
         return Response.json(
           {
             error: {
               message: `Context window exhausted: window=${window}, input=${count.tokens}, reserve=${reserve}. Compact the input before retrying.`,
               type: "invalid_request_error",
               code: "context_length_exceeded",
+              origin: "eco.context_budget",
+              context_budget: { window, input: count.tokens, reserve, precision: count.precision },
             },
           },
-          { status: 400 },
+          { status: 400, headers: { "x-eco-error-origin": "eco.context_budget" } },
         );
       }
       const limit = Math.min(
@@ -97,30 +144,22 @@ export function withDynamicOutputBudget(
         route.provider.modelMaxOutputTokens?.[route.upstreamModelId] ?? remaining,
         boundLimits?.maxOutputTokens ?? remaining,
       );
-      const field =
-        route.upstreamKind === "anthropic-messages"
-          ? "max_tokens"
-          : route.upstreamKind === "openai-chat"
-            ? body.max_completion_tokens !== undefined
-              ? "max_completion_tokens"
-              : "max_tokens"
-            : "max_output_tokens";
-      // Dynamic mode owns the output budget. SDK defaults (including Claude's 32000)
-      // must not become a second, smaller ceiling after counting this request.
-      applyOutputLimit(body, field, limit, false);
-      if (field === "max_completion_tokens" && body.max_tokens !== undefined)
-        applyOutputLimit(body, "max_tokens", limit, false);
+      const field = applyRequestOutputLimit(body, route, limit);
       const thinking = body.thinking as Record<string, unknown> | undefined;
       if (field === "max_tokens" && thinking?.type === "enabled" && Number(thinking.budget_tokens) < 1_024) {
+        onLog(
+          `local context budget rejected provider=${route.provider.id} model=${route.upstreamModelId} remaining=${remaining} reason=minimum_thinking_budget`,
+        );
         return Response.json(
           {
             error: {
               message: `Remaining output=${body[field]} cannot accommodate the minimum thinking budget of 1024 tokens. Compact the input before retrying.`,
               type: "invalid_request_error",
               code: "context_length_exceeded",
+              origin: "eco.context_budget",
             },
           },
-          { status: 400 },
+          { status: 400, headers: { "x-eco-error-origin": "eco.context_budget" } },
         );
       }
       onLog(

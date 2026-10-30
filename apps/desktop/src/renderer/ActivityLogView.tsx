@@ -1,3 +1,6 @@
+import { shortcutMatches } from "./keyboard-shortcuts";
+import { parseApprovalFeedback } from "../shared/approval-feedback";
+import { ApprovalFeedbackCard } from "./ApprovalFeedbackCard";
 import {
   clarificationHistoryRows,
   readClarificationHistoryContent,
@@ -131,6 +134,7 @@ import { type PromptImagePreview, readPromptImagePreviews } from "../shared/prom
 import { attachOutputTokensToRequestSpans } from "../shared/request-span-usage";
 import { isAgentDisplayRole, normalizeAgentDisplayRole } from "../shared/subagent-roles";
 import { resolveSubagentActivityTitle } from "../shared/subagent-task-name";
+import { isThreadFailureNoticeType } from "../shared/thread-failure-message";
 import { supportsHistoryRewrite } from "../shared/thread-request-retry";
 import {
   isContextCompactionEventType,
@@ -199,6 +203,7 @@ import {
 import { i18n } from "./i18n";
 import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 import { ImageLightbox } from "./image-lightbox";
+import { PromptImageContext, PromptImageLightbox } from "./prompt-image-lightbox";
 import { createImageObjectUrlFromBase64, revokeImageObjectUrl } from "./image-object-url";
 import { imageViewAnalysisPanel } from "./image-view-analysis-panel";
 import { releaseMermaidModule } from "./prosemirror/mermaid-block";
@@ -719,27 +724,33 @@ function conversationV2MessageToTimelineItem(
   // is what carries the failure text and the retry affordance — so the row keeps the event
   // type the reader and the retry logic look for instead of being flattened into a message.
   const isNotice = message.channel === "system" && !isThinking;
+  const threadFailureType =
+    isNotice && isThreadFailureNoticeType(message.providerRole) ? message.providerRole : undefined;
   const isDiagnostic = message.role === "system" && message.channel === "commentary";
   return {
     id: `conversation-v2:${message.messageId}`,
     sequence: message.createdSeq,
-    eventType: isNotice
-      ? "api.error"
-      : isDiagnostic
-        ? "diagnostic"
-        : isThinking
-          ? message.status === "streaming"
-            ? "thinking.delta"
-            : "thinking.final"
-          : message.status === "streaming"
-            ? "message.delta"
-            : "message.final",
+    eventType: threadFailureType
+      ? "thread.status"
+      : isNotice
+        ? "api.error"
+        : isDiagnostic
+          ? "diagnostic"
+          : isThinking
+            ? message.status === "streaming"
+              ? "thinking.delta"
+              : "thinking.final"
+            : message.status === "streaming"
+              ? "message.delta"
+              : "message.final",
     scope: "main",
     // The Feed asks the row's role who wrote it (`role === "main"` marks a turn's
     // final output) and normalizing it to the channel role left V2 unable to answer.
     // The provider's own label is carried on the row; the channel role is the fallback
     // for rows written before it was recorded.
-    role: normalizeAgentRole(message.providerRole?.trim() || (isThinking ? "thinking" : message.role)),
+    role: threadFailureType
+      ? "system"
+      : normalizeAgentRole(message.providerRole?.trim() || (isThinking ? "thinking" : message.role)),
     ...(agentId ? { agentId } : {}),
     ...(message.runId ? { runAttemptId: message.runId } : {}),
     streamKey: message.messageId,
@@ -757,6 +768,12 @@ function conversationV2MessageToTimelineItem(
       conversationV2Channel: message.channel,
       conversationV2Status: message.status,
       ...(message.origin ? { messageOrigin: message.origin } : {}),
+      ...(threadFailureType
+        ? {
+            liveType: threadFailureType,
+            ...(threadFailureType === "thread.blocked" ? { activityOrigin: "eco.thread_blocked" } : {}),
+          }
+        : {}),
       ...(isNotice && message.providerRole === CONVERSATION_RUNTIME_EVENT_FAILURE_ROLE
         ? {
             activityOrigin: CONVERSATION_RUNTIME_EVENT_FAILURE_ORIGIN,
@@ -2444,65 +2461,67 @@ function ConversationV2ProjectionActivityLogViewImpl({
   };
 
   return (
-    <RequestSpansContext.Provider value={projection.requestSpans}>
-      <ActivityFeedLayoutContext.Provider value={onPlannerLayoutChange}>
-        <div
-          ref={runLogRef}
-          className={["run-log", feedVirtualized ? "run-log--virtualized" : ""].filter(Boolean).join(" ")}
-          onContextMenu={handleFeedContextMenu}
-        >
-          <div ref={feedHeaderRef} className="run-log-virtual-header">
-            {showThreadPrompt && thread?.prompt
-              ? wrapRunLogFeedEntry(
-                  <UserPromptBlock
-                    text={thread.prompt}
-                    anchorId={`thread:${thread.id}`}
-                    {...(thread.createdAt ? { createdAt: thread.createdAt } : {})}
-                    {...(showMessageActions && onRestorePrompt && { onRestorePrompt })}
-                    {...(showMessageActions && onLoadUserMessageEdit && { onLoadUserMessageEdit })}
-                    {...(showMessageActions && onRewriteUserMessage && { onRewriteUserMessage })}
-                    {...(showMessageActions && onForkMessage && { onForkMessage })}
-                    {...(forkDisabledReason && { forkDisabledReason })}
-                    allowUserMessageRewrite={allowUserMessageRewrite}
-                    historyRevision={projection.historyRevision ?? 0}
-                  />,
-                )
-              : null}
+    <PromptImageContext.Provider value={`thread:${projection.thread.threadId}`}>
+      <RequestSpansContext.Provider value={projection.requestSpans}>
+        <ActivityFeedLayoutContext.Provider value={onPlannerLayoutChange}>
+          <div
+            ref={runLogRef}
+            className={["run-log", feedVirtualized ? "run-log--virtualized" : ""].filter(Boolean).join(" ")}
+            onContextMenu={handleFeedContextMenu}
+          >
+            <div ref={feedHeaderRef} className="run-log-virtual-header">
+              {showThreadPrompt && thread?.prompt
+                ? wrapRunLogFeedEntry(
+                    <UserPromptBlock
+                      text={thread.prompt}
+                      anchorId={`thread:${thread.id}`}
+                      {...(thread.createdAt ? { createdAt: thread.createdAt } : {})}
+                      {...(showMessageActions && onRestorePrompt && { onRestorePrompt })}
+                      {...(showMessageActions && onLoadUserMessageEdit && { onLoadUserMessageEdit })}
+                      {...(showMessageActions && onRewriteUserMessage && { onRewriteUserMessage })}
+                      {...(showMessageActions && onForkMessage && { onForkMessage })}
+                      {...(forkDisabledReason && { forkDisabledReason })}
+                      allowUserMessageRewrite={allowUserMessageRewrite}
+                      historyRevision={projection.historyRevision ?? 0}
+                    />,
+                  )
+                : null}
+            </div>
+            {feedVirtualized ? (
+              <>
+                <FeedVirtualUserMessageSentinels
+                  anchors={userMessageAnchors}
+                  mountedSectionIndexes={mountedSectionIndexes}
+                  resolveSectionTopPx={resolveSectionTopPx}
+                />
+                <FeedVirtualSectionWindow
+                  sections={renderedFeedSections}
+                  totalSize={totalSize}
+                  scrollMargin={scrollMargin}
+                  paddingStart={feedPaddingStart}
+                  paddingEnd={feedPaddingEnd}
+                  virtualItems={virtualItems}
+                  measureElement={measureElement}
+                  renderSection={renderFeedSection}
+                />
+              </>
+            ) : (
+              renderedFeedSections.map((section, index) => (
+                <div key={section.key} className="run-log-virtual-row" data-index={index}>
+                  {renderFeedSection(index)}
+                </div>
+              ))
+            )}
           </div>
-          {feedVirtualized ? (
-            <>
-              <FeedVirtualUserMessageSentinels
-                anchors={userMessageAnchors}
-                mountedSectionIndexes={mountedSectionIndexes}
-                resolveSectionTopPx={resolveSectionTopPx}
-              />
-              <FeedVirtualSectionWindow
-                sections={renderedFeedSections}
-                totalSize={totalSize}
-                scrollMargin={scrollMargin}
-                paddingStart={feedPaddingStart}
-                paddingEnd={feedPaddingEnd}
-                virtualItems={virtualItems}
-                measureElement={measureElement}
-                renderSection={renderFeedSection}
-              />
-            </>
-          ) : (
-            renderedFeedSections.map((section, index) => (
-              <div key={section.key} className="run-log-virtual-row" data-index={index}>
-                {renderFeedSection(index)}
-              </div>
-            ))
-          )}
-        </div>
-        {feedTextContextMenu ? (
-          <FeedTextContextMenu
-            anchor={feedTextContextMenu}
-            onClose={closeFeedTextContextMenu}
-          />
-        ) : null}
-      </ActivityFeedLayoutContext.Provider>
-    </RequestSpansContext.Provider>
+          {feedTextContextMenu ? (
+            <FeedTextContextMenu
+              anchor={feedTextContextMenu}
+              onClose={closeFeedTextContextMenu}
+            />
+          ) : null}
+        </ActivityFeedLayoutContext.Provider>
+      </RequestSpansContext.Provider>
+    </PromptImageContext.Provider>
   );
 }
 
@@ -3917,6 +3936,9 @@ function summarizeFailedTool(
     bashRun?: Extract<ActivityDetailBlock, { kind: "action" }>["bashRun"];
   },
 ): string {
+  if (resolveActionKind({ toolName: tool }).kind === "imageView") {
+    return i18n.t("activity.imageView.failed");
+  }
   const action: Extract<ActivityDetailBlock, { kind: "action" }> = {
     kind: "action",
     icon: iconForToolName(tool),
@@ -6317,7 +6339,8 @@ function UserPromptBlock({
   allowUserMessageRewrite?: boolean;
 }) {
   const asyncQuestionReplies = useMemo(() => parseCodexAsyncQuestionReplyText(text), [text]);
-  const copyText = asyncQuestionReplies ? formatCodexAsyncQuestionReplySummary(asyncQuestionReplies) : text;
+  const approvalFeedback = useMemo(() => parseApprovalFeedback(text), [text]);
+  const copyText = approvalFeedback?.feedback ?? (asyncQuestionReplies ? formatCodexAsyncQuestionReplySummary(asyncQuestionReplies) : text);
   const bodyRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const editRequestRef = useRef(0);
@@ -6332,7 +6355,7 @@ function UserPromptBlock({
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | undefined>();
   const [lightboxImage, setLightboxImage] = useState<{
-    src: string;
+    image: PromptImagePreview;
     alt: string;
     label: string;
   } | null>(null);
@@ -6499,7 +6522,7 @@ function UserPromptBlock({
         }
         return;
       }
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      if (shortcutMatches(event, "message-save")) {
         event.preventDefault();
         void submitEdit();
       }
@@ -6606,7 +6629,7 @@ function UserPromptBlock({
                     <button
                       type="button"
                       className="run-log-user-prompt-edit-attachment-preview"
-                      onClick={() => setLightboxImage({ src, alt, label: openLabel })}
+                      onClick={() => setLightboxImage({ image, alt, label: openLabel })}
                       aria-label={openLabel}
                       disabled={editLoading || editSaving}
                     >
@@ -6709,7 +6732,7 @@ function UserPromptBlock({
                       className="run-log-user-prompt-image"
                       onClick={() =>
                         setLightboxImage({
-                          src,
+                          image,
                           alt,
                           label: i18n.t("activity.userImageOpen", {
                             count: index + 1,
@@ -6731,7 +6754,9 @@ function UserPromptBlock({
                 ref={bodyRef}
                 className={["run-log-user-prompt-body", expanded ? "expanded" : "collapsed"].join(" ")}
               >
-                {asyncQuestionReplies ? (
+                {approvalFeedback ? (
+                  <ApprovalFeedbackCard feedback={approvalFeedback} />
+                ) : asyncQuestionReplies ? (
                   <ClarificationAnswersCard rows={asyncQuestionReplies} variant="user" />
                 ) : (
                   <UserPromptBodyContent text={text} />
@@ -6781,11 +6806,10 @@ function UserPromptBlock({
       />
 
       {lightboxImage ? (
-        <ImageLightbox
-          src={lightboxImage.src}
+        <PromptImageLightbox
+          image={lightboxImage.image}
           alt={lightboxImage.alt}
-          title={lightboxImage.alt}
-          dialogLabel={lightboxImage.label}
+          label={lightboxImage.label}
           onClose={closeLightbox}
         />
       ) : null}
@@ -7106,8 +7130,10 @@ export function ImageViewBlock({
       console.warn("Failed to open the folder containing the image.", error);
     });
   }, [loadState]);
-  const statusLabel =
-    lifecycle === "running" ? i18n.t("activity.imageView.viewing") : i18n.t("activity.imageView.viewed");
+  const statusLabel = i18n.t(
+    lifecycle === "running" ? "activity.imageView.viewing"
+      : lifecycle === "failed" ? "activity.imageView.failed" : "activity.imageView.viewed",
+  );
   const previewAlt = i18n.t("activity.imageView.previewAlt", {
     name: fileName,
   });
@@ -7779,8 +7805,8 @@ function RunLogAction({
         {error && detailsExpanded ? (
           <div className="run-log-tool-result-panel">
             <div className="run-log-tool-result-header">
-              <Terminal size={14} aria-hidden />
-              <span>{i18n.t("activity.commandOutput")}</span>
+              <CircleAlert size={14} aria-hidden />
+              <span>{i18n.t("activity.errorDetails")}</span>
             </div>
             <pre className="run-log-tool-failed-error">{error}</pre>
           </div>

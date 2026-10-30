@@ -33,8 +33,13 @@ export const IPC_CHANNELS = {
   schedulingDelete: "scheduling:delete",
   schedulingRunNow: "scheduling:run-now",
   schedulingPreview: "scheduling:preview",
+  schedulingRetryNotification: "scheduling:retry-notification",
   schedulingChanged: "scheduling:changed",
   appMenuCommand: "app:menu-command",
+  keyboardShortcutsRecording: "keyboard-shortcuts:recording",
+  keyboardShortcutsGet: "keyboard-shortcuts:get",
+  keyboardShortcutsSave: "keyboard-shortcuts:save",
+  keyboardShortcutsChanged: "keyboard-shortcuts:changed",
   appRendererReady: "app:renderer-ready",
   displayControlGet: "display-control:get",
   displayControlSet: "display-control:set",
@@ -95,6 +100,8 @@ export const IPC_CHANNELS = {
   modelProviderListModels: "model-provider:list-models",
   modelProviderTest: "model-provider:test",
   chatGptSubscriptionAccountsList: "chatgpt-subscription:accounts-list",
+  accountUsageHistory: "account-usage:history",
+  usageOverview: "usage:overview",
   chatGptSubscriptionAccountCreate: "chatgpt-subscription:account-create",
   chatGptSubscriptionAccountDelete: "chatgpt-subscription:account-delete",
   chatGptSubscriptionAccountLogin: "chatgpt-subscription:account-login",
@@ -157,6 +164,7 @@ export const IPC_CHANNELS = {
   threadListMore: "thread:list-more",
   threadGet: "thread:get",
   projectTodoList: "project-todo:list",
+  projectTodoQuery: "project-todo:query",
   projectTodoGet: "project-todo:get",
   projectTodoImageRead: "project-todo:image-read",
   projectTodoChanged: "project-todo:changed",
@@ -205,6 +213,7 @@ export const IPC_CHANNELS = {
   threadFollowUpReorder: "thread:follow-up-reorder",
   threadFollowUpList: "thread:follow-up-list",
   threadFollowUpCancel: "thread:follow-up-cancel",
+  threadFollowUpToTodo: "thread:follow-up-to-todo",
   threadGetPendingPlan: "thread:get-pending-plan",
   threadGetApprovedPlan: "thread:get-approved-plan",
   clarificationGetPending: "clarification:get-pending",
@@ -221,6 +230,8 @@ export const IPC_CHANNELS = {
   worktreeGetStatus: "worktree:get-status",
   terminalList: "terminal:list",
   terminalSpawn: "terminal:spawn",
+  projectTerminalSettingsGet: "project-terminal-settings:get",
+  projectTerminalSettingsSave: "project-terminal-settings:save",
   terminalInput: "terminal:input",
   terminalResize: "terminal:resize",
   terminalKill: "terminal:kill",
@@ -364,6 +375,7 @@ export const IPC_CHANNELS = {
   /** Dev-only: mint thread-scoped browser CDP for smoke/probe scripts. */
   browserDevPrepareAgentCdp: "browser:dev-prepare-agent-cdp",
   browserOpenExternal: "browser:open-external",
+  browserCaptureScreenshot: "browser:capture-screenshot",
   browserDownloadAction: "browser:download-action",
   browserCaptureSelection: "browser:capture-selection",
   browserCancelSelection: "browser:cancel-selection",
@@ -412,16 +424,12 @@ export const IPC_CHANNELS = {
   appEcoDeepLinkOpen: "app:eco-deep-link-open",
 } as const;
 
-export type AppMenuCommand =
-  | "new-chat"
-  | "open-folder"
-  | "check-for-updates"
-  | "toggle-sidebar"
-  | "toggle-bottom-panel"
-  | "toggle-work-panel"
-  | "toggle-review-panel"
-  | "toggle-file-tree"
-  | "toggle-browser";
+export const APP_MENU_COMMANDS = [
+  "open-mori", "open-scheduling", "open-todos", "open-search", "open-settings",
+  "new-chat", "open-folder", "check-for-updates", "toggle-sidebar", "toggle-bottom-panel",
+  "toggle-work-panel", "toggle-review-panel", "toggle-file-tree", "toggle-browser",
+] as const;
+export type AppMenuCommand = (typeof APP_MENU_COMMANDS)[number];
 
 export type {
   CenterServerAccountAuthResult,
@@ -1481,6 +1489,7 @@ export type {
 } from "./agent-orchestration";
 export type { ProjectMcpSettingsSnapshot } from "./composer-mcp";
 export type { ProjectSkillsSettingsSnapshot } from "./composer-skills-settings";
+export type { ProjectTerminalSettingsSnapshot } from "./project-terminal-settings";
 export type { ProjectIntegrationsSettingsSnapshot } from "./integrations";
 export type { ProjectOrchestrationSettingsSnapshot } from "./project-orchestration-settings";
 export type { ProviderTokenCountMode, UpstreamApiCompat };
@@ -1967,6 +1976,8 @@ export interface ThreadUpdateRuntimeConfigRequest {
   clientCommandId: string;
   threadId: string;
   runtimeConfig: ThreadRuntimeConfigInput;
+  /** Explicit user action to adopt the current global orchestration resources. */
+  refreshOrchestrationSnapshot?: boolean;
   expectedHistoryRevision: number;
 }
 
@@ -2134,6 +2145,11 @@ export interface ThreadFollowUpCancelRequest {
   threadId: string;
   followUpId: string;
   expectedHistoryRevision: number;
+}
+
+export type ThreadFollowUpToTodoRequest = ThreadFollowUpCancelRequest;
+export interface ThreadFollowUpToTodoResult extends ThreadFollowUpMutationResult {
+  todo: import("./project-todos").ProjectTodo;
 }
 
 export interface ThreadFollowUpEditingRequest {

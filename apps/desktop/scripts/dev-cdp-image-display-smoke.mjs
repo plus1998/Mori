@@ -45,7 +45,7 @@ async function resolveCdpUrl() {
       // try next port
     }
   }
-  throw new Error("No Eco dev CDP endpoint on 9333/9334/9335/9344");
+  throw new Error("No Mori dev CDP endpoint on 9333/9334/9335/9344");
 }
 
 function devUserDataDir() {
@@ -88,7 +88,7 @@ try {
   const context = browser.contexts()[0];
   const page = context?.pages().find((p) => p.url().includes("5173")) ?? context?.pages()[0];
   if (!page) {
-    throw new Error("No Eco page from CDP");
+    throw new Error("No Mori page from CDP");
   }
 
   console.log("[image-display-smoke] page:", page.url());

@@ -26,7 +26,7 @@ try {
   const context = browser.contexts()[0];
   const page = context?.pages().find((p) => p.url().includes("5173")) ?? context?.pages()[0];
   if (!page) {
-    throw new Error("No Eco page from CDP");
+    throw new Error("No Mori page from CDP");
   }
 
   console.log("[web-search-smoke] page:", page.url());

@@ -22,7 +22,7 @@ function evaluateBashHardDenyCore(
 
   const agentBash = input.agentBash;
   if (agentBash?.enabled === false) {
-    return denyDecision(100, "Bash is disabled for this Eco agent.", "bash_disabled");
+    return denyDecision(100, "Bash is disabled for this Mori agent.", "bash_disabled");
   }
 
   const ast = parseShellCommand(command);

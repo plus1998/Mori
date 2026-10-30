@@ -47,7 +47,7 @@ mkdirSync(".smoke-artifacts", { recursive: true });
 
 function buildPrompt(marker) {
   return [
-    `Eco PI Integrated Tavily web search smoke. Marker=${marker}.`,
+    `Mori PI Integrated Tavily web search smoke. Marker=${marker}.`,
     "You MUST call the web_search tool (do not guess from memory).",
     "Search query: current weather in Shanghai China.",
     "After the tool returns, reply with one line exactly:",
@@ -113,7 +113,7 @@ const browser = await chromium.connectOverCDP(cdpUrl);
 try {
   const context = browser.contexts()[0];
   const page = context?.pages().find((p) => p.url().includes("5173")) ?? context?.pages()[0];
-  if (!page) throw new Error("No Eco page from CDP");
+  if (!page) throw new Error("No Mori page from CDP");
   step("cdp page", true, page.url());
 
   const tavilyApiKey = await resolveTavilyApiKeyFromPage(page);

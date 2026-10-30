@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
-import { CodexQuotaReminder, CodexQuotaReminderCard } from "../src/renderer/CodexQuotaReminder";
+import { CodexQuotaMiniBars, CodexQuotaReminder, CodexQuotaReminderCard } from "../src/renderer/CodexQuotaReminder";
 import { ComposerThreadUsagePills } from "../src/renderer/ComposerThreadUsagePills";
 import {
   CODEX_AUTH_RECENT_USE_MS,
@@ -75,8 +75,22 @@ test("composer quota prefers the shortest period unless a longer period is exhau
   const exhausted = { ...weekly, usedPercent: 100 };
   expect(codexQuotaDisplayWindow([fiveHour, exhausted])).toBe(exhausted);
   expect(codexQuotaDisplayWindow([exhausted, fiveHour])).toBe(exhausted);
+  const exhaustedFiveHour = { ...fiveHour, usedPercent: 100 };
+  expect(codexQuotaDisplayWindow([exhaustedFiveHour, weekly])).toBe(exhaustedFiveHour);
+  expect(codexQuotaDisplayWindow([weekly, exhaustedFiveHour])).toBe(exhaustedFiveHour);
   expect(codexQuotaDisplayWindow([weekly])).toBe(weekly);
   expect(codexQuotaDisplayWindow([])).toBeUndefined();
+});
+
+test("zero remaining quota keeps both mini bars and marks the empty bar", () => {
+  for (const exhaustedIndex of [0, 1]) {
+    const windows = [quota.rateLimit.primaryWindow!, quota.rateLimit.secondaryWindow!]
+      .map((window, index) => ({ ...window, usedPercent: index === exhaustedIndex ? 100 : 25 }));
+    const markup = renderLocalized(createElement(CodexQuotaMiniBars, { windows }), "zh-CN");
+    expect(markup.match(/class="codex-quota-mini-track"/g)).toHaveLength(2);
+    expect(markup).toContain('data-level="low" data-empty="true"><span style="width:0%"');
+    expect(markup).toContain('data-level="normal"><span style="width:75%"');
+  }
 });
 
 test("a fresh composer renders the account quota control without thread usage", () => {
@@ -310,6 +324,18 @@ test("reminder shows reference-card content and disables reset without credits o
   }
 });
 
+test("quota card shows which operation is running and disables conflicting actions", () => {
+  const props = { snapshot, onReset() {}, onSwitchAccount() {}, onRefresh() {} };
+  const refreshing = renderLocalized(createElement(CodexQuotaReminderCard, { ...props, refreshing: true }), "zh-CN");
+  expect(refreshing).toMatch(/<button[^>]*disabled=""[^>]*aria-busy="true"[^>]*>.*?刷新中…<\/button>/);
+  expect(refreshing).toMatch(/<button[^>]*disabled=""[^>]*>切换账号<\/button>/);
+  expect(refreshing).toMatch(/<button[^>]*disabled=""[^>]*>使用重置<\/button>/);
+
+  const resetting = renderLocalized(createElement(CodexQuotaReminderCard, { ...props, busy: true }), "zh-CN");
+  expect(resetting).toMatch(/<button[^>]*disabled=""[^>]*aria-busy="true"[^>]*>.*?使用重置<\/button>/);
+  expect(resetting).toMatch(/<button[^>]*disabled=""[^>]*>刷新额度<\/button>/);
+});
+
 test("the sidebar reminder only follows the conversation on screen", () => {
   const now = Date.now();
   const codexThread = {
@@ -416,4 +442,18 @@ test("billing card shows every quota window even when no quota is low", () => {
   ])
     expect(html).toContain(text);
   expect(html).not.toContain('aria-label="关闭"');
+});
+
+test("refreshable active credentials keep the cached quota card visible without a network request", async () => {
+  const updates: (CodexQuotaReminderSnapshot | undefined)[] = [];
+  const monitor = new CodexQuotaMonitor({
+    ...bridge(),
+    openAIAccountsGetActive: async () => ({ ...active(), isLoggedIn: false, authState: "refreshable" }),
+    openAIAccountsList: async () => [{ ...account, quota, isLoggedIn: false, authState: "refreshable" }],
+    openAIAccountsQueryQuota: async () => { throw new Error("cache reads must not refresh credentials"); },
+  }, { enabled: () => true, onChange: (value) => updates.push(value), onError: (error) => { throw new Error(error); } });
+  try {
+    await monitor.refresh();
+    expect(updates.at(-1)?.quota).toEqual(quota);
+  } finally { monitor.dispose(); }
 });

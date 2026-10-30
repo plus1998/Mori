@@ -102,7 +102,7 @@ export async function createPairingSession(
     code,
     bootstrapToken,
     expiresAt: data.expires_at as string,
-    qrPayload: `eco://pair?code=${encodeURIComponent(code)}`,
+    qrPayload: `mori://pair?code=${encodeURIComponent(code)}`,
   };
 }
 

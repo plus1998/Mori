@@ -2,6 +2,7 @@ import { Clock3, Folder, Search } from "lucide-react";
 import { type RefObject, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { pathToName } from "../shared/home-project";
 import type { ThreadSummary } from "../shared/ipc";
 import type { ScheduleDefinition } from "../shared/scheduling";
 import { matchesProjectSearchTerms } from "../shared/project-pinyin-search";
@@ -59,7 +60,7 @@ export function buildSidebarSearchResults(
       kind: "thread",
       key: `thread:${thread.id}`,
       thread,
-      projectName: projectNames.get(thread.workspacePath) ?? thread.workspacePath.split("/").at(-1) ?? "项目",
+      projectName: projectNames.get(thread.workspacePath) ?? (pathToName(thread.workspacePath) || "项目"),
     }),
   );
   const projectResults = projects

@@ -190,9 +190,9 @@ test("syncOrchestrationAgentsToCodexRoles appends V4A teaching to role developer
   const exploreToml = await fs.readFile(path.join(result.agentsDir, "explore.toml"), "utf8");
   const researcherToml = await fs.readFile(path.join(result.agentsDir, "researcher.toml"), "utf8");
   const coderToml = await fs.readFile(path.join(result.agentsDir, "coder.toml"), "utf8");
-  expect(researcherToml).toContain("Eco V4A teaching");
-  expect(coderToml).not.toContain("Eco V4A teaching");
-  expect(exploreToml).not.toContain("Eco V4A teaching");
+  expect(researcherToml).toContain("Mori V4A teaching");
+  expect(coderToml).not.toContain("Mori V4A teaching");
+  expect(exploreToml).not.toContain("Mori V4A teaching");
 });
 
 test("syncOrchestrationAgentsToCodexRoles keeps bundles outside discovery and removes legacy Eco roles", async () => {

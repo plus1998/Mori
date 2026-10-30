@@ -240,28 +240,34 @@ class ConversationV2SyncEngine {
         throw StateError('Conversation V2 capabilities are unsupported.');
       }
       _capabilities = capabilities;
-      final bootstrap = await _remote.bootstrap(
-        conversationId,
-        pageSize: 30,
-        maxBytes: capabilities.maxBytes,
-      );
-      if (!_isCurrent(generation)) return;
-      if (bootstrap.protocolVersion != 2 ||
-          bootstrap.storeEpoch != capabilities.storeEpoch) {
-        _setState(ConversationV2SyncState.incompatible);
-        throw StateError(
-          'Conversation V2 bootstrap is not compatible with capabilities.',
+      final current = await _cache.state(conversationId);
+      // A latest-page snapshot does not cover older cached rows. Resume the
+      // durable cursor so their missed finalize effects cannot be skipped.
+      if (current == null || current.storeEpoch != capabilities.storeEpoch) {
+        final bootstrap = await _remote.bootstrap(
+          conversationId,
+          pageSize: 30,
+          maxBytes: capabilities.maxBytes,
         );
+        if (!_isCurrent(generation)) return;
+        if (bootstrap.protocolVersion != 2 ||
+            bootstrap.storeEpoch != capabilities.storeEpoch) {
+          _setState(ConversationV2SyncState.incompatible);
+          throw StateError(
+            'Conversation V2 bootstrap is not compatible with capabilities.',
+          );
+        }
+        if (bootstrap.conversationId != conversationId) {
+          throw StateError(
+            'Conversation V2 bootstrap belongs to another stream.',
+          );
+        }
+        await _cache.installBootstrap(bootstrap);
       }
-      if (bootstrap.conversationId != conversationId) {
-        throw StateError(
-          'Conversation V2 bootstrap belongs to another stream.',
-        );
-      }
-      await _cache.installBootstrap(bootstrap);
       if (!_isCurrent(generation)) return;
       _setState(ConversationV2SyncState.catchingUp);
       await _catchUp(conversationId, capabilities, generation);
+      await _repairSnapshotStreams(conversationId, generation);
       if (_isCurrent(generation)) {
         await _cache.markLive(conversationId);
         _setState(ConversationV2SyncState.live);
@@ -313,6 +319,7 @@ class ConversationV2SyncEngine {
         await _cache.installBootstrap(bootstrap);
       }
       await _catchUp(conversationId, capabilities, generation);
+      await _repairSnapshotStreams(conversationId, generation);
       if (_isCurrent(generation)) {
         await _cache.markLive(conversationId);
         _setState(ConversationV2SyncState.live);
@@ -660,6 +667,37 @@ class ConversationV2SyncEngine {
     _disposed = true;
     _generation += 1;
     await _stateController.close();
+  }
+
+  Future<void> _repairSnapshotStreams(
+    String conversationId,
+    int generation,
+  ) async {
+    if (!_isCurrent(generation)) return;
+    final current = await _cache.state(conversationId);
+    if (current == null) return;
+    final messages = await _cache.messages(conversationId);
+    for (final cached in messages) {
+      // Older clients merged sparse bootstraps while advancing the cursor.
+      // Re-read any remaining stream covered by that snapshot from the source;
+      // never invent a terminal status or discard its cached content.
+      if (cached.status != ConversationV2MessageStatus.streaming ||
+          cached.versionSeq > current.snapshotSeq) {
+        continue;
+      }
+      final message = await _remote.messageGet(
+        conversationId,
+        cached.messageId,
+      );
+      if (!_isCurrent(generation)) return;
+      if (message == null ||
+          message.conversationId != conversationId ||
+          message.messageId != cached.messageId ||
+          message.versionSeq < cached.versionSeq) {
+        throw StateError('Conversation V2 snapshot stream repair is invalid.');
+      }
+      await _cache.repairMessage(message);
+    }
   }
 
   Future<void> _catchUp(

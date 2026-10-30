@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { OpenAIAccountAuthState } from "../shared/openai-account";
 import { startCodexBrowserLogin } from "./codex-browser-login";
 
 /**
@@ -12,6 +13,7 @@ import { startCodexBrowserLogin } from "./codex-browser-login";
 
 export interface CodexOAuthLoginStatus {
   isLoggedIn: boolean;
+  authState?: OpenAIAccountAuthState;
   message: string;
 }
 
@@ -58,17 +60,20 @@ export class CodexOAuthLoginService {
           return { isLoggedIn: false, message: "登录信息无效" };
         }
 
-        // Check expiration if present (id_token has exp claim)
-        if (auth.tokens?.id_token) {
+        // Access token expiry controls requests; id_token expiry does not revoke authorization.
+        if (typeof accessToken === "string") {
           try {
             const payload = JSON.parse(
-              Buffer.from(auth.tokens.id_token.split(".")[1], "base64url").toString("utf-8"),
+              Buffer.from(accessToken.split(".")[1] ?? "", "base64url").toString("utf-8"),
             );
-            if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-              return { isLoggedIn: false, message: "登录已过期" };
+            if (typeof payload.exp === "number" && payload.exp <= Math.floor(Date.now() / 1000)) {
+              const refresh = auth.tokens?.refresh_token ?? auth.refresh_token;
+              return typeof refresh === "string" && refresh.trim()
+                ? { isLoggedIn: false, authState: "refreshable", message: "已授权，访问令牌待刷新" }
+                : { isLoggedIn: false, authState: "expired", message: "登录已过期" };
             }
           } catch {
-            // Can't decode id_token, assume valid
+            // Opaque access tokens have no locally readable expiry.
           }
         }
 

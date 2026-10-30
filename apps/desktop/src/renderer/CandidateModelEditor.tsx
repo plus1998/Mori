@@ -1,3 +1,4 @@
+import { shortcutMatches } from "./keyboard-shortcuts";
 import { X } from "lucide-react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -210,7 +211,7 @@ export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, Candi
         if (!(target instanceof Element) || !target.closest(".settings-modal-provider-editor")) {
           return;
         }
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        if (shortcutMatches(event, "model-save")) {
           event.preventDefault();
           event.stopPropagation();
           void handleSave();

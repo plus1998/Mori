@@ -1,3 +1,4 @@
+import { shortcutMatches } from "./keyboard-shortcuts";
 import {
   type ClipboardEvent,
   forwardRef,
@@ -339,8 +340,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
         return;
       }
       const editor = editorRef.current;
-      const key = event.key.toLowerCase();
-      if (editor && (event.metaKey || event.ctrlKey) && !event.altKey && key === "a") {
+      if (editor && shortcutMatches(event, "selectAll")) {
         event.preventDefault();
         // Chromium's visual select-all can omit an otherwise blank/trailing newline.
         const length = serializeEditable(editor).length;
@@ -348,9 +348,9 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
         onCursorChange?.(length);
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && !event.altKey && (key === "z" || key === "y")) {
+      if (shortcutMatches(event, "undo") || shortcutMatches(event, "redo")) {
         event.preventDefault();
-        restoreHistory(key === "y" || event.shiftKey ? "redo" : "undo");
+        restoreHistory(shortcutMatches(event, "redo") ? "redo" : "undo");
         return;
       }
       if (editor && (event.key === "Backspace" || event.key === "Delete")) {

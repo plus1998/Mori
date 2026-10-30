@@ -219,7 +219,7 @@ export function evaluateFilesystemWriteConfirmation(
     action: "ask",
     reason:
       input.fallbackReason ??
-      `Filesystem write path "${displayPath}" is outside Eco workspace "${scopeRoot}". Approve to allow this ${input.toolName} call.`,
+      `Filesystem write path "${displayPath}" is outside Mori workspace "${scopeRoot}". Approve to allow this ${input.toolName} call.`,
     riskScore: 70,
     riskLevel: "high",
     matchedRule: "filesystem_external_write",

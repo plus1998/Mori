@@ -42,7 +42,7 @@ export function isWebSearchApprovalToolName(toolName: string | undefined): boole
 
 export function buildIntegratedWebSearchPromptAppend(providerLabel: string): string {
   return [
-    "Integrated web search (Eco): search public webpages for current information and reference sources.",
+    "Integrated web search (Mori): search public webpages for current information and reference sources.",
     buildEcoMcpHubToolUsage({ server: ECO_WEB_SEARCH_MCP_SERVER }),
     `Active search provider: ${providerLabel}. Use this integration for web searches in this conversation.`,
   ].join("\n");

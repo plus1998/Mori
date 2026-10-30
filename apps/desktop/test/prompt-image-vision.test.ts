@@ -3,6 +3,7 @@ import {
   buildPromptWithVisionAnalysis,
   buildVisionAnalysisRequestBody,
   readVisionAnalysisResponse,
+  readImageViewResponse,
 } from "../src/shared/prompt-image-vision";
 
 describe("prompt image vision isolation", () => {
@@ -50,4 +51,20 @@ describe("prompt image vision isolation", () => {
     ).toBe("## 总览\n界面截图\n\n## 不确定项\n无");
     expect(() => readVisionAnalysisResponse({ content: [] })).toThrow("did not return a usable text report");
   });
+});
+
+test("image view reports exhausted reasoning output without treating thinking as the answer", () => {
+  expect(() =>
+    readImageViewResponse({
+      content: [
+        { type: "thinking", thinking: "private reasoning" },
+        { type: "text", text: "  " },
+      ],
+      stop_reason: "max_tokens",
+      usage: { output_tokens: 4096 },
+    }),
+  ).toThrow(
+    "image_view 模型未返回可用正文（stop_reason=max_tokens; output_tokens=4096; content_types=thinking,text）。 输出预算已耗尽",
+  );
+  expect(readImageViewResponse({ content: [{ type: "text", text: "图片描述" }] })).toBe("图片描述");
 });

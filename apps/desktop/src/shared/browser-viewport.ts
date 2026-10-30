@@ -55,6 +55,16 @@ export interface BrowserViewport {
   touch: boolean;
 }
 
+/** Stable desktop layout for Agent pages; the panel only scales its preview. */
+export const BROWSER_AGENT_DEFAULT_VIEWPORT: Readonly<BrowserViewport> = {
+  preset: "laptop",
+  width: 1366,
+  height: 768,
+  deviceScaleFactor: 1,
+  mobile: false,
+  touch: false,
+};
+
 export interface BrowserViewportInput {
   /** auto restores the panel-sized desktop viewport. */
   preset?: BrowserViewport["preset"] | "auto";

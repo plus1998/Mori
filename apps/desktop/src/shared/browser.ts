@@ -55,9 +55,9 @@ export function browserAgentSessionKey(threadId: string): string {
  */
 export function buildEcoAgentBrowserPromptAppend(_threadId?: string): string {
   return [
-    "Built-in browser (Eco): browse and interact with websites, read pages, fill forms, extract data, capture screenshots and verify web UIs.",
+    "Built-in browser (Mori): browse and interact with websites, read pages, fill forms, extract data, capture screenshots and verify web UIs.",
     buildEcoMcpHubToolUsage({ server: ECO_AGENT_BROWSER_MCP_SERVER }),
-    "Tabs are auth-bound to the current conversation thread; cookies, localStorage and IndexedDB are shared within this workspace. Eco binds the browser session automatically; do not pass a custom `session`.",
+    "Tabs are auth-bound to the conversation thread; cookies, localStorage and IndexedDB are shared within this workspace. Mori binds the browser session automatically; do not pass a custom `session`.",
     `Use the bundled Skill \`${ECO_AGENT_BROWSER_SKILL_NAME}\` for browser workflows. Discover capabilities through tool search; this server exposes tools only.`,
   ].join("\n");
 }

@@ -47,6 +47,7 @@ export async function generateSpeechToWorkspace(input: {
   generationRoot: string;
   threadDirectory: string;
   signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
 }): Promise<GeneratedAudioFile[]> {
   const args = normalizeTtsToolInput(input.toolInput);
   if (!/^thread-[a-f0-9]+$/.test(input.threadDirectory))
@@ -96,6 +97,7 @@ export async function synthesizeSpeech(input: {
   config: TtsClientConfig;
   toolInput: TtsToolInput;
   signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
 }): Promise<SynthesizedSpeech> {
   const args = normalizeTtsToolInput(input.toolInput);
   const { config } = input;
@@ -120,7 +122,7 @@ export async function synthesizeSpeech(input: {
     throw new TtsError("invalid_input", "豆包模型（资源 ID）只能包含字母、数字、点、下划线或连字符。");
   }
   try {
-    const response = await fetch(
+    const response = await (input.fetchImpl ?? fetch)(
       `${config.baseUrl.replace(/\/+$/, "")}/${gemini ? "interactions" : doubao ? DOUBAO_SPEECH_PATH : "audio/speech"}`,
       {
         method: "POST",
@@ -263,11 +265,20 @@ export async function synthesizeSpeech(input: {
       );
     throw new TtsError(
       "network_error",
-      `语音生成请求失败：${error instanceof Error ? error.message : String(error)}`,
+      `语音生成请求失败：${ttsNetworkErrorMessage(error)}`,
     );
   }
   ensureActive();
   return { bytes, mimeType };
+}
+
+function ttsNetworkErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  // Node's fetch often reports only "fetch failed"; retain the actionable
+  // transport code without forwarding request headers or credentials.
+  const cause = error instanceof Error ? error.cause : undefined;
+  const code = cause && typeof cause === "object" && "code" in cause ? cause.code : undefined;
+  return typeof code === "string" && /^[A-Z0-9_]+$/.test(code) ? `${message}（${code}）` : message;
 }
 
 async function readBoundedBody(response: Response, limit: number): Promise<Buffer> {

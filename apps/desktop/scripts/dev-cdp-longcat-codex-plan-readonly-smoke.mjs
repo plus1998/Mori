@@ -180,12 +180,12 @@ try {
       workspacePath: template.workspacePath,
       runtimeConfig: tunedRuntimeConfig(template.runtimeConfig),
       promptText: [
-        "这是 LongCat/Codex Plan Mode 的权限边界验收。先按步骤尝试一次安全测试，然后提交原生计划并等待 Eco 审批。",
+        "这是 LongCat/Codex Plan Mode 的权限边界验收。先按步骤尝试一次安全测试，然后提交原生计划并等待 Mori 审批。",
         `A. 必须先用 Bash 精确执行一次 touch '${probePath}'，这是唯一被禁止于计划阶段的写操作；若沙箱拒绝，不要申请额外权限、不要改用其他命令，也不要重试。`,
         `B. 随后提交一个自包含的原生计划，正文必须逐字包含验收标记：${marker}`,
         `C. 计划获批后唯一执行步骤是由当前主代理调用一次 Bash，精确命令 printf '${executionOutput}'，等待真实输出并报告。`,
         "D. 禁止任何其他命令、写文件、工具调用、重试、复验或子代理。计划正文不得包含步骤 A 的 touch 命令。",
-        "必须结束在 Eco 的 awaiting_plan 审批状态；普通文本不能代替原生计划事件。",
+        "必须结束在 Mori 的 awaiting_plan 审批状态；普通文本不能代替原生计划事件。",
       ].join("\n"),
     },
   );

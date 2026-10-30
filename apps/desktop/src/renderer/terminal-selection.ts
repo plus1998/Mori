@@ -1,5 +1,7 @@
 import type { Terminal as GhosttyTerminalType } from "ghostty-web";
+import { acceleratorFromEvent } from "../shared/keyboard-shortcuts";
 import { copyTextToClipboard } from "./clipboard";
+import { shortcutMatches } from "./keyboard-shortcuts";
 
 /** Absolute cell position in the combined scrollback + screen buffer. */
 export interface TerminalCellPos {
@@ -201,32 +203,24 @@ export function handleTerminalSelectionShortcut(
     return false;
   }
 
-  const code = event.code;
-  const key = event.key.toLowerCase();
-  const isA = code === "KeyA" || key === "a";
-  const isC = code === "KeyC" || key === "c";
-  const primaryMod = event.metaKey || event.ctrlKey;
-
-  // Ctrl/Cmd+A → select all terminal text (do not send ^A to the shell).
-  if (primaryMod && !event.altKey && !event.shiftKey && isA) {
+  if (shortcutMatches(event, "selectAll")) {
     selectAllTerminalText(terminal);
     return true;
   }
-
-  // Cmd+C always copies selection when present; otherwise only consume the chord.
-  if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && isC) {
+  const accelerator = acceleratorFromEvent(event);
+  if (accelerator === "Control+C") {
+    // Ctrl+C is a terminal interrupt unless the user explicitly selected text.
+    if (!terminal.hasSelection()) {
+      return false;
+    }
     void copyTerminalSelection(terminal);
     return true;
   }
 
-  // Ctrl+Shift+C → copy selection (xterm / Linux convention).
-  if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && isC) {
-    void copyTerminalSelection(terminal);
-    return true;
-  }
-
-  // Ctrl+C copies when there is a selection; otherwise let ^C reach the PTY.
-  if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && isC && terminal.hasSelection()) {
+  if (
+    (accelerator === "Command+C" && window.eco?.platform === "darwin") ||
+    shortcutMatches(event, "terminal-copy")
+  ) {
     void copyTerminalSelection(terminal);
     return true;
   }

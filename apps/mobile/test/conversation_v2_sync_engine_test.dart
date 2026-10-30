@@ -8,6 +8,53 @@ import 'package:eco_mobile/core/utils/conversation_v2_hash.dart';
 
 void main() {
   test(
+    'restart resumes the durable cursor instead of a newer sparse snapshot',
+    () async {
+      final cache = _FakeCache()..current = _state(appliedSeq: 1);
+      final remote = _HeadAtBootstrapRemote();
+      final engine = ConversationV2SyncEngine(cache: cache, remote: remote);
+      await engine.start('thread_1');
+      expect(remote.bootstrapCalls, 0);
+      expect(remote.syncCalls, 1);
+      expect(cache.current?.appliedSeq, 2);
+      await engine.dispose();
+    },
+  );
+
+  test(
+    'reconnect repairs streams skipped by an older sparse bootstrap',
+    () async {
+      final cache = _SnapshotStreamCache()
+        ..current = _state(appliedSeq: 2, snapshotSeq: 2);
+      final remote = _FakeRemote()
+        ..repair = _snapshotMessage(ConversationV2MessageStatus.finalised);
+      final engine = ConversationV2SyncEngine(cache: cache, remote: remote);
+      await engine.start('thread_1');
+      expect(remote.messageGetCalls, 1);
+      expect(cache.message.status, ConversationV2MessageStatus.finalised);
+      expect(cache.message.body, 'complete answer');
+      expect(cache.current?.appliedSeq, 2);
+      await engine.dispose();
+    },
+  );
+
+  test(
+    'reconnect reports missing authoritative stream instead of hiding it',
+    () async {
+      final cache = _SnapshotStreamCache()
+        ..current = _state(appliedSeq: 2, snapshotSeq: 2);
+      final engine = ConversationV2SyncEngine(
+        cache: cache,
+        remote: _FakeRemote(),
+      );
+      await expectLater(engine.start('thread_1'), throwsStateError);
+      expect(cache.message.status, ConversationV2MessageStatus.streaming);
+      expect(engine.state, ConversationV2SyncState.error);
+      await engine.dispose();
+    },
+  );
+
+  test(
     'catch-up finishes its observed range while the desktop keeps writing',
     () async {
       final cache = _FakeCache();
@@ -644,23 +691,27 @@ class _AdvancingHeadRemote extends _FakeRemote {
 }
 
 class _HeadAtBootstrapRemote extends _FakeRemote {
+  int bootstrapCalls = 0;
   @override
   Future<ConversationV2Bootstrap> bootstrap(
     String conversationId, {
     int pageSize = 30,
     int maxBytes = 512 * 1024,
-  }) async => ConversationV2Bootstrap(
-    protocolVersion: 2,
-    storeEpoch: 'epoch_1',
-    conversationId: conversationId,
-    snapshotSeq: 2,
-    historyRevision: 0,
-    messages: const [],
-    runs: const [],
-    tools: const [],
-    olderCursor: null,
-    hasOlder: false,
-  );
+  }) async {
+    bootstrapCalls += 1;
+    return ConversationV2Bootstrap(
+      protocolVersion: 2,
+      storeEpoch: 'epoch_1',
+      conversationId: conversationId,
+      snapshotSeq: 2,
+      historyRevision: 0,
+      messages: const [],
+      runs: const [],
+      tools: const [],
+      olderCursor: null,
+      hasOlder: false,
+    );
+  }
 }
 
 class _MultiRepairRemote extends _FakeRemote {
@@ -966,21 +1017,23 @@ class _RepairingCache extends _FakeCache {
   }
 }
 
-ConversationV2CacheState _state({required int appliedSeq}) =>
-    ConversationV2CacheState(
-      accountId: 'account_1',
-      desktopDeviceId: 'desktop_1',
-      storeEpoch: 'epoch_1',
-      conversationId: 'thread_1',
-      appliedSeq: appliedSeq,
-      snapshotSeq: 0,
-      historyRevision: 0,
-      historyCursor: null,
-      hasOlder: false,
-      state: ConversationV2SyncState.catchingUp,
-      error: null,
-      updatedAt: '2026-09-14T00:00:00.000Z',
-    );
+ConversationV2CacheState _state({
+  required int appliedSeq,
+  int snapshotSeq = 0,
+}) => ConversationV2CacheState(
+  accountId: 'account_1',
+  desktopDeviceId: 'desktop_1',
+  storeEpoch: 'epoch_1',
+  conversationId: 'thread_1',
+  appliedSeq: appliedSeq,
+  snapshotSeq: snapshotSeq,
+  historyRevision: 0,
+  historyCursor: null,
+  hasOlder: false,
+  state: ConversationV2SyncState.catchingUp,
+  error: null,
+  updatedAt: '2026-09-14T00:00:00.000Z',
+);
 
 ConversationV2Effect _messageAppendEffect(int seq) {
   final payload = <String, dynamic>{
@@ -1010,3 +1063,36 @@ ConversationV2Effect _effect(int seq) => ConversationV2Effect(
   type: 'noop',
   payload: const {'type': 'noop', 'reason': 'fixture'},
 );
+
+ConversationV2Message _snapshotMessage(ConversationV2MessageStatus status) =>
+    ConversationV2Message(
+      messageId: 'old-stream',
+      conversationId: 'thread_1',
+      turnId: 'old-turn',
+      runId: 'old-run',
+      role: 'assistant',
+      channel: 'answer',
+      createdSeq: 1,
+      versionSeq: status == ConversationV2MessageStatus.streaming ? 1 : 2,
+      contentVersion: 0,
+      body: status == ConversationV2MessageStatus.streaming
+          ? 'c'
+          : 'complete answer',
+      occurredAt: '2026-09-14T00:00:00.000Z',
+      status: status,
+      isDeleted: false,
+    );
+
+class _SnapshotStreamCache extends _FakeCache {
+  ConversationV2Message message = _snapshotMessage(
+    ConversationV2MessageStatus.streaming,
+  );
+  @override
+  Future<List<ConversationV2Message>> messages(String conversationId) async => [
+    message,
+  ];
+  @override
+  Future<void> repairMessage(ConversationV2Message value) async {
+    message = value;
+  }
+}

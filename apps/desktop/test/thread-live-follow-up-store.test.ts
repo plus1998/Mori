@@ -32,10 +32,10 @@ function thread(id = "thr_followup"): ThreadSummary {
   };
 }
 
-async function createStore() {
+async function createStore(coreKind?: ThreadSummary["coreKind"]) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-follow-up-store-"));
   const store = await createConversationStore(path.join(dir, "eco-coding.sqlite"));
-  store.saveThread(thread());
+  store.saveThread({ ...thread(), ...(coreKind ? { coreKind } : {}) });
   return store;
 }
 
@@ -302,11 +302,34 @@ test.skipIf(!sqliteAvailable)("escalates latest follow-up and supersedes older e
   expect(escalated).toMatchObject({
     id: normal.id,
     priority: "escalated",
-    deliveryMode: "interrupt_resume",
+    deliveryMode: "queued",
     status: "queued",
   });
   expect(store.getThreadFollowUp("thr_followup", olderEscalated.id)?.status).toBe("superseded");
 });
+
+for (const coreKind of ["claude", "codex", "pi", "acp"] as const) {
+  test.skipIf(!sqliteAvailable)(`${coreKind} Guide records its actual delivery strategy after rejection`, async () => {
+    const store = await createStore(coreKind);
+    expect(store.getThread("thr_followup")?.coreKind).toBe(coreKind);
+    const normal = store.enqueueThreadFollowUp({ threadId: "thr_followup", prompt: "其他消息继续暂停" });
+    const guide = store.enqueueThreadFollowUp({ threadId: "thr_followup", prompt: "引导当前回合" });
+    store.setThreadFollowUpQueuePaused("thr_followup", true);
+    const deliveryMode = coreKind === "acp" ? "interrupt_resume" : "queued";
+    expect(store.escalateThreadFollowUp("thr_followup", guide.id)?.deliveryMode).toBe(deliveryMode);
+    store.claimThreadFollowUpStreamingPush("thr_followup", guide.id);
+    expect(store.requeueThreadFollowUpStreamingPush("thr_followup", guide.id, {
+      error: "Ingress not accepting yet",
+    })).toMatchObject({ status: "queued", deliveryMode, error: "Ingress not accepting yet" });
+    // A natural boundary may deliver exactly the selected Guide without unpausing its siblings.
+    const claimed = store.claimQueuedThreadFollowUps("thr_followup", {
+      followUpId: guide.id, deliveryMode: "resume", deliveryBoundary: "safe_boundary",
+    });
+    expect(claimed.map((row) => row.id)).toEqual([guide.id]);
+    expect(store.getThreadFollowUp("thr_followup", normal.id)?.status).toBe("queued");
+    expect(store.getThread("thr_followup")?.followUpQueuePaused).toBe(true);
+  });
+}
 
 test.skipIf(!sqliteAvailable)("cancels only queued follow-ups", async () => {
   const store = await createStore();

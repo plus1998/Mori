@@ -415,10 +415,10 @@ test("buildThreadRunEventFromLiveEvent maps SDK tool failed events", () => {
     role: "tool",
     agentId: "agent_researcher",
     stream: false,
-    message: "Permission denied for Bash: Bash is disabled for this Eco agent.",
+    message: "Permission denied for Bash: Bash is disabled for this Mori agent.",
     tool: {
       name: "Bash",
-      detail: "Bash is disabled for this Eco agent.",
+      detail: "Bash is disabled for this Mori agent.",
       toolUseId: "tool_denied",
       status: "failed",
     },
@@ -433,7 +433,7 @@ test("buildThreadRunEventFromLiveEvent maps SDK tool failed events", () => {
       liveType: "tool.failed",
       tool: {
         name: "Bash",
-        detail: "Bash is disabled for this Eco agent.",
+        detail: "Bash is disabled for this Mori agent.",
         toolUseId: "tool_denied",
         status: "failed",
       },

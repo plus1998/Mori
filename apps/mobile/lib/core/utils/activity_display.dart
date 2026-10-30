@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:ui' show Color;
 
@@ -849,9 +850,24 @@ class ThreadRunWebSearchMetadata {
   final String? mode;
 }
 
+/// A V2 projection row is an immutable snapshot. Several Feed passes inspect
+/// its tool data; decode that structured display model once for this row.
+class ToolDisplayMetadata extends UnmodifiableMapView<String, dynamic> {
+  ToolDisplayMetadata(Map<String, dynamic> metadata)
+    : super(Map.unmodifiable(metadata));
+
+  late final ThreadRunToolMetadata? tool = () {
+    final raw = this['tool'];
+    return raw is Map<String, dynamic>
+        ? threadRunToolMetadataFromJson(raw)
+        : null;
+  }();
+}
+
 ThreadRunToolMetadata? readProjectionToolMetadata(
   Map<String, dynamic>? metadata,
 ) {
+  if (metadata is ToolDisplayMetadata) return metadata.tool;
   final raw = metadata?['tool'];
   if (raw is! Map<String, dynamic>) return null;
   return threadRunToolMetadataFromJson(raw);

@@ -35,6 +35,7 @@ export interface TtsMcpInjection {
 
 export interface TtsGatewayDeps {
   store: TtsStore;
+  fetchImpl?: typeof fetch;
   resolveWorkspacePath(threadId: string): string | undefined;
   resolveGenerationRoot(threadId: string): string | undefined;
   onArtifactChanged(artifact: TtsArtifact): void;
@@ -191,7 +192,7 @@ export class TtsMcpGateway {
         {
           serverName: ECO_TTS_MCP_SERVER,
           instructions:
-            "Eco Speech Generation. Create playable voice artifacts in the conversation work directory.",
+            "Mori Speech Generation. Create playable voice artifacts in the conversation work directory.",
           listTools: async () => ({ tools: [ttsToolDefinition()] }),
           callTool: async ({ name, arguments: args, authToken, signal }) =>
             this.executeToolCall(name, args, authToken, signal),
@@ -332,6 +333,7 @@ export class TtsMcpGateway {
     this.deps.onArtifactChanged(artifact);
     try {
       const audio = await generateSpeechToWorkspace({
+        ...(this.deps.fetchImpl ? { fetchImpl: this.deps.fetchImpl } : {}),
         config,
         toolInput: normalized,
         generationRoot,
@@ -361,7 +363,7 @@ function ttsToolDefinition(): McpToolDefinition {
   return {
     name: ECO_TTS_TOOL,
     description:
-      "Create a speech audio artifact from a verbatim transcript. Choose voice and style (emotion, tone, pitch, pace and accent) to suit the task. Eco saves the file and displays it in Feed and cards.",
+      "Create a speech audio artifact from a verbatim transcript. Choose voice and style (emotion, tone, pitch, pace and accent) to suit the task. Mori saves the file and displays it in Feed and cards.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

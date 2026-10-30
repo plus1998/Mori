@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/constants/session_mode_ui.dart';
 import '../../core/constants/bash_review_ui.dart';
 import '../../core/locale/app_locale_preference.dart';
 import '../../core/locale/app_localizations_ext.dart';
@@ -60,8 +59,6 @@ class SettingsScreen extends ConsumerWidget {
       ThinkingDisplayMode.collapsed => l10n.settingsThinkingContentCollapsed,
       ThinkingDisplayMode.expanded => l10n.settingsThinkingContentExpanded,
     };
-    final sessionMode = workflow?.sessionMode ?? 'agent';
-    final modeValue = sessionModeUi(sessionMode, l10n).title;
     final bashReviewMode = normalizeBashReviewMode(
       workflow?.defaultBashReviewMode,
     );
@@ -136,6 +133,12 @@ class SettingsScreen extends ConsumerWidget {
                         signedIn: signedIn,
                       ),
                       EcoGroupedSection(
+                        child: SettingsDisclosureRow(
+                          title: l10n.desktopDisplayTitle,
+                          onTap: () => context.push('/settings/desktop-display'),
+                        ),
+                      ),
+                      EcoGroupedSection(
                         label: l10n.settingsAppearance,
                         topSpacing: 28,
                         child: Column(
@@ -183,13 +186,6 @@ class SettingsScreen extends ConsumerWidget {
                         topSpacing: 28,
                         child: Column(
                           children: [
-                            SettingsDisclosureRow(
-                              title: l10n.settingsDefaultMode,
-                              value: modeValue,
-                              onTap: () =>
-                                  context.push('/settings/default-mode'),
-                            ),
-                            const EcoGroupedDivider(),
                             SettingsDisclosureRow(
                               title: l10n.settingsDefaultBashReviewMode,
                               value: bashReviewValue,

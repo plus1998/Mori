@@ -12,6 +12,7 @@ import type {
   OpenAIAccountUpdateInput,
 } from "../shared/openai-account";
 import { type ParsedOpenAIAccountImportRow, parseOpenAIAccountImport } from "./openai-account-import";
+import type { ReadonlyQuotaAccount } from "./readonly-account-quota";
 
 const ACCOUNT_ID_PATTERN = /^oa_[A-Za-z0-9_-]+$/u;
 const MIGRATION_KEY = "legacy_migration_v1";
@@ -337,6 +338,15 @@ export class OpenAIAccountStore {
     this.setSetting("wake_model_id", modelId?.trim() ?? "");
   }
 
+  getRejectedCredentialFingerprint(accountId: string): string | undefined {
+    return this.setting(`auth_rejected:${accountId}`);
+  }
+
+  rejectCredentials(accountId: string, fingerprint: string): void {
+    if (!this.get(accountId)) throw new Error(`OpenAI account not found: ${accountId}`);
+    this.setSetting(`auth_rejected:${accountId}`, fingerprint);
+  }
+
   getPendingTransition(): PendingAccountTransition | undefined {
     const target = this.setting(PENDING_KEY);
     if (target === undefined) return undefined;
@@ -638,6 +648,23 @@ export class OpenAIAccountStore {
     `).all() as unknown as AccountRow[]).map(mapAccount);
   }
 
+  /** Dedicated quota capability: no profile secrets, account settings or credential reconciliation. */
+  listReadonlyQuotaAccounts(): ReadonlyQuotaAccount[] {
+    return this.db.prepare(`
+      SELECT a.id, a.name, a.auth_json AS authJson, a.proxy_mode AS proxyMode,
+        a.proxy_url AS proxyUrl, q.quota_json AS quotaJson,
+        q.chatgpt_account_id AS quotaAccountId
+      FROM openai_accounts a LEFT JOIN openai_account_quotas q ON q.account_id = a.id
+      ORDER BY a.created_at, a.rowid
+    `).all() as unknown as ReadonlyQuotaAccount[];
+  }
+
+  readonlyQuotaAuthUnchanged(accountId: string, authJson: string | null): boolean {
+    const row = this.db.prepare("SELECT auth_json FROM openai_accounts WHERE id = ?").get(accountId) as
+      { auth_json: string | null } | undefined;
+    return row !== undefined && row.auth_json === authJson;
+  }
+
   get(accountId: string): StoredOpenAIAccount | undefined {
     const row = this.db.prepare(`
       SELECT a.*, q.quota_json, q.chatgpt_account_id AS quota_chatgpt_account_id
@@ -746,6 +773,9 @@ export class OpenAIAccountStore {
 
   saveAuthJson(accountId: string, authJson: string): void {
     this.transaction(() => {
+      if (this.get(accountId)?.authJson !== authJson) {
+        this.db.prepare("DELETE FROM openai_account_settings WHERE key = ?").run(`auth_rejected:${accountId}`);
+      }
       const result = this.db.prepare("UPDATE openai_accounts SET auth_json = ?, updated_at = ? WHERE id = ?").run(
         authJson,
         nowIso(),
@@ -759,6 +789,7 @@ export class OpenAIAccountStore {
     this.transaction(() => {
       this.clearSyncConflict(accountId);
       this.db.prepare("DELETE FROM openai_accounts WHERE id = ?").run(accountId);
+      this.db.prepare("DELETE FROM openai_account_settings WHERE key = ?").run(`auth_rejected:${accountId}`);
     });
   }
 

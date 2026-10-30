@@ -13,7 +13,7 @@ export function resolveThreadVisionAnalysisRoute(input: {
     return resolveVisionModelRoute(input.visionSelection, input.providerStore);
   }
   if (input.coreKind === "acp") {
-    throw new Error("未配置视觉模型。ACP 会话没有 Eco 主模型可回退，请在 Composer 运行配置中选择视觉模型。");
+    throw new Error("未配置视觉模型。ACP 会话没有 Mori 主模型可回退，请在 Composer 运行配置中选择视觉模型。");
   }
   return input.resolveEcoFallback();
 }

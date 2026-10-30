@@ -85,7 +85,7 @@ jobs:
       ECO_RELEASE_CHANNEL: ${{ needs.validate.outputs.channel }}
       ECO_RELEASE_UNSIGNED: "true"
       ECO_RELEASE_REPOSITORY: ${{ github.repository }}
-      ECO_MAC_UPDATE_MODE: "manual"
+      ECO_MAC_UPDATE_MODE: "auto"
       ECO_WINDOWS_UPDATE_MODE: "auto"
       ECO_LINUX_UPDATE_MODE: "auto"
       ECO_RELEASE_URL: https://github.com/${{ github.repository }}/releases
@@ -106,6 +106,14 @@ jobs:
         with:
           bun-version: "1.4.0"
 
+      - name: Import fixed macOS signing identity
+        if: runner.os == 'macOS'
+        env:
+          MORI_MAC_SIGNING_DIR: ${{ runner.temp }}/mori-mac-signing
+          MORI_MAC_CERTIFICATE_P12: ${{ secrets.MORI_MAC_CERTIFICATE_P12 }}
+          MORI_MAC_CERTIFICATE_PASSWORD: ${{ secrets.MORI_MAC_CERTIFICATE_PASSWORD }}
+        run: node apps/desktop/scripts/mac-signing.mjs import-ci
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -113,8 +121,9 @@ jobs:
         run: node .github/scripts/set-desktop-version.mjs
 
       - name: Pack
-        # macOS unsigned builds adhoc re-sign in apps/desktop/scripts/after-pack.mjs
-        # so browser downloads do not show Gatekeeper's misleading "damaged" dialog.
+        # macOS afterPack requires the fixed certificate; missing secrets fail the build.
+        env:
+          MORI_MAC_SIGNING_DIR: ${{ runner.temp }}/mori-mac-signing
         run: bun run --cwd apps/desktop ${{ matrix.pack }}
 
       - name: Smoke the packaged PI runtime
@@ -139,6 +148,12 @@ jobs:
           path: apps/desktop/release/*
           if-no-files-found: error
           retention-days: 1
+
+      - name: Remove temporary macOS signing material
+        if: always() && runner.os == 'macOS'
+        env:
+          MORI_MAC_SIGNING_DIR: ${{ runner.temp }}/mori-mac-signing
+        run: node apps/desktop/scripts/mac-signing.mjs cleanup-ci
 
   publish:
     name: Assemble and publish Release
@@ -208,7 +223,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.validate.outputs.tag }}
-          name: Eco Coding ${{ needs.validate.outputs.tag }}
+          name: Mori ${{ needs.validate.outputs.tag }}
           prerelease: ${{ needs.validate.outputs.channel == 'beta' }}
           make_latest: ${{ needs.validate.outputs.channel == 'latest' }}
           body_path: release-notes.md

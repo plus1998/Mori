@@ -4,9 +4,11 @@ import 'dart:typed_data';
 import 'package:uuid/uuid.dart';
 
 import '../models/acp_models.dart';
+import '../models/composer_reference_models.dart';
 import '../models/codex_account_models.dart';
 import '../models/asr_models.dart';
 import '../models/tts_models.dart';
+import '../models/display_control_models.dart';
 import '../models/eco_types.dart';
 import '../models/conversation_v2_models.dart';
 import '../models/git_models.dart';
@@ -38,6 +40,42 @@ class PromptImageUploadResult {
 }
 
 class DesktopRpc implements ReadAloudRemote {
+  Future<DesktopDisplayState> getDisplayControl() async =>
+      DesktopDisplayState.fromJson(
+        await _client.invoke<Map<String, dynamic>>(
+          desktopDeviceId,
+          'display-control:get',
+          [],
+        ),
+      );
+
+  Future<DesktopDisplayState> setDisplayControl(
+    String control,
+    bool enabled,
+  ) async => DesktopDisplayState.fromJson(
+    await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'display-control:set',
+      [
+        {'control': control, 'enabled': enabled},
+      ],
+    ),
+  );
+
+  Future<ComposerReferenceSearchResult> searchComposerReferences({
+    required String query,
+    String? kind,
+    int limit = 12,
+  }) async => ComposerReferenceSearchResult.fromJson(
+    await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'composer-references:search',
+      [
+        {'query': query, 'kind': ?kind, 'limit': limit},
+      ],
+    ),
+  );
+
   Future<List<CodexAccount>> listCodexAccounts() async {
     final result = await _client.invoke<List<dynamic>>(
       desktopDeviceId,
@@ -108,37 +146,84 @@ class DesktopRpc implements ReadAloudRemote {
     return outcome as String;
   }
 
-  Future<List<ProjectTodo>> listProjectTodos() async {
-    final result = await _client.invoke<List<dynamic>>(desktopDeviceId, 'project-todo:list', []);
-    return result.map((row) => ProjectTodo.fromJson(Map<String, dynamic>.from(row as Map))).toList();
+  Future<ProjectTodoPage> queryProjectTodos({
+    required ProjectTodosQuery query,
+    ProjectTodoCursor? cursor,
+    List<String> matchingProjectPaths = const [],
+  }) async {
+    final result = await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'project-todo:query',
+      [
+        {
+          'completed': query.completed,
+          if (query.projectPath.isNotEmpty) 'projectPath': query.projectPath,
+          if (query.search.isNotEmpty) 'search': query.search,
+          if (matchingProjectPaths.isNotEmpty)
+            'matchingProjectPaths': matchingProjectPaths,
+          if (cursor != null) 'cursor': cursor.toJson(),
+          'limit': todoPageSize,
+        },
+      ],
+    );
+    return ProjectTodoPage.fromJson(result);
   }
 
   Future<ProjectTodo> getProjectTodo(String id) async {
-    final result = await _client.invoke<Map<String, dynamic>>(desktopDeviceId, 'project-todo:get', [id, false]);
+    final result = await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'project-todo:get',
+      [id, false],
+    );
     return ProjectTodo.fromJson(result);
   }
 
   Future<ProjectTodo> saveProjectTodo(Map<String, dynamic> input) async {
-    final result = await _client.invoke<Map<String, dynamic>>(desktopDeviceId, 'project-todo:save', [input]);
+    final result = await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'project-todo:save',
+      [input],
+    );
     return ProjectTodo.fromJson(result);
   }
 
-  Future<int> trashProjectTodo({required String id, required int revision, required bool deleted}) =>
-      _client.invoke<int>(desktopDeviceId, 'project-todo:trash', [{'id': id, 'revision': revision, 'deleted': deleted}]);
+  Future<int> trashProjectTodo({
+    required String id,
+    required int revision,
+    required bool deleted,
+  }) => _client.invoke<int>(desktopDeviceId, 'project-todo:trash', [
+    {'id': id, 'revision': revision, 'deleted': deleted},
+  ]);
 
-  Future<String> downloadProjectTodoImage(ProjectTodo todo, ProjectTodoImage image) async {
+  Future<String> downloadProjectTodoImage(
+    ProjectTodo todo,
+    ProjectTodoImage image,
+  ) async {
     final bytes = BytesBuilder(copy: false);
     int? total;
     var offset = 0;
     do {
-      final result = await _client.invoke<Map<String, dynamic>>(desktopDeviceId, 'project-todo:image-read', [{
-        'id': todo.id, 'revision': todo.revision, 'imageId': image.id, 'offset': offset,
-      }]);
+      final result = await _client.invoke<Map<String, dynamic>>(
+        desktopDeviceId,
+        'project-todo:image-read',
+        [
+          {
+            'id': todo.id,
+            'revision': todo.revision,
+            'imageId': image.id,
+            'offset': offset,
+          },
+        ],
+      );
       final chunk = base64Decode(result['data'] as String);
       final next = result['nextOffset'] as int;
       final size = result['totalBytes'] as int;
-      if (size <= 0 || size > todoMaxImageBytes || (total != null && total != size) ||
-          next != offset + chunk.length || next <= offset || next > size) {
+      if (size <= 0 ||
+          size > todoMaxImageBytes ||
+          (total != null && total != size) ||
+          next != offset + chunk.length ||
+          next <= offset ||
+          next > size) {
         throw const FormatException('Invalid todo image chunk.');
       }
       total = size;
@@ -215,7 +300,7 @@ class DesktopRpc implements ReadAloudRemote {
             r'Unknown (?:desktop command )?channel|not remote-enabled|not registered',
             caseSensitive: false,
           ).hasMatch(error.message)) {
-        throw const ReadAloudException('已连接的电脑版本不支持正文朗读，请升级 Eco。');
+        throw const ReadAloudException('已连接的电脑版本不支持正文朗读，请升级 Mori。');
       }
       if (error.code == EcoRpcConstants.targetOffline ||
           error.kind == EcoCenterErrorKind.websocketDisconnected) {
@@ -1423,6 +1508,8 @@ class DesktopRpc implements ReadAloudRemote {
     required int expectedHistoryRevision,
     String? activityLineId,
     bool hasImages = false,
+    bool continueInterrupted = false,
+    String? sourceAttemptId,
     ThreadRuntimeConfigInput? runtimeConfig,
   }) async {
     final result = await _client.invoke<dynamic>(
@@ -1437,6 +1524,8 @@ class DesktopRpc implements ReadAloudRemote {
           'expectedHistoryRevision': expectedHistoryRevision,
           'activityLineId': ?activityLineId,
           'hasImages': hasImages,
+          if (continueInterrupted) 'continueInterrupted': true,
+          'sourceAttemptId': ?sourceAttemptId,
           if (runtimeConfig != null) 'runtimeConfig': runtimeConfig.toJson(),
         },
       ],
@@ -1669,6 +1758,20 @@ class DesktopRpc implements ReadAloudRemote {
       payload: {'followUpId': followUpId},
     );
     await _client.invoke(desktopDeviceId, 'thread:follow-up-cancel', [request]);
+  }
+
+  Future<void> followUpToTodo({
+    required String threadId,
+    required String followUpId,
+  }) async {
+    final request = await _v2CommandEnvelope(
+      threadId: threadId,
+      operation: 'move-to-todo',
+      payload: {'followUpId': followUpId},
+    );
+    await _client.invoke(desktopDeviceId, 'thread:follow-up-to-todo', [
+      request,
+    ]);
   }
 
   Future<void> followUpEscalate({

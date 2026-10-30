@@ -37,7 +37,13 @@ import {
   type BrowserAgentPresenceEvent,
   isBrowserAgentPresencePointerType,
 } from "../shared/browser-agent-presence";
-import { BROWSER_VIEWPORT_PRESETS, type BrowserViewport, parseBrowserViewport } from "../shared/browser-viewport";
+import {
+  BROWSER_AGENT_DEFAULT_VIEWPORT,
+  BROWSER_VIEWPORT_PRESETS,
+  type BrowserViewport,
+  type BrowserViewportInput,
+  parseBrowserViewport,
+} from "../shared/browser-viewport";
 import type { McpSdkConfig } from "../shared/mcp";
 import type { AgentBrowserMcpToolResult } from "./agent-browser-cli-bridge";
 import { callAgentBrowserToolViaCli, resolveAgentBrowserTabIndex } from "./agent-browser-cli-bridge";
@@ -112,6 +118,7 @@ export interface SharedBrowserOpenOptions {
   browserId?: string;
   newBrowser?: boolean;
   source?: BrowserInstanceSource;
+  viewport?: BrowserViewportInput;
   workspacePath?: string;
   /** When false, start navigation without awaiting load (agent MCP open). */
   waitForLoad?: boolean;
@@ -141,6 +148,8 @@ export interface BrowserHostDeps {
 interface SessionBrowser {
   partition?: string | undefined;
   viewport?: BrowserViewport | undefined;
+  /** Includes explicit auto mode, which must survive subsequent Agent opens. */
+  viewportConfigured?: boolean;
   viewportError?: string | undefined;
   viewportUpdate?: Promise<unknown> | undefined;
   id: string;
@@ -709,8 +718,11 @@ export class BrowserHost {
       return;
     }
     const guestSession = session.fromPartition(partition);
-    guestSession.setPermissionRequestHandler((_wc, _permission, callback) => {
-      callback(false);
+    // Website copy buttons use the async Clipboard API, including rich text/images.
+    // Handle both Chromium permission paths; clipboard reads remain denied.
+    guestSession.setPermissionCheckHandler((_wc, permission) => permission === "clipboard-sanitized-write");
+    guestSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(permission === "clipboard-sanitized-write");
     });
     const download = (event: Electron.Event, item: DownloadItem, source: WebContents) => {
       if (!source) return;
@@ -750,6 +762,9 @@ export class BrowserHost {
       id,
       createdAt: Date.now(),
       source,
+      ...(source === "agent"
+        ? { viewport: { ...BROWSER_AGENT_DEFAULT_VIEWPORT }, viewportConfigured: true }
+        : {}),
       surfacePlaceholder: options?.surfacePlaceholder !== false,
     };
     scope.browsers.set(id, browser);
@@ -773,6 +788,10 @@ export class BrowserHost {
         try {
           const created = this.createBrowserInScope(scope, browser.source);
           created.partition = browser.partition;
+          if (browser.viewportConfigured) {
+            created.viewport = browser.viewport ? { ...browser.viewport } : undefined;
+            created.viewportConfigured = true;
+          }
           scope.focusedBrowserId = created.id;
           this.requestReveal(created.id);
           created.pendingUrl = url;
@@ -850,6 +869,10 @@ export class BrowserHost {
       this.emit();
     });
     wc.on("destroyed", () => {
+      this.pendingGuestByWebContentsId.delete(wc.id);
+      // Intentional close unregisters the tab before destroying the guest. Do not
+      // advertise it again or queue a replacement guest from this late callback.
+      if (scope.browsers.get(browser.id) !== browser) return;
       if (browser.webContents?.id === wc.id) {
         try {
           const current = wc.getURL();
@@ -864,7 +887,6 @@ export class BrowserHost {
         browser.registeredGuestWebContentsId = undefined;
         this.notePendingGuestAttach(browser.id);
       }
-      this.pendingGuestByWebContentsId.delete(wc.id);
       this.emit();
     });
   }
@@ -915,6 +937,8 @@ export class BrowserHost {
   }
 
   async openSharedSession(options: SharedBrowserOpenOptions = {}): Promise<BrowserViewState> {
+    // Reject invalid dimensions before creating a tab or starting navigation.
+    if (options.viewport !== undefined) parseBrowserViewport(options.viewport);
     const revealUi = options.revealUi !== false;
     const scopeId = this.resolveScopeId(options.threadId, options.workspacePath);
     if (options.browserId && !this.scopes.get(scopeId)?.browsers.has(options.browserId)) {
@@ -958,6 +982,10 @@ export class BrowserHost {
     }
     if (updateUiFocus) {
       scope.focusedBrowserId = browser.id;
+    }
+
+    if (source === "agent" || options.viewport !== undefined) {
+      await this.prepareAgentBrowserViewport(browser, options.viewport);
     }
 
     if (revealUi && updateUiFocus) {
@@ -1019,7 +1047,9 @@ export class BrowserHost {
       scope.focusedBrowserId = next.done ? undefined : next.value;
     }
     if (this.revealBrowserId === browserId) {
-      this.revealBrowserId = scope.focusedBrowserId;
+      // Closing is not an activation request. The renderer selects the neighbor
+      // in the user's tab order, which can differ from main's creation order.
+      this.revealBrowserId = undefined;
     }
     this.emit();
     if (scope.browsers.size === 0) {
@@ -1031,6 +1061,12 @@ export class BrowserHost {
   }
 
   private destroyBrowser(scope: ThreadBrowserScope, browser: SessionBrowser): void {
+    // wc.close() can synchronously emit destroyed/loading events. Remove the tab
+    // first so every cleanup broadcast already describes the closed state.
+    scope.browsers.delete(browser.id);
+    if (this.activateBrowserId === browser.id) {
+      this.activateBrowserId = undefined;
+    }
     for (const controller of this.downloadAccessControllers.get(browser.id) ?? []) controller.abort(new Error("Browser tab was closed."));
     this.downloadAccessControllers.delete(browser.id);
     void this.downloads.removeBrowser(browser.id).catch(error => console.error("[browser] Download cleanup failed", error));
@@ -1072,10 +1108,6 @@ export class BrowserHost {
     browser.pendingUrl = undefined;
     browser.detachedUrl = undefined;
     this.pendingGuestByBrowserId.delete(browser.id);
-    scope.browsers.delete(browser.id);
-    if (this.activateBrowserId === browser.id) {
-      this.activateBrowserId = undefined;
-    }
   }
 
   setVisible(visible: boolean, browserId?: string): BrowserViewState {
@@ -1216,33 +1248,6 @@ export class BrowserHost {
     );
   }
 
-  private async blurMainRendererForGuestKeyboardInput(): Promise<void> {
-    const win = this.deps.getMainWindow();
-    if (!win || win.isDestroyed()) {
-      return;
-    }
-    try {
-      const composerStillFocused = await win.webContents.executeJavaScript(
-        `(function(){
-          const a = document.activeElement;
-          if (!a || a === document.body || a === document.documentElement) return false;
-          try { a.blur(); } catch {}
-          const after = document.activeElement;
-          return after && after !== document.body && after.closest && after.closest('.composer-skill-input-control');
-        })()`,
-        true,
-      );
-      if (composerStillFocused) {
-        throw new Error("Composer still holds keyboard focus; refusing guest keyboard input");
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("Composer still holds")) {
-        throw error;
-      }
-      // ignore blur failures on destroyed/unready renderer
-    }
-  }
-
   async ensureCdpPort(threadId: string): Promise<number> {
     const scopeId = threadId.trim() || ECO_BROWSER_PERSONAL_SCOPE_ID;
     if (isPersonalBrowserScopeId(scopeId)) {
@@ -1281,6 +1286,7 @@ export class BrowserHost {
           if (!placeholder) {
             created.surfacePlaceholder = true;
           }
+          await this.prepareAgentBrowserViewport(created);
           if (url && (normalizeBrowserNavigateUrl(url) || url === HOME_URL || url === "about:blank")) {
             const target =
               normalizeBrowserNavigateUrl(url) ??
@@ -1352,9 +1358,6 @@ export class BrowserHost {
           }
           this.noteAgentPresence(targetId);
         },
-        onPrepareGuestKeyboardInput: async () => {
-          await this.blurMainRendererForGuestKeyboardInput();
-        },
         isForbiddenWebContents: (wc) => {
           const win = this.deps.getMainWindow();
           return Boolean(win && !win.isDestroyed() && win.webContents.id === wc.id);
@@ -1396,6 +1399,22 @@ export class BrowserHost {
     }
   }
 
+  private async prepareAgentBrowserViewport(
+    browser: SessionBrowser,
+    input?: BrowserViewportInput,
+  ): Promise<void> {
+    if (input === undefined && browser.viewportConfigured) return;
+    const viewport =
+      input === undefined ? { ...BROWSER_AGENT_DEFAULT_VIEWPORT } : parseBrowserViewport(input);
+    if (browser.webContents && !browser.webContents.isDestroyed()) {
+      await this.setViewport(browser.id, viewport ?? { preset: "auto" });
+    } else {
+      // Publish dimensions before the renderer mounts the guest, including hidden tabs.
+      browser.viewport = viewport ?? undefined;
+      browser.viewportConfigured = true;
+    }
+  }
+
   async setViewport(browserId: string, input: unknown): Promise<BrowserViewState> {
     const viewport = parseBrowserViewport(input);
     const found = this.findBrowser(browserId);
@@ -1408,6 +1427,7 @@ export class BrowserHost {
       try {
         await applyBrowserViewport(guest, viewport);
         browser.viewport = viewport ?? undefined;
+        browser.viewportConfigured = true;
         browser.viewportError = undefined;
       } catch (error) {
         browser.viewportError = error instanceof Error ? error.message : String(error);
@@ -1493,7 +1513,6 @@ export class BrowserHost {
       if (!pending) {
         pending = startMultiBrowserCdpProxy({
           getTargets: () => { const wc = this.findBrowser(browserId)?.browser.webContents; return wc && !wc.isDestroyed() ? [{ id: browserId, webContents: wc }] : []; },
-          onPrepareGuestKeyboardInput: () => this.blurMainRendererForGuestKeyboardInput(),
           onClientActivity: () => this.noteAgentPresence(browserId),
           isForbiddenWebContents: wc => wc.id === this.deps.getMainWindow()?.webContents.id,
         });
@@ -1536,11 +1555,12 @@ export class BrowserHost {
       return;
     }
     const browser = scope.browsers.get(browserId);
-    if (browser?.webContents && !browser.webContents.isDestroyed()) {
-      return;
+    if (!browser?.webContents || browser.webContents.isDestroyed()) {
+      this.notePendingGuestAttach(browserId);
+      await this.waitForGuestWebContents(browserId);
     }
-    this.notePendingGuestAttach(browserId);
-    await this.waitForGuestWebContents(browserId);
+    if (browser?.viewportUpdate) await browser.viewportUpdate;
+    if (browser?.viewportError) throw new Error(browser.viewportError);
   }
 
   /** Eco-native MCP tools that bypass agent-browser CLI (tab list, open, screenshot, …). */
@@ -1690,10 +1710,13 @@ export class BrowserHost {
     if (urlInput && !url) {
       throw new Error("agent_browser_tab_new url is invalid");
     }
+    const viewport =
+      args.width !== undefined || args.height !== undefined ? parseBrowserViewport(args) : undefined;
     await this.openSharedSession({
       threadId,
       ...(url ? { url } : {}),
       newBrowser: true,
+      ...(viewport ? { viewport } : {}),
       revealUi: false,
       updateUiFocus: false,
       source: "agent",
@@ -1737,9 +1760,12 @@ export class BrowserHost {
     if (!url) {
       throw new Error("agent_browser_open requires url");
     }
+    const viewport =
+      args.width !== undefined || args.height !== undefined ? parseBrowserViewport(args) : undefined;
     await this.openSharedSession({
       threadId,
       url,
+      ...(viewport ? { viewport } : {}),
       revealUi: false,
       updateUiFocus: false,
       source: "agent",

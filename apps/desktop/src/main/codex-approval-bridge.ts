@@ -11,6 +11,10 @@ import {
 } from "../shared/browser";
 import { CLARIFICATION_CUSTOM_OPTION_LABEL } from "../shared/clarification";
 import {
+  commandMatchesAnyRememberedBashPrefix,
+  deriveBashApprovalRememberPrefix,
+} from "../shared/bash-approval-ui";
+import {
   type ComputerUseActionApprovalMode,
   isEcoComputerUseRuntimeServerName,
   requiresComputerUseActionApproval,
@@ -195,6 +199,8 @@ export interface CodexApprovalBridgeDeps {
   emitThreadLive: (event: ThreadLiveEvent) => void;
   updateThreadStatus: (ecoThreadId: string, patch: { status: string; message: string }) => void;
   getApprovalMode?: (ecoThreadId: string) => "always" | "auto" | "allow_all";
+  getBashRememberPrefixes?: (ecoThreadId: string) => readonly string[];
+  rememberBashPrefix?: (ecoThreadId: string, prefix: string) => void;
   /** Exact registered server owned by this thread; a matching prefix is not sufficient. */
   getMcpHubServerName?: (ecoThreadId: string) => string | undefined;
   /**
@@ -268,7 +274,7 @@ export async function handleCodexServerRequest(
     default:
       throw new CodexAppServerRequestError(
         CODEX_JSON_RPC_METHOD_NOT_FOUND,
-        `Eco does not implement Codex app-server request method ${method}.`,
+        `Mori does not implement Codex app-server request method ${method}.`,
       );
   }
 }
@@ -366,6 +372,16 @@ async function handleCommandExecutionRequestApproval(
     return { decision: "accept" };
   }
 
+  // An explicit user approval takes precedence over a later model review, just
+  // as it does for the other runtimes. Network gates are separate permissions.
+  const canRememberCommand = !isNetwork && Boolean(readString(params, "command"));
+  if (
+    canRememberCommand &&
+    commandMatchesAnyRememberedBashPrefix(command, deps.getBashRememberPrefixes?.(ecoThreadId) ?? [])
+  ) {
+    return { decision: "accept" };
+  }
+
   const automatic = await reviewCodexApprovalIfEnabled(deps, ecoThreadId, approvalRequest, {
     toolName: "Bash",
     toolInput: params,
@@ -380,6 +396,15 @@ async function handleCommandExecutionRequestApproval(
 
   emitBashApprovalRequested(deps, approvalRequest, command);
   const resolution = await registerPendingBashApproval(ecoThreadId, approvalRequest);
+  if (resolution.decision === "approved_remember_prefix") {
+    if (!canRememberCommand || !deps.rememberBashPrefix) {
+      throw new Error("This Codex request does not support remembering a command prefix.");
+    }
+    deps.rememberBashPrefix(ecoThreadId, deriveBashApprovalRememberPrefix(command));
+    // Keep this an individual native grant. Eco owns the remembered prefix;
+    // acceptForSession would grant broader access than the selected command.
+    return { decision: "accept" };
+  }
   await injectCodexApprovalFeedback(deps, {
     ecoThreadId,
     codexThreadId,
@@ -848,7 +873,7 @@ async function handleMcpServerElicitationRequest(
     emitMcpElicitationDeclined(
       deps,
       ecoThreadId,
-      `已拒绝 ${serverName} 的 URL 交互请求：Eco 尚未实现可验证的外部 URL 完成回调。`,
+      `已拒绝 ${serverName} 的 URL 交互请求：Mori 尚未实现可验证的外部 URL 完成回调。`,
     );
     return { action: "decline" };
   }
@@ -1008,7 +1033,7 @@ function handlePlanItemCompleted(deps: CodexApprovalBridgeDeps, params: Record<s
   const worktreePath = deps.getWorktreePath(ecoThreadId) ?? thread.workspacePath;
   const planFilePath = readString(item, "planFilePath") ?? readString(item, "path");
   const analysis = [
-    "Codex plan mode produced this plan for Eco approval.",
+    "Codex plan mode produced this plan for Mori approval.",
     planFilePath ? `Plan file: ${planFilePath}` : "",
   ]
     .filter(Boolean)
@@ -1272,7 +1297,7 @@ function validateToolRequestUserInputQuestions(value: unknown): Record<string, u
     if (question.isSecret === true) {
       throw invalidServerRequestParams(
         CODEX_TOOL_REQUEST_USER_INPUT,
-        `questions[${index}] requests secret input, which Eco cannot present without exposing it.`,
+        `questions[${index}] requests secret input, which Mori cannot present without exposing it.`,
       );
     }
     // `options` is nullable in 0.160.1 (`Array<ToolRequestUserInputOption> | null`) and

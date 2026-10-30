@@ -409,6 +409,35 @@ test("eco_image_view MCP completion carries the vision answer as the tool output
   );
 });
 
+test("failed Hub image analysis retains the MCP error alongside its image input", () => {
+  const error = "MCP error -32000: 图片查看失败：The image_view model did not return text.";
+  const events = collectEvents((record) => {
+    const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });
+    adapter.dispatch("item/completed", {
+      threadId: CODEX_THREAD,
+      turnId: "turn_hub_view_failed",
+      item: {
+        id: "item_hub_view_failed",
+        type: "mcpToolCall",
+        server: "eco_mcp_4b6e103b_thr_1790688274221",
+        tool: "call_tool",
+        status: "failed",
+        arguments: {
+          name: "eco_image_view:view_image",
+          arguments: { path: "/tmp/shot.png", prompt: "描述这张图" },
+        },
+        error: { message: error },
+      },
+    });
+  });
+  expect(events[0]?.eventType).toBe("tool.failed");
+  expect(events[0]?.metadata?.tool).toMatchObject({
+    status: "failed",
+    imageView: { path: "/tmp/shot.png", prompt: "描述这张图" },
+    outputPreview: error,
+  });
+});
+
 test("eco_image_view MCP completion reads the answer out of a raw MCP result envelope", () => {
   const events = collectEvents((record) => {
     const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });

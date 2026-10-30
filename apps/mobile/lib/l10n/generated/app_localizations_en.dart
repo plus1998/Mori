@@ -38,7 +38,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Edit the voice, style and provider in Speech Generation settings on your computer.';
 
   @override
-  String get appTitle => 'Eco';
+  String get appTitle => 'Mori';
 
   @override
   String get navSessions => 'Sessions';
@@ -1743,7 +1743,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get activityClarificationAnswer => 'Question responses';
 
   @override
+  String activityApprovalRejected(String tool) {
+    return '$tool approval rejected';
+  }
+
+  @override
+  String get activityApprovalFeedback => 'Your feedback';
+
+  @override
   String get activityNoneSelected => '(Not selected)';
+
+  @override
+  String get activityContinue => 'Continue';
 
   @override
   String get activityThinking => 'Thinking';
@@ -2162,10 +2173,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get billingMainModelEstimate => 'Estimated at main model rates';
 
   @override
-  String get billingEco => 'Eco coding';
+  String get billingEco => 'Mori coding';
 
   @override
-  String get billingEcoSubtitle => 'Actual cost after Eco orchestration';
+  String get billingEcoSubtitle => 'Actual cost after Mori orchestration';
 
   @override
   String get billingSavings => 'Savings';
@@ -2592,6 +2603,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get followUpGuide => 'Guide';
 
   @override
+  String get followUpToTodo => 'Move to todos';
+
+  @override
+  String get followUpMovedToTodo =>
+      'Moved to todos and removed from the send queue.';
+
+  @override
   String get followUpEdit => 'Edit';
 
   @override
@@ -2643,7 +2661,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Allow this tool without asking again (all conversations on this computer) ';
 
   @override
-  String get bashApprovalDenyAdjust => 'No, tell Eco how to adjust';
+  String get bashApprovalDenyAdjust => 'No, tell Mori how to adjust';
 
   @override
   String projectMoreThreads(Object count) {
@@ -2973,7 +2991,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get schedulingHint =>
-      'Runs on the connected computer. Keep Eco running and the computer awake.';
+      'Runs on the connected computer. Keep Mori running and the computer awake.';
 
   @override
   String get schedulingTaskHint =>
@@ -3226,7 +3244,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get todosComposeHint =>
-      'Fills the composer for you to review and send. Your to-do stays here.';
+      'Adds an @todo reference for you to review and send. The Agent reads the latest to-do after sending.';
 
   @override
   String get todosSearchThreads => 'Search conversations in this project';
@@ -3244,7 +3262,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get todosUpgrade =>
-      'Update Eco on the connected computer to use remote to-dos.';
+      'Update Mori on the connected computer to use remote to-dos.';
 
   @override
   String get todosDiscardTitle => 'Discard changes?';
@@ -3364,4 +3382,149 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get codexQuotaBack => 'Back to usage';
+
+  @override
+  String get composerReferencesChoose => 'Add context';
+
+  @override
+  String get composerReferencesAll => 'All';
+
+  @override
+  String get composerReferencesSsh => 'SSH bookmarks';
+
+  @override
+  String get composerReferencesWeb => 'Pages';
+
+  @override
+  String get composerReferencesConversation => 'Chats';
+
+  @override
+  String get composerReferencesLoading => 'Searching…';
+
+  @override
+  String get composerReferencesEmpty =>
+      'No matches. Try another name or category.';
+
+  @override
+  String get composerReferencesDisconnected =>
+      'Connect to your desktop to choose references.';
+
+  @override
+  String get composerReferencesMore => 'Keep typing to narrow the results.';
+
+  @override
+  String get composerReferencesHint => 'SSH, pages, chats and tools';
+
+  @override
+  String get composerReferencesSpeech => 'Speech generation';
+
+  @override
+  String get imagePreviewTitle => 'Image preview';
+
+  @override
+  String get imageGalleryTitle => 'Image gallery';
+
+  @override
+  String get imageSaveToPhotos => 'Save to Photos';
+
+  @override
+  String get imageSaving => 'Saving…';
+
+  @override
+  String get imageSavedToPhotos => 'Saved to Photos';
+
+  @override
+  String get imageSavePermissionDenied =>
+      'Photo access was denied. Allow adding photos in system settings, then try again.';
+
+  @override
+  String get imageSaveNotEnoughSpace =>
+      'Not enough storage. Free up space and try again.';
+
+  @override
+  String get imageSaveUnsupported =>
+      'Your photo library does not support this image format.';
+
+  @override
+  String get imageSaveUnavailable =>
+      'Photo saving is unavailable. Restart the app and try again.';
+
+  @override
+  String get imageSaveFailed =>
+      'Could not save this image to Photos. Try again.';
+
+  @override
+  String get imageCopy => 'Copy';
+
+  @override
+  String get imageCopying => 'Copying…';
+
+  @override
+  String get imageCopied => 'Copied';
+
+  @override
+  String get imageCopyFailed => 'Could not copy this image. Try again.';
+
+  @override
+  String get imageCopyUnsupported =>
+      'Copying this image format is not supported.';
+
+  @override
+  String get imageCopyUnavailable =>
+      'Image copying is unavailable. Restart the app and try again.';
+
+  @override
+  String get desktopDisplayTitle => 'Desktop display and lock';
+
+  @override
+  String get desktopPreventAutoLock => 'Prevent automatic locking';
+
+  @override
+  String get desktopDimScreen => 'Set brightness to minimum';
+
+  @override
+  String get desktopAutoLockPrevented => 'Automatic locking is prevented';
+
+  @override
+  String get desktopAutoLockAllowed => 'Automatic locking is allowed';
+
+  @override
+  String get desktopScreenDimmed => 'Confirmed at minimum brightness';
+
+  @override
+  String get desktopScreenNotDimmed =>
+      'Currently above minimum; enable to dim again';
+
+  @override
+  String get desktopDisplayUnknown => 'Current state is unknown';
+
+  @override
+  String get desktopDisplayPatrol => 'Patrol';
+
+  @override
+  String get desktopDisplayPatrolHint =>
+      'Check the desktop every 5 seconds while this page is in the foreground';
+
+  @override
+  String get desktopDisplayHint =>
+      'Controls the connected desktop. Patrol updates actual state; enable minimum brightness again after another action restores it. Manual locking and lid closing still apply.';
+
+  @override
+  String desktopDisplayCheckedAt(String time) {
+    return 'Last checked: $time';
+  }
+
+  @override
+  String get desktopDisplayRestorePending =>
+      'Brightness restoration pending; reconnect displays and disable dimming to retry';
+
+  @override
+  String get desktopDisplayUnsupported => 'Brightness control is unsupported';
+
+  @override
+  String get desktopDisplayUpgrade =>
+      'This desktop version does not support display controls. Please update Mori.';
+
+  @override
+  String get approvalClarificationTitle => 'Answer a question';
 }

@@ -1,8 +1,8 @@
-# Eco：火山引擎 Supabase 部署（实验性）
+# Mori：火山引擎 Supabase 部署（实验性）
 
-火山引擎“AI 原生 BaaS 平台 Supabase 版”不是 Supabase 官方 Cloud。Eco 的桌面一键部署、`--platform cloud` 和 `--platform self-host` 都不能直接用于火山引擎 Workspace；本文件记录一条已经验证过的手工部署路径。
+火山引擎“AI 原生 BaaS 平台 Supabase 版”不是 Supabase 官方 Cloud。Mori 的桌面一键部署、`--platform cloud` 和 `--platform self-host` 都不能直接用于火山引擎 Workspace；本文件记录一条已经验证过的手工部署路径。
 
-这仍是实验性接入，不是 Eco 的受支持平台。部署器没有适配火山引擎 Management API，后续更新需要重复本文步骤。上线前请使用新 Workspace 做完整回归。
+这仍是实验性接入，不是 Mori 的受支持平台。部署器没有适配火山引擎 Management API，后续更新需要重复本文步骤。上线前请使用新 Workspace 做完整回归。
 
 截至 2026-10-20，本文步骤已在以下环境验证：
 
@@ -20,11 +20,11 @@
 
 ## 1. 边界与前置条件
 
-- 使用**新建、空的 Workspace**。Eco migration 会创建表、Auth 触发器和 Realtime RLS 策略。
+- 使用**新建、空的 Workspace**。Mori migration 会创建表、Auth 触发器和 Realtime RLS 策略。
 - 不要把本文步骤用于已有业务数据的 Workspace，除非已经完成独立备份和迁移审核。
 - 火山引擎 CLI 的 `db dump` 可能因账号缺少 `DescribeDBAccountConnection` 权限而失败；不要把它当作可恢复备份。请先确认平台侧备份或快照策略。
 - 常规部署只执行 `supabase/migrations/`。不要自动执行 `supabase/deferred-migrations/`。
-- 客户端只需要 **Project URL + anon key**。不要把 `service_role` 写入 Eco 配置或发给客户端。
+- 客户端只需要 **Project URL + anon key**。不要把 `service_role` 写入 Mori 配置或发给客户端。
 - 火山引擎 CLI 的部分管理请求较慢；命令按顺序执行，不要并行运行多个 `byted-supabase-cli` 进程。它们会争用本地凭据/配置锁，可能长期无响应。
 
 安装并登录 CLI：
@@ -69,7 +69,7 @@ byted-supabase-cli auth config get \
 - `disable_signup` 为 `false`
 - `external_email_enabled` 为 `true`
 - 生产环境已配置可用的 SMTP；开发环境若关闭邮箱确认，要明确知晓风险
-- `uri_allow_list` 包含 Eco 的邮箱确认地址
+- `uri_allow_list` 包含 Mori 的邮箱确认地址
 
 把邮箱确认地址设为：
 
@@ -102,7 +102,7 @@ byted-supabase-cli auth config set \
 
 ## 3. 应用数据库 migration
 
-在 **eco-coding 仓库根目录**执行。以下脚本按文件名顺序应用 migration，并把 migration SQL 与 `public.eco_schema_migrations` 完成记录放在同一事务中；失败时不会写入假的成功记录。
+在 **Mori 仓库根目录**执行。以下脚本按文件名顺序应用 migration，并把 migration SQL 与 `public.eco_schema_migrations` 完成记录放在同一事务中；失败时不会写入假的成功记录。
 
 ```bash
 set -euo pipefail
@@ -213,7 +213,7 @@ Workspace 初始化通常已经为函数提供 `SUPABASE_URL`、`SUPABASE_ANON_K
 
 ---
 
-## 5. 填入 Eco
+## 5. 填入 Mori
 
 从 Workspace 获取客户端参数：
 
@@ -231,7 +231,7 @@ byted-supabase-cli projects api-keys --reveal \
   -o json
 ```
 
-在 Eco **设置 → 互联** 中填写：
+在 Mori **设置 → 互联** 中填写：
 
 - **Supabase URL**：`endpoints list` 返回的 Public Address Domain，带 `https://`
 - **Anon Key**：`api-keys` 中 `name = AnonKey` 的值
@@ -249,7 +249,7 @@ byted-supabase-cli projects api-keys --reveal \
 3. 使用一次性邮箱账号注册并登录，`POST /functions/v1/device-register` 返回 `201` 和一次性 `deviceSecret`。
 4. 第二个 Auth 会话登记移动设备，`pairing-create` 与 `pairing-join` 返回 `200`，生成有效 binding。
 5. `device-session-register` 返回 `200`。
-6. Eco Desktop 可以订阅私有 `eco:user:<userId>` Realtime topic，Presence 正常；另一个账号订阅同一 topic 被拒绝。
+6. Mori Desktop 可以订阅私有 `eco:user:<userId>` Realtime topic，Presence 正常；另一个账号订阅同一 topic 被拒绝。
 7. 通过 `html-page-publish` 发布测试页，公开 URL 返回 `200` 且正文可见。
 
 删除冒烟产生的测试账号和页面，避免把测试设备和绑定留在 Workspace。

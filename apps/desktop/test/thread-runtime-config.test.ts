@@ -22,6 +22,7 @@ import {
   resolveMainAgentSystemPromptPreset,
   resolveThreadOrchestrationSnapshot,
   resolveThreadRuntimeMcpServerKeys,
+  resolveThreadRuntimeConfigUpdate,
   runtimeRoleRoutesFromOrchestrationSnapshot,
   serializeThreadRuntimeConfig,
   shouldRematerializeThreadRuntimeConfigOnContinue,
@@ -567,6 +568,101 @@ test("continue rematerializes after an explicit orchestration switch", () => {
   expect(shouldRematerializeThreadRuntimeConfigOnContinue(existing, incoming)).toBe(true);
   const locked = lockThreadRuntimeConfigSnapshotOnContinue(existing, incoming);
   expect(locked.resolvedOrchestrationSnapshot).toBe(incoming.resolvedOrchestrationSnapshot);
+});
+
+test("new chat defaults cannot replace an existing model during mode, skills or MCP saves", () => {
+  const old = buildThreadRuntimeConfigFromDefaults({
+    settings,
+    workflowDefaults: { sessionMode: "plan", defaultOrchestrationSelection: presetBundle.selection },
+  });
+  const changedSettings = structuredClone(settings);
+  changedSettings.mainAgentConfigs[0]!.modelRef.modelId = "new-chat-model";
+  const fresh = buildThreadRuntimeConfigFromDefaults({
+    settings: changedSettings,
+    workflowDefaults: { sessionMode: "agent", defaultOrchestrationSelection: presetBundle.selection },
+  });
+  expect(fresh.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId).toBe("new-chat-model");
+  const saved = resolveThreadRuntimeConfigUpdate(changedSettings, old, {
+    ...old,
+    sessionMode: "agent",
+    skillsEnabled: { "project:skill": true },
+    mcpServersEnabled: { mongo: true },
+  });
+  expect(saved.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId).toBe("m1");
+  expect(saved.sessionMode).toBe("agent");
+  expect(saved.skillsEnabled).toEqual({ "project:skill": true });
+  expect(saved.mcpServersEnabled).toEqual({ mongo: true });
+  expect(old.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId).toBe("m1");
+});
+
+test("an explicit per-session model and effort switch keeps the pinned template", () => {
+  const old = buildThreadRuntimeConfigFromDefaults({
+    settings,
+    workflowDefaults: { sessionMode: "agent", defaultOrchestrationSelection: presetBundle.selection },
+  });
+  const saved = resolveThreadRuntimeConfigUpdate(settings, old, {
+    ...old,
+    mainAgentModelOverride: { providerId: "p1", modelId: "manual-model", thinkingEffort: "max" },
+  });
+  expect(saved.resolvedOrchestrationSnapshot).toEqual(old.resolvedOrchestrationSnapshot);
+  expect(
+    runtimeRoleRoutesFromOrchestrationSnapshot(
+      saved.resolvedOrchestrationSnapshot!,
+      saved.mainAgentModelOverride,
+    )[0],
+  ).toMatchObject({ modelId: "manual-model", thinkingEffort: "max" });
+});
+
+test("a subagent selection does not import a new global main model", () => {
+  const old = buildThreadRuntimeConfigFromDefaults({
+    settings,
+    workflowDefaults: {
+      sessionMode: "agent",
+      defaultOrchestrationSelection: { ...presetBundle.selection, subagents: { mode: "none" } },
+    },
+  });
+  const changedSettings = structuredClone(settings);
+  changedSettings.mainAgentConfigs[0]!.modelRef.modelId = "new-chat-model";
+  const saved = resolveThreadRuntimeConfigUpdate(changedSettings, old, {
+    ...old,
+    orchestrationSelection: presetBundle.selection,
+  });
+  expect(saved.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId).toBe("m1");
+  expect(saved.resolvedOrchestrationSnapshot?.agents.length).toBeGreaterThan(0);
+});
+
+test("an explicit main configuration switch or global reset can adopt another model", () => {
+  const old = buildThreadRuntimeConfigFromDefaults({
+    settings,
+    workflowDefaults: { sessionMode: "agent", defaultOrchestrationSelection: presetBundle.selection },
+  });
+  const changedSettings = structuredClone(settings);
+  changedSettings.mainAgentConfigs[0]!.modelRef.modelId = "new-chat-model";
+  const reset = resolveThreadRuntimeConfigUpdate(changedSettings, old, old, { refreshSnapshot: true });
+  expect(reset.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId).toBe("new-chat-model");
+  changedSettings.mainAgentConfigs.push({
+    ...changedSettings.mainAgentConfigs[0]!,
+    id: "another-config",
+    modelRef: { providerId: "p1", modelId: "another-model" },
+  });
+  const switched = resolveThreadRuntimeConfigUpdate(changedSettings, old, {
+    ...old,
+    orchestrationSelection: { ...presetBundle.selection, mainAgentConfigId: "another-config" },
+  });
+  expect(switched.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId).toBe("another-model");
+});
+
+test("existing snapshots survive a deleted global template; a new selection still reports the gap", () => {
+  const old = buildThreadRuntimeConfigFromDefaults({
+    settings,
+    workflowDefaults: { sessionMode: "plan", defaultOrchestrationSelection: presetBundle.selection },
+  });
+  const missing = { ...settings, mainAgentConfigs: [] };
+  expect(
+    resolveThreadRuntimeConfigUpdate(missing, old, { ...old, sessionMode: "agent" })
+      .resolvedOrchestrationSnapshot,
+  ).toEqual(old.resolvedOrchestrationSnapshot);
+  expect(() => resolveThreadRuntimeConfigUpdate(missing, undefined, old)).toThrow("找不到主 Agent 配置");
 });
 
 test("resolveMainAgentSystemPromptPreset honors override", () => {

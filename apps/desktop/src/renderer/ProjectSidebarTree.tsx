@@ -9,6 +9,7 @@ import {
   Pin,
   PinOff,
   RotateCcw,
+  Terminal,
   Trash2,
 } from "lucide-react";
 import { type DragEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -49,6 +50,7 @@ interface ProjectSidebarTreeProps {
   onRemoveProject: (path: string) => void;
   onRenameProject: (path: string, name: string) => void;
   onResetProjectName: (path: string) => void;
+  onOpenTerminalSettings?: (path: string, name: string) => void;
   customProjectNames?: Readonly<Record<string, string>> | undefined;
   onPinThread: (threadId: string) => void;
   onUnpinThread: (threadId: string) => void;
@@ -91,6 +93,7 @@ export function ProjectSidebarTree({
   onRemoveProject,
   onRenameProject,
   onResetProjectName,
+  onOpenTerminalSettings,
   customProjectNames,
   onPinThread,
   onUnpinThread,
@@ -111,6 +114,11 @@ export function ProjectSidebarTree({
   const renameInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
   const treeRef = useRef<HTMLDivElement>(null);
+  const revealThreadVisible =
+    revealTarget?.kind === "thread" &&
+    projectTree.some(
+      (item) => !item.collapsed && item.visibleThreads.some((thread) => thread.id === revealTarget.id),
+    );
 
   useEffect(() => {
     if (renamingPath) {
@@ -137,7 +145,7 @@ export function ProjectSidebarTree({
   }
 
   useLayoutEffect(() => {
-    if (!revealTarget) {
+    if (!revealTarget || (revealTarget.kind === "thread" && !revealThreadVisible)) {
       return;
     }
     const attribute = revealTarget.kind === "thread" ? "data-thread-id" : "data-project-path";
@@ -153,7 +161,7 @@ export function ProjectSidebarTree({
     void target.offsetWidth;
     target.classList.add("sidebar-reveal-highlight");
     return () => target.classList.remove("sidebar-reveal-highlight");
-  }, [revealTarget]);
+  }, [revealTarget, revealThreadVisible]);
 
   useEffect(() => {
     if (!openMenuPath) {
@@ -426,6 +434,14 @@ export function ProjectSidebarTree({
                       <ProjectActionMenu
                         pinned={Boolean(project.pinned)}
                         hasCustomName={Boolean(customProjectNames?.[project.path])}
+                        {...(onOpenTerminalSettings
+                          ? {
+                              onOpenTerminalSettings: () => {
+                                setOpenMenuPath(undefined);
+                                onOpenTerminalSettings(project.path, project.name);
+                              },
+                            }
+                          : {})}
                         onTogglePin={() => {
                           if (project.pinned) {
                             onUnpinProject(project.path);
@@ -676,6 +692,7 @@ export interface ProjectActionMenuProps {
   onStartRename: () => void;
   onResetName: () => void;
   onRemove: () => void;
+  onOpenTerminalSettings?: () => void;
 }
 
 export function ProjectActionMenu({
@@ -685,6 +702,7 @@ export function ProjectActionMenu({
   onStartRename,
   onResetName,
   onRemove,
+  onOpenTerminalSettings,
 }: ProjectActionMenuProps) {
   const { t } = useTranslation();
   return (
@@ -720,6 +738,12 @@ export function ProjectActionMenu({
         >
           <RotateCcw size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
           <span>{t("projectTree.resetName")}</span>
+        </button>
+      ) : null}
+      {onOpenTerminalSettings ? (
+        <button type="button" className="project-menu-item" role="menuitem" onClick={onOpenTerminalSettings}>
+          <Terminal size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
+          <span>{t("terminal.projectSettings")}</span>
         </button>
       ) : null}
       <button

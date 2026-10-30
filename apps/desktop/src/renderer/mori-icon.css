@@ -1,0 +1,95 @@
+.mori-icon {
+  display: block;
+  flex: none;
+  overflow: visible;
+  pointer-events: none;
+}
+.mori-icon-head {
+  transform-origin: 24px 30px;
+}
+.mori-icon-gaze {
+  transform-origin: 24px 28px;
+  transition: transform 220ms ease;
+}
+.mori-icon-eyes {
+  transform-origin: 24px 27px;
+}
+.mori-icon-busy {
+  opacity: 0;
+  transform-origin: 37px 36px;
+  pointer-events: none;
+}
+.mori-icon.is-thinking .mori-icon-busy {
+  opacity: 1;
+}
+.mori-icon.is-animated.is-thinking .mori-icon-busy {
+  animation: mori-icon-busy 14s ease-in-out infinite;
+}
+@keyframes mori-icon-busy {
+  0%, 12%, 72%, 100% { opacity: 0; transform: translateY(2px) scale(.8); }
+  20%, 58% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.mori-icon.is-animated .mori-icon-eyes {
+  animation: mori-icon-blink 7.4s ease-in-out infinite;
+}
+.mori-icon.is-thinking .mori-icon-gaze {
+  transform: translate(1px, -1px);
+}
+.mori-icon.is-animated.is-thinking .mori-icon-head {
+  animation: mori-icon-think 2.8s ease-in-out infinite;
+}
+.mori-icon.is-waiting .mori-icon-gaze {
+  transform: translateY(-1.5px) rotate(-5deg);
+}
+.mori-icon.is-animated.is-waiting .mori-icon-head {
+  animation: mori-icon-listen 4.8s ease-in-out infinite;
+}
+.mori-icon.is-error .mori-icon-gaze {
+  transform: rotate(4deg);
+}
+.mori-ball:hover .mori-icon.is-idle .mori-icon-gaze,
+.mori-ball:focus-visible .mori-icon.is-idle .mori-icon-gaze {
+  transform: translateY(-1.5px);
+}
+@keyframes mori-icon-blink {
+  0%,
+  42%,
+  46%,
+  100% {
+    transform: scaleY(1);
+  }
+  44% {
+    transform: scaleY(0.12);
+  }
+}
+@keyframes mori-icon-think {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-1px) rotate(3deg);
+  }
+}
+@keyframes mori-icon-listen {
+  0%,
+  65%,
+  100% {
+    transform: rotate(0);
+  }
+  76%,
+  86% {
+    transform: rotate(-5deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mori-icon.is-animated .mori-icon-eyes,
+  .mori-icon.is-animated.is-thinking .mori-icon-head,
+  .mori-icon.is-animated.is-thinking .mori-icon-busy,
+  .mori-icon.is-animated.is-waiting .mori-icon-head {
+    animation: none;
+  }
+  .mori-icon-gaze {
+    transition: none;
+  }
+}

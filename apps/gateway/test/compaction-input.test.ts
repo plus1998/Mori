@@ -45,7 +45,7 @@ for (const compact of [false, true]) {
         resolveModelLimits: async () => (compact ? { compactionContextTokens: 1_048_576 } : {}),
         countInputTokens: async ({ body }) => {
           counted = body.input;
-          return { tokens: 100, precision: "heuristic", source: "test" };
+          return { tokens: 100, precision: "provider_exact", source: "test" };
         },
       },
       new AbortController().signal,

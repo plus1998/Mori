@@ -18,7 +18,7 @@ const MODEL_ID = "gpt-5.6-luna";
 
 function buildPrompt(marker) {
   return [
-    `Eco PI web search smoke. Marker=${marker}.`,
+    `Mori PI web search smoke. Marker=${marker}.`,
     "You MUST call the web_search tool (do not guess from memory).",
     "Search query: today's date in Asia/Shanghai timezone and one recent headline about OpenAI.",
     "After the tool returns, reply with one line exactly:",
@@ -92,7 +92,7 @@ const browser = await chromium.connectOverCDP(cdpUrl);
 try {
   const context = browser.contexts()[0];
   const page = context?.pages().find((p) => p.url().includes("5173")) ?? context?.pages()[0];
-  if (!page) throw new Error("No Eco page from CDP");
+  if (!page) throw new Error("No Mori page from CDP");
   step("cdp page", true, page.url());
 
   await page.waitForFunction(() => typeof window.eco?.startThread === "function", undefined, {

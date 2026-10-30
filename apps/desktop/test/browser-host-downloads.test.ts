@@ -6,7 +6,7 @@ import type { BrowserDownloads } from "../src/main/browser-downloads";
 const sessions = new Map<string, EventEmitter>();
 mock.module("electron", () => ({
   session: { fromPartition: (partition: string) => {
-    if (!sessions.has(partition)) sessions.set(partition, Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }));
+    if (!sessions.has(partition)) sessions.set(partition, Object.assign(new EventEmitter(), { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }));
     return sessions.get(partition);
   } },
   shell: {}, webContents: { fromId: () => undefined },

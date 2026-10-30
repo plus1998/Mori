@@ -146,7 +146,7 @@ export async function runCodexRealProbe(scenario: Scenario = "dynamic"): Promise
       'model_provider = "eco_probe"',
       "",
       "[model_providers.eco_probe]",
-      'name = "Eco local deterministic probe"',
+      'name = "Mori local deterministic probe"',
       `base_url = "${api.url}"`,
       'wire_api = "responses"',
       "request_max_retries = 0",

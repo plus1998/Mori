@@ -557,7 +557,7 @@ test("cursor/create_plan without handler is rejected explicitly", async () => {
     result: {
       outcome: {
         outcome: "rejected",
-        reason: "Eco ACP host has no create_plan handler (plan approval not wired)",
+        reason: "Mori ACP host has no create_plan handler (plan approval not wired)",
       },
     },
   });
@@ -832,7 +832,7 @@ test("cursor/generate_image without handler is rejected explicitly", async () =>
     result: {
       outcome: {
         outcome: "rejected",
-        reason: "Eco ACP host has no generate_image handler",
+        reason: "Mori ACP host has no generate_image handler",
       },
     },
   });

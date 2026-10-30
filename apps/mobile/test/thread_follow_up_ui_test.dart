@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
 
@@ -205,6 +207,17 @@ void main() {
     expect(preview.length, 120);
     expect(preview.endsWith('...'), isTrue);
   });
+
+  test(
+    'follow-up preview resolves references before truncating encoded data',
+    () {
+      final token =
+          '@todo{${Uri.encodeComponent(jsonEncode({'id': 'todo-1', 'label': '移动端适配', 'detail': '详细内容' * 200}))}}';
+      final item = followUp('ref', prompt: '处理 $token');
+      expect(formatThreadFollowUpPreview(item, _zh), '处理 @移动端适配');
+      expect(item.prompt, '处理 $token');
+    },
+  );
 
   test('formatThreadFollowUpPreview includes image count', () {
     final item = ThreadPendingFollowUp(

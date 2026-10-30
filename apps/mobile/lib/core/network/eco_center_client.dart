@@ -1798,7 +1798,7 @@ class PairingQrPayload {
     this.bootstrapToken,
   });
 
-  /// Legacy pairing code; empty for `eco://center` server-only QR.
+  /// Legacy pairing code; empty for `mori://center` server-only QR.
   final String code;
 
   /// Legacy QR param `server` (Center Server or Supabase URL).
@@ -1849,12 +1849,15 @@ class QuickPairingResult {
 }
 
 /// Parses connect / pairing QR.
-/// Preferred: `eco://center?supabase=...&anon=...` (server only).
-/// Legacy: `eco://pair?supabase=...&anon=...&code=...&token=...`
+/// Preferred: `mori://center?supabase=...&anon=...` (server only).
+/// Pairing: `mori://pair?supabase=...&anon=...&code=...&token=...`.
+/// Both formats also accept the legacy `eco://` scheme.
 PairingQrPayload parsePairingQrPayload(String raw) {
   final trimmed = raw.trim();
-  if (trimmed.startsWith('eco://center')) {
-    final uri = Uri.parse(trimmed);
+  final uri = Uri.tryParse(trimmed);
+  final isAppLink =
+      uri != null && (uri.scheme == 'mori' || uri.scheme == 'eco');
+  if (isAppLink && uri.host == 'center') {
     final supabase =
         uri.queryParameters['supabase'] ??
         uri.queryParameters['url'] ??
@@ -1875,8 +1878,7 @@ PairingQrPayload parsePairingQrPayload(String raw) {
       anonKey: anon,
     );
   }
-  if (trimmed.startsWith('eco://pair')) {
-    final uri = Uri.parse(trimmed);
+  if (isAppLink && uri.host == 'pair') {
     final code = uri.queryParameters['code'] ?? '';
     final supabase =
         uri.queryParameters['supabase'] ??
@@ -1900,6 +1902,9 @@ PairingQrPayload parsePairingQrPayload(String raw) {
       anonKey: anon,
       bootstrapToken: uri.queryParameters['token'],
     );
+  }
+  if (uri == null || uri.hasScheme) {
+    throw EcoCenterException.app(EcoCenterErrorKind.invalidPairQr);
   }
   return PairingQrPayload(code: trimmed.toUpperCase());
 }

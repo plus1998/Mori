@@ -115,7 +115,7 @@ test("local new tabs replace tools in place and create a browser only after addr
     );
     await expect(
       page.locator(".subagent-task-panel-tab-pane--browser.is-active .browser-panel-address"),
-    ).toHaveValue(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`);
+    ).toHaveValue("127.0.0.1");
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),

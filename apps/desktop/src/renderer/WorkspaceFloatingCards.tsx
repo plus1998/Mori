@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { pathToName } from "../shared/home-project";
 import { countEnabledMcpServers } from "../shared/composer-mcp";
 import type { SkillsEnabledSettings } from "../shared/composer-skills-settings";
 import type {
@@ -75,6 +76,7 @@ import { persistCardExpanded, readCardExpanded } from "./workspace-floating-card
 import { resolveWorkspacePlanTitle } from "./workspace-plan-title";
 import type { ScheduleDefinition, ScheduleOccurrence } from "../shared/scheduling";
 import { ScheduledMessagesCardBody } from "./ScheduledMessagesCardBody";
+import { ImageDisplayArtifactIcon } from "./ImageDisplayArtifactIcon";
 
 export interface ThreadUsageSummary {
   billing?: ThreadBillingSnapshot;
@@ -699,9 +701,7 @@ function ImageDisplayWorkspaceCardBody({
             disabled={!onOpenImageDisplayArtifact}
             title={title}
           >
-            <span className="workspace-resource-row-icon" aria-hidden>
-              <ImageIcon size={16} strokeWidth={1.75} />
-            </span>
+            <ImageDisplayArtifactIcon artifact={artifact} />
             <span className="workspace-resource-row-title">{title}</span>
             <span className="workspace-resource-row-meta">{meta}</span>
           </button>
@@ -844,7 +844,7 @@ export function WorkspaceFloatingCards({
   const resolvedBrowserInstances = browserInstances.length > 0 ? browserInstances : storedBrowserInstances;
   const projectLabel =
     workspaceLabel?.trim() ||
-    workspacePath?.split("/").filter(Boolean).pop() ||
+    (workspacePath && pathToName(workspacePath)) ||
     workspace?.name ||
     t("workspaceCards.noProject");
   const showProgress = hasProgressInfo(todos);

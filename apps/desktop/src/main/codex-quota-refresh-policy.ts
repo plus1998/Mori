@@ -1,5 +1,6 @@
 import { CODEX_QUOTA_REFRESH_MS, hasUnrefreshedCodexQuotaReset } from "../shared/codex-quota-refresh";
 import type { OpenAIAccountQuota, OpenAIAccountQuotaRefreshState } from "../shared/openai-account";
+import { isCodexReauthenticationRequired } from "./codex-reauthentication";
 
 export type QuotaRefreshReason = "manual" | "usage" | "switch" | "reset";
 interface RefreshState extends OpenAIAccountQuotaRefreshState {
@@ -62,15 +63,12 @@ export class CodexQuotaRefreshPolicy {
     this.states.set(accountId, { credentials, attemptedAt: this.now(), failures: 0, upstreamRetryAt: 0 });
   }
 
-  fail(accountId: string, credentials: string, error: unknown): void {
+  fail(accountId: string, credentials: string, error: unknown, displayMessage?: string): void {
     const previous = this.states.get(accountId);
     const failures = (previous?.credentials === credentials ? previous.failures : 0) + 1;
     const now = this.now();
-    const message = error instanceof Error ? error.message : String(error);
-    const authRequired =
-      /\b401\b|unauthorized|invalid_grant|refresh[_ ]token.*(?:expired|invalid|reused)|token[_ ]expired|请重新登录/iu.test(
-        message,
-      );
+    const message = displayMessage ?? (error instanceof Error ? error.message : String(error));
+    const authRequired = isCodexReauthenticationRequired(error);
     const upstreamRetryAt = readQuotaRetryAt(error, now);
     const delay = (failures === 1 ? 5 : failures === 2 ? 15 : 30) * 60_000;
     this.states.set(accountId, {

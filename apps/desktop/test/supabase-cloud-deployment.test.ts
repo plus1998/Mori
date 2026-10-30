@@ -240,7 +240,7 @@ test("bundled deployment contains all migrations/functions and respects JWT conf
   const directory = fileURLToPath(new URL("../../../supabase", import.meta.url));
   const loaded = await readSupabaseDeploymentBundle(directory, "0.1.0-beta.12");
   expect(loaded.version.schema).toBe(backendMigration);
-  expect(loaded.version.release).toBe("1.0.0");
+  expect(loaded.version.release).toBe("1.0.1");
   expect(loaded.version.apiVersion).toBe(1);
   expect(loaded.desktopVersion).toBe("0.1.0-beta.12");
   expect(loaded.functions).toHaveLength(11);
@@ -588,7 +588,7 @@ test("remote deployment lease rejects a competing client before migration writes
   const service = cloud.service();
   await service.authorize(token);
   const result = await service.deploy(ref);
-  expect(result.job?.error).toContain("另一个 Eco 客户端");
+  expect(result.job?.error).toContain("另一个 Mori 客户端");
   expect(cloud.writes).toEqual([]);
   expect(cloud.lease).toBe("another-client");
 });

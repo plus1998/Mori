@@ -17,7 +17,7 @@ Deno.serve((req) => {
     });
   }
 
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>Eco HTML host probe</title></head><body>ok</body></html>`;
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>Mori HTML host probe</title></head><body>ok</body></html>`;
   return new Response(req.method === "HEAD" ? null : html, {
     status: 200,
     headers: {

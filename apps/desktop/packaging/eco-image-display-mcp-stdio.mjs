@@ -50,7 +50,7 @@ lines.on("line", (line) => {
             capabilities: { tools: {} },
             serverInfo: { name: "eco_image_display", version: "1.0.0" },
             instructions:
-              "Eco image display for the user. Stores images as feed artifacts; returns artifactId text.",
+              "Mori image display for the user. Stores images as feed artifacts; returns artifactId text.",
           },
         });
       } else if (method === "ping") {

@@ -97,7 +97,7 @@ test("an older request's tool result cannot clear the current call being written
   expect(project([start, writing, next, nextWriting, oldResult])[1]?.writingTool?.name).toBe("Edit");
 });
 
-test("writing completion keeps its call identity and never creates a Feed message", () => {
+test("writing completion preserves call identity through dispatch until the matching tool starts", () => {
   const completed = buildThreadRunEventFromLiveEvent({
     threadId: "thread",
     eventId: "ready",
@@ -113,12 +113,31 @@ test("writing completion keeps its call identity and never creates a Feed messag
   expect(completed?.eventType).toBe("tool.writing.completed");
   if (!completed) throw new Error("Missing writing completion.");
   const named = { ...writing, requestId: "request", streamKey: "call" };
-  expect(project([start, named, { ...completed, sequence: 3 }])[0]?.writingTool).toBeUndefined();
+  expect(project([start, named, { ...completed, sequence: 3 }])[0]?.writingTool?.phase).toBe("dispatching");
+  const dispatched = event(4, {
+    eventType: "tool.started",
+    requestId: "request",
+    streamKey: "call",
+    metadata: { toolCallId: "call" },
+  });
+  expect(project([start, named, { ...completed, sequence: 3 }, dispatched])[0]?.writingTool).toBeUndefined();
+  expect(
+    project([
+      start,
+      named,
+      { ...completed, sequence: 3 },
+      {
+        ...dispatched,
+        streamKey: "other-call",
+        metadata: { toolCallId: "other-call" },
+      },
+    ])[0]?.writingTool?.phase,
+  ).toBe("dispatching");
   expect(
     project([
       start,
       named,
       { ...completed, sequence: 3, streamKey: "other-call", metadata: { toolCallId: "other-call" } },
     ])[0]?.writingTool,
-  ).toBeDefined();
+  ).toMatchObject({ name: "request_user_input", since: named.observedAt });
 });

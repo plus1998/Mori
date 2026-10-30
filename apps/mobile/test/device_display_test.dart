@@ -61,6 +61,25 @@ void main() {
       );
     });
 
+    for (final name in ['Mori', 'Mori Desktop', 'Eco Desktop']) {
+      test('uses hostname for the generic desktop name $name', () {
+        expect(
+          formatDesktopLabel(
+            PublicDevice(
+              id: 'dev_desktop',
+              userId: 'usr_1',
+              kind: 'desktop',
+              name: name,
+              createdAt: '2026-01-01T00:00:00.000Z',
+              metadata: const PublicDeviceMetadata(hostname: 'HappyPlusMac'),
+            ),
+            'dev_desktop',
+          ),
+          'HappyPlusMac',
+        );
+      });
+    }
+
     test('falls back to shortened device id', () {
       expect(formatDesktopLabel(null, 'dev_1234567890abcdef'), 'dev_1234…cdef');
     });

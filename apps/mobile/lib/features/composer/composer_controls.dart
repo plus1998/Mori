@@ -30,6 +30,7 @@ import '../../l10n/generated/app_localizations.dart';
 import '../threads/thread_info_sheets.dart';
 import '../threads/thread_providers.dart';
 import 'composer_context_ring.dart';
+import 'composer_quota_bars.dart';
 import 'composer_model_effort_sheet.dart';
 
 const _subagentRoleLabels = {
@@ -1296,6 +1297,7 @@ class _ComposerRouteSheetState extends ConsumerState<ComposerRouteSheet> {
                                     context.l10n.composerImageGeneration,
                                   'computerUse' =>
                                     context.l10n.composerComputerUse,
+                                  'tts' => context.l10n.composerReferencesSpeech,
                                   _ => integration.id,
                                 };
                                 return EcoSheetSwitchTile(
@@ -2710,14 +2712,18 @@ class ComposerRouteSummary extends ConsumerWidget {
               threadStatus: threadStatus,
               themeSource: themeSource,
             ),
-            tooltip: [
-              if (occupancyPct != null) '$occupancyPct%',
-              if (showBilling) formatBillingPillCost(billing),
-            ].join(' · '),
-            icon: ComposerContextRing(
-              pct: occupancyPct ?? 0,
-              size: kComposerToolbarIconSize,
-            ),
+            tooltip: showCodexQuota
+                ? context.l10n.codexQuotaTitle
+                : [
+                    if (occupancyPct != null) '$occupancyPct%',
+                    if (showBilling) formatBillingPillCost(billing),
+                  ].join(' · '),
+            icon: showCodexQuota
+                ? const ComposerQuotaBars()
+                : ComposerContextRing(
+                    pct: occupancyPct ?? 0,
+                    size: kComposerToolbarIconSize,
+                  ),
           ),
       ],
     );

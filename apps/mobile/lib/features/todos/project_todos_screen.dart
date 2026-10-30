@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +9,7 @@ import '../../core/locale/app_localizations_ext.dart';
 import '../../core/models/project_todo_models.dart';
 import '../../core/models/thread_models.dart';
 import '../../core/theme/eco_theme.dart';
+import '../../core/utils/project_todo_references.dart';
 import '../../core/widgets/adaptive_nav_bar.dart';
 import '../../core/widgets/app_error_state.dart';
 import '../../core/widgets/eco_modal_sheet.dart';
@@ -27,21 +30,29 @@ class ProjectTodosScreen extends ConsumerStatefulWidget {
 class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
     with WidgetsBindingObserver {
   final _search = TextEditingController();
+  final _scroll = ScrollController();
+  Timer? _searchDebounce;
+  String _queryText = '';
   String _project = '';
-  bool _showCompleted = false;
+  bool _completed = false;
   bool _busy = false;
   bool _working = false;
   final _previewData = <String, String>{};
+  ProjectTodosQuery get _query =>
+      (completed: _completed, projectPath: _project, search: _queryText);
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _scroll.addListener(_loadMoreIfNeeded);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _searchDebounce?.cancel();
+    _scroll.dispose();
     _search.dispose();
     super.dispose();
   }
@@ -57,8 +68,35 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 
   Future<void> _refresh() async {
+    final query = _query;
     ref.invalidate(projectTodosProvider);
-    await ref.read(projectTodosProvider.future);
+    await ref.read(projectTodosProvider(query).future);
+  }
+
+  void _changeFilter(VoidCallback change) {
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    setState(change);
+  }
+
+  void _searchChanged(String value) {
+    if (_search.text != value) _search.text = value;
+    setState(() {});
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted || _queryText == value.trim()) return;
+      _changeFilter(() => _queryText = value.trim());
+    });
+  }
+
+  void _loadMoreIfNeeded() {
+    if (!mounted || !_scroll.hasClients || _scroll.position.extentAfter > 400) {
+      return;
+    }
+    final snapshot = ref.read(projectTodosProvider(_query));
+    final page = snapshot.valueOrNull;
+    if (!snapshot.isLoading && page != null && page.loadMoreError == null) {
+      unawaited(ref.read(projectTodosProvider(_query).notifier).loadMore());
+    }
   }
 
   Future<void> _run(Future<void> Function() task) async {
@@ -125,6 +163,17 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
     messenger.showSnackBar(
       SnackBar(
         content: Text(context.l10n.todosDeleted),
+        duration: const Duration(seconds: 5),
+        persist: false,
+        behavior: SnackBarBehavior.floating,
+        // The shell paints its tab bar over the nested Scaffold, so the root
+        // messenger cannot account for either it or this screen's add button.
+        margin: EdgeInsets.fromLTRB(
+          16,
+          0,
+          16,
+          adaptiveNavOverlayInset(context) + 16 + 56 + 12,
+        ),
         action: SnackBarAction(
           label: context.l10n.todosUndo,
           onPressed: () {
@@ -188,19 +237,12 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
     if (latest.projectPath != todo.projectPath) {
       throw StateError('Todo changed. Reopen it before saving.');
     }
-    final attachments = <PromptImageAttachment>[];
-    for (final image in latest.images) {
-      attachments.add(
-        image.toAttachment(await rpc.downloadProjectTodoImage(latest, image)),
-      );
-    }
     await openProjectPath(ref, latest.projectPath);
     if (!mounted) return;
     context.push(
       '/threads/$target',
       extra: ThreadSessionRouteExtra(
-        prompt: latest.text,
-        attachments: attachments,
+        prompt: appendProjectTodoReference('', latest),
       ),
     );
   });
@@ -209,36 +251,23 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
   Widget build(BuildContext context) {
     final l = context.l10n;
     final eco = ecoColors(context);
-    final snapshot = ref.watch(projectTodosProvider);
-    final todos = snapshot.valueOrNull ?? const <ProjectTodo>[];
+    final query = _query;
+    final provider = projectTodosProvider(query);
+    final snapshot = ref.watch(provider);
+    final page = snapshot.valueOrNull;
     final projects = <String, String>{
       for (final p in ref.watch(projectListProvider).valueOrNull ?? [])
         p.path: p.name,
     };
-    for (final todo in todos) {
-      projects.putIfAbsent(
-        todo.projectPath,
-        () => todoProjectName({}, todo.projectPath),
-      );
+    for (final path in page?.projectPaths ?? const <String>[]) {
+      projects.putIfAbsent(path, () => todoProjectName({}, path));
     }
     final selected = ref.watch(selectedProjectPathProvider).valueOrNull;
     if (selected != null && selected.isNotEmpty) {
       projects.putIfAbsent(selected, () => todoProjectName({}, selected));
     }
-    ref.listen(projectTodosProvider, (_, _) => _previewData.clear());
-    final needle = _search.text.trim().toLowerCase();
-    final filtered = todos
-        .where(
-          (todo) =>
-              (_project.isEmpty || todo.projectPath == _project) &&
-              (needle.isEmpty ||
-                  '${todo.text} ${todoProjectName(projects, todo.projectPath)}'
-                      .toLowerCase()
-                      .contains(needle)),
-        )
-        .toList();
-    final pending = filtered.where((todo) => !todo.completed).toList();
-    final completed = filtered.where((todo) => todo.completed).toList();
+    ref.listen(provider, (_, _) => _previewData.clear());
+    final needle = _search.text.trim();
     final navInset = adaptiveNavOverlayInset(context);
 
     return Scaffold(
@@ -283,13 +312,12 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
                           if (PlatformInfo.isIOS)
                             IOS26NativeSearchField(
                               placeholder: l.todosSearch,
-                              onChanged: (value) =>
-                                  setState(() => _search.text = value),
+                              onChanged: _searchChanged,
                             )
                           else
                             TextField(
                               controller: _search,
-                              onChanged: (_) => setState(() {}),
+                              onChanged: _searchChanged,
                               decoration: InputDecoration(
                                 hintText: l.todosSearch,
                                 prefixIcon: const Icon(Icons.search_rounded),
@@ -297,8 +325,7 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
                                     ? null
                                     : IconButton(
                                         tooltip: l.commonClose,
-                                        onPressed: () =>
-                                            setState(() => _search.clear()),
+                                        onPressed: () => _searchChanged(''),
                                         icon: const Icon(Icons.close_rounded),
                                       ),
                                 filled: true,
@@ -339,10 +366,35 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
                                         includeAll: true,
                                       );
                                       if (path != null && mounted) {
-                                        setState(() => _project = path);
+                                        _changeFilter(() => _project = path);
                                       }
                                     },
                             ),
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final completed in [false, true])
+                                ChoiceChip(
+                                  key: ValueKey('todos-category-$completed'),
+                                  label: Text(
+                                    '${completed ? l.todosCompleted : l.todosPending}'
+                                    '${page == null ? '' : ' · ${completed ? page.completedCount : page.pendingCount}'}',
+                                  ),
+                                  selected: _completed == completed,
+                                  onSelected: _busy
+                                      ? null
+                                      : (_) {
+                                          if (_completed != completed) {
+                                            _changeFilter(
+                                              () => _completed = completed,
+                                            );
+                                          }
+                                        },
+                                ),
+                            ],
                           ),
                         ],
                       ),
@@ -353,66 +405,92 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
                 Expanded(
                   child: snapshot.when(
                     skipError: false,
-                    data: (_) => RefreshIndicator(
-                      onRefresh: _refresh,
-                      child: ListView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        padding: EdgeInsets.fromLTRB(20, 0, 20, navInset + 100),
-                        children: [
-                          if (filtered.isEmpty)
-                            _EmptyTodos(
-                              title: needle.isNotEmpty || _project.isNotEmpty
-                                  ? l.todosNoResults
-                                  : l.todosEmpty,
-                              message: needle.isNotEmpty || _project.isNotEmpty
-                                  ? l.todosNoResultsHint
-                                  : l.todosEmptyHint,
-                            )
-                          else ...[
-                            _SectionLabel(
-                              label: l.todosPending,
-                              count: pending.length,
-                            ),
-                            if (pending.isEmpty)
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 28,
-                                ),
-                                child: Text(
-                                  l.todosNoPending,
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(color: eco.textMuted),
-                                ),
-                              ),
-                            for (final todo in pending) _card(todo, projects),
-                            if (completed.isNotEmpty) ...[
-                              const SizedBox(height: 16),
-                              ListTile(
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                ),
-                                title: Text(
-                                  '${l.todosCompleted} · ${completed.length}',
-                                ),
-                                trailing: Icon(
-                                  _showCompleted
-                                      ? Icons.expand_less
-                                      : Icons.expand_more,
-                                ),
-                                onTap: () => setState(
-                                  () => _showCompleted = !_showCompleted,
-                                ),
-                              ),
-                              if (_showCompleted)
-                                for (final todo in completed)
-                                  _card(todo, projects),
-                            ],
-                          ],
-                        ],
-                      ),
-                    ),
+                    data: (page) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted && _query == query) _loadMoreIfNeeded();
+                      });
+                      return RefreshIndicator(
+                        onRefresh: _refresh,
+                        child: ListView.builder(
+                          key: ValueKey(query),
+                          controller: _scroll,
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          keyboardDismissBehavior:
+                              ScrollViewKeyboardDismissBehavior.onDrag,
+                          padding: EdgeInsets.fromLTRB(
+                            20,
+                            0,
+                            20,
+                            navInset + 100,
+                          ),
+                          itemCount: page.items.isEmpty
+                              ? 1
+                              : page.items.length +
+                                    (page.nextCursor != null ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (page.items.isEmpty) {
+                              final filtered =
+                                  _queryText.isNotEmpty ||
+                                  _project.isNotEmpty ||
+                                  _completed;
+                              return _EmptyTodos(
+                                title: filtered
+                                    ? l.todosNoResults
+                                    : page.completedCount > 0
+                                    ? l.todosNoPending
+                                    : l.todosEmpty,
+                                message: filtered
+                                    ? l.todosNoResultsHint
+                                    : l.todosEmptyHint,
+                              );
+                            }
+                            if (index < page.items.length) {
+                              final todo = page.items[index];
+                              return KeyedSubtree(
+                                key: ValueKey(todo.id),
+                                child: _card(todo, projects),
+                              );
+                            }
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              child: page.loadMoreError != null
+                                  ? Column(
+                                      children: [
+                                        Text(
+                                          todoErrorMessage(
+                                            page.loadMoreError!,
+                                            l,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: eco.textMuted,
+                                          ),
+                                        ),
+                                        TextButton(
+                                          onPressed: () => ref
+                                              .read(provider.notifier)
+                                              .loadMore(),
+                                          child: Text(l.commonRetry),
+                                        ),
+                                      ],
+                                    )
+                                  : Center(
+                                      child: Semantics(
+                                        label: l.commonLoading,
+                                        child: const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                            );
+                          },
+                        ),
+                      );
+                    },
                     error: (error, _) => SingleChildScrollView(
                       padding: const EdgeInsets.all(24),
                       child: AppErrorState(
@@ -556,22 +634,6 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
       ),
     );
   }
-}
-
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.label, required this.count});
-  final String label;
-  final int count;
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(4, 4, 4, 14),
-    child: Text(
-      '$label · $count',
-      style: Theme.of(
-        context,
-      ).textTheme.titleSmall?.copyWith(color: ecoColors(context).textMuted),
-    ),
-  );
 }
 
 class _EmptyTodos extends StatelessWidget {

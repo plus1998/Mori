@@ -1,7 +1,10 @@
+import { composerReferences, composerReferenceToken } from "./composer-references";
 import type { PromptImageAttachment } from "./ipc";
 
 export const TODO_MAX_IMAGES = 5;
 export const TODO_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const PROJECT_TODO_STATUSES = ["pending", "in_progress", "completed"] as const;
+export type ProjectTodoStatus = (typeof PROJECT_TODO_STATUSES)[number];
 export interface ProjectTodoImage {
   id: string;
   mediaType: PromptImageAttachment["mediaType"];
@@ -16,18 +19,64 @@ export interface ProjectTodo {
   text: string;
   images: ProjectTodoImage[];
   completed: boolean;
+  status: ProjectTodoStatus;
   createdAt: string;
   updatedAt: string;
   /** Last successful transfer into a conversation composer. */
   composedAt?: string;
+}
+export interface ProjectTodoCursor {
+  createdAt: string;
+  id: string;
+}
+export interface ProjectTodoQuery {
+  /** false includes both pending and in_progress. */
+  completed: boolean;
+  projectPath?: string;
+  search?: string;
+  /** Project names are held by the client; matching paths join the SQL search. */
+  matchingProjectPaths?: string[];
+  cursor?: ProjectTodoCursor;
+  limit?: number;
+}
+export interface ProjectTodoPage {
+  items: ProjectTodo[];
+  nextCursor: ProjectTodoCursor | null;
+  counts: { pending: number; completed: number };
+  projectPaths: string[];
 }
 export interface ProjectTodoSave {
   id?: string;
   revision?: number;
   projectPath: string;
   text: string;
-  images: Array<Pick<ProjectTodoImage, "id" | "mediaType" | "data"> & { thumbnail?: string; contentRef?: string }>;
+  images: Array<
+    Pick<ProjectTodoImage, "id" | "mediaType" | "data"> & { thumbnail?: string; contentRef?: string }
+  >;
   completed: boolean;
+  /** Older clients use completed; omitting status preserves an in-progress todo. */
+  status?: ProjectTodoStatus;
+}
+export interface ProjectTodoStatusUpdate {
+  id: string;
+  revision: number;
+  status: ProjectTodoStatus;
+}
+
+export function projectTodoReference(todo: Pick<ProjectTodo, "id" | "text" | "projectPath">) {
+  return {
+    kind: "todo" as const,
+    id: todo.id,
+    label: todo.text.trim().split(/\r?\n/)[0]?.slice(0, 80) || "待办",
+    detail: todo.projectPath,
+  };
+}
+export function appendProjectTodoReference(
+  prompt: string,
+  todo: Pick<ProjectTodo, "id" | "text" | "projectPath">,
+): string {
+  if (composerReferences(prompt).some((ref) => ref.kind === "todo" && ref.id === todo.id)) return prompt;
+  return `${prompt}${prompt && !/\s$/.test(prompt) ? "\n" : ""}${composerReferenceToken(projectTodoReference(todo))} `;
 }
 export interface ProjectTodoTrash {
   id: string;

@@ -1,8 +1,157 @@
 import 'package:eco_mobile/core/models/conversation_v2_projection_models.dart';
+import 'package:eco_mobile/core/preferences/thinking_display_preferences.dart';
 import 'package:eco_mobile/features/threads/activity_feed.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final mode in ThinkingDisplayMode.values) {
+    test(
+      'six commands share the live slot despite old running tools in ${mode.name}',
+      () {
+        final tools = [
+          for (var i = 1; i <= 6; i++) _row('command-$i', i, tool: true),
+        ];
+        final thinking = {
+          ..._row('thinking', 7, text: 'Checking the next source'),
+          'eventType': 'thinking.delta',
+          'metadata': {'conversationV2MessageId': 'thinking'},
+        };
+        List<ActivityFeedEntry> process({
+          List<Map<String, dynamic>> extra = const [],
+          Map<String, dynamic>? span,
+          bool live = true,
+        }) => buildActivityFeed(
+          thinkingDisplayMode: mode,
+          runProjection: ThreadRunProjectionSnapshot.fromJson({
+            'threadId': 'thread',
+            'status': live ? 'running' : 'completed',
+            'generatedAt': '2026-10-22T00:00:09.000Z',
+            'sourceEventCount': 10,
+            'agents': [],
+            'attempts': [
+              {
+                'attemptId': 'old-run',
+                'phase': 'main',
+                'retryIndex': 0,
+                'status': 'completed',
+                'startedAt': '2026-10-21T00:00:00.000Z',
+                'endedAt': '2026-10-21T00:00:02.000Z',
+              },
+              {
+                'attemptId': 'run',
+                'phase': 'main',
+                'retryIndex': 0,
+                'status': live ? 'running' : 'completed',
+                'startedAt': '2026-10-22T00:00:00.000Z',
+                if (!live) 'endedAt': '2026-10-22T00:00:09.000Z',
+              },
+            ],
+            'timeline': [
+              {
+                ..._row('background-command', 0, tool: true),
+                'eventType': 'tool.started',
+                'runAttemptId': 'old-run',
+                'at': '2026-10-21T00:00:00.000Z',
+                'metadata': {
+                  'tool': {'name': 'Bash', 'status': 'started'},
+                },
+              },
+              {
+                ..._row('old-answer', 0, text: 'Dev app started.'),
+                'runAttemptId': 'old-run',
+                'at': '2026-10-21T00:00:01.000Z',
+              },
+              ...tools,
+              ...extra,
+            ],
+            'requestSpans': [
+              if (span != null)
+                {
+                  'requestId': 'request',
+                  'status': 'streaming',
+                  'startedAt': '2026-10-22T00:00:00.000Z',
+                  ...span,
+                },
+            ],
+          }),
+        ).last.processEntries;
+        final before = process();
+        final states = [
+          process(
+            span: {
+              'pendingThinkingSince': '2026-10-22T00:00:07.000Z',
+              'pendingThinkingMessageId': 'thinking',
+            },
+          ),
+          process(extra: [thinking]),
+          process(
+            extra: [
+              {...thinking, 'eventType': 'thinking.final'},
+            ],
+          ),
+          process(
+            span: {
+              'writingTool': {
+                'since': '2026-10-22T00:00:07.000Z',
+                'kind': 'command',
+                'target': 'next',
+              },
+            },
+          ),
+          process(
+            extra: [
+              thinking,
+              _row('progress', 8, text: 'Continuing the check'),
+            ],
+          ),
+          process(
+            extra: [
+              thinking,
+              _row('final', 9, text: 'Done'),
+            ],
+            live: false,
+          ),
+        ];
+        expect(states[0].last.kind, ActivityFeedKind.thinking);
+        expect(states[0].last.text, isEmpty);
+        for (final state in states.skip(1).take(2)) {
+          expect(
+            state.last.kind,
+            mode.usesEphemeralTip
+                ? ActivityFeedKind.reasoningStage
+                : ActivityFeedKind.thinking,
+          );
+          expect(state.last.text, 'Checking the next source');
+        }
+        expect(states[3].last.kind, ActivityFeedKind.toolWriting);
+        for (var i = 0; i < states.length; i++) {
+          final replaced =
+              i == 0 || i == 3 || ((i == 1 || i == 2) && mode.usesEphemeralTip);
+          final groups = states[i].where(
+            (e) => e.kind == ActivityFeedKind.actionGroup,
+          );
+          expect(groups, hasLength(replaced ? 0 : 1), reason: 'transition $i');
+          final owner = replaced ? states[i].last : groups.single;
+          if (replaced) {
+            expect(
+              states[i],
+              hasLength(1),
+              reason: 'transition $i shares one row',
+            );
+          } else {
+            expect(owner.id, before.single.id, reason: 'transition $i');
+          }
+          expect(
+            owner.actionChildren.map((e) => e.id),
+            before.single.actionChildren.map((e) => e.id),
+            reason: 'transition $i',
+          );
+          expect(owner.actionChildren, hasLength(6), reason: 'transition $i');
+        }
+      },
+    );
+  }
+
   for (final running in [true, false]) {
     test('tool groups stay between their narration while running=$running', () {
       final projection = ThreadRunProjectionSnapshot.fromJson({
@@ -55,63 +204,70 @@ void main() {
     });
   }
 
-  test('a restored live tool group stays below existing progress text', () {
-    final prefix = [
-      _row('intro', 1, text: 'I will inspect the page.'),
-      _row('inspect', 2, tool: true),
-      _row('progress', 3, text: 'The copy is ready. I will deploy it next.'),
-      _row('deploy', 4, tool: true),
-      {
-        ..._row('summary', 5, text: 'Checking deployment'),
-        'eventType': 'thinking.delta',
-        'metadata': {'reasoningDisplay': 'summary'},
-      },
-    ];
-    List<ActivityFeedEntry> process(List<Map<String, dynamic>> timeline) =>
-        buildActivityFeed(
-          runProjection: ThreadRunProjectionSnapshot.fromJson({
-            'threadId': 'thread',
-            'status': 'running',
-            'generatedAt': '2026-10-22T00:00:07.000Z',
-            'sourceEventCount': timeline.length,
-            'agents': [],
-            'attempts': [
-              {
-                'attemptId': 'run',
-                'phase': 'main',
-                'retryIndex': 0,
-                'status': 'running',
-                'startedAt': '2026-10-22T00:00:00.000Z',
-              },
-            ],
-            'timeline': timeline,
-          }),
-        ).single.processEntries;
-
-    final before = process(prefix);
-    expect(before.map((entry) => entry.sequence), [1, 2, 3, 4]);
-    expect(before.last.kind, ActivityFeedKind.reasoningStage);
-
-    // Later speech restores the tool group that shared the temporary tail slot.
-    // It must not move that group above the progress paragraph already on screen.
-    for (final streaming in [true, false]) {
-      final after = process([
-        ...prefix,
+  test(
+    'a temporary summary replaces only the trailing group until prose arrives',
+    () {
+      final prefix = [
+        _row('intro', 1, text: 'I will inspect the page.'),
+        _row('inspect', 2, tool: true),
+        _row('progress', 3, text: 'The copy is ready. I will deploy it next.'),
+        _row('deploy', 4, tool: true),
         {
-          ..._row('next', 6, text: 'Deployed. I will verify it next.'),
-          'eventType': streaming ? 'message.delta' : 'message.final',
+          ..._row('summary', 5, text: 'Checking deployment'),
+          'eventType': 'thinking.delta',
+          'metadata': {'reasoningDisplay': 'summary'},
         },
-      ]);
-      expect(
-        after.take(3).map((entry) => entry.id),
-        before.take(3).map((entry) => entry.id),
-      );
-      expect(after.map((entry) => entry.sequence), [1, 2, 3, 4, 6]);
-      expect(after[3].kind, ActivityFeedKind.actionGroup);
-      expect(after[3].actionChildren.single.sequence, 4);
-      expect(after.last.streaming, streaming);
-    }
-  });
+      ];
+      List<ActivityFeedEntry> process(List<Map<String, dynamic>> timeline) =>
+          buildActivityFeed(
+            runProjection: ThreadRunProjectionSnapshot.fromJson({
+              'threadId': 'thread',
+              'status': 'running',
+              'generatedAt': '2026-10-22T00:00:07.000Z',
+              'sourceEventCount': timeline.length,
+              'agents': [],
+              'attempts': [
+                {
+                  'attemptId': 'run',
+                  'phase': 'main',
+                  'retryIndex': 0,
+                  'status': 'running',
+                  'startedAt': '2026-10-22T00:00:00.000Z',
+                },
+              ],
+              'timeline': timeline,
+            }),
+          ).single.processEntries;
+
+      final before = process(prefix);
+      final originalGroup = process(prefix.take(4).toList()).last;
+      expect(before.map((entry) => entry.sequence), [1, 2, 3, 5]);
+      expect(before[1].kind, ActivityFeedKind.actionGroup);
+      expect(before.last.kind, ActivityFeedKind.reasoningStage);
+      expect(before.last.actionChildren.single.sequence, 4);
+
+      // Later speech clears the temporary status and restores the same tool
+      // group below the progress paragraph, with its complete details.
+      for (final streaming in [true, false]) {
+        final after = process([
+          ...prefix,
+          {
+            ..._row('next', 6, text: 'Deployed. I will verify it next.'),
+            'eventType': streaming ? 'message.delta' : 'message.final',
+          },
+        ]);
+        expect(
+          after.take(3).map((entry) => entry.id),
+          before.take(3).map((entry) => entry.id),
+        );
+        expect(after.map((entry) => entry.sequence), [1, 2, 3, 4, 6]);
+        expect(after[3].kind, ActivityFeedKind.actionGroup);
+        expect(after[3].id, originalGroup.id);
+        expect(after[3].actionChildren.single.sequence, 4);
+        expect(after.last.streaming, streaming);
+      }
+    },
+  );
 
   test('a user prompt remains a boundary for same-run tool placement', () {
     final projection = ThreadRunProjectionSnapshot.fromJson({

@@ -48,6 +48,7 @@ test("project notes and original images survive reopening; list only returns thu
     completed: true,
   });
   expect(completed.completed).toBe(true);
+  expect(completed.status).toBe("completed");
   expect(reopened.get(saved.id).images[0]?.data).toBe(image.data);
   expect(reopened.get(saved.id).projectPath).toBe("/project/a");
 });
@@ -98,12 +99,42 @@ test("existing databases gain handoff metadata without marking old notes or losi
   )`);
   legacy.prepare("INSERT INTO project_todos VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     .run("legacy", 1, note.projectPath, note.text, 0, "2026-01-01", "2026-01-01", null);
+  legacy.prepare("INSERT INTO project_todos VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .run("done", 1, note.projectPath, "Already done", 1, "2026-01-01", "2026-01-01", null);
   legacy.close();
   const store = open(filename);
   const old = store.get("legacy");
   expect(old.text).toBe(note.text);
+  expect(old.status).toBe("pending");
+  expect(store.get("done").status).toBe("completed");
   expect(old.composedAt).toBeUndefined();
   expect(store.markComposed(old).composedAt).toBeDefined();
+});
+
+test("in-progress status survives old-client edits, completion toggles, and database reopening", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "eco-todo-status-"));
+  directories.push(directory);
+  const filename = path.join(directory, "notes.sqlite");
+  const store = open(filename);
+  const created = store.save({ ...note, images: [image] });
+  const started = store.updateStatus({ id: created.id, revision: created.revision, status: "in_progress" });
+  const marked = store.markComposed(started);
+  // The mobile client sends only completed, so an ordinary edit retains progress.
+  const { status: _status, ...legacy } = started;
+  const edited = store.save({ ...legacy, text: "User edit" });
+  expect(edited.status).toBe("in_progress");
+  expect(edited.composedAt).toBe(marked.composedAt);
+  expect(store.get(edited.id).images[0]?.data).toBe(image.data);
+  expect(() => store.updateStatus({ id: started.id, revision: started.revision, status: "completed" })).toThrow("changed");
+  expect(() => store.save({ ...edited, status: "bogus" as never })).toThrow("status");
+  const completed = store.save({ ...edited, completed: true });
+  expect(completed.status).toBe("completed");
+  const reopened = store.save({ ...completed, completed: false });
+  expect(reopened.status).toBe("pending");
+  store.updateStatus({ id: reopened.id, revision: reopened.revision, status: "in_progress" });
+  store.close();
+  stores.splice(stores.indexOf(store), 1);
+  expect(open(filename).get(created.id).status).toBe("in_progress");
 });
 
 test("stale edits and deletes cannot overwrite newer changes; deletion can be undone", () => {
@@ -188,4 +219,102 @@ test("mobile uploads resolve to durable todo bytes and keep optimistic conflict 
   await expect(resolveProjectTodoUploads(input, async () => ({ mediaType: "image/jpeg", byteLength: 1, dataBase64: image.data }))).rejects.toThrow("Invalid todo image");
   await expect(resolveProjectTodoUploads(input, async () => ({ mediaType: image.mediaType, byteLength: TODO_MAX_IMAGE_BYTES + 1, dataBase64: image.data }))).rejects.toThrow("Invalid todo image");
   expect(store.get(updated.id).revision).toBe(updated.revision);
+});
+
+test("SQL pages separate incomplete/completed todos and keep a stable cursor through equal timestamps", () => {
+  const db = new DatabaseSync(":memory:");
+  const store = new ProjectTodoStore(db, (bytes) => `data:image/png;base64,${bytes.toString("base64")}`);
+  stores.push(store);
+  for (let i = 0; i < 73; i++) {
+    const completed = i % 4 === 0;
+    const { id } = store.save({
+      ...note,
+      text: `Task ${i}`,
+      completed,
+      status: completed ? "completed" : i % 3 === 0 ? "in_progress" : "pending",
+      images: [image],
+    });
+    db.prepare("UPDATE project_todos SET created_at=? WHERE id=?").run(
+      `2026-10-${String(25 - Math.floor(i / 10)).padStart(2, "0")}T00:00:00.000Z`,
+      id,
+    );
+  }
+  const deleted = store.save(note);
+  store.trash({ id: deleted.id, revision: deleted.revision, deleted: true });
+  const expected = store.list().filter((todo) => !todo.completed);
+  const first = store.query({ completed: false });
+  expect(first.items).toHaveLength(20);
+  expect(first.counts).toEqual({ pending: 54, completed: 19 });
+  expect(first.projectPaths).toEqual([note.projectPath]);
+  expect(first.items.some((todo) => todo.status === "in_progress")).toBe(true);
+  expect(first.items.every((todo) => !todo.completed && todo.images[0]?.data === undefined)).toBe(true);
+  // A new item ahead of the cursor and a removed prior item cannot shift later pages.
+  store.save(note);
+  const removed = first.items[0];
+  if (!removed) throw new Error("Missing first page");
+  store.trash({ ...removed, deleted: true });
+  const collected = [...first.items];
+  let cursor = first.nextCursor;
+  while (cursor) {
+    const page = store.query({ completed: false, cursor });
+    expect(page.items.length).toBeLessThanOrEqual(20);
+    collected.push(...page.items);
+    cursor = page.nextCursor;
+  }
+  expect(collected.map((todo) => todo.id)).toEqual(expected.map((todo) => todo.id));
+  const completed = store.query({ completed: true });
+  expect(completed.items).toHaveLength(19);
+  expect(completed.items.every((todo) => todo.status === "completed")).toBe(true);
+  expect(completed.nextCursor).toBeNull();
+});
+
+test("SQL substring search covers unloaded text, paths and matching project names with literal LIKE characters", () => {
+  const store = open();
+  for (let i = 0; i < 30; i++) store.save({ ...note, text: `Unrelated ${i}` });
+  const text = store.save({ ...note, text: "修复 API 的 100%_\\ 路径和 O'Reilly", images: [image] });
+  const named = store.save({
+    ...note,
+    projectPath: "/project/elsewhere",
+    text: "No keyword here",
+    completed: true,
+  });
+  for (const search of ["api", "修复", "100%_\\", "O'Reilly"]) {
+    const page = store.query({ completed: false, search });
+    expect(page.items.map((todo) => todo.id)).toEqual([text.id]);
+    expect(page.counts).toEqual({ pending: 1, completed: 0 });
+  }
+  expect(store.query({ completed: false, search: "%" }).items.map((todo) => todo.id)).toEqual([text.id]);
+  expect(store.query({ completed: false, search: "' OR 1=1 --" }).items).toEqual([]);
+  expect(store.query({ completed: true, search: "elsewhere" }).items.map((todo) => todo.id)).toEqual([
+    named.id,
+  ]);
+  expect(
+    store
+      .query({ completed: true, search: "Display name", matchingProjectPaths: [named.projectPath] })
+      .items.map((todo) => todo.id),
+  ).toEqual([named.id]);
+  expect(store.query({ completed: false, search: "API", projectPath: named.projectPath }).items).toEqual([]);
+  expect(store.query({ completed: false, projectPath: named.projectPath }).counts).toEqual({
+    pending: 0,
+    completed: 1,
+  });
+});
+
+test("todo query refuses unbounded pages and malformed remote filters", () => {
+  const store = open();
+  for (const input of [
+    null,
+    {},
+    { completed: "false" },
+    { completed: false, limit: 0 },
+    { completed: false, limit: 51 },
+    { completed: false, limit: 1.5 },
+    { completed: false, search: 1 },
+    { completed: false, projectPath: 1 },
+    { completed: false, matchingProjectPaths: "bad" },
+    { completed: false, matchingProjectPaths: [1] },
+    { completed: false, cursor: { createdAt: "2026", id: "" } },
+  ]) {
+    expect(() => store.query(input as never)).toThrow("Invalid todo query");
+  }
 });

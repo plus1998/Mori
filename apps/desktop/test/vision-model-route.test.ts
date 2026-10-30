@@ -161,6 +161,6 @@ describe("resolveThreadVisionAnalysisRoute", () => {
           throw new Error("Eco fallback should not run");
         },
       }),
-    ).toThrow(/ACP 会话没有 Eco 主模型可回退/);
+    ).toThrow(/ACP 会话没有 Mori 主模型可回退/);
   });
 });

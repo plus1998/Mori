@@ -16,6 +16,11 @@ function fixture(
   let notify: ((method: string, params: unknown) => void) | undefined;
   let removed = false;
   const complete = () => {
+    notify?.("turn/started", {threadId:"wake",turn:{id:"turn"}});
+    for(let i=0;i<2;i++) notify?.("thread/tokenUsage/updated",{threadId:"wake",turnId:"turn",tokenUsage:{
+      last:{inputTokens:10,cachedInputTokens:4,outputTokens:3,reasoningOutputTokens:1,totalTokens:13},
+      total:{inputTokens:10,cachedInputTokens:4,outputTokens:3,reasoningOutputTokens:1,totalTokens:13},
+    }});
     notify?.("turn/completed", { threadId: "other", turn: { id: "other", status: "completed" } });
     notify?.("item/completed", {
       threadId: "wake",
@@ -72,6 +77,13 @@ test("wake sends exactly hi on an ephemeral official-provider thread and waits f
 
 test("a completion before turn/start resolves is retained", async () => {
   expect(await wakeCodexAccount(fixture({ early: true }).client)).toBe("Hello!");
+});
+
+test("wake records usage against the explicitly selected account and deduplicates notifications", async () => {
+  const records:unknown[] = [];
+  await wakeCodexAccount(fixture({early:true}).client,"gpt-6-luna",1000,{accountId:"selected",onUsage:record => {records.push(record);}});
+  expect(records).toHaveLength(1);
+  expect(records[0]).toMatchObject({kind:"chatgpt_login",accountId:"selected",modelId:"gpt-6-luna",inputTokens:6,cacheReadTokens:4,outputTokens:3,reasoningTokens:1});
 });
 
 test("an explicit user model is used by both start calls without replacing it with the catalog default", async () => {

@@ -1013,6 +1013,100 @@ void main() {
     },
   );
 
+  testWidgets(
+    'plus menu follows its grabber and snaps back after a short pull',
+    (tester) async {
+      final controller = TextEditingController(text: 'Keep this draft');
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        _TestApp(modelSettings: modelSettings, child: menuComposer(controller)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(EcoIcons.add));
+      await tester.pumpAndSettle();
+      final panel = find.byKey(const ValueKey('composer-plus-panel'));
+      final grabber = find.byKey(const ValueKey('composer-plus-grabber'));
+      final initial = tester.getRect(panel);
+      final gesture = await tester.startGesture(tester.getCenter(grabber));
+      await gesture.moveBy(const Offset(0, 20));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 30));
+      await tester.pump();
+      expect(tester.getTopLeft(panel).dy, greaterThan(initial.top + 20));
+      // Pause before release to test distance without a fling velocity.
+      await tester.pump(const Duration(milliseconds: 300));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(tester.getRect(panel), initial);
+      expect(controller.text, 'Keep this draft');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'plus menu list scrolls while the grabber dismisses either page',
+    (tester) async {
+      final controller = TextEditingController(text: 'Keep this draft');
+      addTearDown(controller.dispose);
+      var changes = 0;
+      await tester.pumpWidget(
+        _TestApp(
+          modelSettings: modelSettings,
+          child: menuComposer(controller, onChanged: (_) => changes++),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final panel = find.byKey(const ValueKey('composer-plus-panel'));
+      final grabber = find.byKey(const ValueKey('composer-plus-grabber'));
+      for (final configPage in [false, true]) {
+        await tester.tap(find.byIcon(EcoIcons.add));
+        await tester.pumpAndSettle();
+        final initial = tester.getRect(panel);
+        final content = find
+            .descendant(of: panel, matching: find.byType(SingleChildScrollView))
+            .first;
+        await tester.drag(content, const Offset(0, -100));
+        await tester.pumpAndSettle();
+        await tester.drag(content, const Offset(0, 100));
+        await tester.pumpAndSettle();
+        expect(tester.getRect(panel), initial);
+        if (configPage) {
+          await tester.ensureVisible(find.text('Runtime config'));
+          await tester.tap(find.text('Runtime config'));
+          await tester.pumpAndSettle();
+          expect(find.byTooltip('Back to menu'), findsOneWidget);
+        }
+        await tester.drag(grabber, const Offset(0, 160));
+        await tester.pumpAndSettle();
+        expect(panel, findsNothing);
+      }
+      expect(controller.text, 'Keep this draft');
+      expect(changes, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('plus menu grabber dismisses with a fast downward fling', (
+    tester,
+  ) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      _TestApp(modelSettings: modelSettings, child: menuComposer(controller)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(EcoIcons.add));
+    await tester.pumpAndSettle();
+    await tester.fling(
+      find.byKey(const ValueKey('composer-plus-grabber')),
+      const Offset(0, 65),
+      1600,
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ComposerPlusMenuPanel), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('plus menu toggles an active mode and switches between modes', (
     tester,
   ) async {
@@ -1450,6 +1544,7 @@ void main() {
 
     await tester.tap(find.byIcon(EcoIcons.add));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Image'));
     await tester.tap(find.text('Image'));
     await tester.pumpAndSettle();
     expect(pickedImage, isTrue);

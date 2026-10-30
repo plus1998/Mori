@@ -69,7 +69,7 @@ export function buildPlanHandoffForkThread(input: PlanHandoffInput): PlanHandoff
   const plan = input.planMarkdown.trim();
   const agentOptions = buildCodexTurnOptions({ sessionMode: "agent" });
   const prefix = input.planUserEdited
-    ? "The user edited the plan in Eco before approval. Treat the plan below as authoritative.\n\n"
+    ? "The user edited the plan in Mori before approval. Treat the plan below as authoritative.\n\n"
     : "";
 
   return {

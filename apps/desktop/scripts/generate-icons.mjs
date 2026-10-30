@@ -78,7 +78,7 @@ async function buildIcns(inputPng, outputPath) {
     return;
   }
 
-  const iconsetDir = path.join(packagingDir, "Eco.iconset");
+  const iconsetDir = path.join(packagingDir, "Mori.iconset");
   fs.rmSync(iconsetDir, { force: true, recursive: true });
   fs.mkdirSync(iconsetDir, { recursive: true });
   const sizes = [

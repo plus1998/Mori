@@ -362,24 +362,25 @@ export async function handleMcpStreamableHttpRequest(
       // response must carry that ID. This also prevents a request from one
       // session from entering another session's cancellation table.
       if (!sessionState) {
-        // Recovery for an expired or unknown session: an authenticated
-        // client may still hold a session ID the server has already evicted
-        // (idle TTL) or never registered for this auth scope — notably when
-        // a tool call waited for user approval while the session idled out.
-        // Issuing a fresh session ID and echoing it in the Mcp-Session-Id
-        // response header lets conforming clients (e.g. rmcp) adopt it
-        // transparently. The scope key keeps the new session out of any
-        // other session's cancellation table. Anonymous requests must still
-        // start with a fresh initialize handshake.
-        if (sessionId && authToken) {
-          sessionId = randomUUID();
-          sessionState = registerSession(authScope, sessionId);
-        } else {
-          if (!response.destroyed) {
+        if (!response.destroyed) {
+          if (sessionId) {
+            // The client still holds a session this server no longer knows —
+            // the idle TTL evicted it, a gateway restarted, or the session
+            // belongs to another auth scope. Streamable HTTP requires 404 for
+            // an unrecognized session, and that status is what makes clients
+            // recover: Codex's pinned rmcp client transparently
+            // re-initialize and re-send the request only on 404. Answering
+            // 400 here left long-lived assistant threads permanently unable
+            // to call MCP tools after 30 idle minutes, because the client
+            // kept reusing the dead session ID.
+            sendJson(response, 404, { error: "MCP session not found" });
+          } else {
+            // No session was offered at all: this is not an expiry signal, the
+            // client must start with a fresh initialize handshake.
             sendJson(response, 400, { error: "missing or invalid MCP session id" });
           }
-          return true;
         }
+        return true;
       }
 
       let operation: ReturnType<typeof beginMcpRequest> | undefined;
@@ -585,7 +586,7 @@ export async function probeCodexStyleHttpMcpHandshake(input: {
     return { toolCount: listBody.result.tools.length };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Eco HTTP MCP \`${input.name}\` Codex 握手探测失败（${input.url}）：${detail}`);
+    throw new Error(`Mori HTTP MCP \`${input.name}\` Codex 握手探测失败（${input.url}）：${detail}`);
   } finally {
     clearTimeout(timer);
   }

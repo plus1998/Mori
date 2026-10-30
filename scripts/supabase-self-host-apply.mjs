@@ -177,7 +177,7 @@ function alreadyApplied(filename) {
 }
 
 function applyMigrations() {
-  console.log("\n==> Applying Eco migrations (incremental via eco_schema_migrations)");
+  console.log("\n==> Applying Mori migrations (incremental via eco_schema_migrations)");
   ensureMigrationTable();
   for (const filename of listMigrationFiles()) {
     if (alreadyApplied(filename)) {

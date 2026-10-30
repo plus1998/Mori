@@ -214,7 +214,7 @@ export async function runImageView(input: ImageViewRequest, host: ImageViewHost)
     }
     return readImageViewResponse(payload);
   } catch (error) {
-    throw new Error(`图片查看失败：${errorMessage(error)}`);
+    throw new Error(`图片查看失败（model=${sourceRoute.modelId}）：${errorMessage(error)}`);
   } finally {
     await proxy?.close().catch(() => {});
     host.unregisterBilling(input.threadId, input.billingAgentId);

@@ -48,13 +48,13 @@ class CodexQuotaSnapshot {
   final List<CodexAccount> accounts;
   CodexAccount? get account {
     for (final account in accounts) {
-      if (account.id == active.id && active.isLoggedIn) return account;
+      if (account.id == active.id && active.canUseCredentials) return account;
     }
     return null;
   }
 
   List<CodexAccount> get candidates => accounts
-      .where((account) => account.id != active.id && account.configured)
+      .where((account) => account.id != active.id && account.canUseCredentials)
       .toList();
 }
 
@@ -131,7 +131,7 @@ class CodexQuotaController
         throw StateError(active.syncMessage ?? 'Codex account sync failed');
       }
       var accounts = await remote.listCodexAccounts();
-      if (active.id != null && active.isLoggedIn) {
+      if (active.id != null && active.canUseCredentials) {
         final found = accounts.where((a) => a.id == active.id).firstOrNull;
         if (found == null) throw const CodexQuotaFailure('removed');
         final quota = query || found.quota == null

@@ -1,3 +1,4 @@
+import { shortcutMatches } from "./keyboard-shortcuts";
 import type {
   FitAddon,
   Ghostty,
@@ -262,11 +263,7 @@ function applyTerminalTheme(terminal: GhosttyTerminalType, state: TerminalThemeS
 }
 
 function isToggleTerminalShortcut(event: KeyboardEvent): boolean {
-  const key = event.key;
-  if (key !== "`" && key !== "~") {
-    return false;
-  }
-  return event.ctrlKey || event.metaKey;
+  return shortcutMatches(event, "toggle-bottom-panel");
 }
 
 function mountHasLayout(element: HTMLElement): boolean {

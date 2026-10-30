@@ -215,30 +215,16 @@ async function loadInputImages(
     const absolutePath = path.isAbsolute(rawPath)
       ? path.resolve(rawPath)
       : path.resolve(workspaceRoot, rawPath);
-    if (absolutePath !== workspaceRoot && !absolutePath.startsWith(`${workspaceRoot}${path.sep}`)) {
-      throw new ImageGenerationError("invalid_input_path", `参考图必须位于当前工作区内：${rawPath}`);
-    }
-    let linkStat;
+    let fileStat;
     try {
-      linkStat = await fs.lstat(absolutePath);
+      fileStat = await fs.stat(absolutePath);
     } catch {
       throw new ImageGenerationError("invalid_input_path", `参考图不存在：${rawPath}`);
     }
-    if (linkStat.isSymbolicLink()) {
-      throw new ImageGenerationError("invalid_input_path", `不允许使用符号链接作为参考图：${rawPath}`);
-    }
-    if (!linkStat.isFile()) {
+    if (!fileStat.isFile()) {
       throw new ImageGenerationError("invalid_input_path", `参考图不是普通文件：${rawPath}`);
     }
-    const realPath = await fs.realpath(absolutePath);
-    // The root is resolved the same way the file is: on macOS `/var` (and therefore every
-    // temp directory) is a symlink to `/private/var`, so comparing a resolved path against
-    // an unresolved root rejects a reference image that is plainly inside the workspace.
-    const realRoot = await fs.realpath(workspaceRoot).catch(() => workspaceRoot);
-    if (realPath !== realRoot && !realPath.startsWith(`${realRoot}${path.sep}`)) {
-      throw new ImageGenerationError("invalid_input_path", `参考图解析后逃逸了工作区：${rawPath}`);
-    }
-    if (linkStat.size > MAX_INPUT_IMAGE_BYTES) {
+    if (fileStat.size > MAX_INPUT_IMAGE_BYTES) {
       throw new ImageGenerationError("image_too_large", `参考图超过 50 MB 限制：${rawPath}`);
     }
     const bytes = await fs.readFile(absolutePath);

@@ -11,6 +11,9 @@ import 'package:eco_mobile/core/providers/app_providers.dart';
 import 'package:eco_mobile/core/providers/desktop_bind_ready.dart';
 import 'package:eco_mobile/core/storage/credential_store.dart';
 import 'package:eco_mobile/core/theme/eco_theme.dart';
+import 'package:eco_mobile/core/utils/composer_references.dart';
+import 'package:eco_mobile/core/widgets/composer_prompt_editing_controller.dart';
+import 'package:eco_mobile/core/widgets/adaptive_nav_bar.dart';
 import 'package:eco_mobile/features/projects/project_providers.dart';
 import 'package:eco_mobile/features/threads/thread_providers.dart';
 import 'package:eco_mobile/features/todos/project_todos_screen.dart';
@@ -25,6 +28,8 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:eco_mobile/core/models/thread_models.dart';
 import 'package:eco_mobile/features/threads/thread_session_route.dart';
+
+const initialQuery = (completed: false, projectPath: '', search: '');
 
 Map<String, dynamic> row(
   String id,
@@ -55,6 +60,8 @@ class TodoClient extends EcoCenterClient {
   final deleted = <String>{};
   final imageBytes = List<int>.generate(150000, (i) => i % 251);
   final uploadedImageBytes = <int>[];
+  Completer<void>? pageGate;
+  bool failNextPage = false;
 
   @override
   Future<T> invoke<T>(
@@ -84,8 +91,73 @@ class TodoClient extends EcoCenterClient {
           'name': 'Alpha',
           'isGitRepository': false,
         };
-      case 'project-todo:list':
-        result = items.where((item) => !deleted.contains(item['id'])).toList();
+      case 'project-todo:query':
+        final input = args.single as Map;
+        final search = (input['search'] as String? ?? '').toLowerCase();
+        final matching = input['matchingProjectPaths'] as List? ?? const [];
+        final filtered =
+            items
+                .where(
+                  (item) =>
+                      !deleted.contains(item['id']) &&
+                      (input['projectPath'] == null ||
+                          input['projectPath'] == item['projectPath']) &&
+                      (search.isEmpty ||
+                          (item['text'] as String).toLowerCase().contains(
+                            search,
+                          ) ||
+                          (item['projectPath'] as String)
+                              .toLowerCase()
+                              .contains(search) ||
+                          matching.contains(item['projectPath'])),
+                )
+                .toList()
+              ..sort((a, b) {
+                final time = (b['createdAt'] as String).compareTo(
+                  a['createdAt'] as String,
+                );
+                return time != 0
+                    ? time
+                    : (a['id'] as String).compareTo(b['id'] as String);
+              });
+        final cursor = input['cursor'] as Map?;
+        final selected = filtered
+            .where(
+              (item) =>
+                  item['completed'] == input['completed'] &&
+                  (cursor == null ||
+                      (item['createdAt'] as String).compareTo(
+                            cursor['createdAt'] as String,
+                          ) <
+                          0 ||
+                      (item['createdAt'] == cursor['createdAt'] &&
+                          (item['id'] as String).compareTo(
+                                cursor['id'] as String,
+                              ) >
+                              0)),
+            )
+            .toList();
+        final page = selected.take(input['limit'] as int).toList();
+        result = {
+          'items': page,
+          'nextCursor': selected.length > page.length
+              ? {'id': page.last['id'], 'createdAt': page.last['createdAt']}
+              : null,
+          'counts': {
+            'pending': filtered.where((i) => i['completed'] == false).length,
+            'completed': filtered.where((i) => i['completed'] == true).length,
+          },
+          'projectPaths': items.map((i) => i['projectPath']).toSet().toList(),
+        };
+        if (cursor != null) {
+          if (failNextPage) {
+            failNextPage = false;
+            throw StateError('Page failed');
+          }
+          final gate = pageGate;
+          pageGate = null;
+          if (gate != null) await gate.future;
+        }
       case 'project-todo:get':
         result = items.firstWhere((item) => item['id'] == args[0]);
       case 'project-todo:save':
@@ -141,6 +213,22 @@ class TodoThreads extends ThreadListNotifier {
   Future<List<ThreadSummary>> build() async => [];
 }
 
+ProviderContainer todoContainer(TodoClient client) => ProviderContainer(
+  overrides: [
+    desktopRpcProvider.overrideWithValue(DesktopRpc(client, 'desktop')),
+    selectedDesktopIdProvider.overrideWith((ref) => 'desktop'),
+    desktopBindReadyOverrideProvider.overrideWithValue(true),
+    ecoEventsProvider.overrideWith((ref) => const Stream.empty()),
+    connectionStatusProvider.overrideWith((ref) => const Stream.empty()),
+    projectListProvider.overrideWithValue(
+      const AsyncData([
+        EcoProject(path: '/a', name: 'Alpha'),
+        EcoProject(path: '/b', name: 'Beta'),
+      ]),
+    ),
+  ],
+);
+
 Widget app(TodoClient client, {Widget? home, double scale = 1}) =>
     ProviderScope(
       overrides: [
@@ -148,6 +236,7 @@ Widget app(TodoClient client, {Widget? home, double scale = 1}) =>
         ecoEventsProvider.overrideWith((ref) => const Stream.empty()),
         connectionStatusProvider.overrideWith((ref) => const Stream.empty()),
         selectedDesktopIdProvider.overrideWith((ref) => 'desktop'),
+        desktopBindReadyOverrideProvider.overrideWithValue(true),
         threadListProvider.overrideWith(TodoThreads.new),
         projectWorkspaceContextProvider.overrideWith(
           (ref) async => const ProjectWorkspaceContext(homeProjectPath: '/a'),
@@ -159,10 +248,6 @@ Widget app(TodoClient client, {Widget? home, double scale = 1}) =>
           ]),
         ),
         selectedProjectPathProvider.overrideWith(SelectedProject.new),
-        projectTodosProvider.overrideWith(
-          (ref) async =>
-              (await ref.watch(desktopRpcProvider)!.listProjectTodos()),
-        ),
       ],
       child: MaterialApp(
         theme: buildEcoLightTheme(),
@@ -181,6 +266,217 @@ Widget app(TodoClient client, {Widget? home, double scale = 1}) =>
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test(
+    'pagination coalesces requests and preserves loaded rows on a retryable page failure',
+    () async {
+      final client = TodoClient()..items.clear();
+      client.items.addAll(
+        List.generate(53, (i) => row(i.toString().padLeft(3, '0'), 'Task $i')),
+      );
+      final container = todoContainer(client);
+      final provider = projectTodosProvider(initialQuery);
+      final sub = container.listen(provider, (_, _) {});
+      addTearDown(() {
+        sub.close();
+        container.dispose();
+      });
+      expect((await container.read(provider.future)).items.length, 20);
+      final controller = container.read(provider.notifier);
+      client.failNextPage = true;
+      await controller.loadMore();
+      expect(container.read(provider).requireValue.items.length, 20);
+      expect(container.read(provider).requireValue.loadMoreError, isNotNull);
+      final gate = Completer<void>();
+      client.pageGate = gate;
+      final retry = controller.loadMore();
+      await controller.loadMore();
+      expect(
+        client.calls
+            .where((c) => (c.args.single as Map)['cursor'] != null)
+            .length,
+        2,
+      );
+      gate.complete();
+      await retry;
+      expect(container.read(provider).requireValue.items.length, 40);
+      expect(container.read(provider).requireValue.loadMoreError, isNull);
+      await controller.loadMore();
+      expect(container.read(provider).requireValue.items.length, 53);
+      expect(container.read(provider).requireValue.nextCursor, isNull);
+      await controller.loadMore();
+      expect(client.calls.length, 4);
+    },
+  );
+
+  test(
+    'refresh discards an in-flight older page instead of appending it to the new first page',
+    () async {
+      final client = TodoClient()..items.clear();
+      client.items.addAll(
+        List.generate(45, (i) => row(i.toString().padLeft(3, '0'), 'Task $i')),
+      );
+      final container = todoContainer(client);
+      final provider = projectTodosProvider(initialQuery);
+      final sub = container.listen(provider, (_, _) {});
+      addTearDown(() {
+        sub.close();
+        container.dispose();
+      });
+      await container.read(provider.future);
+      final gate = Completer<void>();
+      client.pageGate = gate;
+      final oldPage = container.read(provider.notifier).loadMore();
+      client.items.first = {...client.items.first, 'text': 'Edited on desktop'};
+      container.invalidate(provider);
+      expect(
+        (await container.read(provider.future)).items.first.text,
+        'Edited on desktop',
+      );
+      gate.complete();
+      await oldPage;
+      expect(container.read(provider).requireValue.items.length, 20);
+      expect(
+        container.read(provider).requireValue.items.first.text,
+        'Edited on desktop',
+      );
+    },
+  );
+
+  test(
+    'project names and selected project are passed to the server query',
+    () async {
+      final client = TodoClient();
+      final container = todoContainer(client);
+      const query = (completed: false, projectPath: '/b', search: 'Beta');
+      final provider = projectTodosProvider(query);
+      final sub = container.listen(provider, (_, _) {});
+      addTearDown(() {
+        sub.close();
+        container.dispose();
+      });
+      expect(
+        (await container.read(provider.future)).items.single.text,
+        'Review API',
+      );
+      expect(client.calls.single.args.single, {
+        'completed': false,
+        'projectPath': '/b',
+        'search': 'Beta',
+        'matchingProjectPaths': ['/b'],
+        'limit': 20,
+      });
+    },
+  );
+
+  testWidgets(
+    'initial load is bounded, scrolling loads another page, and completed rows load only after selection',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final client = TodoClient()..items.clear();
+      for (var i = 0; i < 65; i++) {
+        client.items.add(
+          row('pending-${i.toString().padLeft(3, '0')}', 'Pending $i'),
+        );
+        client.items.add(
+          row(
+            'completed-${i.toString().padLeft(3, '0')}',
+            'Done $i',
+            completed: true,
+          ),
+        );
+      }
+      await tester.pumpWidget(app(client));
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ProjectTodosScreen)),
+      );
+      expect(
+        container
+            .read(projectTodosProvider(initialQuery))
+            .requireValue
+            .items
+            .length,
+        20,
+      );
+      expect(
+        client.calls.where((c) => c.channel == 'project-todo:query').length,
+        1,
+      );
+      expect(
+        client.calls.any((c) => (c.args.single as Map)['completed'] == true),
+        isFalse,
+      );
+      expect(find.byTooltip('To-do actions').evaluate().length, lessThan(20));
+      final list = tester.widget<ListView>(find.byType(ListView));
+      list.controller!.jumpTo(list.controller!.position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      expect(
+        container
+            .read(projectTodosProvider(initialQuery))
+            .requireValue
+            .items
+            .length,
+        40,
+      );
+      await tester.tap(find.byKey(const ValueKey('todos-category-true')));
+      await tester.pumpAndSettle();
+      const completedQuery = (completed: true, projectPath: '', search: '');
+      expect(
+        container
+            .read(projectTodosProvider(completedQuery))
+            .requireValue
+            .items
+            .length,
+        20,
+      );
+      final completedCall = client.calls.lastWhere(
+        (c) => c.channel == 'project-todo:query',
+      );
+      expect((completedCall.args.single as Map)['completed'], isTrue);
+      expect((completedCall.args.single as Map)['cursor'], isNull);
+      expect(find.text('Done 0'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('debounced SQL search finds a todo outside the loaded page', (
+    tester,
+  ) async {
+    final client = TodoClient()..items.clear();
+    client.items.addAll(
+      List.generate(50, (i) => row(i.toString().padLeft(3, '0'), 'Task $i')),
+    );
+    client.items.add(row('last', 'Unloaded keyword'));
+    await tester.pumpWidget(app(client));
+    await tester.pumpAndSettle();
+    expect(find.text('Unloaded keyword'), findsNothing);
+    await tester.enterText(find.byType(TextField), 'Unloaded');
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.enterText(find.byType(TextField), 'Unloaded keyword');
+    await tester.pump(const Duration(milliseconds: 299));
+    expect(
+      client.calls.where((c) => c.channel == 'project-todo:query').length,
+      1,
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(ListView),
+        matching: find.text('Unloaded keyword'),
+      ),
+      findsOneWidget,
+    );
+    final calls = client.calls
+        .where((c) => c.channel == 'project-todo:query')
+        .toList();
+    expect(calls.length, 2);
+    expect((calls.last.args.single as Map)['search'], 'Unloaded keyword');
+    expect((calls.last.args.single as Map)['cursor'], isNull);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
     'adding a todo image avoids full photo metadata and uploads on save',
     (tester) async {
@@ -278,17 +574,24 @@ void main() {
         desktopRpcProvider.overrideWithValue(DesktopRpc(client, 'desktop')),
         selectedDesktopIdProvider.overrideWith((ref) => 'desktop'),
         desktopBindReadyOverrideProvider.overrideWithValue(true),
+        projectListProvider.overrideWithValue(
+          const AsyncData([
+            EcoProject(path: '/a', name: 'Alpha'),
+            EcoProject(path: '/b', name: 'Beta'),
+          ]),
+        ),
         ecoEventsProvider.overrideWith((ref) => events.stream),
         connectionStatusProvider.overrideWith((ref) => const Stream.empty()),
       ],
     );
-    final sub = container.listen(projectTodosProvider, (_, _) {});
+    final provider = projectTodosProvider(initialQuery);
+    final sub = container.listen(provider, (_, _) {});
     addTearDown(() {
       sub.close();
       container.dispose();
       events.close();
     });
-    await container.read(projectTodosProvider.future);
+    await container.read(provider.future);
     client.items.add(row('4', 'Added on desktop'));
     await Future<void>.delayed(Duration.zero);
     events.add(
@@ -301,12 +604,81 @@ void main() {
       ),
     );
     await Future<void>.delayed(Duration.zero);
-    expect((await container.read(projectTodosProvider.future)).length, 4);
+    expect((await container.read(provider.future)).items.length, 3);
     expect(
-      client.calls.where((c) => c.channel == 'project-todo:list').length,
+      client.calls.where((c) => c.channel == 'project-todo:query').length,
       2,
     );
   });
+
+  testWidgets(
+    'delete undo clears after five seconds without covering shell controls',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final client = TodoClient();
+      var navTaps = 0;
+      await tester.pumpWidget(
+        app(
+          client,
+          home: Scaffold(
+            body: Stack(
+              children: [
+                const ProjectTodosScreen(),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Builder(
+                    builder: (context) => SizedBox(
+                      height: adaptiveNavBarTotalHeight(context),
+                      child: TextButton(
+                        key: const Key('shell-nav'),
+                        onPressed: () => navTaps++,
+                        child: const Text('Bottom navigation'),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('To-do actions').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(client.deleted, contains('1'));
+      final surface = find
+          .descendant(
+            of: find.byType(SnackBar),
+            matching: find.byType(Material),
+          )
+          .first;
+      final snackRect = tester.getRect(surface);
+      expect(
+        snackRect.bottom,
+        lessThan(tester.getTopLeft(find.byKey(const Key('shell-nav'))).dy),
+      );
+      expect(
+        snackRect.overlaps(tester.getRect(find.byType(FloatingActionButton))),
+        isFalse,
+      );
+      await tester.tap(find.byKey(const Key('shell-nav')));
+      await tester.pump();
+      expect(navTaps, 1);
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.text('Undo'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(find.text('Undo'), findsNothing);
+      expect(client.deleted, contains('1'));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   testWidgets(
     'search, completed section, toggle and delete undo use shared revisions',
@@ -319,10 +691,12 @@ void main() {
       expect(find.text('Fix mobile layout'), findsOneWidget);
       expect(find.text('Completed task'), findsNothing);
       await tester.enterText(find.byType(TextField), 'API');
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
       expect(find.text('Review API'), findsOneWidget);
       expect(find.text('Fix mobile layout'), findsNothing);
       await tester.enterText(find.byType(TextField), '');
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Mark complete').first);
       await tester.pumpAndSettle();
@@ -338,6 +712,8 @@ void main() {
       await tester.tap(find.text('Completed · 2'));
       await tester.pumpAndSettle();
       expect(find.text('Completed task'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('todos-category-false')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('To-do actions').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete'));
@@ -408,7 +784,7 @@ void main() {
     expect(client.calls.any((c) => c.channel == 'project-todo:save'), isFalse);
   });
   testWidgets(
-    'bringing a todo into a new conversation preserves text and original image without sending',
+    'bringing a todo references its identity without copying content or downloading images',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(390, 844);
@@ -424,6 +800,8 @@ void main() {
         },
       ];
       ThreadSessionRouteExtra? draft;
+      ComposerPromptEditingController? composer;
+      addTearDown(() => composer?.dispose());
       final router = GoRouter(
         initialLocation: '/todos',
         routes: [
@@ -435,7 +813,8 @@ void main() {
             path: '/threads/:id',
             builder: (_, state) {
               draft = state.extra as ThreadSessionRouteExtra;
-              return const Scaffold(body: Text('Composer ready'));
+              composer = ComposerPromptEditingController(text: draft!.prompt!);
+              return Scaffold(body: TextField(controller: composer));
             },
           ),
         ],
@@ -450,9 +829,19 @@ void main() {
       expect(find.textContaining('review and send'), findsOneWidget);
       await tester.tap(find.text('New conversation'));
       await tester.pumpAndSettle();
-      expect(find.text('Composer ready'), findsOneWidget);
-      expect(draft?.prompt, 'Fix mobile layout');
-      expect(base64Decode(draft!.attachments.single.data), client.imageBytes);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(composer!.text, '@Fix mobile layout ');
+      expect(composer!.prompt, draft!.prompt);
+      final reference = parseComposerPrompt(draft!.prompt!).first;
+      expect(reference.kind, 'todo');
+      expect(reference.id, '1');
+      expect(reference.label, 'Fix mobile layout');
+      expect(reference.detail, '/a');
+      expect(draft!.attachments, isEmpty);
+      expect(
+        client.calls.any((c) => c.channel == 'project-todo:image-read'),
+        isFalse,
+      );
       expect(client.items.length, 3);
       expect(client.deleted, isEmpty);
       expect(

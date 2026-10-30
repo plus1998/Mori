@@ -2,6 +2,76 @@ import 'thread_models.dart';
 
 const todoMaxImages = 5;
 const todoMaxImageBytes = 5 * 1024 * 1024;
+const todoPageSize = 20;
+
+typedef ProjectTodosQuery = ({
+  bool completed,
+  String projectPath,
+  String search,
+});
+
+class ProjectTodoCursor {
+  const ProjectTodoCursor({required this.createdAt, required this.id});
+  factory ProjectTodoCursor.fromJson(Map<String, dynamic> json) =>
+      ProjectTodoCursor(
+        createdAt: json['createdAt'] as String,
+        id: json['id'] as String,
+      );
+  final String createdAt;
+  final String id;
+  Map<String, dynamic> toJson() => {'createdAt': createdAt, 'id': id};
+}
+
+class ProjectTodoPage {
+  const ProjectTodoPage({
+    required this.items,
+    required this.nextCursor,
+    required this.pendingCount,
+    required this.completedCount,
+    required this.projectPaths,
+    this.loadingMore = false,
+    this.loadMoreError,
+  });
+
+  factory ProjectTodoPage.fromJson(Map<String, dynamic> json) {
+    final counts = Map<String, dynamic>.from(json['counts'] as Map);
+    return ProjectTodoPage(
+      items: (json['items'] as List)
+          .map(
+            (row) =>
+                ProjectTodo.fromJson(Map<String, dynamic>.from(row as Map)),
+          )
+          .toList(),
+      nextCursor: json['nextCursor'] == null
+          ? null
+          : ProjectTodoCursor.fromJson(
+              Map<String, dynamic>.from(json['nextCursor'] as Map),
+            ),
+      pendingCount: counts['pending'] as int,
+      completedCount: counts['completed'] as int,
+      projectPaths: List<String>.from(json['projectPaths'] as List),
+    );
+  }
+
+  final List<ProjectTodo> items;
+  final ProjectTodoCursor? nextCursor;
+  final int pendingCount;
+  final int completedCount;
+  final List<String> projectPaths;
+  final bool loadingMore;
+  final Object? loadMoreError;
+
+  ProjectTodoPage withLoadMore({bool loading = false, Object? error}) =>
+      ProjectTodoPage(
+        items: items,
+        nextCursor: nextCursor,
+        pendingCount: pendingCount,
+        completedCount: completedCount,
+        projectPaths: projectPaths,
+        loadingMore: loading,
+        loadMoreError: error,
+      );
+}
 
 class ProjectTodoImage {
   const ProjectTodoImage({

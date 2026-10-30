@@ -1654,6 +1654,25 @@ test("the writing mark lands on the request the model wrote the call on, not the
   expect(settled.requestSpans.some((span) => span.writingTool)).toBe(false);
 });
 
+test("tool argument completion keeps an explicit dispatch phase until the matching tool starts", () => {
+  const rows = [
+    event({ id: "request", sequence: 1, scope: "main", requestId: "req_1", eventType: "request.started", observedAt: "2026-01-01T00:00:01.000Z" }),
+    event({ id: "args", sequence: 2, scope: "main", eventType: "tool.writing", streamKey: "call-1", message: "find", observedAt: "2026-01-01T00:00:02.000Z", metadata: { toolWriting: { name: "mongo/find", kind: "tool" } } }),
+    event({ id: "args-done", sequence: 3, scope: "main", eventType: "tool.writing.completed", streamKey: "call-1", observedAt: "2026-01-01T00:00:03.000Z" }),
+    event({ id: "parallel", sequence: 4, scope: "main", eventType: "tool.started", streamKey: "call-2", observedAt: "2026-01-01T00:00:04.000Z" }),
+    event({ id: "started", sequence: 5, scope: "main", eventType: "tool.started", streamKey: "call-1", observedAt: "2026-01-01T00:00:05.000Z" }),
+  ];
+  const project = (events: ThreadRunEvent[], status = "running") => buildThreadRunProjection({ threadId: "thr_projection", status, attempts: [attempt], agents: [], events });
+  const dispatching = { name: "mongo/find", kind: "tool", since: "2026-01-01T00:00:02.000Z", phase: "dispatching" };
+  expect(project(rows.slice(0, 3)).requestSpans[0]?.writingTool).toEqual(dispatching);
+  expect(project(rows.slice(0, 4)).requestSpans[0]?.writingTool).toEqual(dispatching);
+  expect(project(rows).requestSpans[0]?.writingTool).toBeUndefined();
+  for (const status of ["completed", "cancelled", "failed", "idle"]) {
+    expect(project(rows.slice(0, 3), status).requestSpans[0]?.writingTool).toBeUndefined();
+  }
+  expect(project([...rows.slice(0, 3), event({ id: "request-done", sequence: 4, scope: "main", requestId: "req_1", eventType: "request.completed", observedAt: "2026-01-01T00:00:04.000Z" })]).requestSpans[0]?.writingTool).toBeUndefined();
+});
+
 test("buildThreadRunProjection drops the writing mark when the thread is not running", () => {
   const writing = event({
     id: "e2",

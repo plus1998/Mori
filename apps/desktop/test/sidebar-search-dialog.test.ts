@@ -64,6 +64,19 @@ test("empty sidebar search lists recent threads before projects", () => {
   ]);
 });
 
+test("sidebar search derives Windows project names for threads outside the project list", () => {
+  const workspacePath = "C:\\work\\项目\\";
+  const results = buildSidebarSearchResults([
+    thread("windows", "检查", workspacePath, "2026-01-02T00:00:00.000Z"),
+  ], [], "");
+  expect(results[0]).toMatchObject({ kind: "thread", projectName: "项目" });
+  expect(buildSidebarSearchResults([
+    thread("windows", "检查", workspacePath, "2026-01-02T00:00:00.000Z"),
+  ], [{ path: workspacePath, name: "重命名项目" }], "")[0]).toMatchObject({
+    kind: "thread", projectName: "重命名项目",
+  });
+});
+
 test("sidebar search puts running threads first", () => {
   const activeThreads = [
     ...threads,

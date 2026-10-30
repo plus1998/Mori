@@ -67,6 +67,31 @@ function terminalSse(response: unknown): string {
 }
 
 describe("ChatGPT subscription gateway adapter", () => {
+  for (const path of ["/v1/responses","/v1/messages"]) {
+    test(`usage retains the selected account after the active account changes: ${path}`, async () => {
+      const usage:GatewayUsageEvent[] = [];
+      let selected = "account-a";
+      let release:()=>void = () => {};
+      const ready = Promise.withResolvers<void>();
+      const handler = createGatewayFetchHandler({host:"127.0.0.1",port:0,providers:[provider],
+        resolveCredential:async () => ({accessToken:"oauth-access",accountId:selected})},
+        async () => {
+          ready.resolve();
+          await new Promise<void>(resolve => {release=resolve;});
+          return new Response(terminalSse(completedResponse),{headers:{"content-type":"text/event-stream"}});
+        },() => {},event => {usage.push(event);});
+      const request = path === "/v1/messages" ? messagesRequest(false) : new Request(`http://127.0.0.1${path}`,{
+        method:"POST",headers:{"content-type":"application/json",[GATEWAY_PROVIDER_ID_HEADER]:provider.id},body:JSON.stringify(validBody)});
+      const pending = handler(request);
+      await ready.promise;
+      selected = "account-b";
+      release();
+      const response = await pending;
+      await response.text();
+      expect(usage).toHaveLength(1);
+      expect(usage[0]).toMatchObject({accountId:"account-a",usage:{inputTokens:8,cacheReadTokens:4,outputTokens:3}});
+    });
+  }
   for (const sessionHeader of ["session-id", "session_id"]) {
     test(`Responses preserves ${sessionHeader} across growing requests and distinct sessions`, async () => {
       const sent: { headers: Headers; body: Record<string, unknown> }[] = [];

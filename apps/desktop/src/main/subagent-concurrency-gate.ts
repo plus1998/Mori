@@ -44,7 +44,7 @@ export class SubagentConcurrencyGate implements EcoSubagentLaunchGate {
       return {
         ok: false,
         reason: [
-          `Eco already has ${active + launching}/${limit} subagents active or launching`,
+          `Mori already has ${active + launching}/${limit} subagents active or launching`,
           `(active=${active}, launching=${launching}).`,
         ].join(" "),
       };

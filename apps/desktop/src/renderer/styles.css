@@ -817,6 +817,14 @@ html:not([data-platform="darwin"]) .codex-sidebar-chrome-drag {
   text-align: left;
 }
 
+.sidebar-shortcut-hint {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: 10px;
+  opacity: 0.65;
+}
+
 /* "新对话" and "打开项目" read as one list; the gap stays tight like the
    project rows below instead of inheriting the sidebar body gap. */
 .sidebar-nav-list {
@@ -3409,7 +3417,8 @@ button.sidebar-settings-meta {
 .terminal-context-menu,
 .image-context-menu,
 .composer-context-menu,
-.feed-text-context-menu {
+.feed-text-context-menu,
+.task-panel-tab-context-menu {
   display: flex;
   flex-direction: column;
   padding: 4px;
@@ -3425,7 +3434,8 @@ button.sidebar-settings-meta {
 .terminal-context-menu-item,
 .image-context-menu-item,
 .composer-context-menu-item,
-.feed-text-context-menu-item {
+.feed-text-context-menu-item,
+.task-panel-tab-context-menu-item {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -3455,7 +3465,9 @@ button.sidebar-settings-meta {
 .composer-context-menu-item:hover:not(:disabled),
 .composer-context-menu-item:focus-visible:not(:disabled),
 .feed-text-context-menu-item:hover:not(:disabled),
-.feed-text-context-menu-item:focus-visible:not(:disabled) {
+.feed-text-context-menu-item:focus-visible:not(:disabled),
+.task-panel-tab-context-menu-item:hover:not(:disabled),
+.task-panel-tab-context-menu-item:focus-visible:not(:disabled) {
   background: var(--nav-hover);
   color: var(--text-heading);
 }
@@ -3463,14 +3475,16 @@ button.sidebar-settings-meta {
 .terminal-context-menu-item:focus-visible,
 .image-context-menu-item:focus-visible,
 .composer-context-menu-item:focus-visible,
-.feed-text-context-menu-item:focus-visible {
+.feed-text-context-menu-item:focus-visible,
+.task-panel-tab-context-menu-item:focus-visible {
   outline: none;
 }
 
 .terminal-context-menu-item:disabled,
 .image-context-menu-item:disabled,
 .composer-context-menu-item:disabled,
-.feed-text-context-menu-item:disabled {
+.feed-text-context-menu-item:disabled,
+.task-panel-tab-context-menu-item:disabled {
   color: var(--text-tertiary);
   cursor: default;
 }
@@ -4323,6 +4337,12 @@ button.sidebar-settings-meta {
      keep an earlier node pinned and pull the feed off the bottom. */
   overflow-anchor: none;
   -webkit-app-region: no-drag;
+}
+
+/* This region remains keyboard-scrollable; the browser's default focus ring
+   otherwise draws an amber frame around the entire conversation. */
+.activity-messages:focus-visible {
+  outline: none;
 }
 
 /* Detached reader (scrolled up to browse history): hand scroll anchoring back to the browser so
@@ -6601,6 +6621,20 @@ button.sidebar-settings-meta {
   background: transparent;
 }
 
+.workspace-image-artifact-thumbnail {
+  width: 28px;
+  height: 28px;
+  opacity: 1;
+}
+
+.workspace-image-artifact-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
 .workspace-resource-row-title {
   flex: 1 1 auto;
   min-width: 0;
@@ -8836,7 +8870,6 @@ button.sidebar-settings-meta {
   padding: 0;
   display: flex;
   flex-direction: column;
-  overflow: visible;
   gap: 0;
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
@@ -9893,6 +9926,9 @@ button.integrated-web-search-clear-key:disabled {
 }
 .codex-account-action-menu {
   width: min(220px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 12000;
 }
 .codex-account-action-menu .account-action-item {
@@ -11840,15 +11876,15 @@ button.integrated-web-search-clear-key:disabled {
   cursor: not-allowed;
 }
 
-.settings-icon-button .spinning,
-.activity-icon-button .spinning,
-.chat-item-loading .spinning,
-.run-log-reconnect-icon.spinning,
-.thread-info-workspace-git .spinning,
-.send-button .spinning,
-.workspace-diff-tree__refresh .spinning,
-.workspace-file-browser__refresh .spinning {
+/*
+ * Base spinner utility. `.spinning` must animate on its own — scoping it to a list of
+ * containers silently froze every icon rendered outside that list (e.g. the Mori
+ * assistant dialog, which has no `.send-button`/`.settings-icon-button` ancestor).
+ * Container-scoped rules below only adjust the duration or opt out of motion.
+ */
+.spinning {
   animation: eco-spin 0.8s linear infinite;
+  transform-origin: center;
 }
 
 .chat-item-loading .spinning {
@@ -13226,7 +13262,7 @@ button.default-agent-option:focus-visible {
   --run-log-user-prompt-fg: #f5f5f5;
   --run-log-user-prompt-muted: #a3a3a3;
   width: fit-content;
-  max-width: 85%;
+  max-width: min(480px, 75%);
   min-width: 0;
 }
 
@@ -32357,10 +32393,6 @@ html:not([data-platform="darwin"])
   cursor: not-allowed;
 }
 
-.git-commit-popover-message-generate .spinning {
-  animation: eco-spin 0.8s linear infinite;
-}
-
 .git-commit-popover-message::placeholder {
   color: var(--popover-muted);
 }
@@ -32998,10 +33030,6 @@ html:not([data-platform="darwin"])
   cursor: not-allowed;
 }
 
-.package-scripts-icon-btn .spinning {
-  animation: eco-spin 0.8s linear infinite;
-}
-
 .package-scripts-toolbar {
   display: flex;
   flex-direction: column;
@@ -33267,11 +33295,6 @@ html:not([data-platform="darwin"])
 .package-scripts-run-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
-}
-
-.package-scripts-action-btn .spinning,
-.package-scripts-run-btn .spinning {
-  animation: eco-spin 0.8s linear infinite;
 }
 
 .package-scripts-override-grid {
@@ -38146,11 +38169,168 @@ body,
   }
 }
 
+/* Keep both action ends fixed; the model shrinks without filling unused space. */
+.codex-composer .composer-footer-config-row {
+  flex: 0 0 auto;
+}
+
+.codex-composer .composer-footer-actions .composer-hover-tooltip-wrap:has(> .composer-model-selector) {
+  flex: 0 1 auto;
+  min-width: 28px;
+}
+
+@container composer-toolbar (max-width: 640px) {
+  .codex-composer .composer-footer-config-row,
+  .codex-composer.is-compact .composer-footer-config-row {
+    flex: 0 0 auto;
+  }
+
+  .codex-composer .composer-model-selector {
+    flex: 0 1 auto;
+    width: auto;
+    min-width: 28px;
+    max-width: min(220px, 42cqi);
+  }
+
+  .codex-composer .composer-footer-actions .composer-hover-tooltip-wrap:has(> .composer-model-selector) {
+    flex: 0 1 auto;
+    min-width: 28px;
+    max-width: min(220px, 42cqi);
+  }
+
+  .codex-composer .composer-model-trigger,
+  .codex-composer.is-compact .composer-model-trigger {
+    max-width: 100%;
+  }
+}
+
+@container composer-toolbar (max-width: 420px) {
+  .codex-composer .composer-usage-pills {
+    gap: 2px;
+  }
+
+  .codex-composer .composer-usage-pills .composer-hover-tooltip-wrap:has(.thread-info-float-pill-cost) {
+    display: none;
+  }
+
+  .codex-composer .composer-usage-pills .thread-info-float-reopen {
+    padding-inline: 4px;
+  }
+}
+
+@container composer-toolbar (max-width: 320px) {
+  .codex-composer .composer-primary .composer-footer,
+  .codex-composer .composer-footer-actions {
+    gap: 2px;
+  }
+
+  .codex-composer .composer-model-label-effort {
+    display: none;
+  }
+
+  .codex-composer .composer-usage-pills .thread-info-float-reopen {
+    padding-inline: 1px;
+  }
+}
+
+@container composer-toolbar (max-width: 300px) {
+  .codex-composer .composer-usage-pills .composer-hover-tooltip-wrap:has(.composer-usage-pill-ring-only) {
+    display: none;
+  }
+
+  .codex-composer .codex-quota-mini[data-level="error"] .codex-quota-mini-bars {
+    display: none;
+  }
+}
+
 /* —�?Built-in browser (right task panel pane) —�?*/
+.browser-task-workspace {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.browser-task-workspace[hidden] {
+  display: none;
+}
+
+.browser-task-workspace.is-split {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.browser-split-page-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-sidebar);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.is-focused > .browser-split-page-picker {
+  color: var(--accent);
+}
+
+.browser-split-page-picker select {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-overflow: ellipsis;
+}
+
+.browser-split-divider {
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+  background: var(--terminal-bg);
+}
+
+.browser-split-divider::after {
+  content: "";
+  position: absolute;
+  inset: 0 3px;
+  background: var(--border-sidebar);
+}
+
+.browser-split-divider:hover::after,
+.browser-split-divider:focus-visible::after,
+body.is-resizing-browser-split .browser-split-divider::after {
+  inset-inline: 2px;
+  background: var(--accent);
+}
+
+body.is-resizing-browser-split {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* Keep a captured divider drag above Electron guests, even on fast pointer moves. */
+body.is-resizing-browser-split::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 92;
+  cursor: col-resize;
+}
+
 .subagent-task-panel-tab-pane--browser {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
   height: 100%;
   padding: 0;
 }
@@ -38160,6 +38340,7 @@ body,
 }
 
 .browser-panel {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -38179,10 +38360,12 @@ body,
 }
 
 .browser-panel-chrome {
+  --browser-panel-gap: 6px;
+  --browser-panel-side-width: 131px;
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 6px;
+  gap: var(--browser-panel-gap);
   flex-shrink: 0;
   padding: 8px 10px;
   border-bottom: 0.5px solid rgba(255, 255, 255, 0.1);
@@ -38195,8 +38378,18 @@ body,
 .browser-panel-nav {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.browser-panel-nav-divider {
+  width: 1px;
+  height: 14px;
+  margin: 0 2px;
+  background: color-mix(in srgb, var(--text-primary) 18%, transparent);
 }
 
 .browser-panel-icon-btn {
@@ -38222,12 +38415,98 @@ body,
   cursor: default;
 }
 
+.browser-panel-leading,
+.browser-panel-actions {
+  display: flex;
+  flex: 1 1 0;
+  min-width: max-content;
+  align-items: center;
+  gap: 6px;
+}
+
+.browser-panel-actions {
+  justify-content: flex-end;
+}
+
+.browser-panel-leading > .browser-panel-icon-btn,
+.browser-panel-actions > .browser-panel-icon-btn {
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.browser-panel-leading > .browser-panel-icon-btn:hover:not(:disabled),
+.browser-panel-actions > .browser-panel-icon-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-primary) 13%, transparent);
+}
+
 .browser-panel-address-form {
   position: relative;
-  flex: 1 1 auto;
+  flex: 0 1 min(
+    55%,
+    max(
+      40px,
+      calc(
+        100% - var(--browser-panel-side-width) - var(--browser-panel-side-width) -
+          var(--browser-panel-gap) - var(--browser-panel-gap)
+      )
+    )
+  );
   min-width: 0;
   display: flex;
   align-items: center;
+}
+
+.browser-panel-address-form:focus-within {
+  flex: 1 1 auto;
+}
+
+.browser-panel-chrome:has(.browser-panel-address-form:focus-within) .browser-panel-leading,
+.browser-panel-chrome:has(.browser-panel-address-form:focus-within) .browser-panel-actions {
+  flex: 0 0 auto;
+}
+
+.task-panel-new-tab .browser-panel-address-form {
+  flex: 1 1 auto;
+}
+
+@container (max-width: 520px) {
+  .browser-panel-chrome {
+    --browser-panel-gap: 3px;
+    --browser-panel-side-width: 112px;
+    padding: 6px;
+  }
+
+  .browser-panel-icon-btn {
+    width: 24px;
+    height: 26px;
+  }
+
+  .browser-panel-leading,
+  .browser-panel-actions {
+    gap: 3px;
+  }
+}
+
+@container (max-width: 260px) {
+  .browser-panel-chrome {
+    --browser-panel-side-width: 78px;
+  }
+
+  .browser-panel-nav {
+    display: none;
+  }
+
+  .browser-panel-address-icon {
+    display: none;
+  }
+
+  .browser-panel .browser-panel-address {
+    padding-inline: 4px;
+  }
+
+  .browser-panel .browser-panel-address:focus {
+    padding-right: 28px;
+  }
 }
 
 .browser-panel-address-icon {
@@ -38241,22 +38520,84 @@ body,
 .browser-panel-address {
   width: 100%;
   height: 28px;
-  border-radius: 8px;
-  border: 0.5px solid rgba(255, 255, 255, 0.12);
-  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary, #fff);
-  padding: 0 10px 0 28px;
+  padding: 0 28px 0 28px;
   font-size: 12px;
+  text-align: center;
   outline: none;
   box-sizing: border-box;
 }
 
-[data-theme="light"] .browser-panel-address {
-  border-color: rgba(0, 0, 0, 0.1);
-}
-
 .browser-panel-address:focus {
   border-color: color-mix(in srgb, #3b82f6 70%, transparent);
+  text-align: left;
+}
+
+.browser-panel-address-clear {
+  position: absolute;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted, var(--text-secondary));
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.browser-panel-address-form:hover .browser-panel-address-clear,
+.browser-panel-address-form:focus-within .browser-panel-address-clear {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.browser-panel-address-clear:hover,
+.browser-panel-address-clear:focus-visible {
+  background: color-mix(in srgb, var(--text-primary) 9%, transparent);
+  color: var(--text-primary);
+}
+
+.browser-toolbar-more {
+  position: relative;
+}
+
+.browser-toolbar-more-badge {
+  position: absolute;
+  top: 0;
+  right: -1px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 2px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  line-height: 13px;
+}
+
+.browser-toolbar-menu {
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.browser-toolbar-menu-item > span:first-of-type {
+  flex: 1;
+}
+
+.browser-toolbar-menu-count {
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .browser-panel-spin {
@@ -41579,6 +41920,43 @@ body,
     348px,
     calc(100% - var(--workspace-cards-panel-right, 10px) - var(--workspace-cards-panel-width, 300px) - 26px)
   );
+}
+
+.codex-main-pane.is-task-panel-fullscreen:has(.image-gallery-float) > .activity-workspace-shell {
+  z-index: 100;
+  pointer-events: none;
+}
+
+.codex-main-pane.is-task-panel-fullscreen:has(.image-gallery-float) > .activity-workspace-shell > :not(.image-gallery-float),
+.codex-main-pane.is-task-panel-fullscreen:has(.image-gallery-float) > .activity-workspace-shell > :not(.image-gallery-float) * {
+  pointer-events: none !important;
+}
+
+.codex-main-pane.is-task-panel-fullscreen .image-gallery-float {
+  top: calc(var(--workspace-toolbar-clearance, 36px) + 60px);
+  right: 16px;
+  width: min(348px, calc(100% - 32px));
+  visibility: visible;
+  pointer-events: auto;
+}
+
+@media (max-width: 720px) {
+  .codex-main-pane.is-task-panel-open:has(.image-gallery-float) > .activity-workspace-shell {
+    z-index: 100;
+    pointer-events: none;
+  }
+
+  .codex-main-pane.is-task-panel-open:has(.image-gallery-float) > .activity-workspace-shell > :not(.image-gallery-float),
+  .codex-main-pane.is-task-panel-open:has(.image-gallery-float) > .activity-workspace-shell > :not(.image-gallery-float) * {
+    pointer-events: none !important;
+  }
+
+  .codex-main-pane.is-task-panel-open .image-gallery-float {
+    top: calc(var(--workspace-toolbar-clearance, 36px) + 72px);
+    right: 16px;
+    width: min(348px, calc(100% - 32px));
+    pointer-events: auto;
+  }
 }
 
 .image-gallery-float-stack {

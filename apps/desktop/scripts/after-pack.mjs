@@ -1,22 +1,24 @@
 #!/usr/bin/env node
 /**
- * Post-pack hooks for unsigned local/CI builds:
+ * Post-pack hooks for local/CI builds without commercial signing:
  * - win32: embed icon when signAndEditExecutable is off
- * - darwin: adhoc re-sign so Gatekeeper does not report "damaged" after browser download
+ * - darwin: use the pinned self-signed identity for stable application identity
  */
 import path from "node:path";
-import rcedit from "rcedit";
-import { adhocSignMacApp, shouldAdhocSignMac } from "./after-pack-mac-sign.mjs";
+import { selfSignMacApp, shouldSelfSignMac } from "./after-pack-mac-sign.mjs";
 import { ensureNodePtySpawnHelpersExecutable } from "./prepare-node-pty.mjs";
+import { verifyWindowsFocusHookPackage } from "./verify-browser-focus-hook-package.mjs";
+import { setWindowsExecutableIcon } from "./windows-exe-icon.mjs";
 
 export default async function afterPack(context) {
   const platform = context.electronPlatformName;
 
   if (platform === "win32") {
+    verifyWindowsFocusHookPackage(context.appOutDir);
     const productFilename = context.packager.appInfo.productFilename;
     const exePath = path.join(context.appOutDir, `${productFilename}.exe`);
     const iconPath = path.join(context.packager.buildResourcesDir, "icon.ico");
-    await rcedit(exePath, { icon: iconPath });
+    setWindowsExecutableIcon(exePath, iconPath);
     return;
   }
 
@@ -28,6 +30,6 @@ export default async function afterPack(context) {
       path.join(appPath, "Contents", "Resources", "app.asar.unpacked", "node_modules", "node-pty"),
       platform,
     );
-    if (shouldAdhocSignMac(context)) adhocSignMacApp(appPath);
+    if (shouldSelfSignMac(context)) selfSignMacApp(appPath);
   }
 }

@@ -1,5 +1,10 @@
 import 'thread_models.dart';
 
+bool _canUseCredentials(bool isLoggedIn, String? authState) =>
+    authState == 'refreshable' ||
+    authState == 'refreshing' ||
+    (isLoggedIn && (authState == null || authState == 'configured'));
+
 /// The same account-backed Codex selection used by the desktop quota card.
 bool usesCodexAccount(
   ThreadRuntimeConfig config,
@@ -119,8 +124,8 @@ class CodexAccount {
   final bool isLoggedIn;
   final String authState;
   final CodexAccountQuota? quota;
-  bool get configured => isLoggedIn && authState == 'configured';
-  bool get available => configured && quota?.available == true;
+  bool get canUseCredentials => _canUseCredentials(isLoggedIn, authState);
+  bool get available => canUseCredentials && quota?.available == true;
   CodexAccount withQuota(CodexAccountQuota value) => CodexAccount(
     id: id,
     name: name,
@@ -136,6 +141,7 @@ class CodexActiveAccount {
     required this.id,
     required this.isLoggedIn,
     required this.syncState,
+    this.authState,
     this.syncMessage,
     this.pendingId,
     this.hasPending = false,
@@ -145,6 +151,7 @@ class CodexActiveAccount {
     return CodexActiveAccount(
       id: json['activeAccountId'] as String?,
       isLoggedIn: json['isLoggedIn'] as bool,
+      authState: json['authState'] as String?,
       syncState: sync['state'] as String,
       syncMessage: sync['message'] as String?,
       pendingId: json['pendingAccountId'] as String?,
@@ -153,10 +160,19 @@ class CodexActiveAccount {
   }
   final String? id;
   final bool isLoggedIn;
+  final String? authState;
+  bool get canUseCredentials => _canUseCredentials(isLoggedIn, authState);
   final String syncState;
   final String? syncMessage;
   final String? pendingId;
   final bool hasPending;
-  Object get signature =>
-      (id, isLoggedIn, syncState, syncMessage, hasPending, pendingId);
+  Object get signature => (
+    id,
+    isLoggedIn,
+    authState,
+    syncState,
+    syncMessage,
+    hasPending,
+    pendingId,
+  );
 }

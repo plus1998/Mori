@@ -268,7 +268,7 @@ export function createAcpPermissionHandler(
       });
       const rejected = resolveAcpPermissionSelection(request.options, "reject");
       if (rejected) return rejected;
-      throw new Error("Eco could not attribute this ACP approval to a main agent instance.");
+      throw new Error("Mori could not attribute this ACP approval to a main agent instance.");
     }
 
     const cwd = deps.getCwd();

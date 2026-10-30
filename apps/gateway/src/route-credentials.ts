@@ -1,4 +1,18 @@
-import type { GatewayConfig, ResolvedProviderRoute } from "./types.js";
+import type { GatewayConfig, GatewayUsageObserver, ResolvedProviderRoute } from "./types.js";
+
+export function withCredentialUsageAccount(
+  route: ResolvedProviderRoute,
+  observer?: GatewayUsageObserver,
+): GatewayUsageObserver | undefined {
+  const accountId = route.credentialAccountId;
+  const providerName = route.provider.name;
+  const providerAuthMethod = route.provider.authMethod;
+  if (!observer) return undefined;
+  return event => observer({ ...event, providerName,
+    ...(providerAuthMethod && { providerAuthMethod }),
+    ...(providerAuthMethod === "chatgpt_subscription" && accountId && { accountId }),
+  });
+}
 
 export function credentialResolutionErrorResponse(error: unknown): Response {
   const value = error as { statusCode?: unknown; errorCode?: unknown; accountId?: unknown };

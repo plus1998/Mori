@@ -50,7 +50,7 @@ lines.on("line", (line) => {
             capabilities: { tools: {} },
             serverInfo: { name: "eco_html_host", version: "1.0.0" },
             instructions:
-              "Eco HTML hosting for progress/report pages. Publish single-file HTML; Eco wraps chrome and returns a publicUrl.",
+              "Mori HTML hosting for progress/report pages. Publish single-file HTML; Mori wraps chrome and returns a publicUrl.",
           },
         });
       } else if (method === "ping") {

@@ -83,7 +83,7 @@ export interface ApplicationShutdownDeps {
   stopAllAcpRuntimes: () => void;
   stopGlobalEcoGateway: () => Promise<void>;
   disposeDesktopUpdateService: () => void;
-  disposeSystemSleepBlocker: () => void;
+  disposeSystemSleepBlocker: () => void | Promise<void>;
   clearCodexSubagentRuntimeLimit: () => void;
   flushAllThreadMetrics: () => void;
   disposeCodexGatewayUsagePending: () => void;
@@ -250,7 +250,7 @@ export async function interruptAllRunningWork(deps: ApplicationShutdownDeps): Pr
 
 export async function shutdownApplicationServices(deps: ApplicationShutdownDeps): Promise<void> {
   await deps.stopAllPiRuntimes();
-  deps.disposeSystemSleepBlocker();
+  await deps.disposeSystemSleepBlocker();
   deps.disposeDesktopUpdateService();
   await deps.disposeBrowserHost();
   await deps.closeImageGenerationGateway();

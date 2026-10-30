@@ -2,11 +2,9 @@
 /**
  * Install the Electron binary when the package manager skipped it.
  *
- * Bun only runs lifecycle scripts for allow-listed packages, and in this workspace it skips
- * `electron`'s postinstall, so a clean install (CI, or a fresh worktree) ends up with
- * `node_modules/electron` present but `dist/` absent. `electron-builder` packs anyway because
- * it downloads its own Electron distribution, so the gap stays invisible until something runs
- * the `electron` CLI — then it dies with "Electron failed to install correctly".
+ * Electron 42+ downloads lazily instead of during postinstall. Install explicitly before
+ * rebuilding/testing so a plain require('electron') in a Node/Bun probe cannot unexpectedly
+ * start a download and time out. electron-builder downloads its own distribution separately.
  *
  * Run the installer Electron itself ships, then verify the binary really exists. A missing
  * binary after a successful install.js is a hard error, not a warning.

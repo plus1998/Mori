@@ -2,7 +2,10 @@ import http from "node:http";
 import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  StreamableHTTPClientTransport,
+  StreamableHTTPError,
+} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { McpSdkConfig } from "../shared/mcp";
 import { buildEcoMcpHubDirectoryPrompt } from "../shared/mcp-hub-tool-usage";
 import {
@@ -418,10 +421,19 @@ export class McpHubGateway {
   }
 }
 
+type HttpMcpConnection = {
+  client: Client;
+  transport: StreamableHTTPClientTransport;
+  ready: Promise<void>;
+  inFlight: number;
+  retired: boolean;
+  closing?: Promise<void>;
+};
+
 class HttpMcpHubServer implements McpHubServer {
-  private readonly client = new Client({ name: "eco_mcp_hub", version: "1.0.0" });
-  private transport: StreamableHTTPClientTransport | undefined;
-  private connect: Promise<void> | undefined;
+  private connection: HttpMcpConnection | undefined;
+  private readonly connections = new Set<HttpMcpConnection>();
+  private closed = false;
 
   constructor(
     readonly name: string,
@@ -431,8 +443,9 @@ class HttpMcpHubServer implements McpHubServer {
   ) {}
 
   async listTools(input: { signal: AbortSignal }): Promise<{ tools: McpToolDefinition[] }> {
-    await this.ensureConnected(input.signal);
-    const result = await this.client.listTools({}, { signal: input.signal });
+    const result = await this.withSessionRecovery(input.signal, (client) =>
+      client.listTools({}, { signal: input.signal }),
+    );
     return {
       tools: result.tools.filter(isToolDefinition).map((tool) => ({
         name: tool.name,
@@ -447,47 +460,120 @@ class HttpMcpHubServer implements McpHubServer {
     arguments: Record<string, unknown>;
     signal: AbortSignal;
   }): Promise<McpToolCallResult> {
-    await this.ensureConnected(input.signal);
     // This client is a second MCP hop for Codex's eco_mcp wrapper. Its SDK
     // default is 60s, so the outer runtime timeout alone cannot protect a
     // long-running built-in tool such as create_image.
     return normalizeToolCallResult(
-      await this.client.callTool(
-        { name: input.name, arguments: input.arguments },
-        undefined,
-        {
+      await this.withSessionRecovery(input.signal, (client) =>
+        client.callTool({ name: input.name, arguments: input.arguments }, undefined, {
           signal: input.signal,
           ...(this.requestTimeoutMs !== undefined ? { timeout: this.requestTimeoutMs } : {}),
-        },
+        }),
       ),
     );
   }
 
   async close(): Promise<void> {
-    this.connect = undefined;
-    const transport = this.transport;
-    this.transport = undefined;
-    await transport?.close();
-    await this.client.close();
+    this.closed = true;
+    this.connection = undefined;
+    await Promise.all([...this.connections].map((connection) => this.closeConnection(connection)));
   }
 
-  private async ensureConnected(signal: AbortSignal): Promise<void> {
-    if (!this.connect) {
+  private async withSessionRecovery<T>(
+    signal: AbortSignal,
+    operation: (client: Client) => Promise<T>,
+  ): Promise<T> {
+    let connection = await this.ensureConnected(signal);
+    let retried = false;
+    for (;;) {
+      signal.throwIfAborted();
+      if (connection.retired) {
+        connection = await this.ensureConnected(signal);
+        continue;
+      }
+      connection.inFlight++;
+      try {
+        return await operation(connection.client);
+      } catch (error) {
+        // A transport 404 on an established MCP session means that the server
+        // rejected the request before tool dispatch. Never replay ambiguous
+        // network failures, application errors, or a failed initialize.
+        const expired =
+          error instanceof StreamableHTTPError && error.code === 404 && connection.transport.sessionId;
+        if (expired) this.retireConnection(connection);
+        signal.throwIfAborted();
+        if (!expired || retried || this.closed) throw error;
+        retried = true;
+      } finally {
+        connection.inFlight--;
+        if (connection.retired && connection.inFlight === 0) void this.closeConnection(connection);
+      }
+      // Compare connection identity when retiring: a late 404 from the old
+      // generation must not discard a replacement another caller is using.
+      // ensureConnected publishes the new generation before its handshake, so
+      // concurrent callers share one initialization without sharing cancellation.
+      connection = await this.ensureConnected(signal);
+    }
+  }
+
+  private retireConnection(connection: HttpMcpConnection): void {
+    if (this.connection === connection) this.connection = undefined;
+    connection.retired = true;
+    // Other requests may already be executing tools on the retired session.
+    // Let them finish instead of aborting or replaying their side effects.
+    if (connection.inFlight === 0) void this.closeConnection(connection);
+  }
+
+  private closeConnection(connection: HttpMcpConnection): Promise<void> {
+    if (!connection.closing) {
+      connection.closing = connection.client.close().finally(() => this.connections.delete(connection));
+      void connection.closing.catch((error) =>
+        console.error(`[mcp-hub] HTTP client cleanup failed: ${this.name}`, error),
+      );
+    }
+    return connection.closing;
+  }
+
+  private async ensureConnected(signal: AbortSignal): Promise<HttpMcpConnection> {
+    signal.throwIfAborted();
+    if (this.closed) throw new Error(`MCP Hub HTTP connection is closed: ${this.name}`);
+    let connection = this.connection;
+    if (!connection) {
+      const client = new Client({ name: "eco_mcp_hub", version: "1.0.0" });
       const transport = new StreamableHTTPClientTransport(new URL(this.url), {
         requestInit: { headers: this.headers },
       });
-      this.transport = transport;
-      this.connect = this.client.connect(transport as Parameters<Client["connect"]>[0]).catch((error) => {
-        this.connect = undefined;
-        this.transport = undefined;
+      const created: HttpMcpConnection = {
+        client,
+        transport,
+        ready: Promise.resolve(),
+        inFlight: 0,
+        retired: false,
+      };
+      this.connection = created;
+      this.connections.add(created);
+      created.ready = client.connect(transport as Parameters<Client["connect"]>[0]).catch((error) => {
+        this.retireConnection(created);
         throw error;
       });
+      connection = created;
     }
-    if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
-    await Promise.race([
-      this.connect,
-      new Promise<never>((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })),
-    ]);
+    // Aborting one caller must not cancel a handshake needed by other callers.
+    let onAbort!: () => void;
+    try {
+      await Promise.race([
+        connection.ready,
+        new Promise<never>((_, reject) => {
+          onAbort = () => reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+          signal.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
+      signal.throwIfAborted();
+      if (this.closed) throw new Error(`MCP Hub HTTP connection is closed: ${this.name}`);
+      return connection;
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
   }
 }
 

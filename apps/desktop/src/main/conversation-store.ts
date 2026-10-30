@@ -48,6 +48,7 @@ import {
   attachPeerGatewayTimingToLedgerEventViews,
   attachSpanTimingToLedgerEventViews,
 } from "../shared/ledger-event-timing";
+import { coreUsesInterruptForSteer } from "../shared/thread-follow-up-core";
 import { readPromptImagePreviews } from "../shared/prompt-image-metadata";
 import {
   mergeThreadRunImageViewMetadata,
@@ -68,6 +69,7 @@ import { buildForkHistoryEvents, type ConversationForkHistory } from "./conversa
 import type { NativeConversationFork } from "./conversation-native-fork";
 import { conversationV2AgentEvent } from "./conversation-v2-agent-events";
 import { migrateCodexCompactionDetails } from "./conversation-v2-compaction-migration";
+import { migrateThreadFailureNotices } from "./conversation-v2-failure-notice-migration";
 import {
   appendLegacyThreadRunEventToConversationV2,
   conversationV2MessageIdForLegacyEvent,
@@ -1526,6 +1528,7 @@ export class ConversationStore {
       }
     }
     migrateCodexCompactionDetails(this.db, this.v2);
+    migrateThreadFailureNotices(this.db, this.v2);
   }
 
   /**
@@ -3793,7 +3796,11 @@ export class ConversationStore {
     return this.listThreadFollowUps(threadId, { statuses: ["queued"] });
   }
 
-  cancelThreadFollowUp(threadId: string, followUpId: string): ThreadPendingFollowUp | undefined {
+  cancelThreadFollowUp(
+    threadId: string,
+    followUpId: string,
+    onCancelInTransaction?: (db: DatabaseSyncType, followUp: ThreadPendingFollowUp) => void,
+  ): ThreadPendingFollowUp | undefined {
     const existing = this.getThreadFollowUp(threadId, followUpId);
     if (!existing || existing.status !== "queued") {
       return undefined;
@@ -3803,6 +3810,9 @@ export class ConversationStore {
       : undefined;
     if (existing.conversationMessageId && !message) {
       throw new Error("Queued follow-up has no accepted conversation message to cancel.");
+    }
+    if (onCancelInTransaction && message && (message.isDeleted || message.status !== "queued")) {
+      throw new Error("Follow-up message is no longer queued.");
     }
     if (message) this.v2.validateIntegrity(threadId);
     const results: ConversationAppendResult[] = [];
@@ -3822,6 +3832,9 @@ export class ConversationStore {
           }),
         );
       }
+      // A transfer writes its destination on this connection, so queue removal,
+      // the V2 tombstone and the saved destination either all commit or all roll back.
+      onCancelInTransaction?.(this.db, existing);
       const cancelled = this.updateThreadFollowUpStatus(threadId, followUpId, { status: "cancelled" });
       this.db.exec("COMMIT");
       this.v2.publishCommitted(results);
@@ -3926,11 +3939,14 @@ export class ConversationStore {
         .prepare(
           `UPDATE ${this.pendingFollowupsTable()}
            SET priority = 'escalated',
-               delivery_mode = 'interrupt_resume',
+               delivery_mode = ?,
                updated_at = ?
            WHERE thread_id = ? AND id = ?`,
         )
-        .run(now, threadId, followUpId);
+        .run(
+          coreUsesInterruptForSteer(this.getThread(threadId)?.coreKind) ? "interrupt_resume" : "queued",
+          now, threadId, followUpId,
+        );
       this.db.exec("COMMIT");
     } catch (error) {
       rollbackConversationTransaction(this.db);
@@ -4024,10 +4040,7 @@ export class ConversationStore {
       .prepare(
         `UPDATE ${this.pendingFollowupsTable()}
          SET status = 'queued',
-             delivery_mode = CASE
-               WHEN priority = 'escalated' THEN 'interrupt_resume'
-               ELSE 'queued'
-             END,
+             delivery_mode = ?,
              error = ?,
              delivered_at = NULL,
              applied_at = NULL,
@@ -4037,7 +4050,11 @@ export class ConversationStore {
            AND delivery_mode = 'streaming_push'
            AND status IN ('delivered', 'applied')`,
       )
-      .run(input?.error ?? null, now, threadId, followUpId);
+      .run(
+        existing.priority === "escalated" && coreUsesInterruptForSteer(this.getThread(threadId)?.coreKind)
+          ? "interrupt_resume" : "queued",
+        input?.error ?? null, now, threadId, followUpId,
+      );
     if (result.changes === 0) {
       return undefined;
     }

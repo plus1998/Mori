@@ -72,7 +72,7 @@ test("browser prompt accepts the Hub tool pair as available and does not require
 
 test("image display prompt distinguishes presentation from image analysis", () => {
   const prompt = buildImageDisplayPromptAppend();
-  expect(prompt).toContain("Image analysis is provided by Eco image viewing");
+  expect(prompt).toContain("Image analysis is provided by Mori image viewing");
   expect(prompt).toContain("mcp__eco_mcp__call_tool");
   expect(prompt).not.toContain(
     "To analyze an image for yourself (vision report), use `mcp__eco_image_view__view_image`",

@@ -2,6 +2,7 @@ import type { PromptImageAttachment } from "./ipc";
 import type { CoreKind } from "@eco/runtime";
 import type { ThreadRuntimeConfig } from "./thread-runtime-config";
 import { buildEcoMcpHubToolUsage } from "./mcp-hub-tool-usage";
+import type { MoriScheduledAction, MoriScheduledNotification, MoriScheduledReceipt } from "./mori-scheduled-action";
 
 export type ScheduleTrigger =
   | { type: "at"; at: string }
@@ -19,6 +20,11 @@ export interface ScheduledMessageNewThread {
   executionProfile: ScheduleExecutionProfile;
 }
 
+/** User approval of this exact pending plan at its current conversation revision. */
+export interface ScheduledPlanApproval {
+  expectedHistoryRevision: number;
+}
+
 export type ScheduleCreateInput = {
   /** Stable key: retries of the same creation return the same definition. */
   requestId: string;
@@ -26,13 +32,14 @@ export type ScheduleCreateInput = {
   trigger: ScheduleTrigger;
   maxLatenessSeconds?: number;
 } & (
-  | { kind: "session_message"; threadId: string; prompt: string; attachments?: PromptImageAttachment[]; newThread?: ScheduledMessageNewThread }
+  | { kind: "session_message"; threadId: string; prompt: string; attachments?: PromptImageAttachment[]; newThread?: ScheduledMessageNewThread; planApproval?: ScheduledPlanApproval }
   | { kind: "scheduled_task"; workspacePath: string; prompt: string; executionProfile: ScheduleExecutionProfile }
+  | { kind: "assistant_action"; threadId: string; prompt: string; action: MoriScheduledAction; notification: MoriScheduledNotification; delaySeconds?: number }
 );
 
 export interface ScheduleDefinition {
   id: string;
-  kind: "session_message" | "scheduled_task";
+  kind: "session_message" | "scheduled_task" | "assistant_action";
   name: string;
   prompt: string;
   attachments?: PromptImageAttachment[];
@@ -44,6 +51,9 @@ export interface ScheduleDefinition {
   threadId?: string;
   workspacePath?: string;
   executionProfile?: ScheduleExecutionProfile;
+  planApproval?: ScheduledPlanApproval;
+  action?: MoriScheduledAction;
+  notification?: MoriScheduledNotification;
   revision: number;
   nextRunAt: string | null;
   createdAt: string;
@@ -75,6 +85,7 @@ export interface ScheduleOccurrence {
   definition: ScheduleDefinition;
   threadId?: string;
   followUpId?: string;
+  assistant?: MoriScheduledReceipt;
   error?: string;
   createdAt: string;
   updatedAt: string;
@@ -92,8 +103,8 @@ export function isExpiredOneShotSchedule(definition: ScheduleDefinition, now = D
 
 export const SCHEDULING_MCP_SERVER = "eco_scheduling";
 export const SCHEDULING_PROMPT = [
-  "Built-in scheduling (Eco): continue this conversation after a delay, or run independent scheduled tasks in new conversations; inspect, update and cancel schedules.",
+  "Built-in scheduling (Mori): continue this conversation after a delay, or run independent scheduled tasks in new conversations; inspect, update and cancel schedules.",
   buildEcoMcpHubToolUsage({ server: SCHEDULING_MCP_SERVER }),
   "Choose a conversation wakeup to continue current work. Independent task prompts must include all required context because each occurrence starts a new conversation.",
-  "Execution requires Eco running on an awake local computer; a conversation wakeup does not wake a sleeping computer.",
+  "Execution requires Mori running on an awake local computer; a conversation wakeup does not wake a sleeping computer.",
 ].join("\n");

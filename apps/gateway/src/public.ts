@@ -39,6 +39,7 @@ export {
   resolveProviderRoute,
 } from "./provider-router.js";
 export { reportRouteCredentialResult, resolveRouteCredential } from "./route-credentials.js";
+export { normalizeResponsesUsage } from "./usage-normalize.js";
 export {
   createGatewayFetchHandler,
   dispatchNodeRequest,

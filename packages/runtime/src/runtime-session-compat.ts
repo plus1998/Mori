@@ -12,7 +12,7 @@ export async function resolveResumeSessionAtBeforeUserMessage(_input: {
   dir: string;
 }): Promise<string | undefined> {
   throw new CodexForkNotAvailable(
-    "SDK session checkpoint resume was removed for the Codex path; Eco does not fall back to SDK rewind.",
+    "SDK session checkpoint resume was removed for the Codex path; Mori does not fall back to SDK rewind.",
     {
       nextAction:
         "Use Codex thread/fork with a Codex thread id and target item id (lastTurnId derived from turn history).",

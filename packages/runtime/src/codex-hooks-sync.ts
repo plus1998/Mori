@@ -68,7 +68,7 @@ export async function syncEcoCodexHooks(input: SyncEcoCodexHooksInput): Promise<
   const trustKey = `${hooksPath}:pre_tool_use:${preToolUseGroupIndex}:0`;
   trustBlocks.push(
     "",
-    `# Eco-managed trust for spawn_agent PreToolUse (fork_turns=none injection).`,
+    `# Mori-managed trust for spawn_agent PreToolUse (fork_turns=none injection).`,
     `[hooks.state.${tomlKey(trustKey)}]`,
     `trusted_hash = ${JSON.stringify(trustHash)}`,
     "",

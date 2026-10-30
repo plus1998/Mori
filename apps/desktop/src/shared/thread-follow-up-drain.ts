@@ -8,44 +8,64 @@ export function shouldDrainThreadFollowUps(status: ThreadStatus): boolean {
   return (DRAINABLE_FOLLOW_UP_STATUSES as readonly string[]).includes(status);
 }
 
-/** Block auto-drain while plan approval, clarification, editing, or user/error pause is active. */
+/** Independent deliveries bypass ordinary pause only; user gates still block every drain. */
 export function shouldBlockThreadFollowUpDrain(input: {
   hasPendingBridgeApproval: boolean;
   hasPendingClarification: boolean;
+  hasPendingBashApproval?: boolean;
   hasEditingFollowUp?: boolean;
-  /** User or session-error pause; explicit question answers are independent of this queue. */
+  /** User or session-error pause on ordinary queued messages. */
   hasFollowUpQueuePaused?: boolean;
   /** The caller has verified the message's durable clarification resolution receipt. */
   isAsyncClarificationAnswer?: boolean;
+  /** A durable scheduled message can bypass an ordinary pause at a healthy boundary. */
+  isScheduledMessage?: boolean;
   threadStatus?: ThreadStatus;
   hasStoredPendingPlan: boolean;
 }): boolean {
   if (
     input.hasPendingBridgeApproval ||
     input.hasPendingClarification ||
+    input.hasPendingBashApproval ||
     input.hasEditingFollowUp ||
-    (input.hasFollowUpQueuePaused && !input.isAsyncClarificationAnswer)
+    (input.hasFollowUpQueuePaused &&
+      !input.isAsyncClarificationAnswer &&
+      !(input.isScheduledMessage && (input.threadStatus === "idle" || input.threadStatus === "completed")))
   ) {
     return true;
   }
   return input.threadStatus === "awaiting_plan" && input.hasStoredPendingPlan;
 }
 
-/** Explicit question answers can progress while ordinary messages keep their order and pause. */
+/** Pick one independent delivery while ordinary messages keep their order and pause. */
 export function selectThreadFollowUpDrainTarget(input: {
   followUps: readonly ThreadPendingFollowUp[];
   forceEscalatedDrain: boolean;
   excludeFollowUpId?: string;
   isAsyncClarificationAnswer: (followUp: ThreadPendingFollowUp) => boolean;
-}): { followUpId?: string; priority?: "escalated"; isAsyncClarificationAnswer: boolean } {
-  const eligible = input.followUps.filter((followUp) =>
-    followUp.status === "queued" && followUp.id !== input.excludeFollowUpId,
+  hasFollowUpQueuePaused?: boolean;
+  isScheduledMessage?: (followUp: ThreadPendingFollowUp) => boolean;
+}): {
+  followUpId?: string;
+  priority?: "escalated";
+  isAsyncClarificationAnswer: boolean;
+  isScheduledMessage?: boolean;
+} {
+  const eligible = input.followUps.filter(
+    (followUp) => followUp.status === "queued" && followUp.id !== input.excludeFollowUpId,
   );
   if (input.forceEscalatedDrain) return { priority: "escalated", isAsyncClarificationAnswer: false };
   const answer = eligible.find(input.isAsyncClarificationAnswer);
   if (answer) return { followUpId: answer.id, isAsyncClarificationAnswer: true };
+  if (input.hasFollowUpQueuePaused && input.isScheduledMessage) {
+    const scheduled = eligible.find(input.isScheduledMessage);
+    if (scheduled)
+      return { followUpId: scheduled.id, isAsyncClarificationAnswer: false, isScheduledMessage: true };
+  }
   return {
-    ...(eligible.some((followUp) => followUp.priority === "escalated") ? { priority: "escalated" as const } : {}),
+    ...(eligible.some((followUp) => followUp.priority === "escalated")
+      ? { priority: "escalated" as const }
+      : {}),
     isAsyncClarificationAnswer: false,
   };
 }
@@ -69,7 +89,10 @@ export function threadAcceptsQueuedFollowUp(input: {
   if (input.status === "running" || input.status === "queued" || input.status === "awaiting_plan") {
     return true;
   }
-  if ((input.followUpQueuePaused || input.isAsyncClarificationAnswer) && shouldDrainThreadFollowUps(input.status)) {
+  if (
+    (input.followUpQueuePaused || input.isAsyncClarificationAnswer) &&
+    shouldDrainThreadFollowUps(input.status)
+  ) {
     return true;
   }
   return Boolean(

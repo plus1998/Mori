@@ -103,7 +103,7 @@ test("toPiMcpServerConfig maps http with headers, description and timeout", () =
 test("toPiMcpServerConfig rejects SSE with an explicit error instead of dropping it", () => {
   const byType = mapError({ type: "sse", url: "https://mcp.example.com/sse" });
   expect(byType).toContain("SSE transport is not supported");
-  expect(byType).toContain("Eco MCP Hub");
+  expect(byType).toContain("Mori MCP Hub");
 
   const byHttpTransport = mapError({
     type: "http",

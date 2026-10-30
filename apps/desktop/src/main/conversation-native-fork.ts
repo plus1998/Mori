@@ -65,7 +65,7 @@ export async function forkNativeConversation(
       )
         originalId = await input.resolveClaudeUserId(message.historyTarget.activityLineId);
       if (!originalId || !keptRows.some((row) => row.uuid === originalId))
-        throw new Error("Claude 原生历史与 Eco 分叉边界不一致。");
+        throw new Error("Claude 原生历史与 Mori 分叉边界不一致。");
       keptPromptIds.set(message.messageId, originalId);
     }
     const tracked = new Set(keptPromptIds.values());
@@ -74,7 +74,7 @@ export async function forkNativeConversation(
         (row) => !tracked.has(row.uuid as string) && row.isMeta !== true && row.isSynthetic !== true,
       )
     )
-      throw new Error("Claude 原生历史与 Eco 分叉边界不一致。");
+      throw new Error("Claude 原生历史与 Mori 分叉边界不一致。");
     if (keptRows.length === 0) {
       const result: NativeConversationFork = {
         coreKind: "claude",
@@ -193,12 +193,12 @@ export async function forkNativeConversation(
     const branch = anchor ? source.getBranch(anchor) : [];
     const expected = input.history.messages.filter((message) => message.role === "user");
     const users = branch.filter((entry) => entry.type === "message" && entry.message.role === "user");
-    if (users.length !== expected.length) throw new Error("Pi 原生历史与 Eco 分叉边界不一致。");
+    if (users.length !== expected.length) throw new Error("Pi 原生历史与 Mori 分叉边界不一致。");
     const userIds: Record<string, string> = {};
     for (const [index, message] of expected.entries()) {
       const entry = users[index];
       if (!entry || message.historyTarget?.userMessageId !== entry.id)
-        throw new Error("Pi 用户节点与 Eco 保存的身份不一致。");
+        throw new Error("Pi 用户节点与 Mori 保存的身份不一致。");
       userIds[message.messageId] = entry.id;
     }
     let sessionFile: string | undefined;
@@ -266,7 +266,7 @@ export async function forkNativeConversation(
     const nativeUsers = source.thread.turns
       .slice(0, targetIndex + (afterAssistant ? 1 : 0))
       .flatMap((turn) => turn.items.filter((item) => item.type === "userMessage"));
-    if (nativeUsers.length !== expected.length) throw new Error("Codex 原生历史与 Eco 分叉边界不一致。");
+    if (nativeUsers.length !== expected.length) throw new Error("Codex 原生历史与 Mori 分叉边界不一致。");
     const fork = await client.request<{ thread: Thread }>(
       "thread/fork",
       {

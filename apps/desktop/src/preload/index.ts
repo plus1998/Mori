@@ -1,3 +1,7 @@
+import type { KeyboardShortcutsSnapshot, ShortcutBindings } from "../shared/keyboard-shortcuts";
+import type { AccountUsageHistory, AccountUsageQuery, UsageOverview, UsageOverviewQuery } from "../shared/account-usage";
+import { MORI_ASSISTANT_CHANNELS as MORI } from "../shared/mori-assistant";
+import type { MoriAssistantSettings, MoriAssistantSnapshot } from "../shared/mori-assistant";
 import type { GenerationToolRequest } from "../shared/generation-tools";
 import type { ImageGenerationToolInput } from "../shared/image-generation";
 import type { TtsToolInput } from "../shared/tts";
@@ -176,6 +180,7 @@ import {
   type ProjectMcpSettingsSnapshot,
   type ProjectOrchestrationSettingsSnapshot,
   type ProjectSkillsSettingsSnapshot,
+  type ProjectTerminalSettingsSnapshot,
   type PromptImageAttachment,
   type PromptImageReadChunkResult,
   type PromptImageReleaseRequest,
@@ -229,6 +234,8 @@ import {
   type ThreadDeleteResult,
   type ThreadDismissPlanRequest,
   type ThreadFollowUpCancelRequest,
+  type ThreadFollowUpToTodoRequest,
+  type ThreadFollowUpToTodoResult,
   type ThreadFollowUpEditingRequest,
   type ThreadFollowUpEditingResult,
   type ThreadFollowUpEnqueueRequest,
@@ -308,6 +315,61 @@ function resolvePreloadScreenRecordingAppLabel(): string {
 }
 
 const api = {
+  setKeyboardShortcutRecording(active: boolean): Promise<void> { return ipcRenderer.invoke(IPC_CHANNELS.keyboardShortcutsRecording, active); },
+  getKeyboardShortcuts(): Promise<KeyboardShortcutsSnapshot> { return ipcRenderer.invoke(IPC_CHANNELS.keyboardShortcutsGet); },
+  saveKeyboardShortcuts(bindings: ShortcutBindings): Promise<KeyboardShortcutsSnapshot> { return ipcRenderer.invoke(IPC_CHANNELS.keyboardShortcutsSave, bindings); },
+  onKeyboardShortcutsChanged(callback: (snapshot: KeyboardShortcutsSnapshot) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, snapshot: KeyboardShortcutsSnapshot) => callback(snapshot);
+    ipcRenderer.on(IPC_CHANNELS.keyboardShortcutsChanged, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.keyboardShortcutsChanged, listener);
+  },
+  moriAssistantSnapshot(cursor?: string): Promise<MoriAssistantSnapshot> { return ipcRenderer.invoke(MORI.snapshot, cursor); },
+  moriAssistantSaveSettings(settings: MoriAssistantSettings): Promise<MoriAssistantSnapshot> { return ipcRenderer.invoke(MORI.saveSettings, settings); },
+  moriAssistantSend(text: string, commandId: string): Promise<{ accepted: true }> { return ipcRenderer.invoke(MORI.send, { text, commandId }); },
+  moriAssistantCancel(): Promise<void> { return ipcRenderer.invoke(MORI.cancel); },
+  moriAssistantSetDraft(text: string): Promise<void> { return ipcRenderer.invoke(MORI.draft, text); },
+  moriAssistantNewSession(): Promise<void> { return ipcRenderer.invoke(MORI.newSession); },
+  moriAssistantSelectSession(id: string): Promise<void> { return ipcRenderer.invoke(MORI.selectSession, id); },
+  moriAssistantRespond(id: string, answer: string): Promise<void> { return ipcRenderer.invoke(MORI.respond, { id, answer }); },
+  moriAssistantFloating(visible: boolean): Promise<void> { return ipcRenderer.invoke(MORI.floating, visible); },
+  moriAssistantToggleFloating(): Promise<void> { return ipcRenderer.invoke(MORI.toggleFloating); },
+  moriAssistantShowMain(): Promise<void> { return ipcRenderer.invoke(MORI.show); },
+  moriAssistantOpenTask(id: string): Promise<void> { return ipcRenderer.invoke(MORI.openTask, id); },
+  moriAssistantBindWechat(): Promise<void> { return ipcRenderer.invoke(MORI.wechatBind); },
+  moriAssistantDisconnectWechat(): Promise<void> { return ipcRenderer.invoke(MORI.wechatDisconnect); },
+  moriAssistantMoveBall(x: number, y: number): Promise<void> { return ipcRenderer.invoke(MORI.ballMove, { x, y }); },
+  moriAssistantPetHitMap(map: import("../shared/mori-pet").MoriPetHitMap): Promise<void> { return ipcRenderer.invoke(MORI.petHitMap, map); },
+  moriAssistantPetDragging(active: boolean): Promise<void> { return ipcRenderer.invoke(MORI.petDragging, active); },
+  moriAssistantNotice(): Promise<{ title: string; body: string; threadId: string } | undefined> { return ipcRenderer.invoke(MORI.noticeGet); },
+  moriAssistantOpenNotice(): Promise<void> { return ipcRenderer.invoke(MORI.noticeOpen); },
+  moriPetsList(): Promise<import("../shared/mori-pet").MoriPetList> { return ipcRenderer.invoke(MORI.petList); },
+  moriPetsImport(): Promise<import("../shared/mori-pet").MoriPetInfo | undefined> { return ipcRenderer.invoke(MORI.petImport); },
+  moriPetAsset(key: string): Promise<import("../shared/mori-pet").MoriPetAsset> { return ipcRenderer.invoke(MORI.petAsset, key); },
+  onMoriPetLook(callback: (direction: number | null) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, direction: number | null) => callback(direction);
+    ipcRenderer.on(MORI.petLook, listener);
+    return () => ipcRenderer.off(MORI.petLook, listener);
+  },
+  onMoriPetReaction(callback: (kind: "completion" | "failed" | "approval" | "question") => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, kind: "completion" | "failed" | "approval" | "question") => callback(kind);
+    ipcRenderer.on(MORI.petReaction, listener);
+    return () => ipcRenderer.off(MORI.petReaction, listener);
+  },
+  onMoriAssistantChanged(callback: () => void): () => void {
+    const listener = () => callback();
+    ipcRenderer.on(MORI.changed, listener);
+    return () => ipcRenderer.off(MORI.changed, listener);
+  },
+  onMoriAssistantProjectOpenRequested(callback: (projectPath: string) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => { if (typeof value === "string") callback(value); };
+    ipcRenderer.on(MORI.projectOpenRequested, listener);
+    return () => ipcRenderer.off(MORI.projectOpenRequested, listener);
+  },
+  onMoriAssistantOpenRequested(callback: () => void): () => void {
+    const listener = () => callback();
+    ipcRenderer.on(MORI.openRequested, listener);
+    return () => ipcRenderer.off(MORI.openRequested, listener);
+  },
   platform: process.platform,
   getDisplayControlState(): Promise<import("../shared/display-control").DisplayControlState> {
     return ipcRenderer.invoke(IPC_CHANNELS.displayControlGet);
@@ -546,6 +608,14 @@ const api = {
   spawnTerminal(request: TerminalSpawnRequest): Promise<TerminalSpawnResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.terminalSpawn, request);
   },
+  getProjectTerminalSettings(workspacePath: string): Promise<ProjectTerminalSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.projectTerminalSettingsGet, workspacePath);
+  },
+  saveProjectTerminalSettings(
+    snapshot: ProjectTerminalSettingsSnapshot,
+  ): Promise<ProjectTerminalSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.projectTerminalSettingsSave, snapshot);
+  },
   writeTerminalInput(request: TerminalInputRequest): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.terminalInput, request);
   },
@@ -614,6 +684,12 @@ const api = {
   }>> {
     return ipcRenderer.invoke(IPC_CHANNELS.chatGptSubscriptionAccountsList);
   },
+  accountUsageHistory(query: AccountUsageQuery): Promise<AccountUsageHistory> {
+    return ipcRenderer.invoke(IPC_CHANNELS.accountUsageHistory, query);
+  },
+  usageOverview(query: UsageOverviewQuery): Promise<UsageOverview> {
+    return ipcRenderer.invoke(IPC_CHANNELS.usageOverview, query);
+  },
   chatGptSubscriptionAccountCreate(displayName?: string, proxyUrl?: string): Promise<unknown> {
     return ipcRenderer.invoke(IPC_CHANNELS.chatGptSubscriptionAccountCreate, { displayName, proxyUrl });
   },
@@ -643,7 +719,7 @@ const api = {
     ipcRenderer.on("chatgpt-subscription:login-result", listener);
     return () => ipcRenderer.off("chatgpt-subscription:login-result", listener);
   },
-  codexOAuthGetStatus(): Promise<{ isLoggedIn: boolean; message: string }> {
+  codexOAuthGetStatus(): Promise<{ isLoggedIn: boolean; message: string; authState?: import("../shared/openai-account").OpenAIAccountAuthState }> {
     return ipcRenderer.invoke(IPC_CHANNELS.codexOAuthGetStatus);
   },
   codexOAuthStartLogin(upstreamProxyUrl?: string): Promise<{ success: boolean; message: string }> {
@@ -752,6 +828,7 @@ const api = {
   openAIAccountsGetActive(): Promise<{
     activeAccountId: string | null;
     isLoggedIn: boolean;
+    authState?: import("../shared/openai-account").OpenAIAccountAuthState;
     message: string;
     pendingAccountId?: string | null;
     syncStatus: OpenAIAccountSyncStatus;
@@ -1184,6 +1261,9 @@ const api = {
   browserOpenExternal(browserId?: string): Promise<{ ok: true }> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserOpenExternal, browserId ? { browserId } : undefined);
   },
+  browserCaptureScreenshot(browserId: string): Promise<ImageDisplayArtifact> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserCaptureScreenshot, { browserId });
+  },
   browserDownloadAction(request: import("../shared/browser-downloads").BrowserDownloadActionRequest): Promise<{ cancelled: boolean }> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserDownloadAction, request);
   },
@@ -1450,9 +1530,10 @@ const api = {
   listSchedules(): Promise<SchedulingSnapshot> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingList); },
   createSchedule(input: ScheduleCreateInput): Promise<ScheduleDefinition> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingCreate, input); },
   updateSchedule(input: ScheduleUpdateInput): Promise<ScheduleDefinition> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingUpdate, input); },
-  deleteSchedule(id: string): Promise<void> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingDelete, id); },
+  deleteSchedule(id: string, expectedRevision?: number): Promise<void> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingDelete, id, expectedRevision); },
   runScheduleNow(input: { id: string; requestId: string }): Promise<ScheduleOccurrence> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingRunNow, input); },
   previewSchedule(trigger: ScheduleTrigger): Promise<string[]> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingPreview, trigger); },
+  retryScheduleNotification(occurrenceId: string): Promise<void> { return ipcRenderer.invoke(IPC_CHANNELS.schedulingRetryNotification, occurrenceId); },
   onSchedulesChanged(callback: () => void): () => void {
     const listener = () => callback();
     ipcRenderer.on(IPC_CHANNELS.schedulingChanged, listener);
@@ -1477,6 +1558,9 @@ const api = {
   },
   listThreadFollowUps(threadId: string): Promise<ThreadFollowUpListResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadFollowUpList, threadId);
+  },
+  moveThreadFollowUpToTodo(request: ThreadFollowUpToTodoRequest): Promise<ThreadFollowUpToTodoResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.threadFollowUpToTodo, request);
   },
   cancelThreadFollowUp(request: ThreadFollowUpCancelRequest): Promise<ThreadFollowUpMutationResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadFollowUpCancel, request);
@@ -1550,7 +1634,7 @@ const api = {
     ipcRenderer.on(IPC_CHANNELS.projectTodoChanged, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.projectTodoChanged, listener);
   },
-  getProjectTodo(id: string): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoGet, id); },
+  getProjectTodo(id: string, includeImageData = true): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoGet, id, includeImageData); },
   saveProjectTodo(input: ProjectTodoSave): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoSave, input); },
   markProjectTodoComposed(input: ProjectTodoCompose): Promise<ProjectTodo> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoCompose, input); },
   trashProjectTodo(input: ProjectTodoTrash): Promise<number> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoTrash, input); },

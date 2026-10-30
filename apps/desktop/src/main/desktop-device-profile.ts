@@ -23,5 +23,5 @@ export function desktopDeviceMetadata(profile: DesktopDeviceProfile): Record<str
 export function defaultDesktopDeviceName(
   profile: DesktopDeviceProfile = collectDesktopDeviceProfile(),
 ): string {
-  return profile.hostname.trim() || "Eco Desktop";
+  return profile.hostname.trim() || "Mori Desktop";
 }

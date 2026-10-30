@@ -46,7 +46,8 @@ import type {
 import type { SshBookmarkView } from "../shared/ssh-bookmarks";
 import { ProjectionSubagentDetailFeed } from "./ActivityLogView";
 import { resolveSubagentRunDisplayTitle } from "./activity-log";
-import { BrowserPanel } from "./BrowserPanel";
+import { BrowserTaskWorkspace } from "./BrowserTaskWorkspace";
+import type { BrowserSplitLayout } from "./browser-split-layout";
 import { TaskPanelTabOrder } from "./TaskPanelTabOrder";
 import { TaskPanelNewTab } from "./TaskPanelNewTab";
 import { useBrowserTaskInstances } from "./browser-state-store";
@@ -592,6 +593,7 @@ export function SubagentTaskDrawer({
   plan,
   activeTab,
   openTabIds,
+  onReorderTabs,
   threadStatus,
   agentDisplayNames,
   agentThemes,
@@ -609,6 +611,7 @@ export function SubagentTaskDrawer({
   onSelectAgent,
   onSelectPlan,
   onCloseTab,
+  onCloseTabs,
   onSelectBackgroundTasks,
   onSelectReview,
   workspacePath,
@@ -618,6 +621,10 @@ export function SubagentTaskDrawer({
   onSelectFileViewer,
   onSelectBrowser,
   browserInstances,
+  browserSplit,
+  browserSplitBusy,
+  onChangeBrowserSplit,
+  onToggleBrowserSplit,
   onViewedFileChange,
   generationToolsActive = true,
   onOpenGenerationSettings,
@@ -652,6 +659,7 @@ export function SubagentTaskDrawer({
   plan?: ThreadPendingPlan;
   activeTab: TaskPanelActiveTab;
   openTabIds: readonly TaskPanelActiveTab[];
+  onReorderTabs?: (source: string, target: string, position: "before" | "after") => void;
   threadStatus?: ThreadStatus;
   agentDisplayNames?: RuntimeAgentDisplayNames;
   agentThemes?: RuntimeAgentThemes;
@@ -670,6 +678,7 @@ export function SubagentTaskDrawer({
   onSelectAgent: (agentId: string) => void;
   onSelectPlan: () => void;
   onCloseTab: (tabId: TaskPanelActiveTab) => void;
+  onCloseTabs: (tabIds: readonly TaskPanelActiveTab[]) => void;
   onSelectBackgroundTasks: () => void;
   onSelectReview: () => void;
   workspacePath: string;
@@ -679,6 +688,10 @@ export function SubagentTaskDrawer({
   onSelectFileViewer: () => void;
   onSelectBrowser: (browserId?: string) => void;
   browserInstances?: readonly TaskPanelBrowserInstance[];
+  browserSplit?: BrowserSplitLayout | undefined;
+  browserSplitBusy?: boolean;
+  onChangeBrowserSplit: (split: BrowserSplitLayout | undefined) => void;
+  onToggleBrowserSplit: (browserId: string) => void;
   onViewedFileChange: (target: WorkspaceFileReference & { requestId: number }) => void;
   generationToolsActive?: boolean;
   onOpenGenerationSettings: (kind: "image" | "speech") => void;
@@ -804,7 +817,12 @@ export function SubagentTaskDrawer({
       aria-label={fullscreen ? t("app.taskPanelFullscreen") : t("app.taskPanel")}
     >
       <header className="subagent-task-panel-topbar">
-        <TaskPanelTabOrder openTabIds={openTabIds} label={t("task.tabs")}>
+        <TaskPanelTabOrder
+          openTabIds={openTabIds}
+          label={t("task.tabs")}
+          onReorder={onReorderTabs}
+          onCloseTabs={onCloseTabs}
+        >
           {newTabIds.map((tabId) => (
             <span
               key={tabId}
@@ -1321,29 +1339,10 @@ export function SubagentTaskDrawer({
             />
           </div>
         ) : null}
-        {browserTabs.map((instance) => {
-          const tabId = browserTaskTabId(instance.id);
-          const isActive = activeTab === tabId;
-          return (
-            <div
-              key={tabId}
-              id={`subagent-task-tab-browser-${instance.id}`}
-              className={[
-                "subagent-task-panel-tab-pane",
-                "subagent-task-panel-tab-pane--browser",
-                isActive ? "is-active" : "is-inactive",
-              ].join(" ")}
-              role="tabpanel"
-              hidden={!isActive}
-            >
-              <BrowserPanel
-                active={isActive && surfaceActive}
-                browserId={instance.id}
-                onOpenTool={(browserId, tool) => onOpenHomeTool(browserTaskTabId(browserId), tool)}
-              />
-            </div>
-          );
-        })}
+        <BrowserTaskWorkspace instances={browserTabs} activeBrowserId={activeBrowserId}
+          surfaceActive={surfaceActive} split={browserSplit} splitBusy={browserSplitBusy}
+          onChangeSplit={onChangeBrowserSplit} onToggleSplit={onToggleBrowserSplit}
+          onSelectBrowser={onSelectBrowser} onOpenTool={onOpenHomeTool} />
         {planSelected && plan ? (
           <div id="subagent-task-tab-plan" className="subagent-task-panel-tab-pane" role="tabpanel">
             <PlanDetailPanel plan={plan} />

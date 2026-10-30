@@ -360,12 +360,12 @@ test("MCP notifications/cancelled aborts only the matching authenticated session
   expect(observedSignal?.aborted).toBe(true);
 });
 
-test("expired or unknown session id is transparently rebound for an authenticated client", async () => {
+test("unknown session id answers 404 so the client re-initializes (local control-secret gateway)", async () => {
   let calls = 0;
   const { port, secret } = await listenTestServer({
-    serverName: "eco_test",
+    serverName: "mori_tasks",
     listTools: async () => ({
-      tools: [{ name: "ping", description: "ping", inputSchema: { type: "object" } }],
+      tools: [{ name: "mori_list_todos", description: "todos", inputSchema: { type: "object" } }],
     }),
     callTool: async ({ name }) => {
       calls += 1;
@@ -373,10 +373,11 @@ test("expired or unknown session id is transparently rebound for an authenticate
     },
   });
   const url = `http://127.0.0.1:${port}/mcp`;
+  // Local Mori gateways authenticate with the control secret only: Codex does
+  // not send an Authorization header for these servers.
   const headers = {
     "content-type": "application/json",
     "x-eco-test-control-secret": secret,
-    authorization: "Bearer thr-token",
   };
 
   const init = await fetch(url, {
@@ -390,47 +391,133 @@ test("expired or unknown session id is transparently rebound for an authenticate
     }),
   });
   expect(init.status).toBe(200);
-  const liveSession = init.headers.get("mcp-session-id");
-  expect(liveSession).toBeTruthy();
+  expect(init.headers.get("mcp-session-id")).toBeTruthy();
 
   // The client still holds a session ID the server no longer knows — e.g.
-  // evicted by the idle TTL while a tool call waited for user approval.
-  const staleList = await fetch(url, {
+  // evicted by the idle TTL while the assistant thread sat idle. Codex's pinned
+  // rmcp client retries with a fresh initialize handshake on HTTP 404,
+  // so a 400 here strands the thread forever.
+  const staleSession = "stale-session-from-before-ttl";
+  const stale = await fetch(url, {
     method: "POST",
-    headers: { ...headers, "mcp-session-id": "stale-session-from-before-ttl" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+    headers: { ...headers, "mcp-session-id": staleSession },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "mori_list_todos" },
+    }),
   });
-  expect(staleList.status).toBe(200);
-  const reboundSession = staleList.headers.get("mcp-session-id");
-  expect(reboundSession).toBeTruthy();
-  expect(reboundSession).not.toBe("stale-session-from-before-ttl");
-  const staleListBody = (await staleList.json()) as { result: { tools: Array<{ name: string }> } };
-  expect(staleListBody.result.tools[0]?.name).toBe("ping");
+  expect(stale.status).toBe(404);
+  expect(await stale.json()).toEqual({ error: "MCP session not found" });
+  expect(stale.headers.get("mcp-session-id")).toBeNull();
+  expect(calls).toBe(0);
 
-  // The rebound session ID is usable for subsequent calls, including tools/call.
-  const call = await fetch(url, {
+  // Recovery is the client's re-initialize + resend, exercised here directly.
+  const reinit = await fetch(url, {
     method: "POST",
-    headers: { ...headers, "mcp-session-id": reboundSession! },
+    headers,
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: 3,
-      method: "tools/call",
-      params: { name: "ping", arguments: {} },
+      method: "initialize",
+      params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "t", version: "0" } },
     }),
   });
-  expect(call.status).toBe(200);
-  const callBody = (await call.json()) as { result: { content: Array<{ text: string }> } };
-  expect(callBody.result.content[0]?.text).toBe("ping");
-  expect(calls).toBe(1);
-
-  // The original live session is unaffected by the rebind.
-  const liveList = await fetch(url, {
+  expect(reinit.status).toBe(200);
+  const session = reinit.headers.get("mcp-session-id");
+  expect(session).toBeTruthy();
+  const retried = await fetch(url, {
     method: "POST",
-    headers: { ...headers, "mcp-session-id": liveSession! },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/list" }),
+    headers: { ...headers, "mcp-session-id": session as string },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: { name: "mori_list_todos" },
+    }),
   });
-  expect(liveList.status).toBe(200);
-  expect(liveList.headers.get("mcp-session-id")).toBe(liveSession);
+  expect(retried.status).toBe(200);
+  const body = (await retried.json()) as { result: { content: Array<{ text: string }> } };
+  expect(body.result.content[0]?.text).toBe("mori_list_todos");
+  expect(calls).toBe(1);
+});
+
+test("idle TTL expires an initialized session; auth scope and invalid control secrets never dispatch tools", async () => {
+  let calls = 0;
+  const { port, secret } = await listenTestServer({
+    serverName: "mori_tasks_ttl",
+    listTools: async () => ({ tools: [] }),
+    callTool: async () => {
+      calls++;
+      return { content: [] };
+    },
+  });
+  const url = `http://127.0.0.1:${port}/mcp`;
+  const headers = {
+    "content-type": "application/json",
+    "x-eco-test-control-secret": secret,
+    authorization: "Bearer owner",
+  };
+  const initialized = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "ttl-test", version: "1" },
+      },
+    }),
+  });
+  const session = initialized.headers.get("mcp-session-id");
+  expect(session).toBeTruthy();
+  const request = (overrides: Record<string, string> = {}) =>
+    fetch(url, {
+      method: "POST",
+      headers: { ...headers, "mcp-session-id": session!, ...overrides },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "ping" } }),
+    });
+  expect((await request({ authorization: "Bearer other" })).status).toBe(404);
+  expect((await request({ "x-eco-test-control-secret": "wrong-secret" })).status).toBe(401);
+  expect(calls).toBe(0);
+  expect((await request()).status).toBe(200);
+  expect(calls).toBe(1);
+  const realNow = Date.now;
+  const future = realNow() + 31 * 60 * 1000;
+  try {
+    Date.now = () => future;
+    const expired = await request();
+    expect(expired.status).toBe(404);
+    expect(await expired.json()).toEqual({ error: "MCP session not found" });
+    expect(calls).toBe(1);
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test("unknown session id answers 404 for bearer-authenticated clients too", async () => {
+  const { port, secret } = await listenTestServer({
+    serverName: "eco_test",
+    listTools: async () => ({ tools: [] }),
+    callTool: async () => ({ content: [] }),
+  });
+  const url = `http://127.0.0.1:${port}/mcp`;
+  const stale = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-eco-test-control-secret": secret,
+      authorization: "Bearer thr-token",
+      "mcp-session-id": "stale-session-from-before-ttl",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+  });
+  expect(stale.status).toBe(404);
+  expect(await stale.json()).toEqual({ error: "MCP session not found" });
 });
 
 test("request without a session id and without bearer is still rejected with 400", async () => {

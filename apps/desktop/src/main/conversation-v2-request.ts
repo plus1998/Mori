@@ -1,4 +1,9 @@
-import { CONVERSATION_V2_ERROR, type ConversationMessage, ConversationV2Error } from "@eco/shared";
+import {
+  CONVERSATION_V2_ERROR,
+  type ConversationMessage,
+  ConversationV2Error,
+  type ConversationV2ErrorCode,
+} from "@eco/shared";
 import type { PromptImageAttachment } from "../shared/ipc";
 import { isPromptImageAttachmentRecord } from "./prompt-image-file-store";
 
@@ -8,6 +13,54 @@ export interface AcceptedConversationMessageSchedule {
   turnId: string;
   text: string;
   attachments?: PromptImageAttachment[];
+}
+
+export interface ConversationV2SendMessageRequest {
+  principalId: string;
+  conversationId: string;
+  clientCommandId: string;
+  text: string;
+  attachments: PromptImageAttachment[];
+  turnId?: string;
+  messageId?: string;
+}
+
+/** Message content may consist only of images; identity fields must still be non-empty. */
+export function parseConversationV2SendMessageRequest(value: unknown): ConversationV2SendMessageRequest {
+  const request = parseConversationV2Request(
+    value,
+    ["principalId", "conversationId", "clientCommandId", "text"],
+    ["principalId", "conversationId", "clientCommandId"],
+  );
+  if (typeof request.text !== "string") {
+    throw new ConversationV2Error(
+      CONVERSATION_V2_ERROR.invalidParams,
+      "Conversation V2 text must be a string.",
+    );
+  }
+  const text = request.text.trim();
+  const attachments = parseConversationV2PromptImageAttachments(
+    request.attachments,
+    CONVERSATION_V2_ERROR.invalidParams,
+    "Conversation V2 message",
+  );
+  if (!text && attachments.length === 0) {
+    throw new ConversationV2Error(
+      CONVERSATION_V2_ERROR.invalidParams,
+      "Conversation V2 message requires text or an image attachment.",
+    );
+  }
+  const turnId = readOptionalConversationV2String(request.turnId, "turnId");
+  const messageId = readOptionalConversationV2String(request.messageId, "messageId");
+  return {
+    principalId: request.principalId,
+    conversationId: request.conversationId,
+    clientCommandId: request.clientCommandId,
+    text,
+    attachments,
+    ...(turnId ? { turnId } : {}),
+    ...(messageId ? { messageId } : {}),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -94,7 +147,11 @@ export function requiredConversationV2Integer(value: unknown, field: string): nu
 export function buildAcceptedConversationMessageSchedule(
   message: ConversationMessage,
 ): AcceptedConversationMessageSchedule {
-  const attachments = parseConversationV2PromptImageAttachments(message.attachments);
+  const attachments = parseConversationV2PromptImageAttachments(
+    message.attachments,
+    CONVERSATION_V2_ERROR.integrityFailure,
+    "Queued conversation V2 message",
+  );
   return {
     conversationId: message.conversationId,
     messageId: message.messageId,
@@ -104,22 +161,20 @@ export function buildAcceptedConversationMessageSchedule(
   };
 }
 
-function parseConversationV2PromptImageAttachments(value: unknown): PromptImageAttachment[] {
+function parseConversationV2PromptImageAttachments(
+  value: unknown,
+  errorCode: ConversationV2ErrorCode,
+  source: string,
+): PromptImageAttachment[] {
   if (value === undefined) {
     return [];
   }
   if (!Array.isArray(value)) {
-    throw new ConversationV2Error(
-      CONVERSATION_V2_ERROR.integrityFailure,
-      "Queued conversation V2 message attachments are invalid.",
-    );
+    throw new ConversationV2Error(errorCode, `${source} attachments are invalid.`);
   }
   return value.map((entry) => {
     if (!isPromptImageAttachmentRecord(entry)) {
-      throw new ConversationV2Error(
-        CONVERSATION_V2_ERROR.integrityFailure,
-        "Queued conversation V2 message contains an invalid image attachment.",
-      );
+      throw new ConversationV2Error(errorCode, `${source} contains an invalid image attachment.`);
     }
     return {
       mediaType: entry.mediaType,

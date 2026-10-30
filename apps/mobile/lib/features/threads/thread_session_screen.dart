@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -19,6 +20,7 @@ import '../../core/providers/app_providers.dart';
 import '../../core/providers/thinking_display_provider.dart';
 import '../../core/storage/composer_model_preferences.dart';
 import '../../core/widgets/activity_feed_auto_read_listener.dart';
+import '../../core/widgets/composer_prompt_editing_controller.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/utils/conversation_v2_hash.dart';
@@ -28,10 +30,12 @@ import '../../core/utils/thread_follow_up_ui.dart';
 import '../../core/utils/thread_status.dart';
 import '../../core/platform/session_wake_lock.dart';
 import '../../core/widgets/eco_modal_sheet.dart';
+import '../../core/widgets/prompt_image_lightbox.dart';
 import '../approvals/approval_sheets.dart';
 import '../approvals/bash_approval_panel.dart';
 import '../approvals/plan_approval_panel.dart';
 import '../composer/composer_dock_shell.dart';
+import '../composer/composer_stack_card.dart';
 import '../composer/follow_up_queue_bar.dart';
 import '../composer/session_composer.dart';
 import '../composer/workspace_changes_pill.dart';
@@ -41,8 +45,10 @@ import 'activity_feed_scroll_coordinator.dart';
 import 'conversation_v2_activity_feed.dart';
 import '../../core/sync/conversation_v2_session.dart';
 import 'conversation_v2_projection.dart';
+import 'projection_activity_feed.dart';
 import 'image_display_provider.dart';
 import 'image_display_floating_gallery.dart';
+import 'interrupted_codex_continue.dart';
 import 'thread_menu_sheets.dart';
 import 'thread_session_layout.dart';
 import 'thread_providers.dart';
@@ -67,7 +73,7 @@ class ThreadSessionScreen extends ConsumerStatefulWidget {
 
 class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     with WidgetsBindingObserver {
-  final _promptController = TextEditingController();
+  final _promptController = ComposerPromptEditingController();
   final _scrollController = ScrollController();
   late final ActivityFeedScrollCoordinator _scrollCoordinator =
       ActivityFeedScrollCoordinator(_scrollController);
@@ -87,6 +93,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
   int _landingConfigEpoch = 0;
   String? _editingFollowUpId;
   String? _followUpCancelBusyId;
+  String? _followUpToTodoBusyId;
   String? _followUpEscalateBusyId;
   bool _followUpQueuePauseBusy = false;
   double _lastKeyboardInset = 0;
@@ -301,7 +308,21 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
       ),
     );
     final conversationV2 = ref.watch(
-      conversationV2SessionProvider(widget.threadId),
+      conversationV2SessionProvider(widget.threadId).select(
+        (state) => (
+          syncState: state.syncState,
+          pendingBash: state.pendingBash,
+          pendingPlan: state.pendingPlan,
+          pendingClarification: state.pendingClarification,
+          error: state.error,
+          projectionExtras: state.projectionExtras,
+          v2Running: resolveSessionRunning(
+            lifecycleRunning: false,
+            v2StreamTrusted: _v2OwnsRunState(state),
+            runs: state.runs,
+          ),
+        ),
+      ),
     );
     final conversationV2ContentReady =
         conversationV2.syncState != ConversationV2SyncState.uninitialized &&
@@ -330,7 +351,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     final changesLoading = ref.watch(
       workspacePillLoadingProvider(workspacePath),
     );
-    final isRunning = _isSessionRunning(thread, conversationV2);
+    final isRunning = _isRunning(thread) || conversationV2.v2Running;
     _syncSessionWakeLock(thread);
     final stopping = _stopBusy || (thread?.cancelling == true);
     final sessionContentBooting = isSessionContentBooting(
@@ -437,83 +458,36 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
             .watch(threadImageDisplayArtifactsProvider(widget.threadId))
             .valueOrNull ??
         const [];
-    final failed =
-        !isRunning &&
-        (thread?.status == 'failed' || thread?.status == 'blocked');
-    final failureMessage = failed ? thread?.message.trim() : null;
-
     final floatingComposer =
-        hasFloatingComposerContent || conversationV2.error != null || failed
+        hasFloatingComposerContent || conversationV2.error != null
         ? Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (failed)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Semantics(
-                    liveRegion: true,
-                    child: Material(
-                      key: const ValueKey('thread-run-failure-notice'),
-                      color: Theme.of(context).colorScheme.errorContainer,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              context.l10n.threadRunFailed,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            if (failureMessage?.isNotEmpty == true) ...[
-                              const SizedBox(height: 4),
-                              ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  maxHeight:
-                                      MediaQuery.sizeOf(context).height * 0.2,
-                                ),
-                                child: SingleChildScrollView(
-                                  child: SelectableText(failureMessage!),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
               if (conversationV2.error != null)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Material(
-                    color: Theme.of(context).colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 12),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              localizedAppError(
-                                conversationV2.error!,
-                                context.l10n,
-                              ),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () => ref
-                                .read(
-                                  conversationV2SessionProvider(
-                                    widget.threadId,
-                                  ).notifier,
-                                )
-                                .refresh(),
-                            child: Text(context.l10n.commonRetry),
-                          ),
-                        ],
+                  padding: composerStackOuterPadding,
+                  child: Semantics(
+                    liveRegion: true,
+                    child: Container(
+                      key: const ValueKey('thread-sync-error-notice'),
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: ecoColors(context).bgElevated,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: ecoColors(context).borderSubtle,
+                        ),
+                      ),
+                      child: Text(
+                        localizedAppError(conversationV2.error!, context.l10n),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: ecoColors(context).textSecondary,
+                          height: 1.4,
+                        ),
                       ),
                     ),
                   ),
@@ -540,6 +514,8 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                   queuePaused: thread?.followUpQueuePaused ?? false,
                   pauseBusy: _followUpQueuePauseBusy,
                   cancelBusyId: _followUpCancelBusyId,
+                  moveToTodoBusyId: _followUpToTodoBusyId,
+                  onMoveToTodo: _moveFollowUpToTodo,
                   escalateBusyId: _followUpEscalateBusyId,
                   onEscalate: (followUp) => _escalateFollowUp(followUp),
                   onEdit: _startEditingFollowUp,
@@ -903,7 +879,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
               )
             : ThreadRuntimeConfig(
                 subagentEnabled: defaultSubagentAvailability(),
-                sessionMode: workflow.valueOrNull?.sessionMode ?? 'agent',
+                sessionMode: 'agent',
                 bashReviewMode: normalizeBashReviewMode(
                   workflow.valueOrNull?.defaultBashReviewMode,
                 ),
@@ -1175,7 +1151,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
   }
 
   Future<void> _startNewThread() async {
-    final prompt = _promptController.text.trim();
+    final prompt = _promptController.prompt.trim();
     if (prompt.isEmpty && _attachments.isEmpty) return;
     if (_starting) return;
 
@@ -1459,6 +1435,33 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     }
   }
 
+  Future<void> _moveFollowUpToTodo(ThreadPendingFollowUp followUp) async {
+    final rpc = ref.read(desktopRpcProvider);
+    if (rpc == null || _followUpToTodoBusyId != null) return;
+    setState(() => _followUpToTodoBusyId = followUp.id);
+    try {
+      await rpc.followUpToTodo(
+        threadId: followUp.threadId,
+        followUpId: followUp.id,
+      );
+      if (_editingFollowUpId == followUp.id) await _cancelEditingFollowUp();
+      await _refreshFollowUps();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.followUpMovedToTodo)),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _followUpToTodoBusyId = null);
+    }
+  }
+
   Future<void> _escalateFollowUp(ThreadPendingFollowUp followUp) async {
     final rpc = ref.read(desktopRpcProvider);
     if (rpc == null) return;
@@ -1565,7 +1568,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     ThreadRuntimeConfigInput runtimeConfig, {
     FollowUpDeliveryMode? deliveryMode,
   }) async {
-    final prompt = _promptController.text.trim();
+    final prompt = _promptController.prompt.trim();
     if (prompt.isEmpty && _attachments.isEmpty) return;
     if (_sendBusy || _followUpBusy) return;
     final rpc = ref.read(desktopRpcProvider);
@@ -1790,6 +1793,14 @@ class _ThreadSessionFeedPane extends ConsumerWidget {
   }
 }
 
+final _threadFeedCachesProvider = Provider.autoDispose
+    .family<_ThreadFeedCaches, String>((ref, _) => _ThreadFeedCaches());
+
+class _ThreadFeedCaches {
+  final projection = ConversationV2ProjectionCache();
+  final feed = ProjectionActivityFeedCache();
+}
+
 class _ActivityFeedView extends ConsumerWidget {
   const _ActivityFeedView({
     required this.threadId,
@@ -1823,6 +1834,7 @@ class _ActivityFeedView extends ConsumerWidget {
       threadSessionProvider(threadId).select((state) => state.thread?.coreKind),
     );
     final conversationV2 = ref.watch(conversationV2SessionProvider(threadId));
+    final caches = ref.watch(_threadFeedCachesProvider(threadId));
     final modelSettings = ref.watch(modelSettingsProvider).valueOrNull;
     final runtimeConfig = ref.watch(
       threadSessionProvider(
@@ -1844,6 +1856,8 @@ class _ActivityFeedView extends ConsumerWidget {
       projectionExtras: conversationV2.projectionExtras,
       hasEarlier: conversationV2.hasOlder,
       historyRevision: conversationV2.historyRevision,
+      storeEpoch: conversationV2.storeEpoch,
+      cache: conversationV2.storeEpoch == null ? null : caches.projection,
     );
     // Once the V2 controller has started, its state owns the ordered message
     // window even when that window is empty or failed. Falling back based on
@@ -1858,12 +1872,20 @@ class _ActivityFeedView extends ConsumerWidget {
       l10n: context.l10n,
       thinkingDisplayMode: thinkingDisplayMode,
       conversationLive: isRunning,
+      presentationCache: caches.feed,
     );
     final displayFeedEntries = resolveThreadSessionDisplayFeedEntries(
       feedEntries: feedEntries,
       threadId: threadId,
       threadPrompt: threadPrompt,
       isRunning: isRunning,
+    );
+    final continueTarget = resolveInterruptedCodexContinueTarget(
+      coreKind: threadCoreKind,
+      threadStatus: threadStatus,
+      isRunning: isRunning,
+      projection: v2Projection,
+      entries: displayFeedEntries,
     );
 
     if (displayFeedEntries.isEmpty) {
@@ -1927,6 +1949,8 @@ class _ActivityFeedView extends ConsumerWidget {
         loadTurnDetail: (entry) =>
             _loadConversationV2TurnDetail(ref, threadId, entry),
         loadImageView: (entry) => _loadImageViewForEntry(ref, entry),
+        loadPromptImage: (attachment) =>
+            _loadPromptImageForThread(ref, threadId, attachment),
         onOpenImageDisplayArtifact: onOpenImageDisplayArtifact,
         onLoadUserMessageEdit: (activityLineId) async {
           final rpc = ref.read(desktopRpcProvider);
@@ -1988,6 +2012,19 @@ class _ActivityFeedView extends ConsumerWidget {
                   .read(threadSessionProvider(threadId).notifier)
                   .acceptRewrittenThread(thread);
             },
+        resolveFailedRequestAction: threadCoreKind == 'codex'
+            ? (entry) => continueTarget?.failureId != entry.id
+                  ? null
+                  : ActivityFeedFailedRequestAction(
+                      label: context.l10n.activityContinue,
+                      run: () => _continueInterruptedCodexTurn(
+                        ref,
+                        threadId,
+                        conversationV2.historyRevision,
+                        continueTarget!,
+                      ),
+                    )
+            : null,
         onRetryFailedRequest:
             _mobileSupportsOneClickRequestRetry(
                   threadCoreKind,
@@ -2086,7 +2123,7 @@ bool _mobileSupportsOneClickRequestRetry(
   String? coreKind,
   List<ActivityFeedEntry> entries,
 ) {
-  if (coreKind == 'acp' || coreKind == 'codex') return true;
+  if (coreKind == 'acp') return true;
   if (coreKind != 'claude') return false;
   final userEntries = entries
       .where((entry) => entry.kind == ActivityFeedKind.user)
@@ -2098,6 +2135,44 @@ bool _mobileSupportsOneClickRequestRetry(
             target.activityLineId.trim().isNotEmpty &&
             target.userMessageId?.trim().isNotEmpty == true;
       });
+}
+
+Future<void> _continueInterruptedCodexTurn(
+  WidgetRef ref,
+  String threadId,
+  int expectedHistoryRevision,
+  InterruptedCodexContinueTarget target,
+) async {
+  final rpc = ref.read(desktopRpcProvider);
+  if (rpc == null) {
+    throw const AppErrorCodeException(
+      AppErrorCode.threadProjectionNoPcSelected,
+    );
+  }
+  final principalId = ref.read(credentialsProvider).valueOrNull?.userId?.trim();
+  if (principalId == null || principalId.isEmpty) {
+    throw StateError(
+      'A signed-in principal is required to continue a conversation.',
+    );
+  }
+  final user = target.user;
+  final thread = await rpc.retryThreadFromMessage(
+    principalId: principalId,
+    clientCommandId:
+        'codex_continue_${DateTime.now().toUtc().microsecondsSinceEpoch}_${conversationV2StableHash({'threadId': threadId, 'activityLineId': user.activityLineId, 'sourceAttemptId': target.sourceAttemptId, 'expectedHistoryRevision': expectedHistoryRevision})}',
+    threadId: threadId,
+    activityLineId: user.activityLineId,
+    // This identifies the recorded prompt. The continuation flag makes the
+    // desktop send empty Codex input and skip recording another user message.
+    prompt: user.text.trim(),
+    hasImages: user.attachments.isNotEmpty,
+    continueInterrupted: true,
+    sourceAttemptId: target.sourceAttemptId,
+    expectedHistoryRevision: expectedHistoryRevision,
+  );
+  await ref
+      .read(threadSessionProvider(threadId).notifier)
+      .acceptRetriedThread(thread);
 }
 
 ActivityFeedEntry? _latestRetryUserPrompt(
@@ -2144,6 +2219,8 @@ Future<void> _openConversationV2AgentDetail(
       runId: runId,
       title: entry.taskName ?? entry.subagentRole ?? agentId,
       future: future,
+      loadPromptImage: (attachment) =>
+          _loadPromptImageForThread(ref, threadId, attachment),
     ),
   );
 }
@@ -2170,6 +2247,7 @@ class _ConversationV2AgentDetailSheet extends StatefulWidget {
     required this.runId,
     required this.title,
     required this.future,
+    required this.loadPromptImage,
   });
 
   final String threadId;
@@ -2177,6 +2255,7 @@ class _ConversationV2AgentDetailSheet extends StatefulWidget {
   final String runId;
   final String title;
   final Future<ConversationV2DetailPage> future;
+  final PromptImageOriginalLoader loadPromptImage;
 
   @override
   State<_ConversationV2AgentDetailSheet> createState() =>
@@ -2262,6 +2341,7 @@ class _ConversationV2AgentDetailSheetState
                         }
                         return ActivityFeedList(
                           entries: entries,
+                          loadPromptImage: widget.loadPromptImage,
                           scrollController: _scrollController,
                           scrollCoordinator: _scrollCoordinator,
                           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -2279,6 +2359,24 @@ class _ConversationV2AgentDetailSheetState
       ),
     );
   }
+}
+
+Future<Uint8List> _loadPromptImageForThread(
+  WidgetRef ref,
+  String threadId,
+  PromptImageAttachment attachment,
+) async {
+  final rpc = ref.read(desktopRpcProvider);
+  if (rpc == null) {
+    throw const ImageViewReadException(
+      ImageViewReadFailureCode.bridgeUnavailable,
+    );
+  }
+  return rpc.downloadPromptImage(
+    contextKey: composerDraftContextKey(threadId: threadId),
+    contentRef: attachment.contentRef!,
+    mediaType: attachment.mediaType,
+  );
 }
 
 Future<ImageViewReadData> _loadImageViewForEntry(

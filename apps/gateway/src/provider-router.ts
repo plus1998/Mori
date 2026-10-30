@@ -149,7 +149,7 @@ export function assertUpstreamKindCompatibleWithProviderPath(
     `API protocol incompatible with provider path: provider ${provider.name} (${provider.id}) ` +
       `has requestPath ${path} (Anthropic Messages only), but the route requested upstream kind ` +
       `"${upstreamKind}". Switch the route/agent API compat to Anthropic Messages, or use a provider ` +
-      `that exposes OpenAI endpoints without the ${path} path. Eco will not silently strip ${path}.`,
+      `that exposes OpenAI endpoints without the ${path} path. Mori will not silently strip ${path}.`,
   );
 }
 
@@ -300,7 +300,7 @@ export function resolveRequestPathForUpstreamKind(
   ) {
     throw new IncompatibleUpstreamKindError(
       `Cannot use upstream kind "${upstreamKind}" with requestPath ${path}: ` +
-        `this path is Anthropic Messages only. Eco will not silently strip ${path}.`,
+        `this path is Anthropic Messages only. Mori will not silently strip ${path}.`,
     );
   }
   return path;

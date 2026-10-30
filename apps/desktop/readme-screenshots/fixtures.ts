@@ -169,7 +169,7 @@ export const demoProductOverviewProjection: ThreadRunProjectionSnapshot = {
       eventType: "thread.status",
       role: "user",
       runAttemptId: "attempt_demo_1",
-      text: "为 Eco Coding 的 Supabase Center 补全设备配对 UI，并加上基础测试。主代理用 Sol 规划，Explore/Coder/Tester 用 Luna max。",
+      text: "为 Mori 的 Supabase Center 补全设备配对 UI，并加上基础测试。主代理用 Sol 规划，Explore/Coder/Tester 用 Luna max。",
       metadata: { liveType: "thread.user_prompt" },
     }),
     timelineItem({

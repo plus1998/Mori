@@ -182,7 +182,7 @@ describe("live refresh (the path desktop uses after saving settings)", () => {
       expect(upstream.seen()).toBe("sdk-client/1.0");
       // The injected default is gone too, so the bare Eco constant is the floor.
       expect((await send("codex", "")).status).toBe(200);
-      expect(upstream.seen()).toBe("Eco-Coding/0.0.0");
+      expect(upstream.seen()).toBe("Mori/0.0.0");
     } finally {
       server.stop();
     }

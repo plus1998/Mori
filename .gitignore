@@ -33,6 +33,12 @@ worktrees/
 packages/workspace/test/.git-fixtures/
 
 # Secrets
+# Signing private keys and PKCS#12 backups must stay outside the repository.
+*.p12
+*.pfx
+*.keychain
+*.keychain-db
+private-key.pem
 .env
 .env.*
 !.env.example

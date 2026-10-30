@@ -16,21 +16,18 @@ void main() {
     );
   }
 
-  testWidgets(
-    'shows existing content immediately and paces only new arrivals',
-    (tester) async {
-      await tester.pumpWidget(app('首批', streaming: true));
-      expect(find.text('首批'), findsOneWidget);
+  testWidgets('shows existing content immediately and batches new arrivals', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app('首批', streaming: true));
+    expect(find.text('首批'), findsOneWidget);
 
-      // 新增文本逐字输出，已有部分不重放。
-      await tester.pumpWidget(app('首批这是第二批', streaming: true));
-      expect(find.text('首批'), findsOneWidget);
-      await tester.pump(pacedStreamInterval);
-      expect(find.text('首批这'), findsOneWidget);
-      await tester.pump(pacedStreamInterval);
-      expect(find.text('首批这是'), findsOneWidget);
-    },
-  );
+    // 同一批已收到的文本一起显示，不额外逐字追赶。
+    await tester.pumpWidget(app('首批这是第二批', streaming: true));
+    expect(find.text('首批'), findsOneWidget);
+    await tester.pump(pacedStreamInterval);
+    expect(find.text('首批这是第二批'), findsOneWidget);
+  });
 
   testWidgets('keeps revealing across repeated streaming updates', (
     tester,
@@ -43,6 +40,18 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('abcde'), findsOneWidget);
+  });
+
+  testWidgets('a large burst catches up in one batch without extra ticks', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app('开始', streaming: true));
+    final burst = '开始${'👍🏽e\u0301中文' * 2000}';
+    await tester.pumpWidget(app(burst, streaming: true));
+    await tester.pump(pacedStreamInterval);
+    expect(find.text(burst), findsOneWidget);
+    await tester.pump(pacedStreamInterval);
+    expect(tester.binding.hasScheduledFrame, isFalse);
   });
 
   testWidgets('does not replay existing content when re-entering the page', (
@@ -75,7 +84,7 @@ void main() {
     await tester.pumpWidget(app('开始', streaming: true));
     await tester.pumpWidget(app('开始这是思考内容', streaming: true));
     await tester.pump(pacedStreamInterval);
-    expect(find.text('开始这'), findsOneWidget);
+    expect(find.text('开始这是思考内容'), findsOneWidget);
 
     await tester.pumpWidget(app('开始这是思考内容', streaming: false));
     await tester.pump();
@@ -106,14 +115,14 @@ void main() {
     expect(find.text('开始'), findsOneWidget);
     expect(tester.binding.hasScheduledFrame, isFalse);
     await tester.pump(const Duration(milliseconds: 20));
-    expect(find.text('开始继'), findsOneWidget);
+    expect(find.text('开始继续逐字输出'), findsOneWidget);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump(const Duration(seconds: 1));
-    expect(find.text('开始继'), findsOneWidget);
+    expect(find.text('开始继续逐字输出'), findsOneWidget);
     expect(tester.binding.hasScheduledFrame, isFalse);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump(pacedStreamInterval);
-    expect(find.text('开始继续'), findsOneWidget);
+    expect(find.text('开始继续逐字输出'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

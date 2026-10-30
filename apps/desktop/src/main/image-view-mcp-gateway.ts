@@ -157,7 +157,7 @@ export class ImageViewMcpGateway {
         {
           serverName: ECO_IMAGE_VIEW_MCP_SERVER,
           instructions:
-            "Eco local image viewing. Pass an absolute path or durable ref plus a caller-chosen prompt. The tool returns the vision model's text response.",
+            "Mori local image viewing. Pass an absolute path or durable ref plus a caller-chosen prompt. The tool returns the vision model's text response.",
           listTools: async () => ({ tools: [imageViewToolDefinition()] }),
           callTool: async ({ name, arguments: args, authToken, signal }) =>
             this.executeToolCall(name, args, authToken, signal),
@@ -218,7 +218,24 @@ export class ImageViewMcpGateway {
     if (name !== ECO_IMAGE_VIEW_TOOL) {
       throw new Error(`未知看图工具：${name}`);
     }
-    const claim = this.resolveThread(authToken);
+    return this.executeForThread(rawArgs, this.resolveThread(authToken), signal);
+  }
+
+  /** Local application services bind the thread themselves; no model-supplied identity. */
+  async viewForThread(
+    threadId: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    if (!threadId.trim()) throw new Error("看图请求缺少会话。");
+    return this.executeForThread(args, { threadId }, signal);
+  }
+
+  private async executeForThread(
+    rawArgs: Record<string, unknown>,
+    claim: { threadId: string; toolUseId?: string },
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>> {
     signal?.throwIfAborted();
     const imagePath = typeof rawArgs.path === "string" ? rawArgs.path.trim() : "";
     const rawReference = rawArgs.ref ?? rawArgs.reference ?? rawArgs.contentRef;
@@ -281,7 +298,7 @@ function imageViewToolDefinition(): McpToolDefinition {
   return {
     name: ECO_IMAGE_VIEW_TOOL,
     description:
-      "Inspect an image with Eco's vision model using a caller-provided prompt. Provide either an absolute local path or a durable ref. The returned text is passed through without a prescribed response format. Keep image bytes out of the main prompt.",
+      "Inspect an image with Mori's vision model using a caller-provided prompt. Provide either an absolute local path or a durable ref. The returned text is passed through without a prescribed response format. Keep image bytes out of the main prompt.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

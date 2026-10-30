@@ -31,6 +31,7 @@ import {
   type CodexToolPolicy,
   CodexTurnRouteRegistry,
   type CodexTurnTokenUsageBreakdown,
+  type CodexTurnTokenUsageSnapshot,
   type CodexWebSearchMode,
   clearCodexSpawnPayloadQueueSync,
   collectCodexGatewayCatalogRoutes,
@@ -167,6 +168,8 @@ export interface EcoProviderForCodexCatalog extends EcoProviderForCodexConfig {
 
 export interface CodexRuntimeRunDeps {
   ecoDataDir: string;
+  /** Refresh managed ChatGPT credentials before a native OpenAI turn. */
+  ensureAccountReady?: () => Promise<void>;
   listProviders: () => readonly EcoProviderForCodexCatalog[];
   getGlobalContextWindowLimit?: () => number;
   listAccountModels?: () => Promise<readonly CodexAccountModelContext[]>;
@@ -188,6 +191,8 @@ export interface CodexRuntimeRunDeps {
     | Promise<readonly CodexMcpServerForConfigSync[]>;
   threadMap: CodexThreadMap;
   resolveRunAttemptId?: (ecoThreadId: string) => string | undefined;
+  /** Durable turn ownership takes precedence over the currently active attempt. */
+  resolvePersistedRunAttemptId?: (ecoThreadId: string, requestId: string) => string | undefined;
   appendConversationRuntimeEvent: (event: ThreadRunEventInput) => void;
   /**
    * Emit feed projection. Pass `{ streaming: true }` for delta events so the
@@ -222,9 +227,11 @@ export interface CodexRuntimeRunDeps {
   /** Runs only after the root Eco -> Codex thread mapping has been persisted successfully. */
   onCodexThreadMapped?: (codexThreadId: string) => void;
   onCodexContextUpdated?: (resolution: CodexContextSnapshotResolution) => void;
+  accountUsageObserver?: Pick<ConstructorParameters<typeof CodexEventAdapter>[0],
+    "onTurnStarted" | "onAccountTokenUsage" | "onTurnFinished" | "onThreadRouteCleanup">;
   /**
-   * Codex app-server per-turn token usage (terminal `turn/completed`). Used as
-   * the billing source for direct (non-gateway) routes such as built-in OpenAI.
+   * Cumulative turn usage on each native usage notification and again at terminal
+   * completion. The host persists checkpoints and bills only unseen deltas.
    */
   onCodexTurnTokenUsage?: (input: {
     threadId: string;
@@ -232,6 +239,10 @@ export interface CodexRuntimeRunDeps {
     turnId: string;
     appServerTokenUsage: CodexTurnTokenUsageBreakdown;
     appServerTokenUsageRequests?: CodexTurnTokenUsageBreakdown[];
+    appServerTokenUsageSnapshot?: CodexTurnTokenUsageSnapshot;
+    modelId?: string;
+    providerId?: string;
+    runAttemptId?: string;
   }) => void;
   onCodexTurnPlanUpdated?: NonNullable<
     ConstructorParameters<typeof CodexEventAdapter>[0]["onTurnPlanUpdated"]
@@ -337,7 +348,7 @@ let accountRestartRevision = 0;
 export function bindPreparedCodexRuntimeToThread(ecoThreadId: string, prepared: PreparedCodexRuntime): void {
   const threadId = ecoThreadId.trim();
   if (!threadId) {
-    throw new Error("Eco thread id is required when binding prepared Codex runtime config.");
+    throw new Error("Mori thread id is required when binding prepared Codex runtime config.");
   }
   preparedRuntimeByThread.set(threadId, prepared);
 }
@@ -413,8 +424,30 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
     return resolveAttribution(codexThreadId)?.ecoThreadId ?? codexThreadId;
   };
   eventAdapter = new CodexEventAdapter({
+    ...config.accountUsageObserver,
     resolveEcoThreadId,
     turnRouteRegistry,
+    onTurnTokenUsageUpdated: (route) => {
+      if (!route.appServerTokenUsage) return;
+      const threadId = resolveEcoThreadId(route.codexThreadId);
+      const runAttemptId =
+        config.resolvePersistedRunAttemptId?.(threadId, route.turnId) ?? config.resolveRunAttemptId?.(threadId);
+      config.onCodexTurnTokenUsage?.({
+        threadId,
+        codexThreadId: route.codexThreadId,
+        turnId: route.turnId,
+        modelId: route.upstreamModelId,
+        providerId: route.providerId,
+        ...(runAttemptId ? { runAttemptId } : {}),
+        appServerTokenUsage: route.appServerTokenUsage,
+        ...(route.appServerTokenUsageRequests && {
+          appServerTokenUsageRequests: route.appServerTokenUsageRequests,
+        }),
+        ...(route.appServerTokenUsageSnapshot && {
+          appServerTokenUsageSnapshot: route.appServerTokenUsageSnapshot,
+        }),
+      });
+    },
     recordThreadRunEvent: (event) => {
       const projectionEvent = normalizeCodexThreadRunEventForProjection(event as ThreadRunEventInput);
       const itemId =
@@ -443,6 +476,7 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
         bindCodexThreadRunEventAttempt(
           projectionEvent,
           config.resolveRunAttemptId?.(projectionEvent.threadId),
+          config.resolvePersistedRunAttemptId,
         ),
       );
       // Pass the raw (un-normalized) event: projectionEvent renames
@@ -479,9 +513,8 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
 }
 
 /**
- * Surface Codex app-server per-turn token usage on terminal turn events so the
- * host can bill direct (non-gateway) routes. Gateway-routed turns are billed from
- * gateway usage events instead; the host must gate on the route provider.
+ * Re-deliver the last checkpoint at completion to retry any failed live write.
+ * The same persisted identity prevents completion from charging the turn twice.
  */
 function emitCodexTurnTokenUsage(config: CodexRuntimeRunDeps, event: ThreadRunEventInput): void {
   if (
@@ -501,11 +534,21 @@ function emitCodexTurnTokenUsage(config: CodexRuntimeRunDeps, event: ThreadRunEv
   if (!codexThreadId || !turnId) {
     return;
   }
+  const runAttemptId =
+    config.resolvePersistedRunAttemptId?.(event.threadId, turnId) ?? config.resolveRunAttemptId?.(event.threadId);
   config.onCodexTurnTokenUsage?.({
     threadId: event.threadId,
     codexThreadId,
     turnId,
     appServerTokenUsage: appServerTokenUsage as CodexTurnTokenUsageBreakdown,
+    ...(typeof event.metadata?.usageModelId === "string" ? { modelId: event.metadata.usageModelId } : {}),
+    ...(runAttemptId ? { runAttemptId } : {}),
+    ...(typeof event.metadata?.usageProviderId === "string"
+      ? { providerId: event.metadata.usageProviderId }
+      : {}),
+    ...(event.metadata?.appServerTokenUsageSnapshot
+      ? { appServerTokenUsageSnapshot: event.metadata.appServerTokenUsageSnapshot as CodexTurnTokenUsageSnapshot }
+      : {}),
     ...(Array.isArray(event.metadata?.appServerTokenUsageRequests)
       ? {
           appServerTokenUsageRequests: event.metadata
@@ -518,11 +561,22 @@ function emitCodexTurnTokenUsage(config: CodexRuntimeRunDeps, event: ThreadRunEv
 export function bindCodexThreadRunEventAttempt(
   event: ThreadRunEventInput,
   ecoRunAttemptId: string | undefined,
+  resolvePersistedRunAttemptId?: (ecoThreadId: string, requestId: string) => string | undefined,
 ): ThreadRunEventInput {
   const { runAttemptId: codexTurnAsAttemptId, ...eventWithoutAttempt } = event;
   const turnId =
     typeof event.metadata?.turnId === "string" ? event.metadata.turnId.trim() : codexTurnAsAttemptId?.trim();
-  const runAttemptId = ecoRunAttemptId?.trim();
+  const requestId = event.requestId?.trim() || turnId;
+  // Background commands can finish after the next Eco attempt has started. The
+  // turn's persisted correlation still owns that event; stamping the active run
+  // would move the same tool call across runs. Restrict the durable lookup to
+  // tool terminal events so streaming text/argument deltas do not scan history.
+  const isToolTerminal = event.eventType === "tool.completed" || event.eventType === "tool.failed";
+  const persistedRunAttemptId =
+    requestId && isToolTerminal
+      ? resolvePersistedRunAttemptId?.(event.threadId, requestId)?.trim()
+      : undefined;
+  const runAttemptId = persistedRunAttemptId || ecoRunAttemptId?.trim();
   return {
     ...eventWithoutAttempt,
     ...(runAttemptId && { runAttemptId }),
@@ -574,17 +628,17 @@ export async function resumeCodexThreadForEcoThread(input: {
   const runtimeDeps = requireDeps();
   const ecoThreadId = input.ecoThreadId.trim();
   if (!ecoThreadId) {
-    throw new CodexResumeNotAvailable("Codex resume is not available because the Eco thread id is missing.", {
-      nextAction: "Retry resume from a Codex-backed thread that has a persisted Eco thread id.",
+    throw new CodexResumeNotAvailable("Codex resume is not available because the Mori thread id is missing.", {
+      nextAction: "Retry resume from a Codex-backed thread that has a persisted Mori thread id.",
     });
   }
   const codexThreadId = runtimeDeps.threadMap.getCodexThreadId(ecoThreadId);
   if (!codexThreadId) {
     throw new CodexResumeNotAvailable(
-      "Codex resume is not available because this Eco thread has no Codex thread mapping.",
+      "Codex resume is not available because this Mori thread has no Codex thread mapping.",
       {
         nextAction:
-          "Run this thread through the Codex app-server once so Eco can persist its Codex thread id, then retry resume.",
+          "Run this thread through the Codex app-server once so Mori can persist its Codex thread id, then retry resume.",
       },
     );
   }
@@ -604,7 +658,7 @@ export async function resumeCodexThreadForEcoThread(input: {
       "Codex resume cannot reapply this thread's runtime policy because no prepared config is bound.",
       {
         nextAction:
-          "Prepare the Eco thread with its current orchestration and MCP selection, then retry resume.",
+          "Prepare the Mori thread with its current orchestration and MCP selection, then retry resume.",
       },
     );
   }
@@ -652,7 +706,7 @@ export async function resumeCodexSubagentThread(input: {
       `Codex subagent resume cannot reapply the MCP policy for role '${roleId || "unknown"}'.`,
       {
         nextAction:
-          "Prepare the parent Eco thread with the same orchestration before resuming this subagent.",
+          "Prepare the parent Mori thread with the same orchestration before resuming this subagent.",
       },
     );
   }
@@ -742,8 +796,8 @@ export async function forkCodexThreadForEcoThread(input: {
   const ecoThreadId = input.ecoThreadId.trim();
   const targetItemId = input.targetItemId.trim();
   if (!ecoThreadId) {
-    throw new CodexForkNotAvailable("Codex fork is not available because the Eco thread id is missing.", {
-      nextAction: "Retry rewind from a Codex-backed thread that has a persisted Eco thread id.",
+    throw new CodexForkNotAvailable("Codex fork is not available because the Mori thread id is missing.", {
+      nextAction: "Retry rewind from a Codex-backed thread that has a persisted Mori thread id.",
     });
   }
   if (!targetItemId) {
@@ -757,10 +811,10 @@ export async function forkCodexThreadForEcoThread(input: {
   const codexThreadId = runtimeDeps.threadMap.getCodexThreadId(ecoThreadId);
   if (!codexThreadId) {
     throw new CodexForkNotAvailable(
-      "Codex fork is not available because this Eco thread has no Codex thread mapping.",
+      "Codex fork is not available because this Mori thread has no Codex thread mapping.",
       {
         nextAction:
-          "Run this thread through the Codex app-server once so Eco can persist its Codex thread id, then retry rewind.",
+          "Run this thread through the Codex app-server once so Mori can persist its Codex thread id, then retry rewind.",
       },
     );
   }
@@ -1960,6 +2014,10 @@ export async function runThreadRequestWithRuntimeProxy(
       // The driver passes thread overrides to thread/start and thread/resume.
       // Do not restart the shared app-server or block unrelated active threads.
       bindPreparedCodexRuntimeToThread(input.threadId, prepared);
+      if (requiredProviderIds.includes("openai") ||
+        Object.values(prepared.roleThreadConfigs).some((config) => config.model_provider === "openai")) {
+        await requireDeps().ensureAccountReady?.();
+      }
       await input.onPrepared?.(prepared);
     } catch (error) {
       return {
@@ -2212,7 +2270,7 @@ export function createCodexSubagentResumeDriver(input: {
       `Codex subagent resume cannot reapply the MCP policy for role '${roleId || "unknown"}'.`,
       {
         nextAction:
-          "Prepare the parent Eco thread with the same orchestration before resuming this subagent.",
+          "Prepare the parent Mori thread with the same orchestration before resuming this subagent.",
       },
     );
   }

@@ -1,6 +1,6 @@
-# Eco Supabase 部署指南
+# Mori Supabase 部署指南
 
-开源 Eco **不提供官方托管节点**。在自己的 Supabase（**Cloud**、**自托管 Docker** 或实验性接入的**火山引擎 Supabase**）上部署本仓库 `supabase/` 下的 schema 与 Edge Functions。
+开源 Mori **不提供官方托管节点**。在自己的 Supabase（**Cloud**、**自托管 Docker** 或实验性接入的**火山引擎 Supabase**）上部署本仓库 `supabase/` 下的 schema 与 Edge Functions。
 
 | 场景 | 文档 |
 | --- | --- |
@@ -18,7 +18,7 @@
 
 **禁止**把 `service_role` 发给 Desktop / Mobile。
 
-Agent 请遵循 [`.agents/skills/eco-supabase/SKILL.md`](../.agents/skills/eco-supabase/SKILL.md)。
+Agent 请遵循 [`.agents/skills/mori-supabase/SKILL.md`](../.agents/skills/mori-supabase/SKILL.md)。
 
 ---
 
@@ -32,11 +32,11 @@ Agent 请遵循 [`.agents/skills/eco-supabase/SKILL.md`](../.agents/skills/eco-s
 
 ## 桌面一键部署／更新（仅官方 Cloud）
 
-1. 打开 Eco **设置 → 互联 → 部署** TAB 中的 **Supabase Cloud 部署**。“当前互联” TAB 展示现有连接、同步与设备状态。
+1. 打开 Mori **设置 → 互联 → 部署** TAB 中的 **Supabase Cloud 部署**。“当前互联” TAB 展示现有连接、同步与设备状态。
 2. 在 [Supabase 账号页面](https://supabase.com/dashboard/account/tokens) 获取 Personal Access Token，填入并授权获取项目。此令牌只保留在主进程内存中，退出应用或点击「清除授权」后失效，不写入客户端连接配置或配置同步。
 3. 选择已创建且状态正常的 Cloud 项目。应用自动检查线上迁移历史、后端发布记录、各函数的版本／状态以及必要的 Auth 和 Realtime 配置。
-4. 按识别结果点击 **一键部署** 或 **一键更新**。线上后端与部署包一致时无需再部署；线上后端、数据库或接口版本更高时禁止旧部署包覆盖。若接口版本兼容且线上状态验证通过，仍可直接连接；需要部署时先升级 Eco 获取匹配的部署包。
-5. 完成后点击 **使用此项目连接**，自动填入 Project URL 和 anon key，再注册／登录 Eco 账号。首次使用仍需在 Supabase Dashboard 创建 Cloud 项目。
+4. 按识别结果点击 **一键部署** 或 **一键更新**。线上后端与部署包一致时无需再部署；线上后端、数据库或接口版本更高时禁止旧部署包覆盖。若接口版本兼容且线上状态验证通过，仍可直接连接；需要部署时先升级 Mori 获取匹配的部署包。
+5. 完成后点击 **使用此项目连接**，自动填入 Project URL 和 anon key，再注册／登录 Mori 账号。首次使用仍需在 Supabase Dashboard 创建 Cloud 项目。
 
 此入口使用 [Supabase Management API](https://supabase.com/docs/reference/api/introduction)，无需安装 CLI、Node.js 或 Docker，也无需输入数据库密码。账号／令牌需要具有目标项目的数据库、Edge Functions、Auth、Realtime 配置及读取 API Keys 的权限；缺少权限会显示具体失败信息。
 
@@ -56,7 +56,7 @@ Agent 请遵循 [`.agents/skills/eco-supabase/SKILL.md`](../.agents/skills/eco-s
 ```
 
 - `backendVersion` 使用独立 SemVer。修改后端函数、迁移或部署配置时发布新的后端版本；只修改桌面 UI 或桌面版本时无需修改它。
-- `apiVersion` 标记 Eco 后端的接口契约。兼容的功能更新保持不变；破坏接口兼容的变更需要递增，并同步修改客户端支持的接口版本。它与会话协议、数据库迁移时间戳及桌面版本分别维护。
+- `apiVersion` 标记 Mori 后端的接口契约。兼容的功能更新保持不变；破坏接口兼容的变更需要递增，并同步修改客户端支持的接口版本。它与会话协议、数据库迁移时间戳及桌面版本分别维护。
 - 部署包指纹包含这份清单、SQL、函数内容和 JWT 配置，不包含桌面版本。即使版本号相同，实际资源或线上配置差异也会被检测出来。
 - 已发布迁移只能追加，不能修改。旧记录的桌面版本通过追加迁移保留为 `deployed_by_desktop_version`；缺少或无效的版本清单、部分缺失的线上版本字段都会明确报错。
 
@@ -94,7 +94,7 @@ Supabase **没有**像 Vercel 那样的整站静态托管；确认成功页用�
    - **Authentication → URL Configuration → Site URL**  
      设为上面的 `auth-email-confirmed` 地址  
    - **Redirect URLs** 中加入同一地址  
-3. 用户点邮件链接 → 打开该页（「邮箱已确认」）→ 回 Eco **登录**。
+3. 用户点邮件链接 → 打开该页（「邮箱已确认」）→ 回 Mori **登录**。
 
 部署该函数：
 
@@ -109,7 +109,7 @@ Agent 可发布单文件 HTML 进度/汇报页（外链分享）。**不要用 S
 
 相关 Edge Functions：`html-host-probe`、`html-page-publish`、`html-page-view`、`html-page-extend`。
 
-**Cloud 注意：** 无 [Custom Domain](https://supabase.com/docs/guides/platform/custom-domains) 时，共享域名可能把 Edge Function 的 `text/html` 改写成 `text/plain`，**外链可能无法正常渲染**。Eco 仍允许发布；设置里会提示风险。配置 Custom Domain 后渲染更稳妥。
+**Cloud 注意：** 无 [Custom Domain](https://supabase.com/docs/guides/platform/custom-domains) 时，共享域名可能把 Edge Function 的 `text/html` 改写成 `text/plain`，**外链可能无法正常渲染**。Mori 仍允许发布；设置里会提示风险。配置 Custom Domain 后渲染更稳妥。
 
 默认保留 7 天；页面上可延期一次（+7 天），超过默认 7 天窗口后隐藏延期按钮。
 ### 3. 关联仓库并部署
@@ -149,7 +149,7 @@ npx supabase functions deploy auth-email-confirmed
 设备重新连接并完成 secret proof，再单独审核、执行该 SQL。提前执行会让旧客户端立即
 失去 private Realtime、binding 与 Vault claim 权限。
 
-### 4. 填入 Eco
+### 4. 填入 Mori
 
 Desktop / Mobile：Project URL + anon key → 邮箱注册/登录。
 
@@ -207,7 +207,7 @@ npx supabase status
 curl -fsSL https://supabase.link/setup.sh | sh
 cd supabase-project && sh run.sh start && sh run.sh secrets
 
-# 2) 在 eco-coding 仓库根安装 Eco schema + 函数
+# 2) 在 Mori 仓库根安装 Mori schema + 函数
 bun run supabase:deploy -- --platform self-host --compose-dir /path/to/supabase-project
 ```
 

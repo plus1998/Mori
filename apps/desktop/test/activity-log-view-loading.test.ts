@@ -2741,6 +2741,41 @@ test("ActivityLogView summarizes Bash with adjacent file tools", () => {
   expect(html).not.toContain("run-log-action--bash-card");
 });
 
+test("failed image analysis displays failure rather than a viewed image", () => {
+  const failed = item({
+    id: "image-view-failed",
+    eventType: "tool.failed",
+    text: "Tool: mcp__eco_image_view__view_image · /tmp/feed-preview.png",
+    metadata: {
+      tool: {
+        name: "mcp__eco_image_view__view_image",
+        toolUseId: "image-view-failed",
+        status: "failed",
+        imageView: { path: "/tmp/feed-preview.png" },
+        outputPreview: "图片查看失败：模型未返回正文。",
+      },
+    },
+  });
+  expect(projectionItemToDetailBlock(failed)).toMatchObject({
+    kind: "tool-failed",
+    error: "图片查看失败：模型未返回正文。",
+  });
+  const html = renderToStaticMarkup(createElement(ProjectionActivityLogView, {
+    projection: projection({ status: "completed", timeline: [failed] }),
+  }));
+  expect(html).toContain("图像分析失败");
+  expect(html).not.toContain("已查看 1 张图像");
+
+  const missing = item({
+    ...failed,
+    metadata: { tool: { ...failed.metadata!.tool, outputPreview: undefined } },
+  });
+  expect(projectionItemToDetailBlock(missing)).toMatchObject({
+    kind: "tool-failed",
+    error: "该次图像分析调用失败，但历史记录未保存错误详情。",
+  });
+});
+
 test("ActivityLogView renders imageView as a standalone collapsed preview", () => {
   const html = renderToStaticMarkup(
     createElement(ProjectionActivityLogView, {
@@ -3757,7 +3792,8 @@ test("ActivityLogView aggregates a group that mixes commands with a failed image
   expect(expandedHtml).toContain("已运行 2 条命令和已处理 1 张图像");
   expect(expandedHtml).toContain("运行了 bun test");
   // The failed image view keeps its own copy and status dot on the child row.
-  expect(expandedHtml).toContain("已查看 1 张图像");
+  expect(expandedHtml).toContain("图像分析失败");
+  expect(expandedHtml).not.toContain("已查看 1 张图像");
   expect(expandedHtml.match(/run-log-tool-status-dot/g)?.length).toBe(1);
 });
 
@@ -3788,7 +3824,8 @@ test("ActivityLogView keeps a lone failed tool's own copy as the group title", (
     }),
   );
 
-  expect(html).toContain("已查看 1 张图像");
+  expect(html).toContain("图像分析失败");
+  expect(html).not.toContain("已查看 1 张图像");
   expect(html.match(/run-log-tool-group-trigger/g)?.length).toBe(1);
 });
 

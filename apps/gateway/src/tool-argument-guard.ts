@@ -86,7 +86,7 @@ export const codexToolArgumentFailureCircuitBreaker = new CodexToolArgumentFailu
 export function toolArgumentCircuitBreakResponse(stream: boolean, count: number): Response {
   const message =
     `Codex tool arguments failed integer deserialization ${count} times in the same turn; ` +
-    "Eco stopped the retry loop before another upstream model request.";
+    "Mori stopped the retry loop before another upstream model request.";
   const error = { code: "tool_argument_parse_loop", message };
   if (stream) {
     return new Response(

@@ -1,3 +1,4 @@
+import { canUseOpenAIAccountCredentials } from "../shared/openai-account";
 import { isCodexAuthThread } from "../shared/codex-auth-thread";
 import type { ThreadSummary } from "../shared/ipc";
 import type { OpenAIAccountQuota, OpenAIAccountQuotaWindow, OpenAIAccountQuotaRefreshState } from "../shared/openai-account";
@@ -87,6 +88,7 @@ function activeAccountSignature(active: Awaited<ReturnType<QuotaBridge["openAIAc
     active.activeAccountId,
     active.pendingAccountId === undefined ? "none" : active.pendingAccountId,
     active.isLoggedIn,
+    active.authState,
     active.syncStatus.state,
     active.syncStatus.message ?? "",
   ]);
@@ -148,7 +150,7 @@ export class CodexQuotaMonitor {
         try {
           const active = await this.eco.openAIAccountsGetActive();
           if (this.disposed || !this.options.enabled() || active.activeAccountId !== snapshot.accountId ||
-            !active.isLoggedIn || active.pendingAccountId !== undefined || active.syncStatus.state !== "ok") return;
+            !canUseOpenAIAccountCredentials(active) || active.pendingAccountId !== undefined || active.syncStatus.state !== "ok") return;
           if (Date.now() >= dueAt) {
             this.resetChecks.set(snapshot.accountId, { at: Date.now() });
             await this.eco.openAIAccountsQueryQuota(snapshot.accountId, "reset");
@@ -190,7 +192,7 @@ export class CodexQuotaMonitor {
         const signature = activeAccountSignature(active);
         if (this.activeSignature !== undefined && this.activeSignature !== signature) this.options.onChange(undefined);
         this.activeSignature = signature;
-        if (!active.activeAccountId || !active.isLoggedIn) {
+        if (!active.activeAccountId || !canUseOpenAIAccountCredentials(active)) {
           this.options.onChange(undefined);
           return;
         }

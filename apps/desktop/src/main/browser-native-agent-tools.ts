@@ -43,12 +43,6 @@ async function tryCdpCapture(
   fromSurface: boolean,
 ): Promise<number> {
   const dbg = ensureDebugger(webContents);
-  // Prefer WebContents.focus — raw CDP Page.bringToFront can mis-target embedder on <webview>.
-  try {
-    webContents.focus();
-  } catch {
-    // ignore
-  }
   const params: Record<string, unknown> = {
     format: "png",
     fromSurface,
@@ -115,7 +109,7 @@ export async function captureGuestScreenshot(
   }
   if (typeof webContents.getType === "function" && webContents.getType() !== "webview") {
     throw new Error(
-      `Refusing screenshot on non-guest webContents (type=${webContents.getType()}); Eco main window must not handle browser automation`,
+      `Refusing screenshot on non-guest webContents (type=${webContents.getType()}); Mori main window must not handle browser automation`,
     );
   }
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });

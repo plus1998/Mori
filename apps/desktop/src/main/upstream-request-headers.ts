@@ -3,7 +3,7 @@ import { isOpenAICompat, type UpstreamApiCompat } from "../shared/api-compat";
 import { buildAnthropicHeaders, buildOpenAIHeaders } from "./provider-models";
 
 const ANTHROPIC_VERSION = "2023-06-01";
-export const DEFAULT_UPSTREAM_USER_AGENT = "Eco-Coding/0.0.0";
+export const DEFAULT_UPSTREAM_USER_AGENT = "Mori/0.0.0";
 
 /**
  * Eco fallback User-Agent: used only when neither an override nor an SDK UA exists.
@@ -20,7 +20,7 @@ export function buildDefaultUpstreamUserAgent(input: {
   const release = input.release.trim();
   const arch = input.arch.trim();
   const os = release ? `${platform} ${release}` : platform;
-  return `Eco-Coding/${version} (${arch ? `${os}; ${arch}` : os})`;
+  return `Mori/${version} (${arch ? `${os}; ${arch}` : os})`;
 }
 
 let injectedDefaultUpstreamUserAgent: string | undefined;

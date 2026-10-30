@@ -21,7 +21,7 @@ export async function fetchImageDisplayUrl(url: string, signal?: AbortSignal): P
       signal: controller.signal,
       headers: {
         Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        "User-Agent": "Eco-ImageDisplay/1.0",
+        "User-Agent": "Mori-ImageDisplay/1.0",
       },
     });
     if (!response.ok) {

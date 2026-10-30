@@ -36,7 +36,12 @@ test("task panel marks browser panel closed on dismiss for soft-reveal state", (
     /void window\.eco\?\.browserSetVisible\?\.\(\{\s*visible:\s*false\s*\}\);\s*\/\/[\s\S]*?setTaskPanelExiting\(true\)/,
   );
   expect(appSource).toContain("surfaceActive={taskPanelOpen && !taskPanelExiting}");
-  expect(drawerSource).toContain("active={isActive && surfaceActive}");
+  expect(drawerSource).toContain("surfaceActive={surfaceActive}");
+  const workspaceSource = readFileSync(
+    fileURLToPath(new URL("../src/renderer/BrowserTaskWorkspace.tsx", import.meta.url)), "utf8",
+  );
+  expect(workspaceSource).toContain("active={focused && surfaceActive}");
+  expect(workspaceSource).toContain("visible={visible && surfaceActive}");
 });
 
 test("right panel motion stays on transform and opacity instead of animating grid layout", () => {
@@ -59,9 +64,9 @@ test("right panel motion stays on transform and opacity instead of animating gri
 test("task panel close remains reversible and all close paths share the controller", () => {
   expect(taskPanelController).toContain("taskPanelAnimationControls.stop();");
   expect(taskPanelController).toContain("duration: reversingExit ? 0.28 : 0.34");
-  expect(taskPanelController).toMatch(/if \(taskPanelClosingRef\.current\) \{\s*revealTaskPanel\(\);/);
+  expect(taskPanelController).toMatch(/if \(taskPanelClosingRef\.current\) \{\s*\/\/[^\n]*\n\s*if \(pendingTaskPanelTabsCloseRef\.current\?\.length\) openBrowserTaskPanel\(\);\s*revealTaskPanel\(\);/);
   expect(taskPanelController).toMatch(
-    /pendingTaskPanelTabCloseRef\.current = tabId;\s*dismissTaskPanel\(\);/,
+    /pendingTaskPanelTabsCloseRef\.current = closing;\s*dismissTaskPanel\(\);/,
   );
   const homeToolController = appSource.slice(
     appSource.indexOf("const openTaskPanelHomeTool"),
@@ -78,7 +83,7 @@ test("task panel ui is saved and restored per thread instead of hard-reset", () 
   expect(appSource).toContain("normalizeTaskPanelSessionUiState");
   expect(appSource).toContain("emptyTaskPanelSessionUiState");
   expect(appSource).toMatch(
-    /if \(prevThreadId\) \{\s*taskPanelUiByThreadRef\.current\[prevThreadId\] = liveTaskPanelUiRef\.current;/,
+    /if \(prevThreadId\) \{\s*const closing = pendingTaskPanelTabsCloseRef\.current \?\? \[\];\s*const saved = liveTaskPanelUiRef\.current;\s*taskPanelUiByThreadRef\.current\[prevThreadId\] = \{\s*\.\.\.saved,\s*openTabIds: saved\.openTabIds\.filter\(\(id\) => !closing\.includes\(id\)\),\s*activeTab: closing\.includes\(saved\.activeTab\) \? TASK_PANEL_HOME_TAB_ID : saved\.activeTab,/,
   );
   expect(appSource).not.toMatch(
     /setTaskPanelActiveTab\(TASK_PANEL_HOME_TAB_ID\);\s*setFileTarget\(undefined\);\s*setOpenTaskPanelTabIds\(\[\]\);\s*setTaskDrawerOpen\(false\);\s*setTaskPanelLayoutPresent\(false\);/,

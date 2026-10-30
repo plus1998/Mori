@@ -51,7 +51,7 @@ export function ScheduledMessagesCardBody({ messages, occurrences, onEdit, onRef
         <div className="workspace-scheduled-message-actions">
           <button type="button" disabled={busy} onClick={() => onEdit?.(message)} aria-label={t("scheduling.editNamed", { name: message.name })} title={t("scheduling.edit")}><Pencil size={13}/></button>
           <button type="button" disabled={busy} onClick={() => toggleEnabled(message)} aria-label={t(message.enabled ? "scheduling.pauseNamed" : "scheduling.resumeNamed", { name: message.name })} title={t(message.enabled ? "scheduling.pause" : "scheduling.resume")}>{message.enabled ? <Pause size={13}/> : <Play size={13}/>}</button>
-          <button type="button" disabled={busy} onClick={() => void run(() => window.eco!.runScheduleNow({ id: message.id, requestId: crypto.randomUUID() }))} aria-label={t("scheduling.runNowNamed", { name: message.name })} title={t("scheduling.runNow")}><Send size={13}/></button>
+          <button type="button" disabled={busy} onClick={() => void run(() => window.eco!.runScheduleNow({ id: message.id, requestId: crypto.randomUUID() }))} aria-label={t(message.planApproval ? "approval.plan.executeNowNamed" : "scheduling.runNowNamed", { name: message.name })} title={t("scheduling.runNow")}>{message.planApproval ? <Play size={13}/> : <Send size={13}/>}</button>
           <button type="button" disabled={busy} onClick={() => void run(() => window.eco!.deleteSchedule(message.id))} aria-label={t("scheduling.deleteNamed", { name: message.name })} title={t("common.delete")}><Trash2 size={13}/></button>
         </div>
       </article>;
@@ -60,9 +60,9 @@ export function ScheduledMessagesCardBody({ messages, occurrences, onEdit, onRef
       <div className="scheduling-panel scheduled-message-resume-confirm" role="alertdialog" aria-modal="true" aria-labelledby="scheduled-message-resume-title"
         onClick={event => event.stopPropagation()}
         onKeyDown={event => { if (event.key === "Escape" && !busy) setExpiredToResume(undefined); }}>
-        <header className="scheduling-header"><h2 id="scheduled-message-resume-title"><Clock3 size={18}/>{t("scheduling.resumeExpiredTitle")}</h2></header>
+        <header className="scheduling-header"><h2 id="scheduled-message-resume-title"><Clock3 size={18}/>{t(expiredToResume.planApproval ? "approval.plan.scheduleExpiredTitle" : "scheduling.resumeExpiredTitle")}</h2></header>
         <main className="scheduling-detail">
-          <p>{t("scheduling.resumeExpiredBody")}</p>
+          <p>{t(expiredToResume.planApproval ? "approval.plan.scheduleExpiredBody" : "scheduling.resumeExpiredBody")}</p>
           <div className="scheduling-form-actions">
             <button type="button" disabled={busy} onClick={() => setExpiredToResume(undefined)}>{t("common.cancel")}</button>
             <button ref={confirmButtonRef} type="button" className="scheduling-primary" disabled={busy} onClick={() => sendExpiredMessageNow(expiredToResume)}>{t("scheduling.iUnderstand")}</button>

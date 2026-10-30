@@ -1,0 +1,1301 @@
+.mori-panel,
+.mori-settings {
+  --mori-accent: #344d40;
+  --mori-accent-hover: #42614f;
+  --mori-on-accent: #f5f8f4;
+  --mori-soft: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  --mori-border: var(--border-sidebar);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+.mori-panel button,
+.mori-settings button,
+.mori-panel input,
+.mori-panel select,
+.mori-panel textarea,
+.mori-settings input,
+.mori-settings select,
+.mori-settings textarea {
+  font: inherit;
+  color: inherit;
+}
+.mori-panel button,
+.mori-settings button {
+  cursor: pointer;
+  border: 1px solid var(--mori-border);
+  border-radius: 9px;
+  background: transparent;
+  padding: 8px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+.mori-panel button:hover:not(:disabled),
+.mori-settings button:hover:not(:disabled) {
+  background: var(--mori-soft);
+}
+.mori-panel button:disabled,
+.mori-settings button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.mori-panel :focus-visible,
+.mori-settings :focus-visible {
+  outline: 2px solid #799985;
+  outline-offset: 3px;
+}
+.mori-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-main);
+  position: relative;
+}
+.shell > .codex-main {
+  grid-column: -2 / -1;
+  grid-row: 1;
+}
+/* Keep the inactive work page measured: feed and terminal resize observers must
+   not interpret switching to Mori as a zero-height viewport. */
+.codex-main[hidden] {
+  display: flex;
+  visibility: hidden;
+  pointer-events: none;
+}
+.mori-panel-header {
+  min-height: 68px;
+  box-sizing: border-box;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--mori-border);
+  -webkit-app-region: drag;
+}
+.mori-panel-header button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  color: var(--text-muted);
+  -webkit-app-region: no-drag;
+}
+.shell-sidebar-hidden .mori-main-view {
+  --mori-chrome-inset: var(--window-sidebar-toolbar-inset-new-thread);
+}
+html[data-platform="darwin"] .shell-sidebar-hidden .mori-main-view {
+  --mori-chrome-inset: var(--macos-window-controls-safe-inline-start-new-thread);
+}
+.mori-main-view .mori-panel-header {
+  padding-left: var(--mori-chrome-inset, 22px);
+}
+.mori-panel-header button:hover:not(:disabled),
+.mori-panel-header button.is-selected {
+  color: var(--text-primary);
+  background: var(--mori-soft);
+}
+.mori-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  margin-left: 3px;
+}
+.mori-heading strong {
+  font-weight: 600;
+}
+.mori-heading small,
+.mori-muted,
+.mori-settings p,
+.mori-settings small {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.mori-heading small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.mori-presence {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #7b9483;
+}
+.mori-presence.is-busy {
+  background: #c5a363;
+}
+.mori-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  user-select: none;
+}
+.mori-mark.large {
+  width: 60px;
+  height: 60px;
+  margin-bottom: 14px;
+}
+.mori-messages {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 28px max(24px, calc((100% - 720px) / 2));
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+.mori-empty {
+  min-height: min(390px, 100%);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 28px 10px;
+  gap: 12px;
+}
+.mori-empty h2 {
+  font-size: 25px;
+  letter-spacing: -0.7px;
+  font-weight: 550;
+  margin: 0;
+}
+.mori-empty p {
+  max-width: 360px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.8;
+  margin: 0 0 8px;
+}
+.mori-empty button {
+  font-size: 13px;
+}
+.mori-onboarding {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.mori-onboarding span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.mori-starters {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  max-width: 390px;
+  margin-top: 8px;
+}
+.mori-starters button {
+  justify-content: flex-start;
+  padding: 13px 14px;
+  text-align: left;
+  border-color: transparent;
+  background: var(--mori-soft);
+}
+.mori-starters svg {
+  color: var(--text-muted);
+  flex: none;
+}
+.mori-starters button > span {
+  flex: 1;
+}
+.mori-starters strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+}
+.mori-starters small {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 5px;
+}
+.mori-message {
+  margin: 0 0 22px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.mori-message p {
+  white-space: pre-wrap;
+  margin: 5px 0;
+}
+.mori-message.is-user {
+  width: fit-content;
+  /* Keep short replies ("好", "OK") from collapsing into slivers, but never demand more
+     room than the feed has: the 100% clamp wins on narrow panels, and max-width still
+     caps long messages. Paired with the responsive assertions in
+     mori-message-bubble.test.ts. */
+  min-width: min(180px, 100%);
+  max-width: 85%;
+  box-sizing: border-box;
+  background: var(--mori-soft);
+  padding: 12px 16px;
+  border-radius: 15px 15px 4px 15px;
+  margin-left: auto;
+}
+.mori-message-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  font-weight: 550;
+}
+.mori-message .markdown-content {
+  font-size: 14px;
+}
+.mori-message-actions {
+  display: flex;
+  margin-top: 8px;
+}
+.mori-message-actions button {
+  border: 0;
+  padding: 4px 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  opacity: 0;
+}
+.mori-message:hover .mori-message-actions button,
+.mori-message:focus-within .mori-message-actions button {
+  opacity: 1;
+}
+.mori-activity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding-bottom: 16px;
+}
+.mori-error,
+.mori-field-error {
+  color: #c96557;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.mori-chat-error {
+  border-left: 2px solid #c96557;
+  padding: 9px 12px;
+  background: color-mix(in srgb, #c96557 5%, transparent);
+  border-radius: 0 7px 7px 0;
+}
+.mori-composer {
+  margin: 0 auto 20px;
+  padding: 12px 14px 10px;
+  border: 1px solid var(--mori-border);
+  border-radius: 18px;
+  width: calc(100% - 48px);
+  max-width: 720px;
+  background: var(--bg-main);
+  box-shadow: 0 4px 22px #00000008;
+  flex: none;
+  box-sizing: border-box;
+}
+.mori-composer:focus-within {
+  border-color: #7b948377;
+}
+/* Roomier input surface that grows with the draft, like the main Composer. The
+   min/max heights are mirrored by MORI_COMPOSER_MIN_HEIGHT/MAX_HEIGHT in
+   MoriAssistant.tsx; the textarea never collapses below ~2.5 lines. */
+.mori-composer textarea {
+  display: block;
+  border: 0;
+  outline: none;
+  background: transparent;
+  resize: none;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.6;
+  padding: 10px 2px 8px;
+  min-height: 76px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.mori-composer textarea:focus-visible {
+  outline: none;
+}
+.mori-composer textarea::placeholder {
+  color: var(--text-muted);
+}
+.mori-composer-bottom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.mori-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-muted);
+}
+.mori-model select {
+  border: 0;
+  appearance: none;
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+  max-width: 180px;
+  min-width: 0;
+  padding: 6px 0;
+}
+.mori-model select:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.mori-model svg {
+  flex: none;
+}
+.mori-model option {
+  background: var(--bg-main);
+  color: var(--text-primary);
+}
+.mori-composer-spacer {
+  flex: 1;
+}
+.mori-composer-bottom .mori-send {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  flex: none;
+}
+.mori-composer-bottom .mori-stop {
+  border: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 7px;
+  flex: none;
+}
+.mori-composer-hint {
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  opacity: 0.8;
+}
+.mori-panel .mori-primary,
+.mori-settings .mori-primary,
+.mori-send.primary {
+  background: var(--mori-accent);
+  color: var(--mori-on-accent);
+  border-color: var(--mori-accent);
+}
+.mori-panel .mori-primary:hover:not(:disabled),
+.mori-settings .mori-primary:hover:not(:disabled),
+.mori-send.primary:hover:not(:disabled) {
+  background: var(--mori-accent-hover);
+}
+.mori-disabled-footer {
+  width: calc(100% - 48px);
+  max-width: 720px;
+  margin: 0 auto 24px;
+  border-top: 1px solid var(--mori-border);
+  padding-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex: none;
+}
+.mori-disabled-footer button {
+  flex: none;
+}
+.mori-to-latest {
+  align-self: center;
+  flex: none;
+  margin: -44px auto 10px;
+  z-index: 2;
+  box-shadow: 0 3px 12px #0002;
+}
+.mori-panel .mori-to-latest {
+  background: var(--bg-main);
+  border-radius: 20px;
+  font-size: 11px;
+  padding: 8px 13px;
+}
+.mori-history {
+  position: absolute;
+  top: 61px;
+  right: 20px;
+  width: min(320px, calc(100% - 40px));
+  z-index: 5;
+  border: 1px solid var(--mori-border);
+  background: var(--bg-main);
+  box-shadow: 0 14px 40px #0003;
+  padding: 10px;
+  border-radius: 13px;
+  box-sizing: border-box;
+}
+.mori-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 3px 6px;
+}
+.mori-history-heading strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.mori-history-heading button {
+  border: 0;
+  padding: 5px;
+  color: var(--text-muted);
+}
+.mori-history-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--mori-soft);
+  border-radius: 7px;
+  padding: 8px;
+  color: var(--text-muted);
+}
+.mori-history-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 12px;
+}
+.mori-history-list {
+  margin-top: 8px;
+  max-height: min(350px, 50vh);
+  overflow: auto;
+}
+.mori-history-list > p {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 6px;
+}
+.mori-history-list button {
+  text-align: left;
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  gap: 10px;
+  padding: 9px 10px;
+}
+.mori-history-list button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.mori-history-list button small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
+  margin-top: 5px;
+}
+.mori-history-list button > svg {
+  flex: none;
+  color: #8ea997;
+}
+.mori-history-list button.is-selected {
+  background: var(--mori-soft);
+}
+.mori-history-more {
+  font-size: 12px;
+  display: flex;
+  margin: 0 auto 24px;
+}
+.mori-tasks {
+  margin: 20px 0;
+  border: 1px solid var(--mori-border);
+  border-radius: 10px;
+  padding: 4px;
+}
+.mori-tasks summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 9px;
+  font-size: 12px;
+  list-style: none;
+}
+.mori-tasks summary > span {
+  flex: 1;
+}
+.mori-tasks summary > small {
+  color: var(--text-muted);
+}
+.mori-tasks summary > svg {
+  color: var(--text-muted);
+}
+.mori-tasks[open] summary > svg:last-child {
+  transform: rotate(180deg);
+}
+.mori-tasks .mori-task {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  justify-content: flex-start;
+  padding: 11px;
+  border: 0;
+}
+.mori-task > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+.mori-task strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mori-task small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+.mori-task-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #86978c;
+}
+.mori-task-dot.is-running {
+  background: #6c997f;
+}
+.mori-task-dot.is-failed,
+.mori-task-dot.is-blocked {
+  background: #c96557;
+}
+.mori-task-dot.is-awaiting_plan {
+  background: #b18b48;
+}
+.mori-question {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid #859c8d;
+  border-radius: 12px;
+  font-size: 13px;
+  margin: 0 auto 12px;
+  width: calc(100% - 48px);
+  max-width: 720px;
+  box-sizing: border-box;
+  flex: none;
+  max-height: 38%;
+  overflow: auto;
+}
+.mori-question input {
+  border: 1px solid var(--mori-border);
+  border-radius: 7px;
+  background: transparent;
+  padding: 9px;
+  min-width: 0;
+}
+.mori-question button {
+  justify-self: start;
+}
+.mori-settings {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 12px 24px 0;
+}
+.mori-settings-heading {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  margin-bottom: 24px;
+}
+.mori-settings-heading > div {
+  flex: 1;
+}
+.mori-settings-heading h2 {
+  font-size: 22px;
+  letter-spacing: -0.4px;
+  font-weight: 600;
+  margin: 0;
+}
+.mori-settings-heading p {
+  margin: 5px 0 0;
+}
+.mori-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--mori-soft);
+  padding: 4px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.mori-status-pill.is-ready {
+  color: #8bad97;
+  background: #6b927416;
+}
+.mori-settings fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+.mori-settings label:not(.mori-check):not(.mori-account):not(.mori-toggle) {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+}
+.mori-settings input:not([type="checkbox"]),
+.mori-settings textarea,
+.mori-settings select {
+  background: var(--bg-main);
+  border: 1px solid var(--mori-border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  width: 100%;
+  box-sizing: border-box;
+  line-height: 1.5;
+  font-size: 13px;
+}
+.mori-settings input[aria-invalid="true"] {
+  border-color: #c96557;
+}
+.mori-settings textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+.mori-settings input[type="checkbox"] {
+  accent-color: #496e57;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  cursor: pointer;
+}
+.mori-settings input[role="switch"] {
+  appearance: none;
+  width: 34px;
+  height: 20px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
+  background: var(--mori-soft);
+  border-radius: 20px;
+  position: relative;
+  transition: background-color 160ms ease;
+}
+.mori-settings input[role="switch"]::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 160ms ease;
+}
+.mori-settings input[role="switch"]:checked {
+  background: #496e57;
+  border-color: #496e57;
+}
+.mori-settings input[role="switch"]:checked::before {
+  transform: translateX(14px);
+  background: #f5f8f4;
+}
+.mori-settings input:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.mori-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 12px 0;
+}
+.mori-toggle strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.mori-toggle small {
+  display: block;
+  margin-top: 5px;
+}
+.mori-enable {
+  padding: 17px;
+  border: 1px solid var(--mori-border);
+  border-radius: 12px;
+  background: var(--mori-soft);
+}
+.mori-settings-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--mori-border);
+  margin: 21px 0;
+  gap: 20px;
+}
+.mori-settings-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 12px 3px;
+  margin-bottom: -1px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.mori-settings-tabs button.is-selected {
+  border-bottom-color: #799985;
+  color: var(--text-primary);
+}
+.mori-settings-tabs button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text-primary);
+}
+.mori-settings-section {
+  display: grid;
+  gap: 16px;
+  padding-bottom: 23px;
+  border-bottom: 1px solid var(--mori-border);
+}
+.mori-settings-section:last-child {
+  border-bottom: 0;
+}
+.mori-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mori-section-heading h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.mori-section-heading small {
+  font-size: 11px;
+}
+.mori-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.mori-account-list {
+  display: grid;
+  gap: 7px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 2px;
+  margin: -2px;
+}
+.mori-account {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--mori-border);
+  border-radius: 10px;
+  cursor: pointer;
+  min-width: 0;
+}
+.mori-account.is-selected {
+  border-color: #79998588;
+  background: #6b927409;
+}
+.mori-account > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+.mori-account strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mori-account small {
+  display: block;
+  font-size: 11px;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mori-account-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+  flex: none;
+}
+.mori-account-empty {
+  border: 1px dashed var(--mori-border);
+  border-radius: 10px;
+  padding: 16px;
+}
+.mori-account-empty p {
+  margin: 0 0 12px;
+}
+.mori-settings .mori-text-button {
+  padding: 0;
+  border: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  justify-self: start;
+}
+.mori-settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.mori-settings .mori-workspace-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  background: var(--mori-soft);
+  border-radius: 8px;
+}
+.mori-workspace-note svg {
+  flex: none;
+  margin-top: 2px;
+}
+.mori-personality summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 5px 0;
+  color: var(--text-muted);
+  list-style: none;
+}
+.mori-personality[open] summary > svg {
+  transform: rotate(180deg);
+}
+.mori-personality > div {
+  display: grid;
+  gap: 16px;
+  padding-top: 16px;
+}
+.mori-settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mori-settings-actions button {
+  font-size: 12px;
+}
+.mori-settings-savebar {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  border-top: 1px solid var(--mori-border);
+  padding: 14px 0 18px;
+  margin-top: 2px;
+  background: var(--bg-main);
+}
+.mori-settings-savebar > .mori-error {
+  margin: 0 0 10px;
+}
+.mori-save-status {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  min-width: 120px;
+}
+.mori-settings .mori-field-error {
+  margin: -7px 0 0;
+  color: #c96557;
+}
+.mori-notice {
+  padding: 10px 12px;
+  background: var(--mori-soft);
+  border-radius: 7px;
+}
+.mori-wechat-connection {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  background: var(--mori-soft);
+  border: 1px solid var(--mori-border);
+  border-radius: 13px;
+  padding: 24px 16px;
+  text-align: center;
+}
+.mori-wechat-connection > strong {
+  font-weight: 550;
+  font-size: 14px;
+}
+.mori-wechat-connection p {
+  margin: -8px 0 0;
+}
+.mori-wechat-connection > svg {
+  margin: 8px 0;
+}
+.mori-wechat-connection .mori-settings-actions {
+  justify-content: center;
+}
+.mori-qr {
+  background: white;
+  padding: 12px;
+  width: fit-content;
+  border-radius: 10px;
+  line-height: 0;
+}
+.mori-embedded-settings {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+.mori-embedded-settings > button {
+  border: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.mori-embedded-settings > .mori-settings {
+  padding: 20px 8px 0;
+}
+html[data-mori-surface="panel"],
+html[data-mori-surface="panel"] body,
+html[data-mori-surface="panel"] #root {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg-main);
+}
+html[data-mori-surface="ball"],
+html[data-mori-surface="ball"] body,
+html[data-mori-surface="ball"] #root {
+  background: transparent;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+html[data-mori-surface="notice"],
+html[data-mori-surface="notice"] body,
+html[data-mori-surface="notice"] #root {
+  width: 280px;
+  height: 96px;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+.mori-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  width: 264px;
+  height: 80px;
+  margin: 8px;
+  padding: 10px 13px;
+  overflow: hidden;
+  border-radius: 15px;
+  background: #faf7ee;
+  color: #344b3d;
+  box-shadow: 0 3px 9px #243d3026;
+  cursor: pointer;
+}
+.mori-notice:focus-visible { outline: 2px solid #527b65; outline-offset: -2px; }
+.mori-notice-label { font-size: 10px; font-weight: 600; color: #718d79; }
+.mori-notice strong { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mori-notice-body { font-size: 11px; color: #647569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mori-ball {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 22px;
+  background: transparent;
+  color: #f5f8f4;
+  border: 0;
+  position: relative;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  display: grid;
+  place-items: center;
+}
+.mori-ball > .mori-icon {
+  filter: drop-shadow(0 2px 3px #0003);
+}
+.mori-pet-sprite {
+  display: block;
+  position: relative;
+  flex: none;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+.mori-pet-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.mori-ball > .mori-pet-sprite {
+  filter: drop-shadow(0 2px 3px #0003);
+}
+.mori-pet-settings {
+  display: grid;
+  gap: 9px;
+  padding: 12px 0;
+}
+.mori-pet-settings select {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 9px;
+  color: var(--text-primary);
+  background: var(--bg-main);
+  border: 1px solid var(--mori-border);
+  border-radius: 8px;
+}
+.mori-pet-actions {
+  display: flex;
+  gap: 8px;
+}
+.mori-pet-size {
+  display: grid;
+  gap: 6px;
+}
+.mori-pet-size > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.mori-pet-size strong {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.mori-pet-size input {
+  width: 100%;
+  accent-color: #799985;
+}
+.mori-pet-size small {
+  color: var(--text-muted);
+}
+.mori-pet-actions button {
+  padding: 6px 10px;
+  border: 1px solid var(--mori-border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.mori-pet-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px;
+  border: 1px solid var(--mori-border);
+  border-radius: 12px;
+}
+.mori-pet-preview > div {
+  flex: 1;
+  min-width: 0;
+}
+.mori-pet-preview label {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+.mori-ball:active {
+  cursor: grabbing;
+}
+.mori-ball:focus-visible {
+  outline: 2px solid #9abda6;
+  outline-offset: 2px;
+}
+.mori-pet-indicator {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  overflow: visible;
+  fill: none;
+  stroke: #8c622e;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.mori-pet-indicator-shell {
+  fill: #fff8e9;
+  stroke: #b79a70;
+  stroke-width: 1.2;
+}
+.mori-pet-indicator.is-error {
+  stroke: #af514b;
+}
+.mori-pet-indicator.is-error .mori-pet-indicator-shell {
+  fill: #fff0ed;
+  stroke: #cc928b;
+}
+.mori-pet-load-error {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #cc928b;
+  border-radius: 50%;
+  background: #fff0ed;
+  color: #af514b;
+  font: 600 16px/1 system-ui;
+}
+.mori-panel.is-floating .mori-panel-header {
+  padding: 10px 13px;
+  min-height: 62px;
+}
+.mori-panel.is-floating .mori-heading small {
+  font-size: 10px;
+}
+.mori-panel.is-floating .mori-messages {
+  padding: 22px 18px;
+}
+.mori-panel.is-floating .mori-composer {
+  margin-bottom: 12px;
+  width: calc(100% - 24px);
+}
+.mori-panel.is-floating .mori-empty {
+  padding: 20px 4px;
+}
+.mori-panel.is-floating .mori-empty h2 {
+  font-size: 22px;
+}
+.mori-panel.is-floating .mori-empty p {
+  font-size: 12px;
+}
+.mori-panel.is-floating .mori-starters button {
+  padding: 10px 12px;
+}
+.mori-panel.is-floating .mori-question {
+  width: calc(100% - 24px);
+}
+.mori-panel.is-floating .mori-settings-grid {
+  grid-template-columns: 1fr;
+}
+.mori-panel.is-floating .mori-settings-heading > .mori-status-pill {
+  display: none;
+}
+.mori-panel.is-floating .mori-disabled-footer {
+  flex-direction: column;
+  text-align: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mori-panel *,
+  .mori-settings * {
+    scroll-behavior: auto;
+    transition: none;
+  }
+}
+@media (max-width: 700px) {
+  .shell-sidebar-hidden .mori-main-view .mori-panel-header {
+    padding: 48px 16px 12px;
+  }
+  .mori-settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .mori-panel-header {
+    padding: 12px 16px;
+  }
+  .mori-messages {
+    padding: 20px;
+  }
+  .mori-settings {
+    padding: 12px 12px 0;
+  }
+  .mori-settings-heading {
+    gap: 10px;
+  }
+  .mori-save-status {
+    width: 100%;
+    flex-basis: 100%;
+  }
+}
+
+.codex-main[hidden] * {
+  /* biome-ignore lint/complexity/noImportantStyles: Persistent browser guests set inline visibility; inactive pages must hide the entire subtree. */
+  visibility: hidden !important;
+}
+
+.mori-computer-capability {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--mori-border);
+  border-radius: 10px;
+}
+.mori-computer-capability > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mori-computer-capability strong {
+  font-size: 13px;
+  font-weight: 550;
+  flex: 1;
+}
+.mori-computer-capability p {
+  margin: 0;
+}
+.mori-computer-capability button {
+  justify-self: start;
+  font-size: 12px;
+}
+.mori-approval-detail {
+  margin: 0;
+  padding: 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 100px;
+  border-radius: 7px;
+  background: var(--mori-soft);
+}
+.mori-approval-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.mori-schedules { display: grid; gap: 8px; margin: 12px 0; }
+.mori-schedules h3 { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; }
+.mori-schedules article { display: grid; gap: 5px; padding: 12px; border: 1px solid var(--mori-border); border-radius: 12px; }
+.mori-schedules time, .mori-schedules small, .mori-schedules article > span { font-size: 12px; opacity: .75; }
+.mori-schedules p { margin: 0; font-size: 12px; }
+.mori-schedule-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.mori-schedules button { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.mori-schedules form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.mori-schedules label { display: grid; gap: 4px; font-size: 12px; }

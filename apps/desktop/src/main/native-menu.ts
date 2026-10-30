@@ -1,5 +1,6 @@
 import type { BaseWindow, MenuItemConstructorOptions } from "electron";
 import type { AppMenuCommand } from "../shared/ipc";
+import { defaultShortcutBindings, type ShortcutBindings } from "../shared/keyboard-shortcuts";
 
 export type AppMenuCommandDispatcher = (
   command: AppMenuCommand,
@@ -14,6 +15,7 @@ function commandItem(
 ): MenuItemConstructorOptions {
   return {
     label,
+    id: command,
     ...(accelerator ? { accelerator } : {}),
     click: (_menuItem, browserWindow) => dispatch(command, browserWindow),
   };
@@ -23,6 +25,7 @@ export function buildApplicationMenuTemplate(
   appName: string,
   platform: NodeJS.Platform,
   dispatch: AppMenuCommandDispatcher,
+  bindings: ShortcutBindings = defaultShortcutBindings(platform),
 ): MenuItemConstructorOptions[] {
   const isMac = platform === "darwin";
   const template: MenuItemConstructorOptions[] = [];
@@ -31,15 +34,15 @@ export function buildApplicationMenuTemplate(
     template.push({
       label: appName,
       submenu: [
-        { role: "about" },
+        { role: "about", label: `About ${appName}` },
         { type: "separator" },
         { role: "services" },
         { type: "separator" },
-        { role: "hide" },
+        { role: "hide", label: `Hide ${appName}` },
         { role: "hideOthers" },
         { role: "unhide" },
         { type: "separator" },
-        { role: "quit" },
+        { role: "quit", label: `Quit ${appName}` },
       ],
     });
   }
@@ -50,6 +53,11 @@ export function buildApplicationMenuTemplate(
       submenu: [
         commandItem("New Chat", "new-chat", dispatch, "CmdOrCtrl+N"),
         commandItem("Open Folder...", "open-folder", dispatch, "CmdOrCtrl+O"),
+        commandItem("Mori", "open-mori", dispatch),
+        commandItem("Scheduled Tasks", "open-scheduling", dispatch),
+        commandItem("Todos", "open-todos", dispatch),
+        commandItem("Search", "open-search", dispatch),
+        commandItem("Settings", "open-settings", dispatch),
         { type: "separator" },
         isMac ? { role: "close" } : { role: "quit" },
       ],
@@ -103,5 +111,22 @@ export function buildApplicationMenuTemplate(
     },
   );
 
-  return template;
+  const apply = (items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] =>
+    items.flatMap((item) => {
+      const id = item.id;
+      if (Array.isArray(item.submenu)) item.submenu = apply(item.submenu);
+      if (!id || !(id in bindings)) return [item];
+      const keys = bindings[id] ?? [];
+      const { accelerator: _accelerator, ...unbound } = item;
+      return [
+        keys[0] ? { ...item, accelerator: keys[0] } : unbound,
+        ...keys.slice(1).map((accelerator) => ({
+          ...unbound,
+          accelerator,
+          visible: false,
+          acceleratorWorksWhenHidden: true,
+        })),
+      ];
+    });
+  return apply(template);
 }

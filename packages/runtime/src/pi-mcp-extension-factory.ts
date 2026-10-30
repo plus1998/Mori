@@ -84,7 +84,7 @@ export async function createPiMcpExtensionFactory(
       },
       updateConfig: (entry) => {
         throw new Error(
-          `MCP server "${entry.name}" is configured by Eco for this session; /mcp changes cannot be saved.`,
+          `MCP server "${entry.name}" is configured by Mori for this session; /mcp changes cannot be saved.`,
         );
       },
       ...(logPath ? { logPath } : {}),

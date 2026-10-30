@@ -74,9 +74,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(reads, 2);
       expect(
-        tester.getTopLeft(find.text('Newest screenshot')).dy,
-        lessThan(tester.getTopLeft(find.text('Menu screenshot')).dy),
-        reason: 'A newly displayed screenshot is visible above older images',
+        tester.getTopLeft(find.text('Newest screenshot')).dx,
+        lessThan(tester.getTopLeft(find.text('Menu screenshot')).dx),
+        reason: 'Newest images appear first in the mobile grid',
       );
       rebuild(() => artifacts = []);
       await tester.pumpAndSettle();

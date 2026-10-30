@@ -92,6 +92,34 @@ ThreadRuntimeConfig _runtimeConfig({
 }
 
 void main() {
+  test('new session defaults to agent even with a legacy plan preference', () {
+    const workflow = WorkflowSettingsSnapshot(sessionMode: 'plan');
+    expect(buildDefaultRuntimeConfig(workflow: workflow).sessionMode, 'agent');
+    expect(
+      buildDefaultRuntimeConfig(
+        workflow: workflow,
+        coreKind: 'acp',
+      ).sessionMode,
+      'agent',
+    );
+    expect(
+      buildDefaultRuntimeConfig(
+        modelSettings: _settings(),
+        workflow: workflow,
+        orchestrationSelection: _selection(),
+        coreKind: 'claude',
+      ).sessionMode,
+      'agent',
+    );
+    expect(
+      buildAcpRuntimeConfig(
+        workflow: workflow,
+        sessionMode: 'plan',
+      ).sessionMode,
+      'plan',
+    );
+  });
+
   test('Claude subagent window survives mobile snapshot round trip', () {
     final snapshot = ResolvedOrchestrationSnapshot.fromJson({
       'selection': {

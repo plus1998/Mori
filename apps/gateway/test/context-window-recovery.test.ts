@@ -25,8 +25,8 @@ for (const kind of ["responses", "anthropic-messages", "openai-chat"] as const) 
             port: 0,
             providers: [provider],
             countInputTokens: async () => ({
-              tokens: 893_615,
-              precision: "heuristic",
+              tokens: 945_152,
+              precision: "provider_exact",
               source: "test:controlled-input",
             }),
           },
@@ -68,7 +68,7 @@ for (const kind of ["responses", "anthropic-messages", "openai-chat"] as const) 
           : JSON.parse(text).error;
         expect(error.code).toBe("context_length_exceeded");
         expect(error.message).toContain(
-          rejection === "budget" ? "window=946176, input=893615, reserve=94618" : "Provider context exceeded",
+          rejection === "budget" ? "window=946176, input=945152, reserve=1024" : "Provider context exceeded",
         );
         if (stream) {
           expect(response.headers.get("content-type")).toBe("text/event-stream");

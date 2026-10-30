@@ -35,7 +35,7 @@ try {
 
   await page.screenshot({ path: ".smoke-artifacts/cdp-ui-probe.png", fullPage: false });
   console.log("[cdp-ui] screenshot: apps/desktop/.smoke-artifacts/cdp-ui-probe.png");
-  console.log("[cdp-ui] PASS — can read DOM and capture Eco dev UI via CDP");
+  console.log("[cdp-ui] PASS — can read DOM and capture Mori dev UI via CDP");
 } finally {
   await browser.close();
 }

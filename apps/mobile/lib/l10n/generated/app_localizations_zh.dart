@@ -36,7 +36,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get readAloudConfigHint => '音色、风格和服务商请在电脑的语音合成设置中修改。';
 
   @override
-  String get appTitle => 'Eco';
+  String get appTitle => 'Mori';
 
   @override
   String get navSessions => '对话';
@@ -1648,7 +1648,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activityClarificationAnswer => '询问回答';
 
   @override
+  String activityApprovalRejected(String tool) {
+    return '已拒绝 $tool 审批';
+  }
+
+  @override
+  String get activityApprovalFeedback => '你的反馈';
+
+  @override
   String get activityNoneSelected => '（未选择）';
+
+  @override
+  String get activityContinue => '继续';
 
   @override
   String get activityThinking => '正在思考';
@@ -2062,7 +2073,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get billingEco => '经济编程';
 
   @override
-  String get billingEcoSubtitle => 'Eco 编排后的实际费用';
+  String get billingEcoSubtitle => 'Mori 编排后的实际费用';
 
   @override
   String get billingSavings => '节省';
@@ -2459,6 +2470,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get followUpGuide => '引导';
 
   @override
+  String get followUpToTodo => '迁到待办';
+
+  @override
+  String get followUpMovedToTodo => '已迁到待办，并移出发送队列。';
+
+  @override
   String get followUpEdit => '修改';
 
   @override
@@ -2507,7 +2524,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get mcpApprovalRememberTool => '允许此工具，下次不再询问（此电脑所有对话） ';
 
   @override
-  String get bashApprovalDenyAdjust => '否，请告知 Eco 如何调整';
+  String get bashApprovalDenyAdjust => '否，请告知 Mori 如何调整';
 
   @override
   String projectMoreThreads(Object count) {
@@ -2811,7 +2828,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get schedulingEmpty => '暂无定时安排';
 
   @override
-  String get schedulingHint => '由已连接的电脑执行，Eco 需保持运行且电脑处于唤醒状态。';
+  String get schedulingHint => '由已连接的电脑执行，Mori 需保持运行且电脑处于唤醒状态。';
 
   @override
   String get schedulingTaskHint => '每次在新对话运行，请填写完整背景和预期结果。';
@@ -3051,7 +3068,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get todosNewConversation => '新建会话';
 
   @override
-  String get todosComposeHint => '只填入输入框，由你确认发送。待办会保留。';
+  String get todosComposeHint => '以 @待办 引用带入输入框，确认发送后，Agent 会读取最新待办。';
 
   @override
   String get todosSearchThreads => '搜索此项目的会话';
@@ -3066,7 +3083,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get todosMissing => '这条待办或图片已被删除，请刷新列表。';
 
   @override
-  String get todosUpgrade => '当前电脑版本不支持远程待办，请升级电脑端 Eco。';
+  String get todosUpgrade => '当前电脑版本不支持远程待办，请升级电脑端 Mori。';
 
   @override
   String get todosDiscardTitle => '放弃本次编辑？';
@@ -3180,4 +3197,136 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get codexQuotaBack => '返回额度';
+
+  @override
+  String get composerReferencesChoose => '引用上下文';
+
+  @override
+  String get composerReferencesAll => '全部';
+
+  @override
+  String get composerReferencesSsh => 'SSH 书签';
+
+  @override
+  String get composerReferencesWeb => '网页';
+
+  @override
+  String get composerReferencesConversation => '会话';
+
+  @override
+  String get composerReferencesLoading => '正在搜索…';
+
+  @override
+  String get composerReferencesEmpty => '没有匹配的引用，试试其他名称或分类';
+
+  @override
+  String get composerReferencesDisconnected => '请先连接桌面端，再选择引用';
+
+  @override
+  String get composerReferencesMore => '继续输入名称，缩小搜索范围';
+
+  @override
+  String get composerReferencesHint => 'SSH、网页、会话和工具';
+
+  @override
+  String get composerReferencesSpeech => '语音生成';
+
+  @override
+  String get imagePreviewTitle => '图片预览';
+
+  @override
+  String get imageGalleryTitle => '图片画廊';
+
+  @override
+  String get imageSaveToPhotos => '保存到相册';
+
+  @override
+  String get imageSaving => '正在保存…';
+
+  @override
+  String get imageSavedToPhotos => '已保存到相册';
+
+  @override
+  String get imageSavePermissionDenied => '没有相册写入权限，请在系统设置中允许保存照片后重试。';
+
+  @override
+  String get imageSaveNotEnoughSpace => '设备空间不足，请清理空间后重试。';
+
+  @override
+  String get imageSaveUnsupported => '系统相册不支持这张图片的格式。';
+
+  @override
+  String get imageSaveUnavailable => '相册保存服务不可用，请重新启动应用后重试。';
+
+  @override
+  String get imageSaveFailed => '图片未能保存到相册，请重试。';
+
+  @override
+  String get imageCopy => '复制';
+
+  @override
+  String get imageCopying => '正在复制…';
+
+  @override
+  String get imageCopied => '已复制';
+
+  @override
+  String get imageCopyFailed => '图片复制失败，请重试。';
+
+  @override
+  String get imageCopyUnsupported => '暂不支持复制这种图片格式。';
+
+  @override
+  String get imageCopyUnavailable => '图片复制服务不可用，请重新启动应用后重试。';
+
+  @override
+  String get desktopDisplayTitle => '电脑屏幕与锁屏';
+
+  @override
+  String get desktopPreventAutoLock => '阻止自动锁屏';
+
+  @override
+  String get desktopDimScreen => '亮度调至最低';
+
+  @override
+  String get desktopAutoLockPrevented => '已阻止自动锁屏';
+
+  @override
+  String get desktopAutoLockAllowed => '未阻止自动锁屏';
+
+  @override
+  String get desktopScreenDimmed => '已确认处于最低亮度';
+
+  @override
+  String get desktopScreenNotDimmed => '当前未处于最低亮度，可重新开启';
+
+  @override
+  String get desktopDisplayUnknown => '当前状态未确认';
+
+  @override
+  String get desktopDisplayPatrol => '巡查';
+
+  @override
+  String get desktopDisplayPatrolHint => '此页在前台时，每 5 秒检查电脑状态';
+
+  @override
+  String get desktopDisplayHint =>
+      '控制当前连接的电脑。巡查只更新实际状态；亮度被其他操作恢复后，可重新开启最低亮度。手动锁屏和合盖仍然有效。';
+
+  @override
+  String desktopDisplayCheckedAt(String time) {
+    return '最近确认：$time';
+  }
+
+  @override
+  String get desktopDisplayRestorePending => '有屏幕等待恢复亮度，请连接屏幕后关闭最低亮度重试';
+
+  @override
+  String get desktopDisplayUnsupported => '不支持亮度控制';
+
+  @override
+  String get desktopDisplayUpgrade => '当前电脑版本不支持屏幕控制，请升级 Mori。';
+
+  @override
+  String get approvalClarificationTitle => '回答问题';
 }

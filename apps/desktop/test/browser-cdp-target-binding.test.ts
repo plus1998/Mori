@@ -98,3 +98,75 @@ test("bound CDP connections route only to their exact target, including same-URL
     await proxy.close();
   }
 });
+
+test("background input and activation never explicitly focus the guest", async () => {
+  const target = guest("background");
+  const commands: string[] = [];
+  const inputs: unknown[] = [];
+  let focusCalls = 0;
+  const dispatched: string[] = [];
+  Object.assign(target.webContents, {
+    focus: () => { focusCalls++; },
+    sendInputEvent: (input: unknown) => inputs.push(input),
+  });
+  target.webContents.debugger.sendCommand = async (method: string) => {
+    commands.push(method);
+    return method === "Runtime.evaluate" ? { result: { value: { ok: true } } } : {};
+  };
+  const proxy = await startMultiBrowserCdpProxy({
+    getTargets: () => [target],
+    dispatchGuestPointer: async (target, params) => { dispatched.push(target.id); return target.webContents.debugger.sendCommand("Input.dispatchMouseEvent", params); },
+  });
+  const client = await connect(`ws://127.0.0.1:${proxy.port}/devtools/browser`);
+  try {
+    for (const [method, params] of [
+      ["Page.bringToFront", {}],
+      ["DOM.focus", { nodeId: 1 }],
+      ["Input.insertText", { text: "background text" }],
+      ["Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowLeft" }],
+      ["Input.dispatchMouseEvent", { type: "mouseMoved", x: 10, y: 20 }],
+      ["Input.dispatchMouseEvent", { type: "mouseWheel", x: 10, y: 20, deltaY: 100 }],
+    ] as const) {
+      expect(await client.command(method, params)).toHaveProperty("result");
+    }
+    expect(focusCalls).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(inputs).toMatchObject([{ type: "keyDown" }]);
+    expect(commands).toEqual(["DOM.focus", "DOM.focus", "Runtime.evaluate", "Emulation.setFocusEmulationEnabled", "Emulation.setFocusEmulationEnabled", "Input.dispatchMouseEvent", "Emulation.setFocusEmulationEnabled", "Input.dispatchMouseEvent"]);
+  } finally {
+    client.ws.close();
+    await proxy.close();
+  }
+});
+
+test("native clicks and touches use the same dispatcher and never bypass its failure", async () => {
+  const target = guest("background");
+  const inputs: unknown[] = [];
+  Object.assign(target.webContents, { sendInputEvent: (input: unknown) => inputs.push(input) });
+  let ready = false;
+  const proxy = await startMultiBrowserCdpProxy({
+    getTargets: () => [target],
+    dispatchGuestPointer: async (target, params) => {
+      if (!ready) throw new Error("focus Hook unavailable");
+      inputs.push({ target: target.id, ...params });
+      return {};
+    },
+  });
+  const client = await connect(`ws://127.0.0.1:${proxy.port}/devtools/browser`);
+  try {
+    const click = { type: "mousePressed", x: 10, y: 20, button: "left" };
+    expect(await client.command("Input.dispatchMouseEvent", click)).toMatchObject({ error: { message: "focus Hook unavailable" } });
+    expect(await client.command("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 10, y: 20 }] }))
+      .toMatchObject({ error: { message: "focus Hook unavailable" } });
+    expect(inputs).toEqual([]);
+    ready = true;
+    expect(await client.command("Input.dispatchMouseEvent", click)).toHaveProperty("result");
+    expect(await client.command("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 30, y: 40 }] })).toHaveProperty("result");
+    expect(inputs).toMatchObject([{ target: "background", type: "mousePressed", x: 10, y: 20 }, { target: "background", type: "mousePressed", x: 30, y: 40 }]);
+    expect(await client.command("Input.synthesizeTapGesture", { x: 1, y: 2 })).toMatchObject({ error: { message: expect.stringContaining("Unsupported isolated Agent input") } });
+    expect(inputs).toHaveLength(2);
+  } finally {
+    client.ws.close();
+    await proxy.close();
+  }
+});

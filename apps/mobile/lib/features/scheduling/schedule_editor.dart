@@ -12,6 +12,7 @@ import '../../core/theme/eco_theme.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/utils/prompt_image_attachment.dart';
 import '../../core/utils/prompt_image_upload.dart';
+import '../../core/widgets/composer_prompt_editing_controller.dart';
 import 'schedule_widgets.dart';
 import '../composer/composer_controls.dart';
 import '../projects/project_providers.dart';
@@ -58,7 +59,7 @@ class ScheduleEditor extends ConsumerStatefulWidget {
 
 class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
   final _name = TextEditingController();
-  final _prompt = TextEditingController();
+  final _prompt = ComposerPromptEditingController();
   final _workspace = TextEditingController();
   final _delay = TextEditingController(text: '60');
   final _interval = TextEditingController(text: '60');
@@ -214,11 +215,17 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
 
   Future<void> _save() => _run(() async {
     final l = context.l10n;
-    final prompt = _prompt.text.trim();
+    final prompt = _prompt.prompt.trim();
     final name = _name.text.trim().isNotEmpty
         ? _name.text.trim()
         : (_isMessage && prompt.isNotEmpty
-              ? prompt.split('\n').first.characters.take(200).toString()
+              ? _prompt.text
+                    .trim()
+                    .split('\n')
+                    .first
+                    .characters
+                    .take(200)
+                    .toString()
               : (_isMessage && _attachments.isNotEmpty ? l.composerImage : ''));
     if ((prompt.isEmpty && (!_isMessage || _attachments.isEmpty)) ||
         name.isEmpty ||

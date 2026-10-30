@@ -121,7 +121,7 @@ test("legacy cards hide runtime ids while retaining exact tool arguments and the
   };
   const display = presentMcpApproval(request);
   expect(display.description).toBe("查找 MCP 工具");
-  expect(display.filesystemPath).toBe("Eco MCP Hub · 查找 MCP 工具");
+  expect(display.filesystemPath).toBe("Mori MCP Hub · 查找 MCP 工具");
   expect(display.reason).not.toContain("1791441942755");
   expect(display.command).toBe(request.command);
   expect(request.description).toContain(server);

@@ -506,7 +506,7 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
   ): Promise<CenterServerRegisterDesktopResult> {
     const refreshToken = request.refreshToken?.trim() ?? "";
     if (!refreshToken) {
-      throw new Error("A refresh token is required. Sign in or sign up so Eco can store a renewing session.");
+      throw new Error("A refresh token is required. Sign in or sign up so Mori can store a renewing session.");
     }
     const { supabaseUrl, anonKey } = this.requireProjectCredentialsOrStored(request);
     const profile = collectDesktopDeviceProfile();
@@ -1123,7 +1123,7 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
       ...currentVaultStatus,
       state: "claim_pending",
       activeClaimId: created.claim.id,
-      hint: "Request sent. Open Eco on a device that already has your synced secrets, approve the request, then enter the 6-digit code here.",
+      hint: "Request sent. Open Mori on a device that already has your synced secrets, approve the request, then enter the 6-digit code here.",
     });
     return { claimId: created.claim.id, expiresAt: created.claim.expiresAt };
   }
@@ -1473,7 +1473,7 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
               ...(!hasPeer ? { error: "vault_no_synced_device" } : {}),
               ...(hasPeer
                 ? {
-                    hint: "Request authorization when ready. The other device does not need to be online right now — open Eco there later to approve.",
+                    hint: "Request authorization when ready. The other device does not need to be online right now — open Mori there later to approve.",
                   }
                 : {}),
             });

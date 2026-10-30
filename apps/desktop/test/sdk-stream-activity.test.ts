@@ -753,7 +753,7 @@ test("emits permission denied tool failures with structured metadata", () => {
         type: "tool_permission_denied",
         tool_name: "Bash",
         tool_use_id: "tool_denied",
-        message: "Bash is disabled for this Eco agent.",
+        message: "Bash is disabled for this Mori agent.",
         actor: "eco_researcher",
       },
     },
@@ -773,12 +773,12 @@ test("emits permission denied tool failures with structured metadata", () => {
   expect(emitted).toEqual([
     {
       type: "tool.failed",
-      message: "Permission denied for Bash: Bash is disabled for this Eco agent.",
+      message: "Permission denied for Bash: Bash is disabled for this Mori agent.",
       role: "tool",
       agentId: "agent_researcher",
       tool: {
         name: "Bash",
-        detail: "Bash is disabled for this Eco agent.",
+        detail: "Bash is disabled for this Mori agent.",
         toolUseId: "tool_denied",
         status: "failed",
       },

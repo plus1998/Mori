@@ -1,3 +1,9 @@
+import { APP_MENU_COMMANDS } from "../shared/ipc";
+import { KeyboardShortcutsStore } from "./keyboard-shortcuts-store";
+import { matchesShortcut, validateShortcutBindings, type ShortcutBindings } from "../shared/keyboard-shortcuts";
+import { MoriComputerUse } from "./mori-computer-use";
+import { recordProviderUsage } from "./provider-usage-recorder";
+import { APP_LINK_SCHEMES, isAppDeepLink } from "../shared/center-server";
 import { resolveGenerationToolContext } from "./generation-tool-context";
 import type { ImageGenerationToolInput } from "../shared/image-generation";
 import type { TtsToolInput } from "../shared/tts";
@@ -5,9 +11,12 @@ import { isCodexAuthThread } from "../shared/codex-auth-thread";
 import { createAccountUsagePricingLookup } from "./account-usage-pricing";
 import { ChatGptModelCatalogService, resolveChatGptModelCatalogCachePath } from "./chatgpt-model-catalog";
 import { ProjectTodoStore } from "./project-todo-store";
+import { moveQueuedFollowUpToTodo } from "./thread-follow-up-todo";
+import { ProjectTodoAgentService } from "./project-todo-agent-service";
 import { resolveProjectTodoUploads } from "./project-todo-uploads";
 import type { ProjectTodoCompose, ProjectTodoSave, ProjectTodoTrash } from "../shared/project-todos";
 import { TtsReadAloudService } from "./tts-read-aloud";
+import { synthesizeSpeech } from "./tts-client";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -40,8 +49,12 @@ import {
 import { webChatProxyConfig, webChatSitePartition } from "../shared/web-chat-list";
 import { ComposerReferenceService } from "./composer-reference-service";
 import { BrowserSelectionService } from "./browser-selection-service";
+import { captureBrowserScreenshotArtifact } from "./browser-screenshot";
 import { authorizeBrowserDownloadAccess } from "./browser-download-approval";
 import { ContextReferenceMcpGateway } from "./context-reference-mcp-gateway";
+import { ModelManagementMcpGateway } from "./model-management-mcp-gateway";
+import { ModelManagementService } from "./model-management-service";
+import { MODEL_MANAGEMENT_MCP_SERVER, MODEL_MANAGEMENT_PROMPT } from "../shared/model-management";
 import { ConversationRecoveryGate } from "./conversation-recovery-gate";
 import { finalizeAcceptedConversationV2Messages } from "./conversation-v2-accepted-finalization";
 import { createMcpHubNestedToolPermissionHandler } from "./mcp-hub-permission";
@@ -50,15 +63,17 @@ import { inspectScheduledRun } from "./scheduling-inspection";
 import { SchedulingMcpGateway } from "./scheduling-mcp-gateway";
 import { freezeSchedulingProfile } from "./scheduling-profile";
 import { verifySchedulingAttachments } from "./scheduling-attachments";
-import { enqueueScheduledMessage } from "./scheduling-message-dispatch";
+import { enqueueScheduledMessage, isScheduledMessageFollowUp } from "./scheduling-message-dispatch";
+import { approveScheduledPlan, assertScheduledPlanCurrent, inspectScheduledPlanCommand, scheduledPlanCommandId } from "./scheduled-plan-execution";
 import { saveNewScheduledMessageThread } from "./scheduling-new-thread";
 import { SchedulingService } from "./scheduling-service";
-import { canDispatchScheduledMessageStatus } from "./scheduling-dispatch-policy";
+import { canDispatchScheduledMessage } from "./scheduling-dispatch-policy";
 import { SchedulingStore } from "./scheduling-store";
 import { TtsMcpGateway } from "./tts-mcp-gateway";
 import { createTtsStore, type TtsStore } from "./tts-store";
 import { WebChatProxyController } from "./web-chat-proxy";
 import { isDevFeedReplayFrameUrl } from "../shared/dev-feed-replay";
+import { createImageDisplayThumbnail } from "./image-display-thumbnail";
 
 const execFileAsync = promisify(execFile);
 
@@ -69,7 +84,6 @@ import {
   type CodexAsyncQuestionsInput,
   type CodexGatewayCatalogRoute,
   type CodexMcpServerForConfigSync,
-  type CodexTurnTokenUsageBreakdown,
   codexToolDisplayName,
   composeCanUseToolHandlers,
   createAskUserQuestionHandler,
@@ -151,6 +165,7 @@ import {
   BrowserWindow,
   type BrowserWindowConstructorOptions,
   clipboard,
+  ClipboardItem,
   dialog,
   globalShortcut,
   type Event,
@@ -183,6 +198,7 @@ import {
   type AcceptedConversationMessageSchedule,
   buildAcceptedConversationMessageSchedule,
   parseConversationV2Request,
+  parseConversationV2SendMessageRequest,
   readOptionalConversationV2String,
   readOptionalInteger,
   readPositiveInteger,
@@ -190,15 +206,15 @@ import {
   requiredConversationV2String,
 } from "./conversation-v2-request";
 import { getClaudeVersion, getCodexVersion, getCursorVersion } from "./core-version";
-import { configureDesktopDevIdentity } from "./desktop-app-identity";
+import { applyDesktopDisplayName, configureDesktopIdentity } from "./desktop-app-identity";
 import { ensureDesktopPath } from "./fix-desktop-path";
 import { ImageViewReadError, readImageViewFile } from "./image-view-reader";
 import { buildApplicationMenuTemplate } from "./native-menu";
+import { isReloadShortcutInput } from "./packaged-window-shortcuts";
 import {
   readElectronResourcesPath,
   resolvePackagedClaudeExecutableCandidate,
 } from "./packaged-runtime-executables";
-import { isReloadShortcutInput } from "./packaged-window-shortcuts";
 import { assertSdkSessionRetainedOnRunFailure } from "./sdk-session-run-failure";
 import { isAllowedSessionPermission, isLocalRendererUrl } from "./session-permissions";
 import { evaluateThreadToolConfirmation } from "./thread-bash-permission";
@@ -257,6 +273,10 @@ import {
   isEcoHtmlHostToolName,
 } from "../shared/html-host-tool";
 import { expectedIpcErrorKey, translateCatalog } from "../shared/i18n-catalogs";
+import type { AccountUsageQuery } from "../shared/account-usage";
+import { AccountUsageStore, type AccountUsageRecord } from "./account-usage-store";
+import { CodexAccountUsageTracker } from "./codex-account-usage-tracker";
+import { estimateCostFromTokens } from "@eco/runtime";
 import {
   buildImageDisplayPromptAppend,
   ECO_IMAGE_DISPLAY_MCP_SERVER,
@@ -339,13 +359,11 @@ import {
   isTerminalSpawnRequest,
   isThreadRuntimeConfig,
   type ListUpstreamModelsRequest,
-  lockThreadRuntimeConfigSnapshotOnContinue,
   MAX_CLIPBOARD_IMAGE_BASE64_CHARS,
   type MainAgentConfigResource,
   type MainAgentPromptResource,
   type McpServerConfigInput,
   type ModelSettingsSnapshot,
-  materializeThreadOrchestrationSnapshot,
   normalizeThreadRuntimeConfig,
   type OrchestrationSelection,
   type PlanApprovalRequest,
@@ -365,7 +383,6 @@ import {
   runtimeRoleRoutesFromOrchestrationSnapshot,
   SUBAGENT_ROLES,
   type SubagentOrchestrationResource,
-  shouldRematerializeThreadRuntimeConfigOnContinue,
   type TerminalListRequest,
   type TestProviderConnectionRequest,
   type TestRoleRoutesRequest,
@@ -417,6 +434,7 @@ import {
   type WorktreeStatusResult,
   withAgentSessionMode,
 } from "../shared/ipc";
+import { resolveThreadRuntimeConfigUpdate } from "../shared/thread-runtime-config";
 import {
   type AppLocale,
   type AppLocalePreference,
@@ -485,7 +503,6 @@ import {
   buildThreadFollowUpDrainPrompt,
   canEscalatedFollowUpProgressNow,
   collectThreadFollowUpAttachments,
-  isFollowUpMidTurnResultDelivered,
   selectThreadFollowUpDrainTarget,
   shouldAutoPauseFollowUpQueue,
   shouldBlockThreadFollowUpDrain,
@@ -582,6 +599,7 @@ import {
   type RuntimeRoute,
   resolveRatesForRoute,
   resolveRuntimeRoutesFromSettings,
+  resolveUsageRoute,
 } from "./billing-resolver";
 import {
   type BillingRuntimeEnvironment,
@@ -633,16 +651,19 @@ import {
   prepareAsyncClarificationReply,
   releasePendingClarification,
 } from "./codex-async-question-bridge";
-import {
-  buildCodexAppServerBillingRequests,
-  normalizeCodexAppServerUsage,
-} from "./codex-app-server-usage-billing";
+import { normalizeCodexAppServerUsage } from "./codex-app-server-usage-billing";
+import { CodexLiveUsageBilling, type CodexLiveUsageInput } from "./codex-live-usage-billing";
 import { isCodexAuthCompletionPageText } from "./codex-browser-login";
 import {
   CodexGatewayUsageDeduplicator,
   resolveCodexGatewayUsageBilling,
 } from "./codex-gateway-usage-billing";
 import { CodexGatewayUsagePendingBuffer } from "./codex-gateway-usage-pending";
+import { MoriAssistantHost } from "./mori-assistant-host";
+import { isMoriAssistantWindow } from "./mori-assistant-windows";
+import { MORI_ASSISTANT_CHANNELS } from "../shared/mori-assistant";
+import { MoriNotificationUncertainError } from "../shared/mori-scheduled-action";
+import { buildThreadRuntimeConfigFromDefaults } from "../shared/thread-runtime-config";
 import { connectCodexImageAccount, disposeCodexImageConnections } from "./codex-image-electron-transport";
 import { CodexImageService } from "./codex-image-service";
 import { consumeCodexQuotaReset } from "./codex-quota-reset";
@@ -656,6 +677,7 @@ import {
   getCodexRuntimeClients,
   parseElectronProxyResolution,
   setCodexAccountProxyConfigGetter,
+  setCodexExternalAuthProvider,
   setCodexSystemProxyResolver,
   stopGlobalCodexRuntimeLifecycle,
 } from "./codex-runtime-lifecycle";
@@ -772,6 +794,7 @@ import { logEcoDiag, logEcoDiagThrottled, shortAgentId, shortThreadId } from "./
 import {
   configureEcoGatewayLifecycle,
   ensureGlobalEcoGateway,
+  getGlobalEcoBridgeBaseUrl,
   stopGlobalEcoGateway,
 } from "./eco-gateway-lifecycle";
 import { hasStructuredThreadEventExtras, resolveEmitThreadEventMessage } from "./emit-thread-event-message";
@@ -901,6 +924,10 @@ import {
   createProjectSkillsSettingsStore,
   type ProjectSkillsSettingsStore,
 } from "./project-skills-settings-store";
+import {
+  createProjectTerminalSettingsStore,
+  type ProjectTerminalSettingsStore,
+} from "./project-terminal-settings-store";
 import { formatPromptCacheBreakLog, resolveClaudeMdDigest } from "./prompt-cache-fingerprint";
 import { createPromptCacheRunEventEmitter } from "./prompt-cache-run-events";
 import {
@@ -979,7 +1006,8 @@ import { createDesktopSettingsSyncHooks } from "./supabase-settings-sync-hooks";
 import { SystemSleepBlocker } from "./system-sleep-blocker";
 import { DisplayControl } from "./display-control";
 import { createMacActivityAssertion, createMacBrightnessApi } from "./mac-display-native";
-import { DISPLAY_RESTORE_ACCELERATOR } from "../shared/display-control";
+import { createWindowsActivityAssertion, createWindowsBrightnessApi } from "./windows-display-native";
+
 import { normalizeTelemetryBillingRole } from "./telemetry-billing-role";
 import { resolveThreadApprovePlanRoute } from "./thread-approve-plan-route";
 import { ThreadCacheHitMonitor } from "./thread-cache-hit-monitor";
@@ -992,6 +1020,7 @@ import {
   shouldKeepThreadCancelling,
 } from "./thread-cancelling-state";
 import { requireThreadCore } from "./thread-core-routing";
+import { deliverThreadFollowUpGuide, resolveThreadFollowUpMidTurnPrompt } from "./thread-follow-up-guide";
 import { ThreadFollowUpDrainScheduler } from "./thread-follow-up-drain-scheduler";
 import { ThreadFollowUpQueueControl } from "./thread-follow-up-queue-control";
 import {
@@ -1186,7 +1215,7 @@ const desktopUpdateService = new DesktopUpdateService({
   getOutboundProxyUrl: () => resolveOutboundProxyUrl(proxyBridgeSettingsStore.get()),
 });
 
-configureDesktopDevIdentity();
+configureDesktopIdentity();
 
 // The shared SQLite store and fixed-port gateway require a single main-process writer.
 const e2eMode = process.env.ECO_E2E === "1";
@@ -1198,12 +1227,14 @@ if (!e2eMode && !hasSingleInstanceLock) {
 let desktopInitializationComplete = false;
 
 /**
- * Pending deep link (eco://...) delivered while the renderer is not ready yet.
+ * Pending deep link (mori://... or legacy eco://...) delivered before the renderer is ready.
  * Sent to the renderer once it reports ready.
  */
 let pendingEcoDeepLink: string | undefined;
 // True once the renderer reports ready (it then subscribes to deep-link events).
 let desktopRendererReady = false;
+let moriAssistantHost: MoriAssistantHost | undefined;
+let moriAssistantReady = false;
 const startupSplashWindows = new WeakSet<BrowserWindow>();
 let resolveInitialDesktopRendererReady: (() => void) | undefined;
 const initialDesktopRendererReady = new Promise<void>((resolve) => {
@@ -1212,7 +1243,7 @@ const initialDesktopRendererReady = new Promise<void>((resolve) => {
 
 function getMainWindow(): BrowserWindow | undefined {
   return BrowserWindow.getAllWindows().find(
-    (window) => !window.isDestroyed() && !startupSplashWindows.has(window),
+    (window) => !window.isDestroyed() && !startupSplashWindows.has(window) && !isMoriAssistantWindow(window),
   );
 }
 
@@ -1229,7 +1260,7 @@ function createOAuthAuthWindow(parent?: BrowserWindow, partition = "oauth-auth-s
   return new BrowserWindow({
     width: 900,
     height: 700,
-    title: "Eco Coding · ChatGPT 授权",
+    title: "Mori · ChatGPT 授权",
     ...(appIcon ? { icon: appIcon } : {}),
     ...(parent ? { parent } : {}),
     modal: Boolean(parent) && !isMac,
@@ -1422,16 +1453,16 @@ function presentPrimaryWindow(): void {
 }
 
 app.on("second-instance", (_event, argv) => {
-  const ecoUrl = argv.find((arg) => arg.startsWith("eco://"));
+  const ecoUrl = argv.find(isAppDeepLink);
   presentPrimaryWindow();
   if (ecoUrl) {
     deliverEcoDeepLink(ecoUrl);
   }
 });
 
-// Delivered by the OS when the registered eco:// scheme is opened.
+// Delivered by the OS when mori:// or the legacy eco:// scheme is opened.
 app.on("open-url", (_event, url) => {
-  if (!url.startsWith("eco://")) {
+  if (!isAppDeepLink(url)) {
     return;
   }
   presentPrimaryWindow();
@@ -1481,18 +1512,48 @@ let backgroundTerminalTaskRegistry: BackgroundTerminalTaskRegistry;
 let codexBackgroundTerminalService: CodexBackgroundTerminalService | undefined;
 const claudeBackgroundTaskRegistry = new ClaudeBackgroundTaskRegistry();
 const systemSleepBlocker = new SystemSleepBlocker(powerSaveBlocker);
+let keyboardShortcutsStore: KeyboardShortcutsStore;
+let shortcutRecordingWindow: BrowserWindow | undefined;
+let currentShortcutBindings: ShortcutBindings | undefined;
+let registeredDisplayRestoreShortcut: string | undefined;
+function applyApplicationShortcuts(bindings: ShortcutBindings): void {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate(
+      buildApplicationMenuTemplate(
+        app.name,
+        process.platform,
+        (command) => {
+          const window = getMainWindow();
+          if (window && !window.isDestroyed())
+            sendToLiveRenderer(window, IPC_CHANNELS.appMenuCommand, command);
+        },
+        bindings,
+      ),
+    ),
+  );
+  currentShortcutBindings = bindings;
+}
+
 const displayControl: DisplayControl = new DisplayControl(
   process.platform,
-  createMacActivityAssertion,
-  () => createMacBrightnessApi((id) => screen.getAllDisplays().find((display) => display.id === id)?.label),
+  process.platform === "win32" ? createWindowsActivityAssertion : createMacActivityAssertion,
+  process.platform === "win32" ? createWindowsBrightnessApi :
+    () => createMacBrightnessApi((id) => screen.getAllDisplays().find((display) => display.id === id)?.label),
   {
     register: () => {
-      if (!globalShortcut.register(DISPLAY_RESTORE_ACCELERATOR, () => {
-        try { displayControl.set({ control: "dimmed", enabled: false }); }
-        catch (error) { process.stderr.write(`[eco] display restoration failed: ${String(error)}\n`); }
-      })) throw new Error("Screen recovery shortcut is unavailable (Command+Shift+L).");
+      const accelerator = keyboardShortcutsStore.get()["restore-display"]?.[0];
+      if (!accelerator) throw new Error("请先在设置 → 键盘快捷键中设置恢复屏幕亮度的快捷键。");
+      if (!globalShortcut.register(accelerator, () => {
+        void displayControl.set({ control: "dimmed", enabled: false }).catch((error) => {
+          process.stderr.write(`[eco] display restoration failed: ${String(error)}\n`);
+        });
+      })) throw new Error("恢复屏幕亮度的快捷键已被占用，请在键盘快捷键设置中更换。");
+      registeredDisplayRestoreShortcut = accelerator;
     },
-    unregister: () => globalShortcut.unregister(DISPLAY_RESTORE_ACCELERATOR),
+    unregister: () => {
+      if (registeredDisplayRestoreShortcut) globalShortcut.unregister(registeredDisplayRestoreShortcut);
+      registeredDisplayRestoreShortcut = undefined;
+    },
   },
 );
 let applicationShutdownDeps: ApplicationShutdownDeps | undefined;
@@ -1580,6 +1641,13 @@ let agentOrchestrationStore: AgentOrchestrationStore;
 let mcpStore: McpStore;
 let mcpHubGateway: McpHubGateway;
 let conversationStore: ConversationStore;
+function createProjectTodoThumbnail(bytes: Buffer): string {
+  const image = nativeImage.createFromBuffer(bytes);
+  if (image.isEmpty()) return "";
+  const size = image.getSize();
+  return image.resize(size.width >= size.height ? { width: Math.min(240, size.width) } : { height: Math.min(180, size.height) }).toDataURL();
+}
+
 let projectTodoStore: ProjectTodoStore;
 let conversationForkCommands: ConversationForkCommands | undefined;
 
@@ -1639,6 +1707,7 @@ let projectMcpSettingsStore: ProjectMcpSettingsStore;
 let projectIntegrationsSettingsStore: ProjectIntegrationsSettingsStore;
 let projectOrchestrationSettingsStore: ProjectOrchestrationSettingsStore;
 let projectSkillsSettingsStore: ProjectSkillsSettingsStore;
+let projectTerminalSettingsStore: ProjectTerminalSettingsStore;
 let gitSettingsStore: GitSettingsStore;
 let personalizationSettingsStore: PersonalizationSettingsStore;
 let browserSettingsStore: BrowserSettingsStore;
@@ -1674,6 +1743,8 @@ let schedulingGateway: SchedulingMcpGateway;
 let composerReferenceService: ComposerReferenceService;
 let browserSelectionService: BrowserSelectionService;
 let contextReferenceGateway: ContextReferenceMcpGateway;
+let modelManagementGateway: ModelManagementMcpGateway;
+let modelManagementService: ModelManagementService;
 let integratedWebSearchGateway: IntegratedWebSearchMcpGateway;
 let promptImageFileStore: PromptImageFileStore;
 
@@ -1780,6 +1851,8 @@ function runThreadRequestWithLiveRequestLifecycle(
 const conversationRecoveryGate = new ConversationRecoveryGate();
 const pendingCancelDisposition = new Map<string, WorktreeCancelDisposition>();
 const pendingEscalatedFollowUpDrain = new Set<string>();
+// Explicit Guide authorization survives a missing ingress, and is revoked by Stop.
+const pendingMidTurnFollowUpGuides = new Map<string, string>();
 const threadFollowUpDrainScheduler = new ThreadFollowUpDrainScheduler();
 const threadFollowUpQueueControl = new ThreadFollowUpQueueControl();
 const threadRunPreparations = new ThreadRunPreparationRegistry();
@@ -1829,6 +1902,9 @@ const codexGatewayUsagePending = new CodexGatewayUsagePendingBuffer({
 });
 let agentLifecycle: AgentLifecycleService;
 let openaiAccountService: OpenAIAccountService | undefined;
+let accountUsageStore: AccountUsageStore;
+const codexAccountUsageTracker = new CodexAccountUsageTracker();
+const codexLiveUsageBilling = new CodexLiveUsageBilling();
 let openaiAccountAssistant: OpenAIAccountAssistant | undefined;
 let usageLedgerCoordinator: UsageLedgerCoordinator;
 let subagentMetricsRegistry: SubagentMetricsRegistry;
@@ -2123,7 +2199,7 @@ function createStartupWindowUrl(): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Eco Coding</title>
+    <title>Mori</title>
     <style>
       html, body {
         width: 100%;
@@ -2413,7 +2489,7 @@ async function createMainWindow(
             autoHideMenuBar: true,
           }),
     ...(appIcon ? { icon: appIcon } : {}),
-    ...(isStartupSplash ? { title: "Eco Coding" } : {}),
+    ...(isStartupSplash ? { title: "Mori" } : {}),
     webPreferences: {
       ...(!isStartupSplash ? { preload: path.join(__dirname, "../preload/index.cjs") } : {}),
       contextIsolation: true,
@@ -2466,13 +2542,48 @@ async function createMainWindow(
     trackWindowState(window);
   }
 
-  if (app.isPackaged) {
-    window.webContents.on("before-input-event", (event, input) => {
-      if (isReloadShortcutInput(input)) {
-        event.preventDefault();
-      }
-    });
-  }
+
+  window.webContents.on("before-input-event", (event, input) => {
+    if (app.isPackaged && isReloadShortcutInput(input)) {
+      event.preventDefault();
+      return;
+    }
+    if (
+      input.type !== "keyDown" ||
+      input.isAutoRepeat ||
+      shortcutRecordingWindow === window ||
+      !currentShortcutBindings
+    )
+      return;
+    if (!input.meta && !input.control && !input.alt && !/^F\d+$/.test(input.key)) return;
+    const key = {
+      key: input.key,
+      code: input.code,
+      metaKey: input.meta,
+      ctrlKey: input.control,
+      altKey: input.alt,
+      shiftKey: input.shift,
+      isComposing: input.isComposing,
+    };
+    const displayShortcut = ([
+      ["toggle-prevent-auto-lock", "preventAutoLock"],
+      ["toggle-display-dimming", "dimmed"],
+    ] as const).find(([id]) => matchesShortcut(key, id, currentShortcutBindings!, process.platform));
+    if (displayShortcut) {
+      event.preventDefault();
+      void displayControl.toggle(displayShortcut[1]).catch((error) => {
+        dialog.showErrorBox("屏幕控制失败", errorMessage(error));
+      });
+      return;
+    }
+    const command = APP_MENU_COMMANDS.find((id) =>
+      matchesShortcut(key, id, currentShortcutBindings!, process.platform),
+    );
+    if (!command) return;
+    // Dispatch keyboard commands once before native menu accelerators; both use the same bindings.
+    event.preventDefault();
+    sendToLiveRenderer(window, IPC_CHANNELS.appMenuCommand, command);
+  });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isExternalHttpUrl(url)) {
@@ -2520,7 +2631,7 @@ async function loadMainWindow(window: BrowserWindow): Promise<BrowserWindow> {
   if (browserHost) {
     installBrowserGuestBridge(window, browserHost);
   }
-  attachMainWindowQuitGuard(window);
+  attachMainWindowQuitGuard(window, () => moriAssistantHost?.keepsBackground === true);
   return window;
 }
 
@@ -2558,6 +2669,7 @@ function isExternalHttpUrl(url: string): boolean {
 app
   .whenReady()
   .then(async () => {
+    applyDesktopDisplayName();
     const startupStartedAt = Date.now();
     let startupWindow: BrowserWindow | undefined;
     const logStartupStage = (stage: string): void => {
@@ -2583,24 +2695,20 @@ app
     windowStateStore.load();
     startupWindow = await createMainWindow({ startupSplash: true });
     logStartupStage("startup-window.ready");
-    // Let the OS hand eco://... deep links to this app.
+    // Register new mori:// links and retain legacy eco:// links.
     // Packaged only: in dev the scheme would register against the bare electron.exe,
     // which treats the URL as an app path and fails to launch.
     if (app.isPackaged) {
-      app.setAsDefaultProtocolClient("eco");
+      for (const scheme of APP_LINK_SCHEMES) {
+        app.setAsDefaultProtocolClient(scheme);
+      }
     }
     if (appIcon && process.platform === "darwin") {
       app.dock?.setIcon(appIcon);
     }
-    Menu.setApplicationMenu(
-      Menu.buildFromTemplate(
-        buildApplicationMenuTemplate(app.name, process.platform, (command, browserWindow) => {
-          if (browserWindow instanceof BrowserWindow) {
-            browserWindow.webContents.send(IPC_CHANNELS.appMenuCommand, command);
-          }
-        }),
-      ),
-    );
+    keyboardShortcutsStore = new KeyboardShortcutsStore(path.join(app.getPath("userData"), "keyboard-shortcuts.json"), process.platform);
+    keyboardShortcutsStore.load();
+    applyApplicationShortcuts(keyboardShortcutsStore.get());
     const isLocalRendererWebContents = (webContents: Electron.WebContents | null): boolean => {
       if (!webContents) {
         return false;
@@ -2627,12 +2735,9 @@ app
     );
     const dbPath = path.join(app.getPath("userData"), "eco-coding.sqlite");
     const todoSqlite = await import("node:sqlite");
-    projectTodoStore = new ProjectTodoStore(new todoSqlite.DatabaseSync(dbPath), bytes => {
-      const image = nativeImage.createFromBuffer(bytes);
-      if (image.isEmpty()) return "";
-      const size = image.getSize();
-      return image.resize(size.width >= size.height ? { width: Math.min(240, size.width) } : { height: Math.min(180, size.height) }).toDataURL();
-    });
+    accountUsageStore = new AccountUsageStore(new todoSqlite.DatabaseSync(dbPath));
+    app.once("will-quit", () => accountUsageStore.close());
+    projectTodoStore = new ProjectTodoStore(new todoSqlite.DatabaseSync(dbPath), createProjectTodoThumbnail);
     app.once("will-quit", () => projectTodoStore.close());
     providerStore = await createProviderStore(dbPath);
     agentOrchestrationStore = await createAgentOrchestrationStore(dbPath);
@@ -2754,11 +2859,15 @@ app
     projectIntegrationsSettingsStore = await createProjectIntegrationsSettingsStore(dbPath);
     projectOrchestrationSettingsStore = await createProjectOrchestrationSettingsStore(dbPath);
     projectSkillsSettingsStore = await createProjectSkillsSettingsStore(dbPath);
+    projectTerminalSettingsStore = await createProjectTerminalSettingsStore(dbPath);
     gitSettingsStore = await createGitSettingsStore(dbPath);
     personalizationSettingsStore = await createPersonalizationSettingsStore(dbPath);
     browserSettingsStore = await createBrowserSettingsStore(dbPath);
     computerUseSettingsStore = await createComputerUseSettingsStore(dbPath);
-    computerUseGateway = new ComputerUseMcpGateway(() => computerUseSettingsStore.get());
+    computerUseGateway = new ComputerUseMcpGateway(
+      () => computerUseSettingsStore.get(),
+      path.join(app.getPath("userData"), "computer-use-screenshots"),
+    );
     webChatListStore = await createWebChatListStore(dbPath);
     app.on("web-contents-created", (_event, contents) => {
       contents.on("login", (event, _details, authInfo, callback) => {
@@ -2839,9 +2948,15 @@ app
       },
     });
     ttsStore = await createTtsStore(dbPath, imageSecretCodec);
-    ttsReadAloud = new TtsReadAloudService(ttsStore);
+    // Chromium follows OS proxy/PAC and certificate settings, as the desktop
+    // model catalog does. Node fetch bypasses those system settings.
+    const ttsFetch = net.fetch.bind(net) as typeof fetch;
+    ttsReadAloud = new TtsReadAloudService(ttsStore, (input) =>
+      synthesizeSpeech({ ...input, fetchImpl: ttsFetch }),
+    );
     ttsGateway = new TtsMcpGateway({
       store: ttsStore,
+      fetchImpl: ttsFetch,
       resolveWorkspacePath: (threadId) => conversationStore.getThread(threadId)?.workspacePath,
       resolveGenerationRoot: (threadId) =>
         activeRunRuntimeState.worktreePlan(threadId)?.worktreePath ??
@@ -3114,6 +3229,24 @@ app
       },
       getGlobalMaxOutputTokens: () => workflowSettingsStore.get().maxOutputLimitTokens,
       onUsage: async (event) => {
+        // Record physical account usage even if conversation attribution has already closed.
+        // Credential ownership is stamped by the gateway before the upstream request.
+        if (event.accountId) {
+          recordAccountUsage({
+            ...event.usage,
+            kind: "chatgpt_oauth",
+            accountId: event.accountId,
+            eventId: event.sourceEventId,
+            modelId: event.upstreamModelId,
+            observedAt: Date.parse(event.observedAt),
+          });
+        } else {
+          try {
+            recordGatewayProviderUsage(event);
+          } catch (error) {
+            reportAccountUsageRecordingFailure({ kind: "custom_provider", accountId: event.providerId }, error);
+          }
+        }
         const dispatch = classifyGatewayUsageEvent(event);
         if (dispatch.kind === "claude_messages") {
           // Synchronously reserve settle before any await so proxy.close() cannot race past billing.
@@ -3257,6 +3390,12 @@ app
     });
     configureCodexRuntimeRun({
       ecoDataDir: app.getPath("userData"),
+      ensureAccountReady: async () => {
+        if (!openaiAccountService) throw new Error("ChatGPT Login 账号服务尚未初始化，请稍后重试。");
+        const accountId = await openaiAccountService.getActiveAccountId();
+        if (!accountId) throw new Error("未选择 ChatGPT Login 账号。");
+        await openaiAccountService.getExternalChatGptTokens(accountId);
+      },
       getGlobalUserRules: () => personalizationSettingsStore.get().globalRules,
       getGlobalContextWindowLimit: () => workflowSettingsStore.get().contextWindowLimitTokens,
       listAccountModels: () => getCodexModelCatalogService().listRuntimeModels(),
@@ -3380,6 +3519,8 @@ app
       listGlobalMcpServers: resolveCodexGlobalMcpServers,
       threadMap: codexThreadMap,
       resolveRunAttemptId: (threadId) => agentLifecycle.currentRunAttemptId(threadId),
+      resolvePersistedRunAttemptId: (threadId, requestId) =>
+        conversationStore.conversationV2().resolveRuntimeRunAttemptId(threadId, requestId),
       appendConversationRuntimeEvent: (event) => {
         try {
           if (!conversationStore.getThread(event.threadId)) {
@@ -3471,11 +3612,37 @@ app
       scheduleThreadRunProjectionUpdated,
       onCodexThreadMapped: flushPendingCodexGatewayUsage,
       onCodexThreadAttributionRecorded: flushPendingCodexGatewayUsage,
-      onCodexTurnTokenUsage: ({ threadId, codexThreadId, turnId, appServerTokenUsage }) => {
-        void handleCodexAppServerTurnUsage({ threadId, codexThreadId, turnId, appServerTokenUsage }).catch(
+      accountUsageObserver: {
+        onTurnStarted: ({ codexThreadId, turnId }) => {
+          const accountId = openaiAccountService?.getUsageAccountId();
+          if (!accountId) return;
+          try {
+            const attribution = resolveCodexThreadAttribution(codexThreadMap, codexThreadId);
+            if (!attribution || !conversationStore.getThread(attribution.ecoThreadId)) return;
+            const role = normalizeTelemetryBillingRole(attribution.billingRole);
+            const route = resolveRoleRoutesForThread(attribution.ecoThreadId).find(
+              candidate => normalizeTelemetryBillingRole(candidate.role) === role && candidate.providerId === "openai",
+            );
+            if (!route || providerStore.listProvidersWithSecrets().some(
+              provider => provider.id === "openai" && provider.hasApiKey,
+            )) return;
+            codexAccountUsageTracker.start(codexThreadId, turnId, { accountId, modelId: route.modelId });
+          } catch (error) {
+            reportAccountUsageRecordingFailure({ kind: "chatgpt_login", accountId }, error);
+          }
+        },
+        onAccountTokenUsage: ({ codexThreadId, turnId, usage }) => {
+          const observed = codexAccountUsageTracker.observe(codexThreadId, turnId, usage, Date.now());
+          if (observed) recordAccountUsage(observed.record, observed.aggregate);
+        },
+        onTurnFinished: ({ codexThreadId, turnId }) => codexAccountUsageTracker.finish(codexThreadId, turnId),
+        onThreadRouteCleanup: codexThreadId => codexAccountUsageTracker.clearThread(codexThreadId),
+      },
+      onCodexTurnTokenUsage: (input) => {
+        void handleCodexAppServerTurnUsage(input).catch(
           (error) => {
             process.stderr.write(
-              `[eco-codex] app-server turn usage billing failed thread=${threadId}: ${errorMessage(error)}\n`,
+              `[eco-codex] app-server usage billing failed thread=${input.threadId}: ${errorMessage(error)}\n`,
             );
           },
         );
@@ -3511,7 +3678,7 @@ app
       onCodexTurnPlanUpdated: ({ ecoThreadId, plan }) => {
         if (!conversationStore.getThread(ecoThreadId)) {
           process.stderr.write(
-            `[eco-codex] turn/plan/updated references unknown Eco thread ${ecoThreadId}\n`,
+            `[eco-codex] turn/plan/updated references unknown Mori thread ${ecoThreadId}\n`,
           );
           return;
         }
@@ -3530,7 +3697,7 @@ app
         const worktreePath = resolveThreadWorktreePath(ecoThreadId);
         const runtime = resolveRuntimeConfigForThreadId(ecoThreadId);
         if (!thread) {
-          markThreadInterrupted(ecoThreadId, "Codex Plan completed for an unknown Eco thread.");
+          markThreadInterrupted(ecoThreadId, "Codex Plan completed for an unknown Mori thread.");
           return;
         }
         if (!worktreePath) {
@@ -3578,6 +3745,8 @@ app
       getMcpHubServerName: (threadId) => mcpHubGateway.getThreadCodexServerName(threadId),
       getMcpToolApprovalTarget: (server, tool) => mcpStore.getToolApprovalTarget(server, tool),
       isMcpToolApproved: (target) => mcpStore.isToolApproved(target),
+      getBashRememberPrefixes: (threadId) => activeRunRuntimeState.bashRememberPrefixes(threadId),
+      rememberBashPrefix: (threadId, prefix) => activeRunRuntimeState.rememberBashPrefix(threadId, prefix),
       getApprovalMode: (threadId) => {
         const thread = conversationStore.getThread(threadId);
         return thread
@@ -3757,6 +3926,15 @@ app
       getTarget: id => requireBrowserHost().getSelectionTarget(id),
     });
     composerReferenceService = new ComposerReferenceService({
+      todos: new ProjectTodoAgentService({
+        store: projectTodoStore,
+        workspacePath: threadId => {
+          const thread = conversationStore.getThread(threadId);
+          if (!thread) throw new Error("待办工具的会话不存在或已删除。");
+          return thread.workspacePath;
+        },
+        changed: () => desktopEventCenter.publish({ kind: "project-todo.changed", payload: {}, aggregateKey: "project-todos:global" }),
+      }),
       selections: browserSelectionService,
       listThreads: (query, limit) => conversationStore.searchThreadReferences(query, limit),
       getThread: (id) => conversationStore.getThread(id),
@@ -3772,6 +3950,44 @@ app
         requireBrowserHost().invokeReferencedBrowserTool(id, action, args, signal),
     });
     contextReferenceGateway = new ContextReferenceMcpGateway(composerReferenceService);
+    modelManagementService = new ModelManagementService({
+      listProviders: () => getModelSettingsSnapshot().providers,
+      modelSource: id => isBuiltInCodexCatalogProvider(id) ? "codex_catalog" : id === "eco-coding-chatgpt" ? "chatgpt_catalog" : "provider",
+      saveProvider: saveModelProvider,
+      deleteProvider: deleteModelProvider,
+      listModels: listManagedCandidateModels,
+      listUpstreamModels: providerId => listModelProviderUpstreamModels({ providerId, ...(isBuiltInCodexCatalogProvider(providerId) ? { authMethod: "auth_json" as const } : {}) }),
+      saveModel: saveManagedCandidateModel,
+      deleteModel: deleteManagedCandidateModel,
+      importModels: (providerId, modelIds) => {
+        const result = providerStore.bulkImportCandidateModels(providerId, modelIds);
+        emitSettingsUpdated();
+        return result;
+      },
+      reorderModels: (providerId, ids) => {
+        providerStore.reorderCandidateModels(providerId, ids);
+        emitSettingsUpdated();
+      },
+      testProvider: (providerId, modelId) => testModelProvider({ providerId, defaultModel: modelId, thinkingEffort: "off" }),
+      saveCatalogModel: async (source, input) => {
+        const catalog = source === "codex_catalog" ? getCodexModelCatalogService() : getChatGptModelCatalogService();
+        await catalog.addManualModel(input);
+        emitSettingsUpdated();
+      },
+      deleteCatalogModel: async (source, modelId) => {
+        const catalog = source === "codex_catalog" ? getCodexModelCatalogService() : getChatGptModelCatalogService();
+        const removed = await catalog.removeManualModel(modelId);
+        if (!removed) return false;
+        emitSettingsUpdated();
+        return true;
+      },
+      refreshCatalog: async source => {
+        const catalog = source === "codex_catalog" ? getCodexModelCatalogService() : getChatGptModelCatalogService();
+        await catalog.refresh();
+        emitSettingsUpdated();
+      },
+    });
+    modelManagementGateway = new ModelManagementMcpGateway(modelManagementService);
     registerIpcHandlers();
     schedulingService.start();
     if (centerServerClient.getSnapshot().settings.enabled) {
@@ -3819,7 +4035,7 @@ app
     // On Windows/Linux a deep link that cold-started the app arrives via argv
     // (the "open-url" event only fires for an already-running instance). Seed
     // the pending link so it is flushed to the renderer once it is ready.
-    const argvDeepLink = process.argv.find((arg) => arg.startsWith("eco://"));
+    const argvDeepLink = process.argv.find(isAppDeepLink);
     if (argvDeepLink && !pendingEcoDeepLink) {
       pendingEcoDeepLink = argvDeepLink;
     }
@@ -3859,7 +4075,7 @@ app
     });
     try {
       dialog.showErrorBox(
-        "Eco Coding 启动失败",
+        "Mori 启动失败",
         `${startupError.message}\n\n详细日志：${getUpstreamLogFilePath()}`,
       );
     } finally {
@@ -3878,10 +4094,14 @@ installApplicationShutdownHook(
   (applicationShutdownDeps = {
     locale: currentAppLocale,
     listThreads: () => conversationStore.listThreads(),
-    hasActiveRun: (threadId) => activeRunRuntimeState.hasRun(threadId),
+    hasActiveRun: (threadId) => activeRunRuntimeState.hasRun(threadId) || Boolean(moriAssistantHost?.service.isRunning && moriAssistantHost.service.store.state.currentThreadId === threadId),
     isCompactInFlight: (threadId) => contextMonitor?.isCompactInFlight(threadId) ?? false,
     countRunningBackgroundTasks: () => backgroundTerminalTaskRegistry.countRunning(),
     cancelThreadRuntime: async (coreKind, threadId) => {
+      if (moriAssistantHost?.service.store.state.sessions.some(session => session.threadId === threadId)) {
+        await moriAssistantHost.service.cancel();
+        return;
+      }
       await threadRuntimeCoordinator.cancel(coreKind, threadId);
     },
     abortActiveRun: (threadId, reason) => activeRunRuntimeState.abortRun(threadId, reason),
@@ -3935,6 +4155,7 @@ installApplicationShutdownHook(
       schedulingService?.stop();
       await schedulingGateway?.close();
       await contextReferenceGateway?.close();
+      await modelManagementGateway?.close();
       await htmlHostGateway?.close();
     },
     closeIntegratedWebSearchGateway: async () => {
@@ -3948,6 +4169,8 @@ installApplicationShutdownHook(
       await stopGlobalCodexRuntimeLifecycle();
     },
     closeOpenAIAccountService: async () => {
+      await moriAssistantHost?.close();
+      moriAssistantHost = undefined;
       openaiAccountAssistant?.dispose();
       openaiAccountAssistant = undefined;
       await openaiAccountService?.dispose();
@@ -3958,9 +4181,9 @@ installApplicationShutdownHook(
     disposeDesktopUpdateService: () => {
       desktopUpdateService.dispose();
     },
-    disposeSystemSleepBlocker: () => {
+    disposeSystemSleepBlocker: async () => {
       try {
-        displayControl.dispose();
+        await displayControl.dispose();
       } finally {
         systemSleepBlocker.dispose();
       }
@@ -4033,6 +4256,7 @@ async function getChatGptSubscriptionService(): Promise<ChatGptSubscriptionServi
         codec,
         createChatGptSubscriptionFetch(() => resolveOutboundProxyUrl(proxyBridgeSettingsStore.get())),
         createChatGptSubscriptionFetchForProxy,
+        recordAccountUsage,
       );
       await service.initialize();
       chatgptSubscriptionService = service;
@@ -4329,20 +4553,7 @@ function materializeThreadRuntimeConfig(
   settings: ModelSettingsSnapshot,
   config: ThreadRuntimeConfig,
 ): ThreadRuntimeConfig {
-  const normalized = normalizeThreadRuntimeConfig(config);
-  if (!hasCompleteOrchestrationSelection(normalized.orchestrationSelection)) {
-    throw new Error("无法物化线程运行时配置：编排组合不完整。");
-  }
-  try {
-    const materialized = materializeThreadOrchestrationSnapshot(settings, normalized.orchestrationSelection);
-    return normalizeThreadRuntimeConfig({
-      ...normalized,
-      ...materialized,
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`无法物化线程运行时配置：${detail}`);
-  }
+  return resolveThreadRuntimeConfigUpdate(settings, undefined, config);
 }
 
 function resolveContinueThreadRuntimeConfig(
@@ -4350,10 +4561,7 @@ function resolveContinueThreadRuntimeConfig(
   existing: ThreadRuntimeConfig | undefined,
   incoming: ThreadRuntimeConfig,
 ): ThreadRuntimeConfig {
-  if (!shouldRematerializeThreadRuntimeConfigOnContinue(existing, incoming)) {
-    return lockThreadRuntimeConfigSnapshotOnContinue(existing!, incoming);
-  }
-  return materializeThreadRuntimeConfig(settings, incoming);
+  return resolveThreadRuntimeConfigUpdate(settings, existing, incoming);
 }
 
 function roleRoutesForThreadConfig(
@@ -4792,7 +5000,9 @@ function localizeExpectedIpcError(error: unknown): unknown {
 }
 
 async function openThreadFromDesktopNotification(threadId: string): Promise<void> {
-  pendingThreadOpenId = threadId;
+  const isMori = moriAssistantHost?.service.store.state.sessions.some(item => item.threadId === threadId);
+  pendingThreadOpenId = isMori ? undefined : threadId;
+  if (isMori) await moriAssistantHost!.service.selectSession(threadId);
   const splashWindow = getStartupSplashWindow();
   if (!desktopRendererReady && splashWindow) {
     presentDesktopWindow(splashWindow);
@@ -4818,7 +5028,24 @@ async function openThreadFromDesktopNotification(threadId: string): Promise<void
     ]);
   }
   // Prefer payload over consume so open still works if pending was already drained.
-  window.webContents.send(IPC_CHANNELS.appThreadOpenRequested, threadId);
+  window.webContents.send(isMori ? MORI_ASSISTANT_CHANNELS.openRequested : IPC_CHANNELS.appThreadOpenRequested, threadId);
+}
+
+async function notifyMoriSchedule(threadId: string, target: import("../shared/mori-scheduled-action").MoriScheduledNotification, text: string, id: string): Promise<void> {
+  if (target.channel === "wechat") {
+    if (!moriAssistantHost?.service.onWechatReply || !moriAssistantHost.service.canNotifyWechat?.()) throw new Error("微信通知不可用，请重新连接后重试通知。");
+    await moriAssistantHost.service.onWechatReply(text, target.messageId, id);
+    return;
+  }
+  if (!Notification.isSupported()) throw new Error("当前系统不支持桌面通知。");
+  const notification = new Notification({ title: "Mori 定时提醒", body: text, ...(appIcon ? { icon: appIcon } : {}) });
+  notification.on("click", () => { void openThreadFromDesktopNotification(threadId).catch(error => logEcoDiag("mori.schedule.open.failed", { error: errorMessage(error) })); });
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new MoriNotificationUncertainError("系统未确认桌面通知已展示，请检查通知权限；重发可能产生重复提醒。")), 8000);
+    notification.once("show", () => { clearTimeout(timer); resolve(); });
+    notification.once("failed", (_event, error) => { clearTimeout(timer); reject(new Error(`桌面通知失败：${error}`)); });
+    desktopNotificationRetainer.show(notification);
+  });
 }
 
 function evaluateDesktopNotificationDelivery(
@@ -4834,7 +5061,12 @@ function evaluateDesktopNotificationDelivery(
   );
 }
 
-function showDesktopNotification(content: { title: string; body: string }, threadId: string): void {
+function showDesktopNotification(
+  content: { title: string; body: string },
+  threadId: string,
+  kind: "completion" | "approval" | "question",
+): void {
+  moriAssistantHost?.windows.showNotice({ ...content, threadId }, kind);
   const notification = new Notification({
     title: content.title,
     body: content.body,
@@ -4850,10 +5082,669 @@ function showDesktopNotification(content: { title: string; body: string }, threa
   desktopNotificationRetainer.show(notification);
 }
 
+async function approveThreadPlan(payload: unknown) {
+  const request = parseThreadApprovePlanPayload(payload);
+  const { threadId } = request;
+  requireConversationV2Thread(threadId);
+  return executePlanResolutionCommand(
+    {
+      principalId: request.principalId,
+      clientCommandId: request.clientCommandId,
+      conversationId: threadId,
+      resolution: "approve",
+      expectedHistoryRevision: request.expectedHistoryRevision,
+      request: {
+        ...(request.runtimeConfig ? { runtimeConfig: request.runtimeConfig } : {}),
+        ...(request.executionTarget ? { executionTarget: request.executionTarget } : {}),
+      },
+    },
+    {
+      v2: conversationStore.conversationV2(),
+      errorMessage,
+      freezeContext: () => buildPlanResolutionFrozenContext(threadId),
+      execute: async (frozenContext, checkpoint) => {
+        assertPlanResolutionContextCurrent(threadId, frozenContext);
+        const approvalThread = conversationStore.getThread(threadId);
+        if (!approvalThread) {
+          throw new Error("Thread was not found.");
+        }
+
+        // "指定子代理执行已批准计划": the renderer only sends the choice; the host re-reads
+        // the thread, pending plan, and locked orchestration snapshot to validate it.
+        const approvalSnapshot = (() => {
+          const config = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
+          return config
+            ? resolveThreadOrchestrationSnapshot(getModelSettingsSnapshot(), config)
+            : undefined;
+        })();
+        const delegationAgents = listPlanDelegationAgents(approvalSnapshot);
+        let forcedTarget: Extract<PlanExecutionTarget, { kind: "subagent" }> | undefined;
+        if (request.executionTarget && request.executionTarget.kind === "subagent") {
+          const validation = validatePlanExecutionTarget({
+            target: request.executionTarget,
+            coreKind: approvalThread.coreKind,
+            agents: delegationAgents,
+          });
+          if (!validation.ok) {
+            throw new Error(validation.reason);
+          }
+          forcedTarget = validation.target as Extract<PlanExecutionTarget, { kind: "subagent" }>;
+        }
+        const forcedContract = forcedTarget
+          ? buildForcedPlanDelegationContract({
+              agentKey:
+                approvalThread.coreKind === "claude"
+                  ? sdkAgentKeyForOrchestrationAgent(forcedTarget.agentKey)
+                  : approvalThread.coreKind === "codex"
+                    ? sanitizeCodexRoleId(forcedTarget.agentKey)
+                    : forcedTarget.agentKey,
+            })
+          : undefined;
+
+        if (approvalThread.coreKind === "codex") {
+          requireThreadCore(approvalThread, "codex", "approve a Codex plan");
+          if (getPendingPlanApprovalForThread(threadId)) {
+            throw new Error("Codex plan approval cannot use the Claude approval bridge.");
+          }
+          const pendingPlan = conversationStore.getPendingPlan(threadId);
+          if (!pendingPlan) {
+            throw new Error("找不到待批准的计划。");
+          }
+          if (approvalThread.status !== "awaiting_plan") {
+            throw new Error("This thread is not waiting for plan approval.");
+          }
+          if (!pendingPlan.plan.trim()) {
+            throw new Error("计划内容不能为空。");
+          }
+          const currentConfig = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
+          if (!currentConfig) {
+            throw new Error("Thread runtime configuration is missing.");
+          }
+          const runtimeConfig = withAgentSessionMode(
+            request.runtimeConfig ? parseThreadRuntimeConfigInput(request.runtimeConfig) : currentConfig,
+            "agent",
+          );
+          const snapshot = await persistApprovedPlanForThread(threadId, pendingPlan);
+          checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
+          conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, runtimeConfig, request, {
+            coreKind: "codex",
+            sessionMode: "agent",
+          });
+          commitThreadPlanApprovalToAgentMode(threadId, "codex_plan_approved");
+          const forcedAttempt = forcedTarget
+            ? armForcedPlanDelegation({
+                threadId,
+                coreKind: "codex",
+                target: forcedTarget,
+                plan: pendingPlan.plan,
+              })
+            : undefined;
+          let result: ThreadContinueResult;
+          let dispatchWait: Promise<void> | undefined;
+          try {
+            const runtimeDispatch = prepareConversationCommandDispatch({
+              v2: conversationStore.conversationV2(),
+              job: {
+                principalId: request.principalId,
+                conversationId: threadId,
+                clientCommandId: request.clientCommandId,
+              },
+              coreKind: "codex",
+              actionKind: "plan_approval",
+              phase: "execution",
+              checkpointScope: "plan",
+            });
+            dispatchWait = waitForConversationCommandDispatch({
+              v2: conversationStore.conversationV2(),
+              conversationId: threadId,
+              prepared: runtimeDispatch,
+            });
+            result = await startCodexThreadContinuation({
+              threadId,
+              prompt: forcedContract ?? "Implement the plan.",
+              runtimeConfigInput: runtimeConfig,
+              preparedRuntimeDispatch: runtimeDispatch,
+            });
+            await dispatchWait;
+          } catch (error) {
+            void dispatchWait?.catch(() => {});
+            if (forcedAttempt) {
+              settleForcedPlanDelegation(threadId, {
+                ok: false,
+                reason: errorMessage(error),
+              });
+            }
+            throw error;
+          }
+          if (!forcedAttempt) {
+            conversationStore.clearPendingPlanForCommand(threadId, request);
+            emitThreadEvent(threadId, "thread.plan_cleared", "计划已进入执行阶段。", "system");
+          }
+          return { thread: result.thread };
+        }
+        if (approvalThread.coreKind === "pi") {
+          requireThreadCore(approvalThread, "pi", "approve a PI plan");
+          const pendingPlan = conversationStore.getPendingPlan(threadId);
+          if (!pendingPlan) {
+            throw new Error("找不到待批准的计划。");
+          }
+          if (approvalThread.status !== "awaiting_plan") {
+            throw new Error("This thread is not waiting for plan approval.");
+          }
+          if (!pendingPlan.plan.trim()) {
+            throw new Error("计划内容不能为空。");
+          }
+          const currentConfig = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
+          if (!currentConfig) {
+            throw new Error("Thread runtime configuration is missing.");
+          }
+          const runtimeConfig = withAgentSessionMode(
+            request.runtimeConfig ? parseThreadRuntimeConfigInput(request.runtimeConfig) : currentConfig,
+            "agent",
+          );
+          const snapshot = await persistApprovedPlanForThread(threadId, pendingPlan);
+          checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
+          conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, runtimeConfig, request, {
+            coreKind: "pi",
+            sessionMode: "agent",
+          });
+          commitThreadPlanApprovalToAgentMode(threadId, "pi_plan_approved");
+          // Cancel any leftover Claude-style bridge if present; PI Plan is Codex-style async.
+          cancelPlanApprovalsForThreadKeepPending(threadId, "pi plan approved asynchronously");
+          const forcedAttempt = forcedTarget
+            ? armForcedPlanDelegation({
+                threadId,
+                coreKind: "pi",
+                target: forcedTarget,
+                plan: pendingPlan.plan,
+              })
+            : undefined;
+          let result: ThreadContinueResult;
+          let dispatchWait: Promise<void> | undefined;
+          try {
+            const runtimeDispatch = prepareConversationCommandDispatch({
+              v2: conversationStore.conversationV2(),
+              job: {
+                principalId: request.principalId,
+                conversationId: threadId,
+                clientCommandId: request.clientCommandId,
+              },
+              coreKind: "pi",
+              actionKind: "plan_approval",
+              phase: "execution",
+              checkpointScope: "plan",
+            });
+            dispatchWait = waitForConversationCommandDispatch({
+              v2: conversationStore.conversationV2(),
+              conversationId: threadId,
+              prepared: runtimeDispatch,
+            });
+            result = await startPiThreadContinuation({
+              threadId,
+              prompt:
+                forcedContract ??
+                "The user approved the plan. Implement it now with full Agent tools. Follow the approved plan.",
+              runtimeConfigInput: runtimeConfig,
+              skipRecordUserPrompt: true,
+              preparedRuntimeDispatch: runtimeDispatch,
+            });
+            await dispatchWait;
+          } catch (error) {
+            void dispatchWait?.catch(() => {});
+            if (forcedAttempt) {
+              settleForcedPlanDelegation(threadId, {
+                ok: false,
+                reason: errorMessage(error),
+              });
+            }
+            throw error;
+          }
+          if (!forcedAttempt) {
+            conversationStore.clearPendingPlanForCommand(threadId, request);
+            emitThreadEvent(threadId, "thread.plan_cleared", "计划已进入执行阶段。", "system");
+          }
+          return { thread: result.thread };
+        }
+
+        const pendingBridge = getPendingPlanApprovalForThread(threadId);
+        const approveRoute = resolveThreadApprovePlanRoute(
+          definedProps({
+            coreKind: approvalThread.coreKind,
+            hasPendingBridge: Boolean(pendingBridge),
+          }),
+        );
+        const pendingRuntimeConfig = request.runtimeConfig
+          ? parseThreadRuntimeConfigInput(request.runtimeConfig)
+          : undefined;
+        if (pendingRuntimeConfig) {
+          roleRoutesForThreadConfig(getModelSettingsSnapshot(), pendingRuntimeConfig);
+        }
+
+        if (approveRoute.kind === "bridge") {
+          if (!pendingBridge) {
+            throw new Error("No pending plan approval is active for this thread.");
+          }
+          const bridgeBaseRuntimeConfig =
+            pendingRuntimeConfig ?? ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
+          if (!bridgeBaseRuntimeConfig) {
+            throw new Error("Thread runtime configuration is missing.");
+          }
+          const pendingPlan = conversationStore.getPendingPlan(threadId);
+          const planFilePath = pendingBridge.planFilePath ?? pendingPlan?.planFilePath;
+          const snapshot = await persistApprovedPlanForThread(threadId, {
+            workspacePath: pendingPlan?.workspacePath ?? approvalThread.workspacePath,
+            userPrompt: pendingPlan?.userPrompt ?? pendingBridge.userPrompt,
+            analysis: pendingPlan?.analysis ?? pendingBridge.analysis,
+            plan: pendingPlan?.plan ?? pendingBridge.plan,
+            ...(planFilePath ? { planFilePath } : {}),
+          });
+          checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
+          const bridgeRuntimeConfig = withAgentSessionMode(bridgeBaseRuntimeConfig, "agent");
+          conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, bridgeRuntimeConfig, request, {
+            coreKind: approvalThread.coreKind ?? "claude",
+            sessionMode: "agent",
+          });
+          commitThreadPlanApprovalToAgentMode(threadId, "bridge_plan_approved");
+          const approvedThread = conversationStore.getThread(threadId);
+          if (
+            !approvedThread ||
+            resolveSessionMode(ensureThreadRuntimeConfig(approvedThread).runtimeConfig) !== "agent"
+          ) {
+            throw new Error("Plan approval could not switch the thread to Agent mode.");
+          }
+          const bridgePlanText = pendingPlan?.plan ?? pendingBridge.plan;
+          const forcedAttempt = forcedTarget
+            ? armForcedPlanDelegation({
+                threadId,
+                coreKind: approvalThread.coreKind ?? "claude",
+                target: forcedTarget,
+                plan: bridgePlanText,
+              })
+            : undefined;
+          if (
+            !bindPendingPlanApprovalCommand(pendingBridge.toolUseId, {
+              principalId: request.principalId,
+              clientCommandId: request.clientCommandId,
+            })
+          ) {
+            if (forcedAttempt) {
+              releaseForcedPlanDelegation(threadId);
+            }
+            throw new Error("No pending plan approval is active for this thread.");
+          }
+          if (!resolvePendingPlanApproval(pendingBridge.toolUseId, "approved")) {
+            clearPlanApprovalCommandBinding(pendingBridge.toolUseId);
+            if (forcedAttempt) {
+              releaseForcedPlanDelegation(threadId);
+            }
+            throw new Error("No pending plan approval is active for this thread.");
+          }
+          checkpoint("plan.bridge_resolved", { toolUseId: pendingBridge.toolUseId, decision: "approved" });
+          try {
+            await waitForPlanApprovalContinuation(pendingBridge.toolUseId);
+          } catch (error) {
+            rejectPlanApprovalContinuation(
+              pendingBridge.toolUseId,
+              error instanceof Error ? error : new Error(errorMessage(error)),
+            );
+            throw error;
+          } finally {
+            clearPlanApprovalCommandBinding(pendingBridge.toolUseId);
+          }
+          if (!forcedAttempt) {
+            conversationStore.clearPendingPlanForCommand(threadId, request);
+            emitThreadEvent(threadId, "thread.plan_cleared", "计划已批准，当前会话开始执行。", "system");
+          }
+          updateThread(threadId, {
+            status: "running",
+            message: "",
+          });
+          return {
+            thread: ensureThreadRuntimeConfig(conversationStore.getThread(threadId) ?? approvedThread),
+          };
+        }
+
+        if (approveRoute.kind === "acp_continuation") {
+          if (approvalThread.coreKind !== "acp") {
+            throw new Error(
+              `CORE_ROUTE_MISMATCH: Thread ${approvalThread.id} belongs to ${approvalThread.coreKind ?? "unknown"}, not acp; cannot approve an ACP plan.`,
+            );
+          }
+          const pendingPlan = conversationStore.getPendingPlan(threadId);
+          if (!pendingPlan) {
+            throw new Error(
+              "ACP plan approval has no live cursor/create_plan bridge and no stored pending plan.",
+            );
+          }
+          if (approvalThread.status !== "awaiting_plan") {
+            throw new Error("This thread is not waiting for plan approval.");
+          }
+          if (!pendingPlan.plan.trim()) {
+            throw new Error("计划内容不能为空。");
+          }
+          const currentConfig = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
+          if (!currentConfig) {
+            throw new Error("Thread runtime configuration is missing.");
+          }
+          const runtimeConfig = withAgentSessionMode(pendingRuntimeConfig ?? currentConfig, "agent");
+          const snapshot = await persistApprovedPlanForThread(threadId, pendingPlan);
+          checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
+          conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, runtimeConfig, request, {
+            coreKind: "acp",
+            sessionMode: "agent",
+          });
+          commitThreadPlanApprovalToAgentMode(threadId, "acp_plan_approved");
+          // Disconnect fallback only: live create_plan bridge is preferred (Cursor blocking contract).
+          cancelPlanApprovalsForThreadKeepPending(threadId, "acp plan approved via disconnect fallback");
+          const runtimeDispatch = prepareConversationCommandDispatch({
+            v2: conversationStore.conversationV2(),
+            job: {
+              principalId: request.principalId,
+              conversationId: threadId,
+              clientCommandId: request.clientCommandId,
+            },
+            coreKind: "acp",
+            actionKind: "plan_approval",
+            phase: "execution",
+            checkpointScope: "plan",
+          });
+          const dispatched = waitForConversationCommandDispatch({
+            v2: conversationStore.conversationV2(),
+            conversationId: threadId,
+            prepared: runtimeDispatch,
+          });
+          let result: ThreadContinueResult;
+          try {
+            result = await startAcpThreadContinuation({
+              threadId,
+              prompt:
+                "The user approved the plan. Implement it now with full Agent tools. Follow the approved plan.",
+              runtimeConfigInput: runtimeConfig,
+              skipRecordUserPrompt: true,
+              preparedRuntimeDispatch: runtimeDispatch,
+            });
+            await dispatched;
+          } catch (error) {
+            void dispatched.catch(() => {});
+            throw error;
+          }
+          conversationStore.clearPendingPlanForCommand(threadId, request);
+          emitThreadEvent(threadId, "thread.plan_cleared", "计划已进入执行阶段。", "system");
+          return { thread: result.thread };
+        }
+
+        requireThreadCore(approvalThread, "claude", "approve a Claude plan");
+
+        const approval = resolveThreadPlanApprovalRuntime(threadId, {
+          getThread: (id) => conversationStore.getThread(id),
+          hasActiveRun: (id) => activeRunRuntimeState.hasRun(id),
+          getPendingPlan: (id) => conversationStore.getPendingPlan(id),
+          resolveRoleRoutes: (id) =>
+            pendingRuntimeConfig
+              ? roleRoutesForThreadConfig(getModelSettingsSnapshot(), pendingRuntimeConfig)
+              : resolveRoleRoutesForThread(id),
+          resolveRuntimeConfig: (routes) => resolveRuntimeConfigForThreadId(threadId, routes),
+        });
+
+        const currentConfig = ensureThreadRuntimeConfig(
+          conversationStore.getThread(threadId) ?? approval.thread,
+        ).runtimeConfig;
+        if (!currentConfig) {
+          throw new Error("Thread runtime configuration is missing.");
+        }
+        const agentRuntimeConfig = withAgentSessionMode(pendingRuntimeConfig ?? currentConfig, "agent");
+        const snapshot = await persistApprovedPlanForThread(threadId, approval.pendingPlan);
+        checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
+        conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, agentRuntimeConfig, request, {
+          coreKind: "claude",
+          sessionMode: "agent",
+        });
+        commitThreadPlanApprovalToAgentMode(threadId, "claude_plan_approved");
+
+        const pendingBeforeExecution = conversationStore.getPendingPlan(threadId);
+        const forcedAttempt = forcedTarget
+          ? armForcedPlanDelegation({
+              threadId,
+              coreKind: "claude",
+              target: forcedTarget,
+              plan: pendingBeforeExecution?.plan ?? approval.pendingPlan.plan,
+            })
+          : undefined;
+
+        updateThread(threadId, {
+          status: "running",
+          message: "",
+        });
+        const runtimeDispatch = prepareConversationCommandDispatch({
+          v2: conversationStore.conversationV2(),
+          job: {
+            principalId: request.principalId,
+            conversationId: threadId,
+            clientCommandId: request.clientCommandId,
+          },
+          coreKind: "claude",
+          actionKind: "plan_approval",
+          phase: "execution",
+          checkpointScope: "plan",
+        });
+        const dispatched = waitForConversationCommandDispatch({
+          v2: conversationStore.conversationV2(),
+          conversationId: threadId,
+          prepared: runtimeDispatch,
+        });
+        const runtime = runCodingThreadExecution(threadId, approval.runtimeConfig, {
+          routesOverride: approval.roleRoutes,
+          ...(forcedAttempt && forcedContract ? { followUp: forcedContract } : {}),
+          runtimeDispatch,
+          ...(!forcedAttempt
+            ? {
+                planCommand: {
+                  principalId: request.principalId,
+                  clientCommandId: request.clientCommandId,
+                },
+              }
+            : {}),
+        });
+        observeConversationCommandRuntime({
+          runtime,
+          v2: conversationStore.conversationV2(),
+          conversationId: threadId,
+          prepared: runtimeDispatch,
+          notStartedReason: "Claude plan execution ended before creating its first run attempt.",
+          onRejected: (error) => {
+            if (forcedAttempt) {
+              settleForcedPlanDelegation(threadId, {
+                ok: false,
+                reason: errorMessage(error),
+              });
+            }
+            process.stderr.write(
+              `[eco] Claude plan execution failed before dispatch (${threadId}): ${errorMessage(error)}\n`,
+            );
+          },
+          onObserverError: (error) => {
+            process.stderr.write(
+              `[eco] failed to settle Claude plan dispatch (${threadId}): ${errorMessage(error)}\n`,
+            );
+          },
+        });
+        await dispatched;
+        return {
+          thread: ensureThreadRuntimeConfig(conversationStore.getThread(threadId) ?? approval.thread),
+        };
+      },
+    },
+  );
+}
+
+async function saveModelProvider(payload: ProviderConfigInput) {
+  const provider = providerStore.saveProvider(payload);
+  emitSettingsUpdated();
+  return provider;
+}
+
+async function deleteModelProvider(providerId: unknown) {
+  if (typeof providerId !== "string" || !providerId.trim()) {
+    throw new Error("Provider id is required.");
+  }
+  const trimmedProviderId = providerId.trim();
+  if (!providerStore.getProviderWithSecret(trimmedProviderId)) {
+    return {
+      ok: false as const,
+      reason: "not_found" as const,
+      references: [],
+    };
+  }
+  const references = collectProviderDeleteReferences(
+    trimmedProviderId,
+    getModelSettingsSnapshot(),
+    conversationStore.listThreads(),
+  );
+  const { blocking, cascadeMainAgentConfigs, cascadeSubagentOrchestrations } =
+    partitionProviderDeleteReferences(references);
+  if (blocking.length > 0) {
+    return {
+      ok: false as const,
+      reason: "in_use" as const,
+      references: blocking,
+    };
+  }
+
+  for (const reference of cascadeMainAgentConfigs) {
+    workflowSettingsStore.clearDefaultMainAgentConfigReference(reference.id);
+    projectOrchestrationSettingsStore.clearMainAgentConfigReference(reference.id);
+    agentOrchestrationStore.deleteMainAgentConfig(reference.id);
+  }
+  for (const reference of cascadeSubagentOrchestrations) {
+    workflowSettingsStore.clearDefaultSubagentOrchestrationReference(reference.id);
+    projectOrchestrationSettingsStore.clearSubagentOrchestrationReference(reference.id);
+    agentOrchestrationStore.deleteSubagentOrchestration(reference.id);
+  }
+
+  providerStore.deleteProvider(trimmedProviderId);
+  emitSettingsUpdated();
+  return { ok: true as const };
+}
+
+async function listModelProviderUpstreamModels(payload: ListUpstreamModelsRequest) {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, error: "Invalid models list request." } as const;
+  }
+  const requestedProvider = payload.providerId
+    ? providerStore.getProviderWithSecret(payload.providerId)
+    : undefined;
+  // Codex Auth (auth.json) has no upstream /v1/models endpoint: its list comes from
+  // the codex-rs models-manager catalog, refreshed from the Codex 账号 page.
+  if (
+    payload.authMethod === "auth_json" ||
+    (requestedProvider?.authMethod === "auth_json" && !requestedProvider.hasApiKey)
+  ) {
+    try {
+      const models = await getCodexModelCatalogService().listModels();
+      return {
+        ok: true,
+        models: models.map((model) => ({ id: model.modelId, displayName: model.displayName })),
+      } as const;
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        ...(requestedProvider?.id ? { providerId: requestedProvider.id } : {}),
+        ...(requestedProvider?.name ? { providerName: requestedProvider.name } : {}),
+      } as const;
+    }
+  }
+  if (requestedProvider?.authMethod === "chatgpt_subscription" || payload.authMethod === "chatgpt_subscription") {
+    try {
+      const models = await getChatGptModelCatalogService().listModels();
+      return { ok: true, models: models.map((model) => ({ id: model.modelId, displayName: model.displayName })) } as const;
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) } as const;
+    }
+  }
+  return listProviderUpstreamModels(
+    providerStore,
+    payload,
+    resolveUpstreamUserAgentOverride(proxyBridgeSettingsStore.get()),
+    proxyBridgeSettingsStore.get().upstreamProxyUrl,
+  );
+}
+
+async function testModelProvider(payload: TestProviderConnectionRequest) {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, error: "Invalid provider test request." } as const;
+  }
+  return testProviderConnection(
+    providerStore,
+    payload,
+    fetch,
+    resolveUpstreamUserAgentOverride(proxyBridgeSettingsStore.get()),
+    proxyBridgeSettingsStore.get().upstreamProxyUrl,
+  );
+}
+
+async function listManagedCandidateModels(providerId: unknown) {
+  if (typeof providerId !== "string" || !providerId.trim()) {
+    throw new Error("Provider id is required.");
+  }
+  const trimmedProviderId = providerId.trim();
+  // Built-in Codex Auth (auth.json): codex-rs catalog + manual adds. A user-created
+  // OpenAI provider that happens to reuse this id keeps its stored candidates.
+  if (isBuiltInCodexCatalogProvider(trimmedProviderId)) {
+    return codexCatalogCandidateViews(await getCodexModelCatalogService().listModels());
+  }
+  if (trimmedProviderId === "eco-coding-chatgpt") {
+    const timestamps = new Date().toISOString();
+    return (await getChatGptModelCatalogService().listModels()).map((model, index) => ({
+      modelId: model.modelId,
+      displayName: model.displayName,
+      createdAt: timestamps,
+      updatedAt: timestamps,
+      id: `cand-chatgpt-${model.modelId}`,
+      providerId: trimmedProviderId,
+      sortOrder: index,
+      ...(model.apiPricing ? {
+        resolvedInputPerM: model.apiPricing.shortContext.input,
+        resolvedOutputPerM: model.apiPricing.shortContext.output,
+        ...(model.apiPricing.shortContext.cacheRead !== undefined ? { resolvedCacheReadPerM: model.apiPricing.shortContext.cacheRead } : {}),
+      } : {}),
+    }));
+  }
+  const candidates = providerStore.listCandidateModels(trimmedProviderId);
+  const provider = providerStore.listProviders().find((p) => p.id === trimmedProviderId);
+  const baseUrl = provider?.baseUrl ?? "";
+  // models.dev enrichment is best-effort; never block listing/adding candidates.
+  try {
+    return await resolveCandidateModels(pricingCache, candidates, baseUrl);
+  } catch (error) {
+    process.stderr.write(`[eco] candidate-model:list pricing enrich failed: ${errorMessage(error)}\n`);
+    return candidates;
+  }
+}
+
+async function saveManagedCandidateModel(payload: unknown) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invalid candidate model input.");
+  }
+  const result = providerStore.saveCandidateModel(payload as CandidateModelInput);
+  emitSettingsUpdated();
+  return result;
+}
+
+async function deleteManagedCandidateModel(id: unknown) {
+  if (typeof id !== "string" || !id.trim()) {
+    throw new Error("Candidate model id is required.");
+  }
+  providerStore.deleteCandidateModel(id.trim());
+  emitSettingsUpdated();
+  return { ok: true as const };
+}
+
 function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.displayControlGet, () => displayControl.getState());
   registerDesktopCommand(IPC_CHANNELS.displayControlSet, (input: import("../shared/display-control").DisplayControlChange) => displayControl.set(input));
   registerDesktopCommand(IPC_CHANNELS.projectTodoList, () => projectTodoStore.list());
+  registerDesktopCommand(IPC_CHANNELS.projectTodoQuery, (input: Parameters<ProjectTodoStore["query"]>[0]) => projectTodoStore.query(input));
   registerDesktopCommand(IPC_CHANNELS.projectTodoGet, (id: string, includeImageData: boolean = true) => {
     if (typeof id !== "string") throw new Error("Invalid todo ID.");
     return projectTodoStore.get(id, includeImageData);
@@ -4897,23 +5788,38 @@ function registerIpcHandlers(): void {
       ...(input.attachments !== undefined ? { attachments: await verifySchedulingAttachments(input.attachments, ref => promptImageFileStore.readContentRefAttachment(ref)) } : {}),
     }),
   );
-  registerDesktopCommand(IPC_CHANNELS.schedulingDelete, (id: string) => schedulingService.remove(id));
+  registerDesktopCommand(IPC_CHANNELS.schedulingDelete, (id: string, expectedRevision?: number) =>
+    schedulingService.remove(id, { source: "user" }, expectedRevision),
+  );
   registerDesktopCommand(IPC_CHANNELS.schedulingRunNow, (input: { id: string; requestId: string }) =>
     schedulingService.runNow(input.id, input.requestId),
   );
   registerDesktopCommand(IPC_CHANNELS.schedulingPreview, (trigger: ScheduleTrigger) =>
     previewSchedule(trigger),
   );
+  registerDesktopCommand(IPC_CHANNELS.schedulingRetryNotification, (id: string) => {
+    if (!moriAssistantReady || !moriAssistantHost) throw new Error("Mori 助手尚未就绪。");
+    return moriAssistantHost.service.scheduledActions.retryNotification(id);
+  });
   // Terminal paste reads through the main process: the renderer clipboard-read permission
   // stays denied, and Electron's clipboard is not gated on window focus.
   registerDesktopCommand(IPC_CHANNELS.clipboardReadText, async () => clipboard.readText());
 
-  // Composer right-click paste reads the clipboard image here for the same reason. PNG only:
-  // Electron's nativeImage stops at that format, which is also what the Composer accepts.
+  // Normalize native clipboard images to PNG for Composer attachments.
   registerDesktopCommand(
     IPC_CHANNELS.clipboardReadImage,
     async (): Promise<ClipboardReadImageResult | null> => {
-      const image = clipboard.readImage();
+      const items = await clipboard.read();
+      const item = items.find((candidate) => candidate.types.includes("image/png"))
+        ?? items.find((candidate) => candidate.types.some((type) => type.startsWith("image/")));
+      const imageType = item?.types.includes("image/png")
+        ? "image/png"
+        : item?.types.find((type): type is `image/${string}` => type.startsWith("image/"));
+      if (!item || !imageType) {
+        return null;
+      }
+      const blob = await item.getType(imageType);
+      const image = nativeImage.createFromBuffer(Buffer.from(await blob.arrayBuffer()));
       if (image.isEmpty()) {
         return null;
       }
@@ -4929,9 +5835,7 @@ function registerIpcHandlers(): void {
     },
   );
 
-  // Same reason for image writes: the renderer's `navigator.clipboard.write` refuses when the
-  // document is unfocused, so the image viewer retries the copy here. PNG only — Chromium and
-  // nativeImage both stop at that format.
+  // The image viewer also writes here when its renderer document is unfocused.
   registerDesktopCommand(IPC_CHANNELS.clipboardWriteImage, async (payload: unknown) => {
     const pngBase64 =
       isRecord(payload) && typeof payload.pngBase64 === "string" ? payload.pngBase64.trim() : "";
@@ -4942,7 +5846,7 @@ function registerIpcHandlers(): void {
     if (image.isEmpty()) {
       return false;
     }
-    clipboard.writeImage(image);
+    await clipboard.write([new ClipboardItem({ "image/png": new Blob([new Uint8Array(image.toPNG())]) })]);
     return true;
   });
 
@@ -5008,6 +5912,103 @@ function registerIpcHandlers(): void {
 
   ipcMain.on(IPC_CHANNELS.appScreenRecordingAppLabel, (event) => {
     event.returnValue = detectScreenRecordingAppLabel(app.isPackaged);
+  });
+
+  let shortcutRecordingCleanup: (() => void) | undefined;
+  const endShortcutRecording = async () => {
+    const owner = shortcutRecordingWindow;
+    shortcutRecordingWindow = undefined;
+    shortcutRecordingCleanup?.();
+    shortcutRecordingCleanup = undefined;
+    if (owner && !owner.webContents.isDestroyed()) owner.webContents.setIgnoreMenuShortcuts(false);
+    if (moriAssistantHost)
+      await moriAssistantHost.windows.setShortcutSuspended(false, {
+        ...moriAssistantHost.service.settings,
+        shortcut: keyboardShortcutsStore.get()["mori-floating"]?.[0] ?? "",
+      });
+  };
+  ipcMain.handle(IPC_CHANNELS.keyboardShortcutsRecording, async (event, active: unknown) => {
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    if (!owner || owner !== getMainWindow() || typeof active !== "boolean")
+      throw new Error("快捷键录制窗口无效。");
+    if (!active) {
+      if (shortcutRecordingWindow === owner) await endShortcutRecording();
+      return;
+    }
+    if (registeredDisplayRestoreShortcut) throw new Error("请先恢复屏幕亮度，再录制快捷键。");
+    if (shortcutRecordingWindow && shortcutRecordingWindow !== owner)
+      throw new Error("另一窗口正在录制快捷键。");
+    shortcutRecordingWindow = owner;
+    owner.webContents.setIgnoreMenuShortcuts(true);
+    const finish = () => {
+      if (shortcutRecordingWindow === owner)
+        void endShortcutRecording().catch((error) =>
+          logEcoDiag("keyboard-shortcuts.restore.failed", { error: errorMessage(error) }),
+        );
+    };
+    shortcutRecordingCleanup?.();
+    owner.once("blur", finish);
+    owner.once("closed", finish);
+    shortcutRecordingCleanup = () => {
+      owner.removeListener("blur", finish);
+      owner.removeListener("closed", finish);
+    };
+    try {
+      if (moriAssistantHost)
+        await moriAssistantHost.windows.setShortcutSuspended(true, moriAssistantHost.service.settings);
+    } catch (error) {
+      await endShortcutRecording();
+      throw error;
+    }
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.keyboardShortcutsGet, async () => ({
+    bindings: keyboardShortcutsStore.get(),
+  }));
+  let shortcutSettingsWrite: Promise<unknown> = Promise.resolve();
+  registerDesktopCommand(IPC_CHANNELS.keyboardShortcutsSave, (value: unknown) => {
+    const operation = shortcutSettingsWrite.then(async () => {
+      const next = validateShortcutBindings(value, process.platform);
+      const previous = keyboardShortcutsStore.get();
+      if (
+        registeredDisplayRestoreShortcut &&
+        JSON.stringify(next["restore-display"]) !== JSON.stringify(previous["restore-display"])
+      )
+        throw new Error("请先恢复屏幕亮度，再修改恢复屏幕的快捷键。");
+      const moriKey = next["mori-floating"]?.[0];
+      if (
+        shortcutRecordingWindow &&
+        moriAssistantHost?.service.settings.enabled &&
+        moriKey &&
+        JSON.stringify(next["mori-floating"]) !== JSON.stringify(previous["mori-floating"])
+      ) {
+        if (!globalShortcut.register(moriKey, () => {}))
+          throw new Error("Mori 呼出快捷键已被系统或其他应用占用，请更换组合键。");
+        globalShortcut.unregister(moriKey);
+      }
+      const applyMori = async (bindings: ShortcutBindings) => {
+        if (moriAssistantHost)
+          await moriAssistantHost.windows.apply({
+            ...moriAssistantHost.service.settings,
+            shortcut: bindings["mori-floating"]?.[0] ?? "",
+          });
+      };
+      try {
+        await applyMori(next);
+        applyApplicationShortcuts(next);
+        keyboardShortcutsStore.save(next);
+      } catch (error) {
+        await applyMori(previous);
+        applyApplicationShortcuts(previous);
+        throw error;
+      }
+      const snapshot = { bindings: keyboardShortcutsStore.get() };
+      for (const window of BrowserWindow.getAllWindows())
+        sendToLiveRenderer(window, IPC_CHANNELS.keyboardShortcutsChanged, snapshot);
+      return snapshot;
+    });
+    shortcutSettingsWrite = operation.catch(() => {});
+    return operation;
   });
 
   registerDesktopCommand(IPC_CHANNELS.appSetThemeSource, async (payload: unknown) => {
@@ -5088,7 +6089,7 @@ function registerIpcHandlers(): void {
     if (!deliveryGate.ok) {
       return { shown: false, reason: deliveryGate.reason } as const;
     }
-    showDesktopNotification(content, thread.id);
+    showDesktopNotification(content, thread.id, "completion");
     return { shown: true } as const;
   });
 
@@ -5127,7 +6128,7 @@ function registerIpcHandlers(): void {
       } as const;
     }
 
-    showDesktopNotification(content, thread.id);
+    showDesktopNotification(content, thread.id, "approval");
     return { shown: true } as const;
   });
 
@@ -5162,7 +6163,7 @@ function registerIpcHandlers(): void {
       } as const;
     }
 
-    showDesktopNotification(content, thread.id);
+    showDesktopNotification(content, thread.id, "question");
     return { shown: true } as const;
   });
 
@@ -5653,7 +6654,29 @@ function registerIpcHandlers(): void {
       rows > 0
         ? { cols: Math.floor(cols), rows: Math.floor(rows) }
         : undefined;
-    return interactiveTerminalManager.spawn(workspacePath, size);
+    const { startupCommand } = projectTerminalSettingsStore.get(workspacePath);
+    return interactiveTerminalManager.spawn(workspacePath, size, startupCommand);
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.projectTerminalSettingsGet, async (payload: unknown) => {
+    if (typeof payload !== "string" || !payload.trim()) {
+      throw new Error("Invalid project terminal settings workspace path.");
+    }
+    return projectTerminalSettingsStore.get(payload);
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.projectTerminalSettingsSave, async (payload: unknown) => {
+    if (
+      !isRecord(payload) ||
+      typeof payload.workspacePath !== "string" ||
+      typeof payload.startupCommand !== "string"
+    ) {
+      throw new Error("Invalid project terminal settings.");
+    }
+    return projectTerminalSettingsStore.save({
+      workspacePath: payload.workspacePath,
+      startupCommand: payload.startupCommand,
+    });
   });
 
   registerDesktopCommand(IPC_CHANNELS.terminalInput, async (payload: unknown) => {
@@ -5698,14 +6721,15 @@ function registerIpcHandlers(): void {
     async (request: ComposerReferenceSearchRequest) => composerReferenceService.search(request),
   );
   registerDesktopCommand(IPC_CHANNELS.threadList, async () =>
-    attachThreadListCancelling(conversationStore.listThreads()),
+    attachThreadListCancelling(conversationStore.listThreads().filter(thread => path.resolve(thread.workspacePath) !== path.join(app.getPath("userData"), "mori-assistant", "workspace"))),
   );
 
   registerDesktopCommand(IPC_CHANNELS.threadListInitial, async () => {
     const result = conversationStore.listInitialThreads(REMOTE_THREAD_LIST_INITIAL_LIMIT_PER_WORKSPACE);
     return {
       ...result,
-      threads: attachThreadListCancelling(result.threads),
+      threads: attachThreadListCancelling(result.threads.filter(thread => path.resolve(thread.workspacePath) !== path.join(app.getPath("userData"), "mori-assistant", "workspace"))),
+      pages: Object.fromEntries(Object.entries(result.pages).filter(([workspace]) => path.resolve(workspace) !== path.join(app.getPath("userData"), "mori-assistant", "workspace"))),
     };
   });
 
@@ -5714,6 +6738,7 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid thread list page request.");
     }
     const cursor = payload.cursor;
+    if (path.resolve(payload.workspacePath) === path.join(app.getPath("userData"), "mori-assistant", "workspace")) throw new Error("请从 Mori 助手入口查看助手对话。");
     if (
       typeof cursor.updatedAt !== "string" ||
       typeof cursor.createdAt !== "string" ||
@@ -6153,16 +7178,9 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.conversationSendMessage, async (payload: unknown) => {
-    const request = parseConversationV2Request(payload, [
-      "principalId",
-      "conversationId",
-      "clientCommandId",
-      "text",
-    ]);
+    const request = parseConversationV2SendMessageRequest(payload);
     requireConversationV2Thread(request.conversationId);
-    const attachments = parsePromptImageAttachments(request.attachments);
-    const turnId = readOptionalConversationV2String(request.turnId, "turnId");
-    const messageId = readOptionalConversationV2String(request.messageId, "messageId");
+    const { attachments, turnId, messageId } = request;
     const accepted = conversationStore.conversationV2().sendMessage({
       principalId: request.principalId,
       conversationId: request.conversationId,
@@ -6225,7 +7243,10 @@ function registerIpcHandlers(): void {
         clientCommandId: request.clientCommandId,
         conversationId: request.threadId,
         expectedHistoryRevision: request.expectedHistoryRevision,
-        request: { runtimeConfig: request.runtimeConfig },
+        request: {
+          runtimeConfig: request.runtimeConfig,
+          ...(request.refreshOrchestrationSnapshot ? { refreshOrchestrationSnapshot: true } : {}),
+        },
       },
       {
         v2: conversationStore.conversationV2(),
@@ -6241,6 +7262,9 @@ function registerIpcHandlers(): void {
           const settings = getModelSettingsSnapshot();
           let runtimeConfig = incoming;
           if (thread.status === "running" || thread.status === "queued") {
+            if (request.refreshOrchestrationSnapshot) {
+              throw new Error("请等待当前运行结束后再修改配置。");
+            }
             const busy = resolveBusyThreadRuntimeConfigUpdate({
               existing,
               incoming,
@@ -6252,6 +7276,7 @@ function registerIpcHandlers(): void {
           } else if (thread.coreKind === "acp") {
             runtimeConfig = normalizeThreadRuntimeConfig(incoming);
           } else if (
+            !request.refreshOrchestrationSnapshot &&
             existing &&
             isBusyMutableOnlyRuntimeConfigUpdate(existing, incoming) &&
             existing.resolvedOrchestrationSnapshot
@@ -6260,7 +7285,9 @@ function registerIpcHandlers(): void {
             // role selections): keep the locked session snapshot, patch those fields.
             runtimeConfig = applyBusyMutableRuntimeConfigFields(existing, incoming);
           } else {
-            runtimeConfig = materializeThreadRuntimeConfig(settings, incoming);
+            runtimeConfig = resolveThreadRuntimeConfigUpdate(settings, existing, incoming, {
+              refreshSnapshot: request.refreshOrchestrationSnapshot === true,
+            });
           }
           if (thread.coreKind === "codex") {
             await assertCodexSkillsConfigReloadAllowed(
@@ -6472,111 +7499,13 @@ function registerIpcHandlers(): void {
     }),
   );
 
-  registerDesktopCommand(IPC_CHANNELS.modelProviderSave, async (payload: ProviderConfigInput) => {
-    const provider = providerStore.saveProvider(payload);
-    emitSettingsUpdated();
-    return provider;
-  });
+  registerDesktopCommand(IPC_CHANNELS.modelProviderSave, saveModelProvider);
 
-  registerDesktopCommand(IPC_CHANNELS.modelProviderDelete, async (providerId: unknown) => {
-    if (typeof providerId !== "string" || !providerId.trim()) {
-      throw new Error("Provider id is required.");
-    }
-    const trimmedProviderId = providerId.trim();
-    if (!providerStore.getProviderWithSecret(trimmedProviderId)) {
-      return {
-        ok: false as const,
-        reason: "not_found" as const,
-        references: [],
-      };
-    }
-    const references = collectProviderDeleteReferences(
-      trimmedProviderId,
-      getModelSettingsSnapshot(),
-      conversationStore.listThreads(),
-    );
-    const { blocking, cascadeMainAgentConfigs, cascadeSubagentOrchestrations } =
-      partitionProviderDeleteReferences(references);
-    if (blocking.length > 0) {
-      return {
-        ok: false as const,
-        reason: "in_use" as const,
-        references: blocking,
-      };
-    }
+  registerDesktopCommand(IPC_CHANNELS.modelProviderDelete, deleteModelProvider);
 
-    for (const reference of cascadeMainAgentConfigs) {
-      workflowSettingsStore.clearDefaultMainAgentConfigReference(reference.id);
-      projectOrchestrationSettingsStore.clearMainAgentConfigReference(reference.id);
-      agentOrchestrationStore.deleteMainAgentConfig(reference.id);
-    }
-    for (const reference of cascadeSubagentOrchestrations) {
-      workflowSettingsStore.clearDefaultSubagentOrchestrationReference(reference.id);
-      projectOrchestrationSettingsStore.clearSubagentOrchestrationReference(reference.id);
-      agentOrchestrationStore.deleteSubagentOrchestration(reference.id);
-    }
+  registerDesktopCommand(IPC_CHANNELS.modelProviderListModels, listModelProviderUpstreamModels);
 
-    providerStore.deleteProvider(trimmedProviderId);
-    emitSettingsUpdated();
-    return { ok: true as const };
-  });
-
-  registerDesktopCommand(IPC_CHANNELS.modelProviderListModels, async (payload: ListUpstreamModelsRequest) => {
-    if (!payload || typeof payload !== "object") {
-      return { ok: false, error: "Invalid models list request." } as const;
-    }
-    const requestedProvider = payload.providerId
-      ? providerStore.getProviderWithSecret(payload.providerId)
-      : undefined;
-    // Codex Auth (auth.json) has no upstream /v1/models endpoint: its list comes from
-    // the codex-rs models-manager catalog, refreshed from the Codex 账号 page.
-    if (
-      payload.authMethod === "auth_json" ||
-      (requestedProvider?.authMethod === "auth_json" && !requestedProvider.hasApiKey)
-    ) {
-      try {
-        const models = await getCodexModelCatalogService().listModels();
-        return {
-          ok: true,
-          models: models.map((model) => ({ id: model.modelId, displayName: model.displayName })),
-        } as const;
-      } catch (error) {
-        return {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-          ...(requestedProvider?.id ? { providerId: requestedProvider.id } : {}),
-          ...(requestedProvider?.name ? { providerName: requestedProvider.name } : {}),
-        } as const;
-      }
-    }
-    if (requestedProvider?.authMethod === "chatgpt_subscription" || payload.authMethod === "chatgpt_subscription") {
-      try {
-        const models = await getChatGptModelCatalogService().listModels();
-        return { ok: true, models: models.map((model) => ({ id: model.modelId, displayName: model.displayName })) } as const;
-      } catch (error) {
-        return { ok: false, error: error instanceof Error ? error.message : String(error) } as const;
-      }
-    }
-    return listProviderUpstreamModels(
-      providerStore,
-      payload,
-      resolveUpstreamUserAgentOverride(proxyBridgeSettingsStore.get()),
-      proxyBridgeSettingsStore.get().upstreamProxyUrl,
-    );
-  });
-
-  registerDesktopCommand(IPC_CHANNELS.modelProviderTest, async (payload: TestProviderConnectionRequest) => {
-    if (!payload || typeof payload !== "object") {
-      return { ok: false, error: "Invalid provider test request." } as const;
-    }
-    return testProviderConnection(
-      providerStore,
-      payload,
-      fetch,
-      resolveUpstreamUserAgentOverride(proxyBridgeSettingsStore.get()),
-      proxyBridgeSettingsStore.get().upstreamProxyUrl,
-    );
-  });
+  registerDesktopCommand(IPC_CHANNELS.modelProviderTest, testModelProvider);
 
   registerDesktopCommand(IPC_CHANNELS.chatGptModelCatalogGet, chatGptModelCatalogSnapshot);
   registerDesktopCommand(IPC_CHANNELS.chatGptModelCatalogRefresh, async (accountId?: string) => {
@@ -6604,6 +7533,9 @@ function registerIpcHandlers(): void {
     const service = await getChatGptSubscriptionService();
     return service.listAccounts();
   });
+
+  registerDesktopCommand(IPC_CHANNELS.accountUsageHistory, (query: AccountUsageQuery) => accountUsageStore.history(query));
+  registerDesktopCommand(IPC_CHANNELS.usageOverview, (query: import("../shared/account-usage").UsageOverviewQuery) => accountUsageStore.overview(query));
 
   registerDesktopCommand(
     IPC_CHANNELS.chatGptSubscriptionAccountCreate,
@@ -6992,7 +7924,7 @@ function registerIpcHandlers(): void {
           for (const window of BrowserWindow.getAllWindows()) {
             if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.openAIAccountsChanged, state);
           }
-        }, ensureCodexControlPlaneClient, resolveSystemProxyUrl);
+        }, undefined, resolveSystemProxyUrl,recordAccountUsage);
         await service.initialize();
         openaiAccountService = service;
         for (const thread of conversationStore.listThreads()) {
@@ -7005,6 +7937,95 @@ function registerIpcHandlers(): void {
     }
     return openaiAccountServicePromise;
   };
+
+  setCodexExternalAuthProvider(async (accountId, previousAccessToken) => {
+    const service = await getOpenAIAccountService();
+    const selectedId = accountId ?? await service.getActiveAccountId();
+    if (!selectedId) return undefined;
+    return { accountId: selectedId, ...await service.getExternalChatGptTokens(selectedId, previousAccessToken) };
+  });
+
+  moriAssistantHost = new MoriAssistantHost({
+    schedules: schedulingService.store,
+    notifyScheduled: notifyMoriSchedule,
+    moriShortcut: () => keyboardShortcutsStore.get()["mori-floating"]?.[0] ?? "",
+    dataDir: app.getPath("userData"), conversations: conversationStore,
+    accounts: getOpenAIAccountService, executable: resolveCodexExecutable, onUsage: recordAccountUsage,
+    globalAccountChanged: () => {
+      requestCodexAccountRuntimeRestart("account");
+      scheduleCodexGlobalRuntimeRefresh();
+      emitSettingsUpdated();
+    },
+    resolveSystemProxy: resolveSystemProxyResolution,
+    preload: path.join(__dirname, "../preload/index.cjs"), renderer: path.join(__dirname, "../renderer/index.html"),
+    ...(appIcon ? { icon: appIcon } : {}),
+    currentProject: () => currentWorkspace?.path,
+    computerUse: new MoriComputerUse({ gateway: computerUseGateway, settings: () => computerUseSettingsStore.get(), imageView: imageViewGateway }),
+    defaultRuntimeConfig: () => buildThreadRuntimeConfigFromDefaults({ settings: getModelSettingsSnapshot(), workflowDefaults: { ...workflowSettingsStore.get(), sessionMode: "agent" }, mcpServers: mcpStore.listServers() }),
+    manageModels: (name, args) => modelManagementService.invoke(name, args),
+    defaultScheduleProfile: () => ({
+      coreKind: workflowSettingsStore.get().defaultCoreKind ?? "claude",
+      runtimeConfig: buildThreadRuntimeConfigFromDefaults({ settings: getModelSettingsSnapshot(), workflowDefaults: { ...workflowSettingsStore.get(), sessionMode: "agent" }, mcpServers: mcpStore.listServers() }),
+    }),
+    modelSettings: () => {
+      const settings = getModelSettingsSnapshot();
+      return {
+        providers: settings.providers.map(provider => ({ id: provider.id, name: provider.name, defaultModel: provider.defaultModel, enabled: provider.enabled })),
+        mainAgentConfigs: settings.mainAgentConfigs.map(config => ({ id: config.id, name: config.name })),
+        routeProfiles: settings.routeProfiles,
+      };
+    },
+    customProviders: () => providerStore.listProviders()
+      .filter(provider => provider.enabled && provider.apiCompat !== "system_one" && provider.id !== "openai")
+      .map(provider => {
+        const candidates = providerStore.listCandidateModels(provider.id);
+        const modelIds = [...new Set([
+          provider.defaultModel,
+          ...candidates.map(model => model.modelId),
+          ...providerStore.listRouteProfiles().flatMap(profile => profile.routes
+            .filter(route => route.providerId === provider.id).map(route => route.modelId)),
+        ])].filter(Boolean);
+        return {
+          id: provider.id, name: provider.name,
+          models: modelIds.map(id => ({ id, label: candidates.find(model => model.modelId === id)?.displayName || id })),
+        };
+      }),
+    prepareCustomProvider: async providerId => {
+      const provider = providerStore.listProviders().find(provider => provider.id === providerId);
+      if (!provider?.enabled || provider.apiCompat === "system_one" || providerId === "openai")
+        throw new Error("选择的自定义模型服务商已删除、禁用或不支持对话，请重新选择。");
+      await ensureGlobalEcoGateway({ requiredProviderIds: [providerId] });
+      return { providerId, apiCompat: provider.apiCompat, gatewayBaseUrl: `${getGlobalEcoBridgeBaseUrl()}/v1` };
+    },
+    invoke: async (channel, args) => {
+      const response = await desktopEventCenter.handleJsonRpcMessage({ jsonrpc: "2.0", id: randomUUID(), method: "eco.invoke", params: { channel, args } });
+      if (!response) throw new Error("桌面命令没有返回结果。");
+      if ("error" in response) throw new Error(response.error.message);
+      const result = (response.result as { result: unknown }).result;
+      if (channel === "workspace:open-path") {
+        const window = getMainWindow() ?? await createMainWindow();
+        presentDesktopWindow(window);
+        window.webContents.send(MORI_ASSISTANT_CHANNELS.projectOpenRequested, (result as WorkspaceInfo).path);
+      }
+      return result;
+    },
+    openThread: openThreadFromDesktopNotification,
+    hasPendingTaskInput: (threadId) =>
+      Boolean(
+        getPendingBashApprovalForThread(threadId) ||
+          getPendingPlanApprovalForThread(threadId) ||
+          getPendingClarificationForThread(threadId),
+      ),
+    showMain: async () => {
+      const window = getMainWindow() ?? await createMainWindow();
+      presentDesktopWindow(window);
+      if (window.webContents.isLoading()) await new Promise<void>(resolve => window.webContents.once("did-finish-load", resolve));
+      window.webContents.send(MORI_ASSISTANT_CHANNELS.openRequested);
+    },
+    subscribeTasks: callback => desktopEventCenter.subscribe({ publish: envelope => { if (envelope.threadId) callback(envelope.threadId); } }),
+    reportError: error => logEcoDiag("mori-assistant.error", { error: errorMessage(error) }),
+  });
+  void moriAssistantHost.initialize().then(() => { moriAssistantReady = true; }, error => logEcoDiag("mori-assistant.initialize.failed", { error: errorMessage(error) }));
 
   openaiAccountAssistant = new OpenAIAccountAssistant({
     getDetails: async (accountId) => (await getOpenAIAccountService()).getAccountDetails(accountId),
@@ -7256,6 +8277,7 @@ function registerIpcHandlers(): void {
     async (payload: { accountId: string | null }) => {
       const svc = await getOpenAIAccountService();
       const prevPendingAccountId = svc.getPendingAccountId();
+      if (payload.accountId) await svc.ensureAccountCredentials(payload.accountId);
       await svc.setActiveAccount(payload.accountId);
       const pending = svc.getPendingAccountId() !== undefined;
       if (pending || prevPendingAccountId !== undefined) scheduleOpenAIAccountTransition(svc);
@@ -7330,6 +8352,7 @@ function registerIpcHandlers(): void {
     {
       listAccounts: async () => (await getOpenAIAccountService()).listAccounts(),
       getAccountDetails: async (id) => (await getOpenAIAccountService()).getAccountDetails(id),
+      ensureAccountCredentials: async (id) => (await getOpenAIAccountService()).ensureAccountCredentials(id),
       saveImageQuota: async (id, authJson, quota) =>
         (await getOpenAIAccountService()).saveImageQuota(id, authJson, quota),
     },
@@ -7429,62 +8452,11 @@ function registerIpcHandlers(): void {
 
   // ─── Candidate Models ─────────────────────────────────────────────────────────
 
-  registerDesktopCommand(IPC_CHANNELS.candidateModelList, async (providerId: unknown) => {
-    if (typeof providerId !== "string" || !providerId.trim()) {
-      throw new Error("Provider id is required.");
-    }
-    const trimmedProviderId = providerId.trim();
-    // Built-in Codex Auth (auth.json): codex-rs catalog + manual adds. A user-created
-    // OpenAI provider that happens to reuse this id keeps its stored candidates.
-    if (isBuiltInCodexCatalogProvider(trimmedProviderId)) {
-      return codexCatalogCandidateViews(await getCodexModelCatalogService().listModels());
-    }
-    if (trimmedProviderId === "eco-coding-chatgpt") {
-      const timestamps = new Date().toISOString();
-      return (await getChatGptModelCatalogService().listModels()).map((model, index) => ({
-        modelId: model.modelId,
-        displayName: model.displayName,
-        createdAt: timestamps,
-        updatedAt: timestamps,
-        id: `cand-chatgpt-${model.modelId}`,
-        providerId: trimmedProviderId,
-        sortOrder: index,
-        ...(model.apiPricing ? {
-          resolvedInputPerM: model.apiPricing.shortContext.input,
-          resolvedOutputPerM: model.apiPricing.shortContext.output,
-          ...(model.apiPricing.shortContext.cacheRead !== undefined ? { resolvedCacheReadPerM: model.apiPricing.shortContext.cacheRead } : {}),
-        } : {}),
-      }));
-    }
-    const candidates = providerStore.listCandidateModels(trimmedProviderId);
-    const provider = providerStore.listProviders().find((p) => p.id === trimmedProviderId);
-    const baseUrl = provider?.baseUrl ?? "";
-    // models.dev enrichment is best-effort; never block listing/adding candidates.
-    try {
-      return await resolveCandidateModels(pricingCache, candidates, baseUrl);
-    } catch (error) {
-      process.stderr.write(`[eco] candidate-model:list pricing enrich failed: ${errorMessage(error)}\n`);
-      return candidates;
-    }
-  });
+  registerDesktopCommand(IPC_CHANNELS.candidateModelList, listManagedCandidateModels);
 
-  registerDesktopCommand(IPC_CHANNELS.candidateModelSave, async (payload: unknown) => {
-    if (!payload || typeof payload !== "object") {
-      throw new Error("Invalid candidate model input.");
-    }
-    const result = providerStore.saveCandidateModel(payload as CandidateModelInput);
-    emitSettingsUpdated();
-    return result;
-  });
+  registerDesktopCommand(IPC_CHANNELS.candidateModelSave, saveManagedCandidateModel);
 
-  registerDesktopCommand(IPC_CHANNELS.candidateModelDelete, async (id: unknown) => {
-    if (typeof id !== "string" || !id.trim()) {
-      throw new Error("Candidate model id is required.");
-    }
-    providerStore.deleteCandidateModel(id.trim());
-    emitSettingsUpdated();
-    return { ok: true as const };
-  });
+  registerDesktopCommand(IPC_CHANNELS.candidateModelDelete, deleteManagedCandidateModel);
 
   registerDesktopCommand(
     IPC_CHANNELS.candidateModelReorder,
@@ -8291,6 +9263,13 @@ function registerIpcHandlers(): void {
     const offset = typeof payload.offset === "number" ? payload.offset : undefined;
     const length = typeof payload.length === "number" ? payload.length : undefined;
     try {
+      if (payload.thumbnail === true) {
+        const file = await imageDisplayStore.readArtifactThumbnail(
+          payload.artifactId,
+          createImageDisplayThumbnail,
+        );
+        return { ok: true as const, ...file };
+      }
       const file = await imageDisplayStore.readArtifactFile(payload.artifactId.trim(), {
         ...(offset !== undefined ? { offset } : {}),
         ...(length !== undefined ? { length } : {}),
@@ -8305,9 +9284,12 @@ function registerIpcHandlers(): void {
               ? ("too_large" as const)
               : error.code === "invalid_artifact"
                 ? ("invalid_artifact" as const)
-                : ("read_failed" as const);
+                : error.code === "unsupported_type"
+                  ? ("unsupported_type" as const)
+                  : ("read_failed" as const);
         return { ok: false as const, code };
       }
+      if (payload.thumbnail === true) return { ok: false as const, code: "read_failed" as const };
       throw error;
     }
   });
@@ -8424,9 +9406,11 @@ function registerIpcHandlers(): void {
         throw new Error(`无法启用电脑操控 Agent 能力：${feature.reason ?? "未知原因"}`);
       }
       const saved = computerUseSettingsStore.save(next);
+      moriAssistantHost?.service.capabilitiesChanged();
       return saved;
     }
     const saved = computerUseSettingsStore.save(next);
+    moriAssistantHost?.service.capabilitiesChanged();
     return saved;
   });
 
@@ -8458,6 +9442,22 @@ function registerIpcHandlers(): void {
     const { instance } = host.getSelectionTarget(request.browserId);
     if (instance.threadId !== host.getState().uiScopeId) throw new Error("只能选择当前会话中的网页内容。");
     return browserSelectionService.capture(request.browserId, request.kind as "element" | "text");
+  });
+  registerDesktopCommand(IPC_CHANNELS.browserCaptureScreenshot, async (payload: unknown) => {
+    const browserId = (payload as { browserId?: unknown })?.browserId;
+    if (typeof browserId !== "string" || !browserId.trim()) {
+      throw new Error("网页截图需要 browserId。");
+    }
+    const artifact = await captureBrowserScreenshotArtifact(browserId.trim(), {
+      host: requireBrowserHost(),
+      store: imageDisplayStore,
+    });
+    BrowserWindow.getAllWindows().forEach((window) => {
+      if (!window.isDestroyed()) {
+        window.webContents.send(IPC_CHANNELS.imageDisplayArtifactChanged, artifact);
+      }
+    });
+    return artifact;
   });
   registerDesktopCommand(IPC_CHANNELS.browserCancelSelection, async (payload: unknown) => {
     const id = (payload as { browserId?: unknown })?.browserId;
@@ -9410,500 +10410,7 @@ function registerIpcHandlers(): void {
     return buildThreadApprovedPlanView(threadId.trim());
   });
 
-  registerDesktopCommand(IPC_CHANNELS.threadApprovePlan, async (payload: unknown) => {
-    const request = parseThreadApprovePlanPayload(payload);
-    const { threadId } = request;
-    requireConversationV2Thread(threadId);
-    return executePlanResolutionCommand(
-      {
-        principalId: request.principalId,
-        clientCommandId: request.clientCommandId,
-        conversationId: threadId,
-        resolution: "approve",
-        expectedHistoryRevision: request.expectedHistoryRevision,
-        request: {
-          ...(request.runtimeConfig ? { runtimeConfig: request.runtimeConfig } : {}),
-          ...(request.executionTarget ? { executionTarget: request.executionTarget } : {}),
-        },
-      },
-      {
-        v2: conversationStore.conversationV2(),
-        errorMessage,
-        freezeContext: () => buildPlanResolutionFrozenContext(threadId),
-        execute: async (frozenContext, checkpoint) => {
-          assertPlanResolutionContextCurrent(threadId, frozenContext);
-          const approvalThread = conversationStore.getThread(threadId);
-          if (!approvalThread) {
-            throw new Error("Thread was not found.");
-          }
-
-          // "指定子代理执行已批准计划": the renderer only sends the choice; the host re-reads
-          // the thread, pending plan, and locked orchestration snapshot to validate it.
-          const approvalSnapshot = (() => {
-            const config = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
-            return config
-              ? resolveThreadOrchestrationSnapshot(getModelSettingsSnapshot(), config)
-              : undefined;
-          })();
-          const delegationAgents = listPlanDelegationAgents(approvalSnapshot);
-          let forcedTarget: Extract<PlanExecutionTarget, { kind: "subagent" }> | undefined;
-          if (request.executionTarget && request.executionTarget.kind === "subagent") {
-            const validation = validatePlanExecutionTarget({
-              target: request.executionTarget,
-              coreKind: approvalThread.coreKind,
-              agents: delegationAgents,
-            });
-            if (!validation.ok) {
-              throw new Error(validation.reason);
-            }
-            forcedTarget = validation.target as Extract<PlanExecutionTarget, { kind: "subagent" }>;
-          }
-          const forcedContract = forcedTarget
-            ? buildForcedPlanDelegationContract({
-                agentKey:
-                  approvalThread.coreKind === "claude"
-                    ? sdkAgentKeyForOrchestrationAgent(forcedTarget.agentKey)
-                    : approvalThread.coreKind === "codex"
-                      ? sanitizeCodexRoleId(forcedTarget.agentKey)
-                      : forcedTarget.agentKey,
-              })
-            : undefined;
-
-          if (approvalThread.coreKind === "codex") {
-            requireThreadCore(approvalThread, "codex", "approve a Codex plan");
-            if (getPendingPlanApprovalForThread(threadId)) {
-              throw new Error("Codex plan approval cannot use the Claude approval bridge.");
-            }
-            const pendingPlan = conversationStore.getPendingPlan(threadId);
-            if (!pendingPlan) {
-              throw new Error("找不到待批准的计划。");
-            }
-            if (approvalThread.status !== "awaiting_plan") {
-              throw new Error("This thread is not waiting for plan approval.");
-            }
-            if (!pendingPlan.plan.trim()) {
-              throw new Error("计划内容不能为空。");
-            }
-            const currentConfig = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
-            if (!currentConfig) {
-              throw new Error("Thread runtime configuration is missing.");
-            }
-            const runtimeConfig = withAgentSessionMode(
-              request.runtimeConfig ? parseThreadRuntimeConfigInput(request.runtimeConfig) : currentConfig,
-              "agent",
-            );
-            const snapshot = await persistApprovedPlanForThread(threadId, pendingPlan);
-            checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
-            conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, runtimeConfig, request, {
-              coreKind: "codex",
-              sessionMode: "agent",
-            });
-            commitThreadPlanApprovalToAgentMode(threadId, "codex_plan_approved");
-            const forcedAttempt = forcedTarget
-              ? armForcedPlanDelegation({
-                  threadId,
-                  coreKind: "codex",
-                  target: forcedTarget,
-                  plan: pendingPlan.plan,
-                })
-              : undefined;
-            let result: ThreadContinueResult;
-            let dispatchWait: Promise<void> | undefined;
-            try {
-              const runtimeDispatch = prepareConversationCommandDispatch({
-                v2: conversationStore.conversationV2(),
-                job: {
-                  principalId: request.principalId,
-                  conversationId: threadId,
-                  clientCommandId: request.clientCommandId,
-                },
-                coreKind: "codex",
-                actionKind: "plan_approval",
-                phase: "execution",
-                checkpointScope: "plan",
-              });
-              dispatchWait = waitForConversationCommandDispatch({
-                v2: conversationStore.conversationV2(),
-                conversationId: threadId,
-                prepared: runtimeDispatch,
-              });
-              result = await startCodexThreadContinuation({
-                threadId,
-                prompt: forcedContract ?? "Implement the plan.",
-                runtimeConfigInput: runtimeConfig,
-                preparedRuntimeDispatch: runtimeDispatch,
-              });
-              await dispatchWait;
-            } catch (error) {
-              void dispatchWait?.catch(() => {});
-              if (forcedAttempt) {
-                settleForcedPlanDelegation(threadId, {
-                  ok: false,
-                  reason: errorMessage(error),
-                });
-              }
-              throw error;
-            }
-            if (!forcedAttempt) {
-              conversationStore.clearPendingPlanForCommand(threadId, request);
-              emitThreadEvent(threadId, "thread.plan_cleared", "计划已进入执行阶段。", "system");
-            }
-            return { thread: result.thread };
-          }
-          if (approvalThread.coreKind === "pi") {
-            requireThreadCore(approvalThread, "pi", "approve a PI plan");
-            const pendingPlan = conversationStore.getPendingPlan(threadId);
-            if (!pendingPlan) {
-              throw new Error("找不到待批准的计划。");
-            }
-            if (approvalThread.status !== "awaiting_plan") {
-              throw new Error("This thread is not waiting for plan approval.");
-            }
-            if (!pendingPlan.plan.trim()) {
-              throw new Error("计划内容不能为空。");
-            }
-            const currentConfig = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
-            if (!currentConfig) {
-              throw new Error("Thread runtime configuration is missing.");
-            }
-            const runtimeConfig = withAgentSessionMode(
-              request.runtimeConfig ? parseThreadRuntimeConfigInput(request.runtimeConfig) : currentConfig,
-              "agent",
-            );
-            const snapshot = await persistApprovedPlanForThread(threadId, pendingPlan);
-            checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
-            conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, runtimeConfig, request, {
-              coreKind: "pi",
-              sessionMode: "agent",
-            });
-            commitThreadPlanApprovalToAgentMode(threadId, "pi_plan_approved");
-            // Cancel any leftover Claude-style bridge if present; PI Plan is Codex-style async.
-            cancelPlanApprovalsForThreadKeepPending(threadId, "pi plan approved asynchronously");
-            const forcedAttempt = forcedTarget
-              ? armForcedPlanDelegation({
-                  threadId,
-                  coreKind: "pi",
-                  target: forcedTarget,
-                  plan: pendingPlan.plan,
-                })
-              : undefined;
-            let result: ThreadContinueResult;
-            let dispatchWait: Promise<void> | undefined;
-            try {
-              const runtimeDispatch = prepareConversationCommandDispatch({
-                v2: conversationStore.conversationV2(),
-                job: {
-                  principalId: request.principalId,
-                  conversationId: threadId,
-                  clientCommandId: request.clientCommandId,
-                },
-                coreKind: "pi",
-                actionKind: "plan_approval",
-                phase: "execution",
-                checkpointScope: "plan",
-              });
-              dispatchWait = waitForConversationCommandDispatch({
-                v2: conversationStore.conversationV2(),
-                conversationId: threadId,
-                prepared: runtimeDispatch,
-              });
-              result = await startPiThreadContinuation({
-                threadId,
-                prompt:
-                  forcedContract ??
-                  "The user approved the plan. Implement it now with full Agent tools. Follow the approved plan.",
-                runtimeConfigInput: runtimeConfig,
-                skipRecordUserPrompt: true,
-                preparedRuntimeDispatch: runtimeDispatch,
-              });
-              await dispatchWait;
-            } catch (error) {
-              void dispatchWait?.catch(() => {});
-              if (forcedAttempt) {
-                settleForcedPlanDelegation(threadId, {
-                  ok: false,
-                  reason: errorMessage(error),
-                });
-              }
-              throw error;
-            }
-            if (!forcedAttempt) {
-              conversationStore.clearPendingPlanForCommand(threadId, request);
-              emitThreadEvent(threadId, "thread.plan_cleared", "计划已进入执行阶段。", "system");
-            }
-            return { thread: result.thread };
-          }
-
-          const pendingBridge = getPendingPlanApprovalForThread(threadId);
-          const approveRoute = resolveThreadApprovePlanRoute(
-            definedProps({
-              coreKind: approvalThread.coreKind,
-              hasPendingBridge: Boolean(pendingBridge),
-            }),
-          );
-          const pendingRuntimeConfig = request.runtimeConfig
-            ? parseThreadRuntimeConfigInput(request.runtimeConfig)
-            : undefined;
-          if (pendingRuntimeConfig) {
-            roleRoutesForThreadConfig(getModelSettingsSnapshot(), pendingRuntimeConfig);
-          }
-
-          if (approveRoute.kind === "bridge") {
-            if (!pendingBridge) {
-              throw new Error("No pending plan approval is active for this thread.");
-            }
-            const bridgeBaseRuntimeConfig =
-              pendingRuntimeConfig ?? ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
-            if (!bridgeBaseRuntimeConfig) {
-              throw new Error("Thread runtime configuration is missing.");
-            }
-            const pendingPlan = conversationStore.getPendingPlan(threadId);
-            const planFilePath = pendingBridge.planFilePath ?? pendingPlan?.planFilePath;
-            const snapshot = await persistApprovedPlanForThread(threadId, {
-              workspacePath: pendingPlan?.workspacePath ?? approvalThread.workspacePath,
-              userPrompt: pendingPlan?.userPrompt ?? pendingBridge.userPrompt,
-              analysis: pendingPlan?.analysis ?? pendingBridge.analysis,
-              plan: pendingPlan?.plan ?? pendingBridge.plan,
-              ...(planFilePath ? { planFilePath } : {}),
-            });
-            checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
-            const bridgeRuntimeConfig = withAgentSessionMode(bridgeBaseRuntimeConfig, "agent");
-            conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, bridgeRuntimeConfig, request, {
-              coreKind: approvalThread.coreKind ?? "claude",
-              sessionMode: "agent",
-            });
-            commitThreadPlanApprovalToAgentMode(threadId, "bridge_plan_approved");
-            const approvedThread = conversationStore.getThread(threadId);
-            if (
-              !approvedThread ||
-              resolveSessionMode(ensureThreadRuntimeConfig(approvedThread).runtimeConfig) !== "agent"
-            ) {
-              throw new Error("Plan approval could not switch the thread to Agent mode.");
-            }
-            const bridgePlanText = pendingPlan?.plan ?? pendingBridge.plan;
-            const forcedAttempt = forcedTarget
-              ? armForcedPlanDelegation({
-                  threadId,
-                  coreKind: approvalThread.coreKind ?? "claude",
-                  target: forcedTarget,
-                  plan: bridgePlanText,
-                })
-              : undefined;
-            if (
-              !bindPendingPlanApprovalCommand(pendingBridge.toolUseId, {
-                principalId: request.principalId,
-                clientCommandId: request.clientCommandId,
-              })
-            ) {
-              if (forcedAttempt) {
-                releaseForcedPlanDelegation(threadId);
-              }
-              throw new Error("No pending plan approval is active for this thread.");
-            }
-            if (!resolvePendingPlanApproval(pendingBridge.toolUseId, "approved")) {
-              clearPlanApprovalCommandBinding(pendingBridge.toolUseId);
-              if (forcedAttempt) {
-                releaseForcedPlanDelegation(threadId);
-              }
-              throw new Error("No pending plan approval is active for this thread.");
-            }
-            checkpoint("plan.bridge_resolved", { toolUseId: pendingBridge.toolUseId, decision: "approved" });
-            try {
-              await waitForPlanApprovalContinuation(pendingBridge.toolUseId);
-            } catch (error) {
-              rejectPlanApprovalContinuation(
-                pendingBridge.toolUseId,
-                error instanceof Error ? error : new Error(errorMessage(error)),
-              );
-              throw error;
-            } finally {
-              clearPlanApprovalCommandBinding(pendingBridge.toolUseId);
-            }
-            if (!forcedAttempt) {
-              conversationStore.clearPendingPlanForCommand(threadId, request);
-              emitThreadEvent(threadId, "thread.plan_cleared", "计划已批准，当前会话开始执行。", "system");
-            }
-            updateThread(threadId, {
-              status: "running",
-              message: "",
-            });
-            return {
-              thread: ensureThreadRuntimeConfig(conversationStore.getThread(threadId) ?? approvedThread),
-            };
-          }
-
-          if (approveRoute.kind === "acp_continuation") {
-            if (approvalThread.coreKind !== "acp") {
-              throw new Error(
-                `CORE_ROUTE_MISMATCH: Thread ${approvalThread.id} belongs to ${approvalThread.coreKind ?? "unknown"}, not acp; cannot approve an ACP plan.`,
-              );
-            }
-            const pendingPlan = conversationStore.getPendingPlan(threadId);
-            if (!pendingPlan) {
-              throw new Error(
-                "ACP plan approval has no live cursor/create_plan bridge and no stored pending plan.",
-              );
-            }
-            if (approvalThread.status !== "awaiting_plan") {
-              throw new Error("This thread is not waiting for plan approval.");
-            }
-            if (!pendingPlan.plan.trim()) {
-              throw new Error("计划内容不能为空。");
-            }
-            const currentConfig = ensureThreadRuntimeConfig(approvalThread).runtimeConfig;
-            if (!currentConfig) {
-              throw new Error("Thread runtime configuration is missing.");
-            }
-            const runtimeConfig = withAgentSessionMode(pendingRuntimeConfig ?? currentConfig, "agent");
-            const snapshot = await persistApprovedPlanForThread(threadId, pendingPlan);
-            checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
-            conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, runtimeConfig, request, {
-              coreKind: "acp",
-              sessionMode: "agent",
-            });
-            commitThreadPlanApprovalToAgentMode(threadId, "acp_plan_approved");
-            // Disconnect fallback only: live create_plan bridge is preferred (Cursor blocking contract).
-            cancelPlanApprovalsForThreadKeepPending(threadId, "acp plan approved via disconnect fallback");
-            const runtimeDispatch = prepareConversationCommandDispatch({
-              v2: conversationStore.conversationV2(),
-              job: {
-                principalId: request.principalId,
-                conversationId: threadId,
-                clientCommandId: request.clientCommandId,
-              },
-              coreKind: "acp",
-              actionKind: "plan_approval",
-              phase: "execution",
-              checkpointScope: "plan",
-            });
-            const dispatched = waitForConversationCommandDispatch({
-              v2: conversationStore.conversationV2(),
-              conversationId: threadId,
-              prepared: runtimeDispatch,
-            });
-            let result: ThreadContinueResult;
-            try {
-              result = await startAcpThreadContinuation({
-                threadId,
-                prompt:
-                  "The user approved the plan. Implement it now with full Agent tools. Follow the approved plan.",
-                runtimeConfigInput: runtimeConfig,
-                skipRecordUserPrompt: true,
-                preparedRuntimeDispatch: runtimeDispatch,
-              });
-              await dispatched;
-            } catch (error) {
-              void dispatched.catch(() => {});
-              throw error;
-            }
-            conversationStore.clearPendingPlanForCommand(threadId, request);
-            emitThreadEvent(threadId, "thread.plan_cleared", "计划已进入执行阶段。", "system");
-            return { thread: result.thread };
-          }
-
-          requireThreadCore(approvalThread, "claude", "approve a Claude plan");
-
-          const approval = resolveThreadPlanApprovalRuntime(threadId, {
-            getThread: (id) => conversationStore.getThread(id),
-            hasActiveRun: (id) => activeRunRuntimeState.hasRun(id),
-            getPendingPlan: (id) => conversationStore.getPendingPlan(id),
-            resolveRoleRoutes: (id) =>
-              pendingRuntimeConfig
-                ? roleRoutesForThreadConfig(getModelSettingsSnapshot(), pendingRuntimeConfig)
-                : resolveRoleRoutesForThread(id),
-            resolveRuntimeConfig: (routes) => resolveRuntimeConfigForThreadId(threadId, routes),
-          });
-
-          const currentConfig = ensureThreadRuntimeConfig(
-            conversationStore.getThread(threadId) ?? approval.thread,
-          ).runtimeConfig;
-          if (!currentConfig) {
-            throw new Error("Thread runtime configuration is missing.");
-          }
-          const agentRuntimeConfig = withAgentSessionMode(pendingRuntimeConfig ?? currentConfig, "agent");
-          const snapshot = await persistApprovedPlanForThread(threadId, approval.pendingPlan);
-          checkpoint("plan.snapshot_persisted", approvedPlanCheckpointPayload(snapshot));
-          conversationStore.saveThreadRuntimeConfigForPlanCommand(threadId, agentRuntimeConfig, request, {
-            coreKind: "claude",
-            sessionMode: "agent",
-          });
-          commitThreadPlanApprovalToAgentMode(threadId, "claude_plan_approved");
-
-          const pendingBeforeExecution = conversationStore.getPendingPlan(threadId);
-          const forcedAttempt = forcedTarget
-            ? armForcedPlanDelegation({
-                threadId,
-                coreKind: "claude",
-                target: forcedTarget,
-                plan: pendingBeforeExecution?.plan ?? approval.pendingPlan.plan,
-              })
-            : undefined;
-
-          updateThread(threadId, {
-            status: "running",
-            message: "",
-          });
-          const runtimeDispatch = prepareConversationCommandDispatch({
-            v2: conversationStore.conversationV2(),
-            job: {
-              principalId: request.principalId,
-              conversationId: threadId,
-              clientCommandId: request.clientCommandId,
-            },
-            coreKind: "claude",
-            actionKind: "plan_approval",
-            phase: "execution",
-            checkpointScope: "plan",
-          });
-          const dispatched = waitForConversationCommandDispatch({
-            v2: conversationStore.conversationV2(),
-            conversationId: threadId,
-            prepared: runtimeDispatch,
-          });
-          const runtime = runCodingThreadExecution(threadId, approval.runtimeConfig, {
-            routesOverride: approval.roleRoutes,
-            ...(forcedAttempt && forcedContract ? { followUp: forcedContract } : {}),
-            runtimeDispatch,
-            ...(!forcedAttempt
-              ? {
-                  planCommand: {
-                    principalId: request.principalId,
-                    clientCommandId: request.clientCommandId,
-                  },
-                }
-              : {}),
-          });
-          observeConversationCommandRuntime({
-            runtime,
-            v2: conversationStore.conversationV2(),
-            conversationId: threadId,
-            prepared: runtimeDispatch,
-            notStartedReason: "Claude plan execution ended before creating its first run attempt.",
-            onRejected: (error) => {
-              if (forcedAttempt) {
-                settleForcedPlanDelegation(threadId, {
-                  ok: false,
-                  reason: errorMessage(error),
-                });
-              }
-              process.stderr.write(
-                `[eco] Claude plan execution failed before dispatch (${threadId}): ${errorMessage(error)}\n`,
-              );
-            },
-            onObserverError: (error) => {
-              process.stderr.write(
-                `[eco] failed to settle Claude plan dispatch (${threadId}): ${errorMessage(error)}\n`,
-              );
-            },
-          });
-          await dispatched;
-          return {
-            thread: ensureThreadRuntimeConfig(conversationStore.getThread(threadId) ?? approval.thread),
-          };
-        },
-      },
-    );
-  });
+  registerDesktopCommand(IPC_CHANNELS.threadApprovePlan, approveThreadPlan);
 
   registerDesktopCommand(IPC_CHANNELS.threadDismissPlan, async (payload: unknown) => {
     const request = parseThreadDismissPlanPayload(payload);
@@ -10042,9 +10549,9 @@ function enqueueThreadFollowUpCommand(
           request.followUpDeliveryMode ?? workflowSettingsStore.get().followUpDeliveryMode ?? "steer";
         const metadata = resolveThreadFollowUpEnqueueMetadata(thread.id);
         const queuePaused = Boolean(thread.followUpQueuePaused);
-        // ACP has no mid-turn: steer means interrupt + resume. Escalated priority always interrupts.
+        // ACP has no mid-turn: steer means interrupt + resume. Other cores inject or wait.
         // Ordinary messages wait for Resume; submitted question answers use their own delivery lane.
-        const preferInterrupt =
+        const preferEscalate =
           !queuePaused &&
           (request.priority === "escalated" ||
             (coreUsesInterruptForSteer(thread.coreKind) && deliveryMode === "steer"));
@@ -10053,12 +10560,13 @@ function enqueueThreadFollowUpCommand(
           prompt: request.prompt,
           ...(persistedAttachments?.length ? { attachments: persistedAttachments } : {}),
           conversationMessageId: acceptedMessage.messageId,
-          ...(preferInterrupt
+          ...(preferEscalate
             ? { priority: "escalated" }
             : request.priority
               ? { priority: request.priority }
               : {}),
-          deliveryMode: preferInterrupt ? "interrupt_resume" : "queued",
+          deliveryMode:
+            preferEscalate && coreUsesInterruptForSteer(thread.coreKind) ? "interrupt_resume" : "queued",
           ...metadata,
         });
 
@@ -10070,39 +10578,8 @@ function enqueueThreadFollowUpCommand(
           );
         }
 
-        if (preferInterrupt) {
-          const midTurnResult = await tryDeliverFollowUpViaMidTurn(thread, followUp);
-          if (isFollowUpMidTurnResultDelivered(midTurnResult)) {
-            return buildThreadFollowUpMutationResult(midTurnResult);
-          }
-          // Mid-turn was skipped (blocking approval, editing row, or a port that is not
-          // accepting) and the row is still `queued`: "handle now" must fall through to the
-          // interrupt instead of reporting a silent no-op. A starting run keeps the
-          // request armed until startActiveRun registers its controller.
-          const progressThread = conversationStore.getThread(thread.id);
-          if (!progressThread) throw new Error("Thread was not found.");
-          if (
-            !canEscalatedFollowUpProgressNow({
-              hasActiveRun: activeRunRuntimeState.hasRun(thread.id),
-              status: progressThread.status,
-            })
-          ) {
-            pendingEscalatedFollowUpDrain.add(thread.id);
-            const settled =
-              midTurnResult ?? conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp;
-            if (settled.status === "queued") {
-              emitThreadFollowUpEvent(
-                settled,
-                "thread.follow_up.queued",
-                formatFollowUpQueuedMessage(settled),
-              );
-            }
-            return buildThreadFollowUpMutationResult(settled);
-          }
-          const current = await requestEscalatedFollowUpInterrupt(
-            thread,
-            midTurnResult ?? conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp,
-          );
+        if (preferEscalate) {
+          const current = await deliverEscalatedThreadFollowUp(thread, followUp);
           if (current.status === "queued") {
             emitThreadFollowUpEvent(current, "thread.follow_up.queued", formatFollowUpQueuedMessage(current));
           }
@@ -10160,7 +10637,7 @@ function registerRemainingDesktopCommands(): void {
                 prompt: request.prompt ?? "",
                 ...(request.attachments?.length ? { attachments: request.attachments } : {}),
                 priority: "escalated",
-                deliveryMode: "interrupt_resume",
+                deliveryMode: coreUsesInterruptForSteer(thread.coreKind) ? "interrupt_resume" : "queued",
                 ...resolveThreadFollowUpEnqueueMetadata(thread.id),
               });
           if (!base) {
@@ -10180,31 +10657,7 @@ function registerRemainingDesktopCommands(): void {
             reason: "follow-up-superseded",
           });
 
-          const midTurnResult = await tryDeliverFollowUpViaMidTurn(thread, followUp);
-          if (isFollowUpMidTurnResultDelivered(midTurnResult)) {
-            return buildThreadFollowUpMutationResult(midTurnResult);
-          }
-          // A skipped mid-turn inject leaves the row `queued`; Guide must not be swallowed
-          // by a paused queue (or a non-accepting port) — fall through to interrupt, which
-          // arms one forced drain past the pause. When nothing can move (e.g. the run is
-          // still starting up), keep the request armed until its controller is ready.
-          const progressThread = conversationStore.getThread(thread.id);
-          if (!progressThread) throw new Error("Thread was not found.");
-          if (
-            !canEscalatedFollowUpProgressNow({
-              hasActiveRun: activeRunRuntimeState.hasRun(thread.id),
-              status: progressThread.status,
-            })
-          ) {
-            pendingEscalatedFollowUpDrain.add(thread.id);
-            return buildThreadFollowUpMutationResult(
-              midTurnResult ?? conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp,
-            );
-          }
-          const current = await requestEscalatedFollowUpInterrupt(
-            thread,
-            midTurnResult ?? conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp,
-          );
+          const current = await deliverEscalatedThreadFollowUp(thread, followUp);
           return buildThreadFollowUpMutationResult(current);
         },
       },
@@ -10273,24 +10726,61 @@ function registerRemainingDesktopCommands(): void {
           if (!thread) {
             throw new Error("Thread was not found.");
           }
-          const hasPreparingAsyncAnswer = conversationStore
+          const hasPreparingIndependentMessage = conversationStore
             .listThreadFollowUps(request.threadId, { statuses: ["delivered"] })
-            .some(isAsyncClarificationAnswerFollowUp);
+            .some(
+              (row) => pendingMidTurnFollowUpGuides.get(request.threadId) === row.id ||
+                isAsyncClarificationAnswerFollowUp(row) || isScheduledMessageFollowUp(row, conversationStore),
+            );
           if (
             request.paused &&
             threadFollowUpDrainScheduler.isDraining(request.threadId) &&
-            !hasPreparingAsyncAnswer
+            !hasPreparingIndependentMessage
           ) {
             threadRunPreparations.cancel(request.threadId);
           }
-          // Pause only holds ordinary rows. Also retry after cancelled preparation so
-          // an independent question answer does not wait for a later Resume click.
+          // Pause only holds ordinary rows. Retry cancelled preparation without
+          // cancelling an independent answer or scheduled delivery already preparing.
           void drainQueuedThreadFollowUpsAfterRun(request.threadId);
           return {
             paused: Boolean(thread.followUpQueuePaused),
             thread,
           } satisfies ThreadFollowUpQueuePausedResult;
         },
+      },
+    );
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.threadFollowUpToTodo, async (payload: unknown) => {
+    const request = parseThreadFollowUpCancelRequest(payload);
+    return executeFollowUpMutationCommand(
+      {
+        principalId: request.principalId,
+        clientCommandId: request.clientCommandId,
+        conversationId: request.threadId,
+        expectedHistoryRevision: request.expectedHistoryRevision,
+        operation: "move-to-todo",
+        request: { followUpId: request.followUpId },
+      },
+      {
+        v2: conversationStore.conversationV2(),
+        errorMessage,
+        execute: () => withThreadFollowUpLock(request.threadId, async () => {
+          const { followUp, todo } = await moveQueuedFollowUpToTodo(request, {
+            conversations: conversationStore,
+            todos: projectTodoStore,
+            readAttachment: attachment => promptImageFileStore.readAttachmentData(attachment),
+            thumbnail: createProjectTodoThumbnail,
+          });
+          releaseFollowUpQueuePauseWhenEmpty(request.threadId);
+          if (editingThreadFollowUpByThread.get(request.threadId) === followUp.id) {
+            editingThreadFollowUpByThread.delete(request.threadId);
+            void drainQueuedThreadFollowUpsAfterRun(request.threadId);
+          }
+          emitThreadFollowUpEvent(followUp, "thread.follow_up.cancelled", "已迁到待办。");
+          desktopEventCenter.publish({ kind: "project-todo.changed", payload: {}, aggregateKey: "project-todos:global" });
+          return { ...buildThreadFollowUpMutationResult(followUp), todo };
+        }),
       },
     );
   });
@@ -10421,9 +10911,11 @@ function registerRemainingDesktopCommands(): void {
       cancel: async ({ threadId, worktreeDisposition }) => {
         schedulingGateway.disposeThread(threadId);
         contextReferenceGateway.revokeThread(threadId);
+        modelManagementGateway.disposeThread(threadId);
         schedulingService.pauseAutomaticMessages(threadId);
         // Explicit Stop revokes an earlier Guide; cleanup must pause queued rows.
         pendingEscalatedFollowUpDrain.delete(threadId);
+        pendingMidTurnFollowUpGuides.delete(threadId);
         threadFollowUpQueueControl.stopped(threadId);
         threadRunPreparations.cancel(threadId);
         autoPauseFollowUpQueueWhenQueuedRemain(threadId);
@@ -10865,6 +11357,46 @@ async function finalizeMainThreadRunCleanup(input: FinalizeThreadRunCleanupInput
   }
 }
 
+async function deliverEscalatedThreadFollowUp(
+  thread: ThreadSummary,
+  followUp: ThreadPendingFollowUp,
+): Promise<ThreadPendingFollowUp> {
+  if (coreSupportsMidTurnFollowUp(thread.coreKind)) {
+    pendingMidTurnFollowUpGuides.set(thread.id, followUp.id);
+  }
+  const current = await deliverThreadFollowUpGuide(thread.coreKind, followUp, {
+    push: () => tryDeliverFollowUpViaMidTurn(thread, followUp),
+    current: () => conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp,
+    wait: () => {
+      if (!activeRunRuntimeState.hasRun(thread.id)) retryGuidedThreadFollowUp(thread.id);
+    },
+    interrupt: async () => {
+      const progressThread = conversationStore.getThread(thread.id);
+      if (!progressThread) throw new Error("Thread was not found.");
+      if (!canEscalatedFollowUpProgressNow({
+        hasActiveRun: activeRunRuntimeState.hasRun(thread.id),
+        status: progressThread.status,
+      })) {
+        pendingEscalatedFollowUpDrain.add(thread.id);
+        return conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp;
+      }
+      return requestEscalatedFollowUpInterrupt(progressThread, followUp);
+    },
+  });
+  if (current.status !== "queued" && pendingMidTurnFollowUpGuides.get(thread.id) === followUp.id) {
+    pendingMidTurnFollowUpGuides.delete(thread.id);
+  }
+  return current;
+}
+
+/** Readiness and edit-release events retry the selected row without aborting its run. */
+function retryGuidedThreadFollowUp(threadId: string): void {
+  if (!pendingMidTurnFollowUpGuides.has(threadId)) return;
+  void drainQueuedThreadFollowUpsAfterRun(threadId).catch((error) => {
+    process.stderr.write(`[eco] guided follow-up delivery failed (${threadId}): ${errorMessage(error)}\n`);
+  });
+}
+
 async function requestEscalatedFollowUpInterrupt(
   snapshot: ThreadSummary,
   followUp: ThreadPendingFollowUp,
@@ -10916,7 +11448,25 @@ async function requestEscalatedFollowUpInterrupt(
 }
 
 async function drainQueuedThreadFollowUpsAfterRun(threadId: string): Promise<void> {
-  await threadFollowUpDrainScheduler.drain(threadId, () => drainNextQueuedThreadFollowUp(threadId));
+  await threadFollowUpDrainScheduler.drain(threadId, async () => {
+    const guideId = pendingMidTurnFollowUpGuides.get(threadId);
+    if (guideId) {
+      const guide = conversationStore.getThreadFollowUp(threadId, guideId);
+      if (guide?.status === "delivered") return; // The irreversible push is still in flight.
+      if (!guide || guide.status !== "queued") pendingMidTurnFollowUpGuides.delete(threadId);
+      else if (activeRunRuntimeState.hasRun(threadId)) {
+        const thread = conversationStore.getThread(threadId);
+        if (thread) {
+          const pushed = await tryDeliverFollowUpViaMidTurn(thread, guide);
+          if (pushed && pushed.status !== "queued" && pendingMidTurnFollowUpGuides.get(threadId) === guideId) {
+            pendingMidTurnFollowUpGuides.delete(threadId);
+          }
+        }
+        return;
+      }
+    }
+    await drainNextQueuedThreadFollowUp(threadId);
+  });
 }
 
 async function drainNextQueuedThreadFollowUp(threadId: string): Promise<void> {
@@ -10939,22 +11489,29 @@ async function drainPreparedNextQueuedThreadFollowUp(
     const thread = conversationStore.getThread(threadId);
     const forceEscalatedDrain = pendingEscalatedFollowUpDrain.delete(threadId);
     const excludeFollowUpId = editingFollowUpClaimExclusion(threadId);
-    const target = selectThreadFollowUpDrainTarget({
-      followUps: conversationStore.listThreadFollowUps(threadId, { statuses: ["queued"] }),
-      forceEscalatedDrain,
-      ...(excludeFollowUpId ? { excludeFollowUpId } : {}),
-      isAsyncClarificationAnswer: isAsyncClarificationAnswerFollowUp,
-    });
-    // Escalated interrupt may force one drain while the queue remains user-paused.
+    const guidedFollowUpId = pendingMidTurnFollowUpGuides.get(threadId);
+    const target = guidedFollowUpId
+      ? { followUpId: guidedFollowUpId, isAsyncClarificationAnswer: false }
+      : selectThreadFollowUpDrainTarget({
+          followUps: conversationStore.listThreadFollowUps(threadId, { statuses: ["queued"] }),
+          forceEscalatedDrain,
+          ...(excludeFollowUpId ? { excludeFollowUpId } : {}),
+          isAsyncClarificationAnswer: isAsyncClarificationAnswerFollowUp,
+          hasFollowUpQueuePaused: Boolean(thread?.followUpQueuePaused),
+          isScheduledMessage: (row) => isScheduledMessageFollowUp(row, conversationStore),
+        });
+    // An explicit Guide owns one delivery while the other queued rows remain paused.
     if (
       shouldBlockThreadFollowUpDrain({
         hasPendingBridgeApproval: Boolean(getPendingPlanApprovalForThread(threadId)),
         // Non-blocking questions must not stall the queue: the run finished, and the user
         // may answer the question much later (or never).
         hasPendingClarification: hasPendingBlockingClarificationForThread(threadId),
+        hasPendingBashApproval: Boolean(getPendingBashApprovalForThread(threadId)),
         hasEditingFollowUp: editingThreadFollowUpByThread.has(threadId),
-        hasFollowUpQueuePaused: Boolean(thread?.followUpQueuePaused) && !forceEscalatedDrain,
+        hasFollowUpQueuePaused: Boolean(thread?.followUpQueuePaused) && !forceEscalatedDrain && !guidedFollowUpId,
         isAsyncClarificationAnswer: target.isAsyncClarificationAnswer,
+        ...(target.isScheduledMessage ? { isScheduledMessage: true } : {}),
         ...(thread?.status && { threadStatus: thread.status }),
         hasStoredPendingPlan: Boolean(conversationStore.getPendingPlan(threadId)),
       })
@@ -10981,9 +11538,9 @@ async function drainPreparedNextQueuedThreadFollowUp(
       ...(target.followUpId ? { followUpId: target.followUpId } : {}),
       ...(excludeFollowUpId ? { excludeFollowUpId } : {}),
     });
-    return { claimed, forceEscalatedDrain };
+    return { claimed, forceEscalatedDrain, guidedFollowUpId };
   });
-  const { claimed, forceEscalatedDrain } = drainClaim;
+  const { claimed, forceEscalatedDrain, guidedFollowUpId } = drainClaim;
   if (claimed.length === 0) {
     return;
   }
@@ -11015,11 +11572,16 @@ async function drainPreparedNextQueuedThreadFollowUp(
       ...(v2AcceptedMessageIds.length > 0 ? { v2AcceptedMessageIds } : {}),
       requireResumeForInterrupted:
         forceEscalatedDrain || thread.status === "failed" || thread.status === "blocked",
-      ...(forceEscalatedDrain || claimed.some(isAsyncClarificationAnswerFollowUp)
+      ...(forceEscalatedDrain || guidedFollowUpId || claimed.some(
+        (row) => isAsyncClarificationAnswerFollowUp(row) || isScheduledMessageFollowUp(row, conversationStore),
+      )
         ? { allowWhileQueuePaused: true }
         : {}),
       ...(skipRecordUserPrompt ? { skipRecordUserPrompt: true } : {}),
     });
+    if (pendingMidTurnFollowUpGuides.get(threadId) === guidedFollowUpId) {
+      pendingMidTurnFollowUpGuides.delete(threadId);
+    }
     for (const followUp of claimed) {
       const applied =
         conversationStore.updateThreadFollowUpStatus(threadId, followUp.id, {
@@ -11557,7 +12119,7 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
       return toAcpMcpServers(prepared.mcpServers);
     },
     resolveAcpSystemPromptAppend: ({ threadId }) =>
-      appendBrowserPrompt(mcpHubGateway.getThreadPromptAppend(threadId), CONTEXT_REFERENCE_PROMPT),
+      appendBrowserPrompt(appendBrowserPrompt(mcpHubGateway.getThreadPromptAppend(threadId), CONTEXT_REFERENCE_PROMPT), MODEL_MANAGEMENT_PROMPT),
     resolvePromptImagesForMainContext,
     resolveAcpCreatePlanHandler: ({ threadId, workspacePath, userPrompt }) => {
       return async (request) => {
@@ -12246,6 +12808,7 @@ async function startCodexThreadRun(
             }
             append = appendBrowserPrompt(append, SCHEDULING_PROMPT);
             append = appendBrowserPrompt(append, CONTEXT_REFERENCE_PROMPT);
+            append = appendBrowserPrompt(append, MODEL_MANAGEMENT_PROMPT);
             append = appendBrowserPrompt(append, buildImageViewPromptAppend());
             append = appendBrowserPrompt(append, buildImageDisplayPromptAppend());
             if (centerServerClient.getHtmlHostingCapability().available) {
@@ -12361,6 +12924,7 @@ async function startCodexThreadRun(
               CONTEXT_MCP_SERVER,
               (await contextReferenceGateway.resolveInjection(input.thread.id)).sdkEntry,
             );
+            registerBuiltin(MODEL_MANAGEMENT_MCP_SERVER, (await modelManagementGateway.resolveInjection(input.thread.id)).sdkEntry);
             const imageViewInject = await imageViewGateway.resolveInjection(input.thread.id);
             registerBuiltin(ECO_IMAGE_VIEW_MCP_SERVER, imageViewInject.sdkEntry);
             const imageDisplayInject = await imageDisplayGateway.resolveInjection(input.thread.id);
@@ -12464,6 +13028,7 @@ async function startCodexThreadRun(
                   codexThreadId,
                   turnId,
                 });
+                retryGuidedThreadFollowUp(ecoThreadId);
               },
               onTurnClosing: async ({ ecoThreadId }) => {
                 await codexMidTurnPorts.closeIngress(ecoThreadId);
@@ -12773,6 +13338,8 @@ async function resolvePiSessionResourcesForThread(
     await contextReferenceGateway.resolveInjection(threadId)
   ).sdkEntry;
   mcpSession.appendSystemPrompt.push(CONTEXT_REFERENCE_PROMPT);
+  mcpSession.mcpServers[MODEL_MANAGEMENT_MCP_SERVER] = (await modelManagementGateway.resolveInjection(threadId)).sdkEntry;
+  mcpSession.appendSystemPrompt.push(MODEL_MANAGEMENT_PROMPT);
   mcpSession.mcpServers[SCHEDULING_MCP_SERVER] = schedulingInject.sdkEntry;
   mcpSession.appendSystemPrompt.push(SCHEDULING_PROMPT);
   const globalMcpConfig = mcpStore.buildSdkConfig();
@@ -13789,6 +14356,15 @@ function inspectScheduledOccurrence(occurrence: ScheduleOccurrence): {
   status: import("../shared/scheduling").ScheduleOccurrenceStatus;
   error?: string;
 } {
+  if (occurrence.definition.kind === "assistant_action") {
+    if (!moriAssistantReady) return { status: "running" };
+    return moriAssistantHost!.service.scheduledActions.inspect(occurrence);
+  }
+  if (occurrence.definition.planApproval && occurrence.definition.threadId) {
+    return inspectScheduledPlanCommand(conversationStore.conversationV2().getCommandJob(
+      "eco-scheduler", occurrence.definition.threadId, scheduledPlanCommandId(occurrence.id),
+    ));
+  }
   const thread = occurrence.threadId ? conversationStore.getThread(occurrence.threadId) : undefined;
   const followUp =
     thread && occurrence.definition.kind === "session_message"
@@ -13800,7 +14376,7 @@ function inspectScheduledOccurrence(occurrence: ScheduleOccurrence): {
           )
       : undefined;
   // Queue itself owns idempotent delivery and recovery. Scheduling must never re-enqueue.
-  if (thread && followUp?.status === "queued" && !thread.followUpQueuePaused)
+  if (thread && followUp?.status === "queued")
     void drainQueuedThreadFollowUpsAfterRun(thread.id);
   return inspectScheduledRun({
     kind: occurrence.definition.kind,
@@ -13813,6 +14389,12 @@ function inspectScheduledOccurrence(occurrence: ScheduleOccurrence): {
     ),
     hasActiveRun: Boolean(thread && activeRunRuntimeState.hasRun(thread.id)),
     isDraining: Boolean(thread && threadFollowUpDrainScheduler.isDraining(thread.id)),
+    hasPendingUserAction: Boolean(thread && (
+      getPendingPlanApprovalForThread(thread.id) ||
+      getPendingBashApprovalForThread(thread.id) ||
+      hasPendingBlockingClarificationForThread(thread.id) ||
+      conversationStore.getPendingPlan(thread.id)
+    )),
   });
 }
 
@@ -13835,11 +14417,21 @@ function createSchedulingService(dbPath: string): SchedulingService {
     assertThread: (threadId) => {
       if (!conversationStore.getThread(threadId)) throw new Error("目标会话不存在。");
     },
+    assertAssistantAction: (id, action, notification) => {
+      if (!moriAssistantReady || !moriAssistantHost) throw new Error("Mori 助手尚未就绪。");
+      moriAssistantHost.service.scheduledActions.assert(id, action, notification);
+    },
+    assertPlanApproval: (threadId, approval, plan) => assertScheduledPlanCurrent(approval, plan, {
+      thread: conversationStore.getThread(threadId),
+      pendingPlan: conversationStore.getPendingPlan(threadId),
+      historyRevision: conversationStore.conversationV2().head(threadId).historyRevision,
+    }),
     createThreadWithSchedule: (definition, creationKey, input) => {
       const thread = saveNewScheduledMessageThread(definition, creationKey, input, conversationStore, schedulingService.store);
       emitThreadEvent(thread.id, "thread.created", "");
     },
     canDispatch: (occurrence) => {
+      if (occurrence.definition.kind === "assistant_action") return moriAssistantReady;
       if (occurrence.definition.kind === "scheduled_task") {
         const workspacePath = occurrence.definition.workspacePath!;
         return !conversationStore
@@ -13855,20 +14447,36 @@ function createSchedulingService(dbPath: string): SchedulingService {
       }
       const thread = conversationStore.getThread(occurrence.definition.threadId!);
       if (!thread) return true; // Dispatch reports a durable explicit error.
-      return (
-        !activeRunRuntimeState.hasRun(thread.id) &&
-        !contextMonitor.isCompactInFlight(thread.id) &&
-        canDispatchScheduledMessageStatus(thread.status) &&
-        !thread.followUpQueuePaused &&
-        !getPendingPlanApprovalForThread(thread.id) &&
-        !getPendingBashApprovalForThread(thread.id) &&
-        !hasPendingBlockingClarificationForThread(thread.id) &&
-        !conversationStore.getPendingPlan(thread.id) &&
-        !editingThreadFollowUpByThread.has(thread.id)
-      );
+      if (occurrence.definition.planApproval) {
+        const pending = conversationStore.getPendingPlan(thread.id);
+        // Stale approvals must fail visibly rather than remain queued behind another plan/run.
+        if (thread.status !== "awaiting_plan" || !pending ||
+          pending.plan.trim() !== occurrence.definition.prompt.trim() ||
+          conversationStore.conversationV2().head(thread.id).historyRevision !== occurrence.definition.planApproval.expectedHistoryRevision) return true;
+        return !contextMonitor.isCompactInFlight(thread.id) &&
+          (!activeRunRuntimeState.hasRun(thread.id) || Boolean(getPendingPlanApprovalForThread(thread.id))) &&
+          !getPendingBashApprovalForThread(thread.id) &&
+          !hasPendingBlockingClarificationForThread(thread.id) && !editingThreadFollowUpByThread.has(thread.id);
+      }
+      return canDispatchScheduledMessage({
+        thread,
+        hasActiveRun: activeRunRuntimeState.hasRun(thread.id),
+        isCompacting: contextMonitor.isCompactInFlight(thread.id),
+        hasPendingUserAction: Boolean(
+          getPendingPlanApprovalForThread(thread.id) ||
+          getPendingBashApprovalForThread(thread.id) ||
+          hasPendingBlockingClarificationForThread(thread.id) ||
+          conversationStore.getPendingPlan(thread.id),
+        ),
+        hasEditingFollowUp: editingThreadFollowUpByThread.has(thread.id),
+      });
     },
     dispatch: async (occurrence) => {
       const definition = occurrence.definition;
+      if (definition.kind === "assistant_action") {
+        if (!moriAssistantReady || !moriAssistantHost) throw new Error("Mori 助手尚未就绪。");
+        return moriAssistantHost.service.scheduledActions.dispatch(occurrence);
+      }
       if (definition.kind === "scheduled_task") {
         const result = await startNewThread(
           {
@@ -13887,6 +14495,13 @@ function createSchedulingService(dbPath: string): SchedulingService {
         return { threadId: result.thread.id };
       }
       const threadId = definition.threadId!;
+      if (definition.planApproval) {
+        return approveScheduledPlan(occurrence, {
+          thread: conversationStore.getThread(threadId),
+          pendingPlan: conversationStore.getPendingPlan(threadId),
+          historyRevision: conversationStore.conversationV2().head(threadId).historyRevision,
+        }, approveThreadPlan);
+      }
       const followUp = await enqueueScheduledMessage(occurrence, conversationStore, promptImageFileStore);
       emitThreadFollowUpEvent(followUp, "thread.follow_up.queued", formatFollowUpQueuedMessage(followUp));
       void drainQueuedThreadFollowUpsAfterRun(threadId);
@@ -13896,6 +14511,7 @@ function createSchedulingService(dbPath: string): SchedulingService {
     onChanged: () => {
       syncSystemSleepBlocker();
       desktopEventCenter.publish({ kind: "scheduling.changed", payload: {}, aggregateKey: "scheduling:global" });
+      moriAssistantHost?.service.capabilitiesChanged();
     },
     onError: (error) => logEcoDiag("scheduling.error", { error: errorMessage(error) }),
   });
@@ -14035,7 +14651,7 @@ interface StartThreadContinuationInput {
   /** V2 accepted these user messages before the legacy runtime was scheduled. */
   v2AcceptedMessageIds?: readonly string[];
   /**
-   * Explicit question answer or "handle now": start this one row while the ordinary
+   * Explicit question answer, scheduled message or "handle now": start this one row while the ordinary
    * queue remains paused.
    */
   allowWhileQueuePaused?: boolean;
@@ -14073,7 +14689,7 @@ async function startPreparedThreadContinuation(
   }
   // Pause means new prompts join the queue; do not start a run ahead of it.
   // Rewind is allowed (explicit edit of history) and still must not drain while paused.
-  // Explicit question answers and "handle now" send their own row while the rest
+  // Explicit answers, scheduled messages and "handle now" send their own row while the rest
   // of the queue stays paused.
   if (thread.followUpQueuePaused && !input.rewindTarget && !input.allowWhileQueuePaused) {
     throw new Error("Follow-up queue is paused; enqueue the message or resume the queue before continuing.");
@@ -14432,11 +15048,15 @@ function parseThreadUpdateRuntimeConfigRequest(payload: unknown): ThreadUpdateRu
   if (!isRecord(payload)) {
     throw new Error("Invalid runtime config payload.");
   }
+  if (payload.refreshOrchestrationSnapshot !== undefined && typeof payload.refreshOrchestrationSnapshot !== "boolean") {
+    throw new Error("Invalid orchestration snapshot refresh intent.");
+  }
   return {
     principalId: readRequiredString(payload.principalId, "Principal id is required."),
     clientCommandId: readRequiredString(payload.clientCommandId, "Client command id is required."),
     threadId: readRequiredString(payload.threadId, "Thread id is required."),
     runtimeConfig: parseThreadRuntimeConfigInput(payload.runtimeConfig),
+    ...(payload.refreshOrchestrationSnapshot === true ? { refreshOrchestrationSnapshot: true } : {}),
     expectedHistoryRevision: readExpectedHistoryRevision(payload.expectedHistoryRevision),
   };
 }
@@ -14579,9 +15199,9 @@ function isAsyncClarificationAnswerFollowUp(followUp: ThreadPendingFollowUp): bo
 
 /**
  * Mid-turn delivery for Claude (streamInput), Codex (turn/steer) and PI (AgentSession.steer).
- * Pure-text only; attachments / blocked approvals / no accepting port stay queued.
+ * Uses the same image references as a normal send. Blocked approvals / no accepting port stay queued.
  * Returns a handled row (applied, failed, or concurrently finalized); undefined
- * only when the row is safely queued for the existing drain/interrupt path.
+ * only when the row is safely queued for a later delivery opportunity.
  *
  * The queue row remains the only visible representation until the provider
  * confirms the push. The user bubble is written after that confirmation so a
@@ -14594,13 +15214,6 @@ async function tryDeliverFollowUpViaMidTurn(
   if (!coreSupportsMidTurnFollowUp(thread.coreKind)) {
     return undefined;
   }
-  if ((followUp.attachments?.length ?? 0) > 0) {
-    return undefined;
-  }
-  const prompt = followUp.prompt.trim();
-  if (!prompt) {
-    return undefined;
-  }
   const isCodex = thread.coreKind === "codex";
   const isPi = thread.coreKind === "pi";
   const midTurnLabel = isCodex ? "Codex turn/steer" : isPi ? "PI steer" : "Claude streamInput";
@@ -14609,12 +15222,7 @@ async function tryDeliverFollowUpViaMidTurn(
     const currentThread = conversationStore.getThread(thread.id);
     if (!currentThread) throw new Error("Thread was not found.");
     const currentFollowUp = conversationStore.getThreadFollowUp(thread.id, followUp.id);
-    if (
-      !currentFollowUp ||
-      currentFollowUp.status !== "queued" ||
-      (currentFollowUp.attachments?.length ?? 0) > 0 ||
-      !currentFollowUp.prompt.trim()
-    ) {
+    if (!currentFollowUp || currentFollowUp.status !== "queued") {
       return undefined;
     }
     if (
@@ -14623,7 +15231,8 @@ async function tryDeliverFollowUpViaMidTurn(
         // An async question must not block mid-turn delivery of an unrelated follow-up.
         hasPendingClarification: hasPendingBlockingClarificationForThread(thread.id),
         hasEditingFollowUp: editingThreadFollowUpByThread.has(thread.id),
-        hasFollowUpQueuePaused: Boolean(currentThread.followUpQueuePaused),
+        hasFollowUpQueuePaused: Boolean(currentThread.followUpQueuePaused) &&
+          pendingMidTurnFollowUpGuides.get(thread.id) !== currentFollowUp.id,
         isAsyncClarificationAnswer: isAsyncClarificationAnswerFollowUp(currentFollowUp),
         threadStatus: currentThread.status,
         hasStoredPendingPlan: Boolean(conversationStore.getPendingPlan(thread.id)),
@@ -14649,7 +15258,12 @@ async function tryDeliverFollowUpViaMidTurn(
     }
 
     const excludeFollowUpId = editingFollowUpClaimExclusion(thread.id);
-    runtimePrompt = await composerReferenceService.resolvePrompt(thread.id, currentFollowUp.prompt.trim());
+    const explicitlyGuided = pendingMidTurnFollowUpGuides.get(thread.id) === currentFollowUp.id;
+    const resolved = await resolveThreadFollowUpMidTurnPrompt(currentFollowUp, resolvePromptImagesForMainContext);
+    if (resolved === undefined) return undefined;
+    runtimePrompt = resolved;
+    // Stop or a newer Guide can revoke this selection while references are resolving.
+    if (explicitlyGuided && pendingMidTurnFollowUpGuides.get(thread.id) !== currentFollowUp.id) return undefined;
     return conversationStore.claimThreadFollowUpStreamingPush(thread.id, followUp.id, {
       ...(excludeFollowUpId ? { excludeFollowUpId } : {}),
     });
@@ -14749,16 +15363,16 @@ async function tryDeliverFollowUpViaMidTurn(
         thread.id,
         claimed.id,
         isCodex
-          ? "Codex accepted turn/steer, but Eco could not commit the applied state."
+          ? "Codex accepted turn/steer, but Mori could not commit the applied state."
           : isPi
-            ? "PI accepted steer, but Eco could not commit the applied state."
-            : "Claude accepted streamInput, but Eco could not commit the applied state.",
+            ? "PI accepted steer, but Mori could not commit the applied state."
+            : "Claude accepted streamInput, but Mori could not commit the applied state.",
       ) ?? claimed;
     if (followUp.conversationMessageId) {
       failAcceptedV2Messages(
         thread.id,
         [followUp.conversationMessageId],
-        `${midTurnLabel} accepted the prompt, but Eco could not commit the applied state.`,
+        `${midTurnLabel} accepted the prompt, but Mori could not commit the applied state.`,
       );
     }
     logEcoDiag(
@@ -14869,7 +15483,7 @@ function reconcileInterruptedStreamingPushFollowUps(
       logEcoDiag("follow_up.cancelled_unmapped", {
         threadId: shortThreadId(threadId),
         uuid,
-        reason: "interrupt cancelled uuid is not a known Eco streaming_push follow-up id",
+        reason: "interrupt cancelled uuid is not a known Mori streaming_push follow-up id",
       });
       continue;
     }
@@ -14898,14 +15512,14 @@ function reconcileInterruptedStreamingPushFollowUps(
       logEcoDiag("follow_up.delivery_unknown", {
         threadId: shortThreadId(threadId),
         uuid,
-        reason: "interrupt still_queued uuid is not a known Eco streaming_push follow-up id",
+        reason: "interrupt still_queued uuid is not a known Mori streaming_push follow-up id",
       });
       continue;
     }
     const failed = conversationStore.markThreadFollowUpDeliveryUnknown(
       threadId,
       uuid,
-      "Message survived interrupt, but the Query closed before Eco could prove final delivery.",
+      "Message survived interrupt, but the Query closed before Mori could prove final delivery.",
     );
     if (failed) {
       emitThreadEvent(
@@ -16297,6 +16911,7 @@ function buildDesktopSdkRunInput(
   }
   globalUserRules = appendBrowserPrompt(globalUserRules, SCHEDULING_PROMPT);
   globalUserRules = appendBrowserPrompt(globalUserRules, CONTEXT_REFERENCE_PROMPT);
+  globalUserRules = appendBrowserPrompt(globalUserRules, MODEL_MANAGEMENT_PROMPT);
   globalUserRules = appendBrowserPrompt(globalUserRules, buildImageViewPromptAppend());
   globalUserRules = appendBrowserPrompt(globalUserRules, buildImageDisplayPromptAppend());
   if (threadId) {
@@ -16401,6 +17016,7 @@ function createSdkDriver(
     queryLifecycle: {
       onOpen: (handle) => {
         claudeMidTurnPorts.open(threadId, handle);
+        retryGuidedThreadFollowUp(threadId);
       },
       onClosing: async () => {
         await claudeMidTurnPorts.closeIngress(threadId);
@@ -16569,6 +17185,7 @@ async function cleanupThreadExternalState(threadId: string): Promise<void> {
   htmlHostGateway.disposeThread(threadId);
   schedulingGateway.disposeThread(threadId);
   contextReferenceGateway.disposeThread(threadId);
+  modelManagementGateway.disposeThread(threadId);
   computerUseGateway.disposeThread(threadId);
   integratedWebSearchGateway.disposeThread(threadId);
   disposeAcpThread(threadId);
@@ -16593,6 +17210,7 @@ function clearThreadRuntimeMemory(threadId: string): void {
   threadFollowUpQueueControl.clear(threadId);
   editingThreadFollowUpByThread.delete(threadId);
   pendingEscalatedFollowUpDrain.delete(threadId);
+  pendingMidTurnFollowUpGuides.delete(threadId);
   activeRunBillingState.clearRun(threadId);
   threadUsageAccumulator.clear(threadId);
   contextScheduler.clearThread(threadId);
@@ -17642,6 +18260,7 @@ function maybeHandleAcpNestedSubagentLifecycle(threadId: string, event: AgentEve
 /** SDK drives narrative, tool, todo, and billing activity. */
 function emitSdkStreamActivity(threadId: string, event: AgentEventLike): void {
   sdkStreamActivityIngestion.ingest(threadId, event);
+  if (event.type === "agent.started" && event.role === "main") retryGuidedThreadFollowUp(threadId);
 }
 
 function noteUsageBillingObservation(threadId: string, observation: UsageBillingObservation): void {
@@ -17774,21 +18393,21 @@ function flushPendingCodexGatewayUsage(codexThreadId: string): void {
 }
 
 /**
- * Bill Codex turns from app-server token usage for direct (non-gateway) routes.
+ * Bill live Codex usage for direct (non-gateway) routes.
  *
- * eco-gateway only sees traffic that goes through it. Built-in OpenAI (auth.json)
- * and other direct routes bypass the gateway, so the app-server's per-turn
- * `appServerTokenUsage` is the only ledger source for those turns. Gateway-routed
- * turns keep billing from gateway usage events — the provider gate below keeps
- * the two sources mutually exclusive.
+ * Built-in OpenAI (auth.json) bypasses eco-gateway, so native usage checkpoints
+ * are its ledger source. Gateway routes keep using gateway usage events; the
+ * provider gate below keeps the two sources mutually exclusive.
  */
-async function handleCodexAppServerTurnUsage(input: {
-  threadId: string;
-  codexThreadId: string;
-  turnId: string;
-  appServerTokenUsage: CodexTurnTokenUsageBreakdown;
-  appServerTokenUsageRequests?: CodexTurnTokenUsageBreakdown[];
-}): Promise<void> {
+async function handleCodexAppServerTurnUsage(
+  input: CodexLiveUsageInput & {
+    threadId: string;
+    modelId?: string;
+    providerId?: string;
+    runAttemptId?: string;
+  },
+): Promise<void> {
+  if (input.providerId && input.providerId !== "openai") return;
   const { threadId, codexThreadId, turnId, appServerTokenUsage } = input;
   const attribution = resolveCodexThreadAttribution(codexThreadMap, codexThreadId);
   if (!attribution || attribution.ecoThreadId !== threadId) {
@@ -17817,9 +18436,10 @@ async function handleCodexAppServerTurnUsage(input: {
   if (storedOpenAi?.hasApiKey) {
     return;
   }
+  const modelId = input.modelId ?? roleRoute.modelId;
   const usage: ParsedUsage = {
     ...normalizeCodexAppServerUsage(appServerTokenUsage),
-    modelId: roleRoute.modelId,
+    modelId,
   };
   if (
     usage.inputTokens === 0 &&
@@ -17830,7 +18450,7 @@ async function handleCodexAppServerTurnUsage(input: {
     return;
   }
   const requestKey = `codex-turn-usage:${codexThreadId}:${turnId}`;
-  const runAttemptId = agentLifecycle.currentRunAttemptId(threadId);
+  const runAttemptId = input.runAttemptId ?? agentLifecycle.currentRunAttemptId(threadId);
   const plannerAgentId = attribution.isSubagentThread
     ? undefined
     : agentLifecycle.usagePlannerAgentId(threadId);
@@ -17839,38 +18459,30 @@ async function handleCodexAppServerTurnUsage(input: {
     role: billingRole,
     usage,
     requestKey,
-    modelId: roleRoute.modelId,
+    modelId,
     ...(attribution.agentId ? { agentId: attribution.agentId } : {}),
   });
-  const requests = buildCodexAppServerBillingRequests({
-    usage: appServerTokenUsage,
-    ...(input.appServerTokenUsageRequests && { requests: input.appServerTokenUsageRequests }),
-    requestKey,
-  });
-  const billingTask = (async () => {
-    for (const request of requests) {
-      await processUsageBilling({
+  const billingTask = codexLiveUsageBilling.enqueue(input, {
+    listEvents: () => conversationStore.listUsageLedgerEvents(threadId),
+    bill: (request) => processUsageBilling(
+      {
         threadId,
         role: billingRole,
         source: "codex",
-        usage: { ...request.usage, modelId: roleRoute.modelId },
-        modelId: roleRoute.modelId,
+        usage: { ...request.usage, modelId },
+        modelId,
         providerId: "openai",
         requestKey: request.requestKey,
         codexUsageIsAggregate: request.codexUsageIsAggregate,
-        // The context meter is fed directly by thread/tokenUsage/updated.
+        // Keep occupancy on its existing independent native update path.
         updateContext: false,
         ...(runAttemptId ? { runAttemptId } : {}),
         ...(plannerAgentId ? { plannerAgentId } : {}),
         ...(attribution.agentId ? { agentId: attribution.agentId } : {}),
-      });
-    }
-  })().then(
-    () => undefined,
-    (error) => {
-      throw error;
-    },
-  );
+      },
+      request.metadata,
+    ),
+  });
   usageLedgerCoordinator.trackUsageUpdate(threadId, billingTask);
   await billingTask;
   logEcoDiag("codex.app_server_turn_usage", {
@@ -17878,7 +18490,7 @@ async function handleCodexAppServerTurnUsage(input: {
     codexThreadId,
     turnId,
     role: billingRole,
-    modelId: roleRoute.modelId,
+    modelId,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
     cacheReadTokens: usage.cacheReadTokens,
@@ -17983,6 +18595,105 @@ async function emitProxyUsage(
   }
 }
 
+function recordAccountUsage(record: AccountUsageRecord, aggregate = false): void {
+  try {
+    if (!accountUsageStore.append(record)) return;
+  } catch (error) {
+    // Account history must not stop the request's existing conversation billing.
+    // Persist and expose the gap instead of silently presenting incomplete totals.
+    reportAccountUsageRecordingFailure(record, error);
+    return;
+  }
+  // Persist tokens synchronously before catalog/network work. A failed price lookup
+  // stays explicitly unpriced instead of losing tokens or reporting a free request.
+  const usage: ParsedUsage = { ...record, modelId: record.modelId };
+  void Promise.resolve().then(async () => {
+    const catalog = record.kind === "chatgpt_login" ? getCodexModelCatalogService() : getChatGptModelCatalogService();
+    const rates = await catalog.resolveApiRates(record.modelId, usage, aggregate);
+    if (rates) accountUsageStore.setEstimatedCost(record, estimateCostFromTokens(usage, rates));
+  }).catch(error => {
+    process.stderr.write(`[account-usage] price unresolved kind=${record.kind} model=${record.modelId}: ${errorMessage(error)}\n`);
+  });
+}
+
+/** Gateway owns physical Codex/Claude/Pi requests; runtime summaries must not be recorded again. */
+function recordGatewayProviderUsage(event: import("@eco/gateway").GatewayUsageEvent): void {
+  const provider = providerStore.getProviderWithSecret(event.providerId);
+  // A missing credential stamp on a subscription route cannot become custom-provider usage.
+  if (event.providerAuthMethod === "chatgpt_subscription") {
+    process.stderr.write(`[usage] OAuth usage missing account ownership: ${event.sourceEventId}\n`);
+    return;
+  }
+  const candidate = providerStore
+    .listCandidateModels(event.providerId)
+    .find((model) => model.modelId === event.upstreamModelId);
+  let pricingRoute: Parameters<UsageBillingPricingLookup>[0] | undefined = provider
+    ? {
+        provider,
+        modelId: event.upstreamModelId,
+        ...(candidate?.modelsDevMapping && { modelsDevMapping: candidate.modelsDevMapping }),
+        ...(candidate?.manualSpec && { manualSpec: candidate.manualSpec }),
+      }
+    : undefined;
+  const attribution = event.codexTurnMetadata
+    ? resolveCodexThreadAttribution(codexThreadMap, event.codexTurnMetadata.threadId)
+    : undefined;
+  const threadId = event.threadId ?? attribution?.ecoThreadId;
+  if (threadId && conversationStore.getThread(threadId)) {
+    try {
+      const routes = resolveRuntimeRoutesForThread(threadId).filter(
+        (route) => route.provider.id === event.providerId,
+      );
+      const route = resolveUsageRoute(attribution?.billingRole ?? "main", event.requestedModel, routes);
+      if (route?.modelId === event.upstreamModelId) {
+        const manualSpec = mergeRouteManualSpec(candidate?.manualSpec, route.manualSpec);
+        const modelsDevMapping = route.modelsDevMapping ?? candidate?.modelsDevMapping;
+        pricingRoute = {
+          provider: route.provider,
+          modelId: event.upstreamModelId,
+          ...(modelsDevMapping && { modelsDevMapping }),
+          ...(manualSpec && { manualSpec }),
+        };
+      }
+    } catch (error) {
+      // Retain tokens, but do not invent prices when the exact route cannot be read.
+      pricingRoute = undefined;
+      process.stderr.write(`[usage] provider pricing route unresolved: ${errorMessage(error)}\n`);
+    }
+  }
+  void recordProviderUsage(
+    {
+      store: accountUsageStore,
+      lookupPricing: lookupUsageBillingPricing,
+      recordingFailed: reportAccountUsageRecordingFailure,
+      pricingFailed: (record, error) =>
+        process.stderr.write(
+          `[usage] price unresolved provider=${record.accountId} model=${record.modelId}: ${errorMessage(error)}\n`,
+        ),
+    },
+    {
+      ...event.usage,
+      kind: "custom_provider",
+      accountId: event.providerId,
+      providerName: event.providerName ?? event.providerId,
+      eventId: event.sourceEventId,
+      modelId: event.upstreamModelId,
+      observedAt: Date.parse(event.observedAt),
+    },
+    pricingRoute,
+  );
+}
+
+function reportAccountUsageRecordingFailure(identity: Pick<AccountUsageRecord, "kind" | "accountId">, error: unknown): void {
+  const message = errorMessage(error);
+  process.stderr.write(`[account-usage] recording failed: ${message}\n`);
+  try {
+    accountUsageStore.recordFailure(identity, message);
+  } catch (diagnosticError) {
+    process.stderr.write(`[account-usage] recording failure could not be saved: ${errorMessage(diagnosticError)}\n`);
+  }
+}
+
 function lookupUsageBillingPricing(...args: Parameters<UsageBillingPricingLookup>) {
   return createAccountUsagePricingLookup({
     lookupChatGptApiRates: (modelId, usage, aggregate) =>
@@ -18033,6 +18744,7 @@ function emitUsageUpdatedFromBillingEffects(event: UsageBillingUpdatedEvent): vo
 
 async function processUsageBilling(
   input: SingleUsageBillingRequest,
+  ledgerMetadata?: Record<string, unknown>,
 ): Promise<UpstreamProxyCallBilling | null> {
   const billingRuntime = await resolveBillingRuntimeContext(billingRuntimeEnvironment, input.threadId);
   const accountPlanner = resolveRoleRoutesForThread(input.threadId).find(
@@ -18051,6 +18763,10 @@ async function processUsageBilling(
     return null;
   }
 
+  if (ledgerMetadata) {
+    const event = resolved.effectsInput.artifacts.ledgerEvent;
+    event.metadata = { ...event.metadata, ...ledgerMetadata };
+  }
   await applySingleUsageBillingEffects(usageBillingEffectsServices(), resolved.effectsInput);
   maybeEmitPromptCacheHitDrop(input);
   return resolved.requestBillingLog;
@@ -18719,6 +19435,9 @@ async function buildSdkSessionOptions(
   withWebSearchMcp.mcpServers[CONTEXT_MCP_SERVER] = (
     await contextReferenceGateway.resolveInjection(threadId)
   ).sdkEntry;
+  withWebSearchMcp.mcpServers[MODEL_MANAGEMENT_MCP_SERVER] = (
+    await modelManagementGateway.resolveInjection(threadId)
+  ).sdkEntry;
   const hubBuiltinKeys = Object.keys(withWebSearchMcp.mcpServers).filter(
     (key) => key.startsWith("eco_") && key !== "eco_mcp",
   );
@@ -18771,7 +19490,7 @@ async function buildSdkSessionOptions(
       ? [
           {
             name: ECO_AGENT_BROWSER_SKILL_NAME,
-            description: "Eco built-in browser skill",
+            description: "Mori built-in browser skill",
             source: "user" as const,
             directory: path.dirname(ecoBrowserSkillFilePath),
             skillFilePath: ecoBrowserSkillFilePath,
@@ -20258,7 +20977,7 @@ function createThreadHookContext(threadId: string): EcoHookContext {
       const worktreePath = worktreePlan?.worktreePath ?? thread.workspacePath;
       const roleRoutes = resolveRoleRoutesForThread(threadId);
       const analysis = [
-        "Plan submitted for Eco approval.",
+        "Plan submitted for Mori approval.",
         request.planFilePath ? `Plan file: ${request.planFilePath}` : "",
       ]
         .filter(Boolean)
@@ -20495,7 +21214,7 @@ function createWebSearchToolPermissionHandler(
     if (!thread) {
       return {
         behavior: "deny",
-        message: "Thread was not found; Eco could not request web search approval.",
+        message: "Thread was not found; Mori could not request web search approval.",
         interrupt: true,
       };
     }
@@ -20503,7 +21222,7 @@ function createWebSearchToolPermissionHandler(
     if (!approvalAgentId) {
       return {
         behavior: "deny",
-        message: "Eco could not attribute this web search approval to an agent instance.",
+        message: "Mori could not attribute this web search approval to an agent instance.",
         interrupt: false,
       };
     }
@@ -20573,7 +21292,7 @@ function createImageGenerationToolPermissionHandler(
     if (!thread) {
       return {
         behavior: "deny",
-        message: "Thread was not found; Eco could not request image approval.",
+        message: "Thread was not found; Mori could not request image approval.",
         interrupt: true,
       };
     }
@@ -20581,7 +21300,7 @@ function createImageGenerationToolPermissionHandler(
     if (!approvalAgentId) {
       return {
         behavior: "deny",
-        message: "Eco could not attribute this image approval to an agent instance.",
+        message: "Mori could not attribute this image approval to an agent instance.",
         interrupt: false,
       };
     }
@@ -20659,7 +21378,7 @@ function createComputerUseToolPermissionHandler(
     if (!thread) {
       return {
         behavior: "deny",
-        message: "Thread was not found; Eco could not request Computer Use approval.",
+        message: "Thread was not found; Mori could not request Computer Use approval.",
         interrupt: true,
       };
     }
@@ -20667,7 +21386,7 @@ function createComputerUseToolPermissionHandler(
     if (!approvalAgentId) {
       return {
         behavior: "deny",
-        message: "Eco could not attribute this Computer Use approval to an agent instance.",
+        message: "Mori could not attribute this Computer Use approval to an agent instance.",
         interrupt: false,
       };
     }
@@ -20744,7 +21463,7 @@ function createBrowserOpenToolPermissionHandler(
     if (!thread) {
       return {
         behavior: "deny",
-        message: "Thread was not found; Eco could not request browser open approval.",
+        message: "Thread was not found; Mori could not request browser open approval.",
         interrupt: true,
       };
     }
@@ -20752,7 +21471,7 @@ function createBrowserOpenToolPermissionHandler(
     if (!approvalAgentId) {
       return {
         behavior: "deny",
-        message: "Eco could not attribute this browser open approval to an agent instance.",
+        message: "Mori could not attribute this browser open approval to an agent instance.",
         interrupt: false,
       };
     }
@@ -20855,7 +21574,7 @@ async function requestSdkHintApproval(
   const thread = conversationStore.getThread(threadId);
   const agentId = resolveThreadBashApprovalAgentId(threadId, request);
   if (!thread || !agentId)
-    return { behavior: "deny", message: "Eco could not attribute the SDK permission request." };
+    return { behavior: "deny", message: "Mori could not attribute the SDK permission request." };
   let approval: BashApprovalRequest = {
     threadId,
     toolUseId: request.toolUseId,
@@ -20936,7 +21655,7 @@ function createThreadBashAndFilesystemToolPermissionHandler(
       if (!thread) {
         return {
           behavior: "deny",
-          message: "Thread was not found; Eco could not request filesystem approval.",
+          message: "Thread was not found; Mori could not request filesystem approval.",
           interrupt: true,
         };
       }
@@ -20970,7 +21689,7 @@ function createThreadBashAndFilesystemToolPermissionHandler(
       if (!approvalAgentId) {
         return {
           behavior: "deny",
-          message: "Eco could not attribute this filesystem approval to an agent instance.",
+          message: "Mori could not attribute this filesystem approval to an agent instance.",
           interrupt: false,
         };
       }
@@ -21065,7 +21784,7 @@ function createThreadBashAndFilesystemToolPermissionHandler(
     if (!command) {
       return {
         behavior: "deny",
-        message: "Bash command is missing; Eco could not present it for approval.",
+        message: "Bash command is missing; Mori could not present it for approval.",
         interrupt: false,
       };
     }
@@ -21074,7 +21793,7 @@ function createThreadBashAndFilesystemToolPermissionHandler(
     if (!thread) {
       return {
         behavior: "deny",
-        message: "Thread was not found; Eco could not request Bash approval.",
+        message: "Thread was not found; Mori could not request Bash approval.",
         interrupt: true,
       };
     }
@@ -21101,7 +21820,7 @@ function createThreadBashAndFilesystemToolPermissionHandler(
       if (!approvalAgentId) {
         return {
           behavior: "deny",
-          message: "Eco could not attribute this Bash denial to an agent instance.",
+          message: "Mori could not attribute this Bash denial to an agent instance.",
           interrupt: false,
         };
       }
@@ -21158,7 +21877,7 @@ function createThreadBashAndFilesystemToolPermissionHandler(
     if (!approvalAgentId) {
       return {
         behavior: "deny",
-        message: "Eco could not attribute this Bash approval to an agent instance.",
+        message: "Mori could not attribute this Bash approval to an agent instance.",
         interrupt: false,
       };
     }

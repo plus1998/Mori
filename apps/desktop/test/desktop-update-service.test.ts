@@ -32,11 +32,12 @@ const updater = Object.assign(new EventEmitter(), {
   }),
 });
 const setProxy = mock(async () => {});
+const powerMonitor = new EventEmitter();
 
 mock.module("electron", () => ({
   app: { isPackaged: true, getVersion: () => "1.0.0" },
   net: { isOnline: () => true },
-  powerMonitor: new EventEmitter(),
+  powerMonitor,
   session: { fromPartition: () => ({ setProxy }) },
   shell: { openExternal: async () => {} },
 }));
@@ -67,7 +68,8 @@ beforeEach(async () => {
     JSON.stringify({
       version: "1.0.0",
       channel: "latest",
-      unsigned: false,
+      // A fixed self-signed release has no commercial signature but supports updates.
+      unsigned: true,
       releaseUrl: "https://example.com/releases",
       updateFeedUrl: "https://example.com/feed",
       updateModes: { darwin: "auto", win32: "auto", linux: "auto" },
@@ -167,4 +169,20 @@ test("download cannot restart an update that is ready to install", async () => {
 
   expect(state.phase).toBe("downloaded");
   expect(operations).toEqual([]);
+});
+
+test("self-signed releases automatically check on resume without downloading", async () => {
+  updater.emit("update-not-available");
+  feedVersion = "1.2.0";
+
+  powerMonitor.emit("resume");
+  await service.checkForUpdates(false);
+
+  expect(service.getState()).toMatchObject({
+    phase: "available",
+    capability: "auto",
+    availableVersion: "1.2.0",
+  });
+  expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+  expect(updater.downloadUpdate).not.toHaveBeenCalled();
 });

@@ -1,5 +1,7 @@
 import { type ReactNode, Suspense, lazy } from "react";
 
+export const LazyUsageSettingsPanel = lazy(() => import("./UsageSettingsPanel").then(m => ({ default: m.UsageSettingsPanel })));
+
 /**
  * Heavy App surfaces — loaded on first open so the main renderer chunk stays lean.
  * Keep hooks used at App root (e.g. useAsrRecorder) eager; only defer mount-gated panels.
@@ -118,3 +120,5 @@ export function SuspensePanel({ children }: { children: ReactNode }): ReactNode 
 }
 
 export const LazyTtsSettingsPanel = lazy(() => import("./TtsSettingsPanel").then(m => ({ default: m.TtsSettingsPanel })));
+
+export const LazyKeyboardShortcutsSettings = lazy(() => import("./KeyboardShortcutsSettings").then(m => ({ default: m.KeyboardShortcutsSettings })));

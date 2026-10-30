@@ -1,7 +1,109 @@
 import { expect, test } from "bun:test";
+import { InputTokenCountUnsupportedError } from "@eco/shared";
 import { withDynamicOutputBudget } from "../src/model-output-limit.js";
 import type { GatewayConfig, GatewayProvider } from "../src/types.js";
 import { createTestGatewayFetchHandler } from "./test-bridge-rewrite.js";
+
+for (const [kind, field] of [
+  ["responses", "max_output_tokens"],
+  ["anthropic-messages", "max_tokens"],
+  ["openai-chat", "max_tokens"],
+  ["openai-chat", "max_completion_tokens"],
+] as const) {
+  for (const [modelCap, boundCap, expected] of [
+    [undefined, undefined, 32_768],
+    [8_192, undefined, 8_192],
+    [131_072, 4_096, 4_096],
+  ] as const) {
+    test(`unsupported dynamic ${kind}/${field} uses ${expected} with model=${modelCap} binding=${boundCap}`, async () => {
+      const provider: GatewayProvider = {
+        id: "p",
+        name: "P",
+        upstreamKind: kind,
+        baseUrl: "https://upstream.test",
+        apiKey: "test",
+        upstreamModelId: "m",
+        models: ["m"],
+        modelContextTokens: { m: 262_144 },
+        ...(modelCap !== undefined && { modelMaxOutputTokens: { m: modelCap } }),
+      };
+      const body = {
+        model: "m",
+        [field]: 32_000,
+        ...(field === "max_completion_tokens" && { max_tokens: 32_000 }),
+        ...(kind === "anthropic-messages" && { thinking: { type: "enabled", budget_tokens: 64_000 } }),
+      };
+      const logs: string[] = [];
+      let generated = 0;
+      const budgeted = withDynamicOutputBudget(
+        async (_url, init) => {
+          generated++;
+          const sent = JSON.parse(String(init?.body));
+          expect(sent[field]).toBe(expected);
+          if (field === "max_completion_tokens") expect(sent.max_tokens).toBe(expected);
+          if (kind === "anthropic-messages") expect(sent.thinking.budget_tokens).toBe(expected - 1);
+          return Response.json({ continued: true });
+        },
+        { provider, upstreamKind: kind, upstreamModelId: "m", requestedModel: "m" },
+        {
+          host: "127.0.0.1",
+          port: 0,
+          providers: [provider],
+          resolveModelLimits: async () => (boundCap === undefined ? {} : { maxOutputTokens: boundCap }),
+          countInputTokens: async () => {
+            throw new InputTokenCountUnsupportedError("count endpoint unsupported");
+          },
+        },
+        new AbortController().signal,
+        (line) => logs.push(line),
+      );
+      const response = await budgeted("https://upstream.test/generate", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(200);
+      expect(generated).toBe(1);
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toContain(`fixed=${expected}`);
+      expect(body[field]).toBe(32_000);
+    });
+  }
+}
+
+test("missing counter continues with fixed 32K, and abort never sends fallback generation", async () => {
+  const provider: GatewayProvider = {
+    id: "p",
+    name: "P",
+    upstreamKind: "responses",
+    baseUrl: "https://upstream.test",
+    apiKey: "test",
+    upstreamModelId: "m",
+    models: ["m"],
+    modelContextTokens: { m: 262_144 },
+  };
+  let generated = 0;
+  const controller = new AbortController();
+  const budgeted = withDynamicOutputBudget(
+    async (_url, init) => {
+      generated++;
+      expect(JSON.parse(String(init?.body)).max_output_tokens).toBe(32_768);
+      return Response.json({});
+    },
+    { provider, upstreamKind: "responses", upstreamModelId: "m", requestedModel: "m" },
+    {
+      host: "127.0.0.1",
+      port: 0,
+      providers: [provider],
+    },
+    controller.signal,
+    () => {},
+  );
+  const init = { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) };
+  expect((await budgeted("https://upstream.test/generate", init)).status).toBe(200);
+  controller.abort(new Error("user stopped"));
+  expect((await budgeted("https://upstream.test/generate", init)).status).toBe(400);
+  expect(generated).toBe(1);
+});
 
 for (const [face, kind, field] of [
   ["responses", "responses", "max_output_tokens"],
@@ -183,6 +285,44 @@ test("dynamic budget recounts growing inputs, including final converted tools", 
   expect(counted.every((body) => body.system === "System instructions")).toBe(true);
 });
 
+test("dynamic uses fixed 32K instead of trusting heuristic space estimates", async () => {
+  const provider: GatewayProvider = {
+    id: "d",
+    name: "D",
+    upstreamKind: "responses",
+    baseUrl: "https://example.test",
+    apiKey: "test",
+    upstreamModelId: "m",
+    models: ["m"],
+    modelContextTokens: { m: 262_144 },
+  };
+  let generations = 0;
+  for (const tokens of [100, 243_181]) {
+    const fetcher = withDynamicOutputBudget(
+      async (_url, init) => {
+        expect(JSON.parse(String(init?.body)).max_output_tokens).toBe(32_768);
+        generations++;
+        return Response.json({});
+      },
+      { provider, upstreamKind: "responses", upstreamModelId: "m", requestedModel: "m" },
+      {
+        host: "127.0.0.1",
+        port: 0,
+        providers: [provider],
+        countInputTokens: async () => ({ tokens, precision: "heuristic", source: "legacy-estimate" }),
+      },
+      new AbortController().signal,
+      () => {},
+    );
+    const response = await fetcher("https://example.test/v1/responses", {
+      method: "POST",
+      body: JSON.stringify({ model: "m", input: "hi" }),
+    });
+    expect(response.status).toBe(200);
+  }
+  expect(generations).toBe(2);
+});
+
 test("dynamic rejects exhausted windows and counter failures without sending generation", async () => {
   const provider: GatewayProvider = {
     id: "d",
@@ -224,7 +364,6 @@ test("dynamic rejects exhausted windows and counter failures without sending gen
     );
   }
   for (const countInputTokens of [
-    undefined,
     async () => {
       throw new Error("Count endpoint HTTP 404");
     },
@@ -459,13 +598,9 @@ for (const [kind, field] of [
   });
 
   for (const [scenario, window, tokens, precision, output, reserve] of [
-    ["production context underestimate", 1_000_000, 742_940, "heuristic", 157_060, 100_000],
-    ["minimum heuristic reserve", 32_768, 10_000, "heuristic", 14_576, 8_192],
-    ["rounded heuristic reserve", 100_001, 1_000, "heuristic", 89_000, 10_001],
     ["provider exact reserve", 32_768, 10_000, "provider_exact", 21_744, 1_024],
     ["tokenizer exact reserve", 32_768, 10_000, "tokenizer_exact", 21_744, 1_024],
-    ["exhausted heuristic reserve", 1_000_000, 900_000, "heuristic", 0, 100_000],
-    ["exhausted minimum reserve", 32_768, 24_576, "heuristic", 0, 8_192],
+    ["exhausted exact reserve", 32_768, 31_744, "provider_exact", 0, 1_024],
   ] as const) {
     test(`dynamic ${kind}/${field} handles ${scenario}`, async () => {
       const provider: GatewayProvider = {
@@ -511,6 +646,9 @@ for (const [kind, field] of [
         const error = (await response.json()).error;
         expect(error.code).toBe("context_length_exceeded");
         expect(error.message).toContain(`reserve=${reserve}`);
+        expect(error.origin).toBe("eco.context_budget");
+        expect(response.headers.get("x-eco-error-origin")).toBe("eco.context_budget");
+        expect(logs.some((message) => message.startsWith("local context budget rejected "))).toBe(true);
         expect(sent).toHaveLength(0);
       } else {
         expect(response.status).toBe(200);

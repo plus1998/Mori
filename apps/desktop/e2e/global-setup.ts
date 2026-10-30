@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const envFile = path.join(desktopRoot, ".e2e-env.json");
+const envFile = process.env.ECO_E2E_ENV_FILE ?? path.join(desktopRoot, ".e2e-env.json");
 
 function stopExistingEcoDesktopProcesses(): void {
   spawnSync("pkill", ["-f", "Electron.app.*apps/desktop"], { stdio: "ignore" });

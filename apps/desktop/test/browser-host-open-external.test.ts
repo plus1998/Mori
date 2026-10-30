@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 
 const openExternal = mock(async (_url: string): Promise<void> => {});
 mock.module("electron", () => ({
-  session: { fromPartition: () => ({ setPermissionRequestHandler() {}, on() {}, off() {} }) },
+  session: { fromPartition: () => ({ setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, on() {}, off() {} }) },
   shell: { openExternal },
   webContents: { fromId: () => undefined },
 }));

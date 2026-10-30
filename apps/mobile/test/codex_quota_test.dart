@@ -8,6 +8,7 @@ import 'package:eco_mobile/core/storage/credential_store.dart';
 import 'package:eco_mobile/features/threads/codex_quota_page.dart';
 import 'package:eco_mobile/features/threads/codex_quota_provider.dart';
 import 'package:eco_mobile/features/threads/thread_info_sheets.dart';
+import 'package:eco_mobile/features/composer/composer_quota_bars.dart';
 import 'package:eco_mobile/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,6 +26,61 @@ void main() {
     });
     return c;
   }
+
+  testWidgets('composer bars show remaining quota and preserve unknown versus exhausted', (tester) async {
+    final rpc = _Rpc();
+    final c = controller(rpc);
+    await c.refresh();
+    await tester.pumpWidget(_app(c, const Center(child: ComposerQuotaBars())));
+    expect(tester.widgetList<FractionallySizedBox>(find.byType(FractionallySizedBox))
+        .map((track) => track.widthFactor), [0.8, 0.8]);
+    rpc.usage['a'] = 100;
+    await c.refresh();
+    await tester.pump();
+    expect(tester.widgetList<FractionallySizedBox>(find.byType(FractionallySizedBox))
+        .map((track) => track.widthFactor), [0.0, 0.0]);
+    rpc.queryError = StateError('offline');
+    await c.refresh();
+    await tester.pump();
+    expect(find.byIcon(Icons.error_outline), findsOneWidget);
+    expect(find.byType(FractionallySizedBox), findsNothing);
+  });
+
+  test(
+    'renewable credentials retain quota eligibility without claiming a fresh token',
+    () {
+      for (final authState in [
+        'refreshable',
+        'refreshing',
+        'reauthorization_required',
+        'expired',
+      ]) {
+        final account = CodexAccount.fromJson({
+          'id': 'renewable',
+          'name': 'Renewable',
+          'isLoggedIn': false,
+          'authState': authState,
+          'quota': _quotaJson(),
+        });
+        final active = CodexActiveAccount.fromJson({
+          'activeAccountId': 'renewable',
+          'isLoggedIn': false,
+          'authState': authState,
+          'syncStatus': {'state': 'ok'},
+        });
+        final eligible =
+            authState == 'refreshable' || authState == 'refreshing';
+        expect(account.isLoggedIn, isFalse);
+        expect(account.available, eligible);
+        expect(active.canUseCredentials, eligible);
+        final snapshot = CodexQuotaSnapshot(
+          active: active,
+          accounts: [account],
+        );
+        expect(snapshot.account, eligible ? account : isNull);
+      }
+    },
+  );
 
   test(
     'Codex RPC keeps identity, pending state and reset key on the wire',
@@ -317,6 +373,8 @@ void main() {
       Navigator.of(tester.element(find.text('上下文'))).pop();
       await tester.pumpAndSettle();
       await open(true);
+      // Account login composers open quota first; the other tabs remain available.
+      expect(find.text('当前使用账号：账号 a'), findsOneWidget);
       expect(find.text('上下文'), findsOneWidget);
       expect(
         find.text(

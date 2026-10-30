@@ -28,7 +28,7 @@ import {
   reportLogicalUpstreamFailure,
   tryEmitLogicalCompleted,
 } from "../request-lifecycle.js";
-import { credentialResolutionErrorResponse, resolveRouteCredential } from "../route-credentials.js";
+import { credentialResolutionErrorResponse, resolveRouteCredential, withCredentialUsageAccount } from "../route-credentials.js";
 import type { GatewayLogFn } from "../server.js";
 import {
   codexToolArgumentFailureCircuitBreaker,
@@ -130,6 +130,7 @@ export async function handlePostResponses(
   route = enrichResolvedRouteWithCodexTurnIdentity(route, codexTurnMetadata);
   try {
     route = await resolveRouteCredential(route, config, request);
+    onUsage = withCredentialUsageAccount(route, onUsage);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     onLog(`credential resolution failed provider=${route.provider.id}: ${message}`);
@@ -245,11 +246,22 @@ export async function handlePostResponses(
     upstreamResponse.headers.get("x-eco-upstream-error-code") === "context_length_exceeded"
   ) {
     const message = extractUpstreamErrorMessage(await upstreamResponse.text());
+    const origin = upstreamResponse.headers.get("x-eco-error-origin") ?? "upstream";
     const headers = new Headers(upstreamResponse.headers);
     headers.set("content-type", "text/event-stream");
     headers.set("cache-control", "no-cache");
     headers.delete("content-length");
     onLog(`responses context overflow delivered as response.failed provider=${route.provider.id}`);
+    onLog(
+      `context overflow ${JSON.stringify({
+        origin,
+        providerId: route.provider.id,
+        model: route.upstreamModelId,
+        threadId: route.threadId,
+        logicalRequestId: route.logicalRequestId,
+        message,
+      })}`,
+    );
     return new Response(responsesFailedSse(message, "context_length_exceeded"), {
       status: 200,
       headers,
@@ -311,6 +323,7 @@ export async function handlePostResponsesCompact(
   route = enrichResolvedRouteWithCodexTurnIdentity(route, codexTurnMetadata);
   try {
     route = await resolveRouteCredential(route, config, request);
+    onUsage = withCredentialUsageAccount(route, onUsage);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return credentialResolutionErrorResponse(error);

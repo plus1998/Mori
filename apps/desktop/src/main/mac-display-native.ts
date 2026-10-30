@@ -1,5 +1,13 @@
 import { createRequire } from "node:module";
+import type { DisplayLevels } from "./display-native";
 import type { DisplayDimmingMethod } from "../shared/display-control";
+import type { DisplayInfo } from "./display-native";
+
+export interface MacBrightnessApi {
+  displays(): DisplayInfo[];
+  get(id: number, method?: DisplayDimmingMethod): DisplayLevels;
+  set(id: number, levels: DisplayLevels): void;
+}
 
 function check(result: number, operation: string): void {
   if (result !== 0) throw new Error(`${operation} failed (${result}).`);
@@ -22,7 +30,7 @@ export function createMacActivityAssertion(): { refresh(): void; release(): void
   const declare = io.func("int IOPMAssertionDeclareUserActivity(void *, uint32_t, _Inout_ uint32_t *)");
   const create = io.func("int IOPMAssertionCreateWithName(void *, uint32_t, void *, _Out_ uint32_t *)");
   const release = io.func("int IOPMAssertionRelease(uint32_t)");
-  const name = string(null, "Eco desktop automation", 0x08000100);
+  const name = string(null, "Mori desktop automation", 0x08000100);
   const type = string(null, "PreventUserIdleDisplaySleep", 0x08000100);
   const displayId = [0];
   const activityId = [0];
@@ -34,7 +42,7 @@ export function createMacActivityAssertion(): { refresh(): void; release(): void
   }
   return {
     refresh() {
-      const label = string(null, "Eco desktop automation", 0x08000100);
+      const label = string(null, "Mori desktop automation", 0x08000100);
       try {
         check(declare(label, 0, activityId), "IOPMAssertionDeclareUserActivity");
         check(updateActivity(1), "UpdateSystemActivity");
@@ -49,36 +57,6 @@ export function createMacActivityAssertion(): { refresh(): void; release(): void
       displayId[0] = 0;
     },
   };
-}
-
-export interface MacDisplayInfo {
-  id: number;
-  key: string;
-  name: string;
-  internal: boolean;
-}
-
-export type MacDisplayLevels =
-  | { method: "backlight"; value: number }
-  | { method: "software"; red: Float32Array; green: Float32Array; blue: Float32Array };
-
-export interface MacBrightnessApi {
-  displays(): MacDisplayInfo[];
-  get(id: number, method?: DisplayDimmingMethod): MacDisplayLevels;
-  set(id: number, levels: MacDisplayLevels): void;
-}
-
-export function minimumDisplayLevels(levels: MacDisplayLevels): MacDisplayLevels {
-  if (levels.method === "backlight") return { method: "backlight", value: 0 };
-  const zero = new Float32Array(levels.red.length);
-  return { method: "software", red: zero, green: zero, blue: zero };
-}
-
-export function displayLevelsAreMinimum(levels: MacDisplayLevels): boolean {
-  if (levels.method === "backlight") return levels.value <= 0.001;
-  return [levels.red, levels.green, levels.blue].every((channel) =>
-    channel.every((value) => Math.abs(value) <= 0.001),
-  );
 }
 
 export function createMacBrightnessApi(

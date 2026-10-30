@@ -85,7 +85,7 @@ interface CenterServerSettingsPanelProps {
   onApproveVaultClaim: (claimId: string) => Promise<CenterServerApproveVaultClaimResult>;
   onSubmitVaultClaimCode: (code: string) => Promise<CenterServerSubmitVaultClaimCodeResult>;
   onCancelVaultClaim: () => Promise<CenterServerVaultStatus>;
-  /** Supabase project imported via an eco://connect deep link, if pending. */
+  /** Supabase project imported via an mori://connect deep link, if pending. */
   ecoConnectLink?: EcoConnectDeepLink | undefined;
   /** Dismiss the deep-link confirmation dialog. */
   onEcoConnectLinkDismiss: () => void;
@@ -1534,7 +1534,7 @@ function ServerEditor({
             type="text"
             value={form.deviceName ?? ""}
             disabled={busy}
-            placeholder="Eco Desktop"
+            placeholder="Mori Desktop"
             onChange={(event) => setForm((current) => ({ ...current, deviceName: event.target.value }))}
           />
         </label>
@@ -2049,7 +2049,8 @@ function isGenericMobileName(name: string | undefined): boolean {
     return true;
   }
   const normalized = name.trim().toLowerCase();
-  return normalized === "eco mobile" || normalized === "ecomobile";
+  return normalized === "mori" || normalized === "mori mobile" || normalized === "morimobile" ||
+    normalized === "eco mobile" || normalized === "ecomobile";
 }
 
 function formatMobileLabel(mobile: CenterServerDevicePresenceView | undefined, deviceId: string): string {

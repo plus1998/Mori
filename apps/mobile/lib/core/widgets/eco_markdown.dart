@@ -59,7 +59,17 @@ class _EcoMarkdownState extends State<EcoMarkdown> {
 
   @override
   Widget build(BuildContext context) {
-    return _content ??= _buildContent(context);
+    // Markdown scrollbars belong to their content, not the screen's safe area.
+    // In particular, iOS subtracts the inherited bottom inset from a code
+    // block's scrollbar position: https://github.com/flutter/flutter/issues/57920
+    return MediaQuery.removePadding(
+      context: context,
+      removeLeft: true,
+      removeTop: true,
+      removeRight: true,
+      removeBottom: true,
+      child: _content ??= _buildContent(context),
+    );
   }
 
   Widget _buildContent(BuildContext context) {

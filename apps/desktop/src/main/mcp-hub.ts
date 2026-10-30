@@ -371,7 +371,7 @@ export class McpHub {
         tools: [
           {
             name: "search_tools",
-            description: `Search tools authorized for this Eco session. ${ECO_MCP_HUB_SEARCH_QUERY_DESCRIPTION}`,
+            description: `Search tools authorized for this Mori session. ${ECO_MCP_HUB_SEARCH_QUERY_DESCRIPTION}`,
             inputSchema: {
               type: "object",
               properties: {

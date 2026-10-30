@@ -64,6 +64,25 @@ test("application quit waits for browser processes before closing the remaining 
   expect(order).toEqual(["browser-stopping", "browser-stopped", "gateways"]);
 });
 
+test("application quit waits for screen brightness restoration before stopping services", async () => {
+  let release!: () => void;
+  const restored = new Promise<void>((resolve) => { release = resolve; });
+  const order: string[] = [];
+  const shutdown = shutdownApplicationServices(createDeps({
+    disposeSystemSleepBlocker: async () => {
+      order.push("restoring");
+      await restored;
+      order.push("restored");
+    },
+    disposeBrowserHost: () => { order.push("browser"); },
+  }));
+  await Bun.sleep(0);
+  expect(order).toEqual(["restoring"]);
+  release();
+  await shutdown;
+  expect(order).toEqual(["restoring", "restored", "browser"]);
+});
+
 test("isThreadActivelyRunning treats runtime and persisted running states as active", () => {
   expect(isThreadActivelyRunning({ status: "idle", runtimeActive: false })).toBe(false);
   expect(isThreadActivelyRunning({ status: "running", runtimeActive: false })).toBe(true);
@@ -124,7 +143,7 @@ test("buildQuitConfirmationDialogOptions includes running counts", () => {
     compactingThreadIds: ["thr_2"],
   });
 
-  expect(options.title).toBe("退出 Eco？");
+  expect(options.title).toBe("退出 Mori？");
   expect(options.detail).toContain("1 个对话任务正在运行");
   expect(options.detail).toContain("1 个后台终端任务正在运行");
   expect(options.detail).toContain("1 个对话正在压缩上下文");

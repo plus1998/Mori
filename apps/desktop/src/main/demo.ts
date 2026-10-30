@@ -34,7 +34,7 @@ function loadAppIcon(): Electron.NativeImage | undefined {
 
 const appIcon = loadAppIcon();
 
-app.setName("Eco Coding Demo");
+app.setName("Mori Demo");
 app.setPath("userData", path.join(app.getPath("appData"), "Eco Coding Demo"));
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -107,7 +107,7 @@ async function createDemoWindow(): Promise<BrowserWindow> {
   });
 
   centerOnFocusedDisplay(window, width, height);
-  window.setTitle("Eco Coding Demo");
+  window.setTitle("Mori Demo");
 
   window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
     demoLog("[eco-demo] renderer failed to load", { errorCode, errorDescription, validatedURL });
@@ -116,7 +116,7 @@ async function createDemoWindow(): Promise<BrowserWindow> {
 
   window.webContents.on("page-title-updated", (event) => {
     event.preventDefault();
-    window.setTitle("Eco Coding Demo");
+    window.setTitle("Mori Demo");
   });
 
   window.webContents.on("before-input-event", (event, input) => {
@@ -156,18 +156,19 @@ app.whenReady().then(async () => {
     app.dock?.show();
   }
 
+  app.setAboutPanelOptions({ applicationName: app.name });
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       {
         label: app.name,
         submenu: [
-          { role: "about" },
+          { role: "about", label: `About ${app.name}` },
           { type: "separator" },
-          { role: "hide" },
+          { role: "hide", label: `Hide ${app.name}` },
           { role: "hideOthers" },
           { role: "unhide" },
           { type: "separator" },
-          { role: "quit" },
+          { role: "quit", label: `Quit ${app.name}` },
         ],
       },
       { role: "editMenu" },

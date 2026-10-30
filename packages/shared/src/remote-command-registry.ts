@@ -27,7 +27,11 @@ const RPC_INVOKE = ["rpc:invoke"] as const;
 const APPROVAL_DECIDE = ["rpc:invoke", "approval:decide"] as const;
 
 export const REMOTE_COMMAND_DEFINITIONS = [
+  command("display-control:get", "Read desktop display and lock state", "read", RPC_INVOKE, []),
+  command("display-control:set", "Change desktop display and lock controls", "write_safe", RPC_INVOKE, [objectArg(["control", "enabled"])]),
+  command("composer-references:search", "Search composer references", "read", RPC_INVOKE, [objectArg(["query"])]),
   command("project-todo:list", "List project todos", "read", RPC_INVOKE, []),
+  command("project-todo:query", "Page and search project todos", "read", RPC_INVOKE, [objectArg(["completed"])]),
   command("project-todo:get", "Get project todo", "read", RPC_INVOKE, [stringArg(), { kind: "boolean", optional: true }]),
   command("project-todo:image-read", "Read project todo image chunk", "read", RPC_INVOKE, [
     objectArg(["id", "revision", "imageId", "offset"]),
@@ -45,11 +49,12 @@ export const REMOTE_COMMAND_DEFINITIONS = [
   command("scheduling:update", "Update schedule", "write_safe", RPC_INVOKE, [
     objectArg(["id", "expectedRevision"]),
   ]),
-  command("scheduling:delete", "Delete schedule", "write_safe", RPC_INVOKE, [stringArg()]),
+  command("scheduling:delete", "Delete schedule", "write_safe", RPC_INVOKE, [stringArg(), { kind: "number", optional: true }]),
   command("scheduling:run-now", "Run schedule now", "execute", RPC_INVOKE, [
     objectArg(["id", "requestId"]),
   ]),
   command("scheduling:preview", "Preview schedule", "read", RPC_INVOKE, [objectArg(["type"])]),
+  command("scheduling:retry-notification", "Retry a schedule notification without executing again", "write_safe", RPC_INVOKE, [stringArg()]),
   command("thread:list", "List threads", "read", RPC_INVOKE, []),
   command("thread:list-initial", "List initial threads", "read", RPC_INVOKE, []),
   command("thread:list-more", "List more threads", "read", RPC_INVOKE, [
@@ -155,6 +160,9 @@ export const REMOTE_COMMAND_DEFINITIONS = [
     objectArg(["principalId", "clientCommandId", "threadId", "prompt", "expectedHistoryRevision"]),
   ]),
   command("thread:follow-up-cancel", "Cancel follow-up", "write_safe", RPC_INVOKE, [
+    objectArg(["principalId", "clientCommandId", "threadId", "followUpId", "expectedHistoryRevision"]),
+  ]),
+  command("thread:follow-up-to-todo", "Move queued follow-up to project todos", "write_safe", RPC_INVOKE, [
     objectArg(["principalId", "clientCommandId", "threadId", "followUpId", "expectedHistoryRevision"]),
   ]),
   command("thread:follow-up-escalate", "Escalate follow-up", "execute", RPC_INVOKE, [

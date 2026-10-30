@@ -1,3 +1,4 @@
+import { shortcutMatches } from "./keyboard-shortcuts";
 import {
   Check,
   ChevronDown,
@@ -387,7 +388,7 @@ export function GitCommitDialog({
       return;
     }
     function onKeyDown(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      if (shortcutMatches(event, "git-commit")) {
         event.preventDefault();
         void runAction("commit");
       }

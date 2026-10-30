@@ -262,13 +262,13 @@ test("buildCodexMainAgentOrchestrationAppend appends V4A teaching when enabled",
     },
     [researchTemplate],
   );
-  expect(append).toContain("Eco V4A teaching");
+  expect(append).toContain("Mori V4A teaching");
   expect(append).toContain("*** Begin Patch");
 });
 
 test("buildCodexMainAgentOrchestrationAppend omits V4A teaching when disabled", () => {
   const append = buildCodexMainAgentOrchestrationAppend(orchestration, [researchTemplate]);
-  expect(append).not.toContain("Eco V4A teaching");
+  expect(append).not.toContain("Mori V4A teaching");
 });
 
 test("resolveMainAgentHandsOnCapability mirrors the main agent tool policy enforcement", () => {

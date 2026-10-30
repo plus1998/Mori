@@ -4,6 +4,7 @@ import {
   CODEX_QUOTA_REFRESH_MS,
   hasUnrefreshedCodexQuotaReset,
   nextCodexQuotaResetCheckAt,
+  nextImageQuotaResetCheckAt,
 } from "../src/shared/codex-quota-refresh";
 import type { OpenAIAccountQuota } from "../src/shared/openai-account";
 
@@ -64,9 +65,9 @@ test("automatic failures back off for 5, 15, then 30 minutes, while explicit req
 test("authentication failure stops automatic requests until credentials change or a manual request succeeds", () => {
   let now = start;
   const policy = new CodexQuotaRefreshPolicy(() => now);
-  policy.fail("a", "old", new Error("401 unauthorized"));
+  policy.fail("a", "old", new Error("invalid_grant: refresh token revoked"));
   now += 24 * 60 * 60_000;
-  expect(() => policy.check("a", "old", undefined, "usage")).toThrow("401");
+  expect(() => policy.check("a", "old", undefined, "usage")).toThrow("invalid_grant");
   expect(policy.check("a", "old", undefined, "manual")).toBe("query");
   expect(policy.check("a", "new", undefined, "usage")).toBe("query");
   expect(policy.state("a", "new")).toBeUndefined();
@@ -107,4 +108,22 @@ test("visible reset watchers wait for cooldown/backoff and stop once reset is co
   ).toBe(start + 15 * 60_000);
   expect(nextCodexQuotaResetCheckAt(cached, { attemptedAt: start, authRequired: true })).toBeUndefined();
   expect(nextCodexQuotaResetCheckAt(quota(start + 60_000))).toBeUndefined();
+});
+
+test("image quota checks use only valid resets newer than the snapshot", () => {
+  const image = { source: "chatgpt_image_gen" as const, status: "available" as const, fetchedAt: start, resetAt: new Date(start + 60_000).toISOString() };
+  expect(nextImageQuotaResetCheckAt(image)).toBe(start + 60_000);
+  expect(nextImageQuotaResetCheckAt({ ...image, fetchedAt: start + 60_000 })).toBeUndefined();
+  expect(nextImageQuotaResetCheckAt({ ...image, resetAt: "invalid" })).toBeUndefined();
+  expect(nextImageQuotaResetCheckAt({ ...image, status: "error" })).toBeUndefined();
+  expect(nextImageQuotaResetCheckAt()).toBeUndefined();
+});
+
+test("an ordinary 401 remains retryable rather than permanently requiring login", () => {
+  let now = start;
+  const policy = new CodexQuotaRefreshPolicy(() => now);
+  policy.fail("a", "auth", new Error("401 unauthorized"));
+  expect(policy.state("a", "auth")?.authRequired).toBeUndefined();
+  now += 5 * 60_000;
+  expect(policy.check("a", "auth", undefined, "usage")).toBe("query");
 });

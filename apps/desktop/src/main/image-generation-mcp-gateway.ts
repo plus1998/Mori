@@ -183,7 +183,7 @@ export class ImageGenerationMcpGateway {
         {
           serverName: ECO_IMAGE_GENERATION_MCP_SERVER,
           instructions:
-            "Eco Creative Drawing. Create or edit images into the conversation work directory; every call requires user approval.",
+            "Mori Creative Drawing. Create or edit images into the conversation work directory; every call requires user approval.",
           listTools: async () => ({ tools: [imageGenerationToolDefinition()] }),
           callTool: async ({ name, arguments: args, authToken, signal }) =>
             this.executeToolCall(name, args, authToken, signal),
@@ -364,7 +364,7 @@ function imageGenerationToolDefinition(): McpToolDefinition {
   return {
     name: ECO_IMAGE_GENERATION_TOOL,
     description:
-      "Create or edit images with Eco's active Creative Drawing provider and save them into the current conversation work directory. Pass input_images for image-to-image edits when the active profile supports it. Every call requires user approval.",
+      "Create or edit images with Mori's active Creative Drawing provider and save them into the current conversation work directory. Pass input_images for image-to-image edits when the active profile supports it. Every call requires user approval.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -375,7 +375,7 @@ function imageGenerationToolDefinition(): McpToolDefinition {
           type: "array",
           items: { type: "string", minLength: 1 },
           description:
-            "Optional absolute or workspace-relative PNG/JPEG/WebP paths for image-to-image edits (OpenAI up to 16, Gemini up to 3).",
+            "Optional local absolute or workspace-relative PNG/JPEG/WebP paths for image-to-image edits, including outside the workspace (OpenAI up to 16, Gemini up to 3).",
         },
         size: { type: "string", description: "OpenAI: auto or WIDTHxHEIGHT; Gemini: 1K, 2K, or 4K." },
         aspect_ratio: { type: "string", description: "Gemini only, for example 1:1 or 16:9." },

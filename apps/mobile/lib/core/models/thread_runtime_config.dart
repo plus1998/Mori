@@ -270,9 +270,7 @@ ThreadRuntimeConfig buildAcpRuntimeConfig({
     visionModel: visionModel ?? workflow?.defaultVisionModel,
     mcpServersEnabled: mcpServersEnabled ?? workflow?.mcpServersEnabled,
     integrationsEnabled: integrationsEnabled ?? workflow?.integrationsEnabled,
-    sessionMode: resolveSessionMode(
-      sessionMode: sessionMode ?? workflow?.sessionMode,
-    ),
+    sessionMode: resolveSessionMode(sessionMode: sessionMode),
     bashReviewMode:
         bashReviewMode ??
         normalizeBashReviewMode(workflow?.defaultBashReviewMode),
@@ -324,7 +322,7 @@ ThreadRuntimeConfig buildDefaultRuntimeConfig({
       approvalModel: workflow?.defaultApprovalModel,
       visionModel: workflow?.defaultVisionModel,
       integrationsEnabled: workflow?.integrationsEnabled,
-      sessionMode: resolveSessionMode(sessionMode: workflow?.sessionMode),
+      sessionMode: 'agent',
       bashReviewMode: defaultBashReviewMode,
     );
   }
@@ -360,7 +358,7 @@ ThreadRuntimeConfig buildDefaultRuntimeConfig({
     visionModel: workflow?.defaultVisionModel,
     mcpServersEnabled: mcpServersEnabled,
     integrationsEnabled: workflow?.integrationsEnabled,
-    sessionMode: normalizeSessionMode(workflow?.sessionMode),
+    sessionMode: 'agent',
     bashReviewMode: bashReviewMode,
   );
 }

@@ -17,7 +17,11 @@ import {
 import type { McpSdkConfig } from "../shared/mcp";
 import { BrowserMcpAuthRegistry, createBrowserMcpControlSecret } from "./browser-mcp-auth";
 import { buildEcoHttpCodexServer, buildEcoHttpInjection } from "./mcp-http-descriptor";
-import { handleMcpStreamableHttpRequest } from "./mcp-streamable-http";
+import {
+  handleMcpStreamableHttpRequest,
+  type McpToolDefinition,
+  type McpToolCallResult,
+} from "./mcp-streamable-http";
 import { detectScreenRecordingAppLabel } from "./computer-use-screen-host-native";
 import { openComputerUseAppBundleFromBinary } from "./open-computer-use-install";
 import {
@@ -25,6 +29,7 @@ import {
   type OpenComputerUseResolveResult,
 } from "./open-computer-use-resolve";
 import { SharedMcpStdioUpstream } from "./shared-mcp-stdio-upstream";
+import { saveComputerUseScreenshots } from "./computer-use-screenshots";
 
 const require = createRequire(import.meta.url);
 const CONTROL_SECRET_HEADER = "X-Eco-Computer-Use-Control-Secret";
@@ -175,7 +180,7 @@ export function assessLinuxComputerUseSession(
       ok: false,
       missing: ["desktopSession"],
       reason:
-        "未检测到 Linux 图形桌面会话（缺少 DISPLAY/WAYLAND_DISPLAY 与 XDG_RUNTIME_DIR）。请在已登录桌面中运行 Eco，并确保 AT-SPI2 可用；不支持无桌面的服务会话。",
+        "未检测到 Linux 图形桌面会话（缺少 DISPLAY/WAYLAND_DISPLAY 与 XDG_RUNTIME_DIR）。请在已登录桌面中运行 Mori，并确保 AT-SPI2 可用；不支持无桌面的服务会话。",
     };
   }
   return {
@@ -538,12 +543,18 @@ function resolveStdioScriptPath(): string {
 export class ComputerUseMcpGateway {
   private readonly controlSecret = createBrowserMcpControlSecret();
   private readonly auth = new BrowserMcpAuthRegistry();
-  private readonly upstream = new SharedMcpStdioUpstream();
   private controlServer: http.Server | undefined;
   private controlPort: number | undefined;
   private disposed = false;
 
-  constructor(private readonly getSettings: ComputerUseSettingsGetter) {}
+  constructor(
+    private readonly getSettings: ComputerUseSettingsGetter,
+    private readonly screenshotDirectory: string,
+    private readonly upstream: Pick<
+      SharedMcpStdioUpstream,
+      "pid" | "ensure" | "listTools" | "callTool" | "close"
+    > = new SharedMcpStdioUpstream(),
+  ) {}
 
   /** Test/diag: packaging script still ships for offline debugging. */
   static packagingStdioScriptPath(): string {
@@ -737,6 +748,51 @@ export class ComputerUseMcpGateway {
     };
   }
 
+  /** Trusted in-process callers still obey the global integration switch. */
+  async listTools(signal?: AbortSignal): Promise<{ tools: McpToolDefinition[] }> {
+    this.requireEnabled();
+    signal?.throwIfAborted();
+    await this.ensureUpstream();
+    this.requireEnabled();
+    signal?.throwIfAborted();
+    const result = await this.upstream.listTools(signal);
+    return {
+      tools: result.tools.filter(
+        (tool): tool is McpToolDefinition =>
+          Boolean(tool) &&
+          typeof tool === "object" &&
+          typeof (tool as { name?: unknown }).name === "string" &&
+          (ECO_COMPUTER_USE_TOOLS as readonly string[]).includes((tool as { name: string }).name),
+      ),
+    };
+  }
+
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<McpToolCallResult> {
+    this.requireEnabled();
+    if (!(ECO_COMPUTER_USE_TOOLS as readonly string[]).includes(name))
+      throw new Error(`未知电脑操作工具：${name}`);
+    signal?.throwIfAborted();
+    await this.ensureUpstream();
+    this.requireEnabled();
+    signal?.throwIfAborted();
+    const result = await this.upstream.callTool(name, args, signal);
+    const toolResult =
+      result && typeof result === "object"
+        ? (result as McpToolCallResult)
+        : { content: [{ type: "text", text: String(result ?? "") }] };
+    return saveComputerUseScreenshots(toolResult, this.screenshotDirectory);
+  }
+
+  private requireEnabled(): void {
+    if (!this.getSettings().agentIntegrationEnabled)
+      throw new Error("请先在设置 → 电脑操作中开启电脑操作能力。");
+    if (this.disposed) throw new Error("电脑操作服务已关闭。");
+  }
+
   private async ensureUpstream(): Promise<void> {
     const resolved = this.resolveBinary();
     if (!resolved.available || !resolved.binaryPath) {
@@ -759,7 +815,7 @@ export class ComputerUseMcpGateway {
         res,
         {
           serverName: ECO_COMPUTER_USE_MCP_SERVER,
-          instructions: "Eco computer use (shared open-computer-use upstream).",
+          instructions: "Mori computer use (shared open-computer-use upstream).",
           listTools: async ({ signal }) => {
             await this.ensureUpstream();
             const listed = await this.upstream.listTools(signal);
@@ -775,9 +831,11 @@ export class ComputerUseMcpGateway {
           callTool: async ({ name, arguments: args, signal }) => {
             await this.ensureUpstream();
             const result = await this.upstream.callTool(name, args, signal);
-            return result && typeof result === "object"
-              ? (result as Record<string, unknown>)
-              : { content: [{ type: "text", text: String(result ?? "") }] };
+            const toolResult =
+              result && typeof result === "object"
+                ? (result as Record<string, unknown>)
+                : { content: [{ type: "text", text: String(result ?? "") }] };
+            return saveComputerUseScreenshots(toolResult, this.screenshotDirectory);
           },
         },
         {

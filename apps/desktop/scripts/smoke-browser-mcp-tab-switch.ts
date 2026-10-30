@@ -150,7 +150,7 @@ async function main() {
     await call("tab_close");
     assert.match(await call("eval", { script: "location.href" }), /\/same/);
     assert.doesNotMatch(await call("snapshot"), /Third tab/);
-    console.log("PASS: closing earlier/current tabs preserves the correct Eco target mapping");
+    console.log("PASS: closing earlier/current tabs preserves the correct Mori target mapping");
 
     for (const otherThreadId of [siblingThreadId, otherProjectThreadId]) {
       const other = await open(`http://127.0.0.1:${port}/same`, otherThreadId);

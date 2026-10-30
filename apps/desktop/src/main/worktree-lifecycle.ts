@@ -29,7 +29,7 @@ export function approvedPlanRelativePath(threadId: string): string {
 
 export function formatApprovedPlanDocument(snapshot: ApprovedPlanSnapshot): string {
   const lines = [
-    "# Eco approved plan",
+    "# Mori approved plan",
     "",
     "## User request",
     snapshot.userPrompt.trim() || "(not captured)",
@@ -41,7 +41,7 @@ export function formatApprovedPlanDocument(snapshot: ApprovedPlanSnapshot): stri
     snapshot.plan.trim() || "(no plan captured)",
   ];
   if (snapshot.planUserEdited) {
-    lines.push("", "_User edited this plan in Eco before approval._");
+    lines.push("", "_User edited this plan in Mori before approval._");
   }
   return `${lines.join("\n")}\n`;
 }
@@ -134,8 +134,10 @@ export function parseApprovedPlanDocument(text: string): ApprovedPlanSnapshot | 
     .join("\n")
     .trim();
   const planLines = lines.slice(approvedPlanIndex + 1);
-  const editMarker = "_User edited this plan in Eco before approval._";
-  const planUserEdited = planLines.at(-1)?.trim().toLowerCase() === editMarker.toLowerCase();
+  const editMarker = "_User edited this plan in Mori before approval._";
+  const legacyEditMarker = "_User edited this plan in Eco before approval._";
+  const lastLine = planLines.at(-1)?.trim().toLowerCase();
+  const planUserEdited = lastLine === editMarker.toLowerCase() || lastLine === legacyEditMarker.toLowerCase();
   if (planUserEdited) {
     planLines.pop();
   }

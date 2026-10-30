@@ -1,12 +1,12 @@
 appId: com.eco.coding
-productName: Eco Coding
-copyright: Copyright © Eco Coding
+productName: Mori
+copyright: Copyright © Mori
 
-# Register the eco:// URL scheme so clicking eco://connect?... hands the link
-# to this app (see main-process open-url / second-instance handling).
+# Register mori:// and retain eco:// so links from older releases still open
+# this app (see main-process open-url / second-instance handling).
 protocols:
-  - name: Eco Coding
-    schemes: [eco]
+  - name: Mori
+    schemes: [mori, eco]
 
 directories:
   output: release
@@ -20,6 +20,8 @@ files:
 
 asar: true
 asarUnpack:
+  # In-process Agent focus interception must be loaded from a real signed dylib.
+  - "dist/native/browser-focus-hook/**"
   - "**/node_modules/@anthropic-ai/**"
   # Native Codex CLI + platform binaries (and code-mode host) cannot run from inside asar.
   - "**/node_modules/@openai/**"
@@ -30,8 +32,10 @@ asarUnpack:
   # Keyring credential store (external native binding).
   - "**/node_modules/@napi-rs/keyring/**"
   - "**/node_modules/@napi-rs/keyring-*/**"
+  - "**/node_modules/@napi-rs/canvas-*/**"
   # Win32 Job Object FFI for ACP process-tree cleanup (Zed-aligned).
   - "**/node_modules/koffi/**"
+  - "**/node_modules/@koromix/koffi-*/**"
   # PI SDK runtime closure. The codemode sandbox spawns a worker thread and
   # compiles a QuickJS wasm, so those files must exist as real files rather than
   # as asar members: `new Worker()` and `WebAssembly.compile()` are handed the
@@ -77,22 +81,25 @@ afterPack: scripts/after-pack.mjs
 # pack-release.mjs always passes --publish never and overrides publish.url.
 publish:
   provider: generic
-  url: https://github.com/plus1998/eco-coding/releases/download/desktop-update-feed
+  url: https://github.com/plus1998/Mori/releases/download/desktop-update-feed
   channel: latest
 
 detectUpdateChannel: false
 generateUpdatesFilesForAllChannels: false
 
 mac:
-  # The first beta is intentionally unsigned. Enable signing and notarization
-  # before turning on macOS automatic updates.
+  minimumSystemVersion: "13.0.0"
+  # afterPack uses our pinned self-signed identity, not electron-builder's Apple
+  # certificate discovery. Self-signing does not provide Gatekeeper trust or notarization;
+  # automatic-update rollout is controlled separately by the release manifest.
   identity: null
   category: public.app-category.developer-tools
   extendInfo:
-    NSMicrophoneUsageDescription: Eco Coding needs microphone access for voice transcription.
+    NSMicrophoneUsageDescription: Mori needs microphone access for voice transcription.
     CFBundleURLTypes:
-      - CFBundleURLName: Eco Coding
+      - CFBundleURLName: Mori
         CFBundleURLSchemes:
+          - mori
           - eco
   target:
     - target: dmg
@@ -103,12 +110,12 @@ mac:
       arch:
         - x64
         - arm64
-  artifactName: Eco-Coding-${version}-mac-${arch}.${ext}
+  artifactName: Mori-${version}-mac-${arch}.${ext}
 
 win:
   icon: packaging/icon.ico
   signAndEditExecutable: false
-  artifactName: Eco-Coding-${version}-win-x64.${ext}
+  artifactName: Mori-${version}-win-x64.${ext}
   signtoolOptions:
     sign: scripts/win-sign.mjs
   verifyUpdateCodeSignature: false
@@ -119,14 +126,14 @@ win:
 
 linux:
   executableName: eco-coding
-  synopsis: Eco Coding
-  description: Eco Coding desktop app
+  synopsis: Mori
+  description: Mori desktop app
   target:
     - target: AppImage
       arch:
         - x64
   category: Development
-  artifactName: Eco-Coding-${version}-linux-x64.${ext}
+  artifactName: Mori-${version}-linux-x64.${ext}
 
 nsis:
   oneClick: false

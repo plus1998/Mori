@@ -13,16 +13,16 @@ import {
 
 test("detects installed Eco only in the caller's ancestor chain", () => {
   const run = () => `
-    10 1 /Applications/Eco Coding.app/Contents/MacOS/Eco Coding
-    11 10 /Applications/Eco Coding.app/Contents/Frameworks/Eco Coding Helper.app/Contents/MacOS/Eco Coding Helper
+    10 1 /Applications/Mori.app/Contents/MacOS/Mori
+    11 10 /Applications/Mori.app/Contents/Frameworks/Mori Helper.app/Contents/MacOS/Mori Helper
     12 11 /bin/zsh
     13 12 /opt/homebrew/bin/bun
     20 1 /System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal
     21 20 /bin/zsh
-    30 1 /repo/Eco Coding Dev.app/Contents/MacOS/Electron
+    30 1 /repo/Mori Dev.app/Contents/MacOS/Electron
     31 30 /bin/zsh
-    40 1 /bin/sh -c echo /Applications/Eco Coding.app/Contents/MacOS/Eco Coding
-    50 1 /Applications/Eco Coding.app.backup/Contents/MacOS/Eco Coding
+    40 1 /bin/sh -c echo /Applications/Mori.app/Contents/MacOS/Mori
+    50 1 /Applications/Mori.app.backup/Contents/MacOS/Mori
   `;
   expect(isRunningInsideInstalledApp({ ppid: 13, run })).toBe(true);
   for (const ppid of [1, 21, 31, 40, 50]) {
@@ -107,9 +107,9 @@ function fixture() {
   tempDirs.push(dir);
   const root = path.join(dir, "desktop");
   const applicationsDir = path.join(dir, "Applications");
-  const source = path.join(root, "release", "mac-arm64", "Eco Coding.app");
-  const target = path.join(applicationsDir, "Eco Coding.app");
-  const executable = path.join("Contents", "MacOS", "Eco Coding");
+  const source = path.join(root, "release", "mac-arm64", "Mori.app");
+  const target = path.join(applicationsDir, "Mori.app");
+  const executable = path.join("Contents", "MacOS", "Mori");
   for (const [app, content] of [
     [source, "new"],
     [target, "old"],
@@ -184,16 +184,16 @@ test("matches only processes executing inside the installed app, not dev or argu
   expect(
     installedAppPids(
       `
-    10 S /Applications/Eco Coding.app/Contents/MacOS/Eco Coding
-    11 S /Applications/Eco Coding.app/Contents/Frameworks/Eco Coding Helper.app/Contents/MacOS/Eco Coding Helper
-    12 S /Applications/Eco Coding Dev.app/Contents/MacOS/Eco Coding
+    10 S /Applications/Mori.app/Contents/MacOS/Mori
+    11 S /Applications/Mori.app/Contents/Frameworks/Mori Helper.app/Contents/MacOS/Mori Helper
+    12 S /Applications/Mori Dev.app/Contents/MacOS/Mori
     13 S /repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron
-    14 S /bin/sh -c echo /Applications/Eco Coding.app/Contents/MacOS/Eco Coding
-    15 S /repo/release/mac-arm64/Eco Coding.app/Contents/MacOS/Eco Coding
-    16 Ss /Applications/Eco Coding.app/Contents/Resources/agent-browser/agent-browser
-    17 Z /Applications/Eco Coding.app/Contents/MacOS/Eco Coding
+    14 S /bin/sh -c echo /Applications/Mori.app/Contents/MacOS/Mori
+    15 S /repo/release/mac-arm64/Mori.app/Contents/MacOS/Mori
+    16 Ss /Applications/Mori.app/Contents/Resources/agent-browser/agent-browser
+    17 Z /Applications/Mori.app/Contents/MacOS/Mori
   `,
-      "/Applications/Eco Coding.app",
+      "/Applications/Mori.app",
     ),
   ).toEqual([10, 11, 16]);
 });
@@ -206,6 +206,7 @@ test("packs, quits production, replaces the bundle and opens the exact installed
     "/usr/libexec/PlistBuddy",
     "/bin/ps",
     "/usr/bin/osascript",
+    "/bin/ps",
     "/bin/ps",
     "/usr/bin/ditto",
     "/usr/bin/open",
@@ -221,12 +222,12 @@ test("packs, quits production, replaces the bundle and opens the exact installed
   ]);
   expect(f.calls.at(-1)?.args).toEqual(["-a", f.target]);
   expect(f.signals).toEqual([]);
-  expect(fs.readdirSync(f.applicationsDir)).toEqual(["Eco Coding.app"]);
+  expect(fs.readdirSync(f.applicationsDir)).toEqual(["Mori.app"]);
 });
 
 test("does not quit any app when production is not running", async () => {
   const f = fixture();
-  f.state.psSnapshots = ["42 S /repo/Eco Coding Dev.app/Contents/MacOS/Electron\n"];
+  f.state.psSnapshots = ["42 S /repo/Mori Dev.app/Contents/MacOS/Electron\n"];
   await updateMacArm64(f.options);
   expect(f.calls.some((call) => call.command === "/usr/bin/osascript")).toBe(false);
   expect(f.signals).toEqual([]);
@@ -264,14 +265,14 @@ test("allows the main process to quit normally before cleaning up helpers", asyn
   const f = fixture();
   f.state.psSnapshots.splice(1, 0, `123 S ${path.join(f.target, f.executable)}\n`);
   await updateMacArm64(f.options);
-  expect(f.calls.filter((call) => call.command === "/bin/ps")).toHaveLength(3);
+  expect(f.calls.filter((call) => call.command === "/bin/ps")).toHaveLength(4);
   expect(f.signals).toEqual([]);
 });
 
 test("terminates a bundled daemon left behind after the main process quits", async () => {
   const f = fixture();
   const daemon = `124 Ss ${f.target}/Contents/Resources/agent-browser/agent-browser\n`;
-  const dev = "42 S /repo/Eco Coding Dev.app/Contents/MacOS/Electron\n";
+  const dev = "42 S /repo/Mori Dev.app/Contents/MacOS/Electron\n";
   const main = `123 S ${path.join(f.target, f.executable)}\n`;
   f.state.psSnapshots = [main + daemon + dev, daemon + dev, daemon + dev, dev];
   await updateMacArm64(f.options);
@@ -311,7 +312,7 @@ test("rechecks executable ownership before signaling a PID that has been reused"
   const f = fixture();
   f.state.psSnapshots = [
     `124 S ${f.target}/Contents/Resources/agent-browser/agent-browser\n`,
-    "124 S /repo/Eco Coding Dev.app/Contents/MacOS/Electron\n",
+    "124 S /repo/Mori Dev.app/Contents/MacOS/Electron\n",
   ];
   await updateMacArm64(f.options);
   expect(f.signals).toEqual([]);
@@ -418,4 +419,30 @@ test("rejects non-Apple-Silicon platforms before invoking commands", async () =>
   await expect(updateMacArm64({ ...f.options, platform: "linux" })).rejects.toThrow("仅支持");
   await expect(updateMacArm64({ ...f.options, arch: "x64" })).rejects.toThrow("仅支持");
   expect(f.calls).toHaveLength(0);
+});
+
+test("recognizes an update launched from the old Eco Coding installation", () => {
+  expect(
+    isRunningInsideInstalledApp({
+      ppid: 12,
+      run: () => "10 1 /Applications/Eco Coding.app/Contents/MacOS/Eco Coding\n12 10 /bin/zsh\n",
+    }),
+  ).toBe(true);
+});
+
+test("upgrades an old Eco Coding bundle to Mori with the same application ID", async () => {
+  const f = fixture();
+  const legacy = path.join(f.applicationsDir, "Eco Coding.app");
+  fs.renameSync(f.target, legacy);
+  fs.renameSync(path.join(legacy, f.executable), path.join(legacy, "Contents", "MacOS", "Eco Coding"));
+  const legacyExecutable = path.join(legacy, "Contents", "MacOS", "Eco Coding");
+  f.state.psSnapshots = [`123 S ${legacyExecutable}\n`, `123 S ${legacyExecutable}\n`, ""];
+  await updateMacArm64(f.options);
+  expect(fs.readdirSync(f.applicationsDir)).toEqual(["Mori.app"]);
+  expect(fs.readFileSync(path.join(f.target, f.executable), "utf8")).toBe("new");
+  expect(f.calls.find((call) => call.command === "/usr/bin/osascript")?.args).toEqual([
+    "-e",
+    `tell application ${JSON.stringify(legacy)} to quit`,
+  ]);
+  expect(f.calls.at(-1)?.args).toEqual(["-a", f.target]);
 });

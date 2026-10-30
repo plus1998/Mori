@@ -20,6 +20,10 @@ export function getAppliedCodexThreadConfigFingerprint(client: object, threadId:
   return appliedThreadConfigByClient.get(client)?.get(threadId.trim());
 }
 
+export function forgetAppliedCodexThreadConfig(client: object, threadId: string): void {
+  appliedThreadConfigByClient.get(client)?.delete(threadId.trim());
+}
+
 export function isCodexThreadConfigApplied(
   client: object,
   threadId: string,

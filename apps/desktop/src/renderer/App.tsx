@@ -1,13 +1,20 @@
-import type { ProjectTodo } from "../shared/project-todos";
+import { formatAccelerator } from "../shared/keyboard-shortcuts";
+import { useKeyboardShortcuts, shortcutMatches } from "./keyboard-shortcuts";
+import { MoriIcon } from "./MoriIcon";
+import { MoriAssistantPanel, MoriAssistantSettingsPanel, MoriAssistantSurface } from "./MoriAssistant";
+import { appendProjectTodoReference, type ProjectTodo } from "../shared/project-todos";
 import type { TodoEditorDraft } from "./ProjectTodoPanel";
 import { ReadAloudControls, ReadAloudThreadContext } from "./ReadAloud";
 import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
 import { ComposerReferencesMenu } from "./ComposerReferencesMenu";
 import { useComposerReferences } from "./use-composer-references";
+import { useRevealSelectedThread } from "./use-reveal-selected-thread";
 import { composerReferenceToken } from "../shared/composer-references";
 import { browserSelectionReference, type BrowserSelection } from "../shared/browser-selection";
 import { BrowserSelectionPreview } from "./BrowserSelectionPreview";
-import { FollowUpPromptPreview } from "./FollowUpPromptPreview";
+import { FollowUpQueuePanel } from "./FollowUpQueuePanel";
+import { ComposerPromptCacheBaseline } from "./composer-prompt-cache-baseline";
+import { startTaskPanelResizeSession } from "./task-panel-resize-session";
 import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "./browser-selection-events";
 import { OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID } from "../shared/agent-orchestration";
 import { CodexQuotaReminder } from "./CodexQuotaReminder";
@@ -39,8 +46,8 @@ import {
   GitBranch,
   Globe,
   Globe2,
-  GripVertical,
   HardDrive,
+  Keyboard,
   KeyRound,
   LoaderCircle,
   type LucideIcon,
@@ -212,7 +219,7 @@ import {
   resolvePromptCacheOrchestrationLabel,
 } from "../shared/prompt-cache-config";
 import { resolveDraftCoreKindWhenAcpHidden } from "../shared/resolve-draft-core-kind-when-acp-hidden";
-import type { ScheduleDefinition, ScheduledMessageNewThread } from "../shared/scheduling";
+import type { ScheduleDefinition, ScheduledMessageNewThread, ScheduledPlanApproval } from "../shared/scheduling";
 import {
   dedupeSkillsByName,
   isSkillAvailableForCore,
@@ -361,13 +368,13 @@ import {
   type ThreadRunProjectionMainFeedEntry,
 } from "./conversation-v2-projection-view";
 import { isConversationV2InteractionEffect } from "./conversation-v2-render-priority";
+import { loadConversationV2ProjectionUpdate } from "./conversation-v2-projection-update";
 import {
   applyConversationV2Effects,
   type ConversationV2RendererState,
   catchUpConversationV2RendererState,
   conversationV2ToolRunIdsForHydration,
   installConversationV2Bootstrap,
-  installConversationV2ProjectionExtras,
   mergeConversationV2OlderPage,
   mergeConversationV2ToolPage,
 } from "./conversation-v2-renderer-state";
@@ -383,6 +390,10 @@ import {
   imageGalleryDisplayItem,
   imageGalleryGenerationItem,
 } from "./image-gallery-float-state";
+import {
+  BROWSER_SCREENSHOT_CAPTURED_EVENT,
+  type BrowserScreenshotCaptured,
+} from "./browser-screenshot-events";
 import { ImageLightbox } from "./image-lightbox";
 import {
   LazyActivityLogView,
@@ -395,6 +406,7 @@ import {
   LazyContextWindowSettingsPanel,
   LazyDefaultAgentSettingsPanel,
   LazyGeneralSettingsPanel,
+  LazyKeyboardShortcutsSettings,
   LazyGitSettingsPanel,
   LazyImageGalleryFloat,
   LazyImageGenerationSettingsPanel,
@@ -410,6 +422,7 @@ import {
   LazyProjectTodoPanel,
   LazySkillsSettingsPanel,
   LazyStorageSettingsPanel,
+  LazyUsageSettingsPanel,
   LazySubagentTaskDrawer,
   LazyTerminalPanel,
   LazyTtsSettingsPanel,
@@ -425,6 +438,7 @@ import {
 import { PackageScriptsDialog } from "./PackageScriptsDialog";
 import { PlanApprovalPanel } from "./PlanApprovalPanel";
 import { ProjectSidebarTree } from "./ProjectSidebarTree";
+import { ProjectTerminalSettingsDialog } from "./ProjectTerminalSettingsDialog";
 import { waitForOverlayDismiss } from "./package-script-ui";
 import {
   buildInitialProjectOrder,
@@ -457,6 +471,7 @@ import type { TerminalSessionPresentation } from "./TerminalPanel";
 import { ThreadIdleCacheWarning } from "./ThreadIdleCacheWarning";
 import { OpenTtsArtifactContext, TtsArtifactsContext } from "./TtsArtifactPlayer";
 import { loadTaskPanelReviewDiff } from "./task-panel-review-loader";
+import { normalizeBrowserSplitLayout, type BrowserSplitLayout } from "./browser-split-layout";
 import {
   captureTaskPanelSessionUiState,
   emptyTaskPanelSessionUiState,
@@ -465,7 +480,9 @@ import {
 } from "./task-panel-session-ui-state";
 import {
   addOpenTaskPanelTab,
+  moveOpenTaskPanelTab,
   removeOpenTaskPanelTab,
+  removeOpenTaskPanelTabs,
   replaceOpenTaskPanelTab,
   resolveTaskPanelReopenTab,
 } from "./task-panel-tab-state";
@@ -511,9 +528,9 @@ import {
   type ThinkingDisplayPreferences,
 } from "./thinking-display-preferences";
 import {
-  canEscalateThreadFollowUp,
   mergeThreadFollowUp,
   mergeThreadFollowUps,
+  isLiveFollowUpThreadStatus,
   queuedThreadFollowUps,
   shouldComposerUseFollowUpQueue,
 } from "./thread-follow-up-ui";
@@ -642,7 +659,7 @@ const customProjectNamesStorageKey = "eco.sidebar.custom-project-names";
 const customProjectSearchTermsStorageKey = "eco.sidebar.custom-project-search-terms";
 const compactSidebarMediaQuery = MAIN_SHELL_MEDIA_QUERIES.sidebarOverlay;
 const taskPanelNarrowMediaQuery = MAIN_SHELL_MEDIA_QUERIES.taskOverlay;
-const sidebarThreadsCollapsed = 5;
+const sidebarThreadsPageSize = 10;
 
 interface RecentProject {
   path: string;
@@ -683,8 +700,10 @@ function readStoredProjectSearchTerms(): ProjectSearchTermIndex {
 }
 
 type SettingsSectionId =
+  | "moriAssistant"
   | "preferences"
   | "general"
+  | "keyboardShortcuts"
   | "personalization"
   | "storage"
   | "browser"
@@ -693,6 +712,7 @@ type SettingsSectionId =
   | "tts"
   | "integratedWebSearch"
   | "providers"
+  | "usage"
   | "proxy"
   | "mcp"
   | "centerServer"
@@ -722,7 +742,7 @@ const emptyCenterServerSettings: CenterServerSettingsSnapshot = {
     supabaseUrl: "",
     serverUrl: "",
     hasAnonKey: false,
-    deviceName: "Eco Desktop",
+    deviceName: "Mori Desktop",
     hasDeviceSecret: false,
     hasRefreshToken: false,
     hasVaultKey: false,
@@ -1245,6 +1265,21 @@ function ActivityUserMessageNavigator({
 }
 
 function App() {
+  const [moriOpen, setMoriOpen] = useState(false);
+  const moriOpenRef = useRef(false);
+  useLayoutEffect(() => { moriOpenRef.current = moriOpen; }, [moriOpen]);
+  const moriProjectOpenRef = useRef<(projectPath: string) => void>(() => {});
+  moriProjectOpenRef.current = projectPath => {
+    setMoriOpen(false);
+    setSettingsOpen(false);
+    void handleOpenProjectFromDrop(projectPath);
+  };
+  useEffect(() => {
+    const offOpen = window.eco?.onMoriAssistantOpenRequested?.(() => { setMoriOpen(true); setSettingsOpen(false); setSchedulingOpen(false); });
+    const offTask = window.eco?.onThreadOpenRequested?.(() => setMoriOpen(false));
+    const offProject = window.eco?.onMoriAssistantProjectOpenRequested?.(path => moriProjectOpenRef.current(path));
+    return () => { offOpen?.(); offTask?.(); offProject?.(); };
+  }, []);
   const { t } = useTranslation();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [codexAccountSwitchOpen, setCodexAccountSwitchOpen] = useState(false);
@@ -1261,6 +1296,8 @@ function App() {
     threadId: string;
     definition?: ScheduleDefinition;
     newThread?: ScheduledMessageNewThread;
+    planApproval?: ScheduledPlanApproval;
+    planPrompt?: string;
     draft?: { contextKey: string; prompt: string; attachments: ComposerImageAttachment[] };
   }>();
   const [scheduledMessagesReveal, setScheduledMessagesReveal] = useState<{
@@ -1376,6 +1413,7 @@ function App() {
       {
         label: t("settings.group.general"),
         sections: [
+          { id: "moriAssistant", label: "Mori", icon: MessageCirclePlus, keywords: ["微信", "悬浮球", "助手"] },
           {
             id: "preferences",
             label: t("settings.preferences"),
@@ -1461,12 +1499,14 @@ function App() {
               "请求头",
             ],
           },
+          { id: "keyboardShortcuts", label: "键盘快捷键", icon: Keyboard, keywords: ["快捷键", "键盘", "keyboard", "shortcuts", "hotkeys"] },
         ],
       },
       {
         label: t("settings.group.models"),
         sections: [
           { id: "providers", label: t("settings.providers"), icon: Settings2 },
+          { id: "usage", label: t("usageOverview.title"), icon: Gauge, keywords: ["usage", "tokens", "cost", "用量", "费用", "统计"] },
           {
             id: "orchestrationComponents",
             label: t("settings.orchestrationComponents"),
@@ -1555,7 +1595,9 @@ function App() {
   const [projectWorkspace, setProjectWorkspace] = useState<WorkspaceInfo>();
   const [selectedProjectPath, setSelectedProjectPath] = useState<string>();
   const [collapsedProjectPaths, setCollapsedProjectPaths] = useState<Set<string>>(() => new Set());
-  const [expandedProjectThreadPaths, setExpandedProjectThreadPaths] = useState<Set<string>>(() => new Set());
+  const [projectThreadVisibleCounts, setProjectThreadVisibleCounts] = useState<Map<string, number>>(
+    () => new Map(),
+  );
   const [hiddenProjectPaths, setHiddenProjectPaths] = useState<Set<string>>(() => new Set());
   const [pinnedProjectPaths, setPinnedProjectPaths] = useState<Set<string>>(() => new Set());
   const [pinnedThreadIds, setPinnedThreadIds] = useState<Set<string>>(() => new Set());
@@ -1620,8 +1662,8 @@ function App() {
     });
   }, []);
 
-  // Import a Supabase project from an eco://connect deep link
-  // (eco://connect?url=...&token=...). Opens the connection panel where a
+  // Import a Supabase project from an mori://connect deep link
+  // (mori://connect?url=...&token=...). Opens the connection panel where a
   // confirmation dialog is shown.
   useEffect(() => {
     if (!window.eco?.onEcoDeepLinkOpen) {
@@ -1718,6 +1760,7 @@ function App() {
   const [followUpsByThread, setFollowUpsByThread] = useState<Record<string, ThreadPendingFollowUp[]>>({});
   const [followUpBusy, setFollowUpBusy] = useState(false);
   const [followUpCancelBusyId, setFollowUpCancelBusyId] = useState<string>();
+  const [followUpToTodoBusyId, setFollowUpToTodoBusyId] = useState<string>();
   const [followUpEscalateBusyId, setFollowUpEscalateBusyId] = useState<string>();
   const [followUpQueuePauseBusy, setFollowUpQueuePauseBusy] = useState(false);
   const followUpQueuePauseRevisionRef = useRef<Record<string, number>>({});
@@ -2011,22 +2054,17 @@ function App() {
       }
       conversationV2ProjectionExtrasNextAllowedRef.current.set(threadId, now + 1000);
       conversationV2ProjectionExtrasInFlightRef.current.add(threadId);
-      void api
-        .conversationV2Projection(threadId)
-        .then((extras) => {
+      void loadConversationV2ProjectionUpdate(current, api, () => conversationV2ByThreadRef.current[threadId])
+        .then((next) => {
           const latest = conversationV2ByThreadRef.current[threadId];
           if (!latest || latest.storeEpoch !== current.storeEpoch) {
             return;
           }
-          const next = installConversationV2ProjectionExtras(latest, extras);
+          // Tool/message rows and the status replacing the old tail commit
+          // together; publishing newer extras over an older live batch leaves
+          // a blank frame between argument completion and the tool row.
           startTransition(() => {
-            setConversationV2ByThread((states) => {
-              const state = states[threadId];
-              if (!state || state.storeEpoch !== next.storeEpoch || state.appliedSeq !== next.appliedSeq) {
-                return state && state.appliedSeq > next.appliedSeq ? states : { ...states, [threadId]: next };
-              }
-              return { ...states, [threadId]: next };
-            });
+            if (mergeConversationV2LoadedState(threadId, next)) queueConversationV2Recovery(threadId);
           });
         })
         .catch((error: unknown) => {
@@ -2039,7 +2077,7 @@ function App() {
           }
         });
     },
-    [],
+    [mergeConversationV2LoadedState, queueConversationV2Recovery],
   );
   const recentlyViewedThreadIdsRef = useRef<string[]>([]);
   const projectionEvictTimersRef = useRef(new Map<string, number>());
@@ -2209,6 +2247,7 @@ function App() {
     defaultNotificationSettings(),
   );
   const [scriptsDialogOpen, setScriptsDialogOpen] = useState(false);
+  const [terminalSettingsProject, setTerminalSettingsProject] = useState<{ path: string; name: string }>();
   const [packageScriptArgsRevision, setPackageScriptArgsRevision] = useState(0);
   const [packageScripts, setPackageScripts] = useState<PackageScriptsListResult>();
   const [storedTerminalByProject] = useState<TerminalWorkspaceState>(() => readTerminalWorkspaceState());
@@ -2236,6 +2275,7 @@ function App() {
   imageDisplayArtifactsByThreadRef.current = imageDisplayArtifactsByThread;
   const [imageGalleryQueue, setImageGalleryQueue] = useState<ImageGalleryQueueItem[]>([]);
   const [imageGalleryOpen, setImageGalleryOpen] = useState(false);
+  const [imageGalleryFocusKey, setImageGalleryFocusKey] = useState<string>();
   /** 已入队过的画廊项（按 key 去重，保证每次工具调用只触发一次悬浮窗）。 */
   const imageGalleryEnqueuedRef = useRef<Set<string>>(new Set());
   const activeThreadIdRef = useRef<string | undefined>(undefined);
@@ -2268,6 +2308,9 @@ function App() {
   const [selectedSubagentAgentId, setSelectedSubagentAgentId] = useState<string>();
   const [taskPanelActiveTab, setTaskPanelActiveTab] = useState<TaskPanelActiveTab>(TASK_PANEL_HOME_TAB_ID);
   const [openTaskPanelTabIds, setOpenTaskPanelTabIds] = useState<TaskPanelActiveTab[]>([]);
+  const [browserSplit, setBrowserSplit] = useState<BrowserSplitLayout>();
+  const [browserSplitBusy, setBrowserSplitBusy] = useState(false);
+  const browserSplitRequestRef = useRef(0);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [taskPanelLayoutPresent, setTaskPanelLayoutPresent] = useState(false);
   const [taskPanelExiting, setTaskPanelExiting] = useState(false);
@@ -2280,9 +2323,9 @@ function App() {
   const [activityMessageNavSpaceVisible, setActivityMessageNavSpaceVisible] = useState(false);
   const prefersReducedMotion = useReducedMotion();
   const taskPanelAnimationControls = useAnimationControls();
-  const taskPanelResizeRef = useRef<{ startX: number; startWidth: number } | undefined>(undefined);
+  const taskPanelResizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const mainPaneRef = useRef<HTMLDivElement>(null);
-  const pendingTaskPanelTabCloseRef = useRef<TaskPanelActiveTab | undefined>(undefined);
+  const pendingTaskPanelTabsCloseRef = useRef<readonly TaskPanelActiveTab[] | undefined>(undefined);
   const taskPanelCloseRequestRef = useRef(0);
   const taskPanelClosingRef = useRef(false);
   const taskDrawerOpenRef = useRef(false);
@@ -2324,6 +2367,7 @@ function App() {
     activeTab: taskPanelActiveTab,
     openTabIds: openTaskPanelTabIds,
     fullscreen: taskPanelFullscreen,
+    ...(browserSplit ? { browserSplit } : {}),
     ...(selectedSubagentAgentId ? { selectedSubagentAgentId } : {}),
     ...(fileTarget ? { fileTarget } : {}),
   });
@@ -2396,7 +2440,7 @@ function App() {
   useEffect(
     () =>
       subscribeToWindowFocus((focused) => {
-        if (!focused) {
+        if (!focused || moriOpenRef.current) {
           return;
         }
         const activeThreadId = selectedThreadIdRef.current;
@@ -2415,6 +2459,19 @@ function App() {
       }),
     [],
   );
+
+  useEffect(() => {
+    if (moriOpen || !document.hasFocus()) return;
+    const id = selectedThreadIdRef.current;
+    if (!id) return;
+    setUnreadThreadIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      window.localStorage.setItem(unreadThreadsStorageKey, JSON.stringify([...next]));
+      return next;
+    });
+  }, [moriOpen]);
 
   useEffect(() => {
     if (!window.eco) {
@@ -2541,14 +2598,6 @@ function App() {
         window.localStorage.setItem(collapsedProjectsStorageKey, JSON.stringify([...next]));
         return next;
       });
-      setExpandedProjectThreadPaths((current) => {
-        if (current.has(thread.workspacePath)) {
-          return current;
-        }
-        const next = new Set(current);
-        next.add(thread.workspacePath);
-        return next;
-      });
       setSidebarRevealTarget((current) => ({
         kind: "thread",
         id: thread.id,
@@ -2601,7 +2650,7 @@ function App() {
           eco.showThreadClarificationNotification({
             threadId,
             toolUseId,
-            threadSelected: selectedThreadIdRef.current === threadId,
+            threadSelected: !moriOpenRef.current && selectedThreadIdRef.current === threadId,
           }),
           "clarification",
         );
@@ -2850,7 +2899,7 @@ function App() {
       } else if (event.type === "thread.completed") {
         clearPendingPlanForThread(event.threadId);
         const activelyViewed = isThreadActivelyViewed(
-          selectedThreadIdRef.current,
+          moriOpenRef.current ? undefined : selectedThreadIdRef.current,
           event.threadId,
           document.hasFocus(),
         );
@@ -2869,7 +2918,7 @@ function App() {
         reportDesktopNotification(
           window.eco!.showThreadCompletionNotification({
             threadId: event.threadId,
-            threadSelected: selectedThreadIdRef.current === event.threadId,
+            threadSelected: !moriOpenRef.current && selectedThreadIdRef.current === event.threadId,
           }),
           "task completion",
         );
@@ -2928,7 +2977,7 @@ function App() {
           window.eco!.showThreadApprovalNotification({
             threadId: event.threadId,
             kind: approvalNotificationKind,
-            threadSelected: selectedThreadIdRef.current === event.threadId,
+            threadSelected: !moriOpenRef.current && selectedThreadIdRef.current === event.threadId,
           }),
           `${approvalNotificationKind} approval`,
         );
@@ -3540,13 +3589,14 @@ function App() {
       if (homeProjectPath && isHomeProjectPath(project.path, homeProjectPath)) {
         continue;
       }
-      // Prefer the user's custom name; a stored name that differs from the path
-      // basename is a custom name persisted from an older version.
+      // Explicit renames win. Retain older stored renames, but regenerate names
+      // produced by the old slash-only basename logic on Windows.
       merged.set(normalizeProjectPath(project.path), {
         ...project,
         name: resolveProjectName(
           project.path,
-          customProjectNames[project.path] ?? project.name,
+          customProjectNames[project.path] ??
+            (isCustomProjectName(project.name, project.path) ? project.name : undefined),
           homeProjectPath,
         ).name,
       });
@@ -3655,12 +3705,20 @@ function App() {
     return grouped;
   }, [pinnedThreadIds, threads]);
 
+  useRevealSelectedThread(
+    selectedThreadId,
+    threadsByProject,
+    projectThreadVisibleCounts,
+    setProjectThreadVisibleCounts,
+    sidebarThreadsPageSize,
+  );
+
   const projectTree = useMemo(
     () =>
       projects.map((project) => {
         const projectThreads = threadsByProject.get(normalizeProjectPath(project.path)) ?? [];
-        const threadsExpanded = expandedProjectThreadPaths.has(project.path);
-        const visibleCount = threadsExpanded ? projectThreads.length : sidebarThreadsCollapsed;
+        const visibleCount =
+          projectThreadVisibleCounts.get(normalizeProjectPath(project.path)) ?? sidebarThreadsPageSize;
         return {
           project: {
             ...project,
@@ -3670,12 +3728,12 @@ function App() {
           projectThreads,
           collapsed: collapsedProjectPaths.has(project.path),
           visibleThreads: projectThreads.slice(0, visibleCount),
-          hasMore: !threadsExpanded && projectThreads.length > visibleCount,
+          hasMore: projectThreads.length > visibleCount,
         };
       }),
     [
       collapsedProjectPaths,
-      expandedProjectThreadPaths,
+      projectThreadVisibleCounts,
       homeProjectPath,
       pinnedProjectPaths,
       projects,
@@ -3871,6 +3929,18 @@ function App() {
   }, [enqueueImageGalleryItems]);
 
   useEffect(() => {
+    const handleScreenshot = (event: Event) => {
+      const detail = (event as CustomEvent<BrowserScreenshotCaptured>).detail;
+      if (!detail?.artifactId || detail.scopeId !== browserScopeIdRef.current) return;
+      const item = imageGalleryDisplayItem(detail.artifactId);
+      enqueueImageGalleryItems([item]);
+      setImageGalleryFocusKey(item.key);
+    };
+    window.addEventListener(BROWSER_SCREENSHOT_CAPTURED_EVENT, handleScreenshot);
+    return () => window.removeEventListener(BROWSER_SCREENSHOT_CAPTURED_EVENT, handleScreenshot);
+  }, [enqueueImageGalleryItems]);
+
+  useEffect(() => {
     if (!window.eco?.onHtmlHostArtifactChanged) return;
     return window.eco.onHtmlHostArtifactChanged((artifact) => {
       setHtmlHostArtifactsByThread((current) => {
@@ -3885,11 +3955,12 @@ function App() {
   useEffect(() => {
     activeThreadIdRef.current = activeThread?.id;
   }, [activeThread?.id]);
-  // 切换会话时清空画廊队列（其他会话的图片仍保留在各自 cards）。
+  // 切换浏览器作用域时清空画廊队列（会话图片仍保留在各自 cards）。
   useEffect(() => {
     setImageGalleryQueue([]);
     setImageGalleryOpen(false);
-  }, [selectedThreadId]);
+    setImageGalleryFocusKey(undefined);
+  }, [browserScopeId]);
   // 队列清空后自动收起悬浮窗，图片回到 cards。
   useEffect(() => {
     if (imageGalleryOpen && imageGalleryQueue.length === 0) {
@@ -4192,23 +4263,6 @@ function App() {
     storedTerminalByProject,
     terminalLifecycleEpoch,
   ]);
-  useEffect(() => {
-    if (!currentProjectPath) {
-      return undefined;
-    }
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "`" && event.key !== "~") {
-        return;
-      }
-      if (!event.ctrlKey && !event.metaKey) {
-        return;
-      }
-      event.preventDefault();
-      toggleTerminalForCurrentProject();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [currentProjectPath, toggleTerminalForCurrentProject]);
   const activeComposerRewindTarget =
     activeThread && composerRewindTarget?.threadId === activeThread.id ? composerRewindTarget : undefined;
   useEffect(() => {
@@ -5018,23 +5072,12 @@ function App() {
         if (!hasCompleteOrchestrationSelection(orchestrationSelection)) {
           return undefined;
         }
-        const workflowDefaults =
-          options?.planModeOverride === undefined
-            ? {
-                ...defaults,
-                ...(rememberedMcpServersEnabled ? { mcpServersEnabled: rememberedMcpServersEnabled } : {}),
-                ...(rememberedIntegrationsEnabled
-                  ? { integrationsEnabled: rememberedIntegrationsEnabled }
-                  : {}),
-              }
-            : {
-                ...defaults,
-                sessionMode: options.planModeOverride ? ("plan" as const) : ("agent" as const),
-                ...(rememberedMcpServersEnabled ? { mcpServersEnabled: rememberedMcpServersEnabled } : {}),
-                ...(rememberedIntegrationsEnabled
-                  ? { integrationsEnabled: rememberedIntegrationsEnabled }
-                  : {}),
-              };
+        const workflowDefaults = {
+          ...defaults,
+          sessionMode: options?.planModeOverride ? ("plan" as const) : ("agent" as const),
+          ...(rememberedMcpServersEnabled ? { mcpServersEnabled: rememberedMcpServersEnabled } : {}),
+          ...(rememberedIntegrationsEnabled ? { integrationsEnabled: rememberedIntegrationsEnabled } : {}),
+        };
         return buildThreadRuntimeConfigFromDefaults({
           settings,
           workflowDefaults,
@@ -5079,7 +5122,7 @@ function App() {
             : !keepDraftModel && (current?.cursorModelId ?? workflowSettings.acpCursorModelId)
               ? { cursorModelId: current?.cursorModelId ?? workflowSettings.acpCursorModelId }
               : {}),
-          sessionMode: current?.sessionMode ?? workflowSettings.sessionMode,
+          sessionMode: current?.sessionMode ?? "agent",
           bashReviewMode: current?.bashReviewMode ?? "always",
           ...(current?.subagentEnabled ? { subagentEnabled: current.subagentEnabled } : {}),
           ...((current?.auxiliaryModel ?? workflowSettings.defaultAuxiliaryModel)
@@ -5138,7 +5181,6 @@ function App() {
     settings.mainAgentPrompts,
     settings.subagentOrchestrations,
     workflowSettings.acpCursorModelId,
-    workflowSettings.sessionMode,
   ]);
 
   const selectedOrchestrationSnapshot = useMemo(
@@ -5219,7 +5261,7 @@ function App() {
       });
       return buildAcpThreadRuntimeConfig({
         ...(resolvedCursorModelId ? { cursorModelId: resolvedCursorModelId } : {}),
-        sessionMode: base?.sessionMode ?? workflowSettings.sessionMode,
+        sessionMode: base?.sessionMode ?? "agent",
         bashReviewMode:
           base?.bashReviewMode ?? normalizeBashReviewMode(workflowSettings.defaultBashReviewMode),
         ...(base?.subagentEnabled ? { subagentEnabled: base.subagentEnabled } : {}),
@@ -5258,7 +5300,7 @@ function App() {
         base ??
         buildThreadRuntimeConfigFromDefaults({
           settings,
-          workflowDefaults: workflowSettings,
+          workflowDefaults: { ...workflowSettings, sessionMode: "agent" },
           orchestrationSelection: selection,
           mcpServers: mcpSettings.servers,
         });
@@ -5514,8 +5556,9 @@ function App() {
   const autoCompactSuspended = isThreadAutoCompactSuspended(runProjection);
   const promptCacheInvalidated =
     promptCacheTipPreferences.enabled && isThreadPromptCacheInvalidated(runProjection);
-  const promptCacheBaselineByThreadRef = useRef<Record<string, ThreadRuntimeConfig>>({});
+  const promptCacheBaselineByThreadRef = useRef(new ComposerPromptCacheBaseline());
   const [promptCacheBaselineVersion, setPromptCacheBaselineVersion] = useState(0);
+  const latestPromptCacheAttemptId = runProjection?.attempts.at(-1)?.attemptId;
 
   useEffect(() => {
     const threadId = activeThread?.id;
@@ -5523,19 +5566,18 @@ function App() {
     if (!threadId || !runtimeConfig || !runProjection?.timeline.length) {
       return;
     }
-    if (promptCacheBaselineByThreadRef.current[threadId]) {
+    if (!promptCacheBaselineByThreadRef.current.observe(threadId, runtimeConfig, latestPromptCacheAttemptId)) {
       return;
     }
-    promptCacheBaselineByThreadRef.current[threadId] = runtimeConfig;
     setPromptCacheBaselineVersion((current) => current + 1);
-  }, [activeThread?.id, activeThread?.runtimeConfig, runProjection?.timeline.length]);
+  }, [activeThread?.id, activeThread?.runtimeConfig, latestPromptCacheAttemptId, runProjection?.timeline.length]);
 
   const composerPromptCacheDrift = useMemo(() => {
     const threadId = activeThread?.id;
     if (!threadId || !composerRuntimeConfig || !runProjection?.timeline.length) {
       return null;
     }
-    const baseline = promptCacheBaselineByThreadRef.current[threadId];
+    const baseline = promptCacheBaselineByThreadRef.current.get(threadId);
     if (!baseline) {
       return null;
     }
@@ -6003,14 +6045,20 @@ function App() {
     }
 
     if (prevThreadId) {
-      taskPanelUiByThreadRef.current[prevThreadId] = liveTaskPanelUiRef.current;
+      const closing = pendingTaskPanelTabsCloseRef.current ?? [];
+      const saved = liveTaskPanelUiRef.current;
+      taskPanelUiByThreadRef.current[prevThreadId] = {
+        ...saved,
+        openTabIds: saved.openTabIds.filter((id) => !closing.includes(id)),
+        activeTab: closing.includes(saved.activeTab) ? TASK_PANEL_HOME_TAB_ID : saved.activeTab,
+      };
     }
 
     taskPanelAnimationControls.stop();
     taskPanelCloseRequestRef.current += 1;
     taskPanelClosingRef.current = false;
     setTaskPanelExiting(false);
-    pendingTaskPanelTabCloseRef.current = undefined;
+    pendingTaskPanelTabsCloseRef.current = undefined;
 
     let restored: TaskPanelSessionUiState;
     if (
@@ -6029,6 +6077,9 @@ function App() {
 
     setTaskPanelActiveTab(restored.activeTab);
     setOpenTaskPanelTabIds(restored.openTabIds);
+    setBrowserSplit(restored.browserSplit);
+    browserSplitRequestRef.current += 1;
+    setBrowserSplitBusy(false);
     setSelectedSubagentAgentId(restored.selectedSubagentAgentId);
     setTaskPanelFullscreen(restored.open && restored.fullscreen);
 
@@ -6082,7 +6133,14 @@ function App() {
     taskPanelClosingRef.current = false;
     // Cancel parallel exit reflow immediately so the panel returns to grid flow.
     setTaskPanelExiting(false);
-    pendingTaskPanelTabCloseRef.current = undefined;
+    const closingTabs = pendingTaskPanelTabsCloseRef.current;
+    if (closingTabs) {
+      setOpenTaskPanelTabIds((current) => current.filter((id) => !closingTabs.includes(id)));
+      setTaskPanelActiveTab((current) =>
+        closingTabs.includes(current) ? TASK_PANEL_HOME_TAB_ID : current,
+      );
+    }
+    pendingTaskPanelTabsCloseRef.current = undefined;
     taskPanelAnimationControls.stop();
     if (!taskPanelLayoutPresent) {
       taskPanelAnimationControls.set(
@@ -6139,8 +6197,8 @@ function App() {
         }
         taskPanelClosingRef.current = false;
         setTaskPanelExiting(false);
-        const pendingTabId = pendingTaskPanelTabCloseRef.current;
-        pendingTaskPanelTabCloseRef.current = undefined;
+        const pendingTabIds = pendingTaskPanelTabsCloseRef.current;
+        pendingTaskPanelTabsCloseRef.current = undefined;
         const availableWidth = mainPaneRef.current?.getBoundingClientRect().width;
         const nextLayoutMode = availableWidth
           ? resolveActivityWorkspaceLayoutMode(availableWidth, activityWorkspaceLayoutMode)
@@ -6152,9 +6210,11 @@ function App() {
         setTaskPanelFullscreen(false);
         // Idempotent: covers any late reveal race during the exit spring.
         void window.eco?.browserSetVisible?.({ visible: false });
-        if (pendingTabId) {
-          setOpenTaskPanelTabIds((current) => removeOpenTaskPanelTab(current, pendingTabId).tabs);
-          setTaskPanelActiveTab((current) => (current === pendingTabId ? TASK_PANEL_HOME_TAB_ID : current));
+        if (pendingTabIds) {
+          setOpenTaskPanelTabIds((current) => current.filter((id) => !pendingTabIds.includes(id)));
+          setTaskPanelActiveTab((current) =>
+            pendingTabIds.includes(current) ? TASK_PANEL_HOME_TAB_ID : current,
+          );
           setSelectedSubagentAgentId(undefined);
         }
         if (nextLayoutMode) {
@@ -6439,6 +6499,11 @@ function App() {
     toggleWorkspacePanelForCurrentProject();
   }, [toggleWorkspacePanelForCurrentProject]);
 
+  useEffect(() => {
+    if (!browserScopeReady) return;
+    setBrowserSplit(current => normalizeBrowserSplitLayout(current, openTaskPanelTabIds));
+  }, [browserScopeReady, openTaskPanelTabIds]);
+
   const toggleFileTreeForCurrentProject = useCallback(() => {
     if (!currentProjectPath) {
       return;
@@ -6466,6 +6531,46 @@ function App() {
     setSelectedSubagentAgentId(undefined);
     void window.eco?.browserFocus?.({ browserId, reveal: true });
   }, []);
+
+  const toggleBrowserSplit = useCallback(async (browserId: string) => {
+    if (browserSplit?.browserIds.includes(browserId)) {
+      setBrowserSplit(undefined);
+      return;
+    }
+    const eco = window.eco;
+    const state = browserStateStore.getState();
+    const scopeId = browserScopeIdRef.current;
+    if (!eco || !currentProjectPath || state?.uiScopeId !== scopeId || browserSplitBusy) return;
+    if (!state.instances.some(instance => instance.id === browserId)) return;
+    const otherId = openTaskPanelTabIds.map(id => parseBrowserTaskTabId(id)).find(id =>
+      id && id !== browserId && state.instances.some(instance => instance.id === id));
+    if (otherId) {
+      setBrowserSplit({ browserIds: [browserId, otherId], ratio: 0.5 });
+      return;
+    }
+    const request = ++browserSplitRequestRef.current;
+    setBrowserSplitBusy(true);
+    try {
+      const next = await eco.browserOpen({
+        newBrowser: true, reveal: false,
+        ...(activeThread?.id ? { threadId: activeThread.id } : { workspacePath: currentProjectPath }),
+      });
+      if (request !== browserSplitRequestRef.current || scopeId !== browserScopeIdRef.current || next.uiScopeId !== scopeId) return;
+      const newId = next.focusedBrowserId;
+      if (!newId || newId === browserId) throw new Error(t("browser.split.createFailed"));
+      // Closing the source while its new guest is being created must not revive it.
+      const latest = browserStateStore.getState();
+      if (!latest?.instances.some(instance => instance.id === browserId)) return;
+      setOpenTaskPanelTabIds(current => addOpenTaskPanelTab(current, browserTaskTabId(newId)));
+      setBrowserSplit({ browserIds: [browserId, newId], ratio: 0.5 });
+      // Keep the side from which the user entered split mode focused.
+      if (taskPanelActiveTabRef.current === browserTaskTabId(browserId)) selectBrowserTaskTab(browserId);
+    } catch (error) {
+      showAppMessageError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (request === browserSplitRequestRef.current) setBrowserSplitBusy(false);
+    }
+  }, [activeThread?.id, browserSplit, browserSplitBusy, currentProjectPath, openTaskPanelTabIds, selectBrowserTaskTab, showAppMessageError, t]);
 
   const openBrowserTaskPanel = useCallback(
     (options?: string | { browserId?: string; url?: string; webChatSiteId?: string }) => {
@@ -6560,6 +6665,8 @@ function App() {
     }
     if (taskDrawerOpen) {
       if (taskPanelClosingRef.current) {
+        // Reversing a close-all animation must start fresh, not revive closing tabs.
+        if (pendingTaskPanelTabsCloseRef.current?.length) openBrowserTaskPanel();
         revealTaskPanel();
       } else {
         dismissTaskPanel();
@@ -6611,8 +6718,32 @@ function App() {
     openBrowserTaskPanel();
   }, [currentProjectPath, dismissTaskPanel, openBrowserTaskPanel, taskDrawerOpen, taskPanelActiveTab]);
 
+  function openProjectTodos() {
+    if (!projectTodoDraftRef.current.id && !projectTodoDraftRef.current.text && !projectTodoDraftRef.current.images.length)
+      projectTodoDraftRef.current = { ...projectTodoDraftRef.current, projectPath: currentProjectPath ?? projects[0]?.path ?? "" };
+    setProjectTodosOpen(true);
+  }
+
   menuCommandHandlerRef.current = (command) => {
     switch (command) {
+      case "open-mori":
+        setSettingsOpen(false);
+        setMoriOpen(true);
+        return;
+      case "open-scheduling":
+        setSettingsOpen(false);
+        setSchedulingOpen(true);
+        return;
+      case "open-todos":
+        setSettingsOpen(false);
+        openProjectTodos();
+        return;
+      case "open-search":
+        setSidebarSearchOpen(true);
+        return;
+      case "open-settings":
+        openSettings();
+        return;
       case "new-chat":
         startNewChat();
         return;
@@ -6626,18 +6757,23 @@ function App() {
         setSidebarOpen((current) => !current);
         return;
       case "toggle-bottom-panel":
+        setMoriOpen(false);
         toggleTerminalForCurrentProject();
         return;
       case "toggle-work-panel":
+        setMoriOpen(false);
         toggleWorkPanelForCurrentProject();
         return;
       case "toggle-review-panel":
+        setMoriOpen(false);
         toggleTaskPanelForCurrentProject();
         return;
       case "toggle-file-tree":
+        setMoriOpen(false);
         toggleFileTreeForCurrentProject();
         return;
       case "toggle-browser":
+        setMoriOpen(false);
         toggleBrowserForCurrentProject();
         return;
       default: {
@@ -6745,73 +6881,72 @@ function App() {
     [activeThread?.id, htmlHostArtifactsByThread],
   );
 
-  const closeTaskPanelTab = useCallback(
-    (tabId: TaskPanelActiveTab) => {
-      const result = removeOpenTaskPanelTab(openTaskPanelTabIds, tabId);
-      if (!openTaskPanelTabIds.includes(tabId)) {
-        return;
-      }
-      const browserId = parseBrowserTaskTabId(String(tabId));
-      if (browserId) {
-        // Tab × closes the page for real (Agent target goes away with that WebContents).
+  const closeTaskPanelTabs = useCallback(
+    (tabIds: readonly TaskPanelActiveTab[]) => {
+      const closing = openTaskPanelTabIds.filter((id) => tabIds.includes(id));
+      if (!closing.length) return;
+      const result = removeOpenTaskPanelTabs(openTaskPanelTabIds, closing, taskPanelActiveTab);
+      const closingBrowserIds = closing.flatMap((id) => {
+        const browserId = parseBrowserTaskTabId(id);
+        return browserId ? [browserId] : [];
+      });
+      const splitAffected = browserSplit?.browserIds.some((id) => closingBrowserIds.includes(id));
+      const splitPartner = splitAffected
+        ? browserSplit?.browserIds.find((id) => !closingBrowserIds.includes(id))
+        : undefined;
+      if (splitAffected) setBrowserSplit(undefined);
+      for (const browserId of closingBrowserIds) {
+        // Match tab ×: closing a browser tab destroys its page and Agent target.
         void window.eco?.browserCloseInstance?.({ browserId });
       }
       if (result.tabs.length === 0) {
-        pendingTaskPanelTabCloseRef.current = tabId;
+        pendingTaskPanelTabsCloseRef.current = closing;
         dismissTaskPanel();
         return;
       }
       setOpenTaskPanelTabIds(result.tabs);
-      if (taskPanelActiveTab === tabId) {
-        const fallback = result.fallback;
+      if (closing.includes(taskPanelActiveTab)) {
+        const fallback = splitPartner ? browserTaskTabId(splitPartner) : result.fallback;
         setTaskPanelActiveTab(fallback ?? TASK_PANEL_HOME_TAB_ID);
         setSelectedSubagentAgentId(
           fallback && activeSubagentCards.some((card) => card.key === fallback) ? fallback : undefined,
         );
       }
     },
-    [activeSubagentCards, dismissTaskPanel, openTaskPanelTabIds, taskPanelActiveTab],
+    [activeSubagentCards, browserSplit, dismissTaskPanel, openTaskPanelTabIds, taskPanelActiveTab],
+  );
+
+  const closeTaskPanelTab = useCallback(
+    (tabId: TaskPanelActiveTab) => closeTaskPanelTabs([tabId]),
+    [closeTaskPanelTabs],
   );
 
   const handleTaskPanelResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
-      if (!taskDrawerOpen || event.button !== 0) {
+      if (!taskDrawerOpen || taskPanelFullscreen || event.button !== 0) {
         return;
       }
       event.preventDefault();
-      taskPanelResizeRef.current = {
-        startX: event.clientX,
-        startWidth: taskPanelWidth,
-      };
-      document.body.classList.add("is-resizing-task-panel");
-      event.currentTarget.setPointerCapture(event.pointerId);
+      taskPanelResizeCleanupRef.current?.();
+      const startX = event.clientX;
+      const startWidth = taskPanelWidth;
+      taskPanelResizeCleanupRef.current = startTaskPanelResizeSession({
+        handle: event.currentTarget,
+        pointerId: event.pointerId,
+        onMove: (clientX) => {
+          setTaskPanelWidth(
+            clampTaskPanelWidth(startWidth + (startX - clientX), mainPaneRef.current?.clientWidth),
+          );
+        },
+      });
     },
-    [taskDrawerOpen, taskPanelWidth],
+    [taskDrawerOpen, taskPanelFullscreen, taskPanelWidth],
   );
 
-  const handleTaskPanelResizePointerMove = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    const session = taskPanelResizeRef.current;
-    if (!session) {
-      return;
-    }
-    setTaskPanelWidth(
-      clampTaskPanelWidth(
-        session.startWidth + (session.startX - event.clientX),
-        mainPaneRef.current?.clientWidth,
-      ),
-    );
-  }, []);
-
-  const handleTaskPanelResizePointerEnd = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    if (!taskPanelResizeRef.current) {
-      return;
-    }
-    taskPanelResizeRef.current = undefined;
-    document.body.classList.remove("is-resizing-task-panel");
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
+  useEffect(() => () => {
+    taskPanelResizeCleanupRef.current?.();
+    taskPanelResizeCleanupRef.current = undefined;
+  }, [browserScopeId, currentProjectPath, taskDrawerOpen, taskPanelFullscreen]);
 
   const handleTaskPanelResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
     const step = event.shiftKey ? 48 : 24;
@@ -6885,7 +7020,7 @@ function App() {
         return;
       }
       setError(undefined);
-      await persistComposerRuntimeConfig(next);
+      await persistComposerRuntimeConfig(next, { refreshOrchestrationSnapshot: true });
     } catch (caught) {
       setError(errorMessage(caught));
     }
@@ -8563,12 +8698,6 @@ function App() {
           [activeThread.id]: mergeThreadFollowUps(current[activeThread.id] ?? [], result.followUps),
         }));
         requestActivityFeedForceScroll();
-        // 用户已发送消息，接受当前的 prompt cache 配置漂移
-        const acceptedRuntimeConfig = effectiveComposerRuntimeConfig ?? composerRuntimeConfig;
-        if (acceptedRuntimeConfig) {
-          promptCacheBaselineByThreadRef.current[activeThread.id] = acceptedRuntimeConfig;
-          setPromptCacheBaselineVersion((v) => v + 1);
-        }
         revokeComposerAttachmentPreviews(restoreAttachments);
       } catch (caught) {
         setPrompt(restorePrompt);
@@ -8628,9 +8757,6 @@ function App() {
           });
         }
         requestActivityFeedForceScroll();
-        // 用户已发送消息，接受当前的 prompt cache 配置漂移
-        promptCacheBaselineByThreadRef.current[activeThread.id] = runtimeConfigForSend;
-        setPromptCacheBaselineVersion((v) => v + 1);
       } else {
         const result = await window.eco.startThread({
           workspacePath: currentProjectPath,
@@ -8649,10 +8775,6 @@ function App() {
         if (result.thread.status === "blocked") {
           setError(result.thread.message?.trim() || t("app.configureOrchestration"));
         }
-        // 用户已发送消息，接受当前的 prompt cache 配置漂移
-        promptCacheBaselineByThreadRef.current[result.thread.id] =
-          result.thread.runtimeConfig ?? runtimeConfigForSend;
-        setPromptCacheBaselineVersion((v) => v + 1);
         requestActivityFeedForceScroll();
       }
       revokeComposerAttachmentPreviews(restoreAttachments);
@@ -8726,6 +8848,30 @@ function App() {
       await refreshFollowUpsAfterMutationError(followUp.threadId, caught);
     } finally {
       setFollowUpCancelBusyId(undefined);
+    }
+  }
+
+  async function moveQueuedFollowUpToTodo(followUp: ThreadPendingFollowUp) {
+    if (typeof window.eco?.moveThreadFollowUpToTodo !== "function") {
+      setError(t("app.preload.followUpToTodo"));
+      return;
+    }
+    setError(undefined);
+    setFollowUpToTodoBusyId(followUp.id);
+    try {
+      const result = await window.eco.moveThreadFollowUpToTodo(
+        await buildV2CommandEnvelope(followUp.threadId, "move-to-todo", { followUpId: followUp.id }),
+      );
+      setFollowUpsByThread(current => ({
+        ...current,
+        [followUp.threadId]: mergeThreadFollowUps(current[followUp.threadId] ?? [], result.followUps),
+      }));
+      if (editingFollowUpId === followUp.id) await cancelEditingFollowUp();
+      showAppMessageSuccessRef.current(t("thread.followUpMovedToTodo"));
+    } catch (caught) {
+      await refreshFollowUpsAfterMutationError(followUp.threadId, caught);
+    } finally {
+      setFollowUpToTodoBusyId(undefined);
     }
   }
 
@@ -9712,7 +9858,7 @@ function App() {
 
   async function persistComposerRuntimeConfig(
     next: ThreadRuntimeConfig,
-    options?: { persistWhileRunning?: boolean },
+    options?: { persistWhileRunning?: boolean; refreshOrchestrationSnapshot?: boolean },
   ): Promise<boolean> {
     if (!activeThread) {
       setComposerRuntimeConfig(next);
@@ -9733,6 +9879,7 @@ function App() {
       const result = await window.eco.updateThreadRuntimeConfig(
         await buildV2CommandEnvelope(activeThread.id, "runtime-config", {
           runtimeConfig: next,
+          ...(options?.refreshOrchestrationSnapshot ? { refreshOrchestrationSnapshot: true } : {}),
         }),
       );
       setThreads((current) =>
@@ -9776,7 +9923,7 @@ function App() {
     if (!hasCompleteOrchestrationSelection(nextSelection)) {
       const partialBase = composerRuntimeConfig ?? {
         subagentEnabled: defaultSubagentAvailability(),
-        sessionMode: workflowSettings.sessionMode ?? "agent",
+        sessionMode: "agent",
         bashReviewMode: normalizeBashReviewMode(workflowSettings.defaultBashReviewMode),
       };
       const { resolvedOrchestrationSnapshot: _removed, ...base } = partialBase;
@@ -9803,7 +9950,7 @@ function App() {
       composerRuntimeConfig ??
       buildThreadRuntimeConfigFromDefaults({
         settings,
-        workflowDefaults: workflowSettings,
+        workflowDefaults: { ...workflowSettings, sessionMode: "agent" },
         orchestrationSelection: nextSelection,
         mcpServers: mcpSettings.servers,
       });
@@ -9863,7 +10010,7 @@ function App() {
       composerRuntimeConfig ??
       (composerCoreKind === "acp"
         ? buildAcpThreadRuntimeConfig({
-            sessionMode: workflowSettings.sessionMode,
+            sessionMode: "agent",
             ...(workflowSettings.acpCursorModelId
               ? { cursorModelId: workflowSettings.acpCursorModelId }
               : {}),
@@ -9895,7 +10042,7 @@ function App() {
       composerRuntimeConfig ??
       (composerCoreKind === "acp"
         ? buildAcpThreadRuntimeConfig({
-            sessionMode: workflowSettings.sessionMode,
+            sessionMode: "agent",
             ...(workflowSettings.acpCursorModelId
               ? { cursorModelId: workflowSettings.acpCursorModelId }
               : {}),
@@ -9927,7 +10074,7 @@ function App() {
       composerRuntimeConfig ??
       (composerCoreKind === "acp"
         ? buildAcpThreadRuntimeConfig({
-            sessionMode: workflowSettings.sessionMode,
+            sessionMode: "agent",
             ...(workflowSettings.acpCursorModelId
               ? { cursorModelId: workflowSettings.acpCursorModelId }
               : {}),
@@ -9961,7 +10108,7 @@ function App() {
     const base =
       composerRuntimeConfig ??
       buildAcpThreadRuntimeConfig({
-        sessionMode: workflowSettings.sessionMode,
+        sessionMode: "agent",
         ...(workflowSettings.acpCursorModelId ? { cursorModelId: workflowSettings.acpCursorModelId } : {}),
         ...(workflowSettings.defaultAuxiliaryModel
           ? { auxiliaryModel: workflowSettings.defaultAuxiliaryModel }
@@ -10093,19 +10240,7 @@ function App() {
       return;
     }
     const next: ThreadRuntimeConfig = withSessionMode(composerRuntimeConfig, sessionMode);
-    if (!(await persistComposerRuntimeConfig(next))) return;
-    if (!window.eco?.saveWorkflowSettings) {
-      return;
-    }
-    try {
-      const saved = await window.eco.saveWorkflowSettings({
-        ...workflowSettings,
-        sessionMode: next.sessionMode,
-      });
-      setWorkflowSettings(saved);
-    } catch (caught) {
-      setError(errorMessage(caught));
-    }
+    await persistComposerRuntimeConfig(next);
   }
 
   async function toggleComposerBashReviewMode(bashReviewMode: ThreadRuntimeConfig["bashReviewMode"]) {
@@ -10397,7 +10532,7 @@ function App() {
 
   async function checkMcpServer(input: McpServerConfigInput): Promise<McpServerCheckResult> {
     if (!window.eco) {
-      throw new Error("Eco desktop API is not available.");
+      throw new Error("Mori desktop API is not available.");
     }
     return window.eco.checkMcpServer(input);
   }
@@ -10621,6 +10756,7 @@ function App() {
   }
 
   function activateWorkspace(nextWorkspace: WorkspaceInfo) {
+    setMoriOpen(false);
     setWorkspace(nextWorkspace);
     setSelectedProjectPath(nextWorkspace.path);
     registerImportedProject(nextWorkspace.path);
@@ -10780,12 +10916,13 @@ function App() {
       window.localStorage.setItem(collapsedProjectsStorageKey, JSON.stringify([...next]));
       return next;
     });
-    setExpandedProjectThreadPaths((current) => {
-      if (!current.has(projectPath)) {
+    setProjectThreadVisibleCounts((current) => {
+      const projectPathKey = normalizeProjectPath(projectPath);
+      if (!current.has(projectPathKey)) {
         return current;
       }
-      const next = new Set(current);
-      next.delete(projectPath);
+      const next = new Map(current);
+      next.delete(projectPathKey);
       return next;
     });
     setSelectedProjectPath((current) => (current === projectPath ? undefined : current));
@@ -10814,6 +10951,7 @@ function App() {
   }
 
   function switchProject(nextPath: string) {
+    setMoriOpen(false);
     const leavingThread = Boolean(selectedThreadIdRef.current);
     const sameProject = nextPath === currentProjectPath || nextPath === selectedProjectPath;
     setSelectedProjectPath(nextPath);
@@ -10849,6 +10987,7 @@ function App() {
   }
 
   function selectThread(thread: ThreadSummary) {
+    setMoriOpen(false);
     setUnreadThreadIds((current) => {
       if (!current.has(thread.id)) {
         return current;
@@ -10871,11 +11010,6 @@ function App() {
       window.localStorage.setItem(collapsedProjectsStorageKey, JSON.stringify([...next]));
       return next;
     });
-    const projectThreads = threadsByProject.get(thread.workspacePath) ?? [];
-    const threadIndex = projectThreads.findIndex((item) => item.id === thread.id);
-    if (threadIndex >= sidebarThreadsCollapsed) {
-      expandProjectThreads(thread.workspacePath);
-    }
   }
 
   function selectSearchThread(thread: ThreadSummary) {
@@ -10966,13 +11100,10 @@ function App() {
   }
 
   function expandProjectThreads(projectPath: string) {
-    setExpandedProjectThreadPaths((current) => {
-      if (current.has(projectPath)) {
-        return current;
-      }
-      const next = new Set(current);
-      next.add(projectPath);
-      return next;
+    setProjectThreadVisibleCounts((current) => {
+      const projectPathKey = normalizeProjectPath(projectPath);
+      const visibleCount = current.get(projectPathKey) ?? sidebarThreadsPageSize;
+      return new Map(current).set(projectPathKey, visibleCount + sidebarThreadsPageSize);
     });
   }
 
@@ -10990,6 +11121,7 @@ function App() {
   }
 
   function startNewChat() {
+    setMoriOpen(false);
     const leavingThread = Boolean(selectedThreadIdRef.current);
     const editingThreadId = editingFollowUpThreadIdRef.current;
     setComposerRoutePopoverOpen(false);
@@ -11035,8 +11167,8 @@ function App() {
       registerImportedProject(todo.projectPath);
     }
     const contextKey = composerContextKeyFromParts(threadId, todo.projectPath)!;
-    // Flush the target draft before replacing it. Preserve its text and original
-    // images as a separate to-do, so one-click composing never destroys work.
+    // Persist the target draft before appending an atomic reference; retain its
+    // existing text and images in the same composer.
     if (composerDraftSaveTimerRef.current?.key === contextKey) {
       window.clearTimeout(composerDraftSaveTimerRef.current.timer);
       composerDraftSaveTimerRef.current = undefined;
@@ -11046,32 +11178,14 @@ function App() {
       : composerDraftsByKeyRef.current[contextKey];
     if (memory) await api.saveComposerDraft({ contextKey, prompt: memory.prompt, attachments: toPromptImageAttachments(memory.attachments) });
     const previous = await api.getComposerDraft(contextKey);
-    let preserved = false;
-    if (previous && (previous.prompt.trim() || previous.attachments?.length)) {
-      const images = await hydrateComposerImageAttachments(fromPromptImageAttachments(previous.attachments ?? []), contextKey, request => api.readPromptImageChunk(request));
-      try {
-        const matchesTodo = previous.prompt === todo.text && images.length === todo.images.length &&
-          images.every((image, index) => image.mediaType === todo.images[index]?.mediaType && image.data === todo.images[index]?.data);
-        if (!matchesTodo) {
-          const { createTodoImage } = await import("./project-todo-images");
-          await api.saveProjectTodo({ projectPath: todo.projectPath, text: previous.prompt, completed: false,
-            images: await Promise.all(images.map(image => {
-              if (!image.data) throw new Error(t("todos.draftSaveFailed"));
-              return createTodoImage(image.id, image.mediaType, image.data);
-            })),
-          });
-          preserved = true;
-        }
-      } finally { revokeComposerAttachmentPreviews(images); }
-    }
-    const attachments = todo.images.map(image => {
-      if (!image.data) throw new Error(t("todos.imageInvalid"));
-      return { mediaType: image.mediaType, data: image.data };
-    });
-    await api.saveComposerDraft({ contextKey, prompt: todo.text, attachments });
+    const nextPrompt = appendProjectTodoReference(previous?.prompt ?? "", todo);
+    const attachments = previous?.attachments ?? [];
+    const nextAttachments = await hydrateComposerImageAttachments(
+      fromPromptImageAttachments(attachments), contextKey, request => api.readPromptImageChunk(request),
+    );
+    await api.saveComposerDraft({ contextKey, prompt: nextPrompt, attachments });
     await api.markProjectTodoComposed({ id: todo.id, revision: todo.revision });
-    const nextAttachments = fromPromptImageAttachments(attachments);
-    composerDraftsByKeyRef.current[contextKey] = { prompt: todo.text, attachments: nextAttachments };
+    composerDraftsByKeyRef.current[contextKey] = { prompt: nextPrompt, attachments: nextAttachments };
     ++composerDraftLoadRequestRef.current;
     const sameContext = composerContextKeyRef.current === contextKey;
     if (targetThread) {
@@ -11082,17 +11196,15 @@ function App() {
     }
     if (sameContext) {
       revokeComposerAttachmentPreviews(composerAttachmentsRef.current);
-      composerPromptRef.current = todo.text;
-      setPrompt(todo.text);
+      composerPromptRef.current = nextPrompt;
+      setPrompt(nextPrompt);
       setComposerAttachments(nextAttachments);
       setComposerImageNotice(undefined);
     }
     projectTodoComposerFocusRef.current = true;
     setProjectTodosOpen(false);
     if (!targetThread) requestSidebarReveal("project", todo.projectPath);
-    showAppMessageSuccessRef.current(t(targetThread
-      ? preserved ? "todos.existingDraftPreserved" : "todos.composedExisting"
-      : preserved ? "todos.draftPreserved" : "todos.composed"));
+    showAppMessageSuccessRef.current(t(targetThread ? "todos.composedExisting" : "todos.composed"));
   }
 
   function startNewChatWithPlan(plan: ThreadPendingPlan) {
@@ -11317,12 +11429,15 @@ function App() {
       }
     }
 
-    if (event.key !== "Enter") {
+    if (event.nativeEvent.isComposing) return;
+    if (shortcutMatches(event, "composer-newline")) {
+      event.preventDefault();
+      insertComposerNewline();
       return;
     }
     // Follow-up mode: ⌘↩ does the opposite of the default delivery (queue ↔ steer).
     // ACP has no mid-turn steer; ⌘↩ queues the same as Enter.
-    if (composerFollowUpMode && event.metaKey && !event.shiftKey && !event.altKey) {
+    if (composerFollowUpMode && shortcutMatches(event, "composer-opposite")) {
       event.preventDefault();
       if (!canSend) {
         return;
@@ -11336,13 +11451,7 @@ function App() {
       void sendComposerMessage(undefined, { followUpDeliveryMode: opposite });
       return;
     }
-    if (event.shiftKey || event.metaKey || event.altKey) {
-      if (event.metaKey || event.altKey) {
-        event.preventDefault();
-        insertComposerNewline();
-      }
-      return;
-    }
+    if (!shortcutMatches(event, "composer-send")) return;
     event.preventDefault();
     if (canSend) void sendComposerMessage();
   }
@@ -11591,9 +11700,6 @@ function App() {
           tabIndex={0}
           title={t("app.dragResize")}
           onPointerDown={handleTaskPanelResizePointerDown}
-          onPointerMove={handleTaskPanelResizePointerMove}
-          onPointerUp={handleTaskPanelResizePointerEnd}
-          onPointerCancel={handleTaskPanelResizePointerEnd}
           onKeyDown={handleTaskPanelResizeKeyDown}
         />
         <SuspensePanel>
@@ -11601,6 +11707,10 @@ function App() {
           <TtsArtifactsContext value={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}>
           <LazySubagentTaskDrawer
             browserInstances={browserTaskInstances}
+            browserSplit={browserSplit}
+            browserSplitBusy={browserSplitBusy}
+            onChangeBrowserSplit={setBrowserSplit}
+            onToggleBrowserSplit={browserId => void toggleBrowserSplit(browserId)}
             open={taskPanelLayoutOpen}
             surfaceActive={taskPanelOpen && !taskPanelExiting}
             fullscreen={taskPanelFullscreenOpen}
@@ -11609,6 +11719,9 @@ function App() {
             {...(taskPanelPlan && { plan: taskPanelPlan })}
             activeTab={taskPanelActiveTab}
             openTabIds={openTaskPanelTabIds}
+            onReorderTabs={(source, target, position) =>
+              setOpenTaskPanelTabIds((current) => moveOpenTaskPanelTab(current, source, target, position))
+            }
             {...(runProjection && { projection: runProjection })}
             {...(activeThread && { threadStatus: activeThread.status })}
             agentDisplayNames={activeRuntimeAgentDisplayNames}
@@ -11636,6 +11749,7 @@ function App() {
               setSelectedSubagentAgentId(undefined);
             }}
             onCloseTab={closeTaskPanelTab}
+            onCloseTabs={closeTaskPanelTabs}
             onSelectBackgroundTasks={() => {
               setOpenTaskPanelTabIds((current) =>
                 addOpenTaskPanelTab(current, TASK_PANEL_BACKGROUND_TERMINAL_TAB_ID),
@@ -12145,8 +12259,11 @@ function App() {
                 followUps={queuedFollowUps}
                 editingFollowUpId={editingFollowUpId}
                 queuePaused={Boolean(activeThread?.followUpQueuePaused)}
+                threadActive={isLiveFollowUpThreadStatus(activeThread?.status) && !activeThread?.cancelling}
                 pauseBusy={followUpQueuePauseBusy}
                 cancelBusyId={followUpCancelBusyId}
+                moveToTodoBusyId={followUpToTodoBusyId}
+                onMoveToTodo={(followUp) => void moveQueuedFollowUpToTodo(followUp)}
                 escalateBusyId={followUpEscalateBusyId}
                 allowEscalate={activeThread ? coreSupportsFollowUpEscalate(activeThread.coreKind) : false}
                 onCancel={(followUp) => void cancelQueuedFollowUp(followUp)}
@@ -12190,6 +12307,13 @@ function App() {
                 onApprove={() => void approvePendingPlan()}
                 onStartNewSession={() => startNewChatWithPlan(pendingPlan)}
                 onReviewCode={() => void reviewPendingPlanCode()}
+                onScheduleExecution={() => {
+                  setScheduledMessageEditor({
+                    threadId: pendingPlan.threadId,
+                    planPrompt: pendingPlan.plan,
+                    planApproval: { expectedHistoryRevision: displayProjection?.historyRevision ?? 0 },
+                  });
+                }}
                 onApproveWithSubagent={(agentKey, additionalMessage) =>
                   void approvePendingPlanWithSubagent(agentKey, additionalMessage)
                 }
@@ -12545,6 +12669,8 @@ function App() {
     </div>
   );
 
+  const { bindings: keyboardBindings } = useKeyboardShortcuts();
+
   const isMacWindowChrome = window.eco?.platform === "darwin";
 
   // Electron: sibling `no-drag` cannot punch another element's drag region.
@@ -12595,6 +12721,15 @@ function App() {
       </div>
     </div>
   );
+
+  const renderSidebarShortcut = (id: string) => {
+    const key = keyboardBindings[id]?.[0];
+    return key ? (
+      <kbd className="sidebar-shortcut-hint" aria-hidden="true">
+        {formatAccelerator(key, window.eco?.platform ?? "darwin")}
+      </kbd>
+    ) : null;
+  };
 
   const renderAppLayout = () => (
     <main className={shellClassName}>
@@ -12662,25 +12797,29 @@ function App() {
               }
             }}
           />
-          {/* "新对话" and "打开项目" read as one list; the list itself scrolls so the
-              open-project row travels with the projects instead of staying pinned. */}
+          {/* Only Mori and New Chat stay fixed; utility entries scroll with the projects. */}
           <div className="sidebar-nav-list">
+            <button type="button" className={moriOpen ? "sidebar-action active" : "sidebar-action"} aria-label="Mori" aria-current={moriOpen ? "page" : undefined} onClick={() => setMoriOpen(true)}>
+              <MoriIcon size={20} />
+              Mori
+              {renderSidebarShortcut("open-mori")}
+            </button>
             <button type="button" className="sidebar-action" onClick={startNewChat}>
               <MessageCirclePlus size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
               {t("nav.newThread")}
-            </button>
-            <button type="button" className="sidebar-action muted" onClick={() => setSchedulingOpen(true)}>
-              <Clock3 size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
-              {t("scheduling.title")}
-            </button>
-            <button type="button" className="sidebar-action muted" onClick={() => {
-              if (!projectTodoDraftRef.current.id && !projectTodoDraftRef.current.text && !projectTodoDraftRef.current.images.length) projectTodoDraftRef.current = { ...projectTodoDraftRef.current, projectPath: currentProjectPath ?? projects[0]?.path ?? "" };
-              setProjectTodosOpen(true);
-            }}>
-              <ClipboardList size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
-              {t("todos.title")}
+              {renderSidebarShortcut("new-chat")}
             </button>
             <div className="sidebar-section sidebar-section-grow">
+              <button type="button" className="sidebar-action muted" onClick={() => setSchedulingOpen(true)}>
+                <Clock3 size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
+                {t("scheduling.title")}
+                {renderSidebarShortcut("open-scheduling")}
+              </button>
+              <button type="button" className="sidebar-action muted" onClick={openProjectTodos}>
+                <ClipboardList size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
+                {t("todos.title")}
+                {renderSidebarShortcut("open-todos")}
+              </button>
               <button
                 type="button"
                 className="sidebar-action muted"
@@ -12700,11 +12839,12 @@ function App() {
                   <FolderOpen size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
                 )}
                 {isOpening ? t("nav.opening") : t("nav.openProject")}
+                {renderSidebarShortcut("open-folder")}
               </button>
               <ProjectSidebarTree
                 projectTree={projectTree}
-                currentProjectPath={currentProjectPath}
-                activeThreadId={selectedThreadId}
+                currentProjectPath={moriOpen ? undefined : currentProjectPath}
+                activeThreadId={moriOpen ? undefined : selectedThreadId}
                 revealTarget={sidebarRevealTarget}
                 unreadThreadIds={unreadThreadIds}
                 pinnedThreadIds={pinnedThreadIds}
@@ -12720,6 +12860,7 @@ function App() {
                 onRemoveProject={removeProject}
                 onRenameProject={setCustomProjectName}
                 onResetProjectName={(path) => setCustomProjectName(path, undefined)}
+                onOpenTerminalSettings={(path, name) => setTerminalSettingsProject({ path, name })}
                 customProjectNames={customProjectNames}
                 onPinThread={pinThread}
                 onUnpinThread={unpinThread}
@@ -12803,6 +12944,9 @@ function App() {
       />
 
       <section
+        hidden={moriOpen}
+        inert={moriOpen ? true : undefined}
+        aria-hidden={moriOpen ? true : undefined}
         className={[
           "codex-main",
           showLanding ? "codex-main-landing" : "",
@@ -12844,6 +12988,7 @@ function App() {
                   <LazyImageGalleryFloat
                     key="image-gallery-float"
                     items={imageGalleryQueue}
+                    focusKey={imageGalleryFocusKey}
                     avoidCards={Boolean(showWorkspacePanel && workspaceCardsPanelOpen)}
                     onAdvance={advanceImageGallery}
                     onCloseAll={closeImageGallery}
@@ -13290,6 +13435,21 @@ function App() {
         </div>
       </section>
 
+      {moriOpen ? (
+        <section className="codex-main mori-main-view" aria-label="Mori" inert={settingsOpen ? true : undefined} aria-hidden={settingsOpen ? true : undefined}>
+          <MoriAssistantPanel onClose={() => setMoriOpen(false)} onSettings={() => { setSettingsSection("moriAssistant"); setSettingsOpen(true); }} />
+        </section>
+      ) : null}
+
+      {terminalSettingsProject ? (
+        <ProjectTerminalSettingsDialog
+          key={terminalSettingsProject.path}
+          workspacePath={terminalSettingsProject.path}
+          projectName={terminalSettingsProject.name}
+          onClose={() => setTerminalSettingsProject(undefined)}
+        />
+      ) : null}
+
       {scriptsDialogOpen && currentProjectPath ? (
         <PackageScriptsDialog
           open={scriptsDialogOpen}
@@ -13354,12 +13514,13 @@ function App() {
               key={scheduledMessageEditor.definition?.id ?? scheduledMessageEditor.threadId}
               threadId={scheduledMessageEditor.threadId}
               newThread={scheduledMessageEditor.newThread}
+              planApproval={scheduledMessageEditor.planApproval}
               usesChatGptLogin={scheduledMessageUsesCodexAccount}
-              initialPrompt={scheduledMessageEditor.draft?.prompt}
+              initialPrompt={scheduledMessageEditor.planPrompt ?? scheduledMessageEditor.draft?.prompt}
               initialAttachments={scheduledMessageEditor.draft?.attachments}
               imageContextKey={scheduledMessageEditor.draft?.contextKey}
               definition={scheduledMessageEditor.definition}
-              anchorRef={scheduledMessageEditorOnComposer ? composerAnchorRef : undefined}
+              anchorRef={scheduledMessageEditorOnComposer && !scheduledMessageEditor.planApproval && !scheduledMessageEditor.definition?.planApproval ? composerAnchorRef : undefined}
               triggerRef={composerPlusButtonRef}
               onBack={() => { setScheduledMessageEditor(undefined); setComposerPlusMenuOpen(true); }}
               occurrences={scheduling.snapshot.occurrences}
@@ -13459,7 +13620,7 @@ function App() {
                           }
                           onClick={() => setSettingsSection(section.id)}
                         >
-                          <Icon size={16} />
+                            {section.id === "moriAssistant" ? <MoriIcon size={18} /> : <Icon size={16} />}
                           {section.label}
                         </button>
                       );
@@ -13472,6 +13633,7 @@ function App() {
           <div className="settings-main">
             <div className={settingsSection === "mcp" ? "settings-content is-wide" : "settings-content"}>
               <SuspensePanel>
+                {settingsSection === "moriAssistant" && <MoriAssistantSettingsPanel onDone={() => { setSettingsOpen(false); setMoriOpen(true); }} onOpenComputerUse={() => setSettingsSection("computerUse")} />}
                 {settingsSection === "preferences" && (
                   <LazyNotificationPreferencesPanel
                     settings={notificationSettings}
@@ -13497,6 +13659,8 @@ function App() {
                   />
                 )}
 
+                {settingsSection === "keyboardShortcuts" && <LazyKeyboardShortcutsSettings />}
+
                 {settingsSection === "general" && (
                   <LazyGeneralSettingsPanel
                     theme={appTheme}
@@ -13516,6 +13680,7 @@ function App() {
                 )}
 
                 {settingsSection === "storage" && <LazyStorageSettingsPanel />}
+                {settingsSection === "usage" && <LazyUsageSettingsPanel />}
 
                 {settingsSection === "browser" && (
                   <LazyBrowserSettingsPanel settings={browserSettings} onSave={saveBrowserSettingsSnapshot} />
@@ -13834,6 +13999,7 @@ function App() {
           </div>
         </div>
       )}
+
     </main>
   );
   return <><AppRenderContent render={renderAppLayout} /><BrowserSelectionPreview /></>;
@@ -13928,8 +14094,7 @@ async function loadConversationV2RendererState(
     capabilities.maxBytes,
     syncThrough,
   );
-  const projectionExtras = await api.conversationV2Projection(conversationId);
-  return installConversationV2ProjectionExtras(state, projectionExtras);
+  return loadConversationV2ProjectionUpdate(state, api);
 }
 
 function conversationV2TodosToCoderTodos(state: ConversationV2RendererState): CoderTodoItem[] {
@@ -14114,206 +14279,6 @@ function isThreadLiveEvent(event: unknown): event is ThreadLiveEvent {
   return typeof candidate.threadId === "string" && typeof candidate.message === "string";
 }
 
-function FollowUpQueuePanel({
-  followUps,
-  editingFollowUpId,
-  queuePaused,
-  pauseBusy,
-  cancelBusyId,
-  escalateBusyId,
-  allowEscalate = true,
-  onCancel,
-  onEscalate,
-  onEdit,
-  onReorder,
-  onTogglePause,
-}: {
-  followUps: ThreadPendingFollowUp[];
-  editingFollowUpId: string | undefined;
-  queuePaused: boolean;
-  pauseBusy: boolean;
-  cancelBusyId: string | undefined;
-  escalateBusyId: string | undefined;
-  allowEscalate?: boolean;
-  onCancel: (followUp: ThreadPendingFollowUp) => void;
-  onEscalate: (followUp: ThreadPendingFollowUp) => void;
-  onEdit: (followUp: ThreadPendingFollowUp) => void;
-  onReorder: (followUpIds: string[]) => void;
-  onTogglePause: (paused: boolean) => void;
-}) {
-  const { t } = useTranslation();
-  const [draggedId, setDraggedId] = useState<string>();
-  const editingPaused = Boolean(editingFollowUpId);
-  const showPauseHint = queuePaused || editingPaused;
-  const pauseHint = editingPaused
-    ? t("thread.followUpQueuePausedEditing")
-    : queuePaused
-      ? t("thread.followUpQueuePaused")
-      : null;
-
-  const moveDraggedBefore = (targetId: string) => {
-    if (!draggedId || draggedId === targetId || draggedId === editingFollowUpId) return;
-    const next = followUps.map((followUp) => followUp.id);
-    const from = next.indexOf(draggedId);
-    const to = next.indexOf(targetId);
-    if (from < 0 || to < 0) return;
-    next.splice(to, 0, next.splice(from, 1)[0]!);
-    onReorder(next);
-  };
-  return (
-    <div className="follow-up-queue" aria-label={t("app.queuedGuidance")}>
-      <div className="follow-up-queue-header">
-        {showPauseHint && pauseHint ? (
-          <div className="follow-up-queue-pause-hint" role="status">
-            {pauseHint}
-          </div>
-        ) : (
-          <div className="follow-up-queue-pause-hint follow-up-queue-pause-hint-idle" aria-hidden>
-            {t("thread.followUpQueueActive", { count: followUps.length })}
-          </div>
-        )}
-        <button
-          type="button"
-          className="follow-up-queue-pause-toggle"
-          disabled={pauseBusy}
-          onClick={() => onTogglePause(!queuePaused)}
-          title={queuePaused ? t("thread.followUpQueueResume") : t("thread.followUpQueuePause")}
-          aria-label={queuePaused ? t("thread.followUpQueueResumeAria") : t("thread.followUpQueuePauseAria")}
-        >
-          {pauseBusy ? (
-            <Activity size={12} aria-hidden />
-          ) : queuePaused ? (
-            <Play size={12} aria-hidden />
-          ) : (
-            <Pause size={12} aria-hidden />
-          )}
-          <span>{queuePaused ? t("thread.followUpQueueResume") : t("thread.followUpQueuePause")}</span>
-        </button>
-      </div>
-      <div className="follow-up-queue-rows">
-        {followUps.map((followUp) => {
-          const isEditing = editingFollowUpId === followUp.id;
-          const actionBusy = cancelBusyId === followUp.id || escalateBusyId === followUp.id || isEditing;
-          const isEscalating = escalateBusyId === followUp.id;
-          // Paused queues also let an already-escalated row be clicked: it is stuck
-          // there, so the click means "send this one now".
-          const canEscalate = canEscalateThreadFollowUp({
-            priority: followUp.priority,
-            coreSupportsEscalate: allowEscalate,
-            queuePaused,
-          });
-
-          return (
-            <div
-              key={followUp.id}
-              className={`follow-up-row${draggedId === followUp.id ? " is-dragging" : ""}${isEditing ? " is-editing" : ""}`}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-                moveDraggedBefore(followUp.id);
-                setDraggedId(undefined);
-              }}
-            >
-              <div
-                className="follow-up-card-main follow-up-card-main-editable"
-                role="button"
-                tabIndex={actionBusy ? -1 : 0}
-                aria-label={isEditing ? t("thread.followUpEditing") : t("thread.editFollowUpAria")}
-                title={isEditing ? t("thread.followUpEditing") : t("thread.editFollowUp")}
-                onClick={() => {
-                  if (!actionBusy) {
-                    onEdit(followUp);
-                  }
-                }}
-                onKeyDown={(event) => {
-                  if (actionBusy || (event.key !== "Enter" && event.key !== " ")) {
-                    return;
-                  }
-                  event.preventDefault();
-                  onEdit(followUp);
-                }}
-              >
-                <span
-                  className="follow-up-card-drag-handle"
-                  draggable={!actionBusy && !isEditing}
-                  role="button"
-                  tabIndex={actionBusy || isEditing ? -1 : 0}
-                  aria-label={t("thread.reorderFollowUpAria")}
-                  title={t("thread.reorderFollowUp")}
-                  onClick={(event) => event.stopPropagation()}
-                  onDragStart={(event) => {
-                    if (isEditing) {
-                      event.preventDefault();
-                      return;
-                    }
-                    event.stopPropagation();
-                    setDraggedId(followUp.id);
-                    event.dataTransfer.effectAllowed = "move";
-                  }}
-                  onDragEnd={() => setDraggedId(undefined)}
-                >
-                  <GripVertical size={14} aria-hidden />
-                </span>
-                <FollowUpPromptPreview followUp={followUp} />
-              </div>
-              <div className="follow-up-card-actions">
-                {isEditing ? (
-                  <span className="follow-up-card-editing-badge">{t("thread.followUpEditing")}</span>
-                ) : (
-                  <>
-                    {allowEscalate ? (
-                      canEscalate ? (
-                        <span
-                          className="follow-up-card-type follow-up-card-type-action"
-                          role="button"
-                          tabIndex={actionBusy ? -1 : 0}
-                          aria-disabled={actionBusy}
-                          aria-label={t("thread.followUpNowAria")}
-                          title={t("thread.followUpNow")}
-                          onClick={() => {
-                            if (!actionBusy) {
-                              onEscalate(followUp);
-                            }
-                          }}
-                          onKeyDown={(event) => {
-                            if (actionBusy || (event.key !== "Enter" && event.key !== " ")) {
-                              return;
-                            }
-                            event.preventDefault();
-                            onEscalate(followUp);
-                          }}
-                        >
-                          <CornerDownRight size={11} aria-hidden />
-                          {isEscalating ? t("thread.processing") : t("thread.guide")}
-                        </span>
-                      ) : (
-                        <span className="follow-up-card-type">
-                          <CornerDownRight size={11} aria-hidden />
-                          {t("thread.guide")}
-                        </span>
-                      )
-                    ) : null}
-                    <button
-                      type="button"
-                      className="follow-up-card-action"
-                      onClick={() => onCancel(followUp)}
-                      disabled={actionBusy}
-                      title={t("common.delete")}
-                      aria-label={t("thread.deleteFollowUpAria")}
-                    >
-                      {cancelBusyId === followUp.id ? <Activity size={12} /> : <Trash2 size={12} />}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // Construct the shell in its own React work unit, outside App's large hook frame.
 // This also avoids copying that frame into every JSX owner stack in development.
 function AppRenderContent({ render }: { render: () => ReactNode }) {
@@ -14389,6 +14354,6 @@ installVitePreloadRecovery();
 document.documentElement.lang = i18n.resolvedLanguage ?? "zh-CN";
 createRoot(document.getElementById("root") as HTMLElement).render(
   <I18nextProvider i18n={i18n}>
-    <App />
+    {new URLSearchParams(window.location.search).get("mori") === "ball" ? <MoriAssistantSurface mode="ball" /> : new URLSearchParams(window.location.search).get("mori") === "notice" ? <MoriAssistantSurface mode="notice" /> : new URLSearchParams(window.location.search).get("mori") === "panel" ? <MoriAssistantSurface mode="panel" /> : <App />}
   </I18nextProvider>,
 );

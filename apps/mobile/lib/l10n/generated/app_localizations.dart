@@ -155,7 +155,7 @@ abstract class AppLocalizations {
   /// No description provided for @appTitle.
   ///
   /// In en, this message translates to:
-  /// **'Eco'**
+  /// **'Mori'**
   String get appTitle;
 
   /// No description provided for @navSessions.
@@ -3002,11 +3002,29 @@ abstract class AppLocalizations {
   /// **'Question responses'**
   String get activityClarificationAnswer;
 
+  /// No description provided for @activityApprovalRejected.
+  ///
+  /// In en, this message translates to:
+  /// **'{tool} approval rejected'**
+  String activityApprovalRejected(String tool);
+
+  /// No description provided for @activityApprovalFeedback.
+  ///
+  /// In en, this message translates to:
+  /// **'Your feedback'**
+  String get activityApprovalFeedback;
+
   /// No description provided for @activityNoneSelected.
   ///
   /// In en, this message translates to:
   /// **'(Not selected)'**
   String get activityNoneSelected;
+
+  /// No description provided for @activityContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get activityContinue;
 
   /// No description provided for @activityThinking.
   ///
@@ -3773,13 +3791,13 @@ abstract class AppLocalizations {
   /// No description provided for @billingEco.
   ///
   /// In en, this message translates to:
-  /// **'Eco coding'**
+  /// **'Mori coding'**
   String get billingEco;
 
   /// No description provided for @billingEcoSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Actual cost after Eco orchestration'**
+  /// **'Actual cost after Mori orchestration'**
   String get billingEcoSubtitle;
 
   /// No description provided for @billingSavings.
@@ -4514,6 +4532,18 @@ abstract class AppLocalizations {
   /// **'Guide'**
   String get followUpGuide;
 
+  /// No description provided for @followUpToTodo.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to todos'**
+  String get followUpToTodo;
+
+  /// No description provided for @followUpMovedToTodo.
+  ///
+  /// In en, this message translates to:
+  /// **'Moved to todos and removed from the send queue.'**
+  String get followUpMovedToTodo;
+
   /// No description provided for @followUpEdit.
   ///
   /// In en, this message translates to:
@@ -4601,7 +4631,7 @@ abstract class AppLocalizations {
   /// No description provided for @bashApprovalDenyAdjust.
   ///
   /// In en, this message translates to:
-  /// **'No, tell Eco how to adjust'**
+  /// **'No, tell Mori how to adjust'**
   String get bashApprovalDenyAdjust;
 
   /// No description provided for @projectMoreThreads.
@@ -5183,7 +5213,7 @@ abstract class AppLocalizations {
   /// No description provided for @schedulingHint.
   ///
   /// In en, this message translates to:
-  /// **'Runs on the connected computer. Keep Eco running and the computer awake.'**
+  /// **'Runs on the connected computer. Keep Mori running and the computer awake.'**
   String get schedulingHint;
 
   /// No description provided for @schedulingTaskHint.
@@ -5663,7 +5693,7 @@ abstract class AppLocalizations {
   /// No description provided for @todosComposeHint.
   ///
   /// In en, this message translates to:
-  /// **'Fills the composer for you to review and send. Your to-do stays here.'**
+  /// **'Adds an @todo reference for you to review and send. The Agent reads the latest to-do after sending.'**
   String get todosComposeHint;
 
   /// No description provided for @todosSearchThreads.
@@ -5693,7 +5723,7 @@ abstract class AppLocalizations {
   /// No description provided for @todosUpgrade.
   ///
   /// In en, this message translates to:
-  /// **'Update Eco on the connected computer to use remote to-dos.'**
+  /// **'Update Mori on the connected computer to use remote to-dos.'**
   String get todosUpgrade;
 
   /// No description provided for @todosDiscardTitle.
@@ -5893,6 +5923,264 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Back to usage'**
   String get codexQuotaBack;
+
+  /// No description provided for @composerReferencesChoose.
+  ///
+  /// In en, this message translates to:
+  /// **'Add context'**
+  String get composerReferencesChoose;
+
+  /// No description provided for @composerReferencesAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get composerReferencesAll;
+
+  /// No description provided for @composerReferencesSsh.
+  ///
+  /// In en, this message translates to:
+  /// **'SSH bookmarks'**
+  String get composerReferencesSsh;
+
+  /// No description provided for @composerReferencesWeb.
+  ///
+  /// In en, this message translates to:
+  /// **'Pages'**
+  String get composerReferencesWeb;
+
+  /// No description provided for @composerReferencesConversation.
+  ///
+  /// In en, this message translates to:
+  /// **'Chats'**
+  String get composerReferencesConversation;
+
+  /// No description provided for @composerReferencesLoading.
+  ///
+  /// In en, this message translates to:
+  /// **'Searching…'**
+  String get composerReferencesLoading;
+
+  /// No description provided for @composerReferencesEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No matches. Try another name or category.'**
+  String get composerReferencesEmpty;
+
+  /// No description provided for @composerReferencesDisconnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to your desktop to choose references.'**
+  String get composerReferencesDisconnected;
+
+  /// No description provided for @composerReferencesMore.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep typing to narrow the results.'**
+  String get composerReferencesMore;
+
+  /// No description provided for @composerReferencesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'SSH, pages, chats and tools'**
+  String get composerReferencesHint;
+
+  /// No description provided for @composerReferencesSpeech.
+  ///
+  /// In en, this message translates to:
+  /// **'Speech generation'**
+  String get composerReferencesSpeech;
+
+  /// No description provided for @imagePreviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Image preview'**
+  String get imagePreviewTitle;
+
+  /// No description provided for @imageGalleryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Image gallery'**
+  String get imageGalleryTitle;
+
+  /// No description provided for @imageSaveToPhotos.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to Photos'**
+  String get imageSaveToPhotos;
+
+  /// No description provided for @imageSaving.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving…'**
+  String get imageSaving;
+
+  /// No description provided for @imageSavedToPhotos.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved to Photos'**
+  String get imageSavedToPhotos;
+
+  /// No description provided for @imageSavePermissionDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'Photo access was denied. Allow adding photos in system settings, then try again.'**
+  String get imageSavePermissionDenied;
+
+  /// No description provided for @imageSaveNotEnoughSpace.
+  ///
+  /// In en, this message translates to:
+  /// **'Not enough storage. Free up space and try again.'**
+  String get imageSaveNotEnoughSpace;
+
+  /// No description provided for @imageSaveUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Your photo library does not support this image format.'**
+  String get imageSaveUnsupported;
+
+  /// No description provided for @imageSaveUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Photo saving is unavailable. Restart the app and try again.'**
+  String get imageSaveUnavailable;
+
+  /// No description provided for @imageSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save this image to Photos. Try again.'**
+  String get imageSaveFailed;
+
+  /// No description provided for @imageCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get imageCopy;
+
+  /// No description provided for @imageCopying.
+  ///
+  /// In en, this message translates to:
+  /// **'Copying…'**
+  String get imageCopying;
+
+  /// No description provided for @imageCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied'**
+  String get imageCopied;
+
+  /// No description provided for @imageCopyFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not copy this image. Try again.'**
+  String get imageCopyFailed;
+
+  /// No description provided for @imageCopyUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Copying this image format is not supported.'**
+  String get imageCopyUnsupported;
+
+  /// No description provided for @imageCopyUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Image copying is unavailable. Restart the app and try again.'**
+  String get imageCopyUnavailable;
+
+  /// No description provided for @desktopDisplayTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop display and lock'**
+  String get desktopDisplayTitle;
+
+  /// No description provided for @desktopPreventAutoLock.
+  ///
+  /// In en, this message translates to:
+  /// **'Prevent automatic locking'**
+  String get desktopPreventAutoLock;
+
+  /// No description provided for @desktopDimScreen.
+  ///
+  /// In en, this message translates to:
+  /// **'Set brightness to minimum'**
+  String get desktopDimScreen;
+
+  /// No description provided for @desktopAutoLockPrevented.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic locking is prevented'**
+  String get desktopAutoLockPrevented;
+
+  /// No description provided for @desktopAutoLockAllowed.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic locking is allowed'**
+  String get desktopAutoLockAllowed;
+
+  /// No description provided for @desktopScreenDimmed.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed at minimum brightness'**
+  String get desktopScreenDimmed;
+
+  /// No description provided for @desktopScreenNotDimmed.
+  ///
+  /// In en, this message translates to:
+  /// **'Currently above minimum; enable to dim again'**
+  String get desktopScreenNotDimmed;
+
+  /// No description provided for @desktopDisplayUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Current state is unknown'**
+  String get desktopDisplayUnknown;
+
+  /// No description provided for @desktopDisplayPatrol.
+  ///
+  /// In en, this message translates to:
+  /// **'Patrol'**
+  String get desktopDisplayPatrol;
+
+  /// No description provided for @desktopDisplayPatrolHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Check the desktop every 5 seconds while this page is in the foreground'**
+  String get desktopDisplayPatrolHint;
+
+  /// No description provided for @desktopDisplayHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Controls the connected desktop. Patrol updates actual state; enable minimum brightness again after another action restores it. Manual locking and lid closing still apply.'**
+  String get desktopDisplayHint;
+
+  /// No description provided for @desktopDisplayCheckedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Last checked: {time}'**
+  String desktopDisplayCheckedAt(String time);
+
+  /// No description provided for @desktopDisplayRestorePending.
+  ///
+  /// In en, this message translates to:
+  /// **'Brightness restoration pending; reconnect displays and disable dimming to retry'**
+  String get desktopDisplayRestorePending;
+
+  /// No description provided for @desktopDisplayUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Brightness control is unsupported'**
+  String get desktopDisplayUnsupported;
+
+  /// No description provided for @desktopDisplayUpgrade.
+  ///
+  /// In en, this message translates to:
+  /// **'This desktop version does not support display controls. Please update Mori.'**
+  String get desktopDisplayUpgrade;
+
+  /// No description provided for @approvalClarificationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Answer a question'**
+  String get approvalClarificationTitle;
 }
 
 class _AppLocalizationsDelegate

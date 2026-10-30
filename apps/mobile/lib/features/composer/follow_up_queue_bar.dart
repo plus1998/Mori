@@ -18,11 +18,13 @@ class FollowUpQueueBar extends StatelessWidget {
     required this.cancelBusyId,
     required this.escalateBusyId,
     this.editingFollowUpId,
+    this.moveToTodoBusyId,
     required this.queuePaused,
     required this.pauseBusy,
     required this.onEscalate,
     required this.onEdit,
     required this.onDelete,
+    required this.onMoveToTodo,
     required this.onReorder,
     required this.onTogglePause,
   });
@@ -31,11 +33,13 @@ class FollowUpQueueBar extends StatelessWidget {
   final String? cancelBusyId;
   final String? escalateBusyId;
   final String? editingFollowUpId;
+  final String? moveToTodoBusyId;
   final bool queuePaused;
   final bool pauseBusy;
   final Future<void> Function(ThreadPendingFollowUp followUp) onEscalate;
   final void Function(ThreadPendingFollowUp followUp) onEdit;
   final Future<void> Function(ThreadPendingFollowUp followUp) onDelete;
+  final Future<void> Function(ThreadPendingFollowUp followUp) onMoveToTodo;
   final Future<void> Function(int oldIndex, int newIndex) onReorder;
   final Future<void> Function(bool paused) onTogglePause;
 
@@ -177,6 +181,8 @@ class FollowUpQueueBar extends StatelessWidget {
                               onEscalate: onEscalate,
                               onEdit: onEdit,
                               onDelete: onDelete,
+                              onMoveToTodo: onMoveToTodo,
+                              moveToTodoBusyId: moveToTodoBusyId,
                               dragHandle:
                                   followUps[index].id == editingFollowUpId
                                   ? Padding(
@@ -242,7 +248,9 @@ class _FollowUpQueueItem extends StatefulWidget {
     required this.onEscalate,
     required this.onEdit,
     required this.onDelete,
+    required this.onMoveToTodo,
     required this.dragHandle,
+    required this.moveToTodoBusyId,
   });
 
   final ThreadPendingFollowUp followUp;
@@ -253,7 +261,9 @@ class _FollowUpQueueItem extends StatefulWidget {
   final Future<void> Function(ThreadPendingFollowUp followUp) onEscalate;
   final void Function(ThreadPendingFollowUp followUp) onEdit;
   final Future<void> Function(ThreadPendingFollowUp followUp) onDelete;
+  final Future<void> Function(ThreadPendingFollowUp followUp) onMoveToTodo;
   final Widget dragHandle;
+  final String? moveToTodoBusyId;
 
   @override
   State<_FollowUpQueueItem> createState() => _FollowUpQueueItemState();
@@ -264,6 +274,7 @@ class _FollowUpQueueItemState extends State<_FollowUpQueueItem> {
 
   bool get _actionBusy =>
       widget.isEditing ||
+      widget.moveToTodoBusyId == widget.followUp.id ||
       widget.cancelBusyId == widget.followUp.id ||
       widget.escalateBusyId == widget.followUp.id;
 
@@ -291,6 +302,12 @@ class _FollowUpQueueItemState extends State<_FollowUpQueueItem> {
         label: context.l10n.followUpEdit,
       ),
       ComposerContextMenuEntry(
+        value: 'todo',
+        icon: Icons.playlist_add_rounded,
+        label: context.l10n.followUpToTodo,
+        enabled: !_actionBusy,
+      ),
+      ComposerContextMenuEntry(
         value: 'delete',
         icon: EcoIcons.delete,
         label: widget.cancelBusyId == widget.followUp.id
@@ -306,6 +323,7 @@ class _FollowUpQueueItemState extends State<_FollowUpQueueItem> {
       anchorKey: _menuKey,
       entries: entries,
       onSelected: (value) {
+        if (_actionBusy) return;
         switch (value) {
           case 'escalate':
             if (_canEscalate) {
@@ -313,6 +331,8 @@ class _FollowUpQueueItemState extends State<_FollowUpQueueItem> {
             }
           case 'edit':
             widget.onEdit(widget.followUp);
+          case 'todo':
+            widget.onMoveToTodo(widget.followUp);
           case 'delete':
             widget.onDelete(widget.followUp);
         }

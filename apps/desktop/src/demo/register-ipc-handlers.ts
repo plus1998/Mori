@@ -55,7 +55,7 @@ function buildDemoSessionBootstrapForThread(threadId: string) {
 
 const DEMO_UPDATE_CURRENT = "0.1.0-beta.2";
 const DEMO_UPDATE_AVAILABLE = "0.1.0-beta.3";
-const DEMO_UPDATE_RELEASE_URL = "https://github.com/happyplus/eco-coding/releases";
+const DEMO_UPDATE_RELEASE_URL = "https://github.com/plus1998/Mori/releases";
 
 let demoUpdateState: DesktopUpdateState = {
   phase: "available",

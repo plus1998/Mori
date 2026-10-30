@@ -210,3 +210,18 @@ test("search matches names and both email sources case-insensitively, including 
   expect(render("  ")).toContain("<strong>Work</strong>");
   expect(render("  ")).toContain("<strong>Empty</strong>");
 });
+
+test("refreshable accounts with cached quota remain selectable without refreshing on list load", async () => {
+  const renewable = account("renewable", { isLoggedIn: false, authState: "refreshable" });
+  const refreshing = account("refreshing", { isLoggedIn: false, authState: "refreshing" });
+  const rejected = account("rejected", { isLoggedIn: false, authState: "reauthorization_required" });
+  expect(hasAvailableCodexQuota(renewable)).toBe(true);
+  expect(hasAvailableCodexQuota(refreshing)).toBe(true);
+  expect(hasAvailableCodexQuota(rejected)).toBe(false);
+  const loaded = await loadCodexSwitchAccounts({
+    openAIAccountsList: async () => [renewable, refreshing, rejected],
+    openAIAccountsGetActive: async () => ({ activeAccountId: null, isLoggedIn: false, message: "", syncStatus: { state: "ok" } }),
+    openAIAccountsQueryQuota: async () => { throw new Error("list loads must not refresh credentials"); },
+  });
+  expect(loaded.accounts.map((entry) => entry.id)).toEqual(["renewable", "refreshing"]);
+});

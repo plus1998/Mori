@@ -8,6 +8,10 @@ import { CONVERSATION_V2_ERROR, ConversationV2Error, encodeConversationCursor, e
 import { removeTempDirectorySync } from "./helpers/temp-directory";
 import { appendLegacyThreadRunEventToConversationV2 } from "../src/main/conversation-v2-legacy-adapter";
 import { ConversationV2Store } from "../src/main/conversation-v2-store";
+import {
+  buildAcceptedConversationMessageSchedule,
+  parseConversationV2SendMessageRequest,
+} from "../src/main/conversation-v2-request";
 
 function createStore(): { db: DatabaseSync; store: ConversationV2Store } {
   const db = new DatabaseSync(":memory:");
@@ -64,6 +68,36 @@ function createProviderPatchStore() {
 const providerPatchMethods = ["appendProviderInputPatch", "appendRuntimeProviderInputPatch"] as const;
 
 describe("conversation storage V2", () => {
+  test("an image-only send survives request validation, durable storage, replay and runtime scheduling", () => {
+    const { db, store } = createStore();
+    try {
+      const input = parseConversationV2SendMessageRequest({
+        principalId: "user_image_only",
+        conversationId: "thread_image_only",
+        clientCommandId: "command_image_only",
+        text: "",
+        attachments: [{ mediaType: "image/png", contentRef: `sha256:${"a".repeat(64)}`, byteLength: 123 }],
+      });
+      const accepted = store.sendMessage(input);
+      expect(store.sendMessage(input)).toEqual(accepted);
+      store.rebuildReadModels(input.conversationId);
+      store.validateIntegrity(input.conversationId);
+      const message = store.getMessage(input.conversationId, accepted.messageId);
+      expect(message?.body).toBe("");
+      expect(message?.attachments).toEqual(input.attachments);
+      if (!message) throw new Error("Image-only message was not persisted.");
+      expect(buildAcceptedConversationMessageSchedule(message)).toEqual({
+        conversationId: input.conversationId,
+        messageId: accepted.messageId,
+        turnId: accepted.turnId,
+        text: "",
+        attachments: input.attachments,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   test("hashes the persisted JSON snapshot and survives replay with optional SDK metadata", () => {
     const { db, store } = createStore();
     const input = {

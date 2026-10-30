@@ -180,7 +180,7 @@ test("agent mode does not enter planning for stale pending plan", () => {
 
 test("parseApprovedPlanDocument round-trips snapshot sections", () => {
   const doc = [
-    "# Eco approved plan",
+    "# Mori approved plan",
     "",
     "## User request",
     "fix export",
@@ -192,7 +192,7 @@ test("parseApprovedPlanDocument round-trips snapshot sections", () => {
     "## Steps",
     "1. add route",
     "",
-    "_User edited this plan in Eco before approval._",
+    "_User edited this plan in Mori before approval._",
   ].join("\n");
   const parsed = parseApprovedPlanDocument(doc);
   expect(parsed?.userPrompt).toBe("fix export");

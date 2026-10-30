@@ -8,6 +8,14 @@ import {
   resolveVersionedAssetBaseUrl,
 } from "../scripts/release-repository.mjs";
 
+test("local releases default to Mori and retain the existing update feed tag", () => {
+  const repository = resolveGitHubRepository({});
+  expect(repository.slug).toBe("plus1998/Mori");
+  expect(resolveDesktopUpdateFeedUrl(repository)).toBe(
+    "https://github.com/plus1998/Mori/releases/download/desktop-update-feed",
+  );
+});
+
 test("release repository follows the current GitHub Actions repository", () => {
   const repository = resolveGitHubRepository({ GITHUB_REPOSITORY: "example/eco-coding-fork" });
 

@@ -79,9 +79,49 @@ test("readArtifactFile supports byte-range chunks", async () => {
   expect(rest.offset).toBe(8);
   expect(rest.chunkBytes).toBe(PNG.length - 8);
   expect(
-    Buffer.concat([
-      Buffer.from(first.dataBase64, "base64"),
-      Buffer.from(rest.dataBase64, "base64"),
-    ]).equals(PNG),
+    Buffer.concat([Buffer.from(first.dataBase64, "base64"), Buffer.from(rest.dataBase64, "base64")]).equals(
+      PNG,
+    ),
   ).toBe(true);
+});
+
+test("history thumbnails share in-flight work and preserve original image reads", async () => {
+  const { store, root } = await createStore();
+  const sourcePath = path.join(root, "original.png");
+  await fs.writeFile(sourcePath, PNG);
+  const artifact = await store.ingestFromToolInput({
+    threadId: "thr_thumbnail",
+    toolInput: { source: "path", path: sourcePath },
+  });
+  await fs.rm(sourcePath);
+  let encodes = 0;
+  const encode = (bytes: Buffer) => {
+    expect(bytes.equals(PNG)).toBe(true);
+    encodes++;
+    return { data: PNG, width: 1, height: 1 };
+  };
+  const [first, second] = await Promise.all([
+    store.readArtifactThumbnail(artifact.id, encode),
+    store.readArtifactThumbnail(artifact.id, encode),
+  ]);
+  expect(first).toEqual(second);
+  expect(first).toMatchObject({ mimeType: "image/png", width: 1, height: 1, bytes: PNG.length });
+  expect(first.dataBase64).toBe(PNG.toString("base64"));
+  await store.readArtifactThumbnail(artifact.id, encode);
+  expect(encodes).toBe(1);
+  expect((await store.readArtifactFile(artifact.id)).dataBase64).toBe(PNG.toString("base64"));
+});
+
+test("failed thumbnail reads can retry after the managed image becomes available", async () => {
+  const { store } = await createStore();
+  const artifact = await store.ingestFromToolInput({
+    threadId: "thr_thumbnail_retry",
+    toolInput: { source: "base64", data: PNG.toString("base64"), mimeType: "image/png" },
+  });
+  const encode = () => ({ data: PNG, width: 1, height: 1 });
+  await fs.rm(artifact.filePath);
+  await expect(store.readArtifactThumbnail(artifact.id, encode)).rejects.toThrow();
+  await fs.writeFile(artifact.filePath, PNG);
+  expect((await store.readArtifactThumbnail(artifact.id, encode)).dataBase64).toBe(PNG.toString("base64"));
+  await expect(store.readArtifactThumbnail("missing", encode)).rejects.toMatchObject({ code: "not_found" });
 });

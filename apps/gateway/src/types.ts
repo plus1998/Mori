@@ -35,7 +35,12 @@ export interface GatewayProvider {
   modelContextTokens?: Record<string, number>;
   /** Explicit provider/model vision settings, enforced before upstream requests. */
   modelSupportsImageInput?: Record<string, boolean>;
-  tokenCountMode?: "local_heuristic" | "anthropic_messages" | "openai_responses" | "llama_tokenize";
+  tokenCountMode?:
+    | "provider_native"
+    | "local_heuristic"
+    | "anthropic_messages"
+    | "openai_responses"
+    | "llama_tokenize";
 }
 
 export interface ResolvedProviderRoute {
@@ -144,6 +149,11 @@ export interface GatewayCodexTurnMetadata {
 }
 
 export interface GatewayUsageEvent {
+  /** Local credential selected for this physical request, captured before sending. */
+  accountId?: string;
+  /** Non-secret provider identity captured before the upstream request. */
+  providerName?: string;
+  providerAuthMethod?: GatewayProvider["authMethod"];
   source: "responses" | "messages" | "chat_completions";
   sourceEventId: string;
   providerId: string;

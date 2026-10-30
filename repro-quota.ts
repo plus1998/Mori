@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { CodexAppServerClient } from "@eco/runtime/codex-app-server-client";
 
-const exe = "/Applications/Eco Coding.app/Contents/Resources/app.asar.unpacked/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex";
+const exe = "/Applications/Mori.app/Contents/Resources/app.asar.unpacked/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex";
 const home = "/tmp/codexrepro";
 const env = { ...process.env, CODEX_HOME: home, HOME: home };
 delete env.OPENAI_API_KEY; delete env.CODEX_API_KEY; delete env.CODEX_ACCESS_TOKEN;
@@ -11,7 +11,7 @@ let stderr = "";
 child.stderr.on("data", (c) => { stderr += c; });
 const client = CodexAppServerClient.attachToProcess(child, { timeoutMs: 30000 });
 try {
-  await client.initialize({ clientInfo: { name: "eco_coding", title: "Eco Coding", version: "0.1.0" } });
+  await client.initialize({ clientInfo: { name: "eco_coding", title: "Mori", version: "0.1.0" } });
   const acct = await client.request("account/read", { refreshToken: false }, { timeoutMs: 30000 });
   console.log("ACCOUNT:", JSON.stringify(acct));
   try {

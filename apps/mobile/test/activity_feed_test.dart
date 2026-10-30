@@ -1918,8 +1918,9 @@ void main() {
       );
 
       expect(withTool, hasLength(1));
-      expect(withTool.single.kind, ActivityFeedKind.reasoningStage);
-      expect(withTool.single.text, '检查测试');
+      expect(withTool.single.kind, ActivityFeedKind.actionGroup);
+      expect(withTool.single.actionChildren.single.toolName, 'Bash');
+      expect(withTool.any((entry) => entry.text == '检查测试'), isFalse);
       expect(withTool.any((entry) => entry.text == '定位入口'), isFalse);
     },
   );

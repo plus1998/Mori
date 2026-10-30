@@ -111,7 +111,7 @@ test.skipIf(!sqliteAvailable)(
     expect(snapshot.settings.serverUrl).toBe("");
     expect(snapshot.settings.hasAnonKey).toBe(false);
     expect(snapshot.settings.deviceId ?? "").toBe("");
-    expect(snapshot.settings.deviceName).toBe("Eco Desktop");
+    expect(snapshot.settings.deviceName).toBe("Mori Desktop");
     expect(snapshot.settings.hasDeviceSecret).toBe(false);
     expect(snapshot.settings.hasRefreshToken).toBe(false);
     const secrets = store.getSettingsWithSecrets();

@@ -69,6 +69,31 @@ function nativeModelsFixture(): CodexBundledModelEntry[] {
   ];
 }
 
+test("Gateway aliases declare an early native compaction budget after context capping", () => {
+  const native = nativeModelsFixture();
+  native[0]!.auto_compact_token_limit = 300_000;
+  const routes: CodexGatewayCatalogRoute[] = [
+    {
+      providerId: "vendor",
+      modelId: "deepseek-flash",
+      apiCompat: "openai_responses",
+      manualSpec: { contextTokens: 262_144 },
+    },
+    { providerId: "openai", modelId: "gpt-5.4", apiCompat: "openai_responses" },
+  ];
+  const catalog = buildEcoCodexModelCatalogDocument(native, routes, 200_000);
+  const gateway = catalog.models.find(
+    (model) => model.slug === buildCodexGatewayModelAlias("vendor", "deepseek-flash", "openai_responses"),
+  );
+  expect(gateway).toMatchObject({ context_window: 199_680, auto_compact_token_limit: 178_672 });
+  expect(catalog.models.find((model) => model.slug === "gpt-5.4")?.auto_compact_token_limit).toBe(300_000);
+  expect(
+    catalog.models.find(
+      (model) => model.slug === buildCodexGatewayModelAlias("openai", "gpt-5.4", "openai_responses"),
+    )?.auto_compact_token_limit,
+  ).toBe(300_000);
+});
+
 test("parseBundledCodexModelCatalog rejects invalid JSON and empty catalogs", () => {
   expect(() => parseBundledCodexModelCatalog("{")).toThrow(/invalid/i);
   expect(() => parseBundledCodexModelCatalog("{}")).toThrow(/models/i);

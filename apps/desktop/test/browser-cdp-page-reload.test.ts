@@ -123,7 +123,7 @@ test("Page.navigateToHistoryEntry uses goToIndex", () => {
   expect(indexes).toEqual([2]);
 });
 
-test("Page.bringToFront focuses guest only", () => {
+test("Page.bringToFront keeps the human's native keyboard focus", () => {
   let focused = false;
   const wc = guestWc({
     focus: () => {
@@ -131,7 +131,7 @@ test("Page.bringToFront focuses guest only", () => {
     },
   });
   expect(applyGuestPageBringToFront(wc)).toEqual({});
-  expect(focused).toBe(true);
+  expect(focused).toBe(false);
 });
 
 test("mapCdpMouseEventToSendInput maps pressed/moved/wheel", () => {

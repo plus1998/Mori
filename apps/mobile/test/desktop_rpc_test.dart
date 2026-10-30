@@ -571,6 +571,38 @@ void main() {
     expect(thread.id, 'thr_1');
   });
 
+  test(
+    'continues an interrupted Codex run with the empty-input contract',
+    () async {
+      final client = _RecordingEcoCenterClient();
+      final rpc = DesktopRpc(client, 'desktop_1');
+      await rpc.retryThreadFromMessage(
+        principalId: 'user_1',
+        clientCommandId: 'codex_continue_1',
+        threadId: 'thr_1',
+        activityLineId: 'activity_1',
+        prompt: '',
+        continueInterrupted: true,
+        sourceAttemptId: 'interrupted-run',
+        expectedHistoryRevision: 7,
+      );
+      expect(client.channel, 'thread:retry-from-message');
+      expect(client.args, [
+        {
+          'principalId': 'user_1',
+          'clientCommandId': 'codex_continue_1',
+          'threadId': 'thr_1',
+          'activityLineId': 'activity_1',
+          'prompt': '',
+          'hasImages': false,
+          'continueInterrupted': true,
+          'sourceAttemptId': 'interrupted-run',
+          'expectedHistoryRevision': 7,
+        },
+      ]);
+    },
+  );
+
   test('reads an approved plan through desktop RPC', () async {
     final client = _RecordingEcoCenterClient();
     final rpc = DesktopRpc(client, 'desktop_1');
@@ -890,6 +922,7 @@ void main() {
         ),
         () => rpc.followUpEscalate(threadId: 'thr_1', followUpId: 'fup_1'),
         () => rpc.followUpCancel(threadId: 'thr_1', followUpId: 'fup_1'),
+        () => rpc.followUpToTodo(threadId: 'thr_1', followUpId: 'fup_1'),
         () async {
           await rpc.followUpSetQueuePaused(threadId: 'thr_1', paused: true);
         },
@@ -934,6 +967,25 @@ void main() {
           expect(request['followUpDeliveryMode'], mode.name);
         }
       }
+    },
+  );
+
+  test(
+    'followUpToTodo sends the V2 identity without copying prompt images over RPC',
+    () async {
+      final client = _RecordingEcoCenterClient();
+      final rpc = DesktopRpc(client, 'desktop_1');
+      await rpc.followUpToTodo(threadId: 'thr_1', followUpId: 'fup_1');
+      expect(client.channel, 'thread:follow-up-to-todo');
+      expect(client.args, [
+        {
+          'principalId': 'user_1',
+          'clientCommandId': startsWith('command_move-to-todo_'),
+          'threadId': 'thr_1',
+          'followUpId': 'fup_1',
+          'expectedHistoryRevision': 0,
+        },
+      ]);
     },
   );
 
