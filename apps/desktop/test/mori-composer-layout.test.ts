@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { i18nCatalogs } from "../src/shared/i18n-catalogs";
 
 const rendererDir = new URL("../src/renderer/", import.meta.url);
 const moriStyles = readFileSync(new URL("mori-assistant.css", rendererDir), "utf8");
@@ -52,5 +53,8 @@ test("the Enter-to-send hint is gone; only the busy notice remains", () => {
   expect(moriPanel).not.toContain("Shift + Enter 换行");
   // Rendered inside a `busy` guard, so nothing sits under the input at rest.
   expect(moriPanel).toMatch(/\{busy \? \(\s*<div className="mori-composer-hint" role="status">/);
-  expect(moriPanel).toContain("新消息会排队发送 · 停止将取消排队消息");
+  expect(moriPanel).toContain('t("moriUi.moriAssistant.queueHint")');
+  expect(i18nCatalogs["zh-CN"].translation["moriUi.moriAssistant.queueHint"]).toBe(
+    "新消息会排队发送 · 停止将取消排队消息",
+  );
 });
