@@ -390,6 +390,10 @@ import {
   imageGalleryDisplayItem,
   imageGalleryGenerationItem,
 } from "./image-gallery-float-state";
+import {
+  BROWSER_SCREENSHOT_CAPTURED_EVENT,
+  type BrowserScreenshotCaptured,
+} from "./browser-screenshot-events";
 import { ImageLightbox } from "./image-lightbox";
 import {
   LazyActivityLogView,
@@ -2270,6 +2274,7 @@ function App() {
   imageDisplayArtifactsByThreadRef.current = imageDisplayArtifactsByThread;
   const [imageGalleryQueue, setImageGalleryQueue] = useState<ImageGalleryQueueItem[]>([]);
   const [imageGalleryOpen, setImageGalleryOpen] = useState(false);
+  const [imageGalleryFocusKey, setImageGalleryFocusKey] = useState<string>();
   /** 已入队过的画廊项（按 key 去重，保证每次工具调用只触发一次悬浮窗）。 */
   const imageGalleryEnqueuedRef = useRef<Set<string>>(new Set());
   const activeThreadIdRef = useRef<string | undefined>(undefined);
@@ -3923,6 +3928,18 @@ function App() {
   }, [enqueueImageGalleryItems]);
 
   useEffect(() => {
+    const handleScreenshot = (event: Event) => {
+      const detail = (event as CustomEvent<BrowserScreenshotCaptured>).detail;
+      if (!detail?.artifactId || detail.scopeId !== browserScopeIdRef.current) return;
+      const item = imageGalleryDisplayItem(detail.artifactId);
+      enqueueImageGalleryItems([item]);
+      setImageGalleryFocusKey(item.key);
+    };
+    window.addEventListener(BROWSER_SCREENSHOT_CAPTURED_EVENT, handleScreenshot);
+    return () => window.removeEventListener(BROWSER_SCREENSHOT_CAPTURED_EVENT, handleScreenshot);
+  }, [enqueueImageGalleryItems]);
+
+  useEffect(() => {
     if (!window.eco?.onHtmlHostArtifactChanged) return;
     return window.eco.onHtmlHostArtifactChanged((artifact) => {
       setHtmlHostArtifactsByThread((current) => {
@@ -3937,11 +3954,12 @@ function App() {
   useEffect(() => {
     activeThreadIdRef.current = activeThread?.id;
   }, [activeThread?.id]);
-  // 切换会话时清空画廊队列（其他会话的图片仍保留在各自 cards）。
+  // 切换浏览器作用域时清空画廊队列（会话图片仍保留在各自 cards）。
   useEffect(() => {
     setImageGalleryQueue([]);
     setImageGalleryOpen(false);
-  }, [selectedThreadId]);
+    setImageGalleryFocusKey(undefined);
+  }, [browserScopeId]);
   // 队列清空后自动收起悬浮窗，图片回到 cards。
   useEffect(() => {
     if (imageGalleryOpen && imageGalleryQueue.length === 0) {
@@ -12943,6 +12961,7 @@ function App() {
                   <LazyImageGalleryFloat
                     key="image-gallery-float"
                     items={imageGalleryQueue}
+                    focusKey={imageGalleryFocusKey}
                     avoidCards={Boolean(showWorkspacePanel && workspaceCardsPanelOpen)}
                     onAdvance={advanceImageGallery}
                     onCloseAll={closeImageGallery}

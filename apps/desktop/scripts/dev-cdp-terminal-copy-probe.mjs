@@ -9,13 +9,23 @@
  * Usage: bun run smoke:cdp-terminal-copy
  */
 
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "@playwright/test";
 
 const cdpUrl = process.env.ECO_DEV_CDP_URL ?? "http://127.0.0.1:9333";
+const artifactRoot = process.platform === "win32" ? tmpdir() : "/tmp";
 const failures = [];
+
+function quoteForShell(value) {
+  if (process.platform === "win32") {
+    if (value.includes('"'))
+      throw new Error("Cannot quote a Windows shell argument containing a double quote");
+    return `"${value}"`;
+  }
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
 
 function check(label, ok, detail = "") {
   console.log(`${ok ? "PASS" : "FAIL"} ${label}${detail ? ` — ${detail}` : ""}`);
@@ -25,9 +35,10 @@ function check(label, ok, detail = "") {
 const browser = await chromium.connectOverCDP(cdpUrl);
 try {
   const context = browser.contexts()[0];
-  const page = context.pages().find((p) => p.url().includes("5173")) ?? context.pages()[0];
+  const rendererPort = process.env.ECO_RENDERER_PORT ?? "5173";
+  const page = context.pages().find((p) => p.url().startsWith(`http://127.0.0.1:${rendererPort}/`));
   if (!page) {
-    throw new Error("No Mori renderer page on CDP");
+    throw new Error(`No Mori renderer page on CDP for port ${rendererPort}`);
   }
 
   const canvas = page.locator(".ghostty-terminal-mount canvas").first();
@@ -81,10 +92,14 @@ try {
   await dragAcrossCanvas();
   check("drag-select leaves the clipboard alone", (await readClipboard()) === "SELECTION_SENTINEL");
 
-  // 2. Cmd/Ctrl+C copies the current selection.
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+c" : "Control+Shift+c");
-  await page.waitForTimeout(400);
-  check("explicit copy chord copies the selection", (await readClipboard()).includes("TERMSEL_MARKER_123"));
+  // 2. Ctrl+C and the platform's other copy chords copy the current selection.
+  const copyChords = ["Control+c", "Control+Shift+c", ...(process.platform === "darwin" ? ["Meta+c"] : [])];
+  for (const chord of copyChords) {
+    await writeClipboard("SHORTCUT_COPY_SENTINEL");
+    await page.keyboard.press(chord);
+    await page.waitForTimeout(400);
+    check(`${chord} copies the selection`, (await readClipboard()).includes("TERMSEL_MARKER_123"));
+  }
 
   // 3. Right-click opens Eco's menu instead of the library's browser-menu hand-off.
   await dragAcrossCanvas();
@@ -104,7 +119,7 @@ try {
   );
 
   // 4. Copy through the menu keeps the selection long enough to read it.
-  await page.screenshot({ path: ".smoke-artifacts/terminal-context-menu.png" });
+  await page.screenshot({ path: path.join(artifactRoot, `mori-terminal-context-menu-${process.pid}.png`) });
   await writeClipboard("MENU_COPY_SENTINEL");
   await menu.getByRole("menuitem", { name: /复制|Copy/ }).click();
   await page.waitForTimeout(400);
@@ -121,25 +136,67 @@ try {
   await page.waitForTimeout(400);
   check("select-all survives the menu click", (await readClipboard()) !== "SELECT_ALL_SENTINEL");
 
-  // 6. Escape dismisses the menu.
+  // 6. Escape dismisses the menu without also reaching the terminal.
+  await page.evaluate(() => {
+    window.__terminalSmokeEscapeCount = 0;
+    document.querySelector(".ghostty-terminal-mount").addEventListener("keydown", (event) => {
+      if (event.key === "Escape") window.__terminalSmokeEscapeCount += 1;
+    });
+  });
   await openMenu();
+  await page.locator(".ghostty-terminal-mount textarea").focus();
   await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
   check("Escape dismisses the menu", (await menu.count()) === 0);
+  check(
+    "menu Escape does not reach the terminal",
+    (await page.evaluate(() => window.__terminalSmokeEscapeCount)) === 0,
+  );
 
-  // 7. Paste through the menu reaches the shell.
+  // 7. Capture a menu paste in a raw-mode child, never execute clipboard contents.
   {
-    const marker = path.join(tmpdir(), `eco-terminal-paste-probe-${Date.now()}`);
-    await writeClipboard(`touch '${marker}'`);
-    await openMenu();
-    await menu.getByRole("menuitem", { name: /粘贴|Paste/ }).click();
-    await page.waitForTimeout(400);
+    const dir = mkdtempSync(path.join(artifactRoot, "mori-terminal-paste-probe-"));
+    const readyPath = path.join(dir, "ready");
+    const receivedPath = path.join(dir, "received");
+    const marker = `TERM_PASTE_MARKER_${process.pid}_${Date.now()}`;
+    const source = `
+      const fs = require("node:fs");
+      const chunks = [];
+      let bytes = 0;
+      let timer;
+      const finish = () => {
+        process.stdin.setRawMode(false);
+        fs.writeFileSync(${JSON.stringify(receivedPath)}, Buffer.concat(chunks));
+        process.exit(0);
+      };
+      process.stdin.setRawMode(true);
+      process.stdin.on("data", (chunk) => {
+        bytes += chunk.length;
+        if (bytes <= 1024 * 1024) chunks.push(chunk);
+        clearTimeout(timer);
+        timer = setTimeout(finish, 500);
+      });
+      timer = setTimeout(finish, 8000);
+      fs.writeFileSync(${JSON.stringify(readyPath)}, "");
+    `;
+    const encoded = Buffer.from(source).toString("base64");
+    const runner = `eval(Buffer.from('${encoded}', 'base64').toString())`;
     await focusTerminal();
+    await page.keyboard.type(`${quoteForShell(process.execPath)} -e ${quoteForShell(runner)}`);
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(1_200);
-    check("menu paste runs in the shell", existsSync(marker));
-    if (existsSync(marker)) {
-      unlinkSync(marker);
+    try {
+      for (let i = 0; i < 50 && !existsSync(readyPath); i++) await page.waitForTimeout(100);
+      if (!existsSync(readyPath)) throw new Error("Raw terminal paste receiver did not start");
+      await writeClipboard(marker);
+      await openMenu();
+      await menu.getByRole("menuitem", { name: /粘贴|Paste/ }).click();
+      for (let i = 0; i < 90 && !existsSync(receivedPath); i++) await page.waitForTimeout(100);
+      check(
+        "menu paste reaches the terminal",
+        existsSync(receivedPath) && readFileSync(receivedPath, "utf8").includes(marker),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   }
 } finally {

@@ -43,7 +43,7 @@ test("split shows two independent panels and excludes the opposite page from eac
   const markup = renderWorkspace();
   expect(markup).toContain('class="browser-task-workspace is-split"');
   expect(markup.match(/role="tabpanel" hidden=""/g)?.length).toBe(1);
-  expect(markup.match(/aria-label="退出分屏"/g)?.length).toBe(3);
+  expect(markup.match(/aria-label="浏览器更多操作"/g)?.length).toBe(3);
   expect(markup).toContain('aria-valuenow="60"');
   const selectors = [...markup.matchAll(/<select[^>]*>(.*?)<\/select>/g)].map(match => match[1]);
   expect(selectors).toHaveLength(2);

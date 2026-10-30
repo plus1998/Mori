@@ -1,7 +1,7 @@
 import { canUseOpenAIAccountCredentials } from "../../shared/openai-account";
 import { useCodexQuotaResetRefresh } from "../useCodexQuotaResetRefresh";
 import { QuotaRefreshedAt } from "../QuotaRefreshedAt";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Plus,
@@ -501,6 +501,9 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   useEffect(() => {
     if (!menuOpenId) return;
     const close = () => setMenuOpenId(null);
+    const onScroll = (event: Event) => {
+      if (!menuRef.current?.contains(event.target as Node)) close();
+    };
     const onPointerDown = (event: PointerEvent) => {
       if (
         !menuRef.current?.contains(event.target as Node) &&
@@ -536,13 +539,22 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
     window.addEventListener("resize", close);
-    document.addEventListener("scroll", close, true);
+    document.addEventListener("scroll", onScroll, true);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("resize", close);
-      document.removeEventListener("scroll", close, true);
+      document.removeEventListener("scroll", onScroll, true);
     };
+  }, [menuOpenId]);
+
+  useLayoutEffect(() => {
+    if (!menuOpenId || !menuRef.current) return;
+    const height = menuRef.current.getBoundingClientRect().height;
+    setMenuPos((current) => {
+      const top = Math.max(MENU_VIEWPORT_MARGIN, Math.min(current.top, window.innerHeight - height - MENU_VIEWPORT_MARGIN));
+      return top === current.top ? current : { ...current, top };
+    });
   }, [menuOpenId]);
 
   const refreshAccountQuota = useCallback(async (accountId: string) => {
@@ -779,6 +791,19 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     },
     [eco, onError],
   );
+
+  const handleOpenAssistant = useCallback(async (accountId: string) => {
+    if (!eco) return;
+    setBusy(true);
+    setOperationError("");
+    try {
+      await eco.openAIAccountsOpenAssistant(accountId);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }, [eco]);
 
   const handleSetActive = useCallback(
     async (accountId: string) => {
@@ -1190,10 +1215,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                           window.innerWidth - MENU_VIEWPORT_MARGIN * 2,
                         );
                         setMenuPos({
-                          top: Math.max(
-                            8,
-                            Math.min(rect.bottom + 4, window.innerHeight - 260),
-                          ),
+                          top: Math.max(MENU_VIEWPORT_MARGIN, rect.bottom + 4),
                           left: Math.max(
                             MENU_VIEWPORT_MARGIN,
                             Math.min(
@@ -1286,6 +1308,19 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                           {canUseOpenAIAccountCredentials(account)
                             ? t("settings.openaiAccounts.relogin")
                             : t("settings.openaiAccounts.login")}
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="account-action-item"
+                          onClick={() => {
+                            setMenuOpenId(null);
+                            void handleOpenAssistant(account.id);
+                          }}
+                          disabled={busy}
+                        >
+                          <KeyRound size={14} />
+                          {t("settings.openaiAccounts.openLoginAssistant")}
                         </button>
                         <button
                           type="button"

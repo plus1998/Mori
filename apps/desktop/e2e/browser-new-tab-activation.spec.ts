@@ -63,7 +63,7 @@ test("opening a second browser tab keeps the new tab active", async ({ ecoPage: 
     await expect(page.locator(".subagent-task-panel-tab-pane--browser.is-active")).toHaveCount(1);
     await expect(
       page.locator(".subagent-task-panel-tab-pane--browser.is-active .browser-panel-address"),
-    ).toHaveValue(`http://127.0.0.1:${port}/b`);
+    ).toHaveValue("127.0.0.1");
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),

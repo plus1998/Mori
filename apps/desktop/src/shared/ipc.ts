@@ -374,6 +374,7 @@ export const IPC_CHANNELS = {
   /** Dev-only: mint thread-scoped browser CDP for smoke/probe scripts. */
   browserDevPrepareAgentCdp: "browser:dev-prepare-agent-cdp",
   browserOpenExternal: "browser:open-external",
+  browserCaptureScreenshot: "browser:capture-screenshot",
   browserDownloadAction: "browser:download-action",
   browserCaptureSelection: "browser:capture-selection",
   browserCancelSelection: "browser:cancel-selection",

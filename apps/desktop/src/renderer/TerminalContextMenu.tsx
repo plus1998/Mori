@@ -121,6 +121,7 @@ export function TerminalContextMenu({
         return;
       }
       event.preventDefault();
+      event.stopPropagation();
       onClose();
     };
     const onWheel = () => {

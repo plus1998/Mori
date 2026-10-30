@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { Terminal as GhosttyTerminalType } from "ghostty-web";
+import { saveKeyboardShortcuts } from "../src/renderer/keyboard-shortcuts";
 import {
   computeSelectAllRange,
+  handleTerminalSelectionShortcut,
   installTerminalSelectionEnhancements,
   pasteClipboardIntoTerminal,
 } from "../src/renderer/terminal-selection";
+import { defaultShortcutBindings } from "../src/shared/keyboard-shortcuts";
 
 interface StubSelectionManager {
   selectionStart: { col: number; absoluteRow: number } | null;
@@ -106,6 +109,127 @@ describe("installTerminalSelectionEnhancements", () => {
     uninstall();
     manager.selectAll();
     expect(manager.selectAllCalls).toBe(1);
+  });
+});
+
+describe("handleTerminalSelectionShortcut", () => {
+  function eventFor(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {
+    return {
+      type: "keydown",
+      key: "c",
+      code: "KeyC",
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      isComposing: false,
+      ...overrides,
+    } as KeyboardEvent;
+  }
+
+  async function withClipboard(
+    platform: string,
+    run: (writes: string[]) => void | Promise<void>,
+  ): Promise<void> {
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const writes: string[] = [];
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { clipboard: { writeText: async (text: string) => writes.push(text) } },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        eco: {
+          platform,
+          saveKeyboardShortcuts: async (bindings: ReturnType<typeof defaultShortcutBindings>) => ({
+            bindings,
+          }),
+        },
+      },
+    });
+    try {
+      await run(writes);
+    } finally {
+      if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
+      else Reflect.deleteProperty(globalThis, "navigator");
+      if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
+      else Reflect.deleteProperty(globalThis, "window");
+    }
+  }
+
+  for (const platform of ["darwin", "win32", "linux"]) {
+    test(`Ctrl+C copies the selection on ${platform} and passes through without one`, async () => {
+      await withClipboard(platform, async (writes) => {
+        let selected = true;
+        const terminal = {
+          hasSelection: () => selected,
+          getSelection: () => (selected ? "selected terminal text" : ""),
+        } as unknown as GhosttyTerminalType;
+        const event = eventFor({ ctrlKey: true });
+
+        expect(handleTerminalSelectionShortcut(terminal, event)).toBe(true);
+        expect(writes).toEqual(["selected terminal text"]);
+
+        selected = false;
+        expect(handleTerminalSelectionShortcut(terminal, event)).toBe(false);
+        expect(writes).toEqual(["selected terminal text"]);
+      });
+    });
+  }
+
+  test("Command+C copies on macOS and Ctrl+Shift+C remains available", async () => {
+    await withClipboard("darwin", (writes) => {
+      const terminal = {
+        hasSelection: () => true,
+        getSelection: () => "selected terminal text",
+      } as unknown as GhosttyTerminalType;
+
+      expect(handleTerminalSelectionShortcut(terminal, eventFor({ metaKey: true }))).toBe(true);
+      expect(handleTerminalSelectionShortcut(terminal, eventFor({ ctrlKey: true, shiftKey: true }))).toBe(
+        true,
+      );
+      expect(writes).toEqual(["selected terminal text", "selected terminal text"]);
+    });
+  });
+
+  test("Ctrl+C still interrupts without a selection when configured as the terminal copy shortcut", async () => {
+    await withClipboard("darwin", async (writes) => {
+      const bindings = defaultShortcutBindings("darwin");
+      await saveKeyboardShortcuts({ ...bindings, "terminal-copy": ["Control+C"] });
+      try {
+        const terminal = {
+          hasSelection: () => false,
+          getSelection: () => "",
+        } as unknown as GhosttyTerminalType;
+
+        expect(handleTerminalSelectionShortcut(terminal, eventFor({ ctrlKey: true }))).toBe(false);
+        expect(writes).toEqual([]);
+      } finally {
+        await saveKeyboardShortcuts(bindings);
+      }
+    });
+  });
+
+  test("does not intercept unrelated, composing, or keyup events", async () => {
+    await withClipboard("darwin", (writes) => {
+      const terminal = {
+        hasSelection: () => true,
+        getSelection: () => "selected terminal text",
+      } as unknown as GhosttyTerminalType;
+
+      expect(handleTerminalSelectionShortcut(terminal, eventFor({ ctrlKey: true, altKey: true }))).toBe(
+        false,
+      );
+      expect(handleTerminalSelectionShortcut(terminal, eventFor({ ctrlKey: true, isComposing: true }))).toBe(
+        false,
+      );
+      expect(handleTerminalSelectionShortcut(terminal, eventFor({ ctrlKey: true, type: "keyup" }))).toBe(
+        false,
+      );
+      expect(writes).toEqual([]);
+    });
   });
 });
 

@@ -95,7 +95,8 @@ export class ImageDisplayStore {
     const loaded = await loadImageDisplayBytes(normalized, input.signal);
     input.signal?.throwIfAborted();
     const artifactId = randomUUID();
-    const threadDir = path.join(this.rootDir, input.threadId.trim());
+    // Personal browser scopes contain ':' which is not a valid Windows filename.
+    const threadDir = path.join(this.rootDir, encodeURIComponent(input.threadId.trim()));
     await fs.mkdir(threadDir, { recursive: true });
     const extension = extensionForMimeType(loaded.mimeType);
     const filePath = path.join(threadDir, `${artifactId}${extension}`);

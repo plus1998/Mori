@@ -1,6 +1,7 @@
-import { shortcutMatches } from "./keyboard-shortcuts";
 import type { Terminal as GhosttyTerminalType } from "ghostty-web";
+import { acceleratorFromEvent } from "../shared/keyboard-shortcuts";
 import { copyTextToClipboard } from "./clipboard";
+import { shortcutMatches } from "./keyboard-shortcuts";
 
 /** Absolute cell position in the combined scrollback + screen buffer. */
 export interface TerminalCellPos {
@@ -206,13 +207,20 @@ export function handleTerminalSelectionShortcut(
     selectAllTerminalText(terminal);
     return true;
   }
-  if (shortcutMatches(event, "terminal-copy")) {
+  const accelerator = acceleratorFromEvent(event);
+  if (accelerator === "Control+C") {
+    // Ctrl+C is a terminal interrupt unless the user explicitly selected text.
+    if (!terminal.hasSelection()) {
+      return false;
+    }
     void copyTerminalSelection(terminal);
     return true;
   }
-  if (shortcutMatches(event, "copy")) {
-    // Preserve a bare Ctrl+C as a PTY interrupt when nothing is selected.
-    if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "c" && !terminal.hasSelection()) return false;
+
+  if (
+    (accelerator === "Command+C" && window.eco?.platform === "darwin") ||
+    shortcutMatches(event, "terminal-copy")
+  ) {
     void copyTerminalSelection(terminal);
     return true;
   }

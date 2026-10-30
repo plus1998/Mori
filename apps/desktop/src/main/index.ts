@@ -47,6 +47,7 @@ import {
 import { webChatProxyConfig, webChatSitePartition } from "../shared/web-chat-list";
 import { ComposerReferenceService } from "./composer-reference-service";
 import { BrowserSelectionService } from "./browser-selection-service";
+import { captureBrowserScreenshotArtifact } from "./browser-screenshot";
 import { authorizeBrowserDownloadAccess } from "./browser-download-approval";
 import { ContextReferenceMcpGateway } from "./context-reference-mcp-gateway";
 import { ModelManagementMcpGateway } from "./model-management-mcp-gateway";
@@ -9431,6 +9432,22 @@ function registerIpcHandlers(): void {
     const { instance } = host.getSelectionTarget(request.browserId);
     if (instance.threadId !== host.getState().uiScopeId) throw new Error("只能选择当前会话中的网页内容。");
     return browserSelectionService.capture(request.browserId, request.kind as "element" | "text");
+  });
+  registerDesktopCommand(IPC_CHANNELS.browserCaptureScreenshot, async (payload: unknown) => {
+    const browserId = (payload as { browserId?: unknown })?.browserId;
+    if (typeof browserId !== "string" || !browserId.trim()) {
+      throw new Error("网页截图需要 browserId。");
+    }
+    const artifact = await captureBrowserScreenshotArtifact(browserId.trim(), {
+      host: requireBrowserHost(),
+      store: imageDisplayStore,
+    });
+    BrowserWindow.getAllWindows().forEach((window) => {
+      if (!window.isDestroyed()) {
+        window.webContents.send(IPC_CHANNELS.imageDisplayArtifactChanged, artifact);
+      }
+    });
+    return artifact;
   });
   registerDesktopCommand(IPC_CHANNELS.browserCancelSelection, async (payload: unknown) => {
     const id = (payload as { browserId?: unknown })?.browserId;

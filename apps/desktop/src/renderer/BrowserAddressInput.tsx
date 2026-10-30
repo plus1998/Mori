@@ -1,13 +1,26 @@
 import { type InputHTMLAttributes, useCallback, useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { formatIpcInvokeError } from "./AppMessage";
 import { ComposerContextMenu, type ComposerContextMenuAnchor } from "./ComposerContextMenu";
 import { copyTextToClipboard } from "./clipboard";
 
+export function browserAddressDisplayValue(url: string): string {
+  if (!url || url === "about:blank") return "";
+  try {
+    return new URL(url).hostname || url;
+  } catch {
+    return url;
+  }
+}
+
 interface BrowserAddressInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange"> {
   value: string;
   onValueChange: (value: string) => void;
   onMenuOpenChange?: (open: boolean) => void;
+  /** Text shown when the input is not being edited. */
+  displayValue?: string;
+  onEditingEnd?: () => void;
   active?: boolean;
 }
 
@@ -16,14 +29,27 @@ export function BrowserAddressInput({
   value,
   onValueChange,
   onMenuOpenChange,
+  displayValue,
+  onEditingEnd,
   active = true,
+  onBlur,
+  onFocus,
+  onMouseDown,
+  onMouseUp,
   ...props
 }: BrowserAddressInputProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
+  const clearRef = useRef<HTMLButtonElement>(null);
+  const selectOnMouseUp = useRef(false);
   const menuRef = useRef<ComposerContextMenuAnchor | undefined>(undefined);
   const [menu, setMenu] = useState<ComposerContextMenuAnchor>();
   const [error, setError] = useState<string>();
+  const [editing, setEditing] = useState(false);
+  const finishEditing = useCallback(() => {
+    setEditing(false);
+    onEditingEnd?.();
+  }, [onEditingEnd]);
   const closeMenu = useCallback(() => {
     menuRef.current = undefined;
     setMenu(undefined);
@@ -85,11 +111,37 @@ export function BrowserAddressInput({
         {...props}
         ref={inputRef}
         className="browser-panel-address"
-        value={value}
+        value={editing ? value : (displayValue ?? value)}
         onChange={(event) => onValueChange(event.target.value)}
         placeholder={t("browser.addressPlaceholder")}
         spellCheck={false}
         autoComplete="off"
+        onMouseDown={(event) => {
+          selectOnMouseUp.current = !editing && event.button === 0;
+          onMouseDown?.(event);
+        }}
+        onMouseUp={(event) => {
+          if (selectOnMouseUp.current) {
+            event.preventDefault();
+            event.currentTarget.select();
+            selectOnMouseUp.current = false;
+          }
+          onMouseUp?.(event);
+        }}
+        onFocus={(event) => {
+          if (!editing) {
+            setEditing(true);
+            // Select the full URL immediately, before React commits the display change.
+            event.currentTarget.value = value;
+            event.currentTarget.select();
+          }
+          onFocus?.(event);
+        }}
+        onBlur={(event) => {
+          selectOnMouseUp.current = false;
+          if (!menuRef.current && event.relatedTarget !== clearRef.current) finishEditing();
+          onBlur?.(event);
+        }}
         onContextMenu={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -110,6 +162,25 @@ export function BrowserAddressInput({
           onMenuOpenChange?.(true);
         }}
       />
+      {value && !props.disabled ? (
+        <button
+          ref={clearRef}
+          type="button"
+          className="browser-panel-address-clear"
+          aria-label={t("browser.addressClear")}
+          title={t("browser.addressClear")}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            inputRef.current?.focus();
+            onValueChange("");
+          }}
+          onBlur={(event) => {
+            if (event.relatedTarget !== inputRef.current) finishEditing();
+          }}
+        >
+          <X size={13} aria-hidden />
+        </button>
+      ) : null}
       {menu ? (
         <ComposerContextMenu
           anchor={menu}
@@ -119,7 +190,10 @@ export function BrowserAddressInput({
           onCopy={() => void editAddress("copy")}
           onPaste={() => void editAddress("paste")}
           onSelectAll={() => void editAddress("selectAll")}
-          onClose={closeMenu}
+          onClose={() => {
+            closeMenu();
+            if (document.activeElement !== inputRef.current) finishEditing();
+          }}
         />
       ) : null}
       {error ? (

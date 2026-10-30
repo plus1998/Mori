@@ -225,11 +225,13 @@ export function ImageGalleryFloat({
   onAdvance,
   onCloseAll,
   avoidCards = false,
+  focusKey,
 }: {
   items: readonly ImageGalleryQueueItem[];
   onAdvance: (item: ImageGalleryQueueItem) => void;
   onCloseAll: () => void;
   avoidCards?: boolean;
+  focusKey?: string | undefined;
 }) {
   const { t } = useTranslation();
   const reducedMotion = useReducedMotion();
@@ -244,6 +246,10 @@ export function ImageGalleryFloat({
     items.findIndex((item) => item.key === activeKey),
   );
   const currentItem = items[activeIndex];
+
+  useEffect(() => {
+    if (focusKey) setActiveKey(focusKey);
+  }, [focusKey]);
 
   const closeCurrent = useCallback(
     (item: ImageGalleryQueueItem) => {
