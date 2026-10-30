@@ -7905,6 +7905,11 @@ function registerIpcHandlers(): void {
     moriShortcut: () => keyboardShortcutsStore.get()["mori-floating"]?.[0] ?? "",
     dataDir: app.getPath("userData"), conversations: conversationStore,
     accounts: getOpenAIAccountService, executable: resolveCodexExecutable, onUsage: recordAccountUsage,
+    globalAccountChanged: () => {
+      requestCodexAccountRuntimeRestart("account");
+      scheduleCodexGlobalRuntimeRefresh();
+      emitSettingsUpdated();
+    },
     resolveSystemProxy: resolveSystemProxyResolution,
     preload: path.join(__dirname, "../preload/index.cjs"), renderer: path.join(__dirname, "../renderer/index.html"),
     ...(appIcon ? { icon: appIcon } : {}),

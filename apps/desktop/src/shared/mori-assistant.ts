@@ -11,6 +11,7 @@ export interface MoriAssistantSettings {
   providerId: string;
   model: string;
   reasoningEffort: "low" | "medium" | "high";
+  /** Legacy persisted preference, retained for compatibility; ChatGPT calls follow globalAccountId. */
   accountIds: string[];
   autoSwitchAccounts: boolean;
   floatingEnabled: boolean;
@@ -60,6 +61,7 @@ export interface MoriComputerUseStatus {
 }
 
 export interface MoriAssistantSnapshot {
+  globalAccountId?: string | null;
   settings: MoriAssistantSettings;
   sessions: MoriAssistantSession[];
   currentThreadId?: string;

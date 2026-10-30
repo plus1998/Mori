@@ -12,6 +12,7 @@ import type {
   OpenAIAccountUpdateInput,
 } from "../shared/openai-account";
 import { type ParsedOpenAIAccountImportRow, parseOpenAIAccountImport } from "./openai-account-import";
+import type { ReadonlyQuotaAccount } from "./readonly-account-quota";
 
 const ACCOUNT_ID_PATTERN = /^oa_[A-Za-z0-9_-]+$/u;
 const MIGRATION_KEY = "legacy_migration_v1";
@@ -645,6 +646,23 @@ export class OpenAIAccountStore {
       FROM openai_accounts a LEFT JOIN openai_account_quotas q ON q.account_id = a.id
       ORDER BY a.created_at, a.rowid
     `).all() as unknown as AccountRow[]).map(mapAccount);
+  }
+
+  /** Dedicated quota capability: no profile secrets, account settings or credential reconciliation. */
+  listReadonlyQuotaAccounts(): ReadonlyQuotaAccount[] {
+    return this.db.prepare(`
+      SELECT a.id, a.name, a.auth_json AS authJson, a.proxy_mode AS proxyMode,
+        a.proxy_url AS proxyUrl, q.quota_json AS quotaJson,
+        q.chatgpt_account_id AS quotaAccountId
+      FROM openai_accounts a LEFT JOIN openai_account_quotas q ON q.account_id = a.id
+      ORDER BY a.created_at, a.rowid
+    `).all() as unknown as ReadonlyQuotaAccount[];
+  }
+
+  readonlyQuotaAuthUnchanged(accountId: string, authJson: string | null): boolean {
+    const row = this.db.prepare("SELECT auth_json FROM openai_accounts WHERE id = ?").get(accountId) as
+      { auth_json: string | null } | undefined;
+    return row !== undefined && row.auth_json === authJson;
   }
 
   get(accountId: string): StoredOpenAIAccount | undefined {

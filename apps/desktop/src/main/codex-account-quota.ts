@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { CodexAppServerClient } from "@eco/runtime/codex-app-server-client";
+import { CodexAppServerClient, type CodexAppServerServerRequestHandler } from "@eco/runtime/codex-app-server-client";
 import type { OpenAIAccountQuota, OpenAIAccountQuotaWindow } from "../shared/openai-account";
 import type { CodexProxyEnvironment } from "./codex-proxy";
 import { buildCodexAppServerEnv } from "./codex-runtime-lifecycle";
@@ -121,18 +121,28 @@ export async function withIsolatedCodexAccountClient<T>(input: {
   executable: string;
   codexHomeDir: string;
   proxy: CodexProxyEnvironment;
+  credentialsStore?: "ephemeral";
+  onServerRequest?: CodexAppServerServerRequestHandler;
+  signal?: AbortSignal;
 }, operation: (client: CodexQuotaClient) => Promise<T>): Promise<T> {
+  input.signal?.throwIfAborted();
   const env = buildCodexAppServerEnv(process.env, input.codexHomeDir, input.proxy);
   // These would override the account's file-backed login in the child process.
   delete env.OPENAI_API_KEY;
   delete env.CODEX_API_KEY;
   delete env.CODEX_ACCESS_TOKEN;
-  const child = spawn(input.executable, ["app-server", "--stdio", "-c", 'cli_auth_credentials_store="file"'], {
+  const child = spawn(input.executable, ["app-server", "--stdio", "-c", `cli_auth_credentials_store="${input.credentialsStore ?? "file"}"`], {
     env,
+    ...(input.credentialsStore === "ephemeral" ? { cwd: input.codexHomeDir } : {}),
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stderr.resume();
-  const client = CodexAppServerClient.attachToProcess(child, { timeoutMs: 30_000 });
+  const client = CodexAppServerClient.attachToProcess(child, {
+    timeoutMs: 30_000,
+    ...(input.onServerRequest ? { onServerRequest: input.onServerRequest } : {}),
+  });
+  const abort = () => { client.close(); child.kill("SIGTERM"); };
+  input.signal?.addEventListener("abort", abort, { once: true });
   let spawnError: Error | undefined;
   child.once("error", (error) => {
     spawnError = error;
@@ -147,6 +157,7 @@ export async function withIsolatedCodexAccountClient<T>(input: {
   } catch (error) {
     throw spawnError ?? error;
   } finally {
+    input.signal?.removeEventListener("abort", abort);
     client.close();
     if (child.pid && child.exitCode === null && child.signalCode === null) {
       await new Promise<void>((resolve) => {

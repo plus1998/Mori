@@ -4,6 +4,7 @@ import fsSync from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
+import os from "node:os";
 import { SocksClient } from "socks";
 import type { AccountUsageRecord } from "./account-usage-store";
 import type {
@@ -30,6 +31,7 @@ import { CodexQuotaRefreshPolicy, type QuotaRefreshReason } from "./codex-quota-
 import { wakeCodexAccount } from "./codex-account-wake";
 import { isCodexReauthenticationRequired } from "./codex-reauthentication";
 import { canUseOpenAIAccountCredentials } from "../shared/openai-account";
+import { queryReadonlyAccountQuotas, readReadonlyQuota, ReadonlyQuotaError, redactAccountSummaryStrings } from "./readonly-account-quota";
 import {
   buildCodexProxyEnv,
   resolveCodexProxyUrl,
@@ -574,7 +576,7 @@ export class OpenAIAccountService {
     await this.runAuthWork(() => this.applyPendingTransitionUnlocked());
   }
 
-  private async applyPendingTransitionUnlocked(): Promise<void> {
+  private async applyPendingTransitionUnlocked(validate?: () => void): Promise<void> {
     const store = this.getStore();
     if (!store.getPendingTransition()) return;
 
@@ -584,6 +586,7 @@ export class OpenAIAccountService {
     let publishedUncommitted = false;
     try {
       for (;;) {
+        validate?.();
         const latest = store.getPendingTransition();
         if (!latest) {
           if (publishedUncommitted) {
@@ -604,6 +607,7 @@ export class OpenAIAccountService {
         if (publishContent !== null) parseAuthJson(publishContent);
         await this.publishMainAuth(publishContent);
         publishedUncommitted = true;
+        validate?.();
         const newest = store.getPendingTransition();
         if (JSON.stringify(newest) !== JSON.stringify(latest)) continue;
         const fingerprint = publishContent === null ? undefined : contentFingerprint(publishContent);
@@ -1004,7 +1008,7 @@ export class OpenAIAccountService {
     return work;
   }
 
-  /** Request a deferred switch; the runtime scheduler commits it once Codex is idle. */
+  /** Queue global selection for explicit publication by the runtime coordinator. */
   async setActiveAccount(accountId: string | null): Promise<void> {
     if (accountId) await this.requireAccount(accountId);
     const pending = this.getStore().getPendingTransition();
@@ -1175,6 +1179,126 @@ export class OpenAIAccountService {
     this.quotaQueries.set(accountId, work);
     void work.finally(() => this.quotaQueries.delete(accountId)).catch(() => undefined);
     return work;
+  }
+
+  /** Assistant-only read capability. Never joins refresh, reconciliation, switching or writeback paths. */
+  listAccountChoicesReadonly() {
+    const accounts = this.getStore().listReadonlyQuotaAccounts();
+    return redactAccountSummaryStrings(accounts.map((account) => {
+      let authState: OpenAIAccount["authState"] | "invalid";
+      try { authState = this.accountAuthState(account.id, account.authJson); }
+      catch { authState = "invalid"; }
+      return { accountId: account.id, label: account.name, authState, selectable: authState === "configured" };
+    }), accounts);
+  }
+
+  /** Explicit global selection. No token renewal, model edits or generic settings access. */
+  async switchGlobalAccountFromAssistant(input: { accountId: string; expectedAccountId: string | null; revision: string }, signal: AbortSignal) {
+    let failureCode = "publication_failed";
+    let status: "applied" | "unchanged" | "failed" = "failed";
+    const operation = this.authSyncQueue.then(async () => {
+      const store = this.getStore();
+      const check = (condition: boolean, code: string) => {
+        if (!condition) { failureCode = code; throw new Error("Global account selection precondition failed."); }
+      };
+      signal.throwIfAborted();
+      check(!store.getPendingTransition(), "transition_pending");
+      check(store.getActiveAccountId() === input.expectedAccountId, "selection_changed");
+      const validateTarget = () => {
+        check(this.accountChoiceRevisionReadonly(input.accountId) === input.revision, "account_changed");
+        check(this.listAccountChoicesReadonly().some((a) => a.accountId === input.accountId && a.selectable), "login_required");
+      };
+      validateTarget();
+      if (input.accountId === input.expectedAccountId) return "unchanged" as const;
+      store.queueTransition(input.accountId);
+      const ownedTransition = JSON.stringify(store.getPendingTransition());
+      try {
+        await this.applyPendingTransitionUnlocked(() => {
+          signal.throwIfAborted();
+          check(store.getActiveAccountId() === input.expectedAccountId && JSON.stringify(store.getPendingTransition()) === ownedTransition, "selection_changed");
+          validateTarget();
+        });
+      } catch (error) {
+        // Never leave a failed assistant request queued for an unconfirmed retry.
+        // A newer transition owned by settings/login is left intact.
+        if (JSON.stringify(store.getPendingTransition()) === ownedTransition) store.cancelPendingTransition();
+        if (error instanceof AggregateError) failureCode = "restoration_failed";
+        if (failureCode === "publication_failed" || failureCode === "restoration_failed")
+          this.setSyncError(new Error("全局账号发布失败，请在账号设置检查本地凭据同步状态。"));
+        throw new Error("Global account selection failed.");
+      }
+      return "applied" as const;
+    });
+    // Serialize with the broker without letting raw exceptions reach sync-status UI.
+    this.authSyncQueue = operation.then(() => undefined, () => undefined);
+    try {
+      status = await operation;
+    } catch {
+      // Never pass filesystem, credential broker or database exception text to a model.
+      if (signal.aborted && failureCode !== "restoration_failed") failureCode = "cancelled";
+      this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+    }
+    return { status, ...(status === "failed" ? { code: failureCode } : {}),
+      selectedAccountId: this.getStore().getActiveAccountId(),
+      ...(this.getPendingAccountId() !== undefined ? { pendingAccountId: this.getPendingAccountId() } : {}),
+      syncState: this.syncStatus.state };
+  }
+
+  /** Main-process race guard only. This fingerprint is never returned by assistant tools. */
+  accountChoiceRevisionReadonly(accountId: string): string | null {
+    const account = this.getStore().listReadonlyQuotaAccounts().find((item) => item.id === accountId);
+    return account ? contentFingerprint(JSON.stringify([account.name, account.authJson])) : null;
+  }
+
+  async queryAllAccountQuotasReadonly(source: "live" | "cache" = "live", signal?: AbortSignal) {
+    const store = this.getStore();
+    return queryReadonlyAccountQuotas({
+      accounts: store.listReadonlyQuotaAccounts(), source,
+      ...(signal ? { signal } : {}),
+      authUnchanged: (account) => store.readonlyQuotaAuthUnchanged(account.id, account.authJson),
+      query: async (account) => {
+        const executable = this.codexExecutableProvider();
+        if (!executable) throw new ReadonlyQuotaError("runtime_unavailable");
+        const codexHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), "mori-readonly-quota-"));
+        let bridge: { close: () => void } | undefined;
+        try {
+          let proxyUrl = await resolveCodexProxyUrl({
+            mode: account.proxyMode ?? (account.proxyUrl ? "manual" : "system"),
+            ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
+          }, this.resolveSystemProxy);
+          if (proxyUrl && new URL(proxyUrl).protocol.startsWith("socks")) {
+            const socksBridge = await startSocksToHttpBridge(proxyUrl);
+            bridge = socksBridge;
+            proxyUrl = `http://127.0.0.1:${socksBridge.port}`;
+          }
+          let refreshRequested = false;
+          return await withIsolatedCodexAccountClient({
+            executable, codexHomeDir, credentialsStore: "ephemeral",
+            ...(signal ? { signal } : {}),
+            proxy: proxyUrl ? { mode: "proxy", url: proxyUrl } : { mode: "direct" },
+            onServerRequest: (method) => {
+              if (method === "account/chatgptAuthTokens/refresh") {
+                refreshRequested = true;
+                throw new ReadonlyQuotaError("refresh_required");
+              }
+              throw new Error("只读额度查询拒绝服务端交互请求。");
+            },
+          }, async (client) => {
+            try {
+              const snapshot = await readReadonlyQuota(client, account.authJson!);
+              if (refreshRequested) throw new ReadonlyQuotaError("refresh_required");
+              return snapshot;
+            } catch (error) {
+              if (refreshRequested) throw new ReadonlyQuotaError("refresh_required");
+              throw error;
+            }
+          });
+        } finally {
+          bridge?.close();
+          await fs.rm(codexHomeDir, { recursive: true, force: true });
+        }
+      },
+    });
   }
 
   private async trackQuotaQuery<T>(accountId: string, operation: () => Promise<T>): Promise<T> {

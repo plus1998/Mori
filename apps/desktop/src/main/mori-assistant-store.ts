@@ -54,8 +54,8 @@ export function parseAssistantSettings(value: unknown): MoriAssistantSettings {
   )
     throw new Error("助手账号列表无效。");
   result.accountIds = [...new Set(result.accountIds)];
-  if (result.enabled && result.modelSource === "chatgpt" && !result.accountIds.length)
-    throw new Error("启用助手前请选择 ChatGPT 账号。");
+  // Legacy rotation settings cannot authorize automatic account changes.
+  result.autoSwitchAccounts = false;
   // Return only known fields. Secrets and runtime state never enter exported settings.
   return Object.fromEntries(
     Object.keys(defaults).map((key) => [key, result[key as keyof MoriAssistantSettings]]),
@@ -94,7 +94,7 @@ export class MoriAssistantStore {
       throw new Error("助手状态文件无效，原文件已保留。");
     this.state = { ...value, settings: parseAssistantSettings(value.settings) };
     // Older versions exposed a task project preference. Mori's own workspace is managed locally.
-    if (Object.hasOwn(value.settings, "defaultProject")) await this.save();
+    if (Object.hasOwn(value.settings, "defaultProject") || value.settings.autoSwitchAccounts) await this.save();
   }
 
   save(): Promise<void> {
