@@ -24,6 +24,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     flavorDimensions += "environment"
@@ -51,4 +52,13 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("androidx.core:core:1.17.0")
+    // Flutter's integration_test requests runner 1.2+ in the app variant;
+    // align debug runtime and AndroidTest so the current runner is selected.
+    debugImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

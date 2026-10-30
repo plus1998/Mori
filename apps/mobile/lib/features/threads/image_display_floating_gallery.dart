@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -16,11 +17,11 @@ typedef ImageDisplayBytesLoader =
       void Function(int receivedBytes, int totalBytes)? onProgress,
     });
 
-/// Desktop-like floating gallery for `display_image` artifacts.
+/// Mobile gallery for `display_image` artifacts.
 ///
 /// Collapsed: bubble with count on the trailing edge.
 /// Starts collapsed and loads image bytes only after an explicit reveal.
-/// Expanded: frosted card with thumbnails; tap opens fullscreen lightbox.
+/// Expanded: wide bottom panel with a two-column grid; tap opens a paged preview.
 /// Failed thumbs retry on tap; loading shows percent when available.
 class ImageDisplayFloatingGallery extends StatefulWidget {
   const ImageDisplayFloatingGallery({
@@ -213,27 +214,39 @@ class _ImageDisplayFloatingGalleryState
       return;
     }
     if (state.data != null) {
-      await _openLightbox(artifact, state.data!);
+      await _openLightbox(artifact);
       return;
     }
     try {
-      final image = await state.future!;
+      await state.future!;
       if (!mounted) return;
-      await _openLightbox(artifact, image);
+      await _openLightbox(artifact);
     } catch (_) {
       if (!mounted) return;
       // Error UI already shows in the thumb; tap again retries.
     }
   }
 
-  Future<void> _openLightbox(
-    ImageDisplayArtifact artifact,
-    ImageViewReadData image,
-  ) async {
-    await showImageMemoryLightboxSingle(
+  Future<void> _openLightbox(ImageDisplayArtifact artifact) async {
+    final artifacts = widget.artifacts.reversed.toList(growable: false);
+    final selected = artifacts.indexWhere((item) => item.id == artifact.id);
+    await showImageMemoryLightbox(
       context,
-      bytes: image.bytes,
-      title: artifact.displayTitle,
+      images: [
+        for (final item in artifacts)
+          _loads[item.id]?.data?.bytes ?? Uint8List(0),
+      ],
+      initialIndex: selected,
+      titles: artifacts
+          .map((item) => item.displayTitle)
+          .toList(growable: false),
+      loadImage: (index) async {
+        final id = artifacts[index].id;
+        return (await _ensureLoad(
+          id,
+          force: _loads[id]?.error != null,
+        ).future!).bytes;
+      },
     );
   }
 
@@ -248,14 +261,16 @@ class _ImageDisplayFloatingGalleryState
 
     return Positioned(
       top: top,
+      left: _expanded ? 12 : null,
       right: 12,
       bottom: bottom,
-      width: _expanded ? 168 : null,
       child: Align(
-        alignment: Alignment.topRight,
+        alignment: _expanded ? Alignment.bottomCenter : Alignment.topRight,
         child: AnimatedScale(
-          scale: _pulse ? 1.06 : 1,
-          duration: const Duration(milliseconds: 220),
+          scale: !_expanded && _pulse ? 1.06 : 1,
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 220),
           curve: Curves.easeOutBack,
           child: _expanded ? _buildExpanded(eco) : _buildCollapsed(eco),
         ),
@@ -293,46 +308,74 @@ class _ImageDisplayFloatingGalleryState
 
   Widget _buildExpanded(EcoColors eco) {
     final l10n = context.l10n;
-    return ComposerStackCard(
-      frosted: true,
-      padding: EdgeInsets.zero,
+    return Container(
+      decoration: BoxDecoration(
+        color: eco.bgElevated,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: eco.borderSubtle.withValues(alpha: .5),
+          width: .5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .12),
+            blurRadius: 28,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 360),
+        constraints: const BoxConstraints(maxHeight: 400),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 4, 6),
+              padding: const EdgeInsets.fromLTRB(18, 10, 8, 8),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
-                      l10n.taskImageDisplayHistory,
+                      l10n.imageGalleryTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: eco.textHeading,
                         fontWeight: FontWeight.w600,
-                        fontSize: 12.5,
+                        fontSize: 16,
                       ),
                     ),
                   ),
+                  Text(
+                    '${widget.artifacts.length}',
+                    style: TextStyle(color: eco.textMuted, fontSize: 13),
+                  ),
+                  const SizedBox(width: 8),
                   IconButton(
                     visualDensity: VisualDensity.compact,
                     tooltip: l10n.commonCollapse,
                     onPressed: () => setState(() => _expanded = false),
-                    icon: Icon(Icons.remove, size: 16, color: eco.textMuted),
+                    icon: Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      size: 22,
+                      color: eco.textMuted,
+                    ),
                   ),
                 ],
               ),
             ),
             Flexible(
-              child: ListView.separated(
+              child: GridView.builder(
                 shrinkWrap: true,
-                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 220,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: .92,
+                ),
                 itemCount: widget.artifacts.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
                   // Keep new screenshots visible within the bounded gallery.
                   final artifact =
@@ -378,34 +421,41 @@ class _ArtifactThumbRow extends StatelessWidget {
     final eco = ecoColors(context);
     final l10n = context.l10n;
     return Material(
-      color: highlighted ? eco.accentSoft : eco.cardSurface,
-      borderRadius: BorderRadius.circular(10),
+      color: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: highlighted
+              ? eco.accent.withValues(alpha: .6)
+              : Colors.transparent,
+          width: 1,
+        ),
+      ),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.all(6),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: AspectRatio(
-                  aspectRatio: 1,
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
                   child: ColoredBox(
-                    color: eco.bgElevated,
+                    color: eco.textPrimary.withValues(alpha: .035),
                     child: _buildPreview(eco, l10n),
                   ),
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               Text(
                 artifact.displayTitle,
-                maxLines: 2,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: eco.textPrimary,
-                  fontSize: 11,
+                  fontSize: 12,
                   height: 1.25,
                   fontWeight: FontWeight.w500,
                 ),

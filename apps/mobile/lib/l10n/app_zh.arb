@@ -1110,5 +1110,21 @@
   "composerReferencesDisconnected": "请先连接桌面端，再选择引用",
   "composerReferencesMore": "继续输入名称，缩小搜索范围",
   "composerReferencesHint": "SSH、网页、会话和工具",
-  "composerReferencesSpeech": "语音生成"
+  "composerReferencesSpeech": "语音生成",
+  "imagePreviewTitle": "图片预览",
+  "imageGalleryTitle": "图片画廊",
+  "imageSaveToPhotos": "保存到相册",
+  "imageSaving": "正在保存…",
+  "imageSavedToPhotos": "已保存到相册",
+  "imageSavePermissionDenied": "没有相册写入权限，请在系统设置中允许保存照片后重试。",
+  "imageSaveNotEnoughSpace": "设备空间不足，请清理空间后重试。",
+  "imageSaveUnsupported": "系统相册不支持这张图片的格式。",
+  "imageSaveUnavailable": "相册保存服务不可用，请重新启动应用后重试。",
+  "imageSaveFailed": "图片未能保存到相册，请重试。",
+  "imageCopy": "复制",
+  "imageCopying": "正在复制…",
+  "imageCopied": "已复制",
+  "imageCopyFailed": "图片复制失败，请重试。",
+  "imageCopyUnsupported": "暂不支持复制这种图片格式。",
+  "imageCopyUnavailable": "图片复制服务不可用，请重新启动应用后重试。"
 }

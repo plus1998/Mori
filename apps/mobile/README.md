@@ -119,6 +119,12 @@ flutter test
 
 引用原生冒烟：`flutter test integration_test/composer_references_test.dart --flavor dev -d SIMULATOR_ID`，验证「+」入口、原生键盘下的位置、分类点选、连续引用和深浅主题；可用 `--dart-define=ECO_COMPOSER_SCREENSHOTS=/tmp/mori-mobile-references` 保存截图。测试使用本地引用元数据，不连接账号或调用模型，不能证明真实 RPC 网络送达。
 
+图片画廊在手机端展开为底部自适应网格，点击后可全屏左右翻图、双指缩放和双击缩放。全屏底部「保存到相册」将当前图片原始字节写入系统相册；原图加载失败时禁用保存，权限拒绝、空间不足和格式不支持会明确提示。iOS 仅请求添加照片权限，Android 10 及以下按 Gal 的要求声明写入权限。
+
+画廊原生冒烟：先用 `/usr/libexec/PlistBuddy -c Print:CFBundleIdentifier build/ios/iphonesimulator/Runner.app/Info.plist` 确认实际 iOS Bundle ID，再用 `xcrun simctl privacy SIMULATOR_ID grant photos-add BUNDLE_ID` 授予测试模拟器添加照片权限。运行 `flutter test integration_test/image_gallery_test.dart --flavor dev -d SIMULATOR_ID` 验证深浅主题、原图切换及实际写入相册；可用 `--dart-define=ECO_GALLERY_SCREENSHOTS=/tmp/mori-image-gallery` 保存截图。测试使用本地绘制的图片，不调用桌面 RPC 或模型，会向模拟器相册添加测试图片。Android 构建检查为 `flutter build apk --debug --flavor dev`，仍需真机验证系统相册行为。
+
+全屏预览的「复制」会复制当前页已加载的原始图片字节。iOS 将数据以源图片 UTI 写入系统粘贴板，Android 通过 FileProvider 暴露原始文件 URI 并授予接收应用临时读取权；不经过像素重编码。按钮报告复制成功或失败，失败后可重试。`flutter test --no-pub test/image_clipboard_test.dart test/image_memory_lightbox_copy_test.dart` 覆盖通道契约、原图一致性、加载/翻页、成功失败状态和窄屏布局；iOS 原生测试位于 `ios/RunnerTests/RunnerTests.swift`，Android URI 与 Provider 测试位于 `android/app/src/androidTest/kotlin/com/eco/eco_mobile/ImageClipboardTest.kt`。iOS 模拟器可用 `flutter test integration_test/image_clipboard_test.dart --flavor dev -d SIMULATOR_ID` 验证真实原生复制；Android instrumented 测试需要可用的 Android 模拟器或设备。
+
 Composer 原生菜单冒烟：`flutter test integration_test/composer_plus_menu_test.dart --flavor dev -d SIMULATOR_ID`，验证深浅主题、模型菜单去重、配置返回、模式开关和原生键盘下的定位。使用生产 Composer 与本地回调，不连接账号或调用模型；可用 `--dart-define=ECO_COMPOSER_SCREENSHOTS=/tmp/eco-mobile-composer-native` 保存截图。
 
 ## 移动端离线 Feed Replay（iOS 模拟器）

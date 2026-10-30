@@ -41,6 +41,7 @@ dependencies:
   just_audio: ^0.10.6
   path_provider: ^2.1.6
   audio_session: ^0.2.4
+  gal: ^2.3.3
 
 dev_dependencies:
   integration_test:

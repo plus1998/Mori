@@ -5977,6 +5977,102 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Speech generation'**
   String get composerReferencesSpeech;
+
+  /// No description provided for @imagePreviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Image preview'**
+  String get imagePreviewTitle;
+
+  /// No description provided for @imageGalleryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Image gallery'**
+  String get imageGalleryTitle;
+
+  /// No description provided for @imageSaveToPhotos.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to Photos'**
+  String get imageSaveToPhotos;
+
+  /// No description provided for @imageSaving.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving…'**
+  String get imageSaving;
+
+  /// No description provided for @imageSavedToPhotos.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved to Photos'**
+  String get imageSavedToPhotos;
+
+  /// No description provided for @imageSavePermissionDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'Photo access was denied. Allow adding photos in system settings, then try again.'**
+  String get imageSavePermissionDenied;
+
+  /// No description provided for @imageSaveNotEnoughSpace.
+  ///
+  /// In en, this message translates to:
+  /// **'Not enough storage. Free up space and try again.'**
+  String get imageSaveNotEnoughSpace;
+
+  /// No description provided for @imageSaveUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Your photo library does not support this image format.'**
+  String get imageSaveUnsupported;
+
+  /// No description provided for @imageSaveUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Photo saving is unavailable. Restart the app and try again.'**
+  String get imageSaveUnavailable;
+
+  /// No description provided for @imageSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save this image to Photos. Try again.'**
+  String get imageSaveFailed;
+
+  /// No description provided for @imageCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get imageCopy;
+
+  /// No description provided for @imageCopying.
+  ///
+  /// In en, this message translates to:
+  /// **'Copying…'**
+  String get imageCopying;
+
+  /// No description provided for @imageCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied'**
+  String get imageCopied;
+
+  /// No description provided for @imageCopyFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not copy this image. Try again.'**
+  String get imageCopyFailed;
+
+  /// No description provided for @imageCopyUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Copying this image format is not supported.'**
+  String get imageCopyUnsupported;
+
+  /// No description provided for @imageCopyUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Image copying is unavailable. Restart the app and try again.'**
+  String get imageCopyUnavailable;
 }
 
 class _AppLocalizationsDelegate

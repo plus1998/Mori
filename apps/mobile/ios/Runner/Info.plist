@@ -51,6 +51,8 @@
 		<string>用于语音输入，将语音识别为可编辑文字。</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>用于选择图片，添加到待办事项或会话消息中。</string>
+		<key>NSPhotoLibraryAddUsageDescription</key>
+		<string>用于将你选择的图片保存到系统相册。</string>
 		<key>UILaunchStoryboardName</key>
 		<string>LaunchScreen</string>
 		<key>UIMainStoryboardFile</key>

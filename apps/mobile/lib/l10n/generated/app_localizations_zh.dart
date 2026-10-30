@@ -3224,4 +3224,52 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get composerReferencesSpeech => '语音生成';
+
+  @override
+  String get imagePreviewTitle => '图片预览';
+
+  @override
+  String get imageGalleryTitle => '图片画廊';
+
+  @override
+  String get imageSaveToPhotos => '保存到相册';
+
+  @override
+  String get imageSaving => '正在保存…';
+
+  @override
+  String get imageSavedToPhotos => '已保存到相册';
+
+  @override
+  String get imageSavePermissionDenied => '没有相册写入权限，请在系统设置中允许保存照片后重试。';
+
+  @override
+  String get imageSaveNotEnoughSpace => '设备空间不足，请清理空间后重试。';
+
+  @override
+  String get imageSaveUnsupported => '系统相册不支持这张图片的格式。';
+
+  @override
+  String get imageSaveUnavailable => '相册保存服务不可用，请重新启动应用后重试。';
+
+  @override
+  String get imageSaveFailed => '图片未能保存到相册，请重试。';
+
+  @override
+  String get imageCopy => '复制';
+
+  @override
+  String get imageCopying => '正在复制…';
+
+  @override
+  String get imageCopied => '已复制';
+
+  @override
+  String get imageCopyFailed => '图片复制失败，请重试。';
+
+  @override
+  String get imageCopyUnsupported => '暂不支持复制这种图片格式。';
+
+  @override
+  String get imageCopyUnavailable => '图片复制服务不可用，请重新启动应用后重试。';
 }

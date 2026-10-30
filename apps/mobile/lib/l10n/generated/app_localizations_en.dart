@@ -3410,4 +3410,59 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get composerReferencesSpeech => 'Speech generation';
+
+  @override
+  String get imagePreviewTitle => 'Image preview';
+
+  @override
+  String get imageGalleryTitle => 'Image gallery';
+
+  @override
+  String get imageSaveToPhotos => 'Save to Photos';
+
+  @override
+  String get imageSaving => 'Saving…';
+
+  @override
+  String get imageSavedToPhotos => 'Saved to Photos';
+
+  @override
+  String get imageSavePermissionDenied =>
+      'Photo access was denied. Allow adding photos in system settings, then try again.';
+
+  @override
+  String get imageSaveNotEnoughSpace =>
+      'Not enough storage. Free up space and try again.';
+
+  @override
+  String get imageSaveUnsupported =>
+      'Your photo library does not support this image format.';
+
+  @override
+  String get imageSaveUnavailable =>
+      'Photo saving is unavailable. Restart the app and try again.';
+
+  @override
+  String get imageSaveFailed =>
+      'Could not save this image to Photos. Try again.';
+
+  @override
+  String get imageCopy => 'Copy';
+
+  @override
+  String get imageCopying => 'Copying…';
+
+  @override
+  String get imageCopied => 'Copied';
+
+  @override
+  String get imageCopyFailed => 'Could not copy this image. Try again.';
+
+  @override
+  String get imageCopyUnsupported =>
+      'Copying this image format is not supported.';
+
+  @override
+  String get imageCopyUnavailable =>
+      'Image copying is unavailable. Restart the app and try again.';
 }

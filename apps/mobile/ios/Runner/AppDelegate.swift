@@ -1,8 +1,10 @@
 import Flutter
 import UIKit
+import ImageIO
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+  private var imageClipboardChannel: FlutterMethodChannel?
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -17,6 +19,27 @@ import UIKit
 
     let registrar = engineBridge.applicationRegistrar
     let messenger = registrar.messenger()
+    let clipboard = FlutterMethodChannel(name: "eco_mobile/image_clipboard", binaryMessenger: messenger)
+    clipboard.setMethodCallHandler { call, result in
+      guard call.method == "copyImage" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      guard let arguments = call.arguments as? [String: Any],
+            let bytes = arguments["bytes"] as? FlutterStandardTypedData else {
+        result(FlutterError(code: "invalid_image", message: "Original image bytes are required.", details: nil))
+        return
+      }
+      do {
+        try EcoImageClipboard.copy(bytes.data)
+        result(true)
+      } catch EcoImageClipboard.Failure.invalidImage {
+        result(FlutterError(code: "invalid_image", message: "Unsupported image data.", details: nil))
+      } catch {
+        result(FlutterError(code: "copy_failed", message: "Clipboard did not accept the image.", details: nil))
+      }
+    }
+    imageClipboardChannel = clipboard
     registrar.register(
       EcoMobileLiquidGlassActionButtonFactory(messenger: messenger),
       withId: "eco_mobile/liquid_glass_action_button"
@@ -29,6 +52,26 @@ import UIKit
       EcoMobileComposerSendButtonFactory(messenger: messenger),
       withId: "eco_mobile/composer_send_button"
     )
+  }
+}
+
+/// Encoded data is published under its original UTI. UIImage/pngData would
+/// transcode JPEG/HEIC/GIF and discard original metadata or animation.
+enum EcoImageClipboard {
+  enum Failure: Error { case invalidImage, writeFailed }
+
+  static func copy(_ data: Data, to pasteboard: UIPasteboard = .general) throws {
+    guard !data.isEmpty,
+          let source = CGImageSourceCreateWithData(data as CFData, nil),
+          CGImageSourceGetCount(source) > 0,
+          let type = CGImageSourceGetType(source) else {
+      throw Failure.invalidImage
+    }
+    let identifier = type as String
+    pasteboard.setData(data, forPasteboardType: identifier)
+    guard pasteboard.data(forPasteboardType: identifier) == data else {
+      throw Failure.writeFailed
+    }
   }
 }
 

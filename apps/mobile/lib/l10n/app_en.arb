@@ -1160,5 +1160,21 @@
   "composerReferencesDisconnected": "Connect to your desktop to choose references.",
   "composerReferencesMore": "Keep typing to narrow the results.",
   "composerReferencesHint": "SSH, pages, chats and tools",
-  "composerReferencesSpeech": "Speech generation"
+  "composerReferencesSpeech": "Speech generation",
+  "imagePreviewTitle": "Image preview",
+  "imageGalleryTitle": "Image gallery",
+  "imageSaveToPhotos": "Save to Photos",
+  "imageSaving": "Saving…",
+  "imageSavedToPhotos": "Saved to Photos",
+  "imageSavePermissionDenied": "Photo access was denied. Allow adding photos in system settings, then try again.",
+  "imageSaveNotEnoughSpace": "Not enough storage. Free up space and try again.",
+  "imageSaveUnsupported": "Your photo library does not support this image format.",
+  "imageSaveUnavailable": "Photo saving is unavailable. Restart the app and try again.",
+  "imageSaveFailed": "Could not save this image to Photos. Try again.",
+  "imageCopy": "Copy",
+  "imageCopying": "Copying…",
+  "imageCopied": "Copied",
+  "imageCopyFailed": "Could not copy this image. Try again.",
+  "imageCopyUnsupported": "Copying this image format is not supported.",
+  "imageCopyUnavailable": "Image copying is unavailable. Restart the app and try again."
 }
