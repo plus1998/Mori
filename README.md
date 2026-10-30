@@ -147,7 +147,7 @@ bun run update:mac-arm64
 
 | 平台 | 架构 | 发布产物 | 更新方式 |
 | --- | --- | --- | --- |
-| macOS | Apple Silicon、Intel | DMG / ZIP | 当前未签名 Beta 使用手动下载 |
+| macOS 13+ | Apple Silicon、Intel | DMG / ZIP | 当前未签名 Beta 使用手动下载 |
 | Windows 10/11 | x64 | NSIS 安装器 | 支持应用内更新 |
 | Linux | x64 | AppImage | 支持应用内更新 |
 

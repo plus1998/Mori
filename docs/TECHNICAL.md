@@ -242,6 +242,12 @@ Supabase 只负责身份与路由；代码读取、模型调用、Git 与终端�
 
 ## 12. 构建与发布
 
+桌面运行时固定为 Electron 45.1.0（Chromium 156、Node.js 24），macOS 最低要求为 13。`postinstall` 先显式安装 Electron 二进制，再通过 `@electron/rebuild` 重建并探测 `node-pty`；源码构建继续使用 CI 固定的 Node.js 22.21.1。Electron 42+ 的延迟下载不能替代这个步骤，否则首次运行 Node/Bun 探测可能隐式下载并超时。
+
+剪贴板图片通过 Electron 的异步 `clipboard.read` / `clipboard.write` 与 `ClipboardItem` 读写，IPC 仍返回 PNG。同步 `safeStorage` 在 45 中仍用于现有凭据存储；升级到 46 前必须将加解密及调用它们的 store 接口迁为异步。浏览器 guest 的 CDP 隔离逻辑保留，不能因升级而假定 `Page.reload` 已修复。
+
+2026-10-30 的本机升级验证中，构建、类型检查、35 项发布测试、5 项桌面端到端测试、真实 UI 终端操作及 macOS ARM64 包内 PI Worker/WASM 的 6 项冒烟通过。全量测试为 7725 通过、38 跳过、5 失败；5 条失败涉及侧栏源码断言、工具写入生命周期、硬编码文案与 SQLite follow-up 队列，在升级前 HEAD `c2d7fd2e` 上均复现，未加入豁免清单。macOS 临时 ad-hoc 包完整启动阻塞在 Security 钥匙串读取，独立通知探测返回 `UNErrorDomain` 错误 1，凭据兼容与打包版通知尚未完成验收；Windows、Linux、macOS Intel 仍需各自平台验证。
+
 根目录使用 Bun workspace。主要命令：
 
 ```bash

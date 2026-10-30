@@ -72,7 +72,7 @@ After the first launch, add API credentials under Settings → Model Providers, 
 
 | Platform | Architecture | Artifact | Update behavior |
 | --- | --- | --- | --- |
-| macOS | Apple Silicon, Intel | DMG / ZIP | Current unsigned Beta uses manual download |
+| macOS 13+ | Apple Silicon, Intel | DMG / ZIP | Current unsigned Beta uses manual download |
 | Windows 10/11 | x64 | NSIS installer | In-app updates supported |
 | Linux | x64 | AppImage | In-app updates supported |
 

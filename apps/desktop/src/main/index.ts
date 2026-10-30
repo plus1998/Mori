@@ -162,6 +162,7 @@ import {
   BrowserWindow,
   type BrowserWindowConstructorOptions,
   clipboard,
+  ClipboardItem,
   dialog,
   globalShortcut,
   type Event,
@@ -5793,12 +5794,21 @@ function registerIpcHandlers(): void {
   // stays denied, and Electron's clipboard is not gated on window focus.
   registerDesktopCommand(IPC_CHANNELS.clipboardReadText, async () => clipboard.readText());
 
-  // Composer right-click paste reads the clipboard image here for the same reason. PNG only:
-  // Electron's nativeImage stops at that format, which is also what the Composer accepts.
+  // Normalize native clipboard images to PNG for Composer attachments.
   registerDesktopCommand(
     IPC_CHANNELS.clipboardReadImage,
     async (): Promise<ClipboardReadImageResult | null> => {
-      const image = clipboard.readImage();
+      const items = await clipboard.read();
+      const item = items.find((candidate) => candidate.types.includes("image/png"))
+        ?? items.find((candidate) => candidate.types.some((type) => type.startsWith("image/")));
+      const imageType = item?.types.includes("image/png")
+        ? "image/png"
+        : item?.types.find((type): type is `image/${string}` => type.startsWith("image/"));
+      if (!item || !imageType) {
+        return null;
+      }
+      const blob = await item.getType(imageType);
+      const image = nativeImage.createFromBuffer(Buffer.from(await blob.arrayBuffer()));
       if (image.isEmpty()) {
         return null;
       }
@@ -5814,9 +5824,7 @@ function registerIpcHandlers(): void {
     },
   );
 
-  // Same reason for image writes: the renderer's `navigator.clipboard.write` refuses when the
-  // document is unfocused, so the image viewer retries the copy here. PNG only — Chromium and
-  // nativeImage both stop at that format.
+  // The image viewer also writes here when its renderer document is unfocused.
   registerDesktopCommand(IPC_CHANNELS.clipboardWriteImage, async (payload: unknown) => {
     const pngBase64 =
       isRecord(payload) && typeof payload.pngBase64 === "string" ? payload.pngBase64.trim() : "";
@@ -5827,7 +5835,7 @@ function registerIpcHandlers(): void {
     if (image.isEmpty()) {
       return false;
     }
-    clipboard.writeImage(image);
+    await clipboard.write([new ClipboardItem({ "image/png": new Blob([new Uint8Array(image.toPNG())]) })]);
     return true;
   });
 

@@ -10,8 +10,8 @@ Download the matching artifact from [GitHub Releases](https://github.com/plus199
 
 | Platform | File |
 | --- | --- |
-| macOS Apple Silicon | `Mori-*-mac-arm64.dmg` |
-| macOS Intel | `Mori-*-mac-x64.dmg` |
+| macOS 13+ Apple Silicon | `Mori-*-mac-arm64.dmg` |
+| macOS 13+ Intel | `Mori-*-mac-x64.dmg` |
 | Windows 10/11 x64 | `Mori-*-win-x64.exe` |
 | Linux x64 | `Mori-*-linux-x64.AppImage` |
 

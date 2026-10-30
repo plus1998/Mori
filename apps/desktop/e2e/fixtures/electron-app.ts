@@ -9,7 +9,7 @@ import {
 import { waitForEcoReady } from "../helpers/eco-page";
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const envFile = path.join(desktopRoot, ".e2e-env.json");
+const envFile = process.env.ECO_E2E_ENV_FILE ?? path.join(desktopRoot, ".e2e-env.json");
 
 type E2eEnv = {
   rendererUrl: string;

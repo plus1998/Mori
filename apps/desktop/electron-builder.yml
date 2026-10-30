@@ -84,6 +84,7 @@ detectUpdateChannel: false
 generateUpdatesFilesForAllChannels: false
 
 mac:
+  minimumSystemVersion: "13.0.0"
   # The first beta is intentionally unsigned. Enable signing and notarization
   # before turning on macOS automatic updates.
   identity: null
