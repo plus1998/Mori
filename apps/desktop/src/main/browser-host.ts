@@ -1248,33 +1248,6 @@ export class BrowserHost {
     );
   }
 
-  private async blurMainRendererForGuestKeyboardInput(): Promise<void> {
-    const win = this.deps.getMainWindow();
-    if (!win || win.isDestroyed()) {
-      return;
-    }
-    try {
-      const composerStillFocused = await win.webContents.executeJavaScript(
-        `(function(){
-          const a = document.activeElement;
-          if (!a || a === document.body || a === document.documentElement) return false;
-          try { a.blur(); } catch {}
-          const after = document.activeElement;
-          return after && after !== document.body && after.closest && after.closest('.composer-skill-input-control');
-        })()`,
-        true,
-      );
-      if (composerStillFocused) {
-        throw new Error("Composer still holds keyboard focus; refusing guest keyboard input");
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("Composer still holds")) {
-        throw error;
-      }
-      // ignore blur failures on destroyed/unready renderer
-    }
-  }
-
   async ensureCdpPort(threadId: string): Promise<number> {
     const scopeId = threadId.trim() || ECO_BROWSER_PERSONAL_SCOPE_ID;
     if (isPersonalBrowserScopeId(scopeId)) {
@@ -1384,9 +1357,6 @@ export class BrowserHost {
             }
           }
           this.noteAgentPresence(targetId);
-        },
-        onPrepareGuestKeyboardInput: async () => {
-          await this.blurMainRendererForGuestKeyboardInput();
         },
         isForbiddenWebContents: (wc) => {
           const win = this.deps.getMainWindow();
@@ -1543,7 +1513,6 @@ export class BrowserHost {
       if (!pending) {
         pending = startMultiBrowserCdpProxy({
           getTargets: () => { const wc = this.findBrowser(browserId)?.browser.webContents; return wc && !wc.isDestroyed() ? [{ id: browserId, webContents: wc }] : []; },
-          onPrepareGuestKeyboardInput: () => this.blurMainRendererForGuestKeyboardInput(),
           onClientActivity: () => this.noteAgentPresence(browserId),
           isForbiddenWebContents: wc => wc.id === this.deps.getMainWindow()?.webContents.id,
         });

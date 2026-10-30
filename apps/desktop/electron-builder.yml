@@ -20,6 +20,8 @@ files:
 
 asar: true
 asarUnpack:
+  # In-process Agent focus interception must be loaded from a real signed dylib.
+  - "dist/native/browser-focus-hook/**"
   - "**/node_modules/@anthropic-ai/**"
   # Native Codex CLI + platform binaries (and code-mode host) cannot run from inside asar.
   - "**/node_modules/@openai/**"
@@ -30,8 +32,10 @@ asarUnpack:
   # Keyring credential store (external native binding).
   - "**/node_modules/@napi-rs/keyring/**"
   - "**/node_modules/@napi-rs/keyring-*/**"
+  - "**/node_modules/@napi-rs/canvas-*/**"
   # Win32 Job Object FFI for ACP process-tree cleanup (Zed-aligned).
   - "**/node_modules/koffi/**"
+  - "**/node_modules/@koromix/koffi-*/**"
   # PI SDK runtime closure. The codemode sandbox spawns a worker thread and
   # compiles a QuickJS wasm, so those files must exist as real files rather than
   # as asar members: `new Worker()` and `WebAssembly.compile()` are handed the

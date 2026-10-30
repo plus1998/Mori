@@ -1,11 +1,37 @@
 import { expect, test } from "bun:test";
 import os from "node:os";
 import path from "node:path";
+import fs from "node:fs";
+import type { WebContents } from "electron";
 import {
+  captureGuestScreenshot,
   formatAgentBrowserTabList,
   isFullPageScreenshot,
   resolveAgentBrowserScreenshotPath,
 } from "../src/main/browser-native-agent-tools";
+
+test("capturing background guest screenshots never takes native focus", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mori-screenshot-focus-"));
+  const png = Buffer.alloc(1024, 1);
+  let focusCalls = 0;
+  const guest = {
+    isDestroyed: () => false,
+    getType: () => "webview",
+    focus: () => { focusCalls++; },
+    debugger: {
+      isAttached: () => true,
+      sendCommand: async () => ({ data: png.toString("base64") }),
+    },
+  } as unknown as WebContents;
+  try {
+    const output = path.join(directory, "guest.png");
+    expect(await captureGuestScreenshot(guest, output)).toBe(output);
+    expect(fs.readFileSync(output)).toEqual(png);
+    expect(focusCalls).toBe(0);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("resolveAgentBrowserScreenshotPath defaults to temp png", () => {
   const resolved = resolveAgentBrowserScreenshotPath({});

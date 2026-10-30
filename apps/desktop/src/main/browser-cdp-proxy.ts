@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 import type { WebContents } from "electron";
+import { submitBrowserAgentPointer } from "./browser-agent-focus";
 import { FORBIDDEN_CDP_PORT } from "../shared/dev-cdp";
 import {
   isBrowserAgentPresenceCdpMethod,
@@ -78,8 +79,8 @@ export interface MultiBrowserCdpProxyOptions {
     /** Present for Input.dispatchMouseEvent when x/y parse. */
     mouse?: { x: number; y: number; type: string; buttons?: number };
   }) => void;
-  /** Blur embedder / move OS keyboard focus before guest synthetic input. */
-  onPrepareGuestKeyboardInput?: (target: BrowserCdpTarget) => void | Promise<void>;
+  /** Submit a pointer press with focus isolation; tests may provide an isolated dispatcher. */
+  dispatchGuestPointer?: (target: BrowserCdpTarget, params: Record<string, unknown>) => Promise<unknown>;
   /**
    * Extra deny-list (e.g. main BrowserWindow webContents). Applied in addition to
    * {@link assertBrowserGuestWebContents}.
@@ -502,7 +503,7 @@ async function handleHttp(
 }
 
 interface CdpClientState {
-  /** One-shot DOM.focus params to replay after native guest focus before keyboard insert. */
+  /** One-shot guest DOM.focus params to replay before keyboard insert. */
   pendingDomFocusBySession: Map<string, Record<string, unknown>>;
 }
 
@@ -516,17 +517,6 @@ function clearPendingDomFocus(clientState: CdpClientState, sessionKey: string): 
 
 function clearsPendingDomFocus(method: string): boolean {
   return method !== "DOM.focus" && method !== "Input.insertText" && method !== "Input.dispatchKeyEvent";
-}
-
-function focusGuestWebContents(wc: WebContents): void {
-  assertBrowserGuestWebContents(wc);
-  try {
-    wc.focus();
-  } catch (error) {
-    throw new Error(
-      `Failed to focus guest webContents: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
 }
 
 type ElectronInputModifier =
@@ -617,21 +607,6 @@ async function replayPendingDomFocus(
       `DOM.focus replay failed before ${context}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-}
-
-async function prepareGuestKeyboardTarget(
-  target: BrowserCdpTarget,
-  dbg: DebuggerLike,
-  clientState: CdpClientState,
-  key: string,
-  options: MultiBrowserCdpProxyOptions,
-  context: string,
-): Promise<void> {
-  if (options.onPrepareGuestKeyboardInput) {
-    await options.onPrepareGuestKeyboardInput(target);
-  }
-  focusGuestWebContents(target.webContents);
-  await replayPendingDomFocus(dbg, clientState, key, context);
 }
 
 /**
@@ -794,39 +769,22 @@ export function mapCdpMouseEventToSendInput(params: Record<string, unknown>): Gu
   return null;
 }
 
-function guestDispatchMouseViaSendInputEvent(wc: WebContents, params: Record<string, unknown>): void {
-  assertBrowserGuestWebContents(wc);
-  const mapped = mapCdpMouseEventToSendInput(params);
-  if (!mapped) {
-    throw new Error(`Unsupported CDP mouse event: ${JSON.stringify(params)}`);
-  }
-  wc.sendInputEvent(mapped);
-}
-
-/** Map first touch point to mouse events so touch never goes through embedder-routed CDP Input. */
-function guestDispatchTouchViaSendInputEvent(wc: WebContents, params: Record<string, unknown>): void {
-  assertBrowserGuestWebContents(wc);
+/** Preserve the historical single-touch-as-mouse behavior, using CDP frame routing. */
+async function guestDispatchTouchAsMouse(
+  params: Record<string, unknown>,
+  dispatch: (params: Record<string, unknown>) => Promise<unknown>,
+): Promise<void> {
   const touchType = params.type;
   const points = Array.isArray(params.touchPoints) ? params.touchPoints : [];
   const first = points[0] as Record<string, unknown> | undefined;
   const x = Number(first?.x ?? params.x);
   const y = Number(first?.y ?? params.y);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+  const type = touchType === "touchStart" ? "mousePressed" : touchType === "touchMove" ? "mouseMoved" :
+    touchType === "touchEnd" || touchType === "touchCancel" ? "mouseReleased" : undefined;
+  if (!type || !Number.isFinite(x) || !Number.isFinite(y)) {
     throw new Error(`Unsupported CDP touch event: ${JSON.stringify(params)}`);
   }
-  if (touchType === "touchStart") {
-    wc.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
-    return;
-  }
-  if (touchType === "touchMove") {
-    wc.sendInputEvent({ type: "mouseMove", x, y });
-    return;
-  }
-  if (touchType === "touchEnd" || touchType === "touchCancel") {
-    wc.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
-    return;
-  }
-  throw new Error(`Unsupported CDP touch event type: ${String(touchType)}`);
+  await dispatch({ type, x, y, button: "left", clickCount: 1, buttons: type === "mouseReleased" ? 0 : 1 });
 }
 
 /**
@@ -882,17 +840,17 @@ export function applyGuestPageNavigateToHistoryEntry(
 }
 
 export function applyGuestPageBringToFront(
-  webContents: Pick<WebContents, "focus" | "isDestroyed" | "getType">,
+  webContents: Pick<WebContents, "isDestroyed" | "getType">,
 ): Record<string, never> {
   assertBrowserGuestWebContents(webContents);
-  webContents.focus();
+  // Automation selects a logical target; only the human may move native keyboard focus.
   return {};
 }
 
 /**
  * Electron routes CDP Input.* at browser-process focus, which can leak to the embedder
  * (Composer / main window) even when commands are sent on the guest debugger.
- * Route all synthetic Input through guest webContents APIs instead.
+ * Keyboard uses guest native APIs; pointer CDP uses frame routing with native event-source focus isolation.
  */
 async function forwardGuestInput(
   target: BrowserCdpTarget,
@@ -904,13 +862,26 @@ async function forwardGuestInput(
   options: MultiBrowserCdpProxyOptions,
 ): Promise<unknown> {
   assertTargetAllowed(options, target);
-  await prepareGuestKeyboardTarget(target, dbg, clientState, key, options, method);
+  if (method === "Input.insertText" || method === "Input.dispatchKeyEvent") {
+    await replayPendingDomFocus(dbg, clientState, key, method);
+  }
 
   if (method === "Input.insertText") {
     const text = typeof params.text === "string" ? params.text : "";
     await guestInsertTextViaRuntime(dbg, text);
     clearPendingDomFocus(clientState, key);
     return {};
+  }
+
+  const dispatchPointer = (pointer: Record<string, unknown>): Promise<unknown> => {
+    assertTargetAllowed(options, target);
+    if (pointer.type !== "mousePressed") return dbg.sendCommand("Input.dispatchMouseEvent", pointer);
+    if (options.dispatchGuestPointer) return options.dispatchGuestPointer(target, pointer);
+    // The native router classifies CDP provenance when the event is actually dispatched.
+    return submitBrowserAgentPointer(target.webContents, () => dbg.sendCommand("Input.dispatchMouseEvent", pointer));
+  };
+  if (["Input.dispatchKeyEvent", "Input.dispatchMouseEvent", "Input.dispatchTouchEvent"].includes(method)) {
+    await dbg.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
   }
 
   if (method === "Input.dispatchKeyEvent") {
@@ -920,20 +891,24 @@ async function forwardGuestInput(
   }
 
   if (method === "Input.dispatchMouseEvent") {
-    guestDispatchMouseViaSendInputEvent(target.webContents, params);
+    if (!mapCdpMouseEventToSendInput(params)) throw new Error(`Unsupported CDP mouse event: ${JSON.stringify(params)}`);
+    await dispatchPointer(params);
     clearPendingDomFocus(clientState, key);
     return {};
   }
 
   if (method === "Input.dispatchTouchEvent") {
-    guestDispatchTouchViaSendInputEvent(target.webContents, params);
+    await guestDispatchTouchAsMouse(params, dispatchPointer);
     clearPendingDomFocus(clientState, key);
     return {};
   }
 
-  // Remaining Input.* still must hit the guest debugger only (never main window).
   clearPendingDomFocus(clientState, key);
-  return dbg.sendCommand(method, params);
+  if (["Input.setIgnoreInputEvents", "Input.setInterceptDrags", "Input.cancelDragging"].includes(method)) {
+    return dbg.sendCommand(method, params);
+  }
+  // Gesture synthesis has not been validated by the isolated pointer tests.
+  throw new Error(`Unsupported isolated Agent input method: ${method}`);
 }
 
 function resolveTarget(

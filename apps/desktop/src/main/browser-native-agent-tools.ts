@@ -43,12 +43,6 @@ async function tryCdpCapture(
   fromSurface: boolean,
 ): Promise<number> {
   const dbg = ensureDebugger(webContents);
-  // Prefer WebContents.focus — raw CDP Page.bringToFront can mis-target embedder on <webview>.
-  try {
-    webContents.focus();
-  } catch {
-    // ignore
-  }
   const params: Record<string, unknown> = {
     format: "png",
     fromSurface,

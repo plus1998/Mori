@@ -1,20 +1,17 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { browserAgentSessionKey } from "../src/shared/browser";
 import { runAgentBrowser } from "../scripts/agent-browser-cli.mjs";
 import { expect, test } from "./fixtures/electron-app";
 
-const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-
-test("background browser fill/type does not leak into Composer", async ({ ecoPage: page }) => {
+test("background browser click/fill/type preserves Composer focus and text", async ({ ecoPage: page }) => {
   test.setTimeout(Number.parseInt(process.env.ECO_SMOKE_TIMEOUT_MS ?? "120000", 10));
 
   const marker = `FOCUS_TYPE_${Date.now()}`;
   const fillText = `FILL_${marker}`;
   const typeText = `TYPE_${marker}`;
   const composerSeed = `COMPOSER_${marker}`;
-  const outDir = path.join(desktopRoot, ".smoke-artifacts", marker);
+  const outDir = path.join("/tmp", "mori-browser-focus", marker);
   mkdirSync(outDir, { recursive: true });
 
   await page.waitForFunction(() => typeof window.eco?.saveBrowserSettings === "function");
@@ -32,21 +29,21 @@ test("background browser fill/type does not leak into Composer", async ({ ecoPag
     });
   });
 
-  const threads = await page.evaluate(async () => window.eco.listThreads());
-  const threadId = threads[0]?.id;
-  expect(threadId, "need at least one thread — send a message from landing first").toBeTruthy();
+  // An isolated browser scope needs no model run or pre-existing conversation.
+  const threadId = `focus-${marker}`;
 
   const html = `<!doctype html><html><body>
     <h1>${marker}</h1>
     <input id="field" type="text" value="" />
+    <button onclick="window.focusClicks=(window.focusClicks||0)+1;window.lastClickTrusted=event.isTrusted">Focus target</button>
   </body></html>`;
   const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 
   await page.evaluate(
-    async ({ url, tid }) => {
-      await window.eco.browserOpen({ url, reveal: false, threadId: tid, newBrowser: true });
+    async ({ url, tid, workspacePath }) => {
+      await window.eco.browserOpen({ url, workspacePath, reveal: false, threadId: tid, newBrowser: true });
     },
-    { url: dataUrl, tid: threadId! },
+    { url: dataUrl, tid: threadId, workspacePath: outDir },
   );
   await page.waitForTimeout(1200);
 
@@ -68,6 +65,10 @@ test("background browser fill/type does not leak into Composer", async ({ ecoPag
     selection?.addRange(range);
     document.execCommand("insertText", false, seed);
     node.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: seed }));
+    node.setAttribute("data-focus-type-blurs", "0");
+    node.addEventListener("blur", () => {
+      node.setAttribute("data-focus-type-blurs", String(Number(node.getAttribute("data-focus-type-blurs")) + 1));
+    });
   }, composerSeed);
 
   const prepared = await page.evaluate(async (tid) => {
@@ -86,12 +87,24 @@ test("background browser fill/type does not leak into Composer", async ({ ecoPag
   expect(snap.ok, snap.stderr || snap.stdout).toBe(true);
   writeFileSync(path.join(outDir, "snapshot.txt"), snap.stdout);
 
-  const refMatch = snap.stdout.match(/@e\d+/);
-  expect(refMatch, "snapshot should contain @e ref").toBeTruthy();
-  const ref = refMatch![0];
+  const refMatch = snap.stdout.match(/(?:@|\[ref=)(e\d+)/);
+  expect(refMatch, "snapshot should contain an interactive element ref").toBeTruthy();
+  const ref = `@${refMatch![1]}`;
+
+  const buttonLine = snap.stdout.split("\n").find(line => line.includes("Focus target"));
+  const buttonRef = buttonLine?.match(/(?:@|\[ref=)(e\d+)/)?.[1];
+  expect(buttonRef, "snapshot should expose the native click target").toBeTruthy();
+  const clicked = runAgentBrowser(["click", `@${buttonRef}`], abEnv);
+  expect(clicked.ok, clicked.stderr || clicked.stdout).toBe(true);
+  expect(await composer.evaluate(node => document.activeElement === node), "click stole Composer focus").toBe(true);
+  expect(await composer.getAttribute("data-focus-type-blurs"), "click blurred Composer").toBe("0");
+  const clickResult = runAgentBrowser(["eval", "({clicks:window.focusClicks,trusted:window.lastClickTrusted})"], abEnv);
+  expect(clickResult.ok, clickResult.stderr || clickResult.stdout).toBe(true);
+  expect(clickResult.stdout).toContain('"trusted": true');
 
   const fill = runAgentBrowser(["fill", ref, fillText], abEnv);
   expect(fill.ok, fill.stderr || fill.stdout).toBe(true);
+  expect(await composer.evaluate(node => document.activeElement === node), "fill stole Composer focus").toBe(true);
 
   const composerAfterFill = await composer.evaluate((node) =>
     (node.textContent ?? "").replace(/\u200b/g, "").trim(),
@@ -100,6 +113,8 @@ test("background browser fill/type does not leak into Composer", async ({ ecoPag
 
   const type = runAgentBrowser(["type", ref, typeText], abEnv);
   expect(type.ok, type.stderr || type.stdout).toBe(true);
+  expect(await composer.evaluate(node => document.activeElement === node), "type stole Composer focus").toBe(true);
+  expect(await composer.getAttribute("data-focus-type-blurs"), "Composer blurred during automation").toBe("0");
 
   await page.waitForTimeout(300);
   const composerAfterType = await composer.evaluate((node) =>
@@ -120,6 +135,7 @@ test("background browser fill/type does not leak into Composer", async ({ ecoPag
     cdpPort,
     ref,
     composerSeed,
+    clickResult: clickResult.stdout,
     composerAfterFill,
     composerAfterType,
     fieldValue,
@@ -132,6 +148,10 @@ test("background browser fill/type does not leak into Composer", async ({ ecoPag
 
   expect(composerAfterFill.includes(fillText), "fill text leaked into Composer").toBe(false);
   expect(composerAfterType.includes(typeText), "type text leaked into Composer").toBe(false);
+  const continuedText = " HUMAN_CONTINUES";
+  await page.keyboard.type(continuedText);
+  expect(await composer.textContent(), "human typing must continue in Composer without refocusing")
+    .toBe(composerSeed + continuedText);
   expect(
     fieldValue.includes(fillText) || fieldValue.includes(typeText),
     "fill/type should reach webview input",
