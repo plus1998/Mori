@@ -89,7 +89,6 @@ jobs:
       ECO_WINDOWS_UPDATE_MODE: "auto"
       ECO_LINUX_UPDATE_MODE: "auto"
       ECO_RELEASE_URL: https://github.com/${{ github.repository }}/releases
-      MORI_MAC_SIGNING_DIR: ${{ runner.temp }}/mori-mac-signing
 
     steps:
       - name: Checkout
@@ -110,6 +109,7 @@ jobs:
       - name: Import fixed macOS signing identity
         if: runner.os == 'macOS'
         env:
+          MORI_MAC_SIGNING_DIR: ${{ runner.temp }}/mori-mac-signing
           MORI_MAC_CERTIFICATE_P12: ${{ secrets.MORI_MAC_CERTIFICATE_P12 }}
           MORI_MAC_CERTIFICATE_PASSWORD: ${{ secrets.MORI_MAC_CERTIFICATE_PASSWORD }}
         run: node apps/desktop/scripts/mac-signing.mjs import-ci
@@ -122,6 +122,8 @@ jobs:
 
       - name: Pack
         # macOS afterPack requires the fixed certificate; missing secrets fail the build.
+        env:
+          MORI_MAC_SIGNING_DIR: ${{ runner.temp }}/mori-mac-signing
         run: bun run --cwd apps/desktop ${{ matrix.pack }}
 
       - name: Smoke the packaged PI runtime
@@ -149,6 +151,8 @@ jobs:
 
       - name: Remove temporary macOS signing material
         if: always() && runner.os == 'macOS'
+        env:
+          MORI_MAC_SIGNING_DIR: ${{ runner.temp }}/mori-mac-signing
         run: node apps/desktop/scripts/mac-signing.mjs cleanup-ci
 
   publish:
