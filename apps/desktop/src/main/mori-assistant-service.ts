@@ -173,6 +173,7 @@ export class MoriAssistantService {
   private pendingInput: MoriAssistantPendingInput | undefined;
   private pendingAnswer: { resolve(answer: string): void; reject(error: Error): void } | undefined;
   private liveMessages = new Map<string, ConversationMessage>();
+  private toolExecuted = false;
   private runId: string | undefined;
   private runAbort: AbortController | undefined;
   private pendingSends = 0;
@@ -360,6 +361,12 @@ export class MoriAssistantService {
     if (this.isRunning && JSON.stringify(settings) !== JSON.stringify(this.settings))
       throw new Error("请等待助手回复结束后修改配置。");
     this.validateCustomProvider(settings);
+    if (settings.enabled && settings.modelSource === "chatgpt") {
+      if (!settings.accountIds.length) throw new Error("启用助手前请选择 ChatGPT 账号。");
+      const accounts = await (await this.deps.accounts()).listAccounts();
+      if (settings.accountIds.some((id) => !accounts.some((account) => account.id === id)))
+        throw new Error("选择的助手 ChatGPT 账号已不存在，请重新选择。");
+    }
     const previous = this.store.state.settings;
     try {
       await this.deps.settingsChanged(settings); // Reject unavailable shortcuts before persisting.
@@ -536,6 +543,7 @@ export class MoriAssistantService {
     this.activeThreadId = threadId;
     this.activeSchedule = scheduled;
     this.liveMessages.clear();
+    this.toolExecuted = false;
     this.activeSource = source;
     this.activeCommand = commandId;
     this.status = "running";
@@ -547,20 +555,49 @@ export class MoriAssistantService {
     this.append("message.finalized", threadId, runId, { status: "final" }, userId);
     this.emit();
     this.deps.conversations.updateThread(threadId, { status: "running", message: "" });
+    const excluded = new Set<string>();
     try {
-      await this.ensureRuntime(threadId);
-      if (this.stopped || this.closed) throw new Error("助手请求已停止。");
-      this.activity = "正在回复";
-      this.emit();
-      const accounts = this.runtimeAccount ? await this.deps.accounts() : undefined;
-      accounts?.setQuotaUsage(threadId, true, this.runtimeAccount);
-      try {
-        const runtime = this.runtime;
-        if (!runtime) throw new Error("助手运行实例已断开。");
-        await runtime.send(prompt, this.settings);
-        if (this.stopped || this.closed) throw new Error("助手已停止。");
-      } finally {
-        accounts?.setQuotaUsage(threadId, false);
+      while (true) {
+        let accountId: string | undefined;
+        let hasAlternative = false;
+        try {
+          const selected = await this.resolveConnection(excluded);
+          if (selected.connection.type === "chatgpt") accountId = selected.connection.accountId;
+          hasAlternative = selected.hasAlternative;
+          await this.ensureRuntime(threadId, selected.connection);
+          if (this.stopped || this.closed) throw new Error("助手请求已停止。");
+          this.activity = "正在回复";
+          this.emit();
+          const accounts = selected.connection.type === "chatgpt" ? selected.connection.accounts : undefined;
+          accounts?.setQuotaUsage(threadId, true, accountId);
+          try {
+            const runtime = this.runtime;
+            if (!runtime) throw new Error("助手运行实例已断开。");
+            await runtime.send(prompt, this.settings);
+            if (this.stopped || this.closed) throw new Error("助手已停止。");
+          } finally {
+            accounts?.setQuotaUsage(threadId, false);
+          }
+          break;
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          if (
+            !accountId ||
+            !hasAlternative ||
+            !this.settings.autoSwitchAccounts ||
+            this.stopped ||
+            this.closed ||
+            this.runAbort?.signal.aborted ||
+            !/usage_limit_reached|usage limit|quota.*exhaust|exceeded.*quota|额度.*耗尽/i.test(detail) ||
+            this.liveMessages.size > 0 ||
+            this.toolExecuted
+          )
+            throw error;
+          excluded.add(accountId);
+          await this.releaseRuntime();
+          this.activity = "当前助手账号额度已用完，正在切换账号";
+          this.emit();
+        }
       }
       scheduled?.reply([...this.liveMessages.values()].filter(message => message.role === "assistant").map(message => message.body).join("\n\n"));
       this.append("run.completed", threadId, runId, { status: "completed" });
@@ -649,22 +686,34 @@ export class MoriAssistantService {
     this.emit();
   }
 
-  private async ensureRuntime(threadId: string): Promise<void> {
+  private async resolveConnection(
+    excluded: ReadonlySet<string>,
+  ): Promise<{ connection: AssistantRuntimeDeps["connection"]; hasAlternative: boolean }> {
     this.validateCustomProvider(this.settings);
-    const custom = this.settings.modelSource === "custom";
-    const accounts = custom ? undefined : await this.deps.accounts();
-    const available = accounts ? await accounts.listAccounts() : [];
-    // ChatGPT calls follow the application selection; legacy assistant IDs are not a fallback pool.
-    const accountId = custom ? undefined : await accounts!.getActiveAccountId() ?? undefined;
-    let connection: AssistantRuntimeDeps["connection"];
-    if (custom) {
-      connection = { type: "custom", ...(await this.deps.prepareCustomProvider(this.settings.providerId)) };
-    } else {
-      if (!accountId || !accounts || !available.some((account) => account.id === accountId &&
-          account.authState !== "missing" && account.authState !== "reauthorization_required"))
-        throw new Error("已选择的 ChatGPT 账号不可用，请明确选择另一个已登录账号；不会自动切换。");
-      connection = { type: "chatgpt", accountId, accounts };
+    if (this.settings.modelSource === "custom") {
+      return {
+        connection: { type: "custom", ...(await this.deps.prepareCustomProvider(this.settings.providerId)) },
+        hasAlternative: false,
+      };
     }
+    const accounts = await this.deps.accounts();
+    const available = await accounts.listAccounts();
+    const eligible = this.settings.accountIds.filter(
+      (id) => !excluded.has(id) && available.some(
+        (account) => account.id === id && account.authState !== "missing" &&
+          account.authState !== "reauthorization_required",
+      ),
+    );
+    const accountId = this.runtimeAccount && eligible.includes(this.runtimeAccount)
+      ? this.runtimeAccount
+      : eligible[0];
+    if (!accountId) throw new Error("助手没有可用的 ChatGPT 账号，请在助手设置中选择已登录的账号。");
+    return { connection: { type: "chatgpt", accountId, accounts }, hasAlternative: eligible.length > 1 };
+  }
+
+  private async ensureRuntime(threadId: string, connection: AssistantRuntimeDeps["connection"]): Promise<void> {
+    const custom = connection.type === "custom";
+    const accountId = connection.type === "chatgpt" ? connection.accountId : undefined;
     const configuration = JSON.stringify([
       this.settings.name,
       this.settings.instructions,
@@ -1066,7 +1115,7 @@ export class MoriAssistantService {
   private async callAccountSelectionTool(name: string, args: Record<string, unknown>, callId: string, signal: AbortSignal) {
     const service = await this.deps.accounts();
     const selected = () => service.getActiveAccountId();
-    const impact = "这是 Mori 应用全局 ChatGPT Login 账号切换，影响使用全局登录账号的功能和会话后续调用，包括 Mori 助手的 ChatGPT 调用。运行中的调用保留原连接，旧账号请求可能认证失败；不会重试或自动换号。自定义 provider、模型和 Agent 配置不变。";
+    const impact = "这是 Mori 应用全局 ChatGPT Login 账号切换，影响使用全局登录账号的功能和会话后续调用。运行中的全局登录调用保留原连接，旧账号请求可能认证失败。Mori 助手使用独立账号池，此切换不改变助手账号池或其连接；自定义 provider、模型和 Agent 配置不变。";
     if (name === MORI_ACCOUNT_LIST_TOOL) {
       if (Object.keys(args).length) throw new AccountSelectionError("账号列表工具不接受参数。");
       const choices = service.listAccountChoicesReadonly();
@@ -1074,6 +1123,8 @@ export class MoriAssistantService {
       signal.throwIfAborted();
       const runningAccountId = this.runId ? this.runtimeAccount ?? null : null;
       return { scope: "global_chatgpt_login", selectedAccountId, runningAccountId,
+        assistantAccountIds: [...this.settings.accountIds],
+        assistantAutoSwitchAccounts: this.settings.autoSwitchAccounts,
         ...(service.getPendingAccountId() !== undefined ? { pendingAccountId: service.getPendingAccountId() } : {}),
         syncState: service.getSyncStatus().state, impact,
         accounts: choices.map((choice) => ({ ...choice, selected: choice.accountId === selectedAccountId, running: choice.accountId === runningAccountId })) };
@@ -1115,7 +1166,7 @@ export class MoriAssistantService {
         ? "全局账号发布失败，恢复原登录文件也失败；选择记录与登录文件可能不一致，请在账号设置修复同步状态。未自动重试或切换其他账号。"
         : "全局账号切换失败，请重新读取列表及账号设置检查当前状态；未自动重试或切换其他账号。") :
         runtimeRefresh === "failed" ? "全局账号已切换，但运行实例更新请求失败；请检查账号设置，不能视为新连接成功。" :
-          "全局当前账号已生效，后续使用全局登录账号的调用采用所选账号；本轮保留原连接。新连接尚未验证，不会自动切换其他账号。" };
+          "全局当前账号已生效，后续使用全局登录账号的调用采用所选账号；Mori 助手继续使用独立账号池。新连接尚未验证。" };
   }
 
   private async requestInput(input: MoriAssistantPendingInput, signal: AbortSignal): Promise<string> {
@@ -1165,6 +1216,7 @@ export class MoriAssistantService {
     const conversationId = this.activeThreadId;
     const runId = this.runId;
     if (!conversationId || !runId || this.stopped || this.closed) throw new Error("助手运行已结束。");
+    this.toolExecuted = true;
     const v2 = this.deps.conversations.conversationV2();
     const previous = v2.findTool(conversationId, callId);
     if (previous?.status === "completed") return previous.output;

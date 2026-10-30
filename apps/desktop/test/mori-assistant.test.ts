@@ -38,7 +38,7 @@ async function temp() {
   return dir;
 }
 
-test("assistant settings follow global login, reject malformed values and exclude secrets", () => {
+test("assistant settings retain their independent account pool and exclude secrets", () => {
   expect(parseAssistantSettings({ ...DEFAULT_MORI_ASSISTANT_SETTINGS, enabled: true }).accountIds).toEqual([]);
   expect(() =>
     parseAssistantSettings({ ...DEFAULT_MORI_ASSISTANT_SETTINGS, reasoningEffort: "invalid" }),
@@ -50,7 +50,7 @@ test("assistant settings follow global login, reject malformed values and exclud
   });
   expect(settings.accountIds).toEqual(["a"]);
   expect(settings).not.toHaveProperty("token");
-  expect(parseAssistantSettings({ ...settings, autoSwitchAccounts: true }).autoSwitchAccounts).toBe(false);
+  expect(parseAssistantSettings({ ...settings, autoSwitchAccounts: true }).autoSwitchAccounts).toBe(true);
 });
 
 test("custom assistant settings do not require ChatGPT; old settings keep their login source", () => {
@@ -110,14 +110,14 @@ test("legacy task project preferences are removed from assistant settings on loa
   expect(JSON.parse(await fs.readFile(file, "utf8")).settings).not.toHaveProperty("defaultProject");
 });
 
-test("legacy automatic account rotation is disabled and the migration persists", async () => {
+test("assistant account rotation settings survive loading without being overwritten", async () => {
   const file = path.join(await temp(), "assistant.json");
   const store = new MoriAssistantStore(file);
   await fs.writeFile(file, JSON.stringify({ ...store.state, settings: { ...store.state.settings, accountIds: ["a", "b"], autoSwitchAccounts: true } }));
   await store.load();
-  expect(store.state.settings.autoSwitchAccounts).toBe(false);
+  expect(store.state.settings.autoSwitchAccounts).toBe(true);
   expect(store.state.settings.accountIds).toEqual(["a", "b"]);
-  expect(JSON.parse(await fs.readFile(file, "utf8")).settings.autoSwitchAccounts).toBe(false);
+  expect(JSON.parse(await fs.readFile(file, "utf8")).settings.autoSwitchAccounts).toBe(true);
 });
 
 test("WeChat keeps opaque message IDs lossless and rejects untrusted credential destinations", () => {
@@ -139,8 +139,8 @@ async function fixture(options: { custom?: boolean; realTaskMessages?: boolean }
 const readline=require('node:readline');
 const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');
 const epoch=require('node:crypto').randomUUID();
-let thread='native-assistant-'+epoch, turn=0, text='', computer, tasks, models, scheduling;
-const callMcp=async(server,name,args)=>{
+let thread='native-assistant-'+epoch, turn=0, text='', computer, tasks, models, scheduling, accountId;
+const callMcp=async(server,name,args,quotaAfter=false)=>{
  const headers={...server.http_headers,'Content-Type':'application/json','Accept':'application/json, text/event-stream'};
  const init=await fetch(server.url,{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',id:'init',method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'test',version:'1'}}})});
  const session=init.headers.get('mcp-session-id');if(session)headers['Mcp-Session-Id']=session;
@@ -149,7 +149,8 @@ const callMcp=async(server,name,args)=>{
  if(!response.ok)throw new Error('MCP HTTP '+response.status);
  const result=await response.json();if(result.error)throw new Error(result.error.message);
  require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-tool-results.jsonl"))},JSON.stringify({name,result:result.result})+'\\n');
- complete();
+ if(quotaAfter)send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:'usage_limit_reached'}}}});
+ else complete();
 };
 const complete=()=>{
  const answer=text.startsWith('工作会话 ')?'任务已完成，已修复 loading 图标旋转。':'收到：'+text;
@@ -165,6 +166,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
  let result={};
  if(m.method==='account/login/start'){
   if(m.params.type!=='chatgptAuthTokens'||JSON.stringify(m.params).includes('refresh_token')){send({id:m.id,error:{code:-1,message:'full credentials leaked'}});return;}
+  accountId=m.params.chatgptAccountId;
  }
  if(m.method==='model/list')result={data:[{model:'gpt-6-luna'}]};
  if(m.method==='thread/start'||m.method==='thread/resume'){
@@ -198,6 +200,12 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   else if(text==='tool')send({id:'tool-request',method:'item/tool/call',params:{threadId:thread,callId:'call-'+turn,tool:'mori_list_projects',arguments:{}}});
   else if(text==='private-task')send({id:'tool-request',method:'item/tool/call',params:{threadId:thread,callId:'call-'+turn,tool:'mori_start_task',arguments:{projectPath:process.cwd(),prompt:'must not start'}}});
   else if(text==='quota-failure')send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:'usage_limit_reached'}}}});
+  else if(text==='quota-first'&&accountId==='chatgpt-a')send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:'usage_limit_reached'}}}});
+  else if(text==='quota-after-output'){
+   send({method:'item/agentMessage/delta',params:{threadId:thread,itemId:'partial-'+turn,delta:'partial'}});
+   send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:'usage_limit_reached'}}}});
+  }
+  else if(text==='quota-after-tool')callMcp(models,'mori_list_accounts',{},true).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
   else if(text!=='wait')setTimeout(complete,5);
   return;
  }
@@ -494,13 +502,14 @@ async function accountSelectionFixture() {
   return { ...f, accounts, choices, revisions, global };
 }
 
-test("global account selection requires confirmation, preserves active calls and rebinds the assistant next turn", async () => {
+test("global account selection requires confirmation and leaves the assistant account independent", async () => {
   const f = await accountSelectionFixture();
   try {
     await f.service.send("prepare account selection", "desktop", "account-prepare");
     const nativeId = f.conversations.getThreadCoreSession(f.service.store.state.currentThreadId!)?.externalSessionId;
     const listed = await assistantTool(f, "mori_list_accounts", {}, "account-list");
     expect(listed.output).toMatchObject({ scope: "global_chatgpt_login", selectedAccountId: "a", runningAccountId: "a",
+      assistantAccountIds: ["a"], assistantAutoSwitchAccounts: false,
       accounts: [{ accountId: "a", selected: true, running: true }, { accountId: "b", selected: false }, { accountId: "expired", selectable: false }] });
     const runtime = f.service["runtime"];
     const previousSettings = { ...f.service.settings };
@@ -509,8 +518,8 @@ test("global account selection requires confirmation, preserves active calls and
     expect(approval.kind).toBe("approval");
     expect(approval.title).toContain("Account B");
     expect(approval.title).toContain("全局");
-    expect(approval.detail).toContain("运行中的调用保留原连接");
-    expect(approval.detail).toContain("模型和 Agent 配置不变");
+    expect(approval.detail).toContain("运行中的全局登录调用保留原连接");
+    expect(approval.detail).toContain("不改变助手账号池或其连接");
     expect(f.service.settings.accountIds).toEqual(["a"]);
     expect(f.service["runtime"]).toBe(runtime);
     expect(f.tokenAccountIds).toEqual(["a"]);
@@ -525,8 +534,8 @@ test("global account selection requires confirmation, preserves active calls and
     expect(JSON.parse(await fs.readFile(path.join(f.root, "mori-assistant.json"), "utf8")).settings.accountIds).toEqual(["a"]);
     expect(f.tokenAccountIds).toEqual(["a"]);
     await f.service.send("use selected account", "desktop", "account-next");
-    expect(f.tokenAccountIds).toEqual(["a", "b"]);
-    expect((await f.service.snapshot()).accountId).toBe("b");
+    expect(f.tokenAccountIds).toEqual(["a"]);
+    expect((await f.service.snapshot()).accountId).toBe("a");
     expect(f.conversations.getThreadCoreSession(f.service.store.state.currentThreadId!)?.externalSessionId).toBe(nativeId);
     expect(f.commands).toEqual([]);
     expect(JSON.stringify([listed, switched])).not.toMatch(/access-only|chatgpt-a|chatgpt-b/);
@@ -598,27 +607,109 @@ test("account changes during confirmation and persistence errors leave the previ
   } finally { await f.service.close(); f.db.close(); }
 });
 
-test("quota exhaustion and a missing selected account never fall through to another configured account", async () => {
+test("assistant rotates through its selected accounts on quota exhaustion without switching the global account", async () => {
   const f = await accountSelectionFixture();
   try {
     await f.service.saveSettings({ ...f.service.settings, accountIds: ["a", "b"], autoSwitchAccounts: true });
-    expect(f.service.settings.autoSwitchAccounts).toBe(false);
-    await expect(f.service.send("quota-failure", "desktop", "no-quota-rotation")).rejects.toThrow("usage_limit_reached");
-    expect(f.tokenAccountIds).toEqual(["a"]);
+    await f.service.send("quota-first", "desktop", "quota-rotation");
+    expect(f.tokenAccountIds).toEqual(["a", "b"]);
     expect(f.service.settings.accountIds).toEqual(["a", "b"]);
-    f.choices.splice(0, 1);
-    await expect(f.service.send("unavailable selected account", "desktop", "no-missing-rotation")).rejects.toThrow("不会自动切换");
-    expect(f.tokenAccountIds).toEqual(["a"]);
-    expect(f.service.settings.accountIds).toEqual(["a", "b"]);
-    expect((await f.service.snapshot()).pendingInput).toBeUndefined();
-    // Only an explicit global choice recovers; legacy assistant settings cannot redirect calls.
-    await f.service.saveSettings({ ...f.service.settings, accountIds: ["b"] });
     expect(f.global.selected).toBe("a");
-    f.global.selected = "b";
-    expect(f.tokenAccountIds).toEqual(["a"]);
-    await f.service.send("recover after explicit settings selection", "desktop", "manual-account-recovery");
+    const snapshot = await f.service.snapshot();
+    expect(snapshot.accountId).toBe("b");
+    expect(snapshot.messages.filter((message) => message.role === "user")).toHaveLength(1);
+    const requests = (await fs.readFile(path.join(f.root, "runtime-workspaces.jsonl"), "utf8"))
+      .trim().split("\n").map((line) => JSON.parse(line));
+    expect(requests.map((request) => request.method)).toEqual(["thread/start", "thread/resume"]);
+    await f.service.send("next turn keeps the rotated account", "desktop", "after-rotation");
+    expect(f.tokenAccountIds).toEqual(["a", "b"]);
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("assistant rotates after an initial connection reports quota exhaustion", async () => {
+  const f = await accountSelectionFixture();
+  try {
+    await f.service.saveSettings({ ...f.service.settings, accountIds: ["a", "b"], autoSwitchAccounts: true });
+    const originalTokens = f.accounts.getExternalChatGptTokens.bind(f.accounts);
+    f.accounts.getExternalChatGptTokens = async (id, previous) => {
+      const tokens = await originalTokens(id, previous);
+      if (id === "a") throw new Error("usage_limit_reached");
+      return tokens;
+    };
+    await f.service.send("connect after quota failure", "desktop", "connection-quota");
     expect(f.tokenAccountIds).toEqual(["a", "b"]);
     expect((await f.service.snapshot()).accountId).toBe("b");
+    expect(f.global.selected).toBe("a");
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("assistant reports authentication failures instead of rotating to hide them", async () => {
+  const f = await accountSelectionFixture();
+  try {
+    await f.service.saveSettings({ ...f.service.settings, accountIds: ["a", "b"], autoSwitchAccounts: true });
+    const originalTokens = f.accounts.getExternalChatGptTokens.bind(f.accounts);
+    f.accounts.getExternalChatGptTokens = async (id, previous) => {
+      const tokens = await originalTokens(id, previous);
+      if (id === "a") throw new Error("authentication failed");
+      return tokens;
+    };
+    await expect(f.service.send("connection fails", "desktop", "connection-failure")).rejects.toThrow("authentication failed");
+    expect(f.tokenAccountIds).toEqual(["a"]);
+    expect(f.global.selected).toBe("a");
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("assistant does not rotate when disabled or fall through to an unselected global account", async () => {
+  const f = await accountSelectionFixture();
+  try {
+    f.global.selected = "b";
+    await f.service.saveSettings({ ...f.service.settings, accountIds: ["a", "b"], autoSwitchAccounts: false });
+    await expect(f.service.send("quota-failure", "desktop", "no-quota-rotation")).rejects.toThrow("usage_limit_reached");
+    expect(f.tokenAccountIds).toEqual(["a"]);
+    await f.service.saveSettings({ ...f.service.settings, accountIds: ["a"], autoSwitchAccounts: true });
+    await expect(f.service.send("quota-failure", "desktop", "no-unselected-rotation")).rejects.toThrow("usage_limit_reached");
+    expect(f.tokenAccountIds).toEqual(["a", "a"]);
+    f.choices.splice(0, 1);
+    await expect(f.service.send("missing assistant account", "desktop", "missing-account")).rejects.toThrow("助手没有可用的 ChatGPT 账号");
+    expect(f.global.selected).toBe("b");
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("assistant stops after all selected accounts exhaust their quota", async () => {
+  const f = await accountSelectionFixture();
+  try {
+    await f.service.saveSettings({ ...f.service.settings, accountIds: ["a", "b"], autoSwitchAccounts: true });
+    await expect(f.service.send("quota-failure", "desktop", "all-quota-exhausted")).rejects.toThrow("usage_limit_reached");
+    expect(f.tokenAccountIds).toEqual(["a", "b"]);
+    expect(f.global.selected).toBe("a");
+    expect((await f.service.snapshot()).error).toBe("usage_limit_reached");
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("assistant never retries a quota failure after producing output or invoking a tool", async () => {
+  for (const prompt of ["quota-after-output", "quota-after-tool"]) {
+    const f = await accountSelectionFixture();
+    try {
+      await f.service.saveSettings({ ...f.service.settings, accountIds: ["a", "b"], autoSwitchAccounts: true });
+      await expect(f.service.send(prompt, "desktop", prompt)).rejects.toThrow("usage_limit_reached");
+      expect(f.tokenAccountIds).toEqual(["a"]);
+      expect(f.global.selected).toBe("a");
+    } finally { await f.service.close(); f.db.close(); }
+  }
+});
+
+test("assistant requires its own account selection when saving enabled ChatGPT settings", async () => {
+  const f = await accountSelectionFixture();
+  try {
+    await expect(f.service.saveSettings({ ...f.service.settings, accountIds: [] })).rejects.toThrow("请选择 ChatGPT 账号");
+    await expect(f.service.saveSettings({ ...f.service.settings, accountIds: ["missing"] })).rejects.toThrow("账号已不存在");
+    expect(f.service.settings.accountIds).toEqual(["a"]);
+    f.service.store.state.settings.accountIds = [];
+    await f.service.store.save();
+    const restored = new MoriAssistantStore(f.service.store.filePath);
+    await restored.load();
+    expect(restored.state.settings.accountIds).toEqual([]);
+    await expect(f.service.send("missing selection", "desktop", "missing-selection")).rejects.toThrow("助手没有可用的 ChatGPT 账号");
   } finally { await f.service.close(); f.db.close(); }
 });
 
@@ -686,9 +777,10 @@ test("a selected account connection failure stays visible and never restores ano
       if (id === "b") throw new Error("target authentication failed");
       return tokens;
     };
+    await f.service.saveSettings({ ...f.service.settings, accountIds: ["b"] });
     await expect(f.service.send("connect selected account", "desktop", "selected-connect-fails")).rejects.toThrow("target authentication failed");
     expect(f.global.selected).toBe("b");
-    expect(f.service.settings.accountIds).toEqual(["a"]);
+    expect(f.service.settings.accountIds).toEqual(["b"]);
     expect(f.tokenAccountIds).toEqual(["a", "b"]);
     expect((await f.service.snapshot()).status).toBe("error");
   } finally { await f.service.close(); f.db.close(); }

@@ -12,7 +12,7 @@ export interface MoriAssistantSettings {
   providerId: string;
   model: string;
   reasoningEffort: "low" | "medium" | "high";
-  /** Legacy persisted preference, retained for compatibility; ChatGPT calls follow globalAccountId. */
+  /** Ordered account pool used independently by the assistant's ChatGPT connection. */
   accountIds: string[];
   autoSwitchAccounts: boolean;
   floatingEnabled: boolean;

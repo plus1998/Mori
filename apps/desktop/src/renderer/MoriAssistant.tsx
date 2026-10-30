@@ -180,10 +180,14 @@ export function MoriAssistantSettingsPanel({
   if (!settings || !snapshot) return <p role="status">{error || "正在读取助手设置…"}</p>;
   const custom = settings.modelSource === "custom";
   const selectedProvider = snapshot.customProviders.find((provider) => provider.id === settings.providerId);
-  const missingAccount = settings.enabled && !custom && !snapshot.globalAccountId;
+  const missingAccount = settings.enabled && !custom && !settings.accountIds.length;
+  const unavailableAccountIds = settings.accountIds.filter(
+    (id) => !snapshot.accounts.some((account) => account.id === id),
+  );
   const missingProvider = custom && !selectedProvider;
   const invalid =
     missingAccount ||
+    (settings.enabled && !custom && unavailableAccountIds.length > 0) ||
     (settings.enabled && missingProvider) ||
     !settings.model.trim() ||
     !settings.name.trim();
@@ -325,8 +329,8 @@ export function MoriAssistantSettingsPanel({
             {!custom ? (
               <section className="mori-settings-section">
                 <div className="mori-section-heading">
-                  <h3>全局 ChatGPT Login 账号</h3>
-                  <small>影响所有使用全局登录的功能</small>
+                  <h3>助手使用的 ChatGPT 账号</h3>
+                  <small>独立于全局当前账号</small>
                 </div>
                 {snapshot.accounts.length === 0 ? (
                   <div className="mori-account-empty">
@@ -339,10 +343,22 @@ export function MoriAssistantSettingsPanel({
                 ) : (
                   <div className="mori-account-list">
                     {snapshot.accounts.map((account) => {
-                      const selected = snapshot.globalAccountId === account.id;
+                      const index = settings.accountIds.indexOf(account.id);
                       const quota = account.quota?.rateLimit.primaryWindow;
                       return (
-                        <div key={account.id} className={`mori-account ${selected ? "is-selected" : ""}`}>
+                        <label key={account.id} className={`mori-account ${index >= 0 ? "is-selected" : ""}`}>
+                          <input
+                            type="checkbox"
+                            checked={index >= 0}
+                            onChange={(event) =>
+                              patch(
+                                "accountIds",
+                                event.target.checked
+                                  ? [...settings.accountIds, account.id]
+                                  : settings.accountIds.filter((id) => id !== account.id),
+                              )
+                            }
+                          />
                           <span>
                             <strong>{account.name}</strong>
                             <small>{account.email ?? (account.isLoggedIn ? "已登录" : "需要登录")}</small>
@@ -353,21 +369,43 @@ export function MoriAssistantSettingsPanel({
                               : account.isLoggedIn
                                 ? "已登录"
                                 : "需要登录"}
-                            {selected ? <small>全局当前账号</small> : null}
+                            {index >= 0 ? <small>{index === 0 ? "首选账号" : `备用 ${index}`}</small> : null}
                           </span>
-                        </div>
+                        </label>
                       );
                     })}
                   </div>
                 )}
-                {missingAccount ? <p className="mori-field-error">请在账号管理中选择全局当前账号。</p> : null}
+                {unavailableAccountIds.map((id) => (
+                  <label key={id} className="mori-account is-selected">
+                    <input
+                      type="checkbox"
+                      checked
+                      onChange={() => patch("accountIds", settings.accountIds.filter((item) => item !== id))}
+                    />
+                    <span>
+                      <strong>已选择的账号不存在</strong>
+                      <small>{id}</small>
+                    </span>
+                    <span className="mori-account-meta">取消勾选以移除</span>
+                  </label>
+                ))}
+                {missingAccount ? <p className="mori-field-error">选择至少一个助手账号后保存。</p> : null}
+                {unavailableAccountIds.length ? <p className="mori-field-error">请移除已不存在的账号后保存。</p> : null}
                 {snapshot.accounts.length > 0 ? (
                   <button type="button" className="mori-text-button" onClick={manageAccounts}>
                     管理账号
                     <ExternalLink size={12} />
                   </button>
                 ) : null}
-                <p>Mori 的 ChatGPT 调用跟随全局当前账号。请在账号管理或对话中明确选择目标并确认全局切换；模型和自定义服务商不变，额度耗尽不会自动换号。</p>
+                <label className="mori-check">
+                  <input
+                    type="checkbox"
+                    checked={settings.autoSwitchAccounts}
+                    onChange={(event) => patch("autoSwitchAccounts", event.target.checked)}
+                  />
+                  额度耗尽时，按勾选顺序切换助手账号
+                </label>
               </section>
             ) : null}
             <section className="mori-settings-section">
