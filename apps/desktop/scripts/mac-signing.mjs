@@ -145,6 +145,17 @@ export function prepareSigningIdentity() {
     keychainPassword,
     keychain,
   ]);
+  if (process.env.CI === "true") {
+    // codesign also resolves the certificate chain through the user's search
+    // list, even when --keychain selects the private key's keychain.
+    const searchList = run("security", ["list-keychains", "-d", "user"])
+      .split("\n")
+      .map((line) => line.trim().replace(/^"|"$/g, ""))
+      .filter(Boolean);
+    if (!searchList.includes(keychain)) {
+      run("security", ["list-keychains", "-d", "user", "-s", keychain, ...searchList]);
+    }
+  }
   return { fingerprint, keychain };
 }
 
@@ -173,7 +184,20 @@ export function importCiSigningIdentity() {
     "-nokeys",
   ]);
   fs.writeFileSync(path.join(directory, "certificate.pem"), pem, { mode: 0o600, flag: "wx" });
-  return prepareSigningIdentity();
+  const identity = prepareSigningIdentity();
+  // Verify the imported key is usable before the expensive packaging step.
+  const probe = path.join(directory, "codesign-probe");
+  try {
+    fs.copyFileSync("/usr/bin/true", probe);
+    run("codesign", [
+      "--force", "--timestamp=none", "--keychain", identity.keychain,
+      "--sign", identity.fingerprint, probe,
+    ]);
+    run("codesign", ["--verify", "--strict", probe]);
+  } finally {
+    fs.rmSync(probe, { force: true });
+  }
+  return identity;
 }
 
 function cleanupCiSigningIdentity() {
