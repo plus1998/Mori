@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -192,6 +192,11 @@ test("wake deduplicates hi, keeps the selected account and reports a post-reply 
 for (const modelFailure of ["turn/start", "turn/completed"] as const) {
   for (const quotaFails of [false, true]) {
     test(`${modelFailure} model failure stays separate from quota state (quota fails: ${quotaFails})`, async () => {
+      // Compare quota state at one instant: a fresh read may otherwise cross a
+      // second boundary and legitimately decrease resetAfterSeconds.
+      const now = Date.now();
+      const clock = spyOn(Date, "now").mockReturnValue(now);
+      cleanups.push(async () => { clock.mockRestore(); });
       const root = await serviceRoot();
       let notify: ((method: string, params: unknown) => void) | undefined;
       let reads = 0;

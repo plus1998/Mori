@@ -31,7 +31,7 @@ async function makeTempEcoDataDir(): Promise<string> {
 }
 
 test("resolveCodexHomeDir isolates CODEX_HOME under eco data dir", () => {
-  const ecoDataDir = path.resolve("Users", "me", "Library", "Application Support", "Eco Coding");
+  const ecoDataDir = path.join(os.tmpdir(), "eco-codex-config-data");
   expect(resolveCodexHomeDir(ecoDataDir)).toBe(path.join(ecoDataDir, "codex"));
   expect(resolveCodexHomeDir(ecoDataDir)).not.toContain(`${path.sep}.codex`);
 });
