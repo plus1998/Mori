@@ -21,7 +21,9 @@ if (channel !== "beta" && channel !== "latest") {
   throw new Error(`Invalid ECO_RELEASE_CHANNEL: ${channel}`);
 }
 
-const macMode = process.env.ECO_MAC_UPDATE_MODE?.trim() || (unsigned ? "manual" : "auto");
+// Fixed self-signing supports Squirrel updates without Developer ID notarization.
+// Keep the explicit override for releases that intentionally require manual installation.
+const macMode = process.env.ECO_MAC_UPDATE_MODE?.trim() || "auto";
 const updateModes = isReleaseBuild
   ? {
       darwin: macMode,

@@ -52,7 +52,7 @@ bun install
 bun run dev
 ```
 
-After the first launch, add API credentials under Settings → Model Providers, then create a runtime configuration. The macOS Beta is unsigned—see the [User Guide](docs/USER_GUIDE.en.md).
+After the first launch, add API credentials under Settings → Model Providers, then create a runtime configuration. The macOS Beta has no Apple-recognized signing or notarization—see the [User Guide](docs/USER_GUIDE.en.md).
 
 ## Capability overview
 
@@ -72,7 +72,7 @@ After the first launch, add API credentials under Settings → Model Providers, 
 
 | Platform | Architecture | Artifact | Update behavior |
 | --- | --- | --- | --- |
-| macOS 13+ | Apple Silicon, Intel | DMG / ZIP | Current unsigned Beta uses manual download |
+| macOS 13+ | Apple Silicon, Intel | DMG / ZIP | Fixed self-signed builds support in-app updates |
 | Windows 10/11 | x64 | NSIS installer | In-app updates supported |
 | Linux | x64 | AppImage | In-app updates supported |
 

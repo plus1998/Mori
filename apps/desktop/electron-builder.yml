@@ -89,8 +89,9 @@ generateUpdatesFilesForAllChannels: false
 
 mac:
   minimumSystemVersion: "13.0.0"
-  # The first beta is intentionally unsigned. Enable signing and notarization
-  # before turning on macOS automatic updates.
+  # afterPack uses our pinned self-signed identity, not electron-builder's Apple
+  # certificate discovery. Self-signing does not provide Gatekeeper trust or notarization;
+  # automatic-update rollout is controlled separately by the release manifest.
   identity: null
   category: public.app-category.developer-tools
   extendInfo:

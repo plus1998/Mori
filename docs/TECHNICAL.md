@@ -238,7 +238,7 @@ Supabase 只负责身份与路由；代码读取、模型调用、Git 与终端�
 - Renderer 不直接获取明文密钥。
 - MCP、终端、浏览器、文件写入和创意绘画遵循各自审批与工具策略。
 - 客户端只配置 Supabase Project URL + anon key；**禁止**下发 `service_role`。
-- 仓库不得提交签名证书、App Store Connect Key、生产 `.env` 或真实 API Key。
+- 仓库不得提交签名私钥、含私钥的证书包、App Store Connect Key、生产 `.env` 或真实 API Key；签名公钥证书可以用于固定身份校验。
 
 ## 12. 构建与发布
 
@@ -268,12 +268,62 @@ Release workflow 由 `v*` 标签触发，校验标签来源后并行构建：
 
 正式发布前会统一整理资产、合并 macOS 更新元数据、验证文件清单并生成 `SHA256SUMS`。Beta 标签必须来自 `beta` 分支，正式标签必须来自 `main` 分支。
 
-当前 macOS Beta 未签名，使用手动更新；Windows 和 Linux 生成自动更新元数据。
+macOS 打包通过 `afterPack` 使用固定自签名证书，尚未配置 Developer ID 和苹果公证。从下一次标签发布起，macOS 与 Windows、Linux 一样启用自动检查和应用内更新：启动后 10 秒、每小时及唤醒时检查，由用户确认下载，下载后重启或正常退出时安装。发布清单中的 `unsigned` 仍表示未具备正式分发签名；更新能力以 `updateModes` 为准，Mac 默认和 CI 均为 `auto`，可显式设置 `ECO_MAC_UPDATE_MODE=manual`。无发布渠道的本地开发包仍禁用更新。
+
+### macOS 固定自签名
+
+`apps/desktop/packaging/macos-signing.pem` 是可公开的证书，用于固定预期签名身份。私钥保存在仓库外的 `~/Library/Application Support/Mori/signing/macos/`，目录权限为 `700`，证书包、密码和专用钥匙串为 `600`：
+
+- `certificate.p12`：加密的证书及私钥，必须长期复用。
+- `password.txt`：PKCS#12 密码，仅供本机自动签名读取。
+- `certificate.pem`：公钥证书，必须与仓库中的公钥证书一致。
+- `mori-signing.keychain-db`、`keychain-password.txt`：本机专用钥匙串及密码，可由前三个文件重新创建，无需跨机器复制。
+
+应把 `certificate.p12` 备份到加密磁盘或密码管理器的安全附件中，将密码另存于密码管理器；不要只依赖这台 Mac 或 GitHub Secrets。丢失私钥或每次重新生成证书会改变应用身份。仓库只保存公钥，不能恢复私钥。当前证书有效期为 20 年，后续轮换需要单独规划授权迁移。
+
+新机器恢复前三个文件后，在仓库根目录运行：
+
+```bash
+node apps/desktop/scripts/mac-signing.mjs prepare
+bun run --cwd apps/desktop pack
+```
+
+`MORI_MAC_SIGNING_DIR` 可以指定其他私有目录。`create` 子命令仅用于初次建立身份，本项目的固定身份已经生成，不应在新机器或 CI 中重新执行。签名脚本使用证书 SHA-1 指纹精确选择身份，并核验签名满足固定证书要求；文件签名本身使用系统的现代摘要算法。缺少材料或证书与仓库不匹配时构建失败，不降级到 ad-hoc。`Open Computer Use.app` 保留供应商已有的正式签名和公证，打包时校验其签名，不改签。
+
+GitHub 仓库需要两个 **Actions repository secrets**：
+
+| Secret | 内容 |
+| --- | --- |
+| `MORI_MAC_CERTIFICATE_P12` | 固定 `certificate.p12` 文件的 Base64 |
+| `MORI_MAC_CERTIFICATE_PASSWORD` | 对应 PKCS#12 密码 |
+
+在保有证书的 Mac 上登录 GitHub 后运行以下命令，脚本通过标准输入上传，不在参数或日志中打印私钥及密码：
+
+```bash
+gh auth login --hostname github.com --web
+node apps/desktop/scripts/mac-signing.mjs upload-secrets plus1998/Mori
+```
+
+Release workflow 的两个 Mac runner 使用相同 Secrets，在 `$RUNNER_TEMP/mori-mac-signing` 导入专用临时钥匙串；构建结束通过 `always()` 删除钥匙串及私钥文件。未配置 Secrets 会直接失败。Fork 需要维护者配置签名材料和对应公钥，不能使用本项目私钥。自签名不等于苹果公证，也不消除 Gatekeeper 来源提示；从 ad-hoc 切换到此身份后可能需要重新授权一次。
+
+本机已验证真实 Mori.app 副本的签名、Electron 可执行文件启动、供应商 OCU 身份不变，以及模拟 CI 的证书导入、两版内容变化后签名要求一致、临时材料清理。录屏、辅助功能、麦克风的跨版本授权继承尚未完成真实系统验证；不能据此承诺所有权限不再提示。自签名签名机制参考 [Apple TN2206](https://developer.apple.com/library/archive/technotes/tn2206/_index.html)，钥匙串导入兼容问题参考 [electron-builder 社区讨论](https://github.com/electron-userland/electron-builder/pull/9896)。
+
+### 自签名在线更新验证
+
+2026-10-30 在 macOS 27.0.1、Apple Silicon 上，使用本项目固定自签名证书、Electron 45.1.0 和 electron-updater 6.8.9，完成独立应用 `1.0.0 → 2.0.0` 的真实更新验证。测试应用、ZIP、generic feed、本地 HTTP 服务及日志均位于仓库外 `/tmp`；使用独立 Bundle ID 和用户数据目录，未替换已安装的 Mori。测试程序依赖打包进应用，更新器和原生 Squirrel/ShipIt 均未修改签名校验逻辑，也未添加证书信任设置。
+
+验证顺序与结果：
+
+1. 旧版使用固定自签名，新版改用 ad-hoc 签名，更新源提供正确的 ZIP SHA-512。下载成功后，Squirrel 以“代码未能满足指定的代码要求”拒绝安装，旧版仍为 `1.0.0`。
+2. 更新源切换到同一固定证书签名的 `2.0.0`。electron-updater 检查、下载并交给原生 Squirrel，收到原生 `update-downloaded` 后调用 `quitAndInstall()`。
+3. ShipIt 完成替换并自动重启，启动回执和磁盘 `CFBundleVersion` 均为 `2.0.0`，启动路径仍是原安装位置，安装后通过 `codesign --verify --deep --strict`，证书要求与旧版一致。
+
+因此，固定自签名本身不阻止这套更新器完成更新，Developer ID 和公证不是本次链路成功的前提。此验证覆盖用户可写目录中的独立应用及本地 generic feed；尚未覆盖完整 Mori 发布包、GitHub Release 远端下载、带隔离属性的首次安装、受保护安装目录、Intel/其他 macOS 版本，亦未验证系统权限继承。基于本机结果已开启下一次发布的 Mac 自动检查和应用内更新；上述范围仍需在实际发布中观察验证，原 ad-hoc 用户需手动安装一次固定自签名版本。
 
 ## 13. 已知限制
 
 - 尚无经过公开复现的“节省 65%”质量/费用基准。
-- macOS 包尚未签名和公证。
+- macOS 包使用固定自签名，尚无 Developer ID 签名和苹果公证。
 - Mobile 尚未公开发布。
 - Supabase Center 由用户自建；Realtime 投递语义与弱网超时需在客户端处理。
 - 协议转换覆盖常用文本、工具与流式路径，但供应商私有扩展仍需逐项兼容。

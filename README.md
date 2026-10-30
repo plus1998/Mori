@@ -54,7 +54,7 @@ bun run dev
 
 Dev 启动器负责转发日志和清理自己启动的进程。在 macOS/Linux 上，Ctrl+C 或关闭终端 tab 都会结束 Dev；退出时最多等待 3 秒，再强制清理未退出的进程。每个子进程由独立监护进程持有日志管道，通过 IPC 监测启动器是否仍在运行，因此在 Agent 终端点击停止、启动器被强杀时也会清理子进程。复用的已有 Vite 服务不受影响。
 
-首次启动后在「设置 → 模型服务商」添加 API，再创建运行配置。macOS Beta 尚未签名，详见[使用指南](docs/USER_GUIDE.md)。
+首次启动后在「设置 → 模型服务商」添加 API，再创建运行配置。macOS 尚无苹果认可的签名和公证，详见[使用指南](docs/USER_GUIDE.md)。
 
 ### Mori 助手（第一版）
 
@@ -149,7 +149,7 @@ bun run update:mac-arm64
 
 | 平台 | 架构 | 发布产物 | 更新方式 |
 | --- | --- | --- | --- |
-| macOS 13+ | Apple Silicon、Intel | DMG / ZIP | 当前未签名 Beta 使用手动下载 |
+| macOS 13+ | Apple Silicon、Intel | DMG / ZIP | 固定自签名版本支持应用内更新 |
 | Windows 10/11 | x64 | NSIS 安装器 | 支持应用内更新 |
 | Linux | x64 | AppImage | 支持应用内更新 |
 

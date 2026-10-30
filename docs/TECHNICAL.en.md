@@ -188,12 +188,14 @@ bun run lint
 
 Tags matching `v*` trigger validation and parallel macOS arm64, macOS x64, Windows x64, and Linux x64 builds. The publish job assembles assets, merges macOS metadata, validates the manifest, and generates `SHA256SUMS`. Beta tags must originate from `beta`; stable tags must originate from `main`.
 
-The current macOS Beta is unsigned and uses manual updates. Windows and Linux generate automatic-update metadata.
+macOS builds use a fixed self-signed certificate in the afterPack hook; Developer ID signing and Apple notarization are still pending. Starting with the next tagged release, Mac in-app updates and automatic checks are enabled alongside Windows and Linux: checks run after 10 seconds, hourly, and on resume; users confirm downloads, then install on restart or normal exit. The manifest's `unsigned` field describes commercial-signing status; `updateModes` controls updates, with Mac defaulting to `auto` unless `ECO_MAC_UPDATE_MODE=manual` is explicit. Local builds without a release channel remain disabled. See the [macOS signing setup](TECHNICAL.md#macos-固定自签名) for private storage, backups and Actions Secrets. Only the public certificate is committed; missing or mismatched signing material fails the Mac build instead of falling back to ad-hoc signing.
+
+A separate application passed a real self-signed `1.0.0 → 2.0.0` update on macOS 27.0.1 arm64 with Electron 45.1.0 and electron-updater 6.8.9: Squirrel accepted the matching certificate, ShipIt replaced the installed bundle and relaunched version 2.0.0. A correctly hashed ZIP with a mismatched signature was rejected and left 1.0.0 installed. No trust override or signature-check bypass was used. This establishes the core local update path; full Mori packages, the remote GitHub feed, protected install directories, other platforms and permission retention remain unverified. Mac updates are enabled for the next release based on this result; older ad-hoc builds require one manual installation of a fixed self-signed version.
 
 ## 13. Known limitations
 
 - No public reproducible benchmark currently validates the proposed 65% savings figure.
-- macOS artifacts are not yet signed or notarized.
+- macOS artifacts use self-signing; Developer ID signing and Apple notarization remain pending.
 - Mobile has not been publicly released.
 - Supabase Center is user-owned; Realtime delivery and timeouts are handled on clients.
 - Protocol conversion covers common text, tool, and streaming paths; provider-specific extensions need explicit compatibility work.

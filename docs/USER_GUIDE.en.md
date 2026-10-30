@@ -17,7 +17,7 @@ Download the matching artifact from [GitHub Releases](https://github.com/plus199
 
 ### macOS Beta
 
-The current Beta is not signed or notarized. Move the app to Applications, Control-click it in Finder, choose Open, and confirm. Do not disable system security or run unknown `xattr` commands.
+The macOS Beta has no Apple-recognized Developer ID signing or notarization. New builds use a fixed self-signed identity, which does not imply Apple approval. Move the app to Applications, Control-click it in Finder, choose Open, and confirm. Do not disable system security or run unknown `xattr` commands. Moving from ad-hoc signing may require granting permissions again; permission retention across updates still needs verification.
 
 ### Windows
 
@@ -202,8 +202,9 @@ Physical iOS development requires signing for `com.plus.ecoding.dev`.
 
 ## 11. Updates
 
-- Windows / Linux release metadata supports in-app check, download, and restart installation.
-- The current unsigned macOS Beta directs users to GitHub Releases for manual download.
+- macOS / Windows / Linux releases support in-app checks, downloads, and restart installation. Checks run about 10 seconds after startup, hourly afterward, and on resume with a 30-minute throttle.
+- Users confirm downloads after a new version is offered. A downloaded update installs on restart or normal exit.
+- Mac in-app updates start with the next fixed self-signed release. Older ad-hoc builds need one manual installation from GitHub Releases; subsequent releases reuse the same signing certificate.
 - Beta update policy does not silently downgrade to an older stable channel.
 
 Commit or back up important workspace changes before updating, and do not force-quit while an agent is running.
