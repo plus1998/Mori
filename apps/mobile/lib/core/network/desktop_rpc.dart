@@ -47,7 +47,7 @@ class DesktopRpc implements ReadAloudRemote {
     await _client.invoke<Map<String, dynamic>>(
       desktopDeviceId,
       'composer-references:search',
-      [{'query': query, if (kind != null) 'kind': kind, 'limit': limit}],
+      [{'query': query, 'kind': ?kind, 'limit': limit}],
     ),
   );
 
