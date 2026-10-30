@@ -655,7 +655,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
       && (statusFilter === "all" || (statusFilter === "ready" ? canUseOpenAIAccountCredentials(a) : !canUseOpenAIAccountCredentials(a))));
   }, [orderedAccounts, searchQuery, statusFilter]);
 
-  useCodexQuotaResetRefresh(filteredAccounts, eco, refresh, onError);
+  useCodexQuotaResetRefresh(orderedAccounts, eco, refresh, onError);
 
   const handleCreate = useCallback(async (saveOnly = false) => {
     const name = modalName.trim();

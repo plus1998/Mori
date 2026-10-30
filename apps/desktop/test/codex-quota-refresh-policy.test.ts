@@ -4,6 +4,7 @@ import {
   CODEX_QUOTA_REFRESH_MS,
   hasUnrefreshedCodexQuotaReset,
   nextCodexQuotaResetCheckAt,
+  nextImageQuotaResetCheckAt,
 } from "../src/shared/codex-quota-refresh";
 import type { OpenAIAccountQuota } from "../src/shared/openai-account";
 
@@ -107,6 +108,15 @@ test("visible reset watchers wait for cooldown/backoff and stop once reset is co
   ).toBe(start + 15 * 60_000);
   expect(nextCodexQuotaResetCheckAt(cached, { attemptedAt: start, authRequired: true })).toBeUndefined();
   expect(nextCodexQuotaResetCheckAt(quota(start + 60_000))).toBeUndefined();
+});
+
+test("image quota checks use only valid resets newer than the snapshot", () => {
+  const image = { source: "chatgpt_image_gen" as const, status: "available" as const, fetchedAt: start, resetAt: new Date(start + 60_000).toISOString() };
+  expect(nextImageQuotaResetCheckAt(image)).toBe(start + 60_000);
+  expect(nextImageQuotaResetCheckAt({ ...image, fetchedAt: start + 60_000 })).toBeUndefined();
+  expect(nextImageQuotaResetCheckAt({ ...image, resetAt: "invalid" })).toBeUndefined();
+  expect(nextImageQuotaResetCheckAt({ ...image, status: "error" })).toBeUndefined();
+  expect(nextImageQuotaResetCheckAt()).toBeUndefined();
 });
 
 test("an ordinary 401 remains retryable rather than permanently requiring login", () => {

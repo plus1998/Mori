@@ -1,7 +1,13 @@
-import type { OpenAIAccountQuota } from "./openai-account";
+import type { OpenAIAccountImageQuota, OpenAIAccountQuota } from "./openai-account";
 
 /** Minimum interval shared by all automatic quota requests for one account. */
 export const CODEX_QUOTA_REFRESH_MS = 5 * 60_000;
+
+export function nextImageQuotaResetCheckAt(quota?: OpenAIAccountImageQuota): number | undefined {
+  if (quota?.status !== "available" || !quota.resetAt) return undefined;
+  const resetAt = Date.parse(quota.resetAt);
+  return Number.isFinite(resetAt) && resetAt > quota.fetchedAt ? resetAt : undefined;
+}
 
 /** A snapshot read after a window's reset already covers that reset. */
 export function hasUnrefreshedCodexQuotaReset(quota: OpenAIAccountQuota, now = Date.now()): boolean {
