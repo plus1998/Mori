@@ -127,14 +127,6 @@ With custom prompts:
 | `gpt-5.6-sol` vs `gpt-5.6-luna` | `$5.00` vs `$0.20` | Sol is about `25x` | `$30.00` vs `$1.20` | Sol is about `25x` |
 | `Claude Opus 4.8` vs `DeepSeek V4 Flash` | `$5.00` vs `$0.14` | Claude is about `35.7x` | `$25.00` vs `$0.28` | Claude is about `89.3x` |
 
-### What Mori does
-
-Mori connects model aggregation with task delegation. A lead agent can use a high-capability model to maintain intent and acceptance criteria, while roles such as Explore, Coder, and Tester switch to cheaper, lower-latency, or local models; different roles may also come from different providers. Mori centralizes routing, protocols, reasoning effort, context isolation, tool policies, MCP, Skills, cost, and cache observability so users can see why each model was used, what it cost, and whether the orchestration is worth repeating.
-
-It does not prescribe one permanent model or a fixed number of agents. It provides a composable dispatch and observability layer: the same task can use one agent or parallel subagents.
-
-A cache anomaly shows that the request prefix or upstream cache behavior changed. A single alert cannot establish a provider's intent or fault; Mori exposes the evidence and leaves the conclusion to the user.
-
 ## Documentation
 
 - [User Guide](docs/USER_GUIDE.en.md): installation, providers, Agent Teams, MCP, Skills, mobile, and troubleshooting
