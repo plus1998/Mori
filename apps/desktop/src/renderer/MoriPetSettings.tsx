@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
 import { MORI_PET_SIZE_MAX, MORI_PET_SIZE_MIN } from "../shared/mori-assistant";
 import {
@@ -32,6 +33,7 @@ export function MoriPetSettings({
   size: number;
   onSizeChange(size: number): void;
 }) {
+  const { t } = useTranslation();
   const [list, setList] = useState<MoriPetList>();
   const [pet, setPet] = useState<MoriPetAsset>();
   const [animation, setAnimation] = useState<MoriPetAnimation>("idle");
@@ -85,7 +87,7 @@ export function MoriPetSettings({
   return (
     <div className="mori-pet-settings">
       <label>
-        <span>悬浮形象</span>
+        <span>{t("moriUi.moriPetSettings.appearance")}</span>
         <select
           value={value}
           onChange={(event) => {
@@ -93,35 +95,35 @@ export function MoriPetSettings({
             setDirection(null);
           }}
         >
-          <option value="">默认 Mori</option>
+          <option value="">{t("moriUi.moriPetSettings.default")}</option>
           {list?.pets.map((item) => (
             <option key={item.key} value={item.key}>
               {item.name} · {item.key.startsWith("mori:") ? "已导入" : "Codex"} · v{item.version}
             </option>
           ))}
           {value && list && !list.pets.some((item) => item.key === value) ? (
-            <option value={value}>已选宠物不可用：{value}</option>
+            <option value={value}>{t("moriUi.moriPetSettings.unavailable")}{value}</option>
           ) : null}
         </select>
       </label>
       <div className="mori-pet-actions">
         <button type="button" disabled={busy} onClick={() => void importPet()}>
-          导入宠物文件夹
+          {t("moriUi.moriPetSettings.import")}
         </button>
         <button
           type="button"
           disabled={busy}
           onClick={() => void refresh().catch((error) => setError(String(error)))}
         >
-          刷新
+          {t("moriUi.moriPetSettings.refresh")}
         </button>
       </div>
       <p className="mori-settings-hint">
-        自动读取 Codex Pets；也可导入含 pet.json 与精灵图的文件夹。支持 v1 和 v2。
+        {t("moriUi.moriPetSettings.importHint")}
       </p>
       <label className="mori-pet-size">
         <span>
-          悬浮大小 <strong>{size} px</strong>
+          {t("moriUi.moriPetSettings.size")} <strong>{size} px</strong>
         </span>
         <input
           type="range"
@@ -131,7 +133,7 @@ export function MoriPetSettings({
           value={size}
           onChange={(event) => onSizeChange(Number(event.target.value))}
         />
-        <small>自动裁去透明留白。每个宠物的大小单独保存，拖动预览后点击保存设置。</small>
+        <small>{t("moriUi.moriPetSettings.sizeHint")}</small>
       </label>
       {error ? (
         <p className="mori-error" role="alert">
@@ -140,7 +142,7 @@ export function MoriPetSettings({
       ) : null}
       {list?.errors.length ? (
         <p className="mori-error" role="alert">
-          部分宠物无法读取：{list.errors.join("；")}
+          {t("moriUi.moriPetSettings.readErrors")}{list.errors.join("；")}
         </p>
       ) : null}
       {pet ? (
@@ -155,7 +157,7 @@ export function MoriPetSettings({
           <div>
             <strong>{pet.name}</strong>
             <label>
-              <span>动作预览</span>
+              <span>{t("moriUi.moriPetSettings.preview")}</span>
               <select
                 value={direction === null ? animation : `look:${direction}`}
                 onChange={(event) => {
@@ -177,7 +179,7 @@ export function MoriPetSettings({
                 {pet.version === 2
                   ? Array.from({ length: 16 }, (_, index) => index * 22.5).map((angle, index) => (
                       <option key={`look-${angle}`} value={`look:${index}`}>
-                        视线 {angle}°
+                        {t("moriUi.moriPetSettings.look")} {angle}°
                       </option>
                     ))
                   : null}

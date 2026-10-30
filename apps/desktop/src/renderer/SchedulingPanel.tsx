@@ -283,7 +283,7 @@ export function SchedulingPanel(props: Props) {
             </div>
             {selected.error && <p className="scheduling-error" role="alert">{selected.error}</p>}
             <pre className="scheduling-prompt">{selected.prompt}</pre>
-            {selected.action && <p className="scheduling-hint">Mori · {moriScheduledActionLabel(selected.action)} · 通知发送到{selected.notification?.channel === "wechat" ? "微信" : "桌面"}，绑定原助手会话。</p>}
+            {selected.action && <p className="scheduling-hint">Mori · {moriScheduledActionLabel(selected.action)} {t("moriUi.schedulingPanel.notificationDestination")}{selected.notification?.channel === "wechat" ? "微信" : "桌面"}{t("moriUi.schedulingPanel.originalConversation")}</p>}
             <div className="scheduling-form-actions">
               <button type="button" disabled={busy} onClick={() => edit(selected)}><Pencil size={15}/>{t("scheduling.edit")}</button>
               <button type="button" disabled={busy} onClick={() => void runAction(() => api.updateSchedule({ id: selected.id, expectedRevision: selected.revision, enabled: !selected.enabled }))}>{selected.enabled ? <Pause size={15}/> : <Play size={15}/>} {t(selected.enabled ? "scheduling.pause" : "scheduling.resume")}</button>
@@ -293,9 +293,9 @@ export function SchedulingPanel(props: Props) {
           </> : <p className="scheduling-select-hint">{t("scheduling.selectHint")}</p>}
           {!form && <section className={`scheduling-history${selected ? "" : " scheduling-history-overview"}`}><h3>{t("scheduling.history")}</h3>{history.length === 0 ? <p className="scheduling-hint">{t("scheduling.noHistory")}</p> : history.map(item => <div className="scheduling-run" key={item.id}>
             <div><strong>{selectedId ? formatTime(item.scheduledAt) : item.definition.name}</strong><span className={`scheduling-badge ${item.status === "failed" || item.status === "unknown" ? "error" : ""}`}>{t(`scheduling.status.${item.status}`)}</span><small>{!selectedId && formatTime(item.scheduledAt)}</small>{item.error && <p>{item.error}</p>}
-              {item.assistant && <small>实际开始：{formatTime(item.assistant.actualAt)} · 通知：{item.assistant.notification ? ({ sending: "正在发送", sent: "已发送", failed: "发送失败", unknown: "状态不确定" }[item.assistant.notification.status]) : "等待结果"}</small>}
+              {item.assistant && <small>{t("moriUi.schedulingPanel.actualStart")}{formatTime(item.assistant.actualAt)} {t("moriUi.schedulingPanel.notification")}{item.assistant.notification ? ({ sending: "正在发送", sent: "已发送", failed: "发送失败", unknown: "状态不确定" }[item.assistant.notification.status]) : "等待结果"}</small>}
               {item.assistant?.notification?.error && <p>{item.assistant.notification.error}</p>}
-              {item.assistant?.notification && ["failed", "unknown"].includes(item.assistant.notification.status) && <button type="button" disabled={busy} onClick={() => void runAction(() => api.retryScheduleNotification(item.id))}>仅重试通知</button>}
+              {item.assistant?.notification && ["failed", "unknown"].includes(item.assistant.notification.status) && <button type="button" disabled={busy} onClick={() => void runAction(() => api.retryScheduleNotification(item.id))}>{t("moriUi.schedulingPanel.retryNotificationOnly")}</button>}
             </div>
             {item.threadId && <button type="button" className="scheduling-icon" aria-label={t("scheduling.openThread")} title={t("scheduling.openThread")} onClick={() => item.definition.kind === "assistant_action" ? void runAction(() => api.moriAssistantOpenTask(item.threadId!)) : props.onOpenThread(item.threadId!)}><ExternalLink size={16}/></button>}
           </div>)}</section>}

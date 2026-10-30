@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Clock3, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { moriScheduledActionLabel } from "../shared/mori-scheduled-action";
@@ -13,6 +14,7 @@ export function MoriScheduledCards({
   occurrences: ScheduleOccurrence[];
   onChanged(): Promise<void>;
 }) {
+  const { t } = useTranslation();
   const [editing, setEditing] = useState("");
   const [at, setAt] = useState("");
   const [busy, setBusy] = useState("");
@@ -38,10 +40,10 @@ export function MoriScheduledCards({
     }
   }
   return (
-    <section className="mori-schedules" aria-label="Mori 定时安排">
+    <section className="mori-schedules" aria-label={t("moriUi.moriScheduledCards.label")}>
       <h3>
         <Clock3 size={15} />
-        定时安排
+        {t("moriUi.moriScheduledCards.title")}
       </h3>
       {error && <p role="alert">{error}</p>}
       {[...records.values()]
@@ -90,7 +92,7 @@ export function MoriScheduledCards({
                 ).toLocaleString()}
               </time>
               <small>
-                通知：{definition.notification?.channel === "wechat" ? "微信" : "桌面"}
+                {t("moriUi.moriScheduledCards.notification")}{definition.notification?.channel === "wechat" ? "微信" : "桌面"}
                 {notification
                   ? ` · ${{ sending: "正在发送", sent: "已发送", failed: "发送失败", unknown: "送达状态不确定" }[notification.status]}`
                   : ""}
@@ -112,7 +114,7 @@ export function MoriScheduledCards({
                     }}
                   >
                     <Pencil size={13} />
-                    修改时间
+                    {t("moriUi.moriScheduledCards.changeTime")}
                   </button>
                 )}
                 {live && (
@@ -126,7 +128,7 @@ export function MoriScheduledCards({
                     }
                   >
                     <Trash2 size={13} />
-                    取消安排
+                    {t("moriUi.moriScheduledCards.cancel")}
                   </button>
                 )}
                 {targetId && (
@@ -136,7 +138,7 @@ export function MoriScheduledCards({
                       void action(definition.id, () => window.eco!.moriAssistantOpenTask(targetId))
                     }
                   >
-                    查看目标任务
+                    {t("moriUi.moriScheduledCards.openTask")}
                   </button>
                 )}
                 {occurrence && notification && ["failed", "unknown"].includes(notification.status) && (
@@ -171,7 +173,7 @@ export function MoriScheduledCards({
                   }}
                 >
                   <label>
-                    新的提醒时间
+                    {t("moriUi.moriScheduledCards.newTime")}
                     <input
                       required
                       type="datetime-local"
@@ -181,10 +183,10 @@ export function MoriScheduledCards({
                     />
                   </label>
                   <button type="submit" disabled={!!busy}>
-                    保存
+                    {t("moriUi.moriScheduledCards.save")}
                   </button>
                   <button type="button" onClick={() => setEditing("")}>
-                    返回
+                    {t("moriUi.moriScheduledCards.back")}
                   </button>
                 </form>
               )}

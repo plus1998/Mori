@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Keyboard, Pencil, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -13,6 +14,7 @@ import { saveKeyboardShortcuts, useKeyboardShortcuts } from "./keyboard-shortcut
 import "./keyboard-shortcuts.css";
 
 export function KeyboardShortcutsSettings() {
+  const { t } = useTranslation();
   const { bindings, loaded, error: loadError } = useKeyboardShortcuts();
   const platform = window.eco?.platform ?? "darwin";
   const [query, setQuery] = useState("");
@@ -158,7 +160,7 @@ export function KeyboardShortcutsSettings() {
   return (
     <section className="settings-section keyboard-settings" aria-labelledby="keyboard-shortcuts-title">
       <div className="keyboard-settings-heading">
-        <h1 id="keyboard-shortcuts-title">键盘快捷键</h1>
+        <h1 id="keyboard-shortcuts-title">{t("moriUi.keyboardShortcutsSettings.title")}</h1>
         <button
           type="button"
           className="keyboard-reset"
@@ -166,7 +168,7 @@ export function KeyboardShortcutsSettings() {
           onClick={() => setResetConfirm(true)}
         >
           <RotateCcw size={13} />
-          全部重置为默认值
+          {t("moriUi.keyboardShortcutsSettings.resetAll")}
         </button>
       </div>
       <label className="keyboard-search">
@@ -175,13 +177,13 @@ export function KeyboardShortcutsSettings() {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="搜索快捷键"
-          aria-label="搜索快捷键"
+          placeholder={t("moriUi.keyboardShortcutsSettings.search")}
+          aria-label={t("moriUi.keyboardShortcutsSettings.search")}
         />
         <Keyboard size={16} />
       </label>
       <p className="keyboard-settings-note">
-        点击快捷键或编辑图标，按下新的组合键。全局快捷键可在应用外使用，其余快捷键在对应窗口或输入框中生效。
+        {t("moriUi.keyboardShortcutsSettings.hint")}
       </p>
       {error || loadError ? (
         <p role="alert" className="keyboard-error">
@@ -189,7 +191,7 @@ export function KeyboardShortcutsSettings() {
         </p>
       ) : !loaded ? (
         <p role="status" className="keyboard-settings-note">
-          正在读取快捷键…
+          {t("moriUi.keyboardShortcutsSettings.loading")}
         </p>
       ) : null}
       <div className="keyboard-list">
@@ -200,7 +202,7 @@ export function KeyboardShortcutsSettings() {
               <div className="keyboard-row-copy">
                 <strong>
                   {definition.label}
-                  {definition.scope === "global" ? <span>全局</span> : null}
+                  {definition.scope === "global" ? <span>{t("moriUi.keyboardShortcutsSettings.global")}</span> : null}
                 </strong>
                 <small>{definition.description}</small>
               </div>
@@ -224,7 +226,7 @@ export function KeyboardShortcutsSettings() {
                       <button
                         type="button"
                         className="keyboard-icon"
-                        title="清除快捷键"
+                        title={t("moriUi.keyboardShortcutsSettings.clear")}
                         aria-label={`清除${definition.label}快捷键 ${formatAccelerator(key, platform)}`}
                         disabled={busy || !loaded}
                         onClick={() =>
@@ -246,7 +248,7 @@ export function KeyboardShortcutsSettings() {
                       setEditing({ definition, index: 0, value: "" });
                     }}
                   >
-                    未分配
+                    {t("moriUi.keyboardShortcutsSettings.unassigned")}
                     <Pencil size={14} />
                   </button>
                 )}
@@ -255,7 +257,7 @@ export function KeyboardShortcutsSettings() {
                 type="button"
                 className="keyboard-icon keyboard-add"
                 aria-label={`添加${definition.label}快捷键`}
-                title="添加快捷键"
+                title={t("moriUi.keyboardShortcutsSettings.add")}
                 disabled={busy || !loaded || keys.length >= (definition.scope === "global" ? 1 : 4)}
                 onClick={() => {
                   setEditError("");
@@ -267,7 +269,7 @@ export function KeyboardShortcutsSettings() {
             </div>
           );
         })}
-        {!definitions.length ? <div className="keyboard-empty">没有找到相关快捷键</div> : null}
+        {!definitions.length ? <div className="keyboard-empty">{t("moriUi.keyboardShortcutsSettings.noMatches")}</div> : null}
       </div>
       {editing || resetConfirm
         ? createPortal(
@@ -276,7 +278,7 @@ export function KeyboardShortcutsSettings() {
                 type="button"
                 className="keyboard-modal-dismiss"
                 tabIndex={-1}
-                aria-label="取消快捷键设置"
+                aria-label={t("moriUi.keyboardShortcutsSettings.cancelSettings")}
                 disabled={busy}
                 onClick={() => {
                   setEditing(undefined);
@@ -294,7 +296,7 @@ export function KeyboardShortcutsSettings() {
                 <button
                   type="button"
                   className="keyboard-modal-close keyboard-icon"
-                  aria-label="关闭"
+                  aria-label={t("moriUi.keyboardShortcutsSettings.close")}
                   disabled={busy || !loaded}
                   onClick={() => {
                     setEditing(undefined);
@@ -307,7 +309,7 @@ export function KeyboardShortcutsSettings() {
                 <h3 id="keyboard-modal-title">{editing ? editing.definition.label : "重置所有快捷键？"}</h3>
                 {editing ? (
                   <>
-                    <p>按下新的快捷键组合，按 Esc 取消。</p>
+                    <p>{t("moriUi.keyboardShortcutsSettings.recordHint")}</p>
                     <div className={`keyboard-recording ${ready ? "is-ready" : ""}`} aria-live="polite">
                       {editing.value ? (
                         <kbd>{formatAccelerator(editing.value, platform)}</kbd>
@@ -324,7 +326,7 @@ export function KeyboardShortcutsSettings() {
                     ) : null}
                   </>
                 ) : (
-                  <p>你的自定义快捷键将恢复为默认设置。</p>
+                  <p>{t("moriUi.keyboardShortcutsSettings.resetHint")}</p>
                 )}
                 <div className="keyboard-modal-actions">
                   <button
@@ -335,7 +337,7 @@ export function KeyboardShortcutsSettings() {
                       setResetConfirm(false);
                     }}
                   >
-                    取消
+                    {t("moriUi.keyboardShortcutsSettings.cancel")}
                   </button>
                   <button
                     type="button"

@@ -60,7 +60,7 @@ test("Node SQLite upgrades native compaction receipts atomically and reopens the
             eventType: `context.compaction.${stage}`,
             scope: "main",
             streamState: "none",
-          observedAt: stage === "started" ? "2026-10-07T03:28:39.020Z" : "2026-10-07T03:28:52.297Z",
+            observedAt: stage === "started" ? "2026-10-07T03:28:39.020Z" : "2026-10-07T03:28:52.297Z",
             message: stage,
             sequence: 0,
             metadata: { itemType: "contextCompaction" },
@@ -321,76 +321,79 @@ test("Node SQLite pages the initial and older remote thread lists independently"
   assert.equal(older.totalCount, 7);
 });
 
-test("Node SQLite atomically claims and reconciles streaming follow-ups", async (t) => {
-  const directory = await createTestDirectory(t, "eco-node-streaming-follow-up-");
-  const databasePath = path.join(directory, "eco-coding.sqlite");
-  const store = await createConversationStore(databasePath);
-  const threadId = "thr_streaming_follow_up";
-  store.saveThread({
-    id: threadId,
-    title: "Streaming follow-up",
-    prompt: "verify delivery state",
-    workspacePath: "/tmp/eco-streaming-follow-up",
-    status: "running",
-    message: "running",
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  });
+for (const coreKind of ["claude", "codex", "pi", "acp"] as const) {
+  test(`Node SQLite atomically claims and reconciles ${coreKind} streaming follow-ups`, async (t) => {
+    const directory = await createTestDirectory(t, "eco-node-streaming-follow-up-");
+    const databasePath = path.join(directory, "eco-coding.sqlite");
+    const store = await createConversationStore(databasePath);
+    const threadId = "thr_streaming_follow_up";
+    store.saveThread({
+      id: threadId,
+      coreKind,
+      title: "Streaming follow-up",
+      prompt: "verify delivery state",
+      workspacePath: "/tmp/eco-streaming-follow-up",
+      status: "running",
+      message: "running",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
 
-  const accepted = store.enqueueThreadFollowUp({ threadId, prompt: "accepted" });
-  const claimed = store.claimThreadFollowUpStreamingPush(threadId, accepted.id, {
-    targetRunAttemptId: "attempt_push",
-  });
-  assert.equal(claimed?.status, "delivered");
-  assert.equal(claimed?.deliveryMode, "streaming_push");
-  assert.equal(claimed?.appliedAt, undefined);
-  assert.equal(store.cancelThreadFollowUp(threadId, accepted.id), undefined);
-  assert.equal(
-    store.updateThreadFollowUp(threadId, accepted.id, { prompt: "must not replace sent text" }),
-    undefined,
-  );
-  assert.equal(store.markThreadFollowUpStreamingPushApplied(threadId, accepted.id)?.status, "applied");
+    const accepted = store.enqueueThreadFollowUp({ threadId, prompt: "accepted" });
+    const claimed = store.claimThreadFollowUpStreamingPush(threadId, accepted.id, {
+      targetRunAttemptId: "attempt_push",
+    });
+    assert.equal(claimed?.status, "delivered");
+    assert.equal(claimed?.deliveryMode, "streaming_push");
+    assert.equal(claimed?.appliedAt, undefined);
+    assert.equal(store.cancelThreadFollowUp(threadId, accepted.id), undefined);
+    assert.equal(
+      store.updateThreadFollowUp(threadId, accepted.id, { prompt: "must not replace sent text" }),
+      undefined,
+    );
+    assert.equal(store.markThreadFollowUpStreamingPushApplied(threadId, accepted.id)?.status, "applied");
 
-  const rejected = store.enqueueThreadFollowUp({
-    threadId,
-    prompt: "explicitly rejected",
-    priority: "escalated",
-  });
-  store.claimThreadFollowUpStreamingPush(threadId, rejected.id);
-  const requeued = store.requeueThreadFollowUpStreamingPush(threadId, rejected.id, {
-    error: "no active turn",
-  });
-  assert.equal(requeued?.status, "queued");
-  assert.equal(requeued?.deliveryMode, "interrupt_resume");
-  assert.equal(requeued?.deliveredAt, undefined);
+    const rejected = store.enqueueThreadFollowUp({
+      threadId,
+      prompt: "explicitly rejected",
+      priority: "escalated",
+    });
+    store.claimThreadFollowUpStreamingPush(threadId, rejected.id);
+    const requeued = store.requeueThreadFollowUpStreamingPush(threadId, rejected.id, {
+      error: "no active turn",
+    });
+    assert.equal(requeued?.status, "queued");
+    assert.equal(requeued?.deliveryMode, coreKind === "acp" ? "interrupt_resume" : "queued");
+    assert.equal(requeued?.deliveredAt, undefined);
 
-  const uncertain = store.enqueueThreadFollowUp({ threadId, prompt: "uncertain" });
-  store.claimThreadFollowUpStreamingPush(threadId, uncertain.id);
-  const failed = store.markThreadFollowUpDeliveryUnknown(
-    threadId,
-    uncertain.id,
-    "transport closed after send",
-  );
-  assert.equal(failed?.status, "failed");
-  assert.equal(failed?.deliveryMode, "streaming_push");
-  assert.equal(
-    store.claimQueuedThreadFollowUps(threadId).some((item) => item.id === uncertain.id),
-    false,
-  );
+    const uncertain = store.enqueueThreadFollowUp({ threadId, prompt: "uncertain" });
+    store.claimThreadFollowUpStreamingPush(threadId, uncertain.id);
+    const failed = store.markThreadFollowUpDeliveryUnknown(
+      threadId,
+      uncertain.id,
+      "transport closed after send",
+    );
+    assert.equal(failed?.status, "failed");
+    assert.equal(failed?.deliveryMode, "streaming_push");
+    assert.equal(
+      store.claimQueuedThreadFollowUps(threadId).some((item) => item.id === uncertain.id),
+      false,
+    );
 
-  const orphaned = store.enqueueThreadFollowUp({ threadId, prompt: "crashed in flight" });
-  store.claimThreadFollowUpStreamingPush(threadId, orphaned.id);
-  const reopened = await createConversationStore(databasePath);
-  const recovered = reopened
-    .listThreadFollowUps(threadId, { statuses: ["delivered"] })
-    .find((followUp) => followUp.id === orphaned.id);
-  assert.equal(recovered?.deliveryMode, "streaming_push");
-  assert.equal(
-    reopened.markThreadFollowUpDeliveryUnknown(threadId, orphaned.id, "application exited during push")
-      ?.status,
-    "failed",
-  );
-});
+    const orphaned = store.enqueueThreadFollowUp({ threadId, prompt: "crashed in flight" });
+    store.claimThreadFollowUpStreamingPush(threadId, orphaned.id);
+    const reopened = await createConversationStore(databasePath);
+    const recovered = reopened
+      .listThreadFollowUps(threadId, { statuses: ["delivered"] })
+      .find((followUp) => followUp.id === orphaned.id);
+    assert.equal(recovered?.deliveryMode, "streaming_push");
+    assert.equal(
+      reopened.markThreadFollowUpDeliveryUnknown(threadId, orphaned.id, "application exited during push")
+        ?.status,
+      "failed",
+    );
+  });
+}
 
 test("Node SQLite updates Codex cumulative stream events in place", async (t) => {
   const directory = await createTestDirectory(t, "eco-node-codex-stream-");

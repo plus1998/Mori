@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { ConversationMessage } from "@eco/shared";
 import {
   ArrowDown,
@@ -110,6 +111,7 @@ export function MoriAssistantSettingsPanel({
   onDone?: () => void;
   onOpenComputerUse?: () => void;
 }) {
+  const { t } = useTranslation();
   useKeyboardShortcuts();
   const { snapshot, error, setError, refresh } = useAssistant();
   const [settings, setSettings] = useState<MoriAssistantSettings>();
@@ -155,7 +157,7 @@ export function MoriAssistantSettingsPanel({
   const manageAccounts = () => setAccountsOpen(true);
   if (accountsOpen)
     return (
-      <section className="mori-settings mori-manage-accounts" aria-label="助手账号管理">
+      <section className="mori-settings mori-manage-accounts" aria-label={t("moriUi.moriAssistant.accounts")}>
         <button
           type="button"
           className="mori-text-button"
@@ -165,9 +167,9 @@ export function MoriAssistantSettingsPanel({
           }}
         >
           <ArrowLeft size={14} />
-          返回助手设置
+          {t("moriUi.moriAssistant.backToSettings")}
         </button>
-        <Suspense fallback={<p role="status">正在读取账号…</p>}>
+        <Suspense fallback={<p role="status">{t("moriUi.moriAssistant.loadingAccounts")}</p>}>
           <LazyOpenAIAccountsPanel onError={setError} />
         </Suspense>
         {error ? (
@@ -199,14 +201,14 @@ export function MoriAssistantSettingsPanel({
     { id: "wechat", label: "微信", icon: MessageCircle },
   ] as const;
   return (
-    <section className="mori-settings" aria-label="Mori 设置">
+    <section className="mori-settings" aria-label={t("moriUi.moriAssistant.settings")}>
       <div className="mori-settings-heading">
         <span className="mori-mark">
           <MoriIcon />
         </span>
         <div>
           <h2>Mori</h2>
-          <p>对话、安排工作，在桌面和微信之间随时继续。</p>
+          <p>{t("moriUi.moriAssistant.intro")}</p>
         </div>
         <span className={`mori-status-pill ${snapshot.settings.enabled ? "is-ready" : ""}`}>
           {snapshot.settings.enabled ? "已启用" : "未启用"}
@@ -214,8 +216,8 @@ export function MoriAssistantSettingsPanel({
       </div>
       <label className="mori-toggle mori-enable">
         <span>
-          <strong>启用助手</strong>
-          <small>选择模型来源，保存后即可开始对话。</small>
+          <strong>{t("moriUi.moriAssistant.enable")}</strong>
+          <small>{t("moriUi.moriAssistant.configureHint")}</small>
         </span>
         <input
           type="checkbox"
@@ -226,7 +228,7 @@ export function MoriAssistantSettingsPanel({
           onChange={(event) => patch("enabled", event.target.checked)}
         />
       </label>
-      <nav className="mori-settings-tabs" aria-label="助手设置分类">
+      <nav className="mori-settings-tabs" aria-label={t("moriUi.moriAssistant.settingsCategories")}>
         {tabs.map(({ id, label, icon: Icon }) => (
           <button
             type="button"
@@ -242,7 +244,7 @@ export function MoriAssistantSettingsPanel({
       </nav>
       {running ? (
         <p className="mori-notice" role="status">
-          Mori 正在处理消息，回复结束后可修改设置。
+          {t("moriUi.moriAssistant.busySettings")}
         </p>
       ) : null}
       <fieldset disabled={locked}>
@@ -250,12 +252,12 @@ export function MoriAssistantSettingsPanel({
           <>
             <section className="mori-settings-section">
               <div className="mori-section-heading">
-                <h3>模型来源</h3>
+                <h3>{t("moriUi.moriAssistant.modelSource")}</h3>
               </div>
               <label>
-                使用方式
+                {t("moriUi.moriAssistant.usage")}
                 <select
-                  aria-label="助手模型来源"
+                  aria-label={t("moriUi.moriAssistant.assistantModelSource")}
                   value={settings.modelSource}
                   onChange={(event) => {
                     const source = event.target.value as MoriAssistantSettings["modelSource"];
@@ -277,16 +279,16 @@ export function MoriAssistantSettingsPanel({
                     setError("");
                   }}
                 >
-                  <option value="chatgpt">ChatGPT 账号</option>
-                  <option value="custom">自定义模型</option>
+                  <option value="chatgpt">{t("moriUi.moriAssistant.chatgptAccount")}</option>
+                  <option value="custom">{t("moriUi.moriAssistant.customModel")}</option>
                 </select>
               </label>
               {custom ? (
                 <>
                   <label>
-                    服务商
+                    {t("moriUi.moriAssistant.provider")}
                     <select
-                      aria-label="助手模型服务商"
+                      aria-label={t("moriUi.moriAssistant.assistantProvider")}
                       value={settings.providerId}
                       aria-invalid={missingProvider}
                       onChange={(event) => {
@@ -306,9 +308,9 @@ export function MoriAssistantSettingsPanel({
                         setError("");
                       }}
                     >
-                      <option value="">请选择服务商</option>
+                      <option value="">{t("moriUi.moriAssistant.selectProvider")}</option>
                       {settings.providerId && !selectedProvider ? (
-                        <option value={settings.providerId}>当前服务商不可用</option>
+                        <option value={settings.providerId}>{t("moriUi.moriAssistant.providerUnavailable")}</option>
                       ) : null}
                       {snapshot.customProviders.map((provider) => (
                         <option key={provider.id} value={provider.id}>
@@ -317,10 +319,10 @@ export function MoriAssistantSettingsPanel({
                       ))}
                     </select>
                   </label>
-                  <p className="mori-muted">使用“设置 → 服务商”中已启用的服务商和模型。</p>
+                  <p className="mori-muted">{t("moriUi.moriAssistant.enabledProvidersHint")}</p>
                   {missingProvider ? (
                     <p className="mori-field-error">
-                      请先在“设置 → 服务商”中配置并启用服务商，再在这里选择。
+                      {t("moriUi.moriAssistant.configureProviderHint")}
                     </p>
                   ) : null}
                 </>
@@ -329,14 +331,14 @@ export function MoriAssistantSettingsPanel({
             {!custom ? (
               <section className="mori-settings-section">
                 <div className="mori-section-heading">
-                  <h3>助手使用的 ChatGPT 账号</h3>
-                  <small>独立于全局当前账号</small>
+                  <h3>{t("moriUi.moriAssistant.selectedAccounts")}</h3>
+                  <small>{t("moriUi.moriAssistant.independentAccount")}</small>
                 </div>
                 {snapshot.accounts.length === 0 ? (
                   <div className="mori-account-empty">
-                    <p>还没有 ChatGPT 账号，先登录一个账号即可继续。</p>
+                    <p>{t("moriUi.moriAssistant.noAccounts")}</p>
                     <button type="button" onClick={manageAccounts}>
-                      添加 ChatGPT 账号
+                      {t("moriUi.moriAssistant.addAccount")}
                       <ChevronRight size={14} />
                     </button>
                   </div>
@@ -384,17 +386,17 @@ export function MoriAssistantSettingsPanel({
                       onChange={() => patch("accountIds", settings.accountIds.filter((item) => item !== id))}
                     />
                     <span>
-                      <strong>已选择的账号不存在</strong>
+                      <strong>{t("moriUi.moriAssistant.missingAccount")}</strong>
                       <small>{id}</small>
                     </span>
-                    <span className="mori-account-meta">取消勾选以移除</span>
+                    <span className="mori-account-meta">{t("moriUi.moriAssistant.uncheckToRemove")}</span>
                   </label>
                 ))}
-                {missingAccount ? <p className="mori-field-error">选择至少一个助手账号后保存。</p> : null}
-                {unavailableAccountIds.length ? <p className="mori-field-error">请移除已不存在的账号后保存。</p> : null}
+                {missingAccount ? <p className="mori-field-error">{t("moriUi.moriAssistant.selectAccountHint")}</p> : null}
+                {unavailableAccountIds.length ? <p className="mori-field-error">{t("moriUi.moriAssistant.removeMissingHint")}</p> : null}
                 {snapshot.accounts.length > 0 ? (
                   <button type="button" className="mori-text-button" onClick={manageAccounts}>
-                    管理账号
+                    {t("moriUi.moriAssistant.manageAccounts")}
                     <ExternalLink size={12} />
                   </button>
                 ) : null}
@@ -404,17 +406,17 @@ export function MoriAssistantSettingsPanel({
                     checked={settings.autoSwitchAccounts}
                     onChange={(event) => patch("autoSwitchAccounts", event.target.checked)}
                   />
-                  额度耗尽时，按勾选顺序切换助手账号
+                  {t("moriUi.moriAssistant.accountRotation")}
                 </label>
               </section>
             ) : null}
             <section className="mori-settings-section">
               <div className="mori-section-heading">
-                <h3>对话偏好</h3>
+                <h3>{t("moriUi.moriAssistant.preferences")}</h3>
               </div>
               <div className="mori-settings-grid">
                 <label>
-                  模型
+                  {t("moriUi.moriAssistant.model")}
                   <input
                     list="mori-models"
                     value={settings.model}
@@ -434,31 +436,31 @@ export function MoriAssistantSettingsPanel({
                   <small>{custom ? "可选择或填写服务商支持的模型 ID" : "可选择或填写账号支持的模型"}</small>
                 </label>
                 <label>
-                  思考强度
+                  {t("moriUi.moriAssistant.reasoning")}
                   <select
                     value={settings.reasoningEffort}
                     onChange={(event) =>
                       patch("reasoningEffort", event.target.value as MoriAssistantSettings["reasoningEffort"])
                     }
                   >
-                    <option value="low">低 · 更快响应</option>
-                    <option value="medium">中 · 均衡</option>
-                    <option value="high">高 · 深入思考</option>
+                    <option value="low">{t("moriUi.moriAssistant.reasoningLow")}</option>
+                    <option value="medium">{t("moriUi.moriAssistant.reasoningMedium")}</option>
+                    <option value="high">{t("moriUi.moriAssistant.reasoningHigh")}</option>
                   </select>
                 </label>
               </div>
               <p className="mori-workspace-note">
                 <FolderOpen size={14} />
-                <span>Mori 使用独立工作区。安排工作任务时，会为任务选择对应的项目。</span>
+                <span>{t("moriUi.moriAssistant.workspaceHint")}</span>
               </p>
               <details className="mori-personality">
                 <summary>
-                  名称与助手指令
+                  {t("moriUi.moriAssistant.nameAndInstructions")}
                   <ChevronDown size={14} />
                 </summary>
                 <div>
                   <label>
-                    助手名称
+                    {t("moriUi.moriAssistant.name")}
                     <input
                       value={settings.name}
                       maxLength={60}
@@ -467,7 +469,7 @@ export function MoriAssistantSettingsPanel({
                     />
                   </label>
                   <label>
-                    助手指令
+                    {t("moriUi.moriAssistant.instructions")}
                     <textarea
                       rows={4}
                       value={settings.instructions}
@@ -482,12 +484,12 @@ export function MoriAssistantSettingsPanel({
         {tab === "desktop" ? (
           <section className="mori-settings-section">
             <div className="mori-section-heading">
-              <h3>随时呼出 Mori</h3>
+              <h3>{t("moriUi.moriAssistant.invoke")}</h3>
             </div>
             <div className="mori-computer-capability">
               <div>
                 <Monitor size={16} />
-                <strong>电脑操作</strong>
+                <strong>{t("moriUi.moriAssistant.computerUse")}</strong>
                 <span className={`mori-status-pill ${snapshot.computerUse.available ? "is-ready" : ""}`}>
                   {snapshot.computerUse.available
                     ? "已接入"
@@ -503,17 +505,17 @@ export function MoriAssistantSettingsPanel({
               </p>
               {onOpenComputerUse ? (
                 <button type="button" onClick={onOpenComputerUse}>
-                  电脑操作设置
+                  {t("moriUi.moriAssistant.computerUseSettings")}
                   <ChevronRight size={13} />
                 </button>
               ) : (
-                <small>可在主窗口的「设置 → 电脑操作」中管理。</small>
+                <small>{t("moriUi.moriAssistant.computerUseHint")}</small>
               )}
             </div>
             <label className="mori-toggle">
               <span>
-                <strong>桌面悬浮球</strong>
-                <small>点击开始对话，拖动调整位置。</small>
+                <strong>{t("moriUi.moriAssistant.desktopBall")}</strong>
+                <small>{t("moriUi.moriAssistant.desktopBallHint")}</small>
               </span>
               <input
                 type="checkbox"
@@ -533,8 +535,8 @@ export function MoriAssistantSettingsPanel({
             />
             <label className="mori-toggle">
               <span>
-                <strong>关闭窗口后继续运行</strong>
-                <small>在托盘保留 Mori，继续接收微信和任务消息。</small>
+                <strong>{t("moriUi.moriAssistant.keepRunning")}</strong>
+                <small>{t("moriUi.moriAssistant.keepRunningHint")}</small>
               </span>
               <input
                 type="checkbox"
@@ -544,15 +546,15 @@ export function MoriAssistantSettingsPanel({
                 onChange={(event) => patch("backgroundEnabled", event.target.checked)}
               />
             </label>
-            <p className="mori-settings-hint">呼出快捷键可在「设置 → 键盘快捷键」中修改。</p>
+            <p className="mori-settings-hint">{t("moriUi.moriAssistant.shortcutHint")}</p>
           </section>
         ) : null}
         {tab === "wechat" ? (
           <section className="mori-settings-section mori-wechat">
             <label className="mori-toggle">
               <span>
-                <strong>通过微信呼叫 Mori</strong>
-                <small>与桌面共享对话，接收回复和任务进展。</small>
+                <strong>{t("moriUi.moriAssistant.wechatInvoke")}</strong>
+                <small>{t("moriUi.moriAssistant.wechatHint")}</small>
               </span>
               <input
                 type="checkbox"
@@ -619,12 +621,12 @@ export function MoriAssistantSettingsPanel({
                     type="button"
                     onClick={() => void action(() => desktopApi().moriAssistantDisconnectWechat())}
                   >
-                    解除连接
+                    {t("moriUi.moriAssistant.disconnect")}
                   </button>
                 ) : null}
               </div>
               {!settings.enabled || !settings.wechatEnabled ? (
-                <small>先启用助手和微信接收，再生成二维码。</small>
+                <small>{t("moriUi.moriAssistant.qrPrerequisite")}</small>
               ) : null}
             </div>
             {snapshot.wechat.error ? (
@@ -638,9 +640,9 @@ export function MoriAssistantSettingsPanel({
               </p>
             ) : null}
             <p className="mori-muted">
-              处理较久时显示微信原生“正在输入”；等待你回答时暂停，不额外发送处理中消息。
+              {t("moriUi.moriAssistant.typingHint")}
             </p>
-            <p className="mori-muted">支持文字和已转写的语音；图片、文件、视频及扫码验证码暂不支持。</p>
+            <p className="mori-muted">{t("moriUi.moriAssistant.wechatFormats")}</p>
           </section>
         ) : null}
       </fieldset>
@@ -659,7 +661,7 @@ export function MoriAssistantSettingsPanel({
             ) : saved ? (
               <>
                 <Check size={13} />
-                已保存
+                {t("moriUi.moriAssistant.saved")}
               </>
             ) : (
               "设置已同步"
@@ -675,7 +677,7 @@ export function MoriAssistantSettingsPanel({
                 setSaved(false);
               }}
             >
-              撤销更改
+              {t("moriUi.moriAssistant.discard")}
             </button>
           ) : null}
           <button
@@ -684,7 +686,7 @@ export function MoriAssistantSettingsPanel({
             disabled={locked || invalid || !dirty}
             onClick={() => void action(persist)}
           >
-            {busy ? <LoaderCircle size={14} className="spinning" /> : null}保存设置
+            {busy ? <LoaderCircle size={14} className="spinning" /> : null}{t("moriUi.moriAssistant.saveSettings")}
           </button>
           {snapshot.settings.enabled && !dirty ? (
             <button
@@ -692,7 +694,7 @@ export function MoriAssistantSettingsPanel({
               disabled={busy}
               onClick={() => (onDone ? onDone() : void action(() => desktopApi().moriAssistantShowMain()))}
             >
-              开始对话
+              {t("moriUi.moriAssistant.startChat")}
               <ChevronRight size={14} />
             </button>
           ) : null}
@@ -721,6 +723,7 @@ export function MoriAssistantPanel({
   onClose?: () => void;
   onSettings?: () => void;
 }) {
+  const { t } = useTranslation();
   useKeyboardShortcuts();
   const { snapshot, error, setError, refresh } = useAssistant();
   const [draft, setDraft] = useState("");
@@ -966,7 +969,7 @@ export function MoriAssistantPanel({
     return true;
   });
   return (
-    <section className={`mori-panel ${floating ? "is-floating" : ""}`} aria-label="Mori 助手对话">
+    <section className={`mori-panel ${floating ? "is-floating" : ""}`} aria-label={t("moriUi.moriAssistant.chatLabel")}>
       <header className="mori-panel-header">
         <span className="mori-mark">
           <MoriIcon
@@ -1003,8 +1006,8 @@ export function MoriAssistantPanel({
         </div>
         <button
           type="button"
-          title="历史对话"
-          aria-label="历史对话"
+          title={t("moriUi.moriAssistant.history")}
+          aria-label={t("moriUi.moriAssistant.history")}
           aria-expanded={historyOpen}
           aria-controls="mori-history"
           ref={historyTrigger}
@@ -1018,21 +1021,21 @@ export function MoriAssistantPanel({
         </button>
         <button
           type="button"
-          title="新建助手对话"
-          aria-label="新建助手对话"
+          title={t("moriUi.moriAssistant.newChat")}
+          aria-label={t("moriUi.moriAssistant.newChat")}
           disabled={sessionBusy}
           onClick={() => void switchSession()}
         >
           <Plus size={17} />
         </button>
-        <button type="button" title="助手设置" aria-label="助手设置" onClick={openSettings}>
+        <button type="button" title={t("moriUi.moriAssistant.assistantSettings")} aria-label={t("moriUi.moriAssistant.assistantSettings")} onClick={openSettings}>
           <Settings size={16} />
         </button>
         {floating ? (
           <button
             type="button"
-            title="在主窗口展开"
-            aria-label="在主窗口展开"
+            title={t("moriUi.moriAssistant.expandMain")}
+            aria-label={t("moriUi.moriAssistant.expandMain")}
             onClick={() =>
               void perform(async () => {
                 await flushDraft();
@@ -1061,10 +1064,10 @@ export function MoriAssistantPanel({
       {historyOpen ? (
         <div className="mori-history" id="mori-history" ref={history}>
           <div className="mori-history-heading">
-            <strong>助手对话</strong>
+            <strong>{t("moriUi.moriAssistant.conversation")}</strong>
             <button
               type="button"
-              aria-label="关闭历史对话"
+              aria-label={t("moriUi.moriAssistant.closeHistory")}
               onClick={() => {
                 setHistoryOpen(false);
                 historyTrigger.current?.focus();
@@ -1076,13 +1079,13 @@ export function MoriAssistantPanel({
           <label className="mori-history-search">
             <Search size={14} />
             <input
-              aria-label="搜索助手对话"
-              placeholder="搜索对话…"
+              aria-label={t("moriUi.moriAssistant.searchHistory")}
+              placeholder={t("moriUi.moriAssistant.searchPlaceholder")}
               value={historyQuery}
               onChange={(event) => setHistoryQuery(event.target.value)}
             />
           </label>
-          {busy ? <p className="mori-muted">回复结束后可切换对话</p> : null}
+          {busy ? <p className="mori-muted">{t("moriUi.moriAssistant.switchAfterReply")}</p> : null}
           <div className="mori-history-list">
             {snapshot?.sessions.length ? (
               snapshot.sessions
@@ -1109,13 +1112,13 @@ export function MoriAssistantPanel({
                   </button>
                 ))
             ) : (
-              <p>还没有历史对话</p>
+              <p>{t("moriUi.moriAssistant.noHistory")}</p>
             )}
             {snapshot?.sessions.length &&
             !snapshot.sessions.some((item) =>
               item.title.toLocaleLowerCase().includes(historyQuery.toLocaleLowerCase()),
             ) ? (
-              <p className="mori-muted">没有匹配的对话</p>
+              <p className="mori-muted">{t("moriUi.moriAssistant.noMatches")}</p>
             ) : null}
           </div>
         </div>
@@ -1124,7 +1127,7 @@ export function MoriAssistantPanel({
         <div className="mori-embedded-settings">
           <button type="button" onClick={() => setSettingsOpen(false)}>
             <ArrowLeft size={14} />
-            返回对话
+            {t("moriUi.moriAssistant.backToChat")}
           </button>
           <MoriAssistantSettingsPanel onDone={() => setSettingsOpen(false)} />
         </div>
@@ -1142,26 +1145,26 @@ export function MoriAssistantPanel({
               }
             }}
           >
-            {!snapshot && !error ? <p role="status">正在读取 Mori…</p> : null}
+            {!snapshot && !error ? <p role="status">{t("moriUi.moriAssistant.loading")}</p> : null}
             {snapshot && !snapshot.settings.enabled && !messages.length ? (
               <div className="mori-empty">
                 <span className="mori-mark large">
                   <MoriIcon size={60} animated />
                 </span>
-                <h2>你好，我是 Mori</h2>
-                <p>告诉我你想做什么，我会帮你安排任务、查找对话和跟进进度。</p>
+                <h2>{t("moriUi.moriAssistant.greeting")}</h2>
+                <p>{t("moriUi.moriAssistant.greetingHint")}</p>
                 <div className="mori-onboarding">
                   <span>
                     <Check size={13} />
-                    选择 ChatGPT 账号
+                    {t("moriUi.moriAssistant.chooseChatgpt")}
                   </span>
                   <span>
                     <Check size={13} />
-                    设置对话模型
+                    {t("moriUi.moriAssistant.configureModel")}
                   </span>
                 </div>
                 <button type="button" className="mori-primary" onClick={openSettings}>
-                  配置助手
+                  {t("moriUi.moriAssistant.configure")}
                 </button>
               </div>
             ) : null}
@@ -1170,22 +1173,22 @@ export function MoriAssistantPanel({
                 <span className="mori-mark large">
                   <MoriIcon size={60} animated />
                 </span>
-                <h2>今天想做些什么？</h2>
-                <p>可以让我查找会话、开始工作，或跟进任务进度。</p>
+                <h2>{t("moriUi.moriAssistant.todayPrompt")}</h2>
+                <p>{t("moriUi.moriAssistant.todayHint")}</p>
                 <div className="mori-starters">
                   <button type="button" onClick={() => insertPrompt("帮我看看最近的工作会话，整理一下进展")}>
                     <History size={17} />
                     <span>
-                      <strong>接着上次的工作</strong>
-                      <small>查找最近的会话和进展</small>
+                      <strong>{t("moriUi.moriAssistant.resumeWork")}</strong>
+                      <small>{t("moriUi.moriAssistant.resumeWorkHint")}</small>
                     </span>
                     <ChevronRight size={14} />
                   </button>
                   <button type="button" onClick={() => insertPrompt("帮我新建一个工作任务：")}>
                     <Plus size={17} />
                     <span>
-                      <strong>开始一项新任务</strong>
-                      <small>告诉我目标，一起开始</small>
+                      <strong>{t("moriUi.moriAssistant.newTask")}</strong>
+                      <small>{t("moriUi.moriAssistant.newTaskHint")}</small>
                     </span>
                     <ChevronRight size={14} />
                   </button>
@@ -1195,8 +1198,8 @@ export function MoriAssistantPanel({
                   >
                     <Sparkles size={17} />
                     <span>
-                      <strong>看看哪些需要关注</strong>
-                      <small>跟进运行中的任务</small>
+                      <strong>{t("moriUi.moriAssistant.attention")}</strong>
+                      <small>{t("moriUi.moriAssistant.attentionHint")}</small>
                     </span>
                     <ChevronRight size={14} />
                   </button>
@@ -1215,7 +1218,7 @@ export function MoriAssistantPanel({
               </button>
             ) : null}
             {snapshot && <MoriScheduledCards schedules={snapshot.schedules} occurrences={snapshot.scheduledOccurrences} onChanged={refresh} />}
-            {snapshot?.activeThreadId && snapshot.activeThreadId !== snapshot.currentThreadId && <p className="mori-activity">Mori 正在另一个助手会话中执行。<button type="button" onClick={() => void switchSession(snapshot.activeThreadId)}>打开执行会话</button></p>}
+            {snapshot?.activeThreadId && snapshot.activeThreadId !== snapshot.currentThreadId && <p className="mori-activity">{t("moriUi.moriAssistant.runningElsewhere")}<button type="button" onClick={() => void switchSession(snapshot.activeThreadId)}>{t("moriUi.moriAssistant.openRunningChat")}</button></p>}
             {messages.map((message) => (
               <article className={`mori-message is-${message.role}`} key={message.messageId}>
                 <div className="mori-message-label">
@@ -1242,7 +1245,7 @@ export function MoriAssistantPanel({
                     <button
                       type="button"
                       aria-label={copiedId === message.messageId ? "已复制回复" : "复制回复"}
-                      title="复制回复"
+                      title={t("moriUi.moriAssistant.copyReply")}
                       onClick={() => void copyMessage(message)}
                     >
                       {copiedId === message.messageId ? <Check size={13} /> : <Copy size={13} />}
@@ -1259,10 +1262,10 @@ export function MoriAssistantPanel({
               </div>
             ) : null}
             {snapshot?.tasks.length ? (
-              <details className="mori-tasks" aria-label="助手工作任务">
+              <details className="mori-tasks" aria-label={t("moriUi.moriAssistant.tasksLabel")}>
                 <summary>
                   <FolderOpen size={14} />
-                  <span>Mori 的工作任务</span>
+                  <span>{t("moriUi.moriAssistant.tasks")}</span>
                   <small>{snapshot.tasks.length}</small>
                   <ChevronDown size={13} />
                 </summary>
@@ -1293,7 +1296,7 @@ export function MoriAssistantPanel({
           {awayFromEnd ? (
             <button type="button" className="mori-to-latest" onClick={goToEnd}>
               <ArrowDown size={14} />
-              回到最新消息
+              {t("moriUi.moriAssistant.latest")}
             </button>
           ) : null}
           {pendingInput ? (
@@ -1335,12 +1338,12 @@ export function MoriAssistantPanel({
                   <input
                     value={answer}
                     onChange={(event) => setAnswer(event.target.value)}
-                    placeholder="输入回答"
-                    aria-label="回答 Mori"
+                    placeholder={t("moriUi.moriAssistant.answerPlaceholder")}
+                    aria-label={t("moriUi.moriAssistant.answerLabel")}
                     disabled={answering}
                   />
                   <button type="submit" disabled={!answer.trim() || answering}>
-                    {answering ? <LoaderCircle size={13} className="spinning" /> : null}回答并继续
+                    {answering ? <LoaderCircle size={13} className="spinning" /> : null}{t("moriUi.moriAssistant.answerContinue")}
                   </button>
                 </>
               )}
@@ -1348,10 +1351,10 @@ export function MoriAssistantPanel({
           ) : null}
           {snapshot && !snapshot.settings.enabled ? (
             <div className="mori-disabled-footer">
-              <span>配置账号和模型，开始与 Mori 对话</span>
+              <span>{t("moriUi.moriAssistant.configureToChat")}</span>
               {messages.length ? (
                 <button type="button" className="mori-primary" onClick={openSettings}>
-                  配置助手
+                  {t("moriUi.moriAssistant.configure")}
                   <ChevronRight size={14} />
                 </button>
               ) : null}
@@ -1359,7 +1362,7 @@ export function MoriAssistantPanel({
           ) : (
             <footer className="mori-composer">
               <textarea
-                aria-label="给 Mori 发消息"
+                aria-label={t("moriUi.moriAssistant.messageLabel")}
                 placeholder={snapshot?.settings.enabled ? "跟 Mori 说点什么…" : "先配置助手，再开始对话"}
                 rows={2}
                 ref={editor}
@@ -1393,7 +1396,7 @@ export function MoriAssistantPanel({
                 <label className="mori-model" title={busy ? "回复结束后可切换模型" : "切换助手模型"}>
                   <Sparkles size={12} />
                   <select
-                    aria-label="助手对话模型"
+                    aria-label={t("moriUi.moriAssistant.conversationModel")}
                     value={snapshot?.settings.model ?? ""}
                     disabled={busy || configSaving || !snapshot}
                     onChange={(event) => void updateConfig({ model: event.target.value })}
@@ -1421,8 +1424,8 @@ export function MoriAssistantPanel({
                   <button
                     type="button"
                     className="mori-stop"
-                    title="停止当前回复和排队消息"
-                    aria-label="停止回复"
+                    title={t("moriUi.moriAssistant.stopAndCancelQueue")}
+                    aria-label={t("moriUi.moriAssistant.stopReply")}
                     disabled={stopping}
                     onClick={() => {
                       setStopping(true);
@@ -1448,7 +1451,7 @@ export function MoriAssistantPanel({
               </div>
               {busy ? (
                 <div className="mori-composer-hint" role="status">
-                  新消息会排队发送 · 停止将取消排队消息
+                  {t("moriUi.moriAssistant.queueHint")}
                 </div>
               ) : null}
             </footer>
@@ -1460,6 +1463,7 @@ export function MoriAssistantPanel({
 }
 
 export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notice" }) {
+  const { t } = useTranslation();
   const { snapshot, error } = useAssistant();
   const [notice, setNotice] = useState<{ title: string; body: string; threadId: string }>();
   const [pet, setPet] = useState<MoriPetAsset | undefined>(DEFAULT_MORI_PET);
@@ -1565,7 +1569,7 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
         type="button"
         onClick={() => void desktopApi().moriAssistantOpenNotice()}
       >
-        <span className="mori-notice-label">Mori · 有新动态</span>
+        <span className="mori-notice-label">{t("moriUi.moriAssistant.newActivity")}</span>
         <strong>{notice.title}</strong>
         <span className="mori-notice-body">{notice.body}</span>
       </button>
