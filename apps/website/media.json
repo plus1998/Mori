@@ -1,12 +1,14 @@
 {
   "release": "website-media-20261101",
-  "url": "https://github.com/plus1998/Mori/releases/download/website-media-20261101/mori-website-films.tar.gz",
-  "sha256": "1dee5d918b8c1b66b20477977fe019bf12f453620c438febc8e93e45386cb59f",
+  "url": "https://github.com/plus1998/Mori/releases/download/website-media-20261101/mori-website-films-wake.tar.gz",
+  "sha256": "ab58d48db09a09da8e4c443268229e4fd41c40e245da629ea0e539642024f9a1",
   "files": [
     "plan-execute-review.mp4",
     "plan-execute-review.jpg",
     "chatgpt-account-switch.mp4",
     "chatgpt-account-switch.jpg",
+    "account-batch-wake.mp4",
+    "account-batch-wake.jpg",
     "free-account-images.mp4",
     "free-account-images.jpg",
     "queue-control.mp4",

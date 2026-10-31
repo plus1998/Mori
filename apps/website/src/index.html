@@ -316,6 +316,41 @@
           <article class="film-card">
             <div class="film-screen">
               <video
+                id="batch-wake-film"
+                width="1920"
+                height="1080"
+                controls
+                muted
+                loop
+                playsinline
+                preload="metadata"
+                poster="./films/account-batch-wake.jpg"
+                aria-label="15 秒定时批量唤醒演示：选择一批 ChatGPT 账号，设置每天 05:00 自动发送 hi，随后以时间轴展示 05:00 第一轮、10:00 下一轮额度。使用真实组件和示例账号，等待已压缩；以 5 小时窗口为例，实际额度与重置时间以账号为准。无声。"
+              >
+                <source src="./films/account-batch-wake.mp4" type="video/mp4">
+                你的浏览器暂不支持播放视频，可以<a href="./films/account-batch-wake.mp4">下载 MP4 查看</a>。
+              </video>
+            </div>
+            <div class="film-caption">
+              <span class="film-number">003</span>
+              <div>
+                <h3>早点唤醒，上午多用一轮。</h3>
+                <p>05:00 自动唤醒一批账号，10:00 衔接下一轮。以 5 小时额度窗口为例。</p>
+              </div>
+              <a
+                class="film-download"
+                href="./films/account-batch-wake.mp4"
+                download="Mori-account-batch-wake-15s.mp4"
+                aria-label="下载定时批量唤醒账号功能演示，15 秒 MP4"
+              >
+                <span>00:15 <span class="film-download-label">/ 下载演示</span></span>
+                <svg class="icon" aria-hidden="true"><use href="#arrow-down" /></svg>
+              </a>
+            </div>
+          </article>
+          <article class="film-card">
+            <div class="film-screen">
+              <video
                 id="image-film"
                 width="1920"
                 height="1080"
@@ -332,7 +367,7 @@
               </video>
             </div>
             <div class="film-caption">
-              <span class="film-number">003</span>
+              <span class="film-number">004</span>
               <div>
                 <h3>免费账号，也能画出想法。</h3>
                 <p>手动用工具生图，也能交给 Agent。图片额度随时可查。</p>
@@ -367,7 +402,7 @@
               </video>
             </div>
             <div class="film-caption">
-              <span class="film-number">004</span>
+              <span class="film-number">005</span>
               <div>
                 <h3>排队消息，节奏由你。</h3>
                 <p>随时暂停，或存入待办，留到合适的时候。</p>
