@@ -5,28 +5,28 @@ import { defaultComputerUseSettings } from "../shared/computer-use";
 import type { DesktopUpdateState } from "../shared/desktop-update";
 import type { IntegrationAvailabilitySnapshot } from "../shared/integrations";
 import { IPC_CHANNELS } from "../shared/ipc";
+import { defaultShortcutBindings } from "../shared/keyboard-shortcuts";
 import { DEMO_THREAD_ID, DEMO_WORKSPACE_PATH } from "./constants";
-import {
-  getDemoFeedReplayState,
-} from "./feed-replay-bootstrap";
+import { getDemoFeedReplayState } from "./feed-replay-bootstrap";
 import {
   demoCandidateModels,
   demoCenterServerSettings,
   demoCoreAvailability,
   demoGitSettings,
   demoGitStatus,
+  demoIntegratedWebSearchSettings,
   demoMcpSettings,
   demoModelSettings,
   demoPersonalizationSettings,
   demoProvider,
   demoProxyBridgeSettings,
-  demoIntegratedWebSearchSettings,
   demoThreads,
   demoWorkflowSettings,
   demoWorkspace,
   demoWorkspaceInspect,
   resolveDemoThreadId,
 } from "./fixtures";
+import { createQueueDemoScene } from "./queue-scene";
 
 export interface DemoRuntimeState {
   pendingThreadOpenId?: string;
@@ -36,7 +36,10 @@ export const demoRuntimeState: DemoRuntimeState = {
   pendingThreadOpenId: DEMO_THREAD_ID,
 };
 
+const queueScene = process.env.ECO_DEMO_SCENE === "queue" ? createQueueDemoScene() : undefined;
+
 function effectiveDemoThreads() {
+  if (queueScene) return [queueScene.thread];
   const replay = getDemoFeedReplayState();
   return replay.enabled && replay.threads.length > 0 ? replay.threads : demoThreads;
 }
@@ -49,7 +52,7 @@ function buildDemoSessionBootstrapForThread(threadId: string) {
   const thread = effectiveDemoThreads().find((entry) => entry.id === threadId);
   return {
     thread,
-    followUps: [],
+    followUps: queueScene?.followUps ?? [],
   };
 }
 
@@ -204,6 +207,8 @@ const EVENT_CHANNELS = new Set<string>([
 ]);
 
 const handlers: Partial<Record<string, DemoHandler>> = {
+  [IPC_CHANNELS.keyboardShortcutsGet]: () => ({ bindings: defaultShortcutBindings(process.platform) }),
+  [IPC_CHANNELS.schedulingList]: () => ({ schedules: [], occurrences: [] }),
   [IPC_CHANNELS.appRendererReady]: (_payload, event) => {
     if (event?.sender) {
       demoUpdateTarget = event.sender;
@@ -428,12 +433,15 @@ let demoRendererReadyHook: ((webContents: WebContents) => void) | undefined;
 
 export function registerDemoIpcHandlers(options: RegisterDemoIpcHandlersOptions = {}): void {
   demoRendererReadyHook = options.onRendererReady;
+  ipcMain.on(IPC_CHANNELS.appScreenRecordingAppLabel, (event) => {
+    event.returnValue = "Mori Demo";
+  });
   for (const channel of Object.values(IPC_CHANNELS)) {
     if (EVENT_CHANNELS.has(channel)) {
       continue;
     }
     ipcMain.handle(channel, async (event, payload) => {
-      const handler = handlers[channel];
+      const handler = queueScene?.handlers[channel] ?? handlers[channel];
       if (handler) {
         return handler(payload, event);
       }
