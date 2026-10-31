@@ -121,6 +121,10 @@
         "typescript": "^5.9.3",
       },
     },
+    "apps/website": {
+      "name": "@eco/website",
+      "version": "0.1.0",
+    },
     "packages/agent": {
       "name": "@eco/agent",
       "version": "0.0.0",
@@ -418,6 +422,8 @@
     "@eco/shared": ["@eco/shared@workspace:packages/shared"],
 
     "@eco/terminal": ["@eco/terminal@workspace:packages/terminal"],
+
+    "@eco/website": ["@eco/website@workspace:apps/website"],
 
     "@eco/workspace": ["@eco/workspace@workspace:packages/workspace"],
 

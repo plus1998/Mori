@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f8f7f2">
+    <meta
+      name="description"
+      content="Mori 是开源的桌面 Agent 工作台。自由组合 Codex、Claude Code、PI 与云端、本地模型，让规划、执行、审查各尽其长，把事情做好，也把预算用好。"
+    >
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Mori — 把事情做好，也把预算用好。">
+    <meta
+      property="og:description"
+      content="自由组合 Agent、模型与工具。把好模型用在关键处，让已有资源发挥更多价值。"
+    >
+    <meta property="og:locale" content="zh_CN">
+    <title>Mori — 把事情做好，也把预算用好。</title>
+    <link rel="icon" href="/assets/mori.png" type="image/png">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/main.js" type="module"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到正文</a>
+    <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <symbol id="arrow-up-right" viewBox="0 0 24 24"><path d="M6 18 18 6M6 6h12v12" /></symbol>
+      <symbol id="arrow-right" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6" /></symbol>
+      <symbol id="arrow-down" viewBox="0 0 24 24"><path d="M12 4v15m-6-6 6 6 6-6" /></symbol>
+      <symbol id="spark" viewBox="0 0 24 24">
+        <path d="m12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6Z" />
+      </symbol>
+      <symbol id="eye" viewBox="0 0 24 24">
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+        <circle cx="12" cy="12" r="3" />
+      </symbol>
+      <symbol id="terminal" viewBox="0 0 24 24"><path d="m5 6 6 6-6 6m9 0h5" /></symbol>
+      <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></symbol>
+      <symbol id="github" viewBox="0 0 24 24">
+        <path
+          d="M9 19c-4.3 1.3-4.3-2.2-6-2.7m12 5v-3.8c0-1.1-.4-1.8-.8-2.3 2.7-.3 5.5-1.3 5.5-6A4.7 4.7 0 0 0 18.4 6c.1-.3.5-1.6-.1-3.3 0 0-1-.3-3.4 1.3a12 12 0 0 0-6.2 0C6.3 2.4 5.3 2.7 5.3 2.7 4.7 4.4 5.1 5.7 5.2 6A4.7 4.7 0 0 0 3.9 9c0 4.7 2.8 5.7 5.5 6-.4.5-.8 1.3-.8 2.3v4"
+        />
+      </symbol>
+      <symbol id="layers" viewBox="0 0 24 24">
+        <path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5" />
+      </symbol>
+      <symbol id="image" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="18" height="18" rx="3" />
+        <circle cx="8" cy="8" r="1.5" />
+        <path d="m3 17 5-5 4 4 4-7 5 8" />
+      </symbol>
+      <symbol id="audio" viewBox="0 0 24 24"><path d="M4 10v4m4-8v12m4-15v18m4-14v10m4-7v4" /></symbol>
+      <symbol id="globe" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z" />
+      </symbol>
+      <symbol id="close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6" /></symbol>
+    </svg>
+
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="wordmark" href="#" aria-label="Mori 首页"
+          ><img src="/assets/mori.png" width="36" height="36" alt="">
+          <span>Mori<span class="wordmark-period">.</span></span></a
+        >
+        <nav class="desktop-nav" aria-label="主导航">
+          <a href="#approach">为什么 Mori</a>
+          <a href="#possibilities">能力组合</a>
+          <a
+            href="https://github.com/plus1998/Mori/blob/beta/docs/USER_GUIDE.md"
+            target="_blank"
+            rel="noreferrer"
+            >使用指南 <span class="external-mark">↗</span></a
+          >
+        </nav>
+        <div class="header-actions">
+          <a
+            class="github-link"
+            href="https://github.com/plus1998/Mori"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="在 GitHub 查看 Mori 源码"
+            ><svg class="icon" aria-hidden="true"><use href="#github" /></svg></a
+          >
+          <a class="button button-small" href="#download"
+            >下载 Mori <svg class="icon" aria-hidden="true"><use href="#arrow-down" /></svg></a
+          >
+          <button
+            class="menu-button"
+            type="button"
+            aria-expanded="false"
+            aria-controls="mobile-nav"
+            aria-label="打开导航"
+          >
+            <span></span><span></span>
+          </button>
+        </div>
+      </div>
+      <nav id="mobile-nav" class="mobile-nav" aria-label="移动端导航" hidden>
+        <a href="#approach">为什么 Mori <span>01</span></a>
+        <a href="#possibilities">能力组合 <span>02</span></a>
+        <a
+          href="https://github.com/plus1998/Mori/blob/beta/docs/USER_GUIDE.md"
+          target="_blank"
+          rel="noreferrer"
+          >使用指南 <span>↗</span></a
+        >
+        <a href="https://github.com/plus1998/Mori" target="_blank" rel="noreferrer">GitHub <span>↗</span></a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero container" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="status-dot"></span> A LITTLE MORE FREEDOM.</div>
+          <h1 id="hero-title">把事情做好，<br>也把<span class="serif-accent">预算</span>用好。</h1>
+          <p class="hero-description">
+            自由组合顶级 Agent、模型与工具。<br
+              class="desktop-break"
+            >把好模型用在关键处，让已有资源发挥更多价值。
+          </p>
+          <div class="hero-actions">
+            <a class="button" href="#download"
+              >开始使用 Mori <svg class="icon" aria-hidden="true"><use href="#arrow-up-right" /></svg></a
+            >
+            <a class="text-link" href="#approach"
+              >认识 Mori <svg class="icon" aria-hidden="true"><use href="#arrow-right" /></svg></a
+            >
+          </div>
+          <p class="hero-note">
+            <span>开源桌面 Agent 工作台</span><span class="note-divider">/</span
+            ><span>macOS · Windows · Linux</span>
+          </p>
+        </div>
+
+        <div class="workflow-art" aria-label="模型分工配置示意">
+          <div class="orbital orbital-one" aria-hidden="true"></div>
+          <div class="orbital orbital-two" aria-hidden="true"></div>
+          <div class="art-corner art-corner-top" aria-hidden="true">MORI FIELD NOTES — 001</div>
+          <div class="workflow-panel">
+            <div class="workflow-heading">
+              <span class="mini-spark">✳</span><span>一件事，几位好搭档。</span
+              ><span class="tiny-label">配置示意</span>
+            </div>
+            <div class="preset-switch" role="group" aria-label="选择模型组合示例">
+              <button type="button" data-preset="balanced" aria-pressed="true">云端协作</button>
+              <button type="button" data-preset="local" aria-pressed="false">本地优先</button>
+            </div>
+            <div class="workflow-stages" aria-live="polite" aria-atomic="true">
+              <div class="workflow-stage">
+                <div class="stage-node">
+                  <svg class="icon" aria-hidden="true"><use href="#spark" /></svg>
+                </div>
+                <div class="stage-copy">
+                  <span class="stage-role">01 / 规划</span><strong>GPT-6.1</strong
+                  ><span>想清楚，再动手。</span>
+                </div>
+                <span class="stage-badge">深度思考</span>
+              </div>
+              <div class="workflow-stage">
+                <div class="stage-node node-execution">
+                  <svg class="icon" aria-hidden="true"><use href="#terminal" /></svg>
+                </div>
+                <div class="stage-copy">
+                  <span class="stage-role">02 / 执行</span><strong id="execution-model">DeepSeek</strong
+                  ><span id="execution-description">让经济的模型，承担具体工作。</span>
+                </div>
+                <span class="stage-badge badge-execution" id="execution-badge">经济高效</span>
+              </div>
+              <div class="workflow-stage">
+                <div class="stage-node">
+                  <svg class="icon" aria-hidden="true"><use href="#check" /></svg>
+                </div>
+                <div class="stage-copy">
+                  <span class="stage-role">03 / 审查</span><strong>GPT-6.1</strong
+                  ><span>好好检查，放心交付。</span>
+                </div>
+                <span class="stage-badge">把关质量</span>
+              </div>
+            </div>
+            <div class="vision-accessory">
+              <svg class="icon" aria-hidden="true"><use href="#eye" /></svg><span>需要看图时</span
+              ><strong>独立视觉模型</strong><span class="accessory-plus">+</span>
+            </div>
+            <p class="workflow-footnote" id="workflow-footnote">订阅做规划，API 做执行。按任务自由搭配。</p>
+          </div>
+          <div class="art-caption">
+            <span class="caption-line"></span><span>能力有分工，预算有去处。</span
+            ><span class="art-star" aria-hidden="true">✳</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="harness-strip container" aria-label="支持的 Agent Harness">
+        <p>熟悉的 Agent，<br>更自由的用法。</p>
+        <div class="harness-names">
+          <span><span class="harness-symbol codex-symbol" aria-hidden="true">⌘</span>Codex</span
+          ><span><span class="harness-symbol claude-symbol" aria-hidden="true">✳</span>Claude Code</span
+          ><span><span class="harness-symbol pi-symbol" aria-hidden="true">π</span>PI</span>
+        </div>
+        <span class="strip-note">选择 Harness，也选择模型。<br>在同一个工作台里，各尽其长。</span>
+      </section>
+
+      <section id="approach" class="section container approach" aria-labelledby="approach-title">
+        <div class="section-heading">
+          <span class="eyebrow section-index">01 / THE MORI WAY</span>
+          <h2 id="approach-title">认真把活做好，<br>也认真替你算账。</h2>
+          <p>从规划到交付，每一步都值得有更合适的选择。</p>
+        </div>
+        <div class="principle-grid">
+          <article class="principle">
+            <span class="principle-number">一</span>
+            <h3>把好模型，用在关键处。</h3>
+            <p>
+              用顶级模型规划与审查，把大量执行交给经济的 API 或本地模型。按角色搭配能力，也按角色分配预算。
+            </p>
+            <span class="principle-caption">规划 → 执行 → 审查</span>
+          </article>
+          <article class="principle">
+            <span class="principle-number">二</span>
+            <h3>已有的资源，继续用好。</h3>
+            <p>
+              组合你已有的 GPT 账号、订阅与
+              API，也支持兼容的第三方服务。从可用的免费额度到付费订阅，按需搭配；额度用完时，也可以切换资源。
+            </p>
+            <span class="principle-caption">账号 / 订阅 / API / 本地模型</span>
+          </article>
+          <article class="principle">
+            <span class="principle-number">三</span>
+            <h3>每一笔花费，心里有数。</h3>
+            <p>按会话、Agent 与模型查看用量、费用和缓存命中情况。了解钱花在哪里，再找到适合自己的组合。</p>
+            <button class="inline-link" type="button" data-gallery="cost">
+              看看费用面板 <svg class="icon" aria-hidden="true"><use href="#arrow-up-right" /></svg>
+            </button>
+          </article>
+        </div>
+      </section>
+
+      <section id="possibilities" class="capability-section" aria-labelledby="capability-title">
+        <div class="container">
+          <div class="section-heading capability-heading">
+            <span class="eyebrow section-index">02 / A MORE CAPABLE COMBINATION</span>
+            <h2 id="capability-title">能力可以分开选，<br>事情可以一起做。</h2>
+            <p>思考、看图、创作，各自配上合适的模型与工具。</p>
+          </div>
+          <div class="vision-feature">
+            <div class="vision-copy">
+              <span class="feature-tag"
+                ><svg class="icon" aria-hidden="true"><use href="#eye" /></svg>独立视觉</span
+              >
+              <h3>你的本地模型，<br>也能有一双眼睛。</h3>
+              <p>
+                日常任务交给本地模型。遇到图片、截图和网页，再按需调用独立的视觉模型，把识别结果带回任务。
+              </p>
+              <p>例如，搭配千问 Flash 视觉 API，补上看图能力，同时保留你喜欢的本地工作方式。</p>
+              <span class="quiet-note">视觉费用随模型、图片尺寸与调用量而变化。</span>
+            </div>
+            <div class="vision-diagram" aria-label="本地模型通过独立视觉 API 识别图片的示意">
+              <div class="diagram-topline"><span>LOCAL MEETS VISION</span><span>↗</span></div>
+              <div class="image-sample" aria-hidden="true">
+                <svg aria-hidden="true" viewBox="0 0 260 160" fill="none">
+                  <rect width="260" height="160" rx="4" fill="#dedfce" />
+                  <circle cx="191" cy="40" r="20" fill="#f7f3dd" />
+                  <path d="M0 129 65 52l73 86 50-56 72 64v14H0Z" fill="#9aab8c" />
+                  <path d="m0 160 96-70 62 70Z" fill="#54715d" />
+                  <path d="m148 160 47-49 65 49Z" fill="#73876a" />
+                </svg><span>一张需要理解的图片</span>
+              </div>
+              <div class="vision-connection" aria-hidden="true">
+                <span></span><svg class="icon" aria-hidden="true"><use href="#arrow-down" /></svg
+                ><span></span>
+              </div>
+              <div class="vision-model">
+                <svg class="icon" aria-hidden="true"><use href="#eye" /></svg>
+                <div><strong>视觉 API</strong><span>识别内容，理解画面</span></div>
+                <span class="model-indicator"></span>
+              </div>
+              <div class="vision-connection connection-short" aria-hidden="true">
+                <svg class="icon" aria-hidden="true"><use href="#arrow-down" /></svg>
+              </div>
+              <div class="local-model">
+                <svg class="icon" aria-hidden="true"><use href="#terminal" /></svg>
+                <div><strong>你的本地模型</strong><span>带着识别结果，继续工作</span></div>
+                <span class="small-label">LOCAL</span>
+              </div>
+              <p class="diagram-caption">文字在本地处理，看图时按需连接。</p>
+            </div>
+          </div>
+          <div class="capability-bottom">
+            <div class="tools-copy">
+              <h3>从理解，到创作。</h3>
+              <p>
+                为 Agent
+                配置视觉、生图和语音能力，配合内置浏览器与本地工具，把想法一步步变成作品。生图也能连接支持该能力的
+                GPT 账号，包括有可用额度的免费账号。
+              </p>
+              <div class="tool-tags">
+                <span
+                  ><svg class="icon" aria-hidden="true"><use href="#globe" /></svg>内置浏览器</span
+                ><span
+                  ><svg class="icon" aria-hidden="true"><use href="#image" /></svg>图像生成</span
+                ><span
+                  ><svg class="icon" aria-hidden="true"><use href="#audio" /></svg>语音生成</span
+                ><span
+                  ><svg class="icon" aria-hidden="true"><use href="#layers" /></svg>MCP · Skills</span
+                >
+              </div>
+            </div>
+            <aside class="experiment">
+              <span class="experiment-label"><span class="outline-dot"></span>探索中的工作流</span>
+              <h4>从一个想法，到一条短片。</h4>
+              <p>脚本 → 配图 → 旁白 → 排版动效 → 合成</p>
+              <span class="quiet-note">视频完整流程尚待验证，成片案例准备中。</span>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="section container workspace-section" aria-labelledby="workspace-title">
+        <div class="workspace-heading">
+          <div>
+            <span class="eyebrow section-index">03 / ROOM TO MAKE THINGS</span>
+            <h2 id="workspace-title">让工作，有条不紊。</h2>
+          </div>
+          <p>项目、会话、工具与模型，收进同一个工作台。<br>为每个任务配置需要的 MCP、Skills 与工具权限。</p>
+        </div>
+        <button
+          class="product-preview"
+          type="button"
+          data-gallery="workspace"
+          aria-label="放大查看 Mori 工作台界面"
+        >
+          <img
+            src="/assets/workspace.jpg"
+            alt="Mori 深色工作台：项目列表、任务对话、子代理分工与工具配置"
+            width="1683"
+            height="934"
+            loading="lazy"
+          ><span class="preview-prompt"
+            >查看工作台 <svg class="icon" aria-hidden="true"><use href="#arrow-up-right" /></svg></span
+          >
+        </button>
+        <div class="product-caption">
+          <span>一个工作台，多种工作方式。</span
+          ><button class="inline-link" type="button" data-gallery="team">
+            查看 Agent 分工配置 <svg class="icon" aria-hidden="true"><use href="#arrow-up-right" /></svg>
+          </button>
+        </div>
+      </section>
+
+      <section class="freedom-section container" aria-labelledby="freedom-title">
+        <div class="freedom-main">
+          <span class="eyebrow section-index">04 / YOUR WORK, YOUR WAY</span>
+          <h2 id="freedom-title">自由，也在工作台之外。</h2>
+          <p>移动端同样开源。自行部署服务，配对桌面，就能在手机上跟进任务、继续对话与处理审批。</p>
+          <a
+            class="text-link"
+            href="https://github.com/plus1998/Mori/blob/beta/docs/supabase-self-host.md"
+            target="_blank"
+            rel="noreferrer"
+            >了解自部署 <svg class="icon" aria-hidden="true"><use href="#arrow-up-right" /></svg></a
+          >
+          <p class="quiet-note">
+            移动端尚未公开发布，可从源码构建。软件免费，部署与模型服务费用取决于所选资源。
+          </p>
+        </div>
+        <div class="freedom-details">
+          <article>
+            <span class="detail-symbol" aria-hidden="true">↗</span>
+            <div>
+              <h3>离开电脑，也能跟进。</h3>
+              <p>查看桌面端会话，发送文字、图片与语音，及时处理需要你的审批。</p>
+            </div>
+          </article>
+          <article>
+            <span class="detail-symbol" aria-hidden="true">⌘</span>
+            <div>
+              <h3>开源，自由掌握。</h3>
+              <p>桌面端、移动端与服务端代码开放，MIT 许可。按自己的需要部署、连接和修改。</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="faq-section container" aria-labelledby="faq-title">
+        <div>
+          <span class="eyebrow section-index">A FEW THINGS TO KNOW</span>
+          <h2 id="faq-title">开始之前。</h2>
+        </div>
+        <div class="faq-list">
+          <details>
+            <summary>
+              使用 Mori 需要再买一份订阅吗？<span class="faq-plus" aria-hidden="true">+</span>
+            </summary>
+            <div class="faq-answer">
+              桌面端免费下载，无需购买 Mori 订阅。你可以连接已有账号、订阅、API
+              或兼容的本地服务；模型访问权限、额度与费用由所选服务决定。
+            </div>
+          </details>
+          <details>
+            <summary>可以只用一个模型吗？<span class="faq-plus" aria-hidden="true">+</span></summary>
+            <div class="faq-answer">
+              可以。单模型模式照常可用。需要分工时，再配置主代理和子代理，分别选择模型、工具与 Skills。
+            </div>
+          </details>
+          <details>
+            <summary>
+              本地模型搭配视觉 API，是完全离线的吗？<span class="faq-plus" aria-hidden="true">+</span>
+            </summary>
+            <div class="faq-answer">
+              调用云端视觉 API
+              时，需要识别的图片会发送给对应服务。文字执行可以使用本地模型；如果希望视觉也在本地完成，需要接入真实支持图像输入的兼容本地服务。
+            </div>
+          </details>
+          <details>
+            <summary>Mori 现在支持哪些系统？<span class="faq-plus" aria-hidden="true">+</span></summary>
+            <div class="faq-answer">
+              支持 macOS 13 及以上（Apple Silicon 和 Intel）、Windows 10/11 x64、Linux x64。产品当前处于 Beta
+              阶段；安装说明与已知限制可在使用指南中查看。
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section id="download" class="download-section" aria-labelledby="download-title">
+        <div class="container download-inner">
+          <div class="download-flourish" aria-hidden="true">✳</div>
+          <span class="eyebrow">GOOD WORK. WELL SPENT.</span>
+          <h2 id="download-title">下一件事，<br>试试用 Mori 完成。</h2>
+          <p>从你已有的资源开始，找到适合自己的工作方式。</p>
+          <a
+            class="button button-light"
+            href="https://github.com/plus1998/Mori/releases"
+            target="_blank"
+            rel="noreferrer"
+            ><span id="download-label">下载 Mori</span
+            ><svg class="icon" aria-hidden="true"><use href="#arrow-up-right" /></svg></a
+          ><span class="download-note">前往 GitHub Releases 选择安装包 · 免费 · 开源 · Beta</span>
+          <div class="download-platforms">
+            <span>macOS <small>Apple Silicon / Intel</small></span><span>Windows <small>x64</small></span
+            ><span>Linux <small>AppImage</small></span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="container site-footer">
+      <div class="footer-brand">
+        <a class="wordmark" href="#" aria-label="返回 Mori 首页"
+          ><img src="/assets/mori.png" width="30" height="30" alt="">
+          <span>Mori<span class="wordmark-period">.</span></span></a
+        ><span>把事情做好，也把预算用好。</span>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/plus1998/Mori" target="_blank" rel="noreferrer">GitHub ↗</a
+        ><a
+          href="https://github.com/plus1998/Mori/blob/beta/docs/USER_GUIDE.md"
+          target="_blank"
+          rel="noreferrer"
+          >文档 ↗</a
+        ><a href="https://github.com/plus1998/Mori/blob/beta/LICENSE" target="_blank" rel="noreferrer"
+          >MIT License ↗</a
+        >
+      </div>
+      <span class="footer-colophon">MADE FOR A LITTLE MORE FREEDOM.</span>
+    </footer>
+
+    <dialog id="product-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-heading">
+        <h2 id="dialog-title">Mori 工作台</h2>
+        <button class="dialog-close" type="button" aria-label="关闭界面预览">
+          <svg class="icon" aria-hidden="true"><use href="#close" /></svg>
+        </button>
+      </div>
+      <img id="dialog-image" src="/assets/workspace.jpg" alt="Mori 工作台界面" width="1683" height="934">
+      <p id="dialog-caption">产品界面示例，具体内容随配置与版本变化。</p>
+    </dialog>
+  </body>
+</html>
