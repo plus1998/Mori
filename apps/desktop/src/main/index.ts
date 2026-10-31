@@ -8327,6 +8327,21 @@ function registerIpcHandlers(): void {
     return (await getOpenAIAccountService()).wakeAccount(payload.accountId);
   });
 
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsWakeBatchesList, async () =>
+    (await getOpenAIAccountService()).wakeBatches.snapshot());
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsWakeBatchesSave, async (payload: unknown) =>
+    (await getOpenAIAccountService()).wakeBatches.save(payload as import("../shared/account-wake-batch").AccountWakeBatchInput));
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsWakeBatchesRemove, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.id !== "string" || !Number.isSafeInteger(payload.expectedRevision)) throw new Error("唤醒批次参数无效。");
+    return (await getOpenAIAccountService()).wakeBatches.remove(payload.id, payload.expectedRevision as number);
+  });
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsWakeBatchesRun, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.id !== "string" || typeof payload.retry !== "boolean") throw new Error("唤醒批次参数无效。");
+    return (await getOpenAIAccountService()).wakeBatches.run(payload.id, payload.retry);
+  });
+  // Restore account wake schedules even when the account settings page is never opened.
+  void getOpenAIAccountService().catch((error) => console.error("[account-wake-batches] startup failed", error));
+
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsGetWakeModel, async () =>
     (await getOpenAIAccountService()).getWakeModel(),
   );

@@ -1,3 +1,4 @@
+import { AccountWakeBatchesPanel } from "./AccountWakeBatchesPanel";
 import { canUseOpenAIAccountCredentials } from "../../shared/openai-account";
 import { useCodexQuotaResetRefresh } from "../useCodexQuotaResetRefresh";
 import { QuotaRefreshedAt } from "../QuotaRefreshedAt";
@@ -910,6 +911,14 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         </div>
         <div className="codex-account-header-actions">
           <AccountModelCatalogSection onSnapshot={onCatalogSnapshot} />
+          <AccountWakeBatchesPanel
+            accounts={accounts}
+            model={wakeModel}
+            models={wakeModels}
+            modelBusy={wakeModelSaving || !wakeModelReady}
+            modelError={wakeModelError}
+            onModelChange={handleWakeModelChange}
+          />
           <button
             type="button"
             className="codex-action-secondary"

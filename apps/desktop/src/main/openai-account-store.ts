@@ -329,6 +329,15 @@ export class OpenAIAccountStore {
     return this.setting(ACTIVE_KEY) || null;
   }
 
+  getWakeBatches(): import("../shared/account-wake-batch").AccountWakeBatchState {
+    const raw = this.setting("wake_batches_v1");
+    return raw ? JSON.parse(raw) : { version: 1, batches: [] };
+  }
+
+  setWakeBatches(state: import("../shared/account-wake-batch").AccountWakeBatchState): void {
+    this.setSetting("wake_batches_v1", JSON.stringify(state));
+  }
+
   getWakeModel(): string | null {
     return this.setting("wake_model_id") || null;
   }

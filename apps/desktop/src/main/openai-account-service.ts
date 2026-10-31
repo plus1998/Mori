@@ -1,3 +1,4 @@
+import { AccountWakeBatches } from "./account-wake-batches";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
@@ -240,6 +241,7 @@ export class OpenAIAccountService {
   private readonly quotaRefreshPolicy = new CodexQuotaRefreshPolicy();
   private readonly quotaUsage = new Map<string, string>();
   private disposing = false;
+  wakeBatches!: AccountWakeBatches;
 
   constructor(
     userDataDir: string,
@@ -280,7 +282,15 @@ export class OpenAIAccountService {
         this.enqueueMainAuthReconcile();
       }, 5_000);
       this.authPoll.unref?.();
+      this.wakeBatches = new AccountWakeBatches({
+        load: () => this.getStore().getWakeBatches(),
+        save: (state) => this.getStore().setWakeBatches(state),
+        accounts: () => this.getStore().list().map(({ id, name }) => ({ id, name })),
+        wake: (id) => this.wakeAccount(id),
+        changed: () => this.onAccountsChanged?.({ syncStatus: this.syncStatus }),
+      });
       this.initialized = true;
+      this.wakeBatches.start();
     } catch (error) {
       if (this.authPoll) clearInterval(this.authPoll);
       this.authPoll = undefined;
@@ -637,6 +647,7 @@ export class OpenAIAccountService {
   /** Stop file polling and close the SQLite handle after the final writeback. */
   async dispose(): Promise<void> {
     this.disposing = true;
+    await this.wakeBatches?.stop();
     const logins = [...this.activeLogins.values()];
     for (const login of logins) login.cancel();
     await Promise.all(logins.map((login) => login.result)).catch((error) => this.setSyncError(error));

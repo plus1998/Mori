@@ -1,3 +1,4 @@
+import { accountWakeTranslations } from "./account-wake-i18n";
 import type { AppLocale } from "./locale";
 import { accountUsageTranslations } from "./account-usage-i18n";
 import { usageOverviewTranslations } from "./usage-overview-i18n";
@@ -148,6 +149,7 @@ export const i18nCatalogs = {
       "moriUi.schedulingPanel.notification": "· 通知：",
       "moriUi.schedulingPanel.retryNotificationOnly": "仅重试通知",
       ...accountUsageTranslations["zh-CN"],
+      ...accountWakeTranslations["zh-CN"],
       ...usageOverviewTranslations["zh-CN"],
       "app.running.displayCount_one": "已检测到 {{count}} 块显示器",
       "app.running.displayCount_other": "已检测到 {{count}} 块显示器",
@@ -3703,6 +3705,7 @@ export const i18nCatalogs = {
       "moriUi.schedulingPanel.notification": "· Notification:",
       "moriUi.schedulingPanel.retryNotificationOnly": "Retry notification only",
       ...accountUsageTranslations["en-US"],
+      ...accountWakeTranslations["en-US"],
       ...usageOverviewTranslations["en-US"],
       "app.running.displayCount_one": "{{count}} display detected",
       "app.running.displayCount_other": "{{count}} displays detected",

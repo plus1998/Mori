@@ -780,6 +780,18 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsQueryQuota, { accountId, reason });
   },
 
+  openAIAccountsWakeBatchesList(): Promise<import("../shared/account-wake-batch").AccountWakeBatchState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsWakeBatchesList);
+  },
+  openAIAccountsWakeBatchesSave(input: import("../shared/account-wake-batch").AccountWakeBatchInput): Promise<import("../shared/account-wake-batch").AccountWakeBatchState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsWakeBatchesSave, input);
+  },
+  openAIAccountsWakeBatchesRemove(id: string, expectedRevision: number): Promise<import("../shared/account-wake-batch").AccountWakeBatchState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsWakeBatchesRemove, { id, expectedRevision });
+  },
+  openAIAccountsWakeBatchesRun(id: string, retry = false): Promise<import("../shared/account-wake-batch").AccountWakeBatchState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsWakeBatchesRun, { id, retry });
+  },
   openAIAccountsWake(accountId: string): Promise<import("../shared/openai-account").OpenAIAccountWakeResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsWake, { accountId });
   },
