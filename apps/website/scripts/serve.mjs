@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assets, websiteRoot } from "./assets.mjs";
+import { ensureMedia } from "./media.mjs";
 
 const args = process.argv.slice(2);
 const production = args.includes("--dist");
@@ -12,6 +13,7 @@ const port = Number(portIndex < 0 ? 4321 : args[portIndex + 1]);
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error("--port must be an integer between 1 and 65535");
 }
+if (!production) await ensureMedia();
 const root = resolve(websiteRoot, production ? "dist" : "src");
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
