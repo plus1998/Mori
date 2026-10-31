@@ -16,9 +16,9 @@
     >
     <meta property="og:locale" content="zh_CN">
     <title>Mori — 把事情做好，也把预算用好。</title>
-    <link rel="icon" href="/assets/mori.png" type="image/png">
-    <link rel="stylesheet" href="/styles.css">
-    <script src="/main.js" type="module"></script>
+    <link rel="icon" href="./assets/mori.png" type="image/png">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="./main.js" type="module"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">跳到正文</a>
@@ -35,6 +35,8 @@
       </symbol>
       <symbol id="terminal" viewBox="0 0 24 24"><path d="m5 6 6 6-6 6m9 0h5" /></symbol>
       <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></symbol>
+      <symbol id="play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z" /></symbol>
+      <symbol id="pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14" /></symbol>
       <symbol id="github" viewBox="0 0 24 24">
         <path
           d="M9 19c-4.3 1.3-4.3-2.2-6-2.7m12 5v-3.8c0-1.1-.4-1.8-.8-2.3 2.7-.3 5.5-1.3 5.5-6A4.7 4.7 0 0 0 18.4 6c.1-.3.5-1.6-.1-3.3 0 0-1-.3-3.4 1.3a12 12 0 0 0-6.2 0C6.3 2.4 5.3 2.7 5.3 2.7 4.7 4.4 5.1 5.7 5.2 6A4.7 4.7 0 0 0 3.9 9c0 4.7 2.8 5.7 5.5 6-.4.5-.8 1.3-.8 2.3v4"
@@ -59,17 +61,18 @@
     <header class="site-header">
       <div class="container header-inner">
         <a class="wordmark" href="#" aria-label="Mori 首页"
-          ><img src="/assets/mori.png" width="36" height="36" alt="">
+          ><img src="./assets/mori.png" width="36" height="36" alt="">
           <span>Mori<span class="wordmark-period">.</span></span></a
         >
         <nav class="desktop-nav" aria-label="主导航">
+          <a href="#showcase">功能细节</a>
           <a href="#approach">为什么 Mori</a>
           <a href="#possibilities">能力组合</a>
           <a
             href="https://github.com/plus1998/Mori/blob/beta/docs/USER_GUIDE.md"
             target="_blank"
             rel="noreferrer"
-            >使用指南 <span class="external-mark">↗</span></a
+            >使用指南</a
           >
         </nav>
         <div class="header-actions">
@@ -81,9 +84,7 @@
             aria-label="在 GitHub 查看 Mori 源码"
             ><svg class="icon" aria-hidden="true"><use href="#github" /></svg></a
           >
-          <a class="button button-small" href="#download"
-            >下载 Mori <svg class="icon" aria-hidden="true"><use href="#arrow-down" /></svg></a
-          >
+          <a class="button button-small" href="#download">下载 Mori</a>
           <button
             class="menu-button"
             type="button"
@@ -96,13 +97,14 @@
         </div>
       </div>
       <nav id="mobile-nav" class="mobile-nav" aria-label="移动端导航" hidden>
+        <a href="#showcase">功能细节 <span>↗</span></a>
         <a href="#approach">为什么 Mori <span>01</span></a>
         <a href="#possibilities">能力组合 <span>02</span></a>
         <a
           href="https://github.com/plus1998/Mori/blob/beta/docs/USER_GUIDE.md"
           target="_blank"
           rel="noreferrer"
-          >使用指南 <span>↗</span></a
+          >使用指南</a
         >
         <a href="https://github.com/plus1998/Mori" target="_blank" rel="noreferrer">GitHub <span>↗</span></a>
       </nav>
@@ -119,12 +121,8 @@
             >把好模型用在关键处，让已有资源发挥更多价值。
           </p>
           <div class="hero-actions">
-            <a class="button" href="#download"
-              >开始使用 Mori <svg class="icon" aria-hidden="true"><use href="#arrow-up-right" /></svg></a
-            >
-            <a class="text-link" href="#approach"
-              >认识 Mori <svg class="icon" aria-hidden="true"><use href="#arrow-right" /></svg></a
-            >
+            <a class="button" href="#download">开始使用 Mori</a>
+            <a class="text-link" href="#showcase">看看功能细节</a>
           </div>
           <p class="hero-note">
             <span>开源桌面 Agent 工作台</span><span class="note-divider">/</span
@@ -136,16 +134,22 @@
           <div class="orbital orbital-one" aria-hidden="true"></div>
           <div class="orbital orbital-two" aria-hidden="true"></div>
           <div class="art-corner art-corner-top" aria-hidden="true">MORI FIELD NOTES — 001</div>
-          <div class="workflow-panel">
+          <div class="workflow-panel" data-workflow="result">
             <div class="workflow-heading">
               <span class="mini-spark">✳</span><span>一件事，几位好搭档。</span
               ><span class="tiny-label">配置示意</span>
+              <button
+                class="workflow-playback"
+                type="button"
+                aria-label="播放分工动画"
+                aria-controls="workflow-demo"
+                aria-pressed="false"
+                hidden
+              >
+                <svg class="icon" aria-hidden="true"><use href="#play" /></svg>
+              </button>
             </div>
-            <div class="preset-switch" role="group" aria-label="选择模型组合示例">
-              <button type="button" data-preset="balanced" aria-pressed="true">云端协作</button>
-              <button type="button" data-preset="local" aria-pressed="false">本地优先</button>
-            </div>
-            <div class="workflow-stages" aria-live="polite" aria-atomic="true">
+            <div class="workflow-stages" id="workflow-demo">
               <div class="workflow-stage">
                 <div class="stage-node">
                   <svg class="icon" aria-hidden="true"><use href="#spark" /></svg>
@@ -161,10 +165,10 @@
                   <svg class="icon" aria-hidden="true"><use href="#terminal" /></svg>
                 </div>
                 <div class="stage-copy">
-                  <span class="stage-role">02 / 执行</span><strong id="execution-model">DeepSeek</strong
-                  ><span id="execution-description">让经济的模型，承担具体工作。</span>
+                  <span class="stage-role">02 / 执行</span><strong>DeepSeek / Qwen3.8</strong
+                  ><span>云端或本地，交给合适的执行模型。</span>
                 </div>
-                <span class="stage-badge badge-execution" id="execution-badge">经济高效</span>
+                <span class="stage-badge badge-execution">经济高效</span>
               </div>
               <div class="workflow-stage">
                 <div class="stage-node">
@@ -177,11 +181,16 @@
                 <span class="stage-badge">把关质量</span>
               </div>
             </div>
-            <div class="vision-accessory">
-              <svg class="icon" aria-hidden="true"><use href="#eye" /></svg><span>需要看图时</span
-              ><strong>独立视觉模型</strong><span class="accessory-plus">+</span>
+            <div class="workflow-savings" aria-label="费用计算示例：与全程使用顶级模型相比，节省 72%">
+              <div class="savings-copy">
+                <span class="stage-role">04 / 把预算用好</span>
+                <strong>示例节省</strong>
+                <span>同等用量，费用 <span class="savings-baseline">100</span> → <span id="workflow-cost" aria-hidden="true">28</span></span>
+              </div>
+              <span class="savings-value" aria-hidden="true"><span id="workflow-saving">72</span><small>%</small></span>
+              <span class="savings-meter" aria-hidden="true"><span></span></span>
             </div>
-            <p class="workflow-footnote" id="workflow-footnote">订阅做规划，API 做执行。按任务自由搭配。</p>
+            <p class="workflow-footnote">估算示例，非实测：执行占用量 80%，单价为顶级模型的 1/10。<br>对比全程使用顶级模型，实际节省随任务与模型变化。</p>
           </div>
           <div class="art-caption">
             <span class="caption-line"></span><span>能力有分工，预算有去处。</span
@@ -193,11 +202,191 @@
       <section class="harness-strip container" aria-label="支持的 Agent Harness">
         <p>熟悉的 Agent，<br>更自由的用法。</p>
         <div class="harness-names">
-          <span><span class="harness-symbol codex-symbol" aria-hidden="true">⌘</span>Codex</span
-          ><span><span class="harness-symbol claude-symbol" aria-hidden="true">✳</span>Claude Code</span
-          ><span><span class="harness-symbol pi-symbol" aria-hidden="true">π</span>PI</span>
+          <span><img class="harness-symbol" src="./assets/codex.ico" width="30" height="30" alt="">Codex</span
+          ><span><img class="harness-symbol" src="./assets/claude-code.ico" width="30" height="30" alt="">Claude Code</span
+          ><span><img class="harness-symbol" src="./assets/pi.svg" width="30" height="30" alt="">PI</span>
         </div>
         <span class="strip-note">选择 Harness，也选择模型。<br>在同一个工作台里，各尽其长。</span>
+      </section>
+
+      <section id="showcase" class="film-section" aria-labelledby="film-title">
+        <div class="container film-section-heading">
+          <div>
+            <span class="eyebrow section-index">MORI DETAILS / 功能细节</span>
+            <h2 id="film-title">看看 Mori，有哪些不一样。</h2>
+            <p>通过一段段演示，了解 Mori 的特点与设计。</p>
+          </div>
+          <div class="film-navigation" role="group" aria-label="浏览功能细节">
+            <button
+              class="film-arrow film-previous"
+              type="button"
+              aria-label="上一个功能"
+              aria-controls="film-track"
+              disabled
+            >
+              <svg class="icon" aria-hidden="true"><use href="#arrow-right" /></svg>
+            </button>
+            <button
+              class="film-arrow film-next"
+              type="button"
+              aria-label="下一个功能"
+              aria-controls="film-track"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#arrow-right" /></svg>
+            </button>
+          </div>
+        </div>
+        <div
+          id="film-track"
+          class="film-track"
+          role="region"
+          aria-label="功能演示，可左右滑动或使用方向键浏览"
+          tabindex="0"
+        >
+          <article class="film-card">
+            <div class="film-screen">
+              <video
+                id="plan-film"
+                width="1920"
+                height="1080"
+                controls
+                muted
+                loop
+                playsinline
+                preload="metadata"
+                poster="./films/plan-execute-review.jpg"
+                aria-label="22 秒界面流程演示：使用 GPT-6.1 切换到 Plan 模式并生成计划；从计划菜单选择在新对话中执行，选用 PI 与本地 Qwen3.8；执行完成后回到原计划，选择审查代码，交给 GPT-6.1 检查。等待已压缩，执行与审查结果为示意，无声。"
+              >
+                <source src="./films/plan-execute-review.mp4" type="video/mp4">
+                你的浏览器暂不支持播放视频，可以<a href="./films/plan-execute-review.mp4">下载 MP4 查看</a>。
+              </video>
+            </div>
+            <div class="film-caption">
+              <span class="film-number">001</span>
+              <div>
+                <h3>省下成本，也多一份把关。</h3>
+                <p>好模型做规划与审查，PI 搭配本地模型执行。</p>
+              </div>
+              <a
+                class="film-download"
+                href="./films/plan-execute-review.mp4"
+                download="Mori-plan-execute-review-22s.mp4"
+                aria-label="下载计划执行与代码审查功能演示，22 秒 MP4"
+              >
+                <span>00:22 <span class="film-download-label">/ 下载演示</span></span>
+                <svg class="icon" aria-hidden="true"><use href="#arrow-down" /></svg>
+              </a>
+            </div>
+          </article>
+          <article class="film-card">
+            <div class="film-screen">
+              <video
+                id="account-film"
+                width="1920"
+                height="1080"
+                controls
+                muted
+                loop
+                playsinline
+                preload="metadata"
+                poster="./films/chatgpt-account-switch.jpg"
+                aria-label="5 秒界面概念演示：先展示 6 个 ChatGPT 账号，再用鼠标从额度用尽的账号 A 切换至剩余 100% 的账号 B。账号与额度为演示数据，无声。"
+              >
+                <source src="./films/chatgpt-account-switch.mp4" type="video/mp4">
+                你的浏览器暂不支持播放视频，可以<a href="./films/chatgpt-account-switch.mp4">下载 MP4 查看</a>。
+              </video>
+            </div>
+            <div class="film-caption">
+              <span class="film-number">002</span>
+              <div>
+                <h3>额度用完，换个账号继续。</h3>
+                <p>看清各账号的额度，切换到可用的那个。</p>
+              </div>
+              <a
+                class="film-download"
+                href="./films/chatgpt-account-switch.mp4"
+                download="Mori-chatgpt-account-switch-5s.mp4"
+                aria-label="下载 ChatGPT 账号切换功能演示，5 秒 MP4"
+              >
+                <span>00:05 <span class="film-download-label">/ 下载演示</span></span>
+                <svg class="icon" aria-hidden="true"><use href="#arrow-down" /></svg>
+              </a>
+            </div>
+          </article>
+          <article class="film-card">
+            <div class="film-screen">
+              <video
+                id="image-film"
+                width="1920"
+                height="1080"
+                controls
+                muted
+                loop
+                playsinline
+                preload="metadata"
+                poster="./films/free-account-images.jpg"
+                aria-label="10 秒界面概念演示：登录 ChatGPT 免费账号，刷新显示 5 张图片额度；通过侧边栏创意绘画工具和 Agent 对话各生成 1 张图片；最后剩余 3 张，下次刷新为 24 小时后。额度、刷新时间和生成耗时为演示数据，无声。"
+              >
+                <source src="./films/free-account-images.mp4" type="video/mp4">
+                你的浏览器暂不支持播放视频，可以<a href="./films/free-account-images.mp4">下载 MP4 查看</a>。
+              </video>
+            </div>
+            <div class="film-caption">
+              <span class="film-number">003</span>
+              <div>
+                <h3>免费账号，也能画出想法。</h3>
+                <p>手动用工具生图，也能交给 Agent。图片额度随时可查。</p>
+              </div>
+              <a
+                class="film-download"
+                href="./films/free-account-images.mp4"
+                download="Mori-free-account-images-10s.mp4"
+                aria-label="下载免费账号生图功能演示，10 秒 MP4"
+              >
+                <span>00:10 <span class="film-download-label">/ 下载演示</span></span>
+                <svg class="icon" aria-hidden="true"><use href="#arrow-down" /></svg>
+              </a>
+            </div>
+          </article>
+          <article class="film-card">
+            <div class="film-screen">
+              <video
+                id="queue-film"
+                width="1920"
+                height="1080"
+                controls
+                muted
+                loop
+                playsinline
+                preload="metadata"
+                poster="./films/queue-control.jpg"
+                aria-label="5 秒界面设计演示：鼠标点击暂停排队消息，再将一条消息迁入右侧待办卡片。无声。"
+              >
+                <source src="./films/queue-control.mp4" type="video/mp4">
+                你的浏览器暂不支持播放视频，可以<a href="./films/queue-control.mp4">下载 MP4 查看</a>。
+              </video>
+            </div>
+            <div class="film-caption">
+              <span class="film-number">004</span>
+              <div>
+                <h3>排队消息，节奏由你。</h3>
+                <p>随时暂停，或存入待办，留到合适的时候。</p>
+              </div>
+              <a
+                class="film-download"
+                href="./films/queue-control.mp4"
+                download="Mori-queue-control-5s.mp4"
+                aria-label="下载排队消息功能演示，5 秒 MP4"
+              >
+                <span>00:05 <span class="film-download-label">/ 下载演示</span></span>
+                <svg class="icon" aria-hidden="true"><use href="#arrow-down" /></svg>
+              </a>
+            </div>
+          </article>
+        </div>
+        <div class="container film-footnote">
+          <span>功能与设计细节 · 无声演示</span><span>左右滑动，查看更多 <span aria-hidden="true">↔</span></span>
+        </div>
       </section>
 
       <section id="approach" class="section container approach" aria-labelledby="approach-title">
@@ -208,14 +397,25 @@
         </div>
         <div class="principle-grid">
           <article class="principle">
+            <button class="principle-preview" type="button" data-gallery="roles" aria-label="放大查看模型分工示意">
+              <img src="./images/principle-roles.svg" alt="模型分工示意：GPT-6.1 规划，PI 搭配本地 Qwen3.8 执行，再由 GPT-6.1 审查" width="720" height="480" loading="lazy">
+              <span>模型分工示意 · 点击放大</span>
+            </button>
+            <div class="principle-copy">
             <span class="principle-number">一</span>
             <h3>把好模型，用在关键处。</h3>
             <p>
               用顶级模型规划与审查，把大量执行交给经济的 API 或本地模型。按角色搭配能力，也按角色分配预算。
             </p>
             <span class="principle-caption">规划 → 执行 → 审查</span>
+            </div>
           </article>
           <article class="principle">
+            <button class="principle-preview" type="button" data-gallery="resources" aria-label="放大查看资源搭配示意">
+              <img src="./images/principle-resources.svg" alt="资源搭配示意：ChatGPT 账号、API 或中转站与本地模型，搭配 Codex、Claude Code 和 PI" width="720" height="480" loading="lazy">
+              <span>资源搭配示意 · 点击放大</span>
+            </button>
+            <div class="principle-copy">
             <span class="principle-number">二</span>
             <h3>已有的资源，继续用好。</h3>
             <p>
@@ -223,14 +423,21 @@
               API，也支持兼容的第三方服务。从可用的免费额度到付费订阅，按需搭配；额度用完时，也可以切换资源。
             </p>
             <span class="principle-caption">账号 / 订阅 / API / 本地模型</span>
+            </div>
           </article>
           <article class="principle">
+            <button class="principle-preview" type="button" data-gallery="cost" aria-label="放大查看费用明细示例">
+              <img src="./images/principle-billing.svg" alt="费用明细示例：缓存命中率 86%，按模型展示各自费用，数据为示意" width="720" height="480" loading="lazy">
+              <span>费用明细示例 · 点击放大</span>
+            </button>
+            <div class="principle-copy">
             <span class="principle-number">三</span>
             <h3>每一笔花费，心里有数。</h3>
             <p>按会话、Agent 与模型查看用量、费用和缓存命中情况。了解钱花在哪里，再找到适合自己的组合。</p>
             <button class="inline-link" type="button" data-gallery="cost">
               看看费用面板 <svg class="icon" aria-hidden="true"><use href="#arrow-up-right" /></svg>
             </button>
+            </div>
           </article>
         </div>
       </section>
@@ -241,6 +448,52 @@
             <span class="eyebrow section-index">02 / A MORE CAPABLE COMBINATION</span>
             <h2 id="capability-title">能力可以分开选，<br>事情可以一起做。</h2>
             <p>思考、看图、创作，各自配上合适的模型与工具。</p>
+          </div>
+          <div id="session-tools" class="session-feature" aria-labelledby="session-tools-title">
+            <div class="session-tools-copy">
+              <span class="eyebrow">SKILLS &amp; MCP / 更精简的上下文</span>
+              <h3 id="session-tools-title">装上很多能力，<br>每次只带需要的。</h3>
+              <p>装了几百个 Skills、连了很多 MCP，当前项目与任务用到的，往往只是其中几个。</p>
+              <p>Mori 支持按项目、按会话选用 Skills 与 MCP，减少无关的技能说明和工具信息进入上下文，让 Agent 更专注于当前任务。</p>
+              <span class="session-tools-note">减少上下文占用 · 减少无关能力干扰</span>
+            </div>
+            <figure class="session-tools-example">
+              <figcaption><span>项目 / mori-website</span><span>会话配置示意</span></figcaption>
+              <div class="session-tool-library">
+                <span>已安装的 Skills 与 MCP</span>
+                <div class="session-tool-library-items"><span>前端设计</span><span>资料整理</span><span>代码审查</span><span>文档写作</span><span>GitHub</span><span>网页检索</span><span>数据库</span><span>…</span></div>
+              </div>
+              <div class="session-tool-filter">当前任务，选用其中几项</div>
+              <div class="session-tool-panels">
+                <div class="session-tool-panel">
+                  <div class="session-tool-heading"><span>会话 A</span><h4>实现深色主题</h4></div>
+                  <div class="session-tool-group">
+                    <span class="session-tool-label">Skills</span>
+                    <div class="session-tool-row"><span>前端设计</span><span class="session-tool-state is-on">启用</span></div>
+                    <div class="session-tool-row"><span>资料整理</span><span class="session-tool-state">关闭</span></div>
+                  </div>
+                  <div class="session-tool-group">
+                    <span class="session-tool-label">MCP</span>
+                    <div class="session-tool-row"><span>GitHub</span><span class="session-tool-state is-on">启用</span></div>
+                    <div class="session-tool-row"><span>网页检索</span><span class="session-tool-state">关闭</span></div>
+                  </div>
+                </div>
+                <div class="session-tool-panel">
+                  <div class="session-tool-heading"><span>会话 B</span><h4>调研参考案例</h4></div>
+                  <div class="session-tool-group">
+                    <span class="session-tool-label">Skills</span>
+                    <div class="session-tool-row"><span>前端设计</span><span class="session-tool-state">关闭</span></div>
+                    <div class="session-tool-row"><span>资料整理</span><span class="session-tool-state is-on">启用</span></div>
+                  </div>
+                  <div class="session-tool-group">
+                    <span class="session-tool-label">MCP</span>
+                    <div class="session-tool-row"><span>GitHub</span><span class="session-tool-state">关闭</span></div>
+                    <div class="session-tool-row"><span>网页检索</span><span class="session-tool-state is-on">启用</span></div>
+                  </div>
+                </div>
+              </div>
+              <p class="session-tools-example-note">示例配置 · 更多能力留在库里，需要时再启用</p>
+            </figure>
           </div>
           <div class="vision-feature">
             <div class="vision-copy">
@@ -315,70 +568,52 @@
         </div>
       </section>
 
-      <section class="section container workspace-section" aria-labelledby="workspace-title">
-        <div class="workspace-heading">
-          <div>
-            <span class="eyebrow section-index">03 / ROOM TO MAKE THINGS</span>
-            <h2 id="workspace-title">让工作，有条不紊。</h2>
-          </div>
-          <p>项目、会话、工具与模型，收进同一个工作台。<br>为每个任务配置需要的 MCP、Skills 与工具权限。</p>
-        </div>
-        <button
-          class="product-preview"
-          type="button"
-          data-gallery="workspace"
-          aria-label="放大查看 Mori 工作台界面"
-        >
-          <img
-            src="/assets/workspace.jpg"
-            alt="Mori 深色工作台：项目列表、任务对话、子代理分工与工具配置"
-            width="1683"
-            height="934"
-            loading="lazy"
-          ><span class="preview-prompt"
-            >查看工作台 <svg class="icon" aria-hidden="true"><use href="#arrow-up-right" /></svg></span
-          >
-        </button>
-        <div class="product-caption">
-          <span>一个工作台，多种工作方式。</span
-          ><button class="inline-link" type="button" data-gallery="team">
-            查看 Agent 分工配置 <svg class="icon" aria-hidden="true"><use href="#arrow-up-right" /></svg>
-          </button>
-        </div>
-      </section>
-
-      <section class="freedom-section container" aria-labelledby="freedom-title">
+      <section id="beyond-desktop" class="freedom-section container" aria-labelledby="freedom-title">
         <div class="freedom-main">
-          <span class="eyebrow section-index">04 / YOUR WORK, YOUR WAY</span>
+          <span class="eyebrow section-index">03 / YOUR WORK, YOUR WAY</span>
           <h2 id="freedom-title">自由，也在工作台之外。</h2>
-          <p>移动端同样开源。自行部署服务，配对桌面，就能在手机上跟进任务、继续对话与处理审批。</p>
+          <p>在移动端继续任务，也能在微信里呼叫 Mori。离开电脑，仍然可以询问进度、补充要求，接收任务结果。</p>
+          <div class="remote-ways">
+            <div>
+              <h3>移动端，接着做。</h3>
+              <p>配对桌面后，查看完整会话、发送文字与图片，处理需要你的审批。</p>
+              <p>用中转站或本地模型，也能享有完整的移动端体验。</p>
+            </div>
+            <div>
+              <h3>微信里，说一声。</h3>
+              <p>绑定 Mori 助手后，用文字或已转写的语音安排工作，在聊天里收到回复与进展。</p>
+            </div>
+          </div>
           <a
             class="text-link"
             href="https://github.com/plus1998/Mori/blob/beta/docs/supabase-self-host.md"
             target="_blank"
             rel="noreferrer"
-            >了解自部署 <svg class="icon" aria-hidden="true"><use href="#arrow-up-right" /></svg></a
+            >了解移动端自部署</a
           >
           <p class="quiet-note">
-            移动端尚未公开发布，可从源码构建。软件免费，部署与模型服务费用取决于所选资源。
+            移动端开源，可从源码构建并自行部署，无需 Mori 订阅。部署与模型费用由所选资源决定。远程使用时，桌面端需保持运行并联网。
           </p>
         </div>
-        <div class="freedom-details">
-          <article>
-            <span class="detail-symbol" aria-hidden="true">↗</span>
-            <div>
-              <h3>离开电脑，也能跟进。</h3>
-              <p>查看桌面端会话，发送文字、图片与语音，及时处理需要你的审批。</p>
-            </div>
-          </article>
-          <article>
-            <span class="detail-symbol" aria-hidden="true">⌘</span>
-            <div>
-              <h3>开源，自由掌握。</h3>
-              <p>桌面端、移动端与服务端代码开放，MIT 许可。按自己的需要部署、连接和修改。</p>
-            </div>
-          </article>
+        <div class="remote-gallery" role="region" aria-label="Mori 移动端与微信示例，可左右滑动查看" tabindex="0">
+          <figure class="remote-example">
+            <button class="device-preview" type="button" data-gallery="mobile" aria-label="放大查看 Mori 移动端，真实组件渲染，示例对话">
+              <span class="device-status" aria-hidden="true"><span>9:41</span><span class="device-camera"></span><span class="device-indicators"><i class="device-signal"></i><i class="device-battery"></i></span></span>
+              <img src="./images/mobile-session.png" alt="Mori 真实移动端组件：网站深色主题会话、实现结果与继续审查的消息，对话为模拟示例" width="1170" height="2280" loading="lazy">
+              <span class="device-bottom" aria-hidden="true"><i></i></span>
+            </button>
+            <figcaption><span class="remote-example-label">MORI MOBILE</span><h3>任务记录，随身带着。</h3><p>真实移动端组件 · 示例对话</p></figcaption>
+          </figure>
+          <figure class="remote-example">
+            <button class="device-preview device-wechat" type="button" data-gallery="wechat" aria-label="放大查看 Mori 微信聊天样式复现，示例对话">
+              <span class="device-status" aria-hidden="true"><span>9:41</span><span class="device-camera"></span><span class="device-indicators"><i class="device-signal"></i><i class="device-battery"></i></span></span>
+              <img src="./images/wechat-chat.png" alt="微信聊天样式复现：向 Mori 询问任务进度、请求代码审查，并接收完成通知，对话为模拟示例" width="780" height="1520" loading="lazy">
+              <span class="device-bottom" aria-hidden="true"><i></i></span>
+            </button>
+            <figcaption><span class="remote-example-label">MORI IN WECHAT</span><h3>有事，微信里说。</h3><p>微信聊天样式复现 · 示例对话</p></figcaption>
+          </figure>
         </div>
+        <p class="remote-swipe-hint">左右滑动，看看两种方式。</p>
       </section>
 
       <section class="faq-section container" aria-labelledby="faq-title">
@@ -446,7 +681,7 @@
     <footer class="container site-footer">
       <div class="footer-brand">
         <a class="wordmark" href="#" aria-label="返回 Mori 首页"
-          ><img src="/assets/mori.png" width="30" height="30" alt="">
+          ><img src="./assets/mori.png" width="30" height="30" alt="">
           <span>Mori<span class="wordmark-period">.</span></span></a
         ><span>把事情做好，也把预算用好。</span>
       </div>
@@ -464,15 +699,15 @@
       <span class="footer-colophon">MADE FOR A LITTLE MORE FREEDOM.</span>
     </footer>
 
-    <dialog id="product-dialog" aria-labelledby="dialog-title">
+    <dialog id="product-dialog" aria-labelledby="dialog-title" data-layout="illustration">
       <div class="dialog-heading">
-        <h2 id="dialog-title">Mori 工作台</h2>
+        <h2 id="dialog-title">每一笔花费，心里有数。</h2>
         <button class="dialog-close" type="button" aria-label="关闭界面预览">
           <svg class="icon" aria-hidden="true"><use href="#close" /></svg>
         </button>
       </div>
-      <img id="dialog-image" src="/assets/workspace.jpg" alt="Mori 工作台界面" width="1683" height="934">
-      <p id="dialog-caption">产品界面示例，具体内容随配置与版本变化。</p>
+      <img id="dialog-image" src="./images/principle-billing.svg" alt="Mori 费用明细示意，数据为示例">
+      <p id="dialog-caption">费用面板样式示意 · 金额、缓存命中率均为示例，非实际调用结果。</p>
     </dialog>
   </body>
 </html>
