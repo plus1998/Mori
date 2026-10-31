@@ -1,0 +1,55 @@
+name: Mori website media
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: HTTPS URL of the prepared website film archive
+        required: true
+        type: string
+      sha256:
+        description: Expected SHA-256 of the archive
+        required: true
+        type: string
+      asset_name:
+        description: New asset name (existing assets are never replaced)
+        required: true
+        type: string
+      release_tag:
+        description: Existing website media release
+        default: website-media-20261101
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-media-publish
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download, verify and publish website media
+        env:
+          SOURCE_URL: ${{ inputs.source_url }}
+          EXPECTED_SHA256: ${{ inputs.sha256 }}
+          ASSET_NAME: ${{ inputs.asset_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_URL" =~ ^https://[^[:space:]]+$ ]]
+          [[ "$EXPECTED_SHA256" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$ASSET_NAME" =~ ^mori-website-films-[a-z0-9-]+\.tar\.gz$ ]]
+          [[ "$RELEASE_TAG" =~ ^website-media-[a-zA-Z0-9-]+$ ]]
+          cd "$RUNNER_TEMP"
+          curl --fail --location --retry 3 --max-time 120 --proto '=https' --proto-redir '=https' "$SOURCE_URL" --output "$ASSET_NAME"
+          printf '%s  %s\n' "$EXPECTED_SHA256" "$ASSET_NAME" | sha256sum --check --strict
+          gh release view "$RELEASE_TAG" --repo "$GH_REPO" > /dev/null
+          gh release upload "$RELEASE_TAG" "$ASSET_NAME" --repo "$GH_REPO"
