@@ -65,7 +65,7 @@ export const accountWakeTranslations = {
   "en-US": {
     "wakeBatch.title": "Batch wake-up",
     "wakeBatch.intro": "Arrange your accounts. Send each one a hi when it is time.",
-    "wakeBatch.summary": "{{batches}} batches · {{accounts}} accounts",
+    "wakeBatch.summary": "Batches: {{batches}} · Accounts: {{accounts}}",
     "wakeBatch.add": "Add batch",
     "wakeBatch.empty": "Give your accounts a starting time.",
     "wakeBatch.emptyHint": "Wake your early batch at 05:00 and another at 13:00.",
