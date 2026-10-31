@@ -18,8 +18,10 @@ const contentTypes = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
   ".png": "image/png",
   ".jpg": "image/jpeg",
+  ".mp4": "video/mp4",
   ".txt": "text/plain; charset=utf-8",
 };
 
@@ -43,16 +45,37 @@ const server = createServer(async (request, response) => {
       response.writeHead(404).end("Not found");
       return;
     }
-    response.writeHead(200, {
+    const headers = {
       "Content-Type": contentTypes[extname(filename)] ?? "application/octet-stream",
       "Content-Length": info.size,
+      "Accept-Ranges": "bytes",
       "Cache-Control": "no-cache",
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "strict-origin-when-cross-origin",
-    });
+    };
+    let start = 0;
+    let end = info.size - 1;
+    let status = 200;
+    if (request.method === "GET" && request.headers.range) {
+      const match = /^bytes=(\d*)-(\d*)$/.exec(request.headers.range);
+      if (match && (match[1] || match[2])) {
+        start = match[1] ? Number(match[1]) : Math.max(0, info.size - Number(match[2]));
+        end = match[1] && match[2] ? Math.min(Number(match[2]), info.size - 1) : info.size - 1;
+      } else {
+        start = -1;
+      }
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start > end) {
+        response.writeHead(416, { "Content-Range": `bytes */${info.size}` }).end();
+        return;
+      }
+      status = 206;
+      headers["Content-Range"] = `bytes ${start}-${end}/${info.size}`;
+      headers["Content-Length"] = end - start + 1;
+    }
+    response.writeHead(status, headers);
     if (request.method === "HEAD") response.end();
     else
-      createReadStream(filename)
+      createReadStream(filename, info.size ? { start, end } : undefined)
         .on("error", () => response.destroy())
         .pipe(response);
   } catch (error) {

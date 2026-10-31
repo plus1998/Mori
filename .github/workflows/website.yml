@@ -1,0 +1,70 @@
+name: Mori website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/website/**
+      - apps/desktop/public/splash-icon.png
+      - apps/desktop/public/agent-icons/**
+      - .github/workflows/website.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  # One-time transfer of public video files; removed once the Release exists.
+  media:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish separate website video archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          MEDIA_BOOTSTRAP_URL: https://referred-cakes-labor-elementary.trycloudflare.com/mori-website-films.tar.gz
+        run: |
+          tag=$(node -p "require('./apps/website/media.json').release")
+          if gh release view "$tag" >/dev/null 2>&1; then exit 0; fi
+          curl --fail --location --retry 3 "$MEDIA_BOOTSTRAP_URL" -o /tmp/mori-website-films.tar.gz
+          digest=$(node -p "require('./apps/website/media.json').sha256")
+          echo "$digest  /tmp/mori-website-films.tar.gz" | sha256sum --check
+          gh release create "$tag" /tmp/mori-website-films.tar.gz \
+            --target "$GITHUB_SHA" --title "Mori website media" --prerelease --latest=false \
+            --notes "Versioned website demo videos and posters. Kept outside source history."
+
+  build:
+    needs: media
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/configure-pages@v5
+      - name: Build website and retrieve pinned videos
+        run: node apps/website/scripts/build.mjs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/website/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
