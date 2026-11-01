@@ -78,6 +78,13 @@ export class CodexRuntimeLifecycle {
     return this.client;
   }
 
+  /** Return the OS PID while this lifecycle still owns a live child process. */
+  getProcessId(): number | undefined {
+    const child = this.child;
+    if (!child || child.exitCode !== null || child.signalCode !== null) return undefined;
+    return child.pid ?? undefined;
+  }
+
   async start(): Promise<CodexAppServerClient> {
     if (this.stopPromise) {
       await this.stopPromise;
@@ -552,6 +559,23 @@ async function replaceCodexRuntime(
 
 export function getGlobalCodexRuntimeLifecycle(): CodexRuntimeLifecycle | undefined {
   return globalLifecycle;
+}
+
+/** Snapshot all app-server child processes currently owned by the desktop. */
+export function getCodexRuntimeProcessIds(): number[] {
+  const lifecycles = new Set<CodexRuntimeLifecycle>([
+    ...(globalLifecycle ? [globalLifecycle] : []),
+    ...[...accountLifecycles.values()].map((entry) => entry.lifecycle),
+    ...retiringLifecycles,
+    ...startingReplacements,
+  ]);
+  return [
+    ...new Set(
+      [...lifecycles]
+        .map((lifecycle) => lifecycle.getProcessId())
+        .filter((pid): pid is number => pid !== undefined),
+    ),
+  ].sort((left, right) => left - right);
 }
 
 export async function ensureCodexAccountRuntimeLifecycle(

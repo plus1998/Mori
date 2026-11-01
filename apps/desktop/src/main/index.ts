@@ -678,6 +678,7 @@ import {
 import {
   getGlobalCodexRuntimeLifecycle,
   invalidateCodexAccountRuntimeLifecycle,
+  getCodexRuntimeProcessIds,
   getCodexRuntimeClientForThread,
   getCodexRuntimeClients,
   parseElectronProxyResolution,
@@ -6674,6 +6675,10 @@ function registerIpcHandlers(): void {
 
   registerDesktopCommand(IPC_CHANNELS.codexBackgroundTerminalList, async () => {
     return getCodexBackgroundTerminalService().list();
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.codexAppServerProcessList, async () => {
+    return getCodexRuntimeProcessIds().map((pid) => ({ pid }));
   });
 
   registerDesktopCommand(IPC_CHANNELS.codexBackgroundTerminalTerminate, async (payload: unknown) => {

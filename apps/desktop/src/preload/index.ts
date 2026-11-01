@@ -111,6 +111,7 @@ import {
   type CodexBackgroundTerminal,
   type CodexBackgroundTerminalTerminateRequest,
   type CodexBackgroundTerminalTerminateResult,
+  type CodexAppServerProcessView,
   type ClaudeBackgroundTask,
   type ClaudeBackgroundTaskStopRequest,
   type ClaudeBackgroundTaskStopResult,
@@ -605,6 +606,9 @@ const api = {
   },
   listCodexBackgroundTerminals(): Promise<CodexBackgroundTerminal[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.codexBackgroundTerminalList);
+  },
+  listCodexAppServerProcesses(): Promise<CodexAppServerProcessView[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexAppServerProcessList);
   },
   terminateCodexBackgroundTerminal(
     request: CodexBackgroundTerminalTerminateRequest,

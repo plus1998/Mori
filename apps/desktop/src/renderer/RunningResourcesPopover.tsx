@@ -6,6 +6,7 @@ import { type BrowserInstanceView, isPersonalBrowserScopeId } from "../shared/br
 import { pathToName } from "../shared/home-project";
 import type { ClaudeBackgroundTask, CodexBackgroundTerminal } from "../shared/ipc";
 import { AgentBrowserProcessesSection } from "./AgentBrowserProcessesSection";
+import { CodexAppServerProcessesSection } from "./CodexAppServerProcessesSection";
 import { DisplayControlsSection } from "./DisplayControlsSection";
 import { browserStateStore, useBrowserStateSelector } from "./browser-state-store";
 import { collectRunningTerminals, type RunningTerminal } from "./running-resources";
@@ -67,6 +68,7 @@ export function RunningResourcesPopover({
   const closingRef = useRef(new Set<string>());
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [agentProcessCount, setAgentProcessCount] = useState(0);
+  const [codexAppServerCount, setCodexAppServerCount] = useState(0);
 
   useLayoutEffect(() => {
     const update = () => {
@@ -240,7 +242,11 @@ export function RunningResourcesPopover({
       </div>
       <div className="running-resources-summary">
         <span>{t("app.running.allSessions")}</span>
-        <span>{t("app.running.resourceCount", { count: pages.length + terminals.length + agentProcessCount })}</span>
+        <span>
+          {t("app.running.resourceCount", {
+            count: pages.length + terminals.length + agentProcessCount + codexAppServerCount,
+          })}
+        </span>
       </div>
       <div className="running-resources-scroll">
         <DisplayControlsSection />
@@ -422,6 +428,7 @@ export function RunningResourcesPopover({
             })}
           </ul>
         </section>
+        <CodexAppServerProcessesSection onCountChange={setCodexAppServerCount} />
       </div>
       {actionError ? (
         <p className="running-resources-error is-action-error" role="alert">

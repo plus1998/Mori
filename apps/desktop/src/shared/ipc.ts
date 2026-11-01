@@ -95,6 +95,7 @@ export const IPC_CHANNELS = {
   startupScriptChooseDirectory: "startup-script:choose-directory",
   codexBackgroundTerminalList: "codex-background-terminal:list",
   codexBackgroundTerminalTerminate: "codex-background-terminal:terminate",
+  codexAppServerProcessList: "codex-app-server:process-list",
   claudeBackgroundTaskList: "claude-background-task:list",
   claudeBackgroundTaskStop: "claude-background-task:stop",
   workspacePrepareGit: "workspace:prepare-git",
@@ -1013,6 +1014,11 @@ export interface CodexBackgroundTerminalTerminateRequest {
 
 export interface CodexBackgroundTerminalTerminateResult {
   terminated: boolean;
+}
+
+/** A live Codex app-server child process owned by the desktop main process. */
+export interface CodexAppServerProcessView {
+  pid: number;
 }
 
 /** A live Claude SDK background Bash task owned by an active Query. */

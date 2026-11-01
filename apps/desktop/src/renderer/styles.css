@@ -40909,6 +40909,32 @@ body.is-resizing-browser-split::before {
   font-weight: 500;
 }
 
+.running-resources-details > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.running-resources-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.running-resources-details > summary:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.running-resources-disclosure-icon {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  transition: transform 0.12s ease;
+}
+
+.running-resources-details[open] .running-resources-disclosure-icon {
+  transform: rotate(90deg);
+}
+
 .running-resources-count {
   display: inline-flex;
   align-items: center;
@@ -40964,6 +40990,12 @@ body.is-resizing-browser-split::before {
   color: var(--accent-text);
   border-color: color-mix(in srgb, var(--accent-text) 12%, transparent);
   background: color-mix(in srgb, var(--accent-text) 7%, var(--bg-elevated));
+}
+
+.running-resources-kind.is-codex {
+  color: var(--text-secondary);
+  border-color: color-mix(in srgb, var(--text-secondary) 16%, transparent);
+  background: color-mix(in srgb, var(--text-secondary) 7%, var(--bg-elevated));
 }
 
 .running-resources-live-dot {
@@ -41136,7 +41168,8 @@ body.is-resizing-browser-split::before {
   }
 
   .running-resources-row,
-  .running-resources-icon-button {
+  .running-resources-icon-button,
+  .running-resources-disclosure-icon {
     transition: none;
   }
 }
