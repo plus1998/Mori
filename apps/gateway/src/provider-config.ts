@@ -35,12 +35,30 @@ export function normalizeProvider(provider: GatewayProvider): GatewayProvider {
   const requestPath = normalizeRequestPath(provider.requestPath);
   const version = normalizeApiVersion(provider.version);
   const upstreamProxyUrl = parseUpstreamProxyUrl(provider.upstreamProxyUrl);
+  const modelUpstreams = provider.modelUpstreams
+    ? Object.fromEntries(Object.entries(provider.modelUpstreams).map(([modelId, upstream]) => {
+        if (!models.includes(modelId) || !modelId.trim()) {
+          throw new Error(`Gateway provider ${provider.id}: unknown model upstream ${modelId}`);
+        }
+        const baseUrl = upstream.baseUrl?.trim();
+        if (!baseUrl || !/^https?:\/\//.test(baseUrl)) {
+          throw new Error(`Gateway provider ${provider.id}: invalid endpoint for ${modelId}`);
+        }
+        return [modelId, {
+          ...upstream,
+          baseUrl: trimTrailingSlash(baseUrl),
+          requestPath: normalizeRequestPath(upstream.requestPath),
+          version: normalizeApiVersion(upstream.version),
+        }];
+      }))
+    : undefined;
   const { requestPath: _ignoredRequestPath, modelMaxOutputTokens: _ignoredMax, upstreamProxyUrl: _ignoredProxy, ...rest } = provider;
   return {
     ...rest,
     baseUrl: trimTrailingSlash(provider.baseUrl),
     version,
     models,
+    ...(modelUpstreams ? { modelUpstreams } : {}),
     ...(provider.authMethod ? { authMethod: provider.authMethod } : {}),
     ...(provider.credentialPoolId?.trim() ? { credentialPoolId: provider.credentialPoolId.trim() } : {}),
     ...(requestPath ? { requestPath } : {}),
@@ -63,13 +81,16 @@ export function buildProviderProxyRoutes(
     if (!proxyUrl) {
       continue;
     }
-    let origin: string;
-    try {
-      origin = new URL(provider.baseUrl).origin;
-    } catch {
-      continue;
+    for (const baseUrl of [
+      provider.baseUrl,
+      ...Object.values(provider.modelUpstreams ?? {}).map((model) => model.baseUrl),
+    ]) {
+      try {
+        byOrigin.set(new URL(baseUrl).origin, proxyUrl);
+      } catch {
+        // The normalizer reports invalid configured endpoints before routing.
+      }
     }
-    byOrigin.set(origin, proxyUrl);
   }
   return [...byOrigin.entries()].map(([origin, proxyUrl]) => ({ origin, proxyUrl }));
 }

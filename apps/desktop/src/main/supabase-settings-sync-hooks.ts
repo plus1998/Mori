@@ -129,7 +129,7 @@ function collectPayload(input: {
         supportsImageToImage: profile.supportsImageToImage,
       })),
     },
-    mainAgentConfigs: orchestration.listMainAgentConfigs().filter((row) => isUserOwnedSource(row.source)),
+    mainAgentConfigs: [],
     mainAgentPrompts: orchestration.listMainAgentPrompts().filter((row) => isUserOwnedSource(row.source)),
     subagentOrchestrations: orchestration
       .listSubagentOrchestrations()
@@ -141,6 +141,11 @@ function collectPayload(input: {
           id: candidate.id,
           providerId: candidate.providerId,
           modelId: candidate.modelId,
+          ...(candidate.baseUrl ? { baseUrl: candidate.baseUrl } : {}),
+          ...(candidate.requestPath !== undefined ? { requestPath: candidate.requestPath } : {}),
+          ...(candidate.version ? { version: candidate.version } : {}),
+          ...(candidate.apiCompat ? { apiCompat: candidate.apiCompat } : {}),
+          ...(candidate.tokenCountMode ? { tokenCountMode: candidate.tokenCountMode } : {}),
           ...(candidate.displayName ? { displayName: candidate.displayName } : {}),
           ...(candidate.modelsDevMapping ? { modelsDevMapping: candidate.modelsDevMapping } : {}),
           ...(candidate.manualSpec ? { manualSpec: candidate.manualSpec } : {}),
@@ -198,7 +203,6 @@ async function applyPayload(
   const remoteAsrIds = new Set(payload.asr.profiles.map((profile) => profile.id));
   const remoteImageIds = new Set(payload.imageGeneration.profiles.map((profile) => profile.id));
   const remoteTemplateIds = new Set((payload.agentTemplates ?? []).map((template) => template.id));
-  const remoteMainConfigIds = new Set((payload.mainAgentConfigs ?? []).map((config) => config.id));
   const remoteMainPromptIds = new Set((payload.mainAgentPrompts ?? []).map((prompt) => prompt.id));
   const remoteSubagentIds = new Set(
     (payload.subagentOrchestrations ?? []).map((orchestration) => orchestration.id),
@@ -311,12 +315,6 @@ async function applyPayload(
       builtIn: false,
     });
   }
-  for (const config of payload.mainAgentConfigs ?? []) {
-    if (!isUserOwnedSource(config.source)) {
-      continue;
-    }
-    input.agentOrchestrationStore.saveMainAgentConfig({ ...config, source: "user" });
-  }
   for (const prompt of payload.mainAgentPrompts ?? []) {
     if (!isUserOwnedSource(prompt.source)) {
       continue;
@@ -351,14 +349,6 @@ async function applyPayload(
     if (!remoteTemplateIds.has(template.id)) {
       input.agentOrchestrationStore.deleteAgentTemplate(template.id);
     }
-  }
-  for (const config of input.agentOrchestrationStore.listMainAgentConfigs()) {
-    if (!isUserOwnedSource(config.source) || remoteMainConfigIds.has(config.id)) {
-      continue;
-    }
-    input.workflowSettingsStore.clearDefaultMainAgentConfigReference(config.id);
-    input.projectOrchestrationSettingsStore?.clearMainAgentConfigReference(config.id);
-    input.agentOrchestrationStore.deleteMainAgentConfig(config.id);
   }
   for (const prompt of input.agentOrchestrationStore.listMainAgentPrompts()) {
     if (!isUserOwnedSource(prompt.source) || remoteMainPromptIds.has(prompt.id)) {

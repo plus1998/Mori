@@ -3,10 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  AgentOrchestrationStore,
   createAgentOrchestrationStore,
   normalizeStoredAgentTemplate,
-  normalizeStoredMainAgentConfig,
 } from "../src/main/agent-orchestration-store";
 import { createBuiltInAgentTemplates } from "../src/shared/agent-orchestration";
 import type { AgentTemplate } from "../src/shared/ipc";
@@ -47,41 +45,6 @@ test("normalizeStoredAgentTemplate rejects built-in ids", () => {
     /内置子代理模板不可写入用户配置|built-in subagent template cannot be written/i,
   );
 });
-
-test("normalizeStoredMainAgentConfig requires name and agentKey", () => {
-  expect(() =>
-    normalizeStoredMainAgentConfig({
-      id: "user.main",
-      name: "",
-      agentKey: "main",
-      modelRef: { providerId: "p1", modelId: "m1" },
-      tools: { allowed: [], disallowed: [] },
-      skills: [],
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      source: "user",
-    }),
-  ).toThrow(/主 Agent 配置名称不能为空|main agent config name is required/i);
-});
-
-test.skipIf(!sqliteAvailable)(
-  "deleteMainAgentConfig removes the config without reference checks",
-  async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-orchestration-store-delete-"));
-    const store = await createAgentOrchestrationStore(path.join(dir, "orchestration.db"));
-    store.saveMainAgentConfig({
-      id: "user.main",
-      name: "Main",
-      agentKey: "main",
-      modelRef: { providerId: "p1", modelId: "m1" },
-      tools: { allowed: [], disallowed: [] },
-      skills: [],
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      source: "user",
-    });
-    expect(() => store.deleteMainAgentConfig("user.main")).not.toThrow();
-    expect(store.getMainAgentConfig("user.main")).toBeUndefined();
-  },
-);
 
 test.skipIf(!sqliteAvailable)("agent template CRUD remains available", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-orchestration-store-template-"));

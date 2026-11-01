@@ -14,22 +14,11 @@ export const CHATGPT_SUBSCRIPTION_MAIN_AGENT_CONFIG_ID = "__chatgpt_subscription
 
 export type AgentConfigSource = "built_in" | "user" | "project" | "derived";
 
-export function isV4aTeachingEnabled(
-  config: { v4aTeachingEnabled?: boolean; v4aCorrectionEnabled?: boolean } | undefined,
-): boolean {
-  return config?.v4aTeachingEnabled === true || config?.v4aCorrectionEnabled === true;
-}
-
-function v4aTeachingField(config: {
-  v4aTeachingEnabled?: boolean;
-  v4aCorrectionEnabled?: boolean;
-}): { v4aTeachingEnabled: true } | Record<string, never> {
-  return isV4aTeachingEnabled(config) ? { v4aTeachingEnabled: true } : {};
-}
-
 export interface ModelRef {
   providerId: string;
   modelId: string;
+  /** ChatGPT Login / OAuth: exact account bound to this conversation. */
+  accountId?: string;
   apiCompat?: UpstreamApiCompat;
   thinkingEffort?: ThinkingEffort;
   modelsDevMapping?: ModelsDevMapping;
@@ -103,10 +92,6 @@ export interface MainAgentConfig {
   modelRef: ModelRef;
   tools: ToolPolicy;
   skills: string[];
-  /** When true, Codex appends V4A apply_patch teaching to main-agent developer instructions. */
-  v4aTeachingEnabled?: boolean;
-  /** @deprecated Use v4aTeachingEnabled */
-  v4aCorrectionEnabled?: boolean;
 }
 
 /** Model + capability policy for the main agent. No prompt text. */
@@ -117,10 +102,6 @@ export interface MainAgentConfigResource {
   modelRef: ModelRef;
   tools: ToolPolicy;
   skills: string[];
-  /** When true, Codex appends V4A apply_patch teaching to main-agent developer instructions. */
-  v4aTeachingEnabled?: boolean;
-  /** @deprecated Use v4aTeachingEnabled */
-  v4aCorrectionEnabled?: boolean;
   updatedAt: string;
   source: AgentConfigSource;
 }
@@ -144,7 +125,9 @@ export type SubagentSelection = { mode: "none" } | { mode: "orchestration"; orch
 
 /** Live component references resolved when creating or switching a thread. */
 export interface OrchestrationSelection {
-  mainAgentConfigId: string;
+  /** Legacy persisted references are read only during migration. */
+  mainAgentConfigId?: string;
+  mainModel?: ModelRef;
   mainPrompt: MainAgentPromptSelection;
   subagents: SubagentSelection;
 }
@@ -206,10 +189,6 @@ export interface AgentInstanceConfig {
   mcpServers: string[];
   skills: string[];
   enabled: boolean;
-  /** When true, Codex appends V4A apply_patch teaching to this subagent's developer instructions. */
-  v4aTeachingEnabled?: boolean;
-  /** @deprecated Use v4aTeachingEnabled */
-  v4aCorrectionEnabled?: boolean;
 }
 
 export type OrchestrationStrategy = { kind: "autonomous"; guidancePrompt?: string };
@@ -518,13 +497,25 @@ export function isOrchestrationSelection(value: unknown): value is Orchestration
     return false;
   }
   const record = value as Record<string, unknown>;
-  if (typeof record.mainAgentConfigId !== "string" || !record.mainAgentConfigId.trim()) {
+  if ((record.mainAgentConfigId !== undefined && typeof record.mainAgentConfigId !== "string") ||
+    (!(typeof record.mainAgentConfigId === "string" && record.mainAgentConfigId.trim()) &&
+      !isModelRef(record.mainModel))) {
     return false;
   }
+  if (record.mainModel !== undefined && !isModelRef(record.mainModel)) return false;
   if (!isMainAgentPromptSelection(record.mainPrompt)) {
     return false;
   }
   return isSubagentSelection(record.subagents);
+}
+
+function isModelRef(value: unknown): value is ModelRef {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const model = value as Record<string, unknown>;
+  return typeof model.providerId === "string" && Boolean(model.providerId.trim()) &&
+    typeof model.modelId === "string" && Boolean(model.modelId.trim()) &&
+    (model.accountId === undefined || typeof model.accountId === "string") &&
+    (model.candidateModelId === undefined || typeof model.candidateModelId === "string");
 }
 
 export function isSubagentSelection(value: unknown): value is SubagentSelection {
@@ -592,7 +583,6 @@ export function materializeMainAgentConfig(
   promptSelection: MainAgentPromptSelection,
   prompts: readonly MainAgentPromptResource[] = [],
 ): MainAgentConfig {
-  const v4aTeaching = v4aTeachingField(config);
   if (promptSelection.mode === "builtin") {
     return {
       agentKey: config.agentKey,
@@ -602,7 +592,6 @@ export function materializeMainAgentConfig(
       modelRef: cloneModelRef(config.modelRef),
       tools: cloneToolPolicy(config.tools),
       skills: [...config.skills],
-      ...v4aTeaching,
     };
   }
   const prompt = prompts.find((entry) => entry.id === promptSelection.promptId);
@@ -620,7 +609,6 @@ export function materializeMainAgentConfig(
     modelRef: cloneModelRef(config.modelRef),
     tools: cloneToolPolicy(config.tools),
     skills: [...config.skills],
-    ...v4aTeaching,
   };
 }
 
@@ -630,9 +618,18 @@ export function resolveOrchestrationSnapshot(
   lookup: OrchestrationResourceLookup,
 ): ResolvedOrchestrationSnapshot {
   const resolvedSelection = cloneOrchestrationSelection(selection);
-  const mainAgentConfig = lookup.mainAgentConfigs.find(
-    (entry) => entry.id === resolvedSelection.mainAgentConfigId,
-  );
+  const mainAgentConfig = resolvedSelection.mainModel
+    ? {
+        id: "",
+        name: resolvedSelection.mainModel.modelId,
+        agentKey: CODING_AGENT_KEYS.main,
+        modelRef: cloneModelRef(resolvedSelection.mainModel),
+        tools: cloneToolPolicy(MAIN_CODING_TOOLS),
+        skills: [],
+        updatedAt: "",
+        source: "derived" as const,
+      }
+    : lookup.mainAgentConfigs.find((entry) => entry.id === resolvedSelection.mainAgentConfigId);
   if (!mainAgentConfig) {
     throw new Error(`找不到主 Agent 配置：${resolvedSelection.mainAgentConfigId}`);
   }
@@ -691,7 +688,9 @@ export function orchestrationConfigFromSnapshot(
 
 function cloneOrchestrationSelection(selection: OrchestrationSelection): OrchestrationSelection {
   return {
-    mainAgentConfigId: selection.mainAgentConfigId.trim(),
+    ...(selection.mainAgentConfigId?.trim()
+      ? { mainAgentConfigId: selection.mainAgentConfigId.trim() } : {}),
+    ...(selection.mainModel ? { mainModel: cloneModelRef(selection.mainModel) } : {}),
     mainPrompt:
       selection.mainPrompt.mode === "builtin"
         ? { mode: "builtin" }
@@ -712,7 +711,6 @@ function cloneMainAgentConfig(config: MainAgentConfig): MainAgentConfig {
     modelRef: cloneModelRef(config.modelRef),
     tools: cloneToolPolicy(config.tools),
     skills: [...config.skills],
-    ...v4aTeachingField(config),
   };
 }
 
@@ -741,7 +739,6 @@ function cloneAgentInstance(agent: AgentInstanceConfig): AgentInstanceConfig {
     mcpServers: [...agent.mcpServers],
     skills: [...agent.skills],
     enabled: agent.enabled,
-    ...v4aTeachingField(agent),
   };
 }
 
@@ -749,6 +746,7 @@ function cloneModelRef(modelRef: ModelRef): ModelRef {
   return {
     providerId: modelRef.providerId.trim(),
     modelId: modelRef.modelId.trim(),
+    ...(modelRef.accountId ? { accountId: modelRef.accountId.trim() } : {}),
     ...(modelRef.apiCompat && { apiCompat: modelRef.apiCompat }),
     ...(modelRef.thinkingEffort && { thinkingEffort: modelRef.thinkingEffort }),
     ...(modelRef.modelsDevMapping && { modelsDevMapping: { ...modelRef.modelsDevMapping } }),

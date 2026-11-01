@@ -1479,7 +1479,7 @@ test("buildThreadRunProjectionViewModel replaces clarification waiting with the 
           sequence: 3,
           eventType: "message.final",
           role: "main",
-          text: "澄清回答：应该使用哪种部署方式？ → 蓝绿部署",
+          text: "询问回答：应该使用哪种部署方式？ → 蓝绿部署",
           metadata: {
             liveType: "clarification.answered",
             tool: { name: "AskUserQuestion", toolUseId: "question-1", status: "completed" },
@@ -1492,7 +1492,7 @@ test("buildThreadRunProjectionViewModel replaces clarification waiting with the 
   const timelineTexts = view.mainFeedEntries.flatMap((entry) =>
     entry.kind === "timeline" ? [entry.item.text] : [],
   );
-  expect(timelineTexts).toEqual(["澄清回答：应该使用哪种部署方式？ → 蓝绿部署"]);
+  expect(timelineTexts).toEqual(["询问回答：应该使用哪种部署方式？ → 蓝绿部署"]);
 });
 
 test("buildThreadRunProjectionViewModel anchors clarification answers beside AskUserQuestion and hides the tool row", () => {
@@ -1548,7 +1548,7 @@ test("buildThreadRunProjectionViewModel anchors clarification answers beside Ask
           at: "2026-01-01T00:05:00.000Z",
           eventType: "message.final",
           role: "main",
-          text: "澄清回答：应该使用哪种部署方式？ → 蓝绿部署",
+          text: "询问回答：应该使用哪种部署方式？ → 蓝绿部署",
           metadata: {
             liveType: "clarification.answered",
             tool: { name: "AskUserQuestion", toolUseId: "question-1", status: "completed" },
@@ -1595,7 +1595,7 @@ test("buildThreadRunProjectionViewModel anchors clarification answers beside Ask
     { kind: "timeline", text: "设计部署方案", at: "2026-01-01T00:00:01.000Z" },
     {
       kind: "timeline",
-      text: "澄清回答：应该使用哪种部署方式？ → 蓝绿部署",
+      text: "询问回答：应该使用哪种部署方式？ → 蓝绿部署",
       at: "2026-01-01T00:00:02.000Z",
     },
     { kind: "tool-group", texts: ["Read · src/app.ts"], at: "2026-01-01T00:00:03.000Z" },
@@ -1613,7 +1613,7 @@ test("buildThreadRunProjectionViewModel keeps clarification answers out of plann
           at: "2026-01-01T00:05:00.000Z",
           eventType: "message.final",
           role: "main",
-          text: "澄清回答：是否启用？ → 是",
+          text: "询问回答：是否启用？ → 是",
           metadata: { liveType: "clarification.answered" },
         }),
         item({
@@ -1631,7 +1631,7 @@ test("buildThreadRunProjectionViewModel keeps clarification answers out of plann
   const timelineTexts = view.mainFeedEntries.flatMap((entry) =>
     entry.kind === "timeline" ? [entry.item.text] : [],
   );
-  expect(timelineTexts).toEqual(["澄清回答：是否启用？ → 是", "好的，继续推进。"]);
+  expect(timelineTexts).toEqual(["询问回答：是否启用？ → 是", "好的，继续推进。"]);
 });
 
 test("buildThreadRunProjectionViewModel hides placeholder clarification.answered status lines", () => {
@@ -1651,7 +1651,7 @@ test("buildThreadRunProjectionViewModel hides placeholder clarification.answered
           sequence: 2,
           eventType: "message.final",
           role: "main",
-          text: "澄清回答：是否启用？ → 是",
+          text: "询问回答：是否启用？ → 是",
           metadata: {
             liveType: "clarification.answered",
             tool: { name: "AskUserQuestion", toolUseId: "q-2", status: "completed" },
@@ -1664,7 +1664,7 @@ test("buildThreadRunProjectionViewModel hides placeholder clarification.answered
   const timelineTexts = view.mainFeedEntries.flatMap((entry) =>
     entry.kind === "timeline" ? [entry.item.text] : [],
   );
-  expect(timelineTexts).toEqual(["澄清回答：是否启用？ → 是"]);
+  expect(timelineTexts).toEqual(["询问回答：是否启用？ → 是"]);
 });
 
 test("buildThreadRunProjectionViewModel hides MCP elicitation form status lines from the feed", () => {

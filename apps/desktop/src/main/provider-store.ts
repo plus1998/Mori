@@ -76,6 +76,11 @@ interface CandidateModelRow {
   id: string;
   provider_id: string;
   model_id: string;
+  base_url: string | null;
+  request_path: string | null;
+  version: string | null;
+  api_compat: string | null;
+  token_count_mode: string | null;
   display_name: string | null;
   models_dev_provider_key: string | null;
   models_dev_model_id: string | null;
@@ -156,6 +161,7 @@ export class ProviderStore {
     this.migrateRoleRoutesApiCompat();
     this.migrateLegacyOpenaiApiCompatValues();
     this.migrateCandidateModelsTable();
+    this.migrateCandidateModelEndpoints();
     this.migrateManualPriceMultiplier();
   }
 
@@ -714,6 +720,11 @@ export class ProviderStore {
         id TEXT PRIMARY KEY,
         provider_id TEXT NOT NULL,
         model_id TEXT NOT NULL,
+        base_url TEXT,
+        request_path TEXT,
+        version TEXT,
+        api_compat TEXT,
+        token_count_mode TEXT,
         display_name TEXT,
         models_dev_provider_key TEXT,
         models_dev_model_id TEXT,
@@ -734,10 +745,43 @@ export class ProviderStore {
     `);
   }
 
+  private migrateCandidateModelEndpoints(): void {
+    const columns = new Set((this.db.prepare("PRAGMA table_info(provider_candidate_models)").all() as Array<{ name: string }>).map((column) => column.name));
+    for (const [name, type] of [
+      ["base_url", "TEXT"],
+      ["request_path", "TEXT"],
+      ["version", "TEXT"],
+      ["api_compat", "TEXT"],
+      ["token_count_mode", "TEXT"],
+    ] as const) {
+      if (!columns.has(name)) this.db.exec(`ALTER TABLE provider_candidate_models ADD COLUMN ${name} ${type}`);
+    }
+    // A pre-existing model inherits its former provider route exactly once. Later provider
+    // edits cannot silently change the model's upstream protocol or endpoint.
+    this.db.exec(`
+      UPDATE provider_candidate_models
+      SET base_url = COALESCE(base_url, (SELECT base_url FROM provider_configs WHERE id = provider_id)),
+          request_path = COALESCE(request_path, (SELECT request_path FROM provider_configs WHERE id = provider_id)),
+          version = COALESCE(version, (SELECT version FROM provider_configs WHERE id = provider_id)),
+          api_compat = COALESCE(api_compat, CASE
+            WHEN EXISTS (
+              SELECT 1 FROM role_routes r
+              WHERE r.provider_id = provider_candidate_models.provider_id
+                AND r.model_id = provider_candidate_models.model_id
+                AND r.api_compat IS NOT NULL
+                AND r.api_compat <> (SELECT api_compat FROM provider_configs p WHERE p.id = provider_candidate_models.provider_id)
+            ) THEN ''
+            ELSE (SELECT api_compat FROM provider_configs p WHERE p.id = provider_candidate_models.provider_id)
+          END),
+          token_count_mode = COALESCE(token_count_mode, (SELECT token_count_mode FROM provider_configs WHERE id = provider_id))
+      WHERE base_url IS NULL OR request_path IS NULL OR version IS NULL OR api_compat IS NULL OR token_count_mode IS NULL
+    `);
+  }
+
   listCandidateModels(providerId: string): CandidateModelView[] {
     return this.db
       .prepare(`
-        SELECT id, provider_id, model_id, display_name,
+        SELECT id, provider_id, model_id, base_url, request_path, version, api_compat, token_count_mode, display_name,
                models_dev_provider_key, models_dev_model_id,
                manual_context_tokens, manual_max_output_tokens,
                manual_supports_image_input, manual_supports_reasoning,
@@ -761,13 +805,26 @@ export class ProviderStore {
       throw new Error(`找不到 Provider：${input.providerId}`);
     }
     const now = new Date().toISOString();
-    const id = input.id ?? createCandidateModelId(input.providerId, input.modelId);
+    const requestedId = input.id ?? createCandidateModelId(input.providerId, input.modelId);
     const mapping = input.modelsDevMapping;
     const manual = input.manualSpec;
+    const existing = this.db.prepare("SELECT * FROM provider_candidate_models WHERE id = ? OR (provider_id = ? AND model_id = ?)")
+      .get(requestedId, input.providerId.trim(), input.modelId.trim()) as CandidateModelRow | undefined;
+    const id = existing?.id ?? requestedId;
+    const provider = this.getProviderRow(input.providerId.trim())!;
+    if (existing?.api_compat === "" && input.apiCompat === undefined) {
+      throw new Error(`模型 ${input.modelId} 的旧路由协议与供应商默认值冲突，请确认模型协议后保存。`);
+    }
+    const baseUrl = (input.baseUrl ?? existing?.base_url ?? provider.base_url).trim();
+    if (!/^https?:\/\//.test(baseUrl)) throw new Error("模型端点地址须以 http:// 或 https:// 开头。");
+    const requestPath = normalizeRequestPath(input.requestPath ?? existing?.request_path ?? provider.request_path);
+    const version = normalizeApiVersion(input.version ?? existing?.version ?? provider.version);
+    const apiCompat = normalizeUpstreamApiCompat(input.apiCompat ?? existing?.api_compat ?? provider.api_compat);
+    const tokenCountMode = normalizeProviderTokenCountMode(input.tokenCountMode ?? existing?.token_count_mode ?? provider.token_count_mode);
     this.db
       .prepare(`
         INSERT INTO provider_candidate_models (
-          id, provider_id, model_id, display_name,
+          id, provider_id, model_id, base_url, request_path, version, api_compat, token_count_mode, display_name,
           models_dev_provider_key, models_dev_model_id,
           manual_context_tokens, manual_max_output_tokens,
           manual_supports_image_input, manual_supports_reasoning,
@@ -776,8 +833,13 @@ export class ProviderStore {
           manual_input_per_m, manual_output_per_m,
           manual_cache_read_per_m, manual_cache_write_per_m, manual_price_multiplier,
           sort_order, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(provider_id, model_id) DO UPDATE SET
+          base_url = excluded.base_url,
+          request_path = excluded.request_path,
+          version = excluded.version,
+          api_compat = excluded.api_compat,
+          token_count_mode = excluded.token_count_mode,
           display_name = excluded.display_name,
           models_dev_provider_key = excluded.models_dev_provider_key,
           models_dev_model_id = excluded.models_dev_model_id,
@@ -799,6 +861,11 @@ export class ProviderStore {
         id,
         input.providerId.trim(),
         input.modelId.trim(),
+        baseUrl,
+        requestPath,
+        version,
+        apiCompat,
+        tokenCountMode,
         input.displayName?.trim() ?? null,
         mapping?.providerKey?.trim() ?? null,
         mapping?.modelId?.trim() ?? null,
@@ -879,6 +946,7 @@ export class ProviderStore {
           ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?)
         `)
         .run(id, providerId, trimmed, null, sortOrder++, now, now);
+      this.migrateCandidateModelEndpoints();
       const row = this.db
         .prepare("SELECT * FROM provider_candidate_models WHERE provider_id = ? AND model_id = ?")
         .get(providerId, trimmed) as unknown as CandidateModelRow;
@@ -954,7 +1022,10 @@ export class ProviderStore {
       }
     }
 
-    if (changed) this.syncDefaultModelFromCandidates(providerId);
+    if (changed) {
+      this.migrateCandidateModelEndpoints();
+      this.syncDefaultModelFromCandidates(providerId);
+    }
     return { models: this.listCandidateModels(providerId), changed };
   }
 
@@ -1288,6 +1359,11 @@ function candidateRowToView(row: CandidateModelRow): CandidateModelView {
     id: row.id,
     providerId: row.provider_id,
     modelId: row.model_id,
+    ...(row.base_url ? { baseUrl: row.base_url } : {}),
+    ...(row.request_path !== null ? { requestPath: row.request_path } : {}),
+    ...(row.version ? { version: row.version } : {}),
+    ...(row.api_compat ? { apiCompat: normalizeUpstreamApiCompat(row.api_compat) } : {}),
+    ...(row.token_count_mode ? { tokenCountMode: normalizeProviderTokenCountMode(row.token_count_mode) } : {}),
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

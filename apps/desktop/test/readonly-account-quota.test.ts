@@ -203,25 +203,16 @@ test("service queries every configured account in ephemeral processes; rejects r
   }
   const missing = await service.createAccount("missing");
   ids.push(missing.id);
-  await service.setActiveAccount(ids[0]!);
-  await service.applyPendingTransition();
-  // Stop unrelated background reconciliation; retain the real store and service query implementation.
-  service["authWatcher"]?.close();
-  service["authWatcher"] = null;
-  if (service["authPoll"]) clearInterval(service["authPoll"]);
   const db = new DatabaseSync(path.join(root, "eco-coding.sqlite"));
   cleanup.push(async () => db.close());
   const dump = () => ["openai_accounts", "openai_account_quotas", "openai_account_settings"].map((table) => db.prepare(`SELECT * FROM ${table}`).all());
   const before = JSON.stringify(dump());
   const mainPath = path.join(root, "codex", "auth.json");
+  await fs.writeFile(mainPath, "unrelated legacy file", "utf8");
   const mainBefore = await fs.readFile(mainPath, "utf8");
-  const activeBefore = await service.getActiveAccountId();
   const choices = service.listAccountChoicesReadonly();
   expect(choices.map((choice) => choice.accountId)).toEqual(ids);
   expect(choices.map((choice) => choice.selectable)).toEqual([true, true, true, false]);
-  const revision = service.accountChoiceRevisionReadonly(ids[0]!);
-  expect(revision).not.toBeNull();
-  expect(JSON.stringify(choices)).not.toContain(revision!);
   for (const secret of [jwt(4_000_000_000), "private-refresh", "private-cookie", "private-id-token", "sk-private-key"])
     expect(JSON.stringify(choices)).not.toContain(secret);
   expect(JSON.stringify(dump())).toBe(before);
@@ -237,7 +228,6 @@ test("service queries every configured account in ephemeral processes; rejects r
   expect(result.accounts[3]?.error?.code).toBe("missing_credentials");
   expect(JSON.stringify(dump())).toBe(before);
   expect(await fs.readFile(mainPath, "utf8")).toBe(mainBefore);
-  expect(await service.getActiveAccountId()).toBe(activeBefore);
   const events = (await fs.readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
   const processes = events.filter((event) => event.home);
   expect(processes).toHaveLength(3);

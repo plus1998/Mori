@@ -2,9 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import { validateClaudeSubagentCompactWindow } from "@eco/shared";
+import { migrateMainAgentConfigs } from "./main-agent-config-migration";
 import type {
   AgentTemplate,
-  MainAgentConfigResource,
+  AgentConfigSource,
   MainAgentPromptResource,
   SubagentOrchestrationResource,
 } from "../shared/agent-orchestration";
@@ -32,14 +33,9 @@ export class AgentOrchestrationStore {
   constructor(private readonly db: DatabaseSyncType) {}
 
   initialize(): void {
+    migrateMainAgentConfigs(this.db);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS agent_templates (
-        id TEXT PRIMARY KEY,
-        value_json TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS main_agent_configs (
         id TEXT PRIMARY KEY,
         value_json TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -82,26 +78,6 @@ export class AgentOrchestrationStore {
 
   deleteAgentTemplate(id: string): void {
     this.db.prepare(`DELETE FROM agent_templates WHERE id = ?`).run(id.trim());
-  }
-
-  listMainAgentConfigs(): MainAgentConfigResource[] {
-    return this.listResourceRows("main_agent_configs").map(parseMainAgentConfigRow);
-  }
-
-  getMainAgentConfig(id: string): MainAgentConfigResource | undefined {
-    const row = this.getResourceRow("main_agent_configs", id);
-    return row ? parseMainAgentConfigRow(row) : undefined;
-  }
-
-  saveMainAgentConfig(config: MainAgentConfigResource): MainAgentConfigResource {
-    const normalized = normalizeStoredMainAgentConfig(config);
-    this.upsertRow("main_agent_configs", normalized.id, normalized, normalized.updatedAt);
-    return normalized;
-  }
-
-  deleteMainAgentConfig(id: string): void {
-    const trimmed = id.trim();
-    this.db.prepare(`DELETE FROM main_agent_configs WHERE id = ?`).run(trimmed);
   }
 
   listMainAgentPrompts(): MainAgentPromptResource[] {
@@ -194,27 +170,6 @@ export function normalizeStoredAgentTemplate(template: AgentTemplate): AgentTemp
   };
 }
 
-export function normalizeStoredMainAgentConfig(config: MainAgentConfigResource): MainAgentConfigResource {
-  assertWritableUserResource(config.source, config.id, "主 Agent 配置");
-  if (!config.name.trim()) {
-    throw new Error("主 Agent 配置名称不能为空。");
-  }
-  if (!config.agentKey.trim()) {
-    throw new Error("主 Agent 配置 agentKey 不能为空。");
-  }
-  const now = new Date().toISOString();
-  return {
-    ...config,
-    id: config.id.trim(),
-    name: config.name.trim(),
-    agentKey: config.agentKey.trim(),
-    skills: [...(config.skills ?? [])],
-    ...(config.v4aTeachingEnabled === true ? { v4aTeachingEnabled: true } : {}),
-    source: config.source === "project" ? "project" : "user",
-    updatedAt: config.updatedAt || now,
-  };
-}
-
 export function normalizeStoredMainAgentPrompt(prompt: MainAgentPromptResource): MainAgentPromptResource {
   assertWritableUserResource(prompt.source, prompt.id, "主 Agent 提示词");
   if (!prompt.name.trim()) {
@@ -257,7 +212,6 @@ export function normalizeStoredSubagentOrchestration(
     name: orchestration.name.trim(),
     agents: orchestration.agents.map((agent) => ({
       ...agent,
-      ...(agent.v4aTeachingEnabled === true ? { v4aTeachingEnabled: true } : {}),
     })),
     source: orchestration.source === "project" ? "project" : "user",
     updatedAt: orchestration.updatedAt || now,
@@ -265,7 +219,7 @@ export function normalizeStoredSubagentOrchestration(
 }
 
 function assertWritableUserResource(
-  source: MainAgentConfigResource["source"] | undefined,
+  source: AgentConfigSource | undefined,
   id: string,
   label: string,
 ): void {
@@ -283,11 +237,6 @@ function assertWritableUserResource(
 function parseAgentTemplateRow(row: StoredConfigRow): AgentTemplate {
   const parsed = parseJsonObject(row.value_json);
   return normalizeStoredAgentTemplate(parsed as unknown as AgentTemplate);
-}
-
-function parseMainAgentConfigRow(row: StoredConfigRow): MainAgentConfigResource {
-  const parsed = parseJsonObject(row.value_json);
-  return normalizeStoredMainAgentConfig(parsed as unknown as MainAgentConfigResource);
 }
 
 function parseMainAgentPromptRow(row: StoredConfigRow): MainAgentPromptResource {

@@ -39,7 +39,6 @@ test("wake batches and per-account results persist in the account database acros
       "succeeded",
       "succeeded",
     ]);
-    expect(await service.getActiveAccountId()).toBeNull();
   } finally {
     await service.dispose();
     await removeTempDirectory(root);

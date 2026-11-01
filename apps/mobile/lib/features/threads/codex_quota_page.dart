@@ -19,10 +19,8 @@ class CodexQuotaPage extends ConsumerStatefulWidget {
 
 class _CodexQuotaPageState extends ConsumerState<CodexQuotaPage>
     with WidgetsBindingObserver {
-  var _choosing = false;
   var _busy = false;
   String? _message;
-  var _search = '';
 
   @override
   void initState() {
@@ -92,34 +90,14 @@ class _CodexQuotaPageState extends ConsumerState<CodexQuotaPage>
     final l = context.l10n;
     final account = snapshot?.account;
     final quota = account?.quota;
-    final candidates =
-        snapshot?.candidates
-            .where(
-              (a) => [a.name, a.email, a.quota?.email ?? ''].any(
-                (s) => s.toLowerCase().contains(_search.toLowerCase().trim()),
-              ),
-            )
-            .toList() ??
-        [];
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
       children: [
         Row(
           children: [
-            if (_choosing)
-              IconButton(
-                tooltip: l.codexQuotaBack,
-                icon: const Icon(EcoIcons.back, size: 20),
-                onPressed: _busy
-                    ? null
-                    : () => setState(() {
-                        _choosing = false;
-                        _message = null;
-                      }),
-              ),
             Expanded(
               child: Text(
-                _choosing ? l.codexQuotaSwitchAccount : l.codexQuotaTitle,
+                l.codexQuotaTitle,
                 style: Theme.of(
                   context,
                 ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
@@ -130,14 +108,7 @@ class _CodexQuotaPageState extends ConsumerState<CodexQuotaPage>
               onPressed: _busy || usage.isLoading
                   ? null
                   : () => _run((c) async {
-                      if (_choosing) {
-                        for (final a
-                            in snapshot?.candidates ?? <CodexAccount>[]) {
-                          await c.refreshCandidate(a.id);
-                        }
-                      } else {
-                        await c.refresh();
-                      }
+                      await c.refresh();
                     }),
               icon: _busy || usage.isLoading
                   ? const SizedBox.square(
@@ -152,94 +123,8 @@ class _CodexQuotaPageState extends ConsumerState<CodexQuotaPage>
           _Notice(text: _error(usage.error!))
         else if (usage.isLoading && snapshot == null)
           _Notice(text: l.codexQuotaLoading)
-        else if (_choosing) ...[
-          _Notice(text: l.codexQuotaSwitchDescription),
-          TextField(
-            onChanged: (s) => setState(() => _search = s),
-            decoration: InputDecoration(
-              prefixIcon: const Icon(EcoIcons.search, size: 18),
-              hintText: l.codexQuotaSearch,
-            ),
-          ),
-          const SizedBox(height: 16),
-          if (candidates.isEmpty)
-            _Notice(
-              text: _search.isEmpty
-                  ? l.codexQuotaNoCandidates
-                  : l.codexQuotaNoResults,
-            ),
-          for (final candidate in candidates) ...[
-            EcoGroupedSurface(
-              margin: EdgeInsets.zero,
-              child: InkWell(
-                onTap:
-                    _busy || snapshot!.active.hasPending || !candidate.available
-                    ? null
-                    : () => _run((c) async {
-                        await c.switchAccount(candidate.id);
-                        if (mounted) setState(() => _choosing = false);
-                      }),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              candidate.name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          if (candidate.quota?.planType.isNotEmpty == true)
-                            Text(
-                              candidate.quota!.planType,
-                              style: TextStyle(color: eco.textMuted),
-                            ),
-                          IconButton(
-                            tooltip: l.codexQuotaRefresh,
-                            onPressed: _busy
-                                ? null
-                                : () => _run(
-                                    (c) => c.refreshCandidate(candidate.id),
-                                  ),
-                            icon: const Icon(EcoIcons.refresh, size: 17),
-                          ),
-                        ],
-                      ),
-                      if (candidate.email.isNotEmpty &&
-                          candidate.email != candidate.name)
-                        Text(
-                          candidate.email,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: eco.textMuted, fontSize: 12),
-                        ),
-                      const SizedBox(height: 12),
-                      if (candidate.quota != null)
-                        _QuotaWindows(quota: candidate.quota!),
-                      if (!candidate.available)
-                        _Notice(
-                          text: candidate.quota == null
-                              ? l.codexQuotaUnknown
-                              : l.codexQuotaExhausted,
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-        ] else if (account == null) ...[
+        else if (account == null) ...[
           _Notice(text: l.codexQuotaNoAccount),
-          TextButton(
-            onPressed: _busy ? null : () => setState(() => _choosing = true),
-            child: Text(l.codexQuotaSwitchAccount),
-          ),
         ] else ...[
           EcoGroupedSurface(
             margin: EdgeInsets.zero,
@@ -295,30 +180,13 @@ class _CodexQuotaPageState extends ConsumerState<CodexQuotaPage>
                       : l.codexQuotaNoCredit,
                   style: TextStyle(color: eco.textMuted, fontSize: 12),
                 ),
-                if (snapshot!.active.hasPending) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    l.codexQuotaSwitching,
-                    style: TextStyle(color: eco.textSecondary, fontSize: 13),
-                  ),
-                ],
                 const SizedBox(height: 16),
                 Row(
                   children: [
                     Expanded(
-                      child: OutlinedButton(
-                        onPressed: _busy || snapshot.active.hasPending
-                            ? null
-                            : () => setState(() => _choosing = true),
-                        child: Text(l.codexQuotaSwitchAccount),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
                       child: FilledButton.tonal(
                         onPressed:
                             _busy ||
-                                snapshot.active.hasPending ||
                                 quota == null ||
                                 quota.resetCreditsAvailable <= 0
                             ? null

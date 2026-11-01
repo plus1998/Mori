@@ -11,6 +11,7 @@ export type ProviderBrandId =
   | "hunyuan"
   | "xiaomi"
   | "opencode"
+  | "openrouter"
   | "system-one";
 
 export const PROVIDER_BRAND_IDS: readonly ProviderBrandId[] = [
@@ -26,6 +27,7 @@ export const PROVIDER_BRAND_IDS: readonly ProviderBrandId[] = [
   "hunyuan",
   "xiaomi",
   "opencode",
+  "openrouter",
   "system-one",
 ];
 
@@ -43,6 +45,7 @@ export const PROVIDER_BRAND_LOGOS: Record<ProviderBrandId, string> = {
   hunyuan: "./provider-icons/tencent-hunyuan.png",
   xiaomi: "./provider-icons/xiaomi-mimo.ico",
   opencode: "./provider-icons/opencode-zen.ico",
+  openrouter: "./provider-icons/openrouter.ico",
   "system-one": "./provider-icons/system-one.png",
 };
 
@@ -59,6 +62,7 @@ const PROVIDER_BRAND_PATTERNS: readonly { brand: ProviderBrandId; pattern: RegEx
   { brand: "hunyuan", pattern: /hunyuan|混元|tencent/ },
   { brand: "xiaomi", pattern: /xiaomi|mimo|小米/ },
   { brand: "opencode", pattern: /opencode/ },
+  { brand: "openrouter", pattern: /openrouter/ },
   { brand: "system-one", pattern: /typesafe|system-?one/ },
   { brand: "openai", pattern: /openai|chatgpt|\bgpt|dall-?e|sora|(^|[^a-z0-9])o[1-4]([^a-z0-9]|$)/ },
 ];

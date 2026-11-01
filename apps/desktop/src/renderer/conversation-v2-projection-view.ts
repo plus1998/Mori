@@ -7,6 +7,7 @@ import {
 import { isSkillActivityLabel } from "@eco/runtime/skill-display";
 import { isReadToolName } from "@eco/runtime/tool-target";
 import { isAcpSubagentAgentId } from "../shared/acp-subagent";
+import { isClarificationAnswerSummary } from "./clarification-history";
 import {
   bashApprovalPhaseToLifecycle,
   clampActivityPreviewLine,
@@ -2800,7 +2801,7 @@ function projectionStreamDisplayKey(
   if (
     liveType === "clarification.answered" ||
     liveType === "clarification.requested" ||
-    item.text.trim().startsWith("澄清回答：")
+    isClarificationAnswerSummary(item.text)
   ) {
     return undefined;
   }

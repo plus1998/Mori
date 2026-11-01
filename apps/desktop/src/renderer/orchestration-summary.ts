@@ -72,7 +72,7 @@ export function buildOrchestrationSummary(
   const mainModelRef = snapshot.mainAgent.modelRef;
   const main: OrchestrationMainSummary = {
     name:
-      localizeMainAgentConfigName(snapshot.selection.mainAgentConfigId, snapshot.mainAgent.name) ||
+      localizeMainAgentConfigName(snapshot.selection.mainAgentConfigId ?? "", snapshot.mainAgent.name) ||
       i18n.t("settings.models.mainAgent"),
     modelLabel: formatModelLabel(mainModelRef.providerId, mainModelRef.modelId, mainModelRef),
     modelId: mainModelRef.modelId,
@@ -103,7 +103,7 @@ export function buildOrchestrationSummary(
 
 export function formatOrchestrationDisplayName(snapshot: ResolvedOrchestrationSnapshot): string {
   const parts = [
-    localizeMainAgentConfigName(snapshot.selection.mainAgentConfigId, snapshot.mainAgentConfigName),
+    localizeMainAgentConfigName(snapshot.selection.mainAgentConfigId ?? "", snapshot.mainAgentConfigName),
     snapshot.mainPromptDisplayName.trim(),
   ].filter(Boolean);
   if (snapshot.subagentOrchestrationDisplayName?.trim()) {

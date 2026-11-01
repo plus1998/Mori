@@ -71,6 +71,35 @@ test("resolveThreadRuntimeConfig validates full role routes and keeps route meta
   });
 });
 
+test("one provider routes models through their own protocol and endpoint", () => {
+  const settings = {
+    providers: [], routeProfiles: [], agentTemplates: [], mainAgentConfigs: [],
+    mainAgentPrompts: [], subagentOrchestrations: [],
+  };
+  const resolved = resolveThreadRuntimeConfig(settings, [provider("mixed")], [
+    {
+      role: "main", providerId: "mixed", modelId: "oai-model",
+      apiCompat: "openai_responses", baseUrl: "https://responses.test/v1",
+      requestPath: "", version: "v1",
+    },
+    {
+      role: "explore", providerId: "mixed", modelId: "claude-model",
+      apiCompat: "anthropic", baseUrl: "https://messages.test",
+      requestPath: "/anthropic", version: "v1",
+    },
+  ], { requireCompleteCodingRoutes: false });
+  expect(resolved.ok).toBe(true);
+  if (!resolved.ok) throw new Error(resolved.reason);
+  expect(resolved.routes[0]).toMatchObject({
+    apiCompat: "openai_responses",
+    provider: { baseUrl: "https://responses.test/v1", requestPath: "", apiCompat: "openai_responses" },
+  });
+  expect(resolved.routes[1]).toMatchObject({
+    apiCompat: "anthropic",
+    provider: { baseUrl: "https://messages.test", requestPath: "/anthropic", apiCompat: "anthropic" },
+  });
+});
+
 test("persisted planner routes resolve as main without changing the saved model", () => {
   const legacyRoutes = routes().map((route) => ({
     ...route,

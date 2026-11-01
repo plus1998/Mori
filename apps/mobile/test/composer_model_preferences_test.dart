@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   const defaults = ThreadRuntimeConfig(
     orchestrationSelection: OrchestrationSelection(
-      mainAgentConfigId: 'main_1',
+      mainAgentConfigId: '',
       mainPrompt: BuiltinMainAgentPromptSelection(),
       subagents: NoneSubagentSelection(),
     ),
@@ -19,10 +19,10 @@ void main() {
     workspacePath: '/repo',
     coreKind: 'codex',
   );
-  const model = MainAgentModelOverride(
+  const model = OrchestrationModelRef(
     providerId: 'openai',
     modelId: 'gpt-6.1-sol',
-    candidateModelId: 'candidate_1',
+    accountId: 'account_1',
     thinkingEffort: 'high',
   );
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -32,22 +32,33 @@ void main() {
     () async {
       await scope.remember(
         defaults.copyWith(
-          mainAgentModelOverride: model,
+          orchestrationSelection: defaults.orchestrationSelection!.copyWith(
+            mainModel: model,
+          ),
           bashReviewMode: 'allow_all',
           sessionMode: 'plan',
         ),
       );
       final restored = await scope.restore(defaults);
-      expect(restored.mainAgentModelOverride?.toJson(), model.toJson());
+      expect(
+        restored.orchestrationSelection?.mainModel?.toJson(),
+        model.toJson(),
+      );
       expect(restored.bashReviewMode, 'always');
       expect(restored.sessionMode, 'agent');
     },
   );
 
   test(
-    'model preferences are isolated by desktop, project, core and profile',
+    'model and account preferences are isolated by desktop, project and core',
     () async {
-      await scope.remember(defaults.copyWith(mainAgentModelOverride: model));
+      await scope.remember(
+        defaults.copyWith(
+          orchestrationSelection: defaults.orchestrationSelection!.copyWith(
+            mainModel: model,
+          ),
+        ),
+      );
       for (final other in const [
         ComposerModelPreferenceScope(
           desktopId: 'desktop_2',
@@ -65,25 +76,26 @@ void main() {
           coreKind: 'claude',
         ),
       ]) {
-        expect((await other.restore(defaults)).mainAgentModelOverride, isNull);
+        expect(
+          (await other.restore(defaults)).orchestrationSelection?.mainModel,
+          isNull,
+        );
       }
-      final otherProfile = defaults.copyWith(
-        orchestrationSelection: const OrchestrationSelection(
-          mainAgentConfigId: 'main_2',
-          mainPrompt: BuiltinMainAgentPromptSelection(),
-          subagents: NoneSubagentSelection(),
-        ),
-      );
-      expect(
-        (await scope.restore(otherProfile)).mainAgentModelOverride,
-        isNull,
-      );
     },
   );
 
-  test('choosing template defaults clears a remembered override', () async {
-    await scope.remember(defaults.copyWith(mainAgentModelOverride: model));
+  test('clearing the selection clears the remembered model', () async {
+    await scope.remember(
+      defaults.copyWith(
+        orchestrationSelection: defaults.orchestrationSelection!.copyWith(
+          mainModel: model,
+        ),
+      ),
+    );
     await scope.remember(defaults);
-    expect((await scope.restore(defaults)).mainAgentModelOverride, isNull);
+    expect(
+      (await scope.restore(defaults)).orchestrationSelection?.mainModel,
+      isNull,
+    );
   });
 }

@@ -1032,7 +1032,9 @@ bool isRecordedUserPromptLiveEvent(String? liveType) {
   return liveType == 'thread.user_prompt';
 }
 
-const clarificationAnswerPrefix = '澄清回答：';
+const clarificationAnswerPrefix = '询问回答：';
+// Read conversation records written before the label was renamed.
+const _legacyClarificationAnswerPrefix = '澄清回答：';
 const _codexAsyncQuestionReplyOpen = '<send_user_message_question_reply>';
 const _codexAsyncQuestionReplyClose = '</send_user_message_question_reply>';
 
@@ -1095,11 +1097,12 @@ List<ClarificationAnswerRow>? parseClarificationAnswers(String text) {
 
 List<ClarificationAnswerRow>? parseClarificationAnswersSummary(String text) {
   final trimmed = text.trim();
-  if (!trimmed.startsWith(clarificationAnswerPrefix)) {
+  final prefix = _clarificationAnswerSummaryPrefix(trimmed);
+  if (prefix == null) {
     return null;
   }
 
-  final rest = trimmed.substring(clarificationAnswerPrefix.length).trim();
+  final rest = trimmed.substring(prefix.length).trim();
   if (rest.isEmpty) {
     return const [];
   }
@@ -1117,6 +1120,19 @@ List<ClarificationAnswerRow>? parseClarificationAnswersSummary(String text) {
     final answer = segments.skip(1).join(' → ').trim();
     return ClarificationAnswerRow(question: question, answer: answer);
   }).toList();
+}
+
+bool isClarificationAnswerSummary(String text) =>
+    _clarificationAnswerSummaryPrefix(text.trim()) != null;
+
+String? _clarificationAnswerSummaryPrefix(String text) {
+  if (text.startsWith(clarificationAnswerPrefix)) {
+    return clarificationAnswerPrefix;
+  }
+  if (text.startsWith(_legacyClarificationAnswerPrefix)) {
+    return _legacyClarificationAnswerPrefix;
+  }
+  return null;
 }
 
 bool isUserPromptActivityLine({required String role, required String message}) {

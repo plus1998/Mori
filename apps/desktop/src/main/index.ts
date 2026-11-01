@@ -7,7 +7,7 @@ import { APP_LINK_SCHEMES, isAppDeepLink } from "../shared/center-server";
 import { resolveGenerationToolContext } from "./generation-tool-context";
 import type { ImageGenerationToolInput } from "../shared/image-generation";
 import type { TtsToolInput } from "../shared/tts";
-import { isCodexAuthThread } from "../shared/codex-auth-thread";
+import { isCodexAuthThread, codexAccountIdForThread } from "../shared/codex-auth-thread";
 import { createAccountUsagePricingLookup } from "./account-usage-pricing";
 import { ChatGptModelCatalogService, resolveChatGptModelCatalogCachePath } from "./chatgpt-model-catalog";
 import { ProjectTodoStore } from "./project-todo-store";
@@ -360,7 +360,6 @@ import {
   isThreadRuntimeConfig,
   type ListUpstreamModelsRequest,
   MAX_CLIPBOARD_IMAGE_BASE64_CHARS,
-  type MainAgentConfigResource,
   type MainAgentPromptResource,
   type McpServerConfigInput,
   type ModelSettingsSnapshot,
@@ -673,6 +672,7 @@ import {
 } from "./codex-model-catalog-remote";
 import {
   getGlobalCodexRuntimeLifecycle,
+  invalidateCodexAccountRuntimeLifecycle,
   getCodexRuntimeClientForThread,
   getCodexRuntimeClients,
   parseElectronProxyResolution,
@@ -691,7 +691,6 @@ import {
   forkCodexThreadForEcoThread,
   isCodexThreadForkPrepared,
   getCodexTurnRouteRegistry,
-  requestCodexAccountRuntimeRestart,
   isCodexCliAvailable,
   queryCodexThreadStatusForEcoThread,
   registerResolvedCodexGatewayTurnRoute,
@@ -1902,6 +1901,32 @@ const codexGatewayUsagePending = new CodexGatewayUsagePendingBuffer({
 });
 let agentLifecycle: AgentLifecycleService;
 let openaiAccountService: OpenAIAccountService | undefined;
+let openaiAccountServicePromise: Promise<OpenAIAccountService> | undefined;
+const resolveSystemProxyResolution = () =>
+  session.defaultSession.resolveProxy("https://chatgpt.com");
+const resolveSystemProxyUrl = async () =>
+  parseElectronProxyResolution(await resolveSystemProxyResolution());
+const getOpenAIAccountService = async () => {
+  if (openaiAccountService) return openaiAccountService;
+  if (!openaiAccountServicePromise) {
+    openaiAccountServicePromise = (async () => {
+      const { OpenAIAccountService } = await import("./openai-account-service");
+      const service = new OpenAIAccountService(app.getPath("userData"), resolveCodexExecutable, () => {
+        desktopEventCenter.publish({ kind: "openai-accounts.changed", payload: {}, aggregateKey: "openai-accounts" });
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.openAIAccountsChanged, {});
+        }
+      }, resolveSystemProxyUrl,recordAccountUsage);
+      await service.initialize({ startBackground: false });
+      openaiAccountService = service;
+      return service;
+    })().finally(() => {
+      openaiAccountServicePromise = undefined;
+    });
+  }
+  return openaiAccountServicePromise;
+};
+
 let accountUsageStore: AccountUsageStore;
 const codexAccountUsageTracker = new CodexAccountUsageTracker();
 const codexLiveUsageBilling = new CodexLiveUsageBilling();
@@ -2741,6 +2766,8 @@ app
     app.once("will-quit", () => projectTodoStore.close());
     providerStore = await createProviderStore(dbPath);
     agentOrchestrationStore = await createAgentOrchestrationStore(dbPath);
+    // Bind legacy accounts before loading settings, sessions or scheduled work.
+    await getOpenAIAccountService();
     mcpStore = await createMcpStore(dbPath);
     mcpHubGateway = new McpHubGateway();
     // The image store must be available before ConversationStore.initialize():
@@ -3129,23 +3156,25 @@ app
         return Promise.all(
           providerStore
             .listProvidersWithSecrets()
-            .filter((provider) => provider.apiCompat !== "system_one")
+            .filter((provider) => provider.apiCompat !== "system_one" || providerStore.listCandidateModels(provider.id).some((model) => model.apiCompat !== "system_one"))
             .map(async (provider) => {
-              const candidates = provider.authMethod === "chatgpt_subscription"
-                ? (await getChatGptModelCatalogService().listModels()).map((model) => ({ modelId: model.modelId, manualSpec: undefined, modelsDevMapping: undefined }))
+              const candidates: Array<Pick<CandidateModelView, "modelId"> & Partial<CandidateModelView>> = provider.authMethod === "chatgpt_subscription"
+                ? (await getChatGptModelCatalogService().listModels()).map((model) => ({ modelId: model.modelId }))
                 : providerStore.listCandidateModels(provider.id);
+              const gatewayCandidates = candidates.filter((model) => model.apiCompat !== "system_one");
+              const gatewayDefault = provider.apiCompat === "system_one" ? gatewayCandidates[0] : undefined;
               const modelIds = [
                 ...new Set([
-                  provider.defaultModel,
-                  ...candidates.map((model) => model.modelId),
-                  ...(routeModels.get(provider.id) ?? []),
+                  ...(provider.apiCompat !== "system_one" ? [provider.defaultModel] : []),
+                  ...gatewayCandidates.map((model) => model.modelId),
+                  ...(provider.apiCompat !== "system_one" ? routeModels.get(provider.id) ?? [] : []),
                 ]),
               ].filter(Boolean);
               const models = await Promise.all(
                 modelIds.map(async (modelId) => {
-                  const candidate = candidates.find((model) => model.modelId === modelId);
+                  const candidate = gatewayCandidates.find((model) => model.modelId === modelId);
                   const resolved = await pricingCache.resolveContextLimit(
-                    provider.baseUrl,
+                    candidate?.baseUrl ?? provider.baseUrl,
                     modelId,
                     candidate?.modelsDevMapping,
                     candidate?.manualSpec?.contextTokens,
@@ -3153,6 +3182,11 @@ app
                   );
                   return {
                     modelId,
+                    ...(candidate?.baseUrl ? { baseUrl: candidate.baseUrl } : {}),
+                    ...(candidate?.requestPath !== undefined ? { requestPath: candidate.requestPath } : {}),
+                    ...(candidate?.version ? { version: candidate.version } : {}),
+                    ...(candidate?.apiCompat ? { apiCompat: candidate.apiCompat } : {}),
+                    ...(candidate?.tokenCountMode ? { tokenCountMode: candidate.tokenCountMode } : {}),
                     ...(candidate?.manualSpec?.supportsImageInput !== undefined && {
                       supportsImageInput: candidate.manualSpec.supportsImageInput,
                     }),
@@ -3170,16 +3204,16 @@ app
                 id: provider.id,
                 name: provider.name,
                 enabled: provider.enabled,
-                baseUrl: provider.baseUrl,
-                requestPath: provider.requestPath,
-                version: provider.version,
+                baseUrl: gatewayDefault?.baseUrl ?? provider.baseUrl,
+                requestPath: gatewayDefault?.requestPath ?? provider.requestPath,
+                version: gatewayDefault?.version ?? provider.version,
                 apiKey: provider.apiKey,
                 ...(provider.authMethod ? { authMethod: provider.authMethod } : {}),
                 ...(provider.credentialPoolId ? { credentialPoolId: provider.credentialPoolId } : {}),
                 ...(provider.upstreamProxyUrl ? { upstreamProxyUrl: provider.upstreamProxyUrl } : {}),
-                apiCompat: resolveUpstreamApiCompat(undefined, provider.apiCompat),
+                apiCompat: resolveUpstreamApiCompat(undefined, gatewayDefault?.apiCompat ?? provider.apiCompat),
                 ...(provider.tokenCountMode && { tokenCountMode: provider.tokenCountMode }),
-                defaultModel: provider.defaultModel,
+                defaultModel: gatewayDefault?.modelId ?? provider.defaultModel,
                 models,
                 modelIds: routeModels.get(provider.id) ?? [],
               };
@@ -3192,9 +3226,15 @@ app
       getUpstreamProxyUrl: () => resolveOutboundProxyUrl(proxyBridgeSettingsStore.get()),
       getGatewayCredentialResolver:
         () =>
-        async ({ provider }) => {
+        async ({ provider, request }) => {
+          const threadId = request?.headers.get("x-gateway-thread-id")?.trim();
+          if (!threadId) throw new Error("ChatGPT OAuth 请求没有会话标识，无法确定绑定账号。");
+          const thread = conversationStore.getThread(threadId);
+          if (!thread) throw new Error(`找不到 ChatGPT OAuth 请求所属会话：${threadId}`);
+          const accountId = thread.runtimeConfig?.orchestrationSelection?.mainModel?.accountId?.trim();
+          if (!accountId) throw new Error("此会话尚未选择 ChatGPT OAuth 账号，请先选择账号和模型。");
           const service = await getChatGptSubscriptionService();
-          return service.resolveCredential(provider);
+          return service.resolveCredential(provider, accountId);
         },
       getGatewayCredentialReporter:
         () =>
@@ -3390,9 +3430,8 @@ app
     });
     configureCodexRuntimeRun({
       ecoDataDir: app.getPath("userData"),
-      ensureAccountReady: async () => {
+      ensureAccountReady: async (accountId) => {
         if (!openaiAccountService) throw new Error("ChatGPT Login 账号服务尚未初始化，请稍后重试。");
-        const accountId = await openaiAccountService.getActiveAccountId();
         if (!accountId) throw new Error("未选择 ChatGPT Login 账号。");
         await openaiAccountService.getExternalChatGptTokens(accountId);
       },
@@ -3614,10 +3653,11 @@ app
       onCodexThreadAttributionRecorded: flushPendingCodexGatewayUsage,
       accountUsageObserver: {
         onTurnStarted: ({ codexThreadId, turnId }) => {
-          const accountId = openaiAccountService?.getUsageAccountId();
+          const attribution = resolveCodexThreadAttribution(codexThreadMap, codexThreadId);
+          const thread = attribution ? conversationStore.getThread(attribution.ecoThreadId) : undefined;
+          const accountId = thread ? codexAccountIdForThread(thread) : undefined;
           if (!accountId) return;
           try {
-            const attribution = resolveCodexThreadAttribution(codexThreadMap, codexThreadId);
             if (!attribution || !conversationStore.getThread(attribution.ecoThreadId)) return;
             const role = normalizeTelemetryBillingRole(attribution.billingRole);
             const route = resolveRoleRoutesForThread(attribution.ecoThreadId).find(
@@ -4218,22 +4258,8 @@ installApplicationShutdownHook(
 );
 
 function getModelSettingsSnapshot(): ModelSettingsSnapshot {
-  // Check if OpenAI auth.json exists in CODEX_HOME (synchronous check)
-  let openAiAccountActive = false;
-  try {
-    const authJsonPath = path.join(app.getPath("userData"), "codex", "auth.json");
-    openAiAccountActive = existsSync(authJsonPath);
-  } catch {
-    /* app not ready yet */
-  }
-  const chatGptSubscriptionModelId = getChatGptModelCatalogService().getLoadedDefaultModelId();
-  const codexAuthModel = workflowSettingsStore.getCodexAuthModel();
   return {
-    ...mergeAgentRegistrySettings(providerStore.getSettings(), agentOrchestrationStore, {
-      openAiAccountActive,
-      ...(chatGptSubscriptionModelId ? { chatGptSubscriptionModelId } : {}),
-      ...(codexAuthModel ? { codexAuthModel } : {}),
-    }),
+    ...mergeAgentRegistrySettings(providerStore.getSettings(), agentOrchestrationStore),
     mcpSettings: mcpStore.getSettings(),
   };
 }
@@ -4384,7 +4410,8 @@ async function codexModelCatalogSnapshot(): Promise<CodexModelCatalogSnapshot> {
 function listCodexCatalogRoutesFromSettings(): CodexGatewayCatalogRoute[] {
   const settings = getModelSettingsSnapshot();
   const refs = [
-    ...settings.mainAgentConfigs.map((config) => config.modelRef),
+    ...(workflowSettingsStore.get().defaultOrchestrationSelection?.mainModel
+      ? [workflowSettingsStore.get().defaultOrchestrationSelection!.mainModel!] : []),
     ...settings.subagentOrchestrations.flatMap((orchestration) =>
       orchestration.agents.map((agent) => agent.modelRef),
     ),
@@ -4585,13 +4612,22 @@ function resolveCandidateModelDefaults(routes: readonly RuntimeRoleRouteConfig[]
     const candidate = providerStore
       .listCandidateModels(route.providerId)
       .find((entry) => entry.id === route.candidateModelId);
-    if (!candidate) {
-      return route;
+    if (!candidate) throw new Error(`模型 ${route.candidateModelId} 已不存在，请重新选择。`);
+    if (candidate.apiCompat === "system_one") {
+      throw new Error(`模型 ${candidate.modelId} 使用 SystemOne 协议，仅可作为审批模型。`);
+    }
+    if (!candidate.baseUrl || !candidate.apiCompat) {
+      throw new Error(`模型 ${candidate.modelId} 缺少端点或协议配置，请重新编辑模型。`);
     }
     const manualSpec = mergeRouteManualSpec(candidate.manualSpec, route.manualSpec);
     return {
       ...route,
       modelId: candidate.modelId || route.modelId,
+      baseUrl: candidate.baseUrl,
+      requestPath: candidate.requestPath ?? "",
+      version: candidate.version ?? "v1",
+      ...(candidate.tokenCountMode ? { tokenCountMode: candidate.tokenCountMode } : {}),
+      ...(candidate.apiCompat ? { apiCompat: candidate.apiCompat } : {}),
       ...(route.modelsDevMapping
         ? { modelsDevMapping: route.modelsDevMapping }
         : candidate.modelsDevMapping
@@ -5600,7 +5636,7 @@ async function deleteModelProvider(providerId: unknown) {
     getModelSettingsSnapshot(),
     conversationStore.listThreads(),
   );
-  const { blocking, cascadeMainAgentConfigs, cascadeSubagentOrchestrations } =
+  const { blocking, cascadeSubagentOrchestrations } =
     partitionProviderDeleteReferences(references);
   if (blocking.length > 0) {
     return {
@@ -5610,11 +5646,8 @@ async function deleteModelProvider(providerId: unknown) {
     };
   }
 
-  for (const reference of cascadeMainAgentConfigs) {
-    workflowSettingsStore.clearDefaultMainAgentConfigReference(reference.id);
-    projectOrchestrationSettingsStore.clearMainAgentConfigReference(reference.id);
-    agentOrchestrationStore.deleteMainAgentConfig(reference.id);
-  }
+  workflowSettingsStore.clearDefaultMainModelProviderReference(trimmedProviderId);
+  projectOrchestrationSettingsStore.clearMainModelProviderReference(trimmedProviderId);
   for (const reference of cascadeSubagentOrchestrations) {
     workflowSettingsStore.clearDefaultSubagentOrchestrationReference(reference.id);
     projectOrchestrationSettingsStore.clearSubagentOrchestrationReference(reference.id);
@@ -7533,6 +7566,11 @@ function registerIpcHandlers(): void {
     const service = await getChatGptSubscriptionService();
     return service.listAccounts();
   });
+  registerDesktopCommand(IPC_CHANNELS.chatGptSubscriptionAccountModelsList, async (accountId: unknown) => {
+    if (typeof accountId !== "string" || !accountId.trim()) throw new Error("请先选择 ChatGPT OAuth 账号。");
+    const service = await getChatGptSubscriptionService();
+    return service.listModels(accountId.trim());
+  });
 
   registerDesktopCommand(IPC_CHANNELS.accountUsageHistory, (query: AccountUsageQuery) => accountUsageStore.history(query));
   registerDesktopCommand(IPC_CHANNELS.usageOverview, (query: import("../shared/account-usage").UsageOverviewQuery) => accountUsageStore.overview(query));
@@ -7719,228 +7757,13 @@ function registerIpcHandlers(): void {
     },
   );
 
-  // ─── Codex OAuth Login ──────────────────────────────────────────────────────
-
-  registerDesktopCommand(IPC_CHANNELS.codexOAuthGetStatus, async () => {
-    const codexHomeDir = resolveCodexHomeDir(app.getPath("userData"));
-    const { CodexOAuthLoginService } = await import("./codex-oauth-login");
-    const codexExecutable = resolveCodexExecutable();
-    if (!codexExecutable) {
-      return { isLoggedIn: false, message: "Codex CLI not found" };
-    }
-    const service = new CodexOAuthLoginService(codexHomeDir, codexExecutable);
-    return service.getStatus();
-  });
-
-  registerDesktopCommand(
-    IPC_CHANNELS.codexOAuthStartLogin,
-    async (payload: { upstreamProxyUrl?: string }) => {
-      const codexHomeDir = resolveCodexHomeDir(app.getPath("userData"));
-      const { CodexOAuthLoginService } = await import("./codex-oauth-login");
-      const codexExecutable = resolveCodexExecutable();
-      if (!codexExecutable) {
-        return { success: false, message: "Codex CLI not found" };
-      }
-
-      // Use the proxy URL passed from the form, or fall back to provider settings
-      let upstreamProxyUrl = payload?.upstreamProxyUrl?.trim() || undefined;
-      process.stderr.write(
-        `[codex-oauth] payload.upstreamProxyUrl: ${JSON.stringify(payload?.upstreamProxyUrl)}\n`,
-      );
-      if (!upstreamProxyUrl) {
-        try {
-          const providers = providerStore.listProvidersWithSecrets();
-          const openaiProvider = providers.find((p) => p.id === "openai");
-          upstreamProxyUrl = openaiProvider?.upstreamProxyUrl?.trim() || undefined;
-          process.stderr.write(`[codex-oauth] stored provider proxy: ${JSON.stringify(upstreamProxyUrl)}\n`);
-        } catch {
-          // ignore
-        }
-      }
-      if (!upstreamProxyUrl) {
-        upstreamProxyUrl = proxyBridgeSettingsStore.get().upstreamProxyUrl?.trim() || undefined;
-        process.stderr.write(`[codex-oauth] global proxy: ${JSON.stringify(upstreamProxyUrl)}\n`);
-      }
-      process.stderr.write(`[codex-oauth] final upstreamProxyUrl: ${JSON.stringify(upstreamProxyUrl)}\n`);
-
-      const service = new CodexOAuthLoginService(codexHomeDir, codexExecutable, upstreamProxyUrl);
-      const authInfo = await service.startLogin();
-
-      if (!authInfo) {
-        return { success: false, message: "Failed to start login" };
-      }
-
-      // Log for debugging
-      process.stderr.write(`[codex-oauth] authUrl: ${authInfo.authUrl}\n`);
-
-      // Create a custom session with proxy for the auth window
-      const { session: electronSession } = await import("electron");
-      const mainWin = getMainWindow();
-
-      const authSession = electronSession.fromPartition("oauth-auth-session");
-
-      if (upstreamProxyUrl) {
-        try {
-          const parsed = new URL(upstreamProxyUrl);
-          const protocol = parsed.protocol.replace(":", "");
-
-          if (protocol.startsWith("socks")) {
-            process.stderr.write(`[codex-oauth] SOCKS5 proxy not supported by Chromium\n`);
-          } else {
-            const pacContent = `function FindProxyForURL(url, host) {
-            return "PROXY ${parsed.host}";
-          }`;
-            const pacDataUri =
-              "data:application/x-ns-proxy-autoconfig;base64," +
-              Buffer.from(pacContent, "utf8").toString("base64");
-            await authSession.setProxy({
-              mode: "pac_script",
-              pacScript: pacDataUri,
-            });
-          }
-        } catch (error) {
-          process.stderr.write(`[codex-oauth] failed to set proxy: ${error}\n`);
-        }
-      }
-
-      const authWindow = createOAuthAuthWindow(mainWin);
-      let loginCancelled = false;
-
-      const cancelLogin = () => {
-        if (loginCancelled) return;
-        loginCancelled = true;
-        authInfo.cancel();
-        process.stderr.write(`[codex-oauth] auth window closed\n`);
-        // Notify UI that login was cancelled.
-        BrowserWindow.getAllWindows().forEach((win) => {
-          if (!win.isDestroyed()) {
-            win.webContents.send("codex-oauth:login-result", {
-              success: false,
-              message: "登录已取消",
-            });
-          }
-        });
-      };
-
-      // Register before loadURL: the user can close the native window while the
-      // OAuth page is still loading.
-      const completionGuard = installCodexAuthCompletionGuard(authWindow, cancelLogin);
-      authWindow.on("closed", () => {
-        completionGuard.dispose();
-        // `destroy()` and application shutdown may skip the `close` event.
-        cancelLogin();
-      });
-
-      // Prevent WebRTC IP leak (bypasses HTTP proxy)
-      authWindow.webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
-      process.stderr.write(`[codex-oauth] WebRTC IP handling: disable_non_proxied_udp\n`);
-
-      // Load the URL
-      process.stderr.write(`[codex-oauth] loading URL: ${authInfo.authUrl}\n`);
-      try {
-        await authWindow.loadURL(authInfo.authUrl);
-      } catch (error) {
-        completionGuard.allowClose();
-        cancelLogin();
-        if (!authWindow.isDestroyed()) authWindow.destroy();
-        return {
-          success: false,
-          message: `打开登录页面失败: ${error instanceof Error ? error.message : String(error)}`,
-        };
-      }
-
-      // Store the pending login result so we can notify when it completes
-      void authInfo.result
-        .then((res) => {
-          if (loginCancelled) return;
-          // Mark the flow as settled before closing so the close listener does not
-          // report a successful login as a cancellation.
-          loginCancelled = true;
-          completionGuard.allowClose();
-          if (!authWindow.isDestroyed()) authWindow.close();
-          process.stderr.write(`[codex-oauth] login result: ${JSON.stringify(res)}\n`);
-          if (res.success) {
-            // This flow logs straight into CODEX_HOME/auth.json, which gates the virtual
-            // Codex Auth provider/model in the settings snapshot.
-            emitSettingsUpdated();
-          }
-          BrowserWindow.getAllWindows().forEach((win) => {
-            if (!win.isDestroyed()) {
-              win.webContents.send("codex-oauth:login-result", res);
-            }
-          });
-        })
-        .catch((error) => {
-          if (loginCancelled) return;
-          loginCancelled = true;
-          authInfo.cancel();
-          completionGuard.allowClose();
-          if (!authWindow.isDestroyed()) authWindow.close();
-          process.stderr.write(`[codex-oauth] login error: ${error}\n`);
-          BrowserWindow.getAllWindows().forEach((win) => {
-            if (!win.isDestroyed()) {
-              win.webContents.send("codex-oauth:login-result", {
-                success: false,
-                message: `登录失败: ${error instanceof Error ? error.message : String(error)}`,
-              });
-            }
-          });
-        });
-
-      return { success: true, message: "Login started" };
-    },
-  );
-
-  registerDesktopCommand(IPC_CHANNELS.codexOAuthLogout, async () => {
-    const codexHomeDir = resolveCodexHomeDir(app.getPath("userData"));
-    const { CodexOAuthLoginService } = await import("./codex-oauth-login");
-    const codexExecutable = resolveCodexExecutable();
-    if (!codexExecutable) {
-      return { success: false, message: "Codex CLI not found" };
-    }
-    const service = new CodexOAuthLoginService(codexHomeDir, codexExecutable);
-    const result = await service.logout();
-    // Logout removes CODEX_HOME/auth.json, which gates the virtual Codex Auth
-    // provider/model in the settings snapshot.
-    emitSettingsUpdated();
-    return result;
-  });
-
   // ─── OpenAI Account Management ─────────────────────────────────────────────
 
-  let openaiAccountServicePromise: Promise<OpenAIAccountService> | undefined;
-  const resolveSystemProxyResolution = () =>
-    session.defaultSession.resolveProxy("https://chatgpt.com");
-  const resolveSystemProxyUrl = async () =>
-    parseElectronProxyResolution(await resolveSystemProxyResolution());
   setCodexSystemProxyResolver(resolveSystemProxyResolution);
-  const getOpenAIAccountService = async () => {
-    if (openaiAccountService) return openaiAccountService;
-    if (!openaiAccountServicePromise) {
-      openaiAccountServicePromise = (async () => {
-        const { OpenAIAccountService } = await import("./openai-account-service");
-        const service = new OpenAIAccountService(app.getPath("userData"), resolveCodexExecutable, (state) => {
-          desktopEventCenter.publish({ kind: "openai-accounts.changed", payload: {}, aggregateKey: "openai-accounts" });
-          for (const window of BrowserWindow.getAllWindows()) {
-            if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.openAIAccountsChanged, state);
-          }
-        }, undefined, resolveSystemProxyUrl,recordAccountUsage);
-        await service.initialize();
-        openaiAccountService = service;
-        for (const thread of conversationStore.listThreads()) {
-          if (thread.status === "running" && activeRunRuntimeState.hasRun(thread.id) && isCodexAuthThread(thread)) service.setQuotaUsage(thread.id, true);
-        }
-        return service;
-      })().finally(() => {
-        openaiAccountServicePromise = undefined;
-      });
-    }
-    return openaiAccountServicePromise;
-  };
 
   setCodexExternalAuthProvider(async (accountId, previousAccessToken) => {
     const service = await getOpenAIAccountService();
-    const selectedId = accountId ?? await service.getActiveAccountId();
+    const selectedId = accountId;
     if (!selectedId) return undefined;
     return { accountId: selectedId, ...await service.getExternalChatGptTokens(selectedId, previousAccessToken) };
   });
@@ -7951,11 +7774,6 @@ function registerIpcHandlers(): void {
     moriShortcut: () => keyboardShortcutsStore.get()["mori-floating"]?.[0] ?? "",
     dataDir: app.getPath("userData"), conversations: conversationStore,
     accounts: getOpenAIAccountService, executable: resolveCodexExecutable, onUsage: recordAccountUsage,
-    globalAccountChanged: () => {
-      requestCodexAccountRuntimeRestart("account");
-      scheduleCodexGlobalRuntimeRefresh();
-      emitSettingsUpdated();
-    },
     resolveSystemProxy: resolveSystemProxyResolution,
     preload: path.join(__dirname, "../preload/index.cjs"), renderer: path.join(__dirname, "../renderer/index.html"),
     ...(appIcon ? { icon: appIcon } : {}),
@@ -7971,7 +7789,6 @@ function registerIpcHandlers(): void {
       const settings = getModelSettingsSnapshot();
       return {
         providers: settings.providers.map(provider => ({ id: provider.id, name: provider.name, defaultModel: provider.defaultModel, enabled: provider.enabled })),
-        mainAgentConfigs: settings.mainAgentConfigs.map(config => ({ id: config.id, name: config.name })),
         routeProfiles: settings.routeProfiles,
       };
     },
@@ -8065,33 +7882,10 @@ function registerIpcHandlers(): void {
     },
   );
 
-  const scheduleOpenAIAccountTransition = (service: OpenAIAccountService) => {
-    requestCodexAccountRuntimeRestart("account");
-    scheduleCodexGlobalRuntimeRefresh({
-      beforePrepare: async () => {
-        try {
-          if (service.getPendingAccountId() === undefined) return;
-          // Account switching is explicit: publish immediately. Existing login
-          // requests may fail authentication; gateway turns keep running.
-          await service.flushFinalAuthWriteback();
-          await service.applyPendingTransition();
-          if (service.getPendingAccountId() === undefined) emitSettingsUpdated();
-        } catch (error) {
-          service.reportSyncError(error);
-          throw error;
-        }
-      },
-    });
-  };
-
-  // Register before any composer request can start Codex. The getter itself awaits
-  // initialization, so a cold start cannot silently omit the active account proxy.
-  setCodexAccountProxyConfigGetter(async () => (await getOpenAIAccountService()).getActiveProxyConfig());
-  void getOpenAIAccountService().catch((error) => {
-    console.error(
-      `[openai-accounts] Initialization failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  });
+  setCodexAccountProxyConfigGetter(async (accountId) => (await getOpenAIAccountService()).getAccountProxyConfig(accountId));
+  // Credentials were migrated before settings loaded; start scheduled work only
+  // after the remaining application services are ready.
+  openaiAccountService!.wakeBatches.start();
 
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsList, async () => {
     const svc = await getOpenAIAccountService();
@@ -8114,15 +7908,8 @@ function registerIpcHandlers(): void {
 
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsDelete, async (payload: { accountId: string }) => {
     const svc = await getOpenAIAccountService();
-    const prevActiveId = await svc.getActiveAccountId();
-    const prevPendingAccountId = svc.getPendingAccountId();
     await svc.deleteAccount(payload.accountId);
-    if (prevActiveId === payload.accountId) {
-      scheduleOpenAIAccountTransition(svc);
-    } else if (prevPendingAccountId === payload.accountId) {
-      scheduleOpenAIAccountTransition(svc);
-    }
-    return { success: true, pending: prevActiveId === payload.accountId };
+    return { success: true };
   });
 
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsSubmitLoginCallback, async (payload: { accountId: string; loginId: string; callbackUrl: string }) => {
@@ -8142,10 +7929,7 @@ function registerIpcHandlers(): void {
     }
 
     if (payload.mode === "external") {
-      void authInfo.result.then(async (result) => {
-        if (result.success && payload.accountId === await svc.getActiveAccountId()) scheduleOpenAIAccountTransition(svc);
-        return result;
-      }).catch((error: unknown) => ({
+      void authInfo.result.catch((error: unknown) => ({
         success: false, message: `登录结果保存失败：${error instanceof Error ? error.message : String(error)}`,
       })).then((result) => {
         for (const win of BrowserWindow.getAllWindows()) {
@@ -8230,18 +8014,6 @@ function registerIpcHandlers(): void {
         completionGuard.allowClose();
         closeSocksBridge();
         if (!authWindow.isDestroyed()) authWindow.close();
-        // `codex login` only writes the account's own CODEX_HOME. When this account is
-        // already active, its fresh credentials are staged in SQLite and then applied
-        // by the idle transition scheduler without replacing a newer switch request.
-        if (res.success && payload.accountId === (await svc.getActiveAccountId())) {
-          try {
-            scheduleOpenAIAccountTransition(svc);
-          } catch (error) {
-            console.error(
-              `[openai-accounts] Failed to sync fresh auth.json to CODEX_HOME: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        }
         BrowserWindow.getAllWindows().forEach((win) => {
           if (!win.isDestroyed()) {
             win.webContents.send("codex-oauth:login-result", { ...res, accountId: payload.accountId });
@@ -8273,40 +8045,9 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(
-    IPC_CHANNELS.openAIAccountsSetActive,
-    async (payload: { accountId: string | null }) => {
-      const svc = await getOpenAIAccountService();
-      const prevPendingAccountId = svc.getPendingAccountId();
-      if (payload.accountId) await svc.ensureAccountCredentials(payload.accountId);
-      await svc.setActiveAccount(payload.accountId);
-      const pending = svc.getPendingAccountId() !== undefined;
-      if (pending || prevPendingAccountId !== undefined) scheduleOpenAIAccountTransition(svc);
-      return { success: true, pending };
-    },
-  );
-
-  registerDesktopCommand(IPC_CHANNELS.openAIAccountsGetActive, async () => {
-    const svc = await getOpenAIAccountService();
-    const activeId = await svc.getActiveAccountId();
-    const status = await svc.getActiveStatus();
-    const pendingAccountId = svc.getPendingAccountId();
-    return {
-      activeAccountId: activeId,
-      ...(pendingAccountId !== undefined ? { pendingAccountId } : {}),
-      syncStatus: svc.getSyncStatus(),
-      ...status,
-    };
-  });
-
-  registerDesktopCommand(
     IPC_CHANNELS.openAIAccountsSetAuthJson,
     async (payload: { accountId: string; content: string }) => {
-      const svc = await getOpenAIAccountService();
-      const result = await svc.setAuthJson(payload.accountId, payload.content);
-      if (result.success && svc.getPendingAccountId() !== undefined) {
-        scheduleOpenAIAccountTransition(svc);
-      }
-      return result;
+      return (await getOpenAIAccountService()).setAuthJson(payload.accountId, payload.content);
     },
   );
 
@@ -8340,7 +8081,6 @@ function registerIpcHandlers(): void {
     return (await getOpenAIAccountService()).wakeBatches.run(payload.id, payload.retry);
   });
   // Restore account wake schedules even when the account settings page is never opened.
-  void getOpenAIAccountService().catch((error) => console.error("[account-wake-batches] startup failed", error));
 
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsGetWakeModel, async () =>
     (await getOpenAIAccountService()).getWakeModel(),
@@ -8403,12 +8143,10 @@ function registerIpcHandlers(): void {
       (
         prevAccount.proxyMode !== nextProxyMode ||
         (prevAccount.proxyUrl?.trim() ?? "") !== nextProxyUrl
-      ) &&
-      payload.accountId === (await svc.getActiveAccountId())
+      )
     ) {
       // Proxy env vars are baked into the app-server at spawn time.
-      requestCodexAccountRuntimeRestart("account_proxy");
-      scheduleCodexGlobalRuntimeRefresh();
+      await invalidateCodexAccountRuntimeLifecycle(payload.accountId);
     }
     return result;
   });
@@ -8427,14 +8165,6 @@ function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsImport, async (payload: { text: string }) => {
     const svc = await getOpenAIAccountService();
     return svc.importAccounts(payload.text);
-  });
-
-  registerDesktopCommand(IPC_CHANNELS.openAIAccountsCancelSwitch, async () => {
-    const svc = await getOpenAIAccountService();
-    const hadPendingTransition = svc.getPendingAccountId() !== undefined;
-    const result = await svc.cancelPendingAccountSwitch();
-    if (hadPendingTransition) scheduleOpenAIAccountTransition(svc);
-    return result;
   });
 
   registerDesktopCommand(IPC_CHANNELS.modelRouteProfileTest, async (payload: TestRoleRoutesRequest) => {
@@ -8640,39 +8370,6 @@ function registerIpcHandlers(): void {
       templates: imported,
       errors,
     };
-  });
-
-  registerDesktopCommand(IPC_CHANNELS.mainAgentConfigSave, async (payload: unknown) => {
-    if (!payload || typeof payload !== "object") {
-      throw new Error("主 Agent 配置不能为空。");
-    }
-    const config = payload as MainAgentConfigResource;
-    if (typeof config.id !== "string" || !config.id.trim()) {
-      throw new Error("主 Agent 配置 id 不能为空。");
-    }
-    if (config.modelRef) {
-      resolveUpstreamApiCompat(
-        config.modelRef.apiCompat,
-        providerStore.getProviderWithSecret(config.modelRef.providerId)?.apiCompat,
-      );
-    }
-    const saved = agentOrchestrationStore.saveMainAgentConfig(config);
-    emitSettingsUpdated();
-    return saved;
-  });
-
-  registerDesktopCommand(IPC_CHANNELS.mainAgentConfigDelete, async (configId: unknown) => {
-    if (typeof configId !== "string" || !configId.trim()) {
-      throw new Error("主 Agent 配置 id 不能为空。");
-    }
-    const trimmed = configId.trim();
-    // Match subagent-delete behavior: clear dependents, then remove the resource.
-    // Projects that pointed at this config fall back to the global default.
-    workflowSettingsStore.clearDefaultMainAgentConfigReference(trimmed);
-    projectOrchestrationSettingsStore.clearMainAgentConfigReference(trimmed);
-    agentOrchestrationStore.deleteMainAgentConfig(trimmed);
-    emitSettingsUpdated();
-    return { ok: true as const };
   });
 
   registerDesktopCommand(IPC_CHANNELS.mainAgentPromptSave, async (payload: unknown) => {
@@ -11109,9 +10806,9 @@ async function resolveSelectedModelOutputOptions(
   const candidate = providerStore
     .listCandidateModels(selection.providerId)
     .find((entry) => entry.id === selection.candidateModelId);
-  if (!provider || !candidate || provider.apiCompat === "system_one") return baseOptions;
+  if (!provider || !candidate || candidate.apiCompat === "system_one") return baseOptions;
   const resolved = await pricingCache.resolveContextLimit(
-    provider.baseUrl,
+    candidate.baseUrl ?? provider.baseUrl,
     candidate.modelId,
     candidate.modelsDevMapping,
     candidate.manualSpec?.contextTokens,
@@ -12804,6 +12501,8 @@ async function startCodexThreadRun(
         });
         return runCodexThreadRequest({
           threadId: input.thread.id,
+          resolveAccountId: () => conversationStore.getThread(input.thread.id)?.runtimeConfig
+            ?.orchestrationSelection?.mainModel?.accountId,
           signal: controller.signal,
           resolveRuntimeConfig: () => resolveRuntimeConfigForThreadId(input.thread.id, input.roleRoutes),
           resolveAgentRegistry: () => resolveAgentRuntimeConfigForThreadId(input.thread.id),
@@ -19686,7 +19385,7 @@ function updateThread(threadId: string, patch: Pick<ThreadSummary, "message" | "
   const message = normalizeThreadMessage(patch.status, patch.message);
   conversationStore.updateThread(threadId, { ...patch, message });
   const quotaThread = conversationStore.getThread(threadId);
-  openaiAccountService?.setQuotaUsage(threadId, patch.status === "running" && !!quotaThread && isCodexAuthThread(quotaThread));
+  openaiAccountService?.setQuotaUsage(threadId, patch.status === "running" && !!quotaThread && isCodexAuthThread(quotaThread), quotaThread ? codexAccountIdForThread(quotaThread) : undefined);
   const followUpQueuePaused = autoPauseFollowUpQueueForErrorStatus(threadId, patch.status);
   const pendingPlan =
     patch.status === "awaiting_plan" ? conversationStore.getPendingPlan(threadId) : undefined;
@@ -19728,7 +19427,7 @@ function patchThreadSummary(threadId: string, patch: Pick<ThreadSummary, "messag
   const message = normalizeThreadMessage(patch.status, patch.message);
   conversationStore.updateThread(threadId, { ...patch, message });
   const quotaThread = conversationStore.getThread(threadId);
-  openaiAccountService?.setQuotaUsage(threadId, patch.status === "running" && !!quotaThread && isCodexAuthThread(quotaThread));
+  openaiAccountService?.setQuotaUsage(threadId, patch.status === "running" && !!quotaThread && isCodexAuthThread(quotaThread), quotaThread ? codexAccountIdForThread(quotaThread) : undefined);
   autoPauseFollowUpQueueForErrorStatus(threadId, patch.status);
   // Status can leave running/queued here (e.g. markThreadInterrupted → blocked)
   // without going through updateThread; keep the sleep blocker in sync.

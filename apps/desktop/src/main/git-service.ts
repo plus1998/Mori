@@ -56,7 +56,6 @@ async function listCommitCandidates(input: { providerStore: ProviderStore }) {
 }
 
 async function resolveSavedCommitCandidateModel(input: {
-  mainAgentConfigId?: string;
   candidateModelIdPreference?: CommitMessageModelPreference;
   gitSettingsStore: GitSettingsStore;
   providerStore: ProviderStore;
@@ -92,7 +91,6 @@ async function resolveSavedCommitCandidateModel(input: {
 }
 
 async function resolveCommitProxyRoute(input: {
-  mainAgentConfigId?: string;
   candidateModelIdPreference?: CommitMessageModelPreference;
   providerStore: ProviderStore;
   agentOrchestrationStore: AgentOrchestrationStore;
@@ -106,11 +104,23 @@ async function resolveCommitProxyRoute(input: {
   if (!provider) {
     throw new Error(`候选模型所属 Provider 未配置或已禁用：${selected.providerName}`);
   }
+  const candidate = input.providerStore.listCandidateModels(provider.id)
+    .find((entry) => entry.id === selected.candidateModelId);
+  if (!candidate?.baseUrl || !candidate.apiCompat || candidate.apiCompat === "system_one") {
+    throw new Error(`提交模型 ${selected.modelId} 的端点或协议无效，请重新选择。`);
+  }
   const runtimeRoute: RuntimeRoute = {
     role: COMMIT_MESSAGE_ROLE,
-    provider,
+    provider: {
+      ...provider,
+      baseUrl: candidate.baseUrl,
+      requestPath: candidate.requestPath ?? "",
+      version: candidate.version ?? "v1",
+      apiCompat: candidate.apiCompat,
+      ...(candidate.tokenCountMode ? { tokenCountMode: candidate.tokenCountMode } : {}),
+    },
     modelId: selected.modelId,
-    apiCompat: provider.apiCompat,
+    apiCompat: candidate.apiCompat,
     ...(selected.manualSpec ? { manualSpec: selected.manualSpec } : {}),
     ...(selected.modelsDevMapping ? { modelsDevMapping: selected.modelsDevMapping } : {}),
   };
@@ -130,6 +140,7 @@ export async function handleGitListCommitModelOptions(
   },
   purpose: "general" | "approval" = "general",
 ): Promise<GitListCommitModelOptionsResult> {
+  void request;
   const providers = deps.providerStore.listProvidersWithSecrets();
   const candidates = listCommitMessageCandidateModels(
     providers,
@@ -149,12 +160,9 @@ export async function handleGitListCommitModelOptions(
     })),
   );
   const options: CommitModelOptionView[] = buildCommitModelOptions(candidates, hints);
-  const savedCandidateModelId = request.mainAgentConfigId
-    ? deps.gitSettingsStore.getCommitMessageCandidateModelIdForMainAgentConfig(request.mainAgentConfigId)
-    : "auto";
   return {
     options,
-    savedCandidateModelId,
+    savedCandidateModelId: "auto",
   };
 }
 
@@ -171,24 +179,15 @@ export async function handleGitSaveCommitModelPreference(
   if (!selected) {
     throw new Error(`Git 提交模型已不在候选模型列表中：${request.candidateModelId}`);
   }
-  const availableCandidateModelIds = new Set(candidates.map((candidate) => candidate.candidateModelId));
-  if (request.mainAgentConfigId) {
-    deps.gitSettingsStore.saveCommitMessageCandidateModelIdForMainAgentConfig(
-      request.mainAgentConfigId,
-      request.candidateModelId,
-      availableCandidateModelIds,
-    );
-  } else {
-    const workflow = deps.workflowSettingsStore.get();
-    deps.workflowSettingsStore.save({
-      ...workflow,
-      defaultAuxiliaryModel: {
-        providerId: selected.providerId,
-        modelId: selected.modelId,
-        candidateModelId: selected.candidateModelId,
-      },
-    });
-  }
+  const workflow = deps.workflowSettingsStore.get();
+  deps.workflowSettingsStore.save({
+    ...workflow,
+    defaultAuxiliaryModel: {
+      providerId: selected.providerId,
+      modelId: selected.modelId,
+      candidateModelId: selected.candidateModelId,
+    },
+  });
   return { savedCandidateModelId: request.candidateModelId };
 }
 
@@ -212,7 +211,6 @@ export async function handleGitGenerateCommitMessage(
   }
   const candidateModelIdPreference = request.candidateModelId;
   const { route, candidateModelId } = await resolveCommitProxyRoute({
-    ...(request.mainAgentConfigId ? { mainAgentConfigId: request.mainAgentConfigId } : {}),
     ...(candidateModelIdPreference !== undefined && {
       candidateModelIdPreference,
     }),
@@ -231,7 +229,6 @@ export async function handleGitGenerateCommitMessage(
   );
   if (!message?.trim()) {
     logUpstreamError("git-commit-message-failed", {
-      mainAgentConfigId: request.mainAgentConfigId,
       workspacePath: request.workspacePath,
       candidateModelId,
       modelId: route.modelId,

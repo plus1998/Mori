@@ -5,7 +5,6 @@ import path from "node:path";
 import { type CodexQuotaClient } from "../src/main/codex-account-quota";
 import { isCodexReauthenticationRequired } from "../src/main/codex-reauthentication";
 import { OpenAIAccountService } from "../src/main/openai-account-service";
-import { CodexOAuthLoginService } from "../src/main/codex-oauth-login";
 import { canUseOpenAIAccountCredentials } from "../src/shared/openai-account";
 
 const cleanups: (() => Promise<unknown>)[] = [];
@@ -29,16 +28,16 @@ const fresh = auth(2_000_000_000, "refresh-rotated");
 async function setup(handler: (method: string, params: unknown, root: string) => Promise<unknown>) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "eco-account-refresh-"));
   cleanups.push(() => fs.rm(root, { recursive: true, force: true }));
-  const client: CodexQuotaClient = {
-    request: async <T>(method: string, params?: unknown) => (await handler(method, params, root)) as T,
-  };
-  const service = new OpenAIAccountService(root, "unused", undefined, async () => client);
+  const service = new OpenAIAccountService(root, "unused", undefined, undefined, undefined, async (input, operation) => {
+    const client: CodexQuotaClient = {
+      request: async <T>(method: string, params?: unknown) => (await handler(method, params, input.codexHomeDir)) as T,
+    };
+    return operation(client);
+  });
   await service.initialize();
   cleanups.push(() => service.dispose());
   const account = await service.createAccount("Refreshable");
   await service.setAuthJson(account.id, expired);
-  await service.setActiveAccount(account.id);
-  await service.applyPendingTransition();
   return { root, service, id: account.id };
 }
 
@@ -51,7 +50,6 @@ test("expired access tokens with refresh credentials remain eligible; list reads
   const account = (await service.listAccounts())[0]!;
   expect(account).toMatchObject({ id, isLoggedIn: false, authState: "refreshable" });
   expect(canUseOpenAIAccountCredentials(account)).toBe(true);
-  expect(await service.getActiveStatus()).toMatchObject({ isLoggedIn: false, authState: "refreshable" });
   expect(requests).toBe(0);
   expect(canUseOpenAIAccountCredentials({ isLoggedIn: true, authState: "reauthorization_required" })).toBe(
     false,
@@ -74,12 +72,12 @@ test("concurrent use shares one native refresh and persists rotated tokens witho
     expect(params).toEqual({ refreshToken: true });
     entered();
     await gate;
-    await fs.writeFile(path.join(dir, "codex/auth.json"), fresh);
+    await fs.writeFile(path.join(dir, "auth.json"), fresh);
     return { account: { type: "chatgpt" } };
   });
   const first = service.ensureAccountCredentials(id);
   expect(service.ensureAccountCredentials(id)).toBe(first);
-  const activeUse = service.ensureActiveCredentials();
+  const activeUse = service.ensureAccountCredentials(id);
   try {
     await started;
     expect((await service.listAccounts())[0]?.authState).toBe("refreshing");
@@ -89,9 +87,7 @@ test("concurrent use shares one native refresh and persists rotated tokens witho
   await Promise.all([first, activeUse]);
   expect(calls).toEqual(["account/read"]);
   expect(await service.getAuthJsonContent(id)).toBe(fresh);
-  expect(await fs.readFile(path.join(root, "codex/auth.json"), "utf8")).toBe(fresh);
-  expect(await service.getActiveStatus()).toMatchObject({ isLoggedIn: true, authState: "configured" });
-  await service.ensureActiveCredentials();
+  await service.ensureAccountCredentials(id);
   expect(calls).toHaveLength(1);
 });
 
@@ -100,7 +96,38 @@ test("an RPC acknowledgement without fresh credentials is retryable, not a succe
   await expect(service.ensureAccountCredentials(id)).rejects.toThrow("尚未写回有效的新访问令牌");
   expect(await service.getAuthJsonContent(id)).toBe(expired);
   expect((await service.listAccounts())[0]?.authState).toBe("refreshable");
-  expect(service.getSyncStatus().state).toBe("ok");
+});
+
+test("a pending refresh only blocks its own account", async () => {
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const { service, id } = await setup(async (_method, _params, dir) => {
+    entered();
+    await gate;
+    await fs.writeFile(path.join(dir, "auth.json"), fresh);
+    return {};
+  });
+  const other = await service.createAccount("Independent");
+  const otherAuth = JSON.parse(fresh);
+  otherAuth.tokens.account_id = "acct-independent";
+  await service.setAuthJson(other.id, JSON.stringify(otherAuth));
+  const refreshing = service.ensureAccountCredentials(id);
+  try {
+    await started;
+    const tokens = await Promise.race([
+      service.getExternalChatGptTokens(other.id),
+      new Promise<never>((_resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("another account blocked this request")), 1_000);
+        timer.unref();
+      }),
+    ]);
+    expect(tokens.chatgptAccountId).toBe("acct-independent");
+  } finally {
+    release();
+    await refreshing;
+  }
 });
 
 for (const failure of ["401 unauthorized", "fetch failed", "workspace routing discovery failed"]) {
@@ -108,13 +135,12 @@ for (const failure of ["401 unauthorized", "fetch failed", "workspace routing di
     let fail = true;
     const { service, id } = await setup(async (_method, _params, root) => {
       if (fail) throw new Error(failure);
-      await fs.writeFile(path.join(root, "codex/auth.json"), fresh);
+      await fs.writeFile(path.join(root, "auth.json"), fresh);
       return {};
     });
     await expect(service.ensureAccountCredentials(id)).rejects.toThrow(failure);
     expect((await service.listAccounts())[0]?.authState).toBe("refreshable");
     expect(await service.getAuthJsonContent(id)).toBe(expired);
-    expect(service.getSyncStatus().state).toBe("ok");
     fail = false;
     await service.ensureAccountCredentials(id);
     expect((await service.listAccounts())[0]?.authState).toBe("configured");
@@ -137,22 +163,20 @@ test("permanent refresh rejection survives restart and only new credentials clea
   cleanups.push(() => reopened.dispose());
   expect((await reopened.listAccounts())[0]?.authState).toBe("reauthorization_required");
   await reopened.setAuthJson(id, expired);
-  await reopened.applyPendingTransition();
   expect((await reopened.listAccounts())[0]?.authState).toBe("reauthorization_required");
   await reopened.setAuthJson(id, fresh);
-  await reopened.applyPendingTransition();
   expect((await reopened.listAccounts())[0]?.authState).toBe("configured");
 });
 
 test("a routing error after successful token rotation still saves the new credentials", async () => {
   const { service, id } = await setup(async (_method, _params, root) => {
-    await fs.writeFile(path.join(root, "codex/auth.json"), fresh);
+    await fs.writeFile(path.join(root, "auth.json"), fresh);
     throw new Error("workspace routing discovery failed");
   });
-  await expect(service.ensureActiveCredentials()).rejects.toThrow("workspace routing discovery failed");
+  await expect(service.ensureAccountCredentials(id)).rejects.toThrow("workspace routing discovery failed");
   expect(await service.getAuthJsonContent(id)).toBe(fresh);
   expect((await service.listAccounts())[0]?.authState).toBe("configured");
-  await service.ensureActiveCredentials();
+  await service.ensureAccountCredentials(id);
 });
 
 test("refresh rejection recognizes Codex's permanent messages without treating account changes or generic 401 as revocation", () => {
@@ -183,16 +207,6 @@ test("refresh rejection recognizes Codex's permanent messages without treating a
   }
 });
 
-test("legacy OAuth status checks access token expiry instead of ID token expiry", async () => {
-  const { root } = await setup(async () => ({}));
-  const oauth = new CodexOAuthLoginService(path.join(root, "codex"), "unused");
-  await fs.writeFile(path.join(root, "codex/auth.json"), auth(2_000_000_000, "refresh", 1));
-  expect((await oauth.getStatus()).isLoggedIn).toBe(true);
-  await fs.writeFile(path.join(root, "codex/auth.json"), expired);
-  expect(await oauth.getStatus()).toMatchObject({ isLoggedIn: false, authState: "refreshable" });
-  await fs.writeFile(path.join(root, "codex/auth.json"), auth(1, ""));
-  expect(await oauth.getStatus()).toMatchObject({ isLoggedIn: false, authState: "expired" });
-});
 
 test("structured RPC refresh rejection codes are recognized without conflating HTTP 401", () => {
   expect(
@@ -220,7 +234,6 @@ test("automatic quota refresh backs off token-refresh failures while manual retr
   expect(listed.authState).toBe("refreshable");
   expect(listed.quotaRefresh?.error).toBe("refresh network offline");
   expect(listed.quotaRefresh?.authRequired).toBeUndefined();
-  expect(service.getSyncStatus().state).toBe("ok");
   await expect(service.queryQuota(id, "manual")).rejects.toThrow("refresh network offline");
   expect(requests).toBe(2);
 });

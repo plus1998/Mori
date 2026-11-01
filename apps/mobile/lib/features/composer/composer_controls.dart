@@ -18,9 +18,12 @@ import '../../core/models/thread_models.dart';
 import '../../core/models/acp_host_ui_features.dart';
 import '../../core/models/thread_runtime_config.dart';
 import '../../core/models/thread_usage_models.dart';
+import '../../core/providers/app_providers.dart';
+import '../../core/storage/composer_model_preferences.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/utils/model_id.dart';
+import '../../core/utils/acp_model_vendor.dart';
 import '../../core/utils/thread_usage_display.dart';
 import '../../core/widgets/eco_action_sheet.dart';
 import '../../core/widgets/eco_grouped_list.dart';
@@ -31,7 +34,7 @@ import '../threads/thread_info_sheets.dart';
 import '../threads/thread_providers.dart';
 import 'composer_context_ring.dart';
 import 'composer_quota_bars.dart';
-import 'composer_model_effort_sheet.dart';
+import 'composer_main_model_picker.dart';
 
 const _subagentRoleLabels = {
   'explore': 'Explore',
@@ -40,22 +43,6 @@ const _subagentRoleLabels = {
   'reviewer': 'Reviewer',
   'tester': 'Tester',
 };
-
-class ComposerTemporaryModelOption {
-  const ComposerTemporaryModelOption({
-    required this.providerId,
-    required this.modelId,
-    this.displayName,
-    this.candidateModelId,
-    this.supportsReasoning,
-  });
-
-  final String providerId;
-  final String modelId;
-  final String? displayName;
-  final String? candidateModelId;
-  final bool? supportsReasoning;
-}
 
 List<({String value, String label})> composerThinkingEffortOptions(
   AppLocalizations l10n,
@@ -72,73 +59,6 @@ List<({String value, String label})> _thinkingEffortOptions(
   AppLocalizations l10n,
 ) => composerThinkingEffortOptions(l10n);
 
-List<ComposerTemporaryModelOption> buildComposerTemporaryModelOptions({
-  required ModelProviderView provider,
-  required OrchestrationModelRef templateModel,
-  required List<CandidateModelView> candidates,
-}) {
-  if (!provider.enabled || provider.id != templateModel.providerId) {
-    return const [];
-  }
-  final seen = <String>{};
-  final options = <ComposerTemporaryModelOption>[];
-  for (final candidate in candidates) {
-    final modelId = candidate.modelId.trim();
-    if (candidate.providerId != provider.id ||
-        modelId.isEmpty ||
-        !seen.add(modelId)) {
-      continue;
-    }
-    options.add(
-      ComposerTemporaryModelOption(
-        providerId: provider.id,
-        modelId: modelId,
-        displayName: candidate.displayName?.trim().isEmpty == true
-            ? null
-            : candidate.displayName?.trim(),
-        candidateModelId: candidate.id.trim().isEmpty
-            ? null
-            : candidate.id.trim(),
-        supportsReasoning: candidate.resolvedSupportsReasoning,
-      ),
-    );
-  }
-  final defaultModel = provider.defaultModel.trim();
-  if (defaultModel.isNotEmpty && seen.add(defaultModel)) {
-    options.add(
-      ComposerTemporaryModelOption(
-        providerId: provider.id,
-        modelId: defaultModel,
-      ),
-    );
-  }
-  final templateModelId = templateModel.modelId.trim();
-  if (templateModelId.isNotEmpty && seen.add(templateModelId)) {
-    options.insert(
-      0,
-      ComposerTemporaryModelOption(
-        providerId: provider.id,
-        modelId: templateModelId,
-        candidateModelId: templateModel.candidateModelId,
-      ),
-    );
-  }
-  return options;
-}
-
-String? composerTemporaryModelEffort(
-  MainAgentModelOverride? override,
-  OrchestrationModelRef templateModel,
-) {
-  final overrideUsesTemplateModel =
-      override?.providerId.trim() == templateModel.providerId.trim() &&
-      override?.modelId.trim() == templateModel.modelId.trim();
-  return override?.thinkingEffort ??
-      (override == null || overrideUsesTemplateModel
-          ? templateModel.thinkingEffort
-          : null);
-}
-
 String _thinkingEffortLabel(String? effort, AppLocalizations l10n) {
   final value = effort ?? 'off';
   for (final option in _thinkingEffortOptions(l10n)) {
@@ -152,59 +72,6 @@ String composerThinkingEffortLabel(String? effort, AppLocalizations l10n) =>
 
 String composerModelDisplayName(String modelId) =>
     shortenModelId(formatModelDisplayName(modelId));
-
-MainAgentModelOverride? buildComposerTemporaryModelOverride({
-  required ComposerTemporaryModelOption model,
-  required String? thinkingEffort,
-  required OrchestrationModelRef templateModel,
-}) {
-  final providerId = model.providerId.trim();
-  final modelId = model.modelId.trim();
-  final candidateModelId = model.candidateModelId?.trim();
-  final sameAsTemplate =
-      providerId == templateModel.providerId.trim() &&
-      modelId == templateModel.modelId.trim() &&
-      candidateModelId == templateModel.candidateModelId?.trim() &&
-      thinkingEffort == templateModel.thinkingEffort;
-  if (sameAsTemplate) return null;
-  return MainAgentModelOverride(
-    providerId: providerId,
-    modelId: modelId,
-    thinkingEffort: thinkingEffort,
-    candidateModelId: candidateModelId?.isEmpty == true
-        ? null
-        : candidateModelId,
-  );
-}
-
-bool composerTemporaryModelSelected(
-  MainAgentModelOverride? override,
-  ComposerTemporaryModelOption option,
-) {
-  if (override == null) return false;
-  final overrideCandidateId = override.candidateModelId?.trim();
-  final optionCandidateId = option.candidateModelId?.trim();
-  if (overrideCandidateId?.isNotEmpty == true &&
-      optionCandidateId?.isNotEmpty == true) {
-    return overrideCandidateId == optionCandidateId;
-  }
-  return override.providerId == option.providerId &&
-      override.modelId == option.modelId;
-}
-
-bool composerTemporaryModelMatchesTemplate(
-  ComposerTemporaryModelOption option,
-  OrchestrationModelRef templateModel,
-) {
-  final optionCandidateId = option.candidateModelId?.trim();
-  final templateCandidateId = templateModel.candidateModelId?.trim();
-  if (optionCandidateId?.isNotEmpty == true &&
-      templateCandidateId?.isNotEmpty == true) {
-    return optionCandidateId == templateCandidateId;
-  }
-  return option.providerId == templateModel.providerId &&
-      option.modelId == templateModel.modelId;
-}
 
 Future<void> persistComposerMcpWorkflowDefaults(
   WidgetRef ref, {
@@ -371,7 +238,7 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
     required this.canEdit,
     this.canEditStatelessModels,
     this.isAcp = false,
-    this.mainAgentLabel,
+    this.coreKind,
     required this.onChanged,
     required this.workspacePath,
     this.mcpServers = const [],
@@ -388,7 +255,7 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
   final bool canEdit;
   final bool? canEditStatelessModels;
   final bool isAcp;
-  final String? mainAgentLabel;
+  final String? coreKind;
   final ValueChanged<ThreadRuntimeConfigInput> onChanged;
   final String workspacePath;
   final List<McpServerConfigView> mcpServers;
@@ -433,21 +300,21 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
         ? subagentsNoneValue
         : '';
 
-    void applyPatch({
-      String? mainAgentConfigId,
+    Future<void> applyPatch({
+      OrchestrationModelRef? mainModel,
       MainAgentPromptSelection? mainPrompt,
       SubagentSelection? subagents,
-    }) {
+    }) async {
       final nextConfig = applyOrchestrationSelectionPatch(
         settings: settings,
         runtimeConfig: runtimeConfig,
         servers: mcpServers,
         remembered: rememberedMcp,
-        mainAgentConfigId: mainAgentConfigId,
+        mainModel: mainModel,
         mainPrompt: mainPrompt,
         subagents: subagents,
       );
-      persistRuntimeConfig(
+      final saved = await persistRuntimeConfig(
         ref,
         previousConfig: runtimeConfig,
         reportFailure: true,
@@ -455,6 +322,10 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
         config: nextConfig,
         onChanged: onChanged,
       );
+      if (!saved && mainModel != null) {
+        throw StateError('模型保存失败');
+      }
+      if (!saved) return;
       final selection = nextConfig.orchestrationSelection;
       if (threadId.isEmpty &&
           workspacePath.trim().isNotEmpty &&
@@ -472,10 +343,14 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
     final selectedMainAgent = mainAgentConfigs
         .where((config) => config.id == mainAgentConfigId)
         .firstOrNull;
-    final selectedMainAgentLabel = selectedMainAgent == null
-        ? context.l10n.commonNotConfigured
-        : selectedMainAgent.name;
-    final selectedMainAgentDetail = selectedMainAgent == null
+    final selectedMainAgentLabel = selection.mainModel == null
+        ? selectedMainAgent?.name ?? context.l10n.commonNotConfigured
+        : '${selection.mainModel!.modelId} · ${settings.providers.where((p) => p.id == selection.mainModel!.providerId).firstOrNull?.name ?? selection.mainModel!.providerId}';
+    final selectedMainAgentDetail = selection.mainModel?.accountId != null
+        ? selection.mainModel!.providerId == 'openai'
+              ? 'ChatGPT Login'
+              : 'ChatGPT OAuth'
+        : selectedMainAgent == null
         ? null
         : shortenModelId(selectedMainAgent.modelRef.modelId);
 
@@ -506,25 +381,23 @@ class OrchestrationCompositionSelectors extends ConsumerWidget {
     if (showOrchestrationPickers) {
       children.addAll([
         _OrchestrationPickerRow(
-          label: mainAgentLabel ?? context.l10n.composerMainAgent,
+          label: context.l10n.composerMainModel,
           value: selectedMainAgentLabel,
           detail: selectedMainAgentDetail,
-          enabled: canEdit && mainAgentConfigs.isNotEmpty,
-          onTap: !canEdit || mainAgentConfigs.isEmpty
+          enabled: canEdit,
+          onTap: !canEdit
               ? null
-              : () => _showOrchestrationOptionSheet(
+              : () => showComposerMainModelPickerSheet(
                   context,
-                  title: mainAgentLabel ?? context.l10n.composerMainAgent,
-                  options: [
-                    for (final config in mainAgentConfigs)
-                      _OrchestrationPickerOption(
-                        value: config.id,
-                        title: config.name,
-                        subtitle: shortenModelId(config.modelRef.modelId),
-                      ),
-                  ],
-                  selectedValue: mainAgentConfigId,
-                  onSelected: (value) => applyPatch(mainAgentConfigId: value),
+                  selectedModel:
+                      selection.mainModel ?? selectedMainAgent?.modelRef,
+                  coreKind:
+                      coreKind ??
+                      ref
+                          .read(workflowSettingsProvider)
+                          .valueOrNull
+                          ?.defaultCoreKind,
+                  onSelected: (model) => applyPatch(mainModel: model),
                 ),
         ),
         const EcoGroupedDivider(indent: 16),
@@ -1297,7 +1170,8 @@ class _ComposerRouteSheetState extends ConsumerState<ComposerRouteSheet> {
                                     context.l10n.composerImageGeneration,
                                   'computerUse' =>
                                     context.l10n.composerComputerUse,
-                                  'tts' => context.l10n.composerReferencesSpeech,
+                                  'tts' =>
+                                    context.l10n.composerReferencesSpeech,
                                   _ => integration.id,
                                 };
                                 return EcoSheetSwitchTile(
@@ -2403,9 +2277,7 @@ class ComposerCompositionControl extends ConsumerWidget {
     final settings = await ref.read(modelSettingsProvider.future);
     final workflow = await ref.read(workflowSettingsProvider.future);
     final mcpServers = await ref.read(mcpSettingsProvider.future);
-    if (settings == null ||
-        settings.mainAgentConfigs.isEmpty ||
-        !context.mounted) {
+    if (settings == null || !context.mounted) {
       return;
     }
 
@@ -2454,8 +2326,12 @@ Future<void> persistProjectOrchestrationSelection(
       ),
     );
     ref.invalidate(projectOrchestrationSettingsProvider(workspacePath));
-  } catch (_) {
-    // The local new-thread selection remains usable when persistence fails.
+  } catch (error) {
+    if (ref.context.mounted) {
+      ScaffoldMessenger.of(
+        ref.context,
+      ).showSnackBar(SnackBar(content: Text('新对话模型偏好保存失败：$error')));
+    }
   }
 }
 
@@ -2636,20 +2512,11 @@ class ComposerRouteSummary extends ConsumerWidget {
       modelSettings,
       runtimeConfig,
     );
-    ModelProviderView? modelProvider;
-    final templateProviderId = snapshot?.mainAgent.modelRef.providerId;
-    if (templateProviderId != null) {
-      for (final provider in modelSettings?.providers ?? const []) {
-        if (provider.id == templateProviderId) {
-          modelProvider = provider;
-          break;
-        }
-      }
-    }
     final themeSource = SubagentThemeSource.fromSnapshot(snapshot);
     final currentMainModelId = isAcp
         ? runtimeConfig.cursorModelId
         : runtimeConfig.mainAgentModelOverride?.modelId ??
+              runtimeConfig.orchestrationSelection?.mainModel?.modelId ??
               snapshot?.mainAgent.modelRef.modelId;
     final features = hostUiFeatures;
     final showBilling =
@@ -2683,15 +2550,13 @@ class ComposerRouteSummary extends ConsumerWidget {
               coreKind: coreKind,
             ),
           )
-        else if (snapshot != null && modelProvider != null)
+        else
           Flexible(
-            child: ComposerModelEffortControl(
+            child: ComposerDirectMainModelControl(
               runtimeConfig: runtimeConfig,
               threadId: threadId,
               canEdit: canEdit,
               onChanged: onChanged,
-              provider: modelProvider,
-              templateModel: snapshot.mainAgent.modelRef,
               workspacePath: workspacePath,
               coreKind: coreKind,
             ),
@@ -2840,150 +2705,218 @@ Future<void> showComposerAcpModelPickerSheet(
   String? coreKind,
   bool canEdit = true,
 }) {
-  return showComposerModelEffortSheet(
-    context,
-    ref,
-    anchorKey: anchorKey,
-    runtimeConfig: runtimeConfig,
-    threadId: threadId,
-    onChanged: onChanged,
-    provider: null,
-    templateModel: null,
-    coreKind: coreKind,
-    canEdit: canEdit,
+  return showEcoActionSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (sheetContext) => Consumer(
+      builder: (context, sheetRef, _) {
+        final models = sheetRef.watch(cursorModelsProvider);
+        final l10n = context.l10n;
+        return EcoSheetScaffold(
+          title: l10n.composerSelectModel,
+          maxHeightFactor: 0.78,
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.6,
+            child: Column(
+              children: [
+                if (models.hasError)
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(models.error.toString()),
+                  ),
+                if (models.isLoading) const LinearProgressIndicator(),
+                Expanded(
+                  child: EcoModelCascadeList(
+                    options: [
+                      for (final model
+                          in models.valueOrNull ?? const <CursorModelOption>[])
+                        ModelCascadeEntry(
+                          key: model.id,
+                          providerKey: classifyAcpModelVendor(model).toString(),
+                          providerName: acpModelVendorLabel(
+                            l10n,
+                            classifyAcpModelVendor(model),
+                          ),
+                          modelId: model.id,
+                          title: model.displayName,
+                          badge: model.current
+                              ? l10n.composerAcpModelCurrent
+                              : null,
+                        ),
+                    ],
+                    selectedKey: runtimeConfig.cursorModelId,
+                    enabled: canEdit,
+                    layout: EcoModelCascadeLayout.split,
+                    height: 400,
+                    flexibleBody: true,
+                    leading: [
+                      EcoSheetOptionTile(
+                        title: l10n.composerAcpModelDefault,
+                        selected: runtimeConfig.cursorModelId == null,
+                        enabled: canEdit,
+                        onTap: () async {
+                          final saved = await persistRuntimeConfig(
+                            ref,
+                            threadId: threadId,
+                            config: runtimeConfig.copyWith(
+                              clearCursorModelId: true,
+                            ),
+                            onChanged: onChanged,
+                            reportFailure: true,
+                          );
+                          if (saved && sheetContext.mounted) {
+                            Navigator.of(sheetContext).pop();
+                          }
+                        },
+                      ),
+                    ],
+                    onSelected: (id) async {
+                      final saved = await persistRuntimeConfig(
+                        ref,
+                        threadId: threadId,
+                        config: runtimeConfig.copyWith(cursorModelId: id),
+                        onChanged: onChanged,
+                        reportFailure: true,
+                      );
+                      if (saved && sheetContext.mounted) {
+                        Navigator.of(sheetContext).pop();
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
   );
 }
 
-class ComposerModelEffortControl extends ConsumerStatefulWidget {
-  const ComposerModelEffortControl({
+class ComposerDirectMainModelControl extends ConsumerWidget {
+  const ComposerDirectMainModelControl({
     super.key,
     required this.runtimeConfig,
     required this.threadId,
     required this.canEdit,
     required this.onChanged,
-    required this.provider,
-    required this.templateModel,
-    this.workspacePath = '',
-    this.coreKind,
+    required this.workspacePath,
+    required this.coreKind,
   });
 
   final ThreadRuntimeConfigInput runtimeConfig;
   final String threadId;
   final bool canEdit;
   final ValueChanged<ThreadRuntimeConfigInput> onChanged;
-  final ModelProviderView provider;
-  final OrchestrationModelRef templateModel;
   final String workspacePath;
   final String? coreKind;
 
   @override
-  ConsumerState<ComposerModelEffortControl> createState() =>
-      _ComposerModelEffortControlState();
-}
-
-class _ComposerModelEffortControlState
-    extends ConsumerState<ComposerModelEffortControl> {
-  final GlobalKey _anchorKey = GlobalKey();
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final selected = resolveThreadMainModel(runtimeConfig);
+    final modelId = selected?.modelId ?? '';
+    final effort = selected?.thinkingEffort ?? 'low';
     final eco = ecoColors(context);
-    final candidates = ref.watch(candidateModelsProvider(widget.provider.id));
-    final options = buildComposerTemporaryModelOptions(
-      provider: widget.provider,
-      templateModel: widget.templateModel,
-      candidates: candidates.valueOrNull ?? const [],
-    );
-    final override = widget.runtimeConfig.mainAgentModelOverride;
-    final currentModel = resolveComposerTemporaryModel(
-      options: options,
-      override: override,
-      templateModel: widget.templateModel,
-    );
-    final currentEffort = composerTemporaryModelEffort(
-      override,
-      widget.templateModel,
-    );
-    final effort = composerThinkingEffortLabel(currentEffort, context.l10n);
-    final modelName = composerModelDisplayName(currentModel.modelId);
-    final fullModelName = currentModel.modelId.trim();
-    final effortAccent = override != null;
-    final nameColor = widget.canEdit ? eco.textSecondary : eco.textMuted;
-    final effortColor = !widget.canEdit
-        ? eco.textMuted
-        : effortAccent
-        ? eco.accentText
-        : eco.textMuted;
     final labelStyle = Theme.of(context).textTheme.labelSmall?.copyWith(
       fontSize: 14,
       fontWeight: FontWeight.w500,
       height: 1,
-      letterSpacing: 0,
     );
-
-    final nameStyle = labelStyle?.copyWith(color: nameColor);
-    final effortStyle = labelStyle?.copyWith(color: effortColor);
-
     final label = SizedBox(
-      key: _anchorKey,
       height: kComposerToolbarHitSize,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: Row(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Flexible(
               child: Text(
-                modelName,
+                modelId.isEmpty
+                    ? context.l10n.composerSelectModel
+                    : composerModelDisplayName(modelId),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: nameStyle,
+                style: labelStyle?.copyWith(
+                  color: canEdit ? eco.textSecondary : eco.textMuted,
+                ),
               ),
             ),
-            const SizedBox(width: 4),
-            Text(effort, maxLines: 1, softWrap: false, style: effortStyle),
+            if (modelId.isNotEmpty) ...[
+              const SizedBox(width: 4),
+              Text(
+                composerThinkingEffortLabel(effort, context.l10n),
+                style: labelStyle?.copyWith(color: eco.accentText),
+              ),
+            ],
           ],
         ),
       ),
     );
-
-    final interactive = widget.canEdit
-        ? EcoPressable(
-            borderRadius: BorderRadius.circular(8),
-            scale: 0.96,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              unawaited(
-                showComposerModelEffortSheet(
-                  context,
-                  ref,
-                  anchorKey: _anchorKey,
-                  runtimeConfig: widget.runtimeConfig,
-                  threadId: widget.threadId,
-                  onChanged: widget.onChanged,
-                  provider: widget.provider,
-                  templateModel: widget.templateModel,
-                  workspacePath: widget.workspacePath,
-                  coreKind: widget.coreKind,
-                  canEdit: widget.canEdit,
-                ),
-              );
-            },
-            child: label,
-          )
-        : label;
-
     return Semantics(
-      button: widget.canEdit,
-      label: '$modelName $effort',
-      child: fullModelName.isEmpty
-          ? interactive
-          : Tooltip(
-              message: fullModelName,
-              triggerMode: TooltipTriggerMode.longPress,
-              child: interactive,
-            ),
+      button: canEdit,
+      label: modelId.isEmpty
+          ? context.l10n.composerSelectModel
+          : '$modelId ${composerThinkingEffortLabel(effort, context.l10n)}',
+      child: canEdit
+          ? EcoPressable(
+              borderRadius: BorderRadius.circular(8),
+              scale: 0.96,
+              onTap: () => unawaited(
+                showComposerMainModelPickerSheet(
+                  context,
+                  selectedModel: selected,
+                  coreKind: coreKind,
+                  onSelected: (model) async {
+                    final settings = await ref.read(
+                      modelSettingsProvider.future,
+                    );
+                    if (settings == null) throw StateError('模型设置尚未加载');
+                    final mcp = await ref.read(mcpSettingsProvider.future);
+                    final workflow = await ref.read(
+                      workflowSettingsProvider.future,
+                    );
+                    final current =
+                        ref.read(runtimeConfigProvider) ?? runtimeConfig;
+                    final next = applyOrchestrationSelectionPatch(
+                      settings: settings,
+                      runtimeConfig: current,
+                      servers: mcp?.servers ?? const [],
+                      remembered: workflow?.mcpServersEnabled,
+                      mainModel: model,
+                    );
+                    final saved = await persistRuntimeConfig(
+                      ref,
+                      previousConfig: current,
+                      threadId: threadId,
+                      config: next,
+                      onChanged: onChanged,
+                    );
+                    if (!saved) throw StateError('保存模型失败');
+                    if (threadId.isEmpty) {
+                      await ComposerModelPreferenceScope(
+                        desktopId: ref.read(selectedDesktopIdProvider) ?? '',
+                        workspacePath: workspacePath,
+                        coreKind:
+                            coreKind ?? workflow?.defaultCoreKind ?? 'claude',
+                      ).remember(next);
+                    }
+                    if (threadId.isEmpty && workspacePath.trim().isNotEmpty) {
+                      final selection = next.orchestrationSelection;
+                      if (selection != null &&
+                          hasCompleteOrchestrationSelection(selection)) {
+                        await persistProjectOrchestrationSelection(
+                          ref,
+                          workspacePath: workspacePath,
+                          selection: selection,
+                        );
+                      }
+                    }
+                  },
+                ),
+              ),
+              child: label,
+            )
+          : label,
     );
   }
 }

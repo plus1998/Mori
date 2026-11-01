@@ -11,6 +11,7 @@ import type {
   AuxiliaryModelSelection,
   CommitModelOptionView,
   MainAgentPromptSelection,
+  ModelRef,
   ModelSettingsSnapshot,
   SubagentSelection,
   ThreadRuntimeConfig,
@@ -28,13 +29,12 @@ import {
 } from "./model-cascade-options";
 import type { OrchestrationFieldIssue, OrchestrationFieldKey } from "./orchestration-readiness";
 import { orchestrationIssueDetailKey } from "./orchestration-readiness";
-import { localizeMainAgentConfigName } from "./main-agent-config-display";
 
 const BUILTIN_PROMPT_VALUE = "builtin";
 const SUBAGENTS_NONE_VALUE = "__none__";
 
 interface CompositionControlHandlers {
-  onSelectMainAgentConfig: (id: string) => void | Promise<void>;
+  onSelectMainModel: (model: ModelRef) => void | Promise<void>;
   onSelectMainPrompt: (selection: MainAgentPromptSelection) => void | Promise<void>;
   onSelectSubagents: (selection: SubagentSelection) => void | Promise<void>;
   onSelectAuxiliaryModel: (selection: AuxiliaryModelSelection) => void | Promise<void>;
@@ -54,6 +54,139 @@ function subagentSelectionValue(selection: SubagentSelection | undefined): strin
     return SUBAGENTS_NONE_VALUE;
   }
   return selection.orchestrationId;
+}
+
+export function MainModelControl({ model, coreKind, disabled, invalid, invalidLabel, onSelect }: {
+  model?: ModelRef | undefined;
+  coreKind?: string | undefined;
+  disabled?: boolean | undefined;
+  invalid: boolean;
+  invalidLabel: string;
+  onSelect: (model: ModelRef) => void | Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const sourceFromModel = model?.providerId === "openai" ? "login"
+    : model?.providerId === "eco-coding-chatgpt" ? "oauth" : "custom";
+  const [source, setSource] = useState(sourceFromModel);
+  const [accountId, setAccountId] = useState(model?.accountId ?? "");
+  const [customModels, setCustomModels] = useState<CommitModelOptionView[]>([]);
+  const [loginAccounts, setLoginAccounts] = useState<Array<{
+    id: string; name: string; isLoggedIn: boolean; authState?: string;
+  }>>([]);
+  const [oauthAccounts, setOauthAccounts] = useState<Array<{
+    accountId: string; displayName: string; enabled: boolean; hasCredentials: boolean;
+  }>>([]);
+  const [loginModels, setLoginModels] = useState<Array<{ modelId: string; displayName: string }>>([]);
+  const [oauthModels, setOauthModels] = useState<Array<{ id: string; displayName?: string }>>([]);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    setSource(sourceFromModel);
+    setAccountId(model?.accountId ?? "");
+  }, [sourceFromModel, model?.accountId]);
+
+  useEffect(() => {
+    if (!window.eco) return;
+    let cancelled = false;
+    void Promise.allSettled([
+      window.eco.listGitCommitModelOptions({}),
+      window.eco.openAIAccountsList(),
+      window.eco.chatGptSubscriptionAccountsList(),
+      window.eco.getCodexModelCatalog(),
+    ]).then(([custom, login, oauth, catalog]) => {
+      if (cancelled) return;
+      if (custom.status === "fulfilled") setCustomModels(custom.value.options);
+      if (login.status === "fulfilled") setLoginAccounts(login.value);
+      if (oauth.status === "fulfilled") setOauthAccounts(oauth.value);
+      if (catalog.status === "fulfilled") setLoginModels(catalog.value.models
+        .filter((entry) => !entry.hidden).map((entry) => ({
+          modelId: entry.modelId, displayName: entry.displayName,
+        })));
+      const failures = [custom, login, oauth, catalog]
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
+      setError(failures.length ? failures.join("；") : undefined);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (source !== "oauth" || !accountId || !window.eco) {
+      setOauthModels([]);
+      return;
+    }
+    let cancelled = false;
+    setOauthModels([]);
+    void window.eco.chatGptSubscriptionAccountModelsList(accountId)
+      .then((models) => { if (!cancelled) { setOauthModels(models); setError(undefined); } })
+      .catch((cause: unknown) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, [source, accountId]);
+
+  const currentChoice = source === "login" ? "login" : source === "oauth" ? "oauth"
+    : model?.candidateModelId ? `candidate:${model.candidateModelId}` : "";
+  const currentModels = source === "login"
+    ? loginModels.map((entry) => ({ id: entry.modelId, name: entry.displayName }))
+    : oauthModels.map((entry) => ({ id: entry.id, name: entry.displayName ?? entry.id }));
+  return <div className="composer-route-prompt-control composer-route-main-model-control">
+    <span className="composer-route-prompt-label">{t("composer.route.mainModel")}</span>
+    <div className="composer-route-main-model-account-row">
+      <ComposerFieldSelect value={currentChoice} disabled={disabled} showPlaceholder
+        placeholder={t("composer.route.notConfigured")} searchable invalid={invalid}
+        invalidLabel={invalidLabel} searchPlaceholder={t("composer.fieldSelect.searchMainAgent")}
+        onChange={(value) => {
+          if (value === "login" || value === "oauth") {
+            setSource(value);
+            setAccountId("");
+            return;
+          }
+          const selected = customModels.find((entry) => `candidate:${entry.candidateModelId}` === value);
+          if (!selected) return;
+          setSource("custom");
+          void onSelect({ providerId: selected.providerId, modelId: selected.modelId,
+            candidateModelId: selected.candidateModelId });
+        }}>
+        {customModels.map((entry) => <option key={entry.candidateModelId}
+          value={`candidate:${entry.candidateModelId}`}>{entry.modelLabel} · {entry.providerName}</option>)}
+        {coreKind === "codex" ? <option value="login">ChatGPT Login</option> : null}
+        <option value="oauth">ChatGPT OAuth</option>
+      </ComposerFieldSelect>
+      {source === "login" || source === "oauth" ? <ComposerFieldSelect value={accountId}
+        disabled={disabled} showPlaceholder searchable
+        placeholder={t("composer.route.selectAccount")}
+        onChange={(value) => { setAccountId(value); }}>
+        {(source === "login"
+          ? loginAccounts.filter((entry) => entry.isLoggedIn || entry.authState === "refreshable" ||
+              entry.authState === "refreshing").map((entry) => ({ id: entry.id, name: entry.name }))
+          : oauthAccounts.filter((entry) => entry.enabled && entry.hasCredentials)
+            .map((entry) => ({ id: entry.accountId, name: entry.displayName })))
+          .map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+      </ComposerFieldSelect> : null}
+    </div>
+    {(source === "login" || source === "oauth") && accountId ? (
+      <ComposerFieldSelect
+        value={model?.providerId === (source === "login" ? "openai" : "eco-coding-chatgpt") &&
+          model.accountId === accountId ? model.modelId : ""}
+        disabled={disabled || currentModels.length === 0}
+        showPlaceholder
+        searchable
+        placeholder={t("composer.route.selectModel")}
+        onChange={(modelId) => {
+          if (!currentModels.some((entry) => entry.id === modelId)) return;
+          void onSelect({
+            providerId: source === "login" ? "openai" : "eco-coding-chatgpt",
+            accountId,
+            modelId,
+          });
+        }}
+      >
+        {currentModels.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+      </ComposerFieldSelect>
+    ) : null}
+    {error ? <span className="composer-route-prompt-hint" role="alert">{error}</span> : null}
+  </div>;
 }
 
 interface ComposerRoutePopoverProps extends CompositionControlHandlers {
@@ -108,7 +241,7 @@ export function ComposerRoutePopover({
   onBack,
   onClose,
   onResetToGlobalSettings,
-  onSelectMainAgentConfig,
+  onSelectMainModel,
   onSelectMainPrompt,
   onSelectSubagents,
   onSelectAuxiliaryModel,
@@ -160,7 +293,7 @@ export function ComposerRoutePopover({
         invalidFields={invalidFields}
         orchestrationIssues={orchestrationIssues}
         coreKind={coreKind}
-        onSelectMainAgentConfig={onSelectMainAgentConfig}
+        onSelectMainModel={onSelectMainModel}
         onSelectMainPrompt={onSelectMainPrompt}
         onSelectSubagents={onSelectSubagents}
         onSelectAuxiliaryModel={onSelectAuxiliaryModel}
@@ -180,7 +313,7 @@ export function ComposerRouteCardBody({
   invalidFields,
   orchestrationIssues,
   coreKind,
-  onSelectMainAgentConfig,
+  onSelectMainModel,
   onSelectMainPrompt,
   onSelectSubagents,
   onSelectAuxiliaryModel,
@@ -201,7 +334,7 @@ export function ComposerRouteCardBody({
         invalidFields={invalidFields}
         orchestrationIssues={orchestrationIssues}
         coreKind={coreKind}
-        onSelectMainAgentConfig={onSelectMainAgentConfig}
+        onSelectMainModel={onSelectMainModel}
         onSelectMainPrompt={onSelectMainPrompt}
         onSelectSubagents={onSelectSubagents}
         onSelectAuxiliaryModel={onSelectAuxiliaryModel}
@@ -233,7 +366,7 @@ function ComposerRouteCompositionControls({
   showOrchestration = true,
   invalidFields,
   orchestrationIssues,
-  onSelectMainAgentConfig,
+  onSelectMainModel,
   onSelectMainPrompt,
   onSelectSubagents,
   onSelectAuxiliaryModel,
@@ -251,9 +384,6 @@ function ComposerRouteCompositionControls({
   coreKind?: string | undefined;
 } & CompositionControlHandlers) {
   const { t } = useTranslation();
-  const mainAgentConfigs = (settings.mainAgentConfigs ?? []).filter(
-    (config) => config.id !== "__openai_official__" || coreKind === "codex",
-  );
   const mainAgentPrompts = (settings.mainAgentPrompts ?? []).filter(
     (prompt) => prompt.mode === "custom_append",
   );
@@ -281,10 +411,6 @@ function ComposerRouteCompositionControls({
     [approvalModelOptions],
   );
   const selection = runtimeConfig?.orchestrationSelection;
-  const selectedMainAgentConfigId = selection?.mainAgentConfigId ?? "";
-  const mainAgentConfigId = mainAgentConfigs.some((config) => config.id === selectedMainAgentConfigId)
-    ? selectedMainAgentConfigId
-    : "";
   const mainAgentInvalid = Boolean(invalidFields?.includes("mainAgent"));
   const subagentOrchestrationInvalid = Boolean(invalidFields?.includes("subagentOrchestration"));
   const mainAgentIssue = orchestrationIssues?.find((issue) => issue.field === "mainAgent");
@@ -315,7 +441,7 @@ function ComposerRouteCompositionControls({
     setAuxiliaryModelsLoading(true);
     setAuxiliaryModelsError(undefined);
     void window.eco
-      .listGitCommitModelOptions(mainAgentConfigId ? { mainAgentConfigId } : {})
+      .listGitCommitModelOptions({})
       .then((result) => {
         if (!cancelled) {
           setAuxiliaryModelOptions(result.options);
@@ -335,7 +461,7 @@ function ComposerRouteCompositionControls({
     return () => {
       cancelled = true;
     };
-  }, [mainAgentConfigId, settings.providers]);
+  }, [settings.providers]);
   useEffect(() => {
     if (!window.eco) {
       setApprovalModelOptions([]);
@@ -347,7 +473,7 @@ function ComposerRouteCompositionControls({
     setApprovalModelsLoading(true);
     setApprovalModelsError(undefined);
     void window.eco
-      .listApprovalModelOptions(mainAgentConfigId ? { mainAgentConfigId } : {})
+      .listApprovalModelOptions({})
       .then((result) => {
         if (!cancelled) {
           setApprovalModelOptions(result.options);
@@ -367,7 +493,7 @@ function ComposerRouteCompositionControls({
     return () => {
       cancelled = true;
     };
-  }, [mainAgentConfigId, settings.providers]);
+  }, [settings.providers]);
   const auxiliaryHint = showOrchestration
     ? t("composer.route.auxiliaryModelHint")
     : t("composer.route.auxiliaryModelHintAcp");
@@ -391,35 +517,14 @@ function ComposerRouteCompositionControls({
 
   return (
     <div className="composer-route-composition-controls">
-      {showOrchestration ? (
-        <div className="composer-route-prompt-control">
-          <span className="composer-route-prompt-label">{t("composer.route.mainAgent")}</span>
-          <ComposerFieldSelect
-            value={mainAgentConfigId}
-            disabled={disabled || mainAgentConfigs.length === 0}
-            showPlaceholder
-            placeholder={t("composer.route.notConfigured")}
-            invalid={mainAgentInvalid}
-            invalidLabel={mainAgentInvalidLabel}
-            searchable
-            searchPlaceholder={t("composer.fieldSelect.searchMainAgent")}
-            renderOptionIcon={(option) =>
-              option.value === "__chatgpt_subscription__" ? (
-                <img src="./provider-icons/openai.svg" alt="" />
-              ) : option.value === "__openai_official__" ? (
-                <img src="./agent-icons/codex.ico" alt="" />
-              ) : null
-            }
-            onChange={(value) => void onSelectMainAgentConfig(value)}
-          >
-            {mainAgentConfigs.map((config) => (
-              <option key={config.id} value={config.id}>
-                {localizeMainAgentConfigName(config.id, config.name)} ({config.modelRef.modelId})
-              </option>
-            ))}
-          </ComposerFieldSelect>
-        </div>
-      ) : null}
+      {showOrchestration ? <MainModelControl
+        model={selection?.mainModel}
+        coreKind={coreKind}
+        disabled={disabled}
+        invalid={mainAgentInvalid}
+        invalidLabel={mainAgentInvalidLabel}
+        onSelect={onSelectMainModel}
+      /> : null}
       <div className="composer-route-prompt-control">
         <span className="composer-route-prompt-label">{t("composer.route.auxiliaryModel")}</span>
         <ModelCascadeSelect

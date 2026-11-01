@@ -1,6 +1,13 @@
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import type { ProviderConfigView } from "../shared/ipc";
-import type { ComposerModelOption } from "./ComposerModelSelector";
+
+export interface ComposerModelOption {
+  providerId: string;
+  providerName: string;
+  modelId: string;
+  candidateModelId?: string;
+  thinkingEffort?: import("../shared/ipc").ThinkingEffort;
+}
 
 export type ComposerModelAvailabilityState = "ready" | "no-provider" | "no-orchestration" | "acp";
 

@@ -190,7 +190,7 @@ export function formatClarificationAnswersSummary(
     }
     return `${question.question} → ${selected.join("、")}`;
   });
-  return `澄清回答：${parts.join("；")}`;
+  return `询问回答：${parts.join("；")}`;
 }
 
 function readRawAskUserQuestionKey(rawQuestions: unknown, index: number, fallback: string): string {

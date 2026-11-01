@@ -1,16 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
-import type {
-  CommitMessageModelPreference,
-  CommitMessageRolePreference,
-} from "../shared/resolve-commit-message-route";
 
 const COMMIT_MESSAGE_INSTRUCTIONS_MAX_CHARS = 2_000;
 
 export interface GitSettingsSnapshot {
-  commitMessageRoleByMainAgentConfigId: Record<string, CommitMessageRolePreference>;
-  commitMessageCandidateModelIdByMainAgentConfigId: Record<string, CommitMessageModelPreference>;
   commitMessageInstructions?: string;
   /** 窗口聚焦且仓库空闲时周期性 git fetch，对齐 VS Code git.autofetch */
   autofetch?: boolean;
@@ -20,8 +14,6 @@ export interface GitSettingsSnapshot {
 
 export function defaultGitSettings(): GitSettingsSnapshot {
   return {
-    commitMessageRoleByMainAgentConfigId: {},
-    commitMessageCandidateModelIdByMainAgentConfigId: {},
     autofetch: true,
     autofetchPeriod: 180,
   };
@@ -75,52 +67,6 @@ export class GitSettingsStore {
     return this.get();
   }
 
-  getCommitMessageRoleForMainAgentConfig(mainAgentConfigId: string): CommitMessageRolePreference {
-    const settings = this.get();
-    return settings.commitMessageRoleByMainAgentConfigId[mainAgentConfigId] ?? "auto";
-  }
-
-  getCommitMessageCandidateModelIdForMainAgentConfig(
-    mainAgentConfigId: string,
-  ): CommitMessageModelPreference {
-    const settings = this.get();
-    return settings.commitMessageCandidateModelIdByMainAgentConfigId[mainAgentConfigId] ?? "auto";
-  }
-
-  saveCommitMessageRoleForMainAgentConfig(
-    mainAgentConfigId: string,
-    role: CommitMessageRolePreference,
-    availableRoles: ReadonlySet<string>,
-  ): GitSettingsSnapshot {
-    const settings = this.get();
-    const nextRole = role === "auto" || availableRoles.has(role) ? role : ("auto" as const);
-    return this.save({
-      ...settings,
-      commitMessageRoleByMainAgentConfigId: {
-        ...settings.commitMessageRoleByMainAgentConfigId,
-        [mainAgentConfigId]: nextRole,
-      },
-    });
-  }
-
-  saveCommitMessageCandidateModelIdForMainAgentConfig(
-    mainAgentConfigId: string,
-    candidateModelId: CommitMessageModelPreference,
-    availableCandidateModelIds: ReadonlySet<string>,
-  ): GitSettingsSnapshot {
-    const settings = this.get();
-    const nextId =
-      candidateModelId === "auto" || availableCandidateModelIds.has(candidateModelId)
-        ? candidateModelId
-        : ("auto" as const);
-    return this.save({
-      ...settings,
-      commitMessageCandidateModelIdByMainAgentConfigId: {
-        ...settings.commitMessageCandidateModelIdByMainAgentConfigId,
-        [mainAgentConfigId]: nextId,
-      },
-    });
-  }
 }
 
 export function normalizeGitSettingsSnapshot(value: unknown): GitSettingsSnapshot {
@@ -128,55 +74,14 @@ export function normalizeGitSettingsSnapshot(value: unknown): GitSettingsSnapsho
     return defaultGitSettings();
   }
   const record = value as Record<string, unknown>;
-  const commitMessageRoleByMainAgentConfigId = normalizeRolePreferenceMap(
-    record.commitMessageRoleByMainAgentConfigId,
-  );
-  const commitMessageCandidateModelIdByMainAgentConfigId = normalizeCandidateModelPreferenceMap(
-    record.commitMessageCandidateModelIdByMainAgentConfigId,
-  );
   const instructions = normalizeCommitMessageInstructions(record.commitMessageInstructions);
   const autofetch = normalizeAutofetch(record.autofetch);
   const autofetchPeriod = normalizeAutofetchPeriod(record.autofetchPeriod);
   return {
-    commitMessageRoleByMainAgentConfigId,
-    commitMessageCandidateModelIdByMainAgentConfigId,
     ...(instructions && { commitMessageInstructions: instructions }),
     autofetch,
     autofetchPeriod,
   };
-}
-
-function normalizeRolePreferenceMap(value: unknown): Record<string, CommitMessageRolePreference> {
-  if (!value || typeof value !== "object") {
-    return {};
-  }
-  const commitMessageRoleByMainAgentConfigId: Record<string, CommitMessageRolePreference> = {};
-  for (const [mainAgentConfigId, role] of Object.entries(value)) {
-    if (typeof mainAgentConfigId !== "string" || !mainAgentConfigId.trim()) {
-      continue;
-    }
-    if (role === "auto" || (typeof role === "string" && role.trim())) {
-      commitMessageRoleByMainAgentConfigId[mainAgentConfigId] = role === "auto" ? "auto" : role.trim();
-    }
-  }
-  return commitMessageRoleByMainAgentConfigId;
-}
-
-function normalizeCandidateModelPreferenceMap(value: unknown): Record<string, CommitMessageModelPreference> {
-  if (!value || typeof value !== "object") {
-    return {};
-  }
-  const commitMessageCandidateModelIdByMainAgentConfigId: Record<string, CommitMessageModelPreference> = {};
-  for (const [mainAgentConfigId, candidateModelId] of Object.entries(value)) {
-    if (typeof mainAgentConfigId !== "string" || !mainAgentConfigId.trim()) {
-      continue;
-    }
-    if (candidateModelId === "auto" || (typeof candidateModelId === "string" && candidateModelId.trim())) {
-      commitMessageCandidateModelIdByMainAgentConfigId[mainAgentConfigId] =
-        candidateModelId === "auto" ? "auto" : candidateModelId.trim();
-    }
-  }
-  return commitMessageCandidateModelIdByMainAgentConfigId;
 }
 
 function normalizeAutofetch(value: unknown): boolean {
@@ -212,13 +117,8 @@ export function isGitSettingsSnapshot(value: unknown): value is GitSettingsSnaps
     return false;
   }
   const record = value as Record<string, unknown>;
-  const rawRoles = record.commitMessageRoleByMainAgentConfigId;
-  const rawCandidates = record.commitMessageCandidateModelIdByMainAgentConfigId;
-  if (rawRoles !== undefined && (typeof rawRoles !== "object" || rawRoles === null)) {
-    return false;
-  }
-  if (rawCandidates !== undefined && (typeof rawCandidates !== "object" || rawCandidates === null)) {
-    return false;
-  }
-  return true;
+  if ("commitMessageRoleByMainAgentConfigId" in record ||
+    "commitMessageCandidateModelIdByMainAgentConfigId" in record) return false;
+  return record.commitMessageInstructions === undefined ||
+    typeof record.commitMessageInstructions === "string";
 }

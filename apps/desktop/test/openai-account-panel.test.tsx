@@ -4,7 +4,6 @@ import {
   OpenAIAccountProxyFields,
   OpenAIAccountProfileFields,
   OpenAIAccountQuotaSummary,
-  OpenAIAccountSwitchStatus,
 } from "../src/renderer/components/OpenAIAccountsPanel";
 import type { OpenAIAccountQuota } from "../src/shared/openai-account";
 import { renderLocalized } from "./i18n-test";
@@ -95,58 +94,6 @@ test("account proxy editor exposes system, direct, and manual modes", () => {
   expect(en).toContain("No proxy");
   expect(en).toContain("Manual proxy");
   expect(en).not.toMatch(/[\u3400-\u9fff]/u);
-});
-
-test("pending account switch shows the last target and a cancel action", () => {
-  const markup = renderLocalized(
-    createElement(OpenAIAccountSwitchStatus, {
-      activeAccountId: "account-current",
-      activeAccountName: "当前账号",
-      pendingAccountId: "account-target",
-      pendingAccountName: "目标账号",
-      busy: false,
-      onCancel: () => undefined,
-    }),
-    "zh-CN",
-  );
-
-  expect(markup).toContain("待切换：目标账号");
-  expect(markup).toContain("取消切换");
-  expect(markup).toContain('class="codex-active-summary"');
-});
-
-test("credential replacement on the active account has a distinct pending label", () => {
-  const markup = renderLocalized(
-    createElement(OpenAIAccountSwitchStatus, {
-      activeAccountId: "account-current",
-      activeAccountName: "当前账号",
-      pendingAccountId: "account-current",
-      pendingAccountName: "当前账号",
-      busy: false,
-      onCancel: () => undefined,
-    }),
-    "zh-CN",
-  );
-
-  expect(markup).toContain("凭据待应用：当前账号");
-  expect(markup).toContain("取消凭据更新");
-});
-
-test("pending switch labels translate while the account name stays verbatim", () => {
-  const markup = renderLocalized(
-    createElement(OpenAIAccountSwitchStatus, {
-      activeAccountId: "account-current",
-      activeAccountName: "当前账号",
-      pendingAccountId: "account-target",
-      pendingAccountName: "目标账号",
-      busy: false,
-      onCancel: () => undefined,
-    }),
-    "en-US",
-  );
-
-  expect(markup).toContain("Switch pending: 目标账号");
-  expect(markup).toContain("Cancel switch");
 });
 
 test("cached quota shows the last successful refresh time after credentials expire", () => {

@@ -541,8 +541,6 @@ export const demoIntegratedWebSearchSettings: IntegratedWebSearchSettingsSnapsho
 };
 
 export const demoGitSettings: GitSettingsSnapshot = {
-  commitMessageRoleByMainAgentConfigId: {},
-  commitMessageCandidateModelIdByMainAgentConfigId: {},
 };
 
 export const demoPersonalizationSettings: PersonalizationSettingsSnapshot = {

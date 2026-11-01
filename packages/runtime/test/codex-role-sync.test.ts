@@ -171,30 +171,6 @@ test("execution mode changes per-turn role policy without changing immutable rol
   expect(restored.roles.every((role) => role.toolPolicy.approvalPolicy === "on-request")).toBe(true);
 });
 
-test("syncOrchestrationAgentsToCodexRoles appends V4A teaching to role developer instructions when enabled", async () => {
-  const ecoDataDir = await makeTempEcoDataDir();
-  const codexHomeDir = resolveCodexHomeDir(ecoDataDir);
-  const orchestration = buildOrchestration();
-  const result = await syncOrchestrationAgentsToCodexRoles({
-    codexHomeDir,
-    orchestration: {
-      ...orchestration,
-      mainAgent: { ...orchestration.mainAgent, v4aTeachingEnabled: true },
-      agents: orchestration.agents.map((agent) =>
-        agent.agentKey === "researcher" ? { ...agent, v4aTeachingEnabled: true } : agent,
-      ),
-    },
-    templates: [researchTemplate, codingTemplate],
-  });
-
-  const exploreToml = await fs.readFile(path.join(result.agentsDir, "explore.toml"), "utf8");
-  const researcherToml = await fs.readFile(path.join(result.agentsDir, "researcher.toml"), "utf8");
-  const coderToml = await fs.readFile(path.join(result.agentsDir, "coder.toml"), "utf8");
-  expect(researcherToml).toContain("Mori V4A teaching");
-  expect(coderToml).not.toContain("Mori V4A teaching");
-  expect(exploreToml).not.toContain("Mori V4A teaching");
-});
-
 test("syncOrchestrationAgentsToCodexRoles keeps bundles outside discovery and removes legacy Eco roles", async () => {
   const ecoDataDir = await makeTempEcoDataDir();
   const codexHomeDir = resolveCodexHomeDir(ecoDataDir);

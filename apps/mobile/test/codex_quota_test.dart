@@ -15,11 +15,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  CodexQuotaController controller(_Rpc rpc, {Map<String, String>? attempts}) {
+  CodexQuotaController controller(
+    _Rpc rpc, {
+    Map<String, String>? attempts,
+    String? accountId = 'a',
+  }) {
     final c = CodexQuotaController(
       rpc: rpc,
       bindReady: () async => true,
       resetAttempts: attempts ?? {},
+      accountId: accountId,
     );
     addTearDown(() {
       if (c.mounted) c.dispose();
@@ -27,24 +32,37 @@ void main() {
     return c;
   }
 
-  testWidgets('composer bars show remaining quota and preserve unknown versus exhausted', (tester) async {
-    final rpc = _Rpc();
-    final c = controller(rpc);
-    await c.refresh();
-    await tester.pumpWidget(_app(c, const Center(child: ComposerQuotaBars())));
-    expect(tester.widgetList<FractionallySizedBox>(find.byType(FractionallySizedBox))
-        .map((track) => track.widthFactor), [0.8, 0.8]);
-    rpc.usage['a'] = 100;
-    await c.refresh();
-    await tester.pump();
-    expect(tester.widgetList<FractionallySizedBox>(find.byType(FractionallySizedBox))
-        .map((track) => track.widthFactor), [0.0, 0.0]);
-    rpc.queryError = StateError('offline');
-    await c.refresh();
-    await tester.pump();
-    expect(find.byIcon(Icons.error_outline), findsOneWidget);
-    expect(find.byType(FractionallySizedBox), findsNothing);
-  });
+  testWidgets(
+    'composer bars show remaining quota and preserve unknown versus exhausted',
+    (tester) async {
+      final rpc = _Rpc();
+      final c = controller(rpc);
+      await c.refresh();
+      await tester.pumpWidget(
+        _app(c, const Center(child: ComposerQuotaBars())),
+      );
+      expect(
+        tester
+            .widgetList<FractionallySizedBox>(find.byType(FractionallySizedBox))
+            .map((track) => track.widthFactor),
+        [0.8, 0.8],
+      );
+      rpc.usage['a'] = 100;
+      await c.refresh();
+      await tester.pump();
+      expect(
+        tester
+            .widgetList<FractionallySizedBox>(find.byType(FractionallySizedBox))
+            .map((track) => track.widthFactor),
+        [0.0, 0.0],
+      );
+      rpc.queryError = StateError('offline');
+      await c.refresh();
+      await tester.pump();
+      expect(find.byIcon(Icons.error_outline), findsOneWidget);
+      expect(find.byType(FractionallySizedBox), findsNothing);
+    },
+  );
 
   test(
     'renewable credentials retain quota eligibility without claiming a fresh token',
@@ -62,19 +80,12 @@ void main() {
           'authState': authState,
           'quota': _quotaJson(),
         });
-        final active = CodexActiveAccount.fromJson({
-          'activeAccountId': 'renewable',
-          'isLoggedIn': false,
-          'authState': authState,
-          'syncStatus': {'state': 'ok'},
-        });
         final eligible =
             authState == 'refreshable' || authState == 'refreshing';
         expect(account.isLoggedIn, isFalse);
         expect(account.available, eligible);
-        expect(active.canUseCredentials, eligible);
         final snapshot = CodexQuotaSnapshot(
-          active: active,
+          accountId: 'renewable',
           accounts: [account],
         );
         expect(snapshot.account, eligible ? account : isNull);
@@ -82,61 +93,41 @@ void main() {
     },
   );
 
-  test(
-    'Codex RPC keeps identity, pending state and reset key on the wire',
-    () async {
-      final client = _WireClient();
-      final rpc = DesktopRpc(client, 'desktop');
-      client.result = [
-        {
-          'id': 'a',
-          'name': 'Account',
-          'isLoggedIn': true,
-          'authState': 'configured',
-          'quota': _quotaJson(),
-        },
-      ];
-      expect((await rpc.listCodexAccounts()).single.id, 'a');
-      expect(client.channel, 'openai-accounts:list');
-      client.result = {
-        'activeAccountId': 'a',
+  test('Codex quota RPC carries an explicit account and reset key', () async {
+    final client = _WireClient();
+    final rpc = DesktopRpc(client, 'desktop');
+    client.result = [
+      {
+        'id': 'a',
+        'name': 'Account',
         'isLoggedIn': true,
-        'pendingAccountId': null,
-        'syncStatus': {'state': 'ok'},
-      };
-      expect((await rpc.getActiveCodexAccount()).hasPending, isTrue);
-      expect(client.channel, 'openai-accounts:get-active');
-      client.result = _quotaJson();
-      expect(
-        (await rpc.queryCodexAccountQuota('a')).windows.first.remaining,
-        80,
-      );
-      expect(client.channel, 'openai-accounts:query-quota');
-      expect(client.args, [
-        {'accountId': 'a'},
-      ]);
-      client.result = {'success': true, 'pending': true};
-      expect(await rpc.setActiveCodexAccount('b'), isTrue);
-      expect(client.channel, 'openai-accounts:set-active');
-      expect(client.args, [
-        {'accountId': 'b'},
-      ]);
-      client.result = {'outcome': 'alreadyRedeemed'};
-      expect(
-        await rpc.resetCodexAccountQuota('a', 'reset-key'),
-        'alreadyRedeemed',
-      );
-      expect(client.channel, 'openai-accounts:reset-quota');
-      expect(client.args, [
-        {'accountId': 'a', 'idempotencyKey': 'reset-key'},
-      ]);
-      client.result = {'outcome': 'unknown'};
-      await expectLater(
-        rpc.resetCodexAccountQuota('a', 'reset-key'),
-        throwsFormatException,
-      );
-    },
-  );
+        'authState': 'configured',
+        'quota': _quotaJson(),
+      },
+    ];
+    expect((await rpc.listCodexAccounts()).single.id, 'a');
+    expect(client.channel, 'openai-accounts:list');
+    client.result = _quotaJson();
+    expect((await rpc.queryCodexAccountQuota('a')).windows.first.remaining, 80);
+    expect(client.channel, 'openai-accounts:query-quota');
+    expect(client.args, [
+      {'accountId': 'a'},
+    ]);
+    client.result = {'outcome': 'alreadyRedeemed'};
+    expect(
+      await rpc.resetCodexAccountQuota('a', 'reset-key'),
+      'alreadyRedeemed',
+    );
+    expect(client.channel, 'openai-accounts:reset-quota');
+    expect(client.args, [
+      {'accountId': 'a', 'idempotencyKey': 'reset-key'},
+    ]);
+    client.result = {'outcome': 'unknown'};
+    await expectLater(
+      rpc.resetCodexAccountQuota('a', 'reset-key'),
+      throwsFormatException,
+    );
+  });
 
   test(
     'only Codex login conversations get account usage, not custom APIs or ACP',
@@ -200,61 +191,37 @@ void main() {
       expect(rpc.queries, ['a']);
       await c.refresh(query: false);
       expect(rpc.queries, ['a']);
-      expect(c.state.value!.candidates.map((a) => a.id), ['b', 'empty']);
+      expect(c.state.value!.accountId, 'a');
     },
   );
 
   test(
-    'quota result crossing an account switch is discarded then read for the new identity',
+    'concurrent sessions query their own account and ignore disposed results',
     () async {
       final rpc = _Rpc();
       final wait = Completer<CodexAccountQuota>();
       rpc.queryWait = wait;
-      final c = controller(rpc);
-      final first = c.refresh();
+      final first = controller(rpc);
+      final pending = first.refresh();
       await _until(() => rpc.queries.isNotEmpty);
-      rpc.active = 'b';
+      first.dispose();
+      final second = controller(rpc, accountId: 'b');
+      await second.refresh();
       wait.complete(_quota(used: 99));
-      await first;
-      await _until(() => c.state.valueOrNull?.account?.id == 'b');
-      expect(c.state.value!.account!.quota!.windows.first.remaining, 80);
+      await pending;
+      expect(second.state.value!.account!.id, 'b');
+      expect(second.state.value!.account!.quota!.windows.first.remaining, 80);
       expect(rpc.queries, ['a', 'b']);
     },
   );
 
-  test(
-    'switch checks fresh quota and refuses an account that just exhausted',
-    () async {
-      final rpc = _Rpc();
-      final c = controller(rpc);
-      await c.refresh();
-      rpc.usage['b'] = 100;
-      await expectLater(
-        c.switchAccount('b'),
-        throwsA(isA<CodexQuotaFailure>()),
-      );
-      expect(rpc.switches, isEmpty);
-      expect(c.state.value!.account!.id, 'a');
-    },
-  );
-
-  test(
-    'switch publishes pending state and blocks resets until confirmed',
-    () async {
-      final rpc = _Rpc()..deferSwitch = true;
-      final c = controller(rpc);
-      await c.refresh();
-      await c.switchAccount('b');
-      expect(c.state.value!.active.pendingId, 'b');
-      await expectLater(c.reset(), throwsA(isA<CodexQuotaFailure>()));
-      expect(rpc.resetKeys, isEmpty);
-      rpc.active = 'b';
-      rpc.pending = null;
-      await c.refresh();
-      expect(c.state.value!.account!.id, 'b');
-      expect(c.state.value!.active.hasPending, isFalse);
-    },
-  );
+  test('missing session account never selects another account', () async {
+    final rpc = _Rpc();
+    final c = controller(rpc, accountId: null);
+    await c.refresh();
+    expect(c.state.value!.account, isNull);
+    expect(rpc.queries, isEmpty);
+  });
 
   test(
     'uncertain reset keeps idempotency key even after reopening the sheet',
@@ -265,6 +232,7 @@ void main() {
         rpc: rpc,
         bindReady: () async => true,
         resetAttempts: attempts,
+        accountId: 'a',
       );
       await first.refresh();
       await expectLater(first.reset(), throwsStateError);
@@ -295,25 +263,15 @@ void main() {
   );
 
   testWidgets(
-    'quota tab matches card, switching list shows unknown and exhausted accounts',
+    'quota tab shows the session account without a global account switch',
     (tester) async {
-      final rpc = _Rpc()..usage['b'] = 100;
-      final c = controller(rpc);
+      final rpc = _Rpc();
+      final c = controller(rpc, accountId: 'b');
       await c.refresh();
       await tester.pumpWidget(_app(c, const CodexQuotaPage()));
-      expect(find.text('当前使用账号：账号 a'), findsOneWidget);
+      expect(find.text('此会话账号：账号 b'), findsOneWidget);
       expect(find.text('剩余 80%'), findsNWidgets(2));
-      expect(find.text('5 小时额度'), findsOneWidget);
-      expect(find.text('7 天额度'), findsOneWidget);
-      expect(find.text('可用重置：1 次'), findsOneWidget);
-      await tester.tap(find.text('切换账号'));
-      await tester.pump();
-      expect(find.text('账号 b'), findsOneWidget);
-      expect(find.text('暂无可用额度'), findsOneWidget);
-      expect(find.text('尚无额度数据，请先刷新'), findsOneWidget);
-      await tester.tap(find.text('账号 b'));
-      await tester.pump();
-      expect(rpc.switches, isEmpty);
+      expect(find.text('切换账号'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
@@ -374,7 +332,7 @@ void main() {
       await tester.pumpAndSettle();
       await open(true);
       // Account login composers open quota first; the other tabs remain available.
-      expect(find.text('当前使用账号：账号 a'), findsOneWidget);
+      expect(find.text('此会话账号：账号 a'), findsOneWidget);
       expect(find.text('上下文'), findsOneWidget);
       expect(
         find.text(
@@ -384,7 +342,7 @@ void main() {
       );
       await tester.tap(find.text('额度'));
       await tester.pumpAndSettle();
-      expect(find.text('当前使用账号：账号 a'), findsOneWidget);
+      expect(find.text('此会话账号：账号 a'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -443,26 +401,13 @@ CodexAccount _account(String id, {double used = 20, int credits = 1}) =>
 
 class _Rpc extends DesktopRpc {
   _Rpc() : super(EcoCenterClient(store: CredentialStore()), 'desktop');
-  String active = 'a';
-  String? pending;
-  var deferSwitch = false;
   var credits = 1;
   final usage = <String, double>{};
   final queries = <String>[];
-  final switches = <String>[];
   final resetKeys = <String>[];
   Object? resetError;
   Object? queryError;
   Completer<CodexAccountQuota>? queryWait;
-  @override
-  Future<CodexActiveAccount> getActiveCodexAccount() async =>
-      CodexActiveAccount(
-        id: active,
-        isLoggedIn: true,
-        syncState: 'ok',
-        pendingId: pending,
-        hasPending: pending != null,
-      );
   @override
   Future<List<CodexAccount>> listCodexAccounts() async => [
     _account('a', used: usage['a'] ?? 20, credits: credits),
@@ -483,17 +428,6 @@ class _Rpc extends DesktopRpc {
     queryWait = null;
     if (wait != null) return wait.future;
     return _quota(used: usage[id] ?? 20, credits: credits);
-  }
-
-  @override
-  Future<bool> setActiveCodexAccount(String id) async {
-    switches.add(id);
-    if (deferSwitch) {
-      pending = id;
-    } else {
-      active = id;
-    }
-    return deferSwitch;
   }
 
   @override

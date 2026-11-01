@@ -103,6 +103,7 @@ export function resolveProviderRoute(
     throw new ProviderNotFoundError(`provider id '${providerId}'`);
   }
 
+  const modelUpstream = provider.modelUpstreams?.[upstreamModelId];
   const override = options?.upstreamKindOverride?.trim();
   let upstreamKind = provider.upstreamKind;
   if (override) {
@@ -112,12 +113,34 @@ export function resolveProviderRoute(
     upstreamKind = override;
   }
 
-  assertUpstreamKindCompatibleWithProviderPath(provider, upstreamKind);
+  if (modelUpstream) {
+    if (override && upstreamKind !== modelUpstream.upstreamKind) {
+      throw new IncompatibleUpstreamKindError(
+        `Model ${upstreamModelId} is configured for ${modelUpstream.upstreamKind}, but the request selected ${upstreamKind}.`,
+      );
+    }
+    upstreamKind = modelUpstream.upstreamKind;
+  }
+
+  const effectiveProvider: GatewayProvider = modelUpstream
+    ? {
+        ...provider,
+        baseUrl: modelUpstream.baseUrl,
+        requestPath: modelUpstream.requestPath ?? "",
+        ...(modelUpstream.version ?? provider.version ? { version: modelUpstream.version ?? provider.version } : {}),
+        upstreamKind,
+        ...(modelUpstream.tokenCountMode ?? provider.tokenCountMode
+          ? { tokenCountMode: modelUpstream.tokenCountMode ?? provider.tokenCountMode }
+          : {}),
+      }
+    : provider;
+
+  assertUpstreamKindCompatibleWithProviderPath(effectiveProvider, upstreamKind);
 
   const clientRequested = options?.requestedModel?.trim() || upstreamModelId;
 
   return {
-    provider,
+    provider: effectiveProvider,
     upstreamKind,
     requestedModel: clientRequested,
     // Concrete model ids are forwarded as-is (product layer pre-resolved).

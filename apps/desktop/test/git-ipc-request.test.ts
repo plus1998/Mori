@@ -1,10 +1,8 @@
 import { expect, test } from "bun:test";
 import { parseGitListCommitModelOptionsRequest } from "../src/shared/ipc";
 
-test("parseGitListCommitModelOptionsRequest accepts mainAgentConfigId", () => {
-  expect(parseGitListCommitModelOptionsRequest({ mainAgentConfigId: "main-1" })).toEqual({
-    mainAgentConfigId: "main-1",
-  });
+test("parseGitListCommitModelOptionsRequest ignores removed config ids", () => {
+  expect(parseGitListCommitModelOptionsRequest({ mainAgentConfigId: "main-1" })).toEqual({});
 });
 
 test("parseGitListCommitModelOptionsRequest ignores legacy profileId", () => {

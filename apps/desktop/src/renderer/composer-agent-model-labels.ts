@@ -97,7 +97,7 @@ function snapshotDisplayNames(
   const names = new Map<string, string>();
   names.set(
     "main",
-    localizeMainAgentConfigName(snapshot.selection.mainAgentConfigId, snapshot.mainAgent.name) ||
+    localizeMainAgentConfigName(snapshot.selection.mainAgentConfigId ?? "", snapshot.mainAgent.name) ||
       i18n.t("agent.role.mainAgent"),
   );
   for (const agent of snapshot.agents) {

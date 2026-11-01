@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/models/codex_account_models.dart';
 import '../../core/models/eco_types.dart';
+import '../../core/models/thread_runtime_config.dart';
 import '../../core/network/desktop_rpc.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/providers/desktop_bind_ready.dart';
@@ -20,10 +21,13 @@ final codexQuotaProvider =
       AsyncValue<CodexQuotaSnapshot>
     >((ref) {
       final rpc = ref.watch(desktopRpcProvider);
+      final config = ref.watch(runtimeConfigProvider);
+      final model = config == null ? null : resolveThreadMainModel(config);
       final controller = CodexQuotaController(
         rpc: rpc,
         bindReady: () => ensureDesktopBindReady(ref),
         resetAttempts: ref.watch(_resetAttemptsProvider),
+        accountId: model?.providerId == 'openai' ? model?.accountId : null,
       );
       ref.listen(ecoEventsProvider, (_, next) {
         next.whenData((event) {
@@ -43,19 +47,12 @@ final codexQuotaProvider =
     });
 
 class CodexQuotaSnapshot {
-  const CodexQuotaSnapshot({required this.active, required this.accounts});
-  final CodexActiveAccount active;
+  const CodexQuotaSnapshot({required this.accountId, required this.accounts});
+  final String? accountId;
   final List<CodexAccount> accounts;
-  CodexAccount? get account {
-    for (final account in accounts) {
-      if (account.id == active.id && active.canUseCredentials) return account;
-    }
-    return null;
-  }
-
-  List<CodexAccount> get candidates => accounts
-      .where((account) => account.id != active.id && account.canUseCredentials)
-      .toList();
+  CodexAccount? get account => accounts
+      .where((entry) => entry.id == accountId && entry.canUseCredentials)
+      .firstOrNull;
 }
 
 class CodexQuotaFailure implements Exception {
@@ -65,21 +62,18 @@ class CodexQuotaFailure implements Exception {
   String toString() => code;
 }
 
-/// One refresh at a time. Confirm identity after every quota read, so an older
-/// request can never label the previous account's quota as the new account's.
+/// Bound to one session account. A changed model creates a new controller.
 class CodexQuotaController
     extends StateNotifier<AsyncValue<CodexQuotaSnapshot>> {
   CodexQuotaController({
     required this.rpc,
     required this.bindReady,
     required this.resetAttempts,
+    required this.accountId,
   }) : super(const AsyncLoading()) {
     _timer = Timer.periodic(const Duration(seconds: 2), (_) {
       if (!AppLifecycleTracker.isForeground || _operation) return;
-      if (state.valueOrNull?.active.hasPending == true) {
-        unawaited(refresh(query: false));
-      } else if (DateTime.now().difference(_lastQuery) >=
-          const Duration(minutes: 2)) {
+      if (DateTime.now().difference(_lastQuery) >= const Duration(minutes: 2)) {
         unawaited(refresh());
       }
     });
@@ -87,6 +81,7 @@ class CodexQuotaController
   final DesktopRpc? rpc;
   final Future<bool> Function() bindReady;
   final Map<String, String> resetAttempts;
+  final String? accountId;
   late final Timer _timer;
   Future<void>? _inFlight;
   bool _again = false;
@@ -121,96 +116,59 @@ class CodexQuotaController
       if (remote == null || !await bindReady()) {
         throw const CodexQuotaFailure('disconnected');
       }
-      final active = await remote.getActiveCodexAccount();
-      if (!mounted) return;
-      // Immediately clear an old identity before waiting on the new quota.
-      if (state.valueOrNull?.active.signature != active.signature) {
-        state = const AsyncLoading();
-      }
-      if (active.syncState != 'ok') {
-        throw StateError(active.syncMessage ?? 'Codex account sync failed');
-      }
-      var accounts = await remote.listCodexAccounts();
-      if (active.id != null && active.canUseCredentials) {
-        final found = accounts.where((a) => a.id == active.id).firstOrNull;
-        if (found == null) throw const CodexQuotaFailure('removed');
-        final quota = query || found.quota == null
-            ? await remote.queryCodexAccountQuota(active.id!)
-            : found.quota!;
-        if (query || found.quota == null) _lastQuery = DateTime.now();
-        accounts = [
-          for (final a in accounts) a.id == active.id ? a.withQuota(quota) : a,
-        ];
-      } else {
-        _lastQuery = DateTime.now();
-      }
-      final confirmed = await remote.getActiveCodexAccount();
-      if (!mounted) return;
-      if (confirmed.signature != active.signature) {
-        state = const AsyncLoading();
-        _again = true;
-        _againQuery = true;
+      final selectedId = accountId;
+      if (selectedId == null) {
+        if (mounted) {
+          state = const AsyncData(
+            CodexQuotaSnapshot(accountId: null, accounts: []),
+          );
+        }
         return;
       }
+      var accounts = await remote.listCodexAccounts();
+      var account = accounts
+          .where((entry) => entry.id == selectedId)
+          .firstOrNull;
+      if (account == null) {
+        throw const CodexQuotaFailure('removed');
+      }
+      if (!account.canUseCredentials) {
+        throw const CodexQuotaFailure('unavailable');
+      }
+      final quota = query || account.quota == null
+          ? await remote.queryCodexAccountQuota(selectedId)
+          : account.quota!;
+      // Re-read after a remote call so deletion or logout cannot produce stale UI.
+      accounts = await remote.listCodexAccounts();
+      account = accounts.where((entry) => entry.id == selectedId).firstOrNull;
+      if (account == null) {
+        throw const CodexQuotaFailure('removed');
+      }
+      if (!account.canUseCredentials) {
+        throw const CodexQuotaFailure('unavailable');
+      }
+      if (!mounted) return;
       state = AsyncData(
-        CodexQuotaSnapshot(active: confirmed, accounts: accounts),
+        CodexQuotaSnapshot(
+          accountId: selectedId,
+          accounts: [
+            for (final entry in accounts)
+              entry.id == selectedId ? entry.withQuota(quota) : entry,
+          ],
+        ),
       );
     } catch (error, stack) {
       if (mounted) state = AsyncError(error, stack);
     }
   }
 
-  Future<void> refreshCandidate(String id) async {
-    if (_operation) return;
-    final current = state.valueOrNull;
-    final remote = rpc;
-    if (current == null || remote == null) return;
-    final quota = await remote.queryCodexAccountQuota(id);
-    if (!mounted ||
-        state.valueOrNull?.active.signature != current.active.signature) {
-      return;
-    }
-    final latest = state.valueOrNull!;
-    state = AsyncData(
-      CodexQuotaSnapshot(
-        active: latest.active,
-        accounts: [
-          for (final a in latest.accounts) a.id == id ? a.withQuota(quota) : a,
-        ],
-      ),
-    );
-  }
-
-  Future<void> switchAccount(String id) async {
-    if (_operation) return;
-    _operation = true;
-    try {
-      final remote = rpc;
-      if (remote == null) throw const CodexQuotaFailure('disconnected');
-      final accounts = await remote.listCodexAccounts();
-      final quota = await remote.queryCodexAccountQuota(id);
-      final account = accounts.where((a) => a.id == id).firstOrNull;
-      if (account == null || !account.withQuota(quota).available) {
-        await refresh(query: false);
-        throw const CodexQuotaFailure('unavailable');
-      }
-      await remote.setActiveCodexAccount(id);
-      await refresh();
-    } finally {
-      _operation = false;
-    }
-  }
-
   Future<String> reset() async {
     final current = state.valueOrNull;
     final remote = rpc;
-    if (_operation ||
-        remote == null ||
-        current?.account == null ||
-        current!.active.hasPending) {
+    if (_operation || remote == null || current?.account == null) {
       throw const CodexQuotaFailure('switching');
     }
-    final id = current.account!.id;
+    final id = current!.account!.id;
     final key = '${remote.desktopDeviceId}:$id';
     _operation = true;
     try {

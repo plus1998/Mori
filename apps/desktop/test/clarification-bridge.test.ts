@@ -79,7 +79,7 @@ test("formatClarificationAnswersSummary renders readable activity text", () => {
     toolUseId: "tool_1",
     selections: [["自动启用"], ["已启用", "备选"]],
   });
-  expect(summary).toContain("澄清回答：");
+  expect(summary).toContain("询问回答：");
   expect(summary).toContain("新标记为客服主体时是否自动参与分配？");
   expect(summary).toContain("→ 自动启用");
   expect(summary).toContain("→ 已启用、备选");

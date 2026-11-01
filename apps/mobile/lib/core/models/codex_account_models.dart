@@ -14,6 +14,7 @@ bool usesCodexAccount(
   if (coreKind != 'codex') return false;
   final provider =
       config.mainAgentModelOverride?.providerId ??
+      config.orchestrationSelection?.mainModel?.providerId ??
       (config.resolvedOrchestrationSnapshot ?? resolvedSnapshot)
           ?.mainAgent
           .modelRef
@@ -133,46 +134,5 @@ class CodexAccount {
     isLoggedIn: isLoggedIn,
     authState: authState,
     quota: value,
-  );
-}
-
-class CodexActiveAccount {
-  const CodexActiveAccount({
-    required this.id,
-    required this.isLoggedIn,
-    required this.syncState,
-    this.authState,
-    this.syncMessage,
-    this.pendingId,
-    this.hasPending = false,
-  });
-  factory CodexActiveAccount.fromJson(Map<String, dynamic> json) {
-    final sync = Map<String, dynamic>.from(json['syncStatus'] as Map);
-    return CodexActiveAccount(
-      id: json['activeAccountId'] as String?,
-      isLoggedIn: json['isLoggedIn'] as bool,
-      authState: json['authState'] as String?,
-      syncState: sync['state'] as String,
-      syncMessage: sync['message'] as String?,
-      pendingId: json['pendingAccountId'] as String?,
-      hasPending: json.containsKey('pendingAccountId'),
-    );
-  }
-  final String? id;
-  final bool isLoggedIn;
-  final String? authState;
-  bool get canUseCredentials => _canUseCredentials(isLoggedIn, authState);
-  final String syncState;
-  final String? syncMessage;
-  final String? pendingId;
-  final bool hasPending;
-  Object get signature => (
-    id,
-    isLoggedIn,
-    authState,
-    syncState,
-    syncMessage,
-    hasPending,
-    pendingId,
   );
 }

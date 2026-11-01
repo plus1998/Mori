@@ -91,9 +91,7 @@ class _SettingsOrchestrationPageState
         message: localizedAppError(error, l10n),
         onRetry: _retry,
       );
-    } else if (modelSettings != null &&
-        modelSettings.mainAgentConfigs.isNotEmpty &&
-        config != null) {
+    } else if (modelSettings != null && config != null) {
       body = ListView(
         padding: EdgeInsets.only(
           bottom: MediaQuery.paddingOf(context).bottom + 24,

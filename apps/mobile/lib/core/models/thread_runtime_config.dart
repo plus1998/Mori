@@ -3,6 +3,23 @@ import 'composer_mcp.dart';
 import 'mcp_models.dart';
 import 'thread_models.dart';
 
+OrchestrationModelRef? resolveThreadMainModel(ThreadRuntimeConfig config) {
+  final selected =
+      config.orchestrationSelection?.mainModel ??
+      config.resolvedOrchestrationSnapshot?.mainAgent.modelRef;
+  final override = config.mainAgentModelOverride;
+  if (override == null) return selected;
+  return OrchestrationModelRef(
+    providerId: override.providerId,
+    modelId: override.modelId,
+    candidateModelId: override.candidateModelId,
+    thinkingEffort: override.thinkingEffort,
+    accountId: override.providerId == selected?.providerId
+        ? selected?.accountId
+        : null,
+  );
+}
+
 OrchestrationResourceLookup orchestrationResourceLookupFromSettings(
   ModelSettingsSnapshot settings,
 ) {
@@ -84,7 +101,7 @@ String orchestrationCompositionSummary(
   if (selection == null) {
     return '';
   }
-  return selection.mainAgentConfigId;
+  return selection.mainModel?.modelId ?? selection.mainAgentConfigId;
 }
 
 Map<String, bool> deriveSubagentEnabledFromSnapshot(
@@ -223,13 +240,15 @@ ThreadRuntimeConfig applyOrchestrationSelectionPatch({
   required List<McpServerConfigView> servers,
   Map<String, bool>? remembered,
   String? mainAgentConfigId,
+  OrchestrationModelRef? mainModel,
   MainAgentPromptSelection? mainPrompt,
   SubagentSelection? subagents,
 }) {
   final current =
       runtimeConfig.orchestrationSelection ?? emptyOrchestrationSelection();
   final nextSelection = current.copyWith(
-    mainAgentConfigId: mainAgentConfigId,
+    mainAgentConfigId: mainModel != null ? '' : mainAgentConfigId,
+    mainModel: mainModel,
     mainPrompt: mainPrompt,
     subagents: subagents,
   );
@@ -312,9 +331,7 @@ ThreadRuntimeConfig buildDefaultRuntimeConfig({
   }
   final selection =
       orchestrationSelection ?? workflow?.defaultOrchestrationSelection;
-  if (modelSettings == null ||
-      modelSettings.mainAgentConfigs.isEmpty ||
-      !hasCompleteOrchestrationSelection(selection)) {
+  if (modelSettings == null || !hasCompleteOrchestrationSelection(selection)) {
     return ThreadRuntimeConfig(
       orchestrationSelection: selection,
       subagentEnabled: defaultSubagentAvailability(),

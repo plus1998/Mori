@@ -1,6 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LazyOpenAIAccountsPanel } from "./lazy-app-panels";
-import { localizeMainAgentConfigName } from "./main-agent-config-display";
+import { MainModelControl } from "./ComposerRoutePopover";
 import { ChatGPTSubscriptionAccountsPanel } from "./ChatGPTSubscriptionAccountsPanel";
 import {
   ChevronDown,
@@ -46,10 +46,7 @@ import type {
 } from "../shared/ipc";
 import { ROUTE_TEST_THINKING_EFFORT, type UpstreamModelOption } from "../shared/models";
 import { hasCompleteOrchestrationSelection } from "../shared/thread-runtime-config";
-import {
-  AgentCompositionResourcesSection,
-  type PendingMainAgentConfigCreateSeed,
-} from "./AgentCompositionResourcesSection";
+import { AgentCompositionResourcesSection } from "./AgentCompositionResourcesSection";
 import { EndpointCompatSelect, type EndpointCompatOption } from "./EndpointCompatSelect";
 import { AppMessage, formatDurationMs, useAppMessage, type AppMessageKind } from "./AppMessage";
 import { buildAgentTemplateCapabilityOptions } from "./agent-template-form";
@@ -57,7 +54,6 @@ import { AgentThemeColorField } from "./agent-theme-color-field";
 import { CandidateModelPanel } from "./CandidateModelListSection";
 import { CandidateModelEditor, type CandidateModelEditorHandle } from "./CandidateModelEditor";
 import { ComposerFieldSelect } from "./ComposerFieldSelect";
-import { CreateMainAgentConfigPromptDialog } from "./CreateMainAgentConfigPromptDialog";
 import { ModelCascadeSelect } from "./ModelCascadeSelect";
 import { CandidateModelSpecPanel } from "./ModelSpecSummary";
 import {
@@ -87,7 +83,7 @@ export type ModelsSettingsTab =
   | "openaiAccounts"
   | "chatgptAccounts";
 
-type RuntimeConfigTab = "defaults" | "mainConfig" | "prompt" | "orchestration";
+type RuntimeConfigTab = "defaults" | "prompt" | "orchestration";
 
 interface ModelsSettingsPanelProps {
   settings: ModelSettingsSnapshot;
@@ -102,6 +98,7 @@ interface ModelsSettingsPanelProps {
   heading?: string | undefined;
   onSettingsChange: (settings: ModelSettingsSnapshot) => void;
   defaultOrchestrationSelection?: OrchestrationSelection | undefined;
+  defaultCoreKind?: string | undefined;
   onDefaultOrchestrationSelectionChange?:
     | ((selection: OrchestrationSelection | undefined) => void | Promise<void>)
     | undefined;
@@ -118,11 +115,6 @@ interface ModelsSettingsPanelProps {
     | ((selection: VisionModelSelection | undefined) => void | Promise<void>)
     | undefined;
   onSavingChange?: ((saving: boolean) => void) | undefined;
-  /** Ask App to open orchestration settings and create a main agent config. */
-  onRequestCreateMainAgentConfig?: ((seed: PendingMainAgentConfigCreateSeed) => void) | undefined;
-  /** When set (orchestration panel), open create dialog with this model preselected. */
-  pendingCreateMainConfig?: PendingMainAgentConfigCreateSeed | undefined;
-  onPendingCreateMainConfigConsumed?: (() => void) | undefined;
   centerServerSyncVisible?: boolean;
   onSyncDomain?: (
     domain: CenterServerSyncDomain,
@@ -222,6 +214,7 @@ export function ModelsSettingsPanel({
   heading,
   onSettingsChange,
   defaultOrchestrationSelection,
+  defaultCoreKind,
   onDefaultOrchestrationSelectionChange,
   defaultAuxiliaryModel,
   onDefaultAuxiliaryModelChange,
@@ -230,9 +223,6 @@ export function ModelsSettingsPanel({
   defaultVisionModel,
   onDefaultVisionModelChange,
   onSavingChange,
-  onRequestCreateMainAgentConfig,
-  pendingCreateMainConfig,
-  onPendingCreateMainConfigConsumed,
   centerServerSyncVisible = false,
   onSyncDomain,
 }: ModelsSettingsPanelProps) {
@@ -252,35 +242,17 @@ export function ModelsSettingsPanel({
   ];
   const runtimeConfigTabItems: Array<{ id: RuntimeConfigTab; label: string }> = [
     { id: "defaults", label: t("settings.models.runtimeConfigTab.defaults") },
-    { id: "mainConfig", label: t("settings.models.runtimeConfigTab.mainAgent") },
     { id: "prompt", label: t("settings.models.runtimeConfigTab.prompt") },
     { id: "orchestration", label: t("settings.models.runtimeConfigTab.subagent") },
   ];
   const resolvedInitialTab =
     mode === "providerSettings" ? "providers" : initialTab === "providers" ? "subagents" : initialTab;
   const [activeTab, setActiveTab] = useState<ModelsSettingsTab>(resolvedInitialTab);
-  const [runtimeConfigTab, setRuntimeConfigTab] = useState<RuntimeConfigTab>(() =>
-    pendingCreateMainConfig ? "mainConfig" : "defaults",
-  );
-
-  useEffect(() => {
-    if (!pendingCreateMainConfig) {
-      return;
-    }
-    setActiveTab("compositionParts");
-    setRuntimeConfigTab("mainConfig");
-  }, [pendingCreateMainConfig]);
+  const [runtimeConfigTab, setRuntimeConfigTab] = useState<RuntimeConfigTab>("defaults");
   const [providerModalOpen, setProviderModalOpen] = useState(false);
-  const [createMainConfigPromptSeed, setCreateMainConfigPromptSeed] = useState<
-    PendingMainAgentConfigCreateSeed | undefined
-  >();
   const [providerForm, setProviderForm] = useState<ProviderConfigInput>(() => providerToForm());
   const [providerSearchQuery, setProviderSearchQuery] = useState("");
-  const [oauthLoginStatus, setOauthLoginStatus] = useState<{ isLoggedIn: boolean; message: string; authState?: import("../shared/openai-account").OpenAIAccountAuthState }>({
-    isLoggedIn: false,
-    message: "",
-  });
-  const [oauthLoggingIn, setOauthLoggingIn] = useState(false);
+
   const [modelsCache, setModelsCache] = useState<Record<string, ModelsCacheEntry>>({});
   const [loadingProviderId, setLoadingProviderId] = useState<string | null>(null);
   const [panelError, setPanelError] = useState<string>();
@@ -304,7 +276,6 @@ export function ModelsSettingsPanel({
   const [defaultOrchestrationDraft, setDefaultOrchestrationDraft] = useState<OrchestrationSelection>(
     () =>
       defaultOrchestrationSelection ?? {
-        mainAgentConfigId: "",
         mainPrompt: { mode: "builtin" },
         subagents: { mode: "none" },
       },
@@ -327,7 +298,6 @@ export function ModelsSettingsPanel({
   useEffect(() => {
     setDefaultOrchestrationDraft(
       defaultOrchestrationSelection ?? {
-        mainAgentConfigId: "",
         mainPrompt: { mode: "builtin" },
         subagents: { mode: "none" },
       },
@@ -337,7 +307,11 @@ export function ModelsSettingsPanel({
   const updateDefaultOrchestrationDraft = useCallback(
     (patch: Partial<OrchestrationSelection>) => {
       const next: OrchestrationSelection = {
-        mainAgentConfigId: patch.mainAgentConfigId ?? defaultOrchestrationDraft.mainAgentConfigId,
+        ...(!patch.mainModel && defaultOrchestrationDraft.mainAgentConfigId
+          ? { mainAgentConfigId: defaultOrchestrationDraft.mainAgentConfigId } : {}),
+        ...((patch.mainModel ?? defaultOrchestrationDraft.mainModel)
+          ? { mainModel: patch.mainModel ?? defaultOrchestrationDraft.mainModel }
+          : {}),
         mainPrompt: patch.mainPrompt ?? defaultOrchestrationDraft.mainPrompt,
         subagents: patch.subagents ?? defaultOrchestrationDraft.subagents,
       };
@@ -351,11 +325,6 @@ export function ModelsSettingsPanel({
     [defaultOrchestrationDraft, onDefaultOrchestrationSelectionChange],
   );
 
-  const auxiliaryModelLookupId = settings.mainAgentConfigs.some(
-    (config) => config.id === defaultOrchestrationDraft.mainAgentConfigId,
-  )
-    ? defaultOrchestrationDraft.mainAgentConfigId
-    : (settings.mainAgentConfigs[0]?.id ?? "");
 
   useEffect(() => {
     if (!window.eco?.listGitCommitModelOptions) {
@@ -368,7 +337,7 @@ export function ModelsSettingsPanel({
     setAuxiliaryModelsLoading(true);
     setAuxiliaryModelsError(undefined);
     void window.eco
-      .listGitCommitModelOptions(auxiliaryModelLookupId ? { mainAgentConfigId: auxiliaryModelLookupId } : {})
+      .listGitCommitModelOptions({})
       .then((result) => {
         if (!cancelled) {
           setAuxiliaryModelOptions(result.options);
@@ -388,7 +357,7 @@ export function ModelsSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [auxiliaryModelLookupId, settings.providers]);
+  }, [settings.providers]);
 
   useEffect(() => {
     if (!window.eco?.listApprovalModelOptions) {
@@ -401,7 +370,7 @@ export function ModelsSettingsPanel({
     setApprovalModelsLoading(true);
     setApprovalModelsError(undefined);
     void window.eco
-      .listApprovalModelOptions(auxiliaryModelLookupId ? { mainAgentConfigId: auxiliaryModelLookupId } : {})
+      .listApprovalModelOptions({})
       .then((result) => {
         if (!cancelled) {
           setApprovalModelOptions(result.options);
@@ -421,7 +390,7 @@ export function ModelsSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [auxiliaryModelLookupId, settings.providers]);
+  }, [settings.providers]);
 
   const selectDefaultAuxiliaryModel = useCallback(
     (selection: AuxiliaryModelSelection | undefined) => {
@@ -473,49 +442,6 @@ export function ModelsSettingsPanel({
     const snapshot = await window.eco.getModelSettings();
     onSettingsChange(snapshot);
   }, [onSettingsChange]);
-
-  const checkOauthStatus = useCallback(async () => {
-    if (!window.eco?.codexOAuthGetStatus) {
-      return;
-    }
-    try {
-      const status = await window.eco.codexOAuthGetStatus();
-      setOauthLoginStatus(status);
-    } catch {
-      setOauthLoginStatus({ isLoggedIn: false, message: "" });
-    }
-  }, []);
-
-  const handleOauthLogin = useCallback(async (upstreamProxyUrl?: string) => {
-    if (!window.eco?.codexOAuthStartLogin) {
-      return;
-    }
-    setOauthLoggingIn(true);
-    try {
-      await window.eco.codexOAuthStartLogin(upstreamProxyUrl);
-      // Listen for result event
-      window.eco.onCodexOauthLoginResult(async (res) => {
-        setOauthLoggingIn(false);
-        if (res.success) {
-          await checkOauthStatus();
-        }
-      });
-    } catch {
-      setOauthLoggingIn(false);
-    }
-  }, [checkOauthStatus]);
-
-  const handleOauthLogout = useCallback(async () => {
-    if (!window.eco?.codexOAuthLogout) {
-      return;
-    }
-    try {
-      await window.eco.codexOAuthLogout();
-      setOauthLoginStatus({ isLoggedIn: false, message: t("settings.models.provider.oauthLoggedOut") });
-    } catch {
-      // ignore
-    }
-  }, [t]);
 
   useEffect(() => {
     if (!window.eco?.listModelsDevModels) {
@@ -638,57 +564,10 @@ export function ModelsSettingsPanel({
     }
   }
 
-  function closeProviderModal(options?: { clearCreateMainConfigPrompt?: boolean }) {
+  function closeProviderModal() {
     setProviderModalOpen(false);
     setModalError(undefined);
     setProviderForm(providerToForm());
-    if (options?.clearCreateMainConfigPrompt ?? true) {
-      setCreateMainConfigPromptSeed(undefined);
-    }
-  }
-
-  async function maybePromptCreateMainAgentConfigAfterSave(provider: ProviderConfigView) {
-    if (!window.eco) {
-      return;
-    }
-    const snapshot = await window.eco.getModelSettings();
-    const providerInMainConfigs = snapshot.mainAgentConfigs.some(
-      (config) => config.modelRef.providerId === provider.id,
-    );
-    if (providerInMainConfigs) {
-      return;
-    }
-
-    let candidates: CandidateModelView[] = [];
-    try {
-      candidates = await window.eco.listCandidateModels(provider.id);
-    } catch {
-      return;
-    }
-    const first = candidates[0];
-    if (!first) {
-      return;
-    }
-
-    setCreateMainConfigPromptSeed({
-      providerId: provider.id,
-      candidateModelId: first.id,
-      modelId: first.modelId,
-    });
-  }
-
-  function dismissCreateMainConfigPrompt() {
-    setCreateMainConfigPromptSeed(undefined);
-  }
-
-  function confirmCreateMainConfigPrompt() {
-    if (!createMainConfigPromptSeed || !onRequestCreateMainAgentConfig) {
-      setCreateMainConfigPromptSeed(undefined);
-      return;
-    }
-    onRequestCreateMainAgentConfig(createMainConfigPromptSeed);
-    setCreateMainConfigPromptSeed(undefined);
-    closeProviderModal();
   }
 
   async function saveProvider(options?: { closeOnSuccess?: boolean }) {
@@ -714,9 +593,8 @@ export function ModelsSettingsPanel({
       // Keep editor open after first create so candidate models can be added/tested immediately.
       setProviderForm(providerToForm(provider));
       if (closeOnSuccess) {
-        closeProviderModal({ clearCreateMainConfigPrompt: false });
+        closeProviderModal();
       }
-      await maybePromptCreateMainAgentConfigAfterSave(provider);
       return provider;
     } catch (caught) {
       setModalError(caught instanceof Error ? caught.message : String(caught));
@@ -1080,7 +958,6 @@ export function ModelsSettingsPanel({
                   disabled={busy || !defaultOrchestrationSelection}
                   onClick={() => {
                     setDefaultOrchestrationDraft({
-                      mainAgentConfigId: "",
                       mainPrompt: { mode: "builtin" },
                       subagents: { mode: "none" },
                     });
@@ -1095,46 +972,16 @@ export function ModelsSettingsPanel({
                 </button>
               </div>
               <div className="settings-global-orchestration-list">
-                <label className="settings-global-orchestration-row">
-                  <span className="settings-global-orchestration-label">{t("composer.route.mainAgent")}</span>
-                  <ComposerFieldSelect
-                    value={defaultOrchestrationDraft.mainAgentConfigId.trim()}
-                    disabled={busy || settings.mainAgentConfigs.length === 0}
-                    showPlaceholder
-                    placeholder={t("composer.route.notConfigured")}
-                    searchable
-                    searchPlaceholder={t("composer.fieldSelect.searchMainAgent")}
-                    renderOptionIcon={(option) =>
-                      option.value === "__chatgpt_subscription__" ? (
-                        <img src="./provider-icons/openai.svg" alt="" />
-                      ) : null
-                    }
-                    invalid={
-                      Boolean(defaultOrchestrationDraft.mainAgentConfigId.trim()) &&
-                      !settings.mainAgentConfigs.some(
-                        (config) => config.id === defaultOrchestrationDraft.mainAgentConfigId,
-                      )
-                    }
+                <div className="settings-global-orchestration-row">
+                  <MainModelControl
+                    model={defaultOrchestrationDraft.mainModel}
+                    coreKind={defaultCoreKind}
+                    disabled={busy}
+                    invalid={false}
                     invalidLabel={t("settings.models.resources.missingMainAgentHint")}
-                    onChange={(value) => updateDefaultOrchestrationDraft({ mainAgentConfigId: value })}
-                  >
-                    {defaultOrchestrationDraft.mainAgentConfigId.trim() &&
-                    !settings.mainAgentConfigs.some(
-                      (config) => config.id === defaultOrchestrationDraft.mainAgentConfigId,
-                    ) ? (
-                      <option value={defaultOrchestrationDraft.mainAgentConfigId}>
-                        {t("settings.models.resources.missingMainAgentOption", {
-                          id: defaultOrchestrationDraft.mainAgentConfigId,
-                        })}
-                      </option>
-                    ) : null}
-                    {settings.mainAgentConfigs.map((config) => (
-                      <option key={config.id} value={config.id}>
-                        {localizeMainAgentConfigName(config.id, config.name)} ({config.modelRef.modelId})
-                      </option>
-                    ))}
-                  </ComposerFieldSelect>
-                </label>
+                    onSelect={(mainModel) => updateDefaultOrchestrationDraft({ mainModel })}
+                  />
+                </div>
                 <label className="settings-global-orchestration-row settings-global-orchestration-row-with-hint">
                   <span className="settings-global-orchestration-label">
                     {t("composer.route.auxiliaryModel")}
@@ -1272,17 +1119,6 @@ export function ModelsSettingsPanel({
               onRegistryChange={refreshSettings}
               onSavingChange={onSavingChange}
               onErrorMessage={(message: string) => showProviderTestMessage("error", message)}
-              {...(pendingCreateMainConfig ? { pendingCreateMainConfig } : {})}
-              {...(onPendingCreateMainConfigConsumed ? { onPendingCreateMainConfigConsumed } : {})}
-              {...(defaultOrchestrationSelection ? { defaultOrchestrationSelection } : {})}
-              onUseMainAgentConfigAsDefault={(mainAgentConfigId) => {
-                updateDefaultOrchestrationDraft({
-                  mainAgentConfigId,
-                  mainPrompt: { mode: "builtin" },
-                  subagents: { mode: "none" },
-                });
-                setRuntimeConfigTab("defaults");
-              }}
             />
           )}
         </>
@@ -1307,17 +1143,9 @@ export function ModelsSettingsPanel({
           onDelete={() => void deleteProvider()}
           onRefreshModels={() => void fetchModels(providerForm)}
           onTestCandidate={(modelId) => void testProvider(providerForm, modelId)}
-          oauthLoginStatus={oauthLoginStatus}
-          oauthLoggingIn={oauthLoggingIn}
         />
       )}
 
-      {createMainConfigPromptSeed ? (
-        <CreateMainAgentConfigPromptDialog
-          onDismiss={dismissCreateMainConfigPrompt}
-          onConfirm={confirmCreateMainConfigPrompt}
-        />
-      ) : null}
     </>
   );
 }
@@ -1338,8 +1166,6 @@ function ProviderEditorModal({
   onDelete,
   onRefreshModels,
   onTestCandidate,
-  oauthLoginStatus,
-  oauthLoggingIn,
 }: {
   form: ProviderConfigInput;
   setForm: Dispatch<SetStateAction<ProviderConfigInput>>;
@@ -1356,8 +1182,6 @@ function ProviderEditorModal({
   onDelete: () => void;
   onRefreshModels: () => void;
   onTestCandidate: (modelId: string) => void;
-  oauthLoginStatus: { isLoggedIn: boolean; message: string; authState?: import("../shared/openai-account").OpenAIAccountAuthState };
-  oauthLoggingIn: boolean;
 }) {
   const { t } = useTranslation();
   const isEditing = Boolean(form.id);
@@ -1813,7 +1637,6 @@ function formatProviderDeleteReference(
 ): string {
   const key = {
     route_profile: "settings.models.providerDeleteReference.routeProfile",
-    main_agent_config: "settings.models.providerDeleteReference.mainAgentConfig",
     subagent_orchestration: "settings.models.providerDeleteReference.subagentOrchestration",
     active_thread: "settings.models.providerDeleteReference.activeThread",
   }[reference.kind];

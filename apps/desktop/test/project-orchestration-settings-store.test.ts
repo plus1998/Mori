@@ -64,16 +64,16 @@ test.skipIf(!sqliteAvailable)("clears deleted subagent orchestration references 
   expect(store.get(otherPath).orchestrationSelection).toEqual(otherSelection);
 });
 
-test.skipIf(!sqliteAvailable)("clears deleted main-agent config by dropping project rows", async () => {
+test.skipIf(!sqliteAvailable)("clears defaults when a selected model provider is deleted", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-project-orchestration-clear-main-"));
   const store = await createProjectOrchestrationSettingsStore(path.join(dir, "settings.db"));
   const matchingSelection = {
-    mainAgentConfigId: "user.main",
+    mainModel: { providerId: "provider-main", modelId: "model" },
     mainPrompt: { mode: "builtin" as const },
     subagents: { mode: "none" as const },
   };
   const otherSelection = {
-    mainAgentConfigId: "user.other",
+    mainModel: { providerId: "provider-other", modelId: "model" },
     mainPrompt: { mode: "builtin" as const },
     subagents: { mode: "none" as const },
   };
@@ -83,7 +83,7 @@ test.skipIf(!sqliteAvailable)("clears deleted main-agent config by dropping proj
   store.save({ workspacePath: matchingPath, orchestrationSelection: matchingSelection });
   store.save({ workspacePath: otherPath, orchestrationSelection: otherSelection });
 
-  expect(store.clearMainAgentConfigReference(" user.main ")).toBe(1);
+  expect(store.clearMainModelProviderReference(" provider-main ")).toBe(1);
   expect(store.get(matchingPath).orchestrationSelection).toBeUndefined();
   expect(store.get(otherPath).orchestrationSelection).toEqual(otherSelection);
 });

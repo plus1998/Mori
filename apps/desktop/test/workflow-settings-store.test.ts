@@ -183,7 +183,7 @@ test.skipIf(!sqliteAvailable)("clears deleted subagent orchestration from the gl
     sessionMode: "agent",
     defaultCoreKind: "codex",
     defaultOrchestrationSelection: {
-      mainAgentConfigId: "user.main",
+      mainModel: { providerId: "provider-a", modelId: "model-a", candidateModelId: "candidate-a" },
       mainPrompt: { mode: "builtin" },
       subagents: { mode: "orchestration", orchestrationId: "user.orchestration" },
     },
@@ -191,14 +191,14 @@ test.skipIf(!sqliteAvailable)("clears deleted subagent orchestration from the gl
 
   expect(store.clearDefaultSubagentOrchestrationReference("user.orchestration")).toBe(true);
   expect(store.get().defaultOrchestrationSelection).toEqual({
-    mainAgentConfigId: "user.main",
+    mainModel: { providerId: "provider-a", modelId: "model-a", candidateModelId: "candidate-a" },
     mainPrompt: { mode: "builtin" },
     subagents: { mode: "none" },
   });
 });
 
 test.skipIf(!sqliteAvailable)(
-  "clearDefaultMainAgentConfigReference drops the global default selection",
+  "clearDefaultMainModelProviderReference drops the global default selection",
   async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-workflow-settings-clear-main-"));
     const store = await createWorkflowSettingsStore(path.join(dir, "settings.db"));
@@ -206,13 +206,13 @@ test.skipIf(!sqliteAvailable)(
       sessionMode: "agent",
       defaultCoreKind: "codex",
       defaultOrchestrationSelection: {
-        mainAgentConfigId: "user.main",
+        mainModel: { providerId: "provider-a", modelId: "model-a", candidateModelId: "candidate-a" },
         mainPrompt: { mode: "builtin" },
         subagents: { mode: "none" },
       },
     });
 
-    expect(store.clearDefaultMainAgentConfigReference("user.main")).toBe(true);
+    expect(store.clearDefaultMainModelProviderReference("provider-a")).toBe(true);
     expect(store.get().defaultOrchestrationSelection).toBeUndefined();
   },
 );

@@ -78,8 +78,11 @@ class SettingsScreen extends ConsumerWidget {
         .where((config) => config.id == mainAgentId)
         .map((config) => config.name)
         .firstOrNull;
+    final mainModelName = selection?.mainModel?.modelId;
     final orchestrationValue = settingsLoadFailed
         ? l10n.settingsRealtimeError
+        : mainModelName != null && mainModelName.isNotEmpty
+        ? shortenModelId(mainModelName)
         : (mainAgentName == null || mainAgentName.isEmpty)
         ? l10n.commonNotConfigured
         : mainAgentName;

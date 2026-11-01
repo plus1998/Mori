@@ -17,7 +17,7 @@ import "../src/renderer/i18n";
 const questions = ["原型在哪里？（在线链接或本地路径）", "包含哪些履约形态？"];
 const selections = ["/tmp/原型；说明 → 最终版\n第二行 <内容>", "虚拟卡券、线下核销"];
 const request = { clarification: { questions: questions.map((question) => ({ question, options: [] })) } };
-const message = `澄清回答：${questions.map((q, i) => `${q} → ${selections[i]}`).join("；")}`;
+const message = `询问回答：${questions.map((q, i) => `${q} → ${selections[i]}`).join("；")}`;
 
 function fixture() {
   const db = new DatabaseSync(":memory:");

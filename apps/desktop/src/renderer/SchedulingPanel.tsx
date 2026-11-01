@@ -9,13 +9,11 @@ import type { ScheduleDefinition, ScheduleExecutionProfile, ScheduleTrigger, Sch
 import { coreDisplayName, coreIconSrc } from "./SidebarCoreSelector";
 import { ScheduleTimingFields } from "./ScheduleTimingFields";
 import { SchedulingProjectField, projectDisplayName, type SchedulingProjectOption } from "./SchedulingProjectField";
-import { ComposerFieldSelect } from "./ComposerFieldSelect";
 import { ModelCascadeSelect, type ModelCascadeOption, type ModelCascadeSelection } from "./ModelCascadeSelect";
 import { mapAcpModelOptions, resolveAcpVendorNames } from "./model-cascade-options";
 import { resolveProviderAccentColor } from "../shared/commit-model-options";
 import { formatIpcInvokeError } from "./AppMessage";
 import { messageDurationFromSeconds } from "./scheduled-message-form";
-import { localizeMainAgentConfigName } from "./main-agent-config-display";
 import { scheduleCronLabel } from "./schedule-cron-label";
 import { localScheduleDate as localDate, scheduleCatchUpSeconds, scheduleIntervalDuration, scheduleIntervalLabel, scheduleTriggerFor as triggerFor, type ScheduleTimingForm } from "./schedule-form";
 import "./scheduling.css";
@@ -146,16 +144,6 @@ export function SchedulingPanel(props: Props) {
         : buildThreadRuntimeConfigFromDefaults({ settings: props.settings, workflowDefaults: { ...props.workflow, sessionMode: "agent" } }) } });
     } catch (caught) { setError(formatIpcInvokeError(caught, t("scheduling.configRequired"))); }
   };
-  const setMainConfig = (id: string) => {
-    if (!form) return;
-    try {
-      const selection = form.profile?.runtimeConfig.orchestrationSelection ?? { mainAgentConfigId: id, mainPrompt: { mode: "builtin" as const }, subagents: { mode: "none" as const } };
-      const nextSelection = { ...selection, mainAgentConfigId: id };
-      const base = form.profile?.runtimeConfig ?? buildThreadRuntimeConfigFromDefaults({ settings: props.settings, workflowDefaults: { ...props.workflow, sessionMode: "agent" }, orchestrationSelection: nextSelection });
-      const { mainAgentModelOverride: _override, ...clean } = base;
-      updateForm({ profile: { coreKind: form.profile?.coreKind ?? "claude", runtimeConfig: { ...clean, ...materializeThreadOrchestrationSnapshot(props.settings, nextSelection) } } });
-    } catch (caught) { setError(formatIpcInvokeError(caught)); }
-  };
   const mainModel = useMemo(() => {
     if (!form?.profile || form.profile.coreKind === "acp") return undefined;
     try {
@@ -172,16 +160,23 @@ export function SchedulingPanel(props: Props) {
     }
     const candidate = candidates.find(item => item.id === selection.key || (item.providerId === selection.providerId && item.modelId === selection.modelId));
     if (!candidate) return;
-    const snapshot = resolveThreadOrchestrationSnapshot(props.settings, form.profile.runtimeConfig);
-    if (!snapshot) { setError(t("scheduling.configRequired")); return; }
     const provider = props.settings.providers.find(item => item.id === candidate.providerId);
     const { mainAgentModelOverride: _override, ...base } = form.profile.runtimeConfig;
-    updateForm({ profile: { ...form.profile, runtimeConfig: { ...base, resolvedOrchestrationSnapshot: {
-      ...snapshot, mainAgent: { ...snapshot.mainAgent, modelRef: { providerId: candidate.providerId, modelId: candidate.modelId,
-        ...(provider ? { apiCompat: provider.apiCompat } : {}), ...(candidate.manualSpec ? { manualSpec: candidate.manualSpec } : {}),
-        ...(candidate.modelsDevMapping ? { modelsDevMapping: candidate.modelsDevMapping } : {}),
-      } },
-    } } } });
+    const mainModel = { providerId: candidate.providerId, modelId: candidate.modelId,
+      candidateModelId: candidate.id,
+      ...(provider ? { apiCompat: provider.apiCompat } : {}),
+      ...(candidate.manualSpec ? { manualSpec: candidate.manualSpec } : {}),
+      ...(candidate.modelsDevMapping ? { modelsDevMapping: candidate.modelsDevMapping } : {}),
+    };
+    const previous = base.orchestrationSelection;
+    const nextSelection = {
+      mainModel,
+      mainPrompt: previous?.mainPrompt ?? { mode: "builtin" as const },
+      subagents: previous?.subagents ?? { mode: "none" as const },
+    };
+    updateForm({ profile: { ...form.profile, runtimeConfig: { ...base,
+      ...materializeThreadOrchestrationSnapshot(props.settings, nextSelection),
+    } } });
   };
   const modelOptions = useMemo<ModelCascadeOption[]>(() => form?.profile?.coreKind === "acp"
     ? mapAcpModelOptions(cursorModels, resolveAcpVendorNames(t))
@@ -257,18 +252,6 @@ export function SchedulingPanel(props: Props) {
                 <ModelCascadeSelect options={modelOptions} value={modelValue} loading={modelsLoading} error={modelError}
                   disabled={!form.profile} placeholder={t("scheduling.chooseModel")} hint={t("scheduling.model")} onChange={chooseModel}/>
               </div>
-              {form.profile?.coreKind !== "acp" && <div className="scheduling-field">
-                <span className="scheduling-field-label">{t("scheduling.runtimeConfig")}</span>
-                <ComposerFieldSelect value={form.profile?.runtimeConfig.orchestrationSelection?.mainAgentConfigId ?? ""}
-                  showPlaceholder placeholder={t("scheduling.chooseConfig")} searchable
-                  searchPlaceholder={t("composer.fieldSelect.searchMainAgent")} onChange={setMainConfig}>
-                  {props.settings.mainAgentConfigs.map((config) => (
-                    <option key={config.id} value={config.id}>
-                      {localizeMainAgentConfigName(config.id, config.name)}
-                    </option>
-                  ))}
-                </ComposerFieldSelect>
-              </div>}
             </div>
             {modelError && <p className="scheduling-error">{modelError}</p>}</>}
             <ScheduleTimingFields form={form} onChange={updateForm} onceOnly={form.assistant === true} />

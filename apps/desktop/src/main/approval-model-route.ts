@@ -35,8 +35,19 @@ export function resolveApprovalModelRoute(
       `审批模型配置已发生变化：预期 ${selection.modelId}，当前 ${candidate.modelId}。请重新选择。`,
     );
   }
-  if (provider.apiCompat === "system_one") {
-    return { kind: "system_one", provider, modelId: candidate.modelId };
+  if (candidate.apiCompat === "system_one") {
+    if (!candidate.baseUrl) throw new Error(`审批模型 ${candidate.modelId} 缺少端点地址。`);
+    return {
+      kind: "system_one",
+      provider: {
+        ...provider,
+        baseUrl: candidate.baseUrl,
+        requestPath: candidate.requestPath ?? "",
+        version: candidate.version ?? "v1",
+        apiCompat: "system_one",
+      },
+      modelId: candidate.modelId,
+    };
   }
   return resolveAuxiliaryModelRoute(selection, providerStore, options);
 }

@@ -1,9 +1,7 @@
 import { AccountWakeBatches } from "./account-wake-batches";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
-import fsSync from "node:fs";
 import http from "node:http";
-import net from "node:net";
 import path from "node:path";
 import os from "node:os";
 import { SocksClient } from "socks";
@@ -16,7 +14,6 @@ import type {
   OpenAIAccountProxyMode,
   OpenAIAccountQuota,
   OpenAIAccountImageQuota,
-  OpenAIAccountSyncStatus,
   OpenAIAccountUpdateInput,
   OpenAIAccountWakeResult,
 } from "../shared/openai-account";
@@ -31,7 +28,6 @@ import {
 import { CodexQuotaRefreshPolicy, type QuotaRefreshReason } from "./codex-quota-refresh-policy";
 import { wakeCodexAccount } from "./codex-account-wake";
 import { isCodexReauthenticationRequired } from "./codex-reauthentication";
-import { canUseOpenAIAccountCredentials } from "../shared/openai-account";
 import { queryReadonlyAccountQuotas, readReadonlyQuota, ReadonlyQuotaError, redactAccountSummaryStrings } from "./readonly-account-quota";
 import {
   buildCodexProxyEnv,
@@ -46,22 +42,14 @@ export type { OpenAIAccount, OpenAIAccountQuota } from "../shared/openai-account
  * OpenAI Account Management Service
  *
  * Stores account data and raw auth.json content in eco-coding.sqlite. The
- * Main-process managed credential operations own refresh tokens. Conversation
- * runtimes receive external access tokens; CODEX_HOME/auth.json remains a
- * compatibility mirror reconciled with SQLite, not an independent writer.
+ * Main-process credential operations own refresh tokens. Each conversation
+ * selects an account explicitly and receives only that account’s access token.
  *
  * Directory structure:
  *   <userData>/eco-coding.sqlite
- *   <userData>/codex/auth.json (active account credentials published atomically)
  */
 
 type OpenAIAccount = OpenAIAccountShared;
-
-export interface OpenAIAccountStatus {
-  isLoggedIn: boolean;
-  authState?: OpenAIAccount["authState"];
-  message: string;
-}
 
 export interface OpenAIAccountLoginResult {
   success: boolean;
@@ -223,14 +211,8 @@ export class OpenAIAccountService {
   private readonly mainCodexDir: string;
   private readonly databasePath: string;
   private store: OpenAIAccountStore | undefined;
-  private authWatcher: fsSync.FSWatcher | null = null;
-  private authPoll: ReturnType<typeof setInterval> | undefined;
   private quotaPoll: ReturnType<typeof setInterval> | undefined;
-  private authDebounce: ReturnType<typeof setTimeout> | undefined;
-  private authSyncQueue: Promise<void> = Promise.resolve();
-  private isPublishingMainAuth = false;
-  private authWatcherHealthy = false;
-  private syncStatus: OpenAIAccountSyncStatus = { state: "ok" };
+  private readonly accountWork = new Map<string, Promise<void>>();
   private initialized = false;
   private readonly codexExecutableProvider: () => string | undefined;
   private readonly activeLogins = new Map<string, CodexBrowserLogin>();
@@ -246,10 +228,10 @@ export class OpenAIAccountService {
   constructor(
     userDataDir: string,
     codexExecutable: string | (() => string | undefined) = () => undefined,
-    private readonly onAccountsChanged?: (state: { syncStatus: OpenAIAccountSyncStatus }) => void,
-    private readonly getActiveQuotaClient?: () => Promise<CodexQuotaClient>,
+    private readonly onAccountsChanged?: () => void,
     private readonly resolveSystemProxy?: SystemProxyResolver,
     private readonly onUsage?: (record:AccountUsageRecord,aggregate:boolean) => void,
+    private readonly runAccountClient: typeof withIsolatedCodexAccountClient = withIsolatedCodexAccountClient,
   ) {
     this.accountsDir = path.join(userDataDir, "codex-accounts");
     this.mainCodexDir = path.join(userDataDir, "codex");
@@ -257,7 +239,7 @@ export class OpenAIAccountService {
     this.codexExecutableProvider = typeof codexExecutable === "string" ? () => codexExecutable : codexExecutable;
   }
 
-  async initialize(): Promise<void> {
+  async initialize(options: { startBackground?: boolean } = {}): Promise<void> {
     if (this.initialized) return;
     this.disposing = false;
     await fs.mkdir(this.accountsDir, { recursive: true });
@@ -265,51 +247,30 @@ export class OpenAIAccountService {
     this.store = await OpenAIAccountStore.open(this.databasePath);
     try {
       await this.store.migrateLegacyFiles(this.accountsDir);
-      const persistedConflict = this.store.getLatestSyncConflict();
-      if (persistedConflict) {
-        this.setSyncStatus({
-          state: "conflict",
-          message: persistedConflict.message,
-          updatedAt: persistedConflict.updatedAt,
-        });
+      const mainAuth = await this.readFileOrNull(path.join(this.mainCodexDir, "auth.json"));
+      this.store.migrateSessionAccounts(mainAuth);
+      if (mainAuth !== null) {
+        const archive = path.join(path.dirname(this.accountsDir), "codex-accounts-archive");
+        await fs.mkdir(archive, { recursive: true });
+        await fs.rename(path.join(this.mainCodexDir, "auth.json"), path.join(archive, `global-auth-${Date.now()}.json`));
       }
-      this.startAuthWatcher();
-      // Reconcile credentials left by the prior process before applying a queued switch.
-      await this.reconcileMainAuth({ allowPublishMissing: true }).catch((error) => this.setSyncError(error));
-      if (this.store.getPendingTransition()) await this.applyPendingTransition();
-      this.authPoll = setInterval(() => {
-        if (!this.authWatcherHealthy) this.startAuthWatcher();
-        this.enqueueMainAuthReconcile();
-      }, 5_000);
-      this.authPoll.unref?.();
       this.wakeBatches = new AccountWakeBatches({
         load: () => this.getStore().getWakeBatches(),
         save: (state) => this.getStore().setWakeBatches(state),
         accounts: () => this.getStore().list().map(({ id, name }) => ({ id, name })),
         wake: (id) => this.wakeAccount(id),
-        changed: () => this.onAccountsChanged?.({ syncStatus: this.syncStatus }),
+        changed: () => this.onAccountsChanged?.(),
       });
       this.initialized = true;
-      this.wakeBatches.start();
+      if (options.startBackground !== false) this.wakeBatches.start();
     } catch (error) {
-      if (this.authPoll) clearInterval(this.authPoll);
-      this.authPoll = undefined;
       if (this.quotaPoll) clearInterval(this.quotaPoll);
       this.quotaPoll = undefined;
       this.initialized = false;
-      this.authWatcher?.close();
-      this.authWatcher = null;
-      this.authWatcherHealthy = false;
       this.store.close();
       this.store = undefined;
       throw error;
     }
-  }
-
-  /** Synchronous snapshot for request-time usage attribution. */
-  getUsageAccountId(): string | undefined {
-    const id = this.store?.getActiveAccountId();
-    return id && this.store?.get(id)?.authJson ? id : undefined;
   }
 
   /** Called by the main-process task lifecycle; queued/idle/UI state is not usage. */
@@ -318,7 +279,7 @@ export class OpenAIAccountService {
     const previous = this.quotaUsage.get(taskId);
     if (running) {
       if (previous) return;
-      const activeId = accountId ?? this.store.getActiveAccountId();
+      const activeId = accountId;
       if (!activeId || !this.store.get(activeId)?.authJson) return;
       this.quotaUsage.set(taskId, activeId);
       this.refreshUsageQuota(activeId);
@@ -340,7 +301,7 @@ export class OpenAIAccountService {
 
   private refreshUsageQuota(accountId: string, finalUsage = false): void {
     // Do not start isolated processes for accounts no longer in use.
-    if (!this.store || (!finalUsage && this.store.getActiveAccountId() !== accountId && ![...this.quotaUsage.values()].includes(accountId))) return;
+    if (!this.store || (!finalUsage && ![...this.quotaUsage.values()].includes(accountId))) return;
     const account = this.store.get(accountId);
     if (!account?.authJson) return;
     try {
@@ -352,78 +313,20 @@ export class OpenAIAccountService {
     );
   }
 
-  /**
-   * Watch the main codex auth.json for changes (token refreshes).
-   * When it changes, sync the content back to the active account's directory.
-   */
-  private startAuthWatcher(): void {
-    if (this.authWatcher) return;
-    try {
-      fsSync.mkdirSync(this.mainCodexDir, { recursive: true });
-      this.authWatcher = fsSync.watch(this.mainCodexDir, (_eventType, filename) => {
-        const name = filename?.toString();
-        if (name === "auth.json") this.debounceMainAuthReconcile();
-      });
-      this.authWatcherHealthy = true;
-      this.authWatcher.on("error", (error) => {
-        this.authWatcher?.close();
-        this.authWatcher = null;
-        this.authWatcherHealthy = false;
-        this.setSyncError(new Error(`auth.json 文件监听失败：${error.message}`));
-      });
-    } catch (error) {
-      this.authWatcherHealthy = false;
-      this.setSyncError(new Error(`auth.json 文件监听失败：${error instanceof Error ? error.message : String(error)}`));
-    }
-  }
-
-  async syncMainAuthFromActiveAccount(): Promise<boolean> {
-    return (await this.runAuthWork(() => this.reconcileMainAuth({ allowPublishMissing: true }))) === "published";
-  }
-
   private getStore(): OpenAIAccountStore {
     if (!this.store) throw new Error("OpenAI account service is not initialized");
     return this.store;
   }
 
-  private setSyncStatus(status: OpenAIAccountSyncStatus): void {
-    const changed = this.syncStatus.state !== status.state || this.syncStatus.message !== status.message;
-    this.syncStatus = status;
-    if (changed) this.onAccountsChanged?.({ syncStatus: status });
-  }
-
-  private setSyncError(error: unknown): void {
-    const message = error instanceof Error ? error.message : String(error);
-    this.setSyncStatus({ state: "error", message, updatedAt: new Date().toISOString() });
-  }
-
-  private setSyncConflict(message: string, mainContent?: string, storedContent?: string | null): void {
-    // Both raw credential copies remain available: the account JSON stays in SQLite,
-    // and the running-directory version is left untouched until a user action resolves it.
-    if (mainContent !== undefined) this.recordSyncConflict(mainContent, storedContent ?? null, message);
-    this.setSyncStatus({ state: "conflict", message, updatedAt: new Date().toISOString() });
-  }
-
-  private recordSyncConflict(mainContent: string, storedContent: string | null, message: string): void {
-    this.getStore().recordSyncConflict(this.getStore().getActiveAccountId(), mainContent, storedContent, message);
-  }
-
-  private debounceMainAuthReconcile(): void {
-    if (this.authDebounce) clearTimeout(this.authDebounce);
-    this.authDebounce = setTimeout(() => this.enqueueMainAuthReconcile(), 250);
-  }
-
-  private enqueueMainAuthReconcile(): void {
-    void this.runAuthWork(() => this.reconcileMainAuth());
-  }
-
-  private runAuthWork<T>(work: () => Promise<T>): Promise<T> {
-    const operation = this.authSyncQueue.then(work);
-    this.authSyncQueue = operation.then(
-      () => undefined,
-      (error) => this.setSyncError(error),
-    );
-    return operation;
+  private runAccountWork<T>(accountId: string, operation: () => Promise<T>): Promise<T> {
+    if (this.disposing) return Promise.reject(new Error("账号服务正在关闭。"));
+    const work = (this.accountWork.get(accountId) ?? Promise.resolve()).then(operation);
+    const tail = work.then(() => undefined, () => undefined);
+    this.accountWork.set(accountId, tail);
+    void tail.then(() => {
+      if (this.accountWork.get(accountId) === tail) this.accountWork.delete(accountId);
+    });
+    return work;
   }
 
   private async readFileOrNull(filePath: string): Promise<string | null> {
@@ -435,233 +338,17 @@ export class OpenAIAccountService {
     }
   }
 
-  private async readStableMainAuth(): Promise<string | null> {
-    const mainAuthPath = path.join(this.mainCodexDir, "auth.json");
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      const content = await this.readFileOrNull(mainAuthPath);
-      if (content === null) {
-        if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 150));
-        continue;
-      }
-      try {
-        parseAuthJson(content);
-        return content;
-      } catch (error) {
-        if (attempt === 3) throw new Error(`运行目录 auth.json 持续无效：${error instanceof Error ? error.message : String(error)}`);
-        await new Promise((resolve) => setTimeout(resolve, 150));
-      }
-    }
-    return null;
-  }
-
-  private async publishMainAuth(content: string | null): Promise<void> {
-    const authPath = path.join(this.mainCodexDir, "auth.json");
-    this.isPublishingMainAuth = true;
-    try {
-      if (content === null) {
-        await fs.rm(authPath, { force: true });
-        return;
-      }
-      parseAuthJson(content);
-      const tempPath = path.join(this.mainCodexDir, `.auth-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`);
-      await fs.writeFile(tempPath, content, { encoding: "utf8", mode: 0o600 });
-      await fs.rename(tempPath, authPath);
-    } finally {
-      this.isPublishingMainAuth = false;
-    }
-  }
-
-  private async reconcileMainAuth(options: { allowPublishMissing?: boolean } = {}): Promise<"same" | "published" | "stored" | "missing"> {
-    if (this.isPublishingMainAuth) return "same";
-    const activeId = this.getStore().getActiveAccountId();
-    const mainContent = await this.readStableMainAuth();
-    if (!activeId) {
-      if (mainContent !== null) {
-        this.setSyncConflict("运行目录存在 auth.json，但当前没有活动账号，无法确认凭据归属", mainContent, null);
-        return "same";
-      }
-      this.getStore().clearUnassignedSyncConflict();
-      this.markSyncRecovered();
-      return "missing";
-    }
-
-    const account = this.getStore().get(activeId);
-    if (!account) throw new Error(`当前 OpenAI 账号不存在：${activeId}`);
-    const storedContent = account.authJson;
-    if (mainContent === null) {
-      if (storedContent === null) {
-        this.markSyncRecovered();
-        return "missing";
-      }
-      if (!options.allowPublishMissing) return "missing";
-      await this.publishMainAuth(storedContent);
-      this.getStore().setLastPublishedFingerprint(contentFingerprint(storedContent));
-      this.getStore().clearSyncConflict(activeId);
-      this.markSyncRecovered();
-      return "published";
-    }
-    if (storedContent === null) {
-      this.setSyncConflict(`账号 ${account.name} 在 SQLite 中没有凭据，运行目录凭据未回写`, mainContent, null);
-      return "same";
-    }
-
-    parseAuthJson(mainContent);
-    parseAuthJson(storedContent);
-    const mainAccountId = readAuthAccountId(mainContent);
-    const storedAccountId = readAuthAccountId(storedContent);
-    if (!mainAccountId || !storedAccountId || mainAccountId !== storedAccountId) {
-      this.setSyncConflict(`账号身份不匹配，保留账号 ${account.name} 和运行目录中的双方凭据`, mainContent, storedContent);
-      return "same";
-    }
-    if (mainContent === storedContent) {
-      const fingerprint = contentFingerprint(mainContent);
-      if (this.getStore().getLastPublishedFingerprint() !== fingerprint) {
-        this.getStore().setLastPublishedFingerprint(fingerprint);
-      }
-      this.getStore().clearSyncConflict(activeId);
-      this.markSyncRecovered();
-      return "same";
-    }
-
-    const mainStamp = readAuthRefreshStamp(mainContent);
-    const storedStamp = readAuthRefreshStamp(storedContent);
-    let direction: "main" | "stored" | undefined;
-    if (mainStamp !== undefined && storedStamp !== undefined && mainStamp !== storedStamp) {
-      direction = mainStamp > storedStamp ? "main" : "stored";
-    } else {
-      const lastPublished = this.getStore().getLastPublishedFingerprint();
-      if (lastPublished === contentFingerprint(mainContent)) direction = "stored";
-      else if (lastPublished === contentFingerprint(storedContent)) direction = "main";
-    }
-    if (!direction) {
-      this.setSyncConflict(`无法判断账号 ${account.name} 的凭据哪一份更新，已保留双方内容`, mainContent, storedContent);
-      return "same";
-    }
-
-    if (direction === "main") {
-      this.getStore().saveAuthJson(activeId, mainContent);
-      this.getStore().setLastPublishedFingerprint(contentFingerprint(mainContent));
-      this.getStore().clearSyncConflict(activeId);
-      this.markSyncRecovered();
-      return "stored";
-    }
-    await this.publishMainAuth(storedContent);
-    this.getStore().setLastPublishedFingerprint(contentFingerprint(storedContent));
-    this.getStore().clearSyncConflict(activeId);
-    this.markSyncRecovered();
-    return "published";
-  }
-
-  private markSyncRecovered(): void {
-    if (!this.authWatcherHealthy) {
-      if (this.syncStatus.state !== "error") this.setSyncError(new Error("auth.json 文件监听不可用，正在由轮询同步"));
-      return;
-    }
-    const conflict = this.getStore().getLatestSyncConflict();
-    if (conflict) {
-      this.setSyncStatus({ state: "conflict", message: conflict.message, updatedAt: conflict.updatedAt });
-      return;
-    }
-    this.setSyncStatus({ state: "ok", updatedAt: new Date().toISOString() });
-  }
-
-  getSyncStatus(): OpenAIAccountSyncStatus {
-    return this.syncStatus;
-  }
-
-  reportSyncError(error: unknown): void {
-    this.setSyncError(error);
-  }
-
-  getPendingAccountId(): string | null | undefined {
-    return this.getStore().getPendingTransition()?.targetAccountId;
-  }
-
-  /** Flush the running auth file after the old app-server has stopped. */
-  async flushFinalAuthWriteback(): Promise<void> {
-    await this.runAuthWork(() => this.reconcileMainAuth());
-  }
-
-  async applyPendingTransition(): Promise<void> {
-    await this.runAuthWork(() => this.applyPendingTransitionUnlocked());
-  }
-
-  private async applyPendingTransitionUnlocked(validate?: () => void): Promise<void> {
-    const store = this.getStore();
-    if (!store.getPendingTransition()) return;
-
-    // Capture the old runtime's last refresh before publishing another account.
-    await this.reconcileMainAuth();
-    const previousContent = await this.readFileOrNull(path.join(this.mainCodexDir, "auth.json"));
-    let publishedUncommitted = false;
-    try {
-      for (;;) {
-        validate?.();
-        const latest = store.getPendingTransition();
-        if (!latest) {
-          if (publishedUncommitted) {
-            await this.publishMainAuth(previousContent);
-            publishedUncommitted = false;
-            // A new request can arrive while restoring the original file.
-            continue;
-          }
-          this.markSyncRecovered();
-          break;
-        }
-        const targetId = latest.targetAccountId;
-        const targetAccount = targetId ? store.get(targetId) : undefined;
-        if (targetId && !targetAccount) throw new Error(`待切换的 OpenAI 账号不存在：${targetId}`);
-        const publishContent = latest.stagedAuth?.accountId === targetId
-          ? latest.stagedAuth.authJson
-          : targetAccount?.authJson ?? null;
-        if (publishContent !== null) parseAuthJson(publishContent);
-        await this.publishMainAuth(publishContent);
-        publishedUncommitted = true;
-        validate?.();
-        const newest = store.getPendingTransition();
-        if (JSON.stringify(newest) !== JSON.stringify(latest)) continue;
-        const fingerprint = publishContent === null ? undefined : contentFingerprint(publishContent);
-        // Both staged credentials and account selection commit in one transaction.
-        store.commitPendingTransition(fingerprint);
-        publishedUncommitted = false;
-        if (targetId) store.clearSyncConflict(targetId);
-        this.markSyncRecovered();
-        for (const accountId of latest.deleteAccountIds) {
-          if (accountId !== targetId) await fs.rm(this.accountDir(accountId), { recursive: true, force: true });
-        }
-        break;
-      }
-    } catch (error) {
-      if (publishedUncommitted) {
-        try {
-          await this.publishMainAuth(previousContent);
-        } catch (restoreError) {
-          throw new AggregateError([error, restoreError], "账号切换失败，恢复原 auth.json 也失败，请检查本地存储");
-        }
-      }
-      throw error;
-    }
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
-  }
-
-  /** Stop file polling and close the SQLite handle after the final writeback. */
   async dispose(): Promise<void> {
     this.disposing = true;
     await this.wakeBatches?.stop();
     const logins = [...this.activeLogins.values()];
     for (const login of logins) login.cancel();
-    await Promise.all(logins.map((login) => login.result)).catch((error) => this.setSyncError(error));
-    if (this.authDebounce) clearTimeout(this.authDebounce);
-    if (this.authPoll) clearInterval(this.authPoll);
+    await Promise.allSettled(logins.map((login) => login.result));
     if (this.quotaPoll) clearInterval(this.quotaPoll);
-    this.authWatcher?.close();
-    this.authWatcher = null;
-    this.authPoll = undefined;
     this.quotaPoll = undefined;
     this.quotaUsage.clear();
-    await Promise.allSettled(this.quotaQueries.values());
-    await this.flushFinalAuthWriteback().catch((error) => this.setSyncError(error));
-    this.authWatcherHealthy = false;
+    await Promise.allSettled([...this.quotaQueries.values(), ...this.credentialRefreshes.values()]);
+    await Promise.allSettled([...this.accountWork.values(), ...this.wakeRequests.values()]);
     this.store?.close();
     this.store = undefined;
     this.initialized = false;
@@ -718,24 +405,14 @@ export class OpenAIAccountService {
     }
   }
 
-  /** Refresh on demand, deduplicated and serialized with credential publication/writeback. */
+  /** Refresh on demand; operations on the same account share one credential owner. */
   ensureAccountCredentials(accountId: string): Promise<void> {
     const existing = this.credentialRefreshes.get(accountId);
     if (existing) return existing;
-    const work = this.authSyncQueue.then(() => this.ensureAccountCredentialsUnlocked(accountId));
-    this.authSyncQueue = work.then(() => undefined, () => undefined);
+    const work = this.runAccountWork(accountId, () => this.ensureAccountCredentialsUnlocked(accountId));
     this.credentialRefreshes.set(accountId, work);
     void work.finally(() => this.credentialRefreshes.delete(accountId)).catch(() => undefined);
     return work;
-  }
-
-  async ensureActiveCredentials(): Promise<void> {
-    const id = await this.getActiveAccountId();
-    if (!id) throw new Error("未选择 ChatGPT Login 账号。");
-    await this.ensureAccountCredentials(id);
-    if (await this.getActiveAccountId() !== id || this.getPendingAccountId() !== undefined) {
-      throw new Error("当前账号已变更或正在切换，请重试。");
-    }
   }
 
   /** External runtimes never receive refresh tokens or write their own auth.json. */
@@ -744,8 +421,8 @@ export class OpenAIAccountService {
     chatgptAccountId: string;
     chatgptPlanType?: string;
   }> {
-    const work = this.authSyncQueue.then(async () => {
-      if (this.getStore().getActiveAccountId() === accountId) await this.reconcileMainAuth();
+    const work = this.runAccountWork(accountId, async () => {
+      await this.ensureAccountCredentialsUnlocked(accountId);
       let account = await this.requireAccount(accountId);
       const read = (raw: string | null) => {
         if (!raw) throw new Error("账号没有登录凭据。");
@@ -765,7 +442,7 @@ export class OpenAIAccountService {
           await this.withAccountClient(accountId, client => client.request("account/read", { refreshToken: true }, { timeoutMs: 30_000 }));
         } catch (error) {
           this.recordCredentialFailure(accountId, original, error);
-          this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+          this.onAccountsChanged?.();
           throw error;
         }
         account = await this.requireAccount(accountId);
@@ -774,7 +451,6 @@ export class OpenAIAccountService {
       }
       return { ...tokens, ...(account.quota?.planType ? { chatgptPlanType: account.quota.planType } : {}) };
     });
-    this.authSyncQueue = work.then(() => undefined, () => undefined);
     return work;
   }
 
@@ -784,14 +460,13 @@ export class OpenAIAccountService {
   }
 
   private async ensureAccountCredentialsUnlocked(accountId: string): Promise<void> {
-    if (this.getStore().getActiveAccountId() === accountId) await this.reconcileMainAuth();
     const account = await this.requireAccount(accountId);
     const state = this.accountAuthState(accountId, account.authJson);
     if (state === "configured") return;
     if (state !== "refreshable") throw new Error("账号需要重新登录：没有可刷新的凭据，或刷新凭据已明确失效。");
     const original = account.authJson!;
     this.refreshingAccounts.add(accountId);
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+    this.onAccountsChanged?.();
     try {
       await this.withAccountClient(accountId, async (client) => {
         await client.request("account/read", { refreshToken: true }, { timeoutMs: 30_000 });
@@ -807,7 +482,7 @@ export class OpenAIAccountService {
       throw error;
     } finally {
       this.refreshingAccounts.delete(accountId);
-      this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+      this.onAccountsChanged?.();
     }
   }
 
@@ -852,7 +527,7 @@ export class OpenAIAccountService {
     }
     const account = this.getStore().create(input);
     await fs.mkdir(this.accountDir(account.id), { recursive: true });
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+    this.onAccountsChanged?.();
     const authState = this.accountAuthState(account.id, account.authJson);
     return {
       id: account.id,
@@ -872,24 +547,9 @@ export class OpenAIAccountService {
   async deleteAccount(accountId: string): Promise<void> {
     await this.requireAccount(accountId);
     this.quotaRefreshPolicy.forget(accountId);
-    const store = this.getStore();
-    const activeId = store.getActiveAccountId();
-    const pending = store.getPendingTransition();
-    if (activeId === accountId) {
-      store.queueTransition(null, { deleteAccountId: accountId });
-    } else {
-      if (pending?.targetAccountId === accountId) {
-        if (pending.stagedAuth && pending.stagedAuth.accountId === activeId && activeId) {
-          store.queueTransition(activeId, { stagedAuth: pending.stagedAuth });
-        } else {
-          store.cancelPendingTransition();
-        }
-      }
-      store.delete(accountId);
-      await fs.rm(this.accountDir(accountId), { recursive: true, force: true });
-      this.markSyncRecovered();
-    }
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+    this.getStore().delete(accountId);
+    await fs.rm(this.accountDir(accountId), { recursive: true, force: true });
+    this.onAccountsChanged?.();
   }
 
   /** Check if an account has a valid auth.json. */
@@ -940,7 +600,6 @@ export class OpenAIAccountService {
               if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 150));
             }
           }
-          this.setSyncError(saveError);
           throw saveError;
         },
       });
@@ -981,77 +640,8 @@ export class OpenAIAccountService {
 
   private async saveCredentialsAfterLogin(accountId: string, content: string): Promise<void> {
     parseAuthJson(content);
-    const store = this.getStore();
-    if (store.getActiveAccountId() === accountId) {
-      const pending = store.getPendingTransition();
-      store.queueTransition(pending ? pending.targetAccountId : accountId, { stagedAuth: { accountId, authJson: content } });
-    } else {
-      store.saveAuthJson(accountId, content);
-    }
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
-  }
-
-  /** Get the currently active account ID. */
-  async getActiveAccountId(): Promise<string | null> {
-    return this.getStore().getActiveAccountId();
-  }
-
-  /** Keep auth.json bound to the requested account for an explicit account operation. */
-  async withActiveAccount<T>(accountId: string, operation: () => Promise<T>): Promise<T> {
-    const work = this.authSyncQueue.then(async () => {
-      await this.reconcileMainAuth();
-      if (
-        this.getStore().getActiveAccountId() !== accountId ||
-        this.getPendingAccountId() !== undefined ||
-        this.syncStatus.state !== "ok"
-      ) {
-        throw new Error("当前使用账号已变更或正在切换，请刷新后重试。");
-      }
-      await this.ensureAccountCredentialsUnlocked(accountId);
-      if (!(await this.getActiveStatus()).isLoggedIn) throw new Error("当前使用账号尚未登录。");
-      return operation();
-    });
-    // An operation error is not an auth synchronization error.
-    this.authSyncQueue = work.then(
-      () => undefined,
-      () => undefined,
-    );
-    return work;
-  }
-
-  /** Queue global selection for explicit publication by the runtime coordinator. */
-  async setActiveAccount(accountId: string | null): Promise<void> {
-    if (accountId) await this.requireAccount(accountId);
-    const pending = this.getStore().getPendingTransition();
-    if (accountId === this.getStore().getActiveAccountId() && pending && pending.targetAccountId !== accountId) {
-      if (pending.stagedAuth) {
-        this.getStore().queueTransition(accountId, { stagedAuth: pending.stagedAuth });
-      } else {
-        this.getStore().cancelPendingTransition();
-      }
-      this.onAccountsChanged?.({ syncStatus: this.syncStatus });
-      return;
-    }
-    if (accountId === this.getStore().getActiveAccountId() && !pending) return;
-    this.getStore().queueTransition(accountId);
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
-  }
-
-  /** Get login status for the active account. */
-  async getActiveStatus(): Promise<OpenAIAccountStatus> {
-    const activeId = await this.getActiveAccountId();
-    if (!activeId) {
-      return { isLoggedIn: false, message: "未选择账号" };
-    }
-    const account = await this.requireAccount(activeId);
-    const authState = this.accountAuthState(activeId, account.authJson);
-    const isLoggedIn = authState === "configured";
-    if (!canUseOpenAIAccountCredentials({ isLoggedIn, authState })) {
-      return { isLoggedIn: false, authState, message: "账号需要登录" };
-    }
-    const mainAuth = await this.readFileOrNull(path.join(this.mainCodexDir, "auth.json"));
-    if (!mainAuth) return { isLoggedIn: false, authState: "missing", message: "auth.json 未同步" };
-    return { isLoggedIn, authState, message: isLoggedIn ? "已登录" : "已授权，访问令牌待刷新" };
+    this.getStore().saveAuthJson(accountId, content);
+    this.onAccountsChanged?.();
   }
 
   /** Manually set auth.json content for an account. */
@@ -1062,13 +652,8 @@ export class OpenAIAccountService {
     } catch (error) {
       return { success: false, message: error instanceof Error ? error.message : "auth.json 格式无效" };
     }
-    if (this.getStore().getActiveAccountId() === accountId) {
-      const pending = this.getStore().getPendingTransition();
-      this.getStore().queueTransition(pending ? pending.targetAccountId : accountId, { stagedAuth: { accountId, authJson: content } });
-    } else {
-      this.getStore().saveAuthJson(accountId, content);
-    }
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+    this.getStore().saveAuthJson(accountId, content);
+    this.onAccountsChanged?.();
     return { success: true, message: "auth.json 已保存" };
   }
 
@@ -1116,62 +701,32 @@ export class OpenAIAccountService {
       throw new Error("手动代理模式需要填写代理地址。");
     }
     this.getStore().update(input);
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+    this.onAccountsChanged?.();
     return { success: true };
   }
 
   importAccounts(input: string): { added: number; updated: number } {
     const result = this.getStore().importProfiles(input);
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+    this.onAccountsChanged?.();
     return result;
   }
 
   async setImageGenerationEnabled(accountId: string, enabled: boolean): Promise<void> {
     await this.requireAccount(accountId);
     this.getStore().setImageGenerationEnabled(accountId, enabled);
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+    this.onAccountsChanged?.();
   }
 
   saveImageQuota(accountId: string, authJson: string, quota: OpenAIAccountImageQuota): void {
     this.getStore().saveImageQuota(accountId, authJson, quota);
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
-  }
-
-  async cancelPendingAccountSwitch(): Promise<{ success: boolean }> {
-    const store = this.getStore();
-    const pending = store.getPendingTransition();
-    const activeId = store.getActiveAccountId();
-    if (pending?.stagedAuth && pending.stagedAuth.accountId === activeId && pending.targetAccountId !== activeId) {
-      store.queueTransition(activeId, { stagedAuth: pending.stagedAuth });
-    } else {
-      store.cancelPendingTransition();
-    }
-    this.onAccountsChanged?.({ syncStatus: this.syncStatus });
-    return { success: true };
-  }
-
-  /** Quota/usage data for an OpenAI account. */
-  async getActiveProxyConfig(): Promise<OpenAIAccountProxyConfig> {
-    const activeId = await this.getActiveAccountId();
-    if (!activeId) return { mode: "system" };
-    const account = await this.requireAccount(activeId);
-    return {
-      mode: account.proxyMode,
-      ...(account.proxyMode === "manual" && account.proxyUrl ? { proxyUrl: account.proxyUrl.trim() } : {}),
-    };
-  }
-
-  async getActiveProxyUrl(): Promise<string | undefined> {
-    const config = await this.getActiveProxyConfig();
-    return config.mode === "manual" ? config.proxyUrl : undefined;
+    this.onAccountsChanged?.();
   }
 
   queryQuota(accountId: string, reason: QuotaRefreshReason = "manual"): Promise<OpenAIAccountQuota> {
     const existing = this.quotaQueries.get(accountId);
     if (existing) return existing;
-    // Hold the auth queue until credential writeback finishes. Account switches
-    // must not publish this account's old refresh token while a query rotates it.
-    const work = this.authSyncQueue.then(async () => {
+    // Serialize credential operations until refreshed tokens are saved to SQLite.
+    const work = this.runAccountWork(accountId, async () => {
       const account = await this.requireAccount(accountId);
       if (!account.authJson) throw new Error("该账号没有登录凭据，请先登录。");
       const credentials = contentFingerprint(account.authJson);
@@ -1186,7 +741,6 @@ export class OpenAIAccountService {
       });
     });
     // An unavailable quota endpoint is not an auth-file synchronization error.
-    this.authSyncQueue = work.then(() => undefined, () => undefined);
     this.quotaQueries.set(accountId, work);
     void work.finally(() => this.quotaQueries.delete(accountId)).catch(() => undefined);
     return work;
@@ -1201,64 +755,6 @@ export class OpenAIAccountService {
       catch { authState = "invalid"; }
       return { accountId: account.id, label: account.name, authState, selectable: authState === "configured" };
     }), accounts);
-  }
-
-  /** Explicit global selection. No token renewal, model edits or generic settings access. */
-  async switchGlobalAccountFromAssistant(input: { accountId: string; expectedAccountId: string | null; revision: string }, signal: AbortSignal) {
-    let failureCode = "publication_failed";
-    let status: "applied" | "unchanged" | "failed" = "failed";
-    const operation = this.authSyncQueue.then(async () => {
-      const store = this.getStore();
-      const check = (condition: boolean, code: string) => {
-        if (!condition) { failureCode = code; throw new Error("Global account selection precondition failed."); }
-      };
-      signal.throwIfAborted();
-      check(!store.getPendingTransition(), "transition_pending");
-      check(store.getActiveAccountId() === input.expectedAccountId, "selection_changed");
-      const validateTarget = () => {
-        check(this.accountChoiceRevisionReadonly(input.accountId) === input.revision, "account_changed");
-        check(this.listAccountChoicesReadonly().some((a) => a.accountId === input.accountId && a.selectable), "login_required");
-      };
-      validateTarget();
-      if (input.accountId === input.expectedAccountId) return "unchanged" as const;
-      store.queueTransition(input.accountId);
-      const ownedTransition = JSON.stringify(store.getPendingTransition());
-      try {
-        await this.applyPendingTransitionUnlocked(() => {
-          signal.throwIfAborted();
-          check(store.getActiveAccountId() === input.expectedAccountId && JSON.stringify(store.getPendingTransition()) === ownedTransition, "selection_changed");
-          validateTarget();
-        });
-      } catch (error) {
-        // Never leave a failed assistant request queued for an unconfirmed retry.
-        // A newer transition owned by settings/login is left intact.
-        if (JSON.stringify(store.getPendingTransition()) === ownedTransition) store.cancelPendingTransition();
-        if (error instanceof AggregateError) failureCode = "restoration_failed";
-        if (failureCode === "publication_failed" || failureCode === "restoration_failed")
-          this.setSyncError(new Error("全局账号发布失败，请在账号设置检查本地凭据同步状态。"));
-        throw new Error("Global account selection failed.");
-      }
-      return "applied" as const;
-    });
-    // Serialize with the broker without letting raw exceptions reach sync-status UI.
-    this.authSyncQueue = operation.then(() => undefined, () => undefined);
-    try {
-      status = await operation;
-    } catch {
-      // Never pass filesystem, credential broker or database exception text to a model.
-      if (signal.aborted && failureCode !== "restoration_failed") failureCode = "cancelled";
-      this.onAccountsChanged?.({ syncStatus: this.syncStatus });
-    }
-    return { status, ...(status === "failed" ? { code: failureCode } : {}),
-      selectedAccountId: this.getStore().getActiveAccountId(),
-      ...(this.getPendingAccountId() !== undefined ? { pendingAccountId: this.getPendingAccountId() } : {}),
-      syncState: this.syncStatus.state };
-  }
-
-  /** Main-process race guard only. This fingerprint is never returned by assistant tools. */
-  accountChoiceRevisionReadonly(accountId: string): string | null {
-    const account = this.getStore().listReadonlyQuotaAccounts().find((item) => item.id === accountId);
-    return account ? contentFingerprint(JSON.stringify([account.name, account.authJson])) : null;
   }
 
   async queryAllAccountQuotasReadonly(source: "live" | "cache" = "live", signal?: AbortSignal) {
@@ -1335,17 +831,21 @@ export class OpenAIAccountService {
       this.recordCredentialFailure(accountId, before.authJson, error);
       throw displayedError;
     } finally {
-      this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+      this.onAccountsChanged?.();
     }
   }
 
   /** Execute a reset and publish its required fresh read before releasing the auth queue. */
   async resetQuota<T>(accountId: string, operation: (client: CodexQuotaClient) => Promise<T>): Promise<T> {
-    return this.withActiveAccount(accountId, () => this.trackQuotaQuery(accountId, async () => {
+    const work = this.runAccountWork(accountId, async () => {
+      await this.ensureAccountCredentialsUnlocked(accountId);
+      return this.trackQuotaQuery(accountId, async () => {
       let result!: T;
       await this.queryQuotaUnlocked(accountId, async (client) => { result = await operation(client); });
       return result;
-    }));
+      });
+    });
+    return work;
   }
 
   getWakeModel(): string | null {
@@ -1360,7 +860,7 @@ export class OpenAIAccountService {
     const existing = this.wakeRequests.get(accountId);
     if (existing) return existing;
     const modelId = this.getWakeModel();
-    const work = this.authSyncQueue.then(async () => {
+    const work = this.runAccountWork(accountId, async () => {
       await this.ensureAccountCredentialsUnlocked(accountId);
       let reply: string | undefined;
       let wakeFailure: { error: unknown } | undefined;
@@ -1386,7 +886,6 @@ export class OpenAIAccountService {
       if (reply === undefined) throw new Error("Codex 唤醒未收到回复。");
       return { reply };
     });
-    this.authSyncQueue = work.then(() => undefined, () => undefined);
     this.wakeRequests.set(accountId, work);
     void work.finally(() => this.wakeRequests.delete(accountId)).catch(() => undefined);
     return work;
@@ -1414,28 +913,13 @@ export class OpenAIAccountService {
     accountId: string,
     operation: (client: CodexQuotaClient, refreshToken: boolean, expectedAccountId: string) => Promise<T>,
   ): Promise<T> {
-    const active = this.getStore().getActiveAccountId() === accountId;
-    if (active) {
-      await this.reconcileMainAuth();
-      if (this.getPendingAccountId() !== undefined || this.syncStatus.state !== "ok") {
-        throw new Error("当前账号凭据正在更新、切换或同步失败，请稍后重试账号操作。");
-      }
-    }
     const account = await this.requireAccount(accountId);
     if (!account.authJson) throw new Error("该账号没有登录凭据，请先登录。");
     const chatgptAccountId = readAuthAccountId(account.authJson);
     if (!chatgptAccountId) throw new Error("账号凭据缺少 ChatGPT 账号身份，请重新登录。");
     const refreshToken = ["expired", "refreshable"].includes(this.readAuthState(account.authJson));
     let result: T;
-    if (active && this.getActiveQuotaClient) {
-      try {
-        const client = await this.getActiveQuotaClient();
-        result = await operation(client, refreshToken, chatgptAccountId);
-      } finally {
-        // A token refresh may have succeeded even if the later quota read failed.
-        await this.reconcileMainAuth();
-      }
-    } else {
+    {
       const executable = this.codexExecutableProvider();
       if (!executable) throw new Error("Codex CLI 未找到，无法访问账号。");
       const codexHomeDir = await fs.mkdtemp(path.join(this.accountsDir, `quota-${accountId}-`));
@@ -1453,7 +937,7 @@ export class OpenAIAccountService {
           proxyUrl = `http://127.0.0.1:${socksBridge.port}`;
         }
         try {
-          result = await withIsolatedCodexAccountClient({
+          result = await this.runAccountClient({
             executable, codexHomeDir,
             proxy: proxyUrl ? { mode: "proxy", url: proxyUrl } : { mode: "direct" },
           }, (client) => operation(client, refreshToken, chatgptAccountId));
@@ -1465,8 +949,7 @@ export class OpenAIAccountService {
               if (readAuthAccountId(updatedAuth) !== chatgptAccountId) throw new Error("刷新后的账号身份不匹配");
               if (this.getStore().get(accountId)?.authJson !== account.authJson) throw new Error("查询期间账号凭据已变更");
               this.getStore().saveAuthJson(accountId, updatedAuth);
-              if (active) await this.reconcileMainAuth();
-              this.onAccountsChanged?.({ syncStatus: this.syncStatus });
+              this.onAccountsChanged?.();
             } catch (error) {
               preserveCredentials = true;
               throw new Error(`账号操作后的凭据保存失败，新凭据已保留在 ${codexHomeDir}：${error instanceof Error ? error.message : String(error)}`);

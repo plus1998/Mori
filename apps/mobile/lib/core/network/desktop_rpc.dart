@@ -40,6 +40,34 @@ class PromptImageUploadResult {
 }
 
 class DesktopRpc implements ReadAloudRemote {
+  Future<List<Map<String, dynamic>>> listChatGptOauthAccounts() async {
+    final result = await _client.invoke<List<dynamic>>(
+      desktopDeviceId,
+      'chatgpt-subscription:accounts-list',
+      [],
+    );
+    return result.map((entry) => Map<String, dynamic>.from(entry as Map)).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> listChatGptOauthAccountModels(String accountId) async {
+    final result = await _client.invoke<List<dynamic>>(
+      desktopDeviceId,
+      'chatgpt-subscription:account-models-list',
+      [accountId],
+    );
+    return result.map((entry) => Map<String, dynamic>.from(entry as Map)).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> listCodexAccountModels() async {
+    final result = await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'codex-model-catalog:get',
+      [],
+    );
+    final models = result['models'] as List<dynamic>? ?? const [];
+    return models.map((entry) => Map<String, dynamic>.from(entry as Map)).toList();
+  }
+
   Future<DesktopDisplayState> getDisplayControl() async =>
       DesktopDisplayState.fromJson(
         await _client.invoke<Map<String, dynamic>>(
@@ -89,15 +117,6 @@ class DesktopRpc implements ReadAloudRemote {
         .toList();
   }
 
-  Future<CodexActiveAccount> getActiveCodexAccount() async =>
-      CodexActiveAccount.fromJson(
-        await _client.invoke<Map<String, dynamic>>(
-          desktopDeviceId,
-          'openai-accounts:get-active',
-          [],
-        ),
-      );
-
   Future<CodexAccountQuota> queryCodexAccountQuota(String accountId) async =>
       CodexAccountQuota.fromJson(
         await _client.invoke<Map<String, dynamic>>(
@@ -108,20 +127,6 @@ class DesktopRpc implements ReadAloudRemote {
           ],
         ),
       );
-
-  Future<bool> setActiveCodexAccount(String accountId) async {
-    final result = await _client.invoke<Map<String, dynamic>>(
-      desktopDeviceId,
-      'openai-accounts:set-active',
-      [
-        {'accountId': accountId},
-      ],
-    );
-    if (result['success'] != true) {
-      throw StateError('Codex account switch failed');
-    }
-    return result['pending'] == true;
-  }
 
   Future<String> resetCodexAccountQuota(
     String accountId,

@@ -106,39 +106,52 @@ class OrchestrationSubagentSelection extends SubagentSelection {
 class OrchestrationSelection {
   const OrchestrationSelection({
     required this.mainAgentConfigId,
+    this.mainModel,
     required this.mainPrompt,
     required this.subagents,
   });
 
   factory OrchestrationSelection.fromJson(Map<String, dynamic> json) {
     final mainAgentConfigId = json['mainAgentConfigId'] as String? ?? '';
-    if (mainAgentConfigId.trim().isEmpty) {
+    final modelJson = json['mainModel'];
+    final mainModel = modelJson is Map
+        ? OrchestrationModelRef.fromJson(Map<String, dynamic>.from(modelJson))
+        : null;
+    if (mainAgentConfigId.trim().isEmpty &&
+        (mainModel == null ||
+            mainModel.providerId.trim().isEmpty ||
+            mainModel.modelId.trim().isEmpty)) {
       throw FormatException('Invalid orchestrationSelection.mainAgentConfigId');
     }
     return OrchestrationSelection(
       mainAgentConfigId: mainAgentConfigId.trim(),
+      mainModel: mainModel,
       mainPrompt: MainAgentPromptSelection.fromJson(json['mainPrompt']),
       subagents: SubagentSelection.fromJson(json['subagents']),
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'mainAgentConfigId': mainAgentConfigId,
+    if (mainAgentConfigId.isNotEmpty) 'mainAgentConfigId': mainAgentConfigId,
+    if (mainModel != null) 'mainModel': mainModel!.toJson(),
     'mainPrompt': mainPrompt.toJson(),
     'subagents': subagents.toJson(),
   };
 
   final String mainAgentConfigId;
+  final OrchestrationModelRef? mainModel;
   final MainAgentPromptSelection mainPrompt;
   final SubagentSelection subagents;
 
   OrchestrationSelection copyWith({
     String? mainAgentConfigId,
+    OrchestrationModelRef? mainModel,
     MainAgentPromptSelection? mainPrompt,
     SubagentSelection? subagents,
   }) {
     return OrchestrationSelection(
       mainAgentConfigId: mainAgentConfigId ?? this.mainAgentConfigId,
+      mainModel: mainModel ?? this.mainModel,
       mainPrompt: mainPrompt ?? this.mainPrompt,
       subagents: subagents ?? this.subagents,
     );
@@ -151,6 +164,7 @@ class OrchestrationModelRef {
     required this.modelId,
     this.thinkingEffort,
     this.candidateModelId,
+    this.accountId,
   });
 
   factory OrchestrationModelRef.fromJson(Map<String, dynamic> json) =>
@@ -159,6 +173,7 @@ class OrchestrationModelRef {
         modelId: json['modelId'] as String? ?? '',
         thinkingEffort: json['thinkingEffort'] as String?,
         candidateModelId: json['candidateModelId'] as String?,
+        accountId: json['accountId'] as String?,
       );
 
   Map<String, dynamic> toJson() => {
@@ -166,16 +181,21 @@ class OrchestrationModelRef {
     'modelId': modelId,
     if (thinkingEffort != null) 'thinkingEffort': thinkingEffort,
     if (candidateModelId != null) 'candidateModelId': candidateModelId,
+    if (accountId != null) 'accountId': accountId,
   };
 
   final String providerId;
   final String modelId;
   final String? thinkingEffort;
   final String? candidateModelId;
+  final String? accountId;
 }
 
 class ToolPolicyMcp {
-  const ToolPolicyMcp({this.allowedServers = const []});
+  const ToolPolicyMcp({
+    this.allowedServers = const [],
+    this.allowedTools = const [],
+  });
 
   factory ToolPolicyMcp.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const ToolPolicyMcp();
@@ -184,10 +204,14 @@ class ToolPolicyMcp {
       allowedServers: servers is List
           ? servers.map((entry) => entry.toString()).toList(growable: false)
           : const [],
+      allowedTools: (json['allowedTools'] as List<dynamic>? ?? const [])
+          .map((entry) => entry.toString())
+          .toList(growable: false),
     );
   }
 
   final List<String> allowedServers;
+  final List<String> allowedTools;
 }
 
 class ToolPolicy {
@@ -196,6 +220,7 @@ class ToolPolicy {
     this.disallowed = const [],
     this.mcp,
     this.confirmation,
+    this.capabilities = const {},
   });
 
   factory ToolPolicy.fromJson(Map<String, dynamic>? json) {
@@ -212,6 +237,16 @@ class ToolPolicy {
           ? ToolPolicyMcp.fromJson(Map<String, dynamic>.from(mcp))
           : null,
       confirmation: json['confirmation'] as String?,
+      capabilities: {
+        for (final entry in json.entries)
+          if (!const [
+            'allowed',
+            'disallowed',
+            'mcp',
+            'confirmation',
+          ].contains(entry.key))
+            entry.key: entry.value,
+      },
     );
   }
 
@@ -219,7 +254,30 @@ class ToolPolicy {
   final List<String> disallowed;
   final ToolPolicyMcp? mcp;
   final String? confirmation;
+
+  /// Preserve runtime capabilities when round-tripping desktop snapshots.
+  final Map<String, dynamic> capabilities;
+
+  Map<String, dynamic> toJson() => {
+    ...capabilities,
+    'allowed': allowed,
+    'disallowed': disallowed,
+    if (mcp != null)
+      'mcp': {
+        'allowedServers': mcp!.allowedServers,
+        'allowedTools': mcp!.allowedTools,
+      },
+    if (confirmation != null) 'confirmation': confirmation,
+  };
 }
+
+const mainCodingToolPolicy = ToolPolicy(
+  capabilities: {
+    'bash': {'enabled': true},
+    'filesystem': {'read': 'workspace', 'write': 'workspace'},
+    'network': {'webSearch': true, 'webFetch': true},
+  },
+);
 
 class MainAgentConfigResource {
   const MainAgentConfigResource({
@@ -473,17 +531,7 @@ class ResolvedOrchestrationSnapshot {
       'systemPromptPreset': mainAgent.systemPromptPreset,
       'prompt': mainAgent.prompt,
       'modelRef': mainAgent.modelRef.toJson(),
-      'tools': {
-        'allowed': mainAgent.tools.allowed,
-        'disallowed': mainAgent.tools.disallowed,
-        if (mainAgent.tools.mcp != null)
-          'mcp': {
-            'allowedServers': mainAgent.tools.mcp!.allowedServers,
-            'allowedTools': const <String>[],
-          },
-        if (mainAgent.tools.confirmation != null)
-          'confirmation': mainAgent.tools.confirmation,
-      },
+      'tools': mainAgent.tools.toJson(),
       'skills': mainAgent.skills,
     },
     'agents': agents
@@ -494,15 +542,7 @@ class ResolvedOrchestrationSnapshot {
             if (agent.displayName != null) 'displayName': agent.displayName,
             if (agent.themeColor != null) 'themeColor': agent.themeColor,
             'modelRef': agent.modelRef.toJson(),
-            'tools': {
-              'allowed': agent.tools.allowed,
-              'disallowed': agent.tools.disallowed,
-              if (agent.tools.mcp != null)
-                'mcp': {
-                  'allowedServers': agent.tools.mcp!.allowedServers,
-                  'allowedTools': const <String>[],
-                },
-            },
+            'tools': agent.tools.toJson(),
             'mcpServers': agent.mcpServers,
             'skills': agent.skills,
             'enabled': agent.enabled,
@@ -544,7 +584,13 @@ class OrchestrationResourceLookup {
 bool isOrchestrationSelection(Object? value) {
   if (value is! Map) return false;
   final mainAgentConfigId = value['mainAgentConfigId'];
-  if (mainAgentConfigId is! String || mainAgentConfigId.trim().isEmpty) {
+  final mainModel = value['mainModel'];
+  final directModelValid =
+      mainModel is Map &&
+      (mainModel['providerId'] as String?)?.trim().isNotEmpty == true &&
+      (mainModel['modelId'] as String?)?.trim().isNotEmpty == true;
+  if ((mainAgentConfigId is! String || mainAgentConfigId.trim().isEmpty) &&
+      !directModelValid) {
     return false;
   }
   try {
@@ -568,7 +614,12 @@ bool isResolvedOrchestrationSnapshot(Object? value) {
 
 bool hasCompleteOrchestrationSelection(OrchestrationSelection? selection) {
   if (selection == null) return false;
-  if (selection.mainAgentConfigId.trim().isEmpty) return false;
+  if (selection.mainAgentConfigId.trim().isEmpty &&
+      (selection.mainModel == null ||
+          selection.mainModel!.providerId.trim().isEmpty ||
+          selection.mainModel!.modelId.trim().isEmpty)) {
+    return false;
+  }
   final mainPrompt = selection.mainPrompt;
   if (mainPrompt is CustomAppendMainAgentPromptSelection &&
       mainPrompt.promptId.trim().isEmpty) {
@@ -643,11 +694,23 @@ ResolvedOrchestrationSnapshot resolveOrchestrationSnapshot(
   OrchestrationSelection selection,
   OrchestrationResourceLookup lookup,
 ) {
-  MainAgentConfigResource? mainAgentConfig;
-  for (final entry in lookup.mainAgentConfigs) {
-    if (entry.id == selection.mainAgentConfigId.trim()) {
-      mainAgentConfig = entry;
-      break;
+  MainAgentConfigResource? mainAgentConfig = selection.mainModel == null
+      ? null
+      : MainAgentConfigResource(
+          id: '',
+          name: selection.mainModel!.modelId,
+          agentKey: 'main',
+          modelRef: selection.mainModel!,
+          tools: mainCodingToolPolicy,
+          skills: const [],
+          source: 'derived',
+        );
+  if (mainAgentConfig == null) {
+    for (final entry in lookup.mainAgentConfigs) {
+      if (entry.id == selection.mainAgentConfigId.trim()) {
+        mainAgentConfig = entry;
+        break;
+      }
     }
   }
   if (mainAgentConfig == null) {

@@ -154,6 +154,23 @@ describe("ChatGptSubscriptionService", () => {
     );
   });
 
+  test("an explicitly bound OAuth account never switches to another account", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-chatgpt-"));
+    const service = new ChatGptSubscriptionService(dataDir, codec);
+    await service.initialize();
+    const paused = await service.createAccount("受限账号");
+    const healthy = await service.createAccount("正常账号");
+    authorizeAccount(service, { accountIndex: 0 });
+    authorizeAccount(service, { accountIndex: 1 });
+    await service.reportCredentialResult(quotaResult(paused.accountId));
+    await expect(service.resolveCredential(subscriptionProvider, paused.accountId))
+      .rejects.toThrow("不可用");
+    expect((await service.resolveCredential(subscriptionProvider, healthy.accountId)).accountId)
+      .toBe(healthy.accountId);
+    await expect(service.resolveCredential(subscriptionProvider, "deleted-account"))
+      .rejects.toThrow("已不存在");
+  });
+
   test("sends the official OAuth smoke-test message upstream", async () => {
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-chatgpt-"));
     let requestBody: Record<string, unknown> | undefined;

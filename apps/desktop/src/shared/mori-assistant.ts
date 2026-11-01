@@ -65,7 +65,6 @@ export interface MoriAssistantSnapshot {
   activeThreadId?: string;
   schedules: ScheduleDefinition[];
   scheduledOccurrences: ScheduleOccurrence[];
-  globalAccountId?: string | null;
   settings: MoriAssistantSettings;
   sessions: MoriAssistantSession[];
   currentThreadId?: string;

@@ -20,6 +20,8 @@ export { type CodexProxyEnvironment, parseElectronProxyResolution, resolveCodexP
 
 export interface CodexRuntimeLifecycleOptions {
   ecoDataDir: string;
+  /** When set, the app-server stays bound to this exact ChatGPT Login account. */
+  accountId?: string;
   codexExecutable?: string;
   clientOptions?: Omit<CodexAppServerClientOptions, "onNotification">;
   onNotification?: CodexAppServerNotificationHandler;
@@ -41,10 +43,10 @@ export function setCodexExternalAuthProvider(provider: typeof externalAuthProvid
 
 // Module-level configuration shared by the global and temporary runtimes.
 let accountProxyConfigGetter:
-  | (() => OpenAIAccountProxyConfig | Promise<OpenAIAccountProxyConfig>)
+  | ((accountId: string) => OpenAIAccountProxyConfig | Promise<OpenAIAccountProxyConfig>)
   | undefined;
 export function setCodexAccountProxyConfigGetter(
-  getter: (() => OpenAIAccountProxyConfig | Promise<OpenAIAccountProxyConfig>) | undefined,
+  getter: ((accountId: string) => OpenAIAccountProxyConfig | Promise<OpenAIAccountProxyConfig>) | undefined,
 ): void {
   accountProxyConfigGetter = getter;
 }
@@ -165,7 +167,9 @@ export class CodexRuntimeLifecycle {
     // Resolve the explicit account proxy or the current OS proxy before spawning.
     let proxyEnvironment: CodexProxyEnvironment;
     try {
-      const proxyConfig = (await accountProxyConfigGetter?.()) ?? { mode: "system" };
+      const proxyConfig = this.options.accountId
+        ? (await accountProxyConfigGetter?.(this.options.accountId)) ?? { mode: "system" }
+        : { mode: "system" as const };
       const rawProxy = await resolveCodexProxyUrl(proxyConfig, systemProxyResolver);
       let proxyHttp = rawProxy;
       if (rawProxy) {
@@ -244,8 +248,11 @@ export class CodexRuntimeLifecycle {
     this.client = client;
     try {
       await Promise.race([client.initialize(), spawnFailure]);
-      if (authProvider) {
-        boundAuth = await authProvider();
+      if (authProvider && this.options.accountId) {
+        boundAuth = await authProvider(this.options.accountId);
+        if (this.options.accountId && boundAuth?.accountId !== this.options.accountId) {
+          throw new Error(`ChatGPT Login 账号 ${this.options.accountId} 已不可用。`);
+        }
         if (boundAuth) await client.request("account/login/start", {
           type: "chatgptAuthTokens", accessToken: boundAuth.accessToken,
           chatgptAccountId: boundAuth.chatgptAccountId,
@@ -336,6 +343,7 @@ let runtimeEpoch = 0;
 let replacementTail: Promise<void> = Promise.resolve();
 const startingReplacements = new Set<CodexRuntimeLifecycle>();
 const retiringLifecycles = new Set<CodexRuntimeLifecycle>();
+const accountLifecycles = new Map<string, { lifecycle: CodexRuntimeLifecycle; revision: number }>();
 const threadClients = new Map<string, CodexAppServerClient>();
 const clientReservations = new Map<CodexAppServerClient, number>();
 let retirementTimer: ReturnType<typeof setTimeout> | undefined;
@@ -344,7 +352,7 @@ let retirementSweep: Promise<void> | undefined;
 export function getCodexRuntimeClients(): CodexAppServerClient[] {
   return [
     ...new Set(
-      [globalLifecycle, ...retiringLifecycles].flatMap((lifecycle) => {
+      [globalLifecycle, ...[...accountLifecycles.values()].map((entry) => entry.lifecycle), ...retiringLifecycles].flatMap((lifecycle) => {
         const client = lifecycle?.getClient();
         return client ? [client] : [];
       }),
@@ -546,6 +554,42 @@ export function getGlobalCodexRuntimeLifecycle(): CodexRuntimeLifecycle | undefi
   return globalLifecycle;
 }
 
+export async function ensureCodexAccountRuntimeLifecycle(
+  accountId: string,
+  options: CodexRuntimeLifecycleOptions,
+  revision: number,
+): Promise<CodexAppServerClient> {
+  const id = accountId.trim();
+  if (!id) throw new Error("ChatGPT Login 会话没有绑定账号。");
+  while (globalStopPromise) await globalStopPromise;
+  const current = accountLifecycles.get(id);
+  if (current?.revision === revision) return current.lifecycle.start();
+  const lifecycle = new CodexRuntimeLifecycle({ ...options, accountId: id });
+  accountLifecycles.set(id, { lifecycle, revision });
+  try {
+    const client = await lifecycle.start();
+    if (current) retiringLifecycles.add(current.lifecycle);
+    scheduleRetirementSweep();
+    return client;
+  } catch (error) {
+    if (accountLifecycles.get(id)?.lifecycle === lifecycle) {
+      if (current) accountLifecycles.set(id, current);
+      else accountLifecycles.delete(id);
+    }
+    await lifecycle.stop();
+    throw error;
+  }
+}
+
+/** A changed proxy applies to the account's next turn; active turns retain their client. */
+export function invalidateCodexAccountRuntimeLifecycle(accountId: string): void {
+  const entry = accountLifecycles.get(accountId);
+  if (!entry) return;
+  accountLifecycles.delete(accountId);
+  retiringLifecycles.add(entry.lifecycle);
+  scheduleRetirementSweep();
+}
+
 export function setGlobalCodexRuntimeLifecycle(lifecycle: CodexRuntimeLifecycle | undefined): void {
   globalLifecycle = lifecycle;
 }
@@ -569,12 +613,13 @@ export async function stopGlobalCodexRuntimeLifecycle(): Promise<void> {
   runtimeEpoch += 1;
   if (retirementTimer) clearTimeout(retirementTimer);
   retirementTimer = undefined;
-  const lifecycles = [...new Set([globalLifecycle, ...retiringLifecycles, ...startingReplacements])];
+  const lifecycles = [...new Set([globalLifecycle, ...[...accountLifecycles.values()].map((entry) => entry.lifecycle), ...retiringLifecycles, ...startingReplacements])];
   const stopPromise = (async () => {
     await Promise.all(lifecycles.map((lifecycle) => lifecycle?.stop?.()));
     await replacementTail;
     await retirementSweep;
     retiringLifecycles.clear();
+    accountLifecycles.clear();
     threadClients.clear();
     clientReservations.clear();
   })();

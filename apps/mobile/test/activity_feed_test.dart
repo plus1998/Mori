@@ -5683,7 +5683,7 @@ void main() {
 
   test('parseClarificationAnswersSummary extracts question answer rows', () {
     final rows = parseClarificationAnswersSummary(
-      '澄清回答：是否自动分配？ → 自动启用；导出范围 → 已启用、备选',
+      '询问回答：是否自动分配？ → 自动启用；导出范围 → 已启用、备选',
     );
     expect(rows, isNotNull);
     expect(rows, hasLength(2));
@@ -5746,7 +5746,7 @@ void main() {
               eventType: 'message.final',
               scope: 'main',
               role: 'main',
-              text: '澄清回答：是否自动分配？ → 自动启用',
+              text: '询问回答：是否自动分配？ → 自动启用',
               at: '2026-01-01T00:00:01.000Z',
             ),
           ],
@@ -5972,7 +5972,7 @@ void main() {
                 ActivityFeedEntry(
                   id: 'clarification-answer',
                   kind: ActivityFeedKind.clarificationAnswer,
-                  text: '澄清回答：是否自动分配？ → 自动启用',
+                  text: '询问回答：是否自动分配？ → 自动启用',
                 ),
               ],
               scrollController: scrollController,

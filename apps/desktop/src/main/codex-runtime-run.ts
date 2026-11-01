@@ -77,6 +77,7 @@ import {
 import { CodexModelCatalogService } from "./codex-model-catalog";
 import {
   CodexRuntimeLifecycle,
+  ensureCodexAccountRuntimeLifecycle,
   ensureGlobalCodexRuntimeLifecycle,
   getCodexRuntimeClientForThread,
   getGlobalCodexRuntimeLifecycle,
@@ -113,6 +114,8 @@ export interface CodexRuntimeAttempt {
 
 export interface RunThreadRequestWithRuntimeProxyInput {
   threadId: string;
+  /** Exact ChatGPT Login account selected for this conversation. */
+  resolveAccountId?: () => string | undefined;
   attachments?: unknown;
   signal?: AbortSignal;
   resolveRuntimeConfig: () => RuntimeConfigResolution;
@@ -169,7 +172,7 @@ export interface EcoProviderForCodexCatalog extends EcoProviderForCodexConfig {
 export interface CodexRuntimeRunDeps {
   ecoDataDir: string;
   /** Refresh managed ChatGPT credentials before a native OpenAI turn. */
-  ensureAccountReady?: () => Promise<void>;
+  ensureAccountReady?: (accountId?: string) => Promise<void>;
   listProviders: () => readonly EcoProviderForCodexCatalog[];
   getGlobalContextWindowLimit?: () => number;
   listAccountModels?: () => Promise<readonly CodexAccountModelContext[]>;
@@ -255,6 +258,7 @@ export interface CodexRuntimeRunDeps {
 
 export interface PrepareCodexRuntimeInput {
   ecoThreadId?: string;
+  accountId?: string;
   /** Reserve the selected generation until the request has created and disposed its driver. */
   reserveRuntime?: boolean;
   signal?: AbortSignal;
@@ -303,7 +307,7 @@ export interface PrepareCodexRuntimeInput {
 }
 
 /** Exhaustive process-only restart reasons; thread settings must never enter this path. */
-export type CodexRuntimeRestartReason = "account" | "account_proxy" | "model_catalog" | "launch_config";
+export type CodexRuntimeRestartReason = "model_catalog" | "launch_config";
 
 export interface PreparedCodexRuntime {
   /** Wire settings for thread/fork, which otherwise uses the process-global defaults. */
@@ -336,14 +340,10 @@ let refreshPending = false;
 let globalRefreshError: Error | undefined;
 let globalRuntimeRefreshShuttingDown = false;
 let globalRefreshIdleAbortController = new AbortController();
-let beforeGlobalRuntimeRefresh: (() => Promise<void>) | undefined;
-let forcedRuntimeRestart: "account" | "account_proxy" | undefined;
 let loadedModelCatalogSlugs: readonly string[] = [];
 let loadedGlobalMcpServerNames: readonly string[] = [];
 let loadedGatewayProviderFingerprint = "";
 let loadedAccountModelContexts = "";
-let accountRefreshPending = false;
-let accountRestartRevision = 0;
 
 export function bindPreparedCodexRuntimeToThread(ecoThreadId: string, prepared: PreparedCodexRuntime): void {
   const threadId = ecoThreadId.trim();
@@ -397,14 +397,10 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
   globalRefreshError = undefined;
   globalRuntimeRefreshShuttingDown = false;
   globalRefreshIdleAbortController = new AbortController();
-  beforeGlobalRuntimeRefresh = undefined;
-  forcedRuntimeRestart = undefined;
   loadedModelCatalogSlugs = [];
   loadedGlobalMcpServerNames = [];
   loadedGatewayProviderFingerprint = "";
   loadedAccountModelContexts = "";
-  accountRefreshPending = false;
-  accountRestartRevision = 0;
   // Role declarations remain thread-scoped, but the shared runtime always needs
   // the stable multi-agent capability available before a thread enables it.
   globalMultiAgentSupportRequired = true;
@@ -1010,26 +1006,9 @@ export function clearCodexModelCatalogCache(): void {
   modelCatalogService?.clear();
 }
 
-/**
- * Force the next global runtime prepare to cold-restart the shared app-server
- * even when the config/catalog contents are unchanged. Account credentials
- * (auth.json) and the account proxy are not part of the config fingerprint,
- * so the fingerprint gate in prepareCodexRuntime cannot detect those changes
- * on its own.
- */
-export function requestCodexAccountRuntimeRestart(reason: "account" | "account_proxy"): void {
-  if (reason !== "account" && reason !== "account_proxy") {
-    throw new Error("Only account credentials or account proxy changes may force a Codex runtime restart.");
-  }
-  forcedRuntimeRestart = reason;
-  accountRefreshPending = true;
-  accountRestartRevision += 1;
-}
-
 /** Queue a settings-driven refresh without interrupting active Codex turns. */
-export function scheduleCodexGlobalRuntimeRefresh(options?: { beforePrepare?: () => Promise<void> }): void {
+export function scheduleCodexGlobalRuntimeRefresh(): void {
   if (globalRuntimeRefreshShuttingDown) return;
-  if (options?.beforePrepare) beforeGlobalRuntimeRefresh = options.beforePrepare;
   desiredGlobalRuntimeRevision += 1;
   refreshPending = true;
   globalRefreshError = undefined;
@@ -1040,34 +1019,14 @@ export function scheduleCodexGlobalRuntimeRefresh(options?: { beforePrepare?: ()
     do {
       const revision = desiredGlobalRuntimeRevision;
       try {
-        const beforePrepare = beforeGlobalRuntimeRefresh;
-        // Account changes are explicit: old account requests may fail after
-        // publication, while unrelated gateway requests keep their generation.
-        if (beforePrepare) {
-          if (forcedRuntimeRestart !== "account") {
-            throw new Error("A Codex account transition requires the explicit account restart reason.");
-          }
-          if (globalRuntimeRefreshShuttingDown) return;
-          if (revision !== desiredGlobalRuntimeRevision) continue;
-        }
-        beforeGlobalRuntimeRefresh = undefined;
-        await beforePrepare?.();
         if (globalRuntimeRefreshShuttingDown) return;
-        if (revision !== desiredGlobalRuntimeRevision) {
-          continue;
-        }
+        if (revision !== desiredGlobalRuntimeRevision) continue;
         await prepareCodexRuntime({
           globalOnly: true,
           globalRuntimeRevision: revision,
           signal: globalRefreshIdleAbortController.signal,
         });
         globalRefreshError = undefined;
-        if (
-          loadedGlobalRuntimeRevision === desiredGlobalRuntimeRevision &&
-          forcedRuntimeRestart === undefined
-        ) {
-          accountRefreshPending = false;
-        }
       } catch (error) {
         if (globalRuntimeRefreshShuttingDown && error === globalRefreshIdleAbortController.signal.reason)
           return;
@@ -1092,10 +1051,9 @@ export function scheduleCodexGlobalRuntimeRefresh(options?: { beforePrepare?: ()
     });
 }
 
-/** Stop queued refreshes and wait for in-flight account/config work before shutdown. */
+/** Stop queued refreshes and wait for in-flight config work before shutdown. */
 export async function shutdownCodexGlobalRuntimeRefresh(): Promise<void> {
   globalRuntimeRefreshShuttingDown = true;
-  beforeGlobalRuntimeRefresh = undefined;
   globalRefreshIdleAbortController.abort(new Error("Codex runtime refresh is shutting down."));
   await globalRefreshPromise;
 }
@@ -1105,12 +1063,6 @@ export async function prepareCodexRuntime(
 ): Promise<PreparedCodexRuntime> {
   if (globalRuntimeRefreshShuttingDown && !input.globalOnly) {
     throw new Error("Codex runtime is shutting down; new tasks are blocked.");
-  }
-  // Account publication/restart must not gate an unchanged custom provider.
-  // This branch is thread-only and must not queue behind account I/O on the
-  // global materialization tail.
-  if (!input.globalOnly && refreshPending && canUseGatewayRuntimeDuringAccountRefresh(input)) {
-    return prepareCodexRuntimeUnlocked(input);
   }
   // A thread selecting a just-saved model must wait for the already-scheduled
   // baseline refresh. Keep this outside prepareRuntimeTail: the refresher must
@@ -1137,31 +1089,8 @@ function gatewayProviderFingerprint(providers = requireDeps().listProviders()): 
 
 type RuntimeBaselineInput = Pick<PrepareCodexRuntimeInput, "globalOnly" | "globalRuntimeRevision"> & {
   gatewayFingerprint: string;
-  accountRestartRevision: number;
   accountModelContexts?: string;
 };
-
-function canUseGatewayRuntimeDuringAccountRefresh(input: PrepareCodexRuntimeInput): boolean {
-  const orchestration = input.agentRegistry?.orchestration;
-  const requiredProviders = [
-    ...(input.requiredProviderIds ?? []),
-    ...(input.mainProviderId ? [input.mainProviderId] : []),
-    ...(orchestration
-      ? [
-          orchestration.mainAgent.modelRef.providerId,
-          ...orchestration.agents.filter((agent) => agent.enabled).map((agent) => agent.modelRef.providerId),
-        ]
-      : []),
-  ];
-  return (
-    accountRefreshPending &&
-    hasLoadedGlobalRuntimeBaseline() &&
-    requiredProviders.length > 0 &&
-    requiredProviders.every((id) => id !== "openai") &&
-    loadedGatewayProviderFingerprint === gatewayProviderFingerprint() &&
-    catalogRoutesAreAvailable(input.requiredCatalogRoutes ?? [], loadedModelCatalogSlugs)
-  );
-}
 
 function awaitGlobalRuntimeRefresh(refresh: Promise<void>, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted();
@@ -1192,7 +1121,6 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     ...input,
     globalRuntimeRevision: input.globalRuntimeRevision ?? desiredGlobalRuntimeRevision,
     gatewayFingerprint: gatewayProviderFingerprint(providers),
-    accountRestartRevision,
   };
   const codexExecutable = resolveCodexExecutable();
   if (!codexExecutable) {
@@ -1541,7 +1469,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
   }
   const catalogNeedsRestart = catalogSync.runtimeFingerprint !== lastPreparedModelCatalogFingerprint;
   const configNeedsRestart =
-    globalConfigFingerprint !== lastPreparedGlobalConfigFingerprint || forcedRuntimeRestart !== undefined;
+    globalConfigFingerprint !== lastPreparedGlobalConfigFingerprint;
   if (catalogNeedsRestart || configNeedsRestart) {
     await ensureCodexRuntimeRestart(
       runtimeDeps,
@@ -1551,7 +1479,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
       catalogSync.runtimeFingerprint,
       globalConfigFingerprint,
       baselineInput,
-      forcedRuntimeRestart ?? (catalogNeedsRestart ? "model_catalog" : "launch_config"),
+      catalogNeedsRestart ? "model_catalog" : "launch_config",
     );
   }
   if (
@@ -1608,10 +1536,16 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
 }
 
 async function finishPreparedRuntime(
-  client: CodexAppServerClient,
+  sharedClient: CodexAppServerClient,
   prepared: PreparedCodexRuntime,
   input: PrepareCodexRuntimeInput,
 ): Promise<PreparedCodexRuntime> {
+  if (input.accountId && input.mainProviderId !== "openai") {
+    throw new Error("只有 ChatGPT Login 模型可绑定 Login 账号。");
+  }
+  const client = input.accountId
+    ? await startSharedCodexRuntimeLifecycle(requireDeps(), resolveCodexExecutable()!, false, input.accountId)
+    : sharedClient;
   const release = input.reserveRuntime ? retainCodexRuntimeClient(client) : undefined;
   try {
     const codexThreadId = input.ecoThreadId ? deps?.threadMap.getCodexThreadId(input.ecoThreadId) : undefined;
@@ -1766,7 +1700,6 @@ function markLoadedGlobalRuntimeBaseline(
   lastPreparedGlobalConfigFingerprint = configFingerprint;
   loadedGatewayProviderFingerprint = input.gatewayFingerprint;
   loadedAccountModelContexts = input.accountModelContexts ?? "";
-  if (input.accountRestartRevision === accountRestartRevision) forcedRuntimeRestart = undefined;
   if (input.globalOnly) {
     loadedGlobalRuntimeRevision = input.globalRuntimeRevision ?? desiredGlobalRuntimeRevision;
     refreshPending = loadedGlobalRuntimeRevision !== desiredGlobalRuntimeRevision;
@@ -1857,9 +1790,13 @@ async function startSharedCodexRuntimeLifecycle(
   runtimeDeps: CodexRuntimeRunDeps,
   codexExecutable: string,
   replace = false,
+  accountId?: string,
 ): Promise<CodexAppServerClient> {
   let notificationClient: CodexAppServerClient | undefined;
-  const start = replace ? replaceGlobalCodexRuntimeLifecycle : ensureGlobalCodexRuntimeLifecycle;
+  const start = accountId
+    ? (options: import("./codex-runtime-lifecycle").CodexRuntimeLifecycleOptions) =>
+        ensureCodexAccountRuntimeLifecycle(accountId, options, loadedGlobalRuntimeRevision)
+    : replace ? replaceGlobalCodexRuntimeLifecycle : ensureGlobalCodexRuntimeLifecycle;
   const client = await start({
     ecoDataDir: runtimeDeps.ecoDataDir,
     codexExecutable,
@@ -1975,9 +1912,14 @@ export async function runThreadRequestWithRuntimeProxy(
       const systemPromptAppend = input.resolveSystemPromptAppend?.()?.trim();
       const plannerRoute = freshConfig.routes.find((route) => route.role === "main");
       const selectedRoute = plannerRoute ?? freshConfig.routes[0];
+      const accountId = selectedRoute?.provider.id === "openai" ? input.resolveAccountId?.()?.trim() : undefined;
+      if (selectedRoute?.provider.id === "openai" && !accountId) {
+        throw new Error("此会话尚未选择 ChatGPT Login 账号，请先选择账号和模型。");
+      }
       const webSearchOverride = input.resolveWebSearchOverride?.();
       prepared = await prepareCodexRuntime({
         ecoThreadId: input.threadId,
+        ...(accountId ? { accountId } : {}),
         reserveRuntime: true,
         ...(input.signal ? { signal: input.signal } : {}),
         ...(input.onConfigReloadWait ? { onConfigReloadWait: input.onConfigReloadWait } : {}),
@@ -2016,7 +1958,7 @@ export async function runThreadRequestWithRuntimeProxy(
       bindPreparedCodexRuntimeToThread(input.threadId, prepared);
       if (requiredProviderIds.includes("openai") ||
         Object.values(prepared.roleThreadConfigs).some((config) => config.model_provider === "openai")) {
-        await requireDeps().ensureAccountReady?.();
+        await requireDeps().ensureAccountReady?.(accountId);
       }
       await input.onPrepared?.(prepared);
     } catch (error) {

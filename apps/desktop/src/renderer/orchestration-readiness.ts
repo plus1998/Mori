@@ -11,7 +11,7 @@ type ProviderView = ModelSettingsSnapshot["providers"][number];
 
 export type OrchestrationFieldKey = "mainAgent" | "subagentOrchestration";
 
-export type OrchestrationIssueKind = "provider_disabled" | "provider_missing" | "model_empty";
+export type OrchestrationIssueKind = "provider_disabled" | "provider_missing" | "model_empty" | "account_missing";
 
 export interface OrchestrationFieldIssue {
   field: OrchestrationFieldKey;
@@ -78,9 +78,18 @@ export function diagnoseOrchestrationSnapshotReadiness(
       mainAgentModelOverride,
     ) ?? snapshot.mainAgent.modelRef;
   const mainIssue = diagnoseModelRef(effectiveMainModel, providersById);
+  const accountMissing = (effectiveMainModel.providerId === "openai" ||
+    effectiveMainModel.providerId === "eco-coding-chatgpt") &&
+    !snapshot.selection.mainModel?.accountId?.trim();
+  if (accountMissing) {
+    issues.push({ field: "mainAgent", kind: "account_missing",
+      providerId: effectiveMainModel.providerId,
+      providerName: providersById.get(effectiveMainModel.providerId)?.name ?? effectiveMainModel.providerId,
+      modelId: effectiveMainModel.modelId });
+  }
   if (mainIssue) {
     const mainAgentConfigName = localizeMainAgentConfigName(
-      snapshot.selection.mainAgentConfigId,
+      snapshot.selection.mainAgentConfigId ?? "",
       snapshot.mainAgentConfigName,
     );
     issues.push({

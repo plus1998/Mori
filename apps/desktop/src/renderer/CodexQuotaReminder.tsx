@@ -18,7 +18,6 @@ import "./CodexQuotaReminder.css";
 
 type QuotaReminderBridge = Pick<
   NonNullable<Window["eco"]>,
-  | "openAIAccountsGetActive"
   | "openAIAccountsList"
   | "openAIAccountsQueryQuota"
   | "openAIAccountsResetQuota"
@@ -160,7 +159,6 @@ export function CodexQuotaReminderCard({
           {error}
         </p>
       ) : null}
-      {snapshot.switching ? <p>{t("codexQuota.switching")}</p> : null}
       <p className="codex-quota-reset-count">
         {t(snapshot.quota.resetCreditsAvailable > 0 ? "codexQuota.resetCount" : "codexQuota.noCredit", {
           count: snapshot.quota.resetCreditsAvailable,
@@ -179,7 +177,7 @@ export function CodexQuotaReminderCard({
         <button
           type="button"
           onClick={onReset}
-          disabled={busy || refreshing || snapshot.switching || snapshot.quota.resetCreditsAvailable <= 0}
+          disabled={busy || refreshing || snapshot.quota.resetCreditsAvailable <= 0}
           aria-busy={busy}
           title={t(
             snapshot.quota.resetCreditsAvailable > 0 ? "codexQuota.resetCount" : "codexQuota.noCredit",
@@ -200,8 +198,10 @@ export function CodexQuotaReminder({
   eco = window.eco,
   variant = "reminder",
   activeThreadId,
+  accountId,
 }: {
   threads: readonly ThreadSummary[];
+  accountId?: string | undefined;
   onSwitchAccount: () => void;
   eco?: QuotaReminderBridge | undefined;
   /** The conversation on screen; the sidebar reminder only shows while it uses the Codex account. */
@@ -217,6 +217,8 @@ export function CodexQuotaReminder({
   threadsRef.current = threads;
   const activeThreadIdRef = useRef(activeThreadId);
   activeThreadIdRef.current = activeThreadId;
+  const accountIdRef = useRef(accountId);
+  accountIdRef.current = accountId;
   const monitor = useRef<CodexQuotaMonitor | undefined>(undefined);
   const [snapshot, setSnapshot] = useState<CodexQuotaReminderSnapshot>();
   const snapshotRef = useRef<CodexQuotaReminderSnapshot | undefined>(undefined);
@@ -242,6 +244,7 @@ export function CodexQuotaReminder({
       // Composer visibility is gated by its selected provider, including a fresh draft.
       enabled: () => variant === "composer" ||
         isCodexAuthConversation(threadsRef.current, activeThreadIdRef.current),
+      accountId: () => accountIdRef.current,
       onChange: acceptSnapshot,
       onError: (message) => {
         setError(message);
@@ -260,8 +263,8 @@ export function CodexQuotaReminder({
     };
   }, [acceptSnapshot, eco, variant]);
   useEffect(() => {
-    void monitor.current?.refresh();
-  }, [recentlyUsed, eco, variant]);
+    monitor.current?.invalidate();
+  }, [accountId, recentlyUsed, eco, variant]);
 
   async function reset() {
     if (!snapshot || !eco || resettingRef.current || refreshingRef.current) return;

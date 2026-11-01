@@ -32,7 +32,6 @@ export type CommitDialogAction = "commit" | "commit-push" | "push";
 interface GitCommitDialogProps {
   open: boolean;
   workspacePath: string;
-  mainAgentConfigId?: string;
   defaultCandidateModelId?: string;
   gitStatus?: GitWorkingTreeStatus;
   busy?: boolean;
@@ -49,7 +48,6 @@ interface GitCommitDialogProps {
 export function GitCommitDialog({
   open,
   workspacePath,
-  mainAgentConfigId,
   defaultCandidateModelId,
   gitStatus,
   busy,
@@ -116,7 +114,7 @@ export function GitCommitDialog({
     setBranchError(undefined);
     setModelOptionsLoading(true);
     void window.eco
-      .listGitCommitModelOptions(mainAgentConfigId ? { mainAgentConfigId } : {})
+      .listGitCommitModelOptions({})
       .then((result) => {
         setModelOptions(result.options);
         const matched = resolveInitialCommitModelOption(
@@ -134,7 +132,7 @@ export function GitCommitDialog({
       .finally(() => {
         setModelOptionsLoading(false);
       });
-  }, [open, mainAgentConfigId, defaultCandidateModelId]);
+  }, [open, defaultCandidateModelId]);
 
   const handleSelectCandidateModel = useCallback(
     async (candidateModelId: string) => {
@@ -212,7 +210,6 @@ export function GitCommitDialog({
           workspacePath,
           includeUnstaged,
           candidateModelId: selectedCandidateModelId,
-          ...(mainAgentConfigId ? { mainAgentConfigId } : {}),
         },
         {
           onDelta: (text) => {
@@ -236,7 +233,6 @@ export function GitCommitDialog({
     disabled,
     workspaceAction,
     workspacePath,
-    mainAgentConfigId,
     includeUnstaged,
     selectedCandidateModelId,
     t,
@@ -281,7 +277,6 @@ export function GitCommitDialog({
                   workspacePath: operationWorkspacePath,
                   includeUnstaged,
                   candidateModelId: selectedCandidateModelId,
-                  ...(mainAgentConfigId ? { mainAgentConfigId } : {}),
                 },
                 {
                   onDelta: (text) => {
@@ -303,7 +298,6 @@ export function GitCommitDialog({
               workspacePath: operationWorkspacePath,
               includeUnstaged,
               message: commitMessage,
-              ...(mainAgentConfigId ? { mainAgentConfigId } : {}),
             });
             committedSuccessfully = true;
             if (!trimmed && result.generated) {
@@ -373,7 +367,6 @@ export function GitCommitDialog({
       selectedCandidateModelId,
       message,
       workspacePath,
-      mainAgentConfigId,
       includeUnstaged,
       gitStatus?.branch,
       onBeforeAction,

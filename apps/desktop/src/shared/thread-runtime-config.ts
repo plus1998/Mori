@@ -122,7 +122,7 @@ export function hasCompleteOrchestrationSelection(
   if (!selection || !isOrchestrationSelection(selection)) {
     return false;
   }
-  if (!selection.mainAgentConfigId.trim()) {
+  if (!selection.mainAgentConfigId?.trim() && !selection.mainModel) {
     return false;
   }
   if (selection.mainPrompt.mode === "custom_append" && !selection.mainPrompt.promptId.trim()) {
@@ -410,10 +410,7 @@ export function lockThreadRuntimeConfigSnapshotOnContinue(
   );
 }
 
-/** Shared by configuration saves and continuation: global defaults seed new
- * sessions, while an existing session changes models only through its own
- * explicit model override or a different main-agent configuration selection.
- */
+/** Resolve a new selection while preserving an unchanged session snapshot. */
 export function resolveThreadRuntimeConfigUpdate(
   settings: ModelSettingsSnapshot,
   existing: ThreadRuntimeConfig | undefined,
@@ -437,8 +434,10 @@ export function resolveThreadRuntimeConfigUpdate(
     if (
       previous &&
       !options.refreshSnapshot &&
-      existing?.orchestrationSelection?.mainAgentConfigId ===
-        normalized.orchestrationSelection.mainAgentConfigId
+      orchestrationSelectionsHaveSameMainModel(
+        existing?.orchestrationSelection,
+        normalized.orchestrationSelection,
+      )
     ) {
       // Selecting a prompt or subagent roster must not also import a newly
       // remembered global model from the unchanged main-agent template.
@@ -450,6 +449,17 @@ export function resolveThreadRuntimeConfigUpdate(
   } catch (error) {
     throw new Error(`无法物化线程运行时配置：${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+function orchestrationSelectionsHaveSameMainModel(
+  left: OrchestrationSelection | undefined,
+  right: OrchestrationSelection,
+): boolean {
+  if (left?.mainModel || right.mainModel) {
+    return Boolean(left?.mainModel && right.mainModel &&
+      JSON.stringify(left.mainModel) === JSON.stringify(right.mainModel));
+  }
+  return left?.mainAgentConfigId === right.mainAgentConfigId;
 }
 
 export function normalizeThreadRuntimeConfig(config: ThreadRuntimeConfig): ThreadRuntimeConfig {
@@ -761,8 +771,9 @@ function normalizeOrchestrationSelection(selection: OrchestrationSelection): Orc
               : "",
         };
   return {
-    mainAgentConfigId:
-      typeof selection.mainAgentConfigId === "string" ? selection.mainAgentConfigId.trim() : "",
+    ...(selection.mainAgentConfigId?.trim()
+      ? { mainAgentConfigId: selection.mainAgentConfigId.trim() } : {}),
+    ...(selection.mainModel ? { mainModel: { ...selection.mainModel } } : {}),
     mainPrompt,
     subagents,
   };

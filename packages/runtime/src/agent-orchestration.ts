@@ -12,8 +12,6 @@ import {
   materializeEcoToolPolicy,
   resolveMainAgentHandsOnFromPolicy,
 } from "./tool-permission-policy.js";
-import { appendV4aTeachingToPrompt } from "./v4a-teaching.js";
-import { isV4aTeachingEnabled } from "./v4a-teaching-flags.js";
 
 export {
   SDK_DELEGATION_SUPPORT_TOOL_NAMES,
@@ -96,8 +94,6 @@ export interface EcoMainAgentConfig {
   modelRef: EcoModelRef;
   tools: EcoToolPolicy;
   skills: string[];
-  /** When true, Codex appends V4A apply_patch teaching to main-agent developer instructions. */
-  v4aTeachingEnabled?: boolean;
 }
 
 export interface EcoAgentInstanceConfig {
@@ -112,8 +108,6 @@ export interface EcoAgentInstanceConfig {
   mcpServers: string[];
   skills: string[];
   enabled: boolean;
-  /** When true, Codex appends V4A apply_patch teaching to this subagent's developer instructions. */
-  v4aTeachingEnabled?: boolean;
 }
 
 export type EcoOrchestrationStrategy = { kind: "autonomous"; guidancePrompt?: string };
@@ -466,7 +460,7 @@ export function buildCodexMainAgentOrchestrationAppend(
     customPrompt,
     strategySummary: buildMainAgentStrategySummary(config),
   });
-  return appendV4aTeachingToPrompt(append, isV4aTeachingEnabled(config.mainAgent));
+  return append;
 }
 
 export function buildMainAgentSystemPrompt(

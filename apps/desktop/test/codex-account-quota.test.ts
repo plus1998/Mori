@@ -1,3 +1,4 @@
+let accountHome = "";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -135,13 +136,11 @@ test("a final quota 401 reports an expired token while preserving the original e
     if (fail) throw new Error("401 Unauthorized");
     return rateLimits;
   });
-  const service = new OpenAIAccountService(root, "unused", undefined, async () => client);
+  const service = new OpenAIAccountService(root, "unused", undefined, undefined, undefined, async (input, operation) => { accountHome = input.codexHomeDir; return operation(await (async () => client)()); });
   await service.initialize();
   cleanups.push(() => service.dispose());
   const account = await service.createAccount("Quota");
   await service.setAuthJson(account.id, freshAuth);
-  await service.setActiveAccount(account.id);
-  await service.applyPendingTransition();
   await expect(service.queryQuota(account.id)).rejects.toThrow("登录令牌已过期，请重新登录该账号。（401 Unauthorized）");
   expect((await service.listAccounts())[0]?.quotaRefresh?.error).toContain("登录令牌已过期");
   fail = false;
@@ -173,19 +172,16 @@ test("wake deduplicates hi, keeps the selected account and reports a post-reply 
     return {};
   });
   client.addNotificationHandler = (handler) => { notify = handler; return () => { notify = undefined; }; };
-  const service = new OpenAIAccountService(root, "unused", undefined, async () => client);
+  const service = new OpenAIAccountService(root, "unused", undefined, undefined, undefined, async (input, operation) => { accountHome = input.codexHomeDir; return operation(await (async () => client)()); });
   await service.initialize();
   cleanups.push(() => service.dispose());
   const account = await service.createAccount("Wake");
   await service.setAuthJson(account.id, freshAuth);
-  await service.setActiveAccount(account.id);
-  await service.applyPendingTransition();
   service.setWakeModel("gpt-5.6-luna");
   const first = service.wakeAccount(account.id);
   expect(service.wakeAccount(account.id)).toBe(first);
   expect(await first).toEqual({ reply: "hi!", quotaError: "quota offline after reply" });
   expect(turns).toBe(1);
-  expect(await service.getActiveAccountId()).toBe(account.id);
   expect((await service.listAccounts())[0]?.quotaRefresh?.error).toBe("quota offline after reply");
 });
 
@@ -218,13 +214,11 @@ for (const modelFailure of ["turn/start", "turn/completed"] as const) {
         return {};
       });
       client.addNotificationHandler = (handler) => { notify = handler; return () => { notify = undefined; }; };
-      const service = new OpenAIAccountService(root, "unused", undefined, async () => client);
+      const service = new OpenAIAccountService(root, "unused", undefined, undefined, undefined, async (input, operation) => { accountHome = input.codexHomeDir; return operation(await (async () => client)()); });
       await service.initialize();
       cleanups.push(() => service.dispose());
       const account = await service.createAccount("Model test");
       await service.setAuthJson(account.id, freshAuth);
-      await service.setActiveAccount(account.id);
-      await service.applyPendingTransition();
       service.setWakeModel("unsupported-model");
       const cached = await service.queryQuota(account.id);
       await expect(service.wakeAccount(account.id)).rejects.toThrow(unsupported.message);
@@ -240,7 +234,6 @@ for (const modelFailure of ["turn/start", "turn/completed"] as const) {
         expect(updated?.quotaRefresh?.authRequired).toBeUndefined();
         expect(updated?.quota?.fetchedAt).toBeGreaterThanOrEqual(cached.fetchedAt);
       }
-      expect(service.getSyncStatus().state).toBe("ok");
     });
   }
 }
@@ -254,13 +247,11 @@ test("quota preflight failure prevents model testing and remains a quota error",
     if (method === "account/rateLimits/read") throw new Error("quota preflight offline");
     return {};
   });
-  const service = new OpenAIAccountService(root, "unused", undefined, async () => client);
+  const service = new OpenAIAccountService(root, "unused", undefined, undefined, undefined, async (input, operation) => { accountHome = input.codexHomeDir; return operation(await (async () => client)()); });
   await service.initialize();
   cleanups.push(() => service.dispose());
   const account = await service.createAccount("Quota failure");
   await service.setAuthJson(account.id, freshAuth);
-  await service.setActiveAccount(account.id);
-  await service.applyPendingTransition();
   await expect(service.wakeAccount(account.id)).rejects.toThrow("quota preflight offline");
   expect(calls).not.toContain("turn/start");
   expect((await service.listAccounts())[0]?.quotaRefresh?.error).toBe("quota preflight offline");
@@ -280,20 +271,18 @@ test("an expired active account refreshes through the shared client and writes S
     if (method === "account/read") {
       if ((params as { refreshToken: boolean }).refreshToken) {
         refreshes++;
-        await fs.writeFile(path.join(root, "codex", "auth.json"), freshAuth);
+        await fs.writeFile(path.join(accountHome, "auth.json"), freshAuth);
       }
       return accountResponse;
     }
     if (failQuota) throw new Error("503 unavailable");
     return rateLimits;
   });
-  const service = new OpenAIAccountService(root, "unused", undefined, async () => client);
+  const service = new OpenAIAccountService(root, "unused", undefined, undefined, undefined, async (input, operation) => { accountHome = input.codexHomeDir; return operation(await (async () => client)()); });
   await service.initialize();
   cleanups.push(() => service.dispose());
   const account = await service.createAccount("Active");
   await service.setAuthJson(account.id, expiredAuth);
-  await service.setActiveAccount(account.id);
-  await service.applyPendingTransition();
   const quota = await service.queryQuota(account.id);
   expect(refreshes).toBe(1);
   expect(await service.getAuthJsonContent(account.id)).toBe(freshAuth);
@@ -301,23 +290,19 @@ test("an expired active account refreshes through the shared client and writes S
 
   // Stage another expired credential so the failed read still has to refresh.
   await service.setAuthJson(account.id, expiredAuth);
-  await service.applyPendingTransition();
   failQuota = true;
   await expect(service.queryQuota(account.id)).rejects.toThrow("503 unavailable");
   expect(await service.getAuthJsonContent(account.id)).toBe(freshAuth);
   expect((await service.listAccounts())[0]?.quota).toEqual(quota);
-  expect(service.getSyncStatus().state).toBe("ok");
 });
 
 test("startup keeps reset-due cache without querying; actual usage refreshes it", async () => {
   const root = await serviceRoot();
-  const setup = new OpenAIAccountService(root, "unused", undefined, async () => quotaClient((method) =>
-    method === "account/read" ? accountResponse : rateLimits));
+  const setup = new OpenAIAccountService(root, "unused", undefined, undefined, undefined, async (input, operation) => { accountHome = input.codexHomeDir; return operation(await (async () => quotaClient((method) =>
+    method === "account/read" ? accountResponse : rateLimits))()); });
   await setup.initialize();
   const account = await setup.createAccount("Reset while closed");
   await setup.setAuthJson(account.id, freshAuth);
-  await setup.setActiveAccount(account.id);
-  await setup.applyPendingTransition();
   const cached = await setup.queryQuota(account.id);
   await setup.dispose();
   const now = Date.now();
@@ -337,23 +322,21 @@ test("startup keeps reset-due cache without querying; actual usage refreshes it"
   const refreshed = new Promise<void>((resolve) => { published = resolve; });
   const service = new OpenAIAccountService(root, "unused", () => {
     if (reads > 0) published();
-  }, async () => quotaClient((method) => {
+  }, undefined, undefined, async (input, operation) => { accountHome = input.codexHomeDir; return operation(await (async () => quotaClient((method) => {
     if (method === "account/read") return accountResponse;
     reads++;
     return rateLimits;
-  }));
+  }))()); });
   cleanups.push(() => service.dispose());
   await service.initialize();
   expect(reads).toBe(0);
   expect((await service.listAccounts())[0]?.quota).toEqual(cached);
-  service.setQuotaUsage("task", true);
+  service.setQuotaUsage("task", true, account.id);
   await refreshed;
   expect(reads).toBe(1);
   const updated = (await service.listAccounts()).find((entry) => entry.id === account.id)?.quota;
   expect(updated?.fetchedAt).toBeGreaterThan(cached.fetchedAt);
   expect(updated?.rateLimit.primaryWindow?.usedPercent).toBe(25);
-  expect(await service.getActiveAccountId()).toBe(account.id);
-  expect(service.getSyncStatus().state).toBe("ok");
 });
 
 test.skipIf(process.platform === "win32")("inactive wake uses its own credentials and proxy home, refreshes quota and preserves the running account", async () => {
@@ -392,21 +375,17 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   cleanups.push(() => service.dispose());
   const active = await service.createAccount("Running");
   await service.setAuthJson(active.id, freshAuth.replaceAll("acct-quota", "acct-running"));
-  await service.setActiveAccount(active.id);
-  await service.applyPendingTransition();
-  const original = await fs.readFile(path.join(root, "codex", "auth.json"), "utf8");
+  const original = await service.getAuthJsonContent(active.id);
   const inactive = await service.createAccount("Wake inactive");
   await service.setAuthJson(inactive.id, expiredAuth);
   expect(await service.wakeAccount(inactive.id)).toEqual({ reply: "Hello!" });
-  expect(await service.getActiveAccountId()).toBe(active.id);
-  expect(await fs.readFile(path.join(root, "codex", "auth.json"), "utf8")).toBe(original);
+  expect(await service.getAuthJsonContent(active.id)).toBe(original);
   expect(await service.getAuthJsonContent(inactive.id)).toBe(freshAuth);
   expect((await service.listAccounts()).find((entry) => entry.id === inactive.id)?.quota?.rateLimit.primaryWindow?.usedPercent).toBe(25);
   service.setWakeModel("unsupported-model");
   await expect(service.wakeAccount(inactive.id)).rejects.toThrow("model_not_found");
   expect((await service.listAccounts()).find((entry) => entry.id === inactive.id)?.quotaRefresh?.error).toBeUndefined();
-  expect(await service.getActiveAccountId()).toBe(active.id);
-  expect(await fs.readFile(path.join(root, "codex", "auth.json"), "utf8")).toBe(original);
+  expect(await service.getAuthJsonContent(active.id)).toBe(original);
   expect((await fs.readdir(path.join(root, "codex-accounts"))).some((name) => name.startsWith("quota-"))).toBe(false);
 });
 
@@ -432,16 +411,13 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   cleanups.push(() => service.dispose());
   const active = await service.createAccount("Running");
   await service.setAuthJson(active.id, freshAuth.replaceAll("acct-quota", "acct-running"));
-  await service.setActiveAccount(active.id);
-  await service.applyPendingTransition();
-  const original = await fs.readFile(path.join(root, "codex", "auth.json"), "utf8");
+  const original = await service.getAuthJsonContent(active.id);
   const inactive = await service.createAccount("Inactive");
   await service.setAuthJson(inactive.id, expiredAuth);
   const first = service.queryQuota(inactive.id);
   expect(service.queryQuota(inactive.id)).toBe(first);
   await first;
   expect(await service.getAuthJsonContent(inactive.id)).toBe(freshAuth);
-  expect(await fs.readFile(path.join(root, "codex", "auth.json"), "utf8")).toBe(original);
-  expect(await service.getActiveAccountId()).toBe(active.id);
+  expect(await service.getAuthJsonContent(active.id)).toBe(original);
   expect((await fs.readdir(path.join(root, "codex-accounts"))).some((name) => name.startsWith("quota-"))).toBe(false);
 });

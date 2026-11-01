@@ -461,7 +461,6 @@ class _ComposerPlusMenuPanelState extends ConsumerState<ComposerPlusMenuPanel> {
                 )
               : OrchestrationCompositionSelectors(
                   settings: settings,
-                  mainAgentLabel: l10n.composerPrimaryAgent,
                   runtimeConfig: widget.runtimeConfig,
                   threadId: widget.threadId,
                   canEdit: widget.canEdit,
@@ -471,6 +470,7 @@ class _ComposerPlusMenuPanelState extends ConsumerState<ComposerPlusMenuPanel> {
                   mcpServers: mcp?.servers ?? const [],
                   rememberedMcp: workflow?.mcpServersEnabled,
                   isAcp: widget.coreKind == 'acp',
+                  coreKind: widget.coreKind,
                   showOrchestrationPickers: widget.coreKind != 'acp',
                   showAuxiliaryModelPicker: true,
                   showApprovalModelPicker: true,

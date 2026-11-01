@@ -5030,6 +5030,48 @@ abstract class AppLocalizations {
   /// **'Search provider or model…'**
   String get modelCascadeSearchHint;
 
+  /// No description provided for @composerMainModelPickerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Select main model'**
+  String get composerMainModelPickerTitle;
+
+  /// No description provided for @composerMainModelPickerProvider.
+  ///
+  /// In en, this message translates to:
+  /// **'Provider'**
+  String get composerMainModelPickerProvider;
+
+  /// No description provided for @composerMainModelPickerSelectAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Select an account first'**
+  String get composerMainModelPickerSelectAccount;
+
+  /// No description provided for @composerMainModelPickerNoAccounts.
+  ///
+  /// In en, this message translates to:
+  /// **'No available accounts'**
+  String get composerMainModelPickerNoAccounts;
+
+  /// No description provided for @composerMainModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Main model'**
+  String get composerMainModel;
+
+  /// No description provided for @composerSelectModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Select model'**
+  String get composerSelectModel;
+
+  /// No description provided for @composerThinkingEffort.
+  ///
+  /// In en, this message translates to:
+  /// **'Reasoning'**
+  String get composerThinkingEffort;
+
   /// No description provided for @modelCascadeNoMatch.
   ///
   /// In en, this message translates to:
@@ -5765,7 +5807,7 @@ abstract class AppLocalizations {
   /// No description provided for @codexQuotaCurrentAccount.
   ///
   /// In en, this message translates to:
-  /// **'Current account: {name}'**
+  /// **'Session account: {name}'**
   String codexQuotaCurrentAccount(String name);
 
   /// No description provided for @codexQuotaRemaining.

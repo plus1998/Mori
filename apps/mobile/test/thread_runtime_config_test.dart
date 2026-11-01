@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eco_mobile/core/models/thread_models.dart';
 import 'package:eco_mobile/core/models/thread_runtime_config.dart';
-import 'package:eco_mobile/features/composer/composer_controls.dart';
 
 MainAgentConfigResource _mainConfig({String id = 'main-1'}) {
   return MainAgentConfigResource(
@@ -92,6 +91,42 @@ ThreadRuntimeConfig _runtimeConfig({
 }
 
 void main() {
+  test('direct account model remains selected without a main-agent config', () {
+    const selection = OrchestrationSelection(
+      mainAgentConfigId: '',
+      mainModel: OrchestrationModelRef(
+        providerId: 'openai',
+        modelId: 'gpt-5.6-luna',
+        accountId: 'account-a',
+      ),
+      mainPrompt: BuiltinMainAgentPromptSelection(),
+      subagents: NoneSubagentSelection(),
+    );
+    expect(hasCompleteOrchestrationSelection(selection), isTrue);
+    final parsed = OrchestrationSelection.fromJson(selection.toJson());
+    expect(parsed.mainModel?.accountId, 'account-a');
+    final runtime = buildDefaultRuntimeConfig(
+      modelSettings: _settings(mainAgentConfigs: []),
+      orchestrationSelection: selection,
+    );
+    expect(
+      runtime.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId,
+      'gpt-5.6-luna',
+    );
+    final serialized = runtime.toJson();
+    final restored = ThreadRuntimeConfig.fromJson(serialized);
+    final main = restored.resolvedOrchestrationSnapshot!.mainAgent;
+    expect(main.modelRef.accountId, 'account-a');
+    expect(main.tools.toJson(), containsPair('bash', {'enabled': true}));
+    expect(
+      main.tools.toJson(),
+      containsPair('filesystem', {'read': 'workspace', 'write': 'workspace'}),
+    );
+    expect(
+      main.tools.toJson(),
+      containsPair('network', {'webSearch': true, 'webFetch': true}),
+    );
+  });
   test('new session defaults to agent even with a legacy plan preference', () {
     const workflow = WorkflowSettingsSnapshot(sessionMode: 'plan');
     expect(buildDefaultRuntimeConfig(workflow: workflow).sessionMode, 'agent');
@@ -530,60 +565,6 @@ void main() {
       );
     },
   );
-
-  test('temporary model options follow desktop candidate behavior', () {
-    const provider = ModelProviderView(
-      id: 'provider-1',
-      name: 'OpenAI',
-      defaultModel: 'gpt-default',
-      enabled: true,
-    );
-    const template = OrchestrationModelRef(
-      providerId: 'provider-1',
-      modelId: 'gpt-template',
-      candidateModelId: 'candidate-template',
-    );
-    final options = buildComposerTemporaryModelOptions(
-      provider: provider,
-      templateModel: template,
-      candidates: const [
-        CandidateModelView(
-          id: 'candidate-fast',
-          providerId: 'provider-1',
-          modelId: 'gpt-fast',
-          displayName: 'Fast',
-          resolvedSupportsReasoning: false,
-        ),
-        CandidateModelView(
-          id: 'candidate-fast-copy',
-          providerId: 'provider-1',
-          modelId: 'gpt-fast',
-        ),
-      ],
-    );
-
-    expect(options.map((option) => option.modelId), [
-      'gpt-template',
-      'gpt-fast',
-      'gpt-default',
-    ]);
-    expect(
-      composerTemporaryModelSelected(
-        const MainAgentModelOverride(
-          providerId: 'provider-1',
-          modelId: 'gpt-fast',
-          candidateModelId: 'candidate-fast',
-        ),
-        options[1],
-      ),
-      isTrue,
-    );
-    expect(
-      composerTemporaryModelMatchesTemplate(options.first, template),
-      isTrue,
-    );
-    expect(options[1].supportsReasoning, isFalse);
-  });
 
   test('remote list summary keeps the session runtime config when omitted', () {
     final session = ThreadSummary(

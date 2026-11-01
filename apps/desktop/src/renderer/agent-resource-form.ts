@@ -4,8 +4,6 @@ import {
   type AgentInstanceConfig,
   type AgentTemplate,
   CODING_AGENT_TEMPLATE_IDS,
-  isV4aTeachingEnabled,
-  type MainAgentConfigResource,
   type MainAgentPromptResource,
   resolveAgentTemplateCatalog,
   type SubagentOrchestrationResource,
@@ -34,8 +32,6 @@ export interface AgentResourceAgentFormState extends AgentResourceAgentCapabilit
   apiCompat: string;
   enabled: boolean;
   candidateModelId: string;
-  /** Optional Codex apply_patch V4A teaching in agent instructions. Default false. */
-  v4aTeachingEnabled: boolean;
 }
 
 export interface AgentResourceFormState {
@@ -50,8 +46,6 @@ export interface AgentResourceFormState {
   mainCandidateModelId: string;
   mainSystemPromptPreset: "core_native" | "custom_append";
   mainPrompt: string;
-  /** Optional Codex apply_patch V4A teaching in main-agent instructions. Default false. */
-  mainV4aTeachingEnabled: boolean;
   mainReadCodebase: boolean;
   mainReadScope: ToolCapabilityFieldValues["readScope"];
   mainWriteCodebase: boolean;
@@ -178,25 +172,11 @@ export function createBlankAgentResourceForm(options: ResourceFormOptions = {}):
     mainSystemPromptPreset: "core_native",
     mainPrompt:
       "Coordinate the task and call specialized agents only when they materially improve the result.",
-    mainV4aTeachingEnabled: false,
     ...mainCapabilityToResourceFormFields(mainCapability),
     guidancePrompt: "Choose agents autonomously based on the user's task and the available agent roster.",
     agents: exploreTemplate
       ? [createResourceAgentFormFromTemplate(exploreTemplate, { ...(provider && { provider }) })]
       : [],
-  };
-}
-
-export function createBlankMainAgentConfigForm(options: ResourceFormOptions = {}): AgentResourceFormState {
-  const form = createBlankAgentResourceForm(options);
-  return {
-    ...form,
-    id: createUniqueResourceId("user.custom.main", options.existingIds ?? []),
-    name: createUniqueResourceName("主代理配置", options.existingNames ?? []),
-    agents: [],
-    guidancePrompt: "",
-    mainSystemPromptPreset: "core_native",
-    mainPrompt: "",
   };
 }
 
@@ -227,29 +207,6 @@ export function createBlankSubagentOrchestrationForm(
   };
 }
 
-export function mainAgentConfigToForm(config: MainAgentConfigResource): AgentResourceFormState {
-  const mainCapability = toolPolicyToCapabilityFields(config.tools, {
-    allowDelegation: true,
-  });
-  return {
-    id: config.id,
-    name: config.name,
-    source: config.source === "project" ? "project" : "user",
-    mainName: config.name,
-    mainProviderId: config.modelRef.providerId,
-    mainModelId: config.modelRef.modelId,
-    mainThinkingEffort: config.modelRef.thinkingEffort ?? "",
-    mainApiCompat: config.modelRef.apiCompat ?? "",
-    mainCandidateModelId: config.modelRef.candidateModelId ?? "",
-    mainSystemPromptPreset: "core_native",
-    mainPrompt: "",
-    mainV4aTeachingEnabled: isV4aTeachingEnabled(config),
-    ...mainCapabilityToResourceFormFields(mainCapability),
-    guidancePrompt: "",
-    agents: [],
-  };
-}
-
 export function mainAgentPromptToForm(prompt: MainAgentPromptResource): AgentResourceFormState {
   const blank = createBlankMainAgentPromptForm();
   return {
@@ -274,19 +231,6 @@ export function subagentOrchestrationToForm(
     source: orchestration.source === "project" ? "project" : "user",
     guidancePrompt: orchestration.strategy.guidancePrompt ?? "",
     agents: orchestration.agents.map((agent) => agentInstanceToForm(agent)),
-  };
-}
-
-export function createCopiedMainAgentConfigForm(
-  config: MainAgentConfigResource,
-  options: ResourceFormOptions = {},
-): AgentResourceFormState {
-  const form = mainAgentConfigToForm(config);
-  return {
-    ...form,
-    id: createUniqueResourceId(userResourceIdFrom(config.id), options.existingIds ?? []),
-    name: createUniqueResourceName(`${config.name} Copy`, options.existingNames ?? []),
-    source: "user",
   };
 }
 
@@ -332,48 +276,8 @@ export function createResourceAgentFormFromTemplate(
     apiCompat: "",
     enabled: true,
     candidateModelId: "",
-    v4aTeachingEnabled: false,
     claudeAutoCompactWindow: "",
     ...agentCapabilityToAgentForm(capability),
-  };
-}
-
-export function buildMainAgentConfigFromForm(
-  form: AgentResourceFormState,
-  options: {
-    existing?: MainAgentConfigResource;
-    nowIso?: string;
-  } = {},
-): MainAgentConfigResource {
-  const id = form.id.trim();
-  const name = form.mainName.trim() || form.name.trim();
-  if (!id) {
-    throw new Error(i18n.t("orchestrationResource.validation.idRequired"));
-  }
-  if (!/^[a-zA-Z0-9._-]+$/.test(id)) {
-    throw new Error(i18n.t("orchestrationResource.validation.idFormat"));
-  }
-  if (id.startsWith("builtin.")) {
-    throw new Error(i18n.t("orchestrationResource.validation.reservedId"));
-  }
-  if (!name) {
-    throw new Error(i18n.t("orchestrationResource.validation.nameRequired"));
-  }
-  assertCandidateModelSelected(i18n.t("settings.models.mainAgent"), form.mainCandidateModelId);
-  return {
-    id,
-    name,
-    agentKey: "main",
-    modelRef: buildModelRef(form.mainProviderId, form.mainModelId, {
-      thinkingEffort: form.mainThinkingEffort,
-      apiCompat: form.mainApiCompat,
-      candidateModelId: form.mainCandidateModelId,
-    }),
-    tools: capabilityFieldsToToolPolicy(mainCapabilityFromResourceForm(form)),
-    skills: options.existing ? [...options.existing.skills] : [],
-    ...(form.mainV4aTeachingEnabled ? { v4aTeachingEnabled: true } : {}),
-    updatedAt: options.nowIso ?? new Date().toISOString(),
-    source: form.source,
   };
 }
 
@@ -460,7 +364,6 @@ function agentInstanceToForm(agent: AgentInstanceConfig): AgentResourceAgentForm
     apiCompat: agent.modelRef.apiCompat ?? "",
     enabled: agent.enabled,
     candidateModelId: agent.modelRef.candidateModelId ?? "",
-    v4aTeachingEnabled: isV4aTeachingEnabled(agent),
     claudeAutoCompactWindow: agent.claudeAutoCompactWindow?.toString() ?? "",
     ...agentCapabilityToAgentForm(capability),
   };
@@ -528,7 +431,6 @@ function buildAgentsFromForm(
       mcpServers: [],
       skills: existingAgent ? [...existingAgent.skills] : [],
       enabled: agentForm.enabled,
-      ...(agentForm.v4aTeachingEnabled ? { v4aTeachingEnabled: true } : {}),
     };
   });
 }

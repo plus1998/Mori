@@ -58,7 +58,7 @@ test("Codex clarification publishes the answered summary and exits the waiting s
     { status: "running", message: "" },
   ]);
   expect(events.map((event) => event.type)).toEqual(["clarification.requested", "clarification.answered"]);
-  expect(events[1]?.message).toBe("澄清回答：应该使用哪种部署方式？ → 蓝绿部署");
+  expect(events[1]?.message).toBe("询问回答：应该使用哪种部署方式？ → 蓝绿部署");
   expect(events[0]?.tool).toEqual({
     name: "AskUserQuestion",
     toolUseId: "question-1",

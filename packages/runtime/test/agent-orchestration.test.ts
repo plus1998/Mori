@@ -254,23 +254,6 @@ test("buildCodexMainAgentOrchestrationAppend stays empty without custom guidance
   expect(append).toBe("");
 });
 
-test("buildCodexMainAgentOrchestrationAppend appends V4A teaching when enabled", () => {
-  const append = buildCodexMainAgentOrchestrationAppend(
-    {
-      ...orchestration,
-      mainAgent: { ...orchestration.mainAgent, v4aTeachingEnabled: true },
-    },
-    [researchTemplate],
-  );
-  expect(append).toContain("Mori V4A teaching");
-  expect(append).toContain("*** Begin Patch");
-});
-
-test("buildCodexMainAgentOrchestrationAppend omits V4A teaching when disabled", () => {
-  const append = buildCodexMainAgentOrchestrationAppend(orchestration, [researchTemplate]);
-  expect(append).not.toContain("Mori V4A teaching");
-});
-
 test("resolveMainAgentHandsOnCapability mirrors the main agent tool policy enforcement", () => {
   expect(resolveMainAgentHandsOnCapability(undefined)).toEqual({
     canEditFiles: true,

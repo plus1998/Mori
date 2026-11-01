@@ -90,7 +90,6 @@ interface ThreadInfoPanelProps {
   gitStatus?: GitWorkingTreeStatus;
   gitBusy?: boolean;
   commitDisabled?: boolean;
-  mainAgentConfigId?: string;
   agentModelLabels?: ComposerAgentModelLabel[];
   routes?: readonly RuntimeRoleRouteConfig[];
   routePricingHints?: RoutePricingHint[];
@@ -795,7 +794,6 @@ export function ThreadInfoPanel({
   gitStatus,
   gitBusy,
   commitDisabled,
-  mainAgentConfigId,
   agentModelLabels,
   routes,
   routePricingHints,
@@ -870,7 +868,6 @@ export function ThreadInfoPanel({
             {...(gitStatus && { gitStatus })}
             {...(gitBusy !== undefined && { gitBusy })}
             {...(commitDisabled !== undefined && { commitDisabled })}
-            {...(mainAgentConfigId && { mainAgentConfigId })}
             {...(agentModelLabels && { agentModelLabels })}
             {...(routes && { routes })}
             {...(routePricingHints && { routePricingHints })}

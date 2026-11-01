@@ -145,7 +145,7 @@ class _ComposerSettingsSheet extends ConsumerWidget {
             ),
             modelSettings.when(
               data: (ModelSettingsSnapshot? settings) {
-                if (settings == null || settings.mainAgentConfigs.isEmpty) {
+                if (settings == null) {
                   return const SizedBox.shrink();
                 }
                 return EcoGroupedSection(

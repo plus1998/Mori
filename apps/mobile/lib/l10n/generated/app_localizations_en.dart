@@ -2894,6 +2894,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get modelCascadeSearchHint => 'Search provider or model…';
 
   @override
+  String get composerMainModelPickerTitle => 'Select main model';
+
+  @override
+  String get composerMainModelPickerProvider => 'Provider';
+
+  @override
+  String get composerMainModelPickerSelectAccount => 'Select an account first';
+
+  @override
+  String get composerMainModelPickerNoAccounts => 'No available accounts';
+
+  @override
+  String get composerMainModel => 'Main model';
+
+  @override
+  String get composerSelectModel => 'Select model';
+
+  @override
+  String get composerThinkingEffort => 'Reasoning';
+
+  @override
   String get modelCascadeNoMatch => 'No matching models';
 
   @override
@@ -3284,7 +3305,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String codexQuotaCurrentAccount(String name) {
-    return 'Current account: $name';
+    return 'Session account: $name';
   }
 
   @override

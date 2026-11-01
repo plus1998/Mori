@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { ComposerModelOption } from "../src/renderer/ComposerModelSelector";
+import type { ComposerModelOption } from "../src/renderer/composer-model-availability";
 import {
   composerRequiresOrchestration,
   composerShowsRouteConfig,

@@ -36,7 +36,6 @@ export interface WorkspaceGitSectionProps {
   gitStatus?: GitWorkingTreeStatus;
   gitBusy?: boolean;
   commitDisabled?: boolean;
-  mainAgentConfigId?: string;
   defaultCommitCandidateModelId?: string;
   agentModelLabels?: ComposerAgentModelLabel[];
   routes?: readonly RuntimeRoleRouteConfig[];
@@ -72,7 +71,6 @@ export function WorkspaceGitSection({
   gitStatus,
   gitBusy,
   commitDisabled,
-  mainAgentConfigId,
   defaultCommitCandidateModelId,
   agentModelLabels = [],
   routes = [],
@@ -700,7 +698,6 @@ export function WorkspaceGitSection({
         <GitCommitDialog
           open={commitDialogOpen && commitDialogWorkspacePath === workspacePath}
           workspacePath={commitDialogWorkspacePath}
-          {...(mainAgentConfigId ? { mainAgentConfigId } : {})}
           {...(defaultCommitCandidateModelId
             ? { defaultCandidateModelId: defaultCommitCandidateModelId }
             : {})}

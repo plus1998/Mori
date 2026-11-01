@@ -43,7 +43,6 @@ const snapshot: CodexQuotaReminderSnapshot = {
   accountId: "A",
   accountName: "Current",
   quota,
-  switching: false,
 };
 const account: OpenAIAccount = {
   id: "A",
@@ -54,14 +53,8 @@ const account: OpenAIAccount = {
   hasProfileData: false,
   createdAt: "2026-10-21",
 };
-const active = (id: string | null = "A") => ({
-  activeAccountId: id,
-  isLoggedIn: id !== null,
-  message: "",
-  syncStatus: { state: "ok" as const },
-});
 const bridge = () => ({
-  openAIAccountsGetActive: async () => active(),
+  selected: 'A',
   openAIAccountsList: async () => [{ ...account, quota }],
   openAIAccountsQueryQuota: async (_id: string) => quota,
 });
@@ -177,7 +170,7 @@ test("mounts, repeated UI events and identity changes only read cache; manual re
   api.openAIAccountsQueryQuota = async (id) => { queried.push(id); return quota; };
   let enabled = false;
   const updates: (CodexQuotaReminderSnapshot | undefined)[] = [];
-  const monitor = new CodexQuotaMonitor(api, { enabled: () => enabled,
+  const monitor = new CodexQuotaMonitor(api, { accountId: () => api.selected, enabled: () => enabled,
     onChange: (value) => updates.push(value), onError() {} });
   await monitor.refresh();
   enabled = true;
@@ -185,7 +178,7 @@ test("mounts, repeated UI events and identity changes only read cache; manual re
   for (let i = 0; i < 10; i++) await monitor.accountsChanged();
   expect(queried).toEqual([]);
   expect(updates.at(-1)).toEqual(snapshot);
-  api.openAIAccountsGetActive = async () => active("B");
+  api.selected = "B";
   api.openAIAccountsList = async () => [{ ...account, id: "B", name: "Next", quota }];
   await monitor.accountsChanged();
   expect(updates.at(-1)?.accountId).toBe("B");
@@ -202,14 +195,14 @@ test("switching identity while loading a cache cannot publish the previous accou
   let selected = "A";
   let finish!: (value: OpenAIAccount[]) => void;
   const pending = new Promise<OpenAIAccount[]>((resolve) => { finish = resolve; });
-  api.openAIAccountsGetActive = async () => active(selected);
   api.openAIAccountsList = async () => selected === "A" ? pending : [{ ...account, id: "B", name: "Next", quota }];
   const updates: (CodexQuotaReminderSnapshot | undefined)[] = [];
-  const monitor = new CodexQuotaMonitor(api, { enabled: () => true,
+  const monitor = new CodexQuotaMonitor(api, { accountId: () => api.selected, enabled: () => true,
     onChange: (value) => updates.push(value), onError() {} });
   const first = monitor.refresh();
   await Promise.resolve();
   selected = "B";
+  api.selected = "B";
   finish([{ ...account, quota }]);
   await first;
   await monitor.refresh();
@@ -222,7 +215,7 @@ test("a failed automatic read keeps its timestamped cache and exposes the actual
   api.openAIAccountsList = async () => [{ ...account, quota, quotaRefresh: { attemptedAt: Date.now(), error: "503 offline" } }];
   const errors: string[] = [];
   const updates: (CodexQuotaReminderSnapshot | undefined)[] = [];
-  const monitor = new CodexQuotaMonitor(api, { enabled: () => true,
+  const monitor = new CodexQuotaMonitor(api, { accountId: () => api.selected, enabled: () => true,
     onChange: (value) => updates.push(value), onError: (error) => errors.push(error) });
   await monitor.refresh();
   expect(updates.at(-1)?.quota).toEqual(quota);
@@ -237,12 +230,9 @@ test("a failed automatic read keeps its timestamped cache and exposes the actual
 test("quota's own change event and reconcile timestamps never create upstream refresh feedback", async () => {
   const api = bridge();
   let queries = 0;
-  let stamp = 0;
   let monitor!: CodexQuotaMonitor;
-  api.openAIAccountsGetActive = async () => ({ ...active(), syncStatus: { state: "ok" as const,
-    updatedAt: new Date(Date.UTC(2026, 0, 1) + stamp++ * 5000).toISOString() } });
   api.openAIAccountsQueryQuota = async () => { queries++; void monitor.accountsChanged(); return quota; };
-  monitor = new CodexQuotaMonitor(api, { enabled: () => true, onChange() {}, onError() {} });
+  monitor = new CodexQuotaMonitor(api, { accountId: () => api.selected, enabled: () => true, onChange() {}, onError() {} });
   await monitor.refresh(true);
   await monitor.accountsChanged();
   await monitor.refresh();
@@ -255,7 +245,7 @@ test("background results update the cached snapshot without an upstream query", 
   let queries = 0;
   api.openAIAccountsQueryQuota = async () => { queries++; return quota; };
   const updates: (CodexQuotaReminderSnapshot | undefined)[] = [];
-  const monitor = new CodexQuotaMonitor(api, { enabled: () => true,
+  const monitor = new CodexQuotaMonitor(api, { accountId: () => api.selected, enabled: () => true,
     onChange: (value) => updates.push(value), onError() {} });
   await monitor.refresh();
   const refreshed = { ...quota, fetchedAt: Date.now() + 1000 };
@@ -272,7 +262,7 @@ test("an account with no cached quota stays unknown until a manual refresh", asy
   let queries = 0;
   api.openAIAccountsQueryQuota = async () => { queries++; return quota; };
   const updates: (CodexQuotaReminderSnapshot | undefined)[] = [];
-  const monitor = new CodexQuotaMonitor(api, { enabled: () => true,
+  const monitor = new CodexQuotaMonitor(api, { accountId: () => api.selected, enabled: () => true,
     onChange: (value) => updates.push(value), onError() {} });
   await monitor.refresh();
   expect(queries).toBe(0);
@@ -286,7 +276,7 @@ test("repeated explicit refreshes share one in-flight request", async () => {
   let queried = 0;
   const pending = new Promise<OpenAIAccountQuota>((resolve) => { finish = resolve; });
   api.openAIAccountsQueryQuota = async () => { queried++; return pending; };
-  const monitor = new CodexQuotaMonitor(api, { enabled: () => true, onChange() {}, onError() {} });
+  const monitor = new CodexQuotaMonitor(api, { accountId: () => api.selected, enabled: () => true, onChange() {}, onError() {} });
   const first = monitor.refresh(true);
   await Promise.resolve();
   const others = [monitor.refresh(true), monitor.refresh(true)];
@@ -297,12 +287,12 @@ test("repeated explicit refreshes share one in-flight request", async () => {
   monitor.dispose();
 });
 
-test("reminder shows reference-card content and disables reset without credits or while switching", () => {
+test("reminder shows conversation quota and disables reset without credits or during another operation", () => {
   const props = { snapshot, onReset() {}, onSwitchAccount() {}, onDismiss() {} };
   const html = renderLocalized(createElement(CodexQuotaReminderCard, props), "zh-CN");
   for (const text of [
     "剩余 6% 使用量",
-    "当前使用账号：Current",
+    "此会话账号：Current",
     "5 小时",
     "切换账号",
     "使用重置",
@@ -313,7 +303,6 @@ test("reminder shows reference-card content and disables reset without credits o
   expect(html).not.toContain("添加额度");
   expect(html).not.toContain("升级");
   for (const next of [
-    { ...snapshot, switching: true },
     { ...snapshot, quota: { ...quota, resetCreditsAvailable: 0 } },
   ]) {
     const disabled = renderLocalized(
@@ -432,7 +421,7 @@ test("billing card shows every quota window even when no quota is low", () => {
   );
   for (const text of [
     "ChatGPT Login 账号额度",
-    "当前使用账号：Current",
+    "此会话账号：Current",
     "5 小时",
     "7 天",
     "75%",
@@ -448,10 +437,9 @@ test("refreshable active credentials keep the cached quota card visible without 
   const updates: (CodexQuotaReminderSnapshot | undefined)[] = [];
   const monitor = new CodexQuotaMonitor({
     ...bridge(),
-    openAIAccountsGetActive: async () => ({ ...active(), isLoggedIn: false, authState: "refreshable" }),
     openAIAccountsList: async () => [{ ...account, quota, isLoggedIn: false, authState: "refreshable" }],
     openAIAccountsQueryQuota: async () => { throw new Error("cache reads must not refresh credentials"); },
-  }, { enabled: () => true, onChange: (value) => updates.push(value), onError: (error) => { throw new Error(error); } });
+  }, { accountId: () => "A", enabled: () => true, onChange: (value) => updates.push(value), onError: (error) => { throw new Error(error); } });
   try {
     await monitor.refresh();
     expect(updates.at(-1)?.quota).toEqual(quota);

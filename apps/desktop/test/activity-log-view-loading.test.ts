@@ -876,7 +876,7 @@ test("ActivityLogView replaces answered clarification waiting with its question 
             sequence: 2,
             eventType: "message.final",
             role: "main",
-            text: "澄清回答：应该使用哪种部署方式？ → 蓝绿部署",
+            text: "询问回答：应该使用哪种部署方式？ → 蓝绿部署",
             metadata: { liveType: "clarification.answered" },
           }),
         ],

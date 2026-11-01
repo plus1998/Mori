@@ -2564,7 +2564,7 @@ String? _projectionStreamDisplayKey(
   // the planner role stream and plant answers in the wrong feed slot).
   if (liveType == 'clarification.answered' ||
       liveType == 'clarification.requested' ||
-      item.text.trim().startsWith('澄清回答：')) {
+      isClarificationAnswerSummary(item.text)) {
     return null;
   }
   final channel = _streamDisplayChannel(item);

@@ -21,13 +21,7 @@ test("collects current editable configurations but ignores legacy route profiles
       },
     ],
     agentTemplates: [],
-    mainAgentConfigs: [
-      {
-        id: "main-a",
-        name: "Main A",
-        modelRef: { providerId: PROVIDER_ID, modelId: "model-a" },
-      },
-    ],
+    mainAgentConfigs: [],
     mainAgentPrompts: [],
     subagentOrchestrations: [
       {
@@ -42,7 +36,6 @@ test("collects current editable configurations but ignores legacy route profiles
   } as unknown as ModelSettingsSnapshot;
 
   expect(collectProviderDeleteReferences(PROVIDER_ID, settings, [])).toEqual([
-    { kind: "main_agent_config", id: "main-a", name: "Main A" },
     {
       kind: "subagent_orchestration",
       id: "orchestration-a",
@@ -75,18 +68,14 @@ test("detects active thread overrides and ignores unrelated providers", () => {
   ).toEqual([{ kind: "active_thread", id: "matching", name: "matching" }]);
 });
 
-test("partitions cascading configs from blocking active threads", () => {
+test("partitions cascading subagent configurations from blocking active threads", () => {
   const partitioned = partitionProviderDeleteReferences([
-    { kind: "main_agent_config", id: "main-a", name: "Main A" },
     { kind: "subagent_orchestration", id: "orch-a", name: "Orch A" },
     { kind: "active_thread", id: "thread-a", name: "Thread A" },
     { kind: "route_profile", id: "legacy", name: "Legacy" },
   ]);
 
   expect(partitioned.blocking).toEqual([{ kind: "active_thread", id: "thread-a", name: "Thread A" }]);
-  expect(partitioned.cascadeMainAgentConfigs).toEqual([
-    { kind: "main_agent_config", id: "main-a", name: "Main A" },
-  ]);
   expect(partitioned.cascadeSubagentOrchestrations).toEqual([
     { kind: "subagent_orchestration", id: "orch-a", name: "Orch A" },
   ]);

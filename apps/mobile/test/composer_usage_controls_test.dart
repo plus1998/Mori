@@ -5,11 +5,11 @@ import 'package:eco_mobile/core/theme/eco_theme.dart';
 import 'package:eco_mobile/features/composer/composer_plus_menu.dart';
 import 'package:eco_mobile/core/models/acp_host_ui_features.dart';
 import 'package:eco_mobile/core/models/acp_models.dart';
+import 'package:eco_mobile/core/models/git_models.dart';
 import 'package:eco_mobile/core/models/thread_models.dart';
 import 'package:eco_mobile/core/models/thread_usage_models.dart';
 import 'package:eco_mobile/core/models/integration_models.dart';
 import 'package:eco_mobile/core/providers/app_providers.dart';
-import 'package:eco_mobile/core/storage/composer_model_preferences.dart';
 import 'package:eco_mobile/core/theme/eco_icons.dart';
 import 'package:eco_mobile/core/widgets/eco_action_sheet.dart';
 import 'package:eco_mobile/core/widgets/eco_model_cascade.dart';
@@ -355,7 +355,7 @@ void main() {
         closeTo(tester.getCenter(effortLabel).dy, 1),
       );
       expect(
-        tester.getSize(find.byType(ComposerModelEffortControl)).height,
+        tester.getSize(find.byType(ComposerDirectMainModelControl)).height,
         kComposerToolbarHitSize,
       );
       expect(
@@ -382,80 +382,83 @@ void main() {
         expect(find.text(duplicate), findsNothing);
       }
       expect(find.text('High'), findsWidgets);
-      expect(find.text('Fast'), findsNothing);
-
-      await tester.tap(find.text('Model'));
-      await tester.pumpAndSettle();
       expect(find.text('Fast'), findsOneWidget);
       expect(find.text('5.6 Sol'), findsWidgets);
 
-      await tester.tap(find.text('Reasoning'));
-      await tester.pumpAndSettle();
-      expect(find.text('Low'), findsOneWidget);
-      await tester.tap(find.text('Low'));
-      await tester.pumpAndSettle();
-      expect(changes, hasLength(1));
-      expect(changes.single.mainAgentModelOverride?.thinkingEffort, 'low');
-
-      await tester.tap(find.text('Model'));
-      await tester.pumpAndSettle();
-      expect(find.text('Fast'), findsOneWidget);
       await tester.tap(find.text('Fast'));
       await tester.pumpAndSettle();
+      expect(changes, hasLength(1));
+      expect(
+        changes.single.orchestrationSelection?.mainModel?.modelId,
+        'gpt-5.6-fast',
+      );
+      expect(changes.single.mainAgentModelOverride, isNull);
+
+      final slider = find.byType(Slider);
+      final sliderRect = tester.getRect(slider);
+      await tester.tapAt(
+        Offset(sliderRect.left + sliderRect.width * 0.2, sliderRect.center.dy),
+      );
+      await tester.pumpAndSettle();
       expect(changes, hasLength(2));
-      expect(changes.last.mainAgentModelOverride?.modelId, 'gpt-5.6-fast');
-      expect(changes.last.mainAgentModelOverride?.thinkingEffort, 'low');
+      expect(
+        changes.last.orchestrationSelection?.mainModel?.modelId,
+        'gpt-5.6-fast',
+      );
+      expect(
+        changes.last.orchestrationSelection?.mainModel?.thinkingEffort,
+        'low',
+      );
     },
   );
 
-  testWidgets('new Codex composer restores the last picked model and effort', (
-    tester,
-  ) async {
-    const scope = ComposerModelPreferenceScope(
-      desktopId: 'desktop_1',
-      workspacePath: '/repo',
-      coreKind: 'codex',
-    );
-    Widget composer(ThreadRuntimeConfigInput config) => _TestApp(
-      modelSettings: modelSettings,
-      candidates: candidates,
-      overrides: [
-        selectedDesktopIdProvider.overrideWith((ref) => 'desktop_1'),
-        workflowSettingsProvider.overrideWith((ref) async => null),
-      ],
-      child: ComposerRouteSummary(
-        runtimeConfig: config,
-        threadId: '',
-        workspacePath: '/repo',
-        coreKind: 'codex',
-        canEdit: true,
-        onChanged: (_) {},
-      ),
-    );
-    await tester.pumpWidget(composer(modelRuntimeConfig));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('5.6 Sol'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Reasoning'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Low'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Model'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Fast'));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'new Codex composer keeps the directly selected model and effort',
+    (tester) async {
+      final changes = <ThreadRuntimeConfigInput>[];
+      Widget composer(ThreadRuntimeConfigInput config) => _TestApp(
+        modelSettings: modelSettings,
+        candidates: candidates,
+        overrides: [
+          selectedDesktopIdProvider.overrideWith((ref) => 'desktop_1'),
+          workflowSettingsProvider.overrideWith((ref) async => null),
+        ],
+        child: ComposerRouteSummary(
+          runtimeConfig: config,
+          threadId: '',
+          workspacePath: '/repo',
+          coreKind: 'codex',
+          canEdit: true,
+          onChanged: changes.add,
+        ),
+      );
+      await tester.pumpWidget(composer(modelRuntimeConfig));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('5.6 Sol'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Fast'));
+      await tester.pumpAndSettle();
+      final sliderRect = tester.getRect(find.byType(Slider));
+      await tester.tapAt(
+        Offset(sliderRect.left + sliderRect.width * 0.2, sliderRect.center.dy),
+      );
+      await tester.pumpAndSettle();
 
-    // Dispose the old composer and reconstruct from fresh workflow defaults.
-    await tester.pumpWidget(const SizedBox.shrink());
-    final restored = await scope.restore(modelRuntimeConfig);
-    expect(restored.mainAgentModelOverride?.modelId, 'gpt-5.6-fast');
-    expect(restored.mainAgentModelOverride?.thinkingEffort, 'low');
-    await tester.pumpWidget(composer(restored));
-    await tester.pumpAndSettle();
-    expect(find.text('5.6 Fast'), findsOneWidget);
-    expect(find.text('Low'), findsOneWidget);
-    expect(find.text('5.6 Sol'), findsNothing);
-  });
+      // Reconstruct the composer from the direct runtime selection.
+      await tester.pumpWidget(const SizedBox.shrink());
+      final restored = changes.last;
+      expect(
+        restored.orchestrationSelection?.mainModel?.modelId,
+        'gpt-5.6-fast',
+      );
+      expect(restored.orchestrationSelection?.mainModel?.thinkingEffort, 'low');
+      await tester.pumpWidget(composer(restored));
+      await tester.pumpAndSettle();
+      expect(find.text('5.6 Fast'), findsOneWidget);
+      expect(find.text('Low'), findsOneWidget);
+      expect(find.text('5.6 Sol'), findsNothing);
+    },
+  );
 
   for (final newThread in [false, true]) {
     testWidgets('long press transfers text and images for newThread=$newThread', (
@@ -696,18 +699,20 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Runtime config'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Main agent'));
+    await tester.tap(find.text('Main model'));
     await tester.pumpAndSettle();
-    expect(find.text('Research'), findsOneWidget);
-    await tester.tap(find.text('Research'));
+    expect(find.text('Fast'), findsOneWidget);
+    await tester.tap(find.text('Fast'));
     await tester.pumpAndSettle();
     expect(changes, isNotEmpty);
-    expect(changes.last.orchestrationSelection?.mainAgentConfigId, 'main-2');
-    expect(changes.last.mainAgentModelOverride, isNull);
+    expect(changes.last.orchestrationSelection?.mainAgentConfigId, '');
     expect(
-      changes.last.resolvedOrchestrationSnapshot?.mainAgentConfigName,
-      'Research',
+      changes.last.orchestrationSelection?.mainModel?.modelId,
+      'gpt-5.6-fast',
     );
+    expect(changes.last.mainAgentModelOverride, isNull);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('Prompt'));
     await tester.pumpAndSettle();
@@ -953,7 +958,7 @@ void main() {
       expect(rect.height, lessThanOrEqualTo(420));
       await tester.tap(find.text('Runtime config'));
       await tester.pumpAndSettle();
-      expect(find.text('Main agent'), findsOneWidget);
+      expect(find.text('Main model'), findsOneWidget);
       expect(find.text('Prompt'), findsOneWidget);
       expect(find.text('Auxiliary model'), findsOneWidget);
       expect(find.text('Approval model'), findsOneWidget);
@@ -1179,7 +1184,7 @@ void main() {
       expect(selectors.canEdit, isFalse);
       expect(selectors.canEditStatelessModels, isTrue);
       expect(find.text('new-model'), findsOneWidget);
-      await tester.tap(find.text('Main agent'));
+      await tester.tap(find.text('Main model'));
       await tester.pumpAndSettle();
       expect(find.byType(EcoSheetScaffold), findsNothing);
       await tester.tap(find.text('Auxiliary model'));
@@ -1712,17 +1717,16 @@ void main() {
     ) async {
       const surface = Size(320, 600);
       await openSheet(tester, surface: surface);
-      for (final label in ['Model', 'Reasoning']) {
-        await tester.tap(find.text(label));
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
-        final option = find.text(label == 'Model' ? 'Fast' : 'Low');
-        expect(option, findsOneWidget);
-        final rect = tester.getRect(option);
-        expect(rect.left, greaterThanOrEqualTo(0));
-        expect(rect.right, lessThanOrEqualTo(surface.width));
-        expect(rect.bottom, lessThanOrEqualTo(surface.height));
-      }
+      expect(find.text('Model'), findsOneWidget);
+      expect(find.text('Reasoning'), findsOneWidget);
+      expect(find.byType(Slider), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      final option = find.text('Fast');
+      expect(option, findsOneWidget);
+      final rect = tester.getRect(option);
+      expect(rect.left, greaterThanOrEqualTo(0));
+      expect(rect.right, lessThanOrEqualTo(surface.width));
+      expect(rect.bottom, lessThanOrEqualTo(surface.height));
     });
 
     testWidgets('Harness switching lives in plus menu instead of model popup', (
@@ -1813,8 +1817,6 @@ void main() {
     ) async {
       for (final surface in const [Size(800, 900), Size(800, 600)]) {
         await openSheet(tester, surface: surface, coreKind: 'acp');
-        await tester.tap(find.text('Model'));
-        await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);
         expect(find.byType(EcoModelCascadeList), findsOneWidget);
@@ -1877,6 +1879,27 @@ class _TestApp extends StatelessWidget {
         candidateModelsProvider(
           'provider-1',
         ).overrideWith((ref) async => candidates),
+        auxiliaryModelOptionsProvider('').overrideWith(
+          (ref) async => [
+            for (final candidate in candidates)
+              CommitModelOptionView(
+                id: candidate.id,
+                candidateModelId: candidate.id,
+                providerId: candidate.providerId,
+                providerName:
+                    modelSettings?.providers
+                        .where(
+                          (provider) => provider.id == candidate.providerId,
+                        )
+                        .firstOrNull
+                        ?.name ??
+                    candidate.providerId,
+                modelId: candidate.modelId,
+                modelLabel: candidate.displayName ?? candidate.modelId,
+                providerColor: '',
+              ),
+          ],
+        ),
         integrationAvailabilityProvider.overrideWith((ref) async {
           if (integrationAvailabilityError != null) {
             throw integrationAvailabilityError!;

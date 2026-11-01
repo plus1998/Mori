@@ -138,8 +138,8 @@ export class ProjectOrchestrationSettingsStore {
    * Drop project orchestration rows that point at a deleted main-agent config so
    * those workspaces fall back to the global default.
    */
-  clearMainAgentConfigReference(configId: string): number {
-    const trimmedId = configId.trim();
+  clearMainModelProviderReference(providerId: string): number {
+    const trimmedId = providerId.trim();
     if (!trimmedId) {
       return 0;
     }
@@ -157,7 +157,7 @@ export class ProjectOrchestrationSettingsStore {
       } catch {
         continue;
       }
-      if (selection?.mainAgentConfigId !== trimmedId) {
+      if (selection?.mainModel?.providerId !== trimmedId) {
         continue;
       }
       remove.run(row.workspace_path);

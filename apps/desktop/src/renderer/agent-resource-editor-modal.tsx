@@ -1,5 +1,4 @@
-import type { TFunction } from "i18next";
-import { ChevronDown, X } from "lucide-react";
+import { X } from "lucide-react";
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { UPSTREAM_API_COMPAT_OPTIONS } from "../shared/api-compat";
@@ -15,19 +14,15 @@ import {
   agentCapabilityFromAgentForm,
   agentCapabilityPatchToAgentForm,
   createResourceAgentFormFromTemplate,
-  mainCapabilityFromResourceForm,
-  mainCapabilityPatchToResourceForm,
 } from "./agent-resource-form";
 import { buildAgentTemplateCapabilityOptions } from "./agent-template-form";
 import { AgentThemeColorField } from "./agent-theme-color-field";
 import { ComposerFieldSelect } from "./ComposerFieldSelect";
 import { CandidateModelSpecPanel } from "./ModelSpecSummary";
 import { SubagentOrchestrationRosterEditor } from "./SubagentOrchestrationRosterEditor";
-import { ThreadInfoHelpButton } from "./ThreadInfoHelpButton";
 import { ToolCapabilityPanel } from "./ToolCapabilityPanel";
-import { matchesToolCapabilityPreset, TOOL_CAPABILITY_PRESETS } from "./tool-capability-groups";
 
-export type AgentCompositionEditorScope = "mainConfig" | "prompt" | "orchestration";
+export type AgentCompositionEditorScope = "prompt" | "orchestration";
 export type AgentCompositionEditorMode = "create" | "edit" | "copy";
 
 type AgentResourceSelectedNode = { kind: "agent"; agentKey: string };
@@ -41,37 +36,6 @@ function selectPresetDefaultProvider(
     providers.find((provider) => provider.defaultModel.trim())
   );
 }
-
-function V4aTeachingCheckboxField({
-  checked,
-  disabled,
-  onChange,
-}: {
-  checked: boolean;
-  disabled?: boolean | undefined;
-  onChange: (checked: boolean) => void;
-}) {
-  const { t } = useTranslation();
-  const label = t("settings.models.editor.v4aTeaching");
-  const hint = t("settings.models.editor.v4aTeachingHint");
-  return (
-    <div className="mcp-field models-v4a-teaching-field">
-      <span className="mcp-field-label-row">
-        <label className="models-v4a-teaching-label">
-          <input
-            type="checkbox"
-            checked={checked}
-            disabled={disabled}
-            onChange={(event) => onChange(event.target.checked)}
-          />
-          <span className="mcp-field-label">{label}</span>
-        </label>
-        <ThreadInfoHelpButton label={hint}>{hint}</ThreadInfoHelpButton>
-      </span>
-    </div>
-  );
-}
-
 export function AgentResourceEditorModal({
   form,
   setForm,
@@ -99,13 +63,7 @@ export function AgentResourceEditorModal({
 }) {
   const { t } = useTranslation();
   const scopeTitle =
-    scope === "mainConfig"
-      ? mode === "edit"
-        ? t("settings.models.editor.mainConfigEdit")
-        : mode === "copy"
-          ? t("settings.models.editor.mainConfigCopy")
-          : t("settings.models.editor.mainConfigCreate")
-      : scope === "prompt"
+    scope === "prompt"
         ? mode === "edit"
           ? t("settings.models.editor.promptEdit")
           : mode === "copy"
@@ -142,11 +100,6 @@ export function AgentResourceEditorModal({
         ? t("settings.models.editor.createCopy")
         : t("common.create");
   const [selectedNode, setSelectedNode] = useState<AgentResourceSelectedNode | null>(null);
-  /** Main-agent tool capability UI is opt-in to cut default cognitive load. */
-  const [mainAdvancedOpen, setMainAdvancedOpen] = useState(false);
-  useEffect(() => {
-    setMainAdvancedOpen(false);
-  }, [form.id, scope, mode]);
   const selectedAgentKey = selectedNode?.agentKey;
   const selectedAgentIndex =
     selectedAgentKey !== undefined
@@ -163,27 +116,8 @@ export function AgentResourceEditorModal({
     }
   }, [selectedAgentIndex, selectedAgentKey]);
 
-  const mainCapabilityOptions = useMemo(
-    () =>
-      scope === "mainConfig"
-        ? buildAgentTemplateCapabilityOptions({
-            templates,
-            form: {
-              advancedDisallowedTools: form.mainAdvancedDisallowedTools,
-            },
-          })
-        : { tools: [] },
-    [scope, templates, form.mainAdvancedDisallowedTools],
-  );
-  const { candidates: mainCandidates, loading: mainCandidatesLoading } = useCandidateModels(
-    scope === "mainConfig" ? form.mainProviderId : "",
-  );
-  const selectedMainCandidate = mainCandidates.find(
-    (candidate) => candidate.id === form.mainCandidateModelId,
-  );
-
   function patchName(name: string) {
-    patch(scope === "mainConfig" ? { name, mainName: name } : { name });
+    patch({ name });
   }
 
   function patch(patch: Partial<AgentResourceFormState>) {
@@ -196,13 +130,6 @@ export function AgentResourceEditorModal({
       agents: current.agents.map((agent, agentIndex) =>
         agentIndex === index ? { ...agent, ...patch } : agent,
       ),
-    }));
-  }
-
-  function patchMainToolPolicy(toolPatch: Parameters<typeof mainCapabilityPatchToResourceForm>[0]) {
-    setForm((current) => ({
-      ...current,
-      ...mainCapabilityPatchToResourceForm(toolPatch),
     }));
   }
 
@@ -376,78 +303,6 @@ export function AgentResourceEditorModal({
                       placeholder={t("settings.models.editor.promptPlaceholder")}
                     />
                   </label>
-                </section>
-              ) : null}
-
-              {scope === "mainConfig" ? (
-                <section className="models-agent-resource-form-section composition-editor-section composition-editor-section--main">
-                  <p className="models-subagent-card-desc">{t("settings.models.node.mainDescription")}</p>
-                  <ResourceNodeCandidateModelFields
-                    providerId={form.mainProviderId}
-                    candidateModelId={form.mainCandidateModelId}
-                    thinkingEffort={form.mainThinkingEffort}
-                    apiCompat={form.mainApiCompat}
-                    providers={providers.filter((provider) => provider.apiCompat !== "system_one")}
-                    candidates={mainCandidates}
-                    candidatesLoading={mainCandidatesLoading}
-                    {...(selectedMainCandidate ? { selectedCandidate: selectedMainCandidate } : {})}
-                    {...(busy !== undefined ? { busy } : {})}
-                    onProviderChange={(nextProviderId) => {
-                      const provider = providers.find((entry) => entry.id === nextProviderId);
-                      patch({
-                        mainProviderId: nextProviderId,
-                        mainModelId: provider?.defaultModel || form.mainModelId,
-                        mainCandidateModelId: "",
-                      });
-                    }}
-                    onCandidateChange={(candidateId, modelId) =>
-                      patch({
-                        mainCandidateModelId: candidateId,
-                        mainModelId: modelId,
-                      })
-                    }
-                    onThinkingEffortChange={(value) => patch({ mainThinkingEffort: value })}
-                    onApiCompatChange={(value) => patch({ mainApiCompat: value })}
-                  />
-                  <div className="provider-advanced-section composition-main-advanced-section">
-                    <button
-                      type="button"
-                      className="provider-advanced-toggle"
-                      aria-expanded={mainAdvancedOpen}
-                      aria-controls="main-agent-advanced-body"
-                      disabled={busy}
-                      onClick={() => setMainAdvancedOpen((open) => !open)}
-                    >
-                      <span className="composition-main-advanced-toggle-label">
-                        <span>{t("settings.models.editor.advancedSettings")}</span>
-                        {!mainAdvancedOpen ? (
-                          <small className="composition-main-advanced-summary">
-                            {mainCapabilitySummary(mainCapabilityFromResourceForm(form), t)}
-                          </small>
-                        ) : null}
-                      </span>
-                      <ChevronDown size={15} className="provider-advanced-toggle-icon" aria-hidden />
-                    </button>
-                    {mainAdvancedOpen ? (
-                      <div
-                        id="main-agent-advanced-body"
-                        className="provider-advanced-body composition-main-advanced-body"
-                      >
-                        <V4aTeachingCheckboxField
-                          checked={form.mainV4aTeachingEnabled}
-                          {...(busy !== undefined ? { disabled: busy } : {})}
-                          onChange={(value) => patch({ mainV4aTeachingEnabled: value })}
-                        />
-                        <ToolCapabilityPanel
-                          values={mainCapabilityFromResourceForm(form)}
-                          {...(busy !== undefined ? { disabled: busy } : {})}
-                          capabilityOptions={mainCapabilityOptions}
-                          showPresets
-                          onChange={(toolPatch) => patchMainToolPolicy(toolPatch)}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
                 </section>
               ) : null}
 
@@ -804,12 +659,6 @@ function SubagentRosterAgentConfigPanel({
           onApiCompatChange={(value) => onPatchAgent(agentIndex, { apiCompat: value })}
         />
 
-        <V4aTeachingCheckboxField
-          checked={agent.v4aTeachingEnabled}
-          {...(busy !== undefined ? { disabled: busy } : {})}
-          onChange={(value) => onPatchAgent(agentIndex, { v4aTeachingEnabled: value })}
-        />
-
         <details className="mcp-advanced">
           <summary>{t("settings.models.editor.claudeCompactionAdvanced")}</summary>
           <label className="mcp-field">
@@ -858,23 +707,4 @@ function SubagentRosterAgentConfigPanel({
       </div>
     </div>
   );
-}
-
-function mainCapabilitySummary(
-  values: ReturnType<typeof mainCapabilityFromResourceForm>,
-  t: TFunction,
-): string {
-  const preset = TOOL_CAPABILITY_PRESETS.find((entry) => matchesToolCapabilityPreset(values, entry));
-  if (preset) {
-    return t("settings.models.editor.advancedPresetSummary", { name: preset.label });
-  }
-  const bits: string[] = [];
-  if (values.readCodebase) bits.push(t("capability.read"));
-  if (values.writeCodebase) bits.push(t("capability.write"));
-  if (values.bash) bits.push(t("capability.bash"));
-  if (values.network) bits.push(t("capability.network"));
-  if (bits.length === 0) {
-    return t("settings.models.editor.advancedEmptySummary");
-  }
-  return bits.slice(0, 3).join(" · ");
 }

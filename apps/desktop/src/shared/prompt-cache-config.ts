@@ -53,7 +53,9 @@ export function buildOrchestrationRuntimeKey(
     return "";
   }
   const normalizedSelection = {
-    mainAgentConfigId: resolvedSelection.mainAgentConfigId.trim(),
+    ...(resolvedSelection.mainModel
+      ? { mainModel: resolvedSelection.mainModel }
+      : { mainAgentConfigId: resolvedSelection.mainAgentConfigId?.trim() ?? "" }),
     mainPrompt:
       resolvedSelection.mainPrompt.mode === "builtin"
         ? { mode: "builtin" as const }

@@ -74,6 +74,29 @@ describe("resolveProviderRoute", () => {
     expect(chatRoute.upstreamModelId).toBe("chat/model.__v1");
   });
 
+  test("uses each model's configured upstream under one provider", () => {
+    const provider = {
+      id: "mixed",
+      name: "Mixed",
+      upstreamKind: "responses" as const,
+      baseUrl: "https://api.example.test",
+      apiKey: "k",
+      upstreamModelId: "response-model",
+      models: ["response-model", "chat-model"],
+      modelUpstreams: {
+        "response-model": { baseUrl: "https://api.example.test", upstreamKind: "responses" as const },
+        "chat-model": { baseUrl: "https://router.example.test", requestPath: "/openai", upstreamKind: "openai-chat" as const },
+      },
+    };
+    const response = resolveProviderRoute("response-model", [provider], { providerId: "mixed" });
+    const chat = resolveProviderRoute("chat-model", [provider], { providerId: "mixed" });
+    expect(buildUpstreamUrl(response.provider, response.upstreamKind)).toBe("https://api.example.test/v1/responses");
+    expect(buildUpstreamUrl(chat.provider, chat.upstreamKind)).toBe("https://router.example.test/openai/v1/chat/completions");
+    expect(() => resolveProviderRoute("chat-model", [provider], {
+      providerId: "mixed", upstreamKindOverride: "responses",
+    })).toThrow(/configured for openai-chat/);
+  });
+
   test("rejects OpenAI kind override on Anthropic-only /anthropic host", () => {
     const provider = {
       id: "deepseek-official",

@@ -35,8 +35,6 @@ test("declares the core desktop IPC channels", () => {
   expect(IPC_CHANNELS.agentTemplateDelete).toBe("agent-template:delete");
   expect(IPC_CHANNELS.agentTemplateExport).toBe("agent-template:export");
   expect(IPC_CHANNELS.agentTemplateImport).toBe("agent-template:import");
-  expect(IPC_CHANNELS.mainAgentConfigSave).toBe("main-agent-config:save");
-  expect(IPC_CHANNELS.mainAgentConfigDelete).toBe("main-agent-config:delete");
   expect(IPC_CHANNELS.mainAgentPromptSave).toBe("main-agent-prompt:save");
   expect(IPC_CHANNELS.mainAgentPromptDelete).toBe("main-agent-prompt:delete");
   expect(IPC_CHANNELS.subagentOrchestrationSave).toBe("subagent-orchestration:save");

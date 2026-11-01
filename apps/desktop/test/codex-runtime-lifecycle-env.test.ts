@@ -31,11 +31,11 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       return { accountId: "a", accessToken: previous ? "new-access" : "old-access", chatgptAccountId: "chatgpt-a" };
     });
     setCodexAccountProxyConfigGetter(() => ({ mode: "direct" }));
-    const lifecycle = new CodexRuntimeLifecycle({ ecoDataDir, codexExecutable: executable });
+    const lifecycle = new CodexRuntimeLifecycle({ ecoDataDir, codexExecutable: executable, accountId: "a" });
     try {
       const client = await lifecycle.start();
       expect(await client.request("test/refresh")).toEqual({ accessToken: "new-access", chatgptAccountId: "chatgpt-a" });
-      expect(requests).toEqual([{}, { accountId: "a", previous: "old-access" }]);
+      expect(requests).toEqual([{ accountId: "a" }, { accountId: "a", previous: "old-access" }]);
     } finally {
       await lifecycle.stop();
       setCodexExternalAuthProvider(undefined);
@@ -141,7 +141,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       proxyUrl: "ftp://user:secret@proxy.example.test:21",
     }));
     try {
-      const lifecycle = new CodexRuntimeLifecycle({ ecoDataDir, codexExecutable: "unused" });
+      const lifecycle = new CodexRuntimeLifecycle({ ecoDataDir, codexExecutable: "unused", accountId: "a" });
       await expect(lifecycle.start()).rejects.toThrow(
         "Configured OpenAI account proxy could not be initialized",
       );

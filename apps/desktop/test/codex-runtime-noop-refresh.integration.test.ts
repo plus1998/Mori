@@ -13,7 +13,6 @@ import {
   configureCodexRuntimeRun,
   type EcoProviderForCodexCatalog,
   prepareCodexRuntime,
-  requestCodexAccountRuntimeRestart,
   scheduleCodexGlobalRuntimeRefresh,
   shutdownCodexGlobalRuntimeRefresh,
 } from "../src/main/codex-runtime-run";
@@ -281,64 +280,6 @@ realAppServerTest(
     }
   },
   15_000,
-);
-
-realAppServerTest(
-  "unchanged gateway prepares during account publication and after its failure",
-  async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "eco-codex-account-gateway-"));
-    const previousExecutable = process.env.CODEX_EXECUTABLE;
-    process.env.CODEX_EXECUTABLE = path.resolve(import.meta.dir, "../node_modules/.bin/codex");
-    let providers: EcoProviderForCodexCatalog[] = [
-      {
-        id: "vendor",
-        name: "Offline fixture",
-        enabled: true,
-        apiCompat: "openai_responses",
-        models: [{ modelId: "probe" }],
-      },
-    ];
-    const publication = Promise.withResolvers<void>();
-    try {
-      configureCodexRuntimeRun({
-        ecoDataDir: root,
-        listProviders: () => providers,
-        threadMap: {} as CodexThreadMap,
-        appendConversationRuntimeEvent: () => {},
-        scheduleThreadRunProjectionUpdated: () => {},
-      });
-      await prepareCodexRuntime();
-      const client = getGlobalCodexRuntimeLifecycle()?.getClient();
-      requestCodexAccountRuntimeRestart("account");
-      scheduleCodexGlobalRuntimeRefresh({
-        beforePrepare: async () => {
-          await publication.promise;
-          throw new Error("account publication failed");
-        },
-      });
-      const gatewayInput = {
-        mainProviderId: "vendor",
-        mainModelId: "probe",
-        signal: AbortSignal.timeout(2_000),
-      };
-      const during = await prepareCodexRuntime(gatewayInput);
-      expect(during.runtimeClient).toBe(client);
-      const login = prepareCodexRuntime({ requiredProviderIds: ["openai"] });
-      publication.resolve();
-      await expect(login).rejects.toThrow("account publication failed");
-      expect((await prepareCodexRuntime(gatewayInput)).runtimeClient).toBe(client);
-      providers = providers.map((provider) => ({ ...provider, enabled: false }));
-      await expect(prepareCodexRuntime(gatewayInput)).rejects.toThrow("account publication failed");
-    } finally {
-      publication.resolve();
-      await shutdownCodexGlobalRuntimeRefresh();
-      await stopGlobalCodexRuntimeLifecycle();
-      if (previousExecutable === undefined) delete process.env.CODEX_EXECUTABLE;
-      else process.env.CODEX_EXECUTABLE = previousExecutable;
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  },
-  20_000,
 );
 
 realAppServerTest(

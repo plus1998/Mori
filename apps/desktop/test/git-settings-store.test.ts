@@ -5,63 +5,19 @@ import {
   normalizeGitSettingsSnapshot,
 } from "../src/main/git-settings-store";
 
-test("normalizeGitSettingsSnapshot keeps the per-main-agent-config role map", () => {
-  expect(
-    normalizeGitSettingsSnapshot({
-      commitMessageRoleByMainAgentConfigId: { main_config_a: "explore", main_config_b: "auto" },
-    }),
-  ).toEqual({
-    commitMessageRoleByMainAgentConfigId: { main_config_a: "explore", main_config_b: "auto" },
-    commitMessageCandidateModelIdByMainAgentConfigId: {},
-    autofetch: true,
-    autofetchPeriod: 180,
-  });
-});
-
-test("normalizeGitSettingsSnapshot keeps the per-main-agent-config candidate model map", () => {
-  expect(
-    normalizeGitSettingsSnapshot({
-      commitMessageCandidateModelIdByMainAgentConfigId: { main_config_a: "cand-1", main_config_b: "auto" },
-    }),
-  ).toEqual({
-    commitMessageRoleByMainAgentConfigId: {},
-    commitMessageCandidateModelIdByMainAgentConfigId: { main_config_a: "cand-1", main_config_b: "auto" },
-    autofetch: true,
-    autofetchPeriod: 180,
-  });
-});
-
-test("normalizeGitSettingsSnapshot keeps commit message instructions", () => {
-  expect(
-    normalizeGitSettingsSnapshot({
-      commitMessageRoleByMainAgentConfigId: {},
-      commitMessageInstructions: "  使用中文  ",
-    }),
-  ).toEqual({
-    commitMessageRoleByMainAgentConfigId: {},
-    commitMessageCandidateModelIdByMainAgentConfigId: {},
+test("legacy per-config Git preferences are removed while instructions remain", () => {
+  expect(normalizeGitSettingsSnapshot({
+    commitMessageRoleByMainAgentConfigId: { old: "explore" },
+    commitMessageCandidateModelIdByMainAgentConfigId: { old: "cand-1" },
+    commitMessageInstructions: "  使用中文  ",
+  })).toEqual({
     commitMessageInstructions: "使用中文",
     autofetch: true,
     autofetchPeriod: 180,
   });
 });
 
-test("normalizeGitSettingsSnapshot drops empty commit message instructions", () => {
-  expect(
-    normalizeGitSettingsSnapshot({
-      commitMessageRoleByMainAgentConfigId: {},
-      commitMessageInstructions: "   ",
-    }),
-  ).toEqual({
-    commitMessageRoleByMainAgentConfigId: {},
-    commitMessageCandidateModelIdByMainAgentConfigId: {},
-    autofetch: true,
-    autofetchPeriod: 180,
-  });
-});
-
-test("isGitSettingsSnapshot validates shape", () => {
+test("Git settings accept current values and reject removed per-config fields", () => {
   expect(isGitSettingsSnapshot(defaultGitSettings())).toBe(true);
-  expect(isGitSettingsSnapshot({ commitMessageCandidateModelIdByMainAgentConfigId: {} })).toBe(true);
-  expect(isGitSettingsSnapshot({ commitMessageRoleByMainAgentConfigId: null })).toBe(false);
+  expect(isGitSettingsSnapshot({ commitMessageRoleByMainAgentConfigId: {} })).toBe(false);
 });

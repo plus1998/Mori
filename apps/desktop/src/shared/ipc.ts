@@ -100,6 +100,7 @@ export const IPC_CHANNELS = {
   modelProviderListModels: "model-provider:list-models",
   modelProviderTest: "model-provider:test",
   chatGptSubscriptionAccountsList: "chatgpt-subscription:accounts-list",
+  chatGptSubscriptionAccountModelsList: "chatgpt-subscription:account-models-list",
   accountUsageHistory: "account-usage:history",
   usageOverview: "usage:overview",
   chatGptSubscriptionAccountCreate: "chatgpt-subscription:account-create",
@@ -114,17 +115,12 @@ export const IPC_CHANNELS = {
   chatGptModelCatalogRefresh: "chatgpt-model-catalog:refresh",
   chatGptModelCatalogAdd: "chatgpt-model-catalog:add",
   chatGptModelCatalogRemove: "chatgpt-model-catalog:remove",
-  codexOAuthGetStatus: "codex-oauth:get-status",
-  codexOAuthStartLogin: "codex-oauth:start-login",
-  codexOAuthLogout: "codex-oauth:logout",
   openAIAccountsList: "openai-accounts:list",
   openAIAccountsCreate: "openai-accounts:create",
   openAIAccountsDelete: "openai-accounts:delete",
   openAIAccountsStartLogin: "openai-accounts:start-login",
   openAIAccountsSubmitLoginCallback: "openai-accounts:submit-login-callback",
   openAIAccountsCancelLogin: "openai-accounts:cancel-login",
-  openAIAccountsSetActive: "openai-accounts:set-active",
-  openAIAccountsGetActive: "openai-accounts:get-active",
   openAIAccountsSetAuthJson: "openai-accounts:set-auth-json",
   openAIAccountsQueryQuota: "openai-accounts:query-quota",
   openAIAccountsWake: "openai-accounts:wake",
@@ -141,7 +137,6 @@ export const IPC_CHANNELS = {
   openAIAccountsGetAuthJson: "openai-accounts:get-auth-json",
   openAIAccountsGetDetails: "openai-accounts:get-details",
   openAIAccountsImport: "openai-accounts:import",
-  openAIAccountsCancelSwitch: "openai-accounts:cancel-switch",
   openAIAccountsChanged: "openai-accounts:changed",
   openAIAccountsOpenAssistant: "openai-accounts:open-assistant",
   openAIAccountsAssistantState: "openai-accounts:assistant-state",
@@ -154,8 +149,6 @@ export const IPC_CHANNELS = {
   agentTemplateDelete: "agent-template:delete",
   agentTemplateExport: "agent-template:export",
   agentTemplateImport: "agent-template:import",
-  mainAgentConfigSave: "main-agent-config:save",
-  mainAgentConfigDelete: "main-agent-config:delete",
   mainAgentPromptSave: "main-agent-prompt:save",
   mainAgentPromptDelete: "main-agent-prompt:delete",
   subagentOrchestrationSave: "subagent-orchestration:save",
@@ -1280,7 +1273,6 @@ export interface GitListCommitsResult {
 
 export interface GitGenerateCommitMessageRequest {
   workspacePath: string;
-  mainAgentConfigId?: string;
   includeUnstaged: boolean;
   /** Correlates streaming deltas pushed on gitGenerateCommitMessageDelta. */
   requestId?: string;
@@ -1306,7 +1298,6 @@ export interface GitGenerateCommitMessageResult {
 
 export interface GitCommitRequest {
   workspacePath: string;
-  mainAgentConfigId?: string;
   includeUnstaged: boolean;
   message?: string;
   /** @deprecated Use candidateModelId */
@@ -1314,9 +1305,7 @@ export interface GitCommitRequest {
   candidateModelId?: string | "auto";
 }
 
-export interface GitListCommitModelOptionsRequest {
-  mainAgentConfigId?: string;
-}
+export interface GitListCommitModelOptionsRequest {}
 
 export interface GitListCommitModelOptionsResult {
   options: CommitModelOptionView[];
@@ -1325,7 +1314,6 @@ export interface GitListCommitModelOptionsResult {
 
 export interface GitSaveCommitModelPreferenceRequest {
   candidateModelId: string;
-  mainAgentConfigId?: string;
 }
 
 export interface GitSaveCommitModelPreferenceResult {
@@ -1384,8 +1372,6 @@ export interface GitPullResult {
 }
 
 export interface GitSettingsSnapshot {
-  commitMessageRoleByMainAgentConfigId: Record<string, RuntimeAgentRole | "auto">;
-  commitMessageCandidateModelIdByMainAgentConfigId: Record<string, string | "auto">;
   /** 生成提交信息时附加给大模型的额外指令（格式、语言、长度等） */
   commitMessageInstructions?: string;
   /** 窗口聚焦且仓库空闲时周期性 git fetch，对齐 VS Code git.autofetch */
@@ -1553,7 +1539,6 @@ export interface ProviderConfigView {
 
 export type ProviderDeleteReferenceKind =
   | "route_profile"
-  | "main_agent_config"
   | "subagent_orchestration"
   | "active_thread";
 
@@ -1606,6 +1591,12 @@ export interface CandidateModelInput {
   id?: string;
   providerId: string;
   modelId: string;
+  /** Concrete upstream API for this model. Omitted fields preserve the saved value. */
+  baseUrl?: string;
+  requestPath?: string;
+  version?: string;
+  apiCompat?: UpstreamApiCompat;
+  tokenCountMode?: ProviderTokenCountMode;
   displayName?: string;
   modelsDevMapping?: ModelsDevMapping;
   manualSpec?: RouteManualSpec;
@@ -1616,6 +1607,12 @@ export interface CandidateModelView {
   id: string;
   providerId: string;
   modelId: string;
+  /** Account catalogs use managed endpoints and leave these fields unset. */
+  baseUrl?: string;
+  requestPath?: string;
+  version?: string;
+  apiCompat?: UpstreamApiCompat;
+  tokenCountMode?: ProviderTokenCountMode;
   displayName?: string;
   modelsDevMapping?: ModelsDevMapping;
   manualSpec?: RouteManualSpec;
@@ -1644,6 +1641,11 @@ export interface RuntimeRoleRouteConfig {
   modelId: string;
   /** Overrides provider default when set. */
   apiCompat?: UpstreamApiCompat;
+  /** Concrete candidate endpoint; populated before runtime routing. */
+  baseUrl?: string;
+  requestPath?: string;
+  version?: string;
+  tokenCountMode?: ProviderTokenCountMode;
   thinkingEffort?: ThinkingEffort;
   modelsDevMapping?: ModelsDevMapping;
   manualSpec?: RouteManualSpec;
@@ -2911,8 +2913,7 @@ export function isGitGenerateCommitMessageRequest(value: unknown): value is GitG
   const record = value as Record<string, unknown>;
   return (
     typeof record.workspacePath === "string" &&
-    typeof record.includeUnstaged === "boolean" &&
-    (record.mainAgentConfigId === undefined || typeof record.mainAgentConfigId === "string")
+    typeof record.includeUnstaged === "boolean"
   );
 }
 
@@ -2920,10 +2921,7 @@ export function parseGitListCommitModelOptionsRequest(value: unknown): GitListCo
   if (!value || typeof value !== "object") {
     throw new Error("Invalid git list commit model options request.");
   }
-  const record = value as Record<string, unknown>;
-  const mainAgentConfigId =
-    typeof record.mainAgentConfigId === "string" ? record.mainAgentConfigId.trim() : "";
-  return mainAgentConfigId ? { mainAgentConfigId } : {};
+  return {};
 }
 
 export function isGitListCommitModelOptionsRequest(
@@ -2932,8 +2930,7 @@ export function isGitListCommitModelOptionsRequest(
   if (!value || typeof value !== "object") {
     return false;
   }
-  const record = value as Record<string, unknown>;
-  return record.mainAgentConfigId === undefined || typeof record.mainAgentConfigId === "string";
+  return true;
 }
 
 export function parseGitSaveCommitModelPreferenceRequest(
@@ -2947,9 +2944,7 @@ export function parseGitSaveCommitModelPreferenceRequest(
   if (!candidateModelId || candidateModelId === "auto") {
     throw new Error("Invalid git save commit model preference request.");
   }
-  const mainAgentConfigId =
-    typeof record.mainAgentConfigId === "string" ? record.mainAgentConfigId.trim() : "";
-  return mainAgentConfigId ? { candidateModelId, mainAgentConfigId } : { candidateModelId };
+  return { candidateModelId };
 }
 
 export function isGitSaveCommitModelPreferenceRequest(
@@ -2962,7 +2957,7 @@ export function isGitSaveCommitModelPreferenceRequest(
   if (typeof record.candidateModelId !== "string" || !record.candidateModelId.trim()) {
     return false;
   }
-  return record.mainAgentConfigId === undefined || typeof record.mainAgentConfigId === "string";
+  return true;
 }
 
 export function isGitListCommitsRequest(value: unknown): value is GitListCommitsRequest {
@@ -2987,8 +2982,7 @@ export function isGitCommitRequest(value: unknown): value is GitCommitRequest {
   const record = value as Record<string, unknown>;
   return (
     typeof record.workspacePath === "string" &&
-    typeof record.includeUnstaged === "boolean" &&
-    (record.mainAgentConfigId === undefined || typeof record.mainAgentConfigId === "string")
+    typeof record.includeUnstaged === "boolean"
   );
 }
 

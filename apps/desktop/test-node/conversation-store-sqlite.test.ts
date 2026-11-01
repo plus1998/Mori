@@ -117,22 +117,12 @@ test("Node SQLite remembers MCP switches independently for each project", async 
   assert.deepEqual(store.get(projectB).enabledByServer, { github: false, browser: true });
 });
 
-test("Node SQLite stores independent orchestration resources and deletes them independently", async (t) => {
+test("Node SQLite stores prompts and subagent orchestrations independently", async (t) => {
   const directory = await createTestDirectory(t, "eco-node-orchestration-store-");
   const databasePath = path.join(directory, "eco-coding.sqlite");
   const store = await createAgentOrchestrationStore(databasePath);
   const updatedAt = "2026-01-01T00:00:00.000Z";
 
-  store.saveMainAgentConfig({
-    id: "main_1",
-    name: "Main",
-    agentKey: "main",
-    modelRef: { providerId: "provider_1", modelId: "model_1" },
-    tools: { allowed: [], disallowed: [] },
-    skills: [],
-    source: "user",
-    updatedAt,
-  });
   store.saveMainAgentPrompt({
     id: "prompt_1",
     name: "Prompt",
@@ -150,23 +140,8 @@ test("Node SQLite stores independent orchestration resources and deletes them in
     updatedAt,
   });
 
-  const selection = {
-    mainAgentConfigId: "main_1",
-    mainPrompt: { mode: "custom_append" as const, promptId: "prompt_1" },
-    subagents: { mode: "orchestration" as const, orchestrationId: "subagents_1" },
-  };
-  assert.equal(store.listMainAgentConfigs().length, 1);
   assert.equal(store.listMainAgentPrompts().length, 1);
   assert.equal(store.listSubagentOrchestrations().length, 1);
-  // Deleting a resource is no longer refused when a remembered default selection points at
-  // it: the callers clear that reference first and then delete. Both halves are asserted —
-  // the clearing in workflow-settings-store.test.ts, the deletion here.
-  assert.equal(selection.mainAgentConfigId, "main_1");
-  assert.equal(store.deleteMainAgentConfig("main_1"), undefined);
-  assert.deepEqual(
-    store.listMainAgentConfigs().map((config) => config.id),
-    [],
-  );
   assert.deepEqual(
     store.listMainAgentPrompts().map((prompt) => prompt.id),
     ["prompt_1"],
@@ -184,10 +159,8 @@ test("Node SQLite stores independent orchestration resources and deletes them in
     updatedAt,
   });
 
-  store.deleteMainAgentConfig("main_1");
   store.deleteMainAgentPrompt("prompt_1");
   store.deleteSubagentOrchestration("subagents_1");
-  assert.deepEqual(store.listMainAgentConfigs(), []);
   assert.deepEqual(store.listMainAgentPrompts(), []);
   assert.deepEqual(store.listSubagentOrchestrations(), []);
 
@@ -199,8 +172,8 @@ test("Node SQLite stores independent orchestration resources and deletes them in
     .map((row) => (row as { name: string }).name);
   assert.deepEqual(tables, [
     "agent_templates",
-    "main_agent_configs",
     "main_agent_prompts",
+    "schema_migrations",
     "subagent_orchestrations",
   ]);
 });

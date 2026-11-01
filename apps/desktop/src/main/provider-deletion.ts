@@ -10,16 +10,6 @@ export function collectProviderDeleteReferences(
   const targetId = providerId.trim();
   const references: ProviderDeleteReference[] = [];
 
-  for (const config of settings.mainAgentConfigs) {
-    if (config.modelRef.providerId === targetId) {
-      references.push({
-        kind: "main_agent_config",
-        id: config.id,
-        name: config.name,
-      });
-    }
-  }
-
   for (const orchestration of settings.subagentOrchestrations) {
     if (orchestration.agents.some((agent) => agent.modelRef.providerId === targetId)) {
       references.push({
@@ -44,14 +34,12 @@ export function collectProviderDeleteReferences(
   return references;
 }
 
-/** Active threads still block deletion; configs/orchestrations are cascaded away. */
+/** Active threads block deletion; subagent orchestrations are cascaded away. */
 export function partitionProviderDeleteReferences(references: readonly ProviderDeleteReference[]): {
   blocking: ProviderDeleteReference[];
-  cascadeMainAgentConfigs: ProviderDeleteReference[];
   cascadeSubagentOrchestrations: ProviderDeleteReference[];
 } {
   const blocking: ProviderDeleteReference[] = [];
-  const cascadeMainAgentConfigs: ProviderDeleteReference[] = [];
   const cascadeSubagentOrchestrations: ProviderDeleteReference[] = [];
 
   for (const reference of references) {
@@ -59,16 +47,12 @@ export function partitionProviderDeleteReferences(references: readonly ProviderD
       blocking.push(reference);
       continue;
     }
-    if (reference.kind === "main_agent_config") {
-      cascadeMainAgentConfigs.push(reference);
-      continue;
-    }
     if (reference.kind === "subagent_orchestration") {
       cascadeSubagentOrchestrations.push(reference);
     }
   }
 
-  return { blocking, cascadeMainAgentConfigs, cascadeSubagentOrchestrations };
+  return { blocking, cascadeSubagentOrchestrations };
 }
 
 function threadReferencesProvider(thread: ThreadSummary, providerId: string): boolean {

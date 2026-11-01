@@ -87,30 +87,6 @@ test("expired JWT credentials are not reported as logged in", async () => {
   service.dispose();
 });
 
-test("active account proxy is available without listing accounts first", async () => {
-  const { service } = await createService();
-  const account = await service.createAccount("Proxy", "http://user:secret@127.0.0.1:7890");
-  await service.setAuthJson(
-    account.id,
-    JSON.stringify({
-      tokens: {
-        access_token: jwtWithExpiry(Math.floor(Date.now() / 1000) + 3600),
-        account_id: "chatgpt-account",
-      },
-    }),
-  );
-  await service.setActiveAccount(account.id);
-  await service.applyPendingTransition();
-
-  expect(await service.getActiveProxyConfig()).toEqual({
-    mode: "manual",
-    proxyUrl: "http://user:secret@127.0.0.1:7890",
-  });
-  expect(await service.getActiveProxyUrl()).toBe("http://user:secret@127.0.0.1:7890");
-
-  service.dispose();
-});
-
 test("account proxy modes keep system, direct, and manual states distinct", async () => {
   const { service } = await createService();
   await expect(service.createAccount({ name: "Missing manual URL", proxyMode: "manual" })).rejects.toThrow(
@@ -206,9 +182,7 @@ test.skipIf(process.platform === "win32")("cancelling an OAuth login settles the
   service.dispose();
 });
 
-// ─── auth.json 两份副本的一致性 ────────────────────────────────────────────────
-// CODEX_HOME（<root>/codex/auth.json，Codex 真正读的那份）与账号目录
-//（<root>/codex-accounts/<id>/auth.json，`codex login` 写的那份）必须收敛到更新的一份。
+// 旧版全局 auth.json 的一次性迁移：保留较新的凭据，之后不再维护全局副本。
 
 const STALE_STAMP = "2026-09-28T02:02:53.237Z";
 const FRESH_STAMP = "2026-09-28T02:46:01.085916Z"; // Codex 用微秒精度写，Date.parse 必须能解
@@ -230,47 +204,6 @@ function authJson(input: { refreshToken: string; lastRefresh: string; accountId?
     2,
   );
 }
-
-test("external runtimes share one refreshed credential and persist the complete rotated auth in SQLite", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mori-external-auth-"));
-  tempDirs.push(root);
-  const executable = path.join(root, "fake-credential-owner");
-  const counter = path.join(root, "refresh-count");
-  await fs.writeFile(executable, `#!/usr/bin/env node
-const fs=require('node:fs');const path=require('node:path');const readline=require('node:readline');
-readline.createInterface({input:process.stdin}).on('line',line=>{
- const msg=JSON.parse(line);if(msg.method==='initialized')return;
- if(msg.method==='account/read'&&msg.params.refreshToken){
-  const file=path.join(process.env.CODEX_HOME,'auth.json');
-  const auth=JSON.parse(fs.readFileSync(file,'utf8'));
-  auth.tokens.access_token='at-rotated';auth.tokens.refresh_token='rt-rotated';auth.last_refresh='2026-10-27T10:00:00Z';
-  fs.writeFileSync(file,JSON.stringify(auth));fs.appendFileSync(${JSON.stringify(counter)},'refresh\\n');
- }
- process.stdout.write(JSON.stringify({id:msg.id,result:msg.method==='account/read'?{account:{type:'chatgpt'}}:{}})+'\\n');
-});`, { mode: 0o755 });
-  const service = new OpenAIAccountService(root, executable);
-  await service.initialize();
-  try {
-    const account = await service.createAccount({ name: "Shared", proxyMode: "direct" });
-    await service.setAuthJson(account.id, authJson({ refreshToken: "original", lastRefresh: STALE_STAMP }));
-    await service.setActiveAccount(account.id);
-    await service.applyPendingTransition();
-    const first = await service.getExternalChatGptTokens(account.id);
-    expect(first).toEqual({ accessToken: "at-original", chatgptAccountId: "acct-shared" });
-    const [assistant, task] = await Promise.all([
-      service.getExternalChatGptTokens(account.id, first.accessToken),
-      service.getExternalChatGptTokens(account.id, first.accessToken),
-    ]);
-    expect(assistant).toEqual(task);
-    expect(task.accessToken).toBe("at-rotated");
-    expect(task).not.toHaveProperty("refreshToken");
-    expect((await fs.readFile(counter, "utf8")).trim().split("\n")).toHaveLength(1);
-    const saved = JSON.parse((await service.getAuthJsonContent(account.id))!);
-    expect(saved.tokens.refresh_token).toBe("rt-rotated");
-    expect(JSON.parse(await fs.readFile(path.join(root, "codex", "auth.json"), "utf8")).tokens.refresh_token).toBe("rt-rotated");
-    expect((await service.listAccounts())[0]?.id).toBe(account.id);
-  } finally { await service.dispose(); }
-});
 
 /** 预置一份「上次运行留下的漂移」盘面，再让服务启动时自己收敛。 */
 async function seedDriftedState(
@@ -304,7 +237,7 @@ async function refreshTokenIn(filePath: string): Promise<string> {
   return parsed.tokens.refresh_token;
 }
 
-test("initialize republishes an account auth.json that is newer than CODEX_HOME", async () => {
+test("migration keeps newer account credentials and archives the old global file", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "eco-openai-accounts-"));
   tempDirs.push(root);
   const accountId = "oa_relogin";
@@ -318,7 +251,8 @@ test("initialize republishes an account auth.json that is newer than CODEX_HOME"
   const service = new OpenAIAccountService(root, "codex-test");
   await service.initialize();
 
-  expect(await refreshTokenIn(path.join(root, "codex", "auth.json"))).toBe("rt-fresh");
+  expect(JSON.parse((await service.getAuthJsonContent(accountId))!).tokens.refresh_token).toBe("rt-fresh");
+  expect(await fs.stat(path.join(root, "codex", "auth.json")).then(() => true, () => false)).toBe(false);
   service.dispose();
 });
 
@@ -336,7 +270,8 @@ test("initialize never buries CODEX_HOME credentials that are newer than the acc
   const service = new OpenAIAccountService(root, "codex-test");
   await service.initialize();
 
-  expect(await refreshTokenIn(path.join(root, "codex", "auth.json"))).toBe("rt-fresh");
+  expect(JSON.parse((await service.getAuthJsonContent(accountId))!).tokens.refresh_token).toBe("rt-fresh");
+  expect(await fs.stat(path.join(root, "codex", "auth.json")).then(() => true, () => false)).toBe(false);
   service.dispose();
 });
 
@@ -361,22 +296,7 @@ test("initialize also pulls a newer CODEX_HOME credential into the account copy"
   service.dispose();
 });
 
-test("auth reconciliation is a no-op once both copies match", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "eco-openai-accounts-"));
-  tempDirs.push(root);
-  const accountId = "oa_settled";
-  const settled = authJson({ refreshToken: "rt-settled", lastRefresh: FRESH_STAMP });
-  await seedDriftedState(root, { accountId, accountAuth: settled, mainAuth: settled });
-
-  const service = new OpenAIAccountService(root, "codex-test");
-  await service.initialize();
-
-  // 内容一致时不得再写——否则两个方向的同步会互相触发、来回写盘。
-  expect(await service.syncMainAuthFromActiveAccount()).toBe(false);
-  service.dispose();
-});
-
-test("auth reconciliation refuses to copy a different account's tokens into the active account dir", async () => {
+test("migration preserves account credentials when the legacy global file belongs to another identity", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "eco-openai-accounts-"));
   tempDirs.push(root);
   const accountId = "oa_switching";
@@ -397,18 +317,30 @@ test("auth reconciliation refuses to copy a different account's tokens into the 
     }),
   });
   const service = new OpenAIAccountService(root, "codex-test");
-  // 先启动（watcher 在 initialize 里建立），再驱动回写路径：watcher 的触发条件是
-  // CODEX_HOME 发生了写入。
   await service.initialize();
-  await fs.writeFile(
-    path.join(root, "codex", "auth.json"),
-    authJson({ refreshToken: "rt-other2", lastRefresh: "2026-09-28T03:00:00.000Z", accountId: "acct-other" }),
-    "utf8",
-  );
-  await new Promise((resolve) => setTimeout(resolve, 400));
-
   const saved = await service.getAuthJsonContent(accountId);
   if (!saved) throw new Error("Expected the account credential to remain stored");
   expect(JSON.parse(saved).tokens.refresh_token).toBe("rt-mine");
   service.dispose();
+});
+
+test('conversations fetch only their chosen account tokens; deleting one account never selects another', async () => {
+  const { root, service } = await createService();
+  try {
+    const a = await service.createAccount('A');
+    const b = await service.createAccount('B');
+    const raw = (id: string) => JSON.stringify({ tokens: { account_id: `chatgpt-${id}`, access_token: `access-${id}`, refresh_token: `private-${id}` } });
+    await service.setAuthJson(a.id, raw('a'));
+    await service.setAuthJson(b.id, raw('b'));
+    const tokens = await Promise.all([service.getExternalChatGptTokens(a.id), service.getExternalChatGptTokens(b.id)]);
+    expect(tokens).toEqual([
+      { accessToken: 'access-a', chatgptAccountId: 'chatgpt-a' },
+      { accessToken: 'access-b', chatgptAccountId: 'chatgpt-b' },
+    ]);
+    expect(JSON.stringify(tokens)).not.toContain('private-');
+    expect(await fs.stat(path.join(root, 'codex', 'auth.json')).then(() => true, () => false)).toBe(false);
+    await service.deleteAccount(a.id);
+    await expect(service.getExternalChatGptTokens(a.id)).rejects.toThrow('not found');
+    expect(await service.getExternalChatGptTokens(b.id)).toEqual(tokens[1]);
+  } finally { await service.dispose(); }
 });

@@ -16,9 +16,8 @@ import { FollowUpQueuePanel } from "./FollowUpQueuePanel";
 import { ComposerPromptCacheBaseline } from "./composer-prompt-cache-baseline";
 import { startTaskPanelResizeSession } from "./task-panel-resize-session";
 import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "./browser-selection-events";
-import { OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID } from "../shared/agent-orchestration";
 import { CodexQuotaReminder } from "./CodexQuotaReminder";
-import { isCodexAuthThread } from "./codex-quota-reminder";
+import { isCodexAuthThread, codexAccountIdForThread } from "../shared/codex-auth-thread";
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import {
   listPlanDelegationAgents,
@@ -131,7 +130,6 @@ import {
   type BackgroundTerminalTask,
   type BashApprovalRequest,
   buildThreadRuntimeConfigFromDefaults,
-  type CandidateModelView,
   type CenterServerConnectionState,
   type CenterServerSettingsInput,
   type CenterServerSettingsSnapshot,
@@ -160,12 +158,12 @@ import {
   type IntegrationAvailabilitySnapshot,
   type LinkAgentsSkillsResult,
   listEnabledGlobalMcpServerKeys,
-  type MainAgentModelOverride,
   type MainAgentPromptSelection,
   type McpServerCheckResult,
   type McpServerConfigInput,
   type McpSettingsSnapshot,
   type ModelSettingsSnapshot,
+  type ModelRef,
   type OrchestrationSelection,
   type PackageScriptsListResult,
   type PersonalizationSettingsSnapshot,
@@ -257,7 +255,6 @@ import type { WebChatItem, WebChatListView } from "../shared/web-chat-list";
 import { defaultWebChatListSnapshot, mergeWebChatList } from "../shared/web-chat-list";
 import { ActivityHeaderProjectInfo } from "./ActivityHeaderProjectInfo";
 import { buildConversationV2OnlyProjection } from "./ActivityLogView";
-import type { PendingMainAgentConfigCreateSeed } from "./AgentCompositionResourcesSection";
 import { AppMessage, useAppMessage } from "./AppMessage";
 import { AsrMicButton, AsrVoiceComposer, isAsrComposerConfigured, useAsrRecorder } from "./AsrRecorder";
 import { resolveActivityUserMessageActiveAnchorId } from "./activity-user-message-nav";
@@ -305,12 +302,8 @@ import { ComposerFloatingLoading } from "./ComposerFloatingLoading";
 import { useComposerIconOnlyToolbar } from "./ComposerHoverTooltip";
 import { ComposerIntegrations } from "./ComposerIntegrations";
 import { ComposerMcpServers } from "./ComposerMcpServers";
-import { ComposerModelEmptyTrigger } from "./ComposerModelEmptyTrigger";
-import {
-  buildComposerModelOptions,
-  type ComposerModelOption,
-  ComposerModelSelector,
-} from "./ComposerModelSelector";
+import { ComposerMainModelPicker } from "./ComposerMainModelPicker";
+import type { ComposerModelOption } from "./composer-model-availability";
 import { ComposerPlusMenu, ComposerSessionModeTag } from "./ComposerPlusMenu";
 import { ComposerRoutePopover } from "./ComposerRoutePopover";
 import { ComposerSkillsBar } from "./ComposerSkillsBar";
@@ -349,7 +342,6 @@ import {
   resolveComposerContextPrompt,
   resolveComposerPlanRuntimeConfig,
 } from "./composer-plan-handoff";
-import { shouldOpenOrchestrationFullSettings } from "./composer-route-open";
 import {
   applySlashSkillSelection,
   buildSkillMap,
@@ -402,7 +394,6 @@ import {
   LazyBrowserWebviewLayer,
   LazyCenterServerSettingsPanel,
   LazyComputerUseSettingsPanel,
-  LazyCodexAccountSwitchDialog,
   LazyContextWindowSettingsPanel,
   LazyDefaultAgentSettingsPanel,
   LazyGeneralSettingsPanel,
@@ -780,8 +771,6 @@ const emptyIntegrationAvailability: IntegrationAvailabilitySnapshot = {
 };
 
 const emptyGitSettings: GitSettingsSnapshot = {
-  commitMessageRoleByMainAgentConfigId: {},
-  commitMessageCandidateModelIdByMainAgentConfigId: {},
 };
 
 const emptyPersonalizationSettings: PersonalizationSettingsSnapshot = {};
@@ -1282,7 +1271,7 @@ function App() {
   }, []);
   const { t } = useTranslation();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [codexAccountSwitchOpen, setCodexAccountSwitchOpen] = useState(false);
+  const [modelPickerOpenRequest, setModelPickerOpenRequest] = useState(0);
   const [schedulingOpen, setSchedulingOpen] = useState(false);
   const [projectTodosOpen, setProjectTodosOpen] = useState(false);
   const projectTodoComposerFocusRef = useRef(false);
@@ -1694,12 +1683,9 @@ function App() {
   const [isSavingIntegratedWebSearchSettings, setIsSavingIntegratedWebSearchSettings] = useState(false);
   const [composerPlusMenuOpen, setComposerPlusMenuOpen] = useState(false);
   const [composerRoutePopoverOpen, setComposerRoutePopoverOpen] = useState(false);
-  const [composerRouteAnchor, setComposerRouteAnchor] = useState<"plus" | "model-empty">("plus");
   const [modelsSettingsTab, setModelsSettingsTab] = useState<ModelsSettingsTab>("subagents");
   const [modelsSettingsChatGptAccountId, setModelsSettingsChatGptAccountId] = useState<string>();
-  const [pendingCreateMainConfig, setPendingCreateMainConfig] = useState<PendingMainAgentConfigCreateSeed>();
   const composerPlusButtonRef = useRef<HTMLButtonElement>(null);
-  const composerModelEmptyTriggerRef = useRef<HTMLButtonElement>(null);
   const composerImageInputRef = useRef<HTMLInputElement>(null);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
   const composerInputOverlaysRef = useRef<HTMLDivElement>(null);
@@ -2201,10 +2187,6 @@ function App() {
   const [cursorModels, setCursorModels] = useState<CursorModelOption[]>([]);
   const [cursorModelsLoading, setCursorModelsLoading] = useState(false);
   const [cursorModelsError, setCursorModelsError] = useState<string>();
-  const [composerCandidateModels, setComposerCandidateModels] = useState<CandidateModelView[]>([]);
-  const [composerModelsLoading, setComposerModelsLoading] = useState(false);
-  const [composerModelsError, setComposerModelsError] = useState<string>();
-  const [composerModelsRefreshNonce, setComposerModelsRefreshNonce] = useState(0);
   const [gitStatusByWorkspace, setGitStatusByWorkspace] = useState<WorkspaceGitStatusCache>({});
   const gitStatusByWorkspaceRef = useRef<WorkspaceGitStatusCache>({});
   const [gitStatusBusy, setGitStatusBusy] = useState(false);
@@ -5045,9 +5027,6 @@ function App() {
       workflowDefaults?: WorkflowSettingsSnapshot;
       orchestrationSelection?: OrchestrationSelection;
     }): ThreadRuntimeConfig | undefined => {
-      if (settings.mainAgentConfigs.length === 0) {
-        return undefined;
-      }
       try {
         const defaults = options?.workflowDefaults ?? workflowSettings;
         if (currentProjectPath && projectOrchestrationSettings?.workspacePath !== currentProjectPath) {
@@ -5140,10 +5119,6 @@ function App() {
         });
         return current && threadRuntimeConfigsEquivalent(current, next) ? current : next;
       });
-      return;
-    }
-    if (settings.mainAgentConfigs.length === 0) {
-      setComposerRuntimeConfig((current) => (current ? null : current));
       return;
     }
     setComposerRuntimeConfig((current) => {
@@ -5375,10 +5350,6 @@ function App() {
       ...(route.thinkingEffort ? { thinkingEffort: route.thinkingEffort } : {}),
     };
   }, [composerUsableProviders, selectedOrchestrationSnapshot]);
-  const composerModelProvider = templateMainModel
-    ? composerUsableProviders.find((provider) => provider.id === templateMainModel.providerId)
-    : undefined;
-  const composerModelProviderId = composerModelProvider?.enabled ? composerModelProvider.id : undefined;
   const composerMainAgentModelOverride = resolveMainAgentModelOverrideForProvider(
     templateMainModel?.providerId,
     composerRuntimeConfig?.mainAgentModelOverride,
@@ -5387,54 +5358,6 @@ function App() {
     ? isCodexAuthThread(activeThread)
     : composerCoreKind === "codex" &&
       (composerMainAgentModelOverride?.providerId ?? templateMainModel?.providerId) === "openai";
-  const refreshComposerCandidateModels = useCallback(() => {
-    setComposerModelsRefreshNonce((current) => current + 1);
-  }, []);
-
-  useEffect(() => {
-    const eco = window.eco;
-    if (!eco || !composerModelProviderId) {
-      setComposerCandidateModels([]);
-      setComposerModelsError(undefined);
-      setComposerModelsLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setComposerCandidateModels([]);
-    setComposerModelsError(undefined);
-    setComposerModelsLoading(true);
-    void eco
-      .listCandidateModels(composerModelProviderId)
-      .then((candidates) => {
-        if (!cancelled) {
-          setComposerCandidateModels(candidates);
-        }
-      })
-      .catch((caught) => {
-        if (!cancelled) {
-          setComposerCandidateModels([]);
-          setComposerModelsError(t("app.candidateModelsFailed", { detail: errorMessage(caught) }));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setComposerModelsLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [composerModelProviderId, composerModelsRefreshNonce, settings.providers]);
-
-  const composerModelOptions = useMemo<ComposerModelOption[]>(() => {
-    return templateMainModel
-      ? buildComposerModelOptions({
-          provider: composerModelProvider,
-          candidates: composerCandidateModels,
-          templateModel: templateMainModel,
-        })
-      : [];
-  }, [composerCandidateModels, composerModelProvider, templateMainModel]);
   const activeRoutes = useMemo(() => {
     return selectedOrchestrationSnapshot
       ? runtimeRoleRoutesFromOrchestrationSnapshot(
@@ -7036,38 +6959,16 @@ function App() {
     workflowSettings,
   ]);
   const openComposerRoutePopover = useCallback(
-    (anchor: "plus" | "model-empty" = "plus") => {
+    () => {
       if (!canOpenComposerRoute) {
         return;
       }
       setComposerPlusMenuOpen(false);
       setScheduledMessageEditor(undefined);
-      setComposerRouteAnchor(anchor);
       setComposerRoutePopoverOpen(true);
     },
     [canOpenComposerRoute],
   );
-  const openComposerOrchestrationChooser = useCallback(() => {
-    if (!canOpenComposerRoute) {
-      return;
-    }
-    // 无主代理资源时：可编辑才进完整设置；只读态打开空 popover 查看。
-    if (
-      shouldOpenOrchestrationFullSettings({
-        canEditComposerConfig,
-        mainAgentConfigCount: settings.mainAgentConfigs.length,
-      })
-    ) {
-      openModelsSettings("compositionParts");
-      return;
-    }
-    openComposerRoutePopover("model-empty");
-  }, [
-    canEditComposerConfig,
-    canOpenComposerRoute,
-    openComposerRoutePopover,
-    settings.mainAgentConfigs.length,
-  ]);
   const agentModelLabels = useMemo(
     () =>
       buildComposerAgentModelLabels({
@@ -9325,8 +9226,7 @@ function App() {
     setSettingsOpen(true);
   }
 
-  const openCodexAccountSwitch = useCallback(() => setCodexAccountSwitchOpen(true), []);
-  const closeCodexAccountSwitch = useCallback(() => setCodexAccountSwitchOpen(false), []);
+  const openCodexAccountSwitch = useCallback(() => setModelPickerOpenRequest(current => current + 1), []);
   const openChatGptSubscriptionAccounts = useCallback((accountId?: string) => {
     setModelsSettingsChatGptAccountId(accountId?.trim() || undefined);
     setModelsSettingsTab("chatgptAccounts");
@@ -9530,31 +9430,19 @@ function App() {
   }
 
   async function saveCommitMessageModelPreference(candidateModelId: string) {
-    const mainAgentConfigId = composerRuntimeConfig?.orchestrationSelection?.mainAgentConfigId;
     if (!window.eco?.listGitCommitModelOptions) {
       return;
     }
-    const result = await window.eco.listGitCommitModelOptions(mainAgentConfigId ? { mainAgentConfigId } : {});
+    const result = await window.eco.listGitCommitModelOptions({});
     const option = result.options.find((candidate) => candidate.candidateModelId === candidateModelId);
     if (!option) {
       throw new Error("所选 Git 提交模型已不在候选模型列表中。");
     }
-    if (!mainAgentConfigId) {
-      await selectComposerAuxiliaryModel({
-        providerId: option.providerId,
-        modelId: option.modelId,
-        candidateModelId: option.candidateModelId,
-      });
-      return;
-    }
-    const saved = await window.eco.saveGitSettings({
-      ...gitSettings,
-      commitMessageCandidateModelIdByMainAgentConfigId: {
-        ...gitSettings.commitMessageCandidateModelIdByMainAgentConfigId,
-        [mainAgentConfigId]: option.candidateModelId,
-      },
+    await selectComposerAuxiliaryModel({
+      providerId: option.providerId,
+      modelId: option.modelId,
+      candidateModelId: option.candidateModelId,
     });
-    setGitSettings(saved);
   }
 
   async function handleGitCheckoutBranch(branch: string) {
@@ -9897,14 +9785,13 @@ function App() {
 
   function emptyOrchestrationSelection(): OrchestrationSelection {
     return {
-      mainAgentConfigId: "",
       mainPrompt: { mode: "builtin" },
       subagents: { mode: "none" },
     };
   }
 
   async function applyComposerOrchestrationSelection(patch: {
-    mainAgentConfigId?: string;
+    mainModel?: ModelRef;
     mainPrompt?: MainAgentPromptSelection;
     subagents?: SubagentSelection;
   }) {
@@ -9917,7 +9804,11 @@ function App() {
       workflowSettings.defaultOrchestrationSelection ??
       emptyOrchestrationSelection();
     const nextSelection: OrchestrationSelection = {
-      mainAgentConfigId: patch.mainAgentConfigId ?? current.mainAgentConfigId,
+      ...(!patch.mainModel && current.mainAgentConfigId
+        ? { mainAgentConfigId: current.mainAgentConfigId } : {}),
+      ...((patch.mainModel ?? current.mainModel)
+        ? { mainModel: patch.mainModel ?? current.mainModel }
+        : {}),
       mainPrompt: patch.mainPrompt ?? current.mainPrompt,
       subagents: patch.subagents ?? current.subagents,
     };
@@ -9956,7 +9847,8 @@ function App() {
         mcpServers: mcpSettings.servers,
       });
     const { mainAgentModelOverride, ...baseConfig } = bootstrapped;
-    const mainAgentChanged = current.mainAgentConfigId !== nextSelection.mainAgentConfigId;
+    const mainAgentChanged = current.mainAgentConfigId !== nextSelection.mainAgentConfigId ||
+      JSON.stringify(current.mainModel) !== JSON.stringify(nextSelection.mainModel);
     const next: ThreadRuntimeConfig = {
       ...baseConfig,
       ...(!mainAgentChanged && mainAgentModelOverride ? { mainAgentModelOverride } : {}),
@@ -9988,11 +9880,8 @@ function App() {
     }
   }
 
-  async function selectComposerMainAgentConfig(id: string) {
-    if (!id.trim()) {
-      return;
-    }
-    await applyComposerOrchestrationSelection({ mainAgentConfigId: id });
+  async function selectComposerMainModel(model: ModelRef) {
+    await applyComposerOrchestrationSelection({ mainModel: model });
   }
 
   async function selectComposerMainPrompt(selection: MainAgentPromptSelection) {
@@ -10125,41 +10014,6 @@ function App() {
       ...rest,
       ...(modelId ? { cursorModelId: modelId } : {}),
     });
-  }
-
-  async function selectComposerMainAgentModel(override: MainAgentModelOverride | undefined) {
-    if (!composerRuntimeConfig || !canEditComposerConfig) {
-      return;
-    }
-    if (override && !resolveMainAgentModelOverrideForProvider(templateMainModel?.providerId, override)) {
-      setError(t("app.modelBackendMismatch"));
-      return;
-    }
-    const { mainAgentModelOverride: _currentOverride, ...baseRuntimeConfig } = composerRuntimeConfig;
-    const next: ThreadRuntimeConfig = {
-      ...baseRuntimeConfig,
-      ...(override ? { mainAgentModelOverride: override } : {}),
-    };
-    if (!(await persistComposerRuntimeConfig(next))) return;
-    if (
-      next.orchestrationSelection?.mainAgentConfigId === OPENAI_OFFICIAL_MAIN_AGENT_CONFIG_ID &&
-      templateMainModel?.providerId === "openai" &&
-      window.eco
-    ) {
-      try {
-        const model = override ?? templateMainModel;
-        const codexAuthModel: MainAgentModelOverride = {
-          providerId: model.providerId,
-          modelId: model.modelId,
-          ...(model.thinkingEffort ? { thinkingEffort: model.thinkingEffort } : {}),
-          ...(model.candidateModelId ? { candidateModelId: model.candidateModelId } : {}),
-        };
-        const saved = await window.eco.saveWorkflowSettings({ ...workflowSettings, codexAuthModel });
-        setWorkflowSettings(saved);
-      } catch (caught) {
-        setError(errorMessage(caught));
-      }
-    }
   }
 
   async function toggleComposerSubagent(role: SubagentRole, enabled: boolean) {
@@ -12101,7 +11955,7 @@ function App() {
       onBack={() => { setComposerRoutePopoverOpen(false); setComposerPlusMenuOpen(true); }}
       runtimeConfig={composerRuntimeConfig ?? undefined}
       onClose={() => setComposerRoutePopoverOpen(false)}
-      onSelectMainAgentConfig={selectComposerMainAgentConfig}
+      onSelectMainModel={selectComposerMainModel}
       onSelectMainPrompt={selectComposerMainPrompt}
       onSelectSubagents={selectComposerSubagents}
       onSelectAuxiliaryModel={selectComposerAuxiliaryModel}
@@ -12171,6 +12025,15 @@ function App() {
       ? { workflowDefault: workflowSettings.acpCursorModelId }
       : {}),
   });
+  const selectedComposerMainModel = composerRuntimeConfig?.orchestrationSelection?.mainModel ??
+    selectedOrchestrationSnapshot?.selection.mainModel;
+  const composerPickerModel = composerMainAgentModelOverride
+    ? {
+        ...composerMainAgentModelOverride,
+        ...(selectedComposerMainModel?.providerId === composerMainAgentModelOverride.providerId &&
+          selectedComposerMainModel.accountId ? { accountId: selectedComposerMainModel.accountId } : {}),
+      }
+    : selectedComposerMainModel;
   const renderComposerModelControl = () =>
     composerModelAvailability === "acp" ? (
       <ComposerAcpModelTrigger
@@ -12182,27 +12045,15 @@ function App() {
         onOpen={refreshCursorModels}
         onChange={(modelId) => void selectComposerAcpModel(modelId)}
       />
-    ) : composerModelAvailability === "ready" &&
-      templateMainModel &&
-      !(composerRoutePopoverOpen && composerRouteAnchor === "model-empty") ? (
-      <ComposerModelSelector
-        options={composerModelOptions}
-        templateModel={templateMainModel}
-        value={composerMainAgentModelOverride}
-        disabled={!canEditComposerConfig || isSavingSettings}
-        loading={composerModelsLoading}
-        error={composerModelsError}
-        onOpen={refreshComposerCandidateModels}
-        onChange={(override) => void selectComposerMainAgentModel(override)}
-      />
-    ) : composerModelAvailability === "no-provider" ? (
-      <ComposerModelEmptyTrigger state="no-provider" onAction={openProviderSettings} />
     ) : (
-      <ComposerModelEmptyTrigger
-        state="no-orchestration"
-        buttonRef={composerModelEmptyTriggerRef}
-        disabled={!canOpenComposerRoute}
-        onAction={openComposerOrchestrationChooser}
+      <ComposerMainModelPicker
+        anchorRef={composerAnchorRef}
+        model={composerPickerModel}
+        openRequest={modelPickerOpenRequest}
+        coreKind={composerCoreKind}
+        disabled={!canEditComposerConfig || isSavingSettings}
+        onSelect={selectComposerMainModel}
+        onAddProvider={openProviderSettings}
       />
     );
 
@@ -12492,7 +12343,7 @@ function App() {
                         }
                         newConversation={!activeThread}
                         onOpenRoute={() => {
-                          openComposerRoutePopover("plus");
+                          openComposerRoutePopover();
                         }}
                         onOpenChange={(open) => {
                           setComposerPlusMenuOpen(open);
@@ -12548,6 +12399,7 @@ function App() {
                             <CodexQuotaReminder
                               key={activeThread?.id ?? "draft"}
                               variant="composer"
+                              accountId={composerPickerModel?.providerId === "openai" ? composerPickerModel.accountId : undefined}
                               threads={activeThread ? [activeThread] : []}
                               onSwitchAccount={openCodexAccountSwitch}
                             />
@@ -12636,7 +12488,7 @@ function App() {
                             onClick={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
-                              openComposerRoutePopover("plus");
+                              openComposerRoutePopover();
                             }}
                           >
                             {t("composer.hint.fixOrchestrationAction")}
@@ -12877,6 +12729,7 @@ function App() {
             <CodexQuotaReminder
               threads={threads}
               activeThreadId={selectedThreadId}
+              accountId={activeThread ? codexAccountIdForThread(activeThread) : undefined}
               onSwitchAccount={openCodexAccountSwitch}
             />
             <div className="sidebar-settings">
@@ -13377,9 +13230,6 @@ function App() {
                   onCheckoutGitBranch={handleGitCheckoutBranch}
                   onCreateGitBranch={handleGitCreateBranch}
                   onOpenGitSettings={openGitSettings}
-                  {...(composerRuntimeConfig?.orchestrationSelection?.mainAgentConfigId && {
-                    mainAgentConfigId: composerRuntimeConfig.orchestrationSelection.mainAgentConfigId,
-                  })}
                   {...(composerRuntimeConfig?.auxiliaryModel?.candidateModelId && {
                     defaultCommitCandidateModelId: composerRuntimeConfig.auxiliaryModel.candidateModelId,
                   })}
@@ -13517,6 +13367,9 @@ function App() {
               newThread={scheduledMessageEditor.newThread}
               planApproval={scheduledMessageEditor.planApproval}
               usesChatGptLogin={scheduledMessageUsesCodexAccount}
+              accountId={scheduledMessageEditor.newThread
+                ? codexAccountIdForThread({ coreKind: scheduledMessageEditor.newThread.executionProfile.coreKind, runtimeConfig: scheduledMessageEditor.newThread.executionProfile.runtimeConfig })
+                : (() => { const thread = threads.find(item => item.id === scheduledMessageEditor.threadId); return thread ? codexAccountIdForThread(thread) : undefined; })()}
               initialPrompt={scheduledMessageEditor.planPrompt ?? scheduledMessageEditor.draft?.prompt}
               initialAttachments={scheduledMessageEditor.draft?.attachments}
               imageContextKey={scheduledMessageEditor.draft?.contextKey}
@@ -13558,11 +13411,6 @@ function App() {
             />
           </SuspensePanel>
         )}
-      {codexAccountSwitchOpen && (
-        <SuspensePanel>
-          <LazyCodexAccountSwitchDialog onClose={closeCodexAccountSwitch} />
-        </SuspensePanel>
-      )}
       {settingsOpen && (
         <div className="settings-page" role="dialog" aria-modal="true" aria-label={t("settings.dialog")}>
           <aside className="settings-nav">
@@ -13865,14 +13713,11 @@ function App() {
                 {settingsSection === "providers" && (
                   <LazyModelsSettingsPanel
                     settings={settings}
+                    defaultCoreKind={workflowSettings.defaultCoreKind}
                     mode="providerSettings"
                     busy={isSavingSettings}
                     onSettingsChange={setSettings}
                     onSavingChange={setIsSavingSettings}
-                    onRequestCreateMainAgentConfig={(seed) => {
-                      setPendingCreateMainConfig(seed);
-                      setSettingsSection("orchestrationComponents");
-                    }}
                     centerServerSyncVisible={centerServerSyncVisible}
                     onSyncDomain={syncCenterServerConfigDomain}
                   />
@@ -13933,6 +13778,7 @@ function App() {
                   (proxyBridgeSettings ? (
                     <LazyModelsSettingsPanel
                       settings={settings}
+                      defaultCoreKind={workflowSettings.defaultCoreKind}
                       mcpServers={mcpSettings.servers}
                       skillsSnapshot={skillsSnapshot}
                       initialTab={
@@ -13966,8 +13812,6 @@ function App() {
                       {...(workflowSettings.defaultVisionModel && {
                         defaultVisionModel: workflowSettings.defaultVisionModel,
                       })}
-                      {...(pendingCreateMainConfig ? { pendingCreateMainConfig } : {})}
-                      onPendingCreateMainConfigConsumed={() => setPendingCreateMainConfig(undefined)}
                       onSettingsChange={setSettings}
                       onSavingChange={setIsSavingSettings}
                       onDefaultOrchestrationSelectionChange={(selection) =>

@@ -533,7 +533,7 @@ export function defaultCodexMcpToolOutputTokenLimits(serverName: string): Record
         perform_secondary_action: 2_000,
       };
     case "eco_image_view":
-      return { view_image: 6_000 };
+      return { view_image: 12_000 };
     case "eco_image_display":
       return { display_image: 1_024 };
     case "eco_image_generation":

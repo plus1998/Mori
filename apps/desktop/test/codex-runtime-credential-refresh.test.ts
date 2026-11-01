@@ -58,6 +58,7 @@ for await (const line of createInterface({input:process.stdin})) {
       const run = () =>
         runThreadRequestWithRuntimeProxy({
           threadId: "thr-refresh-test",
+          resolveAccountId: () => "account-refresh-test",
           resolveRuntimeConfig: () => ({ ok: true, routes: [route] }),
           recordRouteFingerprint: () => {},
           onPrepared: () => {

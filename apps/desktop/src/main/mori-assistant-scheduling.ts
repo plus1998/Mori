@@ -16,7 +16,6 @@ const executionFields = {
   coreKind: z.enum(["claude", "codex", "pi", "acp"]).optional(),
   providerId: id.optional(),
   modelId: id.optional(),
-  mainAgentConfigId: id.optional(),
   cursorModelId: id.optional(),
 };
 const schemas = {
@@ -245,7 +244,6 @@ export class MoriAssistantScheduling {
       coreKind,
       providerId,
       modelId,
-      mainAgentConfigId,
       cursorModelId,
       ...changes
     } = input;
@@ -256,7 +254,6 @@ export class MoriAssistantScheduling {
       coreKind,
       providerId,
       modelId,
-      mainAgentConfigId,
       cursorModelId,
     ].some((value) => value !== undefined);
     if (current.kind !== "scheduled_task" && hasExecutionFields(input))
@@ -310,18 +307,11 @@ export class MoriAssistantScheduling {
     const profile = structuredClone(base ?? this.access.defaultProfile());
     if (input.coreKind) profile.coreKind = input.coreKind;
     const config = profile.runtimeConfig;
-    if (input.mainAgentConfigId) {
-      if (!config.orchestrationSelection)
-        throw new Error("请先配置默认工作 Agent 组合或指定完整的来源工作会话。");
-      config.orchestrationSelection.mainAgentConfigId = input.mainAgentConfigId;
-      delete config.resolvedOrchestrationSnapshot;
-      delete config.mainAgentModelOverride;
-    }
     if ((input.providerId === undefined) !== (input.modelId === undefined))
       throw new Error("指定模型时必须同时提供 providerId 和 modelId。");
     if (profile.coreKind === "acp") {
-      if (input.modelId || input.mainAgentConfigId)
-        throw new Error("Cursor 任务使用 cursorModelId，不能指定 Provider 模型或主代理配置。");
+      if (input.modelId)
+        throw new Error("Cursor 任务使用 cursorModelId，不能指定 Provider 模型。");
       if (input.cursorModelId) config.cursorModelId = input.cursorModelId;
     } else {
       if (input.cursorModelId) throw new Error("cursorModelId 仅用于 Cursor (acp) 任务。");

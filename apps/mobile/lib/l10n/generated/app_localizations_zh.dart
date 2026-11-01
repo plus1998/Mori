@@ -2735,6 +2735,27 @@ class AppLocalizationsZh extends AppLocalizations {
   String get modelCascadeSearchHint => '搜索服务商或模型…';
 
   @override
+  String get composerMainModelPickerTitle => '选择主模型';
+
+  @override
+  String get composerMainModelPickerProvider => '供应商';
+
+  @override
+  String get composerMainModelPickerSelectAccount => '先选择账号';
+
+  @override
+  String get composerMainModelPickerNoAccounts => '没有可用账号';
+
+  @override
+  String get composerMainModel => '主模型';
+
+  @override
+  String get composerSelectModel => '选择模型';
+
+  @override
+  String get composerThinkingEffort => '思考强度';
+
+  @override
   String get modelCascadeNoMatch => '没有匹配的模型';
 
   @override
@@ -3105,7 +3126,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String codexQuotaCurrentAccount(String name) {
-    return '当前使用账号：$name';
+    return '此会话账号：$name';
   }
 
   @override

@@ -50,6 +50,11 @@ export interface EcoProviderForGateway {
   modelIds?: readonly string[];
   models?: readonly {
     modelId: string;
+    baseUrl?: string;
+    requestPath?: string;
+    version?: string;
+    apiCompat?: UpstreamApiCompat;
+    tokenCountMode?: ProviderTokenCountMode;
     maxOutputTokens?: number;
     contextTokens?: number;
     supportsImageInput?: boolean;
@@ -69,6 +74,7 @@ export interface GatewayProviderPayload {
   upstreamProxyUrl?: string;
   upstreamModelId: string;
   models: string[];
+  modelUpstreams?: GatewayProvider["modelUpstreams"];
   modelMaxOutputTokens?: Record<string, number>;
   modelContextTokens?: Record<string, number>;
   modelSupportsImageInput?: Record<string, boolean>;
@@ -472,15 +478,16 @@ export function buildGatewayProvidersFromEcoProviders(
       incompleteProviderIds.push(id || provider.id || "(unknown)");
       continue;
     }
+    const gatewayModels = (provider.models ?? []).filter((model) => model.apiCompat !== "system_one");
     const upstreamModels = uniqueNonEmpty([
       defaultModel,
-      ...(provider.models ?? []).map((model) => model.modelId),
+      ...gatewayModels.map((model) => model.modelId),
       ...(provider.modelIds ?? []),
     ]);
     // Gateway only sees concrete upstream model ids for listing; eco_ aliases resolve product-side.
     const models = uniqueNonEmpty(upstreamModels);
     const modelMaxOutputTokens = collectModelMaxOutputTokens(
-      provider.models,
+      gatewayModels,
       upstreamModels,
       globalMaxOutputTokens,
     );
@@ -497,8 +504,19 @@ export function buildGatewayProvidersFromEcoProviders(
       ...(provider.upstreamProxyUrl?.trim() ? { upstreamProxyUrl: provider.upstreamProxyUrl.trim() } : {}),
       upstreamModelId: defaultModel,
       models,
+      modelUpstreams: Object.fromEntries(
+        gatewayModels
+          .filter((model) => model.baseUrl && model.apiCompat)
+          .map((model) => [model.modelId, {
+            baseUrl: normalizeGatewayBaseUrl(model.baseUrl!, model.version),
+            ...(model.requestPath !== undefined ? { requestPath: normalizeGatewayRequestPath(model.requestPath) } : {}),
+            version: normalizeGatewayApiVersion(model.version),
+            upstreamKind: mapApiCompatToUpstreamKind(model.apiCompat!),
+            ...(model.tokenCountMode ? { tokenCountMode: model.tokenCountMode } : {}),
+          }]),
+      ),
       modelSupportsImageInput: Object.fromEntries(
-        (provider.models ?? []).flatMap((model) =>
+        gatewayModels.flatMap((model) =>
           model.supportsImageInput === undefined
             ? []
             : [[model.modelId.trim(), model.supportsImageInput] as const],
@@ -508,7 +526,7 @@ export function buildGatewayProvidersFromEcoProviders(
       ...(globalMaxOutputTokens === "dynamic"
         ? {
             modelContextTokens: Object.fromEntries(
-              (provider.models ?? []).map((model) => {
+              gatewayModels.map((model) => {
                 if (model.contextTokens === undefined) {
                   throw new Error(
                     `Dynamic max output requires a resolved context window for ${model.modelId}.`,

@@ -256,7 +256,6 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const accountCalls: string[] = [];
   const tokenAccountIds: string[] = [];
   const accounts = {
-    getActiveAccountId: async () => "a",
     getPendingAccountId: () => undefined,
     getSyncStatus: () => ({ state: "ok" }),
     listAccounts: async () =>
@@ -281,7 +280,6 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const computerCalls: string[] = [];
   let providerEnabled = true;
   const preparedProviders: string[] = [];
-  const globalRefreshes: string[] = [];
   const notifications: Array<{ threadId: string; channel: string; text: string; id: string }> = [];
   let notificationError: string | undefined;
   const service = new MoriAssistantService({
@@ -293,7 +291,6 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     dataDir: root,
     conversations,
     accounts: async () => accounts,
-    globalAccountChanged: () => { globalRefreshes.push("requested"); },
     executable: () => executable,
     resolveSystemProxy: async () => "DIRECT",
     invoke: async (channel, args) => {
@@ -391,7 +388,6 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     computerCalls,
     accountCalls,
     tokenAccountIds,
-    globalRefreshes,
     preparedProviders,
     notifications,
     setNotificationError: (value: string | undefined) => { notificationError = value; },
@@ -482,139 +478,21 @@ async function accountSelectionFixture() {
     { accountId: "b", label: "Account B", authState: "configured" as const, selectable: true },
     { accountId: "expired", label: "Expired", authState: "refreshable" as const, selectable: false },
   ];
-  const revisions = new Map(choices.map((choice) => [choice.accountId, `${choice.accountId}-revision`]));
   accounts.listAccountChoicesReadonly = () => choices.map((choice) => ({ ...choice }));
-  accounts.accountChoiceRevisionReadonly = (id) => revisions.get(id) ?? null;
   accounts.listAccounts = async () => choices.map((choice) => ({
     id: choice.accountId, name: choice.label, authState: choice.authState, isLoggedIn: choice.selectable, proxyMode: "direct",
   })) as Awaited<ReturnType<OpenAIAccountService["listAccounts"]>>;
-  const global = { selected: "a" as string | null, pending: undefined as string | null | undefined };
-  accounts.getActiveAccountId = async () => global.selected;
-  accounts.getPendingAccountId = () => global.pending;
-  accounts.switchGlobalAccountFromAssistant = async (input, signal) => {
-    signal.throwIfAborted();
-    if (global.pending !== undefined || global.selected !== input.expectedAccountId)
-      return { status: "failed", code: "selection_changed", selectedAccountId: global.selected, syncState: "ok" };
-    global.selected = input.accountId;
-    return { status: "applied", selectedAccountId: global.selected, syncState: "ok" };
-  };
   accounts.ensureAccountCredentials = async () => { throw new Error("Unexpected refresh"); };
-  return { ...f, accounts, choices, revisions, global };
+  return { ...f, accounts, choices };
 }
 
-test("global account selection requires confirmation and leaves the assistant account independent", async () => {
-  const f = await accountSelectionFixture();
-  try {
-    await f.service.send("prepare account selection", "desktop", "account-prepare");
-    const nativeId = f.conversations.getThreadCoreSession(f.service.store.state.currentThreadId!)?.externalSessionId;
-    const listed = await assistantTool(f, "mori_list_accounts", {}, "account-list");
-    expect(listed.output).toMatchObject({ scope: "global_chatgpt_login", selectedAccountId: "a", runningAccountId: "a",
-      assistantAccountIds: ["a"], assistantAutoSwitchAccounts: false,
-      accounts: [{ accountId: "a", selected: true, running: true }, { accountId: "b", selected: false }, { accountId: "expired", selectable: false }] });
-    const runtime = f.service["runtime"];
-    const previousSettings = { ...f.service.settings };
-    const switching = assistantTool(f, "mori_switch_account", { accountId: "b", expectedAccountId: "a" }, "account-switch");
-    const approval = await waitForApproval(f.service);
-    expect(approval.kind).toBe("approval");
-    expect(approval.title).toContain("Account B");
-    expect(approval.title).toContain("全局");
-    expect(approval.detail).toContain("运行中的全局登录调用保留原连接");
-    expect(approval.detail).toContain("不改变助手账号池或其连接");
-    expect(f.service.settings.accountIds).toEqual(["a"]);
-    expect(f.service["runtime"]).toBe(runtime);
-    expect(f.tokenAccountIds).toEqual(["a"]);
-    await f.service.respond(approval.id, "允许");
-    const switched = await switching;
-    expect(switched.status).toBe("completed");
-    expect(switched.output).toMatchObject({ status: "applied", selectedAccountId: "b", runningAccountId: "a", appliesTo: "subsequent_global_login_calls", runtimeRefresh: "queued", connectionVerified: false });
-    expect(f.service["runtime"]).toBe(runtime);
-    expect(f.service.settings).toEqual(previousSettings);
-    expect(f.global.selected).toBe("b");
-    expect(f.globalRefreshes).toEqual(["requested"]);
-    expect(JSON.parse(await fs.readFile(path.join(f.root, "mori-assistant.json"), "utf8")).settings.accountIds).toEqual(["a"]);
-    expect(f.tokenAccountIds).toEqual(["a"]);
-    await f.service.send("use selected account", "desktop", "account-next");
-    expect(f.tokenAccountIds).toEqual(["a"]);
-    expect((await f.service.snapshot()).accountId).toBe("a");
-    expect(f.conversations.getThreadCoreSession(f.service.store.state.currentThreadId!)?.externalSessionId).toBe(nativeId);
-    expect(f.commands).toEqual([]);
-    expect(JSON.stringify([listed, switched])).not.toMatch(/access-only|chatgpt-a|chatgpt-b/);
-  } finally { await f.service.close(); f.db.close(); }
-});
-
-test("account switch rejection, cancellation and background triggers never change selection", async () => {
-  const f = await accountSelectionFixture();
-  try {
-    const rejected = assistantTool(f, "mori_switch_account", { accountId: "b", expectedAccountId: "a" }, "account-reject");
-    const approval = await waitForApproval(f.service);
-    await f.service.respond(approval.id, "拒绝");
-    expect((await rejected).output).toMatchObject({ status: "rejected", selectedAccountId: "a" });
-    const cancelled = assistantTool(f, "mori_switch_account", { accountId: "b", expectedAccountId: "a" }, "account-cancel");
-    void cancelled.catch(() => {});
-    await waitForApproval(f.service);
-    await f.service.cancel();
-    await expect(cancelled).rejects.toThrow();
-    expect(f.service.settings.accountIds).toEqual(["a"]);
-    f.service["activeSource"] = "task";
-    await expect(f.service["callTool"]("mori_switch_account", { accountId: "b", expectedAccountId: "a" }, randomUUID(), new AbortController().signal)).rejects.toThrow("后台任务");
-    expect(f.service.settings.accountIds).toEqual(["a"]);
-    expect(f.tokenAccountIds).not.toContain("b");
-  } finally { await f.service.close(); f.db.close(); }
-});
-
-test("account selection rejects stale IDs, unusable targets and extra arguments without exposing rejected credentials", async () => {
-  const f = await accountSelectionFixture();
-  try {
-    for (const [args, error] of [
-      [{ accountId: "b", expectedAccountId: "other" }, "当前选择已变化"],
-      [{ accountId: "missing", expectedAccountId: "a" }, "目标账号不存在"],
-      [{ accountId: "expired", expectedAccountId: "a" }, "需要登录"],
-      [{ accountId: "b", expectedAccountId: "a", refreshToken: "PRIVATE_REFRESH" }, "不接受其他参数"],
-      [{ accountId: "b" }, "expectedAccountId"],
-    ] as const) {
-      const result = await assistantTool(f, "mori_switch_account", args, randomUUID());
-      expect(result.status).toBe("failed");
-      expect(JSON.stringify(result.output)).toContain(error);
-      expect(JSON.stringify(result)).not.toContain("PRIVATE_REFRESH");
-      expect((await f.service.snapshot()).pendingInput).toBeUndefined();
-    }
-    const unchanged = await assistantTool(f, "mori_switch_account", { accountId: "a", expectedAccountId: "a" }, "account-unchanged");
-    expect(unchanged.output).toMatchObject({ status: "unchanged", selectedAccountId: "a" });
-    expect(f.service.settings.accountIds).toEqual(["a"]);
-  } finally { await f.service.close(); f.db.close(); }
-});
-
-test("account changes during confirmation and persistence errors leave the previous selection intact", async () => {
-  const f = await accountSelectionFixture();
-  try {
-    const stale = assistantTool(f, "mori_switch_account", { accountId: "b", expectedAccountId: "a" }, "account-replaced");
-    const first = await waitForApproval(f.service);
-    f.revisions.set("b", "replacement-credentials");
-    await f.service.respond(first.id, "允许");
-    expect((await stale).status).toBe("failed");
-    expect(f.service.settings.accountIds).toEqual(["a"]);
-    const failing = assistantTool(f, "mori_switch_account", { accountId: "b", expectedAccountId: "a" }, "account-write-failure");
-    const second = await waitForApproval(f.service);
-    f.accounts.switchGlobalAccountFromAssistant = async () => { throw new Error("PRIVATE_ACCESS_PRIVATE_COOKIE"); };
-    await f.service.respond(second.id, "允许");
-    const failed = await failing;
-    expect(failed.status).toBe("failed");
-    expect(JSON.stringify(failed)).not.toContain("PRIVATE_ACCESS_PRIVATE_COOKIE");
-    expect(f.global.selected).toBe("a");
-    expect(f.service.settings.accountIds).toEqual(["a"]);
-    expect(f.globalRefreshes).toEqual([]);
-    expect(f.tokenAccountIds).toEqual(["a"]);
-  } finally { await f.service.close(); f.db.close(); }
-});
-
-test("assistant rotates through its selected accounts on quota exhaustion without switching the global account", async () => {
+test("assistant rotates through its selected accounts on quota exhaustion using its own account pool", async () => {
   const f = await accountSelectionFixture();
   try {
     await f.service.saveSettings({ ...f.service.settings, accountIds: ["a", "b"], autoSwitchAccounts: true });
     await f.service.send("quota-first", "desktop", "quota-rotation");
     expect(f.tokenAccountIds).toEqual(["a", "b"]);
     expect(f.service.settings.accountIds).toEqual(["a", "b"]);
-    expect(f.global.selected).toBe("a");
     const snapshot = await f.service.snapshot();
     expect(snapshot.accountId).toBe("b");
     expect(snapshot.messages.filter((message) => message.role === "user")).toHaveLength(1);
@@ -639,7 +517,6 @@ test("assistant rotates after an initial connection reports quota exhaustion", a
     await f.service.send("connect after quota failure", "desktop", "connection-quota");
     expect(f.tokenAccountIds).toEqual(["a", "b"]);
     expect((await f.service.snapshot()).accountId).toBe("b");
-    expect(f.global.selected).toBe("a");
   } finally { await f.service.close(); f.db.close(); }
 });
 
@@ -655,14 +532,12 @@ test("assistant reports authentication failures instead of rotating to hide them
     };
     await expect(f.service.send("connection fails", "desktop", "connection-failure")).rejects.toThrow("authentication failed");
     expect(f.tokenAccountIds).toEqual(["a"]);
-    expect(f.global.selected).toBe("a");
   } finally { await f.service.close(); f.db.close(); }
 });
 
-test("assistant does not rotate when disabled or fall through to an unselected global account", async () => {
+test("assistant does not rotate when disabled or fall through to an unselected work session account", async () => {
   const f = await accountSelectionFixture();
   try {
-    f.global.selected = "b";
     await f.service.saveSettings({ ...f.service.settings, accountIds: ["a", "b"], autoSwitchAccounts: false });
     await expect(f.service.send("quota-failure", "desktop", "no-quota-rotation")).rejects.toThrow("usage_limit_reached");
     expect(f.tokenAccountIds).toEqual(["a"]);
@@ -671,7 +546,6 @@ test("assistant does not rotate when disabled or fall through to an unselected g
     expect(f.tokenAccountIds).toEqual(["a", "a"]);
     f.choices.splice(0, 1);
     await expect(f.service.send("missing assistant account", "desktop", "missing-account")).rejects.toThrow("助手没有可用的 ChatGPT 账号");
-    expect(f.global.selected).toBe("b");
   } finally { await f.service.close(); f.db.close(); }
 });
 
@@ -681,7 +555,6 @@ test("assistant stops after all selected accounts exhaust their quota", async ()
     await f.service.saveSettings({ ...f.service.settings, accountIds: ["a", "b"], autoSwitchAccounts: true });
     await expect(f.service.send("quota-failure", "desktop", "all-quota-exhausted")).rejects.toThrow("usage_limit_reached");
     expect(f.tokenAccountIds).toEqual(["a", "b"]);
-    expect(f.global.selected).toBe("a");
     expect((await f.service.snapshot()).error).toBe("usage_limit_reached");
   } finally { await f.service.close(); f.db.close(); }
 });
@@ -693,7 +566,6 @@ test("assistant never retries a quota failure after producing output or invoking
       await f.service.saveSettings({ ...f.service.settings, accountIds: ["a", "b"], autoSwitchAccounts: true });
       await expect(f.service.send(prompt, "desktop", prompt)).rejects.toThrow("usage_limit_reached");
       expect(f.tokenAccountIds).toEqual(["a"]);
-      expect(f.global.selected).toBe("a");
     } finally { await f.service.close(); f.db.close(); }
   }
 });
@@ -710,137 +582,6 @@ test("assistant requires its own account selection when saving enabled ChatGPT s
     await restored.load();
     expect(restored.state.settings.accountIds).toEqual([]);
     await expect(f.service.send("missing selection", "desktop", "missing-selection")).rejects.toThrow("助手没有可用的 ChatGPT 账号");
-  } finally { await f.service.close(); f.db.close(); }
-});
-
-test("explicit global selection publishes stored credentials without renewal or model/settings changes", async () => {
-  const f = await fixture();
-  const accounts = new OpenAIAccountService(f.root);
-  let accountDb: DatabaseSync | undefined;
-  try {
-    await accounts.initialize();
-    const access = `e30.${Buffer.from(JSON.stringify({ exp: 4_000_000_000 })).toString("base64url")}.signature`;
-    const raw = (identity: string) => JSON.stringify({ OPENAI_API_KEY: "PRIVATE_API_KEY", cookie: "PRIVATE_COOKIE",
-      tokens: { access_token: access, refresh_token: "PRIVATE_REFRESH", account_id: identity } });
-    const first = await accounts.createAccount("Account A");
-    const second = await accounts.createAccount("Account B PRIVATE_REFRESH");
-    await accounts.setAuthJson(first.id, raw("acct-a"));
-    await accounts.setAuthJson(second.id, raw("acct-b"));
-    await accounts.setActiveAccount(first.id);
-    await accounts.applyPendingTransition();
-    accounts["authWatcher"]?.close();
-    accounts["authWatcher"] = null;
-    if (accounts["authPoll"]) clearInterval(accounts["authPoll"]);
-    f.service["deps"].accounts = async () => accounts;
-    await f.service.saveSettings({ ...f.service.settings, accountIds: [first.id] });
-    accountDb = new DatabaseSync(path.join(f.root, "eco-coding.sqlite"));
-    const dump = () => JSON.stringify(["openai_accounts", "openai_account_quotas"].map((table) => accountDb!.prepare(`SELECT * FROM ${table}`).all()));
-    const before = dump();
-    const mainPath = path.join(f.root, "codex", "auth.json");
-    const mainBefore = await fs.readFile(mainPath, "utf8");
-    const assistantSettings = { ...f.service.settings };
-    const signal = new AbortController().signal;
-    const listed = await f.service["callTool"]("mori_list_accounts", {}, randomUUID(), signal);
-    accounts.getExternalChatGptTokens = async () => { throw new Error("Unexpected token access"); };
-    accounts.ensureAccountCredentials = async () => { throw new Error("Unexpected refresh"); };
-    const switching = f.service["callTool"]("mori_switch_account", { accountId: second.id, expectedAccountId: first.id }, randomUUID(), signal);
-    const approval = await waitForApproval(f.service);
-    await f.service.respond(approval.id, "允许");
-    const switched = await switching;
-    expect(switched).toMatchObject({ status: "applied", scope: "global_chatgpt_login", selectedAccountId: second.id, runtimeRefresh: "queued", connectionVerified: false });
-    expect(f.service.settings).toEqual(assistantSettings);
-    expect(await accounts.getActiveAccountId()).toBe(second.id);
-    expect(accounts.getPendingAccountId()).toBeUndefined();
-    expect(dump()).toBe(before);
-    expect(await fs.readFile(mainPath, "utf8")).not.toBe(mainBefore);
-    expect(JSON.parse(await fs.readFile(mainPath, "utf8"))).toEqual(JSON.parse(raw("acct-b")));
-    const output = JSON.stringify([listed, approval, switched]);
-    for (const secret of [access, "PRIVATE_API_KEY", "PRIVATE_COOKIE", "PRIVATE_REFRESH"]) expect(output).not.toContain(secret);
-  } finally {
-    accountDb?.close();
-    await f.service.close();
-    await accounts.dispose();
-    f.db.close();
-  }
-});
-
-test("a selected account connection failure stays visible and never restores another account", async () => {
-  const f = await accountSelectionFixture();
-  try {
-    const switching = assistantTool(f, "mori_switch_account", { accountId: "b", expectedAccountId: "a" }, "select-failing-account");
-    const approval = await waitForApproval(f.service);
-    await f.service.respond(approval.id, "允许");
-    expect((await switching).output).toMatchObject({ status: "applied" });
-    const originalTokens = f.accounts.getExternalChatGptTokens.bind(f.accounts);
-    f.accounts.getExternalChatGptTokens = async (id, previous) => {
-      const tokens = await originalTokens(id, previous);
-      if (id === "b") throw new Error("target authentication failed");
-      return tokens;
-    };
-    await f.service.saveSettings({ ...f.service.settings, accountIds: ["b"] });
-    await expect(f.service.send("connect selected account", "desktop", "selected-connect-fails")).rejects.toThrow("target authentication failed");
-    expect(f.global.selected).toBe("b");
-    expect(f.service.settings.accountIds).toEqual(["b"]);
-    expect(f.tokenAccountIds).toEqual(["a", "b"]);
-    expect((await f.service.snapshot()).status).toBe("error");
-  } finally { await f.service.close(); f.db.close(); }
-});
-
-test("global account selection works with a custom assistant without changing model, provider or its connection", async () => {
-  const f = await accountSelectionFixture();
-  try {
-    await f.service.saveSettings({ ...f.service.settings, modelSource: "custom", providerId: "custom", model: "custom-model" });
-    await f.service.send("prepare custom", "desktop", "prepare-custom-global");
-    const before = { ...f.service.settings };
-    const runtime = f.service["runtime"];
-    const switching = assistantTool(f, "mori_switch_account", { accountId: "b", expectedAccountId: "a" }, "custom-global-switch");
-    const approval = await waitForApproval(f.service);
-    await f.service.respond(approval.id, "允许");
-    expect((await switching).output).toMatchObject({ status: "applied", selectedAccountId: "b" });
-    expect(f.global.selected).toBe("b");
-    expect(f.service.settings).toEqual(before);
-    expect(f.service["runtime"]).toBe(runtime);
-    await f.service.send("still custom", "desktop", "after-custom-global");
-    expect(f.service["runtime"]).toBe(runtime);
-    await expect(f.service["callTool"]("mori_update_settings", { accountIds: ["b"] }, randomUUID(), new AbortController().signal)).rejects.toThrow("不允许");
-    expect(f.accountCalls).toEqual([]);
-  } finally { await f.service.close(); f.db.close(); }
-});
-
-test("pending switches and changes during confirmation cannot be overwritten; refresh failures report applied selection honestly", async () => {
-  const f = await accountSelectionFixture();
-  try {
-    f.global.pending = "b";
-    const listed = await assistantTool(f, "mori_list_accounts", {}, "pending-list");
-    expect(listed.output).toMatchObject({ selectedAccountId: "a", pendingAccountId: "b" });
-    const blocked = await assistantTool(f, "mori_switch_account", { accountId: "b", expectedAccountId: "a" }, "pending-switch");
-    expect(blocked.status).toBe("failed");
-    expect(f.global.pending).toBe("b");
-    expect((await f.service.snapshot()).pendingInput).toBeUndefined();
-    f.global.pending = undefined;
-    const stale = assistantTool(f, "mori_switch_account", { accountId: "b", expectedAccountId: "a" }, "changed-global");
-    const approval = await waitForApproval(f.service);
-    f.global.selected = null;
-    await f.service.respond(approval.id, "允许");
-    expect((await stale).output).toMatchObject({ status: "failed", code: "selection_changed", selectedAccountId: null });
-    expect(f.globalRefreshes).toEqual([]);
-    f.global.selected = "a";
-    f.service["deps"].globalAccountChanged = () => { throw new Error("PRIVATE_REFRESH"); };
-    const applied = assistantTool(f, "mori_switch_account", { accountId: "b", expectedAccountId: "a" }, "refresh-failed-global");
-    const confirmation = await waitForApproval(f.service);
-    await f.service.respond(confirmation.id, "允许");
-    const result = await applied;
-    expect(result.output).toMatchObject({ status: "applied", selectedAccountId: "b", runtimeRefresh: "failed", connectionVerified: false });
-    expect(JSON.stringify(result)).not.toContain("PRIVATE_REFRESH");
-    expect(f.global.selected).toBe("b");
-    f.global.selected = "a";
-    f.accounts.switchGlobalAccountFromAssistant = async () => ({ status: "failed", code: "restoration_failed", selectedAccountId: "a", syncState: "error" });
-    const broken = assistantTool(f, "mori_switch_account", { accountId: "b", expectedAccountId: "a" }, "restoration-failed-global");
-    const brokenApproval = await waitForApproval(f.service);
-    await f.service.respond(brokenApproval.id, "允许");
-    const brokenResult = await broken;
-    expect(brokenResult.output).toMatchObject({ status: "failed", code: "restoration_failed", runtimeRefresh: "unchanged" });
-    expect(JSON.stringify(brokenResult.output)).toContain("选择记录与登录文件可能不一致");
   } finally { await f.service.close(); f.db.close(); }
 });
 
@@ -1314,17 +1055,14 @@ test("Mori schedule creation requires explicit work context and validates nested
         await assistantTool(f, "mori_update_schedule", {
           id: inheritedId,
           expectedRevision: 2,
-          mainAgentConfigId: "new-agent",
+          providerId: "provider-new",
+          modelId: "model-new",
         })
       ).status,
     ).toBe("completed");
     expect(
-      f.schedulingStore.get(inheritedId)?.executionProfile?.runtimeConfig.orchestrationSelection
-        ?.mainAgentConfigId,
-    ).toBe("new-agent");
-    expect(
       f.schedulingStore.get(inheritedId)?.executionProfile?.runtimeConfig.mainAgentModelOverride,
-    ).toBeUndefined();
+    ).toEqual({ providerId: "provider-new", modelId: "model-new" });
   } finally {
     await f.service.close();
     f.db.close();
@@ -2283,5 +2021,21 @@ test("restart safely restores a persisted scheduled message only when no model r
     expect(v2.getMessage(schedule.threadId!, accepted.messageId)?.status).toBe("final");
     expect(v2.listUserMessages(schedule.threadId!).filter(item => item.messageId === accepted.messageId)).toHaveLength(1);
     expect(f.notifications).toHaveLength(1);
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+
+test("assistant lists account availability without a global selection or switch tool", async () => {
+  const f = await accountSelectionFixture();
+  try {
+    const result = await f.service["callTool"]("mori_list_accounts", {}, randomUUID(), new AbortController().signal);
+    expect(result).toMatchObject({ assistantAccountIds: ["a"], accounts: [
+      { accountId: "a", selectable: true }, { accountId: "b", selectable: true },
+      { accountId: "expired", selectable: false },
+    ] });
+    expect(result).not.toHaveProperty("selectedAccountId");
+    expect(result).not.toHaveProperty("pendingAccountId");
+    expect(JSON.stringify(result)).not.toContain("access-only");
+    await expect(f.service["callTool"]("mori_switch_account", {}, randomUUID(), new AbortController().signal)).rejects.toThrow();
   } finally { await f.service.close(); f.db.close(); }
 });

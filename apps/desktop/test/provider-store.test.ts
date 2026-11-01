@@ -14,6 +14,40 @@ const sqliteAvailable = await (async () => {
   }
 })();
 
+test.skipIf(!sqliteAvailable)("legacy route protocol conflict requires model confirmation", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-candidate-protocol-migration-"));
+  const filename = path.join(dir, "eco.sqlite");
+  try {
+    let store = await createProviderStore(filename);
+    const provider = store.saveProvider({
+      name: "Mixed", baseUrl: "https://api.test", apiKey: "key",
+      apiCompat: "openai_responses", defaultModel: "model", enabled: true,
+    });
+    const candidate = store.saveCandidateModel({ providerId: provider.id, modelId: "model" });
+    store.saveRouteProfile({ name: "legacy", routes: ([
+      "main", "explore", "architect", "coder", "reviewer", "tester",
+    ] as const).map((role) => ({
+      role, providerId: provider.id, modelId: "model", apiCompat: "anthropic" as const,
+    })) });
+    const db = new DatabaseSync(filename);
+    try {
+      db.prepare("UPDATE provider_candidate_models SET api_compat = NULL WHERE id = ?").run(candidate.id);
+    } finally {
+      db.close();
+    }
+    store = await createProviderStore(filename);
+    expect(store.listCandidateModels(provider.id)[0]?.apiCompat).toBeUndefined();
+    expect(() => store.saveCandidateModel({ id: candidate.id, providerId: provider.id, modelId: "model" }))
+      .toThrow("请确认模型协议");
+    const repaired = store.saveCandidateModel({ providerId: provider.id, modelId: "model", apiCompat: "anthropic" });
+    expect(repaired.id).toBe(candidate.id);
+    expect(repaired.apiCompat).toBe("anthropic");
+  } finally {
+    await removeTempDirectory(dir);
+  }
+});
+
 test.skipIf(!sqliteAvailable)(
   "candidate remote compaction migrates as off and persists per model",
   async () => {
@@ -117,6 +151,35 @@ test.skipIf(!sqliteAvailable)("provider version defaults to v1 and persists cust
     enabled: true,
   });
   expect(emptied.version).toBe("v1");
+});
+
+test.skipIf(!sqliteAvailable)("models keep independent upstream endpoints when provider changes", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-model-endpoints-"));
+  try {
+    const store = await createProviderStore(path.join(dir, "eco.sqlite"));
+    const provider = store.saveProvider({
+      name: "Mixed", baseUrl: "https://old.example.test", apiKey: "k", defaultModel: "a",
+      apiCompat: "openai_responses", enabled: true,
+    });
+    const response = store.saveCandidateModel({ providerId: provider.id, modelId: "a" });
+    const messages = store.saveCandidateModel({
+      providerId: provider.id, modelId: "b", baseUrl: "https://messages.example.test",
+      requestPath: "/anthropic", apiCompat: "anthropic",
+    });
+    store.saveProvider({
+      id: provider.id, name: "Mixed", baseUrl: "https://new.example.test", apiKey: "k",
+      defaultModel: "a", apiCompat: "openai_chat_completions", enabled: true,
+    });
+    const models = store.listCandidateModels(provider.id);
+    expect(models.find((model) => model.id === response.id)).toMatchObject({
+      baseUrl: "https://old.example.test", apiCompat: "openai_responses",
+    });
+    expect(models.find((model) => model.id === messages.id)).toMatchObject({
+      baseUrl: "https://messages.example.test", requestPath: "/anthropic", apiCompat: "anthropic",
+    });
+  } finally {
+    await removeTempDirectory(dir);
+  }
 });
 
 test.skipIf(!sqliteAvailable)("fresh provider store does not auto-seed providers or routes", async () => {

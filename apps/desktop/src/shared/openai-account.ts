@@ -155,11 +155,7 @@ export interface OpenAIAccountDetails extends OpenAIAccountProfile {
   quotaRefresh?: OpenAIAccountQuotaRefreshState;
 }
 
-export interface OpenAIAccountSyncStatus {
-  state: "ok" | "error" | "conflict";
-  message?: string;
-  updatedAt?: string;
-}
+
 
 export interface OpenAIAccountImportResult {
   added: number;

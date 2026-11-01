@@ -601,6 +601,4 @@ export {
   type SdkModelUsageBilling,
   shortenModelId,
 } from "./usage";
-export * from "./v4a-teaching.js";
-export * from "./v4a-teaching-flags.js";
 export * from "./windows-job-object.js";

@@ -49,7 +49,6 @@ export interface CodexQuotaReminderSnapshot {
   accountId: string;
   accountName: string;
   quota: OpenAIAccountQuota;
-  switching: boolean;
   refreshState?: OpenAIAccountQuotaRefreshState;
 }
 
@@ -79,20 +78,8 @@ export function isCodexAuthConversation(threads: readonly ThreadSummary[], activ
 
 type QuotaBridge = Pick<
   NonNullable<Window["eco"]>,
-  "openAIAccountsGetActive" | "openAIAccountsList" | "openAIAccountsQueryQuota"
+  "openAIAccountsList" | "openAIAccountsQueryQuota"
 >;
-
-/** syncStatus.updatedAt is rewritten by every credential reconcile; only its verdict matters here. */
-function activeAccountSignature(active: Awaited<ReturnType<QuotaBridge["openAIAccountsGetActive"]>>): string {
-  return JSON.stringify([
-    active.activeAccountId,
-    active.pendingAccountId === undefined ? "none" : active.pendingAccountId,
-    active.isLoggedIn,
-    active.authState,
-    active.syncStatus.state,
-    active.syncStatus.message ?? "",
-  ]);
-}
 
 /** Cache reads on UI events; upstream reads only on manual refresh or a due reset. */
 export class CodexQuotaMonitor {
@@ -102,7 +89,6 @@ export class CodexQuotaMonitor {
   private generation = 0;
   private refreshAgain = false;
   private disposed = false;
-  private activeSignature: string | undefined;
   private resetTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly resetChecks = new Map<string, { at: number; error?: string }>();
 
@@ -110,6 +96,7 @@ export class CodexQuotaMonitor {
     private readonly eco: QuotaBridge,
     private readonly options: {
       enabled: () => boolean;
+      accountId: () => string | undefined;
       onChange: (snapshot: CodexQuotaReminderSnapshot | undefined) => void;
       onError: (error: string) => void;
     },
@@ -137,7 +124,7 @@ export class CodexQuotaMonitor {
   private scheduleReset(snapshot: CodexQuotaReminderSnapshot): void {
     if (this.resetTimer) clearTimeout(this.resetTimer);
     this.resetTimer = undefined;
-    if (snapshot.switching || (typeof document !== "undefined" && document.hidden)) return;
+    if ((typeof document !== "undefined" && document.hidden)) return;
     const resetAt = nextCodexQuotaResetCheckAt(snapshot.quota, snapshot.refreshState);
     if (resetAt === undefined) return;
     const dueAt = Math.max(resetAt, (this.resetChecks.get(snapshot.accountId)?.at ?? 0) + CODEX_QUOTA_REFRESH_MS);
@@ -148,9 +135,9 @@ export class CodexQuotaMonitor {
       if (this.disposed || !this.options.enabled() || (typeof document !== "undefined" && document.hidden)) return;
       void (async () => {
         try {
-          const active = await this.eco.openAIAccountsGetActive();
-          if (this.disposed || !this.options.enabled() || active.activeAccountId !== snapshot.accountId ||
-            !canUseOpenAIAccountCredentials(active) || active.pendingAccountId !== undefined || active.syncStatus.state !== "ok") return;
+          if (this.options.accountId() !== snapshot.accountId) return;
+          const account = (await this.eco.openAIAccountsList()).find((entry) => entry.id === snapshot.accountId);
+          if (!account || !canUseOpenAIAccountCredentials(account) || this.options.accountId() !== snapshot.accountId) return;
           if (Date.now() >= dueAt) {
             this.resetChecks.set(snapshot.accountId, { at: Date.now() });
             await this.eco.openAIAccountsQueryQuota(snapshot.accountId, "reset");
@@ -187,33 +174,23 @@ export class CodexQuotaMonitor {
           if (current()) this.options.onChange(undefined);
           return;
         }
-        const active = await this.eco.openAIAccountsGetActive();
-        if (!current()) return;
-        const signature = activeAccountSignature(active);
-        if (this.activeSignature !== undefined && this.activeSignature !== signature) this.options.onChange(undefined);
-        this.activeSignature = signature;
-        if (!active.activeAccountId || !canUseOpenAIAccountCredentials(active)) {
-          this.options.onChange(undefined);
-          return;
-        }
-        const accountId = active.activeAccountId;
+        const accountId = this.options.accountId();
+        if (!accountId) { this.options.onChange(undefined); return; }
         if (manual) await this.eco.openAIAccountsQueryQuota(accountId, "manual");
         const accounts = await this.eco.openAIAccountsList();
-        const confirmed = await this.eco.openAIAccountsGetActive();
         if (!current()) return;
-        if (!this.options.enabled()) { this.options.onChange(undefined); return; }
-        if (activeAccountSignature(confirmed) !== signature) {
+        if (!this.options.enabled() || this.options.accountId() !== accountId) {
           this.options.onChange(undefined);
           this.refreshAgain = true;
           return;
         }
         const account = accounts.find((entry) => entry.id === accountId);
-        if (!account) throw new Error("当前使用账号已从账号列表移除。");
+        if (!account) throw new Error("此会话选定的账号已被移除，请重新选择模型账号。");
+        if (!canUseOpenAIAccountCredentials(account)) throw new Error("此会话选定的账号需要重新登录。");
         const quota = account.quota;
         if (quota) {
           const snapshot: CodexQuotaReminderSnapshot = {
             accountId, accountName: account.name, quota,
-            switching: confirmed.pendingAccountId !== undefined,
             ...(account.quotaRefresh ? { refreshState: account.quotaRefresh } : {}),
           };
           this.options.onChange(snapshot);
@@ -221,8 +198,7 @@ export class CodexQuotaMonitor {
         } else this.options.onChange(undefined);
         const resetCheck = this.resetChecks.get(accountId);
         if (quota && resetCheck && quota.fetchedAt >= resetCheck.at) this.resetChecks.delete(accountId);
-        const error = account.quotaRefresh?.error ?? this.resetChecks.get(accountId)?.error ??
-          (confirmed.syncStatus.state !== "ok" ? confirmed.syncStatus.message || "账号同步失败" : undefined);
+        const error = account.quotaRefresh?.error ?? this.resetChecks.get(accountId)?.error;
         if (error) this.options.onError(error);
       } catch (error) {
         if (current()) this.options.onError(error instanceof Error ? error.message : String(error));

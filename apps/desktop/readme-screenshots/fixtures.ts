@@ -39,7 +39,6 @@ function agentForm(
     apiCompat: input.apiCompat ?? "openai_responses",
     enabled: input.enabled ?? true,
     candidateModelId: input.candidateModelId ?? "luna-max",
-    v4aTeachingEnabled: false,
     readCodebase: true,
     readScope: "workspace",
     writeCodebase: true,

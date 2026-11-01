@@ -418,6 +418,32 @@ test("SystemOne is available only to approval selection and cannot be overridden
   }
 });
 
+test("one provider can use SystemOne for approval and Responses for auxiliary calls", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "eco-mixed-protocol-"));
+  try {
+    const store = await createProviderStore(path.join(directory, "providers.sqlite"));
+    const provider = store.saveProvider({
+      name: "Mixed", baseUrl: "https://responses.test", apiCompat: "openai_responses",
+      apiKey: "key", defaultModel: "chat-model", enabled: true,
+    });
+    const chat = store.saveCandidateModel({ providerId: provider.id, modelId: "chat-model" });
+    const review = store.saveCandidateModel({
+      providerId: provider.id, modelId: "review-model", apiCompat: "system_one",
+      baseUrl: "https://review.test", requestPath: "/review", version: "v2",
+    });
+    expect(resolveAuxiliaryModelRoute({
+      providerId: provider.id, modelId: chat.modelId, candidateModelId: chat.id,
+    }, store)).toMatchObject({ provider: { baseUrl: "https://responses.test" }, apiCompat: "openai_responses" });
+    expect(resolveApprovalModelRoute({
+      providerId: provider.id, modelId: review.modelId, candidateModelId: review.id,
+    }, store)).toMatchObject({
+      kind: "system_one", provider: { baseUrl: "https://review.test", requestPath: "/review", version: "v2" },
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("workflow and runtime configs persist and clear approval independently without auxiliary fallback", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "eco-approval-config-"));
   try {

@@ -387,11 +387,11 @@ export class WorkflowSettingsStore {
     return true;
   }
 
-  /** Clear the global default when it points at a deleted main-agent config. */
-  clearDefaultMainAgentConfigReference(configId: string): boolean {
-    const trimmedId = configId.trim();
+  /** Clear the global default when its selected model belongs to a deleted provider. */
+  clearDefaultMainModelProviderReference(providerId: string): boolean {
+    const trimmedId = providerId.trim();
     const selection = this.readDefaultOrchestrationSelection();
-    if (!trimmedId || !selection || selection.mainAgentConfigId !== trimmedId) {
+    if (!trimmedId || !selection || selection.mainModel?.providerId !== trimmedId) {
       return false;
     }
     const current = this.get();

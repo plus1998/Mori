@@ -17,6 +17,7 @@ class SettingsModelsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsModelsPageState extends ConsumerState<SettingsModelsPage> {
+  final _writer = SettingsGlobalOrchestrationWriter();
   ThreadRuntimeConfigInput? _config;
   bool _loading = true;
   Object? _loadError;
@@ -52,6 +53,12 @@ class _SettingsModelsPageState extends ConsumerState<SettingsModelsPage> {
     ref.invalidate(modelSettingsProvider);
     ref.invalidate(workflowSettingsProvider);
     _load();
+  }
+
+  void _onChanged(ThreadRuntimeConfigInput config) {
+    setState(() => _config = config);
+    _writer.queue(ref, context: context, config: config,
+      onSavingChanged: () { if (mounted) setState(() {}); });
   }
 
   @override
@@ -108,11 +115,11 @@ class _SettingsModelsPageState extends ConsumerState<SettingsModelsPage> {
               runtimeConfig: config,
               threadId: '',
               canEdit: desktopConnected,
-              onChanged: (next) => setState(() => _config = next),
+              onChanged: _onChanged,
               workspacePath: '',
               mcpServers: mcpServers,
               rememberedMcp: null,
-              showOrchestrationPickers: false,
+              showOrchestrationPickers: true,
               showAuxiliaryModelPicker: true,
               showApprovalModelPicker: true,
               showVisionModelPicker: true,

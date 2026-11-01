@@ -12,6 +12,7 @@ import {
   encryptDecryptSecretRoundtrip,
   ensureLocalVaultKey,
   isEcoSyncedSettingsPayload,
+  normalizeEcoSyncedSettingsPayload,
   pushAccountConfigSnapshot,
   pushUserSettings,
   SETTINGS_SYNC_CONFLICT_CODE,
@@ -20,6 +21,7 @@ import {
   SettingsSyncConflictError,
   syncAccountConfig,
 } from "../src/main/supabase-settings-sync";
+import { defaultWorkflowSettings } from "../src/main/workflow-settings-store";
 import {
   recordFailedVaultClaimAttempt,
   submitVaultClaimCodeAndReceiveKey,
@@ -36,6 +38,29 @@ test("eco synced settings payload validation", () => {
   expect(isEcoSyncedSettingsPayload(emptyEcoSyncedSettingsPayload())).toBe(true);
   expect(isEcoSyncedSettingsPayload({ version: 1 })).toBe(false);
   expect(isEcoSyncedSettingsPayload(null)).toBe(false);
+});
+
+test("cloud defaults migrate legacy main config references into direct models", () => {
+  const payload = emptyEcoSyncedSettingsPayload();
+  const normalized = normalizeEcoSyncedSettingsPayload({
+    ...payload,
+    workflow: {
+      ...defaultWorkflowSettings(),
+      defaultOrchestrationSelection: {
+        mainAgentConfigId: "old",
+        mainPrompt: { mode: "builtin" },
+        subagents: { mode: "none" },
+      },
+    },
+    mainAgentConfigs: [{
+      id: "old", name: "Old", agentKey: "main", modelRef: { providerId: "p", modelId: "m" },
+      tools: { allowed: [], disallowed: [] }, skills: [], updatedAt: "", source: "user",
+    }],
+    candidateModels: [{ id: "c", providerId: "p", modelId: "m" }],
+  });
+  expect(normalized.workflow?.defaultOrchestrationSelection?.mainModel)
+    .toEqual({ providerId: "p", modelId: "m", candidateModelId: "c" });
+  expect(normalized.mainAgentConfigs).toEqual([]);
 });
 
 test("ecoSyncedSettingsPayloadEqual compares JSON snapshots", () => {
@@ -1306,10 +1331,10 @@ test("mergeDomainIntoPayload replaces only user agent templates for agentLibrary
 
   const merged = mergeDomainIntoPayload(local, remote, "agentLibrary");
   expect(syncableAgentTemplates(merged.agentTemplates)).toEqual([userTemplate]);
-  expect(merged.mainAgentConfigs?.[0]?.id).toBe("local-main");
+  expect(merged.mainAgentConfigs).toEqual([]);
 
   const orchestrationMerged = mergeDomainIntoPayload(local, remote, "orchestration");
-  expect(orchestrationMerged.mainAgentConfigs?.[0]?.id).toBe("remote-main");
+  expect(orchestrationMerged.mainAgentConfigs).toEqual([]);
   expect(orchestrationMerged.agentTemplates).toEqual([]);
 });
 

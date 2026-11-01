@@ -34,7 +34,6 @@ import type {
   OpenAIAccountImportResult,
   OpenAIAccountQuota,
   OpenAIAccountImageQuota,
-  OpenAIAccountSyncStatus,
   OpenAIAccountUpdateInput,
 } from "../shared/openai-account";
 import type { SupabaseDeploymentConnection, SupabaseDeploymentSnapshot } from "../shared/supabase-deployment";
@@ -165,7 +164,6 @@ import {
   type LinkAgentsSkillsResult,
   type ListUpstreamModelsRequest,
   type ListUpstreamModelsResult,
-  type MainAgentConfigResource,
   type MainAgentPromptResource,
   type McpServerCheckResult,
   type McpServerConfigInput,
@@ -684,6 +682,9 @@ const api = {
   }>> {
     return ipcRenderer.invoke(IPC_CHANNELS.chatGptSubscriptionAccountsList);
   },
+  chatGptSubscriptionAccountModelsList(accountId: string): Promise<Array<{ id: string; displayName?: string }>> {
+    return ipcRenderer.invoke(IPC_CHANNELS.chatGptSubscriptionAccountModelsList, accountId);
+  },
   accountUsageHistory(query: AccountUsageQuery): Promise<AccountUsageHistory> {
     return ipcRenderer.invoke(IPC_CHANNELS.accountUsageHistory, query);
   },
@@ -719,15 +720,7 @@ const api = {
     ipcRenderer.on("chatgpt-subscription:login-result", listener);
     return () => ipcRenderer.off("chatgpt-subscription:login-result", listener);
   },
-  codexOAuthGetStatus(): Promise<{ isLoggedIn: boolean; message: string; authState?: import("../shared/openai-account").OpenAIAccountAuthState }> {
-    return ipcRenderer.invoke(IPC_CHANNELS.codexOAuthGetStatus);
-  },
-  codexOAuthStartLogin(upstreamProxyUrl?: string): Promise<{ success: boolean; message: string }> {
-    return ipcRenderer.invoke(IPC_CHANNELS.codexOAuthStartLogin, { upstreamProxyUrl });
-  },
-  codexOAuthLogout(): Promise<{ success: boolean; message: string }> {
-    return ipcRenderer.invoke(IPC_CHANNELS.codexOAuthLogout);
-  },
+
 
   // ─── OpenAI Account Management ─────────────────────────────────────────────
   openAIAccountsList(): Promise<
@@ -768,9 +761,7 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsAssistantAction, { accountId, action });
   },
 
-  openAIAccountsSetActive(accountId: string | null): Promise<{ success: boolean; pending?: boolean }> {
-    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsSetActive, { accountId });
-  },
+
 
   openAIAccountsSetAuthJson(accountId: string, content: string): Promise<{ success: boolean; message: string }> {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsSetAuthJson, { accountId, content });
@@ -833,23 +824,8 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsImport, { text });
   },
 
-  openAIAccountsCancelSwitch(): Promise<{ success: boolean }> {
-    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsCancelSwitch);
-  },
-
-  openAIAccountsGetActive(): Promise<{
-    activeAccountId: string | null;
-    isLoggedIn: boolean;
-    authState?: import("../shared/openai-account").OpenAIAccountAuthState;
-    message: string;
-    pendingAccountId?: string | null;
-    syncStatus: OpenAIAccountSyncStatus;
-  }> {
-    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsGetActive);
-  },
-
-  onOpenAIAccountsChanged(callback: (event: { syncStatus: OpenAIAccountSyncStatus }) => void): () => void {
-    const listener = (_event: Electron.IpcRendererEvent, state: { syncStatus: OpenAIAccountSyncStatus }) => callback(state);
+  onOpenAIAccountsChanged(callback: (event: Record<string, never>) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, state: Record<string, never>) => callback(state);
     ipcRenderer.on(IPC_CHANNELS.openAIAccountsChanged, listener);
     return () => ipcRenderer.off(IPC_CHANNELS.openAIAccountsChanged, listener);
   },
@@ -920,12 +896,6 @@ const api = {
   },
   importAgentTemplates(): Promise<AgentTemplateImportResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.agentTemplateImport);
-  },
-  saveMainAgentConfig(config: MainAgentConfigResource): Promise<MainAgentConfigResource> {
-    return ipcRenderer.invoke(IPC_CHANNELS.mainAgentConfigSave, config);
-  },
-  deleteMainAgentConfig(configId: string): Promise<{ ok: true }> {
-    return ipcRenderer.invoke(IPC_CHANNELS.mainAgentConfigDelete, configId);
   },
   saveMainAgentPrompt(prompt: MainAgentPromptResource): Promise<MainAgentPromptResource> {
     return ipcRenderer.invoke(IPC_CHANNELS.mainAgentPromptSave, prompt);

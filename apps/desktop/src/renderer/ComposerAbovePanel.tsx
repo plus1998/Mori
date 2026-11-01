@@ -20,6 +20,10 @@ export function ComposerAbovePanel({
   role = "dialog",
   onClose,
   autoFocus = true,
+  width,
+  fixedHeight,
+  minHeight = 80,
+  gap = 10,
   children,
 }: {
   anchorRef: RefObject<HTMLElement | null>;
@@ -29,6 +33,10 @@ export function ComposerAbovePanel({
   id?: string;
   role?: "dialog" | "menu" | "listbox";
   autoFocus?: boolean;
+  width?: number;
+  fixedHeight?: number;
+  minHeight?: number;
+  gap?: number;
   onClose(): void;
   children: ReactNode;
 }) {
@@ -40,11 +48,12 @@ export function ComposerAbovePanel({
     const update = () =>
       setStyle(
         composerFloatingStyleForAnchor(anchor, {
-          width: anchor.getBoundingClientRect().width,
+          width: width ?? anchor.getBoundingClientRect().width,
           align: "start",
           prefer: "above",
-          minHeight: 80,
-          gap: 10,
+          minHeight,
+          ...(fixedHeight !== undefined ? { fixedHeight } : {}),
+          gap,
         }),
       );
     update();
@@ -57,7 +66,7 @@ export function ComposerAbovePanel({
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [anchorRef]);
+  }, [anchorRef, width, fixedHeight, minHeight, gap]);
   useEffect(() => {
     if (!autoFocus) return;
     const panel = panelRef.current;

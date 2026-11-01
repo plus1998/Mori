@@ -59,5 +59,6 @@ flutter:
     - assets/launch-splash-mark.png
     - assets/mermaid/host.html
     - assets/mermaid/mermaid.min.js
+    - assets/provider-icons/
   shaders:
     - shaders/progressive_blur.frag

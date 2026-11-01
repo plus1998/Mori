@@ -13,10 +13,9 @@ export function readOpenAIAccountOrder(storage: Pick<Storage, "getItem">): strin
 export function sortOpenAIAccounts<T extends { id: string }>(
   accounts: readonly T[],
   order: readonly string[],
-  activeAccountId: string | null,
 ): T[] {
   if (!order.length) {
-    return [...accounts].sort((a, b) => Number(b.id === activeAccountId) - Number(a.id === activeAccountId));
+    return [...accounts];
   }
   const ranks = new Map(order.map((id, index) => [id, index]));
   return [...accounts].sort((a, b) => (ranks.get(a.id) ?? order.length) - (ranks.get(b.id) ?? order.length));

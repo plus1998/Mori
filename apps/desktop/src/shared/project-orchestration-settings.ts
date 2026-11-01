@@ -10,7 +10,9 @@ export function normalizeProjectOrchestrationSelection(value: unknown): Orchestr
     return undefined;
   }
   return {
-    mainAgentConfigId: value.mainAgentConfigId.trim(),
+    ...(value.mainAgentConfigId?.trim()
+      ? { mainAgentConfigId: value.mainAgentConfigId.trim() } : {}),
+    ...(value.mainModel ? { mainModel: { ...value.mainModel } } : {}),
     mainPrompt:
       value.mainPrompt.mode === "builtin"
         ? { mode: "builtin" }

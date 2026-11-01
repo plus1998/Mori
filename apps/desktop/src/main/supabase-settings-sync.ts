@@ -126,8 +126,6 @@ export type EcoSyncedPersonalizationSettings = {
 
 /** Mirrors git-settings-store snapshot (commit message route prefs + instructions). */
 export type EcoSyncedGitSettings = {
-  commitMessageRoleByMainAgentConfigId: Record<string, string>;
-  commitMessageCandidateModelIdByMainAgentConfigId: Record<string, string>;
   commitMessageInstructions?: string;
   autofetch?: boolean;
   autofetchPeriod?: number;
@@ -445,9 +443,34 @@ export function ecoSyncedSettingsPayloadEqual(left: EcoSyncedSettingsPayload, ri
 export function normalizeEcoSyncedSettingsPayload(
   payload: EcoSyncedSettingsPayload,
 ): EcoSyncedSettingsPayload {
+  const legacySelection = payload.workflow?.defaultOrchestrationSelection;
+  let workflow = payload.workflow;
+  if (legacySelection?.mainAgentConfigId && !legacySelection.mainModel) {
+    const config = payload.mainAgentConfigs?.find((entry) => entry.id === legacySelection.mainAgentConfigId);
+    const selectedModel = config?.modelRef ??
+      (legacySelection.mainAgentConfigId === "__openai_official__"
+        ? payload.workflow?.codexAuthModel : undefined);
+    if (!selectedModel) {
+      throw new Error(`云端默认模型引用已删除的主代理配置 ${legacySelection.mainAgentConfigId}，请先在原设备重新选择模型并同步。`);
+    }
+    const candidate = payload.candidateModels?.find((entry) =>
+      entry.providerId === selectedModel.providerId && entry.modelId === selectedModel.modelId);
+    const { mainAgentConfigId: _removed, ...restSelection } = legacySelection;
+    workflow = {
+      ...payload.workflow!,
+      defaultOrchestrationSelection: {
+        ...restSelection,
+        mainModel: {
+          ...selectedModel,
+          ...(candidate?.id ? { candidateModelId: candidate.id } : {}),
+        },
+      },
+    };
+  }
   return {
     ...payload,
-    mainAgentConfigs: payload.mainAgentConfigs ?? [],
+    ...(workflow ? { workflow } : {}),
+    mainAgentConfigs: [],
     mainAgentPrompts: payload.mainAgentPrompts ?? [],
     subagentOrchestrations: payload.subagentOrchestrations ?? [],
     agentTemplates: payload.agentTemplates ?? [],
@@ -647,7 +670,6 @@ export function isSparseEcoSyncedSettings(payload: EcoSyncedSettingsPayload): bo
     payload.providers.length === 0 &&
     payload.asr.profiles.length === 0 &&
     payload.imageGeneration.profiles.length === 0 &&
-    (payload.mainAgentConfigs?.length ?? 0) === 0 &&
     (payload.mainAgentPrompts?.length ?? 0) === 0 &&
     (payload.subagentOrchestrations?.length ?? 0) === 0 &&
     (payload.agentTemplates?.length ?? 0) === 0 &&
@@ -922,7 +944,6 @@ export function extractDomainPayloadSlice(
       return normalized.workflow ?? {};
     case "orchestration":
       return {
-        mainAgentConfigs: normalized.mainAgentConfigs,
         mainAgentPrompts: normalized.mainAgentPrompts,
         subagentOrchestrations: normalized.subagentOrchestrations,
       };
@@ -982,7 +1003,6 @@ export function mergeDomainIntoPayload(
     case "orchestration":
       return {
         ...normalizedBase,
-        mainAgentConfigs: normalizedSource.mainAgentConfigs ?? [],
         mainAgentPrompts: normalizedSource.mainAgentPrompts ?? [],
         subagentOrchestrations: normalizedSource.subagentOrchestrations ?? [],
       };
@@ -1107,16 +1127,10 @@ export function canonicalizeDomainPayloadSlice(domain: EcoSettingsSyncDomain, sl
     }
     case "orchestration": {
       const record = slice as {
-        mainAgentConfigs?: MainAgentConfigResource[];
         mainAgentPrompts?: MainAgentPromptResource[];
         subagentOrchestrations?: SubagentOrchestrationResource[];
       };
       return {
-        mainAgentConfigs: sortById(
-          (record.mainAgentConfigs ?? [])
-            .filter((row) => isUserOwnedSyncSource(row.source))
-            .map((row) => stripUpdatedAt(row)),
-        ),
         mainAgentPrompts: sortById(
           (record.mainAgentPrompts ?? [])
             .filter((row) => isUserOwnedSyncSource(row.source))
@@ -1202,12 +1216,10 @@ function isDomainSliceEmpty(domain: EcoSettingsSyncDomain, slice: unknown): bool
       return isDefaultAgentSliceEmpty(slice);
     case "orchestration": {
       const canonical = canonicalizeDomainPayloadSlice(domain, slice) as {
-        mainAgentConfigs: unknown[];
         mainAgentPrompts: unknown[];
         subagentOrchestrations: unknown[];
       };
       return (
-        canonical.mainAgentConfigs.length === 0 &&
         canonical.mainAgentPrompts.length === 0 &&
         canonical.subagentOrchestrations.length === 0
       );
@@ -1294,7 +1306,6 @@ export function buildDomainSyncSummary(
       return normalized.workflow?.defaultCoreKind ? "1" : "";
     case "orchestration": {
       const count =
-        (normalized.mainAgentConfigs?.length ?? 0) +
         (normalized.mainAgentPrompts?.length ?? 0) +
         (normalized.subagentOrchestrations?.length ?? 0);
       return count > 0 ? String(count) : "";
@@ -1311,12 +1322,6 @@ export function buildDomainSyncSummary(
       const parts: string[] = [];
       if (git.commitMessageInstructions?.trim()) {
         parts.push("instructions");
-      }
-      const routeCount =
-        Object.keys(git.commitMessageRoleByMainAgentConfigId ?? {}).length +
-        Object.keys(git.commitMessageCandidateModelIdByMainAgentConfigId ?? {}).length;
-      if (routeCount > 0) {
-        parts.push(String(routeCount));
       }
       return parts.join(" · ");
     }

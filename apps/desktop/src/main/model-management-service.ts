@@ -54,6 +54,11 @@ const schemas = {
   save_model: z.strictObject({
     providerId: id,
     modelId: id,
+    baseUrl: z.url().optional(),
+    requestPath: z.string().optional(),
+    version: z.string().optional(),
+    apiCompat: z.enum(UPSTREAM_API_COMPAT_CYCLE).optional(),
+    tokenCountMode: z.enum(PROVIDER_TOKEN_COUNT_MODES).optional(),
     displayName: z.string().optional(),
     modelsDevMapping: z.strictObject({ providerKey: id, modelId: id }).nullable().optional(),
     manualSpec: manualSpec.nullable().optional(),
@@ -176,7 +181,12 @@ export class ModelManagementService {
           if (
             input.manualSpec !== undefined ||
             input.modelsDevMapping !== undefined ||
-            input.sortOrder !== undefined
+            input.sortOrder !== undefined ||
+            input.baseUrl !== undefined ||
+            input.requestPath !== undefined ||
+            input.version !== undefined ||
+            input.apiCompat !== undefined ||
+            input.tokenCountMode !== undefined
           )
             throw new Error("账号模型目录仅支持 modelId 和 displayName，不能修改能力、价格或排序。");
           await this.backend.saveCatalogModel(source, {
@@ -198,6 +208,11 @@ export class ModelManagementService {
           providerId: input.providerId,
           modelId: input.modelId,
           ...(existing ? { id: existing.id } : {}),
+          ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
+          ...(input.requestPath !== undefined ? { requestPath: input.requestPath } : {}),
+          ...(input.version !== undefined ? { version: input.version } : {}),
+          ...(input.apiCompat !== undefined ? { apiCompat: input.apiCompat } : {}),
+          ...(input.tokenCountMode !== undefined ? { tokenCountMode: input.tokenCountMode } : {}),
           ...(displayName !== undefined ? { displayName } : {}),
           ...(mapping ? { modelsDevMapping: mapping } : {}),
           ...(mergedSpec ? { manualSpec: mergedSpec } : {}),

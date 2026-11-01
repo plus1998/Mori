@@ -13,11 +13,12 @@ import { nextScheduledMessageQuotaReset } from "./scheduled-message-quota";
 import { localScheduleDate } from "./schedule-form";
 import "./scheduling.css";
 
-export function ScheduledMessageDialog({ threadId, newThread, planApproval: initialPlanApproval, usesChatGptLogin = false, initialPrompt = "", initialAttachments = [], imageContextKey, definition, occurrences, onClose, onSaved, anchorRef, triggerRef, onBack }: {
+export function ScheduledMessageDialog({ threadId, newThread, planApproval: initialPlanApproval, usesChatGptLogin = false, accountId, initialPrompt = "", initialAttachments = [], imageContextKey, definition, occurrences, onClose, onSaved, anchorRef, triggerRef, onBack }: {
   threadId: string;
   newThread?: ScheduledMessageNewThread | undefined;
   planApproval?: ScheduledPlanApproval | undefined;
   usesChatGptLogin?: boolean;
+  accountId?: string | undefined;
   initialPrompt?: string | undefined;
   initialAttachments?: readonly ComposerImageAttachment[] | undefined;
   imageContextKey?: string | undefined;
@@ -56,7 +57,7 @@ export function ScheduledMessageDialog({ threadId, newThread, planApproval: init
   const [quotaSnapshot, setQuotaSnapshot] = useState<CodexQuotaReminderSnapshot>();
   const [quotaLoading, setQuotaLoading] = useState(false);
   const [quotaError, setQuotaError] = useState<string>();
-  const showQuotaReset = usesChatGptLogin && !definition;
+  const showQuotaReset = usesChatGptLogin && Boolean(accountId) && !definition;
   const quotaResetAt = quotaSnapshot ? nextScheduledMessageQuotaReset(quotaSnapshot.quota) : undefined;
   const update = (value: Partial<typeof form>) => { setForm(current => ({ ...current, ...value })); setPreview([]); setError(""); };
   const formatTime = (at: string) => new Date(at).toLocaleString(i18n.language);
@@ -66,6 +67,7 @@ export function ScheduledMessageDialog({ threadId, newThread, planApproval: init
     if (!showQuotaReset || !api) return;
     const monitor = new CodexQuotaMonitor(api, {
       enabled: () => true,
+      accountId: () => accountId,
       onChange: (snapshot) => {
         quotaSnapshotRef.current = snapshot;
         setQuotaSnapshot(snapshot);
@@ -89,7 +91,7 @@ export function ScheduledMessageDialog({ threadId, newThread, planApproval: init
       unsubscribe();
       monitor.dispose();
     };
-  }, [showQuotaReset]);
+  }, [showQuotaReset, accountId]);
 
   async function selectQuotaReset() {
     const monitor = quotaMonitor.current;
@@ -101,7 +103,7 @@ export function ScheduledMessageDialog({ threadId, newThread, planApproval: init
     await monitor.refresh(true);
     if (quotaMonitor.current !== monitor) return;
     const snapshot = quotaSnapshotRef.current;
-    const at = snapshot && !snapshot.switching ? nextScheduledMessageQuotaReset(snapshot.quota) : undefined;
+    const at = snapshot ? nextScheduledMessageQuotaReset(snapshot.quota) : undefined;
     if (!quotaErrorRef.current) {
       if (at) update({ timingMode: "schedule", at: localScheduleDate(at), originalAt: at });
       else setQuotaError(t("scheduling.quotaResetUnavailable"));

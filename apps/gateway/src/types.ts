@@ -29,6 +29,14 @@ export interface GatewayProvider {
   upstreamModelId: string;
   /** Request `model` values routed to this provider. */
   models: string[];
+  /** A configured model has one concrete upstream endpoint and protocol. */
+  modelUpstreams?: Record<string, {
+    baseUrl: string;
+    requestPath?: string;
+    version?: string;
+    upstreamKind: UpstreamKind;
+    tokenCountMode?: GatewayProvider["tokenCountMode"];
+  }>;
   /** Per-upstream-model output limits used when Codex omits max_output_tokens. */
   modelMaxOutputTokens?: Record<string, number>;
   /** Present only in dynamic mode; effective min(model window, global window). */

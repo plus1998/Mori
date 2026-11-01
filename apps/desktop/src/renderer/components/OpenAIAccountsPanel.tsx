@@ -38,7 +38,6 @@ import type {
   OpenAIAccountProxyMode,
   OpenAIAccountQuota,
   OpenAIAccountQuotaWindow,
-  OpenAIAccountSyncStatus,
 } from "../../shared/openai-account";
 import { type AppLocale, formatAppDateTime } from "../../shared/locale";
 import { AccountUsageHistoryButton } from "./AccountUsageHistoryDialog";
@@ -311,43 +310,6 @@ export function OpenAIAccountProfilePresence({ fields }: { fields: OpenAIAccount
   </div>;
 }
 
-export function OpenAIAccountSwitchStatus({
-  activeAccountId,
-  activeAccountName,
-  pendingAccountId,
-  pendingAccountName,
-  busy,
-  onCancel,
-}: {
-  activeAccountId: string | null;
-  activeAccountName?: string | undefined;
-  pendingAccountId: string | null | undefined;
-  pendingAccountName?: string | undefined;
-  busy: boolean;
-  onCancel: () => void;
-}) {
-  const { t } = useTranslation();
-  const summary = pendingAccountId !== undefined
-    ? pendingAccountId === null
-      ? t("settings.openaiAccounts.pendingDeactivate")
-      : pendingAccountId === activeAccountId
-        ? t("settings.openaiAccounts.pendingCredentials", { name: activeAccountName ?? t("settings.openaiAccounts.currentAccountFallback") })
-        : t("settings.openaiAccounts.pendingSwitch", { name: pendingAccountName ?? t("settings.openaiAccounts.targetAccountFallback") })
-    : activeAccountName
-      ? t("settings.openaiAccounts.inUseNamed", { name: activeAccountName })
-      : t("settings.openaiAccounts.noCurrentAccount");
-  return (
-    <>
-      <span className="codex-active-summary"><i />{summary}</span>
-      {pendingAccountId !== undefined ? (
-        <button type="button" className="chatgpt-inline-link" disabled={busy} onClick={onCancel}>
-          {pendingAccountId === activeAccountId ? t("settings.openaiAccounts.cancelCredentials") : t("settings.openaiAccounts.cancelSwitch")}
-        </button>
-      ) : null}
-    </>
-  );
-}
-
 export function OpenAIAccountsPanel({ onError }: { onError: (message: string) => void }) {
   const { t, i18n } = useTranslation();
   const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
@@ -356,9 +318,6 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   const [accountOrder, setAccountOrder] = useState<string[]>([]);
   const [draggedAccountId, setDraggedAccountId] = useState<string | null>(null);
   const [accountDropTarget, setAccountDropTarget] = useState<{ id: string; position: "before" | "after" } | null>(null);
-  const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
-  const [pendingAccountId, setPendingAccountId] = useState<string | null | undefined>();
-  const [syncStatus, setSyncStatus] = useState<OpenAIAccountSyncStatus>({ state: "ok" });
   const [loadError, setLoadError] = useState<string>();
   const [operationError, setOperationError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -421,18 +380,12 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   const refresh = useCallback(async () => {
     if (!eco) return;
     try {
-      const [list, active] = await Promise.all([
-        eco.openAIAccountsList(),
-        eco.openAIAccountsGetActive(),
-      ]);
+      const list = await eco.openAIAccountsList();
       setAccounts(list);
       setQuotaErrors((previous) => Object.fromEntries(Object.entries(previous).filter(([id, error]) => {
         const account = list.find((entry) => entry.id === id);
         return account && (account.quota?.fetchedAt ?? 0) < error.attemptedAt;
       })));
-      setActiveAccountId(active.activeAccountId);
-      setPendingAccountId(active.pendingAccountId);
-      setSyncStatus(active.syncStatus);
       setLoadError(undefined);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
@@ -639,8 +592,8 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   }, [accounts, eco, quotaLoading, quotaLoadingId, refreshAccountQuota, refresh]);
 
   const orderedAccounts = useMemo(
-    () => sortOpenAIAccounts(accounts, accountOrder, activeAccountId),
-    [accounts, accountOrder, activeAccountId],
+    () => sortOpenAIAccounts(accounts, accountOrder),
+    [accounts, accountOrder],
   );
 
   function reorderAccount(draggedId: string, targetId: string, position: "before" | "after") {
@@ -806,22 +759,6 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     }
   }, [eco]);
 
-  const handleSetActive = useCallback(
-    async (accountId: string) => {
-      if (!eco) return;
-      setBusy(true);
-      try {
-        await eco.openAIAccountsSetActive(accountId);
-        await refresh();
-      } catch (error) {
-        setOperationError(error instanceof Error ? error.message : String(error));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [eco, refresh],
-  );
-
   const handleManualAuth = useCallback(async () => {
     if (!eco || !manualAuthId || !manualAuthContent.trim()) return;
     setBusy(true);
@@ -882,27 +819,10 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     }
   }, [eco, importText, refresh, t]);
 
-  const handleCancelSwitch = useCallback(async () => {
-    if (!eco) return;
-    setBusy(true);
-    try {
-      await eco.openAIAccountsCancelSwitch();
-      await refresh();
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  }, [eco, refresh]);
-
   const loggedInCount = accounts.filter((account) => canUseOpenAIAccountCredentials(account)).length;
   const defaultWakeModel = latestLunaModelId(wakeModels.map((model) => model.modelId));
   const wakeAccount = accounts.find((account) => account.id === wakeDialogAccountId);
   const currentWakeStatus = wakeDialogAccountId ? wakeStatus[wakeDialogAccountId] : undefined;
-  const activeAccount = accounts.find(
-    (account) => account.id === activeAccountId,
-  );
-
   return (
     <section className="codex-accounts-panel providers-list-section">
       <div className="codex-accounts-hero">
@@ -955,32 +875,12 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
 
       {loadError ? <div className="codex-account-sync-error">{t("settings.openaiAccounts.loadFailed", { message: loadError })}</div> : null}
       {operationError ? <div className="codex-account-sync-error">{operationError}</div> : null}
-      {syncStatus.state !== "ok" ? (
-        <div className={syncStatus.state === "conflict" ? "codex-account-sync-conflict" : "codex-account-sync-error"}>
-          {syncStatus.state === "conflict"
-            ? t("settings.openaiAccounts.syncConflict", { message: syncStatus.message })
-            : t("settings.openaiAccounts.syncError", { message: syncStatus.message })}
-        </div>
-      ) : null}
-
       <div className="codex-accounts-toolbar">
         <span>
           {t("settings.openaiAccounts.accountCount", { count: accounts.length })}
           <span className="codex-toolbar-divider">·</span>
           {t("settings.openaiAccounts.loggedInCount", { total: loggedInCount })}
         </span>
-        {/* The active account already sorts first and carries a 当前使用 badge, so
-            the switch line only appears while a switch or credential update is pending. */}
-        {pendingAccountId !== undefined ? (
-          <span className="codex-toolbar-switch"><OpenAIAccountSwitchStatus
-            activeAccountId={activeAccountId}
-            activeAccountName={activeAccount?.name}
-            pendingAccountId={pendingAccountId}
-            pendingAccountName={accounts.find((account) => account.id === pendingAccountId)?.name}
-            busy={busy}
-            onCancel={() => void handleCancelSwitch()}
-          /></span>
-        ) : null}
         <div className="codex-toolbar-links">
           <button
             type="button"
@@ -1075,34 +975,15 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         <div className="codex-account-list">
           {filteredAccounts.map((account, accountIndex) => {
             const accountQuota = account.quota;
-            const isActive = activeAccountId === account.id;
-            const isPending = pendingAccountId === account.id || (pendingAccountId !== undefined && isActive);
-            const status = pendingAccountId === account.id
-              ? isActive
-                ? t("settings.openaiAccounts.pendingCredentialsBadge")
-                : t("settings.openaiAccounts.pendingSwitchBadge")
-              : pendingAccountId !== undefined && isActive
-                ? pendingAccountId === null
-                  ? t("settings.openaiAccounts.pendingDeactivateBadge")
-                  : t("settings.openaiAccounts.waitingSwitchBadge")
-              : account.authState === "refreshing"
-                ? t("settings.openaiAccounts.refreshingCredentials")
+            const status = account.authState === "refreshing"
+              ? t("settings.openaiAccounts.refreshingCredentials")
               : account.authState === "refreshable"
                 ? t("settings.openaiAccounts.refreshableCredentials")
-              : !canUseOpenAIAccountCredentials(account)
-              ? account.authState === "expired"
-                ? t("settings.openaiAccounts.expired")
-                : t("settings.openaiAccounts.needsLogin")
-              : isActive
-                ? t("settings.openaiAccounts.inUse")
-                : t("settings.openaiAccounts.loggedIn");
-            const statusTone = isPending || account.authState === "refreshable" || account.authState === "refreshing"
-              ? "warning"
-              : !canUseOpenAIAccountCredentials(account)
-              ? "danger"
-              : isActive
-                ? "ready"
-                : "muted";
+                : !canUseOpenAIAccountCredentials(account)
+                  ? t(account.authState === "expired" ? "settings.openaiAccounts.expired" : "settings.openaiAccounts.needsLogin")
+                  : t("settings.openaiAccounts.loggedIn");
+            const statusTone = account.authState === "refreshable" || account.authState === "refreshing"
+              ? "warning" : canUseOpenAIAccountCredentials(account) ? "ready" : "danger";
             const email = account.email || accountQuota?.email;
             const isQuotaLoading = (quotaLoading && canUseOpenAIAccountCredentials(account)) || quotaLoadingId === account.id;
             const showTextQuota = Boolean(accountQuota || canUseOpenAIAccountCredentials(account) || isQuotaLoading || quotaErrors[account.id]);
@@ -1110,7 +991,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
             return (
               <article
                 key={account.id}
-                className={`codex-account-card ${isActive ? "is-active" : ""} ${draggedAccountId === account.id ? "is-dragging" : ""} ${accountDropTarget?.id === account.id ? `is-drop-${accountDropTarget.position}` : ""}`}
+                className={`codex-account-card ${draggedAccountId === account.id ? "is-dragging" : ""} ${accountDropTarget?.id === account.id ? `is-drop-${accountDropTarget.position}` : ""}`}
                 onDragOver={(event) => {
                   if (!draggedAccountId || busy || draggedAccountId === account.id) return;
                   event.preventDefault();
@@ -1181,17 +1062,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                     >
                       <GripVertical size={15} />
                     </button>
-                    {!isActive && canUseOpenAIAccountCredentials(account) ? (
-                      <button
-                        type="button"
-                        className="codex-action-primary"
-                        disabled={busy}
-                        onClick={() => void handleSetActive(account.id)}
-                      >
-                        <Check size={14} />
-                        {t("settings.openaiAccounts.setAsCurrent")}
-                      </button>
-                    ) : null}
+
                     {!canUseOpenAIAccountCredentials(account) ? (
                       <button
                         type="button"
@@ -1380,7 +1251,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                           type="button"
                           role="menuitem"
                           className="account-action-item"
-                          disabled={busy || !canUseOpenAIAccountCredentials(account) || isPending || loggingInId !== null}
+                          disabled={busy || !canUseOpenAIAccountCredentials(account) || loggingInId !== null}
                           title={t("settings.openaiAccounts.wakeHint")}
                           onClick={() => {
                             setMenuOpenId(null);
@@ -1420,21 +1291,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                           />
                           {t("settings.openaiAccounts.useForImageGeneration")}
                         </label>
-                        {!isActive && canUseOpenAIAccountCredentials(account) ? (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="account-action-item"
-                            onClick={() => {
-                              setMenuOpenId(null);
-                              void handleSetActive(account.id);
-                            }}
-                            disabled={busy}
-                          >
-                            <Check size={14} />
-                            {t("settings.openaiAccounts.setAsCurrent")}
-                          </button>
-                        ) : null}
+
                         <button
                           type="button"
                           role="menuitem"

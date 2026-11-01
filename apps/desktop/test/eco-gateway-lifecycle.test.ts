@@ -2,6 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { buildGatewayProvidersFromEcoProviders } from "../src/main/eco-gateway-lifecycle";
 
 describe("eco gateway provider model limits", () => {
+  test("excludes SystemOne candidate from a mixed provider's chat gateway", () => {
+    const result = buildGatewayProvidersFromEcoProviders([{
+      id: "mixed", name: "Mixed", enabled: true, baseUrl: "https://chat.test",
+      apiKey: "test", apiCompat: "openai_responses", defaultModel: "chat-model",
+      models: [
+        { modelId: "chat-model", apiCompat: "openai_responses", baseUrl: "https://chat.test" },
+        { modelId: "review-model", apiCompat: "system_one", baseUrl: "https://review.test" },
+      ],
+    }]);
+    expect(result.providers[0]?.models).toEqual(["chat-model"]);
+    expect(result.providers[0]?.modelUpstreams?.["review-model"]).toBeUndefined();
+  });
   test("syncs each candidate model's explicit vision setting to the global gateway", () => {
     const result = buildGatewayProvidersFromEcoProviders([
       {

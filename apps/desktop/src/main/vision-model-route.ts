@@ -1,4 +1,3 @@
-import { resolveUpstreamApiCompat } from "../shared/api-compat";
 import type { VisionModelSelection } from "../shared/vision-model";
 import type { RuntimeRoute } from "./billing-resolver";
 import type { ProviderStore } from "./provider-store";
@@ -42,11 +41,26 @@ export function resolveVisionModelRoute(
       `视觉模型配置已发生变化：预期 ${selection.modelId}，当前 ${candidate.modelId}。请重新选择。`,
     );
   }
+  if (candidate.apiCompat === "system_one") {
+    throw new Error(`模型 ${candidate.modelId} 使用 SystemOne 协议，仅可用于审批。`);
+  }
+  if (!candidate.baseUrl || !candidate.apiCompat) {
+    throw new Error(`模型 ${candidate.modelId} 缺少端点或协议配置，请重新编辑模型。`);
+  }
   return {
     role: "vision",
-    provider,
+    provider: {
+      ...provider,
+      baseUrl: candidate.baseUrl,
+      requestPath: candidate.requestPath ?? "",
+      version: candidate.version ?? "v1",
+      apiCompat: candidate.apiCompat,
+      ...((candidate.tokenCountMode ?? provider.tokenCountMode)
+        ? { tokenCountMode: candidate.tokenCountMode ?? provider.tokenCountMode }
+        : {}),
+    },
     modelId: candidate.modelId,
-    apiCompat: resolveUpstreamApiCompat(undefined, provider.apiCompat),
+    apiCompat: candidate.apiCompat,
     ...(candidate.manualSpec ? { manualSpec: candidate.manualSpec } : {}),
     ...(candidate.modelsDevMapping ? { modelsDevMapping: candidate.modelsDevMapping } : {}),
   };

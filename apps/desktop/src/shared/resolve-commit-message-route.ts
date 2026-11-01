@@ -56,10 +56,11 @@ export function listCommitMessageCandidateModels(
 ): CommitMessageCandidateModel[] {
   const candidates: CommitMessageCandidateModel[] = [];
   for (const provider of providers) {
-    if (!provider.enabled || (provider.apiCompat === "system_one" && purpose !== "approval")) {
+    if (!provider.enabled) {
       continue;
     }
     for (const candidate of listCandidateModels(provider.id)) {
+      if ((candidate.apiCompat ?? provider.apiCompat) === "system_one" && purpose !== "approval") continue;
       candidates.push({
         candidateModelId: candidate.id,
         providerId: provider.id,

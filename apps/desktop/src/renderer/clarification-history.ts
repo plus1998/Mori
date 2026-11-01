@@ -5,6 +5,17 @@ export interface ClarificationHistoryRow {
   answer?: string;
 }
 
+// Older conversation records retain their original prefix; new summaries use “询问回答”.
+const clarificationAnswerSummaryPrefixes = ["询问回答：", "澄清回答："] as const;
+
+function clarificationAnswerSummaryPrefix(text: string): string | undefined {
+  return clarificationAnswerSummaryPrefixes.find((prefix) => text.startsWith(prefix));
+}
+
+export function isClarificationAnswerSummary(text: string): boolean {
+  return clarificationAnswerSummaryPrefix(text.trim()) !== undefined;
+}
+
 export function readClarificationHistoryContent(detail: ConversationDetailItem): Record<string, unknown> {
   const content: unknown = JSON.parse(detail.content ?? "null");
   if (!content || typeof content !== "object" || Array.isArray(content)) {
@@ -30,8 +41,9 @@ export function clarificationHistoryRows(
   }
   if (!resolved) return questions.map((question) => ({ question }));
   const message = typeof resolved.message === "string" ? resolved.message : "";
-  if (!message.startsWith("澄清回答：")) return [];
-  let rest = message.slice("澄清回答：".length);
+  const prefix = clarificationAnswerSummaryPrefix(message);
+  if (!prefix) return [];
+  let rest = message.slice(prefix.length);
   if (questions.length > 0) {
     // Historical answers are text. Match the recorded question boundaries so punctuation
     // inside a freeform answer does not accidentally create another question.
@@ -54,9 +66,10 @@ export function clarificationHistoryRows(
 
 export function parseClarificationAnswersSummary(text: string): ClarificationHistoryRow[] | null {
   const trimmed = text.trim();
-  if (!trimmed.startsWith("澄清回答：")) return null;
+  const prefix = clarificationAnswerSummaryPrefix(trimmed);
+  if (!prefix) return null;
   return trimmed
-    .slice("澄清回答：".length)
+    .slice(prefix.length)
     .split("；")
     .filter(Boolean)
     .map((part) => {

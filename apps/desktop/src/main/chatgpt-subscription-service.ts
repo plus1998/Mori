@@ -443,21 +443,30 @@ export class ChatGptSubscriptionService {
     this.rejectPending(accountId, new Error(reason));
   }
 
-  async resolveCredential(provider: GatewayProvider): Promise<{ accessToken: string; accountId: string; upstreamProxyUrl?: string }> {
+  async resolveCredential(provider: GatewayProvider, accountId?: string): Promise<{ accessToken: string; accountId: string; upstreamProxyUrl?: string }> {
     this.assertInitialized();
     const poolId = provider.credentialPoolId || "chatgpt-default";
     if (poolId !== "chatgpt-default") {
       throw new Error(`未知的 ChatGPT 订阅账号池：${poolId}`);
     }
+    const selectedAccountId = accountId?.trim();
+    if (accountId !== undefined && !selectedAccountId) throw new Error("会话没有绑定 ChatGPT OAuth 账号。");
+    if (selectedAccountId && !this.findAccount(selectedAccountId)) {
+      throw new Error(`会话绑定的 ChatGPT OAuth 账号已不存在：${selectedAccountId}`);
+    }
     const candidates = this.state.accounts.filter((account) => {
       const now = Date.now();
-      return account.enabled && account.status !== "disabled" && account.refreshToken &&
+      return (!selectedAccountId || account.accountId === selectedAccountId) &&
+        account.enabled && account.status !== "disabled" && account.refreshToken &&
         !account.subscriptionUsagePause && !account.subscriptionUsagePausedAt &&
         account.status !== "subscription_usage_paused" &&
         account.status !== "reauthorization_required" && account.status !== "not_eligible" &&
         (!account.cooldownUntil || account.cooldownUntil <= now);
     });
     if (candidates.length === 0) {
+      if (selectedAccountId) {
+        throw new Error(`会话绑定的 ChatGPT OAuth 账号不可用：${selectedAccountId}。请在账号设置中检查登录和用量状态。`);
+      }
       const pausedAccounts = this.state.accounts.filter((account) =>
         account.enabled && Boolean(account.refreshToken) && (
           account.subscriptionUsagePause || account.subscriptionUsagePausedAt ||

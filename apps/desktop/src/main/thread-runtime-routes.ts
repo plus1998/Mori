@@ -48,11 +48,19 @@ export function resolveThreadRuntimeConfig(
   const routes = activeRoutes.map((route): RuntimeRoute | undefined => {
     const provider = providersById.get(route.providerId);
     if (!provider) return undefined;
+    const resolvedProvider: ProviderConfigSecret = {
+      ...provider,
+      ...(route.baseUrl ? { baseUrl: route.baseUrl } : {}),
+      ...(route.requestPath !== undefined ? { requestPath: route.requestPath } : {}),
+      ...(route.version ? { version: route.version } : {}),
+      ...(route.apiCompat ? { apiCompat: route.apiCompat } : {}),
+      ...(route.tokenCountMode ? { tokenCountMode: route.tokenCountMode } : {}),
+    };
     return {
       role: route.role,
-      provider,
+      provider: resolvedProvider,
       modelId: route.modelId,
-      apiCompat: resolveUpstreamApiCompat(route.apiCompat, provider.apiCompat),
+      apiCompat: resolveUpstreamApiCompat(route.apiCompat, resolvedProvider.apiCompat),
       ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
       ...(route.modelsDevMapping && { modelsDevMapping: route.modelsDevMapping }),
       ...(route.manualSpec && { manualSpec: route.manualSpec }),

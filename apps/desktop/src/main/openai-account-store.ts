@@ -1,3 +1,4 @@
+import { migrateSessionAccounts } from "./session-account-migration";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
@@ -17,21 +18,9 @@ import type { ReadonlyQuotaAccount } from "./readonly-account-quota";
 const ACCOUNT_ID_PATTERN = /^oa_[A-Za-z0-9_-]+$/u;
 const MIGRATION_KEY = "legacy_migration_v1";
 const ACTIVE_KEY = "active_account_id";
-const PENDING_KEY = "pending_account_id";
-const PENDING_DELETES_KEY = "pending_delete_ids";
-const PENDING_AUTH_ACCOUNT_KEY = "pending_auth_account_id";
-const PENDING_AUTH_JSON_KEY = "pending_auth_json";
-const LAST_PUBLISHED_FINGERPRINT_KEY = "last_published_fingerprint";
 
 export interface StoredOpenAIAccount extends OpenAIAccountDetails {
   name: string;
-}
-
-export interface PendingAccountTransition {
-  /** null means clear the selected account; undefined means no pending transition. */
-  targetAccountId: string | null;
-  deleteAccountIds: string[];
-  stagedAuth?: { accountId: string; authJson: string };
 }
 
 interface AccountRow {
@@ -325,7 +314,7 @@ export class OpenAIAccountStore {
     return this.setting(MIGRATION_KEY) === "complete";
   }
 
-  getActiveAccountId(): string | null {
+  private legacyAccountId(): string | null {
     return this.setting(ACTIVE_KEY) || null;
   }
 
@@ -354,69 +343,6 @@ export class OpenAIAccountStore {
   rejectCredentials(accountId: string, fingerprint: string): void {
     if (!this.get(accountId)) throw new Error(`OpenAI account not found: ${accountId}`);
     this.setSetting(`auth_rejected:${accountId}`, fingerprint);
-  }
-
-  getPendingTransition(): PendingAccountTransition | undefined {
-    const target = this.setting(PENDING_KEY);
-    if (target === undefined) return undefined;
-    const rawDeletes = this.setting(PENDING_DELETES_KEY);
-    let deleteAccountIds: string[] = [];
-    try {
-      const value = rawDeletes ? JSON.parse(rawDeletes) as unknown : [];
-      if (Array.isArray(value)) deleteAccountIds = value.filter((id): id is string => typeof id === "string");
-    } catch {
-      throw new Error("账号待切换设置损坏，请检查本地数据库");
-    }
-    const stagedAccountId = this.setting(PENDING_AUTH_ACCOUNT_KEY);
-    const stagedAuthJson = this.setting(PENDING_AUTH_JSON_KEY);
-    if ((stagedAccountId === undefined) !== (stagedAuthJson === undefined)) {
-      throw new Error("账号待保存凭据设置不完整，请检查本地数据库");
-    }
-    return {
-      targetAccountId: target || null,
-      deleteAccountIds,
-      ...(stagedAccountId !== undefined && stagedAuthJson !== undefined
-        ? { stagedAuth: { accountId: stagedAccountId, authJson: stagedAuthJson } }
-        : {}),
-    };
-  }
-
-  queueTransition(targetAccountId: string | null, options?: { deleteAccountId?: string; stagedAuth?: { accountId: string; authJson: string } }): void {
-    if (targetAccountId && !this.get(targetAccountId)) {
-      throw new Error(`OpenAI account not found: ${targetAccountId}`);
-    }
-    this.transaction(() => {
-      const deletes = new Set(this.getPendingTransition()?.deleteAccountIds ?? []);
-      if (options?.deleteAccountId) deletes.add(options.deleteAccountId);
-      this.setSetting(PENDING_KEY, targetAccountId ?? "");
-      this.setSetting(PENDING_DELETES_KEY, JSON.stringify([...deletes]));
-      const stagedAuth = options?.stagedAuth ?? this.getPendingTransition()?.stagedAuth;
-      if (stagedAuth) {
-        this.setSetting(PENDING_AUTH_ACCOUNT_KEY, stagedAuth.accountId);
-        this.setSetting(PENDING_AUTH_JSON_KEY, stagedAuth.authJson);
-      }
-    });
-  }
-
-  cancelPendingTransition(): void {
-    this.transaction(() => {
-      this.db.prepare("DELETE FROM openai_account_settings WHERE key IN (?, ?, ?, ?)")
-        .run(PENDING_KEY, PENDING_DELETES_KEY, PENDING_AUTH_ACCOUNT_KEY, PENDING_AUTH_JSON_KEY);
-    });
-  }
-
-  getLastPublishedFingerprint(): string | undefined {
-    return this.setting(LAST_PUBLISHED_FINGERPRINT_KEY);
-  }
-
-  setLastPublishedFingerprint(fingerprint: string | undefined): void {
-    this.transaction(() => {
-      if (fingerprint === undefined) {
-        this.db.prepare("DELETE FROM openai_account_settings WHERE key = ?").run(LAST_PUBLISHED_FINGERPRINT_KEY);
-      } else {
-        this.setSetting(LAST_PUBLISHED_FINGERPRINT_KEY, fingerprint);
-      }
-    });
   }
 
   recordSyncConflict(accountId: string | null, mainAuthJson: string, accountAuthJson: string | null, message: string): void {
@@ -452,39 +378,8 @@ export class OpenAIAccountStore {
       : undefined;
   }
 
-  commitPendingTransition(fingerprint: string | undefined): PendingAccountTransition | undefined {
-    return this.transaction(() => {
-      const pending = this.getPendingTransition();
-      if (!pending) return undefined;
-      const now = nowIso();
-      if (pending.stagedAuth) {
-        const stagedResult = this.db.prepare("UPDATE openai_accounts SET auth_json = ?, updated_at = ? WHERE id = ?")
-          .run(pending.stagedAuth.authJson, now, pending.stagedAuth.accountId);
-        if (Number(stagedResult.changes) === 0) {
-          throw new Error(`待保存凭据对应的账号不存在：${pending.stagedAuth.accountId}`);
-        }
-      }
-      if (pending.targetAccountId && !this.get(pending.targetAccountId)) {
-        throw new Error(`待切换的 OpenAI 账号不存在：${pending.targetAccountId}`);
-      }
-      if (pending.targetAccountId) this.setSetting(ACTIVE_KEY, pending.targetAccountId);
-      else this.db.prepare("DELETE FROM openai_account_settings WHERE key = ?").run(ACTIVE_KEY);
-      if (fingerprint === undefined) {
-        this.db.prepare("DELETE FROM openai_account_settings WHERE key = ?").run(LAST_PUBLISHED_FINGERPRINT_KEY);
-      } else {
-        this.setSetting(LAST_PUBLISHED_FINGERPRINT_KEY, fingerprint);
-      }
-      for (const accountId of pending.deleteAccountIds) {
-        if (accountId !== pending.targetAccountId) {
-          this.clearSyncConflict(accountId);
-          this.db.prepare("DELETE FROM openai_accounts WHERE id = ?").run(accountId);
-        }
-      }
-      this.db
-        .prepare("DELETE FROM openai_account_settings WHERE key IN (?, ?, ?, ?)")
-        .run(PENDING_KEY, PENDING_DELETES_KEY, PENDING_AUTH_ACCOUNT_KEY, PENDING_AUTH_JSON_KEY);
-      return pending;
-    });
+  migrateSessionAccounts(mainAuth: string | null): void {
+    migrateSessionAccounts(this.db, mainAuth);
   }
 
   async migrateLegacyFiles(legacyDir: string): Promise<void> {
@@ -575,7 +470,7 @@ export class OpenAIAccountStore {
           }
         }
         if (legacyActiveId) {
-          const currentActive = this.getActiveAccountId();
+          const currentActive = this.legacyAccountId();
           if (currentActive && currentActive !== legacyActiveId) {
             throw new Error(`旧启用账号 ${legacyActiveId} 与 SQLite 当前账号 ${currentActive} 冲突，原文件已保留`);
           }
@@ -622,7 +517,7 @@ export class OpenAIAccountStore {
       }
     }
     const activeText = await readMaybe(path.join(legacyDir, "active_account.txt"));
-    if (activeText !== undefined && (activeText.trim() || null) !== this.getActiveAccountId()) {
+    if (activeText !== undefined && (activeText.trim() || null) !== this.legacyAccountId()) {
       throw new Error("SQLite 启用账号核对失败，旧文件已保留");
     }
     await this.archiveLegacyFiles(legacyDir);
@@ -888,9 +783,3 @@ export class OpenAIAccountStore {
     this.db.close();
   }
 }
-
-export const OPENAI_ACCOUNT_SETTINGS_KEYS = {
-  activeAccountId: ACTIVE_KEY,
-  pendingAccountId: PENDING_KEY,
-  lastPublishedFingerprint: LAST_PUBLISHED_FINGERPRINT_KEY,
-} as const;

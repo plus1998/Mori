@@ -11,6 +11,7 @@ import type {
   RoutePricingHint,
   RuntimeRoleRouteConfig,
 } from "../shared/ipc";
+import { requestPathPlaceholderForApiCompat, type UpstreamApiCompat } from "../shared/api-compat";
 import {
   isRateFormValueValid,
   isTokenFormValueValid,
@@ -21,6 +22,14 @@ import {
 } from "./agent-resource-manual-spec-form";
 import { ModelCascadeSelect } from "./ModelCascadeSelect";
 import { ModelManualSpecPanel } from "./ModelManualSpecPanel";
+import { EndpointCompatSelect, type EndpointCompatOption } from "./EndpointCompatSelect";
+
+const ENDPOINT_OPTIONS: EndpointCompatOption[] = [
+  { apiCompat: "anthropic", requestPath: "/anthropic" },
+  { apiCompat: "openai_responses", requestPath: "/openai" },
+  { apiCompat: "openai_chat_completions", requestPath: "/" },
+  { apiCompat: "system_one", requestPath: "" },
+];
 
 export interface CandidateModelEditorHandle {
   hasPendingEdits: () => boolean;
@@ -72,6 +81,10 @@ export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, Candi
   ) {
     const { t } = useTranslation();
     const [modelId, setModelId] = useState(candidate.modelId);
+    const [apiCompat, setApiCompat] = useState<UpstreamApiCompat>(candidate.apiCompat ?? "openai_responses");
+    const [baseUrl, setBaseUrl] = useState(candidate.baseUrl ?? "");
+    const [requestPath, setRequestPath] = useState(candidate.requestPath ?? "");
+    const [version, setVersion] = useState(candidate.version ?? "v1");
     const [displayName, setDisplayName] = useState(candidate.displayName ?? "");
     const [mapping, setMapping] = useState<ModelsDevMapping | undefined>(candidate.modelsDevMapping);
     const [form, setForm] = useState<ManualSpecFormFields>(() =>
@@ -140,6 +153,8 @@ export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, Candi
 
     const modelIdMissing = !modelId.trim();
     const hasInvalidField =
+      !/^https?:\/\//.test(baseUrl.trim()) ||
+      Boolean(requestPath.trim() && !requestPath.trim().startsWith("/")) ||
       !isTokenFormValueValid(form.contextTokens) ||
       !isTokenFormValueValid(form.maxOutputTokens) ||
       !isRateFormValueValid(form.inputPerM) ||
@@ -159,6 +174,10 @@ export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, Candi
         id: candidate.id,
         providerId,
         modelId: modelId.trim(),
+        apiCompat,
+        baseUrl: baseUrl.trim(),
+        requestPath: requestPath.trim(),
+        version: version.trim(),
         sortOrder: candidate.sortOrder,
       };
       const trimmedDisplayName = displayName.trim();
@@ -171,6 +190,10 @@ export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, Candi
     }, [
       candidate.id,
       candidate.sortOrder,
+      apiCompat,
+      baseUrl,
+      requestPath,
+      version,
       displayName,
       form,
       hasInvalidField,
@@ -263,38 +286,70 @@ export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, Candi
         </header>
 
         <div className="candidate-editor-body">
-          <section className="candidate-editor-section">
-            <h4 className="candidate-editor-section-title">{t("candidateModels.sectionIdentity")}</h4>
-            <div className="candidate-editor-grid candidate-editor-grid--2">
-              <label className={`candidate-editor-field${modelIdMissing ? " is-invalid" : ""}`}>
-                <span className="candidate-editor-field-label">
-                  Model ID
-                  <span className="candidate-editor-required" aria-hidden>
-                    *
-                  </span>
+          <section className="provider-form-section">
+            <h4 className="provider-form-section-title">{t("candidateModels.sectionIdentity")}</h4>
+            <label className="mcp-field">
+              <span className="mcp-field-label">
+                Model ID
+                <span className="candidate-editor-required" aria-hidden>
+                  *
                 </span>
-                <input
-                  className="candidate-editor-input is-mono"
-                  value={modelId}
-                  disabled={busy}
-                  onChange={(event) => setModelId(event.target.value)}
+              </span>
+              <input
+                className="mcp-field-input"
+                value={modelId}
+                disabled={busy}
+                onChange={(event) => setModelId(event.target.value)}
+              />
+              <span className="mcp-field-hint">
+                {modelIdMissing ? t("modelSpec.modelIdRequired") : t("candidateModels.upstreamModelIdHint")}
+              </span>
+            </label>
+            <label className="mcp-field">
+              <span className="mcp-field-label">{t("candidateModels.displayName")}</span>
+              <input
+                className="mcp-field-input"
+                value={displayName}
+                placeholder={modelId.trim() || candidate.modelId}
+                disabled={busy}
+                onChange={(event) => setDisplayName(event.target.value)}
+              />
+              <span className="mcp-field-hint">{t("candidateModels.displayNameHint")}</span>
+            </label>
+          </section>
+
+          <section className="provider-form-section">
+            <h4 className="provider-form-section-title">{t("candidateModels.sectionEndpoint")}</h4>
+            <label className="mcp-field">
+              <span className="mcp-field-label">baseURL</span>
+              <input className="mcp-field-input" value={baseUrl} disabled={busy}
+                onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.example.com" />
+            </label>
+            <div className="mcp-field models-provider-endpoint-row">
+              <span className="mcp-field-label">{t("settings.models.provider.endpoint")}</span>
+              <div className="models-provider-endpoint-stack">
+                <EndpointCompatSelect
+                  options={ENDPOINT_OPTIONS}
+                  activeApiCompat={apiCompat}
+                  onChange={setApiCompat}
+                  disabled={Boolean(busy)}
                 />
-                <span className="candidate-editor-caption">
-                  {modelIdMissing ? t("modelSpec.modelIdRequired") : t("candidateModels.upstreamModelIdHint")}
-                </span>
-              </label>
-              <label className="candidate-editor-field">
-                <span className="candidate-editor-field-label">{t("candidateModels.displayName")}</span>
                 <input
-                  className="candidate-editor-input"
-                  value={displayName}
-                  placeholder={modelId.trim() || candidate.modelId}
+                  className="mcp-field-input models-provider-request-path-input"
+                  aria-label={t("candidateModels.requestPath")}
+                  value={requestPath}
                   disabled={busy}
-                  onChange={(event) => setDisplayName(event.target.value)}
+                  onChange={(event) => setRequestPath(event.target.value)}
+                  placeholder={requestPathPlaceholderForApiCompat(apiCompat)}
                 />
-                <span className="candidate-editor-caption">{t("candidateModels.displayNameHint")}</span>
-              </label>
+              </div>
             </div>
+            <label className="mcp-field">
+              <span className="mcp-field-label">{t("settings.models.provider.version")}</span>
+              <input className="mcp-field-input" value={version} disabled={busy}
+                onChange={(event) => setVersion(event.target.value)} placeholder="v1" />
+              <span className="mcp-field-hint">{t("settings.models.provider.versionHint")}</span>
+            </label>
           </section>
 
           <section className="candidate-editor-section">
@@ -379,7 +434,7 @@ export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, Candi
             <button
               type="button"
               className="mcp-save-button candidate-editor-save"
-              disabled={busy || saving || modelIdMissing}
+              disabled={busy || saving || modelIdMissing || hasInvalidField}
               onClick={() => void handleSave()}
             >
               {t("common.save")}
