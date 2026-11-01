@@ -225,7 +225,7 @@ class _ComposerPlusMenuPanelState extends ConsumerState<ComposerPlusMenuPanel> {
           elevation: 8,
           shadowColor: eco.shadowScrim.withValues(alpha: 0.16),
           child: Padding(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 // On short keyboard/landscape viewports the header scrolls too.
@@ -237,10 +237,12 @@ class _ComposerPlusMenuPanelState extends ConsumerState<ComposerPlusMenuPanel> {
                     Semantics(
                       label: l10n.commonClose,
                       onDismiss: () => Navigator.pop(context),
-                      child: SizedBox(
-                        key: const ValueKey('composer-plus-grabber'),
-                        height: math.min(28, constraints.maxHeight),
-                        child: const EcoSheetGrabber(),
+                      child: Listener(
+                        key: const ValueKey('composer-plus-drag-area'),
+                        behavior: HitTestBehavior.translucent,
+                        child: SizedBox(
+                          height: math.min(12, constraints.maxHeight),
+                        ),
                       ),
                     ),
                     if (_showConfig && !scrollHeader) _header(context),

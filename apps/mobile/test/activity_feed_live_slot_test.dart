@@ -466,6 +466,7 @@ void main() {
         await tester.pump();
         expect(find.text('已运行 7 条命令'), findsNothing);
         expect(find.text('正在思考'), findsOneWidget);
+        expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
         for (final child in _rows(rows).single.actionChildren) {
           expect(find.byKey(ValueKey(child.id)), findsNothing);
         }

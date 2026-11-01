@@ -41,7 +41,7 @@ void main() {
     await tester.enterText(input, '下滑收起后保留草稿');
     await tester.pumpAndSettle();
     final panel = find.byKey(const ValueKey('composer-plus-panel'));
-    final grabber = find.byKey(const ValueKey('composer-plus-grabber'));
+    final dragArea = find.byKey(const ValueKey('composer-plus-drag-area'));
     for (final configPage in [false, true]) {
       await tester.tap(find.byIcon(EcoIcons.add));
       await tester.pumpAndSettle();
@@ -52,7 +52,7 @@ void main() {
         lessThan(media.size.height - media.viewInsets.bottom),
       );
       final originalTop = tester.getTopLeft(panel).dy;
-      final gesture = await tester.startGesture(tester.getCenter(grabber));
+      final gesture = await tester.startGesture(tester.getCenter(dragArea));
       await gesture.moveBy(const Offset(0, 20));
       await tester.pump();
       await gesture.moveBy(const Offset(0, 15));
@@ -68,7 +68,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byTooltip('返回菜单'), findsOneWidget);
       }
-      await tester.fling(grabber, const Offset(0, 160), 1600);
+      await tester.fling(dragArea, const Offset(0, 160), 1600);
       await tester.pumpAndSettle();
       expect(panel, findsNothing);
       expect(find.text('下滑收起后保留草稿'), findsOneWidget);

@@ -3563,13 +3563,6 @@ class _ActionGroupTileState extends State<_ActionGroupTile> {
                             widget.entry.kind == ActivityFeedKind.toolWriting,
                       ),
                     ),
-                    Icon(
-                      _expanded
-                          ? Icons.expand_less
-                          : Icons.chevron_right_rounded,
-                      size: 16,
-                      color: ecoColors(context).textMuted,
-                    ),
                   ],
                 ),
               ),

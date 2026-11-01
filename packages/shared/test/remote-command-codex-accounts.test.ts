@@ -15,3 +15,14 @@ test('mobile can read quotas, switch accounts and explicitly consume a reset wit
     expect(getRemoteCommandDefinition(`openai-accounts:${suffix}`)).toBeUndefined();
   }
 });
+
+test('mobile can read the Codex model catalog over remote RPC', () => {
+  const definition = getRemoteCommandDefinition('codex-model-catalog:get');
+  expect(definition).toMatchObject({
+    risk: 'read',
+    requiredCapabilities: ['rpc:invoke'],
+    requiresConfirmation: false,
+  });
+  expect(validateRemoteCommandArgs('codex-model-catalog:get', [])).toEqual({ ok: true });
+  expect(validateRemoteCommandArgs('codex-model-catalog:get', [{}]).ok).toBe(false);
+});

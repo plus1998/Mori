@@ -1,3 +1,5 @@
+import 'dart:ui' show SemanticsAction;
+
 import 'package:eco_mobile/core/network/desktop_rpc.dart';
 import 'package:eco_mobile/core/network/eco_center_client.dart';
 import 'package:eco_mobile/core/storage/credential_store.dart';
@@ -1018,38 +1020,47 @@ void main() {
     },
   );
 
-  testWidgets(
-    'plus menu follows its grabber and snaps back after a short pull',
-    (tester) async {
-      final controller = TextEditingController(text: 'Keep this draft');
-      addTearDown(controller.dispose);
-      await tester.pumpWidget(
-        _TestApp(modelSettings: modelSettings, child: menuComposer(controller)),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byIcon(EcoIcons.add));
-      await tester.pumpAndSettle();
-      final panel = find.byKey(const ValueKey('composer-plus-panel'));
-      final grabber = find.byKey(const ValueKey('composer-plus-grabber'));
-      final initial = tester.getRect(panel);
-      final gesture = await tester.startGesture(tester.getCenter(grabber));
-      await gesture.moveBy(const Offset(0, 20));
-      await tester.pump();
-      await gesture.moveBy(const Offset(0, 30));
-      await tester.pump();
-      expect(tester.getTopLeft(panel).dy, greaterThan(initial.top + 20));
-      // Pause before release to test distance without a fling velocity.
-      await tester.pump(const Duration(milliseconds: 300));
-      await gesture.up();
-      await tester.pumpAndSettle();
-      expect(tester.getRect(panel), initial);
-      expect(controller.text, 'Keep this draft');
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('plus menu drag area snaps back after a short pull', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final controller = TextEditingController(text: 'Keep this draft');
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      _TestApp(modelSettings: modelSettings, child: menuComposer(controller)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(EcoIcons.add));
+    await tester.pumpAndSettle();
+    final panel = find.byKey(const ValueKey('composer-plus-panel'));
+    final dragArea = find.byKey(const ValueKey('composer-plus-drag-area'));
+    expect(find.byType(EcoSheetGrabber), findsNothing);
+    expect(
+      tester
+          .getSemantics(dragArea)
+          .getSemanticsData()
+          .hasAction(SemanticsAction.dismiss),
+      isTrue,
+    );
+    semantics.dispose();
+    final initial = tester.getRect(panel);
+    final gesture = await tester.startGesture(tester.getCenter(dragArea));
+    await gesture.moveBy(const Offset(0, 20));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, 30));
+    await tester.pump();
+    expect(tester.getTopLeft(panel).dy, greaterThan(initial.top + 20));
+    // Pause before release to test distance without a fling velocity.
+    await tester.pump(const Duration(milliseconds: 300));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(tester.getRect(panel), initial);
+    expect(controller.text, 'Keep this draft');
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
-    'plus menu list scrolls while the grabber dismisses either page',
+    'plus menu list scrolls while the drag area dismisses either page',
     (tester) async {
       final controller = TextEditingController(text: 'Keep this draft');
       addTearDown(controller.dispose);
@@ -1062,10 +1073,11 @@ void main() {
       );
       await tester.pumpAndSettle();
       final panel = find.byKey(const ValueKey('composer-plus-panel'));
-      final grabber = find.byKey(const ValueKey('composer-plus-grabber'));
+      final dragArea = find.byKey(const ValueKey('composer-plus-drag-area'));
       for (final configPage in [false, true]) {
         await tester.tap(find.byIcon(EcoIcons.add));
         await tester.pumpAndSettle();
+        expect(find.byType(EcoSheetGrabber), findsNothing);
         final initial = tester.getRect(panel);
         final content = find
             .descendant(of: panel, matching: find.byType(SingleChildScrollView))
@@ -1081,7 +1093,7 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.byTooltip('Back to menu'), findsOneWidget);
         }
-        await tester.drag(grabber, const Offset(0, 160));
+        await tester.drag(dragArea, const Offset(0, 160));
         await tester.pumpAndSettle();
         expect(panel, findsNothing);
       }
@@ -1091,7 +1103,7 @@ void main() {
     },
   );
 
-  testWidgets('plus menu grabber dismisses with a fast downward fling', (
+  testWidgets('plus menu drag area dismisses with a fast downward fling', (
     tester,
   ) async {
     final controller = TextEditingController();
@@ -1103,7 +1115,7 @@ void main() {
     await tester.tap(find.byIcon(EcoIcons.add));
     await tester.pumpAndSettle();
     await tester.fling(
-      find.byKey(const ValueKey('composer-plus-grabber')),
+      find.byKey(const ValueKey('composer-plus-drag-area')),
       const Offset(0, 65),
       1600,
     );

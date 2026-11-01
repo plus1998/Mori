@@ -12,7 +12,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _AccountsRpc extends DesktopRpc {
-  _AccountsRpc() : super(EcoCenterClient(store: CredentialStore()), 'desktop');
+  _AccountsRpc({this.catalogFailure})
+    : super(EcoCenterClient(store: CredentialStore()), 'desktop');
+  final String? catalogFailure;
   final oauthRequests = <String>[];
   @override
   Future<List<CodexAccount>> listCodexAccounts() async => [
@@ -36,13 +38,17 @@ class _AccountsRpc extends DesktopRpc {
       },
   ];
   @override
-  Future<List<Map<String, dynamic>>> listCodexAccountModels() async => [
-    {
-      'modelId': 'gpt-test',
-      'displayName': 'GPT Test',
-      'reasoningEfforts': ['low', 'medium', 'high'],
-    },
-  ];
+  Future<List<Map<String, dynamic>>> listCodexAccountModels() async {
+    if (catalogFailure case final failure?) throw StateError(failure);
+    return [
+      {
+        'modelId': 'gpt-test',
+        'displayName': 'GPT Test',
+        'reasoningEfforts': ['low', 'medium', 'high'],
+      },
+    ];
+  }
+
   @override
   Future<List<Map<String, dynamic>>> listChatGptOauthAccountModels(
     String accountId,
@@ -126,9 +132,7 @@ void main() {
       expect(changes.single.thinkingEffort, 'low');
       expect(find.text('Done'), findsNothing);
       expect(find.byType(Slider), findsOneWidget);
-      final slider = tester.widget<Slider>(find.byType(Slider));
-      slider.onChanged!(2);
-      slider.onChangeEnd!(2);
+      await tester.drag(find.byType(Slider), const Offset(260, 0));
       await tester.pumpAndSettle();
       expect(changes.last.accountId, 'B');
       expect(changes.last.thinkingEffort, 'high');
@@ -157,21 +161,54 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('search clear button resets the query and restores models', (
+    tester,
+  ) async {
+    final rpc = _AccountsRpc();
+    await _open(tester, rpc, []);
+    await tester.tap(find.text('Login A'));
+    await tester.pumpAndSettle();
+    expect(find.text('GPT Test'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'no matching model');
+    await tester.pumpAndSettle();
+    expect(find.text('GPT Test'), findsNothing);
+    await tester.tap(find.byTooltip('Clear text'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      '',
+    );
+    expect(find.text('GPT Test'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'narrow screen, larger text and keyboard keep the effort slider visible',
     (tester) async {
       final rpc = _AccountsRpc();
-      await _open(tester, rpc, [], textScale: 1.4);
-      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await _open(tester, rpc, [], size: const Size(320, 640), textScale: 1.4);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 220);
       addTearDown(tester.view.resetViewInsets);
       await tester.tap(find.byType(TextField));
       await tester.pumpAndSettle();
       expect(find.byType(Slider), findsOneWidget);
       expect(
         tester.getBottomRight(find.byType(Slider)).dy,
-        lessThanOrEqualTo(512),
+        lessThanOrEqualTo(420),
       );
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('catalog errors stay visible and never show a fallback model', (
+    tester,
+  ) async {
+    final rpc = _AccountsRpc(catalogFailure: 'catalog unavailable');
+    await _open(tester, rpc, []);
+    expect(find.textContaining('catalog unavailable'), findsOneWidget);
+    expect(find.text('GPT Test'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }

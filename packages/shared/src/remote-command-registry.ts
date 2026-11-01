@@ -232,6 +232,7 @@ export const REMOTE_COMMAND_DEFINITIONS = [
   ]),
 
   command("model-settings:get", "Get model settings", "read", RPC_INVOKE, []),
+  command("codex-model-catalog:get", "Read the Codex model catalog", "read", RPC_INVOKE, []),
   command("openai-accounts:list", "List Codex accounts and saved quotas", "read", RPC_INVOKE, []),
   command("openai-accounts:get-active", "Get active Codex account", "read", RPC_INVOKE, []),
   command("openai-accounts:query-quota", "Refresh Codex account quota", "read", RPC_INVOKE, [objectArg(["accountId"])]),
