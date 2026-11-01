@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { InputTokenCountUpstreamError } from "@eco/shared";
 import type { GatewayProvider } from "@eco/gateway";
 import type { ProviderConfigSecret } from "../src/main/provider-store";
 import { countGatewayInputTokens, countProviderInputTokens } from "../src/main/provider-token-counter";
@@ -27,6 +28,50 @@ const anthropicBody = {
   system: "You are helpful",
   messages: [{ role: "user", content: "Hello" }],
 };
+
+for (const apiCompat of ["anthropic", "openai_responses"] as const) {
+  test(`${apiCompat} counter retains the HTTP failure and retry headers`, async () => {
+    let caught: unknown;
+    try {
+      await countProviderInputTokens({
+        mode: "provider_native", provider: provider({ apiCompat }), modelId: "model-1", anthropicBody,
+        fetcher: async () => Response.json({ error: { message: "temporarily unavailable" } }, {
+          status: 429, headers: { "retry-after": "7", "request-id": "req-counter" },
+        }),
+      });
+    } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(InputTokenCountUpstreamError);
+    expect(caught).toMatchObject({ statusCode: 429, responseHeaders: { "retry-after": "7", "request-id": "req-counter" } });
+  });
+}
+
+test("SDK count_tokens preserves the real gateway HTTP failure and releases its binding", async () => {
+  const { configureEcoGatewayLifecycle, resetGlobalEcoGatewayForTests } = await import("../src/main/eco-gateway-lifecycle");
+  const { globalClaudeBridgeBindingRegistry: registry } = await import("../src/main/claude-bridge-binding");
+  const { prepareClaudeBridgeMessagesRequest } = await import("../src/main/anthropic-proxy");
+  const upstream = Bun.serve({ port: 0, fetch: () => Response.json({ error: { message: "temporarily unavailable" } },
+    { status: 429, headers: { "retry-after": "0" } }) });
+  const modelProvider = provider({ baseUrl: `http://127.0.0.1:${upstream.port}`, tokenCountMode: "anthropic_messages" });
+  const binding = registry.create({ routes: [{ role: "main", provider: modelProvider, modelId: "model-1", aliasModelId: "sdk-alias", apiCompat: "anthropic" }] });
+  configureEcoGatewayLifecycle({ ecoDataDir: "/tmp/eco-counter-error", gatewayPort: 0,
+    listProviders: () => [{ ...modelProvider, modelIds: ["model-1"] }] });
+  try {
+    const result = await prepareClaudeBridgeMessagesRequest({
+      path: "/v1/messages/count_tokens", body: structuredClone(anthropicBody), requestedModel: "sdk-alias",
+      headers: new Headers({ "x-api-key": binding.credential }),
+    });
+    expect(result.kind).toBe("response");
+    if (result.kind !== "response") throw new Error("Expected the count failure response");
+    expect(result.response.status).toBe(429);
+    expect(result.response.headers.get("retry-after")).toBe("0");
+    expect(await result.response.json()).toMatchObject({ error: { status: 429, origin: "upstream" } });
+    expect(binding.inFlight).toBe(0);
+  } finally {
+    await registry.close(binding.bindingId);
+    await resetGlobalEcoGatewayForTests();
+    upstream.stop(true);
+  }
+});
 
 for (const mode of ["provider_native", "local_heuristic"] as const) {
   test(`${mode} preflight uses the Responses server counter, including legacy settings`, async () => {

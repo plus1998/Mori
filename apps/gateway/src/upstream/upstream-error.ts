@@ -110,6 +110,7 @@ export function formatUpstreamHttpError(input: {
 }
 
 export function upstreamErrorResponse(input: {
+  upstreamHeaders?: Headers;
   route: ResolvedProviderRoute;
   upstreamUrl: string;
   status: number;
@@ -120,6 +121,10 @@ export function upstreamErrorResponse(input: {
   const errorInfo = extractUpstreamErrorInfo(input.bodyText);
   const errorCode = errorInfo?.code;
   const headers = new Headers({ "content-type": "application/json" });
+  for (const name of ["retry-after", "retry-after-ms", "request-id", "x-request-id"]) {
+    const value = input.upstreamHeaders?.get(name);
+    if (value) headers.set(name, value);
+  }
   if (errorCode) headers.set("x-eco-upstream-error-code", errorCode);
   const origin = input.errorOrigin === "eco.context_budget" ? "eco.context_budget" : "upstream";
   headers.set("x-eco-error-origin", origin);

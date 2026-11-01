@@ -979,6 +979,7 @@ export function ModelsSettingsPanel({
                     disabled={busy}
                     invalid={false}
                     invalidLabel={t("settings.models.resources.missingMainAgentHint")}
+                    onAddProvider={openCreateProvider}
                     onSelect={(mainModel) => updateDefaultOrchestrationDraft({ mainModel })}
                   />
                 </div>

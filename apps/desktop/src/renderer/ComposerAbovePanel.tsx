@@ -83,7 +83,9 @@ export function ComposerAbovePanel({
   }, [triggerRef, autoFocus]);
   useEffect(() => {
     const isNestedMenu = (target: EventTarget | null) =>
-      target instanceof Element && target.closest(".composer-field-select-menu, .model-cascade-panel");
+      target instanceof Element && target.closest(
+        ".composer-field-select-menu, .model-cascade-panel, .composer-main-model-picker",
+      );
     const pointer = (event: PointerEvent) => {
       const target = event.target as Node;
       if (panelRef.current?.contains(target) || triggerRef?.current?.contains(target) || isNestedMenu(target))

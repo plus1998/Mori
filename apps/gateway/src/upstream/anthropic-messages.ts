@@ -220,6 +220,7 @@ export async function fetchWithThinkingRectifiers(
           upstreamUrl,
           status: retryResponse.status,
           bodyText: retryText,
+          upstreamHeaders: retryResponse.headers,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -282,6 +283,7 @@ export async function fetchWithThinkingRectifiers(
           upstreamUrl,
           status: retryResponse.status,
           bodyText: retryText,
+          upstreamHeaders: retryResponse.headers,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -310,6 +312,7 @@ export async function fetchWithThinkingRectifiers(
     upstreamUrl,
     status: upstreamResponse.status,
     bodyText: text,
+    upstreamHeaders: upstreamResponse.headers,
   });
 }
 

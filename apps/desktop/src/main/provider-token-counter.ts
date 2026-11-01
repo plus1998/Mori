@@ -10,7 +10,7 @@ import {
   responsesInputTokensToAnthropicCount,
   responsesToChatCompletionsRequest,
 } from "@eco/openai-anthropic-bridge";
-import { InputTokenCountUnsupportedError } from "@eco/shared";
+import { InputTokenCountUnsupportedError, InputTokenCountUpstreamError } from "@eco/shared";
 import type { UpstreamApiCompat } from "../shared/api-compat";
 import { normalizeProviderTokenCountMode, type ProviderTokenCountMode } from "../shared/provider-token-count";
 import { stripSemanticCompactionDirectives } from "./bridge-upstream";
@@ -224,9 +224,7 @@ async function countViaEcoBridgeAnthropic(
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(
-        `token count 上游请求失败：HTTP ${response.status}${text.trim() ? `；${text.trim()}` : ""}`,
-      );
+      throw new InputTokenCountUpstreamError(response.status, text, response.headers);
     }
     const raw = (await response.json()) as unknown;
     return {
@@ -246,9 +244,7 @@ async function countViaEcoBridgeAnthropic(
   const response = await handleGlobalEcoGatewayRequest(gatewayRequest);
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(
-      `token count 上游请求失败：HTTP ${response.status}${text.trim() ? `；${text.trim()}` : ""}`,
-    );
+    throw new InputTokenCountUpstreamError(response.status, text, response.headers);
   }
   const raw = (await response.json()) as unknown;
   return {
@@ -388,7 +384,7 @@ async function postJsonForTokenCount(
     if (!response.ok) {
       const message = `token count 上游请求失败：HTTP ${response.status}${text.trim() ? `；${text.trim()}` : ""}`;
       if ([404, 405, 501].includes(response.status)) throw new InputTokenCountUnsupportedError(message);
-      throw new Error(message);
+      throw new InputTokenCountUpstreamError(response.status, text, response.headers);
     }
     if (!text.trim()) {
       throw new Error("token count 上游返回空响应。");

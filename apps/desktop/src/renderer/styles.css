@@ -42794,19 +42794,32 @@ body.is-resizing-browser-split::before {
 .composer-above-panel .composer-route-prompt-control { min-width: 0; gap: 7px; }
 .composer-above-panel .composer-route-prompt-label { font-size: 11px; }
 .composer-above-panel .composer-route-prompt-hint { font-size: 10px; line-height: 1.45; }
-.composer-route-main-model-account-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  min-width: 0;
+.composer-route-main-model-control .composer-model-selector { display: flex; width: 100%; flex: 1 1 auto; }
+.composer-route-main-model-control .composer-model-trigger {
+  width: 100%;
+  max-width: none;
+  height: 34px;
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
+  border-radius: 9px;
+  background-color: color-mix(in srgb, var(--bg-input) 90%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
 }
-.composer-route-main-model-account-row > :only-child { grid-column: 1 / -1; }
-.composer-route-main-model-control > .composer-field-select { min-width: 0; }
+.composer-route-main-model-control .composer-model-trigger:hover:not(:disabled),
+.composer-route-main-model-control .composer-model-trigger.is-active {
+  border-color: color-mix(in srgb, var(--border-strong) 76%, transparent);
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+}
+.composer-route-main-model-control .composer-model-trigger.is-invalid {
+  border-color: var(--danger, #dc2626);
+  color: var(--danger, #dc2626);
+}
 .composer-above-panel .composer-field-select-trigger,
 .composer-above-panel .model-cascade-trigger { min-height: 34px; border-radius: 9px; }
 @container (max-width: 540px) {
   .composer-above-panel .composer-route-composition-controls { grid-template-columns: minmax(0, 1fr); }
-  .composer-route-main-model-account-row { grid-template-columns: minmax(0, 1fr); }
   .composer-route-column-toggle { display: none; }
   .composer-plus-menu-item-description { font-size: 12px; }
 }

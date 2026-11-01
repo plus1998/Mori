@@ -153,6 +153,60 @@ const routes: ResolvedModelRoute[] = [
 
 async function* emptySdkQuery(): AsyncIterable<unknown> {}
 
+const counterApiErrorText = 'API Error: 429 token count 上游请求失败：HTTP 429；{"error":{"message":"上游服务暂时不可用","request_id":"req-counter"}}';
+
+for (const scenario of ["failed-result", "legacy-result", "no-result", "clean-failure", "recovered", "subagent", "quoted-text", "crash"] as const) {
+  test(`Claude SDK preserves API failure attribution through process teardown (${scenario})`, async () => {
+    const processError = new Error(`Claude Code process exited with code ${scenario === "crash" ? 137 : 1}. stderr: [claude-code:unrecognized_model] {"model":"eco-main-alias","query_source":"sdk"}`);
+    const probes: Array<{ phase: string; detail: Record<string, unknown> }> = [];
+    const driver = new ClaudeAgentSdkDriver({
+      apiKey: "test-key", baseUrl: "http://127.0.0.1:36037",
+      onContextProbe: (phase, detail) => probes.push({ phase, detail }),
+      loadSdk: async () => ({ query: () => ({
+        async *[Symbol.asyncIterator]() {
+          yield { type: "system", subtype: "init", session_id: "sess-error", uuid: "init-error" };
+          yield {
+            type: "assistant", uuid: "api-error", session_id: "sess-error",
+            ...(scenario !== "quoted-text" && { error: "unknown", isApiErrorMessage: true }),
+            ...(scenario === "subagent" && { parent_tool_use_id: "child-call" }),
+            message: { id: "api-message", role: "assistant", content: [{ type: "text", text: counterApiErrorText }] },
+          };
+          if (scenario !== "no-result") {
+            yield { type: "result", session_id: "sess-error", uuid: "result-error",
+              ...(scenario === "legacy-result"
+                ? { subtype: "error_during_execution", is_error: true, errors: [counterApiErrorText] }
+                : { subtype: "success", is_error: scenario !== "recovered", terminal_reason: scenario === "recovered" ? "completed" : "api_error" }) };
+          }
+          if (scenario !== "clean-failure") throw processError;
+        }, close() {},
+      }) }),
+    });
+    const emitted: Array<{ type: string; payload: unknown }> = [];
+    let caught: unknown;
+    try {
+      for await (const event of driver.runAsk({
+        threadId: "thr-error", prompt: "Continue", workspacePath: "/tmp/workspace", worktreePath: "/tmp/worktree",
+        routes, signal: new AbortController().signal,
+      })) emitted.push(event);
+    } catch (error) { caught = error; }
+
+    if (scenario === "clean-failure") {
+      expect(caught).toBeUndefined();
+      expect(emitted.find(event => event.type === "run.terminal")?.payload).toMatchObject({ status: "failed", error: counterApiErrorText });
+    } else if (scenario === "failed-result" || scenario === "legacy-result" || scenario === "no-result") {
+      expect(caught).toMatchObject({ message: counterApiErrorText, cause: processError });
+      expect(probes).toContainEqual({ phase: "query_transport_error", detail: { error: processError.message, primaryError: counterApiErrorText } });
+      if (scenario === "failed-result" || scenario === "legacy-result") {
+        expect(emitted.find(event => event.type === "run.terminal")?.payload).toMatchObject({ status: "failed", error: counterApiErrorText });
+      }
+    } else {
+      // A recovered turn, subagent failure, quoted text or a genuine process crash
+      // cannot be relabeled with an earlier main-agent API error.
+      expect(caught).toBe(processError);
+    }
+  });
+}
+
 function universalToolPolicy(allowed: string[], disallowed: string[] = []): EcoToolPolicy {
   return { allowed, disallowed };
 }

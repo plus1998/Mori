@@ -6,7 +6,11 @@ import {
   type ParsedUsage,
   resolveAppliedMaxOutputTokens,
 } from "@eco/runtime";
-import { containsImageInput } from "@eco/shared";
+import {
+  containsImageInput,
+  isInputTokenCountUpstreamError,
+  inputTokenCountUpstreamErrorResponse,
+} from "@eco/shared";
 import {
   assertApiCompatCompatibleWithProviderPath,
   IncompatibleApiCompatError,
@@ -687,26 +691,34 @@ async function prepareAgainstBinding(
   }
 
   if (countTokens) {
-    const override = resolveCountTokensOverride(body, route.role, binding.callbacks.resolveCountTokensInput);
-    const tokenCount =
-      override !== undefined
-        ? {
-            tokens: override,
-            precision: "heuristic" as const,
-            source: "eco:resolveCountTokensInput_override",
-          }
-        : await countProviderInputTokens({
-            mode: normalizeProviderTokenCountMode(route.provider.tokenCountMode),
-            provider: route.provider,
-            apiCompat: resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
-            modelId: route.modelId,
-            anthropicBody: body,
-          });
-    releaseLease();
-    return {
-      kind: "response",
-      response: Response.json({ input_tokens: tokenCount.tokens }),
-    };
+    try {
+      const override = resolveCountTokensOverride(body, route.role, binding.callbacks.resolveCountTokensInput);
+      const tokenCount =
+        override !== undefined
+          ? {
+              tokens: override,
+              precision: "heuristic" as const,
+              source: "eco:resolveCountTokensInput_override",
+            }
+          : await countProviderInputTokens({
+              mode: normalizeProviderTokenCountMode(route.provider.tokenCountMode),
+              provider: route.provider,
+              apiCompat: resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
+              modelId: route.modelId,
+              anthropicBody: body,
+            });
+      return {
+        kind: "response",
+        response: Response.json({ input_tokens: tokenCount.tokens }),
+      };
+    } catch (error) {
+      if (isInputTokenCountUpstreamError(error)) {
+        return { kind: "response", response: inputTokenCountUpstreamErrorResponse(error) };
+      }
+      throw error;
+    } finally {
+      releaseLease();
+    }
   }
 
   let logicalRequestId: string | undefined;

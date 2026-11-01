@@ -130,12 +130,24 @@ export function buildMainModelProviderOptions(
   ];
 }
 
-export function ComposerMainModelPicker({ anchorRef, model, coreKind, disabled, onSelect, onAddProvider, openRequest = 0 }: {
+export function ComposerMainModelPicker({
+  anchorRef,
+  model,
+  coreKind,
+  disabled,
+  invalid = false,
+  invalidLabel,
+  onSelect,
+  onAddProvider,
+  openRequest = 0,
+}: {
   anchorRef: RefObject<HTMLElement | null>;
   model?: ModelRef | undefined;
   coreKind: string;
   openRequest?: number;
   disabled?: boolean | undefined;
+  invalid?: boolean | undefined;
+  invalidLabel?: string | undefined;
   onSelect: (model: ModelRef) => void | Promise<void>;
   onAddProvider: () => void;
 }) {
@@ -318,6 +330,21 @@ export function ComposerMainModelPicker({ anchorRef, model, coreKind, disabled, 
     void saveChoice(choice);
   };
 
+  const chooseAccount = (nextAccountId: string) => {
+    if (nextAccountId === accountId) return;
+    const providerId = source === "login" ? "openai" : "eco-coding-chatgpt";
+    const currentChoice = activeChoice?.providerId === providerId ? activeChoice
+      : model?.providerId === providerId ? model : undefined;
+    setAccountId(nextAccountId);
+    if (!currentChoice) {
+      setActiveChoice(undefined);
+      return;
+    }
+    const choice: ModelRef = { ...currentChoice, accountId: nextAccountId };
+    setActiveChoice(choice);
+    void saveChoice(choice);
+  };
+
   const chooseEffort = (effort: ThinkingEffort) => {
     setPreferredEffort(effort);
     if (!activeChoice || !activeModel || sliderDisabled || !supportedEfforts.includes(effort)) return;
@@ -338,8 +365,10 @@ export function ComposerMainModelPicker({ anchorRef, model, coreKind, disabled, 
 
   return <span className="composer-model-selector">
     <button ref={triggerRef} type="button"
-      className={`composer-model-trigger${open ? " is-active" : ""}${model ? "" : " is-empty"}`}
-      aria-label={`${t("composer.route.mainModel")}：${model?.modelId ?? t("composer.route.notConfigured")}`}
+      className={`composer-model-trigger${open ? " is-active" : ""}${model ? "" : " is-empty"}${invalid ? " is-invalid" : ""}`}
+      aria-label={`${t("composer.route.mainModel")}：${model?.modelId ?? t("composer.route.notConfigured")}${invalid && invalidLabel ? ` — ${invalidLabel}` : ""}`}
+      aria-invalid={invalid || undefined}
+      title={invalid ? invalidLabel : undefined}
       aria-haspopup="dialog" aria-expanded={open} disabled={disabled}
       onClick={() => setOpen((current) => !current)}>
       {model ? <ComposerModelLabel modelId={model.modelId} thinkingEffort={model.thinkingEffort}
@@ -378,7 +407,7 @@ export function ComposerMainModelPicker({ anchorRef, model, coreKind, disabled, 
               {accounts.length ? accounts.map((account) => <button key={account.id} type="button"
                 className={account.id === accountId ? "is-selected" : ""}
                 aria-pressed={account.id === accountId}
-                onClick={() => { setAccountId(account.id); setActiveChoice(undefined); }}>
+                onClick={() => chooseAccount(account.id)}>
                 <span>{account.name}</span>{account.id === accountId ? <Check size={14} aria-hidden /> : null}
               </button>) : <p className="composer-main-model-picker-hint">{loading
                 ? t("composer.mainPicker.loading") : t("composer.mainPicker.noAccounts")}</p>}

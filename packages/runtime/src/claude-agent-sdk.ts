@@ -1526,6 +1526,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
     const slashPrompt = phase.prompt.trim().startsWith("/");
     const slashCommand = slashPrompt ? phase.prompt.trim().split(/\s+/)[0]?.toLowerCase() : "";
     let contextUsageCollected = false;
+    let lastMainApiError: string | undefined;
     let permissionModeApplied = false;
     // Pair streaming-input turns: initial prompt + each successful mid-turn push.
     // A prior turn's result must not satisfy a later accepted input that never got a result.
@@ -1694,6 +1695,21 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
           pendingQueuedTurns = queuedTurnCount;
         }
 
+        // SDK API-error assistant records are authoritative failures, whereas
+        // stderr can contain unrelated notices about gateway model aliases.
+        const mainApiError = readMainSdkApiErrorMessage(message);
+        if (mainApiError) lastMainApiError = mainApiError;
+        else if (isMainSdkAssistantMessage(message)) lastMainApiError = undefined;
+        if (isRecord(message) && message.type === "result" && !message.parent_tool_use_id && !message.agent_id) {
+          const reason = readTerminalFailureReason(message);
+          const differentFailure =
+            (reason && reason !== "api_error") ||
+            (typeof message.subtype === "string" &&
+              message.subtype.startsWith("error_") &&
+              message.subtype !== "error_during_execution");
+          if (!extractSdkRunFailure(message) || differentFailure) lastMainApiError = undefined;
+        }
+
         this.options.onSdkMessage?.(message);
         const backgroundTasks = readClaudeBackgroundTasksChanged(message);
         if (backgroundTasks) {
@@ -1718,7 +1734,12 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
               }
             : message;
         for (const event of mapSdkMessageToEvents(mappedMessage, input.threadId, streamCtx)) {
-          yield event;
+          yield event.type === "run.terminal" &&
+            lastMainApiError &&
+            isRecord(event.payload) &&
+            event.payload.status === "failed"
+            ? { ...event, payload: { ...event.payload, error: lastMainApiError } }
+            : event;
           transcript = appendToPhaseTranscript(transcript, event);
           phaseTranscriptBox.text = transcript;
         }
@@ -1789,6 +1810,20 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
           });
         }
       }
+    } catch (error) {
+      if (
+        !input.signal.aborted &&
+        lastMainApiError &&
+        error instanceof Error &&
+        /^Claude Code process exited with code 1(?:\.|$)/.test(error.message)
+      ) {
+        this.options.onContextProbe?.("query_transport_error", {
+          error: error.message,
+          primaryError: lastMainApiError,
+        });
+        throw new Error(lastMainApiError, { cause: error });
+      }
+      throw error;
     } finally {
       input.signal.removeEventListener("abort", onAbort);
       heldPromptCloseGate.cancel();
@@ -2713,6 +2748,28 @@ export function createPhaseBoundaryEvent(threadId: string, phase: EcoRunPhase, l
     type: "agent.started",
     payload: { ecoPhase: phase, label },
   });
+}
+
+function isMainSdkAssistantMessage(message: unknown): message is Record<string, unknown> {
+  return isRecord(message) && message.type === "assistant" && !message.parent_tool_use_id && !message.agent_id;
+}
+
+function readMainSdkApiErrorMessage(message: unknown): string | undefined {
+  if (
+    !isMainSdkAssistantMessage(message) ||
+    (message.isApiErrorMessage !== true && !(typeof message.error === "string" && message.error.trim())) ||
+    !isRecord(message.message) ||
+    !Array.isArray(message.message.content)
+  ) {
+    return undefined;
+  }
+  const text = message.message.content
+    .flatMap((block) =>
+      isRecord(block) && block.type === "text" && typeof block.text === "string" ? [block.text.trim()] : [],
+    )
+    .filter(Boolean)
+    .join("\n");
+  return text || undefined;
 }
 
 export function extractSdkRunFailure(payload: unknown): string | null {

@@ -1,8 +1,68 @@
 import { expect, test } from "bun:test";
-import { InputTokenCountUnsupportedError } from "@eco/shared";
+import { InputTokenCountUnsupportedError, InputTokenCountUpstreamError } from "@eco/shared";
 import { withDynamicOutputBudget } from "../src/model-output-limit.js";
 import type { GatewayConfig, GatewayProvider } from "../src/types.js";
 import { createTestGatewayFetchHandler } from "./test-bridge-rewrite.js";
+
+for (const status of [401, 429, 503]) {
+  test(`messages route exposes counting HTTP ${status} and retry metadata`, async () => {
+    const provider: GatewayProvider = {
+      id: "counter", name: "Counter", upstreamKind: "anthropic-messages", baseUrl: "https://counter.test",
+      apiKey: "secret", upstreamModelId: "model", models: ["model"], modelContextTokens: { model: 200_000 },
+    };
+    let generationCalls = 0;
+    const handler = createTestGatewayFetchHandler({
+      host: "127.0.0.1", port: 0, providers: [provider],
+      countInputTokens: async () => {
+        throw new InputTokenCountUpstreamError(status, '{"error":{"message":"temporarily unavailable"}}',
+          new Headers({ "retry-after": "0", "request-id": "req-counter", "set-cookie": "private" }));
+      },
+    }, async () => {
+      generationCalls++;
+      return Response.json({});
+    });
+    const response = await handler(new Request("http://127.0.0.1/v1/messages", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "model", messages: [{ role: "user", content: "hi" }] }),
+    }));
+    expect(response.status).toBe(status);
+    expect(response.headers.get("retry-after")).toBe("0");
+    expect(response.headers.get("request-id")).toBe("req-counter");
+    expect(response.headers.get("set-cookie")).toBeNull();
+    const body = await response.json();
+    expect(body.error).toMatchObject({ status, origin: "upstream", code: "input_token_count_upstream_error" });
+    expect(body.error.message).toContain(`token count 上游请求失败：HTTP ${status}`);
+    expect(generationCalls).toBe(0);
+  });
+
+  test(`dynamic counting preserves upstream HTTP ${status} without sending generation`, async () => {
+    const provider: GatewayProvider = {
+      id: "counter", name: "Counter", upstreamKind: "anthropic-messages", baseUrl: "https://counter.test",
+      apiKey: "secret", upstreamModelId: "model", models: ["model"], modelContextTokens: { model: 200_000 },
+    };
+    let generationCalls = 0;
+    const budgeted = withDynamicOutputBudget(async () => {
+      generationCalls++;
+      return Response.json({});
+    }, { provider, upstreamKind: "anthropic-messages", requestedModel: "model", upstreamModelId: "model" }, {
+      host: "127.0.0.1", port: 0, providers: [provider],
+      countInputTokens: async () => {
+        throw new InputTokenCountUpstreamError(status, '{"error":{"message":"temporarily unavailable","request_id":"req-counter"}}',
+          new Headers({ "retry-after": "7", "request-id": "req-counter", "set-cookie": "private", authorization: "private" }));
+      },
+    }, new AbortController().signal, () => {});
+    const response = await budgeted("https://counter.test/v1/messages", {
+      method: "POST", body: JSON.stringify({ model: "model", messages: [] }),
+    });
+    expect(response.status).toBe(status);
+    expect(response.headers.get("retry-after")).toBe("7");
+    expect(response.headers.get("request-id")).toBe("req-counter");
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("authorization")).toBeNull();
+    expect(await response.json()).toMatchObject({ error: { origin: "upstream", status, code: "input_token_count_upstream_error" } });
+    expect(generationCalls).toBe(0);
+  });
+}
 
 for (const [kind, field] of [
   ["responses", "max_output_tokens"],

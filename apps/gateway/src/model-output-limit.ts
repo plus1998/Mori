@@ -3,6 +3,8 @@ import {
   DYNAMIC_OUTPUT_FALLBACK_TOKENS,
   InputTokenCountUnsupportedError,
   isInputTokenCountUnsupportedError,
+  isInputTokenCountUpstreamError,
+  inputTokenCountUpstreamErrorResponse,
 } from "@eco/shared";
 import { coalesceResponsesCompactionInput } from "./compaction-input.js";
 import type { GatewayLogFn } from "./server.js";
@@ -169,6 +171,7 @@ export function withDynamicOutputBudget(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       onLog(`dynamic output rejected provider=${route.provider.id}: ${message}`);
+      if (isInputTokenCountUpstreamError(error)) return inputTokenCountUpstreamErrorResponse(error);
       return Response.json(
         { error: { message, type: "input_token_count_error", code: "dynamic_output_budget_error" } },
         { status: 400 },
