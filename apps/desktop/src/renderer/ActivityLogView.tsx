@@ -5028,7 +5028,7 @@ function ProjectionTimelineEntry({
     return wrapRunLogFeedEntry(
       <FeedErrorCard
         message={failureMessage}
-        actionLabel={i18n.t("activity.switchAccount")}
+        actionLabel={i18n.t("activity.changeModel")}
         onAction={onSwitchCodexAccount}
       />,
     );

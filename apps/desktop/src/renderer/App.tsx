@@ -9228,7 +9228,7 @@ function App() {
     setSettingsOpen(true);
   }
 
-  const openCodexAccountSwitch = useCallback(() => setModelPickerOpenRequest(current => current + 1), []);
+  const openConversationModelPicker = useCallback(() => setModelPickerOpenRequest(current => current + 1), []);
   const openChatGptSubscriptionAccounts = useCallback((accountId?: string) => {
     setModelsSettingsChatGptAccountId(accountId?.trim() || undefined);
     setModelsSettingsTab("chatgptAccounts");
@@ -12412,7 +12412,7 @@ function App() {
                               variant="composer"
                               accountId={composerPickerModel?.providerId === "openai" ? composerPickerModel.accountId : undefined}
                               threads={activeThread ? [activeThread] : []}
-                              onSwitchAccount={openCodexAccountSwitch}
+                              onChangeModel={openConversationModelPicker}
                             />
                           ) : null
                         }
@@ -12741,7 +12741,7 @@ function App() {
               threads={threads}
               activeThreadId={selectedThreadId}
               accountId={activeThread ? codexAccountIdForThread(activeThread) : undefined}
-              onSwitchAccount={openCodexAccountSwitch}
+              onChangeModel={openConversationModelPicker}
             />
             <div className="sidebar-settings">
               <button
@@ -13034,7 +13034,7 @@ function App() {
                                         ? { onForkMessage: activityForkMessage }
                                         : {})}
                                       onRetryFailedRequest={activityRetryFailedRequest}
-                                      onSwitchCodexAccount={openCodexAccountSwitch}
+                                      onSwitchCodexAccount={openConversationModelPicker}
                                       onOpenChatGptSubscriptionAccounts={
                                         openChatGptSubscriptionAccounts
                                       }

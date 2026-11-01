@@ -64,7 +64,7 @@ export function CodexQuotaReminderCard({
   error,
   busy = false,
   refreshing = false,
-  onSwitchAccount,
+  onChangeModel,
   onReset,
   onDismiss,
   onRefresh,
@@ -74,7 +74,7 @@ export function CodexQuotaReminderCard({
   error?: string | undefined;
   busy?: boolean;
   refreshing?: boolean;
-  onSwitchAccount: () => void;
+  onChangeModel: () => void;
   onReset: () => void;
   onDismiss?: () => void;
   onRefresh?: () => void;
@@ -171,8 +171,9 @@ export function CodexQuotaReminderCard({
             {t(refreshing ? "settings.openaiAccounts.refreshing" : "settings.openaiAccounts.refreshQuota")}
           </button>
         ) : null}
-        <button type="button" onClick={onSwitchAccount} disabled={busy || refreshing}>
-          {t("codexQuota.switchAccount")}
+        <button type="button" onClick={onChangeModel} disabled={busy || refreshing}
+          title={t("codexQuota.changeModelHint")}>
+          {t("codexQuota.changeModel")}
         </button>
         <button
           type="button"
@@ -194,7 +195,7 @@ export function CodexQuotaReminderCard({
 
 export function CodexQuotaReminder({
   threads,
-  onSwitchAccount,
+  onChangeModel,
   eco = window.eco,
   variant = "reminder",
   activeThreadId,
@@ -202,7 +203,7 @@ export function CodexQuotaReminder({
 }: {
   threads: readonly ThreadSummary[];
   accountId?: string | undefined;
-  onSwitchAccount: () => void;
+  onChangeModel: () => void;
   eco?: QuotaReminderBridge | undefined;
   /** The conversation on screen; the sidebar reminder only shows while it uses the Codex account. */
   activeThreadId?: string | undefined;
@@ -350,9 +351,9 @@ export function CodexQuotaReminder({
                 busy={resetting}
                 refreshing={refreshing}
                 variant="billing"
-                onSwitchAccount={() => {
+                onChangeModel={() => {
                   closePanel();
-                  onSwitchAccount();
+                  onChangeModel();
                 }}
                 onReset={() => void reset()}
                 onRefresh={() => void refreshQuota()}
@@ -409,7 +410,7 @@ export function CodexQuotaReminder({
       error={error}
       busy={resetting}
       refreshing={refreshing}
-      onSwitchAccount={onSwitchAccount}
+      onChangeModel={onChangeModel}
       onReset={() => void reset()}
       onRefresh={() => void refreshQuota()}
       onDismiss={() => setDismissed(reminderKey)}

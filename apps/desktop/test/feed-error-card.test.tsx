@@ -228,7 +228,7 @@ test.each([
   );
 
   expect(markup).toContain('class="feed-error-card"');
-  expect(markup).toContain(">切换账号</button>");
+  expect(markup).toContain(">更换模型</button>");
   expect(markup).toContain("Oct 24th, 2026 9:36 AM.");
   expect(markup).not.toContain(">重试</button>");
 });
@@ -246,7 +246,7 @@ test("Codex usage exhaustion can switch accounts after the turn has produced out
   );
 
   expect(markup).toContain("Work so far");
-  expect(markup).toContain(">切换账号</button>");
+  expect(markup).toContain(">更换模型</button>");
 });
 
 test("Codex usage exhaustion recognizes the structured error code", () => {
@@ -258,7 +258,7 @@ test("Codex usage exhaustion recognizes the structured error code", () => {
     { coreKind: "codex" },
   );
 
-  expect(markup).toContain(">切换账号</button>");
+  expect(markup).toContain(">更换模型</button>");
 });
 
 test("subscription quota failures show the account-specific usage recovery card", () => {
@@ -284,7 +284,7 @@ test("subscription quota failures show the account-specific usage recovery card"
   expect(markup).toContain('href="https://chatgpt.com/settings/usage"');
   expect(markup).toContain(">查看 Usage</a>");
   expect(markup).toContain(">手动测试账号</button>");
-  expect(markup).not.toContain(">切换账号</button>");
+  expect(markup).not.toContain(">更换模型</button>");
   expect(markup).not.toContain(">重试</button>");
   expect(projectionItemToDetailBlock(item)).toMatchObject({
     kind: "api-error",
@@ -339,7 +339,7 @@ test("other cores and ordinary Codex rate limits retain their retry action", () 
   );
 
   for (const markup of [otherCore, rateLimit]) {
-    expect(markup).not.toContain(">切换账号</button>");
+    expect(markup).not.toContain(">更换模型</button>");
     expect(markup).toContain(">重试</button>");
   }
 });
@@ -350,7 +350,7 @@ test("the error card action invokes account switching without propagating to the
   let stopped = false;
   const card = FeedErrorCard({
     message: codexUsageLimitMessage,
-    actionLabel: "切换账号",
+    actionLabel: "更换模型",
     onAction: () => {
       switched = true;
     },

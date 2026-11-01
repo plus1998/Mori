@@ -91,7 +91,7 @@ test("a fresh composer renders the account quota control without thread usage", 
     accountQuota: createElement(CodexQuotaReminder, {
       variant: "composer",
       threads: [],
-      onSwitchAccount: () => undefined,
+      onChangeModel: () => undefined,
       eco: {
         ...bridge(),
         openAIAccountsResetQuota: async () => ({ outcome: "nothingToReset" as const }),
@@ -288,13 +288,13 @@ test("repeated explicit refreshes share one in-flight request", async () => {
 });
 
 test("reminder shows conversation quota and disables reset without credits or during another operation", () => {
-  const props = { snapshot, onReset() {}, onSwitchAccount() {}, onDismiss() {} };
+  const props = { snapshot, onReset() {}, onChangeModel() {}, onDismiss() {} };
   const html = renderLocalized(createElement(CodexQuotaReminderCard, props), "zh-CN");
   for (const text of [
     "剩余 6% 使用量",
     "此会话账号：Current",
     "5 小时",
-    "切换账号",
+    "更换模型",
     "使用重置",
     "可用重置：2 次",
     "将于",
@@ -314,10 +314,10 @@ test("reminder shows conversation quota and disables reset without credits or du
 });
 
 test("quota card shows which operation is running and disables conflicting actions", () => {
-  const props = { snapshot, onReset() {}, onSwitchAccount() {}, onRefresh() {} };
+  const props = { snapshot, onReset() {}, onChangeModel() {}, onRefresh() {} };
   const refreshing = renderLocalized(createElement(CodexQuotaReminderCard, { ...props, refreshing: true }), "zh-CN");
   expect(refreshing).toMatch(/<button[^>]*disabled=""[^>]*aria-busy="true"[^>]*>.*?刷新中…<\/button>/);
-  expect(refreshing).toMatch(/<button[^>]*disabled=""[^>]*>切换账号<\/button>/);
+  expect(refreshing).toMatch(/<button[^>]*disabled=""[^>]*>更换模型<\/button>/);
   expect(refreshing).toMatch(/<button[^>]*disabled=""[^>]*>使用重置<\/button>/);
 
   const resetting = renderLocalized(createElement(CodexQuotaReminderCard, { ...props, busy: true }), "zh-CN");
@@ -379,7 +379,7 @@ test("the reminder key is stable across refetches and changes when a window rese
 });
 
 test("the sidebar reminder hides above 10% headroom and is dismissible when it shows", () => {
-  const props = { onReset() {}, onSwitchAccount() {}, onDismiss() {} };
+  const props = { onReset() {}, onChangeModel() {}, onDismiss() {} };
   const shown = renderLocalized(createElement(CodexQuotaReminderCard, { ...props, snapshot }), "zh-CN");
   expect(shown).toContain("剩余 6% 使用量");
   expect(shown).toContain('aria-label="关闭"');
@@ -415,7 +415,7 @@ test("billing card shows every quota window even when no quota is low", () => {
       },
       variant: "billing",
       onReset() {},
-      onSwitchAccount() {},
+      onChangeModel() {},
     }),
     "zh-CN",
   );
@@ -426,7 +426,7 @@ test("billing card shows every quota window even when no quota is low", () => {
     "7 天",
     "75%",
     "50%",
-    "切换账号",
+    "更换模型",
     "使用重置",
   ])
     expect(html).toContain(text);
