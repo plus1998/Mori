@@ -15,6 +15,7 @@ import {
   type ComposerReference,
 } from "../shared/composer-references";
 import type { ComposerSkillsInputHandle } from "./ComposerSkillsInput";
+import { matchesProjectSearchTerms } from "../shared/project-pinyin-search";
 import {
   filterComposerCapabilityReferences,
   type ComposerCapabilityReference,
@@ -26,12 +27,14 @@ export function useComposerReferences({
   inputRef,
   onChange,
   capabilities,
+  projects,
 }: {
   prompt: string;
   cursor: number;
   inputRef: RefObject<ComposerSkillsInputHandle | null>;
   onChange(value: string): void;
   capabilities: readonly ComposerCapabilityReference[];
+  projects: readonly { path: string; name: string; searchTerms?: readonly string[] }[];
 }) {
   const query = useMemo(() => parseMentionQuery(prompt, cursor), [prompt, cursor]);
   const queryKey = query ? JSON.stringify(query) : "";
@@ -86,13 +89,26 @@ export function useComposerReferences({
     () => new Set(composerReferences(prompt).map((item) => `${item.kind}:${item.id}`)),
     [prompt],
   );
+  const matchingProjects = useMemo(() => {
+    if (!query || (query.kind && query.kind !== "project")) return [];
+    const term = query.query.trim().toLocaleLowerCase();
+    return projects.filter((project) =>
+      !referenced.has(`project:${project.path}`) &&
+      (`${project.name} ${project.path}`.toLocaleLowerCase().includes(term)
+        || matchesProjectSearchTerms(project.searchTerms, term)),
+    );
+  }, [projects, query, referenced]);
   const items = useMemo(
     () =>
       [
+        ...matchingProjects.slice(0, 12)
+              .map((project): ComposerReference => ({
+                kind: "project", id: project.path, label: project.name, detail: project.path,
+              })),
         ...(query ? filterComposerCapabilityReferences(capabilities, query) : []),
         ...(result.key === queryKey ? result.items : []),
       ].filter((item) => !referenced.has(`${item.kind}:${item.id}`)),
-    [capabilities, query, result, queryKey, referenced],
+    [capabilities, matchingProjects, query, result, queryKey, referenced],
   );
   const selectionKey = items.map((item) => `${item.kind}:${item.id}`).join("|");
   useEffect(() => {
@@ -145,6 +161,6 @@ export function useComposerReferences({
     onKeyDown,
     loading: open && result.key !== queryKey,
     error: result.key === queryKey ? result.error : undefined,
-    hasMore: result.key === queryKey && result.hasMore,
+    hasMore: matchingProjects.length > 12 || (result.key === queryKey && result.hasMore),
   };
 }

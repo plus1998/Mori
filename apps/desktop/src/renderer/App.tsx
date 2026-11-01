@@ -7167,6 +7167,7 @@ function App() {
     inputRef: composerRef,
     onChange: setPrompt,
     capabilities: composerCapabilityReferences,
+    projects,
   });
   useEffect(() => {
     if (composerReferencesMenu.open) {

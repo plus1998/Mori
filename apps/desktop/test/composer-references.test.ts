@@ -29,9 +29,18 @@ test("mention queries filter by category without triggering on SSH endpoints or 
   expect(parseMentionQuery("请看 @网页:订单", 9)).toEqual({ start: 3, query: "订单", kind: "web" });
   expect(parseMentionQuery("@SSH：prod", 9)).toEqual({ start: 0, query: "prod", kind: "ssh" });
   expect(parseMentionQuery("@会话测试", 5)).toEqual({ start: 0, query: "测试", kind: "conversation" });
+  expect(parseMentionQuery("@项目:订单", 6)).toEqual({ start: 0, query: "订单", kind: "project" });
+  expect(parseMentionQuery("@project:app", 12)).toEqual({ start: 0, query: "app", kind: "project" });
   expect(parseMentionQuery("user@10.0.0.1", 13)).toBeNull();
   expect(parseMentionQuery("me@example.com", 14)).toBeNull();
   expect(parseMentionQuery(composerReferenceToken(reference), 500)).toBeNull();
+});
+
+test("project references retain long paths and render as atomic chips", () => {
+  const project = { kind: "project" as const, id: `/work/${"a".repeat(300)}`, label: "项目", detail: "/work/project" };
+  const token = composerReferenceToken(project);
+  expect(composerReferences(token)).toEqual([project]);
+  expect(parsePromptSegments(token)).toEqual([{ type: "reference", reference: project }]);
 });
 
 test("mentions work directly after Chinese text and punctuation, including in the middle of a draft", () => {

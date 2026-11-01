@@ -2,6 +2,7 @@ import type { ComposerReference } from "../shared/composer-references";
 
 type IconNode = readonly ["path" | "rect" | "circle", Readonly<Record<string, string>>];
 const ICONS = {
+  project: [["path", { d: "M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
   todo: [["rect", { x: "4", y: "3", width: "16", height: "18", rx: "2" }], ["path", { d: "m8 12 3 3 5-6" }]],
   ssh: [["path", { d: "m4 6 6 6-6 6M12 18h8" }]],
   web: [

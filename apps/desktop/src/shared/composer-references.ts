@@ -1,5 +1,6 @@
 /** Durable, copyable reference tokens. Labels are display data, never object identity. */
 export const COMPOSER_REFERENCE_KINDS = [
+  "project",
   "ssh",
   "todo",
   "web",
@@ -25,7 +26,7 @@ export interface ComposerReferenceSearchResult {
   items: ComposerReference[];
   hasMore: boolean;
 }
-export const COMPOSER_REFERENCE_PATTERN = /@(ssh|todo|web|web_selection|conversation|integration|subagent|mcp)\{([^{}\s]+)\}/g;
+export const COMPOSER_REFERENCE_PATTERN = /@(project|ssh|todo|web|web_selection|conversation|integration|subagent|mcp)\{([^{}\s]+)\}/g;
 export function composerReferenceToken(reference: ComposerReference): string {
   return `@${reference.kind}{${encodeURIComponent(JSON.stringify({ id: reference.id, label: reference.label.slice(0, 500), detail: reference.detail.slice(0, 2000) }))}}`;
 }
@@ -38,7 +39,7 @@ export function parseComposerReference(kind: string, value: string): ComposerRef
     if (
       typeof record.id !== "string" ||
       !record.id ||
-      record.id.length > 256 ||
+      record.id.length > (kind === "project" ? 4096 : 256) ||
       typeof record.label !== "string" ||
       typeof record.detail !== "string"
     )
@@ -70,9 +71,11 @@ export function parseMentionQuery(
   if (!match) return null;
   const raw = match[1]!;
   const category =
-    /^(SSH|待办|todo|网页|会话|集成|工具|子代理|MCP|web|conversation|chat|integration|subagent)[:：]?/i.exec(raw);
+    /^(项目|project|SSH|待办|todo|网页|会话|集成|工具|子代理|MCP|web|conversation|chat|integration|subagent)[:：]?/i.exec(raw);
   const name = category?.[1]?.toLowerCase();
   const categories: Record<string, ComposerReferenceKind> = {
+    项目: "project",
+    project: "project",
     ssh: "ssh",
     待办: "todo",
     todo: "todo",

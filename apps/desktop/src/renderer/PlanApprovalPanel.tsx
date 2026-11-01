@@ -264,10 +264,6 @@ export function PlanApprovalPanel({
                 <Loader2 size={14} className="spinning" aria-hidden />
                 {t("common.processing")}
               </>
-            ) : docked ? (
-              <>
-                {t("approval.plan.execute")} <kbd aria-hidden>↵</kbd>
-              </>
             ) : (
               t("approval.plan.execute")
             )}

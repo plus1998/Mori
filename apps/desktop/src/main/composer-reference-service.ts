@@ -1,4 +1,5 @@
 import type { ConversationMessage } from "@eco/shared";
+import path from "node:path";
 import type { BrowserInstanceView } from "../shared/browser";
 import type { ComposerCapabilityReference } from "../shared/composer-capability-references";
 import {
@@ -116,7 +117,11 @@ export class ComposerReferenceService {
     const replaced = prompt.replace(COMPOSER_REFERENCE_PATTERN, (token, kind: string, encoded: string) => {
       const ref = parseComposerReference(kind, encoded);
       if (!ref) throw new Error("引用格式无效，请删除后重新选择。");
-      if (ref.kind === "todo") {
+      if (ref.kind === "project") {
+        if (!path.isAbsolute(ref.id) && !path.win32.isAbsolute(ref.id))
+          throw new Error("项目引用的路径必须是绝对路径，请删除后重新选择。");
+        return ref.id;
+      } else if (ref.kind === "todo") {
         details.push(this.deps.todos.resolveReference(threadId, ref.id));
       } else if (ref.kind === "ssh") {
         const ssh = this.deps.listSsh().find((item) => item.id === ref.id);
@@ -196,7 +201,7 @@ export class ComposerReferenceService {
     });
     return details.length
       ? `${replaced}\n\n<eco_references>\n${JSON.stringify(details)}\n</eco_references>`
-      : prompt;
+      : replaced;
   }
   private requireThread(id: unknown): ThreadSummary {
     if (typeof id !== "string" || !id.trim()) throw new Error("conversationId 必须是非空字符串。");

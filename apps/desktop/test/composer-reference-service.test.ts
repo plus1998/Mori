@@ -53,6 +53,18 @@ test("prompt resolution uses current authoritative SSH metadata without stored c
   expect(prompt).not.toContain("must-never-leak");
   expect(prompt).not.toContain("bad@address");
 });
+test("project references resolve to the selected path, including alongside other references", async () => {
+  const service = setup();
+  const project = composerReferenceToken({ kind: "project", id: "/project/with space", label: "别名", detail: "伪造" });
+  expect(await service.resolvePrompt("current", `处理 ${project}`)).toBe("处理 /project/with space");
+  const ssh = composerReferenceToken({ kind: "ssh", id: "ssh1", label: "生产", detail: "" });
+  const mixed = await service.resolvePrompt("current", `${project} ${ssh}`);
+  expect(mixed).toContain("/project/with space [ssh: 生产]");
+  expect(mixed).not.toContain("伪造");
+  await expect(service.resolvePrompt("current", composerReferenceToken({
+    kind: "project", id: "relative/path", label: "项目", detail: "",
+  }))).rejects.toThrow("绝对路径");
+});
 test("browser operations require an explicit reference from the requesting conversation", async () => {
   const service = setup();
   await expect(
