@@ -10348,15 +10348,44 @@ function App() {
   }
 
   async function saveAcpCursorApiKey(acpCursorApiKey: string | undefined) {
-    if (!window.eco?.saveWorkflowSettings) return;
+    if (!window.eco?.saveProvider) return;
     setIsSavingSettings(true);
     setError(undefined);
     try {
-      const saved = await window.eco.saveWorkflowSettings({
-        ...workflowSettings,
-        acpCursorApiKey: acpCursorApiKey ?? "",
+      const cursor = settings.providers.find((provider) => provider.id === "cursor");
+      if (!cursor) throw new Error("Cursor 供应商尚未初始化。");
+      const existingKeys = cursor.apiKeys ?? [];
+      const first = existingKeys[0];
+      await window.eco.saveProvider({
+        id: cursor.id,
+        name: cursor.name,
+        baseUrl: cursor.baseUrl,
+        requestPath: cursor.requestPath,
+        version: cursor.version,
+        apiCompat: cursor.apiCompat,
+        ...(cursor.authMethod ? { authMethod: cursor.authMethod } : {}),
+        defaultModel: cursor.defaultModel,
+        enabled: cursor.enabled,
+        apiKey: "",
+        apiKeys: acpCursorApiKey?.trim()
+          ? [
+              {
+                ...(first?.id ? { id: first.id } : {}),
+                name: first?.name ?? "默认密钥",
+                apiKey: acpCursorApiKey,
+                enabled: true,
+              },
+              ...existingKeys.slice(1).map((key) => ({ id: key.id, name: key.name, enabled: key.enabled })),
+            ]
+          : [],
       });
-      setWorkflowSettings(saved);
+      const refreshed = await window.eco.getModelSettings();
+      setSettings(refreshed);
+      // Keep the legacy field empty after a provider save; it is only a migration fallback.
+      if (workflowSettings.acpCursorApiKey) {
+        const { acpCursorApiKey: _removed, ...withoutLegacyKey } = workflowSettings;
+        setWorkflowSettings(withoutLegacyKey);
+      }
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -13635,6 +13664,10 @@ function App() {
                     }}
                     acpCursorModelId={workflowSettings.acpCursorModelId}
                     acpCursorApiKey={workflowSettings.acpCursorApiKey}
+                    acpCursorApiKeyConfigured={
+                      Boolean(workflowSettings.acpCursorApiKey) ||
+                      Boolean(settings.providers.find((provider) => provider.id === "cursor")?.hasApiKey)
+                    }
                     cursorModels={cursorModels}
                     cursorModelsLoading={cursorModelsLoading}
                     {...(cursorModelsError && { cursorModelsError })}

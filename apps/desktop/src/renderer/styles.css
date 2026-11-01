@@ -27588,6 +27588,31 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   text-decoration: underline;
 }
 
+.models-provider-api-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.models-provider-api-key-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1.3fr) auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 560px) {
+  .models-provider-api-key-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .models-provider-api-key-row .mcp-field-input:nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+}
+
 .api-compat-toggle-wrap {
   position: relative;
   display: inline-flex;

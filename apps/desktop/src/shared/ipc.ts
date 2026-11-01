@@ -1522,6 +1522,23 @@ export type { ProjectIntegrationsSettingsSnapshot } from "./integrations";
 export type { ProjectOrchestrationSettingsSnapshot } from "./project-orchestration-settings";
 export type { ProviderTokenCountMode, UpstreamApiCompat };
 
+/** A named credential stored under a model provider. Secrets are write-only in renderer views. */
+export interface ProviderApiKeyInput {
+  id?: string;
+  name?: string;
+  apiKey?: string;
+  enabled?: boolean;
+  /** Renderer-only masked value used to preserve an existing secret when input is blank. */
+  apiKeyPreview?: string;
+}
+
+export interface ProviderApiKeyView {
+  id: string;
+  name: string;
+  enabled: boolean;
+  apiKeyPreview?: string;
+}
+
 export interface ProviderConfigInput {
   id?: string;
   name: string;
@@ -1544,6 +1561,8 @@ export interface ProviderConfigInput {
   /** Raw auth.json content for manual authentication. */
   authJsonContent?: string;
   apiKey?: string;
+  /** Multiple named API keys. Empty values preserve an existing key with the same id. */
+  apiKeys?: ProviderApiKeyInput[];
   /**
    * Per-provider upstream proxy (http/https/socks5). Empty/missing means this
    * provider follows the global outbound proxy setting.
@@ -1569,6 +1588,7 @@ export interface ProviderConfigView {
   enabled: boolean;
   hasApiKey: boolean;
   apiKeyPreview?: string;
+  apiKeys?: ProviderApiKeyView[];
   /** Set only when the provider has a per-provider upstream proxy. */
   upstreamProxyUrl?: string;
   createdAt: string;

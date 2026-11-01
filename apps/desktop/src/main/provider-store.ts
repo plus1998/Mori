@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import { parseUpstreamProxyUrl } from "@eco/gateway";
 import { createBuiltInAgentTemplates } from "../shared/agent-orchestration";
@@ -10,6 +11,8 @@ import {
   type CandidateModelInput,
   type CandidateModelView,
   type ModelSettingsSnapshot,
+  type ProviderApiKeyInput,
+  type ProviderApiKeyView,
   type ProviderConfigInput,
   type ProviderConfigView,
   type RoleRouteConfig,
@@ -102,6 +105,11 @@ interface CandidateModelRow {
 
 export interface ProviderConfigSecret extends ProviderConfigView {
   apiKey: string;
+  apiKeys: ProviderApiKeySecret[];
+}
+
+export interface ProviderApiKeySecret extends ProviderApiKeyView {
+  apiKey: string;
 }
 
 const DEFAULT_ROUTE_PROFILE_ID = "default";
@@ -124,6 +132,8 @@ export async function createProviderStore(dbPath: string): Promise<ProviderStore
 }
 
 export class ProviderStore {
+  private readonly providerKeyRotation = new Map<string, number>();
+
   constructor(private readonly db: DatabaseSyncType) {}
 
   initialize(): void {
@@ -158,6 +168,7 @@ export class ProviderStore {
     this.migrateProviderApiCompat();
     this.migrateProviderTokenCountMode();
     this.migrateProviderUpstreamProxy();
+    this.migrateProviderApiKeys();
     this.migrateRoleRoutesApiCompat();
     this.migrateLegacyOpenaiApiCompatValues();
     this.migrateCandidateModelsTable();
@@ -178,13 +189,14 @@ export class ProviderStore {
   }
 
   listProviders(): ProviderConfigView[] {
-    return this.listProviderRows().map(providerRowToView);
+    return this.listProviderRows().map((row) => providerRowToView(row, this.listProviderApiKeys(row.id)));
   }
 
   listProvidersWithSecrets(): ProviderConfigSecret[] {
     return this.listProviderRows().map((row) => ({
-      ...providerRowToView(row),
+      ...providerRowToView(row, this.listProviderApiKeys(row.id)),
       apiKey: row.api_key,
+      apiKeys: this.listProviderApiKeysWithSecrets(row.id),
     }));
   }
 
@@ -194,9 +206,69 @@ export class ProviderStore {
       return undefined;
     }
     return {
-      ...providerRowToView(row),
+      ...providerRowToView(row, this.listProviderApiKeys(row.id)),
       apiKey: row.api_key,
+      apiKeys: this.listProviderApiKeysWithSecrets(row.id),
     };
+  }
+
+  listProviderApiKeys(providerId: string): ProviderApiKeyView[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, name, api_key, enabled FROM provider_api_keys
+         WHERE provider_id = ? ORDER BY sort_order ASC, created_at ASC`,
+      )
+      .all(providerId) as unknown as Array<{ id: string; name: string; api_key: string; enabled: number }>;
+    if (rows.length === 0) {
+      const legacy = this.getProviderRow(providerId);
+      if (legacy?.api_key) {
+        const apiKeyPreview = previewSecret(legacy.api_key);
+        return [{ id: `${providerId}:legacy`, name: "默认密钥", enabled: true, ...(apiKeyPreview ? { apiKeyPreview } : {}) }];
+      }
+    }
+    return rows.map((row) => {
+      const apiKeyPreview = previewSecret(row.api_key);
+      return {
+        id: row.id,
+        name: row.name,
+        enabled: row.enabled === 1,
+        ...(apiKeyPreview ? { apiKeyPreview } : {}),
+      };
+    });
+  }
+
+  listProviderApiKeysWithSecrets(providerId: string): ProviderApiKeySecret[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, name, api_key, enabled FROM provider_api_keys
+         WHERE provider_id = ? ORDER BY sort_order ASC, created_at ASC`,
+      )
+      .all(providerId) as unknown as Array<{ id: string; name: string; api_key: string; enabled: number }>;
+    if (rows.length > 0) {
+      return rows.map((row) => {
+        const apiKeyPreview = previewSecret(row.api_key);
+        return {
+          id: row.id,
+          name: row.name,
+          apiKey: row.api_key,
+          enabled: row.enabled === 1,
+          ...(apiKeyPreview ? { apiKeyPreview } : {}),
+        };
+      });
+    }
+    const legacy = this.getProviderRow(providerId);
+    if (!legacy?.api_key) return [];
+    const apiKeyPreview = previewSecret(legacy.api_key);
+    return [{ id: `${providerId}:legacy`, name: "默认密钥", apiKey: legacy.api_key, enabled: true, ...(apiKeyPreview ? { apiKeyPreview } : {}) }];
+  }
+
+  /** Select the next enabled key in stable round-robin order for headless providers such as Cursor. */
+  nextProviderApiKey(providerId: string): string | undefined {
+    const keys = this.listProviderApiKeysWithSecrets(providerId).filter((key) => key.enabled && key.apiKey.trim());
+    if (keys.length === 0) return undefined;
+    const next = this.providerKeyRotation.get(providerId) ?? 0;
+    this.providerKeyRotation.set(providerId, (next + 1) % keys.length);
+    return keys[next % keys.length]?.apiKey;
   }
 
   clearProviderApiKey(id: string): void {
@@ -206,6 +278,7 @@ export class ProviderStore {
     if (result.changes === 0) {
       throw new Error(`找不到 Provider：${id}`);
     }
+    this.db.prepare("DELETE FROM provider_api_keys WHERE provider_id = ?").run(id);
   }
 
   /** Clear the per-provider upstream proxy URL (cloud sync: secret no longer present). */
@@ -266,7 +339,11 @@ export class ProviderStore {
       );
 
     this.syncDefaultModelFromCandidates(id);
-    return providerRowToView(this.getProviderRow(id) ?? fail(`Provider ${id} was not saved`));
+    if (input.apiKeys !== undefined) this.syncProviderApiKeys(id, input.apiKeys);
+    return providerRowToView(
+      this.getProviderRow(id) ?? fail(`Provider ${id} was not saved`),
+      this.listProviderApiKeys(id),
+    );
   }
 
   deleteProvider(id: string): void {
@@ -286,6 +363,7 @@ export class ProviderStore {
         this.db.prepare("DELETE FROM route_profiles WHERE id = ?").run(profile.profile_id);
       }
       this.db.prepare("DELETE FROM provider_candidate_models WHERE provider_id = ?").run(id);
+      this.db.prepare("DELETE FROM provider_api_keys WHERE provider_id = ?").run(id);
       this.db.prepare("DELETE FROM provider_configs WHERE id = ?").run(id);
       this.db.exec("COMMIT");
     } catch (error) {
@@ -1047,9 +1125,84 @@ export class ProviderStore {
       .prepare("UPDATE provider_configs SET default_model = ?, updated_at = ? WHERE id = ?")
       .run(nextDefault, new Date().toISOString(), providerId);
   }
+
+  private migrateProviderApiKeys(): void {
+    const columns = this.db.prepare("PRAGMA table_info(provider_api_keys)").all() as Array<{ name: string }>;
+    if (columns.length === 0) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS provider_api_keys (
+          id TEXT PRIMARY KEY,
+          provider_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          api_key TEXT NOT NULL,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY(provider_id) REFERENCES provider_configs(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_provider_api_keys_provider
+          ON provider_api_keys(provider_id, sort_order, created_at);
+      `);
+    }
+    const providers = this.db
+      .prepare("SELECT id, api_key FROM provider_configs WHERE TRIM(api_key) <> ''")
+      .all() as unknown as Array<{ id: string; api_key: string }>;
+    const insert = this.db.prepare(
+      `INSERT OR IGNORE INTO provider_api_keys
+       (id, provider_id, name, api_key, enabled, sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, 0, ?, ?)`,
+    );
+    const now = new Date().toISOString();
+    for (const provider of providers) {
+      insert.run(`${provider.id}:legacy`, provider.id, "默认密钥", provider.api_key, now, now);
+    }
+  }
+
+  private syncProviderApiKeys(providerId: string, inputs: ProviderApiKeyInput[]): void {
+    const existing = this.listProviderApiKeysWithSecrets(providerId);
+    const seen = new Set<string>();
+    const now = new Date().toISOString();
+    let order = 0;
+    for (const input of inputs) {
+      const id = input.id?.trim() || `${providerId}:key:${cryptoRandomId()}`;
+      const prior = existing.find((key) => key.id === id);
+      const value = input.apiKey?.trim() || prior?.apiKey || "";
+      if (!value) continue;
+      seen.add(id);
+      this.db
+        .prepare(
+          `INSERT INTO provider_api_keys
+           (id, provider_id, name, api_key, enabled, sort_order, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             provider_id = excluded.provider_id,
+             name = excluded.name,
+             api_key = excluded.api_key,
+             enabled = excluded.enabled,
+             sort_order = excluded.sort_order,
+             updated_at = excluded.updated_at`,
+        )
+        .run(
+          id,
+          providerId,
+          input.name?.trim() || prior?.name || `API Key ${order + 1}`,
+          value,
+          input.enabled === false ? 0 : 1,
+          order++,
+          prior ? new Date().toISOString() : now,
+          now,
+        );
+    }
+    for (const key of existing) {
+      if (!seen.has(key.id)) this.db.prepare("DELETE FROM provider_api_keys WHERE id = ?").run(key.id);
+    }
+    const first = this.listProviderApiKeysWithSecrets(providerId).find((key) => key.enabled && key.apiKey.trim());
+    this.db.prepare("UPDATE provider_configs SET api_key = ?, updated_at = ? WHERE id = ?").run(first?.apiKey ?? "", now, providerId);
+  }
 }
 
-function providerRowToView(row: ProviderRow): ProviderConfigView {
+function providerRowToView(row: ProviderRow, apiKeys: ProviderApiKeyView[] = []): ProviderConfigView {
   const provider: ProviderConfigView = {
     id: row.id,
     name: row.name,
@@ -1062,7 +1215,8 @@ function providerRowToView(row: ProviderRow): ProviderConfigView {
     ...(row.credential_pool_id ? { credentialPoolId: row.credential_pool_id } : {}),
     defaultModel: row.default_model,
     enabled: row.enabled === 1,
-    hasApiKey: row.api_key.length > 0,
+    hasApiKey: row.api_key.length > 0 || apiKeys.length > 0,
+    apiKeys,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1070,6 +1224,10 @@ function providerRowToView(row: ProviderRow): ProviderConfigView {
   if (apiKeyPreview) provider.apiKeyPreview = apiKeyPreview;
   if (row.upstream_proxy_url) provider.upstreamProxyUrl = row.upstream_proxy_url;
   return provider;
+}
+
+function cryptoRandomId(): string {
+  return randomUUID().replaceAll("-", "").slice(0, 20);
 }
 
 function profileRowToView(row: RouteProfileRow, routes: RoleRouteConfig[]): RouteProfileView {

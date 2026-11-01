@@ -6,6 +6,8 @@ import { SettingsSyncControl } from "./SettingsSyncControl";
 interface AcpApiKeySettingsDialogProps {
   /** Currently saved API key (empty/undefined = not set). */
   currentKey?: string;
+  /** Used when the secret is stored in a provider and is intentionally not sent to the renderer. */
+  keyConfigured?: boolean;
   busy?: boolean | undefined;
   title?: string;
   centerServerSyncVisible?: boolean;
@@ -20,6 +22,7 @@ interface AcpApiKeySettingsDialogProps {
 
 export function AcpApiKeySettingsDialog({
   currentKey,
+  keyConfigured = Boolean(currentKey),
   busy,
   title,
   centerServerSyncVisible = false,
@@ -73,7 +76,7 @@ export function AcpApiKeySettingsDialog({
               autoComplete="off"
               spellCheck={false}
               value={draft}
-              placeholder={t("settings.defaultAgent.cursorApiKeyPlaceholder")}
+              placeholder={keyConfigured ? "••••••" : t("settings.defaultAgent.cursorApiKeyPlaceholder")}
               disabled={busy}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
@@ -94,7 +97,7 @@ export function AcpApiKeySettingsDialog({
             type="button"
             className="settings-modal-confirm"
             onClick={commit}
-            disabled={busy || draft.trim() === (currentKey?.trim() ?? "")}
+            disabled={busy || (currentKey ? draft.trim() === currentKey.trim() : !draft.trim())}
           >
             {t("common.save")}
           </button>

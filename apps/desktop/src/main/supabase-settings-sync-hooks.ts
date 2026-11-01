@@ -237,6 +237,9 @@ async function applyPayload(
   }
   // Full snapshot: drop local-only providers/candidates before route replace.
   for (const provider of input.providerStore.listProviders()) {
+    if (provider.id === "cursor") {
+      continue;
+    }
     if (!remoteProviderIds.has(provider.id)) {
       input.providerStore.deleteProvider(provider.id);
       continue;
@@ -424,6 +427,11 @@ function collectSecrets(input: {
     if (provider.apiKey.trim()) {
       secrets.push({ kind: "provider", key: provider.id, value: provider.apiKey });
     }
+    for (const apiKey of provider.apiKeys) {
+      if (apiKey.apiKey.trim()) {
+        secrets.push({ kind: "provider-key", key: `${provider.id}:${apiKey.id}`, value: apiKey.apiKey });
+      }
+    }
     const providerProxyUrl = provider.upstreamProxyUrl?.trim();
     if (providerProxyUrl) {
       secrets.push({ kind: "provider-proxy", key: provider.id, value: providerProxyUrl });
@@ -445,7 +453,7 @@ function collectSecrets(input: {
   }
 
   const cursorApiKey = input.workflowSettingsStore.get().acpCursorApiKey?.trim();
-  if (cursorApiKey) {
+  if (cursorApiKey && input.providerStore.listProviderApiKeysWithSecrets("cursor").length === 0) {
     secrets.push({
       kind: "workflow",
       key: ECO_WORKFLOW_CURSOR_API_KEY_SECRET,
@@ -526,9 +534,31 @@ function applyDomainSecrets(
   const secretIds = new Set(domainSecrets.map((secret) => `${secret.kind}:${secret.key}`));
 
   if (domain === "providers") {
+    const providerKeySyncEnabled = domainSecrets.some((secret) => secret.kind === "provider-key");
     for (const provider of input.providerStore.listProvidersWithSecrets()) {
-      if (provider.apiKey && !secretIds.has(`provider:${provider.id}`)) {
+      const hasProviderKeySecret = provider.apiKeys.some((apiKey) => secretIds.has(`provider-key:${provider.id}:${apiKey.id}`));
+      if (provider.apiKey && !secretIds.has(`provider:${provider.id}`) && !hasProviderKeySecret) {
         input.providerStore.clearProviderApiKey(provider.id);
+      }
+      if (providerKeySyncEnabled) {
+        const retained = provider.apiKeys.filter((apiKey) => secretIds.has(`provider-key:${provider.id}:${apiKey.id}`));
+        if (retained.length !== provider.apiKeys.length) {
+          input.providerStore.saveProvider({
+            id: provider.id,
+            name: provider.name,
+            baseUrl: provider.baseUrl,
+            requestPath: provider.requestPath,
+            version: provider.version,
+            apiCompat: provider.apiCompat,
+            ...(provider.tokenCountMode ? { tokenCountMode: provider.tokenCountMode } : {}),
+            ...(provider.authMethod ? { authMethod: provider.authMethod } : {}),
+            ...(provider.credentialPoolId ? { credentialPoolId: provider.credentialPoolId } : {}),
+            defaultModel: provider.defaultModel,
+            enabled: provider.enabled,
+            apiKey: "",
+            apiKeys: retained.map((apiKey) => ({ id: apiKey.id, name: apiKey.name, enabled: apiKey.enabled })),
+          });
+        }
       }
       const hasProviderProxy = (provider.upstreamProxyUrl ?? "").trim().length > 0;
       if (hasProviderProxy && !secretIds.has(`provider-proxy:${provider.id}`)) {
@@ -557,6 +587,35 @@ function applyDomainSecrets(
           defaultModel: existing.defaultModel,
           enabled: existing.enabled,
           apiKey: secret.value,
+        });
+      }
+      if (secret.kind === "provider-key") {
+        const separator = secret.key.indexOf(":");
+        const providerId = separator >= 0 ? secret.key.slice(0, separator) : secret.key;
+        const keyId = separator >= 0 ? secret.key.slice(separator + 1) : "";
+        const existing = input.providerStore.getProviderWithSecret(providerId);
+        if (!existing) {
+          throw new Error(`Cloud provider key references missing provider: ${providerId}`);
+        }
+        input.providerStore.saveProvider({
+          id: existing.id,
+          name: existing.name,
+          baseUrl: existing.baseUrl,
+          requestPath: existing.requestPath,
+          version: existing.version,
+          apiCompat: existing.apiCompat,
+          ...(existing.tokenCountMode ? { tokenCountMode: existing.tokenCountMode } : {}),
+          ...(existing.authMethod ? { authMethod: existing.authMethod } : {}),
+          ...(existing.credentialPoolId ? { credentialPoolId: existing.credentialPoolId } : {}),
+          defaultModel: existing.defaultModel,
+          enabled: existing.enabled,
+          apiKey: "",
+          apiKeys: existing.apiKeys.map((apiKey) => ({
+            id: apiKey.id,
+            name: apiKey.name,
+            enabled: apiKey.enabled,
+            ...(apiKey.id === keyId ? { apiKey: secret.value } : {}),
+          })),
         });
       }
       if (secret.kind === "provider-proxy") {
@@ -648,11 +707,32 @@ function applyDomainSecrets(
         continue;
       }
       if (secret.key === ECO_WORKFLOW_CURSOR_API_KEY_SECRET) {
-        const current = input.workflowSettingsStore.get();
-        input.workflowSettingsStore.save({
-          ...current,
-          acpCursorApiKey: secret.value,
-        });
+        const cursor = input.providerStore.getProviderWithSecret("cursor");
+        if (cursor) {
+          const currentKeys = input.providerStore.listProviderApiKeysWithSecrets("cursor");
+          input.providerStore.saveProvider({
+            id: cursor.id,
+            name: cursor.name,
+            baseUrl: cursor.baseUrl,
+            requestPath: cursor.requestPath,
+            version: cursor.version,
+            apiCompat: cursor.apiCompat,
+            ...(cursor.authMethod ? { authMethod: cursor.authMethod } : {}),
+            defaultModel: cursor.defaultModel,
+            enabled: cursor.enabled,
+            apiKey: "",
+            apiKeys: [
+              ...currentKeys.map((key) => ({ id: key.id, name: key.name, apiKey: key.apiKey, enabled: key.enabled })),
+              { name: "迁移密钥", apiKey: secret.value, enabled: true },
+            ],
+          });
+          const current = input.workflowSettingsStore.get();
+          const { acpCursorApiKey: _removed, ...withoutLegacyKey } = current;
+          input.workflowSettingsStore.save(withoutLegacyKey);
+        } else {
+          const current = input.workflowSettingsStore.get();
+          input.workflowSettingsStore.save({ ...current, acpCursorApiKey: secret.value });
+        }
       }
     }
     return;

@@ -2897,6 +2897,7 @@ app
       },
     });
     workflowSettingsStore = await createWorkflowSettingsStore(dbPath);
+    ensureCursorApiKeyProvider();
     logStartupStage("initial-settings.loaded");
     projectMcpSettingsStore = await createProjectMcpSettingsStore(dbPath);
     projectIntegrationsSettingsStore = await createProjectIntegrationsSettingsStore(dbPath);
@@ -3175,6 +3176,7 @@ app
         return Promise.all(
           providerStore
             .listProvidersWithSecrets()
+            .filter((provider) => provider.id !== "cursor")
             .filter((provider) => provider.apiCompat !== "system_one" || providerStore.listCandidateModels(provider.id).some((model) => model.apiCompat !== "system_one"))
             .map(async (provider) => {
               const candidates: Array<Pick<CandidateModelView, "modelId"> & Partial<CandidateModelView>> = provider.authMethod === "chatgpt_subscription"
@@ -4950,9 +4952,58 @@ function mainText(
  * process.env so HOME/PATH-based executable resolution still works.
  */
 function acpCursorSpawnEnv(): NodeJS.ProcessEnv | undefined {
-  const apiKey = workflowSettingsStore.get().acpCursorApiKey?.trim();
+  const apiKey = providerStore.nextProviderApiKey("cursor") ?? workflowSettingsStore.get().acpCursorApiKey?.trim();
   if (!apiKey) return undefined;
   return { ...process.env, CURSOR_API_KEY: apiKey };
+}
+
+/**
+ * Cursor ACP credentials are provider credentials. The legacy workflow setting
+ * is imported once so existing installations keep working while gaining a
+ * named, multi-key provider entry.
+ */
+function ensureCursorApiKeyProvider(): void {
+  const id = "cursor";
+  const existing = providerStore.getProviderWithSecret(id);
+  const legacyKey = workflowSettingsStore.get().acpCursorApiKey?.trim();
+  if (!existing) {
+    providerStore.saveProvider({
+      id,
+      name: "Cursor",
+      baseUrl: "https://api.cursor.com",
+      requestPath: "",
+      version: "v1",
+      apiCompat: "openai_responses",
+      authMethod: "api_key",
+      apiKey: legacyKey ?? "",
+      ...(legacyKey ? { apiKeys: [{ name: "默认密钥", apiKey: legacyKey, enabled: true }] } : {}),
+      defaultModel: "",
+      enabled: true,
+    });
+    if (legacyKey) {
+      workflowSettingsStore.save({ ...workflowSettingsStore.get(), acpCursorApiKey: "" });
+    }
+    return;
+  }
+  if (legacyKey) {
+    const keys = providerStore.listProviderApiKeysWithSecrets(id);
+    if (!keys.some((key) => key.apiKey === legacyKey)) {
+      providerStore.saveProvider({
+        id: existing.id,
+        name: existing.name,
+        baseUrl: existing.baseUrl,
+        requestPath: existing.requestPath,
+        version: existing.version,
+        apiCompat: existing.apiCompat,
+        ...(existing.authMethod ? { authMethod: existing.authMethod } : {}),
+        apiKey: "",
+        apiKeys: [...keys.map((key) => ({ id: key.id, name: key.name, apiKey: key.apiKey, enabled: key.enabled })), { name: "迁移密钥", apiKey: legacyKey, enabled: true }],
+        defaultModel: existing.defaultModel,
+        enabled: existing.enabled,
+      });
+    }
+    workflowSettingsStore.save({ ...workflowSettingsStore.get(), acpCursorApiKey: "" });
+  }
 }
 
 async function probeAcpCursorForMain(): Promise<AcpCursorProbeResult> {
@@ -5620,6 +5671,9 @@ async function deleteModelProvider(providerId: unknown) {
     throw new Error("Provider id is required.");
   }
   const trimmedProviderId = providerId.trim();
+  if (trimmedProviderId === "cursor") {
+    throw new Error("Cursor 供应商由系统管理，不能删除；请在供应商编辑器中删除或停用密钥。");
+  }
   if (!providerStore.getProviderWithSecret(trimmedProviderId)) {
     return {
       ok: false as const,
@@ -5880,7 +5934,7 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.cursorModelsList, async () => {
-    const apiKey = workflowSettingsStore.get().acpCursorApiKey?.trim();
+    const apiKey = providerStore.nextProviderApiKey("cursor") ?? workflowSettingsStore.get().acpCursorApiKey?.trim();
     return listCursorAgentModels(apiKey ? { env: { CURSOR_API_KEY: apiKey } } : {});
   });
 
@@ -11875,7 +11929,7 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
     captureSession,
     getThreadCoreSession: (threadId) => conversationStore.getThreadCoreSession(threadId),
     resolveAcpCursorEnv: () => {
-      const apiKey = workflowSettingsStore.get().acpCursorApiKey?.trim();
+      const apiKey = providerStore.nextProviderApiKey("cursor") ?? workflowSettingsStore.get().acpCursorApiKey?.trim();
       return apiKey ? { CURSOR_API_KEY: apiKey } : {};
     },
     resolveAcpMcpServers: async ({ threadId, workspacePath }) => {

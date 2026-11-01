@@ -18,6 +18,7 @@ interface DefaultAgentSettingsPanelProps {
   cursorProbeLoading?: boolean;
   acpCursorModelId?: string | undefined;
   acpCursorApiKey?: string | undefined;
+  acpCursorApiKeyConfigured?: boolean;
   cursorModels?: CursorModelOption[];
   cursorModelsLoading?: boolean;
   cursorModelsError?: string;
@@ -57,6 +58,7 @@ export function DefaultAgentSettingsPanel({
   cursorProbeLoading = false,
   acpCursorModelId,
   acpCursorApiKey,
+  acpCursorApiKeyConfigured = Boolean(acpCursorApiKey),
   cursorModels = [],
   cursorModelsLoading = false,
   cursorModelsError,
@@ -232,10 +234,10 @@ export function DefaultAgentSettingsPanel({
               {" · "}
               <span
                 className={
-                  acpCursorApiKey ? "default-agent-acp-key-state is-set" : "default-agent-acp-key-state"
+                  acpCursorApiKeyConfigured ? "default-agent-acp-key-state is-set" : "default-agent-acp-key-state"
                 }
               >
-                {acpCursorApiKey
+                {acpCursorApiKeyConfigured
                   ? t("settings.defaultAgent.cursorApiKeyConfigured")
                   : t("settings.defaultAgent.cursorApiKeyNotSet")}
               </span>
@@ -260,6 +262,7 @@ export function DefaultAgentSettingsPanel({
       {apiKeySettingsOpen ? (
         <AcpApiKeySettingsDialog
           {...(acpCursorApiKey ? { currentKey: acpCursorApiKey } : {})}
+          keyConfigured={acpCursorApiKeyConfigured}
           {...(busy ? { busy } : {})}
           centerServerSyncVisible={centerServerSyncVisible}
           {...(onSyncDomain ? { onSyncDomain } : {})}
