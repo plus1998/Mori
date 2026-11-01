@@ -10,6 +10,7 @@ import {
 } from "../src/codex-app-server-driver";
 import { buildCodexGatewayModelAlias } from "../src/codex-config-sync";
 import { CodexEventAdapter } from "../src/codex-event-adapter";
+import type { EcoToolPolicy } from "../src/codex-tool-policy";
 import { CODEX_TURN_INTERRUPT_METHOD, CodexTurnInterruptFailed } from "../src/codex-turn-interrupt";
 import { CodexTurnRouteRegistry } from "../src/codex-turn-route-registry";
 import { readRpcMessages } from "./codex-mock-transport";
@@ -855,11 +856,33 @@ test("CodexAppServerDriver maps route apiCompat into a V1 gateway alias", async 
 });
 
 test("CodexAppServerDriver runAsk / runPlan send turn/start with model", async () => {
-  for (const mode of ["ask", "plan"] as const) {
+  for (const scenario of [
+    { mode: "ask", sandboxPolicy: { type: "readOnly" } },
+    { mode: "plan", sandboxPolicy: { type: "workspaceWrite" } },
+    {
+      mode: "plan",
+      toolPolicy: { sandboxMode: "danger-full-access", approvalPolicy: "never" },
+      sandboxPolicy: { type: "dangerFullAccess" },
+    },
+    {
+      mode: "plan",
+      toolPolicy: { sandboxMode: "workspace-write", approvalPolicy: "on-request", networkAccess: true },
+      sandboxPolicy: { type: "workspaceWrite", networkAccess: true },
+    },
+  ] satisfies Array<{
+    mode: "ask" | "plan";
+    toolPolicy?: EcoToolPolicy;
+    sandboxPolicy: Record<string, unknown>;
+  }>) {
+    const { mode } = scenario;
     const stdin = new PassThrough();
     const stdout = new PassThrough();
     const client = new CodexAppServerClient(stdin, stdout);
-    const driver = new CodexAppServerDriver({ client, sessionMode: mode === "plan" ? "plan" : "agent" });
+    const driver = new CodexAppServerDriver({
+      client,
+      sessionMode: mode === "plan" ? "plan" : "agent",
+      orchestrationToolPolicy: scenario.toolPolicy,
+    });
     const controller = new AbortController();
 
     const handshake = client.initialize();
@@ -908,9 +931,8 @@ test("CodexAppServerDriver runAsk / runPlan send turn/start with model", async (
     expect((turnStart?.params?.collaborationMode as { mode?: string })?.mode).toBe(
       mode === "plan" ? "plan" : "default",
     );
-    if (mode === "plan") {
-      expect(turnStart?.params?.sandboxPolicy).toEqual({ type: "readOnly" });
-    }
+    expect(turnStart?.params?.sandboxPolicy).toEqual(scenario.sandboxPolicy);
+    expect(turnStart?.params?.approvalPolicy).toBe(scenario.toolPolicy?.approvalPolicy ?? "on-request");
     driver.dispose();
   }
 });

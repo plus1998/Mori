@@ -39,12 +39,13 @@ test("piToolsForSessionMode agent adds the Hub tools only when MCP is present", 
   expect(withMcp.filter((tool) => !withoutMcp.includes(tool))).toEqual([...PI_MCP_HUB_TOOL_NAMES]);
 });
 
-test("piToolsForSessionMode keeps codemode and Hub tools out of ask/plan even with MCP", () => {
+test("piToolsForSessionMode exposes MCP in Plan and keeps codemode out of Ask/Plan", () => {
   for (const mode of ["ask", "plan"] as const) {
     const tools = piToolsForSessionMode(mode, { hasMcpServers: true });
     expect(tools).not.toContain(PI_CODEMODE_TOOL_NAME);
     for (const hubTool of PI_MCP_HUB_TOOL_NAMES) {
-      expect(tools).not.toContain(hubTool);
+      if (mode === "plan") expect(tools).toContain(hubTool);
+      else expect(tools).not.toContain(hubTool);
     }
   }
 });
@@ -243,4 +244,46 @@ test("piSystemPromptForSessionMode differs by mode", () => {
     expect(text).not.toMatch(/\b(Eco|PI)\b/i);
     expect(text).not.toMatch(/You are/i);
   }
+});
+
+for (const toolName of [
+  "Bash",
+  ...PI_MCP_HUB_TOOL_NAMES,
+  "mcp__eco_context__read_todo",
+  "mcp__eco_web_search__search",
+]) {
+  for (const behavior of ["allow", "deny"] as const) {
+    test(`Plan research ${toolName} preserves normal ${behavior} permission decisions`, async () => {
+      const calls: SdkToolPermissionRequest[] = [];
+      const decision =
+        behavior === "allow"
+          ? { behavior, updatedInput: { approved: true } }
+          : { behavior, message: "existing permission policy", interrupt: false };
+      const handler = createPiModeAwareToolPermissionHandler({
+        mode: "plan",
+        baseHandler: async (req) => {
+          calls.push(req);
+          return decision;
+        },
+      });
+      const req = request(toolName, { command: "curl -s https://example.com", includeImages: true });
+      expect(await handler(req)).toEqual(decision);
+      expect(calls).toEqual([req]);
+    });
+  }
+}
+
+test("Plan still rejects implementation tools and advertises research capabilities", async () => {
+  const handler = createPiModeAwareToolPermissionHandler({
+    mode: "plan",
+    baseHandler: async () => {
+      throw new Error("unexpected permission check");
+    },
+  });
+  for (const toolName of ["write", "edit", PI_CODEMODE_TOOL_NAME]) {
+    expect((await handler(request(toolName))).behavior).toBe("deny");
+  }
+  const prompt = piSystemPromptForSessionMode("plan");
+  for (const capability of ["bash", "web search", "MCP", "todos", "images"])
+    expect(prompt).toContain(capability);
 });

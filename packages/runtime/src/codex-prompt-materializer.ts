@@ -109,7 +109,7 @@ export function isCodexSessionMode(value: unknown): value is CodexSessionMode {
  * | sessionMode | collaborationMode | sandboxPolicy (before orchestration intersect) |
  * |-------------|-------------------|------------------------------------------|
  * | agent       | default           | orchestration (default workspace-write)  |
- * | plan        | plan              | readOnly (Plan mode cannot mutate before approval) |
+ * | plan        | plan              | orchestration (native Plan controls implementation) |
  * | ask         | default           | readOnly                                 |
  */
 export function buildCodexTurnOptions(config: CodexTurnMaterializationConfig): CodexTurnOptions {

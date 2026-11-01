@@ -175,7 +175,7 @@ test("ask sessionMode forces readOnly even if orchestration is workspace-write",
   expect(effective.sandboxPolicy).toBe("readOnly");
 });
 
-test("plan sessionMode always forces readOnly even if orchestration grants full access", () => {
+test("plan sessionMode preserves full access for shell, network and MCP research", () => {
   const effective = resolveEffectiveTurnSandbox({
     sessionMode: "plan",
     orchestrationPolicy: normalizeEcoToolPolicy({
@@ -183,7 +183,7 @@ test("plan sessionMode always forces readOnly even if orchestration grants full 
       approvalPolicy: "never",
     }),
   });
-  expect(effective).toEqual({ sandboxPolicy: "readOnly", approvalPolicy: "never" });
+  expect(effective).toEqual({ sandboxPolicy: "dangerFullAccess", approvalPolicy: "never" });
 });
 
 test("agent sessionMode uses orchestration danger-full-access", () => {
@@ -208,4 +208,19 @@ test("round-trip preserves Codex policy", () => {
     mcp: { allowedServers: ["docs"], enabledTools: ["search"] },
   });
   expect(normalizeEcoToolPolicy(original)).toEqual(original);
+});
+
+test("plan sessionMode preserves explicit network access and read-only orchestration", () => {
+  expect(
+    resolveEffectiveTurnSandbox({
+      sessionMode: "plan",
+      orchestrationPolicy: { ...DEFAULT_CODEX_TOOL_POLICY, networkAccess: true },
+    }),
+  ).toEqual({ sandboxPolicy: "workspaceWrite", networkAccess: true, approvalPolicy: "on-request" });
+  expect(
+    resolveEffectiveTurnSandbox({
+      sessionMode: "plan",
+      orchestrationPolicy: { sandboxMode: "read-only", approvalPolicy: "on-request" },
+    }),
+  ).toEqual({ sandboxPolicy: "readOnly", approvalPolicy: "on-request" });
 });

@@ -585,7 +585,7 @@ export class PiCodingAgentDriver implements AgentRuntimeDriver {
     const hasMcpServers = Boolean(mcpServers && Object.keys(mcpServers).length > 0);
     const includeWebSearch = webSearchBackend !== "none";
     const toolsAllowlist = piToolsForSessionMode(sessionMode, {
-      hasMcpServers: sessionMode === "agent" && hasMcpServers,
+      hasMcpServers: sessionMode !== "ask" && hasMcpServers,
       includeFinalizePlan: sessionMode === "plan",
       includeWebSearch,
     });
@@ -692,9 +692,7 @@ export class PiCodingAgentDriver implements AgentRuntimeDriver {
         toolsAllowlist: [
           ...new Set([...sessionToolsAllowlist, ...(wantsAgentTool ? [PI_AGENT_TOOL_NAME] : [])]),
         ],
-        ...(mcpServers && Object.keys(mcpServers).length > 0 && sessionMode === "agent"
-          ? { mcpServers }
-          : {}),
+        ...(mcpServers && Object.keys(mcpServers).length > 0 && sessionMode !== "ask" ? { mcpServers } : {}),
         ...(appendSystemPrompt.length > 0 ? { appendSystemPrompt } : {}),
         ...(openExistingJsonl ? { sessionFile: resumeFile } : {}),
         sideEventBus,

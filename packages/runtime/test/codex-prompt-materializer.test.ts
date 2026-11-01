@@ -23,7 +23,7 @@ test("plan sessionMode maps to the built-in plan collaboration template", () => 
 
   expect(options).toMatchSnapshot();
   expect(options.collaborationMode.mode).toBe("plan");
-  expect(options.sandboxPolicy).toBe("readOnly");
+  expect(options.sandboxPolicy).toBe("workspaceWrite");
   expect(options.approvalPolicy).toBe("on-request");
   expect(options.collaborationMode.settings.developer_instructions).toBeNull();
 });

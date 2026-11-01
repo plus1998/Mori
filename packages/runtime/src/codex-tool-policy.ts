@@ -352,7 +352,8 @@ export function toCodexAppServerSandboxPolicyWire(
 }
 
 /**
- * Plan and Ask are always read-only; only Agent mode inherits orchestration write access.
+ * Ask is read-only. Plan inherits the selected permissions so research can use
+ * shell/network/MCP; the native Plan collaboration template prevents implementation.
  */
 export function resolveEffectiveTurnSandbox(input: {
   sessionMode: "agent" | "plan" | "ask";
@@ -361,12 +362,12 @@ export function resolveEffectiveTurnSandbox(input: {
   const orchestration = input.orchestrationPolicy ?? DEFAULT_CODEX_TOOL_POLICY;
   const approvalPolicy = orchestration.approvalPolicy;
 
-  if (input.sessionMode === "ask" || input.sessionMode === "plan") {
+  if (input.sessionMode === "ask") {
     return { sandboxPolicy: "readOnly", approvalPolicy };
   }
 
   const orchestrationTurn = ecoSandboxModeToTurnPolicy(orchestration.sandboxMode);
-  // agent
+  // Agent and Plan share the user-selected execution permissions.
   return {
     sandboxPolicy: orchestrationTurn,
     ...(orchestrationTurn === "workspaceWrite" && orchestration.networkAccess ? { networkAccess: true } : {}),

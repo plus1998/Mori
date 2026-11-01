@@ -182,6 +182,9 @@ export function piToolsForSessionMode(
     ];
   }
   const tools: string[] = [...PI_READ_ONLY_BUILTIN_TOOLS, ...webSearchTools];
+  if (mode === "plan" && options?.hasMcpServers) {
+    tools.push(...PI_MCP_HUB_TOOL_NAMES);
+  }
   if (mode === "plan" && options?.includeFinalizePlan !== false) {
     tools.push(PI_FINALIZE_PLAN_TOOL_NAME);
   }
@@ -198,7 +201,7 @@ export function piSystemPromptForSessionMode(mode: CoreSessionMode): string {
   }
   if (mode === "plan") {
     return [
-      "Explore with read and read-only bash only — no file edits or mutating commands.",
+      "Use read, bash, web search, and available MCP tools to research the plan, including reading referenced todos and their images. Do not modify project files or perform implementation actions.",
       "When the plan is ready you MUST invoke the finalize_plan tool with the complete Markdown plan, then stop.",
       "Writing the plan only in assistant text does not submit it. Do not implement changes in this turn.",
     ].join(" ");
@@ -234,7 +237,8 @@ function readFinalizePlanText(input: Record<string, unknown>): string {
 /**
  * Wrap Eco's PI tool permission handler with Ask/Plan hard gates.
  * Agent mode is a pure passthrough to baseHandler.
- * Ask/Plan: write tools denied; `read` goes through Eco (workspace auto-allow /
+ * Plan: research tools use the normal permission handler; write tools are denied.
+ * Ask: write tools denied; `read` goes through Eco (workspace auto-allow /
  * external ask); read-only bash allowlist is mode-gated then allowed without Eco
  * bash confirmation; finalize_plan is allowed immediately (Codex-style).
  */
@@ -264,6 +268,10 @@ export function createPiModeAwareToolPermissionHandler(
       return deny(`Tool "${request.toolName}" is not allowed.`);
     }
 
+    if (mode === "plan" && (toolKey === "bash" || toolKey.startsWith("mcp__"))) {
+      return baseHandler(request);
+    }
+
     if (toolKey === "bash") {
       const command = readBashCommand(request.input);
       if (!isPiReadOnlyBashCommand(command)) {
@@ -286,7 +294,7 @@ export function createPiModeAwareToolPermissionHandler(
       return baseHandler(request);
     }
 
-    // Unknown / MCP / extension tools: fail closed in Ask/Plan.
+    // Unknown / extension tools remain unavailable; Ask also excludes MCP.
     return deny(`Tool "${request.toolName}" is not allowed.`);
   };
 }

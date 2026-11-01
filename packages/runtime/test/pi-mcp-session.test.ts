@@ -274,25 +274,53 @@ test("failed MCP startup retries with a fresh connection, including a server wit
   }
 });
 
-for (const sessionMode of ["ask", "plan"] as const) {
-  test(`${sessionMode} never connects configured MCP or declares codemode`, async () => {
-    const input = await fixture();
-    let result: ProbeSessionResult | undefined;
-    try {
-      result = await runScriptedPiSession({
-        ...input,
-        sessionMode,
-        threadId: `mcp-${sessionMode}`,
-        turns: [{ text: "done" }],
-      });
-      expect(result.requests[0]?.toolNames).toEqual(
-        sessionMode === "plan" ? ["read", "bash", "finalize_plan"] : ["read", "bash"],
-      );
-      expect(terminal(result.events)?.status).toBe("completed");
-      expect(await Bun.file(input.pidPath).exists()).toBe(false);
-    } finally {
-      await result?.dispose();
-      await rm(input.workspace, { recursive: true, force: true });
-    }
-  });
-}
+test("Ask never connects configured MCP or declares codemode", async () => {
+  const input = await fixture();
+  let result: ProbeSessionResult | undefined;
+  try {
+    result = await runScriptedPiSession({
+      ...input,
+      sessionMode: "ask",
+      threadId: "mcp-ask",
+      turns: [{ text: "done" }],
+    });
+    expect(result.requests[0]?.toolNames).toEqual(["read", "bash"]);
+    expect(terminal(result.events)?.status).toBe("completed");
+    expect(await Bun.file(input.pidPath).exists()).toBe(false);
+  } finally {
+    await result?.dispose();
+    await rm(input.workspace, { recursive: true, force: true });
+  }
+});
+
+test("Plan connects MCP and executes research tools through the normal permission handler", async () => {
+  const input = await fixture();
+  const approvals: string[] = [];
+  let result: ProbeSessionResult | undefined;
+  try {
+    result = await runScriptedPiSession({
+      ...input,
+      sessionMode: "plan",
+      threadId: "mcp-plan-research",
+      toolPermissionHandler: async (request) => {
+        approvals.push(request.toolName);
+        return { behavior: "allow", updatedInput: request.input };
+      },
+      turns: [
+        { tool: echoTool, id: "research", input: { text: "PLAN-RESEARCH" } },
+        { tool: "bash", id: "bash-research", input: { command: `node -p '"PLAN-BASH-RESEARCH"'` } },
+        { text: "done" },
+      ],
+    });
+    expect(result.requests[0]?.toolNames).toEqual(["read", "finalize_plan", "bash", echoTool]);
+    expect(toolResult(result.events, "research")?.content).toContain("MCP-ECHO: PLAN-RESEARCH");
+    expect(toolResult(result.events, "bash-research")?.content).toContain("PLAN-BASH-RESEARCH");
+    expect(approvals).toContain(echoTool);
+    expect(approvals).toContain("Bash");
+    expect(terminal(result.events)?.status).toBe("completed");
+    expect(await Bun.file(input.pidPath).exists()).toBe(true);
+  } finally {
+    await result?.dispose();
+    await rm(input.workspace, { recursive: true, force: true });
+  }
+});

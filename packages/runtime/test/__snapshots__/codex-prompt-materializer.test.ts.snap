@@ -22,7 +22,7 @@ exports[`plan sessionMode maps to the built-in plan collaboration template 1`] =
       "developer_instructions": null,
     },
   },
-  "sandboxPolicy": "readOnly",
+  "sandboxPolicy": "workspaceWrite",
 }
 `;
 
