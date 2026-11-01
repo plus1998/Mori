@@ -169,6 +169,7 @@ const _aliases = <String, ActionKind>{
   'view_image': ActionKind.imageView,
   'displayimage': ActionKind.imageDisplay,
   'display_image': ActionKind.imageDisplay,
+  'show_media_to_user': ActionKind.imageDisplay,
   'publishhtml': ActionKind.htmlHost,
   'publish_html': ActionKind.htmlHost,
 };
@@ -419,6 +420,7 @@ String? _namedLabel(String suffix, AppLocalizations l10n) {
     'computer_use' => l10n.activityNamedComputerUse,
     'view_image' => l10n.activityNamedViewImage,
     'display_image' => l10n.activityNamedDisplayImage,
+    'show_media_to_user' => l10n.activityNamedShowMediaToUser,
     'publish_html' => l10n.activityNamedPublishHtml,
     'agent_browser_open' => l10n.activityNamedAgentBrowserOpen,
     'agent_browser_snapshot' => l10n.activityNamedAgentBrowserSnapshot,

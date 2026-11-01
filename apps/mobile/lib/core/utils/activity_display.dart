@@ -92,6 +92,7 @@ const _mcpToolDisplayLabels = <String, String>{
   'mcp__eco_plan__finalize_plan': 'finalize_plan',
   'mcp__eco_image_generation__create_image': 'create_image',
   'mcp__eco_image_display__display_image': 'display_image',
+  'mcp__eco_image_display__show_media_to_user': 'show_media_to_user',
   'mcp__eco_html_host__publish_html': 'publish_html',
   'mcp__eco_image_view__view_image': 'view_image',
   'mcp__eco_computer_use__click': 'computer_use',
@@ -99,11 +100,13 @@ const _mcpToolDisplayLabels = <String, String>{
   'mcp__eco_agent_browser__agent_browser_snapshot': 'agent_browser_snapshot',
   'mcp__eco_agent_browser__agent_browser_click': 'agent_browser_click',
   'mcp__eco_agent_browser__agent_browser_fill': 'agent_browser_fill',
-  'mcp__eco_agent_browser__agent_browser_screenshot': 'agent_browser_screenshot',
+  'mcp__eco_agent_browser__agent_browser_screenshot':
+      'agent_browser_screenshot',
   'mcp__eco_agent_browser__agent_browser_get_url': 'agent_browser_get_url',
   'mcp__eco_agent_browser__agent_browser_tab_list': 'agent_browser_tab_list',
   'mcp__eco_agent_browser__agent_browser_tab_new': 'agent_browser_tab_new',
-  'mcp__eco_agent_browser__agent_browser_tab_switch': 'agent_browser_tab_switch',
+  'mcp__eco_agent_browser__agent_browser_tab_switch':
+      'agent_browser_tab_switch',
 };
 
 const _namedEcoToolSuffixes = <String>{
@@ -112,6 +115,7 @@ const _namedEcoToolSuffixes = <String>{
   'computer_use',
   'view_image',
   'display_image',
+  'show_media_to_user',
   'publish_html',
   'web_search',
   'agent_browser_open',
@@ -146,6 +150,8 @@ bool isEcoImageDisplayToolName(String? value) {
   final name = value?.trim().toLowerCase() ?? '';
   if (name.isEmpty) return false;
   return name.contains('eco_image_display') ||
+      name == 'show_media_to_user' ||
+      name.endsWith('__show_media_to_user') ||
       name == 'display_image' ||
       name.endsWith('__display_image');
 }
@@ -203,7 +209,7 @@ String? resolveNamedEcoToolSuffix(String tool) {
   if (isEcoImageGenerationToolName(tool)) return 'create_image';
   if (isEcoComputerUseToolName(tool)) return 'computer_use';
   if (isEcoImageViewToolName(tool)) return 'view_image';
-  if (isEcoImageDisplayToolName(tool)) return 'display_image';
+  if (isEcoImageDisplayToolName(tool)) return 'show_media_to_user';
   if (isEcoHtmlHostToolName(tool)) return 'publish_html';
   if (isEcoWebSearchToolName(tool)) return 'web_search';
   final browserSuffix = ecoAgentBrowserToolSuffix(tool);
@@ -233,6 +239,7 @@ String _namedEcoToolLabel(String suffix, AppLocalizations l10n) {
     'computer_use' => l10n.activityNamedComputerUse,
     'view_image' => l10n.activityNamedViewImage,
     'display_image' => l10n.activityNamedDisplayImage,
+    'show_media_to_user' => l10n.activityNamedShowMediaToUser,
     'publish_html' => l10n.activityNamedPublishHtml,
     'agent_browser_open' => l10n.activityNamedAgentBrowserOpen,
     'agent_browser_snapshot' => l10n.activityNamedAgentBrowserSnapshot,
@@ -535,6 +542,7 @@ ImageDisplayDisplay? _readImageDisplayMetadata(dynamic value) {
   return ImageDisplayDisplay(
     artifactId: artifactId,
     title: title?.isNotEmpty == true ? title : null,
+    mimeType: value['mimeType'] as String?,
   );
 }
 
@@ -631,9 +639,7 @@ String? _readToolTargetLineRange(dynamic value, {String? detail}) {
     if (range != null) return range;
   }
   // Legacy runtimes stored the range inside the detail as `path:L12-40`.
-  final match = RegExp(
-    r':L(\d+)(?:-(\d+))?$',
-  ).firstMatch(detail?.trim() ?? '');
+  final match = RegExp(r':L(\d+)(?:-(\d+))?$').firstMatch(detail?.trim() ?? '');
   if (match == null) return null;
   final offset = int.tryParse(match.group(1) ?? '');
   final end = int.tryParse(match.group(2) ?? '');
@@ -654,7 +660,9 @@ String? resolveStructuredBashDescription({
   ThreadRunToolMetadata? tool,
   ThreadRunBashApprovalMetadata? bashApproval,
 }) {
-  final fromTool = isCommandToolName(tool?.name) ? tool?.description?.trim() : null;
+  final fromTool = isCommandToolName(tool?.name)
+      ? tool?.description?.trim()
+      : null;
   if (fromTool != null && fromTool.isNotEmpty) {
     return fromTool;
   }
@@ -807,11 +815,17 @@ class ImageViewDisplay {
 }
 
 class ImageDisplayDisplay {
-  const ImageDisplayDisplay({required this.artifactId, this.eventId, this.title});
+  const ImageDisplayDisplay({
+    required this.artifactId,
+    this.eventId,
+    this.title,
+    this.mimeType,
+  });
 
   final String artifactId;
   final String? eventId;
   final String? title;
+  final String? mimeType;
 }
 
 class HtmlHostDisplay {
@@ -1435,8 +1449,7 @@ WebSearchCardDisplay? resolveWebSearchCardDisplayFromTool(
   ThreadRunToolMetadata tool,
   AppLocalizations l10n,
 ) {
-  final isNativeWeb =
-      tool.name == 'WebSearch' || tool.name == 'WebFetch';
+  final isNativeWeb = tool.name == 'WebSearch' || tool.name == 'WebFetch';
   if (!isNativeWeb && !isEcoWebSearchToolName(tool.name)) return null;
   final structured = tool.webSearch;
   final kind = tool.name == 'WebFetch' || structured?.mode == 'fetch'

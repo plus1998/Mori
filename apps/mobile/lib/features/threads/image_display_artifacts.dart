@@ -32,7 +32,7 @@ List<ImageDisplayArtifact> collectImageDisplayArtifactsFromProjection({
         status: tool?.status == 'failed' ? 'failed' : 'completed',
         sourceKind: 'path',
         title: title?.isNotEmpty == true ? title : existing?.title,
-        mimeType: existing?.mimeType ?? 'image/png',
+        mimeType: display?.mimeType ?? existing?.mimeType ?? 'image/png',
         filePath: existing?.filePath ?? '',
         sourceRef: existing?.sourceRef,
         bytes: existing?.bytes ?? 0,

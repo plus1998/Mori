@@ -3616,7 +3616,7 @@ void main() {
     expect(grouped.single.id, 'action-group:read-1');
   });
 
-  test('projects imageView as an independent entry beside tool groups', () {
+  test('projects imageView alongside other tools in one group', () {
     final feed = buildActivityFeed(
       threadPrompt: '',
       threadId: 't1',
@@ -3664,12 +3664,16 @@ void main() {
       ),
     );
 
-    expect(feed, hasLength(2));
-    expect(feed.first.kind, ActivityFeedKind.imageView);
-    expect(feed.first.imageView?.path, '/tmp/preview.png');
-    expect(feed.first.imageView?.eventId, 'image-item');
-    expect(feed.last.kind, ActivityFeedKind.actionGroup);
-    expect(feed.last.actionChildren.single.toolName, 'Read');
+    expect(feed, hasLength(1));
+    expect(feed.single.kind, ActivityFeedKind.actionGroup);
+    expect(feed.single.actionChildren, hasLength(2));
+    expect(feed.single.actionChildren.first.kind, ActivityFeedKind.imageView);
+    expect(
+      feed.single.actionChildren.first.imageView?.path,
+      '/tmp/preview.png',
+    );
+    expect(feed.single.actionChildren.first.imageView?.eventId, 'image-item');
+    expect(feed.single.actionChildren.last.toolName, 'Read');
   });
 
   test('PI mcp search metadata classifies as mcpSearch', () {
@@ -3708,7 +3712,7 @@ void main() {
     expect(feed.single.text, isNot(contains('调用了 MCP 工具')));
   });
 
-  test('projects eco_image_view MCP imageView as an independent entry', () {
+  test('projects eco_image_view MCP imageView into the tool group', () {
     final feed = buildActivityFeed(
       threadPrompt: '',
       threadId: 't1',
@@ -3756,12 +3760,19 @@ void main() {
       ),
     );
 
-    expect(feed, hasLength(2));
-    expect(feed.first.kind, ActivityFeedKind.imageView);
-    expect(feed.first.imageView?.path, '/tmp/preview.png');
-    expect(feed.first.imageView?.eventId, 'eco-image-item');
-    expect(feed.last.kind, ActivityFeedKind.actionGroup);
-    expect(feed.last.actionChildren.single.toolName, 'Read');
+    expect(feed, hasLength(1));
+    expect(feed.single.kind, ActivityFeedKind.actionGroup);
+    expect(feed.single.actionChildren, hasLength(2));
+    expect(feed.single.actionChildren.first.kind, ActivityFeedKind.imageView);
+    expect(
+      feed.single.actionChildren.first.imageView?.path,
+      '/tmp/preview.png',
+    );
+    expect(
+      feed.single.actionChildren.first.imageView?.eventId,
+      'eco-image-item',
+    );
+    expect(feed.single.actionChildren.last.toolName, 'Read');
   });
 
   test('upgrades persisted unprojected imageView records', () {
@@ -3795,10 +3806,97 @@ void main() {
     );
 
     expect(feed, hasLength(1));
-    expect(feed.single.kind, ActivityFeedKind.imageView);
-    expect(feed.single.imageView?.path, '/tmp/legacy.png');
-    expect(feed.single.imageView?.eventId, 'legacy-image-item');
+    expect(feed.single.kind, ActivityFeedKind.actionGroup);
+    expect(feed.single.actionChildren.single.kind, ActivityFeedKind.imageView);
+    expect(
+      feed.single.actionChildren.single.imageView?.path,
+      '/tmp/legacy.png',
+    );
+    expect(
+      feed.single.actionChildren.single.imageView?.eventId,
+      'legacy-image-item',
+    );
   });
+
+  test('image views join adjacent tools and narrative ends the group', () {
+    final grouped = groupActivityFeedActionEntries(const [
+      _imageViewFeedEntry,
+      ActivityFeedEntry(
+        id: 'command-after-image',
+        kind: ActivityFeedKind.action,
+        toolName: 'Bash',
+        text: 'pwd',
+        lifecycle: ToolActionLifecycle.completed,
+      ),
+      ActivityFeedEntry(
+        id: 'message-after-tools',
+        kind: ActivityFeedKind.assistant,
+        text: '继续处理',
+      ),
+      _imageViewFeedEntry,
+    ]);
+    expect(grouped.map((entry) => entry.kind), [
+      ActivityFeedKind.actionGroup,
+      ActivityFeedKind.assistant,
+      ActivityFeedKind.actionGroup,
+    ]);
+    expect(grouped.first.text, contains('已处理 1 张图像'));
+    expect(grouped.first.text, contains('已运行 1 条命令'));
+    expect(
+      grouped.first.actionChildren.first.imageView?.path,
+      '/tmp/preview.png',
+    );
+  });
+
+  testWidgets(
+    'grouped image views keep lazy previews after expanding the group',
+    (tester) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+      var loadCount = 0;
+      final grouped = groupActivityFeedActionEntries(const [
+        _imageViewFeedEntry,
+        ActivityFeedEntry(
+          id: 'command-after-image',
+          kind: ActivityFeedKind.action,
+          toolName: 'Bash',
+          text: 'pwd',
+          lifecycle: ToolActionLifecycle.completed,
+        ),
+      ]);
+      await tester.pumpWidget(
+        _localizedMaterialApp(
+          theme: buildEcoDarkTheme(),
+          home: Scaffold(
+            body: ActivityFeedList(
+              entries: grouped,
+              scrollController: controller,
+              shrinkWrap: true,
+              loadImageView: (entry) {
+                expect(entry.imageView?.path, '/tmp/preview.png');
+                loadCount++;
+                return Future.value(_imageViewData());
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(loadCount, 0);
+      expect(find.text('已查看 1 张图像'), findsNothing);
+      await tester.tap(find.text(grouped.single.text));
+      await tester.pump();
+      expect(loadCount, 0);
+      await tester.tap(find.text('已查看 1 张图像'));
+      await tester.pumpAndSettle();
+      expect(loadCount, 1);
+      expect(
+        find.byKey(const ValueKey('activity-image-view-preview-image-entry')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('imageView stays collapsed without requesting the image', (
     tester,

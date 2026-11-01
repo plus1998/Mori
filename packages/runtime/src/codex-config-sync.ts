@@ -535,7 +535,7 @@ export function defaultCodexMcpToolOutputTokenLimits(serverName: string): Record
     case "eco_image_view":
       return { view_image: 12_000 };
     case "eco_image_display":
-      return { display_image: 1_024 };
+      return { show_media_to_user: 1_024 };
     case "eco_image_generation":
       return { create_image: 2_000 };
     case "eco_html_host":

@@ -10,7 +10,7 @@ export {
 
 export function buildImageDisplayPromptAppend(): string {
   return [
-    "Built-in image display (Mori): present images, screenshots and visual results to the user in workspace cards and the task sidebar. Image analysis is provided by Mori image viewing.",
+    "Built-in media display (Mori): use show_media_to_user to present images, videos and audio to the user in workspace cards and the task sidebar. Video and audio include playback controls. This tool displays media; image analysis is provided by Mori image viewing.",
     buildEcoMcpHubToolUsage({ server: ECO_IMAGE_DISPLAY_MCP_SERVER }),
   ].join("\n");
 }

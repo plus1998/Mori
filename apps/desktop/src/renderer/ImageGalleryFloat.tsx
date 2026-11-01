@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ImageGalleryQueueItem } from "./image-gallery-float-state";
 import { ImageLightbox } from "./image-lightbox";
+import { MediaArtifactPreview } from "./MediaArtifactPreview";
 import {
   createImageObjectUrlFromBase64,
   revokeImageObjectUrl,
@@ -16,6 +17,7 @@ const GALLERY_LAYER_COUNT = 3;
 /** 单张图片加载后的数据：src 用于卡片与弹窗预览，fileName 用于展示图片标题。 */
 interface LoadedImage {
   src: string;
+  mimeType?: string;
   fileName?: string;
   /** 本地文件路径（有则可打开所在文件夹）。 */
   path?: string;
@@ -97,7 +99,12 @@ function GalleryCard({
         }
         objectUrl = url;
         handedOff = true;
-        onLoaded(item, { src: objectUrl, fileName: result.fileName, path: result.path });
+        onLoaded(item, {
+          src: objectUrl,
+          mimeType: result.mimeType,
+          fileName: result.fileName,
+          path: result.path,
+        });
         return;
       }
       const result = await bridge.readImageGenerationArtifact({
@@ -133,6 +140,7 @@ function GalleryCard({
       ? t("activity.imageDisplay.previewAlt", { name: fileName ?? t("task.imageDisplay.emptyTitle") })
       : t("task.image.title");
   const transform = galleryLayerTransform(layer);
+  const isPlayable = image?.mimeType?.startsWith("video/") || image?.mimeType?.startsWith("audio/");
 
   return (
     <motion.div
@@ -152,7 +160,18 @@ function GalleryCard({
       style={{ pointerEvents: isCurrent ? "auto" : "none" }}
     >
       <div className="image-gallery-card-frame">
-        {src ? (
+        {src && isPlayable ? (
+          <div className="image-gallery-card-media">
+            {isCurrent ? (
+              <MediaArtifactPreview
+                src={src}
+                mimeType={image!.mimeType!}
+                title={fileName ?? alt}
+                onOpenImage={() => {}}
+              />
+            ) : <span>{fileName ?? alt}</span>}
+          </div>
+        ) : src ? (
           <button
             type="button"
             className="image-gallery-card-media"
@@ -174,7 +193,7 @@ function GalleryCard({
         )}
         {isCurrent ? (
           <>
-            {src ? (
+            {src && !isPlayable ? (
               <button
                 type="button"
                 className="image-gallery-card-overlay image-gallery-card-overlay--preview"
@@ -434,7 +453,9 @@ export function ImageGalleryFloat({
           <span className="image-gallery-keyboard-hint">{t("imageGallery.keyboardHint")}</span>
         </div>
       ) : null}
-      {previewOpen && previewItem ? (
+      {previewOpen && previewItem &&
+        !previewLoaded?.mimeType?.startsWith("video/") &&
+        !previewLoaded?.mimeType?.startsWith("audio/") ? (
         <ImageLightbox
           src={previewLoaded?.src ?? ""}
           loading={!previewLoaded && !loadErrors[previewItem.key]}

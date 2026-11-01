@@ -48,7 +48,7 @@ async function createGateway() {
   return { gateway, store };
 }
 
-test("mergeIntoSdkConfig includes display_image in allowedTools", async () => {
+test("mergeIntoSdkConfig exposes show_media_to_user in allowedTools", async () => {
   const { gateway } = await createGateway();
   const injection = await gateway.resolveInjection("thr_display");
   expect(injection.sdkEntry).toMatchObject({
@@ -61,6 +61,22 @@ test("mergeIntoSdkConfig includes display_image in allowedTools", async () => {
   );
   expect(merged.mcpServers[ECO_IMAGE_DISPLAY_MCP_SERVER]).toBeDefined();
   expect(merged.allowedTools).toContain(ECO_IMAGE_DISPLAY_FULL_TOOL);
+  expect(ECO_IMAGE_DISPLAY_TOOL).toBe("show_media_to_user");
+  expect(injection.codexServer.enabledTools).toEqual(["show_media_to_user"]);
+});
+
+test("discovery exposes only show_media_to_user and describes video and audio playback", async () => {
+  const { gateway } = await createGateway();
+  const server = await gateway.resolveGlobalCodexServer();
+  const response = await fetch(`${server.url!.replace(/\/mcp$/, "")}/v1/tools/list`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...server.httpHeaders },
+    body: "{}",
+  });
+  const result = (await response.json()) as { tools: Array<{ name: string; description: string }> };
+  expect(result.tools.map((tool) => tool.name)).toEqual(["show_media_to_user"]);
+  expect(result.tools[0]!.description).toContain("video");
+  expect(result.tools[0]!.description).toContain("audio");
 });
 
 test("display_image base64 stores artifact and returns status ok only", async () => {

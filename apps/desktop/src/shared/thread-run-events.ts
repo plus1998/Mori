@@ -251,6 +251,7 @@ export function mergeThreadRunImageViewMetadata(
 export interface ThreadRunImageDisplayMetadata {
   artifactId: string;
   title?: string;
+  mimeType?: string;
 }
 
 export interface ThreadRunHtmlHostMetadata {

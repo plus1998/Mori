@@ -8,7 +8,9 @@ import type {
   ImageDisplaySourceKind,
   ImageDisplayToolInput,
 } from "../shared/image-display";
-import { IMAGE_VIEW_MAX_BYTES, ImageViewReadError, inspectImageBuffer, readImageViewFile } from "./image-view-reader";
+import { MEDIA_DISPLAY_MAX_BYTES } from "../shared/image-display";
+import { IMAGE_VIEW_MAX_BYTES, ImageViewReadError } from "./image-view-reader";
+import { inspectDisplayMedia, readDisplayMediaFile } from "./media-display-reader";
 import { fetchImageDisplayUrl } from "./image-display-fetch";
 
 export class ImageDisplayError extends Error {
@@ -38,10 +40,7 @@ interface ArtifactRow {
   updated_at: string;
 }
 
-export async function createImageDisplayStore(
-  dbPath: string,
-  rootDir: string,
-): Promise<ImageDisplayStore> {
+export async function createImageDisplayStore(dbPath: string, rootDir: string): Promise<ImageDisplayStore> {
   await fs.mkdir(path.dirname(dbPath), { recursive: true });
   await fs.mkdir(rootDir, { recursive: true });
   const sqlite = await import("node:sqlite");
@@ -51,8 +50,6 @@ export async function createImageDisplayStore(
 }
 
 export class ImageDisplayStore {
-  /** Avoid re-reading the same artifact file on every chunked RPC. */
-  private readonly fileCache = new Map<string, Buffer>();
   private readonly thumbnailCache = new Map<string, Promise<ImageDisplayArtifactReadResult>>();
 
   constructor(
@@ -132,7 +129,7 @@ export class ImageDisplayStore {
       .prepare("SELECT * FROM image_display_artifacts WHERE id = ?")
       .get(id.trim()) as unknown as ArtifactRow | undefined;
     if (!row) {
-      throw new ImageDisplayError("not_found", `图片展示产物不存在：${id}`);
+      throw new ImageDisplayError("not_found", `媒体展示产物不存在：${id}`);
     }
     return toArtifact(row);
   }
@@ -143,9 +140,7 @@ export class ImageDisplayStore {
       throw new ImageDisplayError("invalid_thread", "threadId 不能为空。");
     }
     const rows = this.db
-      .prepare(
-        "SELECT * FROM image_display_artifacts WHERE thread_id = ? ORDER BY created_at DESC, id DESC",
-      )
+      .prepare("SELECT * FROM image_display_artifacts WHERE thread_id = ? ORDER BY created_at DESC, id DESC")
       .all(id) as unknown as ArtifactRow[];
     return rows.map(toArtifact);
   }
@@ -186,40 +181,46 @@ export class ImageDisplayStore {
     height?: number;
   }> {
     const artifact = this.getArtifact(artifactId);
-    let data = this.fileCache.get(artifactId);
-    if (!data) {
-      data = await fs.readFile(artifact.filePath);
-      if (data.length > IMAGE_VIEW_MAX_BYTES) {
-        throw new ImageDisplayError("too_large", "图片超过 20 MB，无法在 Feed 中预览。");
+    const file = await fs.open(artifact.filePath, "r");
+    try {
+      const totalBytes = (await file.stat()).size;
+      if (totalBytes > MEDIA_DISPLAY_MAX_BYTES) {
+        throw new ImageDisplayError("too_large", "媒体超过 100 MB，无法展示。");
       }
-      this.fileCache.set(artifactId, data);
+      const offset =
+        typeof options?.offset === "number" && Number.isFinite(options.offset)
+          ? Math.max(0, Math.floor(options.offset))
+          : 0;
+      if (offset > totalBytes) {
+        throw new ImageDisplayError("invalid_artifact", "分片偏移超出文件大小。");
+      }
+      const length =
+        typeof options?.length === "number" && Number.isFinite(options.length)
+          ? Math.max(0, Math.floor(options.length))
+          : undefined;
+      const end = length === undefined ? totalBytes : Math.min(offset + length, totalBytes);
+      const slice = Buffer.alloc(end - offset);
+      let read = 0;
+      while (read < slice.length) {
+        const result = await file.read(slice, read, slice.length - read, offset + read);
+        if (!result.bytesRead) throw new ImageDisplayError("read_failed", "媒体文件读取不完整。");
+        read += result.bytesRead;
+      }
+      return {
+        dataBase64: slice.toString("base64"),
+        mimeType: artifact.mimeType,
+        path: artifact.filePath,
+        fileName: path.basename(artifact.filePath),
+        bytes: totalBytes,
+        totalBytes,
+        offset,
+        chunkBytes: slice.length,
+        ...(artifact.width !== undefined ? { width: artifact.width } : {}),
+        ...(artifact.height !== undefined ? { height: artifact.height } : {}),
+      };
+    } finally {
+      await file.close();
     }
-    const totalBytes = data.length;
-    const offset =
-      typeof options?.offset === "number" && Number.isFinite(options.offset)
-        ? Math.max(0, Math.floor(options.offset))
-        : 0;
-    if (offset > totalBytes) {
-      throw new ImageDisplayError("invalid_artifact", "分片偏移超出文件大小。");
-    }
-    const length =
-      typeof options?.length === "number" && Number.isFinite(options.length)
-        ? Math.max(0, Math.floor(options.length))
-        : undefined;
-    const end = length === undefined ? totalBytes : Math.min(offset + length, totalBytes);
-    const slice = length === undefined && offset === 0 ? data : data.subarray(offset, end);
-    return {
-      dataBase64: slice.toString("base64"),
-      mimeType: artifact.mimeType,
-      path: artifact.filePath,
-      fileName: path.basename(artifact.filePath),
-      bytes: totalBytes,
-      totalBytes,
-      offset,
-      chunkBytes: slice.length,
-      ...(artifact.width !== undefined ? { width: artifact.width } : {}),
-      ...(artifact.height !== undefined ? { height: artifact.height } : {}),
-    };
   }
 
   readArtifactThumbnail(
@@ -231,11 +232,13 @@ export class ImageDisplayStore {
     if (cached) return cached;
     const preview = (async () => {
       const artifact = this.getArtifact(id);
+      if (!artifact.mimeType.startsWith("image/"))
+        throw new ImageDisplayError("unsupported_type", "音频和视频不提供图片缩略图。");
       const stat = await fs.stat(artifact.filePath);
       if (stat.size > IMAGE_VIEW_MAX_BYTES)
         throw new ImageDisplayError("too_large", "图片超过 20 MB，无法生成缩略图。");
       // Cache only the small preview, not every original shown in the history list.
-      const bytes = this.fileCache.get(id) ?? (await fs.readFile(artifact.filePath));
+      const bytes = await fs.readFile(artifact.filePath);
       if (bytes.length > IMAGE_VIEW_MAX_BYTES)
         throw new ImageDisplayError("too_large", "图片超过 20 MB，无法生成缩略图。");
       const thumbnail = createThumbnail(bytes);
@@ -261,7 +264,6 @@ export class ImageDisplayStore {
   }
 
   close(): void {
-    this.fileCache.clear();
     this.thumbnailCache.clear();
     this.db.close();
   }
@@ -319,26 +321,13 @@ async function loadImageDisplayBytes(
   try {
     if (input.source === "path" && input.path) {
       signal?.throwIfAborted();
-      const file = await readImageViewFile(input.path);
+      const file = await readDisplayMediaFile(input.path, signal);
       signal?.throwIfAborted();
-      return {
-        data: Buffer.from(file.dataBase64, "base64"),
-        mimeType: file.mimeType,
-        bytes: file.bytes,
-        width: file.width,
-        height: file.height,
-      };
+      return file;
     }
     if (input.source === "url" && input.url) {
       const fetched = await fetchImageDisplayUrl(input.url, signal);
-      const inspected = inspectImageBuffer(fetched.data);
-      return {
-        data: fetched.data,
-        mimeType: inspected.mimeType,
-        bytes: inspected.bytes,
-        width: inspected.width,
-        height: inspected.height,
-      };
+      return inspectDisplayMedia(fetched.data, fetched.mimeType);
     }
     if (input.source === "base64" && input.data) {
       const raw = input.data.replace(/^data:[^;]+;base64,/iu, "").replace(/\s+/gu, "");
@@ -346,32 +335,43 @@ async function loadImageDisplayBytes(
       if (!data.length) {
         throw new ImageDisplayError("invalid_data", "base64 数据无效。");
       }
-      const inspected = inspectImageBuffer(data);
-      if (input.mimeType && !input.mimeType.startsWith("image/")) {
-        throw new ImageDisplayError("invalid_mime", "mimeType 必须是 image/*。");
+      const inspected = inspectDisplayMedia(data, input.mimeType);
+      if (input.mimeType && input.mimeType !== inspected.mimeType) {
+        throw new ImageDisplayError("invalid_mime", "mimeType 与文件内容不一致。");
       }
-      return {
-        data,
-        mimeType: input.mimeType?.startsWith("image/") ? input.mimeType : inspected.mimeType,
-        bytes: inspected.bytes,
-        width: inspected.width,
-        height: inspected.height,
-      };
+      return inspected;
     }
-    throw new ImageDisplayError("invalid_source", "无法解析图片来源。");
+    throw new ImageDisplayError("invalid_source", "无法解析媒体来源。");
   } catch (error) {
     if (error instanceof ImageDisplayError || error instanceof ImageViewReadError) {
       throw error;
     }
-    throw new ImageDisplayError(
-      "load_failed",
-      error instanceof Error ? error.message : String(error),
-    );
+    throw new ImageDisplayError("load_failed", error instanceof Error ? error.message : String(error));
   }
 }
 
 function extensionForMimeType(mimeType: string): string {
   switch (mimeType) {
+    case "video/mp4":
+      return ".mp4";
+    case "video/webm":
+      return ".webm";
+    case "video/quicktime":
+      return ".mov";
+    case "audio/mpeg":
+      return ".mp3";
+    case "audio/mp4":
+      return ".m4a";
+    case "audio/wav":
+      return ".wav";
+    case "audio/ogg":
+      return ".ogg";
+    case "audio/flac":
+      return ".flac";
+    case "audio/aac":
+      return ".aac";
+    case "audio/webm":
+      return ".weba";
     case "image/jpeg":
       return ".jpg";
     case "image/gif":

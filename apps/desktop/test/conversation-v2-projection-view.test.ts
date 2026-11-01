@@ -824,7 +824,7 @@ test("projectionItemToDetailBlock upgrades persisted imageView gaps to image Fee
   });
 });
 
-test("imageView projects as an independent image Feed entry", () => {
+test("imageView projects into a tool group", () => {
   const imageStarted = item({
     id: "image-view-started",
     sequence: 1,
@@ -873,13 +873,13 @@ test("imageView projects as an independent image Feed entry", () => {
 
   const view = buildThreadRunProjectionViewModel(projection({ timeline: [imageStarted, imageCompleted] }));
   expect(view.mainFeedEntries).toHaveLength(1);
-  expect(view.mainFeedEntries[0]?.kind).toBe("timeline");
-  if (view.mainFeedEntries[0]?.kind === "timeline") {
-    expect(view.mainFeedEntries[0].item.id).toBe("image-view-completed");
+  expect(view.mainFeedEntries[0]?.kind).toBe("tool-group");
+  if (view.mainFeedEntries[0]?.kind === "tool-group") {
+    expect(view.mainFeedEntries[0].entries.map((entry) => entry.item.id)).toEqual(["image-view-completed"]);
   }
 });
 
-test("eco_image_view MCP tool projects as an independent image Feed entry", () => {
+test("eco_image_view MCP tool projects into a tool group", () => {
   const imageStarted = item({
     id: "eco-image-view-started",
     sequence: 1,
@@ -928,9 +928,9 @@ test("eco_image_view MCP tool projects as an independent image Feed entry", () =
 
   const view = buildThreadRunProjectionViewModel(projection({ timeline: [imageStarted, imageCompleted] }));
   expect(view.mainFeedEntries).toHaveLength(1);
-  expect(view.mainFeedEntries[0]?.kind).toBe("timeline");
-  if (view.mainFeedEntries[0]?.kind === "timeline") {
-    expect(view.mainFeedEntries[0].item.id).toBe("eco-image-view-completed");
+  expect(view.mainFeedEntries[0]?.kind).toBe("tool-group");
+  if (view.mainFeedEntries[0]?.kind === "tool-group") {
+    expect(view.mainFeedEntries[0].entries.map((entry) => entry.item.id)).toEqual(["eco-image-view-completed"]);
   }
 });
 

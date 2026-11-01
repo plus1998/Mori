@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -59,6 +59,101 @@ test("ingest base64 stores decoded bytes", async () => {
   expect(artifact.bytes).toBe(PNG.length);
   const file = await store.readArtifactFile(artifact.id);
   expect(Buffer.from(file.dataBase64, "base64").equals(PNG)).toBe(true);
+});
+
+const WAV = Buffer.concat([
+  Buffer.from("RIFF"),
+  Buffer.from([40, 0, 0, 0]),
+  Buffer.from("WAVEfmt "),
+  Buffer.alloc(32),
+]);
+const MP4 = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from("ftypisom"), Buffer.alloc(12)]);
+
+test("video and audio paths are copied and remain readable after the source is removed", async () => {
+  const { store, root } = await createStore();
+  for (const [name, data, mimeType] of [
+    ["clip.mp4", MP4, "video/mp4"],
+    ["voice.wav", WAV, "audio/wav"],
+  ] as const) {
+    const source = path.join(root, name);
+    await fs.writeFile(source, data);
+    const artifact = await store.ingestFromToolInput({
+      threadId: "thr_media",
+      toolInput: { source: "path", path: source, title: name },
+    });
+    await fs.rm(source);
+    expect(artifact.mimeType).toBe(mimeType);
+    expect(artifact.filePath).toEndWith(path.extname(name));
+    const first = await store.readArtifactFile(artifact.id, { offset: 0, length: 10 });
+    const rest = await store.readArtifactFile(artifact.id, { offset: 10 });
+    expect(
+      Buffer.concat([Buffer.from(first.dataBase64, "base64"), Buffer.from(rest.dataBase64, "base64")]),
+    ).toEqual(data);
+    await expect(
+      store.readArtifactThumbnail(artifact.id, () => {
+        throw new Error("must not decode media as image");
+      }),
+    ).rejects.toMatchObject({ code: "unsupported_type" });
+  }
+  expect(store.listArtifacts("thr_media")).toHaveLength(2);
+});
+
+test("base64 audio validates bytes rather than trusting the declared type", async () => {
+  const { store } = await createStore();
+  const artifact = await store.ingestFromToolInput({
+    threadId: "thr_audio",
+    toolInput: { source: "base64", data: WAV.toString("base64"), mimeType: "audio/wav" },
+  });
+  expect(artifact.mimeType).toBe("audio/wav");
+  await expect(
+    store.ingestFromToolInput({
+      threadId: "thr_audio",
+      toolInput: { source: "base64", data: PNG.toString("base64"), mimeType: "video/mp4" },
+    }),
+  ).rejects.toMatchObject({ code: "invalid_mime" });
+  await expect(
+    store.ingestFromToolInput({
+      threadId: "thr_audio",
+      toolInput: {
+        source: "base64",
+        data: Buffer.from("not media").toString("base64"),
+        mimeType: "audio/mpeg",
+      },
+    }),
+  ).rejects.toMatchObject({ code: "unsupported_type" });
+});
+
+test("HTTPS media is downloaded and inspected for both video and audio", async () => {
+  const { store } = await createStore();
+  const fetchMock = spyOn(globalThis, "fetch");
+  try {
+    for (const [data, mimeType] of [
+      [MP4, "video/mp4"],
+      [WAV, "audio/wav"],
+    ] as const) {
+      fetchMock.mockResolvedValueOnce(new Response(data, { headers: { "content-type": mimeType } }));
+      const artifact = await store.ingestFromToolInput({
+        threadId: "thr_https",
+        toolInput: { source: "url", url: "https://example.com/media" },
+      });
+      expect(artifact.mimeType).toBe(mimeType);
+      expect(artifact.sourceKind).toBe("url");
+      expect((await store.readArtifactFile(artifact.id)).dataBase64).toBe(data.toString("base64"));
+    }
+    fetchMock.mockResolvedValueOnce(
+      new Response(null, {
+        headers: { "content-type": "video/mp4", "content-length": String(101 * 1024 * 1024) },
+      }),
+    );
+    await expect(
+      store.ingestFromToolInput({
+        threadId: "thr_https",
+        toolInput: { source: "url", url: "https://example.com/large" },
+      }),
+    ).rejects.toMatchObject({ code: "too_large" });
+  } finally {
+    fetchMock.mockRestore();
+  }
 });
 
 test("readArtifactFile supports byte-range chunks", async () => {

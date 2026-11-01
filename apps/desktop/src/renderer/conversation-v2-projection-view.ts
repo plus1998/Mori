@@ -530,7 +530,7 @@ function isGroupableToolFeedEntry(
   }
   const block = projectionItemToDetailBlock(entry.item);
   return (
-    (block?.kind === "action" && !block.imageView && !block.imageDisplay && !block.htmlHost) ||
+    (block?.kind === "action" && !block.imageDisplay && !block.htmlHost) ||
     block?.kind === "tool-failed"
   );
 }
@@ -3193,6 +3193,7 @@ function buildProjectionToolActionBlock(
         artifactId,
         eventId: item.id,
         ...(metadataTool?.imageDisplay?.title ? { title: metadataTool.imageDisplay.title } : {}),
+        ...(metadataTool?.imageDisplay?.mimeType ? { mimeType: metadataTool.imageDisplay.mimeType } : {}),
       }
     : undefined;
   const htmlHostMeta = metadataTool?.htmlHost;
@@ -3856,6 +3857,8 @@ function parseProjectionToolMetadata(record: Record<string, unknown>): ThreadRun
     typeof imageDisplayArtifactId === "string" && imageDisplayArtifactId.trim()
       ? {
           artifactId: imageDisplayArtifactId.trim(),
+          ...(typeof (rawImageDisplay as Record<string, unknown>).mimeType === "string"
+            ? { mimeType: (rawImageDisplay as Record<string, unknown>).mimeType as string } : {}),
           ...(typeof imageDisplayTitle === "string" && imageDisplayTitle.trim()
             ? { title: imageDisplayTitle.trim() }
             : {}),

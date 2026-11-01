@@ -24,11 +24,13 @@ const DISPLAY_ERRORS: Record<string, string> = {
   invalid_path: "path 必须是绝对路径。",
   invalid_url: "url 必须是 HTTPS 地址。",
   invalid_data: "base64 来源需要提供有效的 data。",
-  invalid_mime: "mimeType 必须是 image/*。",
-  not_found: "图片展示产物不存在。",
-  too_large: "图片超过 20 MB，无法在 Feed 中预览。",
-  unsupported_type: "文件内容不是受支持的 PNG、JPEG、GIF、WebP、SVG、ICO 或 BMP 图片。",
-  load_failed: "读取或下载图片失败。",
+  invalid_mime: "mimeType 与媒体内容不一致。",
+  not_found: "媒体文件或产物不存在。",
+  too_large: "媒体大小超过限制（图片 20 MB，视频和音频 100 MB）。",
+  unsupported_type: "不支持该媒体格式。支持常见图片、MP4/MOV/WebM 视频及 MP3/M4A/WAV/OGG/FLAC/AAC 音频。",
+  load_failed: "读取或下载媒体失败。",
+  symbolic_link: "请选择媒体文件本身，不能使用符号链接。",
+  not_file: "请选择媒体文件，不能使用目录。",
 };
 
 export interface ImageDisplayMcpInjection {
@@ -151,7 +153,7 @@ export class ImageDisplayMcpGateway {
         {
           serverName: ECO_IMAGE_DISPLAY_MCP_SERVER,
           instructions:
-            "Mori image display for the user. Stores images as feed artifacts; returns artifactId text.",
+            "Show images, video and audio to the user as playable workspace artifacts. This tool does not analyze media.",
           listTools: async () => ({ tools: [imageDisplayToolDefinition()] }),
           callTool: async ({ name, arguments: args, authToken, signal }) =>
             this.executeToolCall(name, args, authToken, signal),
@@ -209,8 +211,8 @@ export class ImageDisplayMcpGateway {
     authToken: string | undefined,
     signal?: AbortSignal,
   ): Promise<Record<string, unknown>> {
-    if (name !== ECO_IMAGE_DISPLAY_TOOL) {
-      throw new Error(`未知图片展示工具：${name}`);
+    if (name !== ECO_IMAGE_DISPLAY_TOOL && name !== "display_image") {
+      throw new Error(`未知媒体展示工具：${name}`);
     }
     const claim = this.resolveThread(authToken);
     signal?.throwIfAborted();
@@ -260,7 +262,7 @@ function imageDisplayToolDefinition(): McpToolDefinition {
   return {
     name: ECO_IMAGE_DISPLAY_TOOL,
     description:
-      "Display an image to the user. On success returns { status: \"ok\" }. Mori places it in the workspace cards / task panel — tell the user to open it there. Do not embed Markdown image links or paste base64 into replies.",
+      "Show an image, video or audio file to the user in Mori's workspace cards / task panel. Video and audio have playback controls; playback starts only when the user presses play. This does not analyze the media. Supports common images (20 MB max), MP4/MOV/WebM video and MP3/M4A/WAV/OGG/FLAC/AAC audio (100 MB max; codec support depends on the device). Prefer path for local files or HTTPS url for remote files; base64 is for small payloads. Returns { status: \"ok\" }. Tell the user to open the media in the workspace; do not paste base64 into replies.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -269,7 +271,7 @@ function imageDisplayToolDefinition(): McpToolDefinition {
         source: {
           type: "string",
           enum: ["path", "url", "base64"],
-          description: "Image source kind.",
+          description: "Media source kind.",
         },
         path: { type: "string", description: "Absolute local path when source=path." },
         url: { type: "string", description: "HTTPS URL when source=url." },

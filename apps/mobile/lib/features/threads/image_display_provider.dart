@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/image_display_models.dart';
 import '../../core/models/image_view_models.dart';
+import '../../core/utils/activity_display.dart';
 import '../../core/providers/desktop_bind_ready.dart';
 import 'thread_providers.dart';
 
@@ -16,7 +17,7 @@ final threadImageDisplayArtifactsProvider = FutureProvider.autoDispose
             historyRevision: state.historyRevision,
             syncState: state.syncState,
             displayTools: state.tools
-                .where((tool) => tool.name.contains('display_image'))
+                .where((tool) => isEcoImageDisplayToolName(tool.name))
                 .map((tool) => (tool.toolCallId, tool.versionSeq).toString())
                 .join('|'),
           ),

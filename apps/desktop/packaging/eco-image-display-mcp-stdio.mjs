@@ -50,7 +50,7 @@ lines.on("line", (line) => {
             capabilities: { tools: {} },
             serverInfo: { name: "eco_image_display", version: "1.0.0" },
             instructions:
-              "Mori image display for the user. Stores images as feed artifacts; returns artifactId text.",
+              "Show images, video and audio to the user as playable workspace artifacts. This tool does not analyze media.",
           },
         });
       } else if (method === "ping") {

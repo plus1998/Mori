@@ -19999,7 +19999,7 @@ function projectEmitThreadEventExtras(
 
 /**
  * Feed preview is attached via store lookup (toolUseId / latest), not model-visible tool output.
- * display_image only returns `{ status: "ok" }` to the model.
+ * show_media_to_user only returns `{ status: "ok" }` to the model.
  */
 function enrichImageDisplayToolMetadata(
   threadId: string,
@@ -20025,6 +20025,7 @@ function enrichImageDisplayToolMetadata(
     ...tool,
     imageDisplay: {
       artifactId: artifact.id,
+      mimeType: artifact.mimeType,
       ...(artifact.title?.trim() ? { title: artifact.title.trim() } : {}),
     },
   };

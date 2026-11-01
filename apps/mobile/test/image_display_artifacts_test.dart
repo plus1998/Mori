@@ -27,6 +27,7 @@ void main() {
               'imageDisplay': {
                 'artifactId': 'art-1',
                 'title': 'Hero',
+                'mimeType': 'video/mp4',
               },
             },
           },
@@ -41,6 +42,8 @@ void main() {
     expect(artifacts, hasLength(1));
     expect(artifacts.single.id, 'art-1');
     expect(artifacts.single.title, 'Hero');
+    expect(artifacts.single.isVideo, isTrue);
+    expect(artifacts.single.isImage, isFalse);
   });
 
   test('mergeImageDisplayArtifacts prefers remote metadata', () {

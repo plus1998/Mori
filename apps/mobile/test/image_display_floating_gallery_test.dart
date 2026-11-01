@@ -11,6 +11,57 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
+    'video and audio are not downloaded when the media gallery expands',
+    (tester) async {
+      var reads = 0;
+      final controller = ImageDisplayFloatingGalleryController();
+      addTearDown(controller.dispose);
+      final artifacts = [
+        for (final mime in ['video/mp4', 'audio/wav'])
+          ImageDisplayArtifact(
+            id: mime,
+            threadId: 'thread',
+            status: 'completed',
+            sourceKind: 'path',
+            title: mime,
+            mimeType: mime,
+            filePath: '',
+            bytes: 1024,
+            createdAt: '',
+            updatedAt: '',
+          ),
+      ];
+      await tester.pumpWidget(
+        _app(
+          Stack(
+            children: [
+              ImageDisplayFloatingGallery(
+                artifacts: artifacts,
+                controller: controller,
+                loadBytes: (_, {onProgress}) async {
+                  reads++;
+                  throw StateError('unavailable');
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+      controller.reveal();
+      await tester.pumpAndSettle();
+      expect(reads, 0);
+      expect(find.byType(Image), findsNothing);
+      expect(find.byIcon(Icons.video_library_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.audiotrack), findsOneWidget);
+      await tester.tap(find.text('video/mp4'));
+      await tester.pumpAndSettle();
+      expect(reads, 1);
+      expect(find.text('Tap to retry'), findsOneWidget);
+      expect(find.byType(Dialog), findsNothing);
+    },
+  );
+
+  testWidgets(
     'live images stay collapsed until tapped, then open fullscreen and reveal from the menu',
     (tester) async {
       final controller = ImageDisplayFloatingGalleryController();
@@ -45,7 +96,7 @@ void main() {
       expect(find.text('Menu screenshot'), findsNothing);
       expect(find.text('1'), findsOneWidget);
       expect(reads, 0);
-      await tester.tap(find.byIcon(Icons.photo_library_outlined));
+      await tester.tap(find.byIcon(Icons.perm_media_outlined));
       await tester.pumpAndSettle();
       expect(find.text('Menu screenshot'), findsOneWidget);
       expect(
@@ -116,7 +167,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.perm_media_outlined), findsOneWidget);
       expect(find.byType(Image), findsNothing);
       expect(reads, 0);
 
@@ -137,7 +188,7 @@ void main() {
       expect(find.byType(Image), findsNothing);
       expect(reads, 1, reason: 'New images do not load while collapsed');
 
-      await tester.tap(find.byIcon(Icons.photo_library_outlined));
+      await tester.tap(find.byIcon(Icons.perm_media_outlined));
       await tester.pumpAndSettle();
       expect(reads, 2, reason: 'Reopening reuses the previously loaded image');
       expect(find.text('Newest screenshot'), findsOneWidget);
@@ -189,7 +240,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(reads, 0);
-      await tester.tap(find.byIcon(Icons.photo_library_outlined));
+      await tester.tap(find.byIcon(Icons.perm_media_outlined));
       await tester.pumpAndSettle();
       expect(reads, 1);
       rebuild(() {});

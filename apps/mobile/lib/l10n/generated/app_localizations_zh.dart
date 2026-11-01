@@ -9,6 +9,18 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get activityNamedShowMediaToUser => '向用户展示媒体';
+
+  @override
+  String get mediaPlay => '播放';
+
+  @override
+  String get mediaPause => '暂停';
+
+  @override
+  String get mediaPlaybackFailed => '无法播放此媒体，文件可能损坏或当前设备不支持其编码。';
+
+  @override
   String get readAloudTitle => '朗读';
 
   @override
@@ -1473,13 +1485,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activityImageViewViewed => '已查看 1 张图像';
 
   @override
-  String get activityImageDisplayViewing => '正在展示 1 张图像';
+  String get activityImageDisplayViewing => '正在向你展示媒体';
 
   @override
-  String get activityImageDisplayViewed => '已展示 1 张图像';
+  String get activityImageDisplayViewed => '已向你展示媒体';
 
   @override
-  String get activityImageDisplayErrorReadFailed => '加载展示图片失败。';
+  String get activityImageDisplayErrorReadFailed => '加载展示媒体失败。';
 
   @override
   String get activityImageDisplayTapToRetry => '点击重试';
@@ -1490,7 +1502,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get taskImageDisplayHistory => '展示图片';
+  String get taskImageDisplayHistory => '展示媒体';
 
   @override
   String get taskImageGenerationHistory => '绘画任务';
@@ -3256,7 +3268,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get imagePreviewTitle => '图片预览';
 
   @override
-  String get imageGalleryTitle => '图片画廊';
+  String get imageGalleryTitle => '媒体库';
 
   @override
   String get imageSaveToPhotos => '保存到相册';

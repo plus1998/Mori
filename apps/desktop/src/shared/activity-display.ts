@@ -165,6 +165,7 @@ const NAMED_ECO_TOOL_SUFFIXES = new Set([
   "computer_use",
   "view_image",
   "display_image",
+  "show_media_to_user",
   ...NAMED_AGENT_BROWSER_TOOL_SUFFIXES,
 ]);
 
@@ -183,7 +184,7 @@ function resolveNamedToolSuffix(tool: string): string | undefined {
     return "view_image";
   }
   if (isEcoImageDisplayToolName(tool)) {
-    return "display_image";
+    return "show_media_to_user";
   }
   const browserSuffix = ecoAgentBrowserToolSuffix(tool);
   if (browserSuffix) {

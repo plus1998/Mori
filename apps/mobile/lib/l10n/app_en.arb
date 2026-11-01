@@ -1,4 +1,8 @@
 {
+  "activityNamedShowMediaToUser": "Show media to user",
+  "mediaPlay": "Play",
+  "mediaPause": "Pause",
+  "mediaPlaybackFailed": "Unable to play this media. The file may be damaged or its codec unsupported on this device.",
   "readAloudTitle": "Read aloud",
   "readAloudEngine": "Reading engine (this device)",
   "readAloudOnline": "Online TTS",
@@ -501,9 +505,9 @@
   "activityViewImages": "View {count} images",
   "activityImageViewViewing": "Viewing 1 image",
   "activityImageViewViewed": "Viewed 1 image",
-  "activityImageDisplayViewing": "Displaying 1 image",
-  "activityImageDisplayViewed": "Displayed 1 image",
-  "activityImageDisplayErrorReadFailed": "Failed to load the displayed image.",
+  "activityImageDisplayViewing": "Showing media to you",
+  "activityImageDisplayViewed": "Shared media with you",
+  "activityImageDisplayErrorReadFailed": "Failed to load the displayed media.",
   "activityImageDisplayTapToRetry": "Tap to retry",
   "activityImageDisplayLoadingPercent": "{percent}%",
   "@activityImageDisplayLoadingPercent": {
@@ -511,7 +515,7 @@
       "percent": { "type": "int" }
     }
   },
-  "taskImageDisplayHistory": "Displayed images",
+  "taskImageDisplayHistory": "Displayed media",
   "taskImageGenerationHistory": "Drawing tasks",
   "taskHtmlHostHistory": "HTML pages",
   "taskImageGenerationEmpty": "No drawing tasks yet",
@@ -1171,7 +1175,7 @@
   "composerReferencesHint": "SSH, pages, chats and tools",
   "composerReferencesSpeech": "Speech generation",
   "imagePreviewTitle": "Image preview",
-  "imageGalleryTitle": "Image gallery",
+  "imageGalleryTitle": "Media library",
   "imageSaveToPhotos": "Save to Photos",
   "imageSaving": "Saving…",
   "imageSavedToPhotos": "Saved to Photos",

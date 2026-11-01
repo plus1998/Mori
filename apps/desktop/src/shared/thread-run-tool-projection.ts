@@ -111,6 +111,7 @@ export function projectThreadRunToolMetadata(
     ...(tool.imageDisplay?.artifactId.trim() && {
       imageDisplay: {
         artifactId: tool.imageDisplay.artifactId.trim(),
+        ...(tool.imageDisplay.mimeType ? { mimeType: tool.imageDisplay.mimeType } : {}),
         ...(tool.imageDisplay.title?.trim() ? { title: tool.imageDisplay.title.trim() } : {}),
       },
     }),

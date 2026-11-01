@@ -98,6 +98,30 @@ abstract class AppLocalizations {
     Locale('zh'),
   ];
 
+  /// No description provided for @activityNamedShowMediaToUser.
+  ///
+  /// In en, this message translates to:
+  /// **'Show media to user'**
+  String get activityNamedShowMediaToUser;
+
+  /// No description provided for @mediaPlay.
+  ///
+  /// In en, this message translates to:
+  /// **'Play'**
+  String get mediaPlay;
+
+  /// No description provided for @mediaPause.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get mediaPause;
+
+  /// No description provided for @mediaPlaybackFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to play this media. The file may be damaged or its codec unsupported on this device.'**
+  String get mediaPlaybackFailed;
+
   /// No description provided for @readAloudTitle.
   ///
   /// In en, this message translates to:
@@ -2687,19 +2711,19 @@ abstract class AppLocalizations {
   /// No description provided for @activityImageDisplayViewing.
   ///
   /// In en, this message translates to:
-  /// **'Displaying 1 image'**
+  /// **'Showing media to you'**
   String get activityImageDisplayViewing;
 
   /// No description provided for @activityImageDisplayViewed.
   ///
   /// In en, this message translates to:
-  /// **'Displayed 1 image'**
+  /// **'Shared media with you'**
   String get activityImageDisplayViewed;
 
   /// No description provided for @activityImageDisplayErrorReadFailed.
   ///
   /// In en, this message translates to:
-  /// **'Failed to load the displayed image.'**
+  /// **'Failed to load the displayed media.'**
   String get activityImageDisplayErrorReadFailed;
 
   /// No description provided for @activityImageDisplayTapToRetry.
@@ -2717,7 +2741,7 @@ abstract class AppLocalizations {
   /// No description provided for @taskImageDisplayHistory.
   ///
   /// In en, this message translates to:
-  /// **'Displayed images'**
+  /// **'Displayed media'**
   String get taskImageDisplayHistory;
 
   /// No description provided for @taskImageGenerationHistory.
@@ -6041,7 +6065,7 @@ abstract class AppLocalizations {
   /// No description provided for @imageGalleryTitle.
   ///
   /// In en, this message translates to:
-  /// **'Image gallery'**
+  /// **'Media library'**
   String get imageGalleryTitle;
 
   /// No description provided for @imageSaveToPhotos.

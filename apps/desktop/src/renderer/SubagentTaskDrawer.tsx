@@ -55,6 +55,7 @@ import { useBrowserTaskInstances } from "./browser-state-store";
 import { copyTextToClipboard } from "./clipboard";
 import { i18n } from "./i18n";
 import { ImageLightbox } from "./image-lightbox";
+import { MediaArtifactPreview } from "./MediaArtifactPreview";
 import {
   createImageObjectUrlFromBase64,
   revokeImageObjectUrl,
@@ -560,15 +561,12 @@ function ImageDisplayArtifactDetail({ artifact }: { artifact: ImageDisplayArtifa
       {src ? (
         <div className="image-artifact-gallery image-artifact-gallery--display">
           <figure>
-            <button
-              type="button"
-              className="image-artifact-preview-button"
-              onClick={() => setLightboxOpen(true)}
-              aria-label={t("activity.imageDisplay.open", { name: title })}
-              title={t("activity.imageDisplay.open", { name: title })}
-            >
-              <img src={src} alt={previewAlt} />
-            </button>
+            <MediaArtifactPreview
+              src={src}
+              mimeType={artifact.mimeType}
+              title={title}
+              onOpenImage={() => setLightboxOpen(true)}
+            />
           </figure>
         </div>
       ) : null}

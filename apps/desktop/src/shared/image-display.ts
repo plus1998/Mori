@@ -1,7 +1,8 @@
 export const ECO_IMAGE_DISPLAY_MCP_SERVER = "eco_image_display";
-export const ECO_IMAGE_DISPLAY_TOOL = "display_image";
+export const ECO_IMAGE_DISPLAY_TOOL = "show_media_to_user";
 export const ECO_IMAGE_DISPLAY_FULL_TOOL = `mcp__${ECO_IMAGE_DISPLAY_MCP_SERVER}__${ECO_IMAGE_DISPLAY_TOOL}`;
 export const IMAGE_DISPLAY_TASK_TAB_PREFIX = "image-display:";
+export const MEDIA_DISPLAY_MAX_BYTES = 100 * 1024 * 1024;
 
 export function imageDisplayTaskTabId(artifactId: string): string {
   return `${IMAGE_DISPLAY_TASK_TAB_PREFIX}${artifactId}`;

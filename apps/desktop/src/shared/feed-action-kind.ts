@@ -127,6 +127,7 @@ const ALIASES: Record<string, ActionKind> = {
   view_image: "imageView",
   displayimage: "imageDisplay",
   display_image: "imageDisplay",
+  show_media_to_user: "imageDisplay",
   publishhtml: "htmlHost",
   publish_html: "htmlHost",
 };

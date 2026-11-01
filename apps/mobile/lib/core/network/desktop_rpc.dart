@@ -650,7 +650,7 @@ class DesktopRpc implements ReadAloudRemote {
 
       if (totalBytes > 0 && offset >= totalBytes) break;
       if (decoded.length < chunkBytes) break;
-      if (offset > 20 * 1024 * 1024) {
+      if (offset > 100 * 1024 * 1024) {
         throw const ImageViewReadException(ImageViewReadFailureCode.tooLarge);
       }
     }

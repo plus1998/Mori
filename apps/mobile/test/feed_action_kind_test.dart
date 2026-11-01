@@ -140,8 +140,12 @@ void main() {
 
   test('formatMcpToolDisplayName maps built-in eco tools', () {
     expect(
+      formatMcpToolDisplayName('mcp__eco_image_display__show_media_to_user', l10n),
+      '向用户展示媒体',
+    );
+    expect(
       formatMcpToolDisplayName('mcp__eco_image_display__display_image', l10n),
-      '展示图像',
+      '向用户展示媒体',
     );
     expect(
       formatMcpToolDisplayName('mcp__eco_html_host__publish_html', l10n),
@@ -171,7 +175,7 @@ void main() {
         phase: ActionLinePhase.running,
         l10n: l10n,
       ),
-      '正在展示 1 张图像',
+      '正在向你展示媒体',
     );
     expect(
       formatActionLine(
@@ -179,7 +183,7 @@ void main() {
         phase: ActionLinePhase.done,
         l10n: l10n,
       ),
-      '已展示 1 张图像',
+      '已向你展示媒体',
     );
     final html = resolveActionKind(
       toolName: 'mcp__eco_html_host__publish_html',

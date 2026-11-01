@@ -9,6 +9,19 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get activityNamedShowMediaToUser => 'Show media to user';
+
+  @override
+  String get mediaPlay => 'Play';
+
+  @override
+  String get mediaPause => 'Pause';
+
+  @override
+  String get mediaPlaybackFailed =>
+      'Unable to play this media. The file may be damaged or its codec unsupported on this device.';
+
+  @override
   String get readAloudTitle => 'Read aloud';
 
   @override
@@ -1562,14 +1575,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get activityImageViewViewed => 'Viewed 1 image';
 
   @override
-  String get activityImageDisplayViewing => 'Displaying 1 image';
+  String get activityImageDisplayViewing => 'Showing media to you';
 
   @override
-  String get activityImageDisplayViewed => 'Displayed 1 image';
+  String get activityImageDisplayViewed => 'Shared media with you';
 
   @override
   String get activityImageDisplayErrorReadFailed =>
-      'Failed to load the displayed image.';
+      'Failed to load the displayed media.';
 
   @override
   String get activityImageDisplayTapToRetry => 'Tap to retry';
@@ -1580,7 +1593,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get taskImageDisplayHistory => 'Displayed images';
+  String get taskImageDisplayHistory => 'Displayed media';
 
   @override
   String get taskImageGenerationHistory => 'Drawing tasks';
@@ -3443,7 +3456,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get imagePreviewTitle => 'Image preview';
 
   @override
-  String get imageGalleryTitle => 'Image gallery';
+  String get imageGalleryTitle => 'Media library';
 
   @override
   String get imageSaveToPhotos => 'Save to Photos';

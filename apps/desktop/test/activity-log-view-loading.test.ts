@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   ActivityLogView,
+  ImageDisplayBlock,
   formatRunLogTurnHeading,
   isTailThinkingStreamingLive,
   ConversationV2ProjectionActivityLogView as ProjectionActivityLogView,
@@ -37,6 +38,17 @@ import { renderLocalized } from "./i18n-test";
 
 const styles = readFileSync(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 const themes = readFileSync(new URL("../src/renderer/themes.css", import.meta.url), "utf8");
+
+test("video and audio feed cards stay collapsed until explicitly opened", () => {
+  for (const mimeType of ["video/mp4", "audio/wav"]) {
+    const html = renderToStaticMarkup(createElement(ImageDisplayBlock, {
+      imageDisplay: { artifactId: "media-1", eventId: "event-1", mimeType },
+    }));
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("run-log-image-view-body");
+    expect(html).not.toContain("<img");
+  }
+});
 const feedStatusDividerStyles = readFileSync(
   new URL("../src/renderer/FeedStatusDivider.css", import.meta.url),
   "utf8",
@@ -2776,7 +2788,7 @@ test("failed image analysis displays failure rather than a viewed image", () => 
   });
 });
 
-test("ActivityLogView renders imageView as a standalone collapsed preview", () => {
+test("ActivityLogView renders imageView inside a collapsed tool group", () => {
   const html = renderToStaticMarkup(
     createElement(ProjectionActivityLogView, {
       projection: projection({
@@ -2802,8 +2814,8 @@ test("ActivityLogView renders imageView as a standalone collapsed preview", () =
     }),
   );
 
-  expect(html).toContain("run-log-image-view");
-  expect(html).toContain('class="run-log-tool-group-trigger run-log-image-view-summary"');
+  expect(html).toContain('class="run-log-tool-group"');
+  expect(html).not.toContain('class="run-log-image-view"');
   expect(html).toContain('class="run-log-action-icon-wrap"');
   expect(html).toContain('class="lucide lucide-images run-log-action-icon"');
   expect(html).not.toContain("run-log-tool-group-chevron open");
@@ -2812,7 +2824,6 @@ test("ActivityLogView renders imageView as a standalone collapsed preview", () =
   expect(html).not.toContain("feed-preview.png");
   expect(html).not.toContain("/tmp/feed-preview.png");
   expect(html).not.toContain("正在读取本地图片");
-  expect(html).not.toContain('class="run-log-tool-group"');
 });
 
 test("display_image cards keep collapse separate from opening the workspace panel", () => {
@@ -2842,7 +2853,7 @@ test("display_image cards keep collapse separate from opening the workspace pane
     }),
   );
 
-  expect(html).toContain("已展示 1 张图像");
+  expect(html).toContain("已向你展示媒体");
   // The chevron row is a pure collapse control: it never opens the task panel.
   expect(html).toContain('class="run-log-image-view-head"');
   expect(html).toContain('class="run-log-tool-group-trigger run-log-image-view-summary"');
@@ -2881,7 +2892,8 @@ test("ActivityLogView upgrades persisted imageView gaps instead of rendering unk
     }),
   );
 
-  expect(html).toContain("run-log-image-view");
+  expect(html).toContain('class="run-log-tool-group"');
+  expect(html).not.toContain('class="run-log-image-view"');
   expect(html).toContain("已查看 1 张图像");
   expect(html).not.toContain("run-log-unknown-item");
   expect(html).not.toContain("未知类型原始数据");
@@ -2928,7 +2940,8 @@ test("ActivityLogView shimmers a running imageView and hides waiting thinking", 
     }),
   );
 
-  expect(html).toContain("run-log-image-view");
+  expect(html).toContain('class="run-log-tool-group"');
+  expect(html).not.toContain('class="run-log-image-view"');
   expect(html).toContain("正在查看 1 张图像");
   expect(html).toContain("run-log-shimmer-text");
   expect(html).not.toContain('aria-label="会话进行中"');
@@ -3229,7 +3242,8 @@ test("ActivityLogView renders Eco MCP view_image as the image preview, not a web
     }),
   );
 
-  expect(html).toContain("run-log-image-view");
+  expect(html).toContain('class="run-log-tool-group"');
+  expect(html).not.toContain('class="run-log-image-view"');
   expect(html).toContain("已查看 1 张图像");
   expect(html).not.toContain("联网搜索");
   expect(html).not.toContain("调用了 MCP 工具");
@@ -3715,6 +3729,48 @@ test("failed Bash action uses the completed command style plus a status dot", ()
   );
   // Failure indicator belongs on the Bash child title after expand.
   expect(expandedFailedHtml.match(/run-log-tool-status-dot/g)?.length).toBe(1);
+});
+
+test("ActivityLogView aggregates native and MCP image views with other tools and retains preview children", () => {
+  const tools = [
+    { name: "ViewImage", imageView: { path: "/tmp/native.png" } },
+    { name: "mcp__eco_image_view__view_image", imageView: { path: "/tmp/mcp.png", prompt: "找报错" }, outputPreview: "分析结果" },
+    { name: "Bash", detail: "pwd" },
+    { name: "mcp__example__lookup" },
+    { name: "mcp__eco_tts__create_speech" },
+  ];
+  const mixed = projection({
+    status: "completed",
+    timeline: tools.map((tool, index) => item({
+      id: `mixed-${index}`,
+      sequence: index + 1,
+      eventType: "tool.completed",
+      text: `Tool: ${tool.name}`,
+      metadata: { tool: { ...tool, toolUseId: `mixed-${index}`, status: "completed" } },
+    })),
+  });
+  const view = buildThreadRunProjectionViewModel(mixed);
+  expect(view.mainFeedEntries).toHaveLength(1);
+  const entry = view.mainFeedEntries[0];
+  if (entry?.kind !== "tool-group") throw new Error("mixed tool group missing");
+  expect(entry.entries).toHaveLength(5);
+  expect(projectionItemToDetailBlock(entry.entries[1]!.item)).toMatchObject({
+    imageView: { path: "/tmp/mcp.png", prompt: "找报错" },
+    toolOutput: "分析结果",
+  });
+  const collapsed = renderToStaticMarkup(createElement(ProjectionActivityLogView, { projection: mixed }));
+  expect(collapsed).toContain("已处理 2 张图像");
+  expect(collapsed).toContain("已运行 1 条命令");
+  expect(collapsed).toContain("已调用 example 1 次");
+  expect(collapsed).toContain("1 次语音合成");
+  expect(collapsed).not.toContain('class="run-log-image-view"');
+  const expanded = renderToStaticMarkup(createElement(ProjectionToolGroupEntry, {
+    entry,
+    requestSpansById: new Map(),
+    defaultExpanded: true,
+  }));
+  expect(expanded.match(/class="run-log-image-view"/g)).toHaveLength(2);
+  expect(expanded.match(/已查看 1 张图像/g)).toHaveLength(2);
 });
 
 test("ActivityLogView aggregates a group that mixes commands with a failed image view", () => {

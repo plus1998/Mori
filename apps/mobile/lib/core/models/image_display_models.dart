@@ -31,6 +31,10 @@ class ImageDisplayArtifact {
   final String createdAt;
   final String updatedAt;
 
+  bool get isVideo => mimeType.startsWith('video/');
+  bool get isAudio => mimeType.startsWith('audio/');
+  bool get isImage => mimeType.startsWith('image/');
+
   factory ImageDisplayArtifact.fromJson(Map<String, dynamic> json) {
     final id = (json['id'] as String?)?.trim() ?? '';
     final threadId = (json['threadId'] as String?)?.trim() ?? '';

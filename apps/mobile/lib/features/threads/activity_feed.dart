@@ -38,6 +38,7 @@ import '../../core/widgets/eco_markdown.dart';
 import '../../core/widgets/streaming_eco_markdown.dart';
 import '../../core/widgets/eco_surface_card.dart';
 import '../../core/widgets/image_memory_lightbox.dart';
+import 'media_artifact_player.dart';
 import '../../core/widgets/prompt_image_lightbox.dart';
 import '../../core/widgets/paced_stream_text.dart';
 import '../../core/widgets/run_activity_indicator.dart';
@@ -676,7 +677,9 @@ List<ActivityFeedEntry> groupActivityFeedActionEntries(
   }
 
   for (final entry in entries) {
-    if (entry.kind == ActivityFeedKind.action) {
+    if (entry.kind == ActivityFeedKind.action ||
+        (entry.kind == ActivityFeedKind.imageView &&
+            entry.imageView?.path.startsWith('artifact:') != true)) {
       pending.add(entry);
       continue;
     }
@@ -1795,6 +1798,8 @@ class _ActivityFeedEntryTile extends StatelessWidget {
         entry: entry,
         loadToolDetail: loadToolDetail,
         loadToolDetailPage: loadToolDetailPage,
+        loadImageView: loadImageView,
+        onOpenImageDisplayArtifact: onOpenImageDisplayArtifact,
       );
     }
     switch (entry.kind) {
@@ -1880,6 +1885,8 @@ class _ActivityFeedEntryTile extends StatelessWidget {
           entry: entry,
           loadToolDetail: loadToolDetail,
           loadToolDetailPage: loadToolDetailPage,
+          loadImageView: loadImageView,
+          onOpenImageDisplayArtifact: onOpenImageDisplayArtifact,
         );
       case ActivityFeedKind.phase:
         if (entry.reconnecting) {
@@ -3526,11 +3533,15 @@ class _ActionGroupTile extends StatefulWidget {
     required this.entry,
     this.loadToolDetail,
     this.loadToolDetailPage,
+    this.loadImageView,
+    this.onOpenImageDisplayArtifact,
   });
 
   final ActivityFeedEntry entry;
   final ActivityFeedToolDetailLoader? loadToolDetail;
   final ActivityFeedToolDetailPageLoader? loadToolDetailPage;
+  final ActivityFeedImageViewLoader? loadImageView;
+  final ValueChanged<String>? onOpenImageDisplayArtifact;
 
   @override
   State<_ActionGroupTile> createState() => _ActionGroupTileState();
@@ -3596,27 +3607,37 @@ class _ActionGroupTileState extends State<_ActionGroupTile> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       for (final child in children)
-                        _ActionTile(
-                          key: ValueKey(child.id),
-                          preferFormattedLabel: true,
-                          label: _formatActionChildLabel(child, context.l10n),
-                          icon: child.actionIcon ?? ActivityActionIcon.file,
-                          lifecycle: child.lifecycle,
-                          bashRun: child.bashRun,
-                          fileChange: child.fileChange,
-                          webSearch: child.webSearch,
-                          toolUseId: child.toolUseId,
-                          loadToolDetail: widget.loadToolDetail != null
-                              ? () => widget.loadToolDetail!(child)
-                              : null,
-                          loadToolDetailPage: widget.loadToolDetailPage != null
-                              ? ({String? cursor}) =>
-                                    widget.loadToolDetailPage!(
-                                      child,
-                                      cursor: cursor,
-                                    )
-                              : null,
-                        ),
+                        if (child.kind == ActivityFeedKind.imageView)
+                          _ImageViewTile(
+                            key: ValueKey(child.id),
+                            entry: child,
+                            loadImageView: widget.loadImageView,
+                            onOpenImageDisplayArtifact:
+                                widget.onOpenImageDisplayArtifact,
+                          )
+                        else
+                          _ActionTile(
+                            key: ValueKey(child.id),
+                            preferFormattedLabel: true,
+                            label: _formatActionChildLabel(child, context.l10n),
+                            icon: child.actionIcon ?? ActivityActionIcon.file,
+                            lifecycle: child.lifecycle,
+                            bashRun: child.bashRun,
+                            fileChange: child.fileChange,
+                            webSearch: child.webSearch,
+                            toolUseId: child.toolUseId,
+                            loadToolDetail: widget.loadToolDetail != null
+                                ? () => widget.loadToolDetail!(child)
+                                : null,
+                            loadToolDetailPage:
+                                widget.loadToolDetailPage != null
+                                ? ({String? cursor}) =>
+                                      widget.loadToolDetailPage!(
+                                        child,
+                                        cursor: cursor,
+                                      )
+                                : null,
+                          ),
                     ],
                   ),
                 ),
@@ -3942,6 +3963,7 @@ class _ActionTileState extends State<_ActionTile> {
 
 class _ImageViewTile extends StatefulWidget {
   const _ImageViewTile({
+    super.key,
     required this.entry,
     this.loadImageView,
     this.onOpenImageDisplayArtifact,
@@ -4025,6 +4047,10 @@ class _ImageViewTileState extends State<_ImageViewTile> {
   }
 
   Widget _buildImageBody(BuildContext context, ImageViewReadData image) {
+    if (image.mimeType.startsWith('video/') ||
+        image.mimeType.startsWith('audio/')) {
+      return MediaArtifactPlayer(data: image);
+    }
     final ratio = image.width > 0 && image.height > 0
         ? (image.width / image.height).clamp(0.25, 4.0).toDouble()
         : 1.0;

@@ -10,6 +10,7 @@ import '../../core/theme/eco_theme.dart';
 import '../../core/widgets/image_memory_lightbox.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../composer/composer_stack_card.dart';
+import 'media_artifact_player.dart';
 
 typedef ImageDisplayBytesLoader =
     Future<ImageViewReadData> Function(
@@ -17,7 +18,7 @@ typedef ImageDisplayBytesLoader =
       void Function(int receivedBytes, int totalBytes)? onProgress,
     });
 
-/// Mobile gallery for `display_image` artifacts.
+/// Mobile gallery for `show_media_to_user` artifacts.
 ///
 /// Collapsed: bubble with count on the trailing edge.
 /// Starts collapsed and loads image bytes only after an explicit reveal.
@@ -136,7 +137,7 @@ class _ImageDisplayFloatingGalleryState
 
   void _loadArtifacts() {
     for (final artifact in widget.artifacts) {
-      _ensureLoad(artifact.id);
+      if (artifact.isImage) _ensureLoad(artifact.id);
     }
   }
 
@@ -214,21 +215,53 @@ class _ImageDisplayFloatingGalleryState
       return;
     }
     if (state.data != null) {
-      await _openLightbox(artifact);
+      await _openArtifact(artifact);
       return;
     }
     try {
       await state.future!;
       if (!mounted) return;
-      await _openLightbox(artifact);
+      await _openArtifact(artifact);
     } catch (_) {
       if (!mounted) return;
       // Error UI already shows in the thumb; tap again retries.
     }
   }
 
-  Future<void> _openLightbox(ImageDisplayArtifact artifact) async {
-    final artifacts = widget.artifacts.reversed.toList(growable: false);
+  Future<void> _openArtifact(ImageDisplayArtifact artifact) async {
+    final data = _loads[artifact.id]?.data;
+    if (data == null) return;
+    if (data.mimeType.startsWith('video/') ||
+        data.mimeType.startsWith('audio/')) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => Dialog(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    title: Text(artifact.displayTitle),
+                    trailing: IconButton(
+                      tooltip: context.l10n.commonClose,
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ),
+                  MediaArtifactPlayer(data: data),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    final artifacts = widget.artifacts.reversed
+        .where((item) => item.isImage)
+        .toList(growable: false);
     final selected = artifacts.indexWhere((item) => item.id == artifact.id);
     await showImageMemoryLightbox(
       context,
@@ -290,7 +323,7 @@ class _ImageDisplayFloatingGalleryState
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.photo_library_outlined, size: 18, color: eco.accent),
+            Icon(Icons.perm_media_outlined, size: 18, color: eco.accent),
             const SizedBox(width: 6),
             Text(
               '$count',
@@ -468,6 +501,31 @@ class _ArtifactThumbRow extends StatelessWidget {
   }
 
   Widget _buildPreview(EcoColors eco, AppLocalizations l10n) {
+    final mimeType = data?.mimeType ?? artifact.mimeType;
+    if (error == null &&
+        (mimeType.startsWith('video/') || mimeType.startsWith('audio/'))) {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            mimeType.startsWith('video/')
+                ? Icons.video_library_outlined
+                : Icons.audiotrack,
+            size: 32,
+            color: eco.accent,
+          ),
+          const SizedBox(height: 8),
+          if (progress != null && data == null)
+            Text(
+              l10n.activityImageDisplayLoadingPercent(
+                (progress! * 100).round(),
+              ),
+            )
+          else
+            Text(l10n.mediaPlay, style: TextStyle(color: eco.textMuted)),
+        ],
+      );
+    }
     if (data != null) {
       return Image.memory(
         data!.bytes,

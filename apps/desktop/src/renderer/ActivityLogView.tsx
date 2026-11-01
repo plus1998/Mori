@@ -203,6 +203,7 @@ import {
 import { i18n } from "./i18n";
 import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 import { ImageLightbox } from "./image-lightbox";
+import { MediaArtifactPreview } from "./MediaArtifactPreview";
 import { PromptImageContext, PromptImageLightbox } from "./prompt-image-lightbox";
 import { createImageObjectUrlFromBase64, revokeImageObjectUrl } from "./image-object-url";
 import { imageViewAnalysisPanel } from "./image-view-analysis-panel";
@@ -7217,6 +7218,7 @@ type ImageDisplayLoadState =
       src: string;
       fileName: string;
       path: string;
+      mimeType: string;
     }
   | {
       status: "error";
@@ -7346,7 +7348,7 @@ export function ImageDisplayBlock({
   omitRoleLabel,
   onOpenImageDisplayArtifact,
 }: {
-  imageDisplay: { artifactId: string; eventId: string; title?: string };
+  imageDisplay: { artifactId: string; eventId: string; title?: string; mimeType?: string };
   lifecycle?: ToolActionLifecycle;
   subagent?: string;
   modelByRole?: Record<string, string>;
@@ -7356,7 +7358,9 @@ export function ImageDisplayBlock({
   const [loadState, setLoadState] = useState<ImageDisplayLoadState>({
     status: "loading",
   });
-  const [detailsOpen, setDetailsOpen] = useState(true);
+  const [detailsOpen, setDetailsOpen] = useState(
+    () => !imageDisplay.mimeType || imageDisplay.mimeType.startsWith("image/"),
+  );
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const closeLightbox = useCallback(() => setLightboxOpen(false), []);
   const [retryToken, setRetryToken] = useState(0);
@@ -7365,6 +7369,7 @@ export function ImageDisplayBlock({
     subagent && !omitRoleLabel ? formatRoleModelLabel(subagent, modelByRole?.[subagent]) : undefined;
 
   useEffect(() => {
+    if (!detailsOpen) return;
     let cancelled = false;
     let objectUrl: string | undefined;
     setLoadState({ status: "loading" });
@@ -7397,6 +7402,7 @@ export function ImageDisplayBlock({
           src: objectUrl,
           fileName: result.fileName,
           path: result.path,
+          mimeType: result.mimeType,
         });
       })
       .catch((error: unknown) => {
@@ -7411,7 +7417,7 @@ export function ImageDisplayBlock({
       cancelled = true;
       revokeImageObjectUrl(objectUrl);
     };
-  }, [imageDisplay.artifactId, imageDisplay.eventId, retryToken]);
+  }, [imageDisplay.artifactId, imageDisplay.eventId, retryToken, detailsOpen]);
 
   const fileName = loadState.status === "ready" ? loadState.fileName : fallbackFileName;
   const statusLabel =
@@ -7434,7 +7440,7 @@ export function ImageDisplayBlock({
   return (
     <div className="run-log-image-view-wrap">
       {roleLabel ? <span className="run-log-action-role">{roleLabel}</span> : null}
-      <article className="run-log-image-view" aria-busy={loadState.status === "loading"}>
+      <article className="run-log-image-view" aria-busy={detailsOpen && loadState.status === "loading"}>
         <div className="run-log-image-view-head">
           <RunLogCollapsibleActionTrigger
             className="run-log-image-view-summary"
@@ -7485,17 +7491,12 @@ export function ImageDisplayBlock({
               </div>
             ) : null}
             {loadState.status === "ready" ? (
-              <button
-                type="button"
-                className="run-log-image-view-preview"
-                onClick={() => setLightboxOpen(true)}
-                aria-label={i18n.t("activity.imageDisplay.open", {
-                  name: fileName,
-                })}
+              <MediaArtifactPreview
+                src={loadState.src}
+                mimeType={loadState.mimeType}
                 title={fileName}
-              >
-                <img src={loadState.src} alt={previewAlt} />
-              </button>
+                onOpenImage={() => setLightboxOpen(true)}
+              />
             ) : null}
           </div>
         ) : null}

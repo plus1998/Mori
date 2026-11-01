@@ -1,4 +1,8 @@
 {
+  "activityNamedShowMediaToUser": "向用户展示媒体",
+  "mediaPlay": "播放",
+  "mediaPause": "暂停",
+  "mediaPlaybackFailed": "无法播放此媒体，文件可能损坏或当前设备不支持其编码。",
   "readAloudTitle": "朗读",
   "readAloudEngine": "朗读引擎（此设备）",
   "readAloudOnline": "在线语音",
@@ -453,9 +457,9 @@
   "activityViewImages": "查看 {count} 张图片",
   "activityImageViewViewing": "正在查看 1 张图像",
   "activityImageViewViewed": "已查看 1 张图像",
-  "activityImageDisplayViewing": "正在展示 1 张图像",
-  "activityImageDisplayViewed": "已展示 1 张图像",
-  "activityImageDisplayErrorReadFailed": "加载展示图片失败。",
+  "activityImageDisplayViewing": "正在向你展示媒体",
+  "activityImageDisplayViewed": "已向你展示媒体",
+  "activityImageDisplayErrorReadFailed": "加载展示媒体失败。",
   "activityImageDisplayTapToRetry": "点击重试",
   "activityImageDisplayLoadingPercent": "{percent}%",
   "@activityImageDisplayLoadingPercent": {
@@ -463,7 +467,7 @@
       "percent": { "type": "int" }
     }
   },
-  "taskImageDisplayHistory": "展示图片",
+  "taskImageDisplayHistory": "展示媒体",
   "taskImageGenerationHistory": "绘画任务",
   "taskHtmlHostHistory": "HTML 页面",
   "taskImageGenerationEmpty": "暂无绘画任务",
@@ -1121,7 +1125,7 @@
   "composerReferencesHint": "SSH、网页、会话和工具",
   "composerReferencesSpeech": "语音生成",
   "imagePreviewTitle": "图片预览",
-  "imageGalleryTitle": "图片画廊",
+  "imageGalleryTitle": "媒体库",
   "imageSaveToPhotos": "保存到相册",
   "imageSaving": "正在保存…",
   "imageSavedToPhotos": "已保存到相册",

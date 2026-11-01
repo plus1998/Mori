@@ -113,7 +113,7 @@ export type ActivityDetailBlock =
       fileChange?: FileChangeCardDisplay;
       webSearch?: WebSearchCardDisplay;
       imageView?: { path: string; eventId: string; prompt?: string };
-      imageDisplay?: { artifactId: string; eventId: string; title?: string };
+      imageDisplay?: { artifactId: string; eventId: string; title?: string; mimeType?: string };
       htmlHost?: {
         pageId: string;
         publicUrl: string;

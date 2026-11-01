@@ -1,4 +1,4 @@
-import { Image as ImageIcon, ImageOff } from "lucide-react";
+import { Image as ImageIcon, ImageOff, Film, AudioLines } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ImageDisplayArtifact } from "../shared/image-display";
@@ -8,6 +8,7 @@ export function ImageDisplayArtifactIcon({ artifact }: { artifact: ImageDisplayA
   const key = `${artifact.id}:${artifact.updatedAt}`;
   const [preview, setPreview] = useState<{ key: string; src?: string; failed?: boolean }>();
   useEffect(() => {
+    if (!artifact.mimeType.startsWith("image/")) return;
     let cancelled = false;
     void (async () => {
       const result = await window.eco?.readImageDisplay({ artifactId: artifact.id, thumbnail: true });
@@ -23,7 +24,7 @@ export function ImageDisplayArtifactIcon({ artifact }: { artifact: ImageDisplayA
     return () => {
       cancelled = true;
     };
-  }, [artifact.id, key]);
+  }, [artifact.id, artifact.mimeType, key]);
   const current = preview?.key === key ? preview : undefined;
   return (
     <span
@@ -31,7 +32,9 @@ export function ImageDisplayArtifactIcon({ artifact }: { artifact: ImageDisplayA
       aria-hidden="true"
       title={current?.failed ? t("task.imageDisplay.thumbnailUnavailable") : undefined}
     >
-      {current?.src ? (
+      {artifact.mimeType.startsWith("video/") ? <Film size={16} />
+        : artifact.mimeType.startsWith("audio/") ? <AudioLines size={16} />
+        : current?.src ? (
         <img
           src={current.src}
           alt=""

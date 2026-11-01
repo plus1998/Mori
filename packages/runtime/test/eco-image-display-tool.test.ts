@@ -75,7 +75,15 @@ test("resolveEcoImageDisplayToolCall unwraps PI mcp proxy display_image calls", 
       args: { source: "url", url: "https://example.com/a.png" },
     }),
   ).toEqual({
-    name: ECO_IMAGE_DISPLAY_FULL_TOOL,
+    name: "mcp__eco_image_display__display_image",
     source: "url",
   });
+  expect(
+    resolveEcoImageDisplayToolCall("mcp", {
+      tool: "show_media_to_user",
+      server: "eco_image_display",
+      args: { source: "path", path: "/tmp/clip.mp4" },
+    }),
+  ).toEqual({ name: ECO_IMAGE_DISPLAY_FULL_TOOL, source: "path" });
+  expect(isEcoImageDisplayToolName("show_media_to_user")).toBe(true);
 });
