@@ -396,7 +396,14 @@ export class PromptImageFileStore {
       const managedSourcePath = sourcePath ? this.resolveManagedExistingPath(sourcePath) : undefined;
       if (managedSourcePath) {
         try {
-          await this.moveOrCopy(managedSourcePath, targetPath);
+          const objectsRoot = path.join(fsSync.realpathSync(this.rootDir), OBJECTS_DIR_NAME);
+          if (isPathWithinRoot(objectsRoot, managedSourcePath)) {
+            // Runtime image paths may point at shared content objects. Never
+            // consume an object while persisting another message's attachment.
+            await this.writeFileAtomic(targetPath, await fs.readFile(managedSourcePath));
+          } else {
+            await this.moveOrCopy(managedSourcePath, targetPath);
+          }
           sourceMoved = true;
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -456,10 +463,17 @@ export class PromptImageFileStore {
   ): Promise<Array<PromptImageAttachment & { data: string }>> {
     const resolved: Array<PromptImageAttachment & { data: string }> = [];
     for (const attachment of attachments) {
+      const data = await this.readAttachmentData(attachment);
+      // V2 retries retain only a contentRef. Give path-based image tools the
+      // verified original object, which survives message/spool path cleanup.
+      const contentRef = attachment.contentRef?.trim();
+      const runtimePath = contentRef
+        ? this.contentObjectPath(contentRef, attachment.mediaType)
+        : attachment.path;
       resolved.push({
         mediaType: attachment.mediaType,
-        data: await this.readAttachmentData(attachment),
-        ...(attachment.path ? { path: attachment.path } : {}),
+        data,
+        ...(runtimePath ? { path: runtimePath } : {}),
         ...(attachment.contentRef ? { contentRef: attachment.contentRef } : {}),
         ...(attachment.byteLength !== undefined ? { byteLength: attachment.byteLength } : {}),
       });

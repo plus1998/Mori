@@ -7,6 +7,7 @@ import {
   isPromptImageAttachmentRecord,
   PromptImageFileStore,
 } from "../src/main/prompt-image-file-store";
+import { buildPromptWithImageReferences } from "../src/shared/prompt-image-reference";
 
 const tempDirs: string[] = [];
 
@@ -93,11 +94,57 @@ test("resolveAttachmentsForRuntime reads managed files back as base64", async ()
     {
       mediaType: "image/webp",
       data: payload,
-      path: persisted[0]?.path,
+      path: expect.stringContaining(`${path.sep}objects${path.sep}`),
       contentRef: persisted[0]?.contentRef,
       byteLength: 7,
     },
   ]);
+});
+
+test("retry restores a readable original-image path from a durable reference after message cleanup", async () => {
+  const store = await createStore();
+  const original = Buffer.from("original-image-for-codex");
+  const [persisted] = await store.persistMessageAttachments("thr_retry", "codex-pending:1", [
+    { mediaType: "image/png", data: original.toString("base64") },
+  ]);
+  const initial = await store.resolveAttachmentsForRuntime([persisted!]);
+  // V2 retains a durable original reference and a bounded preview, never a local path.
+  const durable = {
+    mediaType: persisted!.mediaType,
+    contentRef: persisted!.contentRef!,
+    byteLength: persisted!.byteLength!,
+    data: Buffer.from("thumbnail-only").toString("base64"),
+  };
+  await store.deleteThreadMessages("thr_retry");
+  const restarted = new PromptImageFileStore(path.dirname(store.getRootDir()));
+  for (let retry = 0; retry < 2; retry += 1) {
+    const restored = await restarted.resolveAttachmentsForRuntime([durable]);
+    const image = restored[0]!;
+    expect(image.path).toBeDefined();
+    expect(image.path).toBe(initial[0]!.path);
+    expect(store.isManagedPath(image.path!)).toBe(true);
+    await expect(fs.readFile(image.path!)).resolves.toEqual(original);
+    expect(image.data).toBe(original.toString("base64"));
+    const prompt = buildPromptWithImageReferences({ prompt: "检查图片", attachments: restored });
+    expect(prompt).toContain(`path=${JSON.stringify(image.path)}`);
+    expect(prompt).not.toContain('ref="sha256:');
+    expect(prompt).not.toContain(durable.data);
+  }
+});
+
+test("persisting a resolved runtime attachment preserves its shared content object", async () => {
+  const store = await createStore();
+  const [persisted] = await store.persistMessageAttachments("thr_first", "user:1", [
+    { mediaType: "image/png", data: Buffer.from("shared-original").toString("base64") },
+  ]);
+  const runtime = await store.resolveAttachmentsForRuntime([persisted!]);
+  const originalPath = runtime[0]!.path!;
+  const originalStat = await fs.stat(originalPath);
+  const [copied] = await store.persistMessageAttachments("thr_second", "user:1", runtime);
+  const retainedStat = await fs.stat(originalPath);
+  expect(retainedStat.ino).toBe(originalStat.ino);
+  expect(copied!.contentRef).toBe(persisted!.contentRef);
+  await expect(fs.readFile(copied!.path!)).resolves.toEqual(Buffer.from("shared-original"));
 });
 
 test("chunked composer upload supports resume after partial write", async () => {
