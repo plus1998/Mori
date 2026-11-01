@@ -1,7 +1,7 @@
 import { AudioLines, FolderOpen, Globe, Palette, KeyRound, ListChecks, Terminal, Play } from "lucide-react";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { normalizeBrowserNavigateUrl } from "../shared/browser";
+import { resolveBrowserNavigateTarget } from "../shared/browser";
 import { BrowserAddressInput } from "./BrowserAddressInput";
 import type { TaskPanelHomeTool } from "./task-panel-tabs";
 
@@ -28,7 +28,7 @@ export function TaskPanelNewTab({
           className="browser-panel-address-form"
           onSubmit={(event) => {
             event.preventDefault();
-            const url = normalizeBrowserNavigateUrl(address);
+            const url = resolveBrowserNavigateTarget(address);
             if (!url || opening) return;
             setOpening(true);
             void onNavigate(tabId, url).finally(() => setOpening(false));

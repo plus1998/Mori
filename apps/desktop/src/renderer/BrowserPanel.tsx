@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { type BrowserViewState, normalizeBrowserNavigateUrl } from "../shared/browser";
+import { type BrowserViewState, resolveBrowserNavigateTarget } from "../shared/browser";
 import { BrowserViewportControls } from "./BrowserViewportControls";
 import { BrowserDownloadsPanel } from "./BrowserDownloadsPanel";
 import { BrowserWebviewViewportMarker } from "./BrowserWebviewViewportMarker";
@@ -129,7 +129,7 @@ export function BrowserPanel({ active, visible = active, browserId, onOpenTool, 
 
   async function submitAddress(event: FormEvent) {
     event.preventDefault();
-    const url = normalizeBrowserNavigateUrl(address);
+    const url = resolveBrowserNavigateTarget(address);
     if (!url || !window.eco?.browserNavigate) {
       return;
     }
