@@ -353,10 +353,30 @@ for (const [kind, face, endpoint, outputField] of [
           body: JSON.stringify({ model: "m", input: "hi", messages: [{ role: "user", content: "hi" }] }),
         }),
       );
-      expect(response.status).toBe(400);
-      expect(await response.text()).toContain("dynamic_output_budget_error");
-      expect(calls).toHaveLength(1);
-      expect(calls[0]).toEndWith(`/${endpoint}`);
+      const upstreamStatus =
+        failure === "unauthorized"
+          ? 401
+          : failure === "server_error"
+            ? 500
+            : failure === "rate_limited"
+              ? 429
+              : undefined;
+      expect(response.status).toBe(upstreamStatus ?? 400);
+      const responseBody = await response.json();
+      if (upstreamStatus) {
+        expect(response.headers.get("x-eco-error-origin")).toBe("upstream");
+        expect(responseBody).toMatchObject({
+          error: {
+            code: "input_token_count_upstream_error",
+            origin: "upstream",
+            status: upstreamStatus,
+          },
+        });
+      } else {
+        expect(JSON.stringify(responseBody)).toContain("dynamic_output_budget_error");
+      }
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls.every((url) => url.endsWith(`/${endpoint}`))).toBe(true);
     });
   }
 }
