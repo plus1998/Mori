@@ -88,6 +88,11 @@ export const IPC_CHANNELS = {
   backgroundTerminalStart: "background-terminal:start",
   backgroundTerminalOpen: "background-terminal:open",
   backgroundTerminalStop: "background-terminal:stop",
+  startupScriptList: "startup-script:list",
+  startupScriptSave: "startup-script:save",
+  startupScriptDelete: "startup-script:delete",
+  startupScriptStart: "startup-script:start",
+  startupScriptChooseDirectory: "startup-script:choose-directory",
   codexBackgroundTerminalList: "codex-background-terminal:list",
   codexBackgroundTerminalTerminate: "codex-background-terminal:terminate",
   claudeBackgroundTaskList: "claude-background-task:list",
@@ -926,6 +931,7 @@ export interface BackgroundTerminalTask {
   status: BackgroundTerminalTaskStatus;
   startedAt: string;
   threadId?: string;
+  startupScriptId?: string;
   exitCode?: number;
   signal?: number;
   endedAt?: string;
@@ -936,6 +942,7 @@ export interface BackgroundTerminalTask {
 export interface BackgroundTerminalListRequest {
   workspacePath?: string;
   threadId?: string;
+  startupScriptId?: string;
 }
 
 export interface BackgroundTerminalStartRequest {
@@ -956,6 +963,30 @@ export interface BackgroundTerminalStopRequest {
 export interface BackgroundTerminalStopResult {
   stopped: boolean;
   task?: BackgroundTerminalTask;
+}
+
+export interface StartupScript {
+  id: string;
+  name: string;
+  workspacePath: string;
+  command: string;
+  creationOrder: number;
+}
+
+export interface StartupScriptSaveInput {
+  /** Omit to create a script. IDs update the existing script. */
+  id?: string;
+  name: string;
+  workspacePath: string;
+  command: string;
+}
+
+export interface StartupScriptIdRequest {
+  id: string;
+}
+
+export interface StartupScriptChooseDirectoryRequest {
+  defaultPath?: string;
 }
 
 /**
@@ -3062,7 +3093,41 @@ export function isBackgroundTerminalListRequest(value: unknown): value is Backgr
   const record = value as Record<string, unknown>;
   return (
     (record.workspacePath === undefined || typeof record.workspacePath === "string") &&
-    (record.threadId === undefined || typeof record.threadId === "string")
+    (record.threadId === undefined || typeof record.threadId === "string") &&
+    (record.startupScriptId === undefined || typeof record.startupScriptId === "string")
+  );
+}
+
+export function isStartupScriptSaveInput(value: unknown): value is StartupScriptSaveInput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    (record.id === undefined || (typeof record.id === "string" && Boolean(record.id.trim()))) &&
+    typeof record.name === "string" &&
+    typeof record.workspacePath === "string" &&
+    typeof record.command === "string"
+  );
+}
+
+export function isStartupScriptIdRequest(value: unknown): value is StartupScriptIdRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    Object.keys(record).length === 1 &&
+    typeof record.id === "string" &&
+    Boolean(record.id.trim())
+  );
+}
+
+export function isStartupScriptChooseDirectoryRequest(
+  value: unknown,
+): value is StartupScriptChooseDirectoryRequest {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    Object.keys(record).every((key) => key === "defaultPath") &&
+    (record.defaultPath === undefined || typeof record.defaultPath === "string")
   );
 }
 

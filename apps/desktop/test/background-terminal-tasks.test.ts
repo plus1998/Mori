@@ -6,14 +6,22 @@ import type { InteractiveTerminalManager } from "../src/main/interactive-termina
 /** 跨平台的路径 fixture：POSIX 上保持原样，Windows 上是 `<当前盘>` 下的同一路径。 */
 const PROJECT = path.resolve(path.parse(process.cwd()).root, "tmp", "project");
 
-test("BackgroundTerminalTaskRegistry starts, lists, exits, and stops tasks", () => {
+test("BackgroundTerminalTaskRegistry starts, lists, exits, and stops tasks", async () => {
   const commands: Array<{ workspacePath: string; command: readonly string[] }> = [];
   const killed: string[] = [];
   let sessionIndex = 0;
   const manager = {
-    spawnCommand: (workspacePath: string, command: readonly string[]) => {
+    spawnCommand: (
+      workspacePath: string,
+      command: readonly string[],
+      _descriptor?: unknown,
+      _size?: unknown,
+      onSessionCreated?: (sessionId: string) => void,
+    ) => {
       commands.push({ workspacePath, command });
-      return { sessionId: `session_${++sessionIndex}` };
+      const sessionId = `session_${++sessionIndex}`;
+      onSessionCreated?.(sessionId);
+      return { sessionId };
     },
     kill: (sessionId: string) => {
       killed.push(sessionId);
@@ -46,7 +54,7 @@ test("BackgroundTerminalTaskRegistry starts, lists, exits, and stops tasks", () 
   expect(registry.get(task.taskId)?.status).toBe("failed");
   expect(registry.get(task.taskId)?.exitCode).toBe(1);
 
-  const completedStop = registry.stop(task.taskId);
+  const completedStop = await registry.stop(task.taskId);
   expect(completedStop.stopped).toBe(false);
   expect(completedStop.task?.status).toBe("failed");
   expect(killed).toEqual([]);
@@ -55,7 +63,7 @@ test("BackgroundTerminalTaskRegistry starts, lists, exits, and stops tasks", () 
     workspacePath: PROJECT,
     command: ["sleep", "10"],
   });
-  const stopped = registry.stop(runningTask.taskId);
+  const stopped = await registry.stop(runningTask.taskId);
   expect(stopped.stopped).toBe(true);
   expect(stopped.task?.status).toBe("stopped");
   expect(killed).toEqual([runningTask.sessionId]);

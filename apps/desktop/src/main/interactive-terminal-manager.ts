@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { IPty } from "node-pty";
 import * as pty from "node-pty";
@@ -29,6 +30,7 @@ export interface TerminalSessionDescriptor {
   kind?: TerminalSessionKind;
   label?: string;
   endpoint?: string;
+  trackProcessGroup?: boolean;
 }
 
 interface ActiveTerminalSession {
@@ -37,6 +39,8 @@ interface ActiveTerminalSession {
   kind: TerminalSessionKind;
   label?: string;
   endpoint?: string;
+  trackProcessGroup: boolean;
+  ptyExit?: { exitCode: number; signal?: number };
   pty: IPty;
 }
 
@@ -79,6 +83,28 @@ export function buildShellCommandInvocation(line: string): string[] {
   const { executable, args } = resolveInteractiveShell();
   if (args.includes("-l")) {
     return [executable, "-l", "-i", "-c", line];
+  }
+  return [executable, "-c", line];
+}
+
+/**
+ * Run a tracked startup service in the user's initialized shell while keeping
+ * foreground commands in the PTY process group. Interactive Bash and Zsh enable
+ * job control by default, which moves foreground jobs into a separate group
+ * that the terminal manager cannot stop by signaling the PTY leader's group.
+ */
+export function buildStartupScriptCommandInvocation(line: string): string[] {
+  if (process.platform === "win32") {
+    return buildShellCommandInvocation(line);
+  }
+
+  const { executable } = resolveInteractiveShell();
+  const shellName = executable.split(/[\\/]/).pop()?.toLowerCase();
+  if (shellName === "bash") {
+    return [executable, "-l", "-i", "-c", `set +m\n${line}`];
+  }
+  if (shellName === "zsh") {
+    return [executable, "-l", "-i", "-c", `unsetopt MONITOR\n${line}`];
   }
   return [executable, "-c", line];
 }
@@ -136,6 +162,7 @@ export class InteractiveTerminalManager {
     command: readonly string[],
     descriptor?: TerminalSessionDescriptor,
     size?: { cols: number; rows: number },
+    onSessionCreated?: (sessionId: string) => void,
   ): { sessionId: string } {
     const executable = command[0]?.trim();
     if (!executable) {
@@ -147,12 +174,17 @@ export class InteractiveTerminalManager {
       return this.spawnProcess(workspacePath, comspec, ["/d", "/s", "/c", line], size, undefined, {
         kind: "command",
         ...descriptor,
-      });
+      }, onSessionCreated);
     }
-    return this.spawnProcess(workspacePath, executable, command.slice(1), size, undefined, {
-      kind: "command",
-      ...descriptor,
-    });
+    return this.spawnProcess(
+      workspacePath,
+      executable,
+      command.slice(1),
+      size,
+      undefined,
+      { kind: "command", ...descriptor },
+      onSessionCreated,
+    );
   }
 
   spawnCommandWithEnv(
@@ -177,6 +209,7 @@ export class InteractiveTerminalManager {
     size?: { cols: number; rows: number },
     envOverrides?: Record<string, string>,
     descriptor?: TerminalSessionDescriptor,
+    onSessionCreated?: (sessionId: string) => void,
   ): { sessionId: string } {
     const cwd = workspacePath.trim();
     if (!cwd) {
@@ -206,14 +239,17 @@ export class InteractiveTerminalManager {
 
     const label = descriptor?.label?.trim();
     const endpoint = descriptor?.endpoint?.trim();
-    this.sessions.set(sessionId, {
+    const session: ActiveTerminalSession = {
       sessionId,
       workspacePath: cwd,
       kind: descriptor?.kind ?? "local",
       ...(label ? { label } : {}),
       ...(endpoint ? { endpoint } : {}),
+      trackProcessGroup: descriptor?.trackProcessGroup === true,
       pty: ptyProcess,
-    });
+    };
+    this.sessions.set(sessionId, session);
+    onSessionCreated?.(sessionId);
     this.emit({ type: "started", sessionId, workspacePath: cwd });
 
     ptyProcess.onData((data) => {
@@ -224,18 +260,17 @@ export class InteractiveTerminalManager {
     });
 
     ptyProcess.onExit(({ exitCode, signal }) => {
-      if (!this.sessions.has(sessionId)) {
+      if (this.sessions.get(sessionId) !== session) {
         this.discardPendingOutput(sessionId);
         return;
       }
-      this.sessions.delete(sessionId);
-      this.flushOutput(sessionId);
-      this.emit({
-        type: "exit",
-        sessionId,
-        exitCode: exitCode ?? 1,
-        ...(signal !== undefined && { signal }),
-      });
+      const exit = { exitCode: exitCode ?? 1, ...(signal !== undefined && { signal }) };
+      if (session.trackProcessGroup) {
+        session.ptyExit = exit;
+        void this.waitForTrackedProcessGroupExit(session);
+        return;
+      }
+      this.finishSessionExit(session, exit);
     });
 
     return { sessionId };
@@ -272,6 +307,58 @@ export class InteractiveTerminalManager {
     return true;
   }
 
+  /**
+   * Stop a PTY session and its foreground command tree on Unix. node-pty's
+   * `kill()` targets the PTY leader; signaling its process group also reaches
+   * local servers launched by an intermediate shell or package runner.
+   */
+  async killProcessGroup(sessionId: string): Promise<boolean> {
+    const session = this.getSession(sessionId);
+    if (!session) return false;
+    if (process.platform === "win32") {
+      try {
+        execFileSync("taskkill.exe", ["/PID", String(session.pty.pid), "/T", "/F"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to stop startup script process tree: ${detail}`);
+      }
+      this.forgetSession(sessionId, session);
+      return true;
+    }
+
+    this.flushOutput(sessionId);
+    const processGroupId = session.pty.pid;
+    try {
+      process.kill(-processGroupId, "SIGTERM");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+        this.forgetSession(sessionId, session);
+        return true;
+      }
+      throw error;
+    }
+
+    if (!(await this.waitForProcessGroupExit(processGroupId, 1500))) {
+      try {
+        process.kill(-processGroupId, "SIGKILL");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+          throw error;
+        }
+      }
+
+      if (!(await this.waitForProcessGroupExit(processGroupId, 10_000))) {
+        throw new Error(`Startup script process group ${processGroupId} is still running after SIGKILL.`);
+      }
+    }
+
+    this.forgetSession(sessionId, session);
+    return true;
+  }
+
   killAll(): void {
     for (const sessionId of [...this.sessions.keys()]) {
       this.kill(sessionId);
@@ -297,6 +384,68 @@ export class InteractiveTerminalManager {
 
   private getSession(sessionId: string): ActiveTerminalSession | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  private async waitForProcessGroupExit(processGroupId: number, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.isProcessGroupAlive(processGroupId)) {
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return true;
+  }
+
+  private isProcessGroupAlive(processGroupId: number): boolean {
+    if (process.platform === "win32") return false;
+    try {
+      process.kill(-processGroupId, 0);
+      return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ESRCH") return false;
+      if (code === "EPERM") return true;
+      throw error;
+    }
+  }
+
+  private forgetSession(sessionId: string, session: ActiveTerminalSession): void {
+    if (this.sessions.get(sessionId) !== session) return;
+    this.flushOutput(sessionId);
+    this.sessions.delete(sessionId);
+    this.discardPendingOutput(sessionId);
+  }
+
+  private async waitForTrackedProcessGroupExit(session: ActiveTerminalSession): Promise<void> {
+    try {
+      while (
+        this.sessions.get(session.sessionId) === session &&
+        this.isProcessGroupAlive(session.pty.pid)
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    } catch {
+      // Keep the session available for an explicit stop attempt if liveness cannot be checked.
+      return;
+    }
+    if (session.ptyExit) this.finishSessionExit(session, session.ptyExit);
+  }
+
+  private finishSessionExit(
+    session: ActiveTerminalSession,
+    exit: { exitCode: number; signal?: number },
+  ): void {
+    if (this.sessions.get(session.sessionId) !== session) {
+      this.discardPendingOutput(session.sessionId);
+      return;
+    }
+    this.sessions.delete(session.sessionId);
+    this.flushOutput(session.sessionId);
+    this.emit({
+      type: "exit",
+      sessionId: session.sessionId,
+      exitCode: exit.exitCode,
+      ...(exit.signal !== undefined && { signal: exit.signal }),
+    });
   }
 
   private queueOutput(sessionId: string, data: string): void {

@@ -1,40 +1,104 @@
 .task-panel-home-actions {
   display: grid;
-  gap: 8px;
-  padding: 16px;
+  grid-template-columns: repeat(2, 148px);
+  justify-content: center;
+  align-content: start;
+  gap: 12px;
+  padding: 20px;
 }
 
 .task-panel-home-actions h2 {
+  grid-column: 1 / -1;
   color: var(--text-muted, currentColor);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   margin: 0 0 2px;
 }
 
 .task-panel-home-actions button {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 1;
   align-items: center;
-  background: var(--control-background, transparent);
-  border: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.28));
-  border-radius: 6px;
-  color: var(--text-primary, inherit);
+  background: color-mix(in srgb, var(--bg-elevated, var(--bg-main, transparent)) 34%, var(--bg-main, transparent));
+  border: 1px solid color-mix(in srgb, var(--border-subtle, currentColor) 68%, transparent);
+  border-radius: 12px;
+  color: var(--text-secondary, var(--text-primary, inherit));
   display: flex;
-  gap: 10px;
-  min-height: 42px;
-  padding: 9px 12px;
-  text-align: left;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+  min-height: 0;
+  padding: 12px;
+  text-align: center;
+  cursor: pointer;
   transition:
+    transform 120ms ease,
     background-color 120ms ease,
-    border-color 120ms ease;
+    border-color 120ms ease,
+    color 120ms ease;
 }
 
-.task-panel-home-actions button:hover {
-  background: var(--control-background-hover, rgba(128, 128, 128, 0.12));
-  border-color: var(--border-strong, rgba(128, 128, 128, 0.45));
+.task-panel-home-actions button:last-of-type:nth-of-type(odd) {
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: min(100%, 148px);
+}
+
+@container (max-width: 360px) {
+  .browser-panel-tool-home {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.task-panel-home-actions button > svg {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  color: var(--text-secondary, currentColor);
+  stroke-width: 1.8;
+}
+
+.task-panel-home-actions button > span {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.task-panel-home-actions button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: var(--bg-elevated-hover, var(--nav-hover, rgba(128, 128, 128, 0.12)));
+  border-color: var(--border-strong, var(--border-subtle, currentColor));
+  color: var(--text-primary, currentColor);
+}
+
+.task-panel-home-actions button:hover:not(:disabled) > svg {
+  color: var(--accent-text, var(--accent, currentColor));
+}
+
+.task-panel-home-actions button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.task-panel-home-actions button:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
 }
 
 .task-panel-home-actions button:focus-visible {
-  outline: 2px solid var(--focus-ring, currentColor);
-  outline-offset: 2px;
+  outline: 2px solid var(--focus-ring, var(--accent, currentColor));
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-panel-home-actions button,
+  .task-panel-home-actions button:hover:not(:disabled),
+  .task-panel-home-actions button:active:not(:disabled) {
+    transition: none;
+    transform: none;
+  }
 }
 
 .image-artifact-detail {

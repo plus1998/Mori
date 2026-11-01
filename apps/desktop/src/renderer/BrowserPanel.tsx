@@ -1,6 +1,7 @@
 import {
   AudioLines,
   Palette,
+  Play,
   ArrowLeft,
   ArrowRight,
   Camera,
@@ -390,6 +391,10 @@ export function BrowserPanel({ active, visible = active, browserId, onOpenTool, 
             <button type="button" onClick={() => onOpenTool(browserId, "speechGeneration")}>
               <AudioLines size={17} aria-hidden />
               <span>{t("settings.tts.title")}</span>
+            </button>
+            <button type="button" onClick={() => onOpenTool(browserId, "startupScripts")}>
+              <Play size={17} aria-hidden />
+              <span>{t("startupScripts.title")}</span>
             </button>
           </section>
         ) : null}

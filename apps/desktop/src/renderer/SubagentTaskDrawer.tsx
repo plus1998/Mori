@@ -6,6 +6,7 @@ import { shortenModelId } from "@eco/runtime/usage";
 import {
   AudioLines,
   Palette,
+  Play,
   Bot,
   Check,
   Circle,
@@ -62,6 +63,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import { type RuntimeAgentDisplayNames, resolveRuntimeAgentName } from "./runtime-agent-display";
 import { type RuntimeAgentThemes, resolveSubagentRowThemeStyle } from "./runtime-agent-theme";
 import { SshBookmarksPanel } from "./SshBookmarksPanel";
+import { StartupScriptsPanel } from "./StartupScriptsPanel";
 import type { ThreadRunProjectionSubagentCard } from "./conversation-v2-projection-view";
 import { useEcoWorkspaceFileDiffLoader, WorkspaceDiffPanel } from "./WorkspaceDiffDrawer";
 import { WorkspaceFileBrowser } from "./WorkspaceFileBrowser";
@@ -79,6 +81,7 @@ import {
   TASK_PANEL_PLAN_TAB_ID,
   TASK_PANEL_REVIEW_TAB_ID,
   TASK_PANEL_SSH_BOOKMARKS_TAB_ID,
+  TASK_PANEL_STARTUP_SCRIPTS_TAB_ID,
   type TaskPanelActiveTab,
   type TaskPanelHomeTool,
   isNewTaskPanelTabId,
@@ -640,6 +643,7 @@ export function SubagentTaskDrawer({
   onSelectImageDisplayArtifact,
   sshBookmarks = [],
   onSelectSshBookmarks,
+  onSelectStartupScripts,
   onConnectSshBookmark,
   onSshBookmarksChange,
   centerServerSyncVisible,
@@ -707,6 +711,7 @@ export function SubagentTaskDrawer({
   onSelectImageDisplayArtifact: (artifactId: string) => void;
   sshBookmarks?: readonly SshBookmarkView[];
   onSelectSshBookmarks: () => void;
+  onSelectStartupScripts: () => void;
   onConnectSshBookmark: (bookmark: SshBookmarkView) => void | Promise<void>;
   onSshBookmarksChange: (bookmarks: SshBookmarkView[]) => void;
   centerServerSyncVisible?: boolean;
@@ -725,6 +730,7 @@ export function SubagentTaskDrawer({
   const planSelected = activeTab === TASK_PANEL_PLAN_TAB_ID;
   const terminalTasksSelected = activeTab === TASK_PANEL_BACKGROUND_TERMINAL_TAB_ID;
   const sshBookmarksSelected = activeTab === TASK_PANEL_SSH_BOOKMARKS_TAB_ID;
+  const startupScriptsSelected = activeTab === TASK_PANEL_STARTUP_SCRIPTS_TAB_ID;
   const activeBrowserId = parseBrowserTaskTabId(String(activeTab));
   const browserSelected = Boolean(activeBrowserId);
   const newTabIds = openTabIds.filter(isNewTaskPanelTabId);
@@ -774,6 +780,7 @@ export function SubagentTaskDrawer({
   const planOpen = openTabIds.includes(TASK_PANEL_PLAN_TAB_ID);
   const terminalTasksOpen = openTabIds.includes(TASK_PANEL_BACKGROUND_TERMINAL_TAB_ID);
   const sshBookmarksOpen = openTabIds.includes(TASK_PANEL_SSH_BOOKMARKS_TAB_ID);
+  const startupScriptsOpen = openTabIds.includes(TASK_PANEL_STARTUP_SCRIPTS_TAB_ID);
   const browserOpen = browserTabs.length > 0;
   const openSubagentCards = useMemo(
     () =>
@@ -789,6 +796,7 @@ export function SubagentTaskDrawer({
     !planSelected &&
     !terminalTasksSelected &&
     !sshBookmarksSelected &&
+    !startupScriptsSelected &&
     activeTab !== TASK_PANEL_IMAGE_GENERATION_TAB_ID &&
     activeTab !== TASK_PANEL_SPEECH_GENERATION_TAB_ID &&
     !browserSelected &&
@@ -1227,6 +1235,33 @@ export function SubagentTaskDrawer({
               </button>
             </span>
           ) : null}
+          {startupScriptsOpen ? (
+            <span
+              data-task-panel-tab-id={TASK_PANEL_STARTUP_SCRIPTS_TAB_ID}
+              className={`subagent-task-panel-tab-shell${startupScriptsSelected ? " is-active" : ""}`}
+            >
+              <button
+                type="button"
+                className={`subagent-task-panel-tab${startupScriptsSelected ? " is-active" : ""}`}
+                role="tab"
+                aria-selected={startupScriptsSelected}
+                aria-controls="subagent-task-tab-startup-scripts"
+                onClick={onSelectStartupScripts}
+              >
+                <Play size={15} aria-hidden />
+                <span>{t("startupScripts.title")}</span>
+              </button>
+              <button
+                type="button"
+                className="subagent-task-panel-tab-close"
+                aria-label={t("task.closeTab", { label: t("startupScripts.title") })}
+                title={t("task.closeTabTitle")}
+                onClick={() => onCloseTab(TASK_PANEL_STARTUP_SCRIPTS_TAB_ID)}
+              >
+                <X size={13} aria-hidden />
+              </button>
+            </span>
+          ) : null}
           {[
             { id: TASK_PANEL_IMAGE_GENERATION_TAB_ID, label: t("settings.imageGeneration.title"), Icon: Palette, pane: "image-generation" },
             { id: TASK_PANEL_SPEECH_GENERATION_TAB_ID, label: t("settings.tts.title"), Icon: AudioLines, pane: "speech-generation" },
@@ -1409,6 +1444,11 @@ export function SubagentTaskDrawer({
               onBookmarksChange={onSshBookmarksChange}
               onConnect={onConnectSshBookmark}
             />
+          </div>
+        ) : null}
+        {startupScriptsSelected ? (
+          <div id="subagent-task-tab-startup-scripts" className="subagent-task-panel-tab-pane" role="tabpanel">
+            <StartupScriptsPanel workspacePath={workspacePath} />
           </div>
         ) : null}
       </div>

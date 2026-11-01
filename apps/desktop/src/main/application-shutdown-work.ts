@@ -67,7 +67,7 @@ export interface ApplicationShutdownDeps {
     type: "thread.awaiting_plan" | "thread.idle",
     message: string,
   ) => void;
-  stopAllBackgroundTasks: () => void;
+  stopAllBackgroundTasks: () => void | Promise<void>;
   killAllInteractiveTerminals: () => void;
   disposeBrowserHost: () => void | Promise<void>;
   stopAllPiRuntimes: () => Promise<void>;
@@ -243,7 +243,7 @@ export async function interruptAllRunningWork(deps: ApplicationShutdownDeps): Pr
     deps.abortActiveRun(threadId, "application quitting");
   }
 
-  deps.stopAllBackgroundTasks();
+  await deps.stopAllBackgroundTasks();
   deps.killAllInteractiveTerminals();
   await waitForActiveRunsToSettle(deps, [...interruptedThreadIds]);
 }

@@ -60,6 +60,10 @@ import {
   type BackgroundTerminalStopRequest,
   type BackgroundTerminalStopResult,
   type BackgroundTerminalTask,
+  type StartupScript,
+  type StartupScriptChooseDirectoryRequest,
+  type StartupScriptIdRequest,
+  type StartupScriptSaveInput,
   type BashApprovalRequest,
   type BashApprovalResolvePayload,
   type BrowserAgentPresenceEvent,
@@ -583,6 +587,21 @@ const api = {
   },
   stopBackgroundTerminalTask(request: BackgroundTerminalStopRequest): Promise<BackgroundTerminalStopResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.backgroundTerminalStop, request);
+  },
+  listStartupScripts(): Promise<StartupScript[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.startupScriptList);
+  },
+  saveStartupScript(input: StartupScriptSaveInput): Promise<StartupScript> {
+    return ipcRenderer.invoke(IPC_CHANNELS.startupScriptSave, input);
+  },
+  deleteStartupScript(request: StartupScriptIdRequest): Promise<{ deleted: boolean }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.startupScriptDelete, request);
+  },
+  startStartupScript(request: StartupScriptIdRequest): Promise<BackgroundTerminalTask> {
+    return ipcRenderer.invoke(IPC_CHANNELS.startupScriptStart, request);
+  },
+  chooseStartupScriptDirectory(request?: StartupScriptChooseDirectoryRequest): Promise<string | null> {
+    return ipcRenderer.invoke(IPC_CHANNELS.startupScriptChooseDirectory, request);
   },
   listCodexBackgroundTerminals(): Promise<CodexBackgroundTerminal[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.codexBackgroundTerminalList);

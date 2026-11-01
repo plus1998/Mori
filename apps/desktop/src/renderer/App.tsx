@@ -489,6 +489,7 @@ import {
   TASK_PANEL_PLAN_TAB_ID,
   TASK_PANEL_REVIEW_TAB_ID,
   TASK_PANEL_SSH_BOOKMARKS_TAB_ID,
+  TASK_PANEL_STARTUP_SCRIPTS_TAB_ID,
   type TaskPanelActiveTab,
   type TaskPanelHomeTool,
 } from "./task-panel-tabs";
@@ -6383,6 +6384,7 @@ function App() {
           tabId === TASK_PANEL_BACKGROUND_TERMINAL_TAB_ID ||
           tabId === TASK_PANEL_PLAN_TAB_ID ||
           tabId === TASK_PANEL_SSH_BOOKMARKS_TAB_ID ||
+          tabId === TASK_PANEL_STARTUP_SCRIPTS_TAB_ID ||
           tabId === TASK_PANEL_IMAGE_GENERATION_TAB_ID ||
           tabId === TASK_PANEL_SPEECH_GENERATION_TAB_ID ||
           isNewTaskPanelTabId(tabId) ||
@@ -9630,6 +9632,7 @@ function App() {
             review: TASK_PANEL_REVIEW_TAB_ID,
             files: TASK_PANEL_FILES_TAB_ID,
             sshBookmarks: TASK_PANEL_SSH_BOOKMARKS_TAB_ID,
+            startupScripts: TASK_PANEL_STARTUP_SCRIPTS_TAB_ID,
             imageGeneration: TASK_PANEL_IMAGE_GENERATION_TAB_ID,
             speechGeneration: TASK_PANEL_SPEECH_GENERATION_TAB_ID,
           }[tool];
@@ -11675,6 +11678,13 @@ function App() {
               setTaskPanelActiveTab(TASK_PANEL_SSH_BOOKMARKS_TAB_ID);
               setSelectedSubagentAgentId(undefined);
             }}
+            onSelectStartupScripts={() => {
+              setOpenTaskPanelTabIds((current) =>
+                addOpenTaskPanelTab(current, TASK_PANEL_STARTUP_SCRIPTS_TAB_ID),
+              );
+              setTaskPanelActiveTab(TASK_PANEL_STARTUP_SCRIPTS_TAB_ID);
+              setSelectedSubagentAgentId(undefined);
+            }}
             onConnectSshBookmark={(bookmark) => void connectSshBookmark(bookmark)}
             centerServerSyncVisible={centerServerSyncVisible}
             onSyncDomain={async (domain, mode) => {
@@ -11955,6 +11965,7 @@ function App() {
       onBack={() => { setComposerRoutePopoverOpen(false); setComposerPlusMenuOpen(true); }}
       runtimeConfig={composerRuntimeConfig ?? undefined}
       onClose={() => setComposerRoutePopoverOpen(false)}
+      onAddProvider={openProviderSettings}
       onSelectMainModel={selectComposerMainModel}
       onSelectMainPrompt={selectComposerMainPrompt}
       onSelectSubagents={selectComposerSubagents}

@@ -1,4 +1,4 @@
-import { AudioLines, FolderOpen, Globe, Palette, KeyRound, ListChecks, Terminal } from "lucide-react";
+import { AudioLines, FolderOpen, Globe, Palette, KeyRound, ListChecks, Terminal, Play } from "lucide-react";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { normalizeBrowserNavigateUrl } from "../shared/browser";
@@ -72,6 +72,10 @@ export function TaskPanelNewTab({
           <button type="button" disabled={opening} onClick={() => onOpenTool(tabId, "speechGeneration")}>
             <AudioLines size={17} aria-hidden />
             <span>{t("settings.tts.title")}</span>
+          </button>
+          <button type="button" disabled={opening} onClick={() => onOpenTool(tabId, "startupScripts")}>
+            <Play size={17} aria-hidden />
+            <span>{t("startupScripts.title")}</span>
           </button>
         </section>
       </div>

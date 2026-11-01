@@ -336,6 +336,9 @@ import {
   isBackgroundTerminalOpenRequest,
   isBackgroundTerminalStartRequest,
   isBackgroundTerminalStopRequest,
+  isStartupScriptChooseDirectoryRequest,
+  isStartupScriptIdRequest,
+  isStartupScriptSaveInput,
   isBusyMutableOnlyRuntimeConfigUpdate,
   isCodexBackgroundTerminalTerminateRequest,
   isClaudeBackgroundTaskStopRequest,
@@ -577,6 +580,8 @@ import { transcribeAsr } from "./asr-client";
 import { type AsrSecretCodec, type AsrSettingsStore, createAsrSettingsStore } from "./asr-settings-store";
 import { resolveAuxiliaryModelRoute } from "./auxiliary-model-route";
 import { BackgroundTerminalTaskRegistry } from "./background-terminal-tasks";
+import { createStartupScriptStore, type StartupScriptStore } from "./startup-script-store";
+import { StartupScriptService } from "./startup-script-service";
 import { resolveBashApprovalAgentId } from "./bash-approval-agent-id.js";
 import { CodexBackgroundTerminalService } from "./codex-background-terminals";
 import { ClaudeBackgroundTaskRegistry } from "./claude-background-tasks";
@@ -1707,6 +1712,8 @@ let projectIntegrationsSettingsStore: ProjectIntegrationsSettingsStore;
 let projectOrchestrationSettingsStore: ProjectOrchestrationSettingsStore;
 let projectSkillsSettingsStore: ProjectSkillsSettingsStore;
 let projectTerminalSettingsStore: ProjectTerminalSettingsStore;
+let startupScriptStore: StartupScriptStore;
+let startupScriptService: StartupScriptService;
 let gitSettingsStore: GitSettingsStore;
 let personalizationSettingsStore: PersonalizationSettingsStore;
 let browserSettingsStore: BrowserSettingsStore;
@@ -2887,6 +2894,9 @@ app
     projectOrchestrationSettingsStore = await createProjectOrchestrationSettingsStore(dbPath);
     projectSkillsSettingsStore = await createProjectSkillsSettingsStore(dbPath);
     projectTerminalSettingsStore = await createProjectTerminalSettingsStore(dbPath);
+    startupScriptStore = await createStartupScriptStore(dbPath);
+    startupScriptService = new StartupScriptService(startupScriptStore, backgroundTerminalTaskRegistry);
+    app.once("will-quit", () => startupScriptStore.close());
     gitSettingsStore = await createGitSettingsStore(dbPath);
     personalizationSettingsStore = await createPersonalizationSettingsStore(dbPath);
     browserSettingsStore = await createBrowserSettingsStore(dbPath);
@@ -4170,8 +4180,8 @@ installApplicationShutdownHook(
       }
       emitThreadEvent(threadId, type, message, "system");
     },
-    stopAllBackgroundTasks: () => {
-      backgroundTerminalTaskRegistry.stopAllRunning();
+    stopAllBackgroundTasks: async () => {
+      await backgroundTerminalTaskRegistry.stopAllRunning();
     },
     killAllInteractiveTerminals: () => {
       interactiveTerminalManager.killAll();
@@ -6636,6 +6646,45 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid background terminal stop request.");
     }
     return backgroundTerminalTaskRegistry.stop(payload.taskId);
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.startupScriptList, async () => startupScriptService.list());
+
+  registerDesktopCommand(IPC_CHANNELS.startupScriptSave, async (payload: unknown) => {
+    if (!isStartupScriptSaveInput(payload)) {
+      throw new Error("Invalid startup script input.");
+    }
+    return startupScriptService.save(payload);
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.startupScriptDelete, async (payload: unknown) => {
+    if (!isStartupScriptIdRequest(payload)) {
+      throw new Error("Invalid startup script id.");
+    }
+    return startupScriptService.delete(payload.id.trim());
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.startupScriptStart, async (payload: unknown) => {
+    if (!isStartupScriptIdRequest(payload)) {
+      throw new Error("Invalid startup script id.");
+    }
+    return startupScriptService.start(payload.id.trim());
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.startupScriptChooseDirectory, async (payload: unknown) => {
+    if (!isStartupScriptChooseDirectoryRequest(payload)) {
+      throw new Error("Invalid startup script directory picker request.");
+    }
+    const requestedPath = payload?.defaultPath?.trim();
+    const defaultPath = requestedPath && await fs.stat(requestedPath).then((stat) => stat.isDirectory()).catch(() => false)
+      ? requestedPath
+      : undefined;
+    const result = await dialog.showOpenDialog({
+      title: mainText("native.openProject"),
+      properties: ["openDirectory"],
+      ...(defaultPath ? { defaultPath } : {}),
+    });
+    return result.canceled ? null : result.filePaths[0] ?? null;
   });
 
   registerDesktopCommand(IPC_CHANNELS.codexBackgroundTerminalList, async () => {
