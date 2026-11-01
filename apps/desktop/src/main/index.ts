@@ -873,6 +873,7 @@ import {
   normalizeNotificationSettingsSnapshot,
 } from "./notification-settings-store";
 import { OpenAIAccountAssistant } from "./openai-account-assistant";
+import { OpenAIAccountBrowser } from "./openai-account-browser";
 import type { OpenAIAccount, OpenAIAccountService } from "./openai-account-service";
 import { resolveOrchestrationGuardrails } from "./orchestration-run-budget";
 import { PackageJsonWatcher } from "./package-json-watcher";
@@ -1264,7 +1265,7 @@ function getMainWindow(): BrowserWindow | undefined {
  * normal child window on that platform; otherwise users have no way to cancel
  * an in-progress login.
  */
-function createOAuthAuthWindow(parent?: BrowserWindow, partition = "oauth-auth-session"): BrowserWindow {
+function createOAuthAuthWindow(parent?: BrowserWindow, partition: string | Electron.Session = "oauth-auth-session"): BrowserWindow {
   const isMac = process.platform === "darwin";
   return new BrowserWindow({
     width: 900,
@@ -1277,7 +1278,7 @@ function createOAuthAuthWindow(parent?: BrowserWindow, partition = "oauth-auth-s
     ...(isMac ? { titleBarStyle: "default" as const } : {}),
     autoHideMenuBar: true,
     webPreferences: {
-      partition,
+      ...(typeof partition === "string" ? { partition } : { session: partition }),
       nodeIntegration: false,
       contextIsolation: true,
     },
@@ -1403,6 +1404,7 @@ async function configureChatGptOAuthSessionProxy(
       const proxyHostname = parsed.hostname.toLowerCase();
       const proxyPort = parsed.port ? Number(parsed.port) : undefined;
       proxyAuthListener = (_event, _webContents, _request, authInfo, callback) => {
+        if (_webContents?.session !== authSession) return;
         if (!authInfo.isProxy || authInfo.host.toLowerCase() !== proxyHostname) return;
         if (proxyPort !== undefined && authInfo.port !== proxyPort) return;
         callback(username, password);
@@ -1943,6 +1945,7 @@ let accountUsageStore: AccountUsageStore;
 const codexAccountUsageTracker = new CodexAccountUsageTracker();
 const codexLiveUsageBilling = new CodexLiveUsageBilling();
 let openaiAccountAssistant: OpenAIAccountAssistant | undefined;
+let openaiAccountBrowser: OpenAIAccountBrowser | undefined;
 let usageLedgerCoordinator: UsageLedgerCoordinator;
 let subagentMetricsRegistry: SubagentMetricsRegistry;
 const persistMetricsTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -4228,6 +4231,8 @@ installApplicationShutdownHook(
       moriAssistantHost = undefined;
       openaiAccountAssistant?.dispose();
       openaiAccountAssistant = undefined;
+      await openaiAccountBrowser?.dispose();
+      openaiAccountBrowser = undefined;
       await openaiAccountService?.dispose();
       openaiAccountService = undefined;
     },
@@ -7895,8 +7900,28 @@ function registerIpcHandlers(): void {
     if (!openaiAccountAssistant) throw new Error(mainText("assistant.notInitialized"));
     return openaiAccountAssistant;
   };
+  const accountBrowser = new OpenAIAccountBrowser({
+    getProfile: async accountId => {
+      const svc = await getOpenAIAccountService();
+      const account = await svc.getAccountDetails(accountId);
+      return { path: await svc.getBrowserDataPath(accountId), name: account.name,
+        proxyMode: account.proxyMode, ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}) };
+    },
+    configureProxy: async (ses, mode, proxyUrl) => {
+      if (mode === "system") {
+        await ses.setProxy({ mode: "system" });
+        return () => {};
+      }
+      return configureChatGptOAuthSessionProxy(ses, mode === "manual" ? proxyUrl : undefined);
+    },
+    reportError: error => logEcoDiag("openai-account-browser.flush.failed", { error: errorMessage(error) }),
+  });
+  openaiAccountBrowser = accountBrowser;
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsOpenChatGPT, async (payload: { accountId: string }) => {
+    await accountBrowser.open(payload.accountId);
+  });
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsOpenAssistant, async (payload: { accountId: string }) => {
-    await requireAccountAssistant().open(payload.accountId);
+    await accountBrowser.run(payload.accountId, () => requireAccountAssistant().open(payload.accountId));
   });
   registerDesktopCommand(
     IPC_CHANNELS.openAIAccountsAssistantState,
@@ -7907,7 +7932,7 @@ function registerIpcHandlers(): void {
   registerDesktopCommand(
     IPC_CHANNELS.openAIAccountsAssistantAction,
     async (payload: { accountId: string; action: OpenAIAccountAssistantAction }) => {
-      return requireAccountAssistant().action(payload.accountId, payload.action);
+      return accountBrowser.run(payload.accountId, () => requireAccountAssistant().action(payload.accountId, payload.action));
     },
   );
 
@@ -7937,7 +7962,11 @@ function registerIpcHandlers(): void {
 
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsDelete, async (payload: { accountId: string }) => {
     const svc = await getOpenAIAccountService();
-    await svc.deleteAccount(payload.accountId);
+    await accountBrowser.run(payload.accountId, async () => {
+      await accountBrowser.clear(payload.accountId);
+      requireAccountAssistant().closeAccount(payload.accountId);
+      await svc.deleteAccount(payload.accountId);
+    });
     return { success: true };
   });
 
@@ -7948,7 +7977,7 @@ function registerIpcHandlers(): void {
     (await getOpenAIAccountService()).cancelLogin(payload.accountId, payload.loginId);
   });
 
-  registerDesktopCommand(IPC_CHANNELS.openAIAccountsStartLogin, async (payload: { accountId: string; mode?: "external" }) => {
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsStartLogin, async (payload: { accountId: string; mode?: "external" }) => accountBrowser.run(payload.accountId, async () => {
     const svc = await getOpenAIAccountService();
     const accounts = await svc.listAccounts();
     const account = accounts.find((a) => a.id === payload.accountId);
@@ -7970,11 +7999,9 @@ function registerIpcHandlers(): void {
       return { success: true, message: "授权链接已生成", authUrl: authInfo.authUrl, loginId: authInfo.loginId, expiresAt: authInfo.expiresAt };
     }
 
-    const partition = `openai-account-auth-${payload.accountId}-${Date.now()}`;
-    const authSession = session.fromPartition(partition);
-    let releaseProxy: () => void;
+    let authSession: Electron.Session;
     try {
-      releaseProxy = await configureChatGptOAuthSessionProxy(authSession, account?.proxyUrl);
+      authSession = await accountBrowser.getSession(payload.accountId);
     } catch (error) {
       authInfo.cancel();
       return {
@@ -7984,16 +8011,11 @@ function registerIpcHandlers(): void {
     }
     // Keep the OAuth page independent from the main window so it can move
     // across displays without being constrained by the main window's window group.
-    const authWindow = createOAuthAuthWindow(undefined, partition);
+    const authWindow = createOAuthAuthWindow(undefined, authSession);
+    accountBrowser.trackWindow(payload.accountId, authWindow);
     authWindow.setTitle(`ChatGPT Login · ${account?.name ?? "账号"}`);
     requireAccountAssistant().attachLogin(payload.accountId, authWindow, authInfo.expiresAt);
     let loginCancelled = false;
-    let proxyReleased = false;
-    const closeSocksBridge = () => {
-      if (proxyReleased) return;
-      proxyReleased = true;
-      releaseProxy();
-    };
 
     const cancelLogin = () => {
       if (loginCancelled) return;
@@ -8011,11 +8033,10 @@ function registerIpcHandlers(): void {
     };
 
     // Register before loadURL so closing while the OAuth page is loading still
-    // cancels the CLI process and releases the proxy bridge.
+    // cancels the CLI process. The shared profile owns its proxy bridge.
     const completionGuard = installCodexAuthCompletionGuard(authWindow, cancelLogin);
     authWindow.on("closed", () => {
       completionGuard.dispose();
-      closeSocksBridge();
       // `destroy()` and application shutdown may skip the `close` event.
       cancelLogin();
     });
@@ -8026,7 +8047,6 @@ function registerIpcHandlers(): void {
     } catch (error) {
       completionGuard.allowClose();
       cancelLogin();
-      closeSocksBridge();
       if (!authWindow.isDestroyed()) authWindow.destroy();
       return {
         success: false,
@@ -8041,7 +8061,6 @@ function registerIpcHandlers(): void {
         // login into a cancellation notification.
         loginCancelled = true;
         completionGuard.allowClose();
-        closeSocksBridge();
         if (!authWindow.isDestroyed()) authWindow.close();
         BrowserWindow.getAllWindows().forEach((win) => {
           if (!win.isDestroyed()) {
@@ -8054,7 +8073,6 @@ function registerIpcHandlers(): void {
         loginCancelled = true;
         authInfo.cancel();
         completionGuard.allowClose();
-        closeSocksBridge();
         if (!authWindow.isDestroyed()) authWindow.close();
         console.error(
           `[openai-accounts] Login failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -8071,7 +8089,7 @@ function registerIpcHandlers(): void {
       });
 
     return { success: true, message: "Login started" };
-  });
+  }));
 
   registerDesktopCommand(
     IPC_CHANNELS.openAIAccountsSetAuthJson,

@@ -143,6 +143,7 @@ export const IPC_CHANNELS = {
   openAIAccountsGetDetails: "openai-accounts:get-details",
   openAIAccountsImport: "openai-accounts:import",
   openAIAccountsChanged: "openai-accounts:changed",
+  openAIAccountsOpenChatGPT: "openai-accounts:open-chatgpt",
   openAIAccountsOpenAssistant: "openai-accounts:open-assistant",
   openAIAccountsAssistantState: "openai-accounts:assistant-state",
   openAIAccountsAssistantAction: "openai-accounts:assistant-action",

@@ -198,6 +198,16 @@ export class OpenAIAccountAssistant {
     return { message: this.deps.text("assistant.filledNamed", { name: label }) };
   }
 
+  closeAccount(accountId: string): void {
+    for (const windows of [this.windows, this.pickupWindows, this.loginWindows]) {
+      const window = windows.get(accountId);
+      if (window && !window.isDestroyed()) window.destroy();
+      windows.delete(accountId);
+    }
+    this.loginDeadlines.delete(accountId);
+    this.pickupAccountNames.delete(accountId);
+  }
+
   dispose(): void {
     for (const window of [...this.windows.values(), ...this.pickupWindows.values(), ...this.loginWindows.values()]) {
       if (!window.isDestroyed()) window.close();

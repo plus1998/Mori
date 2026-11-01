@@ -546,10 +546,21 @@ export class OpenAIAccountService {
   /** Delete an account and its auth data. */
   async deleteAccount(accountId: string): Promise<void> {
     await this.requireAccount(accountId);
+    const login = this.activeLogins.get(accountId);
+    if (login) {
+      login.cancel();
+      await login.result;
+    }
+    // Keep the account registered if filesystem cleanup fails so deletion can be retried.
+    await fs.rm(this.accountDir(accountId), { recursive: true, force: true });
     this.quotaRefreshPolicy.forget(accountId);
     this.getStore().delete(accountId);
-    await fs.rm(this.accountDir(accountId), { recursive: true, force: true });
     this.onAccountsChanged?.();
+  }
+
+  async getBrowserDataPath(accountId: string): Promise<string> {
+    await this.requireAccount(accountId);
+    return path.join(this.accountDir(accountId), "browser");
   }
 
   /** Check if an account has a valid auth.json. */

@@ -746,6 +746,19 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     [eco, onError],
   );
 
+  const handleOpenChatGPT = useCallback(async (accountId: string) => {
+    if (!eco) return;
+    setBusy(true);
+    setOperationError("");
+    try {
+      await eco.openAIAccountsOpenChatGPT(accountId);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }, [eco]);
+
   const handleOpenAssistant = useCallback(async (accountId: string) => {
     if (!eco) return;
     setBusy(true);
@@ -1188,6 +1201,17 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
                           {canUseOpenAIAccountCredentials(account)
                             ? t("settings.openaiAccounts.relogin")
                             : t("settings.openaiAccounts.login")}
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="account-action-item"
+                          onClick={() => { setMenuOpenId(null); void handleOpenChatGPT(account.id); }}
+                          disabled={busy}
+                          title={t("settings.openaiAccounts.webProfileHint")}
+                        >
+                          <Globe2 size={14} />
+                          {t("settings.openaiAccounts.openChatGPT")}
                         </button>
                         <button
                           type="button"

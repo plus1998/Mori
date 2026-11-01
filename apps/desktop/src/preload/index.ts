@@ -768,6 +768,10 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsCancelLogin, { accountId, loginId });
   },
 
+  openAIAccountsOpenChatGPT(accountId: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsOpenChatGPT, { accountId });
+  },
+
   openAIAccountsOpenAssistant(accountId: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsOpenAssistant, { accountId });
   },

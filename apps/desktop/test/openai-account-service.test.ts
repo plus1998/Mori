@@ -182,6 +182,37 @@ test.skipIf(process.platform === "win32")("cancelling an OAuth login settles the
   service.dispose();
 });
 
+test.skipIf(process.platform === "win32")("deleting an account cancels login and removes only its browser profile", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "eco-openai-accounts-"));
+  tempDirs.push(root);
+  const executable = path.join(root, "fake-codex");
+  await writeFakeCodexLogin(executable);
+  const service = new OpenAIAccountService(root, executable);
+  await service.initialize({ startBackground: false });
+  try {
+    const first = await service.createAccount("First");
+    const second = await service.createAccount("Second");
+    const firstPath = await service.getBrowserDataPath(first.id);
+    const secondPath = await service.getBrowserDataPath(second.id);
+    expect(firstPath).toBe(path.join(root, "codex-accounts", first.id, "browser"));
+    for (const profile of [firstPath, secondPath]) {
+      await fs.mkdir(profile, { recursive: true });
+      await fs.writeFile(path.join(profile, "site-data"), "profile fixture");
+    }
+    const login = await service.startLogin(first.id);
+    if (!login) throw new Error("Expected login");
+    await service.deleteAccount(first.id);
+    expect(await login.result).toMatchObject({ success: false, message: "登录已取消" });
+    await expect(fs.stat(path.dirname(firstPath))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await fs.readFile(path.join(secondPath, "site-data"), "utf8")).toBe("profile fixture");
+    await expect(service.getBrowserDataPath(first.id)).rejects.toThrow("OpenAI account not found");
+    await expect(service.getBrowserDataPath("../escape")).rejects.toThrow("Invalid OpenAI account id");
+    expect((await service.listAccounts()).map(account => account.id)).toEqual([second.id]);
+  } finally {
+    await service.dispose();
+  }
+});
+
 // 旧版全局 auth.json 的一次性迁移：保留较新的凭据，之后不再维护全局副本。
 
 const STALE_STAMP = "2026-09-28T02:02:53.237Z";
