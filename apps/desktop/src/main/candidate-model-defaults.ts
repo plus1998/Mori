@@ -1,0 +1,65 @@
+import type { CandidateModelView, RuntimeRoleRouteConfig } from "../shared/ipc";
+
+export function codexCatalogCandidateId(modelId: string): string {
+  return `cand-openai-${modelId
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")}`;
+}
+
+export function chatGptCatalogCandidateId(modelId: string): string {
+  return `cand-chatgpt-${modelId}`;
+}
+
+export function resolveCandidateModelRouteDefaults(
+  routes: readonly RuntimeRoleRouteConfig[],
+  source: {
+    isBuiltInCodexProvider: (providerId: string) => boolean;
+    isChatGptSubscriptionProvider: (providerId: string) => boolean;
+    listCandidateModels: (providerId: string) => readonly CandidateModelView[];
+  },
+): RuntimeRoleRouteConfig[] {
+  return routes.map((route) => {
+    if (!route.candidateModelId) return route;
+
+    // Account catalogs expose selection IDs, not ProviderStore candidate rows.
+    // Match both the source and model so stale stored candidates still fail.
+    const catalogSelection =
+      (source.isBuiltInCodexProvider(route.providerId) &&
+        route.candidateModelId === codexCatalogCandidateId(route.modelId)) ||
+      (source.isChatGptSubscriptionProvider(route.providerId) &&
+        route.candidateModelId === chatGptCatalogCandidateId(route.modelId));
+    if (catalogSelection) {
+      const { candidateModelId: _catalogSelectionId, ...modelRoute } = route;
+      return modelRoute;
+    }
+
+    const candidate = source
+      .listCandidateModels(route.providerId)
+      .find((entry) => entry.id === route.candidateModelId);
+    if (!candidate) throw new Error(`模型 ${route.candidateModelId} 已不存在，请重新选择。`);
+    if (candidate.apiCompat === "system_one") {
+      throw new Error(`模型 ${candidate.modelId} 使用 SystemOne 协议，仅可作为审批模型。`);
+    }
+    if (!candidate.baseUrl || !candidate.apiCompat) {
+      throw new Error(`模型 ${candidate.modelId} 缺少端点或协议配置，请重新编辑模型。`);
+    }
+    const manualSpec =
+      candidate.manualSpec || route.manualSpec ? { ...candidate.manualSpec, ...route.manualSpec } : undefined;
+    return {
+      ...route,
+      modelId: candidate.modelId || route.modelId,
+      baseUrl: candidate.baseUrl,
+      requestPath: candidate.requestPath ?? "",
+      version: candidate.version ?? "v1",
+      ...(candidate.tokenCountMode ? { tokenCountMode: candidate.tokenCountMode } : {}),
+      apiCompat: candidate.apiCompat,
+      ...(route.modelsDevMapping
+        ? { modelsDevMapping: route.modelsDevMapping }
+        : candidate.modelsDevMapping
+          ? { modelsDevMapping: candidate.modelsDevMapping }
+          : {}),
+      ...(manualSpec ? { manualSpec } : {}),
+    };
+  });
+}

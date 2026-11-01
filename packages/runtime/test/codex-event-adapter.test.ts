@@ -2084,6 +2084,62 @@ test("child subagent turn/completed emits agent.stopped without persisted agentR
   });
 });
 
+test("native child route keeps the exact gateway identity and interruption keeps the spawn owner", () => {
+  const registry = new CodexTurnRouteRegistry();
+  let attribution: { parentThreadId: string; agentRole?: string; spawnCallId?: string } | undefined;
+  const model = buildCodexGatewayModelAlias("vendor", "actual-model", "openai_responses");
+  const events: CodexThreadRunEventInput[] = [];
+  const usages: string[] = [];
+  const adapter = new CodexEventAdapter({
+    resolveEcoThreadId,
+    turnRouteRegistry: registry,
+    recordThreadRunEvent: (event) => events.push(event),
+    getThreadAttributionRecord: () => attribution,
+    recordThreadAttribution: (_id, record) => {
+      attribution = record;
+    },
+    dequeueSpawnPayloadMatching: () => ({ agentRole: "coder" }),
+    onTurnTokenUsageUpdated: (route) => usages.push(route.providerId),
+  });
+  const child = "native-child";
+  adapter.dispatch("item/completed", {
+    threadId: CODEX_THREAD,
+    turnId: "parent-turn",
+    item: {
+      type: "subAgentActivity",
+      id: "spawn",
+      kind: "started",
+      agentThreadId: child,
+      agentPath: "/root/task",
+      model,
+    },
+  });
+  adapter.dispatch("turn/started", { threadId: child, turn: { id: "child-turn", status: "inProgress" } });
+  expect(registry.peek(child, "child-turn")).toMatchObject({
+    aliasModelId: model,
+    providerId: "vendor",
+    upstreamModelId: "actual-model",
+    apiCompat: "openai_responses",
+  });
+  adapter.dispatch("item/completed", {
+    threadId: CODEX_THREAD,
+    turnId: "parent-turn",
+    item: {
+      type: "subAgentActivity",
+      id: "interrupt-item",
+      kind: "interrupted",
+      agentThreadId: child,
+      agentPath: "/root/task",
+    },
+  });
+  expect(attribution?.spawnCallId).toBe("spawn");
+  expect(events.at(-1)).toMatchObject({ eventType: "agent.abandoned", parentToolUseId: "spawn" });
+  adapter.dispatch("thread/closed", { threadId: child });
+  adapter.dispatch("turn/started", { threadId: child, turn: { id: "later-turn", status: "inProgress" } });
+  expect(registry.peek(child, "later-turn")).toBeUndefined();
+  expect(usages).toEqual([]);
+});
+
 test("subAgentActivity with task_name path opens general agent card", () => {
   const attributions: Array<{ codexThreadId: string; record: Record<string, unknown> }> = [];
   const events = collectEvents((record) => {

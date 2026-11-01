@@ -5,7 +5,87 @@ import { bindCodexThreadRunEventAttempt } from "../src/main/codex-runtime-run";
 import { normalizeCodexThreadRunEventForProjection } from "../src/main/codex-thread-run-event-normalizer";
 import { ConversationV2RuntimeWriter } from "../src/main/conversation-v2-runtime-writer";
 import { ConversationV2Store } from "../src/main/conversation-v2-store";
+import { InMemoryCodexThreadMap, resolveCodexThreadAttribution } from "../src/main/codex-thread-map";
 import type { ThreadRunEvent, ThreadRunEventInput } from "../src/shared/thread-run-events";
+
+test("native child completion items preserve the spawn call that owns the agent", () => {
+  const db = new DatabaseSync(":memory:");
+  const store = new ConversationV2Store(db);
+  store.initialize();
+  store.ensureConversation("thread");
+  const writer = new ConversationV2RuntimeWriter(db, store);
+  const threadMap = new InMemoryCodexThreadMap();
+  threadMap.setMapping("thread", "parent");
+  store.append({
+    conversationId: "thread",
+    eventId: "run-start",
+    runId: "run",
+    turnId: "run",
+    type: "run.started",
+    occurredAt: "2026-11-01T17:16:43Z",
+    payload: { status: "running" },
+  });
+  const adapter = new CodexEventAdapter({
+    resolveEcoThreadId: (id) => threadMap.getEcoThreadId(id) ?? id,
+    resolveThreadAttribution: (id) => resolveCodexThreadAttribution(threadMap, id),
+    recordThreadAttribution: (id, record) => threadMap.setThreadAttribution(id, record),
+    getThreadAttributionRecord: (id) => threadMap.getThreadAttribution(id),
+    dequeueSpawnPayloadMatching: () => ({ agentRole: "coder", taskName: "coder_check" }),
+    recordThreadRunEvent: (event) =>
+      writer.append(
+        bindCodexThreadRunEventAttempt(
+          normalizeCodexThreadRunEventForProjection(event as ThreadRunEventInput),
+          "run",
+        ),
+      ),
+  });
+  try {
+    adapter.dispatch("item/completed", {
+      threadId: "parent",
+      turnId: "parent-turn",
+      item: {
+        type: "subAgentActivity",
+        id: "spawn-call",
+        kind: "started",
+        agentThreadId: "child",
+        agentPath: "/root/coder_check",
+        model: "gpt-6-luna",
+        reasoningEffort: "max",
+      },
+    });
+    adapter.dispatch("turn/started", { threadId: "child", turn: { id: "child-turn", status: "inProgress" } });
+    // Codex 0.163 emits a separate completion item on the parent before child turn/completed.
+    adapter.dispatch("item/completed", {
+      threadId: "parent",
+      turnId: "parent-turn",
+      item: {
+        type: "subAgentActivity",
+        id: "subagent-completed-child-turn",
+        kind: "completed",
+        agentThreadId: "child",
+        agentPath: "/root/coder_check",
+        model: null,
+        reasoningEffort: null,
+      },
+    });
+    adapter.dispatch("turn/completed", {
+      threadId: "child",
+      turn: { id: "child-turn", status: "completed" },
+    });
+    expect(threadMap.getThreadAttribution("child")?.spawnCallId).toBe("spawn-call");
+    expect(store.agentsOf("thread")[0]).toMatchObject({
+      role: "coder",
+      parentToolCallId: "spawn-call",
+      status: "completed",
+      runId: "run",
+    });
+    store.rebuildReadModels("thread");
+    expect(store.agentsOf("thread")[0]?.status).toBe("completed");
+    expect(store.validateIntegrity("thread").headSeq).toBe(store.head("thread").lastSeq);
+  } finally {
+    db.close();
+  }
+});
 
 for (const status of ["failed", "completed"] as const) {
   test(`a background terminal ${status} event stays in its original run after the next run starts`, () => {

@@ -17,6 +17,7 @@
  */
 
 import { summarizeAgentObjective } from "./agent-mission.js";
+import { parseCodexGatewayModelAlias } from "./codex-config-sync.js";
 import { formatApiErrorUserMessage, type ThreadApiErrorInfo } from "./api-error.js";
 import {
   type CodexContextSnapshotResolution,
@@ -25,7 +26,12 @@ import {
 } from "./codex-context-snapshot.js";
 import type { CodexSpawnPayload, CodexSpawnPayloadMatchInput } from "./codex-spawn-role-queue.js";
 import type { CodexThreadAttribution } from "./codex-thread-attribution.js";
-import type { CodexTurnRouteRecord, CodexTurnRouteRegistry, CodexTurnTokenUsageSnapshot } from "./codex-turn-route-registry.js";
+import type {
+  CodexTurnRouteIdentity,
+  CodexTurnRouteRecord,
+  CodexTurnRouteRegistry,
+  CodexTurnTokenUsageSnapshot,
+} from "./codex-turn-route-registry.js";
 import { resolveEcoMcpHubSearchCall, resolveEcoMcpHubToolCall } from "./eco-mcp-hub-tool.js";
 import { resolveEcoImageViewToolCall } from "./eco-image-view-tool.js";
 import { readMcpToolOutputText } from "./mcp-tool-output-text.js";
@@ -246,6 +252,8 @@ type AdapterContext = CodexEventAdapterOptions & {
   pendingAsyncQuestionsByCodexThreadId: Map<string, Omit<CodexAsyncQuestionsInput, "ecoThreadId">[]>;
   /** Dedupe agent.started from spawn item + thread/started for the same child. */
   emittedAgentStartedIds: Set<string>;
+  /** Actual models reported by native spawn activity, not role configuration guesses. */
+  nativeChildRoutes: Map<string, CodexTurnRouteIdentity>;
   /** Same absolute path from native imageView + eco_image_view MCP → one Feed card. */
   emittedImageViewPaths: Set<string>;
   /** display_image artifact ids emitted once per tool item. */
@@ -321,6 +329,7 @@ export class CodexEventAdapter {
     Omit<CodexAsyncQuestionsInput, "ecoThreadId">[]
   >();
   private readonly emittedAgentStartedIds = new Set<string>();
+  private readonly nativeChildRoutes = new Map<string, CodexTurnRouteIdentity>();
   private readonly emittedImageViewPaths = new Set<string>();
   private readonly emittedImageDisplayArtifacts = new Set<string>();
 
@@ -341,6 +350,7 @@ export class CodexEventAdapter {
       pendingEventsByCodexThreadId: this.pendingEventsByCodexThreadId,
       pendingAsyncQuestionsByCodexThreadId: this.pendingAsyncQuestionsByCodexThreadId,
       emittedAgentStartedIds: this.emittedAgentStartedIds,
+      nativeChildRoutes: this.nativeChildRoutes,
       emittedImageViewPaths: this.emittedImageViewPaths,
       emittedImageDisplayArtifacts: this.emittedImageDisplayArtifacts,
     };
@@ -425,6 +435,10 @@ function handleTurnStarted(ctx: AdapterContext, params: Record<string, unknown>)
     return;
   }
 
+  const childRoute = ctx.nativeChildRoutes.get(codexThreadId);
+  if (childRoute && !ctx.turnRouteRegistry?.peek(codexThreadId, turnId)) {
+    ctx.turnRouteRegistry?.register(codexThreadId, turnId, childRoute);
+  }
   ctx.onTurnStarted?.({ codexThreadId, turnId });
 
   emit(ctx, {
@@ -464,6 +478,9 @@ function handleTurnCompleted(ctx: AdapterContext, params: Record<string, unknown
   // `collabAgentToolCall` / `subAgentActivity`. Close the agent card on the parent
   // thread only; never treat child turn terminal as parent session end.
   if (attribution?.isSubagentThread && attribution.agentId === codexThreadId) {
+    // Direct Login child turns bypass the gateway too. Retry their last native
+    // checkpoint on completion; the host gates providers and deduplicates usage.
+    if (turnRoute?.appServerTokenUsage) ctx.onTurnTokenUsageUpdated?.(turnRoute);
     const record = ctx.getThreadAttributionRecord?.(codexThreadId);
     const parentCodexThreadId = record?.parentThreadId?.trim();
     const lifecycleRole = resolveSubagentDisplayRole(
@@ -492,8 +509,8 @@ function handleTurnCompleted(ctx: AdapterContext, params: Record<string, unknown
         },
       });
     }
-    // Gateway request usage is the only Codex ledger source. This terminal event
-    // closes lifecycle state and consumes the registry; it must never bill again.
+    // A child terminal never completes the parent run. Gateway-backed routes
+    // remain billed only by gateway usage; the host rejects their native usage.
     return;
   }
 
@@ -688,6 +705,7 @@ function handleTokenUsageUpdated(ctx: AdapterContext, params: Record<string, unk
 function handleThreadRouteCleanup(ctx: AdapterContext, params: Record<string, unknown>): void {
   const codexThreadId = readCodexThreadId(params);
   if (codexThreadId) {
+    ctx.nativeChildRoutes.delete(codexThreadId);
     ctx.turnRouteRegistry?.clearThread(codexThreadId);
     ctx.onThreadRouteCleanup?.(codexThreadId);
   }
@@ -2113,9 +2131,27 @@ function handleSubAgentActivityLifecycle(
     return;
   }
 
+  // Completion/activity item IDs are distinct from the spawn tool call. They
+  // must never replace the immutable parent ownership link of an existing child.
+  if (kind !== "started" && kind !== "interrupted") return;
+
+  if (kind === "started") {
+    const model = readString(item, "model");
+    if (model) {
+      const gateway = parseCodexGatewayModelAlias(model);
+      ctx.nativeChildRoutes.set(agentThreadId, {
+        aliasModelId: model,
+        providerId: gateway?.providerId ?? "openai",
+        upstreamModelId: gateway?.upstreamModelId ?? model,
+        ...(gateway?.apiCompat ? { apiCompat: gateway.apiCompat } : {}),
+      });
+    }
+  }
+
   // agentPath is /root/{task_name}, not agent_type. Role comes from PreToolUse queue,
   // persisted attribution, or thread/started — never from task_name alone.
-  const existingRole = ctx.getThreadAttributionRecord?.(agentThreadId)?.agentRole;
+  const existingRecord = ctx.getThreadAttributionRecord?.(agentThreadId);
+  const existingRole = existingRecord?.agentRole;
   const existingOrchestrationRole = resolveChosenOrchestrationRole(ctx, existingRole);
   const taskName = taskNameFromAgentPath(agentPath);
   const queuedPayload =
@@ -2143,9 +2179,10 @@ function handleSubAgentActivityLifecycle(
     spawnPrompt && kind === "started" ? buildSpawnDelegationMetadata(displayRole, spawnPrompt) : undefined;
 
   ctx.recordThreadAttribution?.(agentThreadId, {
+    ...existingRecord,
     parentThreadId,
     agentRole: displayRole,
-    ...(itemId && { spawnCallId: itemId }),
+    ...(kind === "started" && itemId && { spawnCallId: itemId }),
     ...(spawnPrompt && { spawnMessage: spawnPrompt }),
   });
 
@@ -2183,7 +2220,7 @@ function handleSubAgentActivityLifecycle(
       turnId,
       itemId,
       agentId: agentThreadId,
-      ...(itemId && { parentToolUseId: itemId }),
+      ...(existingRecord?.spawnCallId && { parentToolUseId: existingRecord.spawnCallId }),
       role: displayRole,
       message: `Subagent ${displayRole} interrupted`,
       metadata: {

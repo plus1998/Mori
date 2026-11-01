@@ -43,7 +43,10 @@ function input(usage = one, raw = usage, requests: Tokens[] | undefined = [usage
   };
 }
 
-function services(initial: UsageLedgerEvent[] = []) {
+function services(
+  initial: UsageLedgerEvent[] = [],
+  identity = { role: "main", modelId: "gpt-6.1-sol", agentId: "main:attempt_live" },
+) {
   const events = [...initial];
   const requests: CodexLiveUsageRequest[] = [];
   const prices = parseOpenAiApiPricing(PRICING_MARKDOWN);
@@ -55,12 +58,12 @@ function services(initial: UsageLedgerEvent[] = []) {
       requests.push(request);
       const artifacts = await resolveSingleUsageBillingArtifacts({
         threadId,
-        role: "main",
+        role: identity.role,
         source: "codex",
         providerId: "openai",
-        modelId: "gpt-6.1-sol",
-        codexPlannerModelId: "gpt-6.1-sol",
-        plannerAgentId: "main:attempt_live",
+        modelId: identity.modelId,
+        codexPlannerModelId: identity.modelId,
+        ...(identity.role === "main" ? { plannerAgentId: identity.agentId } : { agentId: identity.agentId }),
         usage: request.usage,
         runtimeRoutes: [],
         lookupPricing: async () => null,
@@ -74,6 +77,72 @@ function services(initial: UsageLedgerEvent[] = []) {
     },
   };
 }
+
+test("native coder Luna usage is billed once across live updates and child completion", async () => {
+  const registry = new CodexTurnRouteRegistry();
+  const billing = new CodexLiveUsageBilling();
+  const ledger = services([], { role: "coder", modelId: "gpt-6-luna", agentId: "child" });
+  const pending: Promise<void>[] = [];
+  const adapter = new CodexEventAdapter({
+    resolveEcoThreadId: () => threadId,
+    recordThreadRunEvent: () => {},
+    turnRouteRegistry: registry,
+    resolveThreadAttribution: (id) =>
+      id === "child"
+        ? { ecoThreadId: threadId, billingRole: "coder", agentId: "child", isSubagentThread: true }
+        : { ecoThreadId: threadId, billingRole: "main" },
+    getThreadAttributionRecord: () => ({
+      parentThreadId: "parent",
+      agentRole: "coder",
+      spawnCallId: "spawn",
+    }),
+    onTurnTokenUsageUpdated: (route) => {
+      expect(route.providerId).toBe("openai");
+      expect(route.upstreamModelId).toBe("gpt-6-luna");
+      expect(route.appServerTokenUsage).toBeDefined();
+      pending.push(billing.enqueue({ ...route, appServerTokenUsage: route.appServerTokenUsage! }, ledger));
+    },
+  });
+  adapter.dispatch("item/completed", {
+    threadId: "parent",
+    turnId: "parent-turn",
+    item: {
+      type: "subAgentActivity",
+      id: "spawn",
+      kind: "started",
+      model: "gpt-6-luna",
+      reasoningEffort: "max",
+      agentThreadId: "child",
+      agentPath: "/root/coder_check",
+    },
+  });
+  adapter.dispatch("turn/started", { threadId: "child", turn: { id: "child-turn", status: "inProgress" } });
+  const usage: Tokens = {
+    inputTokens: 18589,
+    cachedInputTokens: 0,
+    outputTokens: 30,
+    reasoningOutputTokens: 18,
+    totalTokens: 18619,
+  };
+  const notification = { threadId: "child", turnId: "child-turn", tokenUsage: { last: usage, total: usage } };
+  adapter.dispatch("thread/tokenUsage/updated", notification);
+  adapter.dispatch("thread/tokenUsage/updated", notification);
+  adapter.dispatch("turn/completed", { threadId: "child", turn: { id: "child-turn", status: "completed" } });
+  // Historical replay after completion cannot recreate an active child route.
+  adapter.dispatch("thread/tokenUsage/updated", notification);
+  await Promise.all(pending);
+  expect(pending).toHaveLength(3);
+  expect(registry.size).toBe(0);
+  expect(ledger.events).toHaveLength(1);
+  expect(ledger.events[0]).toMatchObject({
+    role: "coder",
+    agentId: "child",
+    modelId: "gpt-6-luna",
+    inputTokens: 18589,
+    outputTokens: 30,
+    reasoningTokens: 18,
+  });
+});
 
 test("usage becomes billable before completion; duplicates, history replay and completion do not charge again", async () => {
   const billing = new CodexLiveUsageBilling();
