@@ -60,6 +60,7 @@ import {
   resolveAgentBrowserScreenshotPath,
 } from "./browser-native-agent-tools";
 import { applyBrowserViewport } from "./browser-viewport";
+import { invokeGuestCdp } from "./browser-debug-tools";
 import type { BrowserSettingsStore } from "./browser-settings-store";
 import { BrowserDownloads } from "./browser-downloads";
 import type { BrowserDownload } from "../shared/browser-downloads";
@@ -1494,7 +1495,7 @@ export class BrowserHost {
 
   /** User-selected references have their own single-page CDP target and CLI session. */
   async invokeReferencedBrowserTool(browserId: string, action: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<AgentBrowserMcpToolResult> {
-    const allowed = new Set(["snapshot", "read", "click", "fill", "type", "press", "check", "uncheck", "select", "scroll", "get_text", "get_url", "get_title", "screenshot", "wait_for_selector", "wait_for_text", "wait_for_load", "reload", "back", "forward"]);
+    const allowed = new Set(["snapshot", "read", "click", "fill", "type", "press", "check", "uncheck", "select", "scroll", "get_text", "get_url", "get_title", "screenshot", "wait_for_selector", "wait_for_text", "wait_for_load", "reload", "back", "forward", "eval", "cdp"]);
     if (!action.startsWith("agent_browser_") || !allowed.has(action.slice("agent_browser_".length))) throw new Error("该操作不适用于网页引用。");
     if (["url", "href", "session", "cdp", "tabId", "browserId", "targetId", "extraArgs"].some(key => Object.hasOwn(args, key))) throw new Error("网页引用不能改用其他地址、会话或标签页。");
     const previous = this.referenceCalls.get(browserId) ?? Promise.resolve();
@@ -1505,6 +1506,7 @@ export class BrowserHost {
       if (!found || this.disposedThreadScopes.has(found.scope.threadId) || !shouldSurfaceBrowserInstance({ url: this.resolveBrowserTabUrl(found.browser), surfacePlaceholder: found.browser.surfacePlaceholder })) throw new Error("引用的网页已关闭。");
       const guest = await this.waitForGuestWebContents(browserId);
       this.noteAgentPresence(browserId);
+      if (action === "agent_browser_cdp") return invokeGuestCdp(guest, args, signal);
       if (action === "agent_browser_screenshot") {
         const output = resolveAgentBrowserScreenshotPath(args);
         return agentBrowserTextResult(await captureGuestScreenshot(guest, output, isFullPageScreenshot(args)));
@@ -1573,6 +1575,11 @@ export class BrowserHost {
     signal?.throwIfAborted();
     this.noteAgentPresenceForThread(threadId);
     switch (toolName) {
+      case "agent_browser_cdp": {
+        await this.ensureScopeGuestsReady(threadId);
+        const guest = await this.waitForGuestWebContents(this.getFocusedCdpTargetId(threadId));
+        return invokeGuestCdp(guest, args, signal);
+      }
       case "agent_browser_files_list":
       case "agent_browser_files_get": {
         const scope = this.scopes.get(threadId);

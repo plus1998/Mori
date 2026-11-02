@@ -1,5 +1,6 @@
 /**
- * Names + input schemas for agent-browser `--tools core`, pinned to agent-browser@0.33.2.
+ * Names + input schemas for agent-browser `--tools core`, pinned to agent-browser@0.33.2,
+ * plus Mori-native tools such as downloads, viewport control and page CDP.
  * Used so tools/list can advertise the surface without spawning a CDP child.
  *
  * Schemas must match {@link mapAgentBrowserToolToCliArgs} / BrowserHost native paths —
@@ -42,6 +43,7 @@ export const AGENT_BROWSER_CORE_TOOL_NAMES = [
   "agent_browser_tab_switch",
   "agent_browser_tab_close",
   "agent_browser_eval",
+  "agent_browser_cdp",
   "agent_browser_close",
 ] as const;
 
@@ -380,7 +382,7 @@ const TOOL_DEFINITIONS: Record<
     inputSchema: emptyObjectSchema,
   },
   agent_browser_eval: {
-    description: "Evaluate JavaScript in the page.",
+    description: "Evaluate JavaScript in the page. Inspect live DOM, computed styles, inline SVG and page state. Use agent_browser_cdp to read browser-held JS/CSS/image resources without page CORS restrictions.",
     inputSchema: objectSchema({
       required: ["script"],
       properties: {
@@ -389,6 +391,21 @@ const TOOL_DEFINITIONS: Record<
           minLength: 1,
           description: "JavaScript expression or script to evaluate.",
         },
+      },
+    }),
+  },
+  agent_browser_cdp: {
+    description: "Run a page-scoped Chrome DevTools Protocol command on this exact browser guest. Inspect DOM/Shadow DOM/frames, CSS rules, JS sources and loaded assets (including cross-origin SVG/logo/image/font files). Examples: DOM.getDocument, DOMSnapshot.captureSnapshot, CSS.getMatchedStylesForNode, Page.getResourceTree, Page.getResourceContent, Debugger.getScriptSource, Network.getResponseBody. Optional captureEvents collects matching events during the command and waitMs. Target.setAutoAttach (params:{autoAttach:true}) with captureEvents:[Target.attachedToTarget] discovers this page's child iframe/worker sessions; use their sessionId for commands there. Browser-wide commands and target switching are unavailable. Large results are saved intact to a temporary JSON file; output=file always saves the complete result.",
+    inputSchema: objectSchema({
+      required: ["method"],
+      properties: {
+        method: { type: "string", minLength: 1, description: "Page-scoped CDP method, e.g. Page.getResourceTree." },
+        params: { type: "object", additionalProperties: true, description: "Parameters for this CDP method, e.g. {frameId, url} for Page.getResourceContent. A resource URL does not navigate or substitute the referenced page." },
+        sessionId: { type: "string", minLength: 1, description: "Optional child iframe/worker session from this guest's Target.attachedToTarget event. Omit for the main page; IDs from other guests cannot be used." },
+        captureEvents: { type: "array", items: { type: "string" }, description: "Event names or domain wildcards, e.g. Debugger.scriptParsed, CSS.styleSheetAdded or Network.*. Listen before the command starts. Events outside this call are not retained." },
+        waitMs: { type: "integer", minimum: 0, maximum: 5000, description: "Additional event collection time after command completion (default 0)." },
+        maxEvents: { type: "integer", minimum: 1, maximum: 10000, description: "Maximum collected events (default 1000). Any dropped events are counted explicitly." },
+        output: { type: "string", enum: ["inline", "file"], description: "Default inline; file saves the full JSON response in the system temporary directory. Large inline responses also return a full-result file." },
       },
     }),
   },

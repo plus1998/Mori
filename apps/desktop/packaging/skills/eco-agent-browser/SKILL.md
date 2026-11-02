@@ -23,6 +23,8 @@ Tool names look like:
 - `mcp__eco_agent_browser__agent_browser_fill`
 - `mcp__eco_agent_browser__agent_browser_screenshot`
 - `mcp__eco_agent_browser__agent_browser_get_url`
+- `mcp__eco_agent_browser__agent_browser_eval`
+- `mcp__eco_agent_browser__agent_browser_cdp`
 - `mcp__eco_agent_browser__agent_browser_tab_list` / `tab_new` / `tab_switch` (when listed)
 
 Do **not** start a separate headless Chrome, and do **not** shell out to macOS `open` for normal web work when these tools are present.
@@ -41,6 +43,52 @@ Do **not** start a separate headless Chrome, and do **not** shell out to macOS `
 2. Take an accessibility **snapshot** (`agent_browser_snapshot`; prefer interactive-only when available).
 3. Act with **refs** from that snapshot (`@e1`, `@e2`, …) via click/fill/type tools.
 4. After any navigation, submit, dialog, or dynamic re-render: **snapshot again** before the next ref action. Refs go stale after DOM changes.
+
+## Inspect DOM, styles, scripts and assets
+
+`agent_browser_eval({script})` evaluates page JavaScript: inspect `outerHTML`,
+`getComputedStyle(element)`, element bounds, inline SVG, image `currentSrc`, and live JS state.
+An accessibility snapshot is not the full DOM and does not contain CSS rules or source files.
+
+`agent_browser_cdp({method, params?})` uses the guest's DevTools connection rather than page
+`fetch`, so browser-held cross-origin JS, CSS and images can be read without page CORS restrictions.
+It is scoped to the exact webpage; browser-wide commands and target switching are unavailable.
+For an out-of-process iframe or dedicated worker, call `Target.setAutoAttach` with
+`params:{autoAttach:true}` and `captureEvents:["Target.attachedToTarget"]`. Pass the returned
+child `sessionId` alongside `method`/`params` to inspect that child. Only this guest's iframe/worker
+descendants are attached; they are not paused. IDs from another guest cannot be used.
+
+- DOM and Shadow DOM: `DOM.getDocument({depth:-1,pierce:true})`, then `DOM.getOuterHTML({nodeId})`.
+  `DOMSnapshot.captureSnapshot({computedStyles:[]})` returns DOM/layout data including frames and shadow trees.
+- Styles: call `DOM.enable`, then `CSS.enable`; use a nodeId with
+  `CSS.getComputedStyleForNode` and `CSS.getMatchedStylesForNode` (includes inherited/pseudo rules).
+  Set `captureEvents:["CSS.styleSheetAdded"]` on `CSS.enable` to discover stylesheet IDs and
+  source URLs, then use `CSS.getStyleSheetText({styleSheetId})` for full CSS text.
+- Assets: `Page.getResourceTree` lists each frame's loaded resources (JS/CSS/SVG/logo/images/fonts).
+  Pass the exact frame ID and resource URL to `Page.getResourceContent({frameId,url})`.
+  Its `content` is original text or, when `base64Encoded:true`, base64 binary bytes.
+  Inline scripts/styles/SVG are in the DOM; assets loaded via CSS are in the resource tree.
+- JS sources: `Debugger.enable` with `captureEvents:["Debugger.scriptParsed"]` discovers script IDs,
+  including inline/dynamically generated scripts. Read one with `Debugger.getScriptSource({scriptId})`.
+- Network bodies: enable `Network.enable` before the request. To capture a subsequent load, use
+  `Page.reload` with `captureEvents:["Network.*"]` and `waitMs` (0–5000), then
+  `Network.getResponseBody({requestId})`. Events outside the tool call are not retained; requests
+  still pending when the collection window ends require another explicitly timed observation.
+
+`captureEvents` accepts event names or domain wildcards. `maxEvents` defaults to 1000 (max 10000);
+`droppedEvents` explicitly reports overflow. `output:"file"` saves the complete response to a
+temporary JSON file; large responses do this automatically. Read that file rather than repeating
+the command. For a binary logo, decode `result.content` as base64 when `result.base64Encoded`
+is true and write the bytes to the desired asset file. Source files are the delivered frontend
+files; this does not recover server code or original sources absent source maps.
+
+For user-referenced pages, use `eco_context.browser_reference` with the exact `browserId`,
+`action:"agent_browser_eval"` or `action:"agent_browser_cdp"`, and the same parameters inside
+`arguments`. Include `selectionId` for element/text references; original-document validation
+still applies. Resource URLs go inside `arguments.params.url`; never substitute another page.
+This reference path is available through `eco_context` even when this thread has no browser
+integration enabled. Report protocol/cache/unavailable-resource errors as returned; do not
+infer file contents from screenshots or silently re-fetch a resource from a different context.
 
 ## Downloads
 

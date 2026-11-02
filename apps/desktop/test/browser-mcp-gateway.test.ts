@@ -19,6 +19,7 @@ test("core tool catalog covers open/snapshot without spawning CDP", () => {
   expect(AGENT_BROWSER_CORE_TOOL_NAMES).toContain("agent_browser_open");
   expect(AGENT_BROWSER_CORE_TOOL_NAMES).toContain("agent_browser_snapshot");
   expect(AGENT_BROWSER_CORE_TOOL_NAMES).toContain("agent_browser_tab_new");
+  expect(AGENT_BROWSER_CORE_TOOL_NAMES).toContain("agent_browser_cdp");
   const catalog = agentBrowserCoreToolsCatalog();
   expect(catalog).toHaveLength(AGENT_BROWSER_CORE_TOOL_NAMES.length);
   expect(catalog.every((tool) => typeof tool.name === "string" && tool.inputSchema)).toBe(true);
